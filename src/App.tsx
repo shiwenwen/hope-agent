@@ -422,19 +422,15 @@ function ChatScreen({ onLogout }: { onLogout: () => void }) {
                 {msg.role === "assistant" && msg.toolCalls?.map((tool) => (
                   <ToolCallBlock key={tool.callId} tool={tool} />
                 ))}
-                {msg.content && (
+                {msg.content ? (
                   <div className="whitespace-pre-wrap">{msg.content}</div>
+                ) : msg.role === "assistant" && !msg.toolCalls?.length && (
+                  <span className="text-muted-foreground tracking-widest">...</span>
                 )}
               </div>
             </div>
           ))}
-          {loading && (
-            <div className="flex justify-start">
-              <div className="bg-card px-4 py-2.5 rounded-xl text-muted-foreground text-sm tracking-widest">
-                ...
-              </div>
-            </div>
-          )}
+
           <div ref={bottomRef} />
         </div>
 
