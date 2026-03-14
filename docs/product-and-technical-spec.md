@@ -31,12 +31,14 @@
 
 - **双 Provider 支持**：Anthropic Claude（API Key）和 OpenAI Codex（OAuth 登录）
 - **统一 Tool Calling**：两个 Provider 共享同一套 tool 定义和执行逻辑（exec、read_file、write_file、list_dir），通过 schema 适配层自动转换格式
+- **三栏布局**：微信风格——图标侧边栏 + 可拖拽会话/Agent 列表（180-400px）+ 对话区
+- **多轮对话上下文**：自动保存对话历史，支持连续多轮对话
 - **Codex OAuth 登录**：通过 ChatGPT 账号 OAuth 2.0 PKCE 流程登录
 - **多模型选择**：顶栏下拉菜单切换 GPT-5.4 / GPT-5.3 Codex / GPT-5.2 / GPT-5.1 等模型
 - **流式输出**：基于 Tauri Channel + SSE 的实时流式回复
 - **思考力度控制**：支持 None / Low / Medium / High / XHigh 五档 reasoning effort
 - **会话自动恢复**：OAuth token 持久化，启动时自动恢复登录状态
-- **对话界面**：支持多轮对话，用户消息与 AI 回复分列展示
+- **对话界面**：支持多轮对话，Tool 调用可展开查看详情
 
 ---
 
