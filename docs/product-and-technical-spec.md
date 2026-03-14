@@ -1,6 +1,6 @@
 # OpenComputer 产品与技术方案
 
-> 版本：0.2.0 | 更新日期：2026-03-14
+> 版本：0.3.0-dev | 更新日期：2026-03-14
 
 ---
 
@@ -27,9 +27,10 @@
 
 ---
 
-## 三、当前功能（v0.2.0）
+## 三、当前功能（v0.3.0-dev）
 
 - **双 Provider 支持**：Anthropic Claude（API Key）和 OpenAI Codex（OAuth 登录）
+- **统一 Tool Calling**：两个 Provider 共享同一套 tool 定义和执行逻辑（exec、read_file、write_file、list_dir），通过 schema 适配层自动转换格式
 - **Codex OAuth 登录**：通过 ChatGPT 账号 OAuth 2.0 PKCE 流程登录
 - **多模型选择**：顶栏下拉菜单切换 GPT-5.4 / GPT-5.3 Codex / GPT-5.2 / GPT-5.1 等模型
 - **流式输出**：基于 Tauri Channel + SSE 的实时流式回复
@@ -52,8 +53,9 @@
                    │ Tauri IPC (invoke + Channel)
 ┌──────────────────▼──────────────────────┐
 │              后端 (Rust)                 │
-│   Tauri 2 + tokio + rig-core 0.32       │
-│   Anthropic Claude API / Codex API      │
+│   Tauri 2 + tokio + reqwest             │
+│   Anthropic Messages API / Codex API    │
+│   统一 Tool 执行 (tools.rs)             │
 │   OAuth 2.0 PKCE (oauth.rs)             │
 └─────────────────────────────────────────┘
 ```
@@ -69,7 +71,8 @@ OpenComputer/
 ├── src-tauri/              # Rust 后端
 │   ├── src/
 │   │   ├── lib.rs          # Tauri 命令注册 & AppState
-│   │   ├── agent.rs        # AssistantAgent（多 Provider 封装）
+│   │   ├── agent.rs        # AssistantAgent（多 Provider 封装 + Tool Loop）
+│   │   ├── tools.rs        # 统一 Tool 定义 & 执行 & Provider Schema 适配
 │   │   ├── oauth.rs        # Codex OAuth 2.0 PKCE & Token 管理
 │   │   └── main.rs         # 程序入口
 │   ├── Cargo.toml          # Rust 依赖
@@ -88,9 +91,9 @@ OpenComputer/
 | 前端 | shadcn/ui | 组件库 |
 | 前端 | lucide-react | 图标 |
 | 后端 | Tauri 2 | 原生桌面框架 |
-| 后端 | rig-core 0.32 | LLM Agent 抽象层 |
+| 后端 | reqwest | HTTP 客户端（Anthropic / Codex API） |
 | 后端 | tokio | 异步运行时 |
-| 后端 | reqwest | HTTP 客户端（Codex API） |
+| 后端 | futures-util | SSE 流式解析 |
 | 后端 | tiny_http | OAuth 本地回调服务器 |
 | 后端 | anyhow | 错误处理 |
 
@@ -101,10 +104,11 @@ OpenComputer/
   → React: invoke("chat", { message, onEvent: Channel })
   → Tauri IPC
   → Rust: chat() command
-  → AssistantAgent::chat_stream()
-  → Anthropic API / Codex SSE API
-  → Channel 推送 delta 片段
-  → React 实时更新消息列表
+  → AssistantAgent::chat()
+  → Anthropic Messages API / Codex Responses API (SSE)
+  → 检测 tool_call → execute_tool() → 回传结果 → 继续循环
+  → Channel 推送 JSON 事件 (text_delta / tool_call / tool_result)
+  → React 实时更新消息列表 + Tool 调用 UI
 ```
 
 ### Tauri 命令
@@ -128,9 +132,9 @@ OpenComputer/
 ## 五、规划路线图
 
 ### v0.3.0 — 工具调用与系统集成
-- [ ] Agent 工具调用（Tool Use）支持
-- [ ] 文件系统读写工具
-- [ ] Shell 命令执行工具
+- [x] Agent 工具调用（Tool Use）支持（双 Provider 统一架构）
+- [x] 文件系统读写工具（read_file / write_file / list_dir）
+- [x] Shell 命令执行工具（exec）
 - [ ] 对话历史持久化（本地 SQLite）
 
 ### v0.4.0 — 体验优化

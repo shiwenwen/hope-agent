@@ -3,11 +3,19 @@ import { invoke, Channel } from "@tauri-apps/api/core"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
-import { Send, LogOut, Brain, ChevronDown } from "lucide-react"
+import { Send, LogOut, Brain, ChevronDown, ChevronRight, Terminal } from "lucide-react"
+
+interface ToolCall {
+  callId: string
+  name: string
+  arguments: string
+  result?: string
+}
 
 interface Message {
   role: "user" | "assistant"
   content: string
+  toolCalls?: ToolCall[]
 }
 
 type AuthMethod = "none" | "api-key" | "codex-oauth"
@@ -123,6 +131,49 @@ function SetupScreen({ onApiKeyInit, onCodexAuth }: {
   )
 }
 
+function ToolCallBlock({ tool }: { tool: ToolCall }) {
+  const [expanded, setExpanded] = useState(false)
+  const isRunning = tool.result === undefined
+  const displayArgs = (() => {
+    try {
+      const parsed = JSON.parse(tool.arguments)
+      if (tool.name === "exec") return parsed.command
+      if (tool.name === "read_file" || tool.name === "list_dir") return parsed.path || "."
+      if (tool.name === "write_file") return parsed.path
+      return tool.arguments
+    } catch {
+      return tool.arguments
+    }
+  })()
+
+  return (
+    <div className="my-1.5 rounded-lg border border-border bg-secondary/50 text-xs">
+      <button
+        className="flex items-center gap-1.5 w-full px-2.5 py-1.5 text-left hover:bg-secondary/80 rounded-lg transition-colors"
+        onClick={() => !isRunning && setExpanded(!expanded)}
+      >
+        {isRunning ? (
+          <span className="animate-spin h-3 w-3 border border-current border-t-transparent rounded-full shrink-0" />
+        ) : expanded ? (
+          <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+        ) : (
+          <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
+        )}
+        <Terminal className="h-3 w-3 shrink-0 text-muted-foreground" />
+        <span className="font-medium text-foreground">{tool.name}</span>
+        <span className="text-muted-foreground truncate">{displayArgs}</span>
+      </button>
+      {expanded && tool.result && (
+        <div className="px-2.5 pb-2 pt-0.5">
+          <pre className="whitespace-pre-wrap text-muted-foreground bg-background rounded p-2 max-h-48 overflow-y-auto text-[11px] leading-relaxed">
+            {tool.result}
+          </pre>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ChatScreen({ onLogout }: { onLogout: () => void }) {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
@@ -185,15 +236,52 @@ function ChatScreen({ onLogout }: { onLogout: () => void }) {
 
     try {
       const onEvent = new Channel<string>()
-      onEvent.onmessage = (delta) => {
-        setMessages((prev) => {
-          const updated = [...prev]
-          const last = updated[updated.length - 1]
-          if (last && last.role === "assistant") {
-            updated[updated.length - 1] = { ...last, content: last.content + delta }
-          }
-          return updated
-        })
+      onEvent.onmessage = (raw) => {
+        try {
+          const event = JSON.parse(raw)
+          setMessages((prev) => {
+            const updated = [...prev]
+            const last = updated[updated.length - 1]
+            if (!last || last.role !== "assistant") return updated
+
+            switch (event.type) {
+              case "text_delta": {
+                updated[updated.length - 1] = { ...last, content: last.content + (event.content || "") }
+                break
+              }
+              case "tool_call": {
+                const calls = [...(last.toolCalls || [])]
+                calls.push({
+                  callId: event.call_id,
+                  name: event.name,
+                  arguments: event.arguments,
+                })
+                updated[updated.length - 1] = { ...last, toolCalls: calls }
+                break
+              }
+              case "tool_result": {
+                const calls = [...(last.toolCalls || [])]
+                const idx = calls.findIndex((c) => c.callId === event.call_id)
+                if (idx >= 0) {
+                  calls[idx] = { ...calls[idx], result: event.result }
+                }
+                updated[updated.length - 1] = { ...last, toolCalls: calls }
+                break
+              }
+            }
+            return updated
+          })
+        } catch {
+          // Fallback: treat as plain text delta (shouldn't happen)
+          setMessages((prev) => {
+            const updated = [...prev]
+            const last = updated[updated.length - 1]
+            if (last && last.role === "assistant") {
+              updated[updated.length - 1] = { ...last, content: last.content + raw }
+            }
+            return updated
+          })
+        }
       }
 
       await invoke<string>("chat", { message: text, onEvent })
@@ -276,13 +364,18 @@ function ChatScreen({ onLogout }: { onLogout: () => void }) {
           >
             <div
               className={cn(
-                "max-w-[70%] px-4 py-2.5 rounded-xl text-sm leading-relaxed whitespace-pre-wrap",
+                "max-w-[70%] px-4 py-2.5 rounded-xl text-sm leading-relaxed",
                 msg.role === "user"
-                  ? "bg-secondary text-foreground"
+                  ? "bg-secondary text-foreground whitespace-pre-wrap"
                   : "bg-card text-foreground/80"
               )}
             >
-              {msg.content}
+              {msg.role === "assistant" && msg.toolCalls?.map((tool) => (
+                <ToolCallBlock key={tool.callId} tool={tool} />
+              ))}
+              {msg.content && (
+                <div className="whitespace-pre-wrap">{msg.content}</div>
+              )}
             </div>
           </div>
         ))}

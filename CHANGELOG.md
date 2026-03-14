@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **统一 Tool Calling 支持**：Anthropic 和 OpenAI 双 Provider 均支持 tool 调用（exec、read_file、write_file、list_dir）
+- **Anthropic Messages API 直接调用**：支持 Claude tool_use 流式响应与多轮 tool 循环
+- **OpenAI Tool Loop**：完整的 function_call SSE 事件解析与 agent loop 实现
+- **Provider Schema 适配层**：`tools.rs` 引入 `ToolProvider` 枚举，同一套 tool 定义自动转换为 Anthropic / OpenAI 格式
+
+### Changed
+- `agent.rs` Anthropic 调用从 `rig-core` Prompt trait 改为直接 HTTP 调用 Messages API
+- `tools.rs` `ToolDefinition` 重构为 provider-agnostic 格式，新增 `to_anthropic_schema()` / `to_openai_schema()` 方法
+- `LlmProvider::Anthropic` 从包装 `rig-core::Client` 改为存储 API key 字符串
+
+
 ## [0.2.0] - 2026-03-14
 
 ### Added

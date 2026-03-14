@@ -8,7 +8,8 @@ OpenComputer 是一款基于 Tauri 2 + React 19 + Rust 的本地 AI 助手桌面
 src/            前端（React + TypeScript）
 src-tauri/src/  后端（Rust）
   lib.rs        Tauri 命令注册 & AppState
-  agent.rs      AssistantAgent（多 Provider 封装）
+  agent.rs      AssistantAgent（多 Provider 封装 + Tool Loop）
+  tools.rs      统一 Tool 定义 & 执行 & Provider Schema 适配
   oauth.rs      Codex OAuth 2.0 PKCE 流程 & Token 管理
 docs/           产品与技术文档
 ```
@@ -42,7 +43,7 @@ npm run lint
 | 组件库 | shadcn/ui（Radix UI 底层） |
 | 桌面框架 | Tauri 2 |
 | 后端语言 | Rust (edition 2021) |
-| LLM 层 | rig-core 0.32 |
+| LLM 层 | reqwest 直接调用（Anthropic Messages API / Codex Responses API） |
 | 异步运行时 | tokio |
 | AI Provider | Anthropic Claude（API Key）/ OpenAI Codex（OAuth） |
 | 默认模型 | Codex: gpt-5.4 / Anthropic: claude-sonnet-4-6 |
@@ -50,9 +51,11 @@ npm run lint
 ## 架构约定
 
 - **前后端通信**：前端通过 `invoke()` 调用 Tauri 命令，不走 HTTP
-- **流式输出**：`chat` 命令通过 Tauri `Channel<String>` 向前端推送 delta 片段
+- **流式输出**：`chat` 命令通过 Tauri `Channel<String>` 向前端推送 JSON 事件（`text_delta` / `tool_call` / `tool_result`）
 - **状态管理**：全局状态用 Tauri 的 `State<AppState>`（Rust 侧，`tokio::sync::Mutex`），前端保持轻量 React state
 - **Agent 封装**：所有 LLM 调用集中在 `agent.rs` 的 `AssistantAgent`，支持 `LlmProvider::Anthropic` 和 `LlmProvider::OpenAI` 两种后端
+- **统一 Tool 架构**：所有 tool 定义和执行逻辑集中在 `tools.rs`，通过 `ToolProvider` 枚举 + `to_provider_schema()` 自动适配不同 LLM 的 schema 格式
+- **Tool Loop**：两个 Provider 均实现「请求 → 解析 tool_call → 执行 tool → 回传结果 → 继续」循环，最多 10 轮
 - **OAuth 封装**：Codex 登录流程集中在 `oauth.rs`，包括 PKCE、本地回调服务器、token 持久化与刷新
 - **错误处理**：Rust 命令返回 `Result<T, String>`，前端 `invoke` 用 try/catch 捕获
 

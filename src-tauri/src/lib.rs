@@ -1,5 +1,6 @@
 mod agent;
 mod oauth;
+mod tools;
 
 use agent::{AssistantAgent, CodexModel};
 use oauth::TokenData;
