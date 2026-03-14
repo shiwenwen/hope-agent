@@ -20,7 +20,7 @@ import {
 
 type ApiType = "anthropic" | "openai-chat" | "openai-responses" | "codex"
 
-interface ModelConfig {
+export interface ModelConfig {
   id: string
   name: string
   inputTypes: string[]
@@ -390,7 +390,7 @@ const PROVIDER_TEMPLATES: ProviderTemplate[] = [
 
 // ── ModelEditor ───────────────────────────────────────────────────
 
-function ModelEditor({
+export function ModelEditor({
   model,
   onChange,
   onRemove,

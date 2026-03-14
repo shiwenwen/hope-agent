@@ -2,6 +2,7 @@ import { useState, useEffect } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { ModelEditor, type ModelConfig } from "@/components/ProviderSetup"
 import {
   ArrowLeft,
   Check,
@@ -24,16 +25,7 @@ import {
 
 type ApiType = "anthropic" | "openai-chat" | "openai-responses" | "codex"
 
-interface ModelConfig {
-  id: string
-  name: string
-  inputTypes: string[]
-  contextWindow: number
-  maxTokens: number
-  reasoning: boolean
-  costInput: number
-  costOutput: number
-}
+// ModelConfig is imported from ProviderSetup
 
 interface ProviderConfig {
   id: string
@@ -114,7 +106,7 @@ export default function ProviderSettings({
     setEditingId(provider.id)
     setEditName(provider.name)
     setEditBaseUrl(provider.baseUrl)
-    setEditApiKey("") // Don't show masked key
+    setEditApiKey(provider.apiKey)
     setEditModels([...provider.models])
     setMenuId(null)
   }
@@ -267,7 +259,7 @@ export default function ProviderSettings({
                   )}
                 </div>
 
-                {/* Models editor inline */}
+                {/* Models editor - reuse ModelEditor from ProviderSetup */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] text-muted-foreground font-medium">
@@ -298,41 +290,18 @@ export default function ProviderSettings({
                     </Button>
                   </div>
                   {editModels.map((model, i) => (
-                    <div
+                    <ModelEditor
                       key={i}
-                      className="flex items-center gap-2 bg-background rounded-lg px-2.5 py-1.5"
-                    >
-                      <Input
-                        value={model.id}
-                        onChange={(e) => {
-                          const updated = [...editModels]
-                          updated[i] = { ...model, id: e.target.value }
-                          setEditModels(updated)
-                        }}
-                        placeholder="模型 ID"
-                        className="bg-transparent border-0 text-xs h-6 p-0"
-                      />
-                      <Input
-                        value={model.name}
-                        onChange={(e) => {
-                          const updated = [...editModels]
-                          updated[i] = { ...model, name: e.target.value }
-                          setEditModels(updated)
-                        }}
-                        placeholder="显示名"
-                        className="bg-transparent border-0 text-xs h-6 p-0"
-                      />
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-5 w-5 shrink-0"
-                        onClick={() =>
-                          setEditModels(editModels.filter((_, j) => j !== i))
-                        }
-                      >
-                        <Trash2 className="h-2.5 w-2.5 text-muted-foreground" />
-                      </Button>
-                    </div>
+                      model={model}
+                      onChange={(updated) => {
+                        const next = [...editModels]
+                        next[i] = updated
+                        setEditModels(next)
+                      }}
+                      onRemove={() =>
+                        setEditModels(editModels.filter((_, j) => j !== i))
+                      }
+                    />
                   ))}
                 </div>
 
