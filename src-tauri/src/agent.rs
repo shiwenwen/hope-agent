@@ -2,6 +2,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+use crate::provider::{ApiType, ProviderConfig};
 use crate::tools::{self, ToolProvider};
 
 const SYSTEM_PROMPT: &str = "You are OpenComputer, a personal AI assistant with deep system integration. \
@@ -11,7 +12,9 @@ const SYSTEM_PROMPT: &str = "You are OpenComputer, a personal AI assistant with 
                              you to interact with their system.";
 
 const CODEX_API_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
+#[allow(dead_code)]
 const ANTHROPIC_API_URL: &str = "https://api.anthropic.com/v1/messages";
+#[allow(dead_code)]
 const ANTHROPIC_MODEL: &str = "claude-sonnet-4-6";
 const ANTHROPIC_API_VERSION: &str = "2023-06-01";
 const MAX_RETRIES: u32 = 3;
@@ -66,8 +69,14 @@ pub fn clamp_reasoning_effort(model: &str, effort: &str) -> Option<String> {
 
 /// Supported LLM providers
 pub enum LlmProvider {
-    Anthropic { api_key: String },
-    OpenAI { access_token: String, account_id: String, model: String },
+    /// Anthropic Messages API
+    Anthropic { api_key: String, base_url: String, model: String },
+    /// OpenAI Chat Completions API (/v1/chat/completions)
+    OpenAIChat { api_key: String, base_url: String, model: String },
+    /// OpenAI Responses API (/v1/responses)
+    OpenAIResponses { api_key: String, base_url: String, model: String },
+    /// Built-in Codex OAuth (ChatGPT subscription)
+    Codex { access_token: String, account_id: String, model: String },
 }
 
 pub struct AssistantAgent {
@@ -287,11 +296,14 @@ struct AnthropicError {
 // ── AssistantAgent ────────────────────────────────────────────────
 
 impl AssistantAgent {
-    /// Create agent with Anthropic API key
+    /// Create agent with Anthropic API key (legacy, uses default base_url and model)
+    #[allow(dead_code)]
     pub fn new_anthropic(api_key: &str) -> Self {
         Self {
             provider: LlmProvider::Anthropic {
                 api_key: api_key.to_string(),
+                base_url: ANTHROPIC_API_URL.trim_end_matches("/v1/messages").to_string(),
+                model: ANTHROPIC_MODEL.to_string(),
             },
             conversation_history: std::sync::Mutex::new(Vec::new()),
         }
@@ -300,7 +312,7 @@ impl AssistantAgent {
     /// Create agent with OpenAI-compatible access token (Codex OAuth)
     pub fn new_openai(access_token: &str, account_id: &str, model: &str) -> Self {
         Self {
-            provider: LlmProvider::OpenAI {
+            provider: LlmProvider::Codex {
                 access_token: access_token.to_string(),
                 account_id: account_id.to_string(),
                 model: model.to_string(),
@@ -309,12 +321,48 @@ impl AssistantAgent {
         }
     }
 
+    /// Create agent from a ProviderConfig and a specific model ID
+    pub fn new_from_provider(config: &ProviderConfig, model_id: &str) -> Self {
+        let provider = match config.api_type {
+            ApiType::Anthropic => LlmProvider::Anthropic {
+                api_key: config.api_key.clone(),
+                base_url: config.base_url.clone(),
+                model: model_id.to_string(),
+            },
+            ApiType::OpenaiChat => LlmProvider::OpenAIChat {
+                api_key: config.api_key.clone(),
+                base_url: config.base_url.clone(),
+                model: model_id.to_string(),
+            },
+            ApiType::OpenaiResponses => LlmProvider::OpenAIResponses {
+                api_key: config.api_key.clone(),
+                base_url: config.base_url.clone(),
+                model: model_id.to_string(),
+            },
+            ApiType::Codex => LlmProvider::Codex {
+                access_token: config.api_key.clone(),
+                account_id: String::new(),
+                model: model_id.to_string(),
+            },
+        };
+        Self {
+            provider,
+            conversation_history: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+
     pub async fn chat(&self, message: &str, reasoning_effort: Option<&str>, on_delta: impl Fn(&str) + Send + 'static) -> Result<String> {
         match &self.provider {
-            LlmProvider::Anthropic { api_key } => {
-                self.chat_anthropic(api_key, message, &on_delta).await
+            LlmProvider::Anthropic { api_key, base_url, model } => {
+                self.chat_anthropic(api_key, base_url, model, message, &on_delta).await
             }
-            LlmProvider::OpenAI { access_token, account_id, model } => {
+            LlmProvider::OpenAIChat { api_key, base_url, model } => {
+                self.chat_openai_chat(api_key, base_url, model, message, &on_delta).await
+            }
+            LlmProvider::OpenAIResponses { api_key, base_url, model } => {
+                self.chat_openai_responses(api_key, base_url, model, message, reasoning_effort, &on_delta).await
+            }
+            LlmProvider::Codex { access_token, account_id, model } => {
                 self.chat_openai(access_token, account_id, model, message, reasoning_effort, &on_delta).await
             }
         }
@@ -322,7 +370,7 @@ impl AssistantAgent {
 
     // ── Anthropic Messages API with Tool Loop ─────────────────────
 
-    async fn chat_anthropic(&self, api_key: &str, message: &str, on_delta: &(impl Fn(&str) + Send)) -> Result<String> {
+    async fn chat_anthropic(&self, api_key: &str, base_url: &str, model: &str, message: &str, on_delta: &(impl Fn(&str) + Send)) -> Result<String> {
         let client = reqwest::Client::new();
         let tool_schemas = tools::get_tools_for_provider(ToolProvider::Anthropic);
 
@@ -332,9 +380,11 @@ impl AssistantAgent {
 
         let mut collected_text = String::new();
 
+        let api_url = format!("{}/v1/messages", base_url.trim_end_matches('/'));
+
         for _round in 0..MAX_TOOL_ROUNDS {
             let body = json!({
-                "model": ANTHROPIC_MODEL,
+                "model": model,
                 "max_tokens": 8192,
                 "system": SYSTEM_PROMPT,
                 "tools": tool_schemas,
@@ -343,7 +393,7 @@ impl AssistantAgent {
             });
 
             let resp = client
-                .post(ANTHROPIC_API_URL)
+                .post(&api_url)
                 .header("x-api-key", api_key)
                 .header("anthropic-version", ANTHROPIC_API_VERSION)
                 .header("content-type", "application/json")
@@ -524,6 +574,292 @@ impl AssistantAgent {
         }
 
         Ok((collected_text, tool_calls, stop_reason))
+    }
+
+    // ── OpenAI Chat Completions API with Tool Loop ───────────────
+
+    async fn chat_openai_chat(&self, api_key: &str, base_url: &str, model: &str, message: &str, on_delta: &(impl Fn(&str) + Send)) -> Result<String> {
+        let client = reqwest::Client::new();
+        let tool_schemas = tools::get_tools_for_provider(ToolProvider::OpenAI);
+
+        let mut messages = self.conversation_history.lock().unwrap().clone();
+        messages.push(json!({ "role": "user", "content": message }));
+
+        let api_url = format!("{}/v1/chat/completions", base_url.trim_end_matches('/'));
+        let mut collected_text = String::new();
+
+        for _round in 0..MAX_TOOL_ROUNDS {
+            // Build messages array: system + conversation
+            let mut api_messages = vec![json!({ "role": "system", "content": SYSTEM_PROMPT })];
+            api_messages.extend(messages.iter().cloned());
+
+            // Build tools array in Chat Completions format
+            let tools_array: Vec<serde_json::Value> = tool_schemas.iter().map(|t| {
+                json!({ "type": "function", "function": t })
+            }).collect();
+
+            let body = json!({
+                "model": model,
+                "messages": api_messages,
+                "tools": tools_array,
+                "stream": true,
+            });
+
+            let mut req = client
+                .post(&api_url)
+                .header("Content-Type", "application/json");
+            if !api_key.is_empty() {
+                req = req.header("Authorization", format!("Bearer {}", api_key));
+            }
+            let resp = req
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| anyhow::anyhow!("OpenAI Chat API request failed: {}", e))?;
+
+            if !resp.status().is_success() {
+                let status = resp.status().as_u16();
+                let error_text = resp.text().await.unwrap_or_default();
+                return Err(anyhow::anyhow!("OpenAI Chat API error ({}): {}", status, error_text));
+            }
+
+            // Parse SSE stream for Chat Completions format
+            let (text, tool_calls) = self.parse_chat_completions_sse(resp, on_delta).await?;
+            collected_text.push_str(&text);
+
+            if tool_calls.is_empty() {
+                break;
+            }
+
+            // Build assistant message with tool_calls
+            let tc_json: Vec<serde_json::Value> = tool_calls.iter().map(|tc| {
+                json!({
+                    "id": tc.call_id,
+                    "type": "function",
+                    "function": {
+                        "name": tc.name,
+                        "arguments": tc.arguments,
+                    }
+                })
+            }).collect();
+
+            let mut assistant_msg = json!({ "role": "assistant" });
+            if !text.is_empty() {
+                assistant_msg["content"] = json!(text);
+            }
+            assistant_msg["tool_calls"] = json!(tc_json);
+            messages.push(assistant_msg);
+
+            // Execute tools
+            for tc in &tool_calls {
+                let args: serde_json::Value = serde_json::from_str(&tc.arguments).unwrap_or(json!({}));
+                emit_tool_call(on_delta, &tc.call_id, &tc.name, &tc.arguments);
+
+                let result = match tools::execute_tool(&tc.name, &args).await {
+                    Ok(r) => r,
+                    Err(e) => format!("Tool error: {}", e),
+                };
+
+                emit_tool_result(on_delta, &tc.call_id, &result);
+
+                messages.push(json!({
+                    "role": "tool",
+                    "tool_call_id": tc.call_id,
+                    "content": result,
+                }));
+            }
+        }
+
+        if collected_text.is_empty() {
+            return Err(anyhow::anyhow!("No content received from OpenAI Chat API"));
+        }
+
+        messages.push(json!({ "role": "assistant", "content": collected_text }));
+        *self.conversation_history.lock().unwrap() = messages;
+        Ok(collected_text)
+    }
+
+    /// Parse OpenAI Chat Completions SSE stream
+    async fn parse_chat_completions_sse(
+        &self,
+        resp: reqwest::Response,
+        on_delta: &(impl Fn(&str) + Send),
+    ) -> Result<(String, Vec<FunctionCallItem>)> {
+        use futures_util::StreamExt;
+
+        let mut collected_text = String::new();
+        let mut tool_calls: Vec<FunctionCallItem> = Vec::new();
+        // Track tool calls by index
+        let mut pending_calls: std::collections::HashMap<usize, FunctionCallItem> = std::collections::HashMap::new();
+
+        let mut stream = resp.bytes_stream();
+        let mut buffer = String::new();
+
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk?;
+            buffer.push_str(&String::from_utf8_lossy(&chunk));
+
+            while let Some(idx) = buffer.find("\n\n") {
+                let event_block = buffer[..idx].to_string();
+                buffer = buffer[idx + 2..].to_string();
+
+                for line in event_block.lines() {
+                    let data = if let Some(d) = line.strip_prefix("data:") {
+                        d.trim()
+                    } else {
+                        continue;
+                    };
+
+                    if data.is_empty() || data == "[DONE]" {
+                        continue;
+                    }
+
+                    if let Ok(chunk) = serde_json::from_str::<serde_json::Value>(data) {
+                        if let Some(choices) = chunk.get("choices").and_then(|c| c.as_array()) {
+                            for choice in choices {
+                                let delta = match choice.get("delta") {
+                                    Some(d) => d,
+                                    None => continue,
+                                };
+
+                                // Text content
+                                if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
+                                    emit_text_delta(on_delta, content);
+                                    collected_text.push_str(content);
+                                }
+
+                                // Tool calls
+                                if let Some(tcs) = delta.get("tool_calls").and_then(|t| t.as_array()) {
+                                    for tc_delta in tcs {
+                                        let idx = tc_delta.get("index").and_then(|i| i.as_u64()).unwrap_or(0) as usize;
+
+                                        if let Some(func) = tc_delta.get("function") {
+                                            let entry = pending_calls.entry(idx).or_insert_with(|| {
+                                                FunctionCallItem {
+                                                    call_id: tc_delta.get("id").and_then(|i| i.as_str()).unwrap_or("").to_string(),
+                                                    name: String::new(),
+                                                    arguments: String::new(),
+                                                }
+                                            });
+
+                                            if let Some(id) = tc_delta.get("id").and_then(|i| i.as_str()) {
+                                                if !id.is_empty() {
+                                                    entry.call_id = id.to_string();
+                                                }
+                                            }
+                                            if let Some(name) = func.get("name").and_then(|n| n.as_str()) {
+                                                entry.name.push_str(name);
+                                            }
+                                            if let Some(args) = func.get("arguments").and_then(|a| a.as_str()) {
+                                                entry.arguments.push_str(args);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Move pending calls to final list
+        let mut sorted_keys: Vec<usize> = pending_calls.keys().cloned().collect();
+        sorted_keys.sort();
+        for key in sorted_keys {
+            if let Some(tc) = pending_calls.remove(&key) {
+                tool_calls.push(tc);
+            }
+        }
+
+        Ok((collected_text, tool_calls))
+    }
+
+    // ── OpenAI Responses API (custom base_url) ────────────────────
+
+    async fn chat_openai_responses(&self, api_key: &str, base_url: &str, model: &str, message: &str, reasoning_effort: Option<&str>, on_delta: &(impl Fn(&str) + Send)) -> Result<String> {
+        let client = reqwest::Client::new();
+        let tool_schemas = tools::get_tools_for_provider(ToolProvider::OpenAI);
+
+        let reasoning = reasoning_effort
+            .and_then(|e| clamp_reasoning_effort(model, e))
+            .map(|effort| ReasoningConfig { effort });
+
+        let mut input: Vec<serde_json::Value> = self.conversation_history.lock().unwrap().clone();
+        input.push(json!({ "role": "user", "content": message }));
+
+        let api_url = format!("{}/v1/responses", base_url.trim_end_matches('/'));
+        let mut collected_text = String::new();
+
+        for _round in 0..MAX_TOOL_ROUNDS {
+            let request = ResponsesRequest {
+                model: model.to_string(),
+                store: false,
+                stream: true,
+                instructions: SYSTEM_PROMPT.to_string(),
+                input: input.clone(),
+                reasoning: reasoning.as_ref().map(|r| ReasoningConfig { effort: r.effort.clone() }),
+                tools: Some(tool_schemas.clone()),
+            };
+
+            let mut req = client
+                .post(&api_url)
+                .header("Content-Type", "application/json");
+            if !api_key.is_empty() {
+                req = req.header("Authorization", format!("Bearer {}", api_key));
+            }
+            let resp = req
+                .json(&request)
+                .send()
+                .await
+                .map_err(|e| anyhow::anyhow!("OpenAI Responses API request failed: {}", e))?;
+
+            if !resp.status().is_success() {
+                let status = resp.status().as_u16();
+                let error_text = resp.text().await.unwrap_or_default();
+                return Err(anyhow::anyhow!("OpenAI Responses API error ({}): {}", status, error_text));
+            }
+
+            let (text, tool_calls) = self.parse_openai_sse(resp, on_delta).await?;
+            collected_text.push_str(&text);
+
+            if tool_calls.is_empty() {
+                break;
+            }
+
+            for tc in &tool_calls {
+                let args: serde_json::Value = serde_json::from_str(&tc.arguments).unwrap_or(json!({}));
+                emit_tool_call(on_delta, &tc.call_id, &tc.name, &tc.arguments);
+
+                let result = match tools::execute_tool(&tc.name, &args).await {
+                    Ok(r) => r,
+                    Err(e) => format!("Tool error: {}", e),
+                };
+
+                emit_tool_result(on_delta, &tc.call_id, &result);
+
+                input.push(json!({
+                    "type": "function_call",
+                    "id": tc.call_id,
+                    "call_id": tc.call_id,
+                    "name": tc.name,
+                    "arguments": tc.arguments,
+                }));
+                input.push(json!({
+                    "type": "function_call_output",
+                    "call_id": tc.call_id,
+                    "output": result,
+                }));
+            }
+        }
+
+        if collected_text.is_empty() {
+            return Err(anyhow::anyhow!("No content received from OpenAI Responses API"));
+        }
+
+        input.push(json!({ "role": "assistant", "content": collected_text }));
+        *self.conversation_history.lock().unwrap() = input;
+        Ok(collected_text)
     }
 
     // ── OpenAI Codex Responses API with Tool Loop ─────────────────
