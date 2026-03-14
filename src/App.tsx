@@ -305,32 +305,36 @@ function ChatScreen({ onLogout }: { onLogout: () => void }) {
   return (
     <div className="flex h-screen overflow-hidden bg-background">
       {/* Column 1: Icon Sidebar */}
-      <div className="w-14 shrink-0 border-r border-border bg-secondary/30 flex flex-col items-center py-3 gap-1">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="rounded-xl bg-primary/10 text-primary hover:bg-primary/20 h-10 w-10"
-          title="会话"
-        >
-          <MessageSquare className="h-5 w-5" />
-        </Button>
+      <div className="w-14 shrink-0 border-r border-border bg-secondary/30 flex flex-col items-center">
+        <div className="h-11 flex items-center justify-center border-b border-border w-full">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="rounded-xl bg-primary/10 text-primary hover:bg-primary/20 h-8 w-8"
+            title="会话"
+          >
+            <MessageSquare className="h-4 w-4" />
+          </Button>
+        </div>
 
         <div className="flex-1" />
 
-        <Button
-          variant="ghost"
-          size="icon"
-          className="rounded-xl text-muted-foreground hover:text-foreground h-10 w-10"
-          onClick={onLogout}
-          title="登出"
-        >
-          <LogOut className="h-4 w-4" />
-        </Button>
+        <div className="py-3">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="rounded-xl text-muted-foreground hover:text-foreground h-8 w-8"
+            onClick={onLogout}
+            title="登出"
+          >
+            <LogOut className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
       {/* Column 2: Agent List */}
       <div className="w-64 shrink-0 border-r border-border bg-background flex flex-col">
-        <div className="px-4 py-3 border-b border-border">
+        <div className="h-11 flex items-center px-4 border-b border-border">
           <h2 className="text-sm font-semibold text-foreground">会话</h2>
         </div>
         <div className="flex-1 overflow-y-auto p-2">
@@ -354,7 +358,7 @@ function ChatScreen({ onLogout }: { onLogout: () => void }) {
       {/* Column 3: Chat Area */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-background gap-2">
+        <div className="h-11 flex items-center justify-between px-4 border-b border-border bg-background gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-sm font-medium text-foreground shrink-0">Main Agent</span>
 
