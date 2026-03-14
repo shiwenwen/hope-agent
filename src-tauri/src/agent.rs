@@ -72,6 +72,8 @@ pub enum LlmProvider {
 
 pub struct AssistantAgent {
     provider: LlmProvider,
+    /// Conversation history persisted across chat() calls
+    conversation_history: std::sync::Mutex<Vec<serde_json::Value>>,
 }
 
 // ── Shared Event Types (sent to frontend via on_delta JSON) ───────
@@ -291,6 +293,7 @@ impl AssistantAgent {
             provider: LlmProvider::Anthropic {
                 api_key: api_key.to_string(),
             },
+            conversation_history: std::sync::Mutex::new(Vec::new()),
         }
     }
 
@@ -302,6 +305,7 @@ impl AssistantAgent {
                 account_id: account_id.to_string(),
                 model: model.to_string(),
             },
+            conversation_history: std::sync::Mutex::new(Vec::new()),
         }
     }
 
@@ -322,10 +326,9 @@ impl AssistantAgent {
         let client = reqwest::Client::new();
         let tool_schemas = tools::get_tools_for_provider(ToolProvider::Anthropic);
 
-        // Build initial messages
-        let mut messages = vec![
-            json!({ "role": "user", "content": message }),
-        ];
+        // Build messages from conversation history + new user message
+        let mut messages = self.conversation_history.lock().unwrap().clone();
+        messages.push(json!({ "role": "user", "content": message }));
 
         let mut collected_text = String::new();
 
@@ -406,6 +409,11 @@ impl AssistantAgent {
         if collected_text.is_empty() {
             return Err(anyhow::anyhow!("No content received from Anthropic API"));
         }
+
+        // Persist conversation history: save the final messages state
+        // We need to save: all messages up to and including the final assistant response
+        messages.push(json!({ "role": "assistant", "content": collected_text }));
+        *self.conversation_history.lock().unwrap() = messages;
 
         Ok(collected_text)
     }
@@ -529,10 +537,9 @@ impl AssistantAgent {
             .and_then(|e| clamp_reasoning_effort(model, e))
             .map(|effort| ReasoningConfig { effort });
 
-        // Build initial input
-        let mut input: Vec<serde_json::Value> = vec![
-            json!({ "role": "user", "content": message }),
-        ];
+        // Build input from conversation history + new user message
+        let mut input: Vec<serde_json::Value> = self.conversation_history.lock().unwrap().clone();
+        input.push(json!({ "role": "user", "content": message }));
 
         let user_agent = format!(
             "OpenComputer ({} {}; {})",
@@ -655,6 +662,11 @@ impl AssistantAgent {
         if collected_text.is_empty() {
             return Err(anyhow::anyhow!("No content received from Codex API"));
         }
+
+        // Persist conversation history
+        // For OpenAI Responses API, store as simple role-based messages
+        input.push(json!({ "role": "assistant", "content": collected_text }));
+        *self.conversation_history.lock().unwrap() = input;
 
         Ok(collected_text)
     }
