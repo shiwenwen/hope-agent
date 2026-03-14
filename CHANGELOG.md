@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **多语言支持 (i18n)**：使用 `i18next` + `react-i18next` 实现完整的国际化支持
+  - 支持 12 种语言：简体中文、繁體中文、English、日本語、Türkçe、Tiếng Việt、Português、한국어、Русский、العربية、Español、Bahasa Melayu
+  - 自动检测系统语言，无法识别时回退到英文
+  - 侧边栏语言切换菜单，切换后立即生效
+  - 语言偏好持久化到 localStorage
+  - 新增 `src/i18n/` 模块：12 个翻译文件 + i18n 初始化配置
 - **Think 等级按 Provider 差异化映射**：不同 API 类型使用各自原生的 thinking 参数格式
   - Anthropic：`thinking: { type: "enabled", budget_tokens: N }`（low→1024 / medium→4096 / high→8192 / xhigh→16384）
   - OpenAI Chat Completions：`reasoning_effort` 字段（low/medium/high，xhigh 自动降级为 high）

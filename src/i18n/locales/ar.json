@@ -1,0 +1,89 @@
+{
+  "common": {
+    "back": "رجوع",
+    "save": "حفظ",
+    "cancel": "إلغاء",
+    "add": "إضافة",
+    "delete": "حذف",
+    "edit": "تعديل",
+    "done": "تم",
+    "saving": "جارٍ الحفظ...",
+    "testing": "جارٍ الاختبار...",
+    "nextStep": "التالي",
+    "loginTimeout": "انتهت مهلة تسجيل الدخول، يرجى المحاولة مرة أخرى"
+  },
+  "chat": {
+    "conversations": "المحادثات",
+    "settings": "الإعدادات",
+    "logout": "تسجيل الخروج",
+    "mainAgent": "Main Agent",
+    "toolCalling": "جارٍ استدعاء الأدوات...",
+    "startConversation": "ابدأ محادثة",
+    "howCanIHelp": "كيف يمكنني مساعدتك؟",
+    "askAnything": "اسأل أي شيء...",
+    "modelsCount": "{{count}} نماذج"
+  },
+  "effort": {
+    "off": "إيقاف",
+    "on": "تشغيل",
+    "low": "منخفض",
+    "medium": "متوسط",
+    "high": "عالي",
+    "xhigh": "أقصى"
+  },
+  "provider": {
+    "title": "مزودو الخدمة",
+    "selectProvider": "اختر مزوداً للبدء",
+    "orSelectProvider": "أو اختر مزوداً",
+    "waitingBrowserLogin": "بانتظار تسجيل الدخول عبر المتصفح...",
+    "searchProviders": "البحث عن مزود...",
+    "custom": "مخصص",
+    "customDescription": "تكوين أي API يدوياً",
+    "testConnection": "اختبار الاتصال",
+    "name": "الاسم",
+    "apiType": "نوع API",
+    "optional": "اختياري",
+    "leaveEmptyNoAuth": "اتركه فارغاً، املأه إذا كانت المصادقة مطلوبة",
+    "leaveEmptyNoChange": "اتركه فارغاً لعدم التغيير",
+    "apiKeyLeaveEmpty": "API Key (اتركه فارغاً لعدم التغيير)",
+    "noProviders": "لم تتم إضافة أي مزود بعد",
+    "addProvider": "إضافة مزود",
+    "editProvider": "تعديل المزود",
+    "confirmDelete": "هل أنت متأكد من حذف هذا المزود؟",
+    "disable": "تعطيل",
+    "enable": "تفعيل",
+    "disabled": "معطّل",
+    "myCustomProvider": "المزود المخصص",
+    "authRequired": "املأه إذا كانت المصادقة مطلوبة"
+  },
+  "model": {
+    "modelConfig": "إعداد النموذج",
+    "modelId": "معرّف النموذج",
+    "displayName": "اسم العرض",
+    "supportedInputTypes": "أنواع الإدخال المدعومة",
+    "text": "نص",
+    "image": "صورة",
+    "video": "فيديو",
+    "reasoning": "استدلال / تفكير",
+    "inputCost": "تكلفة الإدخال ($/1M tokens)",
+    "outputCost": "تكلفة الإخراج ($/1M tokens)",
+    "modelList": "قائمة النماذج",
+    "modelsCount": "{{count}} نماذج",
+    "addModel": "إضافة نموذج",
+    "configModels": "تكوين النماذج لهذا المزود",
+    "atLeastOneModel": "أضف نموذجاً واحداً على الأقل للمتابعة"
+  },
+  "wizard": {
+    "apiType": "نوع API",
+    "connectionConfig": "إعداد الاتصال",
+    "models": "النماذج",
+    "selectApiType": "اختر نوع API",
+    "anthropicDesc": "نماذج Anthropic مثل Claude",
+    "openaiChatDesc": "خدمات متوافقة مع /v1/chat/completions",
+    "openaiResponsesDesc": "خدمات متوافقة مع /v1/responses"
+  },
+  "language": {
+    "title": "اللغة",
+    "system": "اللغة الافتراضية للنظام"
+  }
+}

@@ -1,0 +1,89 @@
+{
+  "common": {
+    "back": "Quay lại",
+    "save": "Lưu",
+    "cancel": "Hủy",
+    "add": "Thêm",
+    "delete": "Xóa",
+    "edit": "Sửa",
+    "done": "Xong",
+    "saving": "Đang lưu...",
+    "testing": "Đang kiểm tra...",
+    "nextStep": "Tiếp",
+    "loginTimeout": "Đăng nhập hết thời gian, vui lòng thử lại"
+  },
+  "chat": {
+    "conversations": "Hội thoại",
+    "settings": "Cài đặt",
+    "logout": "Đăng xuất",
+    "mainAgent": "Main Agent",
+    "toolCalling": "Đang gọi công cụ...",
+    "startConversation": "Bắt đầu hội thoại",
+    "howCanIHelp": "Tôi có thể giúp gì cho bạn?",
+    "askAnything": "Hỏi bất kỳ điều gì...",
+    "modelsCount": "{{count}} mô hình"
+  },
+  "effort": {
+    "off": "Tắt",
+    "on": "Bật",
+    "low": "Thấp",
+    "medium": "Trung bình",
+    "high": "Cao",
+    "xhigh": "Rất cao"
+  },
+  "provider": {
+    "title": "Nhà cung cấp",
+    "selectProvider": "Chọn nhà cung cấp để bắt đầu",
+    "orSelectProvider": "hoặc chọn nhà cung cấp",
+    "waitingBrowserLogin": "Đang chờ đăng nhập trình duyệt...",
+    "searchProviders": "Tìm nhà cung cấp...",
+    "custom": "Tùy chỉnh",
+    "customDescription": "Cấu hình API thủ công",
+    "testConnection": "Kiểm tra kết nối",
+    "name": "Tên",
+    "apiType": "Loại API",
+    "optional": "tùy chọn",
+    "leaveEmptyNoAuth": "Để trống, điền nếu cần xác thực",
+    "leaveEmptyNoChange": "Để trống nếu không thay đổi",
+    "apiKeyLeaveEmpty": "API Key (để trống nếu không thay đổi)",
+    "noProviders": "Chưa có nhà cung cấp nào",
+    "addProvider": "Thêm nhà cung cấp",
+    "editProvider": "Sửa nhà cung cấp",
+    "confirmDelete": "Bạn có chắc muốn xóa nhà cung cấp này?",
+    "disable": "Vô hiệu hóa",
+    "enable": "Kích hoạt",
+    "disabled": "Đã vô hiệu",
+    "myCustomProvider": "Nhà cung cấp tùy chỉnh",
+    "authRequired": "Điền nếu cần xác thực"
+  },
+  "model": {
+    "modelConfig": "Cấu hình mô hình",
+    "modelId": "ID mô hình",
+    "displayName": "Tên hiển thị",
+    "supportedInputTypes": "Loại đầu vào hỗ trợ",
+    "text": "Văn bản",
+    "image": "Hình ảnh",
+    "video": "Video",
+    "reasoning": "Suy luận / Tư duy",
+    "inputCost": "Chi phí đầu vào ($/1M tokens)",
+    "outputCost": "Chi phí đầu ra ($/1M tokens)",
+    "modelList": "Danh sách mô hình",
+    "modelsCount": "{{count}} mô hình",
+    "addModel": "Thêm mô hình",
+    "configModels": "Cấu hình mô hình cho nhà cung cấp này",
+    "atLeastOneModel": "Thêm ít nhất một mô hình để tiếp tục"
+  },
+  "wizard": {
+    "apiType": "Loại API",
+    "connectionConfig": "Cấu hình kết nối",
+    "models": "Mô hình",
+    "selectApiType": "Chọn loại API",
+    "anthropicDesc": "Mô hình Anthropic như Claude",
+    "openaiChatDesc": "Dịch vụ tương thích /v1/chat/completions",
+    "openaiResponsesDesc": "Dịch vụ tương thích /v1/responses"
+  },
+  "language": {
+    "title": "Ngôn ngữ",
+    "system": "Theo hệ thống"
+  }
+}

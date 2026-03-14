@@ -1,0 +1,89 @@
+{
+  "common": {
+    "back": "Geri",
+    "save": "Kaydet",
+    "cancel": "İptal",
+    "add": "Ekle",
+    "delete": "Sil",
+    "edit": "Düzenle",
+    "done": "Tamam",
+    "saving": "Kaydediliyor...",
+    "testing": "Test ediliyor...",
+    "nextStep": "İleri",
+    "loginTimeout": "Giriş zaman aşımına uğradı, tekrar deneyin"
+  },
+  "chat": {
+    "conversations": "Sohbetler",
+    "settings": "Ayarlar",
+    "logout": "Çıkış",
+    "mainAgent": "Main Agent",
+    "toolCalling": "Araç çağrılıyor...",
+    "startConversation": "Sohbet başlat",
+    "howCanIHelp": "Size nasıl yardımcı olabilirim?",
+    "askAnything": "Bir şey sorun...",
+    "modelsCount": "{{count}} model"
+  },
+  "effort": {
+    "off": "Kapalı",
+    "on": "Açık",
+    "low": "Düşük",
+    "medium": "Orta",
+    "high": "Yüksek",
+    "xhigh": "Çok Yüksek"
+  },
+  "provider": {
+    "title": "Sağlayıcılar",
+    "selectProvider": "Başlamak için bir sağlayıcı seçin",
+    "orSelectProvider": "veya sağlayıcı seçin",
+    "waitingBrowserLogin": "Tarayıcı girişi bekleniyor...",
+    "searchProviders": "Sağlayıcı ara...",
+    "custom": "Özel",
+    "customDescription": "Herhangi bir API'yi elle yapılandır",
+    "testConnection": "Bağlantıyı Test Et",
+    "name": "Ad",
+    "apiType": "API Türü",
+    "optional": "isteğe bağlı",
+    "leaveEmptyNoAuth": "Boş bırakın, kimlik doğrulama gerekiyorsa doldurun",
+    "leaveEmptyNoChange": "Değiştirmemek için boş bırakın",
+    "apiKeyLeaveEmpty": "API Key (değiştirmemek için boş bırakın)",
+    "noProviders": "Henüz sağlayıcı eklenmedi",
+    "addProvider": "Sağlayıcı Ekle",
+    "editProvider": "Sağlayıcıyı Düzenle",
+    "confirmDelete": "Bu sağlayıcıyı silmek istediğinizden emin misiniz?",
+    "disable": "Devre Dışı",
+    "enable": "Etkinleştir",
+    "disabled": "Devre dışı",
+    "myCustomProvider": "Özel Sağlayıcım",
+    "authRequired": "Kimlik doğrulama gerekiyorsa doldurun"
+  },
+  "model": {
+    "modelConfig": "Model Yapılandırması",
+    "modelId": "Model ID",
+    "displayName": "Görünen Ad",
+    "supportedInputTypes": "Desteklenen Giriş Türleri",
+    "text": "Metin",
+    "image": "Görsel",
+    "video": "Video",
+    "reasoning": "Muhakeme / Düşünme",
+    "inputCost": "Giriş Maliyeti ($/1M tokens)",
+    "outputCost": "Çıkış Maliyeti ($/1M tokens)",
+    "modelList": "Model Listesi",
+    "modelsCount": "{{count}} model",
+    "addModel": "Model Ekle",
+    "configModels": "Bu sağlayıcı için modelleri yapılandırın",
+    "atLeastOneModel": "Devam etmek için en az bir model ekleyin"
+  },
+  "wizard": {
+    "apiType": "API Türü",
+    "connectionConfig": "Bağlantı Ayarları",
+    "models": "Modeller",
+    "selectApiType": "API Türü Seçin",
+    "anthropicDesc": "Claude gibi Anthropic modelleri",
+    "openaiChatDesc": "/v1/chat/completions uyumlu servisler",
+    "openaiResponsesDesc": "/v1/responses uyumlu servisler"
+  },
+  "language": {
+    "title": "Dil",
+    "system": "Sistem Varsayılanı"
+  }
+}

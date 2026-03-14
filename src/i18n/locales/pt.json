@@ -1,0 +1,89 @@
+{
+  "common": {
+    "back": "Voltar",
+    "save": "Salvar",
+    "cancel": "Cancelar",
+    "add": "Adicionar",
+    "delete": "Excluir",
+    "edit": "Editar",
+    "done": "Concluído",
+    "saving": "Salvando...",
+    "testing": "Testando...",
+    "nextStep": "Próximo",
+    "loginTimeout": "Login expirou, tente novamente"
+  },
+  "chat": {
+    "conversations": "Conversas",
+    "settings": "Configurações",
+    "logout": "Sair",
+    "mainAgent": "Main Agent",
+    "toolCalling": "Chamando ferramentas...",
+    "startConversation": "Iniciar conversa",
+    "howCanIHelp": "Como posso ajudar?",
+    "askAnything": "Pergunte qualquer coisa...",
+    "modelsCount": "{{count}} modelos"
+  },
+  "effort": {
+    "off": "Desligado",
+    "on": "Ligado",
+    "low": "Baixo",
+    "medium": "Médio",
+    "high": "Alto",
+    "xhigh": "Muito Alto"
+  },
+  "provider": {
+    "title": "Provedores",
+    "selectProvider": "Selecione um provedor para começar",
+    "orSelectProvider": "ou selecione um provedor",
+    "waitingBrowserLogin": "Aguardando login no navegador...",
+    "searchProviders": "Buscar provedores...",
+    "custom": "Personalizado",
+    "customDescription": "Configurar qualquer API manualmente",
+    "testConnection": "Testar Conexão",
+    "name": "Nome",
+    "apiType": "Tipo de API",
+    "optional": "opcional",
+    "leaveEmptyNoAuth": "Deixe vazio, preencha se precisar de autenticação",
+    "leaveEmptyNoChange": "Deixe vazio para não alterar",
+    "apiKeyLeaveEmpty": "API Key (deixe vazio para não alterar)",
+    "noProviders": "Nenhum provedor adicionado ainda",
+    "addProvider": "Adicionar Provedor",
+    "editProvider": "Editar Provedor",
+    "confirmDelete": "Tem certeza que deseja excluir este provedor?",
+    "disable": "Desativar",
+    "enable": "Ativar",
+    "disabled": "Desativado",
+    "myCustomProvider": "Meu Provedor Personalizado",
+    "authRequired": "Preencha se precisar de autenticação"
+  },
+  "model": {
+    "modelConfig": "Configuração do Modelo",
+    "modelId": "ID do Modelo",
+    "displayName": "Nome de Exibição",
+    "supportedInputTypes": "Tipos de Entrada Suportados",
+    "text": "Texto",
+    "image": "Imagem",
+    "video": "Vídeo",
+    "reasoning": "Raciocínio / Pensamento",
+    "inputCost": "Custo de Entrada ($/1M tokens)",
+    "outputCost": "Custo de Saída ($/1M tokens)",
+    "modelList": "Lista de Modelos",
+    "modelsCount": "{{count}} modelos",
+    "addModel": "Adicionar Modelo",
+    "configModels": "Configurar modelos para este provedor",
+    "atLeastOneModel": "Adicione pelo menos um modelo para continuar"
+  },
+  "wizard": {
+    "apiType": "Tipo de API",
+    "connectionConfig": "Configuração de Conexão",
+    "models": "Modelos",
+    "selectApiType": "Selecione o Tipo de API",
+    "anthropicDesc": "Modelos Anthropic como Claude",
+    "openaiChatDesc": "Serviços compatíveis com /v1/chat/completions",
+    "openaiResponsesDesc": "Serviços compatíveis com /v1/responses"
+  },
+  "language": {
+    "title": "Idioma",
+    "system": "Padrão do Sistema"
+  }
+}

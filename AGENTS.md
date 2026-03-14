@@ -1,4 +1,4 @@
-# OpenComputer — CLAUDE.md
+# OpenComputer
 
 OpenComputer 是一款基于 Tauri 2 + React 19 + Rust 的本地 AI 助手桌面应用，支持 24+ 内置 Provider 模板（Anthropic、OpenAI、DeepSeek、Moonshot、通义千问、Ollama 等），GUI 傻瓜式配置。
 
@@ -9,6 +9,9 @@ src/            前端（React + TypeScript）
   components/
     ProviderSetup.tsx     Provider 引导向导（24+ 模板 + 自定义 + Codex OAuth）
     ProviderSettings.tsx  Provider 管理面板（查看/编辑/删除）
+  i18n/
+    i18n.ts               i18n 初始化 & 语言列表
+    locales/*.json         12 种语言翻译文件
 src-tauri/src/  后端（Rust）
   lib.rs        Tauri 命令注册 & AppState
   agent.rs      AssistantAgent（多 Provider 封装 + Tool Loop）
@@ -50,6 +53,7 @@ npm run lint
 | LLM 层 | reqwest 直接调用（Anthropic Messages / OpenAI Chat Completions / OpenAI Responses） |
 | 异步运行时 | tokio |
 | AI Provider | 24+ 内置模板（Anthropic / OpenAI / DeepSeek / Moonshot / Ollama 等）+ Codex OAuth + 自定义 |
+| 多语言 | i18next + react-i18next（12 种语言，自动检测系统语言）|
 | 默认模型 | Codex: gpt-5.4 / Anthropic: claude-sonnet-4-6 |
 
 ## 架构约定
@@ -63,6 +67,7 @@ npm run lint
 - **统一 Tool 架构**：所有 tool 定义和执行逻辑集中在 `tools.rs`，通过 `ToolProvider` 枚举 + `to_provider_schema()` 自动适配不同 LLM 的 schema 格式
 - **Tool Loop**：所有 Provider 均实现「请求 → 解析 tool_call → 执行 tool → 回传结果 → 继续」循环，最多 10 轮
 - **OAuth 封装**：Codex 登录流程集中在 `oauth.rs`，包括 PKCE、本地回调服务器、token 持久化与刷新
+- **多语言 (i18n)**：使用 `i18next` + `react-i18next`，翻译文件集中在 `src/i18n/locales/`，支持 12 种语言（zh / zh-TW / en / ja / ko / tr / vi / pt / ru / ar / es / ms），默认检测系统语言，回退英文，偏好持久化到 localStorage
 - **错误处理**：Rust 命令返回 `Result<T, String>`，前端 `invoke` 用 try/catch 捕获
 
 ## 编码规范
@@ -98,6 +103,6 @@ npm run lint
 | 编码规范变更 | `AGENTS.md` |
 
 - `CHANGELOG.md`：按 [Keep a Changelog](https://keepachangelog.com/) 格式，在 `[Unreleased]` 或新版本号下记录 Added / Changed / Removed
-- `AGENTS.md`：保持与 `CLAUDE.md` 内容一致，更新后同步复制
+- `AGENTS.md`：保持与 `CLAUDE.md`以及`.agent/rules/default.md` 内容一致，更新后同步复制
 - `docs/product-and-technical-spec.md`：更新功能清单、架构图、命令表、依赖表、路线图等
 - 提交代码时将文档变更一并 commit，commit message 中注明文档更新

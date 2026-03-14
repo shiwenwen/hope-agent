@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react"
 import { invoke, Channel } from "@tauri-apps/api/core"
+import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
@@ -13,9 +14,11 @@ import {
   MessageSquare,
   Bot,
   Settings,
+  Languages,
 } from "lucide-react"
 import ProviderSetup from "@/components/ProviderSetup"
 import ProviderSettings from "@/components/ProviderSettings"
+import { SUPPORTED_LANGUAGES } from "@/i18n/i18n"
 
 interface ToolCall {
   callId: string
@@ -47,40 +50,40 @@ interface ActiveModel {
   modelId: string
 }
 
-const EFFORT_OPTIONS_OPENAI = [
-  { value: "none", label: "关闭" },
-  { value: "low", label: "Low" },
-  { value: "medium", label: "Medium" },
-  { value: "high", label: "High" },
-  { value: "xhigh", label: "XHigh" },
-] as const
-
-const EFFORT_OPTIONS_ANTHROPIC = [
-  { value: "none", label: "关闭" },
-  { value: "low", label: "Low" },
-  { value: "medium", label: "Medium" },
-  { value: "high", label: "High" },
-] as const
-
-const EFFORT_OPTIONS_BINARY = [
-  { value: "none", label: "关闭" },
-  { value: "medium", label: "开启" },
-] as const
-
-function getEffortOptions(apiType?: string) {
+function getEffortOptionsForType(apiType: string | undefined, t: (key: string) => string) {
+  const off = t("effort.off")
+  const on = t("effort.on")
+  const low = t("effort.low")
+  const medium = t("effort.medium")
+  const high = t("effort.high")
+  const xhigh = t("effort.xhigh")
   switch (apiType) {
     case "openai-responses":
     case "codex":
-      return EFFORT_OPTIONS_OPENAI
+      return [
+        { value: "none", label: off },
+        { value: "low", label: low },
+        { value: "medium", label: medium },
+        { value: "high", label: high },
+        { value: "xhigh", label: xhigh },
+      ]
     case "anthropic":
-      return EFFORT_OPTIONS_ANTHROPIC
     case "openai-chat":
-      // OpenAI Chat Completions doesn't support xhigh
-      return EFFORT_OPTIONS_ANTHROPIC
+      return [
+        { value: "none", label: off },
+        { value: "low", label: low },
+        { value: "medium", label: medium },
+        { value: "high", label: high },
+      ]
     default:
-      return EFFORT_OPTIONS_BINARY
+      return [
+        { value: "none", label: off },
+        { value: "medium", label: on },
+      ]
   }
 }
+
+// removed — merged into getEffortOptionsForType above
 
 function ToolCallBlock({ tool }: { tool: ToolCall }) {
   const [expanded, setExpanded] = useState(false)
@@ -133,6 +136,7 @@ function ChatScreen({
   onLogout: () => void
   onOpenSettings: () => void
 }) {
+  const { t, i18n } = useTranslation()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
   const [loading, setLoading] = useState(false)
@@ -146,6 +150,7 @@ function ChatScreen({
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
   const [activeModel, setActiveModel] = useState<ActiveModel | null>(null)
   const [reasoningEffort, setReasoningEffort] = useState("medium")
+  const [showLangMenu, setShowLangMenu] = useState(false)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -216,7 +221,7 @@ function ChatScreen({
       (m) => m.providerId === providerId && m.modelId === modelId,
     )
     if (newModel) {
-      const validOptions = getEffortOptions(newModel.apiType)
+      const validOptions = getEffortOptionsForType(newModel.apiType, t)
       const isValid = validOptions.some((opt) => opt.value === reasoningEffort)
       if (!isValid) {
         // Reset to "medium" if available, otherwise "none"
@@ -343,7 +348,7 @@ function ChatScreen({
             variant="ghost"
             size="icon"
             className="rounded-xl bg-primary/10 text-primary hover:bg-primary/20 h-8 w-8"
-            title="会话"
+            title={t("chat.conversations")}
           >
             <MessageSquare className="h-4 w-4" />
           </Button>
@@ -352,12 +357,51 @@ function ChatScreen({
         <div className="flex-1" />
 
         <div className="py-3 flex flex-col gap-2">
+          {/* Language Selector */}
+          <div className="relative">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="rounded-xl text-muted-foreground hover:text-foreground h-8 w-8"
+              onClick={() => setShowLangMenu(!showLangMenu)}
+              title={t("language.title")}
+            >
+              <Languages className="h-4 w-4" />
+            </Button>
+            {showLangMenu && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setShowLangMenu(false)} />
+                <div className="absolute left-12 bottom-0 z-50 bg-card border border-border rounded-lg shadow-lg py-1 min-w-[160px] max-h-[400px] overflow-y-auto">
+                  {SUPPORTED_LANGUAGES.map((lang) => (
+                    <button
+                      key={lang.code}
+                      className={`flex items-center gap-2.5 w-full px-3 py-1.5 text-xs transition-colors hover:bg-secondary ${
+                        i18n.language === lang.code || i18n.language.startsWith(lang.code + "-") && lang.code !== "zh"
+                          ? "text-primary font-medium"
+                          : "text-foreground"
+                      }`}
+                      onClick={() => {
+                        i18n.changeLanguage(lang.code)
+                        setShowLangMenu(false)
+                      }}
+                    >
+                      <span className="text-[10px] font-bold w-5 text-primary/70">{lang.shortLabel}</span>
+                      <span>{lang.label}</span>
+                      {(i18n.language === lang.code || (i18n.language.startsWith(lang.code + "-") && lang.code !== "zh")) && (
+                        <span className="ml-auto text-primary">●</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
           <Button
             variant="ghost"
             size="icon"
             className="rounded-xl text-muted-foreground hover:text-foreground h-8 w-8"
             onClick={onOpenSettings}
-            title="设置"
+            title={t("chat.settings")}
           >
             <Settings className="h-4 w-4" />
           </Button>
@@ -366,7 +410,7 @@ function ChatScreen({
             size="icon"
             className="rounded-xl text-muted-foreground hover:text-foreground h-8 w-8"
             onClick={onLogout}
-            title="登出"
+            title={t("chat.logout")}
           >
             <LogOut className="h-4 w-4" />
           </Button>
@@ -379,7 +423,7 @@ function ChatScreen({
         className="shrink-0 border-r border-border bg-background flex flex-col"
       >
         <div className="h-11 flex items-center px-4 border-b border-border">
-          <h2 className="text-sm font-semibold text-foreground">会话</h2>
+          <h2 className="text-sm font-semibold text-foreground">{t("chat.conversations")}</h2>
         </div>
         <div className="flex-1 overflow-y-auto p-2">
           {/* Main Agent — active */}
@@ -394,8 +438,8 @@ function ChatScreen({
               <div className="text-xs text-muted-foreground truncate">
                 {messages.length > 0
                   ? messages[messages.length - 1].content.slice(0, 30) ||
-                    "工具调用中..."
-                  : "开始对话"}
+                    t("chat.toolCalling")
+                  : t("chat.startConversation")}
               </div>
             </div>
           </div>
@@ -450,7 +494,7 @@ function ChatScreen({
                     onChange={(e) => handleEffortChange(e.target.value)}
                     className="appearance-none bg-secondary text-foreground text-xs font-medium pl-1 pr-5 py-1 rounded-md border border-border cursor-pointer hover:bg-secondary/80 transition-colors focus:outline-none focus:ring-1 focus:ring-ring"
                   >
-                    {getEffortOptions(currentModelInfo?.apiType).map((opt) => (
+                    {getEffortOptionsForType(currentModelInfo?.apiType, t).map((opt) => (
                       <option key={opt.value} value={opt.value}>
                         {opt.label}
                       </option>
@@ -468,7 +512,7 @@ function ChatScreen({
           {messages.length === 0 && (
             <div className="flex items-center justify-center h-full">
               <p className="text-muted-foreground text-sm">
-                How can I help you today?
+                {t("chat.howCanIHelp")}
               </p>
             </div>
           )}
@@ -512,7 +556,7 @@ function ChatScreen({
         {/* Input */}
         <div className="border-t border-border px-4 py-3 flex gap-2 bg-background">
           <Input
-            placeholder="Ask anything..."
+            placeholder={t("chat.askAnything")}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSend()}
@@ -576,7 +620,7 @@ export default function App() {
           throw new Error(status.error)
         }
       }
-      throw new Error("登录超时，请重试")
+      throw new Error("Login timed out")
     }
 
     await poll()

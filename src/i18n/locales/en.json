@@ -1,0 +1,89 @@
+{
+  "common": {
+    "back": "Back",
+    "save": "Save",
+    "cancel": "Cancel",
+    "add": "Add",
+    "delete": "Delete",
+    "edit": "Edit",
+    "done": "Done",
+    "saving": "Saving...",
+    "testing": "Testing...",
+    "nextStep": "Next",
+    "loginTimeout": "Login timed out, please try again"
+  },
+  "chat": {
+    "conversations": "Chats",
+    "settings": "Settings",
+    "logout": "Logout",
+    "mainAgent": "Main Agent",
+    "toolCalling": "Calling tools...",
+    "startConversation": "Start a conversation",
+    "howCanIHelp": "How can I help you today?",
+    "askAnything": "Ask anything...",
+    "modelsCount": "{{count}} models"
+  },
+  "effort": {
+    "off": "Off",
+    "on": "On",
+    "low": "Low",
+    "medium": "Medium",
+    "high": "High",
+    "xhigh": "XHigh"
+  },
+  "provider": {
+    "title": "Providers",
+    "selectProvider": "Select a provider to get started",
+    "orSelectProvider": "or select a provider",
+    "waitingBrowserLogin": "Waiting for browser login...",
+    "searchProviders": "Search providers...",
+    "custom": "Custom",
+    "customDescription": "Configure any API manually",
+    "testConnection": "Test Connection",
+    "name": "Name",
+    "apiType": "API Type",
+    "optional": "optional",
+    "leaveEmptyNoAuth": "Leave empty, fill in if authentication is needed",
+    "leaveEmptyNoChange": "Leave empty to keep unchanged",
+    "apiKeyLeaveEmpty": "API Key (leave empty to keep unchanged)",
+    "noProviders": "No providers added yet",
+    "addProvider": "Add Provider",
+    "editProvider": "Edit Provider",
+    "confirmDelete": "Are you sure you want to delete this provider?",
+    "disable": "Disable",
+    "enable": "Enable",
+    "disabled": "Disabled",
+    "myCustomProvider": "My Custom Provider",
+    "authRequired": "Fill in if authentication is needed"
+  },
+  "model": {
+    "modelConfig": "Model Config",
+    "modelId": "Model ID",
+    "displayName": "Display Name",
+    "supportedInputTypes": "Supported Input Types",
+    "text": "Text",
+    "image": "Image",
+    "video": "Video",
+    "reasoning": "Reasoning / Thinking",
+    "inputCost": "Input Cost ($/1M tokens)",
+    "outputCost": "Output Cost ($/1M tokens)",
+    "modelList": "Models",
+    "modelsCount": "{{count}} models",
+    "addModel": "Add Model",
+    "configModels": "Configure models for this provider",
+    "atLeastOneModel": "Add at least one model to continue"
+  },
+  "wizard": {
+    "apiType": "API Type",
+    "connectionConfig": "Connection",
+    "models": "Models",
+    "selectApiType": "Select API Type",
+    "anthropicDesc": "Anthropic models like Claude",
+    "openaiChatDesc": "Services compatible with /v1/chat/completions",
+    "openaiResponsesDesc": "Services compatible with /v1/responses"
+  },
+  "language": {
+    "title": "Language",
+    "system": "System Default"
+  }
+}

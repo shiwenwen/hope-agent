@@ -1,0 +1,89 @@
+{
+  "common": {
+    "back": "返回",
+    "save": "儲存",
+    "cancel": "取消",
+    "add": "新增",
+    "delete": "刪除",
+    "edit": "編輯",
+    "done": "完成",
+    "saving": "儲存中...",
+    "testing": "測試中...",
+    "nextStep": "下一步",
+    "loginTimeout": "登入逾時，請重試"
+  },
+  "chat": {
+    "conversations": "對話",
+    "settings": "設定",
+    "logout": "登出",
+    "mainAgent": "Main Agent",
+    "toolCalling": "工具呼叫中...",
+    "startConversation": "開始對話",
+    "howCanIHelp": "有什麼可以幫你的？",
+    "askAnything": "問點什麼...",
+    "modelsCount": "{{count}} 個模型"
+  },
+  "effort": {
+    "off": "關閉",
+    "on": "開啟",
+    "low": "低",
+    "medium": "中",
+    "high": "高",
+    "xhigh": "極高"
+  },
+  "provider": {
+    "title": "模型服務商",
+    "selectProvider": "選擇模型服務商開始使用",
+    "orSelectProvider": "或選擇模型服務商",
+    "waitingBrowserLogin": "等候瀏覽器登入...",
+    "searchProviders": "搜尋服務商...",
+    "custom": "自訂",
+    "customDescription": "手動設定任意 API",
+    "testConnection": "測試連線",
+    "name": "名稱",
+    "apiType": "API 類型",
+    "optional": "可選",
+    "leaveEmptyNoAuth": "留空即可，如需認證可填寫",
+    "leaveEmptyNoChange": "留空不修改",
+    "apiKeyLeaveEmpty": "API Key（留空則不修改）",
+    "noProviders": "尚未新增任何模型服務商",
+    "addProvider": "新增服務商",
+    "editProvider": "編輯服務商",
+    "confirmDelete": "確定要刪除這個模型服務商嗎？",
+    "disable": "停用",
+    "enable": "啟用",
+    "disabled": "已停用",
+    "myCustomProvider": "我的自訂服務商",
+    "authRequired": "如需認證需填寫"
+  },
+  "model": {
+    "modelConfig": "模型設定",
+    "modelId": "模型 ID",
+    "displayName": "顯示名稱",
+    "supportedInputTypes": "支援的輸入類型",
+    "text": "文字",
+    "image": "圖片",
+    "video": "影片",
+    "reasoning": "支援推理/思考",
+    "inputCost": "輸入成本 ($/1M tokens)",
+    "outputCost": "輸出成本 ($/1M tokens)",
+    "modelList": "模型列表",
+    "modelsCount": "{{count}} 個模型",
+    "addModel": "新增模型",
+    "configModels": "設定該服務商支援的模型",
+    "atLeastOneModel": "至少新增一個模型才能繼續"
+  },
+  "wizard": {
+    "apiType": "API 類型",
+    "connectionConfig": "連線設定",
+    "models": "模型",
+    "selectApiType": "選擇 API 類型",
+    "anthropicDesc": "Claude 等 Anthropic 模型",
+    "openaiChatDesc": "相容 /v1/chat/completions 的服務",
+    "openaiResponsesDesc": "相容 /v1/responses 的服務"
+  },
+  "language": {
+    "title": "語言",
+    "system": "跟隨系統"
+  }
+}

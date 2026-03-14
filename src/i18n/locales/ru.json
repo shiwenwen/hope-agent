@@ -1,0 +1,89 @@
+{
+  "common": {
+    "back": "Назад",
+    "save": "Сохранить",
+    "cancel": "Отмена",
+    "add": "Добавить",
+    "delete": "Удалить",
+    "edit": "Редактировать",
+    "done": "Готово",
+    "saving": "Сохранение...",
+    "testing": "Тестирование...",
+    "nextStep": "Далее",
+    "loginTimeout": "Истекло время входа, попробуйте снова"
+  },
+  "chat": {
+    "conversations": "Чаты",
+    "settings": "Настройки",
+    "logout": "Выход",
+    "mainAgent": "Main Agent",
+    "toolCalling": "Вызов инструментов...",
+    "startConversation": "Начать разговор",
+    "howCanIHelp": "Чем могу помочь?",
+    "askAnything": "Спросите что угодно...",
+    "modelsCount": "{{count}} моделей"
+  },
+  "effort": {
+    "off": "Выкл",
+    "on": "Вкл",
+    "low": "Низкий",
+    "medium": "Средний",
+    "high": "Высокий",
+    "xhigh": "Максимальный"
+  },
+  "provider": {
+    "title": "Провайдеры",
+    "selectProvider": "Выберите провайдера для начала",
+    "orSelectProvider": "или выберите провайдера",
+    "waitingBrowserLogin": "Ожидание входа в браузере...",
+    "searchProviders": "Поиск провайдеров...",
+    "custom": "Пользовательский",
+    "customDescription": "Ручная настройка API",
+    "testConnection": "Проверить соединение",
+    "name": "Название",
+    "apiType": "Тип API",
+    "optional": "необязательно",
+    "leaveEmptyNoAuth": "Оставьте пустым, заполните при необходимости аутентификации",
+    "leaveEmptyNoChange": "Оставьте пустым для сохранения",
+    "apiKeyLeaveEmpty": "API Key (оставьте пустым для сохранения)",
+    "noProviders": "Провайдеры ещё не добавлены",
+    "addProvider": "Добавить провайдера",
+    "editProvider": "Редактировать провайдера",
+    "confirmDelete": "Вы уверены, что хотите удалить этого провайдера?",
+    "disable": "Отключить",
+    "enable": "Включить",
+    "disabled": "Отключён",
+    "myCustomProvider": "Мой провайдер",
+    "authRequired": "Заполните при необходимости аутентификации"
+  },
+  "model": {
+    "modelConfig": "Настройка модели",
+    "modelId": "ID модели",
+    "displayName": "Отображаемое имя",
+    "supportedInputTypes": "Поддерживаемые типы ввода",
+    "text": "Текст",
+    "image": "Изображение",
+    "video": "Видео",
+    "reasoning": "Рассуждение / Мышление",
+    "inputCost": "Стоимость ввода ($/1M tokens)",
+    "outputCost": "Стоимость вывода ($/1M tokens)",
+    "modelList": "Список моделей",
+    "modelsCount": "{{count}} моделей",
+    "addModel": "Добавить модель",
+    "configModels": "Настройте модели для этого провайдера",
+    "atLeastOneModel": "Добавьте хотя бы одну модель для продолжения"
+  },
+  "wizard": {
+    "apiType": "Тип API",
+    "connectionConfig": "Настройка подключения",
+    "models": "Модели",
+    "selectApiType": "Выберите тип API",
+    "anthropicDesc": "Модели Anthropic, такие как Claude",
+    "openaiChatDesc": "Сервисы, совместимые с /v1/chat/completions",
+    "openaiResponsesDesc": "Сервисы, совместимые с /v1/responses"
+  },
+  "language": {
+    "title": "Язык",
+    "system": "Системный"
+  }
+}

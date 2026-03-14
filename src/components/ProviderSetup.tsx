@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { invoke } from "@tauri-apps/api/core"
+import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -399,6 +400,7 @@ export function ModelEditor({
   onChange: (m: ModelConfig) => void
   onRemove: () => void
 }) {
+  const { t } = useTranslation()
   const inputTypes = ["text", "image", "video"]
 
   function toggleInput(type: string) {
@@ -414,7 +416,7 @@ export function ModelEditor({
     <div className="border border-border rounded-xl p-3.5 space-y-3 bg-card/50">
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium text-muted-foreground">
-          模型配置
+          {t("model.modelConfig")}
         </span>
         <Button
           variant="ghost"
@@ -428,7 +430,7 @@ export function ModelEditor({
 
       <div className="grid grid-cols-2 gap-2.5">
         <div className="space-y-1">
-          <label className="text-[10px] text-muted-foreground">模型 ID</label>
+          <label className="text-[10px] text-muted-foreground">{t("model.modelId")}</label>
           <Input
             value={model.id}
             onChange={(e) => onChange({ ...model, id: e.target.value })}
@@ -437,7 +439,7 @@ export function ModelEditor({
           />
         </div>
         <div className="space-y-1">
-          <label className="text-[10px] text-muted-foreground">显示名称</label>
+          <label className="text-[10px] text-muted-foreground">{t("model.displayName")}</label>
           <Input
             value={model.name}
             onChange={(e) => onChange({ ...model, name: e.target.value })}
@@ -449,7 +451,7 @@ export function ModelEditor({
 
       <div className="space-y-1.5">
         <label className="text-[10px] text-muted-foreground">
-          支持的输入类型
+          {t("model.supportedInputTypes")}
         </label>
         <div className="flex gap-2">
           {inputTypes.map((type) => (
@@ -461,7 +463,7 @@ export function ModelEditor({
                   : "border-border bg-background text-muted-foreground hover:border-primary/40"
                 }`}
             >
-              {type === "text" ? "文本" : type === "image" ? "图片" : "视频"}
+              {type === "text" ? t("model.text") : type === "image" ? t("model.image") : t("model.video")}
             </button>
           ))}
         </div>
@@ -500,7 +502,7 @@ export function ModelEditor({
       </div>
 
       <div className="flex items-center justify-between">
-        <label className="text-xs text-muted-foreground">支持推理/思考</label>
+        <label className="text-xs text-muted-foreground">{t("model.reasoning")}</label>
         <button
           onClick={() => onChange({ ...model, reasoning: !model.reasoning })}
           className={`w-9 h-5 rounded-full transition-colors relative ${model.reasoning ? "bg-primary" : "bg-secondary border border-border"
@@ -516,7 +518,7 @@ export function ModelEditor({
       <div className="grid grid-cols-2 gap-2.5">
         <div className="space-y-1">
           <label className="text-[10px] text-muted-foreground">
-            输入成本 ($/1M tokens)
+            {t("model.inputCost")}
           </label>
           <Input
             type="number"
@@ -533,7 +535,7 @@ export function ModelEditor({
         </div>
         <div className="space-y-1">
           <label className="text-[10px] text-muted-foreground">
-            输出成本 ($/1M tokens)
+            {t("model.outputCost")}
           </label>
           <Input
             type="number"
@@ -569,6 +571,7 @@ export default function ProviderSetup({
   )
   const [codexLoading, setCodexLoading] = useState(false)
   const [codexError, setCodexError] = useState("")
+  const { t } = useTranslation()
 
   // Template selection
   const [selectedTemplate, setSelectedTemplate] =
@@ -709,7 +712,7 @@ export default function ProviderSetup({
               className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
             >
               <ArrowLeft className="h-4 w-4" />
-              返回
+              {t("common.back")}
             </button>
           </div>
         )}
@@ -720,7 +723,7 @@ export default function ProviderSetup({
             OpenComputer
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            选择模型服务商开始使用
+            {t("provider.selectProvider")}
           </p>
         </div>
 
@@ -734,7 +737,7 @@ export default function ProviderSetup({
             {codexLoading ? (
               <span className="flex items-center gap-2">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                等待浏览器登录...
+                {t("provider.waitingBrowserLogin")}
               </span>
             ) : (
               "Sign in with ChatGPT"
@@ -748,7 +751,7 @@ export default function ProviderSetup({
           <div className="flex items-center gap-3 mt-4">
             <div className="flex-1 h-px bg-border" />
             <span className="text-xs text-muted-foreground">
-              或选择模型服务商
+              {t("provider.orSelectProvider")}
             </span>
             <div className="flex-1 h-px bg-border" />
           </div>
@@ -761,7 +764,7 @@ export default function ProviderSetup({
             <Input
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="搜索服务商..."
+              placeholder={t("provider.searchProviders")}
               className="bg-card pl-9 h-9 text-xs"
             />
           </div>
@@ -798,10 +801,10 @@ export default function ProviderSetup({
               </div>
               <div className="min-w-0">
                 <div className="text-xs font-medium text-foreground">
-                  自定义
+                  {t("provider.custom")}
                 </div>
                 <div className="text-[10px] text-muted-foreground">
-                  手动配置任意 API
+                  {t("provider.customDescription")}
                 </div>
               </div>
             </button>
@@ -828,7 +831,7 @@ export default function ProviderSetup({
             className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
           >
             <ArrowLeft className="h-4 w-4" />
-            返回
+            {t("common.back")}
           </button>
           <span className="text-sm font-semibold text-foreground mx-auto">
             {selectedTemplate.icon} {selectedTemplate.name}
@@ -842,7 +845,7 @@ export default function ProviderSetup({
           <div className="bg-card border border-border rounded-xl p-4 space-y-3">
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground">
-                名称
+                {t("provider.name")}
               </label>
               <Input
                 value={providerName}
@@ -853,7 +856,7 @@ export default function ProviderSetup({
 
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground">
-                API 类型
+                {t("provider.apiType")}
               </label>
               <div className="relative">
                 <select
@@ -874,14 +877,14 @@ export default function ProviderSetup({
                 <Key className="h-3 w-3" />
                 API Key
                 {!selectedTemplate.requiresApiKey && (
-                  <span className="text-[10px] text-muted-foreground/60 font-normal">（可选）</span>
+                  <span className="text-[10px] text-muted-foreground/60 font-normal">({t("provider.optional")})</span>
                 )}
               </label>
               <Input
                 type="password"
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
-                placeholder={selectedTemplate.requiresApiKey ? selectedTemplate.apiKeyPlaceholder : "留空即可，如需认证可填写"}
+                placeholder={selectedTemplate.requiresApiKey ? selectedTemplate.apiKeyPlaceholder : t("provider.leaveEmptyNoAuth")}
                 className="bg-background font-mono text-xs"
               />
             </div>
@@ -913,10 +916,10 @@ export default function ProviderSetup({
               {testLoading ? (
                 <span className="flex items-center gap-2">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  测试中...
+                  {t("common.testing")}
                 </span>
               ) : (
-                "测试连接"
+                t("provider.testConnection")
               )}
             </Button>
 
@@ -940,10 +943,10 @@ export default function ProviderSetup({
             >
               <div>
                 <span className="text-xs font-medium text-foreground">
-                  模型列表
+                  {t("model.modelList")}
                 </span>
                 <span className="text-[10px] text-muted-foreground ml-2">
-                  ({models.length} 个模型)
+                  ({t("model.modelsCount", { count: models.length })})
                 </span>
               </div>
               <ArrowRight
@@ -1002,7 +1005,7 @@ export default function ProviderSetup({
                   }
                 >
                   <Plus className="h-3.5 w-3.5 mr-1" />
-                  添加模型
+                  {t("model.addModel")}
                 </Button>
               </div>
             )}
@@ -1017,12 +1020,12 @@ export default function ProviderSetup({
             {saving ? (
               <span className="flex items-center gap-2">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                保存中...
+                {t("common.saving")}
               </span>
             ) : (
               <>
                 <Check className="h-4 w-4 mr-1" />
-                完成
+                {t("common.done")}
               </>
             )}
           </Button>
@@ -1041,17 +1044,17 @@ export default function ProviderSetup({
       {
         value: "anthropic",
         label: "Anthropic Messages API",
-        description: "Claude 等 Anthropic 模型",
+        description: t("wizard.anthropicDesc"),
       },
       {
         value: "openai-chat",
         label: "OpenAI Chat Completions",
-        description: "兼容 /v1/chat/completions 的服务",
+        description: t("wizard.openaiChatDesc"),
       },
       {
         value: "openai-responses",
         label: "OpenAI Responses API",
-        description: "兼容 /v1/responses 的服务",
+        description: t("wizard.openaiResponsesDesc"),
       },
     ]
 
@@ -1075,11 +1078,11 @@ export default function ProviderSetup({
           className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
         >
           <ArrowLeft className="h-4 w-4" />
-          返回
+          {t("common.back")}
         </button>
 
         <div className="flex items-center gap-2 mx-auto">
-          {["API 类型", "连接配置", "模型"].map((label, i) => (
+          {[t("wizard.apiType"), t("wizard.connectionConfig"), t("wizard.models")].map((label, i) => (
             <div key={i} className="flex items-center gap-2">
               <div
                 className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-medium transition-colors ${i === customStep
@@ -1109,7 +1112,7 @@ export default function ProviderSetup({
         {customStep === 0 && (
           <div className="space-y-3">
             <h3 className="text-base font-semibold text-foreground">
-              选择 API 类型
+              {t("wizard.selectApiType")}
             </h3>
             <div className="grid gap-2.5">
               {API_TYPE_OPTIONS.map((opt) => (
@@ -1141,17 +1144,17 @@ export default function ProviderSetup({
         {customStep === 1 && (
           <div className="space-y-4">
             <h3 className="text-base font-semibold text-foreground">
-              连接配置
+              {t("wizard.connectionConfig")}
             </h3>
             <div className="space-y-3">
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-muted-foreground">
-                  名称
+                  {t("provider.name")}
                 </label>
                 <Input
                   value={providerName}
                   onChange={(e) => setProviderName(e.target.value)}
-                  placeholder="我的自定义服务商"
+                  placeholder={t("provider.myCustomProvider")}
                   className="bg-card"
                 />
               </div>
@@ -1171,13 +1174,13 @@ export default function ProviderSetup({
                 <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
                   <Key className="h-3 w-3" />
                   API Key
-                  <span className="text-[10px] text-muted-foreground/60 font-normal">（可选）</span>
+                  <span className="text-[10px] text-muted-foreground/60 font-normal">({t("provider.optional")})</span>
                 </label>
                 <Input
                   type="password"
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
-                  placeholder="如需认证需填写"
+                  placeholder={t("provider.authRequired")}
                   className="bg-card font-mono text-xs"
                 />
               </div>
@@ -1191,10 +1194,10 @@ export default function ProviderSetup({
                 {testLoading ? (
                   <span className="flex items-center gap-2">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    测试中...
+                    {t("common.testing")}
                   </span>
                 ) : (
-                  "测试连接"
+                  t("provider.testConnection")
                 )}
               </Button>
               {testResult && (
@@ -1216,10 +1219,10 @@ export default function ProviderSetup({
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-base font-semibold text-foreground">
-                  添加模型
+                  {t("model.addModels")}
                 </h3>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  配置该服务商支持的模型
+                  {t("model.configModels")}
                 </p>
               </div>
               <Button
@@ -1242,7 +1245,7 @@ export default function ProviderSetup({
                 }
               >
                 <Plus className="h-3.5 w-3.5 mr-1" />
-                添加
+                {t("common.add")}
               </Button>
             </div>
             <div className="space-y-2.5 max-h-[400px] overflow-y-auto pr-1">
@@ -1262,7 +1265,7 @@ export default function ProviderSetup({
               ))}
               {models.length === 0 && (
                 <div className="text-center py-8 text-muted-foreground text-xs">
-                  至少添加一个模型才能继续
+                  {t("model.atLeastOneModel")}
                 </div>
               )}
             </div>
@@ -1276,7 +1279,7 @@ export default function ProviderSetup({
       <div className="border-t border-border px-6 py-3 flex justify-end gap-2 shrink-0">
         {customStep < 2 ? (
           <Button onClick={() => setCustomStep(customStep + 1)} disabled={!canNext}>
-            下一步
+            {t("common.nextStep")}
             <ArrowRight className="h-4 w-4 ml-1" />
           </Button>
         ) : (
@@ -1284,12 +1287,12 @@ export default function ProviderSetup({
             {saving ? (
               <span className="flex items-center gap-2">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                保存中...
+                {t("common.saving")}
               </span>
             ) : (
               <>
                 <Check className="h-4 w-4 mr-1" />
-                完成
+                {t("common.done")}
               </>
             )}
           </Button>

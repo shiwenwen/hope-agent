@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react"
 import { invoke } from "@tauri-apps/api/core"
+import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ModelEditor, type ModelConfig } from "@/components/ProviderSetup"
@@ -74,6 +75,7 @@ export default function ProviderSettings({
   onBack: () => void
   onAddProvider: () => void
 }) {
+  const { t } = useTranslation()
   const [providers, setProviders] = useState<ProviderConfig[]>([])
   const [loading, setLoading] = useState(true)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -133,7 +135,7 @@ export default function ProviderSettings({
   }
 
   async function deleteProvider(id: string) {
-    if (!confirm("确定要删除这个模型服务商吗？")) return
+    if (!confirm(t("provider.confirmDelete"))) return
     try {
       await invoke("delete_provider", { providerId: id })
       await loadProviders()
@@ -164,14 +166,14 @@ export default function ProviderSettings({
           className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
         >
           <ArrowLeft className="h-4 w-4" />
-          返回
+          {t("common.back")}
         </button>
         <span className="text-sm font-semibold text-foreground">
-          模型服务商
+          {t("provider.title")}
         </span>
         <Button variant="ghost" size="sm" onClick={onAddProvider}>
           <Plus className="h-3.5 w-3.5 mr-1" />
-          添加
+          {t("common.add")}
         </Button>
       </div>
 
@@ -184,7 +186,7 @@ export default function ProviderSettings({
         ) : providers.length === 0 ? (
           <div className="text-center py-12">
             <p className="text-sm text-muted-foreground">
-              还没有添加任何模型服务商
+              {t("provider.noProviders")}
             </p>
             <Button
               variant="secondary"
@@ -193,7 +195,7 @@ export default function ProviderSettings({
               onClick={onAddProvider}
             >
               <Plus className="h-3.5 w-3.5 mr-1" />
-              添加服务商
+              {t("provider.addProvider")}
             </Button>
           </div>
         ) : (
@@ -206,7 +208,7 @@ export default function ProviderSettings({
               >
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-medium text-primary">
-                    编辑服务商
+                    {t("provider.editProvider")}
                   </span>
                   <Button
                     variant="ghost"
@@ -221,7 +223,7 @@ export default function ProviderSettings({
                 <div className="space-y-2.5">
                   <div className="space-y-1">
                     <label className="text-[10px] text-muted-foreground">
-                      名称
+                      {t("provider.name")}
                     </label>
                     <Input
                       value={editName}
@@ -245,13 +247,13 @@ export default function ProviderSettings({
                       <div className="space-y-1">
                         <label className="text-[10px] text-muted-foreground flex items-center gap-1">
                           <Key className="h-2.5 w-2.5" />
-                          API Key（留空则不修改）
+                          {t("provider.apiKeyLeaveEmpty")}
                         </label>
                         <Input
                           type="password"
                           value={editApiKey}
                           onChange={(e) => setEditApiKey(e.target.value)}
-                          placeholder="留空不修改"
+                          placeholder={t("provider.leaveEmptyNoChange")}
                           className="bg-background text-xs h-8 font-mono"
                         />
                       </div>
@@ -263,7 +265,7 @@ export default function ProviderSettings({
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] text-muted-foreground font-medium">
-                      模型列表
+                      {t("model.modelList")}
                     </span>
                     <Button
                       variant="ghost"
@@ -286,7 +288,7 @@ export default function ProviderSettings({
                       }
                     >
                       <Plus className="h-2.5 w-2.5 mr-0.5" />
-                      添加模型
+                      {t("model.addModel")}
                     </Button>
                   </div>
                   {editModels.map((model, i) => (
@@ -311,7 +313,7 @@ export default function ProviderSettings({
                     size="sm"
                     onClick={() => setEditingId(null)}
                   >
-                    取消
+                    {t("common.cancel")}
                   </Button>
                   <Button
                     size="sm"
@@ -323,7 +325,7 @@ export default function ProviderSettings({
                     ) : (
                       <>
                         <Check className="h-3 w-3 mr-1" />
-                        保存
+                        {t("common.save")}
                       </>
                     )}
                   </Button>
@@ -350,11 +352,11 @@ export default function ProviderSettings({
                     <div className="text-[11px] text-muted-foreground flex items-center gap-1.5">
                       <span>{apiTypeLabel(provider.apiType)}</span>
                       <span>·</span>
-                      <span>{provider.models.length} 个模型</span>
+                      <span>{t("chat.modelsCount", { count: provider.models.length })}</span>
                       {!provider.enabled && (
                         <>
                           <span>·</span>
-                          <span className="text-yellow-500">已禁用</span>
+                          <span className="text-yellow-500">{t("provider.disabled")}</span>
                         </>
                       )}
                     </div>
@@ -384,7 +386,7 @@ export default function ProviderSettings({
                             onClick={() => startEdit(provider)}
                           >
                             <Pencil className="h-3 w-3" />
-                            编辑
+                            {t("common.edit")}
                           </button>
                           <button
                             className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-foreground hover:bg-secondary transition-colors"
@@ -393,12 +395,12 @@ export default function ProviderSettings({
                             {provider.enabled ? (
                               <>
                                 <PowerOff className="h-3 w-3" />
-                                禁用
+                                {t("provider.disable")}
                               </>
                             ) : (
                               <>
                                 <Power className="h-3 w-3" />
-                                启用
+                                {t("provider.enable")}
                               </>
                             )}
                           </button>
@@ -408,7 +410,7 @@ export default function ProviderSettings({
                               onClick={() => deleteProvider(provider.id)}
                             >
                               <Trash2 className="h-3 w-3" />
-                              删除
+                              {t("common.delete")}
                             </button>
                           )}
                         </div>

@@ -1,0 +1,89 @@
+{
+  "common": {
+    "back": "戻る",
+    "save": "保存",
+    "cancel": "キャンセル",
+    "add": "追加",
+    "delete": "削除",
+    "edit": "編集",
+    "done": "完了",
+    "saving": "保存中...",
+    "testing": "テスト中...",
+    "nextStep": "次へ",
+    "loginTimeout": "ログインがタイムアウトしました。もう一度お試しください"
+  },
+  "chat": {
+    "conversations": "チャット",
+    "settings": "設定",
+    "logout": "ログアウト",
+    "mainAgent": "Main Agent",
+    "toolCalling": "ツール呼び出し中...",
+    "startConversation": "会話を開始",
+    "howCanIHelp": "何かお手伝いできますか？",
+    "askAnything": "何でも聞いてください...",
+    "modelsCount": "{{count}} モデル"
+  },
+  "effort": {
+    "off": "オフ",
+    "on": "オン",
+    "low": "低",
+    "medium": "中",
+    "high": "高",
+    "xhigh": "最高"
+  },
+  "provider": {
+    "title": "プロバイダー",
+    "selectProvider": "プロバイダーを選択して開始",
+    "orSelectProvider": "またはプロバイダーを選択",
+    "waitingBrowserLogin": "ブラウザログインを待機中...",
+    "searchProviders": "プロバイダーを検索...",
+    "custom": "カスタム",
+    "customDescription": "任意の API を手動設定",
+    "testConnection": "接続テスト",
+    "name": "名前",
+    "apiType": "API タイプ",
+    "optional": "任意",
+    "leaveEmptyNoAuth": "空欄で可、認証が必要な場合は入力",
+    "leaveEmptyNoChange": "空欄で変更なし",
+    "apiKeyLeaveEmpty": "API Key（空欄で変更なし）",
+    "noProviders": "プロバイダーが追加されていません",
+    "addProvider": "プロバイダーを追加",
+    "editProvider": "プロバイダーを編集",
+    "confirmDelete": "このプロバイダーを削除しますか？",
+    "disable": "無効化",
+    "enable": "有効化",
+    "disabled": "無効",
+    "myCustomProvider": "カスタムプロバイダー",
+    "authRequired": "認証が必要な場合は入力"
+  },
+  "model": {
+    "modelConfig": "モデル設定",
+    "modelId": "モデル ID",
+    "displayName": "表示名",
+    "supportedInputTypes": "対応入力タイプ",
+    "text": "テキスト",
+    "image": "画像",
+    "video": "動画",
+    "reasoning": "推論/思考",
+    "inputCost": "入力コスト ($/1M tokens)",
+    "outputCost": "出力コスト ($/1M tokens)",
+    "modelList": "モデル一覧",
+    "modelsCount": "{{count}} モデル",
+    "addModel": "モデルを追加",
+    "configModels": "このプロバイダーのモデルを設定",
+    "atLeastOneModel": "続行するには少なくとも1つのモデルを追加してください"
+  },
+  "wizard": {
+    "apiType": "API タイプ",
+    "connectionConfig": "接続設定",
+    "models": "モデル",
+    "selectApiType": "API タイプを選択",
+    "anthropicDesc": "Claude などの Anthropic モデル",
+    "openaiChatDesc": "/v1/chat/completions 互換サービス",
+    "openaiResponsesDesc": "/v1/responses 互換サービス"
+  },
+  "language": {
+    "title": "言語",
+    "system": "システム設定に従う"
+  }
+}

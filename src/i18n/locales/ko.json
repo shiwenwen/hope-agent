@@ -1,0 +1,89 @@
+{
+  "common": {
+    "back": "뒤로",
+    "save": "저장",
+    "cancel": "취소",
+    "add": "추가",
+    "delete": "삭제",
+    "edit": "편집",
+    "done": "완료",
+    "saving": "저장 중...",
+    "testing": "테스트 중...",
+    "nextStep": "다음",
+    "loginTimeout": "로그인 시간 초과, 다시 시도해주세요"
+  },
+  "chat": {
+    "conversations": "대화",
+    "settings": "설정",
+    "logout": "로그아웃",
+    "mainAgent": "Main Agent",
+    "toolCalling": "도구 호출 중...",
+    "startConversation": "대화 시작",
+    "howCanIHelp": "무엇을 도와드릴까요?",
+    "askAnything": "무엇이든 물어보세요...",
+    "modelsCount": "모델 {{count}}개"
+  },
+  "effort": {
+    "off": "끄기",
+    "on": "켜기",
+    "low": "낮음",
+    "medium": "중간",
+    "high": "높음",
+    "xhigh": "최대"
+  },
+  "provider": {
+    "title": "공급자",
+    "selectProvider": "공급자를 선택하여 시작하세요",
+    "orSelectProvider": "또는 공급자 선택",
+    "waitingBrowserLogin": "브라우저 로그인 대기 중...",
+    "searchProviders": "공급자 검색...",
+    "custom": "사용자 정의",
+    "customDescription": "API 수동 설정",
+    "testConnection": "연결 테스트",
+    "name": "이름",
+    "apiType": "API 유형",
+    "optional": "선택사항",
+    "leaveEmptyNoAuth": "비워두면 됩니다. 인증이 필요하면 입력",
+    "leaveEmptyNoChange": "비워두면 변경 없음",
+    "apiKeyLeaveEmpty": "API Key (비워두면 변경 없음)",
+    "noProviders": "추가된 공급자가 없습니다",
+    "addProvider": "공급자 추가",
+    "editProvider": "공급자 편집",
+    "confirmDelete": "이 공급자를 삭제하시겠습니까?",
+    "disable": "비활성화",
+    "enable": "활성화",
+    "disabled": "비활성화됨",
+    "myCustomProvider": "사용자 정의 공급자",
+    "authRequired": "인증이 필요한 경우 입력"
+  },
+  "model": {
+    "modelConfig": "모델 설정",
+    "modelId": "모델 ID",
+    "displayName": "표시 이름",
+    "supportedInputTypes": "지원 입력 유형",
+    "text": "텍스트",
+    "image": "이미지",
+    "video": "비디오",
+    "reasoning": "추론/사고",
+    "inputCost": "입력 비용 ($/1M tokens)",
+    "outputCost": "출력 비용 ($/1M tokens)",
+    "modelList": "모델 목록",
+    "modelsCount": "모델 {{count}}개",
+    "addModel": "모델 추가",
+    "configModels": "이 공급자의 모델 설정",
+    "atLeastOneModel": "계속하려면 모델을 하나 이상 추가하세요"
+  },
+  "wizard": {
+    "apiType": "API 유형",
+    "connectionConfig": "연결 설정",
+    "models": "모델",
+    "selectApiType": "API 유형 선택",
+    "anthropicDesc": "Claude 등 Anthropic 모델",
+    "openaiChatDesc": "/v1/chat/completions 호환 서비스",
+    "openaiResponsesDesc": "/v1/responses 호환 서비스"
+  },
+  "language": {
+    "title": "언어",
+    "system": "시스템 설정 따르기"
+  }
+}

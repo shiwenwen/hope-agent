@@ -1,0 +1,89 @@
+{
+  "common": {
+    "back": "返回",
+    "save": "保存",
+    "cancel": "取消",
+    "add": "添加",
+    "delete": "删除",
+    "edit": "编辑",
+    "done": "完成",
+    "saving": "保存中...",
+    "testing": "测试中...",
+    "nextStep": "下一步",
+    "loginTimeout": "登录超时，请重试"
+  },
+  "chat": {
+    "conversations": "会话",
+    "settings": "设置",
+    "logout": "登出",
+    "mainAgent": "Main Agent",
+    "toolCalling": "工具调用中...",
+    "startConversation": "开始对话",
+    "howCanIHelp": "有什么可以帮你的？",
+    "askAnything": "问点什么...",
+    "modelsCount": "{{count}} 个模型"
+  },
+  "effort": {
+    "off": "关闭",
+    "on": "开启",
+    "low": "低",
+    "medium": "中",
+    "high": "高",
+    "xhigh": "极高"
+  },
+  "provider": {
+    "title": "模型服务商",
+    "selectProvider": "选择模型服务商开始使用",
+    "orSelectProvider": "或选择模型服务商",
+    "waitingBrowserLogin": "等待浏览器登录...",
+    "searchProviders": "搜索服务商...",
+    "custom": "自定义",
+    "customDescription": "手动配置任意 API",
+    "testConnection": "测试连接",
+    "name": "名称",
+    "apiType": "API 类型",
+    "optional": "可选",
+    "leaveEmptyNoAuth": "留空即可，如需认证可填写",
+    "leaveEmptyNoChange": "留空不修改",
+    "apiKeyLeaveEmpty": "API Key（留空则不修改）",
+    "noProviders": "还没有添加任何模型服务商",
+    "addProvider": "添加服务商",
+    "editProvider": "编辑服务商",
+    "confirmDelete": "确定要删除这个模型服务商吗？",
+    "disable": "禁用",
+    "enable": "启用",
+    "disabled": "已禁用",
+    "myCustomProvider": "我的自定义服务商",
+    "authRequired": "如需认证需填写"
+  },
+  "model": {
+    "modelConfig": "模型配置",
+    "modelId": "模型 ID",
+    "displayName": "显示名称",
+    "supportedInputTypes": "支持的输入类型",
+    "text": "文本",
+    "image": "图片",
+    "video": "视频",
+    "reasoning": "支持推理/思考",
+    "inputCost": "输入成本 ($/1M tokens)",
+    "outputCost": "输出成本 ($/1M tokens)",
+    "modelList": "模型列表",
+    "modelsCount": "{{count}} 个模型",
+    "addModel": "添加模型",
+    "configModels": "配置该服务商支持的模型",
+    "atLeastOneModel": "至少添加一个模型才能继续"
+  },
+  "wizard": {
+    "apiType": "API 类型",
+    "connectionConfig": "连接配置",
+    "models": "模型",
+    "selectApiType": "选择 API 类型",
+    "anthropicDesc": "Claude 等 Anthropic 模型",
+    "openaiChatDesc": "兼容 /v1/chat/completions 的服务",
+    "openaiResponsesDesc": "兼容 /v1/responses 的服务"
+  },
+  "language": {
+    "title": "语言",
+    "system": "跟随系统"
+  }
+}

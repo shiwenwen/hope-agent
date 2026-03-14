@@ -1,0 +1,89 @@
+{
+  "common": {
+    "back": "Kembali",
+    "save": "Simpan",
+    "cancel": "Batal",
+    "add": "Tambah",
+    "delete": "Padam",
+    "edit": "Sunting",
+    "done": "Selesai",
+    "saving": "Menyimpan...",
+    "testing": "Menguji...",
+    "nextStep": "Seterusnya",
+    "loginTimeout": "Log masuk tamat masa, sila cuba lagi"
+  },
+  "chat": {
+    "conversations": "Perbualan",
+    "settings": "Tetapan",
+    "logout": "Log keluar",
+    "mainAgent": "Main Agent",
+    "toolCalling": "Memanggil alat...",
+    "startConversation": "Mulakan perbualan",
+    "howCanIHelp": "Apa yang boleh saya bantu?",
+    "askAnything": "Tanya apa sahaja...",
+    "modelsCount": "{{count}} model"
+  },
+  "effort": {
+    "off": "Mati",
+    "on": "Hidup",
+    "low": "Rendah",
+    "medium": "Sederhana",
+    "high": "Tinggi",
+    "xhigh": "Sangat Tinggi"
+  },
+  "provider": {
+    "title": "Pembekal",
+    "selectProvider": "Pilih pembekal untuk bermula",
+    "orSelectProvider": "atau pilih pembekal",
+    "waitingBrowserLogin": "Menunggu log masuk pelayar...",
+    "searchProviders": "Cari pembekal...",
+    "custom": "Tersuai",
+    "customDescription": "Konfigurasi mana-mana API secara manual",
+    "testConnection": "Uji Sambungan",
+    "name": "Nama",
+    "apiType": "Jenis API",
+    "optional": "pilihan",
+    "leaveEmptyNoAuth": "Biarkan kosong, isi jika pengesahan diperlukan",
+    "leaveEmptyNoChange": "Biarkan kosong jika tidak berubah",
+    "apiKeyLeaveEmpty": "API Key (biarkan kosong jika tidak berubah)",
+    "noProviders": "Tiada pembekal ditambah lagi",
+    "addProvider": "Tambah Pembekal",
+    "editProvider": "Sunting Pembekal",
+    "confirmDelete": "Adakah anda pasti mahu memadam pembekal ini?",
+    "disable": "Nyahaktif",
+    "enable": "Aktifkan",
+    "disabled": "Dinyahaktifkan",
+    "myCustomProvider": "Pembekal Tersuai Saya",
+    "authRequired": "Isi jika pengesahan diperlukan"
+  },
+  "model": {
+    "modelConfig": "Konfigurasi Model",
+    "modelId": "ID Model",
+    "displayName": "Nama Paparan",
+    "supportedInputTypes": "Jenis Input Disokong",
+    "text": "Teks",
+    "image": "Imej",
+    "video": "Video",
+    "reasoning": "Penaakulan / Pemikiran",
+    "inputCost": "Kos Input ($/1M tokens)",
+    "outputCost": "Kos Output ($/1M tokens)",
+    "modelList": "Senarai Model",
+    "modelsCount": "{{count}} model",
+    "addModel": "Tambah Model",
+    "configModels": "Konfigurasi model untuk pembekal ini",
+    "atLeastOneModel": "Tambah sekurang-kurangnya satu model untuk meneruskan"
+  },
+  "wizard": {
+    "apiType": "Jenis API",
+    "connectionConfig": "Konfigurasi Sambungan",
+    "models": "Model",
+    "selectApiType": "Pilih Jenis API",
+    "anthropicDesc": "Model Anthropic seperti Claude",
+    "openaiChatDesc": "Perkhidmatan serasi dengan /v1/chat/completions",
+    "openaiResponsesDesc": "Perkhidmatan serasi dengan /v1/responses"
+  },
+  "language": {
+    "title": "Bahasa",
+    "system": "Lalai Sistem"
+  }
+}
