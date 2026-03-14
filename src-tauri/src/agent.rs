@@ -67,6 +67,43 @@ pub fn clamp_reasoning_effort(model: &str, effort: &str) -> Option<String> {
     Some(effort.to_string())
 }
 
+/// Map reasoning effort to Anthropic thinking parameter.
+/// Anthropic uses `thinking: { type: "enabled", budget_tokens: N }` format.
+/// Returns None if thinking should be disabled.
+fn map_think_for_anthropic(effort: Option<&str>, max_tokens: u32) -> Option<serde_json::Value> {
+    let effort = effort?;
+    if effort == "none" {
+        return None;
+    }
+    // Map effort level to budget_tokens
+    let budget: u32 = match effort {
+        "low" => 1024,
+        "medium" => 4096,
+        "high" => 8192,
+        "xhigh" => 16384,
+        _ => return None,
+    };
+    // Anthropic requires budget_tokens < max_tokens specified in request
+    let capped_budget = budget.min(max_tokens.saturating_sub(1));
+    Some(json!({
+        "type": "enabled",
+        "budget_tokens": capped_budget
+    }))
+}
+
+/// Map reasoning effort to OpenAI Chat Completions `reasoning_effort` parameter.
+/// Chat Completions supports "low", "medium", "high" (no xhigh).
+/// Returns None if thinking should be disabled.
+fn map_think_for_openai_chat(effort: Option<&str>) -> Option<String> {
+    let effort = effort?;
+    match effort {
+        "none" => None,
+        "xhigh" => Some("high".to_string()), // Downgrade xhigh to high
+        "low" | "medium" | "high" => Some(effort.to_string()),
+        _ => None,
+    }
+}
+
 /// Supported LLM providers
 pub enum LlmProvider {
     /// Anthropic Messages API
@@ -354,10 +391,10 @@ impl AssistantAgent {
     pub async fn chat(&self, message: &str, reasoning_effort: Option<&str>, on_delta: impl Fn(&str) + Send + 'static) -> Result<String> {
         match &self.provider {
             LlmProvider::Anthropic { api_key, base_url, model } => {
-                self.chat_anthropic(api_key, base_url, model, message, &on_delta).await
+                self.chat_anthropic(api_key, base_url, model, message, reasoning_effort, &on_delta).await
             }
             LlmProvider::OpenAIChat { api_key, base_url, model } => {
-                self.chat_openai_chat(api_key, base_url, model, message, &on_delta).await
+                self.chat_openai_chat(api_key, base_url, model, message, reasoning_effort, &on_delta).await
             }
             LlmProvider::OpenAIResponses { api_key, base_url, model } => {
                 self.chat_openai_responses(api_key, base_url, model, message, reasoning_effort, &on_delta).await
@@ -370,7 +407,7 @@ impl AssistantAgent {
 
     // ── Anthropic Messages API with Tool Loop ─────────────────────
 
-    async fn chat_anthropic(&self, api_key: &str, base_url: &str, model: &str, message: &str, on_delta: &(impl Fn(&str) + Send)) -> Result<String> {
+    async fn chat_anthropic(&self, api_key: &str, base_url: &str, model: &str, message: &str, reasoning_effort: Option<&str>, on_delta: &(impl Fn(&str) + Send)) -> Result<String> {
         let client = reqwest::Client::new();
         let tool_schemas = tools::get_tools_for_provider(ToolProvider::Anthropic);
 
@@ -382,15 +419,24 @@ impl AssistantAgent {
 
         let api_url = format!("{}/v1/messages", base_url.trim_end_matches('/'));
 
+        // Map thinking effort for Anthropic
+        let max_tokens: u32 = 16384;
+        let thinking = map_think_for_anthropic(reasoning_effort, max_tokens);
+
         for _round in 0..MAX_TOOL_ROUNDS {
-            let body = json!({
+            let mut body = json!({
                 "model": model,
-                "max_tokens": 8192,
+                "max_tokens": max_tokens,
                 "system": SYSTEM_PROMPT,
                 "tools": tool_schemas,
                 "messages": messages,
                 "stream": true,
             });
+
+            // Add thinking parameter if enabled
+            if let Some(ref think_config) = thinking {
+                body["thinking"] = think_config.clone();
+            }
 
             let resp = client
                 .post(&api_url)
@@ -578,7 +624,7 @@ impl AssistantAgent {
 
     // ── OpenAI Chat Completions API with Tool Loop ───────────────
 
-    async fn chat_openai_chat(&self, api_key: &str, base_url: &str, model: &str, message: &str, on_delta: &(impl Fn(&str) + Send)) -> Result<String> {
+    async fn chat_openai_chat(&self, api_key: &str, base_url: &str, model: &str, message: &str, reasoning_effort: Option<&str>, on_delta: &(impl Fn(&str) + Send)) -> Result<String> {
         let client = reqwest::Client::new();
         let tool_schemas = tools::get_tools_for_provider(ToolProvider::OpenAI);
 
@@ -587,6 +633,9 @@ impl AssistantAgent {
 
         let api_url = format!("{}/v1/chat/completions", base_url.trim_end_matches('/'));
         let mut collected_text = String::new();
+
+        // Map thinking effort for OpenAI Chat
+        let reasoning = map_think_for_openai_chat(reasoning_effort);
 
         for _round in 0..MAX_TOOL_ROUNDS {
             // Build messages array: system + conversation
@@ -598,12 +647,17 @@ impl AssistantAgent {
                 json!({ "type": "function", "function": t })
             }).collect();
 
-            let body = json!({
+            let mut body = json!({
                 "model": model,
                 "messages": api_messages,
                 "tools": tools_array,
                 "stream": true,
             });
+
+            // Add reasoning_effort if enabled
+            if let Some(ref effort) = reasoning {
+                body["reasoning_effort"] = json!(effort);
+            }
 
             let mut req = client
                 .post(&api_url)

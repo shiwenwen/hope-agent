@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Think 等级按 Provider 差异化映射**：不同 API 类型使用各自原生的 thinking 参数格式
+  - Anthropic：`thinking: { type: "enabled", budget_tokens: N }`（low→1024 / medium→4096 / high→8192 / xhigh→16384）
+  - OpenAI Chat Completions：`reasoning_effort` 字段（low/medium/high，xhigh 自动降级为 high）
+  - OpenAI Responses / Codex：保持现有 `reasoning.effort` 格式（支持 xhigh）
+- **动态 Think 选项**：前端根据当前模型的 API 类型显示不同的 effort 选项列表
+- **切换模型自动修正**：当切换到不支持当前 effort 等级的 Provider 时，自动回退到有效值
 - **模型 Provider 管理系统**：支持多个自定义模型服务商，GUI 傻瓜式配置
 - **24 个内置 Provider 模板**：选择模板后只需填 API Key，Base URL 和模型列表自动预填
   - 国际：Anthropic、OpenAI (Responses)、OpenAI (Chat)、DeepSeek、Google Gemini、xAI、Mistral、OpenRouter、Groq、NVIDIA、Together AI

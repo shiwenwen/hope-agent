@@ -47,13 +47,40 @@ interface ActiveModel {
   modelId: string
 }
 
-const EFFORT_OPTIONS = [
+const EFFORT_OPTIONS_OPENAI = [
   { value: "none", label: "关闭" },
   { value: "low", label: "Low" },
   { value: "medium", label: "Medium" },
   { value: "high", label: "High" },
   { value: "xhigh", label: "XHigh" },
 ] as const
+
+const EFFORT_OPTIONS_ANTHROPIC = [
+  { value: "none", label: "关闭" },
+  { value: "low", label: "Low" },
+  { value: "medium", label: "Medium" },
+  { value: "high", label: "High" },
+] as const
+
+const EFFORT_OPTIONS_BINARY = [
+  { value: "none", label: "关闭" },
+  { value: "medium", label: "开启" },
+] as const
+
+function getEffortOptions(apiType?: string) {
+  switch (apiType) {
+    case "openai-responses":
+    case "codex":
+      return EFFORT_OPTIONS_OPENAI
+    case "anthropic":
+      return EFFORT_OPTIONS_ANTHROPIC
+    case "openai-chat":
+      // OpenAI Chat Completions doesn't support xhigh
+      return EFFORT_OPTIONS_ANTHROPIC
+    default:
+      return EFFORT_OPTIONS_BINARY
+  }
+}
 
 function ToolCallBlock({ tool }: { tool: ToolCall }) {
   const [expanded, setExpanded] = useState(false)
@@ -182,6 +209,22 @@ function ChatScreen({
       await invoke("set_active_model", { providerId, modelId })
     } catch (e) {
       console.error("Failed to set model:", e)
+    }
+
+    // Auto-clamp effort if it's not valid for the new model's API type
+    const newModel = availableModels.find(
+      (m) => m.providerId === providerId && m.modelId === modelId,
+    )
+    if (newModel) {
+      const validOptions = getEffortOptions(newModel.apiType)
+      const isValid = validOptions.some((opt) => opt.value === reasoningEffort)
+      if (!isValid) {
+        // Reset to "medium" if available, otherwise "none"
+        const fallback = validOptions.some((o) => o.value === "medium")
+          ? "medium"
+          : "none"
+        handleEffortChange(fallback)
+      }
     }
   }
 
@@ -407,7 +450,7 @@ function ChatScreen({
                     onChange={(e) => handleEffortChange(e.target.value)}
                     className="appearance-none bg-secondary text-foreground text-xs font-medium pl-1 pr-5 py-1 rounded-md border border-border cursor-pointer hover:bg-secondary/80 transition-colors focus:outline-none focus:ring-1 focus:ring-ring"
                   >
-                    {EFFORT_OPTIONS.map((opt) => (
+                    {getEffortOptions(currentModelInfo?.apiType).map((opt) => (
                       <option key={opt.value} value={opt.value}>
                         {opt.label}
                       </option>
