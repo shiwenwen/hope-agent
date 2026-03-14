@@ -1,26 +1,24 @@
 @import "tailwindcss";
 
-@layer base {
-  :root {
-    --background: 0 0% 6%;
-    --foreground: 0 0% 88%;
-    --card: 0 0% 10%;
-    --card-foreground: 0 0% 88%;
-    --popover: 0 0% 10%;
-    --popover-foreground: 0 0% 88%;
-    --primary: 0 0% 100%;
-    --primary-foreground: 0 0% 0%;
-    --secondary: 0 0% 16%;
-    --secondary-foreground: 0 0% 88%;
-    --muted: 0 0% 14%;
-    --muted-foreground: 0 0% 40%;
-    --accent: 0 0% 16%;
-    --accent-foreground: 0 0% 88%;
-    --border: 0 0% 12%;
-    --input: 0 0% 12%;
-    --ring: 0 0% 50%;
-    --radius: 0.5rem;
-  }
+@theme {
+  --color-background: hsl(0 0% 6%);
+  --color-foreground: hsl(0 0% 88%);
+  --color-card: hsl(0 0% 10%);
+  --color-card-foreground: hsl(0 0% 88%);
+  --color-popover: hsl(0 0% 10%);
+  --color-popover-foreground: hsl(0 0% 88%);
+  --color-primary: hsl(0 0% 100%);
+  --color-primary-foreground: hsl(0 0% 0%);
+  --color-secondary: hsl(0 0% 16%);
+  --color-secondary-foreground: hsl(0 0% 88%);
+  --color-muted: hsl(0 0% 14%);
+  --color-muted-foreground: hsl(0 0% 40%);
+  --color-accent: hsl(0 0% 16%);
+  --color-accent-foreground: hsl(0 0% 88%);
+  --color-border: hsl(0 0% 12%);
+  --color-input: hsl(0 0% 12%);
+  --color-ring: hsl(0 0% 50%);
+  --radius: 0.5rem;
 }
 
 @layer base {
