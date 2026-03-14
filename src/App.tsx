@@ -180,6 +180,10 @@ function ChatScreen({ onLogout }: { onLogout: () => void }) {
   const [loading, setLoading] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
 
+  // Resizable agent list panel
+  const [panelWidth, setPanelWidth] = useState(256)
+  const isDragging = useRef(false)
+
   // Model & reasoning state
   const [models, setModels] = useState<CodexModel[]>([])
   const [currentModel, setCurrentModel] = useState("gpt-5.4")
@@ -188,6 +192,34 @@ function ChatScreen({ onLogout }: { onLogout: () => void }) {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages, loading])
+
+  // Drag handler for resizable panel
+  const handleDragStart = (e: React.MouseEvent) => {
+    e.preventDefault()
+    isDragging.current = true
+    const startX = e.clientX
+    const startWidth = panelWidth
+
+    const onMouseMove = (ev: MouseEvent) => {
+      if (!isDragging.current) return
+      const delta = ev.clientX - startX
+      const newWidth = Math.min(400, Math.max(180, startWidth + delta))
+      setPanelWidth(newWidth)
+    }
+
+    const onMouseUp = () => {
+      isDragging.current = false
+      document.removeEventListener("mousemove", onMouseMove)
+      document.removeEventListener("mouseup", onMouseUp)
+      document.body.style.cursor = ""
+      document.body.style.userSelect = ""
+    }
+
+    document.addEventListener("mousemove", onMouseMove)
+    document.addEventListener("mouseup", onMouseUp)
+    document.body.style.cursor = "col-resize"
+    document.body.style.userSelect = "none"
+  }
 
   // Fetch models and current settings on mount
   useEffect(() => {
@@ -333,7 +365,7 @@ function ChatScreen({ onLogout }: { onLogout: () => void }) {
       </div>
 
       {/* Column 2: Agent List */}
-      <div className="w-64 shrink-0 border-r border-border bg-background flex flex-col">
+      <div style={{ width: panelWidth }} className="shrink-0 border-r border-border bg-background flex flex-col">
         <div className="h-11 flex items-center px-4 border-b border-border">
           <h2 className="text-sm font-semibold text-foreground">会话</h2>
         </div>
@@ -354,6 +386,12 @@ function ChatScreen({ onLogout }: { onLogout: () => void }) {
           </div>
         </div>
       </div>
+
+      {/* Drag Handle */}
+      <div
+        className="w-1 shrink-0 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors"
+        onMouseDown={handleDragStart}
+      />
 
       {/* Column 3: Chat Area */}
       <div className="flex-1 flex flex-col min-w-0">
