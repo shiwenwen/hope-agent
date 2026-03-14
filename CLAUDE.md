@@ -76,3 +76,19 @@ npm run lint
 - 修改 Tauri 命令后需同步更新 `invoke_handler!` 宏注册列表
 - Rust 依赖变更后需重新编译，`cargo check` 先行验证
 - OAuth token 持久化在用户 config 目录，登出时调用 `clear_token()` 清除
+
+## 文档维护
+
+当发生以下类型的改动时，**必须同步更新对应文档**：
+
+| 改动类型 | 需更新的文档 |
+|---------|------------|
+| 新增/删除功能、Tauri 命令、模块 | `CHANGELOG.md`、`docs/product-and-technical-spec.md`、`AGENTS.md` |
+| 技术栈变更（依赖升级/替换） | `AGENTS.md`、`docs/product-and-technical-spec.md` |
+| 架构/约定变更 | `AGENTS.md`、`docs/product-and-technical-spec.md` |
+| 编码规范变更 | `AGENTS.md` |
+
+- `CHANGELOG.md`：按 [Keep a Changelog](https://keepachangelog.com/) 格式，在 `[Unreleased]` 或新版本号下记录 Added / Changed / Removed
+- `AGENTS.md`：保持与 `CLAUDE.md` 内容一致，更新后同步复制
+- `docs/product-and-technical-spec.md`：更新功能清单、架构图、命令表、依赖表、路线图等
+- 提交代码时将文档变更一并 commit，commit message 中注明文档更新
