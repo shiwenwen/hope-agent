@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Provider 品牌 Logo**：所有 24 个内置 Provider 模板和 Provider 管理面板使用官方品牌 SVG 图标（基于 `@lobehub/icons`），替换原来的 emoji 字符
+  - 新增 `ProviderIcon` 组件（`src/components/ProviderIcon.tsx`），支持 provider key 直接映射和 provider name 模糊匹配
 - **多语言支持 (i18n)**：使用 `i18next` + `react-i18next` 实现完整的国际化支持
   - 支持 12 种语言：简体中文、繁體中文、English、日本語、Türkçe、Tiếng Việt、Português、한국어、Русский、العربية、Español、Bahasa Melayu
   - 自动检测系统语言，无法识别时回退到英文

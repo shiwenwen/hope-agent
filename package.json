@@ -11,11 +11,15 @@
     "tauri": "tauri"
   },
   "dependencies": {
+    "@lobehub/icons": "^5.0.1",
+    "@lobehub/ui": "^5.5.1",
     "@radix-ui/react-slot": "^1.2.4",
     "@tailwindcss/vite": "^4.2.1",
     "@tauri-apps/api": "^2.10.1",
+    "antd": "^6.3.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "es-toolkit": "^1.45.1",
     "i18next": "^25.8.18",
     "i18next-browser-languagedetector": "^8.2.1",
     "lucide-react": "^0.577.0",

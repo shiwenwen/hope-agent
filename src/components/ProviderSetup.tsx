@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import ProviderIcon from "@/components/ProviderIcon"
 import {
   ArrowLeft,
   ArrowRight,
@@ -779,7 +780,7 @@ export default function ProviderSetup({
                 onClick={() => selectTemplate(template)}
                 className="flex items-center gap-2.5 p-3 rounded-xl border border-border bg-card hover:border-primary/40 hover:bg-secondary/50 text-left transition-all duration-200"
               >
-                <span className="text-xl shrink-0">{template.icon}</span>
+                <ProviderIcon providerKey={template.key} size={24} className="shrink-0" />
                 <div className="min-w-0">
                   <div className="text-xs font-medium text-foreground truncate">
                     {template.name}

@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ModelEditor, type ModelConfig } from "@/components/ProviderSetup"
+import ProviderIcon from "@/components/ProviderIcon"
 import {
   ArrowLeft,
   Check,
@@ -15,10 +16,7 @@ import {
   Plus,
   Power,
   PowerOff,
-  Sparkles,
-  MessageSquare,
   Trash2,
-  Zap,
   X,
 } from "lucide-react"
 
@@ -39,19 +37,6 @@ interface ProviderConfig {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────
-
-function apiTypeIcon(type: ApiType) {
-  switch (type) {
-    case "anthropic":
-      return <Sparkles className="h-4 w-4" />
-    case "openai-chat":
-      return <MessageSquare className="h-4 w-4" />
-    case "openai-responses":
-      return <Zap className="h-4 w-4" />
-    case "codex":
-      return <Zap className="h-4 w-4" />
-  }
-}
 
 function apiTypeLabel(type: ApiType) {
   switch (type) {
@@ -343,7 +328,7 @@ export default function ProviderSettings({
               >
                 <div className="flex items-center gap-3">
                   <div className="w-9 h-9 rounded-lg bg-secondary flex items-center justify-center text-muted-foreground shrink-0">
-                    {apiTypeIcon(provider.apiType)}
+                    <ProviderIcon providerName={provider.name} size={20} />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium text-foreground truncate">
