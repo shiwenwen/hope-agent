@@ -92,10 +92,7 @@ fn generate_code_challenge(verifier: &str) -> String {
 
 /// Returns the path to the auth token file
 fn auth_file_path() -> Result<PathBuf> {
-    let home = dirs::home_dir().ok_or_else(|| anyhow!("Cannot find home directory"))?;
-    let dir = home.join(".opencomputer");
-    std::fs::create_dir_all(&dir)?;
-    Ok(dir.join("auth.json"))
+    crate::paths::auth_path()
 }
 
 /// Save token to disk

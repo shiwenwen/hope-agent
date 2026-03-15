@@ -16,6 +16,7 @@ src-tauri/src/  后端（Rust）
   lib.rs        Tauri 命令注册 & AppState
   agent.rs      AssistantAgent（多 Provider 封装 + Tool Loop）
   tools.rs      统一 Tool 定义 & 执行 & Provider Schema 适配
+  paths.rs      统一路径管理（~/.opencomputer/ 目录结构 & 数据迁移）
   provider.rs   Provider 数据模型 & JSON 持久化
   oauth.rs      Codex OAuth 2.0 PKCE 流程 & Token 管理
 docs/           产品与技术文档
@@ -64,7 +65,8 @@ npm run lint
 - **可拖拽多行输入框**：类似微信的 Textarea 输入区域，支持拖拽调整高度（80~400px）
 - **状态管理**：全局状态用 Tauri 的 `State<AppState>`（Rust 侧，`tokio::sync::Mutex`），前端保持轻量 React state
 - **Agent 封装**：所有 LLM 调用集中在 `agent.rs` 的 `AssistantAgent`，支持 4 种 `LlmProvider`（Anthropic / OpenAIChat / OpenAIResponses / Codex）
-- **Provider 管理**：`provider.rs` 定义 `ProviderConfig` / `ModelConfig` / `ApiType`，持久化至 `providers.json`
+- **数据存储**：所有数据统一存储到 `~/.opencomputer/` 目录，`paths.rs` 集中管理路径。目录结构包含 `config.json`（通用配置）、`credentials/`（OAuth 凭证）、`home/`（主 Agent Home）、`share/`（共享目录）、`{name}-home/`（其他 Agent Home）
+- **Provider 管理**：`provider.rs` 定义 `ProviderConfig` / `ModelConfig` / `ApiType`，持久化至 `~/.opencomputer/config.json`
 - **内置模板**：`ProviderSetup.tsx` 中 `PROVIDER_TEMPLATES` 数组包含 24 个预配置模板（API 类型参照 OpenClaw 源码）
 - **统一 Tool 架构**：所有 tool 定义和执行逻辑集中在 `tools.rs`，通过 `ToolProvider` 枚举 + `to_provider_schema()` 自动适配不同 LLM 的 schema 格式
 - **Tool Loop**：所有 Provider 均实现「请求 → 解析 tool_call → 执行 tool → 回传结果 → 继续」循环，最多 10 轮
@@ -91,7 +93,8 @@ npm run lint
 - API Key 和 OAuth Token 不要在任何日志中打印
 - 修改 Tauri 命令后需同步更新 `invoke_handler!` 宏注册列表
 - Rust 依赖变更后需重新编译，`cargo check` 先行验证
-- OAuth token 持久化在用户 config 目录，登出时调用 `clear_token()` 清除
+- OAuth token 持久化在 `~/.opencomputer/credentials/auth.json`，登出时调用 `clear_token()` 清除
+- 应用启动时自动执行旧数据迁移（`paths::migrate_legacy_data()`），无需手动操作
 
 ## 文档维护
 
