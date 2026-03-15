@@ -86,9 +86,23 @@
     "openaiChatDesc": "خدمات متوافقة مع /v1/chat/completions",
     "openaiResponsesDesc": "خدمات متوافقة مع /v1/responses"
   },
+  "settings": {
+    "title": "الإعدادات",
+    "providers": "مزودو الخدمة",
+    "language": "اللغة",
+    "languageDesc": "اختر لغة العرض",
+    "about": "حول"
+  },
   "language": {
     "title": "اللغة",
     "system": "اللغة الافتراضية للنظام"
+  },
+  "about": {
+    "title": "حول",
+    "version": "الإصدار",
+    "description": "مساعد ذكاء اصطناعي محلي مبني على Tauri 2 + React 19 + Rust",
+    "github": "GitHub",
+    "techStack": "المكدس التقني"
   },
   "approval": {
     "title": "تأكيد تنفيذ الأمر",

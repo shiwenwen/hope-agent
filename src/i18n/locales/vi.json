@@ -86,9 +86,23 @@
     "openaiChatDesc": "Dịch vụ tương thích /v1/chat/completions",
     "openaiResponsesDesc": "Dịch vụ tương thích /v1/responses"
   },
+  "settings": {
+    "title": "Cài đặt",
+    "providers": "Nhà cung cấp",
+    "language": "Ngôn ngữ",
+    "languageDesc": "Chọn ngôn ngữ hiển thị",
+    "about": "Giới thiệu"
+  },
   "language": {
     "title": "Ngôn ngữ",
     "system": "Theo hệ thống"
+  },
+  "about": {
+    "title": "Giới thiệu",
+    "version": "Phiên bản",
+    "description": "Trợ lý AI cục bộ xây dựng trên Tauri 2 + React 19 + Rust",
+    "github": "GitHub",
+    "techStack": "Công nghệ"
   },
   "approval": {
     "title": "Xác nhận thực thi lệnh",

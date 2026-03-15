@@ -86,9 +86,23 @@
     "openaiChatDesc": "兼容 /v1/chat/completions 的服务",
     "openaiResponsesDesc": "兼容 /v1/responses 的服务"
   },
+  "settings": {
+    "title": "设置",
+    "providers": "模型服务商",
+    "language": "语言",
+    "languageDesc": "选择界面显示语言",
+    "about": "关于"
+  },
   "language": {
     "title": "语言",
     "system": "跟随系统"
+  },
+  "about": {
+    "title": "关于",
+    "version": "版本",
+    "description": "基于 Tauri 2 + React 19 + Rust 的本地 AI 助手桌面应用",
+    "github": "GitHub",
+    "techStack": "技术栈"
   },
   "approval": {
     "title": "命令执行确认",

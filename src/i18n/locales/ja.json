@@ -86,9 +86,23 @@
     "openaiChatDesc": "/v1/chat/completions 互換サービス",
     "openaiResponsesDesc": "/v1/responses 互換サービス"
   },
+  "settings": {
+    "title": "設定",
+    "providers": "プロバイダー",
+    "language": "言語",
+    "languageDesc": "表示言語を選択",
+    "about": "概要"
+  },
   "language": {
     "title": "言語",
     "system": "システム設定に従う"
+  },
+  "about": {
+    "title": "概要",
+    "version": "バージョン",
+    "description": "Tauri 2 + React 19 + Rust で構築されたローカル AI アシスタント",
+    "github": "GitHub",
+    "techStack": "技術スタック"
   },
   "approval": {
     "title": "コマンド実行の確認",

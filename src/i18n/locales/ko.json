@@ -86,9 +86,23 @@
     "openaiChatDesc": "/v1/chat/completions 호환 서비스",
     "openaiResponsesDesc": "/v1/responses 호환 서비스"
   },
+  "settings": {
+    "title": "설정",
+    "providers": "공급자",
+    "language": "언어",
+    "languageDesc": "표시 언어 선택",
+    "about": "정보"
+  },
   "language": {
     "title": "언어",
     "system": "시스템 설정 따르기"
+  },
+  "about": {
+    "title": "정보",
+    "version": "버전",
+    "description": "Tauri 2 + React 19 + Rust 기반 로컬 AI 어시스턴트",
+    "github": "GitHub",
+    "techStack": "기술 스택"
   },
   "approval": {
     "title": "명령 실행 확인",

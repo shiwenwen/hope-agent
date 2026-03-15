@@ -86,9 +86,23 @@
     "openaiChatDesc": "/v1/chat/completions uyumlu servisler",
     "openaiResponsesDesc": "/v1/responses uyumlu servisler"
   },
+  "settings": {
+    "title": "Ayarlar",
+    "providers": "Sağlayıcılar",
+    "language": "Dil",
+    "languageDesc": "Görüntüleme dilini seçin",
+    "about": "Hakkında"
+  },
   "language": {
     "title": "Dil",
     "system": "Sistem Varsayılanı"
+  },
+  "about": {
+    "title": "Hakkında",
+    "version": "Sürüm",
+    "description": "Tauri 2 + React 19 + Rust ile oluşturulmuş yerel AI asistanı",
+    "github": "GitHub",
+    "techStack": "Teknoloji"
   },
   "approval": {
     "title": "Komut Onayı Gerekli",

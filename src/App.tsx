@@ -19,7 +19,7 @@ import {
   X,
 } from "lucide-react"
 import ProviderSetup from "@/components/ProviderSetup"
-import ProviderSettings from "@/components/ProviderSettings"
+import SettingsView from "@/components/SettingsView"
 import MarkdownRenderer from "@/components/MarkdownRenderer"
 import ApprovalDialog, { type ApprovalRequest } from "@/components/ApprovalDialog"
 import { SUPPORTED_LANGUAGES } from "@/i18n/i18n"
@@ -519,7 +519,7 @@ function ChatScreen({
                     <button
                       key={lang.code}
                       className={`flex items-center gap-2.5 w-full px-3 py-1.5 text-xs transition-colors hover:bg-secondary ${
-                        i18n.language === lang.code || i18n.language.startsWith(lang.code + "-") && lang.code !== "zh"
+                        i18n.language === lang.code || (i18n.language.startsWith(lang.code + "-") && lang.code !== "zh")
                           ? "text-primary font-medium"
                           : "text-foreground"
                       }`}
@@ -886,7 +886,7 @@ function ChatScreen({
 
 export default function App() {
   const [view, setView] = useState<
-    "loading" | "setup" | "chat" | "settings" | "add-provider"
+    "loading" | "setup" | "chat" | "settings"
   >("loading")
 
   // Try to restore previous session on mount
@@ -954,21 +954,12 @@ export default function App() {
     )
   }
 
-  if (view === "add-provider") {
-    return (
-      <ProviderSetup
-        onComplete={() => setView("settings")}
-        onCodexAuth={handleCodexAuth}
-        onCancel={() => setView("settings")}
-      />
-    )
-  }
 
   if (view === "settings") {
     return (
-      <ProviderSettings
+      <SettingsView
         onBack={() => setView("chat")}
-        onAddProvider={() => setView("add-provider")}
+        onCodexAuth={handleCodexAuth}
         onCodexReauth={handleCodexAuth}
       />
     )

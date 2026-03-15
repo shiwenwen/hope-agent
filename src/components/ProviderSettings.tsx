@@ -7,7 +7,6 @@ import { ModelEditor, type ModelConfig } from "@/components/ProviderSetup"
 import ProviderIcon from "@/components/ProviderIcon"
 import TestResultDisplay, { parseTestResult, type TestResult } from "@/components/TestResultDisplay"
 import {
-  ArrowLeft,
   Check,
   ChevronDown,
   Eye,
@@ -15,12 +14,12 @@ import {
   Globe,
   Key,
   Loader2,
-  LogIn,
   MoreVertical,
   Pencil,
   Plus,
   Power,
   PowerOff,
+  RefreshCw,
   Trash2,
   Wifi,
   X,
@@ -60,11 +59,9 @@ function apiTypeLabel(type: ApiType) {
 // ── Main Component ────────────────────────────────────────────────
 
 export default function ProviderSettings({
-  onBack,
   onAddProvider,
   onCodexReauth,
 }: {
-  onBack: () => void
   onAddProvider: () => void
   onCodexReauth?: () => void
 }) {
@@ -183,26 +180,19 @@ export default function ProviderSettings({
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="h-11 flex items-center justify-between px-4 border-b border-border shrink-0">
-        <button
-          onClick={onBack}
-          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          {t("common.back")}
-        </button>
-        <span className="text-sm font-semibold text-foreground">
+      {/* Add Provider Button */}
+      <div className="flex items-center justify-between px-5 pt-5 pb-2">
+        <h2 className="text-lg font-semibold text-foreground">
           {t("provider.title")}
-        </span>
-        <Button variant="ghost" size="sm" onClick={onAddProvider}>
+        </h2>
+        <Button variant="secondary" size="sm" onClick={onAddProvider}>
           <Plus className="h-3.5 w-3.5 mr-1" />
-          {t("common.add")}
+          {t("provider.addProvider")}
         </Button>
       </div>
 
       {/* Provider List */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+      <div className="flex-1 overflow-y-auto px-5 pb-5 space-y-3">
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -234,14 +224,30 @@ export default function ProviderSettings({
                   <span className="text-xs font-medium text-primary">
                     {t("provider.editProvider")}
                   </span>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6"
-                    onClick={() => setEditingId(null)}
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    {provider.apiType === "codex" && onCodexReauth && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6"
+                        onClick={() => {
+                          setEditingId(null)
+                          onCodexReauth()
+                        }}
+                        title={t("provider.relogin")}
+                      >
+                        <RefreshCw className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6"
+                      onClick={() => setEditingId(null)}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
                 </div>
 
                 <div className="space-y-2.5">
@@ -506,7 +512,7 @@ export default function ProviderSettings({
                                 onCodexReauth()
                               }}
                             >
-                              <LogIn className="h-3 w-3" />
+                              <RefreshCw className="h-3 w-3" />
                               {t("provider.relogin")}
                             </button>
                           )}

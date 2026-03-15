@@ -86,9 +86,23 @@
     "openaiChatDesc": "Services compatible with /v1/chat/completions",
     "openaiResponsesDesc": "Services compatible with /v1/responses"
   },
+  "settings": {
+    "title": "Settings",
+    "providers": "Providers",
+    "language": "Language",
+    "languageDesc": "Choose the display language",
+    "about": "About"
+  },
   "language": {
     "title": "Language",
     "system": "System Default"
+  },
+  "about": {
+    "title": "About",
+    "version": "Version",
+    "description": "A local AI assistant desktop app built with Tauri 2 + React 19 + Rust",
+    "github": "GitHub",
+    "techStack": "Tech Stack"
   },
   "approval": {
     "title": "Command Approval Required",

@@ -86,9 +86,23 @@
     "openaiChatDesc": "Сервисы, совместимые с /v1/chat/completions",
     "openaiResponsesDesc": "Сервисы, совместимые с /v1/responses"
   },
+  "settings": {
+    "title": "Настройки",
+    "providers": "Провайдеры",
+    "language": "Язык",
+    "languageDesc": "Выберите язык интерфейса",
+    "about": "О программе"
+  },
   "language": {
     "title": "Язык",
     "system": "Системный"
+  },
+  "about": {
+    "title": "О программе",
+    "version": "Версия",
+    "description": "Локальный AI-ассистент на Tauri 2 + React 19 + Rust",
+    "github": "GitHub",
+    "techStack": "Технологии"
   },
   "approval": {
     "title": "Подтверждение выполнения",

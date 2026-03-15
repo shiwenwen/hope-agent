@@ -86,9 +86,23 @@
     "openaiChatDesc": "Serviços compatíveis com /v1/chat/completions",
     "openaiResponsesDesc": "Serviços compatíveis com /v1/responses"
   },
+  "settings": {
+    "title": "Configurações",
+    "providers": "Provedores",
+    "language": "Idioma",
+    "languageDesc": "Escolha o idioma de exibição",
+    "about": "Sobre"
+  },
   "language": {
     "title": "Idioma",
     "system": "Padrão do Sistema"
+  },
+  "about": {
+    "title": "Sobre",
+    "version": "Versão",
+    "description": "Assistente de IA local com Tauri 2 + React 19 + Rust",
+    "github": "GitHub",
+    "techStack": "Stack Tecnológico"
   },
   "approval": {
     "title": "Confirmação de Execução",

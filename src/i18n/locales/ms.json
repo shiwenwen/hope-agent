@@ -86,9 +86,23 @@
     "openaiChatDesc": "Perkhidmatan serasi dengan /v1/chat/completions",
     "openaiResponsesDesc": "Perkhidmatan serasi dengan /v1/responses"
   },
+  "settings": {
+    "title": "Tetapan",
+    "providers": "Pembekal",
+    "language": "Bahasa",
+    "languageDesc": "Pilih bahasa paparan",
+    "about": "Tentang"
+  },
   "language": {
     "title": "Bahasa",
     "system": "Lalai Sistem"
+  },
+  "about": {
+    "title": "Tentang",
+    "version": "Versi",
+    "description": "Pembantu AI tempatan dibina dengan Tauri 2 + React 19 + Rust",
+    "github": "GitHub",
+    "techStack": "Tumpukan Teknologi"
   },
   "approval": {
     "title": "Pengesahan Pelaksanaan Perintah",
