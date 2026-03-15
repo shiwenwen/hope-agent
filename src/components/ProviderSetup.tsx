@@ -817,7 +817,7 @@ export default function ProviderSetup({
 
   if (mode === "choose") {
     return (
-      <div className="flex flex-col h-screen bg-background">
+    <div className="flex flex-col h-full bg-background">
         {/* Header with optional back button */}
         {onCancel && (
           <div className="h-11 flex items-center px-4 border-b border-border shrink-0">
@@ -893,7 +893,7 @@ export default function ProviderSetup({
                 onClick={() => selectTemplate(template)}
                 className="flex items-center gap-2.5 p-3 rounded-xl border border-border bg-card hover:border-primary/40 hover:bg-secondary/50 text-left transition-all duration-200"
               >
-                <ProviderIcon providerKey={template.key} size={24} className="shrink-0" />
+                <ProviderIcon providerKey={template.key} size={24} className="shrink-0" color />
                 <div className="min-w-0">
                   <div className="text-xs font-medium text-foreground truncate">
                     {template.name}
@@ -937,7 +937,7 @@ export default function ProviderSetup({
       models.every((m) => m.id.trim() && m.name.trim())
 
     return (
-      <div className="flex flex-col h-screen bg-background">
+    <div className="flex flex-col h-full bg-background">
         {/* Header */}
         <div className="h-11 flex items-center px-4 border-b border-border shrink-0">
           <button
@@ -947,8 +947,9 @@ export default function ProviderSetup({
             <ArrowLeft className="h-4 w-4" />
             {t("common.back")}
           </button>
-          <span className="text-sm font-semibold text-foreground mx-auto">
-            {selectedTemplate.icon} {selectedTemplate.name}
+          <span className="text-sm font-semibold text-foreground mx-auto flex items-center gap-1.5">
+            <ProviderIcon providerKey={selectedTemplate.key} size={18} color />
+            {selectedTemplate.name}
           </span>
           <div className="w-12" /> {/* spacer */}
         </div>
@@ -1178,7 +1179,7 @@ export default function ProviderSetup({
         models.every((m) => m.id.trim() && m.name.trim())
 
   return (
-    <div className="flex flex-col h-screen bg-background">
+    <div className="flex flex-col h-full bg-background">
       {/* Header */}
       <div className="h-11 flex items-center px-4 border-b border-border shrink-0">
         <button

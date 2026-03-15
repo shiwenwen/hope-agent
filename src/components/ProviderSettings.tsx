@@ -443,7 +443,7 @@ export default function ProviderSettings({
               >
                 <div className="flex items-center gap-3">
                   <div className="w-9 h-9 rounded-lg bg-secondary flex items-center justify-center text-muted-foreground shrink-0">
-                    <ProviderIcon providerName={provider.name} size={20} />
+                    <ProviderIcon providerName={provider.name} size={20} color />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium text-foreground truncate">

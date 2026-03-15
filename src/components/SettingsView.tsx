@@ -289,7 +289,7 @@ export default function SettingsView({
         </div>
 
         {/* Content Area */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-hidden">
           {activeSection === "providers" && (
             addingProvider ? (
               <ProviderSetup
