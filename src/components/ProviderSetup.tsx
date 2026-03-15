@@ -31,6 +31,7 @@ import {
 // ── Types ─────────────────────────────────────────────────────────
 
 type ApiType = "anthropic" | "openai-chat" | "openai-responses" | "codex"
+type ThinkingStyleType = "openai" | "anthropic" | "zai" | "qwen" | "none"
 
 export interface ModelConfig {
   id: string
@@ -52,6 +53,7 @@ interface ProviderConfig {
   models: ModelConfig[]
   enabled: boolean
   userAgent: string
+  thinkingStyle: ThinkingStyleType
 }
 
 // ── Built-in Provider Templates ───────────────────────────────────
@@ -66,6 +68,7 @@ interface ProviderTemplate {
   apiKeyPlaceholder: string
   requiresApiKey: boolean
   models: ModelConfig[]
+  thinkingStyle?: ThinkingStyleType
 }
 
 const PROVIDER_TEMPLATES: ProviderTemplate[] = [
@@ -84,6 +87,7 @@ const PROVIDER_TEMPLATES: ProviderTemplate[] = [
       { id: "claude-opus-4-6", name: "Claude Opus 4.6", inputTypes: ["text", "image"], contextWindow: 200000, maxTokens: 8192, reasoning: true, costInput: 15.0, costOutput: 75.0 },
       { id: "claude-haiku-3-5", name: "Claude Haiku 3.5", inputTypes: ["text", "image"], contextWindow: 200000, maxTokens: 8192, reasoning: false, costInput: 0.25, costOutput: 1.25 },
     ],
+    thinkingStyle: "anthropic",
   },
   {
     key: "openai",
@@ -234,6 +238,7 @@ const PROVIDER_TEMPLATES: ProviderTemplate[] = [
       { id: "qwen-turbo", name: "Qwen Turbo", inputTypes: ["text"], contextWindow: 131072, maxTokens: 8192, reasoning: false, costInput: 0.3, costOutput: 0.6 },
       { id: "qwq-plus", name: "QwQ Plus (推理)", inputTypes: ["text"], contextWindow: 131072, maxTokens: 16384, reasoning: true, costInput: 1.6, costOutput: 4.0 },
     ],
+    thinkingStyle: "qwen",
   },
   {
     key: "volcengine",
@@ -265,6 +270,7 @@ const PROVIDER_TEMPLATES: ProviderTemplate[] = [
       { id: "glm-5", name: "GLM-5", inputTypes: ["text"], contextWindow: 128000, maxTokens: 8192, reasoning: false, costInput: 0, costOutput: 0 },
       { id: "glm-4-plus", name: "GLM-4 Plus", inputTypes: ["text", "image"], contextWindow: 128000, maxTokens: 8192, reasoning: false, costInput: 0.5, costOutput: 0.5 },
     ],
+    thinkingStyle: "zai",
   },
   {
     key: "minimax",
@@ -280,6 +286,7 @@ const PROVIDER_TEMPLATES: ProviderTemplate[] = [
       { id: "MiniMax-M2.5", name: "MiniMax M2.5", inputTypes: ["text"], contextWindow: 200000, maxTokens: 8192, reasoning: true, costInput: 0.3, costOutput: 1.2 },
       { id: "MiniMax-M2.5-highspeed", name: "MiniMax M2.5 Highspeed", inputTypes: ["text"], contextWindow: 200000, maxTokens: 8192, reasoning: true, costInput: 0.3, costOutput: 1.2 },
     ],
+    thinkingStyle: "anthropic",
   },
   {
     key: "kimi-coding",
@@ -293,6 +300,7 @@ const PROVIDER_TEMPLATES: ProviderTemplate[] = [
     models: [
       { id: "k2p5", name: "Kimi for Coding", inputTypes: ["text", "image"], contextWindow: 262144, maxTokens: 32768, reasoning: true, costInput: 0, costOutput: 0 },
     ],
+    thinkingStyle: "anthropic",
   },
   {
     key: "xiaomi",
@@ -306,6 +314,7 @@ const PROVIDER_TEMPLATES: ProviderTemplate[] = [
     models: [
       { id: "mimo-v2-flash", name: "MiMo V2 Flash", inputTypes: ["text"], contextWindow: 262144, maxTokens: 8192, reasoning: false, costInput: 0, costOutput: 0 },
     ],
+    thinkingStyle: "anthropic",
   },
   {
     key: "qianfan",
@@ -340,6 +349,7 @@ const PROVIDER_TEMPLATES: ProviderTemplate[] = [
       { id: "glm-4.7", name: "GLM 4.7", inputTypes: ["text"], contextWindow: 202752, maxTokens: 16384, reasoning: false, costInput: 0, costOutput: 0 },
       { id: "kimi-k2.5", name: "Kimi K2.5", inputTypes: ["text", "image"], contextWindow: 262144, maxTokens: 32768, reasoning: false, costInput: 0, costOutput: 0 },
     ],
+    thinkingStyle: "qwen",
   },
   {
     key: "nvidia",
@@ -714,6 +724,7 @@ export default function ProviderSetup({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
   const [modelsExpanded, setModelsExpanded] = useState(false)
+  const [thinkingStyle, setThinkingStyle] = useState<ThinkingStyleType>("openai")
 
   // ── Actions ─────────────────────────────────────────────────────
 
@@ -727,6 +738,7 @@ export default function ProviderSetup({
     setTestResult(null)
     setError("")
     setModelsExpanded(false)
+    setThinkingStyle(template.thinkingStyle || "openai")
     setMode("template-config")
   }
 
@@ -740,6 +752,7 @@ export default function ProviderSetup({
     setTestResult(null)
     setError("")
     setCustomStep(0)
+    setThinkingStyle("openai")
     setMode("custom")
   }
 
@@ -755,6 +768,7 @@ export default function ProviderSetup({
           baseUrl,
           apiKey,
           userAgent: "claude-code/0.1.0",
+          thinkingStyle,
           models: [],
           enabled: true,
         },
@@ -780,6 +794,7 @@ export default function ProviderSetup({
           baseUrl,
           apiKey: apiKey || "ollama",
           userAgent: "claude-code/0.1.0",
+          thinkingStyle,
           models,
           enabled: true,
         },
@@ -1026,6 +1041,27 @@ export default function ProviderSetup({
                 onChange={(e) => setBaseUrl(e.target.value)}
                 className="bg-background font-mono text-xs"
               />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                <Settings2 className="h-3 w-3" />
+                {t("provider.thinkingStyle")}
+              </label>
+              <div className="relative">
+                <select
+                  value={thinkingStyle}
+                  onChange={(e) => setThinkingStyle(e.target.value as ThinkingStyleType)}
+                  className="w-full appearance-none bg-background text-foreground text-xs font-medium px-3 py-2 rounded-md border border-border cursor-pointer hover:bg-secondary/50 transition-colors focus:outline-none focus:ring-1 focus:ring-ring"
+                >
+                  <option value="openai">OpenAI (reasoning_effort)</option>
+                  <option value="anthropic">Anthropic (thinking budget)</option>
+                  <option value="zai">Z.AI (thinking budget)</option>
+                  <option value="qwen">Qwen (enable_thinking)</option>
+                  <option value="none">{t("provider.thinkingStyleNone")}</option>
+                </select>
+                <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none" />
+              </div>
             </div>
 
             {/* Test Connection */}
@@ -1307,6 +1343,26 @@ export default function ProviderSetup({
                   placeholder={t("provider.authRequired")}
                   className="bg-card font-mono text-xs"
                 />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                  <Settings2 className="h-3 w-3" />
+                  {t("provider.thinkingStyle")}
+                </label>
+                <div className="relative">
+                  <select
+                    value={thinkingStyle}
+                    onChange={(e) => setThinkingStyle(e.target.value as ThinkingStyleType)}
+                    className="w-full appearance-none bg-card text-foreground text-xs font-medium px-3 py-2 rounded-md border border-border cursor-pointer hover:bg-secondary/50 transition-colors focus:outline-none focus:ring-1 focus:ring-ring"
+                  >
+                    <option value="openai">OpenAI (reasoning_effort)</option>
+                    <option value="anthropic">Anthropic (thinking budget)</option>
+                    <option value="zai">Z.AI (thinking budget)</option>
+                    <option value="qwen">Qwen (enable_thinking)</option>
+                    <option value="none">{t("provider.thinkingStyleNone")}</option>
+                  </select>
+                  <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none" />
+                </div>
               </div>
               <Button
                 variant="secondary"

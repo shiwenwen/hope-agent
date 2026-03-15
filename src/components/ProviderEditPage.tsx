@@ -25,6 +25,7 @@ import {
 // ── Types ─────────────────────────────────────────────────────────
 
 type ApiType = "anthropic" | "openai-chat" | "openai-responses" | "codex"
+type ThinkingStyleType = "openai" | "anthropic" | "zai" | "qwen" | "none"
 
 interface ProviderConfig {
   id: string
@@ -35,6 +36,7 @@ interface ProviderConfig {
   models: ModelConfig[]
   enabled: boolean
   userAgent: string
+  thinkingStyle: ThinkingStyleType
 }
 
 // ── Main Component ────────────────────────────────────────────────
@@ -58,6 +60,7 @@ export default function ProviderEditPage({
   const [editApiKey, setEditApiKey] = useState(provider.apiKey)
   const [editApiType, setEditApiType] = useState<ApiType>(provider.apiType)
   const [editUserAgent, setEditUserAgent] = useState(provider.userAgent || "claude-code/0.1.0")
+  const [editThinkingStyle, setEditThinkingStyle] = useState<ThinkingStyleType>(provider.thinkingStyle || "openai")
   const [editModels, setEditModels] = useState<ModelConfig[]>([...provider.models])
   const [saving, setSaving] = useState(false)
   const [testResult, setTestResult] = useState<TestResult | null>(null)
@@ -78,6 +81,7 @@ export default function ProviderEditPage({
           baseUrl: editBaseUrl,
           apiKey: editApiKey,
           userAgent: editUserAgent,
+          thinkingStyle: editThinkingStyle,
           models: [],
           enabled: true,
         },
@@ -102,6 +106,7 @@ export default function ProviderEditPage({
           baseUrl: editBaseUrl,
           apiKey: editApiKey,
           userAgent: editUserAgent,
+          thinkingStyle: editThinkingStyle,
           models: editModels,
         },
       })
@@ -234,6 +239,27 @@ export default function ProviderEditPage({
                 />
               </div>
 
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                  <Settings2 className="h-3 w-3" />
+                  {t("provider.thinkingStyle")}
+                </label>
+                <div className="relative">
+                  <select
+                    value={editThinkingStyle}
+                    onChange={(e) => setEditThinkingStyle(e.target.value as ThinkingStyleType)}
+                    className="w-full appearance-none bg-background text-foreground text-xs font-medium px-3 py-2 rounded-md border border-border cursor-pointer hover:bg-secondary/50 transition-colors focus:outline-none focus:ring-1 focus:ring-ring"
+                  >
+                    <option value="openai">OpenAI (reasoning_effort)</option>
+                    <option value="anthropic">Anthropic (thinking budget)</option>
+                    <option value="zai">Z.AI (thinking budget)</option>
+                    <option value="qwen">Qwen (enable_thinking)</option>
+                    <option value="none">{t("provider.thinkingStyleNone")}</option>
+                  </select>
+                  <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none" />
+                </div>
+              </div>
+
               {/* Test Connection */}
               <Button
                 variant="secondary"
@@ -316,6 +342,7 @@ export default function ProviderEditPage({
                       baseUrl: editBaseUrl,
                       apiKey: editApiKey,
                       userAgent: editUserAgent,
+                      thinkingStyle: editThinkingStyle,
                       models: [],
                       enabled: true,
                     },

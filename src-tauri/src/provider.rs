@@ -43,6 +43,31 @@ impl ApiType {
     }
 }
 
+// ── Thinking Style ────────────────────────────────────────────────
+
+/// Thinking/reasoning parameter format for different LLM providers.
+/// Controls how the "thinking" capability is communicated to the API.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum ThinkingStyle {
+    /// OpenAI format: `reasoning_effort: "low"/"medium"/"high"`
+    Openai,
+    /// Anthropic format: `thinking: { type: "enabled", budget_tokens: N }`
+    Anthropic,
+    /// Z.AI format: same as Anthropic (reserved for future differentiation)
+    Zai,
+    /// Qwen/DashScope format: `enable_thinking: true`
+    Qwen,
+    /// Do not send any thinking/reasoning parameters
+    None,
+}
+
+impl Default for ThinkingStyle {
+    fn default() -> Self {
+        ThinkingStyle::Openai
+    }
+}
+
 // ── Model Config ──────────────────────────────────────────────────
 
 /// Configuration for a single model within a provider
@@ -111,6 +136,9 @@ pub struct ProviderConfig {
     /// Custom User-Agent header for API requests
     #[serde(default = "default_user_agent")]
     pub user_agent: String,
+    /// Thinking/reasoning parameter format
+    #[serde(default)]
+    pub thinking_style: ThinkingStyle,
 }
 
 fn default_true() -> bool {
@@ -133,6 +161,7 @@ impl ProviderConfig {
             models: Vec::new(),
             enabled: true,
             user_agent: default_user_agent(),
+            thinking_style: ThinkingStyle::default(),
         }
     }
 
@@ -351,6 +380,7 @@ pub fn ensure_codex_provider(store: &mut ProviderStore) -> String {
         models: codex_models,
         enabled: true,
         user_agent: default_user_agent(),
+        thinking_style: ThinkingStyle::default(),
     };
 
     let id = provider.id.clone();

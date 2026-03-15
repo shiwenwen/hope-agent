@@ -2,7 +2,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::provider::{ApiType, ProviderConfig};
+use crate::provider::{ApiType, ProviderConfig, ThinkingStyle};
 use crate::skills;
 use crate::tools::{self, ToolProvider};
 
@@ -199,10 +199,10 @@ pub fn clamp_reasoning_effort(model: &str, effort: &str) -> Option<String> {
     Some(effort.to_string())
 }
 
-/// Map reasoning effort to Anthropic thinking parameter.
-/// Anthropic uses `thinking: { type: "enabled", budget_tokens: N }` format.
+/// Map reasoning effort to Anthropic/ZAI thinking parameter.
+/// Anthropic/ZAI uses `thinking: { type: "enabled", budget_tokens: N }` format.
 /// Returns None if thinking should be disabled.
-fn map_think_for_anthropic(effort: Option<&str>, max_tokens: u32) -> Option<serde_json::Value> {
+fn map_think_anthropic_style(effort: Option<&str>, max_tokens: u32) -> Option<serde_json::Value> {
     let effort = effort?;
     if effort == "none" {
         return None;
@@ -223,16 +223,56 @@ fn map_think_for_anthropic(effort: Option<&str>, max_tokens: u32) -> Option<serd
     }))
 }
 
-/// Map reasoning effort to OpenAI Chat Completions `reasoning_effort` parameter.
+/// Map reasoning effort to OpenAI `reasoning_effort` parameter.
 /// Chat Completions supports "low", "medium", "high" (no xhigh).
 /// Returns None if thinking should be disabled.
-fn map_think_for_openai_chat(effort: Option<&str>) -> Option<String> {
+fn map_think_openai_style(effort: Option<&str>) -> Option<String> {
     let effort = effort?;
     match effort {
         "none" => None,
         "xhigh" => Some("high".to_string()), // Downgrade xhigh to high
         "low" | "medium" | "high" => Some(effort.to_string()),
         _ => None,
+    }
+}
+
+/// Map reasoning effort to Qwen `enable_thinking` parameter.
+/// Returns None if thinking should be disabled.
+fn map_think_qwen_style(effort: Option<&str>) -> Option<bool> {
+    let effort = effort?;
+    match effort {
+        "none" => Some(false),
+        "low" | "medium" | "high" | "xhigh" => Some(true),
+        _ => None,
+    }
+}
+
+/// Apply thinking parameters to an OpenAI Chat Completions body based on ThinkingStyle.
+fn apply_thinking_to_chat_body(
+    body: &mut serde_json::Value,
+    thinking_style: &ThinkingStyle,
+    reasoning_effort: Option<&str>,
+    max_tokens: u32,
+) {
+    match thinking_style {
+        ThinkingStyle::Openai => {
+            if let Some(effort) = map_think_openai_style(reasoning_effort) {
+                body["reasoning_effort"] = json!(effort);
+            }
+        }
+        ThinkingStyle::Anthropic | ThinkingStyle::Zai => {
+            if let Some(think_config) = map_think_anthropic_style(reasoning_effort, max_tokens) {
+                body["thinking"] = think_config;
+            }
+        }
+        ThinkingStyle::Qwen => {
+            if let Some(enable) = map_think_qwen_style(reasoning_effort) {
+                body["enable_thinking"] = json!(enable);
+            }
+        }
+        ThinkingStyle::None => {
+            // Do not send any thinking/reasoning parameters
+        }
     }
 }
 
@@ -252,6 +292,8 @@ pub struct AssistantAgent {
     provider: LlmProvider,
     /// Custom User-Agent header for API requests
     user_agent: String,
+    /// Thinking/reasoning parameter format
+    thinking_style: ThinkingStyle,
     /// Conversation history persisted across chat() calls
     conversation_history: std::sync::Mutex<Vec<serde_json::Value>>,
 }
@@ -477,6 +519,7 @@ impl AssistantAgent {
                 model: ANTHROPIC_MODEL.to_string(),
             },
             user_agent: USER_AGENT.to_string(),
+            thinking_style: ThinkingStyle::Anthropic,
             conversation_history: std::sync::Mutex::new(Vec::new()),
         }
     }
@@ -490,6 +533,7 @@ impl AssistantAgent {
                 model: model.to_string(),
             },
             user_agent: USER_AGENT.to_string(),
+            thinking_style: ThinkingStyle::Openai,
             conversation_history: std::sync::Mutex::new(Vec::new()),
         }
     }
@@ -521,6 +565,7 @@ impl AssistantAgent {
         Self {
             provider,
             user_agent: config.user_agent.clone(),
+            thinking_style: config.thinking_style.clone(),
             conversation_history: std::sync::Mutex::new(Vec::new()),
         }
     }
@@ -563,7 +608,7 @@ impl AssistantAgent {
 
         // Map thinking effort for Anthropic
         let max_tokens: u32 = 16384;
-        let thinking = map_think_for_anthropic(reasoning_effort, max_tokens);
+        let thinking = map_think_anthropic_style(reasoning_effort, max_tokens);
 
         for _round in 0..MAX_TOOL_ROUNDS {
             let mut body = json!({
@@ -781,8 +826,7 @@ impl AssistantAgent {
         let mut collected_text = String::new();
         let system_prompt = build_system_prompt();
 
-        // Map thinking effort for OpenAI Chat
-        let reasoning = map_think_for_openai_chat(reasoning_effort);
+        // Apply thinking parameters based on ThinkingStyle
 
         for _round in 0..MAX_TOOL_ROUNDS {
             // Build messages array: system + conversation
@@ -801,10 +845,8 @@ impl AssistantAgent {
                 "stream": true,
             });
 
-            // Add reasoning_effort if enabled
-            if let Some(ref effort) = reasoning {
-                body["reasoning_effort"] = json!(effort);
-            }
+            // Apply thinking parameters based on provider's ThinkingStyle
+            apply_thinking_to_chat_body(&mut body, &self.thinking_style, reasoning_effort, 16384);
 
             let mut req = client
                 .post(&api_url)

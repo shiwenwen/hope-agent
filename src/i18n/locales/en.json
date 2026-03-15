@@ -59,7 +59,9 @@
     "disabled": "Disabled",
     "myCustomProvider": "My Custom Provider",
     "authRequired": "Fill in if authentication is needed",
-    "relogin": "Re-login"
+    "relogin": "Re-login",
+    "thinkingStyle": "Thinking Style",
+    "thinkingStyleNone": "None (no thinking params)"
   },
   "model": {
     "modelConfig": "Model Config",

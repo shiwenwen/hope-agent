@@ -59,7 +59,9 @@
     "disabled": "已禁用",
     "myCustomProvider": "我的自定义服务商",
     "authRequired": "如需认证需填写",
-    "relogin": "重新登录"
+    "relogin": "重新登录",
+    "thinkingStyle": "思考类型",
+    "thinkingStyleNone": "无（不发送思考参数）"
   },
   "model": {
     "modelConfig": "模型配置",
