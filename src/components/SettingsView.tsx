@@ -15,7 +15,9 @@ import {
 import { SUPPORTED_LANGUAGES } from "@/i18n/i18n"
 import { useTheme, type ThemeMode } from "@/hooks/useTheme"
 import ProviderSettings from "@/components/ProviderSettings"
+import type { ProviderConfig } from "@/components/ProviderSettings"
 import ProviderSetup from "@/components/ProviderSetup"
+import ProviderEditPage from "@/components/ProviderEditPage"
 
 type SettingsSection = "providers" | "appearance" | "language" | "about"
 
@@ -229,6 +231,7 @@ export default function SettingsView({
   const [activeSection, setActiveSection] =
     useState<SettingsSection>("providers")
   const [addingProvider, setAddingProvider] = useState(false)
+  const [editingProvider, setEditingProvider] = useState<ProviderConfig | null>(null)
 
   return (
     <div className="flex flex-1 h-full overflow-hidden bg-background">
@@ -297,9 +300,17 @@ export default function SettingsView({
                 onCodexAuth={onCodexAuth}
                 onCancel={() => setAddingProvider(false)}
               />
+            ) : editingProvider ? (
+              <ProviderEditPage
+                provider={editingProvider}
+                onSave={() => setEditingProvider(null)}
+                onCancel={() => setEditingProvider(null)}
+                onCodexReauth={onCodexReauth}
+              />
             ) : (
               <ProviderSettings
                 onAddProvider={() => setAddingProvider(true)}
+                onEditProvider={(p) => setEditingProvider(p)}
                 onCodexReauth={onCodexReauth}
               />
             )

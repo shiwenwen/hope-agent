@@ -1,0 +1,359 @@
+import { useState } from "react"
+import { invoke } from "@tauri-apps/api/core"
+import { useTranslation } from "react-i18next"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { ModelEditor, type ModelConfig } from "@/components/ProviderSetup"
+import ProviderIcon from "@/components/ProviderIcon"
+import TestResultDisplay, { parseTestResult, type TestResult } from "@/components/TestResultDisplay"
+import {
+  ArrowLeft,
+  ArrowRight,
+  Check,
+  ChevronDown,
+  Eye,
+  EyeOff,
+  Globe,
+  Key,
+  Loader2,
+  Plus,
+  RefreshCw,
+  Wifi,
+} from "lucide-react"
+
+// ── Types ─────────────────────────────────────────────────────────
+
+type ApiType = "anthropic" | "openai-chat" | "openai-responses" | "codex"
+
+interface ProviderConfig {
+  id: string
+  name: string
+  apiType: ApiType
+  baseUrl: string
+  apiKey: string
+  models: ModelConfig[]
+  enabled: boolean
+}
+
+// ── Main Component ────────────────────────────────────────────────
+
+export default function ProviderEditPage({
+  provider,
+  onSave,
+  onCancel,
+  onCodexReauth,
+}: {
+  provider: ProviderConfig
+  onSave: () => void
+  onCancel: () => void
+  onCodexReauth?: () => void
+}) {
+  const { t } = useTranslation()
+
+  // Edit form state — initialized from provider
+  const [editName, setEditName] = useState(provider.name)
+  const [editBaseUrl, setEditBaseUrl] = useState(provider.baseUrl)
+  const [editApiKey, setEditApiKey] = useState("")
+  const [editApiType, setEditApiType] = useState<ApiType>(provider.apiType)
+  const [editModels, setEditModels] = useState<ModelConfig[]>([...provider.models])
+  const [saving, setSaving] = useState(false)
+  const [testResult, setTestResult] = useState<TestResult | null>(null)
+  const [testLoading, setTestLoading] = useState(false)
+  const [showApiKey, setShowApiKey] = useState(false)
+  const [modelsExpanded, setModelsExpanded] = useState(false)
+  const [error, setError] = useState("")
+
+  async function handleTest() {
+    setTestLoading(true)
+    setTestResult(null)
+    try {
+      const msg = await invoke<string>("test_provider", {
+        config: {
+          id: provider.id,
+          name: editName,
+          apiType: editApiType,
+          baseUrl: editBaseUrl,
+          apiKey: editApiKey || provider.apiKey,
+          models: [],
+          enabled: true,
+        },
+      })
+      setTestResult(parseTestResult(msg, false))
+    } catch (e) {
+      setTestResult(parseTestResult(String(e), true))
+    } finally {
+      setTestLoading(false)
+    }
+  }
+
+  async function handleSave() {
+    setSaving(true)
+    setError("")
+    try {
+      await invoke("update_provider", {
+        config: {
+          ...provider,
+          name: editName,
+          apiType: editApiType,
+          baseUrl: editBaseUrl,
+          apiKey: editApiKey || provider.apiKey,
+          models: editModels,
+        },
+      })
+      onSave()
+    } catch (e) {
+      setError(String(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const isCodex = provider.apiType === "codex"
+
+  return (
+    <div className="flex flex-col h-full bg-background">
+      {/* Header */}
+      <div className="h-11 flex items-center px-4 border-b border-border shrink-0">
+        <button
+          onClick={onCancel}
+          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          {t("common.back")}
+        </button>
+        <span className="text-sm font-semibold text-foreground mx-auto flex items-center gap-1.5">
+          <ProviderIcon providerName={provider.name} size={18} color />
+          {t("provider.editProvider")}
+        </span>
+        <div className="w-12 flex justify-end">
+          {isCodex && onCodexReauth && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={() => {
+                onCancel()
+                onCodexReauth()
+              }}
+              title={t("provider.relogin")}
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto px-6 py-6 space-y-4">
+        {/* Provider info */}
+        <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">
+              {t("provider.name")}
+            </label>
+            <Input
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              className="bg-background"
+            />
+          </div>
+
+          {!isCodex && (
+            <>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">
+                  {t("provider.apiType")}
+                </label>
+                <div className="relative">
+                  <select
+                    value={editApiType}
+                    onChange={(e) => setEditApiType(e.target.value as ApiType)}
+                    className="w-full appearance-none bg-background text-foreground text-xs font-medium px-3 py-2 rounded-md border border-border cursor-pointer hover:bg-secondary/50 transition-colors focus:outline-none focus:ring-1 focus:ring-ring"
+                  >
+                    <option value="openai-chat">OpenAI Chat Completions</option>
+                    <option value="openai-responses">OpenAI Responses API</option>
+                    <option value="anthropic">Anthropic Messages API</option>
+                  </select>
+                  <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none" />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                  <Key className="h-3 w-3" />
+                  {t("provider.apiKeyLeaveEmpty")}
+                </label>
+                <div className="relative">
+                  <Input
+                    type={showApiKey ? "text" : "password"}
+                    value={editApiKey}
+                    onChange={(e) => setEditApiKey(e.target.value)}
+                    placeholder={t("provider.leaveEmptyNoChange")}
+                    className="bg-background font-mono text-xs pr-8"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowApiKey(!showApiKey)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    {showApiKey ? (
+                      <EyeOff className="h-3.5 w-3.5" />
+                    ) : (
+                      <Eye className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                  <Globe className="h-3 w-3" />
+                  Base URL
+                </label>
+                <Input
+                  value={editBaseUrl}
+                  onChange={(e) => setEditBaseUrl(e.target.value)}
+                  className="bg-background font-mono text-xs"
+                />
+              </div>
+
+              {/* Test Connection */}
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={handleTest}
+                disabled={testLoading || !editBaseUrl.trim()}
+                className="w-full"
+              >
+                {testLoading ? (
+                  <span className="flex items-center gap-2">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    {t("common.testing")}
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-2">
+                    <Wifi className="h-3.5 w-3.5" />
+                    {t("provider.testConnection")}
+                  </span>
+                )}
+              </Button>
+
+              {testResult && (
+                <TestResultDisplay result={testResult} />
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Models (collapsible like ProviderSetup) */}
+        <div className="bg-card border border-border rounded-xl overflow-hidden">
+          <button
+            onClick={() => setModelsExpanded(!modelsExpanded)}
+            className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-secondary/30 transition-colors"
+          >
+            <div>
+              <span className="text-xs font-medium text-foreground">
+                {t("model.modelList")}
+              </span>
+              <span className="text-[10px] text-muted-foreground ml-2">
+                ({t("model.modelsCount", { count: editModels.length })})
+              </span>
+            </div>
+            <ArrowRight
+              className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${modelsExpanded ? "rotate-90" : ""}`}
+            />
+          </button>
+
+          {!modelsExpanded && (
+            <div className="px-4 pb-3 flex flex-wrap gap-1.5">
+              {editModels.map((m) => (
+                <span
+                  key={m.id}
+                  className="px-2 py-0.5 text-[10px] rounded-md bg-secondary text-muted-foreground"
+                >
+                  {m.name || m.id}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {modelsExpanded && (
+            <div className="px-4 pb-4 space-y-2.5">
+              {editModels.map((model, i) => (
+                <ModelEditor
+                  key={i}
+                  model={model}
+                  onChange={(m) => {
+                    const updated = [...editModels]
+                    updated[i] = m
+                    setEditModels(updated)
+                  }}
+                  onRemove={() =>
+                    setEditModels(editModels.filter((_, j) => j !== i))
+                  }
+                  onTest={editBaseUrl.trim() && !isCodex ? (modelId) => invoke<string>("test_model", {
+                    config: {
+                      id: provider.id,
+                      name: editName,
+                      apiType: editApiType,
+                      baseUrl: editBaseUrl,
+                      apiKey: editApiKey || provider.apiKey,
+                      models: [],
+                      enabled: true,
+                    },
+                    modelId,
+                  }) : undefined}
+                />
+              ))}
+              <Button
+                variant="secondary"
+                size="sm"
+                className="w-full"
+                onClick={() =>
+                  setEditModels([
+                    ...editModels,
+                    {
+                      id: "",
+                      name: "",
+                      inputTypes: ["text"],
+                      contextWindow: 128000,
+                      maxTokens: 8192,
+                      reasoning: false,
+                      costInput: 0,
+                      costOutput: 0,
+                    },
+                  ])
+                }
+              >
+                <Plus className="h-3.5 w-3.5 mr-1" />
+                {t("model.addModel")}
+              </Button>
+            </div>
+          )}
+        </div>
+
+        {error && <p className="text-xs text-red-400">{error}</p>}
+      </div>
+
+      {/* Footer */}
+      <div className="border-t border-border px-6 py-3 flex justify-end gap-2 shrink-0">
+        <Button variant="secondary" onClick={onCancel}>
+          {t("common.cancel")}
+        </Button>
+        <Button onClick={handleSave} disabled={saving}>
+          {saving ? (
+            <span className="flex items-center gap-2">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              {t("common.saving")}
+            </span>
+          ) : (
+            <>
+              <Check className="h-4 w-4 mr-1" />
+              {t("common.save")}
+            </>
+          )}
+        </Button>
+      </div>
+    </div>
+  )
+}

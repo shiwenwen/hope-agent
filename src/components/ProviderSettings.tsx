@@ -2,17 +2,9 @@ import { useState, useEffect } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { ModelEditor, type ModelConfig } from "@/components/ProviderSetup"
+import type { ModelConfig } from "@/components/ProviderSetup"
 import ProviderIcon from "@/components/ProviderIcon"
-import TestResultDisplay, { parseTestResult, type TestResult } from "@/components/TestResultDisplay"
 import {
-  Check,
-  ChevronDown,
-  Eye,
-  EyeOff,
-  Globe,
-  Key,
   Loader2,
   MoreVertical,
   Pencil,
@@ -21,17 +13,13 @@ import {
   PowerOff,
   RefreshCw,
   Trash2,
-  Wifi,
-  X,
 } from "lucide-react"
 
 // ── Types (shared with ProviderSetup) ─────────────────────────────
 
 type ApiType = "anthropic" | "openai-chat" | "openai-responses" | "codex"
 
-// ModelConfig is imported from ProviderSetup
-
-interface ProviderConfig {
+export interface ProviderConfig {
   id: string
   name: string
   apiType: ApiType
@@ -60,27 +48,17 @@ function apiTypeLabel(type: ApiType) {
 
 export default function ProviderSettings({
   onAddProvider,
+  onEditProvider,
   onCodexReauth,
 }: {
   onAddProvider: () => void
+  onEditProvider: (provider: ProviderConfig) => void
   onCodexReauth?: () => void
 }) {
   const { t } = useTranslation()
   const [providers, setProviders] = useState<ProviderConfig[]>([])
   const [loading, setLoading] = useState(true)
-  const [editingId, setEditingId] = useState<string | null>(null)
   const [menuId, setMenuId] = useState<string | null>(null)
-
-  // Edit form state
-  const [editName, setEditName] = useState("")
-  const [editBaseUrl, setEditBaseUrl] = useState("")
-  const [editApiKey, setEditApiKey] = useState("")
-  const [editApiType, setEditApiType] = useState<ApiType>("openai-chat")
-  const [editModels, setEditModels] = useState<ModelConfig[]>([])
-  const [saving, setSaving] = useState(false)
-  const [testResult, setTestResult] = useState<TestResult | null>(null)
-  const [testLoading, setTestLoading] = useState(false)
-  const [showApiKey, setShowApiKey] = useState(false)
 
   useEffect(() => {
     loadProviders()
@@ -95,63 +73,6 @@ export default function ProviderSettings({
       console.error("Failed to load providers:", e)
     } finally {
       setLoading(false)
-    }
-  }
-
-  function startEdit(provider: ProviderConfig) {
-    setEditingId(provider.id)
-    setEditName(provider.name)
-    setEditBaseUrl(provider.baseUrl)
-    setEditApiKey(provider.apiKey)
-    setEditApiType(provider.apiType)
-    setEditModels([...provider.models])
-    setMenuId(null)
-    setTestResult(null)
-    setShowApiKey(false)
-  }
-
-  async function handleTestEdit(provider: ProviderConfig) {
-    setTestLoading(true)
-    setTestResult(null)
-    try {
-      const msg = await invoke<string>("test_provider", {
-        config: {
-          id: provider.id,
-          name: editName,
-          apiType: provider.apiType,
-          baseUrl: editBaseUrl,
-          apiKey: editApiKey || provider.apiKey,
-          models: [],
-          enabled: true,
-        },
-      })
-      setTestResult(parseTestResult(msg, false))
-    } catch (e) {
-      setTestResult(parseTestResult(String(e), true))
-    } finally {
-      setTestLoading(false)
-    }
-  }
-
-  async function saveEdit(provider: ProviderConfig) {
-    setSaving(true)
-    try {
-      await invoke("update_provider", {
-        config: {
-          ...provider,
-          name: editName,
-          apiType: editApiType,
-          baseUrl: editBaseUrl,
-          apiKey: editApiKey || provider.apiKey, // Keep old key if empty
-          models: editModels,
-        },
-      })
-      await loadProviders()
-      setEditingId(null)
-    } catch (e) {
-      console.error("Failed to update provider:", e)
-    } finally {
-      setSaving(false)
     }
   }
 
@@ -213,340 +134,124 @@ export default function ProviderSettings({
             </Button>
           </div>
         ) : (
-          providers.map((provider) =>
-            editingId === provider.id ? (
-              // ── Edit Mode ──
-              <div
-                key={provider.id}
-                className="border border-primary/30 rounded-xl p-4 space-y-3 bg-card"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium text-primary">
-                    {t("provider.editProvider")}
-                  </span>
-                  <div className="flex items-center gap-1">
-                    {provider.apiType === "codex" && onCodexReauth && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6"
-                        onClick={() => {
-                          setEditingId(null)
-                          onCodexReauth()
-                        }}
-                        title={t("provider.relogin")}
-                      >
-                        <RefreshCw className="h-3.5 w-3.5" />
-                      </Button>
+          providers.map((provider) => (
+            <div
+              key={provider.id}
+              className={`border rounded-xl p-3.5 transition-colors cursor-pointer ${
+                provider.enabled
+                  ? "border-border bg-card hover:border-primary/30 hover:bg-card/80"
+                  : "border-border/50 bg-card/50 opacity-60 hover:opacity-80"
+              }`}
+              onClick={() => onEditProvider(provider)}
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-lg bg-secondary flex items-center justify-center text-muted-foreground shrink-0">
+                  <ProviderIcon providerName={provider.name} size={20} color />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium text-foreground truncate">
+                    {provider.name}
+                  </div>
+                  <div className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                    <span>{apiTypeLabel(provider.apiType)}</span>
+                    <span>·</span>
+                    <span>{t("chat.modelsCount", { count: provider.models.length })}</span>
+                    {!provider.enabled && (
+                      <>
+                        <span>·</span>
+                        <span className="text-yellow-500">{t("provider.disabled")}</span>
+                      </>
                     )}
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6"
-                      onClick={() => setEditingId(null)}
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </Button>
                   </div>
                 </div>
 
-                <div className="space-y-2.5">
-                  <div className="space-y-1">
-                    <label className="text-[10px] text-muted-foreground">
-                      {t("provider.name")}
-                    </label>
-                    <Input
-                      value={editName}
-                      onChange={(e) => setEditName(e.target.value)}
-                      className="bg-background text-xs h-8"
-                    />
-                  </div>
-                  {provider.apiType !== "codex" && (
+                {/* Action Menu */}
+                <div className="relative" onClick={(e) => e.stopPropagation()}>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={() =>
+                      setMenuId(menuId === provider.id ? null : provider.id)
+                    }
+                  >
+                    <MoreVertical className="h-3.5 w-3.5" />
+                  </Button>
+                  {menuId === provider.id && (
                     <>
-                      <div className="space-y-1">
-                        <label className="text-[10px] text-muted-foreground">
-                          {t("provider.apiType")}
-                        </label>
-                        <div className="relative">
-                          <select
-                            value={editApiType}
-                            onChange={(e) => setEditApiType(e.target.value as ApiType)}
-                            className="w-full appearance-none bg-background text-foreground text-xs font-medium px-3 py-1.5 rounded-md border border-border cursor-pointer hover:bg-secondary/50 transition-colors focus:outline-none focus:ring-1 focus:ring-ring h-8"
-                          >
-                            <option value="openai-chat">OpenAI Chat Completions</option>
-                            <option value="openai-responses">OpenAI Responses API</option>
-                            <option value="anthropic">Anthropic Messages API</option>
-                          </select>
-                          <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none" />
-                        </div>
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] text-muted-foreground flex items-center gap-1">
-                          <Globe className="h-2.5 w-2.5" />
-                          Base URL
-                        </label>
-                        <Input
-                          value={editBaseUrl}
-                          onChange={(e) => setEditBaseUrl(e.target.value)}
-                          className="bg-background text-xs h-8 font-mono"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] text-muted-foreground flex items-center gap-1">
-                          <Key className="h-2.5 w-2.5" />
-                          {t("provider.apiKeyLeaveEmpty")}
-                        </label>
-                        <div className="relative">
-                          <Input
-                            type={showApiKey ? "text" : "password"}
-                            value={editApiKey}
-                            onChange={(e) => setEditApiKey(e.target.value)}
-                            placeholder={t("provider.leaveEmptyNoChange")}
-                            className="bg-background text-xs h-8 font-mono pr-8"
-                          />
+                      <div
+                        className="fixed inset-0 z-40"
+                        onClick={() => setMenuId(null)}
+                      />
+                      <div className="absolute right-0 top-8 z-50 bg-card border border-border rounded-lg shadow-lg py-1 min-w-[130px]">
+                        <button
+                          className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-foreground hover:bg-secondary transition-colors"
+                          onClick={() => {
+                            setMenuId(null)
+                            onEditProvider(provider)
+                          }}
+                        >
+                          <Pencil className="h-3 w-3" />
+                          {t("common.edit")}
+                        </button>
+                        <button
+                          className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-foreground hover:bg-secondary transition-colors"
+                          onClick={() => toggleProvider(provider)}
+                        >
+                          {provider.enabled ? (
+                            <>
+                              <PowerOff className="h-3 w-3" />
+                              {t("provider.disable")}
+                            </>
+                          ) : (
+                            <>
+                              <Power className="h-3 w-3" />
+                              {t("provider.enable")}
+                            </>
+                          )}
+                        </button>
+                        {provider.apiType === "codex" && onCodexReauth && (
                           <button
-                            type="button"
-                            onClick={() => setShowApiKey(!showApiKey)}
-                            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                            className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-foreground hover:bg-secondary transition-colors"
+                            onClick={() => {
+                              setMenuId(null)
+                              onCodexReauth()
+                            }}
                           >
-                            {showApiKey ? (
-                              <EyeOff className="h-3.5 w-3.5" />
-                            ) : (
-                              <Eye className="h-3.5 w-3.5" />
-                            )}
+                            <RefreshCw className="h-3 w-3" />
+                            {t("provider.relogin")}
                           </button>
-                        </div>
+                        )}
+                        {provider.apiType !== "codex" && (
+                          <button
+                            className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-red-400 hover:bg-secondary transition-colors"
+                            onClick={() => deleteProvider(provider.id)}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                            {t("common.delete")}
+                          </button>
+                        )}
                       </div>
                     </>
                   )}
                 </div>
+              </div>
 
-                {/* Models editor - reuse ModelEditor from ProviderSetup */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] text-muted-foreground font-medium">
-                      {t("model.modelList")}
-                    </span>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 text-[10px]"
-                      onClick={() =>
-                        setEditModels([
-                          {
-                            id: "",
-                            name: "",
-                            inputTypes: ["text"],
-                            contextWindow: 200000,
-                            maxTokens: 8192,
-                            reasoning: false,
-                            costInput: 0,
-                            costOutput: 0,
-                          },
-                          ...editModels,
-                        ])
-                      }
+              {/* Model chips */}
+              {provider.models.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mt-2.5">
+                  {provider.models.map((model) => (
+                    <span
+                      key={model.id}
+                      className="px-2 py-0.5 text-[10px] rounded-md bg-secondary text-muted-foreground border border-border/50"
                     >
-                      <Plus className="h-2.5 w-2.5 mr-0.5" />
-                      {t("model.addModel")}
-                    </Button>
-                  </div>
-                  {editModels.map((model, i) => (
-                    <ModelEditor
-                      key={i}
-                      model={model}
-                      onChange={(updated) => {
-                        const next = [...editModels]
-                        next[i] = updated
-                        setEditModels(next)
-                      }}
-                      onRemove={() =>
-                        setEditModels(editModels.filter((_, j) => j !== i))
-                      }
-                      onTest={editBaseUrl.trim() && provider.apiType !== "codex" ? (modelId) => invoke<string>("test_model", {
-                        config: {
-                          id: provider.id,
-                          name: editName,
-                          apiType: editApiType,
-                          baseUrl: editBaseUrl,
-                          apiKey: editApiKey || provider.apiKey,
-                          models: [],
-                          enabled: true,
-                        },
-                        modelId,
-                      }) : undefined}
-                    />
+                      {model.name || model.id}
+                    </span>
                   ))}
                 </div>
-
-                {/* Test Connection */}
-                {provider.apiType !== "codex" && (
-                  <div className="space-y-2">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => handleTestEdit(provider)}
-                      disabled={testLoading || !editBaseUrl.trim()}
-                      className="w-full"
-                    >
-                      {testLoading ? (
-                        <span className="flex items-center gap-2">
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          {t("common.testing")}
-                        </span>
-                      ) : (
-                        <span className="flex items-center gap-2">
-                          <Wifi className="h-3.5 w-3.5" />
-                          {t("provider.testConnection")}
-                        </span>
-                      )}
-                    </Button>
-                    {testResult && (
-                      <TestResultDisplay result={testResult} />
-                    )}
-                  </div>
-                )}
-
-                <div className="flex justify-end gap-2">
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => setEditingId(null)}
-                  >
-                    {t("common.cancel")}
-                  </Button>
-                  <Button
-                    size="sm"
-                    onClick={() => saveEdit(provider)}
-                    disabled={saving}
-                  >
-                    {saving ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : (
-                      <>
-                        <Check className="h-3 w-3 mr-1" />
-                        {t("common.save")}
-                      </>
-                    )}
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              // ── Display Mode ──
-              <div
-                key={provider.id}
-                className={`border rounded-xl p-3.5 transition-colors ${
-                  provider.enabled
-                    ? "border-border bg-card"
-                    : "border-border/50 bg-card/50 opacity-60"
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-lg bg-secondary flex items-center justify-center text-muted-foreground shrink-0">
-                    <ProviderIcon providerName={provider.name} size={20} color />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-foreground truncate">
-                      {provider.name}
-                    </div>
-                    <div className="text-[11px] text-muted-foreground flex items-center gap-1.5">
-                      <span>{apiTypeLabel(provider.apiType)}</span>
-                      <span>·</span>
-                      <span>{t("chat.modelsCount", { count: provider.models.length })}</span>
-                      {!provider.enabled && (
-                        <>
-                          <span>·</span>
-                          <span className="text-yellow-500">{t("provider.disabled")}</span>
-                        </>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Action Menu */}
-                  <div className="relative">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7"
-                      onClick={() =>
-                        setMenuId(menuId === provider.id ? null : provider.id)
-                      }
-                    >
-                      <MoreVertical className="h-3.5 w-3.5" />
-                    </Button>
-                    {menuId === provider.id && (
-                      <>
-                        <div
-                          className="fixed inset-0 z-40"
-                          onClick={() => setMenuId(null)}
-                        />
-                        <div className="absolute right-0 top-8 z-50 bg-card border border-border rounded-lg shadow-lg py-1 min-w-[130px]">
-                          <button
-                            className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-foreground hover:bg-secondary transition-colors"
-                            onClick={() => startEdit(provider)}
-                          >
-                            <Pencil className="h-3 w-3" />
-                            {t("common.edit")}
-                          </button>
-                          <button
-                            className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-foreground hover:bg-secondary transition-colors"
-                            onClick={() => toggleProvider(provider)}
-                          >
-                            {provider.enabled ? (
-                              <>
-                                <PowerOff className="h-3 w-3" />
-                                {t("provider.disable")}
-                              </>
-                            ) : (
-                              <>
-                                <Power className="h-3 w-3" />
-                                {t("provider.enable")}
-                              </>
-                            )}
-                          </button>
-                          {provider.apiType === "codex" && onCodexReauth && (
-                            <button
-                              className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-foreground hover:bg-secondary transition-colors"
-                              onClick={() => {
-                                setMenuId(null)
-                                onCodexReauth()
-                              }}
-                            >
-                              <RefreshCw className="h-3 w-3" />
-                              {t("provider.relogin")}
-                            </button>
-                          )}
-                          {provider.apiType !== "codex" && (
-                            <button
-                              className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-red-400 hover:bg-secondary transition-colors"
-                              onClick={() => deleteProvider(provider.id)}
-                            >
-                              <Trash2 className="h-3 w-3" />
-                              {t("common.delete")}
-                            </button>
-                          )}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                {/* Model chips */}
-                {provider.models.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 mt-2.5">
-                    {provider.models.map((model) => (
-                      <span
-                        key={model.id}
-                        className="px-2 py-0.5 text-[10px] rounded-md bg-secondary text-muted-foreground border border-border/50"
-                      >
-                        {model.name || model.id}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ),
-          )
+              )}
+            </div>
+          ))
         )}
       </div>
     </div>
