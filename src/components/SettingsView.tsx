@@ -12,7 +12,7 @@ import {
   Server,
   Sun,
 } from "lucide-react"
-import { SUPPORTED_LANGUAGES } from "@/i18n/i18n"
+import { SUPPORTED_LANGUAGES, isFollowingSystem, setFollowSystemLanguage } from "@/i18n/i18n"
 import { useTheme, type ThemeMode } from "@/hooks/useTheme"
 import ProviderSettings from "@/components/ProviderSettings"
 import type { ProviderConfig } from "@/components/ProviderSettings"
@@ -111,12 +111,24 @@ function AppearancePanel() {
 
 function LanguagePanel() {
   const { t, i18n } = useTranslation()
+  const [followSystem, setFollowSystem] = useState(isFollowingSystem)
 
   const isCurrentLang = (code: string) => {
+    if (followSystem) return false
     return (
       i18n.language === code ||
       (i18n.language.startsWith(code + "-") && code !== "zh")
     )
+  }
+
+  const handleFollowSystem = () => {
+    setFollowSystemLanguage()
+    setFollowSystem(true)
+  }
+
+  const handleSelectLanguage = (code: string) => {
+    i18n.changeLanguage(code)
+    setFollowSystem(false)
   }
 
   return (
@@ -129,6 +141,28 @@ function LanguagePanel() {
       </p>
 
       <div className="space-y-0.5">
+        {/* Follow System option */}
+        <button
+          className={cn(
+            "flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm transition-colors",
+            followSystem
+              ? "bg-primary/10 text-primary font-medium"
+              : "text-foreground hover:bg-secondary/60"
+          )}
+          onClick={handleFollowSystem}
+        >
+          <span className={cn("shrink-0", followSystem ? "text-primary" : "text-muted-foreground")}>
+            <Monitor className="h-4 w-4" />
+          </span>
+          <span className="flex-1 text-left">{t("language.system")}</span>
+          {followSystem && (
+            <Check className="h-4 w-4 text-primary shrink-0" />
+          )}
+        </button>
+
+        {/* Divider */}
+        <div className="border-t border-border/50 my-1.5" />
+
         {SUPPORTED_LANGUAGES.map((lang) => (
           <button
             key={lang.code}
@@ -138,7 +172,7 @@ function LanguagePanel() {
                 ? "bg-primary/10 text-primary font-medium"
                 : "text-foreground hover:bg-secondary/60"
             )}
-            onClick={() => i18n.changeLanguage(lang.code)}
+            onClick={() => handleSelectLanguage(lang.code)}
           >
             <span className="text-xs font-bold w-6 text-center opacity-60">
               {lang.shortLabel}

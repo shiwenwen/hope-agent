@@ -26,7 +26,7 @@ import ProviderSetup from "@/components/ProviderSetup"
 import SettingsView from "@/components/SettingsView"
 import MarkdownRenderer from "@/components/MarkdownRenderer"
 import ApprovalDialog, { type ApprovalRequest } from "@/components/ApprovalDialog"
-import { SUPPORTED_LANGUAGES } from "@/i18n/i18n"
+import { SUPPORTED_LANGUAGES, isFollowingSystem, setFollowSystemLanguage } from "@/i18n/i18n"
 
 // ── Icon Sidebar (shared across chat & settings) ──────────────────
 
@@ -98,11 +98,30 @@ function IconSidebar({
             <>
               <div className="fixed inset-0 z-40" onClick={() => setShowLangMenu(false)} />
               <div className="absolute left-12 bottom-0 z-50 bg-card border border-border rounded-lg shadow-lg py-1 min-w-[160px] max-h-[400px] overflow-y-auto">
+                {/* Follow System option */}
+                <button
+                  className={`flex items-center gap-2.5 w-full px-3 py-1.5 text-xs transition-colors hover:bg-secondary ${
+                    isFollowingSystem()
+                      ? "text-primary font-medium"
+                      : "text-foreground"
+                  }`}
+                  onClick={() => {
+                    setFollowSystemLanguage()
+                    setShowLangMenu(false)
+                  }}
+                >
+                  <Monitor className="h-3.5 w-3.5 text-primary/70" />
+                  <span>{t("language.system")}</span>
+                  {isFollowingSystem() && (
+                    <span className="ml-auto text-primary">●</span>
+                  )}
+                </button>
+                <div className="border-t border-border/50 my-0.5" />
                 {SUPPORTED_LANGUAGES.map((lang) => (
                   <button
                     key={lang.code}
                     className={`flex items-center gap-2.5 w-full px-3 py-1.5 text-xs transition-colors hover:bg-secondary ${
-                      i18n.language === lang.code || (i18n.language.startsWith(lang.code + "-") && lang.code !== "zh")
+                      !isFollowingSystem() && (i18n.language === lang.code || (i18n.language.startsWith(lang.code + "-") && lang.code !== "zh"))
                         ? "text-primary font-medium"
                         : "text-foreground"
                     }`}
@@ -113,7 +132,7 @@ function IconSidebar({
                   >
                     <span className="text-[10px] font-bold w-5 text-primary/70">{lang.shortLabel}</span>
                     <span>{lang.label}</span>
-                    {(i18n.language === lang.code || (i18n.language.startsWith(lang.code + "-") && lang.code !== "zh")) && (
+                    {!isFollowingSystem() && (i18n.language === lang.code || (i18n.language.startsWith(lang.code + "-") && lang.code !== "zh")) && (
                       <span className="ml-auto text-primary">●</span>
                     )}
                   </button>
