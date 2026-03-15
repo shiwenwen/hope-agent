@@ -552,12 +552,9 @@ async fn chat(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Initialize directory structure and migrate legacy data
+    // Initialize directory structure
     if let Err(e) = paths::ensure_dirs() {
         log::error!("Failed to initialize data directories: {}", e);
-    }
-    if let Err(e) = paths::migrate_legacy_data() {
-        log::error!("Failed to migrate legacy data: {}", e);
     }
 
     // Load provider store at startup
