@@ -693,7 +693,7 @@ function ChatScreen({
                       setShowModelMenu(!showModelMenu)
                       setMenuProvider(null)
                     }}
-                    className="flex items-center gap-1 bg-transparent text-muted-foreground hover:text-foreground text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary max-w-[180px]"
+                    className="flex items-center gap-1 bg-transparent text-muted-foreground hover:text-foreground text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary"
                   >
                     <span className="truncate">
                       {currentModelInfo
