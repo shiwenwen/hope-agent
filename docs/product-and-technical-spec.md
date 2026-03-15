@@ -30,7 +30,8 @@
 ## 三、当前功能（v0.3.0-dev）
 
 - **双 Provider 支持**：Anthropic Claude（API Key）和 OpenAI Codex（OAuth 登录）
-- **统一 Tool Calling**：两个 Provider 共享同一套 tool 定义和执行逻辑（exec、read_file、write_file、list_dir），通过 schema 适配层自动转换格式
+- **灵活的 Provider 系统**：支持自由添加/编辑多种自定义模型服务商，内置 24 种常用 API 模板，支持自定义 User-Agent 进行特定 WAF 宽容访问
+- **统一 Tool Calling**：所有 Provider 共享同一套 tool 定义和执行逻辑（exec、read_file、write_file、list_dir），通过 schema 适配层自动转换格式
 - **三栏布局**：微信风格——图标侧边栏 + 可拖拽会话/Agent 列表（180-400px）+ 对话区
 - **Markdown 消息渲染**：基于 Streamdown 的流式 Markdown 渲染，支持代码高亮（Shiki）、KaTeX 数学公式、Mermaid 图表、CJK 标点优化
 - **多轮对话上下文**：自动保存对话历史，支持连续多轮对话

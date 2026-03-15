@@ -108,10 +108,17 @@ pub struct ProviderConfig {
     /// Whether this provider is enabled
     #[serde(default = "default_true")]
     pub enabled: bool,
+    /// Custom User-Agent header for API requests
+    #[serde(default = "default_user_agent")]
+    pub user_agent: String,
 }
 
 fn default_true() -> bool {
     true
+}
+
+fn default_user_agent() -> String {
+    "claude-code/0.1.0".to_string()
 }
 
 impl ProviderConfig {
@@ -125,6 +132,7 @@ impl ProviderConfig {
             api_key,
             models: Vec::new(),
             enabled: true,
+            user_agent: default_user_agent(),
         }
     }
 
@@ -336,6 +344,7 @@ pub fn ensure_codex_provider(store: &mut ProviderStore) -> String {
         api_key: String::new(), // OAuth, no API key
         models: codex_models,
         enabled: true,
+        user_agent: default_user_agent(),
     };
 
     let id = provider.id.clone();

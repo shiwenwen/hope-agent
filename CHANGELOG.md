@@ -41,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 本地：Ollama、vLLM、LM Studio
 - **Provider 三步引导向导** (`ProviderSetup.tsx`)：模板网格 + 自定义入口（API 类型选择 → 连接配置 → 模型配置）
 - **Provider 管理面板** (`ProviderSettings.tsx`)：查看/编辑/删除/启用禁用，从侧边栏设置按钮进入
+- **自定义 User-Agent**：支持在配置 Provider 时指定 `User-Agent` HTTP 头部（默认 `claude-code/0.1.0`），以兼容特定 WAF（如 DashScope CodingPlan）
 - **三种 API 类型支持**：Anthropic Messages API、OpenAI Chat Completions、OpenAI Responses API
 - **API Key 可选**：本地服务（Ollama/vLLM/LM Studio）和自定义 Provider 的 API Key 为可选项
 - **OpenAI Chat Completions 流式调用**：完整的 SSE 解析和 tool calling 支持

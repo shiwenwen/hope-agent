@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::provider::{ApiType, ProviderConfig};
+use crate::skills;
 use crate::tools::{self, ToolProvider};
 
 /// File/image attachment sent alongside a chat message
@@ -108,6 +109,12 @@ const SYSTEM_PROMPT: &str = "You are OpenComputer, a personal AI assistant with 
 const CODEX_API_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
 #[allow(dead_code)]
 const ANTHROPIC_API_URL: &str = "https://api.anthropic.com/v1/messages";
+
+/// User-Agent header for all outgoing HTTP requests.
+/// Some API providers (e.g. DashScope CodingPlan) use WAF rules that filter
+/// requests based on User-Agent. Using a recognized coding-tool-style UA
+/// ensures compatibility with these services.
+pub const USER_AGENT: &str = "OpenComputer/1.0";
 
 /// Smart URL builder: if base_url already ends with a version suffix
 /// (e.g. /v1, /v2, /v3), strip the version prefix from path to avoid
@@ -234,6 +241,8 @@ pub enum LlmProvider {
 
 pub struct AssistantAgent {
     provider: LlmProvider,
+    /// Custom User-Agent header for API requests
+    user_agent: String,
     /// Conversation history persisted across chat() calls
     conversation_history: std::sync::Mutex<Vec<serde_json::Value>>,
 }
@@ -458,6 +467,7 @@ impl AssistantAgent {
                 base_url: ANTHROPIC_API_URL.trim_end_matches("/v1/messages").to_string(),
                 model: ANTHROPIC_MODEL.to_string(),
             },
+            user_agent: USER_AGENT.to_string(),
             conversation_history: std::sync::Mutex::new(Vec::new()),
         }
     }
@@ -470,6 +480,7 @@ impl AssistantAgent {
                 account_id: account_id.to_string(),
                 model: model.to_string(),
             },
+            user_agent: USER_AGENT.to_string(),
             conversation_history: std::sync::Mutex::new(Vec::new()),
         }
     }
@@ -500,6 +511,7 @@ impl AssistantAgent {
         };
         Self {
             provider,
+            user_agent: config.user_agent.clone(),
             conversation_history: std::sync::Mutex::new(Vec::new()),
         }
     }
@@ -524,7 +536,10 @@ impl AssistantAgent {
     // ── Anthropic Messages API with Tool Loop ─────────────────────
 
     async fn chat_anthropic(&self, api_key: &str, base_url: &str, model: &str, message: &str, attachments: &[Attachment], reasoning_effort: Option<&str>, on_delta: &(impl Fn(&str) + Send)) -> Result<String> {
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .user_agent(&self.user_agent)
+            .build()
+            .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
         let tool_schemas = tools::get_tools_for_provider(ToolProvider::Anthropic);
 
         // Build messages from conversation history + new user message (with optional image attachments)
@@ -742,7 +757,10 @@ impl AssistantAgent {
     // ── OpenAI Chat Completions API with Tool Loop ───────────────
 
     async fn chat_openai_chat(&self, api_key: &str, base_url: &str, model: &str, message: &str, attachments: &[Attachment], reasoning_effort: Option<&str>, on_delta: &(impl Fn(&str) + Send)) -> Result<String> {
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .user_agent(&self.user_agent)
+            .build()
+            .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
         let tool_schemas = tools::get_tools_for_provider(ToolProvider::OpenAI);
 
         let mut messages = self.conversation_history.lock().unwrap().clone();
@@ -950,7 +968,10 @@ impl AssistantAgent {
     // ── OpenAI Responses API (custom base_url) ────────────────────
 
     async fn chat_openai_responses(&self, api_key: &str, base_url: &str, model: &str, message: &str, attachments: &[Attachment], reasoning_effort: Option<&str>, on_delta: &(impl Fn(&str) + Send)) -> Result<String> {
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .user_agent(&self.user_agent)
+            .build()
+            .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
         let tool_schemas = tools::get_tools_for_provider(ToolProvider::OpenAI);
 
         let reasoning = reasoning_effort

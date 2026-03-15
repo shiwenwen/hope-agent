@@ -29,6 +29,13 @@ pub fn auth_path() -> Result<PathBuf> {
     Ok(credentials_dir()?.join("auth.json"))
 }
 
+// ── Skills ───────────────────────────────────────────────────────
+
+/// Skills directory: ~/.opencomputer/skills/
+pub fn skills_dir() -> Result<PathBuf> {
+    Ok(root_dir()?.join("skills"))
+}
+
 // ── Agent Home ───────────────────────────────────────────────────
 
 /// Main agent home directory: ~/.opencomputer/home/
@@ -57,6 +64,7 @@ pub fn ensure_dirs() -> Result<()> {
     let dirs_to_create = [
         root_dir()?,
         credentials_dir()?,
+        skills_dir()?,
         home_dir()?,
         share_dir()?,
     ];

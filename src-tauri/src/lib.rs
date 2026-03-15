@@ -82,6 +82,7 @@ async fn update_provider(
         }
         existing.models = config.models;
         existing.enabled = config.enabled;
+        existing.user_agent = config.user_agent;
         provider::save_store(&store).map_err(|e| e.to_string())?;
         Ok(())
     } else {
@@ -119,6 +120,7 @@ async fn test_provider(
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
+        .user_agent(&config.user_agent)
         .build()
         .map_err(|e| format!("Client error: {}", e))?;
 
@@ -264,6 +266,7 @@ async fn test_model(
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(15))
+        .user_agent(&config.user_agent)
         .build()
         .map_err(|e| format!("Client error: {}", e))?;
 

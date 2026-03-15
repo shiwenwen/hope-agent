@@ -21,6 +21,9 @@ import {
   Search,
   Settings2,
   Trash2,
+  Type,
+  Image,
+  Video,
   X,
   XCircle,
 } from "lucide-react"
@@ -48,6 +51,7 @@ interface ProviderConfig {
   apiKey: string
   models: ModelConfig[]
   enabled: boolean
+  userAgent: string
 }
 
 // ── Built-in Provider Templates ───────────────────────────────────
@@ -488,11 +492,14 @@ export function ModelEditor({
             <button
               key={type}
               onClick={() => toggleInput(type)}
-              className={`px-2.5 py-1 text-[11px] rounded-md border transition-colors ${model.inputTypes.includes(type)
+              className={`px-2.5 py-1 text-[11px] rounded-md border transition-colors flex items-center gap-1.5 ${model.inputTypes.includes(type)
                   ? "border-primary bg-primary/10 text-primary"
                   : "border-border bg-background text-muted-foreground hover:border-primary/40"
                 }`}
             >
+              {type === "text" && <Type className="h-3 w-3" />}
+              {type === "image" && <Image className="h-3 w-3" />}
+              {type === "video" && <Video className="h-3 w-3" />}
               {type === "text" ? t("model.text") : type === "image" ? t("model.image") : t("model.video")}
             </button>
           ))}
@@ -608,9 +615,9 @@ export function ModelEditor({
                 }
               }}
               disabled={testLoading}
-              className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-primary transition-colors disabled:opacity-50"
+              className="flex items-center gap-1 text-[10px] text-primary/70 hover:text-primary transition-colors disabled:opacity-50"
             >
-              {testLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+              {testLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3 fill-current" />}
               发送 "Hi" 测试
             </button>
             {testResult && (
@@ -747,6 +754,7 @@ export default function ProviderSetup({
           apiType,
           baseUrl,
           apiKey,
+          userAgent: "claude-code/0.1.0",
           models: [],
           enabled: true,
         },
@@ -771,6 +779,7 @@ export default function ProviderSetup({
           apiType,
           baseUrl,
           apiKey: apiKey || "ollama",
+          userAgent: "claude-code/0.1.0",
           models,
           enabled: true,
         },
@@ -1094,7 +1103,7 @@ export default function ProviderSetup({
                       setModels(models.filter((_, j) => j !== i))
                     }
                     onTest={baseUrl.trim() ? (modelId) => invoke<string>("test_model", {
-                      config: { id: "", name: providerName, apiType, baseUrl, apiKey: apiKey || "ollama", models: [], enabled: true },
+                      config: { id: "", name: providerName, apiType, baseUrl, apiKey: apiKey || "ollama", userAgent: "claude-code/0.1.0", models: [], enabled: true },
                       modelId,
                     }) : undefined}
                   />
@@ -1370,7 +1379,7 @@ export default function ProviderSetup({
                     setModels(models.filter((_, j) => j !== i))
                   }
                   onTest={baseUrl.trim() ? (modelId) => invoke<string>("test_model", {
-                    config: { id: "", name: providerName, apiType, baseUrl, apiKey: apiKey || "ollama", models: [], enabled: true },
+                    config: { id: "", name: providerName, apiType, baseUrl, apiKey: apiKey || "ollama", userAgent: "claude-code/0.1.0", models: [], enabled: true },
                     modelId,
                   }) : undefined}
                 />

@@ -27,6 +27,7 @@ export interface ProviderConfig {
   apiKey: string
   models: ModelConfig[]
   enabled: boolean
+  userAgent: string
 }
 
 // ── Helpers ───────────────────────────────────────────────────────

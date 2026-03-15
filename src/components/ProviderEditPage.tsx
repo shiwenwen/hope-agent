@@ -18,6 +18,7 @@ import {
   Loader2,
   Plus,
   RefreshCw,
+  Settings2,
   Wifi,
 } from "lucide-react"
 
@@ -33,6 +34,7 @@ interface ProviderConfig {
   apiKey: string
   models: ModelConfig[]
   enabled: boolean
+  userAgent: string
 }
 
 // ── Main Component ────────────────────────────────────────────────
@@ -55,6 +57,7 @@ export default function ProviderEditPage({
   const [editBaseUrl, setEditBaseUrl] = useState(provider.baseUrl)
   const [editApiKey, setEditApiKey] = useState(provider.apiKey)
   const [editApiType, setEditApiType] = useState<ApiType>(provider.apiType)
+  const [editUserAgent, setEditUserAgent] = useState(provider.userAgent || "claude-code/0.1.0")
   const [editModels, setEditModels] = useState<ModelConfig[]>([...provider.models])
   const [saving, setSaving] = useState(false)
   const [testResult, setTestResult] = useState<TestResult | null>(null)
@@ -74,6 +77,7 @@ export default function ProviderEditPage({
           apiType: editApiType,
           baseUrl: editBaseUrl,
           apiKey: editApiKey,
+          userAgent: editUserAgent,
           models: [],
           enabled: true,
         },
@@ -97,6 +101,7 @@ export default function ProviderEditPage({
           apiType: editApiType,
           baseUrl: editBaseUrl,
           apiKey: editApiKey,
+          userAgent: editUserAgent,
           models: editModels,
         },
       })
@@ -216,6 +221,19 @@ export default function ProviderEditPage({
                 />
               </div>
 
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                  <Settings2 className="h-3 w-3" />
+                  User-Agent
+                </label>
+                <Input
+                  value={editUserAgent}
+                  onChange={(e) => setEditUserAgent(e.target.value)}
+                  placeholder="claude-code/0.1.0"
+                  className="bg-background font-mono text-xs"
+                />
+              </div>
+
               {/* Test Connection */}
               <Button
                 variant="secondary"
@@ -297,6 +315,7 @@ export default function ProviderEditPage({
                       apiType: editApiType,
                       baseUrl: editBaseUrl,
                       apiKey: editApiKey,
+                      userAgent: editUserAgent,
                       models: [],
                       enabled: true,
                     },
