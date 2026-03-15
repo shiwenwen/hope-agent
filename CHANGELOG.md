@@ -79,6 +79,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - AllowAlways 自动将命令前缀加入 allowlist（持久化至 `~/.opencomputer/exec-approvals.json`）
   - 新增 `respond_to_approval` Tauri 命令
   - 全局 `APP_HANDLE` 存储用于事件发射
+- **`read_file` 工具增强**（对齐 OpenClaw）：
+  - 自适应分页：根据模型 context window 自动计算单页大小（20% 上下文），循环拼接最多 8 页
+  - 新增 `offset`/`limit` 参数支持行级分页读取（1-based 行号），大文件可分段读取
+  - 自动检测图片文件（PNG/JPEG/GIF/WebP/BMP/TIFF/ICO）并返回 base64 编码数据
+  - 图片 MIME 二次校验：base64 编码后解码头部 re-sniff 验证实际类型
+  - 超大图片自动缩放（最大 1200px、5MB 限制），渐进 JPEG 质量降级
+  - 结构化参数解析：支持 `{type:"text", text:"..."}` 嵌套格式
+  - 兼容 `file_path` 参数别名
+  - 文本输出带行号格式，截断时提示行范围/字节数/续读偏移量
+  - 新增 `image` crate 依赖（v0.25）用于图片解码和缩放
+  - 工具名从 `read_file` 改为 `read`（保留 `read_file` 别名兼容）
+- **`write` 工具增强**（对齐 OpenClaw）：
+  - 工具名从 `write_file` 改为 `write`（保留 `write_file` 别名兼容）
+  - 兼容 `file_path` 参数别名
+  - 结构化参数解析：`path` 和 `content` 均支持 `{type:"text", text:"..."}` 嵌套格式
+- **`edit` 工具增强**（对齐 OpenClaw）：
+  - 工具名从 `patch_file` 改为 `edit`（保留 `patch_file` 别名兼容）
+  - 兼容 `oldText`/`old_string`/`newText`/`new_string`/`file_path` 参数别名
+  - 结构化参数解析：所有参数均支持 `{type:"text", text:"..."}` 嵌套格式
+  - `new_text` 参数未提供时默认为空字符串（删除模式）
+  - 写后恢复（Post-write Recovery）：两层防护
+    - 写入错误恢复：写操作报错后检查文件是否已正确更新，避免假失败
+    - 重复编辑恢复：old_text 不存在但 new_text 已存在时视为已应用，避免重试报错
+- **`ls` 工具增强**（对齐 OpenClaw）：
+  - 工具名从 `list_dir` 改为 `ls`（保留 `list_dir` 别名兼容）
+  - 新增 `limit` 参数（默认 500 条）
+  - 新增 50KB 输出字节上限，防止超大目录撑爆上下文
+  - 支持 `~` 和 `~/` 路径展开
+  - 大小写不敏感排序
+  - 路径验证：检查路径存在性和是否为目录
+  - 跳过无法 stat 的条目（不报错）
+  - 空目录返回 "(empty directory)"
+  - 兼容 `file_path` 参数别名 + 结构化参数解析
+- **新增 `grep` 工具**（对齐 OpenClaw）：搜索文件内容
+  - 原生 Rust 实现（`ignore` + `regex` crate），无需系统安装 ripgrep
+  - 支持正则和字面量搜索（`literal` 参数）
+  - 支持 `glob` 文件过滤、`ignore_case` 大小写、`context` 上下文行
+  - 默认 100 条匹配限制，每行最长 500 字符，50KB 输出上限
+  - 自动尊重 `.gitignore`，跳过二进制文件
+- **新增 `find` 工具**（对齐 OpenClaw）：按 glob 模式查找文件
+  - 原生 Rust 实现（`ignore` + `glob` crate），无需系统安装 fd
+  - 默认 1000 条结果限制，50KB 输出上限
+  - 自动尊重 `.gitignore`，支持 `~` 路径展开
+  - 输出相对路径，匹配文件名和完整路径
+- **新增 `apply_patch` 工具**（对齐 OpenClaw）：多文件补丁操作
+  - 支持 `*** Begin Patch` / `*** End Patch` 格式
+  - `*** Add File: <path>` — 创建新文件
+  - `*** Update File: <path>` — 修改文件（`@@` 上下文 + `-`/`+` 行）
+  - `*** Delete File: <path>` — 删除文件
+  - `*** Move to: <path>` — 在 Update 中移动文件
+  - 3-pass fuzzy matching（精确 → 去尾空白 → 全 trim），容忍空白差异
+  - 不限 Provider（OpenClaw 限 OpenAI only，我们全 Provider 可用）
+- **新增依赖**：`regex`、`ignore`、`glob` crate
 - **命令审批对话框 UI**：前端 `ApprovalDialog` 组件
   - 监听 Tauri `approval_required` 事件，弹出全屏遮罩审批对话框
   - 显示待执行命令内容和工作目录

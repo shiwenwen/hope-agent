@@ -194,7 +194,7 @@ function ChatScreen({
       document.addEventListener("mousedown", handleClickOutside)
       return () => document.removeEventListener("mousedown", handleClickOutside)
     }
-  }, [showModelMenu])
+  }, [showModelMenu, showThinkMenu])
 
   // Listen for command approval events from backend
   useEffect(() => {
@@ -639,9 +639,11 @@ function ChatScreen({
                 ) : (
                   msg.role === "assistant" &&
                   !msg.toolCalls?.length && (
-                    <span className="text-muted-foreground tracking-widest">
-                      ...
-                    </span>
+                    <div className="flex items-center gap-1.5 h-6 px-2">
+                      <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/60 animate-bounce" style={{ animation: "bounce 1.4s infinite ease-in-out both, pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite", animationDelay: "-0.32s" }} />
+                      <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/60 animate-bounce" style={{ animation: "bounce 1.4s infinite ease-in-out both, pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite", animationDelay: "-0.16s" }} />
+                      <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/60 animate-bounce" style={{ animation: "bounce 1.4s infinite ease-in-out both, pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite", animationDelay: "0s" }} />
+                    </div>
                   )
                 )}
               </div>

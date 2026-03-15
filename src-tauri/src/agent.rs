@@ -86,8 +86,20 @@ const SYSTEM_PROMPT: &str = "You are OpenComputer, a personal AI assistant with 
                                and Docker sandbox isolation (sandbox=true) for untrusted or risky commands. \
                              - process: Manage background exec sessions — list, poll (get new output), log (full output), \
                                write (stdin), kill, clear, remove. Use after backgrounding a command. \
-                             - read_file / write_file / patch_file: File operations. Prefer patch_file for targeted edits. \
-                             - list_dir: List directory contents. \
+                             - read: Read file contents with line-based pagination (offset/limit). \
+                               Auto-detects image files (PNG/JPEG/GIF/WebP/BMP/TIFF) and returns base64. \
+                               Oversized images are auto-resized. Accepts both 'path' and 'file_path'. \
+                             - write: Write content to a file. Accepts both 'path' and 'file_path'. \
+                             - edit: Targeted search-replace edits (old_text → new_text). Prefer over write for modifications. \
+                               Accepts aliases: file_path, oldText/old_string, newText/new_string. Empty new_text deletes text. \
+                             - ls: List directory contents (sorted, with / and @ indicators). Supports ~ expansion, limit param, 50KB output cap. \
+                             - grep: Search file contents with regex or literal patterns. Respects .gitignore. \
+                               Params: pattern (required), path, glob, ignore_case, literal, context, limit (default 100). \
+                             - find: Find files by glob pattern. Respects .gitignore. \
+                               Params: pattern (required), path, limit (default 1000). \
+                             - apply_patch: Apply multi-file patches (add/update/delete/move files). \
+                               Use *** Begin Patch / *** End Patch format with Add File, Update File, Delete File markers. \
+                               Update hunks use @@ context + -/+ line prefixes with 3-pass fuzzy matching. \
                              - web_search / web_fetch: Search the web and fetch page content. \
                              \
                              For long-running commands (builds, installs), consider using background=true and then \
