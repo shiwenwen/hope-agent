@@ -91,7 +91,18 @@
     "providers": "Nhà cung cấp",
     "language": "Ngôn ngữ",
     "languageDesc": "Chọn ngôn ngữ hiển thị",
+    "appearance": "Giao diện",
+    "appearanceDesc": "Chọn chế độ giao diện chủ đề",
     "about": "Giới thiệu"
+  },
+  "theme": {
+    "title": "Chủ đề",
+    "auto": "Tự động",
+    "light": "Sáng",
+    "dark": "Tối",
+    "autoDesc": "Theo cài đặt hệ thống",
+    "lightDesc": "Luôn dùng chế độ sáng",
+    "darkDesc": "Luôn dùng chế độ tối"
   },
   "language": {
     "title": "Ngôn ngữ",

@@ -91,7 +91,18 @@
     "providers": "Providers",
     "language": "Language",
     "languageDesc": "Choose the display language",
+    "appearance": "Appearance",
+    "appearanceDesc": "Choose the theme appearance mode",
     "about": "About"
+  },
+  "theme": {
+    "title": "Theme",
+    "auto": "Auto",
+    "light": "Light",
+    "dark": "Dark",
+    "autoDesc": "Follow system settings",
+    "lightDesc": "Always use light mode",
+    "darkDesc": "Always use dark mode"
   },
   "language": {
     "title": "Language",

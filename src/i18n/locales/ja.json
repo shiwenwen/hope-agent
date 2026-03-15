@@ -91,7 +91,18 @@
     "providers": "プロバイダー",
     "language": "言語",
     "languageDesc": "表示言語を選択",
+    "appearance": "外観",
+    "appearanceDesc": "テーマの外観モードを選択",
     "about": "概要"
+  },
+  "theme": {
+    "title": "テーマ",
+    "auto": "自動",
+    "light": "ライト",
+    "dark": "ダーク",
+    "autoDesc": "システム設定に従う",
+    "lightDesc": "常にライトモードを使用",
+    "darkDesc": "常にダークモードを使用"
   },
   "language": {
     "title": "言語",

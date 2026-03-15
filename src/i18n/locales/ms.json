@@ -91,7 +91,18 @@
     "providers": "Pembekal",
     "language": "Bahasa",
     "languageDesc": "Pilih bahasa paparan",
+    "appearance": "Penampilan",
+    "appearanceDesc": "Pilih mod penampilan tema",
     "about": "Tentang"
+  },
+  "theme": {
+    "title": "Tema",
+    "auto": "Auto",
+    "light": "Cerah",
+    "dark": "Gelap",
+    "autoDesc": "Ikut tetapan sistem",
+    "lightDesc": "Sentiasa gunakan mod cerah",
+    "darkDesc": "Sentiasa gunakan mod gelap"
   },
   "language": {
     "title": "Bahasa",

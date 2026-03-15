@@ -17,7 +17,11 @@ import {
   ImagePlus,
   Paperclip,
   X,
+  Sun,
+  Moon,
+  Monitor,
 } from "lucide-react"
+import { useTheme } from "@/hooks/useTheme"
 import ProviderSetup from "@/components/ProviderSetup"
 import SettingsView from "@/components/SettingsView"
 import MarkdownRenderer from "@/components/MarkdownRenderer"
@@ -153,6 +157,7 @@ function ChatScreen({
   const [activeModel, setActiveModel] = useState<ActiveModel | null>(null)
   const [reasoningEffort, setReasoningEffort] = useState("medium")
   const [showLangMenu, setShowLangMenu] = useState(false)
+  const { theme, cycleTheme } = useTheme()
 
   // Model selector popup state
   const [showModelMenu, setShowModelMenu] = useState(false)
@@ -500,6 +505,23 @@ function ChatScreen({
         <div className="flex-1" />
 
         <div className="py-3 flex flex-col gap-2">
+          {/* Theme Toggle */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="rounded-xl text-muted-foreground hover:text-foreground h-8 w-8"
+            onClick={cycleTheme}
+            title={`${t("theme.title")}: ${t(`theme.${theme}`)}`}
+          >
+            {theme === "auto" ? (
+              <Monitor className="h-4 w-4" />
+            ) : theme === "light" ? (
+              <Sun className="h-4 w-4" />
+            ) : (
+              <Moon className="h-4 w-4" />
+            )}
+          </Button>
+
           {/* Language Selector */}
           <div className="relative">
             <Button

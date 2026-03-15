@@ -91,7 +91,18 @@
     "providers": "模型服務商",
     "language": "語言",
     "languageDesc": "選擇介面顯示語言",
+    "appearance": "外觀",
+    "appearanceDesc": "選擇主題外觀模式",
     "about": "關於"
+  },
+  "theme": {
+    "title": "主題",
+    "auto": "自動",
+    "light": "亮色",
+    "dark": "暗色",
+    "autoDesc": "跟隨系統設定",
+    "lightDesc": "始終使用亮色模式",
+    "darkDesc": "始終使用暗色模式"
   },
   "language": {
     "title": "語言",

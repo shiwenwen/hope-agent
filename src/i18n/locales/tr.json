@@ -91,7 +91,18 @@
     "providers": "Sağlayıcılar",
     "language": "Dil",
     "languageDesc": "Görüntüleme dilini seçin",
+    "appearance": "Görünüm",
+    "appearanceDesc": "Tema görünüm modunu seçin",
     "about": "Hakkında"
+  },
+  "theme": {
+    "title": "Tema",
+    "auto": "Otomatik",
+    "light": "Açık",
+    "dark": "Koyu",
+    "autoDesc": "Sistem ayarlarını takip et",
+    "lightDesc": "Her zaman açık modu kullan",
+    "darkDesc": "Her zaman koyu modu kullan"
   },
   "language": {
     "title": "Dil",

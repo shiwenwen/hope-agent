@@ -6,13 +6,18 @@ import {
   Check,
   Globe,
   Info,
+  Monitor,
+  Moon,
+  Palette,
   Server,
+  Sun,
 } from "lucide-react"
 import { SUPPORTED_LANGUAGES } from "@/i18n/i18n"
+import { useTheme, type ThemeMode } from "@/hooks/useTheme"
 import ProviderSettings from "@/components/ProviderSettings"
 import ProviderSetup from "@/components/ProviderSetup"
 
-type SettingsSection = "providers" | "language" | "about"
+type SettingsSection = "providers" | "appearance" | "language" | "about"
 
 interface SettingsSectionItem {
   id: SettingsSection
@@ -27,6 +32,11 @@ const SECTIONS: SettingsSectionItem[] = [
     labelKey: "settings.providers",
   },
   {
+    id: "appearance",
+    icon: <Palette className="h-4 w-4" />,
+    labelKey: "settings.appearance",
+  },
+  {
     id: "language",
     icon: <Globe className="h-4 w-4" />,
     labelKey: "settings.language",
@@ -37,6 +47,63 @@ const SECTIONS: SettingsSectionItem[] = [
     labelKey: "settings.about",
   },
 ]
+
+// ── Appearance Settings Panel ─────────────────────────────────────
+
+const THEME_OPTIONS: { mode: ThemeMode; icon: React.ReactNode; labelKey: string; descKey: string }[] = [
+  { mode: "auto", icon: <Monitor className="h-5 w-5" />, labelKey: "theme.auto", descKey: "theme.autoDesc" },
+  { mode: "light", icon: <Sun className="h-5 w-5" />, labelKey: "theme.light", descKey: "theme.lightDesc" },
+  { mode: "dark", icon: <Moon className="h-5 w-5" />, labelKey: "theme.dark", descKey: "theme.darkDesc" },
+]
+
+function AppearancePanel() {
+  const { t } = useTranslation()
+  const { theme, setTheme } = useTheme()
+
+  return (
+    <div className="p-6 max-w-xl">
+      <h2 className="text-lg font-semibold text-foreground mb-1">
+        {t("settings.appearance")}
+      </h2>
+      <p className="text-xs text-muted-foreground mb-5">
+        {t("settings.appearanceDesc")}
+      </p>
+
+      <div className="space-y-1">
+        {THEME_OPTIONS.map((opt) => (
+          <button
+            key={opt.mode}
+            className={cn(
+              "flex items-center gap-3 w-full px-3 py-3 rounded-lg text-sm transition-colors",
+              theme === opt.mode
+                ? "bg-primary/10 text-primary font-medium"
+                : "text-foreground hover:bg-secondary/60"
+            )}
+            onClick={() => setTheme(opt.mode)}
+          >
+            <span
+              className={cn(
+                "shrink-0",
+                theme === opt.mode ? "text-primary" : "text-muted-foreground"
+              )}
+            >
+              {opt.icon}
+            </span>
+            <div className="flex-1 text-left">
+              <div>{t(opt.labelKey)}</div>
+              <div className="text-xs text-muted-foreground font-normal">
+                {t(opt.descKey)}
+              </div>
+            </div>
+            {theme === opt.mode && (
+              <Check className="h-4 w-4 text-primary shrink-0" />
+            )}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 // ── Language Settings Panel ───────────────────────────────────────
 
@@ -237,6 +304,7 @@ export default function SettingsView({
               />
             )
           )}
+          {activeSection === "appearance" && <AppearancePanel />}
           {activeSection === "language" && <LanguagePanel />}
           {activeSection === "about" && <AboutPanel />}
         </div>

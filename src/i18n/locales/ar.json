@@ -91,7 +91,18 @@
     "providers": "مزودو الخدمة",
     "language": "اللغة",
     "languageDesc": "اختر لغة العرض",
+    "appearance": "المظهر",
+    "appearanceDesc": "اختر وضع المظهر",
     "about": "حول"
+  },
+  "theme": {
+    "title": "السمة",
+    "auto": "تلقائي",
+    "light": "فاتح",
+    "dark": "داكن",
+    "autoDesc": "اتبع إعدادات النظام",
+    "lightDesc": "استخدم الوضع الفاتح دائمًا",
+    "darkDesc": "استخدم الوضع الداكن دائمًا"
   },
   "language": {
     "title": "اللغة",

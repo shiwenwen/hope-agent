@@ -91,7 +91,18 @@
     "providers": "Proveedores",
     "language": "Idioma",
     "languageDesc": "Elige el idioma de la interfaz",
+    "appearance": "Apariencia",
+    "appearanceDesc": "Elige el modo de apariencia del tema",
     "about": "Acerca de"
+  },
+  "theme": {
+    "title": "Tema",
+    "auto": "Automático",
+    "light": "Claro",
+    "dark": "Oscuro",
+    "autoDesc": "Seguir la configuración del sistema",
+    "lightDesc": "Usar siempre el modo claro",
+    "darkDesc": "Usar siempre el modo oscuro"
   },
   "language": {
     "title": "Idioma",

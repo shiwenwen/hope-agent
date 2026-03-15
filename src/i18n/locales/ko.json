@@ -91,7 +91,18 @@
     "providers": "공급자",
     "language": "언어",
     "languageDesc": "표시 언어 선택",
+    "appearance": "외관",
+    "appearanceDesc": "테마 외관 모드 선택",
     "about": "정보"
+  },
+  "theme": {
+    "title": "테마",
+    "auto": "자동",
+    "light": "라이트",
+    "dark": "다크",
+    "autoDesc": "시스템 설정 따르기",
+    "lightDesc": "항상 라이트 모드 사용",
+    "darkDesc": "항상 다크 모드 사용"
   },
   "language": {
     "title": "언어",
