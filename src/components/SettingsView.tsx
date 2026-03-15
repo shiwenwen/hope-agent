@@ -231,7 +231,7 @@ export default function SettingsView({
   const [addingProvider, setAddingProvider] = useState(false)
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
+    <div className="flex flex-1 h-full overflow-hidden bg-background">
       {/* Left Sidebar — Settings Navigation */}
       <div className="w-[220px] shrink-0 border-r border-border bg-secondary/20 flex flex-col">
         {/* Header with back button */}

@@ -28,6 +28,118 @@ import MarkdownRenderer from "@/components/MarkdownRenderer"
 import ApprovalDialog, { type ApprovalRequest } from "@/components/ApprovalDialog"
 import { SUPPORTED_LANGUAGES } from "@/i18n/i18n"
 
+// ── Icon Sidebar (shared across chat & settings) ──────────────────
+
+function IconSidebar({
+  view,
+  onOpenSettings,
+  onOpenChat,
+}: {
+  view: "chat" | "settings"
+  onOpenSettings: () => void
+  onOpenChat: () => void
+}) {
+  const { t, i18n } = useTranslation()
+  const { theme, cycleTheme } = useTheme()
+  const [showLangMenu, setShowLangMenu] = useState(false)
+
+  return (
+    <div className="w-14 shrink-0 border-r border-border bg-secondary/30 flex flex-col items-center">
+      <div className="h-11 flex items-center justify-center border-b border-border w-full">
+        <Button
+          variant="ghost"
+          size="icon"
+          className={cn(
+            "rounded-xl h-8 w-8",
+            view === "chat"
+              ? "bg-primary/10 text-primary hover:bg-primary/20"
+              : "text-muted-foreground hover:text-foreground"
+          )}
+          onClick={onOpenChat}
+          title={t("chat.conversations")}
+        >
+          <MessageSquare className="h-4 w-4" />
+        </Button>
+      </div>
+
+      <div className="flex-1" />
+
+      <div className="py-3 flex flex-col gap-2">
+        {/* Theme Toggle */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="rounded-xl text-muted-foreground hover:text-foreground h-8 w-8"
+          onClick={cycleTheme}
+          title={`${t("theme.title")}: ${t(`theme.${theme}`)}`}
+        >
+          {theme === "auto" ? (
+            <Monitor className="h-4 w-4" />
+          ) : theme === "light" ? (
+            <Sun className="h-4 w-4" />
+          ) : (
+            <Moon className="h-4 w-4" />
+          )}
+        </Button>
+
+        {/* Language Selector */}
+        <div className="relative">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="rounded-xl text-muted-foreground hover:text-foreground h-8 w-8"
+            onClick={() => setShowLangMenu(!showLangMenu)}
+            title={t("language.title")}
+          >
+            <Languages className="h-4 w-4" />
+          </Button>
+          {showLangMenu && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setShowLangMenu(false)} />
+              <div className="absolute left-12 bottom-0 z-50 bg-card border border-border rounded-lg shadow-lg py-1 min-w-[160px] max-h-[400px] overflow-y-auto">
+                {SUPPORTED_LANGUAGES.map((lang) => (
+                  <button
+                    key={lang.code}
+                    className={`flex items-center gap-2.5 w-full px-3 py-1.5 text-xs transition-colors hover:bg-secondary ${
+                      i18n.language === lang.code || (i18n.language.startsWith(lang.code + "-") && lang.code !== "zh")
+                        ? "text-primary font-medium"
+                        : "text-foreground"
+                    }`}
+                    onClick={() => {
+                      i18n.changeLanguage(lang.code)
+                      setShowLangMenu(false)
+                    }}
+                  >
+                    <span className="text-[10px] font-bold w-5 text-primary/70">{lang.shortLabel}</span>
+                    <span>{lang.label}</span>
+                    {(i18n.language === lang.code || (i18n.language.startsWith(lang.code + "-") && lang.code !== "zh")) && (
+                      <span className="ml-auto text-primary">●</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          className={cn(
+            "rounded-xl h-8 w-8",
+            view === "settings"
+              ? "bg-primary/10 text-primary hover:bg-primary/20"
+              : "text-muted-foreground hover:text-foreground"
+          )}
+          onClick={onOpenSettings}
+          title={t("chat.settings")}
+        >
+          <Settings className="h-4 w-4" />
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 interface ToolCall {
   callId: string
   name: string
@@ -137,12 +249,8 @@ function ToolCallBlock({ tool }: { tool: ToolCall }) {
   )
 }
 
-function ChatScreen({
-  onOpenSettings,
-}: {
-  onOpenSettings: () => void
-}) {
-  const { t, i18n } = useTranslation()
+function ChatScreen() {
+  const { t } = useTranslation()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
   const [loading, setLoading] = useState(false)
@@ -156,8 +264,7 @@ function ChatScreen({
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
   const [activeModel, setActiveModel] = useState<ActiveModel | null>(null)
   const [reasoningEffort, setReasoningEffort] = useState("medium")
-  const [showLangMenu, setShowLangMenu] = useState(false)
-  const { theme, cycleTheme } = useTheme()
+
 
   // Model selector popup state
   const [showModelMenu, setShowModelMenu] = useState(false)
@@ -488,92 +595,8 @@ function ChatScreen({
   )
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
-      {/* Column 1: Icon Sidebar */}
-      <div className="w-14 shrink-0 border-r border-border bg-secondary/30 flex flex-col items-center">
-        <div className="h-11 flex items-center justify-center border-b border-border w-full">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="rounded-xl bg-primary/10 text-primary hover:bg-primary/20 h-8 w-8"
-            title={t("chat.conversations")}
-          >
-            <MessageSquare className="h-4 w-4" />
-          </Button>
-        </div>
-
-        <div className="flex-1" />
-
-        <div className="py-3 flex flex-col gap-2">
-          {/* Theme Toggle */}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="rounded-xl text-muted-foreground hover:text-foreground h-8 w-8"
-            onClick={cycleTheme}
-            title={`${t("theme.title")}: ${t(`theme.${theme}`)}`}
-          >
-            {theme === "auto" ? (
-              <Monitor className="h-4 w-4" />
-            ) : theme === "light" ? (
-              <Sun className="h-4 w-4" />
-            ) : (
-              <Moon className="h-4 w-4" />
-            )}
-          </Button>
-
-          {/* Language Selector */}
-          <div className="relative">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="rounded-xl text-muted-foreground hover:text-foreground h-8 w-8"
-              onClick={() => setShowLangMenu(!showLangMenu)}
-              title={t("language.title")}
-            >
-              <Languages className="h-4 w-4" />
-            </Button>
-            {showLangMenu && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setShowLangMenu(false)} />
-                <div className="absolute left-12 bottom-0 z-50 bg-card border border-border rounded-lg shadow-lg py-1 min-w-[160px] max-h-[400px] overflow-y-auto">
-                  {SUPPORTED_LANGUAGES.map((lang) => (
-                    <button
-                      key={lang.code}
-                      className={`flex items-center gap-2.5 w-full px-3 py-1.5 text-xs transition-colors hover:bg-secondary ${
-                        i18n.language === lang.code || (i18n.language.startsWith(lang.code + "-") && lang.code !== "zh")
-                          ? "text-primary font-medium"
-                          : "text-foreground"
-                      }`}
-                      onClick={() => {
-                        i18n.changeLanguage(lang.code)
-                        setShowLangMenu(false)
-                      }}
-                    >
-                      <span className="text-[10px] font-bold w-5 text-primary/70">{lang.shortLabel}</span>
-                      <span>{lang.label}</span>
-                      {(i18n.language === lang.code || (i18n.language.startsWith(lang.code + "-") && lang.code !== "zh")) && (
-                        <span className="ml-auto text-primary">●</span>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="rounded-xl text-muted-foreground hover:text-foreground h-8 w-8"
-            onClick={onOpenSettings}
-            title={t("chat.settings")}
-          >
-            <Settings className="h-4 w-4" />
-          </Button>
-        </div>
-      </div>
-
-      {/* Column 2: Agent List */}
+    <>
+      {/* Agent List */}
       <div
         style={{ width: panelWidth }}
         className="shrink-0 border-r border-border bg-background flex flex-col"
@@ -902,7 +925,7 @@ function ChatScreen({
           </div>
         </div>
       </div>
-    </div>
+    </>
   )
 }
 
@@ -977,19 +1000,22 @@ export default function App() {
   }
 
 
-  if (view === "settings") {
-    return (
-      <SettingsView
-        onBack={() => setView("chat")}
-        onCodexAuth={handleCodexAuth}
-        onCodexReauth={handleCodexAuth}
-      />
-    )
-  }
-
   return (
-    <ChatScreen
-      onOpenSettings={() => setView("settings")}
-    />
+    <div className="flex h-screen overflow-hidden bg-background">
+      <IconSidebar
+        view={view === "settings" ? "settings" : "chat"}
+        onOpenSettings={() => setView("settings")}
+        onOpenChat={() => setView("chat")}
+      />
+      {view === "settings" ? (
+        <SettingsView
+          onBack={() => setView("chat")}
+          onCodexAuth={handleCodexAuth}
+          onCodexReauth={handleCodexAuth}
+        />
+      ) : (
+        <ChatScreen />
+      )}
+    </div>
   )
 }
