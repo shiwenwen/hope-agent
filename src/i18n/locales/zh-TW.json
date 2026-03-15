@@ -38,6 +38,7 @@
     "title": "模型服務商",
     "selectProvider": "選擇模型服務商開始使用",
     "orSelectProvider": "或選擇模型服務商",
+    "codexSignIn": "使用 ChatGPT (Codex) 登入",
     "waitingBrowserLogin": "等候瀏覽器登入...",
     "searchProviders": "搜尋服務商...",
     "custom": "自訂",

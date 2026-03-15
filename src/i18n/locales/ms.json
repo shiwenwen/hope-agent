@@ -38,6 +38,7 @@
     "title": "Pembekal",
     "selectProvider": "Pilih pembekal untuk bermula",
     "orSelectProvider": "atau pilih pembekal",
+    "codexSignIn": "Log masuk dengan ChatGPT (Codex)",
     "waitingBrowserLogin": "Menunggu log masuk pelayar...",
     "searchProviders": "Cari pembekal...",
     "custom": "Tersuai",

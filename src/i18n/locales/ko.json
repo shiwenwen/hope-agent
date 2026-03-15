@@ -38,6 +38,7 @@
     "title": "공급자",
     "selectProvider": "공급자를 선택하여 시작하세요",
     "orSelectProvider": "또는 공급자 선택",
+    "codexSignIn": "ChatGPT (Codex)로 로그인",
     "waitingBrowserLogin": "브라우저 로그인 대기 중...",
     "searchProviders": "공급자 검색...",
     "custom": "사용자 정의",

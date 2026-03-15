@@ -38,6 +38,7 @@
     "title": "مزودو الخدمة",
     "selectProvider": "اختر مزوداً للبدء",
     "orSelectProvider": "أو اختر مزوداً",
+    "codexSignIn": "تسجيل الدخول عبر ChatGPT (Codex)",
     "waitingBrowserLogin": "بانتظار تسجيل الدخول عبر المتصفح...",
     "searchProviders": "البحث عن مزود...",
     "custom": "مخصص",

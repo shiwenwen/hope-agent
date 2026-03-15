@@ -38,6 +38,7 @@
     "title": "Sağlayıcılar",
     "selectProvider": "Başlamak için bir sağlayıcı seçin",
     "orSelectProvider": "veya sağlayıcı seçin",
+    "codexSignIn": "ChatGPT (Codex) ile giriş yap",
     "waitingBrowserLogin": "Tarayıcı girişi bekleniyor...",
     "searchProviders": "Sağlayıcı ara...",
     "custom": "Özel",

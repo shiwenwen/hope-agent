@@ -38,6 +38,7 @@
     "title": "プロバイダー",
     "selectProvider": "プロバイダーを選択して開始",
     "orSelectProvider": "またはプロバイダーを選択",
+    "codexSignIn": "ChatGPT (Codex) でサインイン",
     "waitingBrowserLogin": "ブラウザログインを待機中...",
     "searchProviders": "プロバイダーを検索...",
     "custom": "カスタム",

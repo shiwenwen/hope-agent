@@ -38,6 +38,7 @@
     "title": "Провайдеры",
     "selectProvider": "Выберите провайдера для начала",
     "orSelectProvider": "или выберите провайдера",
+    "codexSignIn": "Войти через ChatGPT (Codex)",
     "waitingBrowserLogin": "Ожидание входа в браузере...",
     "searchProviders": "Поиск провайдеров...",
     "custom": "Пользовательский",

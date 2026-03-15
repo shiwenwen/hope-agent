@@ -831,6 +831,8 @@ export default function ProviderSetup({
           </div>
         )}
 
+        {/* Scrollable content area */}
+        <div className="flex-1 overflow-y-auto">
         {/* Title */}
         <div className="text-center pt-10 pb-5 px-4">
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">
@@ -854,7 +856,7 @@ export default function ProviderSetup({
                 {t("provider.waitingBrowserLogin")}
               </span>
             ) : (
-              "Sign in with ChatGPT"
+              t("provider.codexSignIn")
             )}
           </Button>
           {codexError && (
@@ -885,7 +887,7 @@ export default function ProviderSetup({
         </div>
 
         {/* Template Grid */}
-        <div className="flex-1 overflow-y-auto px-6 pb-6 max-w-xl mx-auto w-full">
+        <div className="px-6 pb-6 max-w-xl mx-auto w-full">
           <div className="grid grid-cols-2 gap-2">
             {filteredTemplates.map((template) => (
               <button
@@ -923,6 +925,7 @@ export default function ProviderSetup({
               </div>
             </button>
           </div>
+        </div>
         </div>
       </div>
     )

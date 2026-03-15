@@ -38,6 +38,7 @@
     "title": "Nhà cung cấp",
     "selectProvider": "Chọn nhà cung cấp để bắt đầu",
     "orSelectProvider": "hoặc chọn nhà cung cấp",
+    "codexSignIn": "Đăng nhập bằng ChatGPT (Codex)",
     "waitingBrowserLogin": "Đang chờ đăng nhập trình duyệt...",
     "searchProviders": "Tìm nhà cung cấp...",
     "custom": "Tùy chỉnh",

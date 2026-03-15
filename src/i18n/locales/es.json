@@ -38,6 +38,7 @@
     "title": "Proveedores",
     "selectProvider": "Selecciona un proveedor para comenzar",
     "orSelectProvider": "o selecciona un proveedor",
+    "codexSignIn": "Iniciar sesión con ChatGPT (Codex)",
     "waitingBrowserLogin": "Esperando inicio de sesión en el navegador...",
     "searchProviders": "Buscar proveedores...",
     "custom": "Personalizado",

@@ -59,4 +59,36 @@ i18n
     },
   })
 
+const STORAGE_KEY = "i18nextLng"
+
+/**
+ * Check whether the app is currently in "follow system" mode.
+ * When the user explicitly picks a language, it's stored in localStorage.
+ * If there's no stored preference, we're following the system.
+ */
+export function isFollowingSystem(): boolean {
+  return !localStorage.getItem(STORAGE_KEY)
+}
+
+/**
+ * Switch to "follow system" language mode.
+ * Removes the stored preference and re-detects the browser/system language.
+ */
+export function setFollowSystemLanguage() {
+  localStorage.removeItem(STORAGE_KEY)
+  // Re-detect language from navigator
+  const detected =
+    navigator.language ||
+    (navigator.languages && navigator.languages[0]) ||
+    "en"
+  // Resolve to a supported language code
+  const supported = SUPPORTED_LANGUAGES.map((l) => l.code)
+  const exact = supported.find((c) => c === detected)
+  const prefix = supported.find((c) => detected.startsWith(c + "-"))
+  const lang = exact || prefix || "en"
+  i18n.changeLanguage(lang)
+  // Remove again because changeLanguage will re-set it
+  localStorage.removeItem(STORAGE_KEY)
+}
+
 export default i18n
