@@ -57,7 +57,8 @@
     "enable": "Enable",
     "disabled": "Disabled",
     "myCustomProvider": "My Custom Provider",
-    "authRequired": "Fill in if authentication is needed"
+    "authRequired": "Fill in if authentication is needed",
+    "relogin": "Re-login"
   },
   "model": {
     "modelConfig": "Model Config",

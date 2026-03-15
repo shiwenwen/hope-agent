@@ -57,7 +57,8 @@
     "enable": "有効化",
     "disabled": "無効",
     "myCustomProvider": "カスタムプロバイダー",
-    "authRequired": "認証が必要な場合は入力"
+    "authRequired": "認証が必要な場合は入力",
+    "relogin": "再ログイン"
   },
   "model": {
     "modelConfig": "モデル設定",

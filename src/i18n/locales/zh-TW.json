@@ -57,7 +57,8 @@
     "enable": "啟用",
     "disabled": "已停用",
     "myCustomProvider": "我的自訂服務商",
-    "authRequired": "如需認證需填寫"
+    "authRequired": "如需認證需填寫",
+    "relogin": "重新登入"
   },
   "model": {
     "modelConfig": "模型設定",

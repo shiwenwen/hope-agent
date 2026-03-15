@@ -57,7 +57,8 @@
     "enable": "Ativar",
     "disabled": "Desativado",
     "myCustomProvider": "Meu Provedor Personalizado",
-    "authRequired": "Preencha se precisar de autenticação"
+    "authRequired": "Preencha se precisar de autenticação",
+    "relogin": "Fazer login novamente"
   },
   "model": {
     "modelConfig": "Configuração do Modelo",

@@ -57,7 +57,8 @@
     "enable": "활성화",
     "disabled": "비활성화됨",
     "myCustomProvider": "사용자 정의 공급자",
-    "authRequired": "인증이 필요한 경우 입력"
+    "authRequired": "인증이 필요한 경우 입력",
+    "relogin": "다시 로그인"
   },
   "model": {
     "modelConfig": "모델 설정",

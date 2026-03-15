@@ -57,7 +57,8 @@
     "enable": "تفعيل",
     "disabled": "معطّل",
     "myCustomProvider": "المزود المخصص",
-    "authRequired": "املأه إذا كانت المصادقة مطلوبة"
+    "authRequired": "املأه إذا كانت المصادقة مطلوبة",
+    "relogin": "إعادة تسجيل الدخول"
   },
   "model": {
     "modelConfig": "إعداد النموذج",

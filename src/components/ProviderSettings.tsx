@@ -9,25 +9,21 @@ import TestResultDisplay, { parseTestResult, type TestResult } from "@/component
 import {
   ArrowLeft,
   Check,
-  CheckCircle2,
   ChevronDown,
-  Clock,
   Eye,
   EyeOff,
   Globe,
-  Info,
   Key,
   Loader2,
+  LogIn,
   MoreVertical,
   Pencil,
-  Play,
   Plus,
   Power,
   PowerOff,
   Trash2,
   Wifi,
   X,
-  XCircle,
 } from "lucide-react"
 
 // ── Types (shared with ProviderSetup) ─────────────────────────────
@@ -66,9 +62,11 @@ function apiTypeLabel(type: ApiType) {
 export default function ProviderSettings({
   onBack,
   onAddProvider,
+  onCodexReauth,
 }: {
   onBack: () => void
   onAddProvider: () => void
+  onCodexReauth?: () => void
 }) {
   const { t } = useTranslation()
   const [providers, setProviders] = useState<ProviderConfig[]>([])
@@ -86,8 +84,6 @@ export default function ProviderSettings({
   const [testResult, setTestResult] = useState<TestResult | null>(null)
   const [testLoading, setTestLoading] = useState(false)
   const [showApiKey, setShowApiKey] = useState(false)
-  const [modelTestResults, setModelTestResults] = useState<Record<number, { loading: boolean; result: TestResult | null }>>({})
-  const [expandedModelLog, setExpandedModelLog] = useState<number | null>(null)
 
   useEffect(() => {
     loadProviders()
@@ -115,28 +111,6 @@ export default function ProviderSettings({
     setMenuId(null)
     setTestResult(null)
     setShowApiKey(false)
-    setModelTestResults({})
-  }
-
-  async function handleTestModel(index: number, modelId: string, provider: ProviderConfig) {
-    setModelTestResults(prev => ({ ...prev, [index]: { loading: true, result: null } }))
-    try {
-      const msg = await invoke<string>("test_model", {
-        config: {
-          id: provider.id,
-          name: editName,
-          apiType: editApiType,
-          baseUrl: editBaseUrl,
-          apiKey: editApiKey || provider.apiKey,
-          models: [],
-          enabled: true,
-        },
-        modelId,
-      })
-      setModelTestResults(prev => ({ ...prev, [index]: { loading: false, result: parseTestResult(msg, false) } }))
-    } catch (e) {
-      setModelTestResults(prev => ({ ...prev, [index]: { loading: false, result: parseTestResult(String(e), true) } }))
-    }
   }
 
   async function handleTestEdit(provider: ProviderConfig) {
@@ -372,96 +346,30 @@ export default function ProviderSettings({
                     </Button>
                   </div>
                   {editModels.map((model, i) => (
-                    <div key={i} className="space-y-1.5">
-                      <ModelEditor
-                        model={model}
-                        onChange={(updated) => {
-                          const next = [...editModels]
-                          next[i] = updated
-                          setEditModels(next)
-                        }}
-                        onRemove={() =>
-                          setEditModels(editModels.filter((_, j) => j !== i))
-                        }
-                      />
-                      {/* Per-model test button */}
-                      {model.id && provider.apiType !== "codex" && (
-                        <div className="flex items-center gap-2 pl-1">
-                          <button
-                            onClick={() => handleTestModel(i, model.id, provider)}
-                            disabled={modelTestResults[i]?.loading || !editBaseUrl.trim()}
-                            className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-primary transition-colors disabled:opacity-50"
-                          >
-                            {modelTestResults[i]?.loading ? (
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                            ) : (
-                              <Play className="h-3 w-3" />
-                            )}
-                            发送 "Hi" 测试
-                          </button>
-                          {modelTestResults[i]?.result && (
-                            <span className={`flex items-center gap-1 text-[10px] ${
-                              modelTestResults[i].result!.ok ? "text-green-400" : "text-red-400"
-                            }`}>
-                              {modelTestResults[i].result!.ok ? (
-                                <CheckCircle2 className="h-3 w-3" />
-                              ) : (
-                                <XCircle className="h-3 w-3" />
-                              )}
-                              {modelTestResults[i].result!.data.message}
-                              {modelTestResults[i].result!.data.latencyMs != null && modelTestResults[i].result!.data.latencyMs! > 0 && (
-                                <span className="text-muted-foreground flex items-center gap-0.5">
-                                  <Clock className="h-2.5 w-2.5" />
-                                  {modelTestResults[i].result!.data.latencyMs}ms
-                                </span>
-                              )}
-                              <button
-                                onClick={() => setExpandedModelLog(expandedModelLog === i ? null : i)}
-                                className="text-muted-foreground hover:text-foreground transition-colors ml-0.5"
-                                title="查看完整日志"
-                              >
-                                <Info className="h-3 w-3" />
-                              </button>
-                            </span>
-                          )}
-                        </div>
-                      )}
-                      {/* Full log panel */}
-                      {expandedModelLog === i && modelTestResults[i]?.result && (() => {
-                        const d = modelTestResults[i].result!.data as any
-                        return (
-                          <div className="ml-1 px-2.5 py-2 rounded-md bg-secondary/30 border border-border/50 overflow-hidden space-y-2">
-                            <div className="flex items-center justify-between">
-                              <span className="text-[9px] font-medium text-foreground/60">完整日志</span>
-                              <button onClick={() => setExpandedModelLog(null)} className="text-muted-foreground hover:text-foreground">
-                                <X className="h-2.5 w-2.5" />
-                              </button>
-                            </div>
-                            {d.request && (
-                              <div>
-                                <span className="text-[9px] font-semibold text-blue-400">▸ 请求</span>
-                                <pre className="text-[10px] text-muted-foreground whitespace-pre-wrap break-all max-h-32 overflow-y-auto font-mono mt-0.5 pl-2 border-l-2 border-blue-500/30">
-                                  {JSON.stringify(d.request, null, 2)}
-                                </pre>
-                              </div>
-                            )}
-                            <div>
-                              <span className={`text-[9px] font-semibold ${d.success ? "text-green-400" : "text-red-400"}`}>▸ 响应 {d.status ? `(${d.status})` : ""}</span>
-                              <pre className={`text-[10px] text-muted-foreground whitespace-pre-wrap break-all max-h-40 overflow-y-auto font-mono mt-0.5 pl-2 border-l-2 ${d.success ? "border-green-500/30" : "border-red-500/30"}`}>
-                                {d.response ? JSON.stringify(d.response, null, 2) : JSON.stringify({ success: d.success, message: d.message, model: d.model, latencyMs: d.latencyMs }, null, 2)}
-                              </pre>
-                            </div>
-                          </div>
-                        )
-                      })()}
-                      {/* Show reply preview if available */}
-                      {modelTestResults[i]?.result?.ok && (modelTestResults[i].result!.data as any).reply && (
-                        <div className="ml-1 px-2.5 py-1.5 rounded-md bg-secondary/50 text-[10px] text-muted-foreground border border-border/50">
-                          <span className="text-[9px] font-medium text-foreground/60">AI 回复: </span>
-                          {(modelTestResults[i].result!.data as any).reply}
-                        </div>
-                      )}
-                    </div>
+                    <ModelEditor
+                      key={i}
+                      model={model}
+                      onChange={(updated) => {
+                        const next = [...editModels]
+                        next[i] = updated
+                        setEditModels(next)
+                      }}
+                      onRemove={() =>
+                        setEditModels(editModels.filter((_, j) => j !== i))
+                      }
+                      onTest={editBaseUrl.trim() && provider.apiType !== "codex" ? (modelId) => invoke<string>("test_model", {
+                        config: {
+                          id: provider.id,
+                          name: editName,
+                          apiType: editApiType,
+                          baseUrl: editBaseUrl,
+                          apiKey: editApiKey || provider.apiKey,
+                          models: [],
+                          enabled: true,
+                        },
+                        modelId,
+                      }) : undefined}
+                    />
                   ))}
                 </div>
 
@@ -590,6 +498,18 @@ export default function ProviderSettings({
                               </>
                             )}
                           </button>
+                          {provider.apiType === "codex" && onCodexReauth && (
+                            <button
+                              className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-foreground hover:bg-secondary transition-colors"
+                              onClick={() => {
+                                setMenuId(null)
+                                onCodexReauth()
+                              }}
+                            >
+                              <LogIn className="h-3 w-3" />
+                              {t("provider.relogin")}
+                            </button>
+                          )}
                           {provider.apiType !== "codex" && (
                             <button
                               className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-red-400 hover:bg-secondary transition-colors"

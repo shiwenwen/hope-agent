@@ -57,7 +57,8 @@
     "enable": "Kích hoạt",
     "disabled": "Đã vô hiệu",
     "myCustomProvider": "Nhà cung cấp tùy chỉnh",
-    "authRequired": "Điền nếu cần xác thực"
+    "authRequired": "Điền nếu cần xác thực",
+    "relogin": "Đăng nhập lại"
   },
   "model": {
     "modelConfig": "Cấu hình mô hình",

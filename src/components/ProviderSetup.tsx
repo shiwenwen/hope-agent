@@ -9,14 +9,20 @@ import {
   ArrowLeft,
   ArrowRight,
   Check,
+  CheckCircle2,
   ChevronDown,
+  Clock,
   Globe,
+  Info,
   Key,
   Loader2,
+  Play,
   Plus,
   Search,
   Settings2,
   Trash2,
+  X,
+  XCircle,
 } from "lucide-react"
 
 // ── Types ─────────────────────────────────────────────────────────
@@ -414,13 +420,18 @@ export function ModelEditor({
   model,
   onChange,
   onRemove,
+  onTest,
 }: {
   model: ModelConfig
   onChange: (m: ModelConfig) => void
   onRemove: () => void
+  onTest?: (modelId: string) => Promise<string>
 }) {
   const { t } = useTranslation()
   const inputTypes = ["text", "image", "video"]
+  const [testLoading, setTestLoading] = useState(false)
+  const [testResult, setTestResult] = useState<{ ok: boolean; data: any } | null>(null)
+  const [logExpanded, setLogExpanded] = useState(false)
 
   function toggleInput(type: string) {
     const current = model.inputTypes
@@ -570,6 +581,93 @@ export function ModelEditor({
           />
         </div>
       </div>
+
+      {/* Per-model test */}
+      {onTest && model.id && (
+        <div className="space-y-1.5 pt-1 border-t border-border/50">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={async () => {
+                if (!onTest || !model.id) return
+                setTestLoading(true)
+                setTestResult(null)
+                setLogExpanded(false)
+                try {
+                  const msg = await onTest(model.id)
+                  const data = JSON.parse(msg)
+                  setTestResult({ ok: data.success ?? true, data })
+                } catch (e) {
+                  try {
+                    const data = JSON.parse(String(e))
+                    setTestResult({ ok: false, data })
+                  } catch {
+                    setTestResult({ ok: false, data: { success: false, message: String(e) } })
+                  }
+                } finally {
+                  setTestLoading(false)
+                }
+              }}
+              disabled={testLoading}
+              className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-primary transition-colors disabled:opacity-50"
+            >
+              {testLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+              发送 "Hi" 测试
+            </button>
+            {testResult && (
+              <span className={`flex items-center gap-1 text-[10px] ${testResult.ok ? "text-green-400" : "text-red-400"}`}>
+                {testResult.ok ? <CheckCircle2 className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
+                {testResult.data.message}
+                {testResult.data.latencyMs != null && testResult.data.latencyMs > 0 && (
+                  <span className="text-muted-foreground flex items-center gap-0.5">
+                    <Clock className="h-2.5 w-2.5" />
+                    {testResult.data.latencyMs}ms
+                  </span>
+                )}
+                <button
+                  onClick={() => setLogExpanded(!logExpanded)}
+                  className="text-muted-foreground hover:text-foreground transition-colors ml-0.5"
+                  title="查看完整日志"
+                >
+                  <Info className="h-3 w-3" />
+                </button>
+              </span>
+            )}
+          </div>
+          {testResult?.ok && testResult.data.reply && (
+            <div className="px-2.5 py-1.5 rounded-md bg-secondary/50 text-[10px] text-muted-foreground border border-border/50">
+              <span className="text-[9px] font-medium text-foreground/60">AI 回复: </span>
+              {testResult.data.reply}
+            </div>
+          )}
+          {logExpanded && testResult && (() => {
+            const d = testResult.data
+            return (
+              <div className="px-2.5 py-2 rounded-md bg-secondary/30 border border-border/50 overflow-hidden space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[9px] font-medium text-foreground/60">完整日志</span>
+                  <button onClick={() => setLogExpanded(false)} className="text-muted-foreground hover:text-foreground">
+                    <X className="h-2.5 w-2.5" />
+                  </button>
+                </div>
+                {d.request && (
+                  <div>
+                    <span className="text-[9px] font-semibold text-blue-400">▸ 请求</span>
+                    <pre className="text-[10px] text-muted-foreground whitespace-pre-wrap break-all max-h-32 overflow-y-auto font-mono mt-0.5 pl-2 border-l-2 border-blue-500/30">
+                      {JSON.stringify(d.request, null, 2)}
+                    </pre>
+                  </div>
+                )}
+                <div>
+                  <span className={`text-[9px] font-semibold ${d.success ? "text-green-400" : "text-red-400"}`}>▸ 响应 {d.status ? `(${d.status})` : ""}</span>
+                  <pre className={`text-[10px] text-muted-foreground whitespace-pre-wrap break-all max-h-40 overflow-y-auto font-mono mt-0.5 pl-2 border-l-2 ${d.success ? "border-green-500/30" : "border-red-500/30"}`}>
+                    {d.response ? JSON.stringify(d.response, null, 2) : JSON.stringify({ success: d.success, message: d.message, model: d.model, latencyMs: d.latencyMs }, null, 2)}
+                  </pre>
+                </div>
+              </div>
+            )
+          })()}
+        </div>
+      )}
     </div>
   )
 }
@@ -991,6 +1089,10 @@ export default function ProviderSetup({
                     onRemove={() =>
                       setModels(models.filter((_, j) => j !== i))
                     }
+                    onTest={baseUrl.trim() ? (modelId) => invoke<string>("test_model", {
+                      config: { id: "", name: providerName, apiType, baseUrl, apiKey: apiKey || "ollama", models: [], enabled: true },
+                      modelId,
+                    }) : undefined}
                   />
                 ))}
                 <Button
@@ -1263,6 +1365,10 @@ export default function ProviderSetup({
                   onRemove={() =>
                     setModels(models.filter((_, j) => j !== i))
                   }
+                  onTest={baseUrl.trim() ? (modelId) => invoke<string>("test_model", {
+                    config: { id: "", name: providerName, apiType, baseUrl, apiKey: apiKey || "ollama", models: [], enabled: true },
+                    modelId,
+                  }) : undefined}
                 />
               ))}
               {models.length === 0 && (

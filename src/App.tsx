@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import {
   Send,
-  LogOut,
   Brain,
   ChevronDown,
   ChevronRight,
@@ -135,10 +134,8 @@ function ToolCallBlock({ tool }: { tool: ToolCall }) {
 }
 
 function ChatScreen({
-  onLogout,
   onOpenSettings,
 }: {
-  onLogout: () => void
   onOpenSettings: () => void
 }) {
   const { t, i18n } = useTranslation()
@@ -551,15 +548,6 @@ function ChatScreen({
           >
             <Settings className="h-4 w-4" />
           </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="rounded-xl text-muted-foreground hover:text-foreground h-8 w-8"
-            onClick={onLogout}
-            title={t("chat.logout")}
-          >
-            <LogOut className="h-4 w-4" />
-          </Button>
         </div>
       </div>
 
@@ -947,16 +935,7 @@ export default function App() {
     await poll()
   }
 
-  async function handleLogout() {
-    try {
-      await invoke("logout_codex")
-    } catch (e) {
-      console.error("Logout error:", e)
-    }
-    // Check if there are still providers left
-    const has = await invoke<boolean>("has_providers")
-    setView(has ? "chat" : "setup")
-  }
+
 
   if (view === "loading") {
     return (
@@ -990,13 +969,13 @@ export default function App() {
       <ProviderSettings
         onBack={() => setView("chat")}
         onAddProvider={() => setView("add-provider")}
+        onCodexReauth={handleCodexAuth}
       />
     )
   }
 
   return (
     <ChatScreen
-      onLogout={handleLogout}
       onOpenSettings={() => setView("settings")}
     />
   )

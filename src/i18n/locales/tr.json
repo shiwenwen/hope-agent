@@ -57,7 +57,8 @@
     "enable": "Etkinleştir",
     "disabled": "Devre dışı",
     "myCustomProvider": "Özel Sağlayıcım",
-    "authRequired": "Kimlik doğrulama gerekiyorsa doldurun"
+    "authRequired": "Kimlik doğrulama gerekiyorsa doldurun",
+    "relogin": "Tekrar giriş yap"
   },
   "model": {
     "modelConfig": "Model Yapılandırması",

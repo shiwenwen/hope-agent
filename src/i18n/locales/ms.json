@@ -57,7 +57,8 @@
     "enable": "Aktifkan",
     "disabled": "Dinyahaktifkan",
     "myCustomProvider": "Pembekal Tersuai Saya",
-    "authRequired": "Isi jika pengesahan diperlukan"
+    "authRequired": "Isi jika pengesahan diperlukan",
+    "relogin": "Log masuk semula"
   },
   "model": {
     "modelConfig": "Konfigurasi Model",
