@@ -4,6 +4,7 @@ import { cjk } from "@streamdown/cjk";
 import { math } from "@streamdown/math";
 import { mermaid } from "@streamdown/mermaid";
 import "katex/dist/katex.min.css";
+import "streamdown/styles.css";
 
 const plugins = { code, cjk, math, mermaid };
 
@@ -19,7 +20,7 @@ export default function MarkdownRenderer({
   if (!content) return null;
 
   return (
-    <Streamdown plugins={plugins} isAnimating={isStreaming}>
+    <Streamdown animated plugins={plugins} isAnimating={isStreaming}>
       {content}
     </Streamdown>
   );

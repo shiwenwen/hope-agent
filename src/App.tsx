@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react"
+import { useState, useRef, useEffect, useCallback, useLayoutEffect } from "react"
 import { invoke, Channel } from "@tauri-apps/api/core"
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import { useTranslation } from "react-i18next"
@@ -175,8 +175,21 @@ function ChatScreen({
   const imageInputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" })
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+
+  // Use useLayoutEffect to update scroll position synchronously BEFORE the browser paints.
+  // This completely eliminates the 1-frame "jitter" (一抖一抖) when text expands the container.
+  useLayoutEffect(() => {
+    const el = scrollContainerRef.current
+    if (!el) return
+    
+    // Only force auto-scroll if loading (streaming) or at the bottom already
+    // When loading, we snap to the bottom immediately to avoid jumping animations.
+    if (loading) {
+      el.scrollTop = el.scrollHeight
+    } else {
+      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" })
+    }
   }, [messages, loading])
 
   // Close model menu on outside click
@@ -603,7 +616,7 @@ function ChatScreen({
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
+        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
           {messages.length === 0 && (
             <div className="flex items-center justify-center h-full">
               <p className="text-muted-foreground text-sm">
@@ -625,6 +638,7 @@ function ChatScreen({
                   msg.role === "user"
                     ? "bg-secondary text-foreground whitespace-pre-wrap"
                     : "bg-card text-foreground/80",
+                  msg.role === "assistant" && !msg.content && !msg.toolCalls?.length && "animate-pulse"
                 )}
               >
                 {msg.role === "assistant" &&
@@ -639,10 +653,16 @@ function ChatScreen({
                 ) : (
                   msg.role === "assistant" &&
                   !msg.toolCalls?.length && (
-                    <div className="flex items-center gap-1.5 h-6 px-2">
-                      <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/60 animate-bounce" style={{ animation: "bounce 1.4s infinite ease-in-out both, pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite", animationDelay: "-0.32s" }} />
-                      <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/60 animate-bounce" style={{ animation: "bounce 1.4s infinite ease-in-out both, pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite", animationDelay: "-0.16s" }} />
-                      <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/60 animate-bounce" style={{ animation: "bounce 1.4s infinite ease-in-out both, pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite", animationDelay: "0s" }} />
+                    <div className="flex items-center gap-1.5 h-6 px-2 relative top-1">
+                      <style>{`
+                        @keyframes customBouncePulse {
+                          0%, 100% { transform: translateY(0) scale(1); opacity: 0.3; }
+                          50% { transform: translateY(-6px) scale(1.1); opacity: 1; }
+                        }
+                      `}</style>
+                      <span className="w-2 h-2 rounded-full bg-foreground" style={{ animation: "customBouncePulse 1.2s cubic-bezier(0.4, 0, 0.6, 1) infinite", animationDelay: "0ms" }} />
+                      <span className="w-2 h-2 rounded-full bg-foreground" style={{ animation: "customBouncePulse 1.2s cubic-bezier(0.4, 0, 0.6, 1) infinite", animationDelay: "200ms" }} />
+                      <span className="w-2 h-2 rounded-full bg-foreground" style={{ animation: "customBouncePulse 1.2s cubic-bezier(0.4, 0, 0.6, 1) infinite", animationDelay: "400ms" }} />
                     </div>
                   )
                 )}
