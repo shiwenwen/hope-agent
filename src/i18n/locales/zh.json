@@ -21,7 +21,10 @@
     "startConversation": "开始对话",
     "howCanIHelp": "有什么可以帮你的？",
     "askAnything": "问点什么...",
-    "modelsCount": "{{count}} 个模型"
+    "modelsCount": "{{count}} 个模型",
+    "attachImage": "添加图片",
+    "attachFile": "添加文件",
+    "selectModel": "选择模型"
   },
   "effort": {
     "off": "关闭",

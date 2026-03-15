@@ -60,6 +60,8 @@ npm run lint
 
 - **前后端通信**：前端通过 `invoke()` 调用 Tauri 命令，不走 HTTP
 - **流式输出**：`chat` 命令通过 Tauri `Channel<String>` 向前端推送 JSON 事件（`text_delta` / `tool_call` / `tool_result`）
+- **模型选择器重构**：从原生 select 改为定制的**级联菜单**，支持向上伸展和右侧子菜单。
+- **可拖拽多行输入框**：类似微信的 Textarea 输入区域，支持拖拽调整高度（80~400px）
 - **状态管理**：全局状态用 Tauri 的 `State<AppState>`（Rust 侧，`tokio::sync::Mutex`），前端保持轻量 React state
 - **Agent 封装**：所有 LLM 调用集中在 `agent.rs` 的 `AssistantAgent`，支持 4 种 `LlmProvider`（Anthropic / OpenAIChat / OpenAIResponses / Codex）
 - **Provider 管理**：`provider.rs` 定义 `ProviderConfig` / `ModelConfig` / `ApiType`，持久化至 `providers.json`

@@ -21,7 +21,10 @@
     "startConversation": "Mulakan perbualan",
     "howCanIHelp": "Apa yang boleh saya bantu?",
     "askAnything": "Tanya apa sahaja...",
-    "modelsCount": "{{count}} model"
+    "modelsCount": "{{count}} model",
+    "attachImage": "Tambah Gambar",
+    "attachFile": "Tambah Fail",
+    "selectModel": "Pilih Model"
   },
   "effort": {
     "off": "Mati",

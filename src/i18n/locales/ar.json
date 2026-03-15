@@ -21,7 +21,10 @@
     "startConversation": "ابدأ محادثة",
     "howCanIHelp": "كيف يمكنني مساعدتك؟",
     "askAnything": "اسأل أي شيء...",
-    "modelsCount": "{{count}} نماذج"
+    "modelsCount": "{{count}} نماذج",
+    "attachImage": "إضافة صورة",
+    "attachFile": "إضافة ملف",
+    "selectModel": "اختيار النموذج"
   },
   "effort": {
     "off": "إيقاف",

@@ -21,7 +21,10 @@
     "startConversation": "Начать разговор",
     "howCanIHelp": "Чем могу помочь?",
     "askAnything": "Спросите что угодно...",
-    "modelsCount": "{{count}} моделей"
+    "modelsCount": "{{count}} моделей",
+    "attachImage": "Добавить изображение",
+    "attachFile": "Добавить файл",
+    "selectModel": "Выбрать модель"
   },
   "effort": {
     "off": "Выкл",

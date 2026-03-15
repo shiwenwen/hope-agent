@@ -21,7 +21,10 @@
     "startConversation": "대화 시작",
     "howCanIHelp": "무엇을 도와드릴까요?",
     "askAnything": "무엇이든 물어보세요...",
-    "modelsCount": "모델 {{count}}개"
+    "modelsCount": "모델 {{count}}개",
+    "attachImage": "이미지 추가",
+    "attachFile": "파일 추가",
+    "selectModel": "모델 선택"
   },
   "effort": {
     "off": "끄기",

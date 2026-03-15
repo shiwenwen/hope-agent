@@ -44,6 +44,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Provider Schema 适配层**：`tools.rs` 引入 `ToolProvider` 枚举，同一套 tool 定义自动转换为 Anthropic / OpenAI 格式
 - **微信风格三栏布局**：图标侧边栏 + 可拖拽会话/Agent 列表 + 对话区
 - **可拖拽会话面板**：会话列表面板宽度可在 180px ~ 400px 范围内拖拽调整
+- **模型选择器重构**：从原生 select 改为定制的**级联菜单**（Cascading Submenu）
+  - Provider 列表向上弹出可见，鼠标悬停时从右侧展开该 Provider 下的模型列表
+  - 支持单模型 Provider 直接点击选中
+  - 增加半透明毛玻璃背景、精致阴影、圆角列表项等对齐参考图的质感设计
+- **Think 思考模式选择器优化**：同步升级为向上弹出的自定义弹层，样式与模型选择器保持一致
+- **可拖拽多行输入框**：类似微信的 Textarea 输入区域，支持拖拽调整高度（80~400px）
+- **图片和文件附件**：输入工具栏新增图片（📷）和文件（📎）选择按钮，支持多选
+- **粘贴图片/文件**：输入框支持直接从剪贴板粘贴图片和文件
+- **附件预览与删除**：已添加的附件显示在输入框上方，支持图片缩略图预览和单独删除
+- **后端多模态支持**：`agent.rs` 新增 `Attachment` 结构体和三种 API 格式的图片内容构建函数（Anthropic base64 source / OpenAI Chat image_url / OpenAI Responses input_image）
+- **图片消息发送**：前端读取图片为 base64 传递给 Rust 后端，后端按各 Provider API 格式构建多模态请求
 
 ### Changed
 - `agent.rs` `LlmProvider` 从 2 种（Anthropic/OpenAI）扩展到 4 种（Anthropic/OpenAIChat/OpenAIResponses/Codex），全部支持自定义 base_url
@@ -53,6 +64,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `App.tsx` 模型选择器改为显示 `Provider / Model` 组合格式
 - `App.tsx` 侧边栏底部新增「设置」按钮，可进入 Provider 管理面板
 - `App.tsx` 启动流程改为检查 Provider 列表决定显示引导页或聊天界面
+- `App.tsx` 底部输入框从单行 `<Input>` 改为多行 `<textarea>`，默认 Enter 发送，Shift+Enter 换行
+- `App.tsx` 顶部 Header 简化为仅显示 Agent 名称
 - `agent.rs` Anthropic 调用从 `rig-core` Prompt trait 改为直接 HTTP 调用 Messages API
 - `tools.rs` `ToolDefinition` 重构为 provider-agnostic 格式，新增 `to_anthropic_schema()` / `to_openai_schema()` 方法
 - `LlmProvider::Anthropic` 从包装 `rig-core::Client` 改为存储 API key 字符串

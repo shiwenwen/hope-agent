@@ -5,6 +5,78 @@ use serde_json::json;
 use crate::provider::{ApiType, ProviderConfig};
 use crate::tools::{self, ToolProvider};
 
+/// File/image attachment sent alongside a chat message
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Attachment {
+    pub name: String,
+    pub mime_type: String,
+    /// Base64-encoded file data
+    pub data: String,
+}
+
+/// Build multimodal user content array for Anthropic Messages API.
+/// Anthropic format: [{type: "image", source: {type: "base64", media_type, data}}, {type: "text", text}]
+fn build_user_content_anthropic(message: &str, attachments: &[Attachment]) -> serde_json::Value {
+    if attachments.is_empty() {
+        return json!(message);
+    }
+    let mut parts: Vec<serde_json::Value> = Vec::new();
+    for att in attachments {
+        if att.mime_type.starts_with("image/") {
+            parts.push(json!({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": att.mime_type,
+                    "data": att.data,
+                }
+            }));
+        }
+    }
+    parts.push(json!({ "type": "text", "text": message }));
+    json!(parts)
+}
+
+/// Build multimodal user content array for OpenAI Chat Completions API.
+/// OpenAI Chat format: [{type: "image_url", image_url: {url: "data:mime;base64,..."}}, {type: "text", text}]
+fn build_user_content_openai_chat(message: &str, attachments: &[Attachment]) -> serde_json::Value {
+    if attachments.is_empty() {
+        return json!(message);
+    }
+    let mut parts: Vec<serde_json::Value> = Vec::new();
+    for att in attachments {
+        if att.mime_type.starts_with("image/") {
+            let data_url = format!("data:{};base64,{}", att.mime_type, att.data);
+            parts.push(json!({
+                "type": "image_url",
+                "image_url": { "url": data_url }
+            }));
+        }
+    }
+    parts.push(json!({ "type": "text", "text": message }));
+    json!(parts)
+}
+
+/// Build multimodal user content array for OpenAI Responses API / Codex.
+/// Responses format: [{type: "input_image", image_url: "data:mime;base64,..."}, {type: "input_text", text}]
+fn build_user_content_responses(message: &str, attachments: &[Attachment]) -> serde_json::Value {
+    if attachments.is_empty() {
+        return json!(message);
+    }
+    let mut parts: Vec<serde_json::Value> = Vec::new();
+    for att in attachments {
+        if att.mime_type.starts_with("image/") {
+            let data_url = format!("data:{};base64,{}", att.mime_type, att.data);
+            parts.push(json!({
+                "type": "input_image",
+                "image_url": data_url,
+            }));
+        }
+    }
+    parts.push(json!({ "type": "input_text", "text": message }));
+    json!(parts)
+}
+
 const SYSTEM_PROMPT: &str = "You are OpenComputer, a personal AI assistant with deep system integration. \
                              You help users interact with their computer naturally and efficiently. \
                              You have access to tools that let you execute shell commands, read/write files, \
@@ -388,32 +460,33 @@ impl AssistantAgent {
         }
     }
 
-    pub async fn chat(&self, message: &str, reasoning_effort: Option<&str>, on_delta: impl Fn(&str) + Send + 'static) -> Result<String> {
+    pub async fn chat(&self, message: &str, attachments: &[Attachment], reasoning_effort: Option<&str>, on_delta: impl Fn(&str) + Send + 'static) -> Result<String> {
         match &self.provider {
             LlmProvider::Anthropic { api_key, base_url, model } => {
-                self.chat_anthropic(api_key, base_url, model, message, reasoning_effort, &on_delta).await
+                self.chat_anthropic(api_key, base_url, model, message, attachments, reasoning_effort, &on_delta).await
             }
             LlmProvider::OpenAIChat { api_key, base_url, model } => {
-                self.chat_openai_chat(api_key, base_url, model, message, reasoning_effort, &on_delta).await
+                self.chat_openai_chat(api_key, base_url, model, message, attachments, reasoning_effort, &on_delta).await
             }
             LlmProvider::OpenAIResponses { api_key, base_url, model } => {
-                self.chat_openai_responses(api_key, base_url, model, message, reasoning_effort, &on_delta).await
+                self.chat_openai_responses(api_key, base_url, model, message, attachments, reasoning_effort, &on_delta).await
             }
             LlmProvider::Codex { access_token, account_id, model } => {
-                self.chat_openai(access_token, account_id, model, message, reasoning_effort, &on_delta).await
+                self.chat_openai(access_token, account_id, model, message, attachments, reasoning_effort, &on_delta).await
             }
         }
     }
 
     // ── Anthropic Messages API with Tool Loop ─────────────────────
 
-    async fn chat_anthropic(&self, api_key: &str, base_url: &str, model: &str, message: &str, reasoning_effort: Option<&str>, on_delta: &(impl Fn(&str) + Send)) -> Result<String> {
+    async fn chat_anthropic(&self, api_key: &str, base_url: &str, model: &str, message: &str, attachments: &[Attachment], reasoning_effort: Option<&str>, on_delta: &(impl Fn(&str) + Send)) -> Result<String> {
         let client = reqwest::Client::new();
         let tool_schemas = tools::get_tools_for_provider(ToolProvider::Anthropic);
 
-        // Build messages from conversation history + new user message
+        // Build messages from conversation history + new user message (with optional image attachments)
         let mut messages = self.conversation_history.lock().unwrap().clone();
-        messages.push(json!({ "role": "user", "content": message }));
+        let user_content = build_user_content_anthropic(message, attachments);
+        messages.push(json!({ "role": "user", "content": user_content }));
 
         let mut collected_text = String::new();
 
@@ -624,12 +697,13 @@ impl AssistantAgent {
 
     // ── OpenAI Chat Completions API with Tool Loop ───────────────
 
-    async fn chat_openai_chat(&self, api_key: &str, base_url: &str, model: &str, message: &str, reasoning_effort: Option<&str>, on_delta: &(impl Fn(&str) + Send)) -> Result<String> {
+    async fn chat_openai_chat(&self, api_key: &str, base_url: &str, model: &str, message: &str, attachments: &[Attachment], reasoning_effort: Option<&str>, on_delta: &(impl Fn(&str) + Send)) -> Result<String> {
         let client = reqwest::Client::new();
         let tool_schemas = tools::get_tools_for_provider(ToolProvider::OpenAI);
 
         let mut messages = self.conversation_history.lock().unwrap().clone();
-        messages.push(json!({ "role": "user", "content": message }));
+        let user_content = build_user_content_openai_chat(message, attachments);
+        messages.push(json!({ "role": "user", "content": user_content }));
 
         let api_url = format!("{}/v1/chat/completions", base_url.trim_end_matches('/'));
         let mut collected_text = String::new();
@@ -831,7 +905,7 @@ impl AssistantAgent {
 
     // ── OpenAI Responses API (custom base_url) ────────────────────
 
-    async fn chat_openai_responses(&self, api_key: &str, base_url: &str, model: &str, message: &str, reasoning_effort: Option<&str>, on_delta: &(impl Fn(&str) + Send)) -> Result<String> {
+    async fn chat_openai_responses(&self, api_key: &str, base_url: &str, model: &str, message: &str, attachments: &[Attachment], reasoning_effort: Option<&str>, on_delta: &(impl Fn(&str) + Send)) -> Result<String> {
         let client = reqwest::Client::new();
         let tool_schemas = tools::get_tools_for_provider(ToolProvider::OpenAI);
 
@@ -840,7 +914,8 @@ impl AssistantAgent {
             .map(|effort| ReasoningConfig { effort });
 
         let mut input: Vec<serde_json::Value> = self.conversation_history.lock().unwrap().clone();
-        input.push(json!({ "role": "user", "content": message }));
+        let user_content = build_user_content_responses(message, attachments);
+        input.push(json!({ "role": "user", "content": user_content }));
 
         let api_url = format!("{}/v1/responses", base_url.trim_end_matches('/'));
         let mut collected_text = String::new();
@@ -918,7 +993,7 @@ impl AssistantAgent {
 
     // ── OpenAI Codex Responses API with Tool Loop ─────────────────
 
-    async fn chat_openai(&self, access_token: &str, account_id: &str, model: &str, message: &str, reasoning_effort: Option<&str>, on_delta: &(impl Fn(&str) + Send)) -> Result<String> {
+    async fn chat_openai(&self, access_token: &str, account_id: &str, model: &str, message: &str, attachments: &[Attachment], reasoning_effort: Option<&str>, on_delta: &(impl Fn(&str) + Send)) -> Result<String> {
         let client = reqwest::Client::new();
         let tool_schemas = tools::get_tools_for_provider(ToolProvider::OpenAI);
 
@@ -927,9 +1002,10 @@ impl AssistantAgent {
             .and_then(|e| clamp_reasoning_effort(model, e))
             .map(|effort| ReasoningConfig { effort });
 
-        // Build input from conversation history + new user message
+        // Build input from conversation history + new user message (with optional image attachments)
         let mut input: Vec<serde_json::Value> = self.conversation_history.lock().unwrap().clone();
-        input.push(json!({ "role": "user", "content": message }));
+        let user_content = build_user_content_responses(message, attachments);
+        input.push(json!({ "role": "user", "content": user_content }));
 
         let user_agent = format!(
             "OpenComputer ({} {}; {})",

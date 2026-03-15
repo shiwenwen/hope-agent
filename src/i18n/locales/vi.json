@@ -21,7 +21,10 @@
     "startConversation": "Bắt đầu hội thoại",
     "howCanIHelp": "Tôi có thể giúp gì cho bạn?",
     "askAnything": "Hỏi bất kỳ điều gì...",
-    "modelsCount": "{{count}} mô hình"
+    "modelsCount": "{{count}} mô hình",
+    "attachImage": "Thêm ảnh",
+    "attachFile": "Thêm tệp",
+    "selectModel": "Chọn mô hình"
   },
   "effort": {
     "off": "Tắt",

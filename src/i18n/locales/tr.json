@@ -21,7 +21,10 @@
     "startConversation": "Sohbet başlat",
     "howCanIHelp": "Size nasıl yardımcı olabilirim?",
     "askAnything": "Bir şey sorun...",
-    "modelsCount": "{{count}} model"
+    "modelsCount": "{{count}} model",
+    "attachImage": "Resim Ekle",
+    "attachFile": "Dosya Ekle",
+    "selectModel": "Model Seç"
   },
   "effort": {
     "off": "Kapalı",

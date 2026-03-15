@@ -525,11 +525,12 @@ async fn set_reasoning_effort(
     Ok(())
 }
 
-// ── Chat ──────────────────────────────────────────────────────────
+use agent::Attachment;
 
 #[tauri::command]
 async fn chat(
     message: String,
+    attachments: Vec<Attachment>,
     on_event: tauri::ipc::Channel<String>,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
@@ -538,7 +539,7 @@ async fn chat(
     let agent_lock = state.agent.lock().await;
     match agent_lock.as_ref() {
         Some(agent) => {
-            agent.chat(&message, effort_ref, move |delta| {
+            agent.chat(&message, &attachments, effort_ref, move |delta| {
                 let _ = on_event.send(delta.to_string());
             }).await.map_err(|e| e.to_string())
         }

@@ -21,7 +21,10 @@
     "startConversation": "Start a conversation",
     "howCanIHelp": "How can I help you today?",
     "askAnything": "Ask anything...",
-    "modelsCount": "{{count}} models"
+    "modelsCount": "{{count}} models",
+    "attachImage": "Add Image",
+    "attachFile": "Add File",
+    "selectModel": "Select Model"
   },
   "effort": {
     "off": "Off",
