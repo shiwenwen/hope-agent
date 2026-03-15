@@ -1,3 +1,7 @@
+---
+trigger: always_on
+---
+
 # OpenComputer
 
 OpenComputer 是一款基于 Tauri 2 + React 19 + Rust 的本地 AI 助手桌面应用（桌面只是降低普通人的使用门槛，但是和系统内核要做无缝打通，底层有强大的cli能力），支持 24+ 内置 Provider 模板（Anthropic、OpenAI、DeepSeek、Moonshot、通义千问、Ollama 等），GUI 傻瓜式配置。
@@ -110,12 +114,11 @@ npm run lint
 
 | 改动类型 | 需更新的文档 |
 |---------|------------|
-| 新增/删除功能、Tauri 命令、模块 | `CHANGELOG.md`、`docs/product-and-technical-spec.md`、`AGENTS.md` |
-| 技术栈变更（依赖升级/替换） | `AGENTS.md`、`docs/product-and-technical-spec.md` |
-| 架构/约定变更 | `AGENTS.md`、`docs/product-and-technical-spec.md` |
+| 新增/删除功能、Tauri 命令、模块 | `CHANGELOG.md`、`AGENTS.md` |
+| 技术栈变更（依赖升级/替换） | `AGENTS.md` |
+| 架构/约定变更 | `AGENTS.md` |
 | 编码规范变更 | `AGENTS.md` |
 
 - `CHANGELOG.md`：按 [Keep a Changelog](https://keepachangelog.com/) 格式，在 `[Unreleased]` 或新版本号下记录 Added / Changed / Removed
 - `AGENTS.md`：保持与 `CLAUDE.md`以及`.agent/rules/default.md` 内容一致，更新后同步复制
-- `docs/product-and-technical-spec.md`：更新功能清单、架构图、命令表、依赖表、路线图等
 - 提交代码时将文档变更一并 commit，commit message 中注明文档更新
