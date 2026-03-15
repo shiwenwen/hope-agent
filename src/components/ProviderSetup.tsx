@@ -443,9 +443,9 @@ export function ModelEditor({
   }
 
   return (
-    <div className="border border-border rounded-xl p-3.5 space-y-3 bg-card/50">
+    <div className="border border-border rounded-lg p-3.5 space-y-3 bg-secondary/60">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-muted-foreground">
+        <span className="text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
           {t("model.modelConfig")}
         </span>
         <Button
@@ -1052,12 +1052,12 @@ export default function ProviderSetup({
               onClick={() => setModelsExpanded(!modelsExpanded)}
               className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-secondary/30 transition-colors"
             >
-              <div>
-                <span className="text-xs font-medium text-foreground">
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm font-semibold text-foreground">
                   {t("model.modelList")}
                 </span>
-                <span className="text-[10px] text-muted-foreground ml-2">
-                  ({t("model.modelsCount", { count: models.length })})
+                <span className="text-[10px] text-muted-foreground/60 bg-secondary/80 px-1.5 py-0.5 rounded-md">
+                  {models.length}
                 </span>
               </div>
               <ArrowRight

@@ -53,7 +53,7 @@ export default function ProviderEditPage({
   // Edit form state — initialized from provider
   const [editName, setEditName] = useState(provider.name)
   const [editBaseUrl, setEditBaseUrl] = useState(provider.baseUrl)
-  const [editApiKey, setEditApiKey] = useState("")
+  const [editApiKey, setEditApiKey] = useState(provider.apiKey)
   const [editApiType, setEditApiType] = useState<ApiType>(provider.apiType)
   const [editModels, setEditModels] = useState<ModelConfig[]>([...provider.models])
   const [saving, setSaving] = useState(false)
@@ -73,7 +73,7 @@ export default function ProviderEditPage({
           name: editName,
           apiType: editApiType,
           baseUrl: editBaseUrl,
-          apiKey: editApiKey || provider.apiKey,
+          apiKey: editApiKey,
           models: [],
           enabled: true,
         },
@@ -96,7 +96,7 @@ export default function ProviderEditPage({
           name: editName,
           apiType: editApiType,
           baseUrl: editBaseUrl,
-          apiKey: editApiKey || provider.apiKey,
+          apiKey: editApiKey,
           models: editModels,
         },
       })
@@ -181,14 +181,13 @@ export default function ProviderEditPage({
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
                   <Key className="h-3 w-3" />
-                  {t("provider.apiKeyLeaveEmpty")}
+                  API Key
                 </label>
                 <div className="relative">
                   <Input
                     type={showApiKey ? "text" : "password"}
                     value={editApiKey}
                     onChange={(e) => setEditApiKey(e.target.value)}
-                    placeholder={t("provider.leaveEmptyNoChange")}
                     className="bg-background font-mono text-xs pr-8"
                   />
                   <button
@@ -251,12 +250,12 @@ export default function ProviderEditPage({
             onClick={() => setModelsExpanded(!modelsExpanded)}
             className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-secondary/30 transition-colors"
           >
-            <div>
-              <span className="text-xs font-medium text-foreground">
+            <div className="flex items-center gap-1.5">
+              <span className="text-sm font-semibold text-foreground">
                 {t("model.modelList")}
               </span>
-              <span className="text-[10px] text-muted-foreground ml-2">
-                ({t("model.modelsCount", { count: editModels.length })})
+              <span className="text-[10px] text-muted-foreground/60 bg-secondary/80 px-1.5 py-0.5 rounded-md">
+                {editModels.length}
               </span>
             </div>
             <ArrowRight
@@ -297,7 +296,7 @@ export default function ProviderEditPage({
                       name: editName,
                       apiType: editApiType,
                       baseUrl: editBaseUrl,
-                      apiKey: editApiKey || provider.apiKey,
+                      apiKey: editApiKey,
                       models: [],
                       enabled: true,
                     },
