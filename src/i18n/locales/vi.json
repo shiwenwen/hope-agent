@@ -94,7 +94,19 @@
     "languageDesc": "Chọn ngôn ngữ hiển thị",
     "appearance": "Giao diện",
     "appearanceDesc": "Chọn chế độ giao diện chủ đề",
-    "about": "Giới thiệu"
+    "about": "Giới thiệu",
+    "skills": "Kỹ năng",
+    "skillsDesc": "Kỹ năng cung cấp chuyên môn lĩnh vực cho trợ lý AI và được tự động đưa vào lời nhắc hệ thống. Đặt thư mục kỹ năng vào:",
+    "skillsDirs": "Thư mục kỹ năng",
+    "skillsDirDefault": "Mặc định",
+    "skillsDirAdd": "Nhập thư mục kỹ năng",
+    "skillsDirRemove": "Xóa thư mục này",
+    "skillsList": "Kỹ năng đã tải",
+    "skillFiles": "Tệp tin",
+    "skillEnabled": "Đã bật",
+    "skillDisabled": "Đã tắt",
+    "noSkills": "Chưa có kỹ năng nào được cài đặt",
+    "noSkillsHint": "Tạo thư mục kỹ năng chứa tệp SKILL.md trong ~/.opencomputer/skills/, hoặc nhập thư mục khác"
   },
   "theme": {
     "title": "Chủ đề",

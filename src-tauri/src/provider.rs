@@ -171,6 +171,12 @@ pub struct ProviderStore {
     pub providers: Vec<ProviderConfig>,
     #[serde(default)]
     pub active_model: Option<ActiveModel>,
+    /// Extra directories to scan for skills
+    #[serde(default)]
+    pub extra_skills_dirs: Vec<String>,
+    /// Disabled skill names
+    #[serde(default)]
+    pub disabled_skills: Vec<String>,
 }
 
 // ── Flat model list item for frontend ─────────────────────────────

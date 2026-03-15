@@ -94,7 +94,19 @@
     "languageDesc": "اختر لغة العرض",
     "appearance": "المظهر",
     "appearanceDesc": "اختر وضع المظهر",
-    "about": "حول"
+    "about": "حول",
+    "skills": "المهارات",
+    "skillsDesc": "توفر المهارات خبرة متخصصة لمساعد الذكاء الاصطناعي ويتم حقنها تلقائياً في موجه النظام. ضع مجلدات المهارات في المسار التالي:",
+    "skillsDirs": "مجلدات المهارات",
+    "skillsDirDefault": "افتراضي",
+    "skillsDirAdd": "استيراد مجلد مهارات",
+    "skillsDirRemove": "إزالة هذا المجلد",
+    "skillsList": "المهارات المحمّلة",
+    "skillFiles": "الملفات",
+    "skillEnabled": "مفعّل",
+    "skillDisabled": "معطّل",
+    "noSkills": "لا توجد مهارات مثبتة",
+    "noSkillsHint": "أنشئ مجلد مهارة يحتوي على ملف SKILL.md في ~/.opencomputer/skills/، أو استورد مجلداً آخر"
   },
   "theme": {
     "title": "السمة",

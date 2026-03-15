@@ -94,7 +94,19 @@
     "languageDesc": "Pilih bahasa paparan",
     "appearance": "Penampilan",
     "appearanceDesc": "Pilih mod penampilan tema",
-    "about": "Tentang"
+    "about": "Tentang",
+    "skills": "Kemahiran",
+    "skillsDesc": "Kemahiran menyediakan kepakaran domain untuk pembantu AI dan disuntik secara automatik ke dalam prompt sistem. Letakkan folder kemahiran di:",
+    "skillsDirs": "Direktori Kemahiran",
+    "skillsDirDefault": "Lalai",
+    "skillsDirAdd": "Import direktori kemahiran",
+    "skillsDirRemove": "Buang direktori ini",
+    "skillsList": "Kemahiran Dimuatkan",
+    "skillFiles": "Fail",
+    "skillEnabled": "Didayakan",
+    "skillDisabled": "Dilumpuhkan",
+    "noSkills": "Tiada kemahiran dipasang",
+    "noSkillsHint": "Cipta folder kemahiran dengan fail SKILL.md dalam ~/.opencomputer/skills/, atau import direktori lain"
   },
   "theme": {
     "title": "Tema",

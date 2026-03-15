@@ -94,7 +94,19 @@
     "languageDesc": "Elige el idioma de la interfaz",
     "appearance": "Apariencia",
     "appearanceDesc": "Elige el modo de apariencia del tema",
-    "about": "Acerca de"
+    "about": "Acerca de",
+    "skills": "Habilidades",
+    "skillsDesc": "Las habilidades proporcionan experiencia de dominio al asistente de IA y se inyectan automáticamente en el prompt del sistema. Coloque las carpetas de habilidades en:",
+    "skillsDirs": "Directorios de habilidades",
+    "skillsDirDefault": "Predeterminado",
+    "skillsDirAdd": "Importar directorio de habilidades",
+    "skillsDirRemove": "Eliminar este directorio",
+    "skillsList": "Habilidades cargadas",
+    "skillFiles": "Archivos",
+    "skillEnabled": "Habilitado",
+    "skillDisabled": "Deshabilitado",
+    "noSkills": "No hay habilidades instaladas",
+    "noSkillsHint": "Cree una carpeta de habilidad con un archivo SKILL.md en ~/.opencomputer/skills/, o importe otro directorio"
   },
   "theme": {
     "title": "Tema",

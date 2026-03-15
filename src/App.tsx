@@ -16,6 +16,7 @@ import {
   Languages,
   ImagePlus,
   Paperclip,
+  Puzzle,
   X,
   Sun,
   Moon,
@@ -34,10 +35,12 @@ function IconSidebar({
   view,
   onOpenSettings,
   onOpenChat,
+  onOpenSkills,
 }: {
-  view: "chat" | "settings"
+  view: "chat" | "settings" | "skills"
   onOpenSettings: () => void
   onOpenChat: () => void
+  onOpenSkills: () => void
 }) {
   const { t, i18n } = useTranslation()
   const { theme, cycleTheme } = useTheme()
@@ -60,6 +63,24 @@ function IconSidebar({
           title={t("chat.conversations")}
         >
           <MessageSquare className="h-4 w-4" />
+        </Button>
+      </div>
+
+      {/* Skills entry */}
+      <div className="w-full flex justify-center mt-1">
+        <Button
+          variant="ghost"
+          size="icon"
+          className={cn(
+            "rounded-xl h-8 w-8",
+            view === "skills"
+              ? "bg-primary/10 text-primary hover:bg-primary/20"
+              : "text-muted-foreground hover:text-foreground"
+          )}
+          onClick={onOpenSkills}
+          title={t("settings.skills")}
+        >
+          <Puzzle className="h-4 w-4" />
         </Button>
       </div>
 
@@ -949,7 +970,7 @@ function ChatScreen() {
 
 export default function App() {
   const [view, setView] = useState<
-    "loading" | "setup" | "chat" | "settings"
+    "loading" | "setup" | "chat" | "settings" | "skills"
   >("loading")
 
   // Try to restore previous session on mount
@@ -1021,15 +1042,23 @@ export default function App() {
   return (
     <div className="flex h-screen overflow-hidden bg-background">
       <IconSidebar
-        view={view === "settings" ? "settings" : "chat"}
+        view={view === "settings" ? "settings" : view === "skills" ? "skills" : "chat"}
         onOpenSettings={() => setView("settings")}
         onOpenChat={() => setView("chat")}
+        onOpenSkills={() => setView("skills")}
       />
       {view === "settings" ? (
         <SettingsView
           onBack={() => setView("chat")}
           onCodexAuth={handleCodexAuth}
           onCodexReauth={handleCodexAuth}
+        />
+      ) : view === "skills" ? (
+        <SettingsView
+          onBack={() => setView("chat")}
+          onCodexAuth={handleCodexAuth}
+          onCodexReauth={handleCodexAuth}
+          initialSection="skills"
         />
       ) : (
         <ChatScreen />

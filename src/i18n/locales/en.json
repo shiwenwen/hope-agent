@@ -94,7 +94,19 @@
     "languageDesc": "Choose the display language",
     "appearance": "Appearance",
     "appearanceDesc": "Choose the theme appearance mode",
-    "about": "About"
+    "about": "About",
+    "skills": "Skills",
+    "skillsDesc": "Skills provide domain expertise for the AI assistant and are automatically injected into the system prompt. Place skill folders in:",
+    "skillsDirs": "Skill Directories",
+    "skillsDirDefault": "Default",
+    "skillsDirAdd": "Import skill directory",
+    "skillsDirRemove": "Remove this directory",
+    "skillsList": "Loaded Skills",
+    "skillFiles": "Files",
+    "skillEnabled": "Enabled",
+    "skillDisabled": "Disabled",
+    "noSkills": "No skills installed",
+    "noSkillsHint": "Create a skill folder with a SKILL.md in ~/.opencomputer/skills/, or import another directory"
   },
   "theme": {
     "title": "Theme",

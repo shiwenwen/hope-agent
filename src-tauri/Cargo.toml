@@ -42,3 +42,4 @@ image = { version = "0.25", features = ["jpeg", "png", "gif", "webp"] }
 regex = "1.12.3"
 ignore = "0.4.25"
 glob = "0.3.3"
+tauri-plugin-dialog = "2.6.0"

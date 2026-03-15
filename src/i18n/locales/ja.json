@@ -94,7 +94,19 @@
     "languageDesc": "表示言語を選択",
     "appearance": "外観",
     "appearanceDesc": "テーマの外観モードを選択",
-    "about": "概要"
+    "about": "概要",
+    "skills": "スキル",
+    "skillsDesc": "スキルは AI アシスタントに専門知識を提供し、システムプロンプトに自動的に注入されます。スキルフォルダを以下のディレクトリに配置してください：",
+    "skillsDirs": "スキルディレクトリ",
+    "skillsDirDefault": "デフォルト",
+    "skillsDirAdd": "スキルディレクトリをインポート",
+    "skillsDirRemove": "このディレクトリを削除",
+    "skillsList": "読み込み済みスキル",
+    "skillFiles": "ファイル一覧",
+    "skillEnabled": "有効",
+    "skillDisabled": "無効",
+    "noSkills": "インストール済みのスキルはありません",
+    "noSkillsHint": "~/.opencomputer/skills/ に SKILL.md を含むスキルフォルダを作成するか、別のディレクトリをインポートしてください"
   },
   "theme": {
     "title": "テーマ",

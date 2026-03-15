@@ -4,6 +4,7 @@ mod paths;
 mod process_registry;
 mod provider;
 mod sandbox;
+mod skills;
 mod tools;
 
 use agent::AssistantAgent;
@@ -799,6 +800,104 @@ async fn respond_to_approval(
         .map_err(|e| e.to_string())
 }
 
+// ── Skills Management Commands ────────────────────────────────────
+
+#[tauri::command]
+async fn get_skills(
+    state: State<'_, AppState>,
+) -> Result<Vec<skills::SkillSummary>, String> {
+    let store = state.provider_store.lock().await;
+    let entries = skills::load_all_skills_with_extra(&store.extra_skills_dirs);
+    let disabled = &store.disabled_skills;
+    Ok(entries
+        .into_iter()
+        .map(|e| {
+            let enabled = !disabled.contains(&e.name);
+            skills::SkillSummary {
+                name: e.name,
+                description: e.description,
+                source: e.source,
+                base_dir: e.base_dir,
+                enabled,
+            }
+        })
+        .collect())
+}
+
+#[tauri::command]
+async fn get_skill_detail(
+    name: String,
+    state: State<'_, AppState>,
+) -> Result<skills::SkillDetail, String> {
+    let store = state.provider_store.lock().await;
+    skills::get_skill_content(&name, &store.extra_skills_dirs, &store.disabled_skills)
+        .ok_or_else(|| format!("Skill not found: {}", name))
+}
+
+#[tauri::command]
+async fn get_extra_skills_dirs(
+    state: State<'_, AppState>,
+) -> Result<Vec<String>, String> {
+    let store = state.provider_store.lock().await;
+    Ok(store.extra_skills_dirs.clone())
+}
+
+#[tauri::command]
+async fn add_extra_skills_dir(
+    dir: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let mut store = state.provider_store.lock().await;
+    // Avoid duplicates
+    if !store.extra_skills_dirs.contains(&dir) {
+        store.extra_skills_dirs.push(dir);
+        provider::save_store(&store).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn remove_extra_skills_dir(
+    dir: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let mut store = state.provider_store.lock().await;
+    store.extra_skills_dirs.retain(|d| d != &dir);
+    provider::save_store(&store).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn toggle_skill(
+    name: String,
+    enabled: bool,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let mut store = state.provider_store.lock().await;
+    if enabled {
+        store.disabled_skills.retain(|n| n != &name);
+    } else if !store.disabled_skills.contains(&name) {
+        store.disabled_skills.push(name);
+    }
+    provider::save_store(&store).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn open_directory(path: String) -> Result<(), String> {
+    // Resolve ~ to home directory
+    let resolved = if path.starts_with("~/") {
+        if let Some(home) = dirs::home_dir() {
+            home.join(&path[2..]).to_string_lossy().to_string()
+        } else {
+            path
+        }
+    } else {
+        path
+    };
+    open::that(&resolved).map_err(|e| format!("Failed to open directory: {}", e))
+}
+
 // ── App Entry ─────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -812,6 +911,7 @@ pub fn run() {
     let initial_store = provider::load_store().unwrap_or_default();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             // Store global AppHandle for event emission
             let _ = APP_HANDLE.set(app.handle().clone());
@@ -859,6 +959,14 @@ pub fn run() {
             chat,
             // Command approval
             respond_to_approval,
+            // Skills
+            get_skills,
+            get_skill_detail,
+            get_extra_skills_dirs,
+            add_extra_skills_dir,
+            remove_extra_skills_dir,
+            toggle_skill,
+            open_directory,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

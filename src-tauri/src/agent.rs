@@ -78,7 +78,7 @@ fn build_user_content_responses(message: &str, attachments: &[Attachment]) -> se
     json!(parts)
 }
 
-const SYSTEM_PROMPT: &str = "You are OpenComputer, a personal AI assistant with deep system integration. \
+const SYSTEM_PROMPT_BASE: &str = "You are OpenComputer, a personal AI assistant with deep system integration. \
                              You help users interact with their computer naturally and efficiently. \
                              \
                              Available tools: \
@@ -105,6 +105,15 @@ const SYSTEM_PROMPT: &str = "You are OpenComputer, a personal AI assistant with 
                              \
                              For long-running commands (builds, installs), consider using background=true and then \
                              process(action='poll') to check progress.";
+
+/// Build the full system prompt including available skills.
+fn build_system_prompt() -> String {
+    // Read config for extra dirs and disabled skills
+    let store = crate::provider::load_store().unwrap_or_default();
+    let available_skills = skills::load_all_skills_with_extra(&store.extra_skills_dirs);
+    let skills_section = skills::build_skills_prompt(&available_skills, &store.disabled_skills);
+    format!("{}{}", SYSTEM_PROMPT_BASE, skills_section)
+}
 
 const CODEX_API_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
 #[allow(dead_code)]
@@ -550,6 +559,7 @@ impl AssistantAgent {
         let mut collected_text = String::new();
 
         let api_url = build_api_url(base_url, "/v1/messages");
+        let system_prompt = build_system_prompt();
 
         // Map thinking effort for Anthropic
         let max_tokens: u32 = 16384;
@@ -559,7 +569,7 @@ impl AssistantAgent {
             let mut body = json!({
                 "model": model,
                 "max_tokens": max_tokens,
-                "system": SYSTEM_PROMPT,
+                "system": system_prompt,
                 "tools": tool_schemas,
                 "messages": messages,
                 "stream": true,
@@ -769,13 +779,14 @@ impl AssistantAgent {
 
         let api_url = build_api_url(base_url, "/v1/chat/completions");
         let mut collected_text = String::new();
+        let system_prompt = build_system_prompt();
 
         // Map thinking effort for OpenAI Chat
         let reasoning = map_think_for_openai_chat(reasoning_effort);
 
         for _round in 0..MAX_TOOL_ROUNDS {
             // Build messages array: system + conversation
-            let mut api_messages = vec![json!({ "role": "system", "content": SYSTEM_PROMPT })];
+            let mut api_messages = vec![json!({ "role": "system", "content": &system_prompt })];
             api_messages.extend(messages.iter().cloned());
 
             // Build tools array in Chat Completions format
@@ -984,13 +995,14 @@ impl AssistantAgent {
 
         let api_url = build_api_url(base_url, "/v1/responses");
         let mut collected_text = String::new();
+        let system_prompt = build_system_prompt();
 
         for _round in 0..MAX_TOOL_ROUNDS {
             let request = ResponsesRequest {
                 model: model.to_string(),
                 store: false,
                 stream: true,
-                instructions: SYSTEM_PROMPT.to_string(),
+                instructions: system_prompt.clone(),
                 input: input.clone(),
                 reasoning: reasoning.as_ref().map(|r| ReasoningConfig { effort: r.effort.clone() }),
                 tools: Some(tool_schemas.clone()),
@@ -1080,13 +1092,14 @@ impl AssistantAgent {
         );
 
         let mut collected_text = String::new();
+        let system_prompt = build_system_prompt();
 
         for _round in 0..MAX_TOOL_ROUNDS {
             let request = ResponsesRequest {
                 model: model.to_string(),
                 store: false,
                 stream: true,
-                instructions: SYSTEM_PROMPT.to_string(),
+                instructions: system_prompt.clone(),
                 input: input.clone(),
                 reasoning: reasoning.as_ref().map(|r| ReasoningConfig { effort: r.effort.clone() }),
                 tools: Some(tool_schemas.clone()),

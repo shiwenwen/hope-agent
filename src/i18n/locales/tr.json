@@ -94,7 +94,19 @@
     "languageDesc": "Görüntüleme dilini seçin",
     "appearance": "Görünüm",
     "appearanceDesc": "Tema görünüm modunu seçin",
-    "about": "Hakkında"
+    "about": "Hakkında",
+    "skills": "Beceriler",
+    "skillsDesc": "Beceriler, AI asistanına alan uzmanlığı sağlar ve sistem istemine otomatik olarak enjekte edilir. Beceri klasörlerini şu dizine yerleştirin:",
+    "skillsDirs": "Beceri Dizinleri",
+    "skillsDirDefault": "Varsayılan",
+    "skillsDirAdd": "Beceri dizini içe aktar",
+    "skillsDirRemove": "Bu dizini kaldır",
+    "skillsList": "Yüklü Beceriler",
+    "skillFiles": "Dosyalar",
+    "skillEnabled": "Etkin",
+    "skillDisabled": "Devre Dışı",
+    "noSkills": "Yüklü beceri yok",
+    "noSkillsHint": "~/.opencomputer/skills/ dizininde SKILL.md dosyası içeren bir beceri klasörü oluşturun veya başka bir dizin içe aktarın"
   },
   "theme": {
     "title": "Tema",

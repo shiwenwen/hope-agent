@@ -94,7 +94,19 @@
     "languageDesc": "选择界面显示语言",
     "appearance": "外观",
     "appearanceDesc": "选择主题外观模式",
-    "about": "关于"
+    "about": "关于",
+    "skills": "技能",
+    "skillsDesc": "技能为 AI 助手提供领域专长，会自动注入到系统提示词中。将技能文件夹放入以下目录即可启用：",
+    "skillsDirs": "技能目录",
+    "skillsDirDefault": "默认",
+    "skillsDirAdd": "导入技能目录",
+    "skillsDirRemove": "移除此目录",
+    "skillsList": "已加载的技能",
+    "skillFiles": "文件列表",
+    "skillEnabled": "已启用",
+    "skillDisabled": "已禁用",
+    "noSkills": "暂无已安装的技能",
+    "noSkillsHint": "在 ~/.opencomputer/skills/ 目录下创建技能文件夹（包含 SKILL.md），或导入其它技能目录"
   },
   "theme": {
     "title": "主题",
