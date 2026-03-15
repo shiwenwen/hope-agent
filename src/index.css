@@ -57,5 +57,16 @@
     @apply bg-background text-foreground;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     -webkit-font-smoothing: antialiased;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  /* Allow text selection in chat messages, code blocks, and inputs */
+  textarea,
+  input,
+  pre,
+  code,
+  .select-text {
+    -webkit-user-select: text;
+    user-select: text;
   }
 }

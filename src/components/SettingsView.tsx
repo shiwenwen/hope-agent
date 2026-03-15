@@ -237,11 +237,11 @@ export default function SettingsView({
     <div className="flex flex-1 h-full overflow-hidden bg-background">
       {/* Left Sidebar — Settings Navigation */}
       <div className="w-[220px] shrink-0 border-r border-border bg-secondary/20 flex flex-col">
-        {/* Header with back button */}
-        <div className="h-11 flex items-center px-4 border-b border-border gap-2 shrink-0">
+        {/* Header with back button + drag region */}
+        <div className="h-10 flex items-end px-4 gap-2 shrink-0" data-tauri-drag-region>
           <button
             onClick={onBack}
-            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors pb-1.5"
           >
             <ArrowLeft className="h-4 w-4" />
             <span className="text-sm font-semibold text-foreground">
@@ -281,9 +281,9 @@ export default function SettingsView({
 
       {/* Right Content Panel */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Content Header */}
-        <div className="h-11 flex items-center px-6 border-b border-border shrink-0">
-          <span className="text-sm font-semibold text-foreground">
+        {/* Content Header + drag region */}
+        <div className="h-10 flex items-end px-6 shrink-0" data-tauri-drag-region>
+          <span className="text-sm font-semibold text-foreground pb-1.5">
             {t(
               SECTIONS.find((s) => s.id === activeSection)?.labelKey ??
                 "settings.title"

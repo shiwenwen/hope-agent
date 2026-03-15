@@ -44,8 +44,9 @@ function IconSidebar({
   const [showLangMenu, setShowLangMenu] = useState(false)
 
   return (
-    <div className="w-14 shrink-0 border-r border-border bg-secondary/30 flex flex-col items-center">
-      <div className="h-11 flex items-center justify-center border-b border-border w-full">
+    <div className="w-[72px] shrink-0 border-r border-border bg-secondary/30 flex flex-col items-center">
+      {/* Drag region for window movement — covers traffic light area */}
+      <div className="w-full pt-10 flex justify-center" data-tauri-drag-region>
         <Button
           variant="ghost"
           size="icon"
@@ -601,8 +602,8 @@ function ChatScreen() {
         style={{ width: panelWidth }}
         className="shrink-0 border-r border-border bg-background flex flex-col"
       >
-        <div className="h-11 flex items-center px-4 border-b border-border">
-          <h2 className="text-sm font-semibold text-foreground">{t("chat.conversations")}</h2>
+        <div className="h-10 flex items-end px-4 shrink-0" data-tauri-drag-region>
+          <h2 className="text-sm font-semibold text-foreground pb-1.5">{t("chat.conversations")}</h2>
         </div>
         <div className="flex-1 overflow-y-auto p-2">
           {/* Main Agent — active */}
@@ -639,13 +640,11 @@ function ChatScreen() {
 
       {/* Column 3: Chat Area */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Header — simplified, only agent name */}
-        <div className="h-11 flex items-center justify-between px-4 border-b border-border bg-background gap-2">
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="text-sm font-medium text-foreground shrink-0">
-              Main Agent
-            </span>
-          </div>
+        {/* Drag region for window movement */}
+        <div className="h-10 flex items-end justify-between px-4 bg-background shrink-0" data-tauri-drag-region>
+          <span className="text-sm font-medium text-foreground shrink-0 pb-1.5">
+            Main Agent
+          </span>
         </div>
 
         {/* Messages */}
@@ -667,7 +666,7 @@ function ChatScreen() {
             >
               <div
                 className={cn(
-                  "max-w-[70%] px-4 py-2.5 rounded-xl text-sm leading-relaxed overflow-hidden break-words",
+                  "max-w-[70%] px-4 py-2.5 rounded-xl text-sm leading-relaxed overflow-hidden break-words select-text",
                   msg.role === "user"
                     ? "bg-secondary text-foreground whitespace-pre-wrap"
                     : "bg-card text-foreground/80",
