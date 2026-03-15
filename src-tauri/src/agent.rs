@@ -108,6 +108,28 @@ const SYSTEM_PROMPT: &str = "You are OpenComputer, a personal AI assistant with 
 const CODEX_API_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
 #[allow(dead_code)]
 const ANTHROPIC_API_URL: &str = "https://api.anthropic.com/v1/messages";
+
+/// Smart URL builder: if base_url already ends with a version suffix
+/// (e.g. /v1, /v2, /v3), strip the version prefix from path to avoid
+/// double-prefixing like /v3/v1/chat/completions.
+pub fn build_api_url(base_url: &str, path: &str) -> String {
+    let base = base_url.trim_end_matches('/');
+    let version_prefixes = ["/v1", "/v2", "/v3"];
+
+    // Check if base already has any version suffix
+    let base_has_version = version_prefixes.iter().any(|p| base.ends_with(p));
+
+    if base_has_version {
+        // Strip version prefix from path if present
+        for prefix in &version_prefixes {
+            if path.starts_with(prefix) {
+                return format!("{}{}", base, &path[prefix.len()..]);
+            }
+        }
+    }
+
+    format!("{}{}", base, path)
+}
 #[allow(dead_code)]
 const ANTHROPIC_MODEL: &str = "claude-sonnet-4-6";
 const ANTHROPIC_API_VERSION: &str = "2023-06-01";
@@ -512,7 +534,7 @@ impl AssistantAgent {
 
         let mut collected_text = String::new();
 
-        let api_url = format!("{}/v1/messages", base_url.trim_end_matches('/'));
+        let api_url = build_api_url(base_url, "/v1/messages");
 
         // Map thinking effort for Anthropic
         let max_tokens: u32 = 16384;
@@ -727,7 +749,7 @@ impl AssistantAgent {
         let user_content = build_user_content_openai_chat(message, attachments);
         messages.push(json!({ "role": "user", "content": user_content }));
 
-        let api_url = format!("{}/v1/chat/completions", base_url.trim_end_matches('/'));
+        let api_url = build_api_url(base_url, "/v1/chat/completions");
         let mut collected_text = String::new();
 
         // Map thinking effort for OpenAI Chat
@@ -939,7 +961,7 @@ impl AssistantAgent {
         let user_content = build_user_content_responses(message, attachments);
         input.push(json!({ "role": "user", "content": user_content }));
 
-        let api_url = format!("{}/v1/responses", base_url.trim_end_matches('/'));
+        let api_url = build_api_url(base_url, "/v1/responses");
         let mut collected_text = String::new();
 
         for _round in 0..MAX_TOOL_ROUNDS {

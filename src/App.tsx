@@ -634,7 +634,7 @@ function ChatScreen({
             >
               <div
                 className={cn(
-                  "max-w-[70%] px-4 py-2.5 rounded-xl text-sm leading-relaxed",
+                  "max-w-[70%] px-4 py-2.5 rounded-xl text-sm leading-relaxed overflow-hidden break-words",
                   msg.role === "user"
                     ? "bg-secondary text-foreground whitespace-pre-wrap"
                     : "bg-card text-foreground/80",

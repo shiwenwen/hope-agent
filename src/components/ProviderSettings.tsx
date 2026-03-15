@@ -5,19 +5,29 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ModelEditor, type ModelConfig } from "@/components/ProviderSetup"
 import ProviderIcon from "@/components/ProviderIcon"
+import TestResultDisplay, { parseTestResult, type TestResult } from "@/components/TestResultDisplay"
 import {
   ArrowLeft,
   Check,
+  CheckCircle2,
+  ChevronDown,
+  Clock,
+  Eye,
+  EyeOff,
   Globe,
+  Info,
   Key,
   Loader2,
   MoreVertical,
   Pencil,
+  Play,
   Plus,
   Power,
   PowerOff,
   Trash2,
+  Wifi,
   X,
+  XCircle,
 } from "lucide-react"
 
 // ── Types (shared with ProviderSetup) ─────────────────────────────
@@ -70,8 +80,14 @@ export default function ProviderSettings({
   const [editName, setEditName] = useState("")
   const [editBaseUrl, setEditBaseUrl] = useState("")
   const [editApiKey, setEditApiKey] = useState("")
+  const [editApiType, setEditApiType] = useState<ApiType>("openai-chat")
   const [editModels, setEditModels] = useState<ModelConfig[]>([])
   const [saving, setSaving] = useState(false)
+  const [testResult, setTestResult] = useState<TestResult | null>(null)
+  const [testLoading, setTestLoading] = useState(false)
+  const [showApiKey, setShowApiKey] = useState(false)
+  const [modelTestResults, setModelTestResults] = useState<Record<number, { loading: boolean; result: TestResult | null }>>({})
+  const [expandedModelLog, setExpandedModelLog] = useState<number | null>(null)
 
   useEffect(() => {
     loadProviders()
@@ -94,8 +110,56 @@ export default function ProviderSettings({
     setEditName(provider.name)
     setEditBaseUrl(provider.baseUrl)
     setEditApiKey(provider.apiKey)
+    setEditApiType(provider.apiType)
     setEditModels([...provider.models])
     setMenuId(null)
+    setTestResult(null)
+    setShowApiKey(false)
+    setModelTestResults({})
+  }
+
+  async function handleTestModel(index: number, modelId: string, provider: ProviderConfig) {
+    setModelTestResults(prev => ({ ...prev, [index]: { loading: true, result: null } }))
+    try {
+      const msg = await invoke<string>("test_model", {
+        config: {
+          id: provider.id,
+          name: editName,
+          apiType: editApiType,
+          baseUrl: editBaseUrl,
+          apiKey: editApiKey || provider.apiKey,
+          models: [],
+          enabled: true,
+        },
+        modelId,
+      })
+      setModelTestResults(prev => ({ ...prev, [index]: { loading: false, result: parseTestResult(msg, false) } }))
+    } catch (e) {
+      setModelTestResults(prev => ({ ...prev, [index]: { loading: false, result: parseTestResult(String(e), true) } }))
+    }
+  }
+
+  async function handleTestEdit(provider: ProviderConfig) {
+    setTestLoading(true)
+    setTestResult(null)
+    try {
+      const msg = await invoke<string>("test_provider", {
+        config: {
+          id: provider.id,
+          name: editName,
+          apiType: provider.apiType,
+          baseUrl: editBaseUrl,
+          apiKey: editApiKey || provider.apiKey,
+          models: [],
+          enabled: true,
+        },
+      })
+      setTestResult(parseTestResult(msg, false))
+    } catch (e) {
+      setTestResult(parseTestResult(String(e), true))
+    } finally {
+      setTestLoading(false)
+    }
   }
 
   async function saveEdit(provider: ProviderConfig) {
@@ -105,6 +169,7 @@ export default function ProviderSettings({
         config: {
           ...provider,
           name: editName,
+          apiType: editApiType,
           baseUrl: editBaseUrl,
           apiKey: editApiKey || provider.apiKey, // Keep old key if empty
           models: editModels,
@@ -219,6 +284,23 @@ export default function ProviderSettings({
                   {provider.apiType !== "codex" && (
                     <>
                       <div className="space-y-1">
+                        <label className="text-[10px] text-muted-foreground">
+                          {t("provider.apiType")}
+                        </label>
+                        <div className="relative">
+                          <select
+                            value={editApiType}
+                            onChange={(e) => setEditApiType(e.target.value as ApiType)}
+                            className="w-full appearance-none bg-background text-foreground text-xs font-medium px-3 py-1.5 rounded-md border border-border cursor-pointer hover:bg-secondary/50 transition-colors focus:outline-none focus:ring-1 focus:ring-ring h-8"
+                          >
+                            <option value="openai-chat">OpenAI Chat Completions</option>
+                            <option value="openai-responses">OpenAI Responses API</option>
+                            <option value="anthropic">Anthropic Messages API</option>
+                          </select>
+                          <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none" />
+                        </div>
+                      </div>
+                      <div className="space-y-1">
                         <label className="text-[10px] text-muted-foreground flex items-center gap-1">
                           <Globe className="h-2.5 w-2.5" />
                           Base URL
@@ -234,13 +316,26 @@ export default function ProviderSettings({
                           <Key className="h-2.5 w-2.5" />
                           {t("provider.apiKeyLeaveEmpty")}
                         </label>
-                        <Input
-                          type="password"
-                          value={editApiKey}
-                          onChange={(e) => setEditApiKey(e.target.value)}
-                          placeholder={t("provider.leaveEmptyNoChange")}
-                          className="bg-background text-xs h-8 font-mono"
-                        />
+                        <div className="relative">
+                          <Input
+                            type={showApiKey ? "text" : "password"}
+                            value={editApiKey}
+                            onChange={(e) => setEditApiKey(e.target.value)}
+                            placeholder={t("provider.leaveEmptyNoChange")}
+                            className="bg-background text-xs h-8 font-mono pr-8"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowApiKey(!showApiKey)}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                          >
+                            {showApiKey ? (
+                              <EyeOff className="h-3.5 w-3.5" />
+                            ) : (
+                              <Eye className="h-3.5 w-3.5" />
+                            )}
+                          </button>
+                        </div>
                       </div>
                     </>
                   )}
@@ -258,7 +353,6 @@ export default function ProviderSettings({
                       className="h-6 text-[10px]"
                       onClick={() =>
                         setEditModels([
-                          ...editModels,
                           {
                             id: "",
                             name: "",
@@ -269,6 +363,7 @@ export default function ProviderSettings({
                             costInput: 0,
                             costOutput: 0,
                           },
+                          ...editModels,
                         ])
                       }
                     >
@@ -277,20 +372,126 @@ export default function ProviderSettings({
                     </Button>
                   </div>
                   {editModels.map((model, i) => (
-                    <ModelEditor
-                      key={i}
-                      model={model}
-                      onChange={(updated) => {
-                        const next = [...editModels]
-                        next[i] = updated
-                        setEditModels(next)
-                      }}
-                      onRemove={() =>
-                        setEditModels(editModels.filter((_, j) => j !== i))
-                      }
-                    />
+                    <div key={i} className="space-y-1.5">
+                      <ModelEditor
+                        model={model}
+                        onChange={(updated) => {
+                          const next = [...editModels]
+                          next[i] = updated
+                          setEditModels(next)
+                        }}
+                        onRemove={() =>
+                          setEditModels(editModels.filter((_, j) => j !== i))
+                        }
+                      />
+                      {/* Per-model test button */}
+                      {model.id && provider.apiType !== "codex" && (
+                        <div className="flex items-center gap-2 pl-1">
+                          <button
+                            onClick={() => handleTestModel(i, model.id, provider)}
+                            disabled={modelTestResults[i]?.loading || !editBaseUrl.trim()}
+                            className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-primary transition-colors disabled:opacity-50"
+                          >
+                            {modelTestResults[i]?.loading ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <Play className="h-3 w-3" />
+                            )}
+                            发送 "Hi" 测试
+                          </button>
+                          {modelTestResults[i]?.result && (
+                            <span className={`flex items-center gap-1 text-[10px] ${
+                              modelTestResults[i].result!.ok ? "text-green-400" : "text-red-400"
+                            }`}>
+                              {modelTestResults[i].result!.ok ? (
+                                <CheckCircle2 className="h-3 w-3" />
+                              ) : (
+                                <XCircle className="h-3 w-3" />
+                              )}
+                              {modelTestResults[i].result!.data.message}
+                              {modelTestResults[i].result!.data.latencyMs != null && modelTestResults[i].result!.data.latencyMs! > 0 && (
+                                <span className="text-muted-foreground flex items-center gap-0.5">
+                                  <Clock className="h-2.5 w-2.5" />
+                                  {modelTestResults[i].result!.data.latencyMs}ms
+                                </span>
+                              )}
+                              <button
+                                onClick={() => setExpandedModelLog(expandedModelLog === i ? null : i)}
+                                className="text-muted-foreground hover:text-foreground transition-colors ml-0.5"
+                                title="查看完整日志"
+                              >
+                                <Info className="h-3 w-3" />
+                              </button>
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      {/* Full log panel */}
+                      {expandedModelLog === i && modelTestResults[i]?.result && (() => {
+                        const d = modelTestResults[i].result!.data as any
+                        return (
+                          <div className="ml-1 px-2.5 py-2 rounded-md bg-secondary/30 border border-border/50 overflow-hidden space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[9px] font-medium text-foreground/60">完整日志</span>
+                              <button onClick={() => setExpandedModelLog(null)} className="text-muted-foreground hover:text-foreground">
+                                <X className="h-2.5 w-2.5" />
+                              </button>
+                            </div>
+                            {d.request && (
+                              <div>
+                                <span className="text-[9px] font-semibold text-blue-400">▸ 请求</span>
+                                <pre className="text-[10px] text-muted-foreground whitespace-pre-wrap break-all max-h-32 overflow-y-auto font-mono mt-0.5 pl-2 border-l-2 border-blue-500/30">
+                                  {JSON.stringify(d.request, null, 2)}
+                                </pre>
+                              </div>
+                            )}
+                            <div>
+                              <span className={`text-[9px] font-semibold ${d.success ? "text-green-400" : "text-red-400"}`}>▸ 响应 {d.status ? `(${d.status})` : ""}</span>
+                              <pre className={`text-[10px] text-muted-foreground whitespace-pre-wrap break-all max-h-40 overflow-y-auto font-mono mt-0.5 pl-2 border-l-2 ${d.success ? "border-green-500/30" : "border-red-500/30"}`}>
+                                {d.response ? JSON.stringify(d.response, null, 2) : JSON.stringify({ success: d.success, message: d.message, model: d.model, latencyMs: d.latencyMs }, null, 2)}
+                              </pre>
+                            </div>
+                          </div>
+                        )
+                      })()}
+                      {/* Show reply preview if available */}
+                      {modelTestResults[i]?.result?.ok && (modelTestResults[i].result!.data as any).reply && (
+                        <div className="ml-1 px-2.5 py-1.5 rounded-md bg-secondary/50 text-[10px] text-muted-foreground border border-border/50">
+                          <span className="text-[9px] font-medium text-foreground/60">AI 回复: </span>
+                          {(modelTestResults[i].result!.data as any).reply}
+                        </div>
+                      )}
+                    </div>
                   ))}
                 </div>
+
+                {/* Test Connection */}
+                {provider.apiType !== "codex" && (
+                  <div className="space-y-2">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => handleTestEdit(provider)}
+                      disabled={testLoading || !editBaseUrl.trim()}
+                      className="w-full"
+                    >
+                      {testLoading ? (
+                        <span className="flex items-center gap-2">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          {t("common.testing")}
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-2">
+                          <Wifi className="h-3.5 w-3.5" />
+                          {t("provider.testConnection")}
+                        </span>
+                      )}
+                    </Button>
+                    {testResult && (
+                      <TestResultDisplay result={testResult} />
+                    )}
+                  </div>
+                )}
 
                 <div className="flex justify-end gap-2">
                   <Button

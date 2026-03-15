@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import ProviderIcon from "@/components/ProviderIcon"
+import TestResultDisplay, { parseTestResult, type TestResult } from "@/components/TestResultDisplay"
 import {
   ArrowLeft,
   ArrowRight,
@@ -167,7 +168,7 @@ const PROVIDER_TEMPLATES: ProviderTemplate[] = [
     description: "多模型聚合网关，一个 Key 用数百个模型",
     icon: "🔀",
     apiType: "openai-chat",
-    baseUrl: "https://openrouter.ai/api",
+    baseUrl: "https://openrouter.ai/api/v1",
     apiKeyPlaceholder: "sk-or-...",
     requiresApiKey: true,
     models: [
@@ -175,6 +176,8 @@ const PROVIDER_TEMPLATES: ProviderTemplate[] = [
       { id: "openai/gpt-4o", name: "GPT-4o", inputTypes: ["text", "image"], contextWindow: 128000, maxTokens: 16384, reasoning: false, costInput: 2.5, costOutput: 10.0 },
       { id: "google/gemini-2.5-pro-preview", name: "Gemini 2.5 Pro", inputTypes: ["text", "image"], contextWindow: 1000000, maxTokens: 65536, reasoning: true, costInput: 1.25, costOutput: 10.0 },
       { id: "deepseek/deepseek-r1", name: "DeepSeek R1", inputTypes: ["text"], contextWindow: 128000, maxTokens: 8192, reasoning: true, costInput: 0.55, costOutput: 2.19 },
+      { id: "openrouter/hunter-alpha", name: "Hunter Alpha", inputTypes: ["text"], contextWindow: 1048576, maxTokens: 65536, reasoning: true, costInput: 0, costOutput: 0 },
+      { id: "openrouter/healer-alpha", name: "Healer Alpha", inputTypes: ["text", "image"], contextWindow: 262144, maxTokens: 65536, reasoning: true, costInput: 0, costOutput: 0 },
     ],
   },
   {
@@ -198,12 +201,12 @@ const PROVIDER_TEMPLATES: ProviderTemplate[] = [
     description: "Kimi 系列长上下文模型",
     icon: "🌙",
     apiType: "openai-chat",
-    baseUrl: "https://api.moonshot.ai",
+    baseUrl: "https://api.moonshot.ai/v1",
     apiKeyPlaceholder: "sk-...",
     requiresApiKey: true,
     models: [
-      { id: "kimi-k2.5", name: "Kimi K2.5", inputTypes: ["text"], contextWindow: 131072, maxTokens: 8192, reasoning: false, costInput: 0, costOutput: 0 },
-      { id: "kimi-k2-thinking", name: "Kimi K2 Thinking", inputTypes: ["text"], contextWindow: 131072, maxTokens: 8192, reasoning: true, costInput: 0, costOutput: 0 },
+      { id: "kimi-k2.5", name: "Kimi K2.5", inputTypes: ["text", "image"], contextWindow: 256000, maxTokens: 8192, reasoning: false, costInput: 0, costOutput: 0 },
+      { id: "kimi-k2-thinking", name: "Kimi K2 Thinking", inputTypes: ["text"], contextWindow: 256000, maxTokens: 8192, reasoning: true, costInput: 0, costOutput: 0 },
     ],
   },
   {
@@ -228,12 +231,15 @@ const PROVIDER_TEMPLATES: ProviderTemplate[] = [
     description: "字节跳动 Doubao 系列模型",
     icon: "🌋",
     apiType: "openai-chat",
-    baseUrl: "https://ark.cn-beijing.volces.com/api",
+    baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
     apiKeyPlaceholder: "...",
     requiresApiKey: true,
     models: [
-      { id: "doubao-seed-1-8-251228", name: "Doubao Seed 1.8", inputTypes: ["text"], contextWindow: 128000, maxTokens: 8192, reasoning: false, costInput: 0, costOutput: 0 },
-      { id: "doubao-seed-code-preview-251028", name: "Doubao Seed Code", inputTypes: ["text"], contextWindow: 128000, maxTokens: 8192, reasoning: false, costInput: 0, costOutput: 0 },
+      { id: "doubao-seed-1-8-251228", name: "Doubao Seed 1.8", inputTypes: ["text", "image"], contextWindow: 256000, maxTokens: 4096, reasoning: false, costInput: 0, costOutput: 0 },
+      { id: "doubao-seed-code-preview-251028", name: "Doubao Seed Code", inputTypes: ["text", "image"], contextWindow: 256000, maxTokens: 4096, reasoning: false, costInput: 0, costOutput: 0 },
+      { id: "kimi-k2-5-260127", name: "Kimi K2.5", inputTypes: ["text", "image"], contextWindow: 256000, maxTokens: 4096, reasoning: false, costInput: 0, costOutput: 0 },
+      { id: "glm-4-7-251222", name: "GLM 4.7", inputTypes: ["text", "image"], contextWindow: 200000, maxTokens: 4096, reasoning: false, costInput: 0, costOutput: 0 },
+      { id: "deepseek-v3-2-251201", name: "DeepSeek V3.2", inputTypes: ["text", "image"], contextWindow: 128000, maxTokens: 4096, reasoning: false, costInput: 0, costOutput: 0 },
     ],
   },
   {
@@ -256,7 +262,7 @@ const PROVIDER_TEMPLATES: ProviderTemplate[] = [
     description: "MiniMax M2 系列 (Anthropic 兼容)",
     icon: "🔶",
     apiType: "anthropic",
-    baseUrl: "https://api.minimax.chat",
+    baseUrl: "https://api.minimax.io/anthropic",
     apiKeyPlaceholder: "...",
     requiresApiKey: true,
     models: [
@@ -297,7 +303,7 @@ const PROVIDER_TEMPLATES: ProviderTemplate[] = [
     description: "百度智能云 千帆大模型平台",
     icon: "🔴",
     apiType: "openai-chat",
-    baseUrl: "https://qianfan.baidubce.com",
+    baseUrl: "https://qianfan.baidubce.com/v2",
     apiKeyPlaceholder: "...",
     requiresApiKey: true,
     models: [
@@ -311,13 +317,18 @@ const PROVIDER_TEMPLATES: ProviderTemplate[] = [
     description: "阿里云 Coding 专用端点",
     icon: "🏗️",
     apiType: "openai-chat",
-    baseUrl: "https://coding-intl.dashscope.aliyuncs.com",
+    baseUrl: "https://coding-intl.dashscope.aliyuncs.com/v1",
     apiKeyPlaceholder: "sk-...",
     requiresApiKey: true,
     models: [
       { id: "qwen3.5-plus", name: "Qwen 3.5 Plus", inputTypes: ["text", "image"], contextWindow: 1000000, maxTokens: 65536, reasoning: false, costInput: 0, costOutput: 0 },
       { id: "qwen3-coder-plus", name: "Qwen 3 Coder Plus", inputTypes: ["text"], contextWindow: 1000000, maxTokens: 65536, reasoning: false, costInput: 0, costOutput: 0 },
       { id: "qwen3-coder-next", name: "Qwen 3 Coder Next", inputTypes: ["text"], contextWindow: 262144, maxTokens: 65536, reasoning: false, costInput: 0, costOutput: 0 },
+      { id: "qwen3-max-2026-01-23", name: "Qwen 3 Max", inputTypes: ["text"], contextWindow: 262144, maxTokens: 65536, reasoning: false, costInput: 0, costOutput: 0 },
+      { id: "MiniMax-M2.5", name: "MiniMax M2.5", inputTypes: ["text"], contextWindow: 1000000, maxTokens: 65536, reasoning: true, costInput: 0, costOutput: 0 },
+      { id: "glm-5", name: "GLM-5", inputTypes: ["text"], contextWindow: 202752, maxTokens: 16384, reasoning: false, costInput: 0, costOutput: 0 },
+      { id: "glm-4.7", name: "GLM 4.7", inputTypes: ["text"], contextWindow: 202752, maxTokens: 16384, reasoning: false, costInput: 0, costOutput: 0 },
+      { id: "kimi-k2.5", name: "Kimi K2.5", inputTypes: ["text", "image"], contextWindow: 262144, maxTokens: 32768, reasoning: false, costInput: 0, costOutput: 0 },
     ],
   },
   {
@@ -326,12 +337,13 @@ const PROVIDER_TEMPLATES: ProviderTemplate[] = [
     description: "NVIDIA AI Endpoints",
     icon: "💚",
     apiType: "openai-chat",
-    baseUrl: "https://integrate.api.nvidia.com",
+    baseUrl: "https://integrate.api.nvidia.com/v1",
     apiKeyPlaceholder: "nvapi-...",
     requiresApiKey: true,
     models: [
       { id: "nvidia/llama-3.1-nemotron-70b-instruct", name: "Llama 3.1 Nemotron 70B", inputTypes: ["text"], contextWindow: 131072, maxTokens: 4096, reasoning: false, costInput: 0, costOutput: 0 },
       { id: "meta/llama-3.3-70b-instruct", name: "Llama 3.3 70B", inputTypes: ["text"], contextWindow: 131072, maxTokens: 4096, reasoning: false, costInput: 0, costOutput: 0 },
+      { id: "nvidia/mistral-nemo-minitron-8b-8k-instruct", name: "Mistral NeMo Minitron 8B", inputTypes: ["text"], contextWindow: 8192, maxTokens: 2048, reasoning: false, costInput: 0, costOutput: 0 },
     ],
   },
   {
@@ -340,11 +352,17 @@ const PROVIDER_TEMPLATES: ProviderTemplate[] = [
     description: "开源模型云推理平台",
     icon: "🤝",
     apiType: "openai-chat",
-    baseUrl: "https://api.together.xyz",
+    baseUrl: "https://api.together.xyz/v1",
     apiKeyPlaceholder: "...",
     requiresApiKey: true,
     models: [
       { id: "meta-llama/Llama-3.3-70B-Instruct-Turbo", name: "Llama 3.3 70B Turbo", inputTypes: ["text"], contextWindow: 131072, maxTokens: 8192, reasoning: false, costInput: 0.88, costOutput: 0.88 },
+      { id: "moonshotai/Kimi-K2.5", name: "Kimi K2.5", inputTypes: ["text", "image"], contextWindow: 262144, maxTokens: 32768, reasoning: true, costInput: 0.5, costOutput: 2.8 },
+      { id: "zai-org/GLM-4.7", name: "GLM 4.7 Fp8", inputTypes: ["text"], contextWindow: 202752, maxTokens: 8192, reasoning: false, costInput: 0.45, costOutput: 2.0 },
+      { id: "meta-llama/Llama-4-Scout-17B-16E-Instruct", name: "Llama 4 Scout 17B", inputTypes: ["text", "image"], contextWindow: 10000000, maxTokens: 32768, reasoning: false, costInput: 0.18, costOutput: 0.59 },
+      { id: "deepseek-ai/DeepSeek-V3.1", name: "DeepSeek V3.1", inputTypes: ["text"], contextWindow: 131072, maxTokens: 8192, reasoning: false, costInput: 0.6, costOutput: 1.25 },
+      { id: "deepseek-ai/DeepSeek-R1", name: "DeepSeek R1", inputTypes: ["text"], contextWindow: 131072, maxTokens: 8192, reasoning: true, costInput: 3.0, costOutput: 7.0 },
+      { id: "moonshotai/Kimi-K2-Instruct-0905", name: "Kimi K2 Instruct", inputTypes: ["text"], contextWindow: 262144, maxTokens: 8192, reasoning: false, costInput: 1.0, costOutput: 3.0 },
     ],
   },
   // ── 本地 Provider ──
@@ -586,10 +604,7 @@ export default function ProviderSetup({
   const [baseUrl, setBaseUrl] = useState("")
   const [apiKey, setApiKey] = useState("")
   const [models, setModels] = useState<ModelConfig[]>([])
-  const [testResult, setTestResult] = useState<{
-    ok: boolean
-    msg: string
-  } | null>(null)
+  const [testResult, setTestResult] = useState<TestResult | null>(null)
   const [testLoading, setTestLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
@@ -638,9 +653,9 @@ export default function ProviderSetup({
           enabled: true,
         },
       })
-      setTestResult({ ok: true, msg })
+      setTestResult(parseTestResult(msg, false))
     } catch (e) {
-      setTestResult({ ok: false, msg: String(e) })
+      setTestResult(parseTestResult(String(e), true))
     } finally {
       setTestLoading(false)
     }
@@ -925,14 +940,7 @@ export default function ProviderSetup({
             </Button>
 
             {testResult && (
-              <div
-                className={`text-xs px-3 py-2 rounded-lg ${testResult.ok
-                    ? "bg-green-500/10 text-green-400 border border-green-500/20"
-                    : "bg-red-500/10 text-red-400 border border-red-500/20"
-                  }`}
-              >
-                {testResult.msg}
-              </div>
+              <TestResultDisplay result={testResult} />
             )}
           </div>
 
@@ -1202,14 +1210,7 @@ export default function ProviderSetup({
                 )}
               </Button>
               {testResult && (
-                <div
-                  className={`text-xs px-3 py-2 rounded-lg ${testResult.ok
-                      ? "bg-green-500/10 text-green-400 border border-green-500/20"
-                      : "bg-red-500/10 text-red-400 border border-red-500/20"
-                    }`}
-                >
-                  {testResult.msg}
-                </div>
+                <TestResultDisplay result={testResult} />
               )}
             </div>
           </div>

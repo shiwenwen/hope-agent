@@ -12,3 +12,4 @@ src-tauri/WixTools/
 .vscode/
 .idea/
 *.swp
+tool_comparison.md
