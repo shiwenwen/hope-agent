@@ -88,5 +88,14 @@
   "language": {
     "title": "Language",
     "system": "System Default"
+  },
+  "approval": {
+    "title": "Command Approval Required",
+    "workingDir": "Working Directory",
+    "command": "Command",
+    "allowOnce": "Allow Once",
+    "allowAlways": "Always Allow",
+    "deny": "Deny",
+    "queueIndicator": "{{current}} of {{total}}"
   }
 }

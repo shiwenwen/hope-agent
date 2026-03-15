@@ -88,5 +88,14 @@
   "language": {
     "title": "언어",
     "system": "시스템 설정 따르기"
+  },
+  "approval": {
+    "title": "명령 실행 확인",
+    "workingDir": "작업 디렉토리",
+    "command": "명령어",
+    "allowOnce": "한 번 허용",
+    "allowAlways": "항상 허용",
+    "deny": "거부",
+    "queueIndicator": "{{total}}개 중 {{current}}번째"
   }
 }

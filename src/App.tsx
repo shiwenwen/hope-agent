@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react"
 import { invoke, Channel } from "@tauri-apps/api/core"
+import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -21,6 +22,7 @@ import {
 import ProviderSetup from "@/components/ProviderSetup"
 import ProviderSettings from "@/components/ProviderSettings"
 import MarkdownRenderer from "@/components/MarkdownRenderer"
+import ApprovalDialog, { type ApprovalRequest } from "@/components/ApprovalDialog"
 import { SUPPORTED_LANGUAGES } from "@/i18n/i18n"
 
 interface ToolCall {
@@ -165,6 +167,9 @@ function ChatScreen({
   // Textarea
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
+  // Command approval queue
+  const [approvalRequests, setApprovalRequests] = useState<ApprovalRequest[]>([])
+
   // Attached files (images & files)
   const [attachedFiles, setAttachedFiles] = useState<File[]>([])
   const imageInputRef = useRef<HTMLInputElement>(null)
@@ -190,6 +195,38 @@ function ChatScreen({
       return () => document.removeEventListener("mousedown", handleClickOutside)
     }
   }, [showModelMenu])
+
+  // Listen for command approval events from backend
+  useEffect(() => {
+    let unlisten: UnlistenFn | undefined
+    listen<string>("approval_required", (event) => {
+      try {
+        const request: ApprovalRequest = JSON.parse(event.payload)
+        setApprovalRequests((prev) => [...prev, request])
+      } catch (e) {
+        console.error("Failed to parse approval request:", e)
+      }
+    }).then((fn) => {
+      unlisten = fn
+    })
+    return () => {
+      unlisten?.()
+    }
+  }, [])
+
+  async function handleApprovalResponse(
+    requestId: string,
+    response: "allow_once" | "allow_always" | "deny",
+  ) {
+    setApprovalRequests((prev) =>
+      prev.filter((r) => r.request_id !== requestId),
+    )
+    try {
+      await invoke("respond_to_approval", { requestId, response })
+    } catch (e) {
+      console.error("Failed to respond to approval:", e)
+    }
+  }
 
   // Drag handler for resizable panel
   const handleDragStart = (e: React.MouseEvent) => {
@@ -546,6 +583,12 @@ function ChatScreen({
       <div
         className="w-1 shrink-0 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors"
         onMouseDown={handleDragStart}
+      />
+
+      {/* Command Approval Dialog */}
+      <ApprovalDialog
+        requests={approvalRequests}
+        onRespond={handleApprovalResponse}
       />
 
       {/* Column 3: Chat Area */}

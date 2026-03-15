@@ -1,7 +1,9 @@
 mod agent;
 mod oauth;
 mod paths;
+mod process_registry;
 mod provider;
+mod sandbox;
 mod tools;
 
 use agent::AssistantAgent;
@@ -13,6 +15,13 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tauri::State;
 use serde::Serialize;
+
+static APP_HANDLE: std::sync::OnceLock<tauri::AppHandle> = std::sync::OnceLock::new();
+
+/// Get stored AppHandle for global event emission (e.g., command approval)
+pub fn get_app_handle() -> Option<&'static tauri::AppHandle> {
+    APP_HANDLE.get()
+}
 
 struct AppState {
     agent: Mutex<Option<AssistantAgent>>,
@@ -548,6 +557,24 @@ async fn chat(
     }
 }
 
+// ── Command Approval ──────────────────────────────────────────────
+
+#[tauri::command]
+async fn respond_to_approval(
+    request_id: String,
+    response: String,
+) -> Result<(), String> {
+    let approval_response = match response.as_str() {
+        "allow_once" => tools::ApprovalResponse::AllowOnce,
+        "allow_always" => tools::ApprovalResponse::AllowAlways,
+        "deny" => tools::ApprovalResponse::Deny,
+        _ => return Err(format!("Invalid approval response: {}", response)),
+    };
+    tools::submit_approval_response(&request_id, approval_response)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 // ── App Entry ─────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -562,6 +589,8 @@ pub fn run() {
 
     tauri::Builder::default()
         .setup(|app| {
+            // Store global AppHandle for event emission
+            let _ = APP_HANDLE.set(app.handle().clone());
             if cfg!(debug_assertions) {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()
@@ -603,6 +632,8 @@ pub fn run() {
             set_reasoning_effort,
             // Chat
             chat,
+            // Command approval
+            respond_to_approval,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

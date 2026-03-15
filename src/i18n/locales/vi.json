@@ -88,5 +88,14 @@
   "language": {
     "title": "Ngôn ngữ",
     "system": "Theo hệ thống"
+  },
+  "approval": {
+    "title": "Xác nhận thực thi lệnh",
+    "workingDir": "Thư mục làm việc",
+    "command": "Lệnh",
+    "allowOnce": "Cho phép một lần",
+    "allowAlways": "Luôn cho phép",
+    "deny": "Từ chối",
+    "queueIndicator": "{{current}} trên {{total}}"
   }
 }

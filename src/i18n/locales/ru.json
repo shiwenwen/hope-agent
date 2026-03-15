@@ -88,5 +88,14 @@
   "language": {
     "title": "Язык",
     "system": "Системный"
+  },
+  "approval": {
+    "title": "Подтверждение выполнения",
+    "workingDir": "Рабочая директория",
+    "command": "Команда",
+    "allowOnce": "Разрешить один раз",
+    "allowAlways": "Разрешить всегда",
+    "deny": "Отклонить",
+    "queueIndicator": "{{current}} из {{total}}"
   }
 }

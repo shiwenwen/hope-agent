@@ -88,5 +88,14 @@
   "language": {
     "title": "Bahasa",
     "system": "Lalai Sistem"
+  },
+  "approval": {
+    "title": "Pengesahan Pelaksanaan Perintah",
+    "workingDir": "Direktori Kerja",
+    "command": "Perintah",
+    "allowOnce": "Benarkan Sekali",
+    "allowAlways": "Sentiasa Benarkan",
+    "deny": "Tolak",
+    "queueIndicator": "{{current}} daripada {{total}}"
   }
 }

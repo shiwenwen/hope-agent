@@ -88,5 +88,14 @@
   "language": {
     "title": "语言",
     "system": "跟随系统"
+  },
+  "approval": {
+    "title": "命令执行确认",
+    "workingDir": "工作目录",
+    "command": "命令",
+    "allowOnce": "允许一次",
+    "allowAlways": "始终允许",
+    "deny": "拒绝",
+    "queueIndicator": "第 {{current}} 个，共 {{total}} 个"
   }
 }

@@ -88,5 +88,14 @@
   "language": {
     "title": "Dil",
     "system": "Sistem Varsayılanı"
+  },
+  "approval": {
+    "title": "Komut Onayı Gerekli",
+    "workingDir": "Çalışma Dizini",
+    "command": "Komut",
+    "allowOnce": "Bir Kez İzin Ver",
+    "allowAlways": "Her Zaman İzin Ver",
+    "deny": "Reddet",
+    "queueIndicator": "{{total}} içinden {{current}}"
   }
 }

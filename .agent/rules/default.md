@@ -16,7 +16,8 @@ src/            前端（React + TypeScript）
 src-tauri/src/  后端（Rust）
   lib.rs        Tauri 命令注册 & AppState
   agent.rs      AssistantAgent（多 Provider 封装 + Tool Loop）
-  tools.rs      统一 Tool 定义 & 执行 & Provider Schema 适配
+  tools.rs      统一 Tool 定义 & 执行 & Provider Schema 适配（exec/process/read_file/write_file/patch_file/list_dir/web_search/web_fetch）
+  process_registry.rs  进程会话注册表（后台进程管理）
   paths.rs      统一路径管理（~/.opencomputer/ 目录结构 & 数据迁移）
   provider.rs   Provider 数据模型 & JSON 持久化
   oauth.rs      Codex OAuth 2.0 PKCE 流程 & Token 管理
@@ -70,7 +71,8 @@ npm run lint
 - **数据存储**：所有数据统一存储到 `~/.opencomputer/` 目录，`paths.rs` 集中管理路径。目录结构包含 `config.json`（通用配置）、`credentials/`（OAuth 凭证）、`home/`（主 Agent Home）、`share/`（共享目录）、`{name}-home/`（其他 Agent Home）
 - **Provider 管理**：`provider.rs` 定义 `ProviderConfig` / `ModelConfig` / `ApiType`，持久化至 `~/.opencomputer/config.json`
 - **内置模板**：`ProviderSetup.tsx` 中 `PROVIDER_TEMPLATES` 数组包含 24 个预配置模板（API 类型参照 OpenClaw 源码）
-- **统一 Tool 架构**：所有 tool 定义和执行逻辑集中在 `tools.rs`，通过 `ToolProvider` 枚举 + `to_provider_schema()` 自动适配不同 LLM 的 schema 格式
+- **统一 Tool 架构**：所有 tool 定义和执行逻辑集中在 `tools.rs`，通过 `ToolProvider` 枚举 + `to_provider_schema()` 自动适配不同 LLM 的 schema 格式。内置 8 个工具：`exec`（Shell 命令，支持 cwd/timeout/env/background/yield_ms，默认超时 1800s，login shell PATH 解析，动态输出截断）、`process`（后台进程管理：list/poll/log/write/kill/clear/remove）、`read_file`、`write_file`、`patch_file`（搜索替换编辑）、`list_dir`、`web_search`（DuckDuckGo）、`web_fetch`（URL 内容抓取）
+- **进程注册表**：`process_registry.rs` 维护全局 `ProcessRegistry`（`tokio::sync::Mutex<HashMap>`），管理所有 exec 产生的后台进程会话的生命周期
 - **Tool Loop**：所有 Provider 均实现「请求 → 解析 tool_call → 执行 tool → 回传结果 → 继续」循环，最多 10 轮
 - **OAuth 封装**：Codex 登录流程集中在 `oauth.rs`，包括 PKCE、本地回调服务器、token 持久化与刷新
 - **Markdown 渲染**：消息内容通过 `MarkdownRenderer` 组件渲染，基于 Streamdown（专为 AI 流式场景设计），支持 GFM、代码高亮（Shiki）、KaTeX 数学公式、Mermaid 图表、CJK 标点优化。流式生成中的消息启用 `isAnimating` 动画

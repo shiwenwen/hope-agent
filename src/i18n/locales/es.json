@@ -88,5 +88,14 @@
   "language": {
     "title": "Idioma",
     "system": "Predeterminado del Sistema"
+  },
+  "approval": {
+    "title": "Confirmación de ejecución",
+    "workingDir": "Directorio de trabajo",
+    "command": "Comando",
+    "allowOnce": "Permitir una vez",
+    "allowAlways": "Permitir siempre",
+    "deny": "Denegar",
+    "queueIndicator": "{{current}} de {{total}}"
   }
 }

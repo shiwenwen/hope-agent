@@ -88,5 +88,14 @@
   "language": {
     "title": "語言",
     "system": "跟隨系統"
+  },
+  "approval": {
+    "title": "命令執行確認",
+    "workingDir": "工作目錄",
+    "command": "命令",
+    "allowOnce": "允許一次",
+    "allowAlways": "始終允許",
+    "deny": "拒絕",
+    "queueIndicator": "第 {{current}} 個，共 {{total}} 個"
   }
 }

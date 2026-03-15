@@ -88,5 +88,14 @@
   "language": {
     "title": "اللغة",
     "system": "اللغة الافتراضية للنظام"
+  },
+  "approval": {
+    "title": "تأكيد تنفيذ الأمر",
+    "workingDir": "مجلد العمل",
+    "command": "الأمر",
+    "allowOnce": "السماح مرة واحدة",
+    "allowAlways": "السماح دائمًا",
+    "deny": "رفض",
+    "queueIndicator": "{{current}} من {{total}}"
   }
 }

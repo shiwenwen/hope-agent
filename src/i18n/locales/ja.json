@@ -88,5 +88,14 @@
   "language": {
     "title": "言語",
     "system": "システム設定に従う"
+  },
+  "approval": {
+    "title": "コマンド実行の確認",
+    "workingDir": "作業ディレクトリ",
+    "command": "コマンド",
+    "allowOnce": "一度だけ許可",
+    "allowAlways": "常に許可",
+    "deny": "拒否",
+    "queueIndicator": "{{total}} 件中 {{current}} 件目"
   }
 }

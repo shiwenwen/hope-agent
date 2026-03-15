@@ -50,7 +50,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **连通性测试**：添加 Provider 时可验证 API Key 和 Base URL 是否有效
 - 新增 `provider.rs` 模块：`ApiType`、`ModelConfig`、`ProviderConfig` 数据结构 + JSON 持久化
 - 新增 Tauri 命令：`get_providers`、`add_provider`、`update_provider`、`delete_provider`、`test_provider`、`get_available_models`、`get_active_model`、`set_active_model`、`has_providers`
-- **统一 Tool Calling 支持**：Anthropic 和 OpenAI 双 Provider 均支持 tool 调用（exec、read_file、write_file、list_dir）
+- **统一 Tool Calling 支持**：Anthropic 和 OpenAI 双 Provider 均支持 tool 调用（exec、read_file、write_file、patch_file、list_dir、web_search、web_fetch）
+- **新增 `web_search` 工具**：AI 可搜索网页获取最新信息（基于 DuckDuckGo，无需 API Key）
+- **新增 `web_fetch` 工具**：AI 可抓取网页内容，自动提取正文并清理 HTML 标签
+- **新增 `patch_file` 工具**：基于搜索替换的精确文件编辑，比 write_file 覆写更安全
+- **`exec` 工具全面升级**（对齐 OpenClaw）：
+  - 默认超时从 120s 调整为 1800s（30 分钟），最大支持 7200s（2 小时）
+  - 新增 `env` 参数支持自定义环境变量
+  - 新增 `background` 参数支持后台执行，立即返回 session ID
+  - 新增 `yield_ms` 参数支持自动后台化（等待指定毫秒后若未完成则后台）
+  - 启动时自动解析 login shell PATH，确保 npm/python 等工具可用
+  - 输出截断动态调整：根据模型上下文窗口自动计算（默认 200K chars，最小 8K）
+- **新增 `process` 工具**：管理后台执行的 exec 会话
+  - `list`：列出所有运行/已结束的会话
+  - `poll`：获取会话新输出，支持 timeout 等待
+  - `log`：查看完整输出日志，支持 offset/limit 分页
+  - `write`：向后台进程 stdin 写入（Phase 3 完善）
+  - `kill`：终止后台进程
+  - `clear`/`remove`：清理已结束会话
+- **新增 `process_registry.rs` 模块**：进程会话注册表，全局单例管理所有 exec 产生的后台进程
+- **PTY 支持**：exec 新增 `pty` 参数，基于 `portable-pty` crate 实现伪终端执行
+  - 适用于需要 TTY 的交互式命令（REPL、编辑器等）
+  - PTY 不可用时自动回退到普通模式
+  - 输出自动清理 ANSI 转义序列
+- **命令审批系统**：exec 执行前检查命令是否在 allowlist 中
+  - 不在 allowlist 中的命令触发审批流程（Tauri `approval_required` 事件）
+  - 支持 AllowOnce / AllowAlways / Deny 三种响应
+  - AllowAlways 自动将命令前缀加入 allowlist（持久化至 `~/.opencomputer/exec-approvals.json`）
+  - 新增 `respond_to_approval` Tauri 命令
+  - 全局 `APP_HANDLE` 存储用于事件发射
+- **命令审批对话框 UI**：前端 `ApprovalDialog` 组件
+  - 监听 Tauri `approval_required` 事件，弹出全屏遮罩审批对话框
+  - 显示待执行命令内容和工作目录
+  - 三按钮：拒绝（红色）/ 允许一次 / 始终允许
+  - 支持多请求队列（FIFO），显示队列指示器
+  - 全 12 语言 i18n 支持
+- **Docker 沙箱模式**：exec 新增 `sandbox` 参数，支持在 Docker 容器内隔离执行命令
+  - 基于 `bollard` crate 异步 Docker API 客户端
+  - 新增 `sandbox.rs` 模块：容器生命周期管理（创建 → 启动 → 等待 → 收集日志 → 清理）
+  - 自动挂载工作目录到容器 `/workspace`
+  - 可配置镜像（默认 `ubuntu:22.04`）、内存限制（默认 512MB）、CPU 限制（默认 1 核）
+  - 配置持久化至 `~/.opencomputer/sandbox.json`
+  - 支持 `background=true` + `sandbox=true` 组合
+  - Docker 不可用时返回清晰错误提示，不崩溃
 - **Anthropic Messages API 直接调用**：支持 Claude tool_use 流式响应与多轮 tool 循环
 - **OpenAI Tool Loop**：完整的 function_call SSE 事件解析与 agent loop 实现
 - **Provider Schema 适配层**：`tools.rs` 引入 `ToolProvider` 枚举，同一套 tool 定义自动转换为 Anthropic / OpenAI 格式

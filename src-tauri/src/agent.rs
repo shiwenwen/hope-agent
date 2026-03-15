@@ -79,9 +79,19 @@ fn build_user_content_responses(message: &str, attachments: &[Attachment]) -> se
 
 const SYSTEM_PROMPT: &str = "You are OpenComputer, a personal AI assistant with deep system integration. \
                              You help users interact with their computer naturally and efficiently. \
-                             You have access to tools that let you execute shell commands, read/write files, \
-                             and list directories on the user's computer. Use these tools when the user asks \
-                             you to interact with their system.";
+                             \
+                             Available tools: \
+                             - exec: Execute shell commands. Supports cwd, timeout (default 30min, max 2h), \
+                               custom env vars, background execution (background=true or yield_ms for auto-backgrounding), \
+                               and Docker sandbox isolation (sandbox=true) for untrusted or risky commands. \
+                             - process: Manage background exec sessions — list, poll (get new output), log (full output), \
+                               write (stdin), kill, clear, remove. Use after backgrounding a command. \
+                             - read_file / write_file / patch_file: File operations. Prefer patch_file for targeted edits. \
+                             - list_dir: List directory contents. \
+                             - web_search / web_fetch: Search the web and fetch page content. \
+                             \
+                             For long-running commands (builds, installs), consider using background=true and then \
+                             process(action='poll') to check progress.";
 
 const CODEX_API_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
 #[allow(dead_code)]
