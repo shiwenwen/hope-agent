@@ -20,6 +20,7 @@ import {
 } from "lucide-react"
 import ProviderSetup from "@/components/ProviderSetup"
 import ProviderSettings from "@/components/ProviderSettings"
+import MarkdownRenderer from "@/components/MarkdownRenderer"
 import { SUPPORTED_LANGUAGES } from "@/i18n/i18n"
 
 interface ToolCall {
@@ -588,7 +589,10 @@ function ChatScreen({
                     <ToolCallBlock key={tool.callId} tool={tool} />
                   ))}
                 {msg.content ? (
-                  <div className="whitespace-pre-wrap">{msg.content}</div>
+                  <MarkdownRenderer
+                    content={msg.content}
+                    isStreaming={msg.role === "assistant" && loading && i === messages.length - 1}
+                  />
                 ) : (
                   msg.role === "assistant" &&
                   !msg.toolCalls?.length && (

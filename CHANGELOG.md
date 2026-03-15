@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Markdown 消息渲染**：用户和 AI 消息均支持完整 Markdown 渲染（基于 Streamdown）
+  - 流式场景优化：正确处理未闭合语法（加粗、代码块等），渐进式渲染无闪烁
+  - 代码块语法高亮（Shiki）、CJK 中文标点优化
+  - KaTeX 数学公式渲染（LaTeX 语法）
+  - Mermaid 图表渲染（流程图、时序图等）
+  - 新增 `MarkdownRenderer` 组件（`src/components/MarkdownRenderer.tsx`）
+  - 新增依赖：`streamdown`、`@streamdown/code`、`@streamdown/cjk`、`@streamdown/math`、`@streamdown/mermaid`、`katex`
 - **统一数据存储架构**：所有数据落盘集中到 `~/.opencomputer/` 目录
   - 新增 `paths.rs` 模块：集中管理 root、config、credentials、home、share 等路径
   - 目录结构：`config.json`（通用配置）、`credentials/auth.json`（OAuth 凭证）、`home/`（主 Agent Home）、`share/`（共享目录）

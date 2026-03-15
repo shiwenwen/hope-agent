@@ -32,6 +32,7 @@
 - **双 Provider 支持**：Anthropic Claude（API Key）和 OpenAI Codex（OAuth 登录）
 - **统一 Tool Calling**：两个 Provider 共享同一套 tool 定义和执行逻辑（exec、read_file、write_file、list_dir），通过 schema 适配层自动转换格式
 - **三栏布局**：微信风格——图标侧边栏 + 可拖拽会话/Agent 列表（180-400px）+ 对话区
+- **Markdown 消息渲染**：基于 Streamdown 的流式 Markdown 渲染，支持代码高亮（Shiki）、KaTeX 数学公式、Mermaid 图表、CJK 标点优化
 - **多轮对话上下文**：自动保存对话历史，支持连续多轮对话
 - **Codex OAuth 登录**：通过 ChatGPT 账号 OAuth 2.0 PKCE 流程登录
 - **多模型选择**：顶栏下拉菜单切换 GPT-5.4 / GPT-5.3 Codex / GPT-5.2 / GPT-5.1 等模型
@@ -68,7 +69,9 @@
 OpenComputer/
 ├── src/                    # 前端源码
 │   ├── App.tsx             # 根组件（SetupScreen / ChatScreen）
-│   ├── components/ui/      # shadcn/ui 组件库
+│   ├── components/
+│   │   ├── MarkdownRenderer.tsx  # Markdown 渲染（Streamdown）
+│   │   └── ui/             # shadcn/ui 组件库
 │   └── lib/utils.ts        # 工具函数
 ├── src-tauri/              # Rust 后端
 │   ├── src/
@@ -92,6 +95,7 @@ OpenComputer/
 | 前端 | Tailwind CSS v4 | 样式 |
 | 前端 | shadcn/ui | 组件库 |
 | 前端 | lucide-react | 图标 |
+| 前端 | streamdown | 流式 Markdown 渲染（含 Shiki 代码高亮、KaTeX、Mermaid、CJK） |
 | 后端 | Tauri 2 | 原生桌面框架 |
 | 后端 | reqwest | HTTP 客户端（Anthropic / Codex API） |
 | 后端 | tokio | 异步运行时 |
@@ -140,7 +144,7 @@ OpenComputer/
 - [ ] 对话历史持久化（本地 SQLite）
 
 ### v0.4.0 — 体验优化
-- [ ] Markdown 渲染
+- [x] Markdown 渲染（Streamdown + 代码高亮 + KaTeX + Mermaid + CJK）
 - [ ] 图片/文件拖拽输入
 - [ ] 全局快捷键唤起
 
