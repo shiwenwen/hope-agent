@@ -90,6 +90,22 @@ function IconSidebar({
       <div className="flex-1" />
 
       <div className="py-3 flex flex-col gap-2">
+        {/* Profile */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className={cn(
+            "rounded-xl h-8 w-8",
+            view === "profile"
+              ? "bg-primary/10 text-primary hover:bg-primary/20"
+              : "text-muted-foreground hover:text-foreground"
+          )}
+          onClick={onOpenProfile}
+          title={t("settings.profile")}
+        >
+          <User className="h-4 w-4" />
+        </Button>
+
         {/* Theme Toggle */}
         <Button
           variant="ghost"
@@ -165,22 +181,6 @@ function IconSidebar({
             </>
           )}
         </div>
-        {/* Profile */}
-        <Button
-          variant="ghost"
-          size="icon"
-          className={cn(
-            "rounded-xl h-8 w-8",
-            view === "profile"
-              ? "bg-primary/10 text-primary hover:bg-primary/20"
-              : "text-muted-foreground hover:text-foreground"
-          )}
-          onClick={onOpenProfile}
-          title={t("settings.profile")}
-        >
-          <User className="h-4 w-4" />
-        </Button>
-
         {/* Settings */}
         <Button
           variant="ghost"
