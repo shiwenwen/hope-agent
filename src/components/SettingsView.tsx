@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import {
   ArrowLeft,
+  Camera,
   Check,
   ChevronRight,
   Globe,
@@ -624,11 +625,11 @@ function UserProfilePanel() {
         <div className="flex items-center gap-3 px-3 py-3 rounded-lg hover:bg-secondary/60 transition-colors cursor-pointer"
           onClick={() => { /* TODO: file picker */ }}
         >
-          <div className="shrink-0 w-11 h-11 rounded-xl bg-secondary border border-border/50 flex items-center justify-center overflow-hidden">
+          <div className="shrink-0 w-11 h-11 rounded-full bg-secondary border border-border/50 flex items-center justify-center overflow-hidden">
             {config.avatar ? (
               <img src={config.avatar} className="w-full h-full object-cover" alt="" />
             ) : (
-              <User className="h-5 w-5 text-muted-foreground/40" />
+              <Camera className="h-4.5 w-4.5 text-muted-foreground/40" />
             )}
           </div>
           <div className="flex-1 text-sm text-muted-foreground">{t("settings.profileAvatarChange")}</div>
