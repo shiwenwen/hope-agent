@@ -21,6 +21,7 @@ import {
   Sun,
   Moon,
   Monitor,
+  User,
 } from "lucide-react"
 import { useTheme } from "@/hooks/useTheme"
 import ProviderSetup from "@/components/ProviderSetup"
@@ -36,11 +37,13 @@ function IconSidebar({
   onOpenSettings,
   onOpenChat,
   onOpenSkills,
+  onOpenProfile,
 }: {
-  view: "chat" | "settings" | "skills"
+  view: "chat" | "settings" | "skills" | "profile"
   onOpenSettings: () => void
   onOpenChat: () => void
   onOpenSkills: () => void
+  onOpenProfile: () => void
 }) {
   const { t, i18n } = useTranslation()
   const { theme, cycleTheme } = useTheme()
@@ -162,6 +165,23 @@ function IconSidebar({
             </>
           )}
         </div>
+        {/* Profile */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className={cn(
+            "rounded-xl h-8 w-8",
+            view === "profile"
+              ? "bg-primary/10 text-primary hover:bg-primary/20"
+              : "text-muted-foreground hover:text-foreground"
+          )}
+          onClick={onOpenProfile}
+          title={t("settings.profile")}
+        >
+          <User className="h-4 w-4" />
+        </Button>
+
+        {/* Settings */}
         <Button
           variant="ghost"
           size="icon"
@@ -970,7 +990,7 @@ function ChatScreen() {
 
 export default function App() {
   const [view, setView] = useState<
-    "loading" | "setup" | "chat" | "settings" | "skills"
+    "loading" | "setup" | "chat" | "settings" | "skills" | "profile"
   >("loading")
 
   // Try to restore previous session on mount
@@ -1042,10 +1062,11 @@ export default function App() {
   return (
     <div className="flex h-screen overflow-hidden bg-background">
       <IconSidebar
-        view={view === "settings" ? "settings" : view === "skills" ? "skills" : "chat"}
+        view={view === "settings" ? "settings" : view === "skills" ? "skills" : view === "profile" ? "profile" : "chat"}
         onOpenSettings={() => setView("settings")}
         onOpenChat={() => setView("chat")}
         onOpenSkills={() => setView("skills")}
+        onOpenProfile={() => setView("profile")}
       />
       {view === "settings" ? (
         <SettingsView
@@ -1059,6 +1080,13 @@ export default function App() {
           onCodexAuth={handleCodexAuth}
           onCodexReauth={handleCodexAuth}
           initialSection="skills"
+        />
+      ) : view === "profile" ? (
+        <SettingsView
+          onBack={() => setView("chat")}
+          onCodexAuth={handleCodexAuth}
+          onCodexReauth={handleCodexAuth}
+          initialSection="profile"
         />
       ) : (
         <ChatScreen />
