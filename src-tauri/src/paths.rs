@@ -17,6 +17,13 @@ pub fn config_path() -> Result<PathBuf> {
     Ok(root_dir()?.join("config.json"))
 }
 
+// ── User Config ─────────────────────────────────────────────────
+
+/// User config file path: ~/.opencomputer/user.json
+pub fn user_config_path() -> Result<PathBuf> {
+    Ok(root_dir()?.join("user.json"))
+}
+
 // ── Credentials ──────────────────────────────────────────────────
 
 /// Credentials directory: ~/.opencomputer/credentials/

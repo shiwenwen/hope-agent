@@ -6,6 +6,7 @@ mod provider;
 mod sandbox;
 mod skills;
 mod tools;
+mod user_config;
 
 use agent::AssistantAgent;
 use oauth::TokenData;
@@ -898,6 +899,38 @@ async fn open_directory(path: String) -> Result<(), String> {
     open::that(&resolved).map_err(|e| format!("Failed to open directory: {}", e))
 }
 
+// ── User Config Commands ─────────────────────────────────────────
+
+#[tauri::command]
+async fn get_user_config() -> Result<user_config::UserConfig, String> {
+    user_config::load_user_config().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn save_user_config(config: user_config::UserConfig) -> Result<(), String> {
+    user_config::save_user_config_to_disk(&config).map_err(|e| e.to_string())
+}
+
+/// Get the system's IANA timezone name
+#[tauri::command]
+async fn get_system_timezone() -> Result<String, String> {
+    // Try reading /etc/localtime symlink (macOS/Linux)
+    if let Ok(link) = std::fs::read_link("/etc/localtime") {
+        let path_str = link.to_string_lossy().to_string();
+        // Extract timezone from path like /var/db/timezone/zoneinfo/Asia/Shanghai
+        if let Some(pos) = path_str.find("zoneinfo/") {
+            return Ok(path_str[pos + 9..].to_string());
+        }
+    }
+    // Fallback: TZ env var
+    if let Ok(tz) = std::env::var("TZ") {
+        if !tz.is_empty() {
+            return Ok(tz);
+        }
+    }
+    Ok("UTC".to_string())
+}
+
 // ── App Entry ─────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -967,6 +1000,10 @@ pub fn run() {
             remove_extra_skills_dir,
             toggle_skill,
             open_directory,
+            // User config
+            get_user_config,
+            save_user_config,
+            get_system_timezone,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

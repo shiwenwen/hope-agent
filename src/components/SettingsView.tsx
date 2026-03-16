@@ -19,6 +19,7 @@ import {
   Folder,
   ExternalLink,
   X,
+  User,
 } from "lucide-react"
 import { SUPPORTED_LANGUAGES, isFollowingSystem, setFollowSystemLanguage } from "@/i18n/i18n"
 import { useTheme, type ThemeMode } from "@/hooks/useTheme"
@@ -28,7 +29,7 @@ import type { ProviderConfig } from "@/components/ProviderSettings"
 import ProviderSetup from "@/components/ProviderSetup"
 import ProviderEditPage from "@/components/ProviderEditPage"
 
-type SettingsSection = "providers" | "skills" | "appearance" | "language" | "about"
+type SettingsSection = "providers" | "skills" | "profile" | "appearance" | "language" | "about"
 
 interface SettingsSectionItem {
   id: SettingsSection
@@ -46,6 +47,11 @@ const SECTIONS: SettingsSectionItem[] = [
     id: "skills",
     icon: <Puzzle className="h-4 w-4" />,
     labelKey: "settings.skills",
+  },
+  {
+    id: "profile",
+    icon: <User className="h-4 w-4" />,
+    labelKey: "settings.profile",
   },
   {
     id: "appearance",
@@ -523,6 +529,319 @@ function SkillsPanel() {
   )
 }
 
+// ── User Profile Panel ───────────────────────────────────────────
+
+interface UserConfig {
+  name?: string | null
+  avatar?: string | null
+  role?: string | null
+  timezone?: string | null
+  language?: string | null
+  experience?: string | null
+  aiExperience?: string | null
+  responseStyle?: string | null
+  customInfo?: string | null
+}
+
+// Common timezones grouped by region
+const TIMEZONE_OPTIONS = [
+  { group: "Asia", zones: ["Asia/Shanghai", "Asia/Tokyo", "Asia/Seoul", "Asia/Singapore", "Asia/Hong_Kong", "Asia/Taipei", "Asia/Kolkata", "Asia/Dubai", "Asia/Bangkok"] },
+  { group: "Americas", zones: ["America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles", "America/Toronto", "America/Sao_Paulo", "America/Mexico_City"] },
+  { group: "Europe", zones: ["Europe/London", "Europe/Paris", "Europe/Berlin", "Europe/Moscow", "Europe/Istanbul", "Europe/Amsterdam", "Europe/Madrid"] },
+  { group: "Pacific", zones: ["Pacific/Auckland", "Australia/Sydney", "Australia/Melbourne", "Pacific/Honolulu"] },
+  { group: "Other", zones: ["UTC"] },
+]
+
+const LANGUAGE_OPTIONS = [
+  { code: "zh-CN", label: "简体中文" },
+  { code: "zh-TW", label: "繁體中文" },
+  { code: "en", label: "English" },
+  { code: "ja", label: "日本語" },
+  { code: "ko", label: "한국어" },
+  { code: "es", label: "Español" },
+  { code: "pt", label: "Português" },
+  { code: "ru", label: "Русский" },
+  { code: "ar", label: "العربية" },
+  { code: "tr", label: "Türkçe" },
+  { code: "vi", label: "Tiếng Việt" },
+  { code: "ms", label: "Bahasa Melayu" },
+]
+
+const PRESET_STYLES = ["concise", "detailed"]
+
+function UserProfilePanel() {
+  const { t, i18n } = useTranslation()
+  const [config, setConfig] = useState<UserConfig>({})
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [customStyle, setCustomStyle] = useState(false)
+
+  useEffect(() => {
+    // Load config + detect system defaults
+    Promise.all([
+      invoke<UserConfig>("get_user_config"),
+      invoke<string>("get_system_timezone").catch(() => "UTC"),
+    ]).then(([cfg, sysTz]) => {
+      // Apply system defaults for empty fields
+      if (!cfg.timezone) cfg.timezone = sysTz
+      if (!cfg.language) {
+        const lang = i18n.language
+        const matched = LANGUAGE_OPTIONS.find((l) => lang.startsWith(l.code))
+        if (matched) cfg.language = matched.code
+      }
+      setConfig(cfg)
+      // Detect if responseStyle is custom (not a preset)
+      if (cfg.responseStyle && !PRESET_STYLES.includes(cfg.responseStyle)) {
+        setCustomStyle(true)
+      }
+    }).catch(console.error)
+  }, [i18n.language])
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      await invoke("save_user_config", { config })
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const update = (patch: Partial<UserConfig>) => {
+    setConfig((prev) => ({ ...prev, ...patch }))
+  }
+
+  return (
+    <div className="flex-1 overflow-y-auto">
+      <div className="max-w-lg mx-auto py-8 px-6 space-y-8">
+
+        {/* ── Header: Avatar + Name + Role ── */}
+        <div className="flex items-start gap-5">
+          {/* Avatar */}
+          <div className="relative group shrink-0">
+            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary/20 via-primary/5 to-secondary border border-border/60 flex items-center justify-center overflow-hidden shadow-sm">
+              {config.avatar ? (
+                <img src={config.avatar} className="w-full h-full object-cover" alt="" />
+              ) : (
+                <User className="h-7 w-7 text-muted-foreground/50" />
+              )}
+            </div>
+            <button
+              className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-secondary border border-border flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
+              onClick={() => {
+                // TODO: file picker for avatar
+              }}
+              title={t("settings.profileAvatarChange")}
+            >
+              <Palette className="h-3 w-3 text-muted-foreground" />
+            </button>
+          </div>
+
+          {/* Name + Role */}
+          <div className="flex-1 space-y-2.5 pt-0.5">
+            <input
+              className="w-full text-base font-semibold text-foreground bg-transparent border-0 border-b border-transparent hover:border-border focus:border-primary/50 outline-none py-0.5 transition-colors placeholder:text-muted-foreground/40 placeholder:font-normal"
+              value={config.name ?? ""}
+              onChange={(e) => update({ name: e.target.value || null })}
+              placeholder={t("settings.profileNamePlaceholder")}
+            />
+            <input
+              className="w-full text-sm text-muted-foreground bg-transparent border-0 border-b border-transparent hover:border-border focus:border-primary/50 outline-none py-0.5 transition-colors placeholder:text-muted-foreground/30"
+              value={config.role ?? ""}
+              onChange={(e) => update({ role: e.target.value || null })}
+              placeholder={t("settings.profileRolePlaceholder")}
+            />
+          </div>
+        </div>
+
+        {/* ── Experience Section ── */}
+        <fieldset className="space-y-4">
+          <legend className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
+            {t("settings.profileExperience")} & {t("settings.profileAiExperience")}
+          </legend>
+
+          <div className="grid grid-cols-2 gap-3">
+            {/* Experience Level */}
+            <div className="space-y-1.5">
+              <label className="text-xs text-muted-foreground">{t("settings.profileExperience")}</label>
+              <div className="space-y-0.5">
+                {(["senior", "mid", "junior", "student"] as const).map((level) => (
+                  <button
+                    key={level}
+                    className={cn(
+                      "w-full text-left px-3 py-1.5 rounded-md text-xs transition-colors",
+                      config.experience === level
+                        ? "bg-primary/10 text-primary font-medium"
+                        : "text-foreground hover:bg-secondary/80"
+                    )}
+                    onClick={() => update({ experience: config.experience === level ? null : level })}
+                  >
+                    {t(`settings.profileExp${level.charAt(0).toUpperCase() + level.slice(1)}`)}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* AI Experience Level */}
+            <div className="space-y-1.5">
+              <label className="text-xs text-muted-foreground">{t("settings.profileAiExperience")}</label>
+              <div className="space-y-0.5">
+                {(["expert", "intermediate", "beginner"] as const).map((level) => (
+                  <button
+                    key={level}
+                    className={cn(
+                      "w-full text-left px-3 py-1.5 rounded-md text-xs transition-colors",
+                      config.aiExperience === level
+                        ? "bg-primary/10 text-primary font-medium"
+                        : "text-foreground hover:bg-secondary/80"
+                    )}
+                    onClick={() => update({ aiExperience: config.aiExperience === level ? null : level })}
+                  >
+                    {t(`settings.profileAiExp${level.charAt(0).toUpperCase() + level.slice(1)}`)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </fieldset>
+
+        {/* ── Locale Section ── */}
+        <fieldset className="space-y-4">
+          <legend className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
+            {t("settings.profileTimezone")} & {t("settings.profileLanguage")}
+          </legend>
+
+          <div className="grid grid-cols-2 gap-3">
+            {/* Timezone */}
+            <div className="space-y-1.5">
+              <label className="text-xs text-muted-foreground">{t("settings.profileTimezone")}</label>
+              <select
+                className="w-full px-2.5 py-1.5 text-xs bg-secondary/40 border border-border/40 rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors"
+                value={config.timezone ?? ""}
+                onChange={(e) => update({ timezone: e.target.value || null })}
+              >
+                <option value="">—</option>
+                {TIMEZONE_OPTIONS.map((group) => (
+                  <optgroup key={group.group} label={group.group}>
+                    {group.zones.map((tz) => (
+                      <option key={tz} value={tz}>{tz.replace(/_/g, " ")}</option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+            </div>
+
+            {/* Language */}
+            <div className="space-y-1.5">
+              <label className="text-xs text-muted-foreground">{t("settings.profileLanguage")}</label>
+              <select
+                className="w-full px-2.5 py-1.5 text-xs bg-secondary/40 border border-border/40 rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors"
+                value={config.language ?? ""}
+                onChange={(e) => update({ language: e.target.value || null })}
+              >
+                <option value="">—</option>
+                {LANGUAGE_OPTIONS.map((lang) => (
+                  <option key={lang.code} value={lang.code}>{lang.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </fieldset>
+
+        {/* ── Response Style ── */}
+        <fieldset className="space-y-3">
+          <legend className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
+            {t("settings.profileResponseStyle")}
+          </legend>
+
+          <div className="flex gap-1.5">
+            {PRESET_STYLES.map((style) => (
+              <button
+                key={style}
+                className={cn(
+                  "flex-1 px-3 py-2 rounded-lg text-xs transition-colors border",
+                  !customStyle && config.responseStyle === style
+                    ? "bg-primary/10 text-primary border-primary/20 font-medium"
+                    : "text-foreground border-border/40 hover:bg-secondary/80"
+                )}
+                onClick={() => {
+                  setCustomStyle(false)
+                  update({ responseStyle: config.responseStyle === style ? null : style })
+                }}
+              >
+                {t(`settings.profileStyle${style.charAt(0).toUpperCase() + style.slice(1)}`)}
+              </button>
+            ))}
+            <button
+              className={cn(
+                "flex-1 px-3 py-2 rounded-lg text-xs transition-colors border",
+                customStyle
+                  ? "bg-primary/10 text-primary border-primary/20 font-medium"
+                  : "text-foreground border-border/40 hover:bg-secondary/80"
+              )}
+              onClick={() => {
+                setCustomStyle(true)
+                if (!customStyle) update({ responseStyle: "" })
+              }}
+            >
+              {t("settings.profileStyleCustom")}
+            </button>
+          </div>
+
+          {customStyle && (
+            <textarea
+              className="w-full px-3 py-2 text-xs bg-secondary/30 border border-border/40 rounded-lg text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors resize-none"
+              rows={2}
+              value={config.responseStyle ?? ""}
+              onChange={(e) => update({ responseStyle: e.target.value || null })}
+              placeholder={t("settings.profileStyleCustomPlaceholder")}
+            />
+          )}
+        </fieldset>
+
+        {/* ── Custom Info ── */}
+        <fieldset className="space-y-2">
+          <legend className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
+            {t("settings.profileCustomInfo")}
+          </legend>
+          <textarea
+            className="w-full px-3 py-2.5 text-sm bg-secondary/30 border border-border/40 rounded-lg text-foreground placeholder:text-muted-foreground/30 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors resize-none leading-relaxed"
+            rows={3}
+            value={config.customInfo ?? ""}
+            onChange={(e) => update({ customInfo: e.target.value || null })}
+            placeholder={t("settings.profileCustomInfoPlaceholder")}
+          />
+        </fieldset>
+
+        {/* ── Save ── */}
+        <div className="flex items-center gap-3 pt-2 pb-4">
+          <button
+            className={cn(
+              "px-5 py-2 text-sm font-medium rounded-lg transition-all",
+              saved
+                ? "bg-green-500/10 text-green-600 border border-green-500/20"
+                : "bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
+            )}
+            onClick={handleSave}
+            disabled={saving}
+          >
+            {saving ? t("common.saving") : saved ? (
+              <span className="flex items-center gap-1.5">
+                <Check className="h-3.5 w-3.5" />
+                {t("settings.profileSaved")}
+              </span>
+            ) : t("common.save")}
+          </button>
+        </div>
+
+      </div>
+    </div>
+  )
+}
+
 // ── About Panel ───────────────────────────────────────────────────
 
 function AboutPanel() {
@@ -687,6 +1006,7 @@ export default function SettingsView({
             )
           )}
           {activeSection === "skills" && <SkillsPanel />}
+          {activeSection === "profile" && <UserProfilePanel />}
           {activeSection === "appearance" && <AppearancePanel />}
           {activeSection === "language" && <LanguagePanel />}
           {activeSection === "about" && <AboutPanel />}
