@@ -30,10 +30,6 @@ pub struct UserConfig {
     #[serde(default)]
     pub language: Option<String>,
 
-    /// Experience level: "senior", "junior", "student"
-    #[serde(default)]
-    pub experience: Option<String>,
-
     /// AI experience level: "expert", "intermediate", "beginner"
     #[serde(default)]
     pub ai_experience: Option<String>,
@@ -90,7 +86,6 @@ pub fn build_user_context(config: &UserConfig) -> Option<String> {
 
     push_if(&mut lines, "Name", &config.name);
     push_if(&mut lines, "Role", &config.role);
-    push_if(&mut lines, "Experience level", &config.experience);
     push_if(&mut lines, "AI experience level", &config.ai_experience);
     push_if(&mut lines, "Preferred language", &config.language);
     push_if(&mut lines, "Timezone", &config.timezone);

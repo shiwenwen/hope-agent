@@ -537,7 +537,6 @@ interface UserConfig {
   role?: string | null
   timezone?: string | null
   language?: string | null
-  experience?: string | null
   aiExperience?: string | null
   responseStyle?: string | null
   customInfo?: string | null
@@ -657,54 +656,27 @@ function UserProfilePanel() {
           </div>
         </div>
 
-        {/* ── Experience Section ── */}
-        <fieldset className="space-y-4">
+        {/* ── AI Experience Section ── */}
+        <fieldset className="space-y-3">
           <legend className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
-            {t("settings.profileExperience")} & {t("settings.profileAiExperience")}
+            {t("settings.profileAiExperience")}
           </legend>
 
-          <div className="grid grid-cols-2 gap-3">
-            {/* Experience Level */}
-            <div className="space-y-1.5">
-              <label className="text-xs text-muted-foreground">{t("settings.profileExperience")}</label>
-              <div className="space-y-0.5">
-                {(["senior", "mid", "junior", "student"] as const).map((level) => (
-                  <button
-                    key={level}
-                    className={cn(
-                      "w-full text-left px-3 py-1.5 rounded-md text-xs transition-colors",
-                      config.experience === level
-                        ? "bg-primary/10 text-primary font-medium"
-                        : "text-foreground hover:bg-secondary/80"
-                    )}
-                    onClick={() => update({ experience: config.experience === level ? null : level })}
-                  >
-                    {t(`settings.profileExp${level.charAt(0).toUpperCase() + level.slice(1)}`)}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* AI Experience Level */}
-            <div className="space-y-1.5">
-              <label className="text-xs text-muted-foreground">{t("settings.profileAiExperience")}</label>
-              <div className="space-y-0.5">
-                {(["expert", "intermediate", "beginner"] as const).map((level) => (
-                  <button
-                    key={level}
-                    className={cn(
-                      "w-full text-left px-3 py-1.5 rounded-md text-xs transition-colors",
-                      config.aiExperience === level
-                        ? "bg-primary/10 text-primary font-medium"
-                        : "text-foreground hover:bg-secondary/80"
-                    )}
-                    onClick={() => update({ aiExperience: config.aiExperience === level ? null : level })}
-                  >
-                    {t(`settings.profileAiExp${level.charAt(0).toUpperCase() + level.slice(1)}`)}
-                  </button>
-                ))}
-              </div>
-            </div>
+          <div className="flex gap-1.5">
+            {(["expert", "intermediate", "beginner"] as const).map((level) => (
+              <button
+                key={level}
+                className={cn(
+                  "flex-1 px-3 py-2 rounded-lg text-xs transition-colors border",
+                  config.aiExperience === level
+                    ? "bg-primary/10 text-primary border-primary/20 font-medium"
+                    : "text-foreground border-border/40 hover:bg-secondary/80"
+                )}
+                onClick={() => update({ aiExperience: config.aiExperience === level ? null : level })}
+              >
+                {t(`settings.profileAiExp${level.charAt(0).toUpperCase() + level.slice(1)}`)}
+              </button>
+            ))}
           </div>
         </fieldset>
 
