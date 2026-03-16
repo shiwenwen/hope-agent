@@ -83,7 +83,7 @@ function AppearancePanel() {
   const { theme, setTheme } = useTheme()
 
   return (
-    <div className="p-6 max-w-xl">
+    <div className="flex-1 overflow-y-auto p-6 max-w-xl">
       <h2 className="text-lg font-semibold text-foreground mb-1">
         {t("settings.appearance")}
       </h2>
@@ -152,7 +152,7 @@ function LanguagePanel() {
   }
 
   return (
-    <div className="p-6 max-w-xl">
+    <div className="flex-1 overflow-y-auto p-6 max-w-xl">
       <h2 className="text-lg font-semibold text-foreground mb-1">
         {t("settings.language")}
       </h2>
@@ -812,8 +812,8 @@ function AboutPanel() {
   const { t } = useTranslation()
 
   return (
-    <div className="p-6 max-w-xl">
-      <div className="flex flex-col items-center text-center py-8">
+    <div className="flex-1 overflow-y-auto p-6">
+      <div className="flex flex-col items-center text-center py-8 max-w-xl mx-auto">
         {/* App Icon */}
         <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-primary/20 via-primary/10 to-transparent border border-border/50 flex items-center justify-center mb-5 shadow-lg">
           <span className="text-3xl font-bold text-primary">OC</span>
@@ -843,7 +843,7 @@ function AboutPanel() {
       </div>
 
       {/* Tech Stack */}
-      <div className="border-t border-border pt-5 mt-2">
+      <div className="border-t border-border pt-5 mt-2 max-w-xl mx-auto">
         <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
           {t("about.techStack")}
         </h3>
