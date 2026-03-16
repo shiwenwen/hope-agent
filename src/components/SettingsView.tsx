@@ -576,20 +576,16 @@ function UserProfilePanel() {
   const [customStyle, setCustomStyle] = useState(false)
 
   useEffect(() => {
-    // Load config + detect system defaults
     Promise.all([
       invoke<UserConfig>("get_user_config"),
       invoke<string>("get_system_timezone").catch(() => "UTC"),
     ]).then(([cfg, sysTz]) => {
-      // Apply system defaults for empty fields
       if (!cfg.timezone) cfg.timezone = sysTz
       if (!cfg.language) {
-        const lang = i18n.language
-        const matched = LANGUAGE_OPTIONS.find((l) => lang.startsWith(l.code))
+        const matched = LANGUAGE_OPTIONS.find((l) => i18n.language.startsWith(l.code))
         if (matched) cfg.language = matched.code
       }
       setConfig(cfg)
-      // Detect if responseStyle is custom (not a preset)
       if (cfg.responseStyle && !PRESET_STYLES.includes(cfg.responseStyle)) {
         setCustomStyle(true)
       }
@@ -614,41 +610,37 @@ function UserProfilePanel() {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto">
-      <div className="max-w-lg mx-auto py-8 px-6 space-y-8">
+    <div className="p-6 max-w-xl overflow-y-auto flex-1">
+      <h2 className="text-lg font-semibold text-foreground mb-1">
+        {t("settings.profile")}
+      </h2>
+      <p className="text-xs text-muted-foreground mb-5">
+        {t("settings.profileDesc")}
+      </p>
 
-        {/* ── Header: Avatar + Name + Role ── */}
-        <div className="flex items-start gap-5">
-          {/* Avatar */}
-          <div className="relative group shrink-0">
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary/20 via-primary/5 to-secondary border border-border/60 flex items-center justify-center overflow-hidden shadow-sm">
-              {config.avatar ? (
-                <img src={config.avatar} className="w-full h-full object-cover" alt="" />
-              ) : (
-                <User className="h-7 w-7 text-muted-foreground/50" />
-              )}
-            </div>
-            <button
-              className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-secondary border border-border flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
-              onClick={() => {
-                // TODO: file picker for avatar
-              }}
-              title={t("settings.profileAvatarChange")}
-            >
-              <Palette className="h-3 w-3 text-muted-foreground" />
-            </button>
+      <div className="space-y-5">
+
+        {/* ── Avatar + Name + Role ── */}
+        <div className="flex items-center gap-4 px-3 py-3 rounded-lg bg-secondary/30">
+          <div
+            className="relative group shrink-0 w-11 h-11 rounded-xl bg-secondary border border-border/50 flex items-center justify-center overflow-hidden cursor-pointer"
+            onClick={() => { /* TODO: file picker */ }}
+          >
+            {config.avatar ? (
+              <img src={config.avatar} className="w-full h-full object-cover" alt="" />
+            ) : (
+              <User className="h-5 w-5 text-muted-foreground/40" />
+            )}
           </div>
-
-          {/* Name + Role */}
-          <div className="flex-1 space-y-2.5 pt-0.5">
+          <div className="flex-1 min-w-0 space-y-1">
             <input
-              className="w-full text-base font-semibold text-foreground bg-transparent border-0 border-b border-transparent hover:border-border focus:border-primary/50 outline-none py-0.5 transition-colors placeholder:text-muted-foreground/40 placeholder:font-normal"
+              className="w-full text-sm font-medium text-foreground bg-transparent outline-none placeholder:text-muted-foreground/40"
               value={config.name ?? ""}
               onChange={(e) => update({ name: e.target.value || null })}
               placeholder={t("settings.profileNamePlaceholder")}
             />
             <input
-              className="w-full text-sm text-muted-foreground bg-transparent border-0 border-b border-transparent hover:border-border focus:border-primary/50 outline-none py-0.5 transition-colors placeholder:text-muted-foreground/30"
+              className="w-full text-xs text-muted-foreground bg-transparent outline-none placeholder:text-muted-foreground/30"
               value={config.role ?? ""}
               onChange={(e) => update({ role: e.target.value || null })}
               placeholder={t("settings.profileRolePlaceholder")}
@@ -656,146 +648,146 @@ function UserProfilePanel() {
           </div>
         </div>
 
-        {/* ── AI Experience Section ── */}
-        <fieldset className="space-y-3">
-          <legend className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
-            {t("settings.profileAiExperience")}
-          </legend>
-
-          <div className="flex gap-1.5">
+        {/* ── AI Experience ── */}
+        <div>
+          <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.profileAiExperience")}</div>
+          <div className="space-y-0.5">
             {(["expert", "intermediate", "beginner"] as const).map((level) => (
               <button
                 key={level}
                 className={cn(
-                  "flex-1 px-3 py-2 rounded-lg text-xs transition-colors border",
+                  "flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm transition-colors",
                   config.aiExperience === level
-                    ? "bg-primary/10 text-primary border-primary/20 font-medium"
-                    : "text-foreground border-border/40 hover:bg-secondary/80"
+                    ? "bg-primary/10 text-primary font-medium"
+                    : "text-foreground hover:bg-secondary/60"
                 )}
                 onClick={() => update({ aiExperience: config.aiExperience === level ? null : level })}
               >
-                {t(`settings.profileAiExp${level.charAt(0).toUpperCase() + level.slice(1)}`)}
+                <span className="flex-1 text-left">
+                  {t(`settings.profileAiExp${level.charAt(0).toUpperCase() + level.slice(1)}`)}
+                </span>
+                {config.aiExperience === level && (
+                  <Check className="h-4 w-4 text-primary shrink-0" />
+                )}
               </button>
             ))}
           </div>
-        </fieldset>
+        </div>
 
-        {/* ── Locale Section ── */}
-        <fieldset className="space-y-4">
-          <legend className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
-            {t("settings.profileTimezone")} & {t("settings.profileLanguage")}
-          </legend>
+        <div className="border-t border-border/50" />
 
-          <div className="grid grid-cols-2 gap-3">
-            {/* Timezone */}
-            <div className="space-y-1.5">
-              <label className="text-xs text-muted-foreground">{t("settings.profileTimezone")}</label>
-              <select
-                className="w-full px-2.5 py-1.5 text-xs bg-secondary/40 border border-border/40 rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors"
-                value={config.timezone ?? ""}
-                onChange={(e) => update({ timezone: e.target.value || null })}
-              >
-                <option value="">—</option>
-                {TIMEZONE_OPTIONS.map((group) => (
-                  <optgroup key={group.group} label={group.group}>
-                    {group.zones.map((tz) => (
-                      <option key={tz} value={tz}>{tz.replace(/_/g, " ")}</option>
-                    ))}
-                  </optgroup>
+        {/* ── Timezone ── */}
+        <div>
+          <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.profileTimezone")}</div>
+          <select
+            className="w-full px-3 py-2.5 text-sm bg-transparent border-0 rounded-lg text-foreground hover:bg-secondary/60 focus:outline-none focus:bg-secondary/60 transition-colors cursor-pointer"
+            value={config.timezone ?? ""}
+            onChange={(e) => update({ timezone: e.target.value || null })}
+          >
+            <option value="">—</option>
+            {TIMEZONE_OPTIONS.map((group) => (
+              <optgroup key={group.group} label={group.group}>
+                {group.zones.map((tz) => (
+                  <option key={tz} value={tz}>{tz.replace(/_/g, " ")}</option>
                 ))}
-              </select>
-            </div>
+              </optgroup>
+            ))}
+          </select>
+        </div>
 
-            {/* Language */}
-            <div className="space-y-1.5">
-              <label className="text-xs text-muted-foreground">{t("settings.profileLanguage")}</label>
-              <select
-                className="w-full px-2.5 py-1.5 text-xs bg-secondary/40 border border-border/40 rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors"
-                value={config.language ?? ""}
-                onChange={(e) => update({ language: e.target.value || null })}
-              >
-                <option value="">—</option>
-                {LANGUAGE_OPTIONS.map((lang) => (
-                  <option key={lang.code} value={lang.code}>{lang.label}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-        </fieldset>
+        {/* ── Language ── */}
+        <div>
+          <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.profileLanguage")}</div>
+          <select
+            className="w-full px-3 py-2.5 text-sm bg-transparent border-0 rounded-lg text-foreground hover:bg-secondary/60 focus:outline-none focus:bg-secondary/60 transition-colors cursor-pointer"
+            value={config.language ?? ""}
+            onChange={(e) => update({ language: e.target.value || null })}
+          >
+            <option value="">—</option>
+            {LANGUAGE_OPTIONS.map((lang) => (
+              <option key={lang.code} value={lang.code}>{lang.label}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="border-t border-border/50" />
 
         {/* ── Response Style ── */}
-        <fieldset className="space-y-3">
-          <legend className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
-            {t("settings.profileResponseStyle")}
-          </legend>
-
-          <div className="flex gap-1.5">
+        <div>
+          <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.profileResponseStyle")}</div>
+          <div className="space-y-0.5">
             {PRESET_STYLES.map((style) => (
               <button
                 key={style}
                 className={cn(
-                  "flex-1 px-3 py-2 rounded-lg text-xs transition-colors border",
+                  "flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm transition-colors",
                   !customStyle && config.responseStyle === style
-                    ? "bg-primary/10 text-primary border-primary/20 font-medium"
-                    : "text-foreground border-border/40 hover:bg-secondary/80"
+                    ? "bg-primary/10 text-primary font-medium"
+                    : "text-foreground hover:bg-secondary/60"
                 )}
                 onClick={() => {
                   setCustomStyle(false)
                   update({ responseStyle: config.responseStyle === style ? null : style })
                 }}
               >
-                {t(`settings.profileStyle${style.charAt(0).toUpperCase() + style.slice(1)}`)}
+                <span className="flex-1 text-left">
+                  {t(`settings.profileStyle${style.charAt(0).toUpperCase() + style.slice(1)}`)}
+                </span>
+                {!customStyle && config.responseStyle === style && (
+                  <Check className="h-4 w-4 text-primary shrink-0" />
+                )}
               </button>
             ))}
             <button
               className={cn(
-                "flex-1 px-3 py-2 rounded-lg text-xs transition-colors border",
+                "flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm transition-colors",
                 customStyle
-                  ? "bg-primary/10 text-primary border-primary/20 font-medium"
-                  : "text-foreground border-border/40 hover:bg-secondary/80"
+                  ? "bg-primary/10 text-primary font-medium"
+                  : "text-foreground hover:bg-secondary/60"
               )}
               onClick={() => {
                 setCustomStyle(true)
                 if (!customStyle) update({ responseStyle: "" })
               }}
             >
-              {t("settings.profileStyleCustom")}
+              <span className="flex-1 text-left">{t("settings.profileStyleCustom")}</span>
+              {customStyle && <Check className="h-4 w-4 text-primary shrink-0" />}
             </button>
           </div>
 
           {customStyle && (
             <textarea
-              className="w-full px-3 py-2 text-xs bg-secondary/30 border border-border/40 rounded-lg text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors resize-none"
+              className="w-full mt-2 px-3 py-2 text-sm bg-secondary/40 rounded-lg text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors resize-none"
               rows={2}
               value={config.responseStyle ?? ""}
               onChange={(e) => update({ responseStyle: e.target.value || null })}
               placeholder={t("settings.profileStyleCustomPlaceholder")}
             />
           )}
-        </fieldset>
+        </div>
+
+        <div className="border-t border-border/50" />
 
         {/* ── Custom Info ── */}
-        <fieldset className="space-y-2">
-          <legend className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
-            {t("settings.profileCustomInfo")}
-          </legend>
+        <div>
+          <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.profileCustomInfo")}</div>
           <textarea
-            className="w-full px-3 py-2.5 text-sm bg-secondary/30 border border-border/40 rounded-lg text-foreground placeholder:text-muted-foreground/30 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors resize-none leading-relaxed"
+            className="w-full px-3 py-2.5 text-sm bg-secondary/40 rounded-lg text-foreground placeholder:text-muted-foreground/30 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors resize-none leading-relaxed"
             rows={3}
             value={config.customInfo ?? ""}
             onChange={(e) => update({ customInfo: e.target.value || null })}
             placeholder={t("settings.profileCustomInfoPlaceholder")}
           />
-        </fieldset>
+        </div>
 
         {/* ── Save ── */}
-        <div className="flex items-center gap-3 pt-2 pb-4">
+        <div className="pt-1">
           <button
             className={cn(
-              "px-5 py-2 text-sm font-medium rounded-lg transition-all",
+              "px-4 py-2 text-sm font-medium rounded-lg transition-all",
               saved
-                ? "bg-green-500/10 text-green-600 border border-green-500/20"
-                : "bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
+                ? "bg-green-500/10 text-green-600"
+                : "bg-primary text-primary-foreground hover:bg-primary/90"
             )}
             onClick={handleSave}
             disabled={saving}
