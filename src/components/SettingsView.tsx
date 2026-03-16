@@ -620,32 +620,40 @@ function UserProfilePanel() {
 
       <div className="space-y-5">
 
-        {/* ── Avatar + Name + Role ── */}
-        <div className="flex items-center gap-4 px-3 py-3 rounded-lg bg-secondary/30">
-          <div
-            className="relative group shrink-0 w-11 h-11 rounded-xl bg-secondary border border-border/50 flex items-center justify-center overflow-hidden cursor-pointer"
-            onClick={() => { /* TODO: file picker */ }}
-          >
+        {/* ── Avatar ── */}
+        <div className="flex items-center gap-3 px-3 py-3 rounded-lg hover:bg-secondary/60 transition-colors cursor-pointer"
+          onClick={() => { /* TODO: file picker */ }}
+        >
+          <div className="shrink-0 w-11 h-11 rounded-xl bg-secondary border border-border/50 flex items-center justify-center overflow-hidden">
             {config.avatar ? (
               <img src={config.avatar} className="w-full h-full object-cover" alt="" />
             ) : (
               <User className="h-5 w-5 text-muted-foreground/40" />
             )}
           </div>
-          <div className="flex-1 min-w-0 space-y-1">
-            <input
-              className="w-full text-sm font-medium text-foreground bg-transparent outline-none placeholder:text-muted-foreground/40"
-              value={config.name ?? ""}
-              onChange={(e) => update({ name: e.target.value || null })}
-              placeholder={t("settings.profileNamePlaceholder")}
-            />
-            <input
-              className="w-full text-xs text-muted-foreground bg-transparent outline-none placeholder:text-muted-foreground/30"
-              value={config.role ?? ""}
-              onChange={(e) => update({ role: e.target.value || null })}
-              placeholder={t("settings.profileRolePlaceholder")}
-            />
-          </div>
+          <div className="flex-1 text-sm text-muted-foreground">{t("settings.profileAvatarChange")}</div>
+        </div>
+
+        {/* ── Name ── */}
+        <div>
+          <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.profileName")}</div>
+          <input
+            className="w-full px-3 py-2.5 text-sm bg-secondary/40 rounded-lg text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors"
+            value={config.name ?? ""}
+            onChange={(e) => update({ name: e.target.value || null })}
+            placeholder={t("settings.profileNamePlaceholder")}
+          />
+        </div>
+
+        {/* ── Role ── */}
+        <div>
+          <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.profileRole")}</div>
+          <input
+            className="w-full px-3 py-2.5 text-sm bg-secondary/40 rounded-lg text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors"
+            value={config.role ?? ""}
+            onChange={(e) => update({ role: e.target.value || null })}
+            placeholder={t("settings.profileRolePlaceholder")}
+          />
         </div>
 
         {/* ── AI Experience ── */}
