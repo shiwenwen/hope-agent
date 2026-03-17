@@ -17,7 +17,7 @@ export interface AvailableModel {
 }
 
 export interface ModelSelectorProps {
-  value: string // Format: "providerId::modelId"
+  value: string // Format: "providerId{separator}modelId"
   onChange: (providerId: string, modelId: string) => void
   availableModels: AvailableModel[]
   placeholder?: string
@@ -25,6 +25,8 @@ export interface ModelSelectorProps {
   disabled?: boolean
   defaultOpen?: boolean
   onOpenChange?: (open: boolean) => void
+  /** Separator used in value string, default "::" */
+  separator?: string
 }
 
 export function ModelSelector({
@@ -35,12 +37,13 @@ export function ModelSelector({
   className,
   disabled,
   defaultOpen,
-  onOpenChange
+  onOpenChange,
+  separator = "::"
 }: ModelSelectorProps) {
   const { t } = useTranslation()
 
   // Find the selected model to display its name
-  const [selectedProviderId, selectedModelId] = value ? value.split("::") : ["", ""]
+  const [selectedProviderId, selectedModelId] = value ? value.split(separator) : ["", ""]
   const selectedModel = availableModels.find(
     (m) => m.providerId === selectedProviderId && m.modelId === selectedModelId
   )

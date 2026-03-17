@@ -1882,12 +1882,25 @@ function AgentEditView({
                   </div>
                   <Switch
                     checked={isCustom}
-                    onCheckedChange={(v) => {
+                    onCheckedChange={async (v) => {
                       if (v) {
-                        // Set primary to first available model
-                        const first = availableModels[0]
-                        if (first) {
-                          updateConfig({ model: { ...config.model, primary: `${first.providerId}/${first.modelId}` } })
+                        // Inherit from global settings
+                        try {
+                          const [globalActive, globalFallbacks] = await Promise.all([
+                            invoke<ActiveModelRef | null>("get_active_model"),
+                            invoke<ActiveModelRef[]>("get_fallback_models"),
+                          ])
+                          const primary = globalActive
+                            ? `${globalActive.providerId}/${globalActive.modelId}`
+                            : (availableModels[0] ? `${availableModels[0].providerId}/${availableModels[0].modelId}` : null)
+                          const fallbacks = globalFallbacks.map(f => `${f.providerId}/${f.modelId}`)
+                          updateConfig({ model: { ...config.model, primary, fallbacks } })
+                        } catch {
+                          // Fallback: use first available model
+                          const first = availableModels[0]
+                          if (first) {
+                            updateConfig({ model: { ...config.model, primary: `${first.providerId}/${first.modelId}` } })
+                          }
                         }
                       } else {
                         updateConfig({ model: { primary: null, fallbacks: [] } })
@@ -1912,6 +1925,7 @@ function AgentEditView({
                         onChange={(providerId, modelId) => updateConfig({ model: { ...config.model, primary: `${providerId}/${modelId}` } })}
                         availableModels={availableModels}
                         placeholder={t("settings.selectDefaultModel")}
+                        separator="/"
                       />
                     </div>
 
@@ -1988,6 +2002,7 @@ function AgentEditView({
                           }}
                           availableModels={availableForFallback}
                           placeholder={t("settings.selectFallbackModel")}
+                          separator="/"
                         />
                       )}
                     </div>
