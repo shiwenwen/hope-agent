@@ -25,6 +25,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 默认模型下拉选择（按 Provider 分组）
   - 降级模型有序列表（优先级标签、上移/下移/删除/添加）
   - 导航新增 "模型" 分区（Layers 图标）
+- **会话持久化**：新增 `session.rs` 模块，基于 SQLite（WAL 模式）存储会话历史
+  - `SessionDB`：管理 sessions / messages 两张表，支持 user / assistant / system / tool 四种消息角色
+  - `chat` 命令自动创建/关联会话，保存用户消息、助手回复、工具调用结果
+  - 降级事件（`model_fallback`）以 `role=system` JSON 消息落库，恢复会话时可回显
+  - 首条消息自动生成会话标题（`auto_title`）
+  - `paths.rs` 新增 `attachments_dir()` 管理附件存储
+  - 新增 Tauri 命令：`create_session_cmd` / `list_sessions_cmd` / `load_session_messages_cmd` / `delete_session_cmd`
+  - 新增依赖：`rusqlite`（bundled）、`chrono`、`uuid`
+- **会话侧边栏 UI**：App.tsx 侧边栏重构为 Agents + Sessions 双区域
+  - 可折叠 Agents 网格：按钮点击创建新会话
+  - 会话列表：按更新时间倒序，显示标题、Agent 头像、相对时间
+  - 支持会话切换和删除
+  - 新建聊天弹出菜单：选择 Agent 后创建新会话
 - **Agent 定义系统**：支持创建和管理多个 AI Agent，每个 Agent 可独立配置身份、性格和行为
   - 设置页新增 Agent section，支持列表/新建/编辑/删除
   - Agent 编辑 4 个 Tab：身份（名称/描述/Emoji/头像/角色定位）、性格（气质/语气/特质/准则/边界/个性/沟通方式）、行为（工具轮数/审批工具/沙箱/工具指导）、自定义提示词

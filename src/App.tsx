@@ -22,7 +22,8 @@ import {
   Moon,
   Monitor,
   User,
-  Plus,
+  Trash2,
+  MessageSquarePlus,
 } from "lucide-react"
 import { useTheme } from "@/hooks/useTheme"
 import ProviderSetup from "@/components/ProviderSetup"
@@ -322,6 +323,24 @@ interface SessionMeta {
   messageCount: number
 }
 
+interface SessionMessage {
+  id: number
+  sessionId: string
+  role: string
+  content: string
+  timestamp: string
+  attachmentsMeta?: string | null
+  model?: string | null
+  tokensIn?: number | null
+  tokensOut?: number | null
+  toolCallId?: string | null
+  toolName?: string | null
+  toolArguments?: string | null
+  toolResult?: string | null
+  toolDurationMs?: number | null
+  isError?: boolean | null
+}
+
 interface AgentSummaryForSidebar {
   id: string
   name: string
@@ -351,8 +370,6 @@ function ChatScreen({ onOpenAgentSettings }: { onOpenAgentSettings?: () => void 
 
   // Current agent info
   const [agentName, setAgentName] = useState("")
-  const [agentEmoji, setAgentEmoji] = useState("")
-  const [agentAvatar, setAgentAvatar] = useState("")
 
   // Model state (new provider-based)
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
@@ -489,14 +506,114 @@ function ChatScreen({ onOpenAgentSettings }: { onOpenAgentSettings?: () => void 
         setReasoningEffort(settings.reasoning_effort)
         if (agentConfig) {
           setAgentName(agentConfig.name)
-          setAgentEmoji(agentConfig.emoji ?? "")
-          setAgentAvatar(agentConfig.avatar ?? "")
         }
       } catch (e) {
         console.error("Failed to load settings:", e)
       }
     })()
   }, [])
+
+  // Load session list and agent list
+  const reloadSessions = useCallback(async () => {
+    try {
+      const list = await invoke<SessionMeta[]>("list_sessions_cmd", {})
+      setSessions(list)
+    } catch (e) {
+      console.error("Failed to load sessions:", e)
+    }
+  }, [])
+
+  const reloadAgents = useCallback(async () => {
+    try {
+      const list = await invoke<AgentSummaryForSidebar[]>("list_agents")
+      setAgents(list)
+    } catch (e) {
+      console.error("Failed to load agents:", e)
+    }
+  }, [])
+
+  useEffect(() => {
+    reloadSessions()
+    reloadAgents()
+  }, [reloadSessions, reloadAgents])
+
+  // Close new-chat menu on outside click
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (newChatMenuRef.current && !newChatMenuRef.current.contains(e.target as Node)) {
+        setShowNewChatMenu(false)
+      }
+    }
+    if (showNewChatMenu) {
+      document.addEventListener("mousedown", handleClickOutside)
+      return () => document.removeEventListener("mousedown", handleClickOutside)
+    }
+  }, [showNewChatMenu])
+
+  // Switch to an existing session
+  async function handleSwitchSession(sessionId: string) {
+    if (sessionId === currentSessionId) return
+    try {
+      const msgs = await invoke<SessionMessage[]>("load_session_messages_cmd", { sessionId })
+      // Convert SessionMessage[] to Message[] for display
+      const displayMessages: Message[] = []
+      for (const msg of msgs) {
+        if (msg.role === "user") {
+          displayMessages.push({ role: "user", content: msg.content })
+        } else if (msg.role === "assistant") {
+          displayMessages.push({ role: "assistant", content: msg.content })
+        }
+        // tool messages are shown as part of assistant's toolCalls — skip for now
+      }
+      setMessages(displayMessages)
+      setCurrentSessionId(sessionId)
+    } catch (e) {
+      console.error("Failed to load session:", e)
+    }
+  }
+
+  // Create a new chat with a specific agent
+  async function handleNewChat(_agentId: string) {
+    setMessages([])
+    setCurrentSessionId(null)
+    setShowNewChatMenu(false)
+    // TODO: set current_agent_id via invoke
+  }
+
+  // Delete a session
+  async function handleDeleteSession(sessionId: string, e: React.MouseEvent) {
+    e.stopPropagation()
+    try {
+      await invoke("delete_session_cmd", { sessionId })
+      if (currentSessionId === sessionId) {
+        setMessages([])
+        setCurrentSessionId(null)
+      }
+      reloadSessions()
+    } catch (err) {
+      console.error("Failed to delete session:", err)
+    }
+  }
+
+  // Helper: find agent info for a session
+  const getAgentInfo = (agentId: string) => {
+    return agents.find(a => a.id === agentId)
+  }
+
+  // Helper: format relative time
+  const formatRelativeTime = (dateStr: string) => {
+    const date = new Date(dateStr)
+    const now = new Date()
+    const diff = now.getTime() - date.getTime()
+    const minutes = Math.floor(diff / 60000)
+    if (minutes < 1) return t("chat.justNow") || "刚刚"
+    if (minutes < 60) return `${minutes}m`
+    const hours = Math.floor(minutes / 60)
+    if (hours < 24) return `${hours}h`
+    const days = Math.floor(hours / 24)
+    if (days < 7) return `${days}d`
+    return date.toLocaleDateString()
+  }
 
   async function handleModelChange(key: string) {
     // key format: "providerId::modelId"
@@ -695,6 +812,7 @@ function ChatScreen({ onOpenAgentSettings }: { onOpenAgentSettings?: () => void 
       })
     } finally {
       setLoading(false)
+      reloadSessions()
     }
   }
 
@@ -716,42 +834,146 @@ function ChatScreen({ onOpenAgentSettings }: { onOpenAgentSettings?: () => void 
 
   return (
     <>
-      {/* Agent List */}
+      {/* Sidebar: Agents + Sessions */}
       <div
         style={{ width: panelWidth }}
         className="shrink-0 border-r border-border bg-background flex flex-col"
       >
+        {/* Title bar */}
         <div className="h-10 flex items-end px-4 shrink-0" data-tauri-drag-region>
           <h2 className="text-sm font-semibold text-foreground pb-1.5">{t("chat.conversations")}</h2>
-          <button
-            className="ml-auto text-muted-foreground hover:text-foreground transition-colors pb-1.5"
-            onClick={() => { setMessages([]); setCurrentSessionId(null) }}
-            title={t("chat.newChat") || "New Chat"}
-          >
-            <Plus className="h-4 w-4" />
-          </button>
+          {/* New Chat button */}
+          <div className="ml-auto relative" ref={newChatMenuRef}>
+            <button
+              className="text-muted-foreground hover:text-foreground transition-colors pb-1.5"
+              onClick={() => setShowNewChatMenu(!showNewChatMenu)}
+              title={t("chat.newChat") || "New Chat"}
+            >
+              <MessageSquarePlus className="h-4 w-4" />
+            </button>
+            {/* Agent selector popup */}
+            {showNewChatMenu && (
+              <div className="absolute right-0 top-full mt-1 bg-popover/95 backdrop-blur-xl border border-border/60 rounded-xl shadow-lg z-50 min-w-[180px] p-1.5">
+                {agents.map((agent) => (
+                  <button
+                    key={agent.id}
+                    className="flex items-center gap-2 w-full px-2.5 py-1.5 text-[13px] rounded-md text-foreground/80 hover:bg-secondary/60 hover:text-foreground transition-colors"
+                    onClick={() => handleNewChat(agent.id)}
+                  >
+                    <div className="w-5 h-5 rounded-full bg-primary/15 flex items-center justify-center text-primary shrink-0 text-[10px] overflow-hidden">
+                      {agent.avatar ? (
+                        <img src={agent.avatar.startsWith("/") ? convertFileSrc(agent.avatar) : agent.avatar} className="w-full h-full object-cover" alt="" />
+                      ) : agent.emoji ? (
+                        <span>{agent.emoji}</span>
+                      ) : (
+                        <Bot className="h-3 w-3" />
+                      )}
+                    </div>
+                    <span className="truncate">{agent.name}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
-        <div className="flex-1 overflow-y-auto p-2">
-          {/* Main Agent — active */}
-          <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-secondary/60 cursor-pointer border border-border/50 transition-colors">
-            <div className="w-9 h-9 rounded-full bg-primary/15 flex items-center justify-center text-primary shrink-0 overflow-hidden">
-              {agentAvatar ? (
-                <img src={agentAvatar.startsWith("/") ? convertFileSrc(agentAvatar) : agentAvatar} className="w-full h-full object-cover" alt="" />
+
+        <div className="flex-1 overflow-y-auto">
+          {/* Collapsible Agents section */}
+          <div className="border-b border-border/50">
+            <button
+              className="flex items-center gap-1.5 w-full px-4 py-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
+              onClick={() => setAgentsExpanded(!agentsExpanded)}
+            >
+              {agentsExpanded ? (
+                <ChevronDown className="h-3 w-3" />
               ) : (
-                <Bot className="h-5 w-5" />
+                <ChevronRight className="h-3 w-3" />
               )}
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="font-medium text-sm text-foreground truncate">
-                {agentName || t("chat.mainAgent")}{agentEmoji ? ` ${agentEmoji}` : ""}
+              <span>Agents</span>
+              <span className="font-normal normal-case text-muted-foreground/60 ml-0.5">({agents.length})</span>
+            </button>
+            {agentsExpanded && (
+              <div className="px-2 pb-2 grid grid-cols-2 gap-1">
+                {agents.map((agent) => (
+                  <button
+                    key={agent.id}
+                    className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs hover:bg-secondary/60 transition-colors truncate"
+                    onClick={() => handleNewChat(agent.id)}
+                    title={agent.description || agent.name}
+                  >
+                    <div className="w-6 h-6 rounded-full bg-primary/15 flex items-center justify-center text-primary shrink-0 text-[10px] overflow-hidden">
+                      {agent.avatar ? (
+                        <img src={agent.avatar.startsWith("/") ? convertFileSrc(agent.avatar) : agent.avatar} className="w-full h-full object-cover" alt="" />
+                      ) : agent.emoji ? (
+                        <span>{agent.emoji}</span>
+                      ) : (
+                        <Bot className="h-3 w-3" />
+                      )}
+                    </div>
+                    <span className="truncate text-foreground/80">{agent.name}</span>
+                  </button>
+                ))}
               </div>
-              <div className="text-xs text-muted-foreground truncate">
-                {messages.length > 0
-                  ? messages[messages.length - 1].content.slice(0, 30) ||
-                    t("chat.toolCalling")
-                  : t("chat.startConversation")}
+            )}
+          </div>
+
+          {/* Session list, ordered by updatedAt DESC (already from backend) */}
+          <div className="p-2 space-y-0.5">
+            {sessions.length === 0 ? (
+              <div className="text-center py-8">
+                <MessageSquare className="h-8 w-8 text-muted-foreground/20 mx-auto mb-2" />
+                <p className="text-xs text-muted-foreground/60">{t("chat.startConversation")}</p>
               </div>
-            </div>
+            ) : (
+              sessions.map((session) => {
+                const agent = getAgentInfo(session.agentId)
+                const isActive = session.id === currentSessionId
+                return (
+                  <button
+                    key={session.id}
+                    className={cn(
+                      "flex items-center gap-2.5 w-full px-2.5 py-2 rounded-lg text-left transition-colors group",
+                      isActive
+                        ? "bg-secondary/70 border border-border/50"
+                        : "hover:bg-secondary/40"
+                    )}
+                    onClick={() => handleSwitchSession(session.id)}
+                  >
+                    {/* Agent avatar (small) */}
+                    <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center text-primary shrink-0 text-[10px] overflow-hidden">
+                      {agent?.avatar ? (
+                        <img src={agent.avatar.startsWith("/") ? convertFileSrc(agent.avatar) : agent.avatar} className="w-full h-full object-cover" alt="" />
+                      ) : agent?.emoji ? (
+                        <span>{agent.emoji}</span>
+                      ) : (
+                        <Bot className="h-3.5 w-3.5" />
+                      )}
+                    </div>
+
+                    {/* Title + meta */}
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[13px] font-medium text-foreground truncate">
+                        {session.title || t("chat.newChat") || "New Chat"}
+                      </div>
+                      <div className="text-[11px] text-muted-foreground truncate">
+                        {agent?.name || session.agentId}
+                        <span className="mx-1">·</span>
+                        {formatRelativeTime(session.updatedAt)}
+                      </div>
+                    </div>
+
+                    {/* Delete button (hover) */}
+                    <button
+                      className="shrink-0 text-muted-foreground/0 group-hover:text-muted-foreground/40 hover:!text-destructive transition-colors p-0.5"
+                      onClick={(e) => handleDeleteSession(session.id, e)}
+                      title="Delete"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </button>
+                )
+              })
+            )}
           </div>
         </div>
       </div>

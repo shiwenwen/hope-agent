@@ -107,6 +107,7 @@ agent.rs: build_system_prompt()
 │    grep / find / apply_patch / web_search / web_fetch   │
 │    ─ 通过 FilterConfig (allow/deny) 过滤                │
 │    ─ 有过滤时追加 "Only the following tools are enabled" │
+│    ─ 前端可通过 list_builtin_tools 命令动态获取工具列表    │
 ├─────────────────────────────────────────────────────────┤
 │ ⑧ 技能 (Skills)                                        │
 │    "The following skills are available..."               │
@@ -321,7 +322,7 @@ The following skills are available...
     "communicationStyle": "先给结论再展开"
   },
   "behavior": {
-    "maxToolRounds": 10,
+    "maxToolRounds": 10,    // 0 = 不限制轮数
     "requireApproval": ["exec"],
     "sandbox": false
   },
@@ -354,8 +355,9 @@ The following skills are available...
 | 文件 | 职责 |
 |------|------|
 | `system_prompt.rs` | 提示词组装主逻辑（build / build_legacy / 各段构建函数） |
-| `agent_config.rs` | 数据结构定义（AgentConfig / PersonalityConfig / FilterConfig） |
+| `agent_config.rs` | 数据结构定义（AgentConfig / PersonalityConfig / FilterConfig / BehaviorConfig） |
 | `agent_loader.rs` | Agent 文件加载 / 多语言模板 |
 | `user_config.rs` | 用户配置加载 + build_user_context() |
 | `skills.rs` | 技能加载 + build_skills_prompt() |
-| `agent.rs` | build_system_prompt() 入口委托 |
+| `agent.rs` | build_system_prompt() 入口委托，动态读取 maxToolRounds 配置 |
+| `lib.rs` | `list_builtin_tools` 命令 — 前端获取内置工具列表（名称 + 描述） |

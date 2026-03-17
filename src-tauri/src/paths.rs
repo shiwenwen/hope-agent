@@ -68,6 +68,13 @@ pub fn agent_home_dir(name: &str) -> Result<PathBuf> {
     Ok(root_dir()?.join(format!("{}-home", name)))
 }
 
+// ── Attachments ──────────────────────────────────────────────────
+
+/// Attachments directory for a session: ~/.opencomputer/attachments/{session_id}/
+pub fn attachments_dir(session_id: &str) -> Result<PathBuf> {
+    Ok(root_dir()?.join("attachments").join(session_id))
+}
+
 // ── Share ────────────────────────────────────────────────────────
 
 /// Shared directory for inter-agent data: ~/.opencomputer/share/
