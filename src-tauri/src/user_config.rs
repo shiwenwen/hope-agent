@@ -18,6 +18,14 @@ pub struct UserConfig {
     #[serde(default)]
     pub avatar: Option<String>,
 
+    /// Gender: "male", "female", or custom text
+    #[serde(default)]
+    pub gender: Option<String>,
+
+    /// Age
+    #[serde(default)]
+    pub age: Option<u32>,
+
     /// Role description, e.g. "全栈开发者"
     #[serde(default)]
     pub role: Option<String>,
@@ -85,6 +93,10 @@ pub fn build_user_context(config: &UserConfig) -> Option<String> {
     let mut lines = Vec::new();
 
     push_if(&mut lines, "Name", &config.name);
+    push_if(&mut lines, "Gender", &config.gender);
+    if let Some(age) = config.age {
+        lines.push(format!("- Age: {}", age));
+    }
     push_if(&mut lines, "Role", &config.role);
     push_if(&mut lines, "AI experience level", &config.ai_experience);
     push_if(&mut lines, "Preferred language", &config.language);

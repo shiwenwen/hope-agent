@@ -535,6 +535,8 @@ function SkillsPanel() {
 interface UserConfig {
   name?: string | null
   avatar?: string | null
+  gender?: string | null
+  age?: number | null
   role?: string | null
   timezone?: string | null
   language?: string | null
@@ -542,6 +544,8 @@ interface UserConfig {
   responseStyle?: string | null
   customInfo?: string | null
 }
+
+const GENDER_PRESETS = ["male", "female"]
 
 // Common timezones grouped by region, with i18n display names
 const TIMEZONE_OPTIONS: { groupKey: string; zones: { value: string; labelKey: string }[] }[] = [
@@ -608,6 +612,7 @@ function UserProfilePanel() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [customStyle, setCustomStyle] = useState(false)
+  const [customGender, setCustomGender] = useState(false)
 
   useEffect(() => {
     Promise.all([
@@ -622,6 +627,9 @@ function UserProfilePanel() {
       setConfig(cfg)
       if (cfg.responseStyle && !PRESET_STYLES.includes(cfg.responseStyle)) {
         setCustomStyle(true)
+      }
+      if (cfg.gender && !GENDER_PRESETS.includes(cfg.gender)) {
+        setCustomGender(true)
       }
     }).catch(console.error)
   }, [i18n.language])
@@ -680,6 +688,75 @@ function UserProfilePanel() {
                 value={config.name ?? ""}
                 onChange={(e) => update({ name: e.target.value || null })}
                 placeholder={t("settings.profileNamePlaceholder")}
+              />
+            </div>
+
+            {/* ── Gender ── */}
+            <div>
+              <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.profileGender")}</div>
+              <div className="space-y-0.5">
+                {GENDER_PRESETS.map((g) => (
+                  <button
+                    key={g}
+                    className={cn(
+                      "flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm transition-colors",
+                      !customGender && config.gender === g
+                        ? "bg-primary/10 text-primary font-medium"
+                        : "bg-secondary/20 text-foreground hover:bg-secondary/60"
+                    )}
+                    onClick={() => {
+                      setCustomGender(false)
+                      update({ gender: config.gender === g ? null : g })
+                    }}
+                  >
+                    <span className="flex-1 text-left">
+                      {t(`settings.profileGender${g.charAt(0).toUpperCase() + g.slice(1)}`)}
+                    </span>
+                    {!customGender && config.gender === g && (
+                      <Check className="h-4 w-4 text-primary shrink-0" />
+                    )}
+                  </button>
+                ))}
+                <button
+                  className={cn(
+                    "flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm transition-colors",
+                    customGender
+                      ? "bg-primary/10 text-primary font-medium"
+                      : "bg-secondary/20 text-foreground hover:bg-secondary/60"
+                  )}
+                  onClick={() => {
+                    setCustomGender(true)
+                    if (!customGender) update({ gender: "" })
+                  }}
+                >
+                  <span className="flex-1 text-left">{t("settings.profileGenderCustom")}</span>
+                  {customGender && <Check className="h-4 w-4 text-primary shrink-0" />}
+                </button>
+              </div>
+              {customGender && (
+                <input
+                  className="w-full mt-2 px-3 py-2.5 text-sm bg-secondary/40 rounded-lg text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors"
+                  value={config.gender ?? ""}
+                  onChange={(e) => update({ gender: e.target.value || null })}
+                  placeholder={t("settings.profileGenderCustomPlaceholder")}
+                />
+              )}
+            </div>
+
+            {/* ── Age ── */}
+            <div>
+              <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.profileAge")}</div>
+              <input
+                type="number"
+                min="1"
+                max="150"
+                className="w-full px-3 py-2.5 text-sm bg-secondary/40 rounded-lg text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                value={config.age ?? ""}
+                onChange={(e) => {
+                  const v = e.target.value
+                  update({ age: v ? parseInt(v, 10) || null : null })
+                }}
+                placeholder={t("settings.profileAgePlaceholder")}
               />
             </div>
 
@@ -833,8 +910,8 @@ function UserProfilePanel() {
 
               {customStyle && (
                 <textarea
-                  className="w-full mt-2 px-3 py-2 text-sm bg-secondary/40 rounded-lg text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors resize-none"
-                  rows={2}
+                  className="w-full mt-2 px-3 py-2.5 text-sm bg-secondary/40 rounded-lg text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors resize-none leading-relaxed"
+                  rows={4}
                   value={config.responseStyle ?? ""}
                   onChange={(e) => update({ responseStyle: e.target.value || null })}
                   placeholder={t("settings.profileStyleCustomPlaceholder")}
@@ -849,7 +926,7 @@ function UserProfilePanel() {
               <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.profileCustomInfo")}</div>
               <textarea
                 className="w-full px-3 py-2.5 text-sm bg-secondary/40 rounded-lg text-foreground placeholder:text-muted-foreground/30 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors resize-none leading-relaxed"
-                rows={3}
+                rows={5}
                 value={config.customInfo ?? ""}
                 onChange={(e) => update({ customInfo: e.target.value || null })}
                 placeholder={t("settings.profileCustomInfoPlaceholder")}
