@@ -662,25 +662,40 @@ async fn try_restore_session(
                     // Ensure Codex provider exists
                     let model_id;
                     {
-                        let mut store = state.provider_store.lock().await;
+                    let mut store = state.provider_store.lock().await;
                         let codex_provider_id = provider::ensure_codex_provider(&mut store);
 
-                        // Use active model from store, or default
-                        model_id = store.active_model
-                            .as_ref()
-                            .filter(|am| am.provider_id == codex_provider_id)
-                            .map(|am| am.model_id.clone())
-                            .unwrap_or_else(|| "gpt-5.4".to_string());
-
-                        store.active_model = Some(ActiveModel {
-                            provider_id: codex_provider_id,
-                            model_id: model_id.clone(),
-                        });
-                        provider::save_store(&store).map_err(|e| e.to_string())?;
+                        // Determine which model to activate:
+                        // - If user already has a saved active_model (even non-Codex), respect it.
+                        // - Only default to Codex gpt-5.4 if no active_model is set at all.
+                        if store.active_model.is_none() {
+                            model_id = "gpt-5.4".to_string();
+                            store.active_model = Some(ActiveModel {
+                                provider_id: codex_provider_id,
+                                model_id: model_id.clone(),
+                            });
+                            provider::save_store(&store).map_err(|e| e.to_string())?;
+                        } else {
+                            model_id = store.active_model.as_ref().unwrap().model_id.clone();
+                        }
                     }
 
-                    let agent = AssistantAgent::new_openai(&token.access_token, &id, &model_id);
-                    *state.agent.lock().await = Some(agent);
+                    // Create agent based on the active model's provider type
+                    {
+                        let store = state.provider_store.lock().await;
+                        if let Some(ref active) = store.active_model {
+                            let active_provider = store.providers.iter().find(|p| p.id == active.provider_id);
+                            if let Some(provider) = active_provider {
+                                if provider.api_type == ApiType::Codex {
+                                    let agent = AssistantAgent::new_openai(&token.access_token, &id, &active.model_id);
+                                    *state.agent.lock().await = Some(agent);
+                                } else {
+                                    let agent = AssistantAgent::new_from_provider(provider, &active.model_id);
+                                    *state.agent.lock().await = Some(agent);
+                                }
+                            }
+                        }
+                    }
                     *state.codex_token.lock().await = Some((token.access_token.clone(), id));
                     Ok(true)
                 }

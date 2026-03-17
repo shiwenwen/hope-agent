@@ -3,14 +3,30 @@ import { invoke, convertFileSrc } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core"
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+  arrayMove,
+} from "@dnd-kit/sortable"
+import { CSS } from "@dnd-kit/utilities"
+import {
+  ArrowDown,
   ArrowLeft,
   ArrowUp,
-  ArrowDown,
   Bot,
   Camera,
   Check,
   ChevronRight,
   Globe,
+  GripVertical,
   Info,
   Layers,
   Monitor,
@@ -226,6 +242,71 @@ function LanguagePanel() {
   )
 }
 
+// ── Sortable Fallback Item ───────────────────────────────────────
+
+function SortableFallbackItem({
+  id,
+  index,
+  displayName,
+  onRemove,
+}: {
+  id: string
+  index: number
+  displayName: string
+  onRemove: () => void
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+    zIndex: isDragging ? 50 : undefined,
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="flex items-center gap-2 px-3 py-2 rounded-lg bg-secondary/30 border border-border/30 group"
+    >
+      {/* Drag handle */}
+      <div
+        className="cursor-grab active:cursor-grabbing text-muted-foreground/40 hover:text-muted-foreground/70 shrink-0 touch-none"
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical className="h-3.5 w-3.5" />
+      </div>
+
+      {/* Priority badge */}
+      <span className="text-[10px] font-bold text-muted-foreground/50 w-5 text-center shrink-0">
+        #{index + 1}
+      </span>
+
+      {/* Model name */}
+      <span className="flex-1 text-sm text-foreground truncate">
+        {displayName}
+      </span>
+
+      {/* Remove */}
+      <button
+        className="text-muted-foreground/40 hover:text-destructive transition-colors opacity-0 group-hover:opacity-100"
+        onClick={onRemove}
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  )
+}
+
 // ── Global Model Settings Panel ──────────────────────────────────
 
 interface AvailableModel {
@@ -311,12 +392,22 @@ function GlobalModelPanel() {
     handleSaveFallbacks(newList)
   }
 
-  const handleMoveFallback = (index: number, direction: "up" | "down") => {
-    const newList = [...fallbackModels]
-    const target = direction === "up" ? index - 1 : index + 1
-    if (target < 0 || target >= newList.length) return
-    ;[newList[index], newList[target]] = [newList[target], newList[index]]
-    handleSaveFallbacks(newList)
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+  )
+
+  const handleFallbackDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const oldIndex = fallbackModels.findIndex(
+      (f) => `${f.providerId}::${f.modelId}` === active.id
+    )
+    const newIndex = fallbackModels.findIndex(
+      (f) => `${f.providerId}::${f.modelId}` === over.id
+    )
+    if (oldIndex === -1 || newIndex === -1) return
+    const updated = arrayMove(fallbackModels, oldIndex, newIndex)
+    handleSaveFallbacks(updated)
   }
 
   // Available for adding as fallback (not already in list, not the active model)
@@ -381,48 +472,28 @@ function GlobalModelPanel() {
             </p>
           </div>
         ) : (
-          <div className="space-y-1.5 mb-3">
-            {fallbackModels.map((fb, idx) => (
-              <div
-                key={`${fb.providerId}::${fb.modelId}`}
-                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-secondary/30 border border-border/30 group"
-              >
-                {/* Priority badge */}
-                <span className="text-[10px] font-bold text-muted-foreground/50 w-5 text-center shrink-0">
-                  #{idx + 1}
-                </span>
-
-                {/* Model name */}
-                <span className="flex-1 text-sm text-foreground truncate">
-                  {modelDisplayName(fb)}
-                </span>
-
-                {/* Move up/down */}
-                <button
-                  className="text-muted-foreground/40 hover:text-foreground transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-0"
-                  onClick={() => handleMoveFallback(idx, "up")}
-                  disabled={idx === 0}
-                >
-                  <ArrowUp className="h-3.5 w-3.5" />
-                </button>
-                <button
-                  className="text-muted-foreground/40 hover:text-foreground transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-0"
-                  onClick={() => handleMoveFallback(idx, "down")}
-                  disabled={idx === fallbackModels.length - 1}
-                >
-                  <ArrowDown className="h-3.5 w-3.5" />
-                </button>
-
-                {/* Remove */}
-                <button
-                  className="text-muted-foreground/40 hover:text-destructive transition-colors opacity-0 group-hover:opacity-100"
-                  onClick={() => handleRemoveFallback(idx)}
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleFallbackDragEnd}
+          >
+            <SortableContext
+              items={fallbackModels.map((f) => `${f.providerId}::${f.modelId}`)}
+              strategy={verticalListSortingStrategy}
+            >
+              <div className="space-y-1.5 mb-3">
+                {fallbackModels.map((fb, idx) => (
+                  <SortableFallbackItem
+                    key={`${fb.providerId}::${fb.modelId}`}
+                    id={`${fb.providerId}::${fb.modelId}`}
+                    index={idx}
+                    displayName={modelDisplayName(fb)}
+                    onRemove={() => handleRemoveFallback(idx)}
+                  />
+                ))}
               </div>
-            ))}
-          </div>
+            </SortableContext>
+          </DndContext>
         )}
 
         {/* Add fallback */}
