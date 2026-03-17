@@ -1996,7 +1996,7 @@ function AgentEditView({
                                 setAddingAgentFallback(false)
                               }
                             }}
-                            onBlur={() => setAddingAgentFallback(false)}
+                            onBlur={() => setTimeout(() => setAddingAgentFallback(false), 200)}
                             autoFocus
                           >
                             <option value="" disabled>{t("settings.selectFallbackModel")}</option>
