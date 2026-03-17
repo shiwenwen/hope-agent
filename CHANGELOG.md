@@ -8,6 +8,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Agent 定义系统**：支持创建和管理多个 AI Agent，每个 Agent 可独立配置身份、性格和行为
+  - 设置页新增 Agent section，支持列表/新建/编辑/删除
+  - Agent 编辑 4 个 Tab：身份（名称/描述/Emoji/头像/角色定位）、性格（气质/语气/特质/准则/边界/个性/沟通方式）、行为（工具轮数/审批工具/沙箱/工具指导）、自定义提示词
+  - 结构化配置模式：GUI 表单填写，自动组装系统提示词（PersonalityConfig 8 个字段）
+  - 自定义提示词模式：开启后忽略结构化设置，直接编辑 Markdown（agent.md / persona.md）
+  - 身份和性格页底部均支持「补充说明」自由文本
+  - 首次开启自定义模式自动从模板文件预填内容
+  - 新增 `agent_config.rs`：AgentConfig / PersonalityConfig / AgentDefinition / AgentSummary 数据结构
+  - 新增 `agent_loader.rs`：Agent 文件 CRUD + 多语言模板（`include_str!` 嵌入 12 种语言）
+  - 新增 `system_prompt.rs`：模块化提示词组装，支持结构化/自定义双模式
+  - 新增 `user_config.rs`：用户个人配置（昵称/性别/年龄/角色/时区/语言/AI 经验/回复风格）
+  - 新增 Tauri 命令：`list_agents` / `get_agent_config` / `get_agent_markdown` / `save_agent_config_cmd` / `save_agent_markdown` / `delete_agent` / `get_agent_template` / `get_user_config` / `save_user_config` / `get_system_timezone`
+- **多语言 Agent 模板**：12 种语言的 `agent.*.md`（身份说明）和 `persona.*.md`（人设骨架），编译时嵌入二进制
+  - 默认 Agent 按系统语言创建（名称/描述/agent.md 本地化）
+  - 空字段加载时自动按当前 UI 语言填充模板
+- **Agent 头像支持**：通过 `tauri-plugin-dialog` 文件选择器选择本地图片，使用 `convertFileSrc` 展示
+  - `tauri.conf.json` 开启 `assetProtocol`
+- **聊天界面 Agent 集成**：
+  - 对话列表显示当前 Agent 头像 + 名称 + Emoji
+  - 聊天页头部显示 Agent 名称
+  - 右上角 Settings 图标可跳转 Agent 设置页
+- **用户个人配置 UI**：设置页「个人信息」面板，支持头像/昵称/性别/年龄/角色/AI 经验/时区/语言/回复风格/补充说明
 - **Markdown 消息渲染**：用户和 AI 消息均支持完整 Markdown 渲染（基于 Streamdown）
   - 流式场景优化：正确处理未闭合语法（加粗、代码块等），渐进式渲染无闪烁
   - 代码块语法高亮（Shiki）、CJK 中文标点优化
