@@ -1,10 +1,13 @@
 mod agent;
+mod agent_config;
+mod agent_loader;
 mod oauth;
 mod paths;
 mod process_registry;
 mod provider;
 mod sandbox;
 mod skills;
+mod system_prompt;
 mod tools;
 mod user_config;
 
@@ -34,6 +37,8 @@ struct AppState {
     reasoning_effort: Mutex<String>,
     /// Store token info so we can rebuild agent when model changes
     codex_token: Mutex<Option<(String, String)>>,  // (access_token, account_id)
+    /// Currently active agent ID
+    current_agent_id: Mutex<String>,
 }
 
 // ── Provider Management Commands ──────────────────────────────────
@@ -899,6 +904,39 @@ async fn open_directory(path: String) -> Result<(), String> {
     open::that(&resolved).map_err(|e| format!("Failed to open directory: {}", e))
 }
 
+// ── Agent Management Commands ────────────────────────────────────
+
+#[tauri::command]
+async fn list_agents() -> Result<Vec<agent_config::AgentSummary>, String> {
+    agent_loader::list_agents().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_agent_config(id: String) -> Result<agent_config::AgentConfig, String> {
+    let def = agent_loader::load_agent(&id).map_err(|e| e.to_string())?;
+    Ok(def.config)
+}
+
+#[tauri::command]
+async fn get_agent_markdown(id: String, file: String) -> Result<Option<String>, String> {
+    agent_loader::get_agent_markdown(&id, &file).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn save_agent_config_cmd(id: String, config: agent_config::AgentConfig) -> Result<(), String> {
+    agent_loader::save_agent_config(&id, &config).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn save_agent_markdown(id: String, file: String, content: String) -> Result<(), String> {
+    agent_loader::save_agent_markdown(&id, &file, &content).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn delete_agent(id: String) -> Result<(), String> {
+    agent_loader::delete_agent(&id).map_err(|e| e.to_string())
+}
+
 // ── User Config Commands ─────────────────────────────────────────
 
 #[tauri::command]
@@ -940,6 +978,11 @@ pub fn run() {
         log::error!("Failed to initialize data directories: {}", e);
     }
 
+    // Ensure default agent exists
+    if let Err(e) = agent_loader::ensure_default_agent() {
+        log::error!("Failed to ensure default agent: {}", e);
+    }
+
     // Load provider store at startup
     let initial_store = provider::load_store().unwrap_or_default();
 
@@ -963,6 +1006,7 @@ pub fn run() {
             provider_store: Mutex::new(initial_store),
             reasoning_effort: Mutex::new("medium".to_string()),
             codex_token: Mutex::new(None),
+            current_agent_id: Mutex::new("default".to_string()),
         })
         .invoke_handler(tauri::generate_handler![
             // Provider management
@@ -1000,6 +1044,13 @@ pub fn run() {
             remove_extra_skills_dir,
             toggle_skill,
             open_directory,
+            // Agent management
+            list_agents,
+            get_agent_config,
+            get_agent_markdown,
+            save_agent_config_cmd,
+            save_agent_markdown,
+            delete_agent,
             // User config
             get_user_config,
             save_user_config,

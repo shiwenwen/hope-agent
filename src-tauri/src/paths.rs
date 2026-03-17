@@ -17,6 +17,18 @@ pub fn config_path() -> Result<PathBuf> {
     Ok(root_dir()?.join("config.json"))
 }
 
+// ── Agents ───────────────────────────────────────────────────────
+
+/// Agents root directory: ~/.opencomputer/agents/
+pub fn agents_dir() -> Result<PathBuf> {
+    Ok(root_dir()?.join("agents"))
+}
+
+/// Specific agent directory: ~/.opencomputer/agents/{id}/
+pub fn agent_dir(id: &str) -> Result<PathBuf> {
+    Ok(agents_dir()?.join(id))
+}
+
 // ── User Config ─────────────────────────────────────────────────
 
 /// User config file path: ~/.opencomputer/user.json
@@ -72,6 +84,7 @@ pub fn ensure_dirs() -> Result<()> {
         root_dir()?,
         credentials_dir()?,
         skills_dir()?,
+        agents_dir()?,
         home_dir()?,
         share_dir()?,
     ];

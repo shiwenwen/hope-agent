@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::provider::{ApiType, ProviderConfig, ThinkingStyle};
-use crate::skills;
 use crate::tools::{self, ToolProvider};
 
 /// File/image attachment sent alongside a chat message
@@ -78,41 +77,16 @@ fn build_user_content_responses(message: &str, attachments: &[Attachment]) -> se
     json!(parts)
 }
 
-const SYSTEM_PROMPT_BASE: &str = "You are OpenComputer, a personal AI assistant with deep system integration. \
-                             You help users interact with their computer naturally and efficiently. \
-                             \
-                             Available tools: \
-                             - exec: Execute shell commands. Supports cwd, timeout (default 30min, max 2h), \
-                               custom env vars, background execution (background=true or yield_ms for auto-backgrounding), \
-                               and Docker sandbox isolation (sandbox=true) for untrusted or risky commands. \
-                             - process: Manage background exec sessions — list, poll (get new output), log (full output), \
-                               write (stdin), kill, clear, remove. Use after backgrounding a command. \
-                             - read: Read file contents with line-based pagination (offset/limit). \
-                               Auto-detects image files (PNG/JPEG/GIF/WebP/BMP/TIFF) and returns base64. \
-                               Oversized images are auto-resized. Accepts both 'path' and 'file_path'. \
-                             - write: Write content to a file. Accepts both 'path' and 'file_path'. \
-                             - edit: Targeted search-replace edits (old_text → new_text). Prefer over write for modifications. \
-                               Accepts aliases: file_path, oldText/old_string, newText/new_string. Empty new_text deletes text. \
-                             - ls: List directory contents (sorted, with / and @ indicators). Supports ~ expansion, limit param, 50KB output cap. \
-                             - grep: Search file contents with regex or literal patterns. Respects .gitignore. \
-                               Params: pattern (required), path, glob, ignore_case, literal, context, limit (default 100). \
-                             - find: Find files by glob pattern. Respects .gitignore. \
-                               Params: pattern (required), path, limit (default 1000). \
-                             - apply_patch: Apply multi-file patches (add/update/delete/move files). \
-                               Use *** Begin Patch / *** End Patch format with Add File, Update File, Delete File markers. \
-                               Update hunks use @@ context + -/+ line prefixes with 3-pass fuzzy matching. \
-                             - web_search / web_fetch: Search the web and fetch page content. \
-                             \
-                             For long-running commands (builds, installs), consider using background=true and then \
-                             process(action='poll') to check progress.";
-
-/// Build the full system prompt including available skills.
+/// Build the full system prompt.
+/// Uses the new system_prompt module with AgentDefinition if available,
+/// otherwise falls back to legacy behavior for backward compatibility.
 fn build_system_prompt() -> String {
-    // Read config for extra dirs and disabled skills
-    let store = crate::provider::load_store().unwrap_or_default();
-    let available_skills = skills::load_all_skills_with_extra(&store.extra_skills_dirs);
-    let skills_section = skills::build_skills_prompt(&available_skills, &store.disabled_skills);
-    format!("{}{}", SYSTEM_PROMPT_BASE, skills_section)
+    // Try loading the current agent definition
+    if let Ok(definition) = crate::agent_loader::load_agent("default") {
+        return crate::system_prompt::build(&definition);
+    }
+    // Fallback: legacy prompt
+    crate::system_prompt::build_legacy()
 }
 
 const CODEX_API_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
