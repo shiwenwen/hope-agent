@@ -36,9 +36,17 @@ pub struct AgentConfig {
     #[serde(default)]
     pub tools: FilterConfig,
 
+    /// Personality & identity settings
+    #[serde(default)]
+    pub personality: PersonalityConfig,
+
     /// Behavior settings
     #[serde(default)]
     pub behavior: BehaviorConfig,
+
+    /// If true, use custom markdown prompts instead of structured config
+    #[serde(default)]
+    pub use_custom_prompt: bool,
 }
 
 fn default_name() -> String {
@@ -55,9 +63,51 @@ impl Default for AgentConfig {
             model: AgentModelConfig::default(),
             skills: FilterConfig::default(),
             tools: FilterConfig::default(),
+            personality: PersonalityConfig::default(),
             behavior: BehaviorConfig::default(),
+            use_custom_prompt: false,
         }
     }
+}
+
+// ── Personality Config ──────────────────────────────────────────
+
+/// Structured personality & identity for the Agent.
+/// Inspired by OpenClaw's IDENTITY.md + SOUL.md, but as GUI-friendly fields.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PersonalityConfig {
+    /// What the agent is (e.g., "AI coding assistant", "creative writer", "robot butler")
+    #[serde(default)]
+    pub role: Option<String>,
+
+    /// Overall personality vibe (e.g., "warm and patient", "sharp and direct", "chaotic creative")
+    #[serde(default)]
+    pub vibe: Option<String>,
+
+    /// Communication tone (e.g., "formal", "casual", "playful", "professional")
+    #[serde(default)]
+    pub tone: Option<String>,
+
+    /// Personality traits (e.g., ["curious", "detail-oriented", "encouraging"])
+    #[serde(default)]
+    pub traits: Vec<String>,
+
+    /// Core guiding principles (e.g., ["Always explain reasoning", "Safety first"])
+    #[serde(default)]
+    pub principles: Vec<String>,
+
+    /// What the agent will and won't do — behavioral boundaries
+    #[serde(default)]
+    pub boundaries: Option<String>,
+
+    /// Personality quirks, catchphrases, or unique habits
+    #[serde(default)]
+    pub quirks: Option<String>,
+
+    /// Communication style preferences (e.g., "verbose with examples", "minimal and terse")
+    #[serde(default)]
+    pub communication_style: Option<String>,
 }
 
 // ── Model Config ─────────────────────────────────────────────────

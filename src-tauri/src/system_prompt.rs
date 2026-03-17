@@ -1,4 +1,4 @@
-use crate::agent_config::{AgentDefinition, FilterConfig};
+use crate::agent_config::{AgentDefinition, FilterConfig, PersonalityConfig};
 use crate::skills;
 use crate::user_config;
 
@@ -53,22 +53,56 @@ process(action='poll') to check progress.";
 pub fn build(definition: &AgentDefinition) -> String {
     let mut sections: Vec<String> = Vec::new();
 
-    // ① Identity
     let os = std::env::consts::OS;
     let arch = std::env::consts::ARCH;
-    sections.push(format!(
-        "You are {}, running in OpenComputer on {} {}.",
-        definition.config.name, os, arch
-    ));
 
-    // ② agent.md
-    if let Some(md) = &definition.agent_md {
-        sections.push(truncate(md, MAX_FILE_CHARS));
-    }
+    if definition.config.use_custom_prompt {
+        // ── Custom prompt mode: use markdown files directly, skip structured config ──
 
-    // ③ persona.md
-    if let Some(persona) = &definition.persona {
-        sections.push(truncate(persona, MAX_FILE_CHARS));
+        // Minimal identity line
+        sections.push(format!(
+            "You are {}, running in OpenComputer on {} {}.",
+            definition.config.name, os, arch
+        ));
+
+        // agent.md — custom identity / instructions
+        if let Some(md) = &definition.agent_md {
+            sections.push(truncate(md, MAX_FILE_CHARS));
+        }
+
+        // persona.md — custom personality
+        if let Some(persona) = &definition.persona {
+            sections.push(truncate(persona, MAX_FILE_CHARS));
+        }
+    } else {
+        // ── Structured mode: assemble from config fields + optional supplements ──
+
+        // ① Identity
+        let role_suffix = definition.config.personality.role
+            .as_deref()
+            .filter(|r| !r.is_empty())
+            .map(|r| format!(", a {}", r))
+            .unwrap_or_default();
+        sections.push(format!(
+            "You are {}{}, running in OpenComputer on {} {}.",
+            definition.config.name, role_suffix, os, arch
+        ));
+
+        // ② Personality (structured)
+        let personality_section = build_personality_section(&definition.config.personality);
+        if !personality_section.is_empty() {
+            sections.push(personality_section);
+        }
+
+        // ③ agent.md — supplementary identity notes
+        if let Some(md) = &definition.agent_md {
+            sections.push(truncate(md, MAX_FILE_CHARS));
+        }
+
+        // ④ persona.md — supplementary personality notes
+        if let Some(persona) = &definition.persona {
+            sections.push(truncate(persona, MAX_FILE_CHARS));
+        }
     }
 
     // ④ User context
@@ -188,6 +222,42 @@ fn build_skills_section(filter: &FilterConfig) -> String {
         .collect();
 
     skills::build_skills_prompt(&filtered, &disabled)
+}
+
+/// Build personality section from structured config.
+fn build_personality_section(p: &PersonalityConfig) -> String {
+    let mut lines: Vec<String> = Vec::new();
+
+    if let Some(vibe) = &p.vibe {
+        lines.push(format!("- Vibe: {}", vibe));
+    }
+    if let Some(tone) = &p.tone {
+        lines.push(format!("- Tone: {}", tone));
+    }
+    if let Some(style) = &p.communication_style {
+        lines.push(format!("- Communication style: {}", style));
+    }
+    if !p.traits.is_empty() {
+        lines.push(format!("- Traits: {}", p.traits.join(", ")));
+    }
+    if !p.principles.is_empty() {
+        lines.push("- Principles:".to_string());
+        for principle in &p.principles {
+            lines.push(format!("  - {}", principle));
+        }
+    }
+    if let Some(boundaries) = &p.boundaries {
+        lines.push(format!("- Boundaries: {}", boundaries));
+    }
+    if let Some(quirks) = &p.quirks {
+        lines.push(format!("- Quirks: {}", quirks));
+    }
+
+    if lines.is_empty() {
+        return String::new();
+    }
+
+    format!("# Personality\n\n{}", lines.join("\n"))
 }
 
 /// Build runtime information section.

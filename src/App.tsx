@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useLayoutEffect } from "react"
-import { invoke, Channel } from "@tauri-apps/api/core"
+import { invoke, Channel, convertFileSrc } from "@tauri-apps/api/core"
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
@@ -310,7 +310,7 @@ function ToolCallBlock({ tool }: { tool: ToolCall }) {
   )
 }
 
-function ChatScreen() {
+function ChatScreen({ onOpenAgentSettings }: { onOpenAgentSettings?: () => void }) {
   const { t } = useTranslation()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
@@ -320,6 +320,11 @@ function ChatScreen() {
   // Resizable agent list panel
   const [panelWidth, setPanelWidth] = useState(256)
   const isDragging = useRef(false)
+
+  // Current agent info
+  const [agentName, setAgentName] = useState("")
+  const [agentEmoji, setAgentEmoji] = useState("")
+  const [agentAvatar, setAgentAvatar] = useState("")
 
   // Model state (new provider-based)
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
@@ -443,16 +448,22 @@ function ChatScreen() {
   useEffect(() => {
     ;(async () => {
       try {
-        const [models, active, settings] = await Promise.all([
+        const [models, active, settings, agentConfig] = await Promise.all([
           invoke<AvailableModel[]>("get_available_models"),
           invoke<ActiveModel | null>("get_active_model"),
           invoke<{ model: string; reasoning_effort: string }>(
             "get_current_settings",
           ),
+          invoke<{ name: string; emoji?: string | null; avatar?: string | null }>("get_agent_config", { id: "default" }).catch(() => null),
         ])
         setAvailableModels(models)
         setActiveModel(active)
         setReasoningEffort(settings.reasoning_effort)
+        if (agentConfig) {
+          setAgentName(agentConfig.name)
+          setAgentEmoji(agentConfig.emoji ?? "")
+          setAgentAvatar(agentConfig.avatar ?? "")
+        }
       } catch (e) {
         console.error("Failed to load settings:", e)
       }
@@ -669,12 +680,16 @@ function ChatScreen() {
         <div className="flex-1 overflow-y-auto p-2">
           {/* Main Agent — active */}
           <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-secondary/60 cursor-pointer border border-border/50 transition-colors">
-            <div className="w-9 h-9 rounded-full bg-primary/15 flex items-center justify-center text-primary shrink-0">
-              <Bot className="h-5 w-5" />
+            <div className="w-9 h-9 rounded-full bg-primary/15 flex items-center justify-center text-primary shrink-0 overflow-hidden">
+              {agentAvatar ? (
+                <img src={agentAvatar.startsWith("/") ? convertFileSrc(agentAvatar) : agentAvatar} className="w-full h-full object-cover" alt="" />
+              ) : (
+                <Bot className="h-5 w-5" />
+              )}
             </div>
             <div className="min-w-0 flex-1">
               <div className="font-medium text-sm text-foreground truncate">
-                Main Agent
+                {agentName || t("chat.mainAgent")}{agentEmoji ? ` ${agentEmoji}` : ""}
               </div>
               <div className="text-xs text-muted-foreground truncate">
                 {messages.length > 0
@@ -704,8 +719,17 @@ function ChatScreen() {
         {/* Drag region for window movement */}
         <div className="h-10 flex items-end justify-between px-4 bg-background shrink-0" data-tauri-drag-region>
           <span className="text-sm font-medium text-foreground shrink-0 pb-1.5">
-            Main Agent
+            {agentName || t("chat.mainAgent")}
           </span>
+          {onOpenAgentSettings && (
+            <button
+              className="pb-1.5 text-muted-foreground hover:text-foreground transition-colors"
+              onClick={onOpenAgentSettings}
+              title={t("settings.agents")}
+            >
+              <Settings className="h-4 w-4" />
+            </button>
+          )}
         </div>
 
         {/* Messages */}
@@ -991,7 +1015,7 @@ function ChatScreen() {
 
 export default function App() {
   const [view, setView] = useState<
-    "loading" | "setup" | "chat" | "settings" | "skills" | "profile"
+    "loading" | "setup" | "chat" | "settings" | "skills" | "profile" | "agents"
   >("loading")
 
   // Try to restore previous session on mount
@@ -1063,7 +1087,7 @@ export default function App() {
   return (
     <div className="flex h-screen overflow-hidden bg-background">
       <IconSidebar
-        view={view === "settings" ? "settings" : view === "skills" ? "skills" : view === "profile" ? "profile" : "chat"}
+        view={view === "settings" ? "settings" : view === "skills" ? "skills" : view === "profile" ? "profile" : view === "agents" ? "settings" : "chat"}
         onOpenSettings={() => setView("settings")}
         onOpenChat={() => setView("chat")}
         onOpenSkills={() => setView("skills")}
@@ -1089,8 +1113,15 @@ export default function App() {
           onCodexReauth={handleCodexAuth}
           initialSection="profile"
         />
+      ) : view === "agents" ? (
+        <SettingsView
+          onBack={() => setView("chat")}
+          onCodexAuth={handleCodexAuth}
+          onCodexReauth={handleCodexAuth}
+          initialSection="agents"
+        />
       ) : (
-        <ChatScreen />
+        <ChatScreen onOpenAgentSettings={() => setView("agents")} />
       )}
     </div>
   )

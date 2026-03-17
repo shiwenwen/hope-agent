@@ -15,27 +15,119 @@ const TOOLS_MD: &str = "tools.md";
 
 // ── Default Agent Template ───────────────────────────────────────
 
-fn default_agent_json() -> AgentConfig {
+/// Detect system locale code (e.g. "zh", "en", "ja").
+fn detect_system_locale() -> String {
+    // macOS: check AppleLocale (e.g. "zh_CN", "en_US", "ja_JP")
+    if let Ok(output) = std::process::Command::new("defaults")
+        .args(["read", "-g", "AppleLocale"])
+        .output()
+    {
+        if let Ok(locale) = String::from_utf8(output.stdout) {
+            let locale = locale.trim().to_lowercase();
+            // Handle zh_TW / zh_HK specifically
+            if locale.starts_with("zh_tw") || locale.starts_with("zh_hk") {
+                return "zh-TW".to_string();
+            }
+            // Return first 2 chars as language code
+            if locale.len() >= 2 {
+                return locale[..2].to_string();
+            }
+        }
+    }
+    // Fallback: LANG env (e.g. "zh_CN.UTF-8")
+    for key in &["LANG", "LC_ALL", "LC_MESSAGES"] {
+        if let Ok(val) = std::env::var(key) {
+            let val = val.to_lowercase();
+            if val.starts_with("zh_tw") || val.starts_with("zh_hk") {
+                return "zh-TW".to_string();
+            }
+            if val.len() >= 2 {
+                return val[..2].to_string();
+            }
+        }
+    }
+    "en".to_string()
+}
+
+/// Agent name/description per locale.
+struct DefaultMeta {
+    name: &'static str,
+    description: &'static str,
+}
+
+fn default_meta(locale: &str) -> DefaultMeta {
+    match locale {
+        "zh"    => DefaultMeta { name: "助手",        description: "通用 AI 助手" },
+        "zh-TW" => DefaultMeta { name: "助手",        description: "通用 AI 助手" },
+        "ja"    => DefaultMeta { name: "アシスタント",    description: "汎用 AI アシスタント" },
+        "ko"    => DefaultMeta { name: "어시스턴트",     description: "범용 AI 어시스턴트" },
+        "es"    => DefaultMeta { name: "Asistente",    description: "Asistente de IA de propósito general" },
+        "pt"    => DefaultMeta { name: "Assistente",   description: "Assistente de IA de propósito geral" },
+        "ru"    => DefaultMeta { name: "Ассистент",    description: "Универсальный ИИ-ассистент" },
+        "ar"    => DefaultMeta { name: "المساعد",      description: "مساعد ذكاء اصطناعي متعدد الأغراض" },
+        "tr"    => DefaultMeta { name: "Asistan",      description: "Genel amaçlı yapay zeka asistanı" },
+        "vi"    => DefaultMeta { name: "Trợ lý",       description: "Trợ lý AI đa năng" },
+        "ms"    => DefaultMeta { name: "Pembantu",     description: "Pembantu AI pelbagai guna" },
+        _       => DefaultMeta { name: "Assistant",    description: "General-purpose AI assistant" },
+    }
+}
+
+/// Agent.md template per locale (embedded at compile time).
+fn default_agent_md(locale: &str) -> &'static str {
+    match locale {
+        "zh"    => include_str!("../templates/agent.zh.md"),
+        "zh-TW" => include_str!("../templates/agent.zh-TW.md"),
+        "ja"    => include_str!("../templates/agent.ja.md"),
+        "ko"    => include_str!("../templates/agent.ko.md"),
+        "es"    => include_str!("../templates/agent.es.md"),
+        "pt"    => include_str!("../templates/agent.pt.md"),
+        "ru"    => include_str!("../templates/agent.ru.md"),
+        "ar"    => include_str!("../templates/agent.ar.md"),
+        "tr"    => include_str!("../templates/agent.tr.md"),
+        "vi"    => include_str!("../templates/agent.vi.md"),
+        "ms"    => include_str!("../templates/agent.ms.md"),
+        _       => include_str!("../templates/agent.en.md"),
+    }
+}
+
+/// Persona.md template per locale (embedded at compile time).
+fn default_persona_md(locale: &str) -> &'static str {
+    match locale {
+        "zh"    => include_str!("../templates/persona.zh.md"),
+        "zh-TW" => include_str!("../templates/persona.zh-TW.md"),
+        "ja"    => include_str!("../templates/persona.ja.md"),
+        "ko"    => include_str!("../templates/persona.ko.md"),
+        "es"    => include_str!("../templates/persona.es.md"),
+        "pt"    => include_str!("../templates/persona.pt.md"),
+        "ru"    => include_str!("../templates/persona.ru.md"),
+        "ar"    => include_str!("../templates/persona.ar.md"),
+        "tr"    => include_str!("../templates/persona.tr.md"),
+        "vi"    => include_str!("../templates/persona.vi.md"),
+        "ms"    => include_str!("../templates/persona.ms.md"),
+        _       => include_str!("../templates/persona.en.md"),
+    }
+}
+
+/// Get a template by name and locale. Called from frontend.
+/// `name`: "agent" or "persona"
+/// `locale`: language code like "zh", "en", "ja" etc.
+pub fn get_template(name: &str, locale: &str) -> Option<String> {
+    match name {
+        "agent"   => Some(default_agent_md(locale).to_string()),
+        "persona" => Some(default_persona_md(locale).to_string()),
+        _         => None,
+    }
+}
+
+fn default_agent_json(locale: &str) -> AgentConfig {
+    let meta = default_meta(locale);
     AgentConfig {
-        name: "Assistant".to_string(),
-        description: Some("General-purpose AI assistant".to_string()),
+        name: meta.name.to_string(),
+        description: Some(meta.description.to_string()),
         emoji: Some("🤖".to_string()),
         ..AgentConfig::default()
     }
 }
-
-const DEFAULT_AGENT_MD: &str = r#"You are OpenComputer, a personal AI assistant with deep system integration.
-You help users interact with their computer naturally and efficiently.
-
-## Principles
-
-- Be concise and direct — act first, explain if needed
-- Read existing code before making changes
-- Prefer editing existing files over creating new ones
-- Keep changes minimal and focused
-- Ask for clarification when unsure
-- Never execute dangerous operations without explicit confirmation
-"#;
 
 // ── Ensure Default Agent ─────────────────────────────────────────
 
@@ -51,13 +143,15 @@ pub fn ensure_default_agent() -> Result<()> {
 
     std::fs::create_dir_all(&dir)?;
 
+    let locale = detect_system_locale();
+
     // Write agent.json
-    let config = default_agent_json();
+    let config = default_agent_json(&locale);
     let json = serde_json::to_string_pretty(&config)?;
     std::fs::write(&config_path, json)?;
 
     // Write agent.md
-    std::fs::write(dir.join(AGENT_MD), DEFAULT_AGENT_MD)?;
+    std::fs::write(dir.join(AGENT_MD), default_agent_md(&locale))?;
 
     Ok(())
 }

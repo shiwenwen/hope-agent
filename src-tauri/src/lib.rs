@@ -937,6 +937,12 @@ async fn delete_agent(id: String) -> Result<(), String> {
     agent_loader::delete_agent(&id).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+async fn get_agent_template(name: String, locale: String) -> Result<String, String> {
+    agent_loader::get_template(&name, &locale)
+        .ok_or_else(|| format!("Template not found: {}", name))
+}
+
 // ── User Config Commands ─────────────────────────────────────────
 
 #[tauri::command]
@@ -1072,6 +1078,7 @@ pub fn run() {
             save_agent_config_cmd,
             save_agent_markdown,
             delete_agent,
+            get_agent_template,
             // User config
             get_user_config,
             save_user_config,

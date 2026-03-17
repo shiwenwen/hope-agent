@@ -125,49 +125,81 @@ pub struct BehaviorConfig { max_tool_rounds, require_approval, sandbox }
 **已注册的 Tauri 命令**:
 - `list_agents` / `get_agent_config` / `get_agent_markdown`
 - `save_agent_config_cmd` / `save_agent_markdown` / `delete_agent`
+- `get_agent_template` — 按语言获取模板文件（agent / persona）
 
 ---
 
-## 3. 下一步：前端 Agent 管理 UI
+## 3. 已完成：前端 Agent 管理 UI
 
-### 3.1 设置页新增 "Agent" section
+### 3.1 设置页 "Agent" section
 
-在 `SettingsView.tsx` 的 `SECTIONS` 数组和侧栏中添加 Agent 入口。
-
-需要新增的面板组件（参考现有 `SkillsPanel` / `UserProfilePanel` 风格）：
+在 `SettingsView.tsx` 中添加了完整的 Agent 管理界面：
 
 **Agent 列表页**:
 - 调用 `list_agents` 获取 AgentSummary 数组
-- 卡片展示：emoji + 名称 + 描述
-- 「新建 Agent」按钮
+- 卡片展示：emoji + 名称 + 描述，default Agent 带标签
+- 「新建 Agent」按钮（输入 ID + 名称）
 - 点击进入编辑页
 
-**Agent 编辑页**（分 Tab 或分区）:
+**Agent 编辑页**（4 个 Tab）:
 
-| 区块 | 数据来源 | 编辑方式 |
-|------|---------|---------|
-| 基本信息 | agent.json: name/description/emoji/avatar | 表单 |
-| 模型 | agent.json: model.primary | 下拉选择（复用现有模型选择器） |
-| 能力 | agent.json: skills/tools allow/deny | 多选开关 |
-| 行为 | agent.json: behavior | 表单 + 开关 |
-| Agent 说明 | agent.md | textarea |
-| 人设 | persona.md | textarea |
-| 工具指导 | tools.md | textarea |
+| Tab | 内容 | 数据存储 |
+|-----|------|---------|
+| **身份** | 名称、描述、Emoji、头像（文件选择器）、角色定位 + 补充说明 | agent.json + agent.md |
+| **性格** | 气质、语气（6 预设+自定义）、特质（tag）、准则（列表）、边界、个性、沟通方式 + 补充说明 | agent.json personality + persona.md |
+| **行为** | 工具轮数、审批工具（tag）、沙箱开关 + 工具使用指导 | agent.json behavior + tools.md |
+| **自定义提示词** | 开关切换；开启后忽略结构化设置，使用 Markdown 编辑器。首次开启自动从模板文件填充 | agent.json useCustomPrompt + agent.md / persona.md |
 
-调用的命令：
-- 读取: `get_agent_config(id)` + `get_agent_markdown(id, "agent.md")` 等
-- 保存: `save_agent_config_cmd(id, config)` + `save_agent_markdown(id, file, content)`
-- 删除: `delete_agent(id)`
+### 3.2 提示词组装模式
 
-### 3.2 聊天界面 Agent 切换
+**结构化模式**（默认）:
+```
+① "You are {name}, a {role}..." （结构化身份）
+② # Personality （结构化性格字段）
+③ agent.md 补充说明
+④ persona.md 补充说明
+⑤ 用户信息 （user.json）
+⑥ tools.md 工具指导
+⑦ 内置工具定义（filtered）
+⑧ 技能（filtered）
+⑨ 运行时信息
+```
 
-在聊天界面顶部或侧栏添加 Agent 选择器。可以延后，先做设置页管理。
+**自定义模式**（useCustomPrompt=true）:
+```
+① "You are {name}..." （仅名称）
+② agent.md （完整自定义身份）
+③ persona.md （完整自定义人设）
+④ 用户信息
+⑤ tools.md 工具指导
+⑥-⑨ 同上
+```
 
-### 3.3 后续 Phase
+### 3.3 多语言模板系统
+
+模板文件位于 `src-tauri/templates/`，编译时通过 `include_str!` 嵌入：
+
+| 模板 | 文件 | 说明 |
+|------|------|------|
+| agent | `agent.{locale}.md` | 默认 Agent 身份说明（12 种语言） |
+| persona | `persona.{locale}.md` | 人设 Markdown 骨架模板（12 种语言） |
+
+支持的语言：en / zh / zh-TW / ja / ko / es / pt / ru / ar / tr / vi / ms
+
+- 首次创建默认 Agent 时，按系统语言选择模板
+- 前端加载空 agent.md 时，按当前 UI 语言填充模板
+- 开启自定义提示词时，空字段自动填充对应语言模板
+
+### 3.4 聊天界面集成
+
+- 对话列表：显示当前 Agent 头像（支持本地文件 `convertFileSrc`）、名称 + Emoji
+- 聊天页头部：显示 Agent 名称，右上角 Settings 图标可跳转 Agent 设置
+
+### 3.5 后续 Phase
 
 - **Phase 2**: 记忆系统（单独设计）
 - **Phase 3**: 项目级覆盖（`.opencomputer/agent.json` + `agent.md`）
-- **Phase 4**: 对话历史按 Agent 保存、子 Agent
+- **Phase 4**: 对话历史按 Agent 保存、子 Agent、Agent 切换器
 
 ---
 
@@ -176,10 +208,10 @@ pub struct BehaviorConfig { max_tool_rounds, require_approval, sandbox }
 ```
 lib.rs (Tauri 命令 + AppState)
   ├── agent.rs          (AssistantAgent + LLM 调用，build_system_prompt 委托给↓)
-  ├── system_prompt.rs  [新] 提示词组装（build / build_legacy / truncate）
-  ├── agent_config.rs   [新] 数据结构（AgentConfig / AgentDefinition / AgentSummary）
-  ├── agent_loader.rs   [新] Agent 文件 CRUD
-  ├── user_config.rs    [新] 用户配置
+  ├── system_prompt.rs  提示词组装（build / build_legacy / build_personality_section / truncate）
+  ├── agent_config.rs   数据结构（AgentConfig / PersonalityConfig / AgentDefinition / AgentSummary）
+  ├── agent_loader.rs   Agent 文件 CRUD + 多语言模板（include_str! 嵌入）
+  ├── user_config.rs    用户配置
   ├── tools.rs          11 个工具定义 + 执行
   ├── skills.rs         技能加载 + 提示词注入
   ├── provider.rs       ProviderStore + config.json 持久化
@@ -187,6 +219,7 @@ lib.rs (Tauri 命令 + AppState)
   ├── oauth.rs          Codex OAuth
   ├── process_registry.rs  后台进程管理
   └── sandbox.rs        Docker 沙箱
+src-tauri/templates/    多语言模板文件（agent.*.md / persona.*.md）
 ```
 
 ### 关键文件行数参考
@@ -195,11 +228,11 @@ lib.rs (Tauri 命令 + AppState)
 |------|------|
 | `agent.rs` | ~1450 |
 | `tools.rs` | ~2927 |
-| `system_prompt.rs` | ~210 |
-| `agent_config.rs` | ~175 |
-| `agent_loader.rs` | ~210 |
+| `system_prompt.rs` | ~290 |
+| `agent_config.rs` | ~230 |
+| `agent_loader.rs` | ~340 |
 | `user_config.rs` | ~115 |
-| `SettingsView.tsx` | ~1000 |
+| `SettingsView.tsx` | ~1950 |
 
 ### 编码风格
 
@@ -207,15 +240,18 @@ lib.rs (Tauri 命令 + AppState)
 - 前端: 函数式组件 + hooks、Tailwind、`@/` 别名
 - i18n: `settings.profileXxx` / `settings.agentXxx` 命名空间
 - JSON: camelCase
+- 本地文件图片: 使用 `convertFileSrc()` 转换路径
 
 ---
 
 ## 5. 注意事项
 
-- **IME 输入**: 所有文本 input/textarea 需用 `textInputProps()` 辅助函数（compositionStart/End），否则无法输入中文。已有实现在 `UserProfilePanel` 中可参考
-- **头像**: 文件选择器未实现，标记 `// TODO: file picker for avatar`
-- **默认 Agent**: 首次启动自动创建 `~/.opencomputer/agents/default/`，不可删除
+- **IME 输入**: 所有文本 input/textarea 需用 `textInputProps()` 辅助函数（compositionStart/End），否则无法输入中文
+- **头像**: 已实现文件选择器（tauri-plugin-dialog），支持 png/jpg/gif/webp/svg，通过 `convertFileSrc` 展示本地文件
+- **Asset Protocol**: `tauri.conf.json` 中已配置 `assetProtocol.enable: true` + `scope: ["**"]`
+- **默认 Agent**: 首次启动按系统语言创建 `~/.opencomputer/agents/default/`，不可删除
 - **向后兼容**: `build_system_prompt()` 先尝试加载 default agent definition，失败则 fallback 到 `build_legacy()`
+- **PersonalityConfig**: 新增的结构体，旧 agent.json 缺少此字段时 `serde(default)` 自动补全
 - **记忆系统**: 设计文档中有 MemoryConfig，本阶段全部跳过
 
 ---
@@ -225,13 +261,11 @@ lib.rs (Tauri 命令 + AppState)
 | 决策 | 原因 |
 |------|------|
 | 配置 JSON + 描述 Markdown | 结构化数据 GUI 友好；自然语言 Markdown 人类友好 |
+| 结构化性格 + 自定义模式二选一 | 普通用户填表单；高级用户完全控制 Markdown |
+| 多语言模板文件而非 i18n key | 模板内容较长，用 .md 文件管理更清晰 |
+| 模板 include_str! 嵌入 | 编译时打包，无需运行时文件系统访问 |
+| convertFileSrc 展示头像 | Tauri 2 官方方式加载本地文件到 WebView |
 | 用户信息全局 user.json | 用户身份不随 Agent 变，所有 Agent 共享 |
-| persona.md 命名 | AI Agent 语境下最直觉 |
-| 去掉经验水平，保留 AI 经验 | 经验水平不通用，AI 经验帮助调整沟通方式 |
-| 增加性别/年龄 | 通用个人信息，性别支持自定义 |
-| 时区/语言支持跟随系统 | 默认无需手动设置 |
-| 回复风格可自定义 | 预设不够用时有兜底 |
-| 隐私提示 | 所有字段可选，由用户自行决策 |
 | 记忆系统单独设计 | 复杂度高，独立周期 |
 
 ---
@@ -242,5 +276,6 @@ lib.rs (Tauri 命令 + AppState)
 |------|------|
 | 设计文档 | `docs/agent-definition-system.md` |
 | 本交接文档 | `docs/handoff-agent-system.md` |
+| 多语言模板 | `src-tauri/templates/` |
 | 项目说明 | `CLAUDE.md` |
 | OpenClaw 参考 | `~/Codes/openclaw`（`src/agents/system-prompt.ts`） |
