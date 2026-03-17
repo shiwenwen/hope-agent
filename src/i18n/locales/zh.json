@@ -111,7 +111,7 @@
     "noSkillsHint": "在 ~/.opencomputer/skills/ 目录下创建技能文件夹（包含 SKILL.md），或导入其它技能目录",
     "profile": "个人信息",
     "profileDesc": "设置你的个人信息，帮助 AI 助手更好地了解你。所有信息均为可选，出于隐私考虑，你可以自行决定分享哪些内容。",
-    "profileName": "昵称",
+    "profileName": "昵称 / 姓名",
     "profileNamePlaceholder": "你的名字或昵称",
     "profileAvatar": "头像",
     "profileAvatarChange": "更换头像",
