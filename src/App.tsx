@@ -52,6 +52,7 @@ function IconSidebar({
   onOpenAgents,
   onOpenSkills,
   onOpenProfile,
+  userAvatar,
 }: {
   view: "chat" | "settings" | "skills" | "profile" | "agents"
   onOpenSettings: () => void
@@ -59,6 +60,7 @@ function IconSidebar({
   onOpenAgents: () => void
   onOpenSkills: () => void
   onOpenProfile: () => void
+  userAvatar?: string | null
 }) {
   const { t, i18n } = useTranslation()
   const { theme, cycleTheme } = useTheme()
@@ -67,7 +69,21 @@ function IconSidebar({
   return (
     <div className="w-[72px] shrink-0 border-r border-border bg-secondary/30 flex flex-col items-center">
       {/* Drag region for window movement — covers traffic light area */}
-      <div className="w-full pt-10 flex justify-center" data-tauri-drag-region>
+      <div className="w-full pt-10 flex flex-col items-center gap-2" data-tauri-drag-region>
+        {/* User avatar (if set) */}
+        {userAvatar && (
+          <button
+            className="w-9 h-9 rounded-full overflow-hidden ring-2 ring-primary/20 hover:ring-primary/40 transition-all cursor-pointer shrink-0"
+            onClick={onOpenProfile}
+            title={t("settings.profile")}
+          >
+            <img
+              src={userAvatar.startsWith("/") ? convertFileSrc(userAvatar) : userAvatar}
+              className="w-full h-full object-cover"
+              alt="avatar"
+            />
+          </button>
+        )}
         <Button
           variant="ghost"
           size="icon"
@@ -1433,11 +1449,30 @@ export default function App() {
     "loading" | "setup" | "chat" | "settings" | "skills" | "profile" | "agents"
   >("loading")
   const [agentIdForSettings, setAgentIdForSettings] = useState<string | undefined>(undefined)
+  const [userAvatar, setUserAvatar] = useState<string | null>(null)
+
+  // Load user avatar
+  const loadUserAvatar = useCallback(async () => {
+    try {
+      const config = await invoke<{ avatar?: string | null }>("get_user_config")
+      setUserAvatar(config.avatar ?? null)
+    } catch {
+      // ignore
+    }
+  }, [])
+
+  // Reload avatar when switching back to chat (e.g. after editing profile)
+  useEffect(() => {
+    if (view === "chat") {
+      loadUserAvatar()
+    }
+  }, [view, loadUserAvatar])
 
   // Try to restore previous session on mount
   useEffect(() => {
     ;(async () => {
       try {
+        loadUserAvatar()
         const restored = await invoke<boolean>("try_restore_session")
         if (restored) {
           setView("chat")
@@ -1451,7 +1486,7 @@ export default function App() {
         setView("setup")
       }
     })()
-  }, [])
+  }, [loadUserAvatar])
 
   async function handleCodexAuth() {
     // Start the OAuth flow (opens browser)
@@ -1508,7 +1543,8 @@ export default function App() {
         onOpenChat={() => setView("chat")}
         onOpenAgents={() => { setAgentIdForSettings(undefined); setView("agents") }}
         onOpenSkills={() => setView("skills")}
-        onOpenProfile={() => setView("profile")}
+        onOpenProfile={() => { setView("profile") }}
+        userAvatar={userAvatar}
       />
       {view === "settings" ? (
         <SettingsView
