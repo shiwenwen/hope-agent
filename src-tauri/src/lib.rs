@@ -1065,7 +1065,9 @@ async fn chat(
                     "error": last_error.as_deref().unwrap_or(""),
                 });
                 if let Ok(json_str) = serde_json::to_string(&event) {
-                    let _ = on_event.send(json_str);
+                    let _ = on_event.send(json_str.clone());
+                    // Persist fallback event to session DB
+                    let _ = db.append_message(&sid, &session::NewMessage::system(&json_str));
                 }
             }
 
