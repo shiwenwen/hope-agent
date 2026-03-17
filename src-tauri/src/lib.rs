@@ -806,6 +806,16 @@ async fn respond_to_approval(
         .map_err(|e| e.to_string())
 }
 
+// ── Tools Info Commands ───────────────────────────────────────────
+
+#[tauri::command]
+async fn list_builtin_tools() -> Result<Vec<serde_json::Value>, String> {
+    Ok(tools::get_available_tools()
+        .into_iter()
+        .map(|t| serde_json::json!({ "name": t.name, "description": t.description }))
+        .collect())
+}
+
 // ── Skills Management Commands ────────────────────────────────────
 
 #[tauri::command]
@@ -1063,6 +1073,8 @@ pub fn run() {
             chat,
             // Command approval
             respond_to_approval,
+            // Tools info
+            list_builtin_tools,
             // Skills
             get_skills,
             get_skill_detail,

@@ -672,15 +672,19 @@ function AgentPanel() {
               className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm transition-colors text-foreground hover:bg-secondary/60 group"
               onClick={() => setEditingId(agent.id)}
             >
-              {/* Emoji / fallback */}
-              <span className="text-lg w-7 text-center shrink-0">
-                {agent.emoji || "🤖"}
-              </span>
+              {/* Avatar / fallback */}
+              <div className="w-9 h-9 rounded-full bg-primary/15 flex items-center justify-center text-primary shrink-0 overflow-hidden">
+                {agent.avatar ? (
+                  <img src={agent.avatar.startsWith("/") ? convertFileSrc(agent.avatar) : agent.avatar} className="w-full h-full object-cover" alt="" />
+                ) : (
+                  <Bot className="h-5 w-5" />
+                )}
+              </div>
 
-              {/* Name + description */}
+              {/* Name + emoji + description */}
               <div className="flex-1 text-left min-w-0">
                 <div className="font-medium truncate flex items-center gap-2">
-                  {agent.name}
+                  {agent.name}{agent.emoji ? ` ${agent.emoji}` : ""}
                   {agent.id === "default" && (
                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-secondary text-muted-foreground font-medium">
                       {t("settings.agentDefault")}
@@ -820,8 +824,8 @@ function AgentEditView({
   const [activeTab, setActiveTab] = useState<AgentTab>("identity")
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
-  const [approvalInput, setApprovalInput] = useState("")
   const [availableSkills, setAvailableSkills] = useState<SkillSummary[]>([])
+  const [builtinTools, setBuiltinTools] = useState<{ name: string; description: string }[]>([])
   const [traitInput, setTraitInput] = useState("")
   const [principleInput, setPrincipleInput] = useState("")
   const [needsFillTemplate, setNeedsFillTemplate] = useState(false)
@@ -830,14 +834,16 @@ function AgentEditView({
   useEffect(() => {
     async function load() {
       try {
-        const [cfg, md, per, tg, skills] = await Promise.all([
+        const [cfg, md, per, tg, skills, tools] = await Promise.all([
           invoke<AgentConfig>("get_agent_config", { id: agentId }),
           invoke<string | null>("get_agent_markdown", { id: agentId, file: "agent.md" }),
           invoke<string | null>("get_agent_markdown", { id: agentId, file: "persona.md" }),
           invoke<string | null>("get_agent_markdown", { id: agentId, file: "tools.md" }),
           invoke<SkillSummary[]>("get_skills"),
+          invoke<{ name: string; description: string }[]>("list_builtin_tools"),
         ])
         setAvailableSkills(skills.filter(s => s.enabled))
+        setBuiltinTools(tools)
         // Ensure personality exists (for agents created before this field was added)
         if (!cfg.personality) {
           cfg.personality = { ...DEFAULT_PERSONALITY }
@@ -922,6 +928,21 @@ function AgentEditView({
       setter((e.target as HTMLInputElement).value)
     },
   })
+
+  /** i18n key map for built-in tool names */
+  const toolI18nKey: Record<string, string> = {
+    exec: "Exec", process: "Process", read: "Read", write: "Write",
+    edit: "Edit", ls: "Ls", grep: "Grep", find: "Find",
+    apply_patch: "ApplyPatch", web_search: "WebSearch", web_fetch: "WebFetch",
+  }
+  const toolDisplayName = (name: string) => {
+    const key = toolI18nKey[name]
+    return key ? t(`settings.tool${key}Name`) : name
+  }
+  const toolDisplayDesc = (name: string) => {
+    const key = toolI18nKey[name]
+    return key ? t(`settings.tool${key}Desc`) : ""
+  }
 
   /** Character counter for markdown textareas */
   const MAX_MD_CHARS = 20000
@@ -1329,48 +1350,73 @@ function AgentEditView({
 
               {/* Require Approval */}
               <div>
-                <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.agentRequireApproval")}</div>
-                <div className="flex flex-wrap gap-1.5 mb-2">
-                  {config.behavior.requireApproval.map((tool) => (
-                    <span
-                      key={tool}
-                      className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md bg-secondary text-foreground"
-                    >
-                      {tool}
+                <div className="text-xs font-medium text-muted-foreground mb-1 px-1">{t("settings.agentRequireApproval")}</div>
+                <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">{t("settings.agentRequireApprovalDesc")}</p>
+                {/* Mode selector */}
+                <div className="flex gap-1.5 mb-3">
+                  {([
+                    { mode: "all", label: t("settings.agentApprovalAll") },
+                    { mode: "none", label: t("settings.agentApprovalNone") },
+                    { mode: "custom", label: t("settings.agentApprovalCustom") },
+                  ] as const).map(({ mode, label }) => {
+                    const currentMode = config.behavior.requireApproval.includes("*") ? "all"
+                      : config.behavior.requireApproval.length === 0 ? "none" : "custom"
+                    const isActive = currentMode === mode
+                    return (
                       <button
-                        className="text-muted-foreground hover:text-destructive transition-colors"
-                        onClick={() => updateConfig({
-                          behavior: {
-                            ...config.behavior,
-                            requireApproval: config.behavior.requireApproval.filter((t) => t !== tool),
-                          },
-                        })}
+                        key={mode}
+                        className={cn(
+                          "px-3 py-1.5 text-xs rounded-md border transition-colors",
+                          isActive
+                            ? "bg-primary/10 border-primary/40 text-primary"
+                            : "bg-secondary/40 border-border/50 text-muted-foreground hover:border-border"
+                        )}
+                        onClick={() => {
+                          if (mode === "all") {
+                            updateConfig({ behavior: { ...config.behavior, requireApproval: ["*"] } })
+                          } else if (mode === "none") {
+                            updateConfig({ behavior: { ...config.behavior, requireApproval: [] } })
+                          } else {
+                            updateConfig({ behavior: { ...config.behavior, requireApproval: ["exec"] } })
+                          }
+                        }}
                       >
-                        <X className="h-3 w-3" />
+                        {label}
                       </button>
-                    </span>
-                  ))}
+                    )
+                  })}
                 </div>
-                <input
-                  className="w-full px-3 py-2.5 text-sm bg-secondary/40 rounded-lg text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors"
-                  value={approvalInput}
-                  onChange={(e) => setApprovalInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && approvalInput.trim()) {
-                      const tool = approvalInput.trim()
-                      if (!config.behavior.requireApproval.includes(tool)) {
-                        updateConfig({
-                          behavior: {
-                            ...config.behavior,
-                            requireApproval: [...config.behavior.requireApproval, tool],
-                          },
-                        })
-                      }
-                      setApprovalInput("")
-                    }
-                  }}
-                  placeholder={t("settings.agentRequireApprovalPlaceholder")}
-                />
+                {/* Custom tool selection */}
+                {!config.behavior.requireApproval.includes("*") && config.behavior.requireApproval.length > 0 && (
+                  <div className="rounded-lg border border-border/50 overflow-hidden">
+                    {builtinTools.map((tool, idx) => {
+                      const isRequired = config.behavior.requireApproval.includes(tool.name)
+                      return (
+                        <div
+                          key={tool.name}
+                          className={cn(
+                            "flex items-center justify-between px-3 py-2 gap-3",
+                            idx > 0 && "border-t border-border/30"
+                          )}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="text-xs font-medium text-foreground">{toolDisplayName(tool.name)}</div>
+                            <div className="text-[11px] text-muted-foreground/60 line-clamp-1">{toolDisplayDesc(tool.name)}</div>
+                          </div>
+                          <Switch
+                            checked={isRequired}
+                            onCheckedChange={(checked) => {
+                              const newList = checked
+                                ? [...config.behavior.requireApproval, tool.name]
+                                : config.behavior.requireApproval.filter(t => t !== tool.name)
+                              updateConfig({ behavior: { ...config.behavior, requireApproval: newList.length > 0 ? newList : ["exec"] } })
+                            }}
+                          />
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
 
               <div className="border-t border-border/50" />

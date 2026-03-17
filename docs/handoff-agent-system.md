@@ -147,7 +147,7 @@ pub struct BehaviorConfig { max_tool_rounds, require_approval, sandbox }
 |-----|------|---------|
 | **身份** | 名称、描述、Emoji、头像（文件选择器）、角色定位 + 补充说明 | agent.json + agent.md |
 | **性格** | 气质、语气（6 预设+自定义）、特质（tag）、准则（列表）、边界、个性、沟通方式 + 补充说明 | agent.json personality + persona.md |
-| **行为** | 工具轮数、审批工具（tag）、沙箱开关 + 工具使用指导 | agent.json behavior + tools.md |
+| **行为** | 工具轮数（支持不限制）、工具审批（全部/无需/自定义三模式，工具列表从后端动态加载，本地化显示）、沙箱开关、per-Agent 技能配置（可禁用全局技能）、Markdown 字符计数 + 工具使用指导 | agent.json behavior + tools.md |
 | **自定义提示词** | 开关切换；开启后忽略结构化设置，使用 Markdown 编辑器。首次开启自动从模板文件填充 | agent.json useCustomPrompt + agent.md / persona.md |
 
 ### 3.2 提示词组装模式

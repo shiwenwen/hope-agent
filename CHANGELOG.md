@@ -29,6 +29,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 对话列表显示当前 Agent 头像 + 名称 + Emoji
   - 聊天页头部显示 Agent 名称
   - 右上角 Settings 图标可跳转 Agent 设置页
+- **Agent 行为设置增强**：
+  - Markdown 输入框（agent.md / persona.md / tools.md）显示字符计数（20,000 上限），超 80% 黄色警告，超限红色提示
+  - 最大工具调用轮数支持「不限制」选项（0 = 无上限）
+  - 新增 per-Agent 技能配置：全局开启的技能默认可用，可单独禁用不需要的
+  - 工具审批改为三种模式：全部审批 / 无需审批 / 自定义（可逐个选择工具）
+  - 内置工具名称和描述支持 12 种语言本地化显示
+  - 新增 `list_builtin_tools` Tauri 命令，前端动态加载工具列表
 - **用户个人配置 UI**：设置页「个人信息」面板，支持头像/昵称/性别/年龄/角色/AI 经验/时区/语言/回复风格/补充说明
 - **Markdown 消息渲染**：用户和 AI 消息均支持完整 Markdown 渲染（基于 Streamdown）
   - 流式场景优化：正确处理未闭合语法（加粗、代码块等），渐进式渲染无闪烁
