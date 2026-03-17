@@ -430,7 +430,7 @@ function GlobalModelPanel() {
           <ModelSelector
             defaultOpen={true}
             onOpenChange={(open) => {
-              if (!open) setTimeout(() => setAddingFallback(false), 200)
+              if (!open) setAddingFallback(false)
             }}
             value=""
             onChange={(providerId, modelId) => handleAddFallback(providerId, modelId)}
@@ -1907,7 +1907,7 @@ function AgentEditView({
                         <ModelSelector
                           defaultOpen={true}
                           onOpenChange={(open) => {
-                            if (!open) setTimeout(() => setAddingAgentFallback(false), 200)
+                            if (!open) setAddingAgentFallback(false)
                           }}
                           value=""
                           onChange={(providerId, modelId) => {
