@@ -9,7 +9,6 @@ import {
   Bot,
   Camera,
   Check,
-  ChevronDown,
   ChevronRight,
   Globe,
   Info,
@@ -32,6 +31,7 @@ import {
 import { SUPPORTED_LANGUAGES, isFollowingSystem, setFollowSystemLanguage } from "@/i18n/i18n"
 import { useTheme, type ThemeMode } from "@/hooks/useTheme"
 import { Switch } from "@/components/ui/switch"
+import { ModelSelector } from "@/components/ui/model-selector"
 import ProviderSettings from "@/components/ProviderSettings"
 import type { ProviderConfig } from "@/components/ProviderSettings"
 import ProviderSetup from "@/components/ProviderSetup"
@@ -319,16 +319,6 @@ function GlobalModelPanel() {
     handleSaveFallbacks(newList)
   }
 
-  // Models grouped by provider
-  const modelsByProvider = availableModels.reduce<Record<string, AvailableModel[]>>(
-    (acc, m) => {
-      if (!acc[m.providerName]) acc[m.providerName] = []
-      acc[m.providerName].push(m)
-      return acc
-    },
-    {}
-  )
-
   // Available for adding as fallback (not already in list, not the active model)
   const availableForFallback = availableModels.filter(
     (m) =>
@@ -364,30 +354,12 @@ function GlobalModelPanel() {
           {t("settings.defaultModelDesc")}
         </p>
 
-        <div className="relative">
-          <select
-            className="w-full px-3 py-2.5 text-sm bg-secondary/40 rounded-lg text-foreground hover:bg-secondary/60 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors cursor-pointer appearance-none pr-8"
-            value={activeModel ? `${activeModel.providerId}::${activeModel.modelId}` : ""}
-            onChange={(e) => {
-              const [providerId, modelId] = e.target.value.split("::")
-              if (providerId && modelId) handleSetDefault(providerId, modelId)
-            }}
-          >
-            <option value="" disabled>
-              {t("settings.selectDefaultModel")}
-            </option>
-            {Object.entries(modelsByProvider).map(([providerName, models]) => (
-              <optgroup key={providerName} label={providerName}>
-                {models.map((m) => (
-                  <option key={`${m.providerId}::${m.modelId}`} value={`${m.providerId}::${m.modelId}`}>
-                    {m.modelName}
-                  </option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
-          <ChevronDown className="h-4 w-4 text-muted-foreground absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-        </div>
+        <ModelSelector
+          value={activeModel ? `${activeModel.providerId}::${activeModel.modelId}` : ""}
+          onChange={(providerId, modelId) => handleSetDefault(providerId, modelId)}
+          availableModels={availableModels}
+          placeholder={t("settings.selectDefaultModel")}
+        />
       </div>
 
       <div className="border-t border-border/50 mb-6" />
@@ -455,41 +427,17 @@ function GlobalModelPanel() {
 
         {/* Add fallback */}
         {addingFallback ? (
-          <div className="relative">
-            <select
-              className="w-full px-3 py-2.5 text-sm bg-secondary/40 rounded-lg text-foreground hover:bg-secondary/60 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors cursor-pointer appearance-none pr-8"
-              value=""
-              onChange={(e) => {
-                const [providerId, modelId] = e.target.value.split("::")
-                if (providerId && modelId) handleAddFallback(providerId, modelId)
-              }}
-              onBlur={() => setTimeout(() => setAddingFallback(false), 200)}
-              autoFocus
-            >
-              <option value="" disabled>
-                {t("settings.selectDefaultModel")}
-              </option>
-              {Object.entries(
-                availableForFallback.reduce<Record<string, AvailableModel[]>>(
-                  (acc, m) => {
-                    if (!acc[m.providerName]) acc[m.providerName] = []
-                    acc[m.providerName].push(m)
-                    return acc
-                  },
-                  {}
-                )
-              ).map(([providerName, models]) => (
-                <optgroup key={providerName} label={providerName}>
-                  {models.map((m) => (
-                    <option key={`${m.providerId}::${m.modelId}`} value={`${m.providerId}::${m.modelId}`}>
-                      {m.modelName}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
-            <ChevronDown className="h-4 w-4 text-muted-foreground absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-          </div>
+          <ModelSelector
+            defaultOpen={true}
+            onOpenChange={(open) => {
+              if (!open) setTimeout(() => setAddingFallback(false), 200)
+            }}
+            value=""
+            onChange={(providerId, modelId) => handleAddFallback(providerId, modelId)}
+            availableModels={availableForFallback}
+            placeholder={t("settings.selectFallbackModel")}
+          />
+
         ) : (
           <button
             className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 transition-colors px-1 py-1.5"
@@ -1840,13 +1788,6 @@ function AgentEditView({
           {/* ── Model Tab ── */}
           {activeTab === "model" && (() => {
             const isCustom = !!(config.model.primary)
-            const modelsByProvider = availableModels.reduce<Record<string, AvailableModel[]>>(
-              (acc, m) => {
-                if (!acc[m.providerName]) acc[m.providerName] = []
-                acc[m.providerName].push(m)
-                return acc
-              }, {}
-            )
             const modelDisplayName = (ref: string) => {
               const [pid, mid] = ref.split("/")
               const m = availableModels.find(m => m.providerId === pid && m.modelId === mid)
@@ -1858,13 +1799,6 @@ function AgentEditView({
                 const ref = `${m.providerId}/${m.modelId}`
                 return ref !== config.model.primary && !fallbacks.includes(ref)
               }
-            )
-            const fbByProvider = availableForFallback.reduce<Record<string, AvailableModel[]>>(
-              (acc, m) => {
-                if (!acc[m.providerName]) acc[m.providerName] = []
-                acc[m.providerName].push(m)
-                return acc
-              }, {}
             )
 
             return (
@@ -1902,27 +1836,12 @@ function AgentEditView({
                     {/* Primary model selector */}
                     <div>
                       <div className="text-xs font-medium text-muted-foreground mb-1 px-1">{t("settings.agentModelPrimary")}</div>
-                      <div className="relative">
-                        <select
-                          className="w-full px-3 py-2.5 text-sm bg-secondary/40 rounded-lg text-foreground hover:bg-secondary/60 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors cursor-pointer appearance-none pr-8"
-                          value={config.model.primary || ""}
-                          onChange={(e) => {
-                            updateConfig({ model: { ...config.model, primary: e.target.value } })
-                          }}
-                        >
-                          <option value="" disabled>{t("settings.selectDefaultModel")}</option>
-                          {Object.entries(modelsByProvider).map(([providerName, models]) => (
-                            <optgroup key={providerName} label={providerName}>
-                              {models.map((m) => (
-                                <option key={`${m.providerId}/${m.modelId}`} value={`${m.providerId}/${m.modelId}`}>
-                                  {m.modelName}
-                                </option>
-                              ))}
-                            </optgroup>
-                          ))}
-                        </select>
-                        <ChevronDown className="h-4 w-4 text-muted-foreground absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                      </div>
+                      <ModelSelector
+                        value={config.model.primary || ""}
+                        onChange={(providerId, modelId) => updateConfig({ model: { ...config.model, primary: `${providerId}/${modelId}` } })}
+                        availableModels={availableModels}
+                        placeholder={t("settings.selectDefaultModel")}
+                      />
                     </div>
 
                     <div className="border-t border-border/50" />
@@ -1985,33 +1904,20 @@ function AgentEditView({
                           <span>{t("settings.addFallbackModel")}</span>
                         </button>
                       ) : (
-                        <div className="relative">
-                          <select
-                            className="w-full px-3 py-2.5 text-sm bg-secondary/40 rounded-lg text-foreground hover:bg-secondary/60 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors cursor-pointer appearance-none pr-8"
-                            value=""
-                            onChange={(e) => {
-                              const ref = e.target.value
-                              if (ref) {
-                                updateConfig({ model: { ...config.model, fallbacks: [...fallbacks, ref] } })
-                                setAddingAgentFallback(false)
-                              }
-                            }}
-                            onBlur={() => setTimeout(() => setAddingAgentFallback(false), 200)}
-                            autoFocus
-                          >
-                            <option value="" disabled>{t("settings.selectFallbackModel")}</option>
-                            {Object.entries(fbByProvider).map(([providerName, models]) => (
-                              <optgroup key={providerName} label={providerName}>
-                                {models.map((m) => (
-                                  <option key={`${m.providerId}/${m.modelId}`} value={`${m.providerId}/${m.modelId}`}>
-                                    {m.modelName}
-                                  </option>
-                                ))}
-                              </optgroup>
-                            ))}
-                          </select>
-                          <ChevronDown className="h-4 w-4 text-muted-foreground absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                        </div>
+                        <ModelSelector
+                          defaultOpen={true}
+                          onOpenChange={(open) => {
+                            if (!open) setTimeout(() => setAddingAgentFallback(false), 200)
+                          }}
+                          value=""
+                          onChange={(providerId, modelId) => {
+                            const ref = `${providerId}/${modelId}`
+                            updateConfig({ model: { ...config.model, fallbacks: [...fallbacks, ref] } })
+                            setAddingAgentFallback(false)
+                          }}
+                          availableModels={availableForFallback}
+                          placeholder={t("settings.selectFallbackModel")}
+                        />
                       )}
                     </div>
                   </>
