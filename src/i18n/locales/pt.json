@@ -10,7 +10,8 @@
     "saving": "Salvando...",
     "testing": "Testando...",
     "nextStep": "Próximo",
-    "loginTimeout": "Login expirou, tente novamente"
+    "loginTimeout": "Login expirou, tente novamente",
+    "dragToSort": "Arraste para reordenar"
   },
   "chat": {
     "conversations": "Conversas",

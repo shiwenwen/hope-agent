@@ -10,7 +10,8 @@
     "saving": "Đang lưu...",
     "testing": "Đang kiểm tra...",
     "nextStep": "Tiếp",
-    "loginTimeout": "Đăng nhập hết thời gian, vui lòng thử lại"
+    "loginTimeout": "Đăng nhập hết thời gian, vui lòng thử lại",
+    "dragToSort": "Kéo để sắp xếp"
   },
   "chat": {
     "conversations": "Hội thoại",

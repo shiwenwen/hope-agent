@@ -98,6 +98,29 @@ async fn update_provider(
 }
 
 #[tauri::command]
+async fn reorder_providers(
+    provider_ids: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let mut store = state.provider_store.lock().await;
+    let mut reordered = Vec::with_capacity(provider_ids.len());
+    for id in &provider_ids {
+        if let Some(p) = store.providers.iter().find(|p| &p.id == id) {
+            reordered.push(p.clone());
+        }
+    }
+    // Append any providers not in the list (safety)
+    for p in &store.providers {
+        if !provider_ids.contains(&p.id) {
+            reordered.push(p.clone());
+        }
+    }
+    store.providers = reordered;
+    provider::save_store(&store).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 async fn delete_provider(
     provider_id: String,
     state: State<'_, AppState>,
@@ -1050,6 +1073,7 @@ pub fn run() {
             get_providers,
             add_provider,
             update_provider,
+            reorder_providers,
             delete_provider,
             test_provider,
             test_model,

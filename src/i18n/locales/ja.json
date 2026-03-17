@@ -10,7 +10,8 @@
     "saving": "保存中...",
     "testing": "テスト中...",
     "nextStep": "次へ",
-    "loginTimeout": "ログインがタイムアウトしました。もう一度お試しください"
+    "loginTimeout": "ログインがタイムアウトしました。もう一度お試しください",
+    "dragToSort": "ドラッグで並べ替え"
   },
   "chat": {
     "conversations": "チャット",

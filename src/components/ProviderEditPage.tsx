@@ -3,9 +3,22 @@ import { invoke } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { ModelEditor, type ModelConfig } from "@/components/ProviderSetup"
+import { ModelEditor, SortableModelEditor, type ModelConfig } from "@/components/ProviderSetup"
 import ProviderIcon from "@/components/ProviderIcon"
 import TestResultDisplay, { parseTestResult, type TestResult } from "@/components/TestResultDisplay"
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core"
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+  arrayMove,
+} from "@dnd-kit/sortable"
 import {
   ArrowLeft,
   ArrowRight,
@@ -68,6 +81,18 @@ export default function ProviderEditPage({
   const [showApiKey, setShowApiKey] = useState(false)
   const [modelsExpanded, setModelsExpanded] = useState(false)
   const [error, setError] = useState("")
+
+  const modelSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+  )
+
+  function handleModelDragEnd(event: DragEndEvent) {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const oldIndex = editModels.findIndex((_, i) => `model-${i}` === active.id)
+    const newIndex = editModels.findIndex((_, i) => `model-${i}` === over.id)
+    setEditModels(arrayMove(editModels, oldIndex, newIndex))
+  }
 
   async function handleTest() {
     setTestLoading(true)
@@ -301,6 +326,9 @@ export default function ProviderEditPage({
               <span className="text-[10px] text-muted-foreground/60 bg-secondary/80 px-1.5 py-0.5 rounded-md">
                 {editModels.length}
               </span>
+              {editModels.length > 1 && (
+                <span className="text-[10px] text-muted-foreground/50">{t("common.dragToSort")}</span>
+              )}
             </div>
             <ArrowRight
               className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${modelsExpanded ? "rotate-90" : ""}`}
@@ -322,34 +350,46 @@ export default function ProviderEditPage({
 
           {modelsExpanded && (
             <div className="px-4 pb-4 space-y-2.5">
-              {editModels.map((model, i) => (
-                <ModelEditor
-                  key={i}
-                  model={model}
-                  onChange={(m) => {
-                    const updated = [...editModels]
-                    updated[i] = m
-                    setEditModels(updated)
-                  }}
-                  onRemove={() =>
-                    setEditModels(editModels.filter((_, j) => j !== i))
-                  }
-                  onTest={editBaseUrl.trim() && !isCodex ? (modelId) => invoke<string>("test_model", {
-                    config: {
-                      id: provider.id,
-                      name: editName,
-                      apiType: editApiType,
-                      baseUrl: editBaseUrl,
-                      apiKey: editApiKey,
-                      userAgent: editUserAgent,
-                      thinkingStyle: editThinkingStyle,
-                      models: [],
-                      enabled: true,
-                    },
-                    modelId,
-                  }) : undefined}
-                />
-              ))}
+              <DndContext
+                sensors={modelSensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleModelDragEnd}
+              >
+                <SortableContext
+                  items={editModels.map((_, i) => `model-${i}`)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  {editModels.map((model, i) => (
+                    <SortableModelEditor
+                      key={`model-${i}`}
+                      sortableId={`model-${i}`}
+                      model={model}
+                      onChange={(m) => {
+                        const updated = [...editModels]
+                        updated[i] = m
+                        setEditModels(updated)
+                      }}
+                      onRemove={() =>
+                        setEditModels(editModels.filter((_, j) => j !== i))
+                      }
+                      onTest={editBaseUrl.trim() && !isCodex ? (modelId) => invoke<string>("test_model", {
+                        config: {
+                          id: provider.id,
+                          name: editName,
+                          apiType: editApiType,
+                          baseUrl: editBaseUrl,
+                          apiKey: editApiKey,
+                          userAgent: editUserAgent,
+                          thinkingStyle: editThinkingStyle,
+                          models: [],
+                          enabled: true,
+                        },
+                        modelId,
+                      }) : undefined}
+                    />
+                  ))}
+                </SortableContext>
+              </DndContext>
               <Button
                 variant="secondary"
                 size="sm"

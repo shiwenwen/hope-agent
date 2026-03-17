@@ -10,7 +10,8 @@
     "saving": "儲存中...",
     "testing": "測試中...",
     "nextStep": "下一步",
-    "loginTimeout": "登入逾時，請重試"
+    "loginTimeout": "登入逾時，請重試",
+    "dragToSort": "拖曳可排序"
   },
   "chat": {
     "conversations": "對話",

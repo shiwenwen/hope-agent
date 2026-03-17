@@ -6,6 +6,21 @@ import { Input } from "@/components/ui/input"
 import ProviderIcon from "@/components/ProviderIcon"
 import TestResultDisplay, { parseTestResult, type TestResult } from "@/components/TestResultDisplay"
 import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core"
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+  arrayMove,
+} from "@dnd-kit/sortable"
+import { CSS } from "@dnd-kit/utilities"
+import {
   ArrowLeft,
   ArrowRight,
   Check,
@@ -13,6 +28,7 @@ import {
   ChevronDown,
   Clock,
   Globe,
+  GripVertical,
   Info,
   Key,
   Loader2,
@@ -430,16 +446,63 @@ const PROVIDER_TEMPLATES: ProviderTemplate[] = [
 
 // ── ModelEditor ───────────────────────────────────────────────────
 
-export function ModelEditor({
+export function SortableModelEditor({
+  sortableId,
   model,
   onChange,
   onRemove,
   onTest,
 }: {
+  sortableId: string
   model: ModelConfig
   onChange: (m: ModelConfig) => void
   onRemove: () => void
   onTest?: (modelId: string) => Promise<string>
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: sortableId })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+    zIndex: isDragging ? 50 : undefined,
+  }
+
+  return (
+    <div ref={setNodeRef} style={style}>
+      <ModelEditor
+        model={model}
+        onChange={onChange}
+        onRemove={onRemove}
+        onTest={onTest}
+        dragListeners={listeners}
+        dragAttributes={attributes}
+      />
+    </div>
+  )
+}
+
+export function ModelEditor({
+  model,
+  onChange,
+  onRemove,
+  onTest,
+  dragListeners,
+  dragAttributes,
+}: {
+  model: ModelConfig
+  onChange: (m: ModelConfig) => void
+  onRemove: () => void
+  onTest?: (modelId: string) => Promise<string>
+  dragListeners?: Record<string, unknown>
+  dragAttributes?: Record<string, unknown>
 }) {
   const { t } = useTranslation()
   const inputTypes = ["text", "image", "video"]
@@ -459,9 +522,20 @@ export function ModelEditor({
   return (
     <div className="border border-border rounded-lg p-3.5 space-y-3 bg-secondary/60">
       <div className="flex items-center justify-between">
-        <span className="text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
-          {t("model.modelConfig")}
-        </span>
+        <div className="flex items-center gap-1.5">
+          {dragListeners && (
+            <div
+              className="cursor-grab active:cursor-grabbing text-muted-foreground/40 hover:text-muted-foreground/70 touch-none"
+              {...dragAttributes}
+              {...dragListeners}
+            >
+              <GripVertical className="h-3.5 w-3.5" />
+            </div>
+          )}
+          <span className="text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
+            {t("model.modelConfig")}
+          </span>
+        </div>
         <Button
           variant="ghost"
           size="icon"
@@ -726,6 +800,10 @@ export default function ProviderSetup({
   const [modelsExpanded, setModelsExpanded] = useState(false)
   const [thinkingStyle, setThinkingStyle] = useState<ThinkingStyleType>("openai")
 
+  const modelSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+  )
+
   // ── Actions ─────────────────────────────────────────────────────
 
   function selectTemplate(template: ProviderTemplate) {
@@ -754,6 +832,14 @@ export default function ProviderSetup({
     setCustomStep(0)
     setThinkingStyle("openai")
     setMode("custom")
+  }
+
+  function handleModelDragEnd(event: DragEndEvent) {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const oldIndex = models.findIndex((_, i) => `model-${i}` === active.id)
+    const newIndex = models.findIndex((_, i) => `model-${i}` === over.id)
+    setModels(arrayMove(models, oldIndex, newIndex))
   }
 
   async function handleTest() {
@@ -1104,6 +1190,9 @@ export default function ProviderSetup({
                 <span className="text-[10px] text-muted-foreground/60 bg-secondary/80 px-1.5 py-0.5 rounded-md">
                   {models.length}
                 </span>
+                {models.length > 1 && (
+                  <span className="text-[10px] text-muted-foreground/50">{t("common.dragToSort")}</span>
+                )}
               </div>
               <ArrowRight
                 className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${modelsExpanded ? "rotate-90" : ""
@@ -1126,24 +1215,36 @@ export default function ProviderSetup({
 
             {modelsExpanded && (
               <div className="px-4 pb-4 space-y-2.5">
-                {models.map((model, i) => (
-                  <ModelEditor
-                    key={i}
-                    model={model}
-                    onChange={(m) => {
-                      const updated = [...models]
-                      updated[i] = m
-                      setModels(updated)
-                    }}
-                    onRemove={() =>
-                      setModels(models.filter((_, j) => j !== i))
-                    }
-                    onTest={baseUrl.trim() ? (modelId) => invoke<string>("test_model", {
-                      config: { id: "", name: providerName, apiType, baseUrl, apiKey: apiKey || "ollama", userAgent: "claude-code/0.1.0", models: [], enabled: true },
-                      modelId,
-                    }) : undefined}
-                  />
-                ))}
+                <DndContext
+                  sensors={modelSensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleModelDragEnd}
+                >
+                  <SortableContext
+                    items={models.map((_, i) => `model-${i}`)}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    {models.map((model, i) => (
+                      <SortableModelEditor
+                        key={`model-${i}`}
+                        sortableId={`model-${i}`}
+                        model={model}
+                        onChange={(m) => {
+                          const updated = [...models]
+                          updated[i] = m
+                          setModels(updated)
+                        }}
+                        onRemove={() =>
+                          setModels(models.filter((_, j) => j !== i))
+                        }
+                        onTest={baseUrl.trim() ? (modelId) => invoke<string>("test_model", {
+                          config: { id: "", name: providerName, apiType, baseUrl, apiKey: apiKey || "ollama", userAgent: "claude-code/0.1.0", models: [], enabled: true },
+                          modelId,
+                        }) : undefined}
+                      />
+                    ))}
+                  </SortableContext>
+                </DndContext>
                 <Button
                   variant="secondary"
                   size="sm"
@@ -1396,6 +1497,9 @@ export default function ProviderSetup({
                 </h3>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   {t("model.configModels")}
+                  {models.length > 1 && (
+                    <span className="ml-2 text-[10px] text-muted-foreground/50">{t("common.dragToSort")}</span>
+                  )}
                 </p>
               </div>
               <Button
@@ -1422,24 +1526,36 @@ export default function ProviderSetup({
               </Button>
             </div>
             <div className="space-y-2.5 max-h-[400px] overflow-y-auto pr-1">
-              {models.map((model, i) => (
-                <ModelEditor
-                  key={i}
-                  model={model}
-                  onChange={(m) => {
-                    const updated = [...models]
-                    updated[i] = m
-                    setModels(updated)
-                  }}
-                  onRemove={() =>
-                    setModels(models.filter((_, j) => j !== i))
-                  }
-                  onTest={baseUrl.trim() ? (modelId) => invoke<string>("test_model", {
-                    config: { id: "", name: providerName, apiType, baseUrl, apiKey: apiKey || "ollama", userAgent: "claude-code/0.1.0", models: [], enabled: true },
-                    modelId,
-                  }) : undefined}
-                />
-              ))}
+              <DndContext
+                sensors={modelSensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleModelDragEnd}
+              >
+                <SortableContext
+                  items={models.map((_, i) => `model-${i}`)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  {models.map((model, i) => (
+                    <SortableModelEditor
+                      key={`model-${i}`}
+                      sortableId={`model-${i}`}
+                      model={model}
+                      onChange={(m) => {
+                        const updated = [...models]
+                        updated[i] = m
+                        setModels(updated)
+                      }}
+                      onRemove={() =>
+                        setModels(models.filter((_, j) => j !== i))
+                      }
+                      onTest={baseUrl.trim() ? (modelId) => invoke<string>("test_model", {
+                        config: { id: "", name: providerName, apiType, baseUrl, apiKey: apiKey || "ollama", userAgent: "claude-code/0.1.0", models: [], enabled: true },
+                        modelId,
+                      }) : undefined}
+                    />
+                  ))}
+                </SortableContext>
+              </DndContext>
               {models.length === 0 && (
                 <div className="text-center py-8 text-muted-foreground text-xs">
                   {t("model.atLeastOneModel")}

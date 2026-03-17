@@ -10,7 +10,8 @@
     "saving": "保存中...",
     "testing": "测试中...",
     "nextStep": "下一步",
-    "loginTimeout": "登录超时，请重试"
+    "loginTimeout": "登录超时，请重试",
+    "dragToSort": "拖拽可排序"
   },
   "chat": {
     "conversations": "会话",

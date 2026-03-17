@@ -10,7 +10,8 @@
     "saving": "Kaydediliyor...",
     "testing": "Test ediliyor...",
     "nextStep": "İleri",
-    "loginTimeout": "Giriş zaman aşımına uğradı, tekrar deneyin"
+    "loginTimeout": "Giriş zaman aşımına uğradı, tekrar deneyin",
+    "dragToSort": "Sıralamak için sürükleyin"
   },
   "chat": {
     "conversations": "Sohbetler",

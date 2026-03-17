@@ -10,7 +10,8 @@
     "saving": "Saving...",
     "testing": "Testing...",
     "nextStep": "Next",
-    "loginTimeout": "Login timed out, please try again"
+    "loginTimeout": "Login timed out, please try again",
+    "dragToSort": "Drag to reorder"
   },
   "chat": {
     "conversations": "Chats",

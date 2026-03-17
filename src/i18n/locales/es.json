@@ -10,7 +10,8 @@
     "saving": "Guardando...",
     "testing": "Probando...",
     "nextStep": "Siguiente",
-    "loginTimeout": "Inicio de sesión expirado, intente de nuevo"
+    "loginTimeout": "Inicio de sesión expirado, intente de nuevo",
+    "dragToSort": "Arrastra para reordenar"
   },
   "chat": {
     "conversations": "Conversaciones",

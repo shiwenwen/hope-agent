@@ -10,7 +10,8 @@
     "saving": "Menyimpan...",
     "testing": "Menguji...",
     "nextStep": "Seterusnya",
-    "loginTimeout": "Log masuk tamat masa, sila cuba lagi"
+    "loginTimeout": "Log masuk tamat masa, sila cuba lagi",
+    "dragToSort": "Seret untuk menyusun semula"
   },
   "chat": {
     "conversations": "Perbualan",

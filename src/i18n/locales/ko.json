@@ -10,7 +10,8 @@
     "saving": "저장 중...",
     "testing": "테스트 중...",
     "nextStep": "다음",
-    "loginTimeout": "로그인 시간 초과, 다시 시도해주세요"
+    "loginTimeout": "로그인 시간 초과, 다시 시도해주세요",
+    "dragToSort": "드래그하여 정렬"
   },
   "chat": {
     "conversations": "대화",
