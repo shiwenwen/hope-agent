@@ -261,9 +261,13 @@
     "inheritGlobal": "继承全局设置",
     "customModel": "自定义模型",
     "agentModelConfig": "模型配置",
+    "agentModel": "模型",
     "agentModelInherit": "继承全局",
-    "agentModelCustom": "自定义",
+    "agentModelCustom": "自定义模型",
+    "agentModelCustomDesc": "覆盖全局模型设置，为此 Agent 指定独立的模型和降级链",
+    "agentModelInheritHint": "当前继承全局默认模型和降级模型设置。开启「自定义模型」可为此 Agent 指定独立配置。",
     "agentModelInheritDesc": "使用全局默认模型和降级模型设置",
+    "agentModelPrimary": "主模型",
     "modelFallbackNotice": "主模型不可用，已切换到 {{model}}"
   },
   "tz": {

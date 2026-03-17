@@ -261,9 +261,13 @@
     "inheritGlobal": "Inherit Global Settings",
     "customModel": "Custom Model",
     "agentModelConfig": "Model Configuration",
+    "agentModel": "Model",
     "agentModelInherit": "Inherit Global",
-    "agentModelCustom": "Custom",
+    "agentModelCustom": "Custom Model",
+    "agentModelCustomDesc": "Override global model settings with agent-specific model and fallback chain",
+    "agentModelInheritHint": "Currently inheriting global default and fallback model settings. Enable \"Custom Model\" to configure agent-specific models.",
     "agentModelInheritDesc": "Uses the global default and fallback model settings",
+    "agentModelPrimary": "Primary Model",
     "modelFallbackNotice": "Primary model unavailable, switched to {{model}}"
   },
   "tz": {
