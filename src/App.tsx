@@ -642,6 +642,7 @@ function ChatScreen() {
 
   // Keyboard handler: Enter to send, Shift+Enter to newline
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault()
       handleSend()
