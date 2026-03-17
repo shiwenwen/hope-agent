@@ -25,7 +25,14 @@
     "modelsCount": "{{count}} نماذج",
     "attachImage": "إضافة صورة",
     "attachFile": "إضافة ملف",
-    "selectModel": "اختيار النموذج"
+    "selectModel": "اختيار النموذج",
+    "deleteSessionTitle": "حذف المحادثة",
+    "deleteSessionWarning": "سيؤدي هذا الإجراء إلى حذف هذه المحادثة وجميع رسائلها نهائيًا. لا يمكن التراجع عن هذا الإجراء. هل أنت متأكد؟",
+    "justNow": "الآن",
+    "minutesAgo": "منذ {{count}} دقيقة",
+    "hoursAgo": "منذ {{count}} ساعة",
+    "daysAgo": "منذ {{count}} يوم",
+    "weeksAgo": "منذ {{count}} أسبوع"
   },
   "effort": {
     "off": "إيقاف",

@@ -7,6 +7,7 @@ use std::sync::Mutex;
 // ── Data Structures ──────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SessionMeta {
     pub id: String,
     pub title: Option<String>,

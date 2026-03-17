@@ -25,7 +25,14 @@
     "modelsCount": "{{count}} model",
     "attachImage": "Tambah Gambar",
     "attachFile": "Tambah Fail",
-    "selectModel": "Pilih Model"
+    "selectModel": "Pilih Model",
+    "deleteSessionTitle": "Padam Perbualan",
+    "deleteSessionWarning": "Tindakan ini akan memadamkan perbualan ini dan semua mesejnya secara kekal. Tindakan ini tidak boleh dibatalkan. Adakah anda pasti?",
+    "justNow": "Baru sahaja",
+    "minutesAgo": "{{count}} minit lalu",
+    "hoursAgo": "{{count}} jam lalu",
+    "daysAgo": "{{count}} hari lalu",
+    "weeksAgo": "{{count}} minggu lalu"
   },
   "effort": {
     "off": "Mati",

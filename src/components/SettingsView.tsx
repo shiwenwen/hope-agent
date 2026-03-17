@@ -47,6 +47,7 @@ import {
 import { SUPPORTED_LANGUAGES, isFollowingSystem, setFollowSystemLanguage } from "@/i18n/i18n"
 import { useTheme, type ThemeMode } from "@/hooks/useTheme"
 import { Switch } from "@/components/ui/switch"
+import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -904,11 +905,11 @@ const TONE_PRESETS = [
   { value: "direct", labelKey: "settings.agentToneDirect" },
 ]
 
-function AgentPanel() {
+function AgentPanel({ initialAgentId }: { initialAgentId?: string }) {
   const { t } = useTranslation()
   const [agents, setAgents] = useState<AgentSummary[]>([])
   const [loading, setLoading] = useState(true)
-  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(initialAgentId ?? null)
   const [creating, setCreating] = useState(false)
 
   async function reload() {
@@ -1061,13 +1062,15 @@ function AgentCreateView({
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-y-auto p-6">
       <div className="max-w-4xl">
-        <button
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={onBack}
-          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-4"
+          className="gap-1.5 text-muted-foreground hover:text-foreground mb-4"
         >
           <ArrowLeft className="h-4 w-4" />
           <span>{t("settings.agents")}</span>
-        </button>
+        </Button>
 
         <h2 className="text-lg font-semibold text-foreground mb-5">
           {t("settings.agentNew")}
@@ -1101,13 +1104,9 @@ function AgentCreateView({
             <p className="text-xs text-destructive px-1">{error}</p>
           )}
 
-          <button
-            className="px-4 py-2 text-sm font-medium rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-            onClick={handleCreate}
-            disabled={!id.trim()}
-          >
+          <Button onClick={handleCreate} disabled={!id.trim()}>
             {t("common.add")}
-          </button>
+          </Button>
         </div>
       </div>
     </div>
@@ -1986,13 +1985,15 @@ function AgentEditView({
 
                       {/* Add fallback button / selector */}
                       {!addingAgentFallback ? (
-                        <button
-                          className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 transition-colors px-1"
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="gap-1.5 text-primary hover:text-primary/80 px-1"
                           onClick={() => setAddingAgentFallback(true)}
                         >
                           <Plus className="h-3.5 w-3.5" />
                           <span>{t("settings.addFallbackModel")}</span>
-                        </button>
+                        </Button>
                       ) : (
                         <ModelSelector
                           defaultOpen={true}
@@ -2022,21 +2023,20 @@ function AgentEditView({
       <div className="shrink-0 flex items-center justify-between px-6 py-3 border-t border-border/30">
         <div>
           {agentId !== "default" && (
-            <button
-              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-destructive transition-colors"
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1.5 text-muted-foreground hover:text-destructive"
               onClick={handleDelete}
             >
               <Trash2 className="h-3.5 w-3.5" />
               <span>{t("common.delete")}</span>
-            </button>
+            </Button>
           )}
         </div>
-        <button
+        <Button
           className={cn(
-            "px-4 py-2 text-sm font-medium rounded-lg transition-all",
-            saved
-              ? "bg-green-500/10 text-green-600"
-              : "bg-primary text-primary-foreground hover:bg-primary/90"
+            saved && "bg-green-500/10 text-green-600 hover:bg-green-500/20"
           )}
           onClick={handleSave}
           disabled={saving}
@@ -2047,7 +2047,7 @@ function AgentEditView({
               {t("settings.agentSaved")}
             </span>
           ) : t("common.save")}
-        </button>
+        </Button>
       </div>
     </div>
   )
@@ -2490,12 +2490,9 @@ function UserProfilePanel() {
 
       {/* ── Save — fixed bottom-right ── */}
       <div className="shrink-0 flex justify-end px-6 py-3 border-t border-border/30">
-        <button
+        <Button
           className={cn(
-            "px-4 py-2 text-sm font-medium rounded-lg transition-all",
-            saved
-              ? "bg-green-500/10 text-green-600"
-              : "bg-primary text-primary-foreground hover:bg-primary/90"
+            saved && "bg-green-500/10 text-green-600 hover:bg-green-500/20"
           )}
           onClick={handleSave}
           disabled={saving}
@@ -2506,7 +2503,7 @@ function UserProfilePanel() {
               {t("settings.profileSaved")}
             </span>
           ) : t("common.save")}
-        </button>
+        </Button>
       </div>
     </div>
   )
@@ -2581,11 +2578,13 @@ export default function SettingsView({
   onCodexAuth,
   onCodexReauth,
   initialSection,
+  initialAgentId,
 }: {
   onBack: () => void
   onCodexAuth: () => Promise<void>
   onCodexReauth?: () => void
   initialSection?: SettingsSection
+  initialAgentId?: string
 }) {
   const { t } = useTranslation()
   const [activeSection, setActiveSection] =
@@ -2599,15 +2598,17 @@ export default function SettingsView({
       <div className="w-[220px] shrink-0 border-r border-border bg-secondary/20 flex flex-col">
         {/* Header with back button + drag region */}
         <div className="h-10 flex items-end px-4 gap-2 shrink-0" data-tauri-drag-region>
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={onBack}
-            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors pb-1.5"
+            className="gap-1.5 text-muted-foreground hover:text-foreground pb-1.5"
           >
             <ArrowLeft className="h-4 w-4" />
             <span className="text-sm font-semibold text-foreground">
               {t("settings.title")}
             </span>
-          </button>
+          </Button>
         </div>
 
         {/* Navigation Items */}
@@ -2677,7 +2678,7 @@ export default function SettingsView({
           )}
           {activeSection === "models" && <GlobalModelPanel />}
           {activeSection === "skills" && <SkillsPanel />}
-          {activeSection === "agents" && <AgentPanel />}
+          {activeSection === "agents" && <AgentPanel initialAgentId={initialAgentId} />}
           {activeSection === "profile" && <UserProfilePanel />}
           {activeSection === "appearance" && <AppearancePanel />}
           {activeSection === "language" && <LanguagePanel />}

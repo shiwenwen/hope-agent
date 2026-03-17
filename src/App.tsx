@@ -4,6 +4,16 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { cn } from "@/lib/utils"
 import {
   Send,
@@ -39,12 +49,14 @@ function IconSidebar({
   view,
   onOpenSettings,
   onOpenChat,
+  onOpenAgents,
   onOpenSkills,
   onOpenProfile,
 }: {
-  view: "chat" | "settings" | "skills" | "profile"
+  view: "chat" | "settings" | "skills" | "profile" | "agents"
   onOpenSettings: () => void
   onOpenChat: () => void
+  onOpenAgents: () => void
   onOpenSkills: () => void
   onOpenProfile: () => void
 }) {
@@ -69,6 +81,24 @@ function IconSidebar({
           title={t("chat.conversations")}
         >
           <MessageSquare className="h-4 w-4" />
+        </Button>
+      </div>
+
+      {/* Agents entry */}
+      <div className="w-full flex justify-center mt-1">
+        <Button
+          variant="ghost"
+          size="icon"
+          className={cn(
+            "rounded-xl h-8 w-8",
+            view === "agents"
+              ? "bg-primary/10 text-primary hover:bg-primary/20"
+              : "text-muted-foreground hover:text-foreground"
+          )}
+          onClick={onOpenAgents}
+          title={t("settings.agents")}
+        >
+          <Bot className="h-4 w-4" />
         </Button>
       </div>
 
@@ -350,13 +380,16 @@ interface AgentSummaryForSidebar {
   avatar?: string | null
 }
 
-function ChatScreen({ onOpenAgentSettings }: { onOpenAgentSettings?: () => void }) {
+function ChatScreen({ onOpenAgentSettings }: { onOpenAgentSettings?: (agentId: string) => void }) {
   const { t } = useTranslation()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
   const [loading, setLoading] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
+
+  // Delete confirmation state
+  const [deleteConfirmSessionId, setDeleteConfirmSessionId] = useState<string | null>(null)
 
   // Session & Agent list state
   const [sessions, setSessions] = useState<SessionMeta[]>([])
@@ -392,6 +425,7 @@ function ChatScreen({ onOpenAgentSettings }: { onOpenAgentSettings?: () => void 
 
   // Current agent info
   const [agentName, setAgentName] = useState("")
+  const [currentAgentId, setCurrentAgentId] = useState("default")
 
   // Model state (new provider-based)
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
@@ -589,6 +623,13 @@ function ChatScreen({ onOpenAgentSettings }: { onOpenAgentSettings?: () => void 
       }
       setMessages(displayMessages)
       setCurrentSessionId(sessionId)
+      // Update current agent from session
+      const session = sessions.find(s => s.id === sessionId)
+      if (session) {
+        setCurrentAgentId(session.agentId)
+        const agent = agents.find(a => a.id === session.agentId)
+        if (agent) setAgentName(agent.name)
+      }
     } catch (e) {
       console.error("Failed to load session:", e)
     }
@@ -600,15 +641,23 @@ function ChatScreen({ onOpenAgentSettings }: { onOpenAgentSettings?: () => void 
     setMessages([])
     setCurrentSessionId(null)
     setShowNewChatMenu(false)
+    setCurrentAgentId(agentId)
     if (agent) {
       setAgentName(agent.name)
     }
     // TODO: set current_agent_id via invoke
   }
 
-  // Delete a session
-  async function handleDeleteSession(sessionId: string, e: React.MouseEvent) {
+  // Delete a session — show confirmation first
+  function handleDeleteSession(sessionId: string, e: React.MouseEvent) {
     e.stopPropagation()
+    setDeleteConfirmSessionId(sessionId)
+  }
+
+  async function confirmDeleteSession() {
+    const sessionId = deleteConfirmSessionId
+    if (!sessionId) return
+    setDeleteConfirmSessionId(null)
     try {
       await invoke("delete_session_cmd", { sessionId })
       if (currentSessionId === sessionId) {
@@ -629,15 +678,18 @@ function ChatScreen({ onOpenAgentSettings }: { onOpenAgentSettings?: () => void 
   // Helper: format relative time
   const formatRelativeTime = (dateStr: string) => {
     const date = new Date(dateStr)
+    if (isNaN(date.getTime())) return ""
     const now = new Date()
     const diff = now.getTime() - date.getTime()
     const minutes = Math.floor(diff / 60000)
-    if (minutes < 1) return t("chat.justNow") || "刚刚"
-    if (minutes < 60) return `${minutes}m`
+    if (minutes < 1) return t("chat.justNow")
+    if (minutes < 60) return t("chat.minutesAgo", { count: minutes })
     const hours = Math.floor(minutes / 60)
-    if (hours < 24) return `${hours}h`
+    if (hours < 24) return t("chat.hoursAgo", { count: hours })
     const days = Math.floor(hours / 24)
-    if (days < 7) return `${days}d`
+    if (days < 7) return t("chat.daysAgo", { count: days })
+    const weeks = Math.floor(days / 7)
+    if (days < 30) return t("chat.weeksAgo", { count: weeks })
     return date.toLocaleDateString()
   }
 
@@ -941,7 +993,7 @@ function ChatScreen({ onOpenAgentSettings }: { onOpenAgentSettings?: () => void 
                       className={cn(
                         "flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs transition-colors truncate group/agent",
                         isSelected
-                          ? "bg-primary/10 ring-1 ring-primary/30"
+                          ? "bg-primary/10"
                           : "hover:bg-secondary/60"
                       )}
                       title={agent.description || agent.name}
@@ -1050,6 +1102,27 @@ function ChatScreen({ onOpenAgentSettings }: { onOpenAgentSettings?: () => void 
         </div>
       </div>
 
+      {/* Delete session confirmation dialog */}
+      <AlertDialog open={!!deleteConfirmSessionId} onOpenChange={(open) => !open && setDeleteConfirmSessionId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("chat.deleteSessionTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("chat.deleteSessionWarning")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={confirmDeleteSession}
+            >
+              {t("common.delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Drag Handle */}
       <div
         className="w-1 shrink-0 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors"
@@ -1072,7 +1145,7 @@ function ChatScreen({ onOpenAgentSettings }: { onOpenAgentSettings?: () => void 
           {onOpenAgentSettings && (
             <button
               className="pb-1.5 text-muted-foreground hover:text-foreground transition-colors"
-              onClick={onOpenAgentSettings}
+              onClick={() => onOpenAgentSettings(currentAgentId)}
               title={t("settings.agents")}
             >
               <Settings className="h-4 w-4" />
@@ -1359,6 +1432,7 @@ export default function App() {
   const [view, setView] = useState<
     "loading" | "setup" | "chat" | "settings" | "skills" | "profile" | "agents"
   >("loading")
+  const [agentIdForSettings, setAgentIdForSettings] = useState<string | undefined>(undefined)
 
   // Try to restore previous session on mount
   useEffect(() => {
@@ -1429,9 +1503,10 @@ export default function App() {
   return (
     <div className="flex h-screen overflow-hidden bg-background">
       <IconSidebar
-        view={view === "settings" ? "settings" : view === "skills" ? "skills" : view === "profile" ? "profile" : view === "agents" ? "settings" : "chat"}
+        view={view === "settings" ? "settings" : view === "skills" ? "skills" : view === "profile" ? "profile" : view === "agents" ? "agents" : "chat"}
         onOpenSettings={() => setView("settings")}
         onOpenChat={() => setView("chat")}
+        onOpenAgents={() => { setAgentIdForSettings(undefined); setView("agents") }}
         onOpenSkills={() => setView("skills")}
         onOpenProfile={() => setView("profile")}
       />
@@ -1457,13 +1532,14 @@ export default function App() {
         />
       ) : view === "agents" ? (
         <SettingsView
-          onBack={() => setView("chat")}
+          onBack={() => { setView("chat"); setAgentIdForSettings(undefined) }}
           onCodexAuth={handleCodexAuth}
           onCodexReauth={handleCodexAuth}
           initialSection="agents"
+          initialAgentId={agentIdForSettings}
         />
       ) : (
-        <ChatScreen onOpenAgentSettings={() => setView("agents")} />
+        <ChatScreen onOpenAgentSettings={(agentId) => { setAgentIdForSettings(agentId); setView("agents") }} />
       )}
     </div>
   )

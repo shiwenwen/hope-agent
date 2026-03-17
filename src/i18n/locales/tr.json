@@ -25,7 +25,14 @@
     "modelsCount": "{{count}} model",
     "attachImage": "Resim Ekle",
     "attachFile": "Dosya Ekle",
-    "selectModel": "Model Seç"
+    "selectModel": "Model Seç",
+    "deleteSessionTitle": "Sohbeti Sil",
+    "deleteSessionWarning": "Bu işlem bu sohbeti ve tüm mesajlarını kalıcı olarak silecektir. Bu işlem geri alınamaz. Emin misiniz?",
+    "justNow": "Az önce",
+    "minutesAgo": "{{count}} dk önce",
+    "hoursAgo": "{{count}} sa önce",
+    "daysAgo": "{{count}} gün önce",
+    "weeksAgo": "{{count}} hafta önce"
   },
   "effort": {
     "off": "Kapalı",

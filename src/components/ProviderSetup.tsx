@@ -941,13 +941,15 @@ export default function ProviderSetup({
         {/* Header with optional back button */}
         {onCancel && (
           <div className="h-11 flex items-center px-4 border-b border-border shrink-0">
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={onCancel}
-              className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+              className="gap-1.5 text-muted-foreground hover:text-foreground"
             >
               <ArrowLeft className="h-4 w-4" />
               {t("common.back")}
-            </button>
+            </Button>
           </div>
         )}
 
@@ -1063,13 +1065,15 @@ export default function ProviderSetup({
     <div className="flex flex-col h-full bg-background">
         {/* Header */}
         <div className="h-11 flex items-center px-4 border-b border-border shrink-0">
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => setMode("choose")}
-            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            className="gap-1.5 text-muted-foreground hover:text-foreground"
           >
             <ArrowLeft className="h-4 w-4" />
             {t("common.back")}
-          </button>
+          </Button>
           <span className="text-sm font-semibold text-foreground mx-auto flex items-center gap-1.5">
             <ProviderIcon providerKey={selectedTemplate.key} size={18} color />
             {t(`provider_templates.${selectedTemplate.key}.name`, { defaultValue: selectedTemplate.name })}
@@ -1337,16 +1341,18 @@ export default function ProviderSetup({
     <div className="flex flex-col h-full bg-background">
       {/* Header */}
       <div className="h-11 flex items-center px-4 border-b border-border shrink-0">
-        <button
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={() => {
             if (customStep > 0) setCustomStep(customStep - 1)
             else setMode("choose")
           }}
-          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          className="gap-1.5 text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="h-4 w-4" />
           {t("common.back")}
-        </button>
+        </Button>
 
         <div className="flex items-center gap-2 mx-auto">
           {[t("wizard.apiType"), t("wizard.connectionConfig"), t("wizard.models")].map((label, i) => (

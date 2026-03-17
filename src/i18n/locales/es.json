@@ -25,7 +25,14 @@
     "modelsCount": "{{count}} modelos",
     "attachImage": "Agregar imagen",
     "attachFile": "Agregar archivo",
-    "selectModel": "Seleccionar modelo"
+    "selectModel": "Seleccionar modelo",
+    "deleteSessionTitle": "Eliminar conversación",
+    "deleteSessionWarning": "Esta acción eliminará permanentemente esta conversación y todos sus mensajes. No se puede deshacer. ¿Estás seguro?",
+    "justNow": "Justo ahora",
+    "minutesAgo": "hace {{count}}min",
+    "hoursAgo": "hace {{count}}h",
+    "daysAgo": "hace {{count}}d",
+    "weeksAgo": "hace {{count}}sem"
   },
   "effort": {
     "off": "Apagado",

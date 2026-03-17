@@ -22,6 +22,10 @@
     "startConversation": "Start a conversation",
     "newChat": "New Chat",
     "justNow": "Just now",
+    "minutesAgo": "{{count}}min ago",
+    "hoursAgo": "{{count}}h ago",
+    "daysAgo": "{{count}}d ago",
+    "weeksAgo": "{{count}}w ago",
     "clearFilter": "Clear filter",
     "noMatchingSessions": "No matching sessions",
     "howCanIHelp": "How can I help you today?",
@@ -29,7 +33,9 @@
     "modelsCount": "{{count}} models",
     "attachImage": "Add Image",
     "attachFile": "Add File",
-    "selectModel": "Select Model"
+    "selectModel": "Select Model",
+    "deleteSessionTitle": "Delete Conversation",
+    "deleteSessionWarning": "This will permanently delete this conversation and all its messages. This action cannot be undone. Are you sure?"
   },
   "effort": {
     "off": "Off",

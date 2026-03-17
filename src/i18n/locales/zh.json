@@ -22,6 +22,10 @@
     "startConversation": "开始对话",
     "newChat": "新建对话",
     "justNow": "刚刚",
+    "minutesAgo": "{{count}}分钟前",
+    "hoursAgo": "{{count}}小时前",
+    "daysAgo": "{{count}}天前",
+    "weeksAgo": "{{count}}周前",
     "clearFilter": "清除筛选",
     "noMatchingSessions": "没有匹配的会话",
     "howCanIHelp": "有什么可以帮你的？",
@@ -29,7 +33,9 @@
     "modelsCount": "{{count}} 个模型",
     "attachImage": "添加图片",
     "attachFile": "添加文件",
-    "selectModel": "选择模型"
+    "selectModel": "选择模型",
+    "deleteSessionTitle": "删除对话",
+    "deleteSessionWarning": "此操作将永久删除该对话及其所有消息记录，且无法恢复。请确认是否继续？"
   },
   "effort": {
     "off": "关闭",

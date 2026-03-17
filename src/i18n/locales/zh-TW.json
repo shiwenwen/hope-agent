@@ -25,7 +25,14 @@
     "modelsCount": "{{count}} 個模型",
     "attachImage": "新增圖片",
     "attachFile": "新增檔案",
-    "selectModel": "選擇模型"
+    "selectModel": "選擇模型",
+    "deleteSessionTitle": "刪除對話",
+    "deleteSessionWarning": "此操作將永久刪除該對話及其所有訊息記錄，且無法復原。請確認是否繼續？",
+    "justNow": "剛剛",
+    "minutesAgo": "{{count}}分鐘前",
+    "hoursAgo": "{{count}}小時前",
+    "daysAgo": "{{count}}天前",
+    "weeksAgo": "{{count}}週前"
   },
   "effort": {
     "off": "關閉",

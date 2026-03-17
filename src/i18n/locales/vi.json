@@ -25,7 +25,14 @@
     "modelsCount": "{{count}} mô hình",
     "attachImage": "Thêm ảnh",
     "attachFile": "Thêm tệp",
-    "selectModel": "Chọn mô hình"
+    "selectModel": "Chọn mô hình",
+    "deleteSessionTitle": "Xóa cuộc trò chuyện",
+    "deleteSessionWarning": "Thao tác này sẽ xóa vĩnh viễn cuộc trò chuyện này và tất cả tin nhắn. Không thể hoàn tác. Bạn có chắc chắn không?",
+    "justNow": "Vừa xong",
+    "minutesAgo": "{{count}} phút trước",
+    "hoursAgo": "{{count}} giờ trước",
+    "daysAgo": "{{count}} ngày trước",
+    "weeksAgo": "{{count}} tuần trước"
   },
   "effort": {
     "off": "Tắt",

@@ -25,7 +25,14 @@
     "modelsCount": "{{count}} моделей",
     "attachImage": "Добавить изображение",
     "attachFile": "Добавить файл",
-    "selectModel": "Выбрать модель"
+    "selectModel": "Выбрать модель",
+    "deleteSessionTitle": "Удалить разговор",
+    "deleteSessionWarning": "Это действие навсегда удалит этот разговор и все его сообщения. Отменить невозможно. Вы уверены?",
+    "justNow": "Только что",
+    "minutesAgo": "{{count}} мин назад",
+    "hoursAgo": "{{count}} ч назад",
+    "daysAgo": "{{count}} дн назад",
+    "weeksAgo": "{{count}} нед назад"
   },
   "effort": {
     "off": "Выкл",

@@ -149,13 +149,15 @@ export default function ProviderEditPage({
     <div className="flex flex-col h-full bg-background">
       {/* Header */}
       <div className="h-11 flex items-center px-4 border-b border-border shrink-0">
-        <button
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={onCancel}
-          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          className="gap-1.5 text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="h-4 w-4" />
           {t("common.back")}
-        </button>
+        </Button>
         <span className="text-sm font-semibold text-foreground mx-auto flex items-center gap-1.5">
           <ProviderIcon providerName={provider.name} size={18} color />
           {t("provider.editProvider")}

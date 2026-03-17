@@ -25,7 +25,14 @@
     "modelsCount": "{{count}} modelos",
     "attachImage": "Adicionar Imagem",
     "attachFile": "Adicionar Arquivo",
-    "selectModel": "Selecionar Modelo"
+    "selectModel": "Selecionar Modelo",
+    "deleteSessionTitle": "Excluir conversa",
+    "deleteSessionWarning": "Esta ação excluirá permanentemente esta conversa e todas as suas mensagens. Não é possível desfazer. Tem certeza?",
+    "justNow": "Agora mesmo",
+    "minutesAgo": "{{count}}min atrás",
+    "hoursAgo": "{{count}}h atrás",
+    "daysAgo": "{{count}}d atrás",
+    "weeksAgo": "{{count}}sem atrás"
   },
   "effort": {
     "off": "Desligado",

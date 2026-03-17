@@ -25,7 +25,14 @@
     "modelsCount": "{{count}} モデル",
     "attachImage": "画像を追加",
     "attachFile": "ファイルを追加",
-    "selectModel": "モデルを選択"
+    "selectModel": "モデルを選択",
+    "deleteSessionTitle": "会話を削除",
+    "deleteSessionWarning": "この操作により、この会話とすべてのメッセージが完全に削除されます。この操作は元に戻せません。続行しますか？",
+    "justNow": "たった今",
+    "minutesAgo": "{{count}}分前",
+    "hoursAgo": "{{count}}時間前",
+    "daysAgo": "{{count}}日前",
+    "weeksAgo": "{{count}}週間前"
   },
   "effort": {
     "off": "オフ",
