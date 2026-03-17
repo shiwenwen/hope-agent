@@ -166,5 +166,99 @@
     "allowAlways": "常に許可",
     "deny": "拒否",
     "queueIndicator": "{{total}} 件中 {{current}} 件目"
+  },
+  "provider_templates": {
+    "anthropic": {
+      "name": "Anthropic",
+      "description": "Claudeシリーズモデル"
+    },
+    "openai": {
+      "name": "OpenAI",
+      "description": "GPTシリーズモデル (Responses API)"
+    },
+    "openai-chat": {
+      "name": "OpenAI (Chat)",
+      "description": "GPTシリーズ — Chat Completions API"
+    },
+    "deepseek": {
+      "name": "DeepSeek",
+      "description": "DeepSeekシリーズ推論モデル"
+    },
+    "google-gemini": {
+      "name": "Google Gemini",
+      "description": "Geminiシリーズマルチモーダルモデル"
+    },
+    "xai": {
+      "name": "xAI",
+      "description": "Grokシリーズモデル"
+    },
+    "mistral": {
+      "name": "Mistral",
+      "description": "Mistralシリーズ欧州モデル"
+    },
+    "openrouter": {
+      "name": "OpenRouter",
+      "description": "マルチモデル集約ゲートウェイ、1つのキーで数百のモデルを使用"
+    },
+    "groq": {
+      "name": "Groq",
+      "description": "超高速LPU推論"
+    },
+    "moonshot": {
+      "name": "Moonshot AI (Kimi)",
+      "description": "Kimiシリーズロングコンテキストモデル"
+    },
+    "qwen": {
+      "name": "Qwen",
+      "description": "Alibaba Cloud DashScopeモデル"
+    },
+    "volcengine": {
+      "name": "Volcengine (Doubao)",
+      "description": "ByteDance Doubaoシリーズモデル"
+    },
+    "zhipu": {
+      "name": "Zhipu AI (Z.AI)",
+      "description": "GLMシリーズモデル"
+    },
+    "minimax": {
+      "name": "MiniMax",
+      "description": "MiniMax M2シリーズ (Anthropic互換)"
+    },
+    "kimi-coding": {
+      "name": "Kimi Coding",
+      "description": "Kimi for Coding (Anthropic互換)"
+    },
+    "xiaomi": {
+      "name": "Xiaomi MiMo",
+      "description": "MiMoシリーズモデル (Anthropic互換)"
+    },
+    "qianfan": {
+      "name": "Baidu Qianfan",
+      "description": "Baidu AI Cloud Qianfanプラットフォーム"
+    },
+    "modelstudio": {
+      "name": "阿里云百炼",
+      "description": "阿里云 大模型服务平台，支持Coding Plan"
+    },
+    "nvidia": {
+      "name": "NVIDIA",
+      "description": "NVIDIA AIエンドポイント"
+    },
+    "together": {
+      "name": "Together AI",
+      "description": "オープンソースモデルクラウド推論プラットフォーム"
+    },
+    "ollama": {
+      "name": "Ollama",
+      "description": "ローカル+クラウドモデル推論、APIキー不要"
+    },
+    "vllm": {
+      "name": "vLLM",
+      "description": "高性能ローカル推論エンジン"
+    },
+    "lm-studio": {
+      "name": "LM Studio",
+      "description": "デスクトップローカルモデル推論"
+    }
   }
 }

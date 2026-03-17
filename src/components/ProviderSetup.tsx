@@ -351,7 +351,7 @@ const PROVIDER_TEMPLATES: ProviderTemplate[] = [
   {
     key: "modelstudio",
     name: "ModelStudio (DashScope)",
-    description: "阿里云 Coding 专用端点",
+    description: "Alibaba Cloud model service platform with Coding Plan support",
     icon: "🏗️",
     apiType: "openai-chat",
     baseUrl: "https://coding-intl.dashscope.aliyuncs.com/v1",
@@ -508,7 +508,7 @@ export function ModelEditor({
   onRemove: () => void
   onTest?: (modelId: string) => Promise<string>
   dragListeners?: Record<string, unknown>
-  dragAttributes?: Record<string, unknown>
+  dragAttributes?: any // DraggableAttributes from @dnd-kit
 }) {
   const { t } = useTranslation()
   const inputTypes = ["text", "image", "video"]
@@ -814,7 +814,7 @@ export default function ProviderSetup({
 
   function selectTemplate(template: ProviderTemplate) {
     setSelectedTemplate(template)
-    setProviderName(template.name)
+    setProviderName(t(`provider_templates.${template.key}.name`, { defaultValue: template.name }))
     setBaseUrl(template.baseUrl)
     setApiType(template.apiType)
     setModels([...template.models])
@@ -923,9 +923,12 @@ export default function ProviderSetup({
 
   const filteredTemplates = searchQuery.trim()
     ? PROVIDER_TEMPLATES.filter(
-      (t) =>
-        t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        t.description.toLowerCase().includes(searchQuery.toLowerCase()),
+      (tmpl) => {
+        const name = t(`provider_templates.${tmpl.key}.name`, { defaultValue: tmpl.name })
+        const desc = t(`provider_templates.${tmpl.key}.description`, { defaultValue: tmpl.description })
+        return name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+               desc.toLowerCase().includes(searchQuery.toLowerCase())
+      }
     )
     : PROVIDER_TEMPLATES
 
@@ -1014,10 +1017,10 @@ export default function ProviderSetup({
                 <ProviderIcon providerKey={template.key} size={24} className="shrink-0" color />
                 <div className="min-w-0">
                   <div className="text-xs font-medium text-foreground truncate">
-                    {template.name}
+                    {t(`provider_templates.${template.key}.name`, { defaultValue: template.name })}
                   </div>
                   <div className="text-[10px] text-muted-foreground truncate">
-                    {template.description}
+                    {t(`provider_templates.${template.key}.description`, { defaultValue: template.description })}
                   </div>
                 </div>
               </button>
@@ -1068,7 +1071,7 @@ export default function ProviderSetup({
           </button>
           <span className="text-sm font-semibold text-foreground mx-auto flex items-center gap-1.5">
             <ProviderIcon providerKey={selectedTemplate.key} size={18} color />
-            {selectedTemplate.name}
+            {t(`provider_templates.${selectedTemplate.key}.name`, { defaultValue: selectedTemplate.name })}
           </span>
           <div className="w-12" /> {/* spacer */}
         </div>

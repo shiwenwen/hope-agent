@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { ModelEditor, SortableModelEditor, type ModelConfig } from "@/components/ProviderSetup"
+import { SortableModelEditor, type ModelConfig } from "@/components/ProviderSetup"
 import ProviderIcon from "@/components/ProviderIcon"
 import TestResultDisplay, { parseTestResult, type TestResult } from "@/components/TestResultDisplay"
 import {

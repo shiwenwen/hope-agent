@@ -331,5 +331,99 @@
     "allowAlways": "始终允许",
     "deny": "拒绝",
     "queueIndicator": "第 {{current}} 个，共 {{total}} 个"
+  },
+  "provider_templates": {
+    "anthropic": {
+      "name": "Anthropic",
+      "description": "Claude 系列模型"
+    },
+    "openai": {
+      "name": "OpenAI",
+      "description": "GPT 系列模型 (Responses API)"
+    },
+    "openai-chat": {
+      "name": "OpenAI (Chat)",
+      "description": "GPT 系列 — Chat Completions API"
+    },
+    "deepseek": {
+      "name": "DeepSeek",
+      "description": "DeepSeek 系列推理模型"
+    },
+    "google-gemini": {
+      "name": "Google Gemini",
+      "description": "Gemini 系列多模态模型"
+    },
+    "xai": {
+      "name": "xAI",
+      "description": "Grok 系列模型"
+    },
+    "mistral": {
+      "name": "Mistral",
+      "description": "Mistral 系列欧洲模型"
+    },
+    "openrouter": {
+      "name": "OpenRouter",
+      "description": "多模型聚合网关，一个 Key 用数百个模型"
+    },
+    "groq": {
+      "name": "Groq",
+      "description": "超高速 LPU 推理"
+    },
+    "moonshot": {
+      "name": "Moonshot AI (Kimi)",
+      "description": "Kimi 系列长上下文模型"
+    },
+    "qwen": {
+      "name": "通义千问 (Qwen)",
+      "description": "阿里云 DashScope 大模型"
+    },
+    "volcengine": {
+      "name": "火山引擎 (豆包)",
+      "description": "字节跳动 Doubao 系列模型"
+    },
+    "zhipu": {
+      "name": "智谱 AI (Z.AI)",
+      "description": "GLM 系列模型"
+    },
+    "minimax": {
+      "name": "MiniMax",
+      "description": "MiniMax M2 系列 (Anthropic 兼容)"
+    },
+    "kimi-coding": {
+      "name": "Kimi Coding",
+      "description": "Kimi for Coding (Anthropic 兼容)"
+    },
+    "xiaomi": {
+      "name": "小米 MiMo",
+      "description": "MiMo 系列模型 (Anthropic 兼容)"
+    },
+    "qianfan": {
+      "name": "百度千帆",
+      "description": "百度智能云 千帆大模型平台"
+    },
+    "modelstudio": {
+      "name": "阿里云百炼",
+      "description": "阿里云大模型服务平台，支持 Coding Plan"
+    },
+    "nvidia": {
+      "name": "NVIDIA",
+      "description": "NVIDIA AI Endpoints"
+    },
+    "together": {
+      "name": "Together AI",
+      "description": "开源模型云推理平台"
+    },
+    "ollama": {
+      "name": "Ollama",
+      "description": "本地 + 云端模型推理，无需 API Key"
+    },
+    "vllm": {
+      "name": "vLLM",
+      "description": "高性能本地推理引擎"
+    },
+    "lm-studio": {
+      "name": "LM Studio",
+      "description": "桌面端本地模型推理"
+    }
   }
 }

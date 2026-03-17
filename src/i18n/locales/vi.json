@@ -166,5 +166,99 @@
     "allowAlways": "Luôn cho phép",
     "deny": "Từ chối",
     "queueIndicator": "{{current}} trên {{total}}"
+  },
+  "provider_templates": {
+    "anthropic": {
+      "name": "Anthropic",
+      "description": "Claude series models"
+    },
+    "openai": {
+      "name": "OpenAI",
+      "description": "GPT series models (Responses API)"
+    },
+    "openai-chat": {
+      "name": "OpenAI (Chat)",
+      "description": "GPT series — Chat Completions API"
+    },
+    "deepseek": {
+      "name": "DeepSeek",
+      "description": "DeepSeek series reasoning models"
+    },
+    "google-gemini": {
+      "name": "Google Gemini",
+      "description": "Gemini series multimodal models"
+    },
+    "xai": {
+      "name": "xAI",
+      "description": "Grok series models"
+    },
+    "mistral": {
+      "name": "Mistral",
+      "description": "Mistral series European models"
+    },
+    "openrouter": {
+      "name": "OpenRouter",
+      "description": "Multi-model aggregation gateway, hundreds of models with one key"
+    },
+    "groq": {
+      "name": "Groq",
+      "description": "Ultra-high-speed LPU inference"
+    },
+    "moonshot": {
+      "name": "Moonshot AI (Kimi)",
+      "description": "Kimi series long-context models"
+    },
+    "qwen": {
+      "name": "Qwen",
+      "description": "Alibaba Cloud DashScope models"
+    },
+    "volcengine": {
+      "name": "Volcengine (Doubao)",
+      "description": "ByteDance Doubao series models"
+    },
+    "zhipu": {
+      "name": "Zhipu AI (Z.AI)",
+      "description": "GLM series models"
+    },
+    "minimax": {
+      "name": "MiniMax",
+      "description": "MiniMax M2 series (Anthropic compatible)"
+    },
+    "kimi-coding": {
+      "name": "Kimi Coding",
+      "description": "Kimi for Coding (Anthropic compatible)"
+    },
+    "xiaomi": {
+      "name": "Xiaomi MiMo",
+      "description": "MiMo series models (Anthropic compatible)"
+    },
+    "qianfan": {
+      "name": "Baidu Qianfan",
+      "description": "Baidu AI Cloud Qianfan Platform"
+    },
+    "modelstudio": {
+      "name": "阿里云百炼",
+      "description": "阿里云 大模型服务平台，支持Coding Plan"
+    },
+    "nvidia": {
+      "name": "NVIDIA",
+      "description": "NVIDIA AI Endpoints"
+    },
+    "together": {
+      "name": "Together AI",
+      "description": "Open source model cloud inference platform"
+    },
+    "ollama": {
+      "name": "Ollama",
+      "description": "Local + cloud model inference, no API Key required"
+    },
+    "vllm": {
+      "name": "vLLM",
+      "description": "High-performance local inference engine"
+    },
+    "lm-studio": {
+      "name": "LM Studio",
+      "description": "Desktop local model inference"
+    }
   }
 }
