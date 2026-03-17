@@ -18,19 +18,23 @@ function getStoredTheme(): ThemeMode {
 
 function applyTheme(mode: ThemeMode) {
   const root = document.documentElement
+  let isDark: boolean
   if (mode === "dark") {
-    root.classList.add("dark")
+    isDark = true
   } else if (mode === "light") {
-    root.classList.remove("dark")
+    isDark = false
   } else {
-    // auto — follow system preference
-    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches
-    if (prefersDark) {
-      root.classList.add("dark")
-    } else {
-      root.classList.remove("dark")
-    }
+    isDark = window.matchMedia("(prefers-color-scheme: dark)").matches
   }
+
+  if (isDark) {
+    root.classList.add("dark")
+  } else {
+    root.classList.remove("dark")
+  }
+  // Sync inline background to prevent flash on resize
+  root.style.backgroundColor = isDark ? "#0f0f0f" : "#ffffff"
+  root.style.colorScheme = isDark ? "dark" : "light"
 }
 
 export function useTheme() {

@@ -998,6 +998,27 @@ pub fn run() {
                         .build(),
                 )?;
             }
+
+            // Fix macOS dark mode white flash on window resize
+            #[cfg(target_os = "macos")]
+            {
+                use tauri::Manager;
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.with_webview(|webview| unsafe {
+                        let ns_window: &objc2_app_kit::NSWindow =
+                            &*webview.ns_window().cast();
+                        let bg_color =
+                            objc2_app_kit::NSColor::colorWithSRGBRed_green_blue_alpha(
+                                15.0 / 255.0,
+                                15.0 / 255.0,
+                                15.0 / 255.0,
+                                1.0,
+                            );
+                        ns_window.setBackgroundColor(Some(&bg_color));
+                    });
+                }
+            }
+
             Ok(())
         })
         .manage(AppState {
