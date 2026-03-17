@@ -3,6 +3,7 @@ import { invoke, Channel, convertFileSrc } from "@tauri-apps/api/core"
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
+import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import {
   Send,
@@ -363,6 +364,27 @@ function ChatScreen({ onOpenAgentSettings }: { onOpenAgentSettings?: () => void 
   const [agentsExpanded, setAgentsExpanded] = useState(true)
   const [showNewChatMenu, setShowNewChatMenu] = useState(false)
   const newChatMenuRef = useRef<HTMLDivElement>(null)
+
+  // Agent filter state: selected agent IDs for filtering sessions
+  const [selectedAgentIds, setSelectedAgentIds] = useState<Set<string>>(new Set())
+
+  // Filtered sessions based on selected agents
+  const filteredSessions = selectedAgentIds.size === 0
+    ? sessions
+    : sessions.filter(s => selectedAgentIds.has(s.agentId))
+
+  // Toggle agent selection for filtering
+  const toggleAgentFilter = useCallback((agentId: string) => {
+    setSelectedAgentIds(prev => {
+      const next = new Set(prev)
+      if (next.has(agentId)) {
+        next.delete(agentId)
+      } else {
+        next.add(agentId)
+      }
+      return next
+    })
+  }, [])
 
   // Resizable agent list panel
   const [panelWidth, setPanelWidth] = useState(256)
@@ -880,52 +902,98 @@ function ChatScreen({ onOpenAgentSettings }: { onOpenAgentSettings?: () => void 
         <div className="flex-1 overflow-y-auto">
           {/* Collapsible Agents section */}
           <div className="border-b border-border/50">
-            <button
-              className="flex items-center gap-1.5 w-full px-4 py-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
-              onClick={() => setAgentsExpanded(!agentsExpanded)}
-            >
-              {agentsExpanded ? (
-                <ChevronDown className="h-3 w-3" />
-              ) : (
-                <ChevronRight className="h-3 w-3" />
+            <div className="flex items-center">
+              <button
+                className="flex items-center gap-1.5 flex-1 px-4 py-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
+                onClick={() => setAgentsExpanded(!agentsExpanded)}
+              >
+                {agentsExpanded ? (
+                  <ChevronDown className="h-3 w-3" />
+                ) : (
+                  <ChevronRight className="h-3 w-3" />
+                )}
+                <span>Agents</span>
+                <span className="font-normal normal-case text-muted-foreground/60 ml-0.5">({agents.length})</span>
+              </button>
+              {/* Clear all agent filters */}
+              {selectedAgentIds.size > 0 && (
+                <button
+                  className="mr-3 flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] text-primary bg-primary/10 hover:bg-primary/20 transition-colors"
+                  onClick={() => setSelectedAgentIds(new Set())}
+                  title={t("chat.clearFilter") || "Clear filter"}
+                >
+                  <X className="h-2.5 w-2.5" />
+                  <span>{selectedAgentIds.size}</span>
+                </button>
               )}
-              <span>Agents</span>
-              <span className="font-normal normal-case text-muted-foreground/60 ml-0.5">({agents.length})</span>
-            </button>
+            </div>
             {agentsExpanded && (
               <div className={cn("px-2 pb-2 grid gap-1", panelWidth >= 280 ? "grid-cols-2" : "grid-cols-1")}>
-                {agents.map((agent) => (
-                  <button
-                    key={agent.id}
-                    className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs hover:bg-secondary/60 transition-colors truncate"
-                    onClick={() => handleNewChat(agent.id)}
-                    title={agent.description || agent.name}
-                  >
-                    <div className="w-6 h-6 rounded-full bg-primary/15 flex items-center justify-center text-primary shrink-0 text-[10px] overflow-hidden">
-                      {agent.avatar ? (
-                        <img src={agent.avatar.startsWith("/") ? convertFileSrc(agent.avatar) : agent.avatar} className="w-full h-full object-cover" alt="" />
-                      ) : agent.emoji ? (
-                        <span>{agent.emoji}</span>
-                      ) : (
-                        <Bot className="h-3 w-3" />
+                {agents.map((agent) => {
+                  const isSelected = selectedAgentIds.has(agent.id)
+                  return (
+                    <div
+                      key={agent.id}
+                      className={cn(
+                        "flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs transition-colors truncate group/agent",
+                        isSelected
+                          ? "bg-primary/10 ring-1 ring-primary/30"
+                          : "hover:bg-secondary/60"
                       )}
+                      title={agent.description || agent.name}
+                    >
+                      {/* Clickable area: toggle filter */}
+                      <button
+                        className="flex items-center gap-2 flex-1 min-w-0"
+                        onClick={() => toggleAgentFilter(agent.id)}
+                      >
+                        <div className={cn(
+                          "w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[10px] overflow-hidden",
+                          isSelected ? "bg-primary/25 text-primary" : "bg-primary/15 text-primary"
+                        )}>
+                          {agent.avatar ? (
+                            <img src={agent.avatar.startsWith("/") ? convertFileSrc(agent.avatar) : agent.avatar} className="w-full h-full object-cover" alt="" />
+                          ) : agent.emoji ? (
+                            <span>{agent.emoji}</span>
+                          ) : (
+                            <Bot className="h-3 w-3" />
+                          )}
+                        </div>
+                        <span className={cn("truncate", isSelected ? "text-primary font-medium" : "text-foreground/80")}>
+                          {agent.name}{agent.emoji ? ` ${agent.emoji}` : ""}
+                        </span>
+                      </button>
+                      {/* New chat button */}
+                      <button
+                        className="shrink-0 p-0.5 rounded text-muted-foreground/0 group-hover/agent:text-muted-foreground/60 hover:!text-primary transition-colors"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleNewChat(agent.id)
+                        }}
+                        title={t("chat.newChat") || "New Chat"}
+                      >
+                        <MessageSquarePlus className="h-3 w-3" />
+                      </button>
                     </div>
-                    <span className="truncate text-foreground/80">{agent.name}{agent.emoji ? ` ${agent.emoji}` : ""}</span>
-                  </button>
-                ))}
+                  )
+                })}
               </div>
             )}
           </div>
 
           {/* Session list, ordered by updatedAt DESC (already from backend) */}
           <div className="p-2 space-y-0.5">
-            {sessions.length === 0 ? (
+            {filteredSessions.length === 0 ? (
               <div className="text-center py-8">
                 <MessageSquare className="h-8 w-8 text-muted-foreground/20 mx-auto mb-2" />
-                <p className="text-xs text-muted-foreground/60">{t("chat.startConversation")}</p>
+                <p className="text-xs text-muted-foreground/60">
+                  {selectedAgentIds.size > 0
+                    ? (t("chat.noMatchingSessions") || "No matching sessions")
+                    : t("chat.startConversation")}
+                </p>
               </div>
             ) : (
-              sessions.map((session) => {
+              filteredSessions.map((session) => {
                 const agent = getAgentInfo(session.agentId)
                 const isActive = session.id === currentSessionId
                 return (
@@ -1099,7 +1167,7 @@ function ChatScreen({ onOpenAgentSettings }: { onOpenAgentSettings?: () => void 
             )}
 
             {/* Textarea */}
-            <textarea
+            <Textarea
               ref={textareaRef}
               placeholder={t("chat.askAnything")}
               value={input}
@@ -1107,7 +1175,7 @@ function ChatScreen({ onOpenAgentSettings }: { onOpenAgentSettings?: () => void 
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
               rows={2}
-              className="w-full bg-transparent px-4 pt-3 pb-1 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none resize-none min-h-[52px] max-h-[200px]"
+              className="border-0 shadow-none bg-transparent px-4 pt-3 pb-1 text-sm text-foreground placeholder:text-muted-foreground focus-visible:ring-0 resize-none min-h-[52px] max-h-[200px]"
             />
 
             {/* Toolbar: left = attach + model + thinking | right = send */}

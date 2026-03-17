@@ -48,6 +48,7 @@ import { SUPPORTED_LANGUAGES, isFollowingSystem, setFollowSystemLanguage } from 
 import { useTheme, type ThemeMode } from "@/hooks/useTheme"
 import { Switch } from "@/components/ui/switch"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ModelSelector } from "@/components/ui/model-selector"
 import ProviderSettings from "@/components/ProviderSettings"
@@ -1399,8 +1400,8 @@ function AgentEditView({
               {/* Description */}
               <div>
                 <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.agentDescription")}</div>
-                <textarea
-                  className="w-full px-3 py-2.5 text-sm bg-secondary/40 rounded-lg text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors resize-none leading-relaxed"
+                <Textarea
+                  className="bg-secondary/40 rounded-lg resize-none leading-relaxed"
                   rows={2}
                   {...textInputProps(config.description ?? "", (v) => updateConfig({ description: v || null }))}
                   placeholder={t("settings.agentDescriptionPlaceholder")}
@@ -1422,8 +1423,8 @@ function AgentEditView({
               {/* Role */}
               <div>
                 <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.agentRole")}</div>
-                <textarea
-                  className="w-full px-3 py-2.5 text-sm bg-secondary/40 rounded-lg text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors resize-none leading-relaxed"
+                <Textarea
+                  className="bg-secondary/40 rounded-lg resize-none leading-relaxed"
                   rows={3}
                   {...textInputProps(config.personality.role ?? "", (v) => updatePersonality({ role: v || null }))}
                   placeholder={t("settings.agentRolePlaceholder")}
@@ -1436,8 +1437,8 @@ function AgentEditView({
               <div>
                 <div className="text-xs font-medium text-muted-foreground mb-1 px-1">{t("settings.agentSupplement")}</div>
                 <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">{t("settings.agentIdentitySupplementDesc")}</p>
-                <textarea
-                  className="w-full px-3 py-2.5 text-sm bg-secondary/40 rounded-lg text-foreground placeholder:text-muted-foreground/30 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors resize-none leading-relaxed font-mono"
+                <Textarea
+                  className="bg-secondary/40 rounded-lg resize-none leading-relaxed font-mono"
                   rows={8}
                   {...textInputProps(agentMd, setAgentMd)}
                   placeholder={t("settings.agentSupplementPlaceholder")}
@@ -1454,8 +1455,8 @@ function AgentEditView({
               <div>
                 <div className="text-xs font-medium text-muted-foreground mb-1 px-1">{t("settings.agentVibe")}</div>
                 <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">{t("settings.agentVibeDesc")}</p>
-                <textarea
-                  className="w-full px-3 py-2.5 text-sm bg-secondary/40 rounded-lg text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors resize-none leading-relaxed"
+                <Textarea
+                  className="bg-secondary/40 rounded-lg resize-none leading-relaxed"
                   rows={3}
                   {...textInputProps(config.personality.vibe ?? "", (v) => updatePersonality({ vibe: v || null }))}
                   placeholder={t("settings.agentVibePlaceholder")}
@@ -1483,8 +1484,8 @@ function AgentEditView({
                     </button>
                   ))}
                 </div>
-                <textarea
-                  className="w-full px-3 py-2.5 text-sm bg-secondary/40 rounded-lg text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors resize-none leading-relaxed"
+                <Textarea
+                  className="bg-secondary/40 rounded-lg resize-none leading-relaxed"
                   rows={3}
                   {...textInputProps(config.personality.tone ?? "", (v) => updatePersonality({ tone: v || null }))}
                   placeholder={t("settings.agentTonePlaceholder")}
@@ -1554,8 +1555,8 @@ function AgentEditView({
                     </div>
                   ))}
                 </div>
-                <textarea
-                  className="w-full px-3 py-2.5 text-sm bg-secondary/40 rounded-lg text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors resize-none leading-relaxed"
+                <Textarea
+                  className="bg-secondary/40 rounded-lg resize-none leading-relaxed"
                   rows={2}
                   value={principleInput}
                   onChange={(e) => setPrincipleInput(e.target.value)}
@@ -1578,8 +1579,8 @@ function AgentEditView({
               <div>
                 <div className="text-xs font-medium text-muted-foreground mb-1 px-1">{t("settings.agentBoundaries")}</div>
                 <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">{t("settings.agentBoundariesDesc")}</p>
-                <textarea
-                  className="w-full px-3 py-2.5 text-sm bg-secondary/40 rounded-lg text-foreground placeholder:text-muted-foreground/30 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors resize-none leading-relaxed"
+                <Textarea
+                  className="bg-secondary/40 rounded-lg resize-none leading-relaxed"
                   rows={3}
                   {...textInputProps(config.personality.boundaries ?? "", (v) => updatePersonality({ boundaries: v || null }))}
                   placeholder={t("settings.agentBoundariesPlaceholder")}
@@ -1590,8 +1591,8 @@ function AgentEditView({
               <div>
                 <div className="text-xs font-medium text-muted-foreground mb-1 px-1">{t("settings.agentQuirks")}</div>
                 <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">{t("settings.agentQuirksDesc")}</p>
-                <textarea
-                  className="w-full px-3 py-2.5 text-sm bg-secondary/40 rounded-lg text-foreground placeholder:text-muted-foreground/30 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors resize-none leading-relaxed"
+                <Textarea
+                  className="bg-secondary/40 rounded-lg resize-none leading-relaxed"
                   rows={3}
                   {...textInputProps(config.personality.quirks ?? "", (v) => updatePersonality({ quirks: v || null }))}
                   placeholder={t("settings.agentQuirksPlaceholder")}
@@ -1602,8 +1603,8 @@ function AgentEditView({
               <div>
                 <div className="text-xs font-medium text-muted-foreground mb-1 px-1">{t("settings.agentCommStyle")}</div>
                 <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">{t("settings.agentCommStyleDesc")}</p>
-                <textarea
-                  className="w-full px-3 py-2.5 text-sm bg-secondary/40 rounded-lg text-foreground placeholder:text-muted-foreground/30 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors resize-none leading-relaxed"
+                <Textarea
+                  className="bg-secondary/40 rounded-lg resize-none leading-relaxed"
                   rows={3}
                   {...textInputProps(config.personality.communicationStyle ?? "", (v) => updatePersonality({ communicationStyle: v || null }))}
                   placeholder={t("settings.agentCommStylePlaceholder")}
@@ -1616,8 +1617,8 @@ function AgentEditView({
               <div>
                 <div className="text-xs font-medium text-muted-foreground mb-1 px-1">{t("settings.agentSupplement")}</div>
                 <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">{t("settings.agentPersonaSupplementDesc")}</p>
-                <textarea
-                  className="w-full px-3 py-2.5 text-sm bg-secondary/40 rounded-lg text-foreground placeholder:text-muted-foreground/30 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors resize-none leading-relaxed font-mono"
+                <Textarea
+                  className="bg-secondary/40 rounded-lg resize-none leading-relaxed font-mono"
                   rows={8}
                   {...textInputProps(persona, setPersona)}
                   placeholder={t("settings.agentSupplementPlaceholder")}
@@ -1792,8 +1793,8 @@ function AgentEditView({
               <div>
                 <div className="text-xs font-medium text-muted-foreground mb-1 px-1">{t("settings.agentToolsGuide")}</div>
                 <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">{t("settings.agentToolsGuideDesc")}</p>
-                <textarea
-                  className="w-full px-3 py-2.5 text-sm bg-secondary/40 rounded-lg text-foreground placeholder:text-muted-foreground/30 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors resize-none leading-relaxed font-mono"
+                <Textarea
+                  className="bg-secondary/40 rounded-lg resize-none leading-relaxed font-mono"
                   rows={5}
                   {...textInputProps(toolsGuide, setToolsGuide)}
                   placeholder={t("settings.agentToolsGuidePlaceholder")}
@@ -1831,8 +1832,8 @@ function AgentEditView({
                   <div>
                     <div className="text-xs font-medium text-muted-foreground mb-1 px-1">{t("settings.agentMd")}</div>
                     <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">{t("settings.agentCustomIdentityDesc")}</p>
-                    <textarea
-                      className="w-full px-3 py-2.5 text-sm bg-secondary/40 rounded-lg text-foreground placeholder:text-muted-foreground/30 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors resize-none leading-relaxed font-mono"
+                    <Textarea
+                      className="bg-secondary/40 rounded-lg resize-none leading-relaxed font-mono"
                       rows={10}
                       {...textInputProps(agentMd, setAgentMd)}
                       placeholder={t("settings.agentMdPlaceholder")}
@@ -1844,8 +1845,8 @@ function AgentEditView({
                   <div>
                     <div className="text-xs font-medium text-muted-foreground mb-1 px-1">{t("settings.agentPersona")}</div>
                     <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">{t("settings.agentCustomPersonaDesc")}</p>
-                    <textarea
-                      className="w-full px-3 py-2.5 text-sm bg-secondary/40 rounded-lg text-foreground placeholder:text-muted-foreground/30 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors resize-none leading-relaxed font-mono"
+                    <Textarea
+                      className="bg-secondary/40 rounded-lg resize-none leading-relaxed font-mono"
                       rows={8}
                       {...textInputProps(persona, setPersona)}
                       placeholder={t("settings.agentPersonaPlaceholder")}
@@ -2461,8 +2462,8 @@ function UserProfilePanel() {
               </div>
 
               {customStyle && (
-                <textarea
-                  className="w-full mt-2 px-3 py-2.5 text-sm bg-secondary/40 rounded-lg text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors resize-none leading-relaxed"
+                <Textarea
+                  className="mt-2 bg-secondary/40 rounded-lg resize-none leading-relaxed"
                   rows={4}
                   {...textInputProps("responseStyle")}
                   placeholder={t("settings.profileStyleCustomPlaceholder")}
@@ -2475,8 +2476,8 @@ function UserProfilePanel() {
             {/* ── Custom Info ── */}
             <div>
               <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.profileCustomInfo")}</div>
-              <textarea
-                className="w-full px-3 py-2.5 text-sm bg-secondary/40 rounded-lg text-foreground placeholder:text-muted-foreground/30 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors resize-none leading-relaxed"
+              <Textarea
+                className="bg-secondary/40 rounded-lg resize-none leading-relaxed"
                 rows={5}
                 {...textInputProps("customInfo")}
                 placeholder={t("settings.profileCustomInfoPlaceholder")}
