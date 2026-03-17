@@ -106,7 +106,11 @@
     "skillEnabled": "已啟用",
     "skillDisabled": "已停用",
     "noSkills": "尚無已安裝的技能",
-    "noSkillsHint": "在 ~/.opencomputer/skills/ 目錄下建立技能資料夾（包含 SKILL.md），或匯入其他技能目錄"
+    "noSkillsHint": "在 ~/.opencomputer/skills/ 目錄下建立技能資料夾（包含 SKILL.md），或匯入其他技能目錄",
+    "charLimitExceeded": "超出上限，多餘內容將被截斷",
+    "agentUnlimited": "不限制",
+    "agentSkills": "技能",
+    "agentSkillsDesc": "全域開啟的技能預設對此 Agent 可用，可單獨停用不需要的"
   },
   "theme": {
     "title": "主題",

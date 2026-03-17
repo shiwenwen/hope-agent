@@ -106,7 +106,11 @@
     "skillEnabled": "Включено",
     "skillDisabled": "Отключено",
     "noSkills": "Навыки не установлены",
-    "noSkillsHint": "Создайте папку навыка с файлом SKILL.md в ~/.opencomputer/skills/ или импортируйте другой каталог"
+    "noSkillsHint": "Создайте папку навыка с файлом SKILL.md в ~/.opencomputer/skills/ или импортируйте другой каталог",
+    "charLimitExceeded": "Превышен лимит, лишнее содержимое будет обрезано",
+    "agentUnlimited": "Без ограничений",
+    "agentSkills": "Навыки",
+    "agentSkillsDesc": "Глобально включённые навыки доступны по умолчанию. Вы можете отключить ненужные для этого агента"
   },
   "theme": {
     "title": "Тема",

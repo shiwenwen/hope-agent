@@ -160,6 +160,9 @@
     "agentBasicInfo": "Basic Info",
     "agentBehavior": "Behavior",
     "agentMaxToolRounds": "Max Tool Rounds",
+    "agentUnlimited": "Unlimited",
+    "agentSkills": "Skills",
+    "agentSkillsDesc": "Globally enabled skills are available by default. You can disable specific ones for this Agent.",
     "agentRequireApproval": "Tools Requiring Approval",
     "agentRequireApprovalPlaceholder": "Type tool name and press Enter",
     "agentSandbox": "Docker Sandbox",
@@ -217,7 +220,8 @@
     "agentCannotDeleteDefault": "Cannot delete the default Agent",
     "agentSaved": "Saved",
     "agentNoAgents": "No custom Agents yet",
-    "agentNoAgentsHint": "Create a new Agent to customize AI behavior"
+    "agentNoAgentsHint": "Create a new Agent to customize AI behavior",
+    "charLimitExceeded": "Exceeded limit, excess content will be truncated"
   },
   "tz": {
     "shanghai": "Shanghai (UTC+8)",

@@ -106,7 +106,11 @@
     "skillEnabled": "Etkin",
     "skillDisabled": "Devre Dışı",
     "noSkills": "Yüklü beceri yok",
-    "noSkillsHint": "~/.opencomputer/skills/ dizininde SKILL.md dosyası içeren bir beceri klasörü oluşturun veya başka bir dizin içe aktarın"
+    "noSkillsHint": "~/.opencomputer/skills/ dizininde SKILL.md dosyası içeren bir beceri klasörü oluşturun veya başka bir dizin içe aktarın",
+    "charLimitExceeded": "Sınır aşıldı, fazla içerik kesilecektir",
+    "agentUnlimited": "Sınırsız",
+    "agentSkills": "Beceriler",
+    "agentSkillsDesc": "Global olarak etkin beceriler varsayılan olarak kullanılabilir. İhtiyaç duymadıklarınızı devre dışı bırakabilirsiniz"
   },
   "theme": {
     "title": "Tema",

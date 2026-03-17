@@ -160,6 +160,9 @@
     "agentBasicInfo": "基本信息",
     "agentBehavior": "行为设置",
     "agentMaxToolRounds": "最大工具调用轮数",
+    "agentUnlimited": "不限制",
+    "agentSkills": "技能",
+    "agentSkillsDesc": "全局开启的技能默认对此 Agent 可用，可单独禁用不需要的",
     "agentRequireApproval": "需审批的工具",
     "agentRequireApprovalPlaceholder": "输入工具名按回车添加",
     "agentSandbox": "Docker 沙箱",
@@ -217,7 +220,8 @@
     "agentCannotDeleteDefault": "默认 Agent 不可删除",
     "agentSaved": "已保存",
     "agentNoAgents": "还没有自定义 Agent",
-    "agentNoAgentsHint": "创建一个新的 Agent 来自定义 AI 的行为"
+    "agentNoAgentsHint": "创建一个新的 Agent 来自定义 AI 的行为",
+    "charLimitExceeded": "超出上限，多余内容将被截断"
   },
   "tz": {
     "shanghai": "上海 (UTC+8)",

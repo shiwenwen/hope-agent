@@ -106,7 +106,11 @@
     "skillEnabled": "مفعّل",
     "skillDisabled": "معطّل",
     "noSkills": "لا توجد مهارات مثبتة",
-    "noSkillsHint": "أنشئ مجلد مهارة يحتوي على ملف SKILL.md في ~/.opencomputer/skills/، أو استورد مجلداً آخر"
+    "noSkillsHint": "أنشئ مجلد مهارة يحتوي على ملف SKILL.md في ~/.opencomputer/skills/، أو استورد مجلداً آخر",
+    "charLimitExceeded": "تجاوز الحد، سيتم اقتطاع المحتوى الزائد",
+    "agentUnlimited": "بلا حدود",
+    "agentSkills": "المهارات",
+    "agentSkillsDesc": "المهارات المفعّلة عالميًا متاحة بشكل افتراضي. يمكنك تعطيل مهارات محددة لهذا الوكيل"
   },
   "theme": {
     "title": "السمة",

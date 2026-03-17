@@ -106,7 +106,11 @@
     "skillEnabled": "Ativado",
     "skillDisabled": "Desativado",
     "noSkills": "Nenhuma habilidade instalada",
-    "noSkillsHint": "Crie uma pasta de habilidade com um arquivo SKILL.md em ~/.opencomputer/skills/, ou importe outro diretório"
+    "noSkillsHint": "Crie uma pasta de habilidade com um arquivo SKILL.md em ~/.opencomputer/skills/, ou importe outro diretório",
+    "charLimitExceeded": "Limite excedido, o conteúdo excedente será truncado",
+    "agentUnlimited": "Sem limite",
+    "agentSkills": "Habilidades",
+    "agentSkillsDesc": "Habilidades ativadas globalmente estão disponíveis por padrão. Você pode desativar as que não precisa"
   },
   "theme": {
     "title": "Tema",

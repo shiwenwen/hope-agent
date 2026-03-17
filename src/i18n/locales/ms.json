@@ -106,7 +106,11 @@
     "skillEnabled": "Didayakan",
     "skillDisabled": "Dilumpuhkan",
     "noSkills": "Tiada kemahiran dipasang",
-    "noSkillsHint": "Cipta folder kemahiran dengan fail SKILL.md dalam ~/.opencomputer/skills/, atau import direktori lain"
+    "noSkillsHint": "Cipta folder kemahiran dengan fail SKILL.md dalam ~/.opencomputer/skills/, atau import direktori lain",
+    "charLimitExceeded": "Melebihi had, kandungan lebihan akan dipotong",
+    "agentUnlimited": "Tiada had",
+    "agentSkills": "Kemahiran",
+    "agentSkillsDesc": "Kemahiran yang diaktifkan secara global tersedia secara lalai. Anda boleh melumpuhkan yang tidak diperlukan"
   },
   "theme": {
     "title": "Tema",

@@ -106,7 +106,11 @@
     "skillEnabled": "Đã bật",
     "skillDisabled": "Đã tắt",
     "noSkills": "Chưa có kỹ năng nào được cài đặt",
-    "noSkillsHint": "Tạo thư mục kỹ năng chứa tệp SKILL.md trong ~/.opencomputer/skills/, hoặc nhập thư mục khác"
+    "noSkillsHint": "Tạo thư mục kỹ năng chứa tệp SKILL.md trong ~/.opencomputer/skills/, hoặc nhập thư mục khác",
+    "charLimitExceeded": "Vượt quá giới hạn, nội dung thừa sẽ bị cắt bớt",
+    "agentUnlimited": "Không giới hạn",
+    "agentSkills": "Kỹ năng",
+    "agentSkillsDesc": "Các kỹ năng đã bật toàn cục sẽ có sẵn theo mặc định. Bạn có thể tắt những kỹ năng không cần thiết"
   },
   "theme": {
     "title": "Chủ đề",

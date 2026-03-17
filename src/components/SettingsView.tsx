@@ -821,6 +821,7 @@ function AgentEditView({
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [approvalInput, setApprovalInput] = useState("")
+  const [availableSkills, setAvailableSkills] = useState<SkillSummary[]>([])
   const [traitInput, setTraitInput] = useState("")
   const [principleInput, setPrincipleInput] = useState("")
   const [needsFillTemplate, setNeedsFillTemplate] = useState(false)
@@ -829,12 +830,14 @@ function AgentEditView({
   useEffect(() => {
     async function load() {
       try {
-        const [cfg, md, per, tg] = await Promise.all([
+        const [cfg, md, per, tg, skills] = await Promise.all([
           invoke<AgentConfig>("get_agent_config", { id: agentId }),
           invoke<string | null>("get_agent_markdown", { id: agentId, file: "agent.md" }),
           invoke<string | null>("get_agent_markdown", { id: agentId, file: "persona.md" }),
           invoke<string | null>("get_agent_markdown", { id: agentId, file: "tools.md" }),
+          invoke<SkillSummary[]>("get_skills"),
         ])
+        setAvailableSkills(skills.filter(s => s.enabled))
         // Ensure personality exists (for agents created before this field was added)
         if (!cfg.personality) {
           cfg.personality = { ...DEFAULT_PERSONALITY }
@@ -919,6 +922,19 @@ function AgentEditView({
       setter((e.target as HTMLInputElement).value)
     },
   })
+
+  /** Character counter for markdown textareas */
+  const MAX_MD_CHARS = 20000
+  const CharCounter = ({ value }: { value: string }) => {
+    const len = value.length
+    const isNear = len > MAX_MD_CHARS * 0.8
+    const isOver = len > MAX_MD_CHARS
+    return (
+      <div className={`text-[11px] text-right mt-1 px-1 ${isOver ? "text-red-500" : isNear ? "text-amber-500" : "text-muted-foreground/40"}`}>
+        {len.toLocaleString()} / {MAX_MD_CHARS.toLocaleString()} {isOver ? t("settings.charLimitExceeded") : ""}
+      </div>
+    )
+  }
 
   /** Generate template text from current structured config */
   /** Fetch a template file from backend by name and current locale */
@@ -1092,6 +1108,7 @@ function AgentEditView({
                   {...textInputProps(agentMd, setAgentMd)}
                   placeholder={t("settings.agentSupplementPlaceholder")}
                 />
+                <CharCounter value={agentMd} />
               </div>
             </div>
           )}
@@ -1271,6 +1288,7 @@ function AgentEditView({
                   {...textInputProps(persona, setPersona)}
                   placeholder={t("settings.agentSupplementPlaceholder")}
                 />
+                <CharCounter value={persona} />
               </div>
             </div>
           )}
@@ -1281,17 +1299,32 @@ function AgentEditView({
               {/* Max Tool Rounds */}
               <div>
                 <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.agentMaxToolRounds")}</div>
-                <input
-                  type="number"
-                  min="1"
-                  max="50"
-                  className="w-full px-3 py-2.5 text-sm bg-secondary/40 rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                  value={config.behavior.maxToolRounds}
-                  onChange={(e) => {
-                    const v = parseInt(e.target.value, 10)
-                    if (v > 0) updateConfig({ behavior: { ...config.behavior, maxToolRounds: v } })
-                  }}
-                />
+                <div className="flex items-center gap-3">
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    disabled={config.behavior.maxToolRounds === 0}
+                    className="flex-1 px-3 py-2.5 text-sm bg-secondary/40 rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none disabled:opacity-40"
+                    value={config.behavior.maxToolRounds === 0 ? "" : config.behavior.maxToolRounds}
+                    placeholder={t("settings.agentUnlimited")}
+                    onChange={(e) => {
+                      const v = parseInt(e.target.value, 10)
+                      if (v > 0) updateConfig({ behavior: { ...config.behavior, maxToolRounds: v } })
+                    }}
+                  />
+                  <label className="flex items-center gap-1.5 text-xs text-muted-foreground whitespace-nowrap cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      className="rounded"
+                      checked={config.behavior.maxToolRounds === 0}
+                      onChange={(e) => {
+                        updateConfig({ behavior: { ...config.behavior, maxToolRounds: e.target.checked ? 0 : 10 } })
+                      }}
+                    />
+                    {t("settings.agentUnlimited")}
+                  </label>
+                </div>
               </div>
 
               {/* Require Approval */}
@@ -1356,6 +1389,46 @@ function AgentEditView({
 
               <div className="border-t border-border/50" />
 
+              {/* Skills */}
+              {availableSkills.length > 0 && (
+                <>
+                  <div>
+                    <div className="text-xs font-medium text-muted-foreground mb-1 px-1">{t("settings.agentSkills")}</div>
+                    <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">{t("settings.agentSkillsDesc")}</p>
+                    <div className="rounded-lg border border-border/50 overflow-hidden">
+                      {availableSkills.map((skill, idx) => {
+                        const isDenied = config.skills.deny.includes(skill.name)
+                        return (
+                          <div
+                            key={skill.name}
+                            className={cn(
+                              "flex items-center justify-between px-3 py-2 gap-3",
+                              idx > 0 && "border-t border-border/30"
+                            )}
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="text-xs font-medium text-foreground truncate">{skill.name}</div>
+                              <div className="text-[11px] text-muted-foreground/60 truncate">{skill.description}</div>
+                            </div>
+                            <Switch
+                              checked={!isDenied}
+                              onCheckedChange={(checked) => {
+                                const newDeny = checked
+                                  ? config.skills.deny.filter(n => n !== skill.name)
+                                  : [...config.skills.deny, skill.name]
+                                updateConfig({ skills: { ...config.skills, deny: newDeny } })
+                              }}
+                            />
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="border-t border-border/50" />
+                </>
+              )}
+
               {/* Tool guidance */}
               <div>
                 <div className="text-xs font-medium text-muted-foreground mb-1 px-1">{t("settings.agentToolsGuide")}</div>
@@ -1366,6 +1439,7 @@ function AgentEditView({
                   {...textInputProps(toolsGuide, setToolsGuide)}
                   placeholder={t("settings.agentToolsGuidePlaceholder")}
                 />
+                <CharCounter value={toolsGuide} />
               </div>
             </div>
           )}
@@ -1404,6 +1478,7 @@ function AgentEditView({
                       {...textInputProps(agentMd, setAgentMd)}
                       placeholder={t("settings.agentMdPlaceholder")}
                     />
+                    <CharCounter value={agentMd} />
                   </div>
 
                   {/* Custom Personality */}
@@ -1416,6 +1491,7 @@ function AgentEditView({
                       {...textInputProps(persona, setPersona)}
                       placeholder={t("settings.agentPersonaPlaceholder")}
                     />
+                    <CharCounter value={persona} />
                   </div>
 
                 </>

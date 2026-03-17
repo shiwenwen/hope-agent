@@ -125,7 +125,15 @@ const ANTHROPIC_MODEL: &str = "claude-sonnet-4-6";
 const ANTHROPIC_API_VERSION: &str = "2023-06-01";
 const MAX_RETRIES: u32 = 3;
 const BASE_DELAY_MS: u64 = 1000;
-const MAX_TOOL_ROUNDS: u32 = 10;
+const DEFAULT_MAX_TOOL_ROUNDS: u32 = 10;
+
+/// Get the configured max tool rounds from the current agent.
+/// Returns 0 for unlimited.
+fn get_max_tool_rounds() -> u32 {
+    crate::agent_loader::load_agent("default")
+        .map(|def| def.config.behavior.max_tool_rounds)
+        .unwrap_or(DEFAULT_MAX_TOOL_ROUNDS)
+}
 
 // ── Codex model definitions ───────────────────────────────────────
 
@@ -584,7 +592,9 @@ impl AssistantAgent {
         let max_tokens: u32 = 16384;
         let thinking = map_think_anthropic_style(reasoning_effort, max_tokens);
 
-        for _round in 0..MAX_TOOL_ROUNDS {
+        let max_rounds = get_max_tool_rounds();
+        let max_rounds = if max_rounds == 0 { u32::MAX } else { max_rounds };
+        for _round in 0..max_rounds {
             let mut body = json!({
                 "model": model,
                 "max_tokens": max_tokens,
@@ -802,7 +812,9 @@ impl AssistantAgent {
 
         // Apply thinking parameters based on ThinkingStyle
 
-        for _round in 0..MAX_TOOL_ROUNDS {
+        let max_rounds = get_max_tool_rounds();
+        let max_rounds = if max_rounds == 0 { u32::MAX } else { max_rounds };
+        for _round in 0..max_rounds {
             // Build messages array: system + conversation
             let mut api_messages = vec![json!({ "role": "system", "content": &system_prompt })];
             api_messages.extend(messages.iter().cloned());
@@ -1013,7 +1025,9 @@ impl AssistantAgent {
         let mut collected_text = String::new();
         let system_prompt = build_system_prompt();
 
-        for _round in 0..MAX_TOOL_ROUNDS {
+        let max_rounds = get_max_tool_rounds();
+        let max_rounds = if max_rounds == 0 { u32::MAX } else { max_rounds };
+        for _round in 0..max_rounds {
             let request = ResponsesRequest {
                 model: model.to_string(),
                 store: false,
@@ -1110,7 +1124,9 @@ impl AssistantAgent {
         let mut collected_text = String::new();
         let system_prompt = build_system_prompt();
 
-        for _round in 0..MAX_TOOL_ROUNDS {
+        let max_rounds = get_max_tool_rounds();
+        let max_rounds = if max_rounds == 0 { u32::MAX } else { max_rounds };
+        for _round in 0..max_rounds {
             let request = ResponsesRequest {
                 model: model.to_string(),
                 store: false,

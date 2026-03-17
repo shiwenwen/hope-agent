@@ -106,7 +106,11 @@
     "skillEnabled": "활성화됨",
     "skillDisabled": "비활성화됨",
     "noSkills": "설치된 스킬이 없습니다",
-    "noSkillsHint": "~/.opencomputer/skills/에 SKILL.md 파일이 포함된 스킬 폴더를 만들거나, 다른 디렉토리를 가져오세요"
+    "noSkillsHint": "~/.opencomputer/skills/에 SKILL.md 파일이 포함된 스킬 폴더를 만들거나, 다른 디렉토리를 가져오세요",
+    "charLimitExceeded": "제한 초과, 초과 내용은 잘립니다",
+    "agentUnlimited": "제한 없음",
+    "agentSkills": "스킬",
+    "agentSkillsDesc": "전역적으로 활성화된 스킬은 기본적으로 사용 가능합니다. 개별적으로 비활성화할 수 있습니다"
   },
   "theme": {
     "title": "테마",

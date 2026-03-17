@@ -106,7 +106,11 @@
     "skillEnabled": "有効",
     "skillDisabled": "無効",
     "noSkills": "インストール済みのスキルはありません",
-    "noSkillsHint": "~/.opencomputer/skills/ に SKILL.md を含むスキルフォルダを作成するか、別のディレクトリをインポートしてください"
+    "noSkillsHint": "~/.opencomputer/skills/ に SKILL.md を含むスキルフォルダを作成するか、別のディレクトリをインポートしてください",
+    "charLimitExceeded": "上限を超えています。超過分は切り詰められます",
+    "agentUnlimited": "無制限",
+    "agentSkills": "スキル",
+    "agentSkillsDesc": "グローバルに有効なスキルはデフォルトで利用可能です。個別に無効化できます"
   },
   "theme": {
     "title": "テーマ",
