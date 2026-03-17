@@ -98,7 +98,7 @@ npm run lint
 
 ### 前端
 - 组件用函数式 + hooks，不用 class 组件
-- 新 UI 组件优先使用 `src/components/ui/`（shadcn/ui 风格）
+- 新 UI 组件优先使用 `src/components/ui/`（shadcn/ui 风格），非必要不要用 HTML 原生的表单/输入组件（如 `<select>`、`<input>` 等），应统一使用对应封装好的组件以保持 UI 和交互一致性
 - 样式只用 Tailwind utility class，不写行内 style 和自定义 CSS（除非必要）
 - **样式 / 动效 / 交互优先复用现有资源**：优先使用 shadcn/ui 组件、Radix UI 原语、Tailwind CSS 内置 utility（`transition-*`、`animate-*`、`hover:` / `focus:` 等）和 CSS 变量实现样式、动画与交互效果，避免手写自定义 CSS 动画、keyframes 或 JS 动效逻辑。只有在确认现有组件库和工具链无法满足需求时，才允许手写实现
 - 路径别名：`@/` → `src/`
