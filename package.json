@@ -17,6 +17,8 @@
     "@lobehub/fluent-emoji": "^4.1.0",
     "@lobehub/icons": "^5.0.1",
     "@lobehub/ui": "^5.5.1",
+    "@radix-ui/react-dropdown-menu": "^2.1.16",
+    "@radix-ui/react-select": "^2.2.6",
     "@radix-ui/react-slot": "^1.2.4",
     "@radix-ui/react-switch": "^1.2.6",
     "@streamdown/cjk": "^1.0.2",

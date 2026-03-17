@@ -47,6 +47,7 @@ import {
 import { SUPPORTED_LANGUAGES, isFollowingSystem, setFollowSystemLanguage } from "@/i18n/i18n"
 import { useTheme, type ThemeMode } from "@/hooks/useTheme"
 import { Switch } from "@/components/ui/switch"
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ModelSelector } from "@/components/ui/model-selector"
 import ProviderSettings from "@/components/ProviderSettings"
 import type { ProviderConfig } from "@/components/ProviderSettings"
@@ -63,6 +64,11 @@ interface SettingsSectionItem {
 
 const SECTIONS: SettingsSectionItem[] = [
   {
+    id: "profile",
+    icon: <User className="h-4 w-4" />,
+    labelKey: "settings.profile",
+  },
+  {
     id: "providers",
     icon: <Server className="h-4 w-4" />,
     labelKey: "settings.providers",
@@ -73,19 +79,14 @@ const SECTIONS: SettingsSectionItem[] = [
     labelKey: "settings.globalModel",
   },
   {
-    id: "skills",
-    icon: <Puzzle className="h-4 w-4" />,
-    labelKey: "settings.skills",
-  },
-  {
     id: "agents",
     icon: <Bot className="h-4 w-4" />,
     labelKey: "settings.agents",
   },
   {
-    id: "profile",
-    icon: <User className="h-4 w-4" />,
-    labelKey: "settings.profile",
+    id: "skills",
+    icon: <Puzzle className="h-4 w-4" />,
+    labelKey: "settings.skills",
   },
   {
     id: "appearance",
@@ -2366,20 +2367,21 @@ function UserProfilePanel() {
                   {!config.timezone && <Check className="h-4 w-4 text-primary shrink-0" />}
                 </button>
               </div>
-              <select
-                className="w-full mt-1 px-3 py-2.5 text-sm bg-secondary/20 rounded-lg text-foreground hover:bg-secondary/60 focus:outline-none focus:bg-secondary/60 transition-colors cursor-pointer"
-                value={config.timezone ?? ""}
-                onChange={(e) => update({ timezone: e.target.value || null })}
-              >
-                <option value="" disabled>{t("settings.profileTimezoneSystem")}</option>
-                {TIMEZONE_OPTIONS.map((group) => (
-                  <optgroup key={group.groupKey} label={group.groupKey}>
-                    {group.zones.map((tz) => (
-                      <option key={tz.value} value={tz.value}>{t(tz.labelKey)}</option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
+              <Select value={config.timezone ?? ""} onValueChange={(v) => update({ timezone: v || null })}>
+                <SelectTrigger className="mt-1 bg-secondary/20 text-sm hover:bg-secondary/60">
+                  <SelectValue placeholder={t("settings.profileTimezoneSystem")} />
+                </SelectTrigger>
+                <SelectContent>
+                  {TIMEZONE_OPTIONS.map((group) => (
+                    <SelectGroup key={group.groupKey}>
+                      <SelectLabel>{group.groupKey}</SelectLabel>
+                      {group.zones.map((tz) => (
+                        <SelectItem key={tz.value} value={tz.value}>{t(tz.labelKey)}</SelectItem>
+                      ))}
+                    </SelectGroup>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             {/* ── Language ── */}
@@ -2400,16 +2402,16 @@ function UserProfilePanel() {
                   {!config.language && <Check className="h-4 w-4 text-primary shrink-0" />}
                 </button>
               </div>
-              <select
-                className="w-full mt-1 px-3 py-2.5 text-sm bg-secondary/20 rounded-lg text-foreground hover:bg-secondary/60 focus:outline-none focus:bg-secondary/60 transition-colors cursor-pointer"
-                value={config.language ?? ""}
-                onChange={(e) => update({ language: e.target.value || null })}
-              >
-                <option value="" disabled>{t("settings.profileLanguageSystem")}</option>
-                {LANGUAGE_OPTIONS.map((lang) => (
-                  <option key={lang.code} value={lang.code}>{lang.label}</option>
-                ))}
-              </select>
+              <Select value={config.language ?? ""} onValueChange={(v) => update({ language: v || null })}>
+                <SelectTrigger className="mt-1 bg-secondary/20 text-sm hover:bg-secondary/60">
+                  <SelectValue placeholder={t("settings.profileLanguageSystem")} />
+                </SelectTrigger>
+                <SelectContent>
+                  {LANGUAGE_OPTIONS.map((lang) => (
+                    <SelectItem key={lang.code} value={lang.code}>{lang.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="border-t border-border/50" />

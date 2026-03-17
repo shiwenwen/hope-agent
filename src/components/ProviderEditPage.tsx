@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { SortableModelEditor, type ModelConfig } from "@/components/ProviderSetup"
 import ProviderIcon from "@/components/ProviderIcon"
 import TestResultDisplay, { parseTestResult, type TestResult } from "@/components/TestResultDisplay"
@@ -23,7 +24,6 @@ import {
   ArrowLeft,
   ArrowRight,
   Check,
-  ChevronDown,
   Eye,
   EyeOff,
   Globe,
@@ -199,18 +199,16 @@ export default function ProviderEditPage({
                 <label className="text-xs font-medium text-muted-foreground">
                   {t("provider.apiType")}
                 </label>
-                <div className="relative">
-                  <select
-                    value={editApiType}
-                    onChange={(e) => setEditApiType(e.target.value as ApiType)}
-                    className="w-full appearance-none bg-background text-foreground text-xs font-medium px-3 py-2 rounded-md border border-border cursor-pointer hover:bg-secondary/50 transition-colors focus:outline-none focus:ring-1 focus:ring-ring"
-                  >
-                    <option value="openai-chat">OpenAI Chat Completions</option>
-                    <option value="openai-responses">OpenAI Responses API</option>
-                    <option value="anthropic">Anthropic Messages API</option>
-                  </select>
-                  <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none" />
-                </div>
+                <Select value={editApiType} onValueChange={(v) => setEditApiType(v as ApiType)}>
+                  <SelectTrigger className="bg-background text-xs font-medium">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="openai-chat">OpenAI Chat Completions</SelectItem>
+                    <SelectItem value="openai-responses">OpenAI Responses API</SelectItem>
+                    <SelectItem value="anthropic">Anthropic Messages API</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="space-y-1.5">
@@ -269,20 +267,18 @@ export default function ProviderEditPage({
                   <Settings2 className="h-3 w-3" />
                   {t("provider.thinkingStyle")}
                 </label>
-                <div className="relative">
-                  <select
-                    value={editThinkingStyle}
-                    onChange={(e) => setEditThinkingStyle(e.target.value as ThinkingStyleType)}
-                    className="w-full appearance-none bg-background text-foreground text-xs font-medium px-3 py-2 rounded-md border border-border cursor-pointer hover:bg-secondary/50 transition-colors focus:outline-none focus:ring-1 focus:ring-ring"
-                  >
-                    <option value="openai">OpenAI (reasoning_effort)</option>
-                    <option value="anthropic">Anthropic (thinking budget)</option>
-                    <option value="zai">Z.AI (thinking budget)</option>
-                    <option value="qwen">Qwen (enable_thinking)</option>
-                    <option value="none">{t("provider.thinkingStyleNone")}</option>
-                  </select>
-                  <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none" />
-                </div>
+                <Select value={editThinkingStyle} onValueChange={(v) => setEditThinkingStyle(v as ThinkingStyleType)}>
+                  <SelectTrigger className="bg-background text-xs font-medium">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="openai">OpenAI (reasoning_effort)</SelectItem>
+                    <SelectItem value="anthropic">Anthropic (thinking budget)</SelectItem>
+                    <SelectItem value="zai">Z.AI (thinking budget)</SelectItem>
+                    <SelectItem value="qwen">Qwen (enable_thinking)</SelectItem>
+                    <SelectItem value="none">{t("provider.thinkingStyleNone")}</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
               {/* Test Connection */}
