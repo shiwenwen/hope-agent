@@ -1860,14 +1860,17 @@ function AgentEditView({
           {activeTab === "model" && (() => {
             const isCustom = !!(config.model.primary)
             const modelDisplayName = (ref: string) => {
-              const [pid, mid] = ref.split("/")
+              const parts = ref.split("::")
+              if (parts.length < 2) return ref
+              const [pid, ...rest] = parts
+              const mid = rest.join("::")
               const m = availableModels.find(m => m.providerId === pid && m.modelId === mid)
               return m ? `${m.providerName} / ${m.modelName}` : ref
             }
             const fallbacks = config.model.fallbacks || []
             const availableForFallback = availableModels.filter(
               m => {
-                const ref = `${m.providerId}/${m.modelId}`
+                const ref = `${m.providerId}::${m.modelId}`
                 return ref !== config.model.primary && !fallbacks.includes(ref)
               }
             )
@@ -1891,15 +1894,15 @@ function AgentEditView({
                             invoke<ActiveModelRef[]>("get_fallback_models"),
                           ])
                           const primary = globalActive
-                            ? `${globalActive.providerId}/${globalActive.modelId}`
-                            : (availableModels[0] ? `${availableModels[0].providerId}/${availableModels[0].modelId}` : null)
-                          const fallbacks = globalFallbacks.map(f => `${f.providerId}/${f.modelId}`)
+                            ? `${globalActive.providerId}::${globalActive.modelId}`
+                            : (availableModels[0] ? `${availableModels[0].providerId}::${availableModels[0].modelId}` : null)
+                          const fallbacks = globalFallbacks.map(f => `${f.providerId}::${f.modelId}`)
                           updateConfig({ model: { ...config.model, primary, fallbacks } })
                         } catch {
                           // Fallback: use first available model
                           const first = availableModels[0]
                           if (first) {
-                            updateConfig({ model: { ...config.model, primary: `${first.providerId}/${first.modelId}` } })
+                            updateConfig({ model: { ...config.model, primary: `${first.providerId}::${first.modelId}` } })
                           }
                         }
                       } else {
@@ -1922,10 +1925,9 @@ function AgentEditView({
                       <div className="text-xs font-medium text-muted-foreground mb-1 px-1">{t("settings.agentModelPrimary")}</div>
                       <ModelSelector
                         value={config.model.primary || ""}
-                        onChange={(providerId, modelId) => updateConfig({ model: { ...config.model, primary: `${providerId}/${modelId}` } })}
+                        onChange={(providerId, modelId) => updateConfig({ model: { ...config.model, primary: `${providerId}::${modelId}` } })}
                         availableModels={availableModels}
                         placeholder={t("settings.selectDefaultModel")}
-                        separator="/"
                       />
                     </div>
 
@@ -1996,13 +1998,12 @@ function AgentEditView({
                           }}
                           value=""
                           onChange={(providerId, modelId) => {
-                            const ref = `${providerId}/${modelId}`
+                            const ref = `${providerId}::${modelId}`
                             updateConfig({ model: { ...config.model, fallbacks: [...fallbacks, ref] } })
                             setAddingAgentFallback(false)
                           }}
                           availableModels={availableForFallback}
                           placeholder={t("settings.selectFallbackModel")}
-                          separator="/"
                         />
                       )}
                     </div>
