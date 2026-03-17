@@ -595,10 +595,14 @@ function ChatScreen({ onOpenAgentSettings }: { onOpenAgentSettings?: () => void 
   }
 
   // Create a new chat with a specific agent
-  async function handleNewChat(_agentId: string) {
+  async function handleNewChat(agentId: string) {
+    const agent = agents.find(a => a.id === agentId)
     setMessages([])
     setCurrentSessionId(null)
     setShowNewChatMenu(false)
+    if (agent) {
+      setAgentName(agent.name)
+    }
     // TODO: set current_agent_id via invoke
   }
 
