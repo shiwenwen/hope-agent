@@ -1119,15 +1119,9 @@ function ChatScreen({ onOpenAgentSettings }: { onOpenAgentSettings?: () => void 
                   msg.role === "assistant" &&
                   !msg.toolCalls?.length && (
                     <div className="flex items-center gap-1.5 h-6 px-2 relative top-1">
-                      <style>{`
-                        @keyframes customBouncePulse {
-                          0%, 100% { transform: translateY(0) scale(1); opacity: 0.3; }
-                          50% { transform: translateY(-6px) scale(1.1); opacity: 1; }
-                        }
-                      `}</style>
-                      <span className="w-2 h-2 rounded-full bg-foreground" style={{ animation: "customBouncePulse 1.2s cubic-bezier(0.4, 0, 0.6, 1) infinite", animationDelay: "0ms" }} />
-                      <span className="w-2 h-2 rounded-full bg-foreground" style={{ animation: "customBouncePulse 1.2s cubic-bezier(0.4, 0, 0.6, 1) infinite", animationDelay: "200ms" }} />
-                      <span className="w-2 h-2 rounded-full bg-foreground" style={{ animation: "customBouncePulse 1.2s cubic-bezier(0.4, 0, 0.6, 1) infinite", animationDelay: "400ms" }} />
+                      <span className="w-2 h-2 rounded-full bg-foreground animate-bounce-pulse" />
+                      <span className="w-2 h-2 rounded-full bg-foreground animate-bounce-pulse [animation-delay:200ms]" />
+                      <span className="w-2 h-2 rounded-full bg-foreground animate-bounce-pulse [animation-delay:400ms]" />
                     </div>
                   )
                 )}

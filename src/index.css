@@ -70,3 +70,12 @@
     user-select: text;
   }
 }
+
+@keyframes bounce-pulse {
+  0%, 100% { transform: translateY(0) scale(1); opacity: 0.3; }
+  50% { transform: translateY(-6px) scale(1.1); opacity: 1; }
+}
+
+@utility animate-bounce-pulse {
+  animation: bounce-pulse 1.2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
