@@ -47,6 +47,7 @@ import {
 import { SUPPORTED_LANGUAGES, isFollowingSystem, setFollowSystemLanguage } from "@/i18n/i18n"
 import { useTheme, type ThemeMode } from "@/hooks/useTheme"
 import { Switch } from "@/components/ui/switch"
+import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ModelSelector } from "@/components/ui/model-selector"
 import ProviderSettings from "@/components/ProviderSettings"
@@ -1074,8 +1075,8 @@ function AgentCreateView({
         <div className="space-y-4">
           <div>
             <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.agentNewId")}</div>
-            <input
-              className="w-full px-3 py-2.5 text-sm bg-secondary/40 rounded-lg text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors font-mono"
+            <Input
+              className="bg-secondary/40 rounded-lg font-mono"
               value={id}
               onChange={(e) => { setId(e.target.value); setError("") }}
               placeholder={t("settings.agentNewIdPlaceholder")}
@@ -1086,8 +1087,8 @@ function AgentCreateView({
 
           <div>
             <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.agentName")}</div>
-            <input
-              className="w-full px-3 py-2.5 text-sm bg-secondary/40 rounded-lg text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors"
+            <Input
+              className="bg-secondary/40 rounded-lg"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder={t("settings.agentNamePlaceholder")}
@@ -1388,8 +1389,8 @@ function AgentEditView({
               {/* Name */}
               <div>
                 <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.agentName")}</div>
-                <input
-                  className="w-full px-3 py-2.5 text-sm bg-secondary/40 rounded-lg text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors"
+                <Input
+                  className="bg-secondary/40 rounded-lg"
                   {...textInputProps(config.name, (v) => updateConfig({ name: v }))}
                   placeholder={t("settings.agentNamePlaceholder")}
                 />
@@ -1409,8 +1410,8 @@ function AgentEditView({
               {/* Emoji */}
               <div>
                 <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.agentEmoji")}</div>
-                <input
-                  className="w-full px-3 py-2.5 text-sm bg-secondary/40 rounded-lg text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors"
+                <Input
+                  className="bg-secondary/40 rounded-lg"
                   {...textInputProps(config.emoji ?? "", (v) => updateConfig({ emoji: v || null }))}
                   placeholder={t("settings.agentEmojiPlaceholder")}
                 />
@@ -1512,8 +1513,8 @@ function AgentEditView({
                     </span>
                   ))}
                 </div>
-                <input
-                  className="w-full px-3 py-2.5 text-sm bg-secondary/40 rounded-lg text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors"
+                <Input
+                  className="bg-secondary/40 rounded-lg"
                   value={traitInput}
                   onChange={(e) => setTraitInput(e.target.value)}
                   onKeyDown={(e) => {
@@ -1633,12 +1634,12 @@ function AgentEditView({
               <div>
                 <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.agentMaxToolRounds")}</div>
                 <div className="flex items-center gap-3">
-                  <input
+                  <Input
                     type="number"
-                    min="0"
-                    max="100"
+                    min={0}
+                    max={100}
                     disabled={config.behavior.maxToolRounds === 0}
-                    className="flex-1 px-3 py-2.5 text-sm bg-secondary/40 rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none disabled:opacity-40"
+                    className="flex-1 bg-secondary/40 rounded-lg [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                     value={config.behavior.maxToolRounds === 0 ? "" : config.behavior.maxToolRounds}
                     placeholder={t("settings.agentUnlimited")}
                     onChange={(e) => {
@@ -2236,8 +2237,8 @@ function UserProfilePanel() {
             {/* ── Name ── */}
             <div>
               <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.profileName")}</div>
-              <input
-                className="w-full px-3 py-2.5 text-sm bg-secondary/40 rounded-lg text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors"
+              <Input
+                className="bg-secondary/40 rounded-lg"
                 {...textInputProps("name")}
                 placeholder={t("settings.profileNamePlaceholder")}
               />
@@ -2286,8 +2287,8 @@ function UserProfilePanel() {
                 </button>
               </div>
               {customGender && (
-                <input
-                  className="w-full mt-2 px-3 py-2.5 text-sm bg-secondary/40 rounded-lg text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors"
+                <Input
+                  className="mt-2 bg-secondary/40 rounded-lg"
                   {...textInputProps("gender")}
                   placeholder={t("settings.profileGenderCustomPlaceholder")}
                 />
@@ -2297,11 +2298,11 @@ function UserProfilePanel() {
             {/* ── Age ── */}
             <div>
               <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.profileAge")}</div>
-              <input
+              <Input
                 type="number"
-                min="1"
-                max="150"
-                className="w-full px-3 py-2.5 text-sm bg-secondary/40 rounded-lg text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                min={1}
+                max={150}
+                className="bg-secondary/40 rounded-lg [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                 value={config.age ?? ""}
                 onChange={(e) => {
                   const v = e.target.value
@@ -2314,8 +2315,8 @@ function UserProfilePanel() {
             {/* ── Role ── */}
             <div>
               <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.profileRole")}</div>
-              <input
-                className="w-full px-3 py-2.5 text-sm bg-secondary/40 rounded-lg text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors"
+              <Input
+                className="bg-secondary/40 rounded-lg"
                 {...textInputProps("role")}
                 placeholder={t("settings.profileRolePlaceholder")}
               />
