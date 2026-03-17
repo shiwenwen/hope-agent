@@ -27,6 +27,8 @@ src-tauri/src/  后端（Rust）
   sandbox.rs      Docker 沙箱执行模块（bollard 异步 Docker 客户端）
   paths.rs      统一路径管理（~/.opencomputer/ 目录结构）
   provider.rs   Provider 数据模型 & JSON 持久化
+  failover.rs   模型降级错误分类 & 重试策略（FailoverReason / classify_error / retry_delay_ms）
+  session.rs    会话持久化（SQLite + SessionDB）
   oauth.rs      Codex OAuth 2.0 PKCE 流程 & Token 管理
 src-tauri/templates/  多语言 Agent 模板文件（agent.*.md / persona.*.md，12 种语言）
 docs/           产品与技术文档
@@ -79,7 +81,8 @@ npm run lint
 - **Agent 定义系统**：`agent_config.rs` 定义 `AgentConfig`（含 `PersonalityConfig`）+ `AgentDefinition`，`agent_loader.rs` 管理 `~/.opencomputer/agents/` 下的 Agent CRUD。每个 Agent 目录含 `agent.json`（结构化配置）+ 可选 `agent.md` / `persona.md` / `tools.md`（Markdown 补充）。支持结构化模式（GUI 表单自动组装提示词）和自定义模式（`useCustomPrompt=true`，直接使用 Markdown）。多语言模板文件（12 种语言）通过 `include_str!` 编译时嵌入
 - **系统提示词组装**：`system_prompt.rs` 模块化拼装 10 段（身份 → 性格 → agent.md → persona.md → 用户信息 → tools.md → 工具定义 → 技能 → 运行时 → 项目上下文），支持 `FilterConfig` allow/deny 过滤工具和技能
 - **数据存储**：所有数据统一存储到 `~/.opencomputer/` 目录，`paths.rs` 集中管理路径。目录结构包含 `config.json`（通用配置）、`credentials/`（OAuth 凭证）、`agents/`（Agent 定义）、`home/`（主 Agent Home）、`share/`（共享目录）、`{name}-home/`（其他 Agent Home）
-- **Provider 管理**：`provider.rs` 定义 `ProviderConfig` / `ModelConfig` / `ApiType` / `ThinkingStyle`，支持自定义 `user_agent` 兼容 WAF 和 `thinking_style`（openai/anthropic/zai/qwen/none）适配不同服务商的思考参数格式，持久化至 `~/.opencomputer/config.json`
+- **Provider 管理**：`provider.rs` 定义 `ProviderConfig` / `ModelConfig` / `ApiType` / `ThinkingStyle`，支持自定义 `user_agent` 兼容 WAF 和 `thinking_style`（openai/anthropic/zai/qwen/none）适配不同服务商的思考参数格式，持久化至 `~/.opencomputer/config.json`。`ProviderStore` 同时管理 `fallback_models` 全局降级模型链
+- **模型降级系统**（参考 OpenClaw）：`failover.rs` 定义 `FailoverReason` 枚举（RateLimit / Overloaded / Timeout / Auth / Billing / ModelNotFound / ContextOverflow / Unknown）和 `classify_error()` 函数。`chat` 命令执行降级链：ContextOverflow 终止不降级 → RateLimit/Overloaded/Timeout 指数退避重试 2 次 → Auth/Billing/ModelNotFound 跳到下一模型。降级事件包含 reason/from_model/attempt 详情。Agent 可通过 `AgentModelConfig` 覆盖全局设置
 - **内置模板**：`ProviderSetup.tsx` 中 `PROVIDER_TEMPLATES` 数组包含 24 个预配置模板（API 类型参照 OpenClaw 源码），均默认使用 `claude-code/0.1.0` 作为 User-Agent。
 - **统一 Tool 架构**：所有 tool 定义和执行逻辑集中在 `tools.rs`，通过 `ToolProvider` 枚举 + `to_provider_schema()` 自动适配不同 LLM 的 schema 格式。内置 11 个工具：`exec`（Shell 命令，支持 cwd/timeout/env/background/yield_ms/pty/sandbox，默认超时 1800s，login shell PATH 解析，动态输出截断，Docker 沙箱隔离）、`process`（后台进程管理：list/poll/log/write/kill/clear/remove）、`read`（自适应分页 + offset/limit 行级分页、图片自动检测与 base64 返回、MIME 二次校验、超大图片自动缩放、结构化参数解析、file_path 别名）、`write`（file_path 别名 + 结构化参数解析）、`edit`（搜索替换编辑，支持 oldText/old_string/newText/new_string/file_path 别名 + 结构化参数解析）、`ls`（~ 展开、limit 参数、50KB 输出上限、大小写不敏感排序）、`grep`（正则/字面量搜索文件内容，尊重 .gitignore，支持 glob 过滤/上下文行/大小写/100 条限制/50KB 输出上限）、`find`（按 glob 模式查找文件，尊重 .gitignore，1000 条限制/50KB 输出上限）、`apply_patch`（多文件补丁：Add/Update/Delete/Move，3-pass fuzzy matching）、`web_search`（DuckDuckGo）、`web_fetch`（URL 内容抓取）
 - **进程注册表**：`process_registry.rs` 维护全局 `ProcessRegistry`（`tokio::sync::Mutex<HashMap>`），管理所有 exec 产生的后台进程会话的生命周期
@@ -96,6 +99,7 @@ npm run lint
 - 组件用函数式 + hooks，不用 class 组件
 - 新 UI 组件优先使用 `src/components/ui/`（shadcn/ui 风格）
 - 样式只用 Tailwind utility class，不写行内 style 和自定义 CSS（除非必要）
+- **样式 / 动效 / 交互优先复用现有资源**：优先使用 shadcn/ui 组件、Radix UI 原语、Tailwind CSS 内置 utility（`transition-*`、`animate-*`、`hover:` / `focus:` 等）和 CSS 变量实现样式、动画与交互效果，避免手写自定义 CSS 动画、keyframes 或 JS 动效逻辑。只有在确认现有组件库和工具链无法满足需求时，才允许手写实现
 - 路径别名：`@/` → `src/`
 
 ### 后端（Rust）

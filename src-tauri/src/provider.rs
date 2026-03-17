@@ -200,6 +200,10 @@ pub struct ProviderStore {
     pub providers: Vec<ProviderConfig>,
     #[serde(default)]
     pub active_model: Option<ActiveModel>,
+    /// Global fallback model chain (ordered).
+    /// When the primary model fails, these are tried in order.
+    #[serde(default)]
+    pub fallback_models: Vec<ActiveModel>,
     /// Extra directories to scan for skills
     #[serde(default)]
     pub extra_skills_dirs: Vec<String>,
@@ -276,6 +280,67 @@ pub fn build_available_models(providers: &[ProviderConfig]) -> Vec<AvailableMode
         }
     }
     models
+}
+
+// ── Helper: Parse model reference ─────────────────────────────────
+
+/// Parse a "provider_id::model_id" string into an ActiveModel.
+/// Returns None if the format is invalid.
+pub fn parse_model_ref(ref_str: &str) -> Option<ActiveModel> {
+    let parts: Vec<&str> = ref_str.splitn(2, "::").collect();
+    if parts.len() == 2 && !parts[0].is_empty() && !parts[1].is_empty() {
+        Some(ActiveModel {
+            provider_id: parts[0].to_string(),
+            model_id: parts[1].to_string(),
+        })
+    } else {
+        None
+    }
+}
+
+/// Format an ActiveModel as "provider_id::model_id" string.
+pub fn format_model_ref(model: &ActiveModel) -> String {
+    format!("{}::{}", model.provider_id, model.model_id)
+}
+
+/// Resolve the ordered model chain for a given agent.
+/// Returns (primary, fallbacks) where primary is the first model to try
+/// and fallbacks are tried in order if primary fails.
+///
+/// Resolution logic:
+/// 1. If the agent has a custom primary, use it; otherwise use global active_model
+/// 2. If the agent has custom fallbacks, use them; otherwise use global fallback_models
+pub fn resolve_model_chain(
+    agent_model: &crate::agent_config::AgentModelConfig,
+    store: &ProviderStore,
+) -> (Option<ActiveModel>, Vec<ActiveModel>) {
+    // Resolve primary
+    let primary = agent_model
+        .primary
+        .as_ref()
+        .and_then(|s| parse_model_ref(s))
+        .or_else(|| store.active_model.clone());
+
+    // Resolve fallbacks
+    let fallbacks = if !agent_model.fallbacks.is_empty() {
+        // Agent has custom fallbacks
+        agent_model
+            .fallbacks
+            .iter()
+            .filter_map(|s| parse_model_ref(s))
+            .collect()
+    } else {
+        // Use global fallbacks
+        store.fallback_models.clone()
+    };
+
+    (primary, fallbacks)
+}
+
+/// Find a ProviderConfig by provider_id from the store.
+/// Only returns enabled providers.
+pub fn find_provider<'a>(providers: &'a [ProviderConfig], provider_id: &str) -> Option<&'a ProviderConfig> {
+    providers.iter().find(|p| p.id == provider_id && p.enabled)
 }
 
 // ── Helper: Create built-in Codex provider ────────────────────────

@@ -8,6 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **全局默认模型 + 降级模型系统**：支持设置有序降级链，每个 Agent 可继承全局设置或自定义覆盖
+  - `provider.rs`：`ProviderStore` 新增 `fallback_models` 字段 + `resolve_model_chain()` / `parse_model_ref()` / `find_provider()` 辅助函数
+  - 新增 Tauri 命令：`get_fallback_models` / `set_fallback_models`
+  - `chat` 命令重构为支持 primary + fallback 模型链按序尝试
+- **智能降级错误分类**（参考 OpenClaw）：新增 `failover.rs` 模块
+  - `FailoverReason` 枚举：RateLimit / Overloaded / Timeout / Auth / Billing / ModelNotFound / ContextOverflow / Unknown
+  - `classify_error()`：基于 HTTP 状态码 + 错误消息模式匹配，自动分类 API 错误
+  - `ContextOverflow` 错误终止返回，不降级（小窗口模型会更差）
+  - `RateLimit` / `Overloaded` / `Timeout` 先重试 2 次（指数退避 1s→2s + jitter），再降级
+  - `Auth` / `Billing` / `ModelNotFound` 直接跳到下一模型
+  - 11 个单元测试覆盖所有错误分类场景
+- **降级通知增强**：`model_fallback` 事件新增 `reason` / `from_model` / `attempt` / `total` / `error` 字段
+  - 前端显示富通知：`⚠️ Fallback → Model ← From (reason) [2/3]`
+- **全局模型设置 UI**：`SettingsView.tsx` 新增 `GlobalModelPanel` 组件
+  - 默认模型下拉选择（按 Provider 分组）
+  - 降级模型有序列表（优先级标签、上移/下移/删除/添加）
+  - 导航新增 "模型" 分区（Layers 图标）
 - **Agent 定义系统**：支持创建和管理多个 AI Agent，每个 Agent 可独立配置身份、性格和行为
   - 设置页新增 Agent section，支持列表/新建/编辑/删除
   - Agent 编辑 4 个 Tab：身份（名称/描述/Emoji/头像/角色定位）、性格（气质/语气/特质/准则/边界/个性/沟通方式）、行为（工具轮数/审批工具/沙箱/工具指导）、自定义提示词
@@ -211,6 +228,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `tools.rs` `ToolDefinition` 重构为 provider-agnostic 格式，新增 `to_anthropic_schema()` / `to_openai_schema()` 方法
 - `LlmProvider::Anthropic` 从包装 `rig-core::Client` 改为存储 API key 字符串
 - 对话界面从单栏改为三栏布局（图标侧边栏 / Agent 列表 / 对话区）
+- **内置 Provider 模板升级**（同步 OpenClaw 最新变更）：
+  - xAI：Grok 3 → Grok 4，base URL 加 `/v1`
+  - 智谱 AI：base URL 升级到 `/v4`，模型扩展为 5 个（GLM-5 / GLM-5 Turbo / GLM-4.7 / GLM-4.7 Flash / GLM-4.7 FlashX），全部支持 reasoning
+  - Kimi Coding：新增推荐模型 `kimi-code`，保留 `k2p5` 兼容
+  - Mistral：base URL 加 `/v1`，移除 Codestral，Mistral Large 支持 image 输入，contextWindow/maxTokens 提升至 262144
+  - Moonshot：精简为 `kimi-k2.5` 单模型
+  - OpenRouter：新增 `auto` 自动模型选择
+  - Together AI：新增 Llama 4 Maverick 17B
+  - Ollama：默认模型从 `llama3.3` 改为 `glm-4.7-flash`
 
 ### Fixed
 - 修复对话上下文丢失问题：`AssistantAgent` 新增 `conversation_history` 字段保存多轮对话历史

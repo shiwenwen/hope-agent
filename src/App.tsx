@@ -22,6 +22,7 @@ import {
   Moon,
   Monitor,
   User,
+  Plus,
 } from "lucide-react"
 import { useTheme } from "@/hooks/useTheme"
 import ProviderSetup from "@/components/ProviderSetup"
@@ -310,12 +311,39 @@ function ToolCallBlock({ tool }: { tool: ToolCall }) {
   )
 }
 
+interface SessionMeta {
+  id: string
+  title?: string | null
+  agentId: string
+  providerName?: string | null
+  modelId?: string | null
+  createdAt: string
+  updatedAt: string
+  messageCount: number
+}
+
+interface AgentSummaryForSidebar {
+  id: string
+  name: string
+  description?: string | null
+  emoji?: string | null
+  avatar?: string | null
+}
+
 function ChatScreen({ onOpenAgentSettings }: { onOpenAgentSettings?: () => void }) {
   const { t } = useTranslation()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
   const [loading, setLoading] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
+
+  // Session & Agent list state
+  const [sessions, setSessions] = useState<SessionMeta[]>([])
+  const [agents, setAgents] = useState<AgentSummaryForSidebar[]>([])
+  const [agentsExpanded, setAgentsExpanded] = useState(true)
+  const [showNewChatMenu, setShowNewChatMenu] = useState(false)
+  const newChatMenuRef = useRef<HTMLDivElement>(null)
 
   // Resizable agent list panel
   const [panelWidth, setPanelWidth] = useState(256)
@@ -613,6 +641,25 @@ function ChatScreen({ onOpenAgentSettings }: { onOpenAgentSettings?: () => void 
                 updated[updated.length - 1] = { ...last, toolCalls: calls }
                 break
               }
+              case "session_created": {
+                // Backend auto-created a session — store the ID
+                if (event.session_id) {
+                  setCurrentSessionId(event.session_id)
+                }
+                break
+              }
+              case "model_fallback": {
+                // Insert a system notice showing fallback details
+                const from = event.from_model ? ` ← ${event.from_model}` : ""
+                const reason = event.reason && event.reason !== "unknown" ? ` (${event.reason})` : ""
+                const attempt = event.attempt && event.total ? ` [${event.attempt}/${event.total}]` : ""
+                const notice = `⚠️ Fallback → ${event.model}${from}${reason}${attempt}`
+                updated[updated.length - 1] = {
+                  ...last,
+                  content: `> _${notice}_\n\n` + last.content,
+                }
+                break
+              }
             }
             return updated
           })
@@ -631,7 +678,7 @@ function ChatScreen({ onOpenAgentSettings }: { onOpenAgentSettings?: () => void 
         }
       }
 
-      await invoke<string>("chat", { message: text, attachments, onEvent })
+      await invoke<string>("chat", { message: text, attachments, sessionId: currentSessionId, onEvent })
     } catch (e) {
       setMessages((prev) => {
         const updated = [...prev]
@@ -676,6 +723,13 @@ function ChatScreen({ onOpenAgentSettings }: { onOpenAgentSettings?: () => void 
       >
         <div className="h-10 flex items-end px-4 shrink-0" data-tauri-drag-region>
           <h2 className="text-sm font-semibold text-foreground pb-1.5">{t("chat.conversations")}</h2>
+          <button
+            className="ml-auto text-muted-foreground hover:text-foreground transition-colors pb-1.5"
+            onClick={() => { setMessages([]); setCurrentSessionId(null) }}
+            title={t("chat.newChat") || "New Chat"}
+          >
+            <Plus className="h-4 w-4" />
+          </button>
         </div>
         <div className="flex-1 overflow-y-auto p-2">
           {/* Main Agent — active */}

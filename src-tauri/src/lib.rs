@@ -1,11 +1,13 @@
 mod agent;
 mod agent_config;
 mod agent_loader;
+mod failover;
 mod oauth;
 mod paths;
 mod process_registry;
 mod provider;
 mod sandbox;
+mod session;
 mod skills;
 mod system_prompt;
 mod tools;
@@ -20,6 +22,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tauri::State;
 use serde::Serialize;
+use session::SessionDB;
 
 static APP_HANDLE: std::sync::OnceLock<tauri::AppHandle> = std::sync::OnceLock::new();
 
@@ -39,6 +42,8 @@ struct AppState {
     codex_token: Mutex<Option<(String, String)>>,  // (access_token, account_id)
     /// Currently active agent ID
     current_agent_id: Mutex<String>,
+    /// Session database
+    session_db: Arc<SessionDB>,
 }
 
 // ── Provider Management Commands ──────────────────────────────────
@@ -479,6 +484,25 @@ async fn set_active_model(
 }
 
 #[tauri::command]
+async fn get_fallback_models(
+    state: State<'_, AppState>,
+) -> Result<Vec<ActiveModel>, String> {
+    let store = state.provider_store.lock().await;
+    Ok(store.fallback_models.clone())
+}
+
+#[tauri::command]
+async fn set_fallback_models(
+    models: Vec<ActiveModel>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let mut store = state.provider_store.lock().await;
+    store.fallback_models = models;
+    provider::save_store(&store).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 async fn has_providers(
     state: State<'_, AppState>,
 ) -> Result<bool, String> {
@@ -791,23 +815,349 @@ async fn set_reasoning_effort(
 
 use agent::Attachment;
 
+/// Build an AssistantAgent for a given ActiveModel.
+/// Handles Codex (OAuth) vs regular API key providers.
+async fn build_agent_for_model(
+    model: &ActiveModel,
+    state: &State<'_, AppState>,
+) -> Option<AssistantAgent> {
+    let store = state.provider_store.lock().await;
+    let prov = provider::find_provider(&store.providers, &model.provider_id)?;
+
+    if prov.api_type == ApiType::Codex {
+        let token_info = state.codex_token.lock().await.clone();
+        let (access_token, account_id) = token_info?;
+        Some(AssistantAgent::new_openai(&access_token, &account_id, &model.model_id))
+    } else {
+        Some(AssistantAgent::new_from_provider(prov, &model.model_id))
+    }
+}
+
+/// Find the provider name + model name for display in fallback notifications.
+async fn model_display_name(
+    model: &ActiveModel,
+    state: &State<'_, AppState>,
+) -> String {
+    let store = state.provider_store.lock().await;
+    if let Some(prov) = store.providers.iter().find(|p| p.id == model.provider_id) {
+        let model_name = prov.models.iter()
+            .find(|m| m.id == model.model_id)
+            .map(|m| m.name.as_str())
+            .unwrap_or(&model.model_id);
+        format!("{} / {}", prov.name, model_name)
+    } else {
+        format!("{}::{}", model.provider_id, model.model_id)
+    }
+}
+
+// ── Session Management Commands ───────────────────────────────────
+
+#[tauri::command]
+async fn create_session_cmd(
+    agent_id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<session::SessionMeta, String> {
+    let agent_id = agent_id.unwrap_or_else(|| "default".to_string());
+    state.session_db.create_session(&agent_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn list_sessions_cmd(
+    agent_id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Vec<session::SessionMeta>, String> {
+    state.session_db.list_sessions(agent_id.as_deref()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn load_session_messages_cmd(
+    session_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<session::SessionMessage>, String> {
+    state.session_db.load_session_messages(&session_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_session_cmd(
+    session_id: String,
+    state: State<'_, AppState>,
+) -> Result<Option<session::SessionMeta>, String> {
+    state.session_db.get_session(&session_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn delete_session_cmd(
+    session_id: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    state.session_db.delete_session(&session_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn rename_session_cmd(
+    session_id: String,
+    title: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    state.session_db.update_session_title(&session_id, &title).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 async fn chat(
     message: String,
     attachments: Vec<Attachment>,
+    session_id: Option<String>,
     on_event: tauri::ipc::Channel<String>,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
     let effort = state.reasoning_effort.lock().await.clone();
-    let effort_ref = if effort == "none" { None } else { Some(effort.as_str()) };
-    let agent_lock = state.agent.lock().await;
-    match agent_lock.as_ref() {
-        Some(agent) => {
-            agent.chat(&message, &attachments, effort_ref, move |delta| {
-                let _ = on_event.send(delta.to_string());
-            }).await.map_err(|e| e.to_string())
+    let effort_ref_str = effort.clone();
+    let db = state.session_db.clone();
+
+    // Resolve or create session
+    let current_agent_id = state.current_agent_id.lock().await.clone();
+    let sid = match session_id {
+        Some(id) if !id.is_empty() => id,
+        _ => {
+            // Auto-create a new session
+            let meta = db.create_session(&current_agent_id).map_err(|e| e.to_string())?;
+            // Emit session_created event so frontend knows
+            let event = serde_json::json!({
+                "type": "session_created",
+                "session_id": &meta.id,
+            });
+            if let Ok(json_str) = serde_json::to_string(&event) {
+                let _ = on_event.send(json_str);
+            }
+            meta.id
         }
-        None => Err("Agent not initialized. Please sign in first.".to_string()),
+    };
+
+    // Save attachments to disk and build metadata
+    let attachments_meta = if !attachments.is_empty() {
+        let att_dir = crate::paths::attachments_dir(&sid).map_err(|e| e.to_string())?;
+        std::fs::create_dir_all(&att_dir).map_err(|e| format!("Failed to create attachments dir: {}", e))?;
+
+        let mut meta_list = Vec::new();
+        for (i, att) in attachments.iter().enumerate() {
+            // Decode base64 data and write to file
+            let data = base64::Engine::decode(
+                &base64::engine::general_purpose::STANDARD,
+                &att.data,
+            ).unwrap_or_default();
+
+            // Generate unique filename: {index}_{original_name}
+            let filename = format!("{}_{}", i, att.name.replace(['/', '\\', ':'], "_"));
+            let file_path = att_dir.join(&filename);
+            if let Err(e) = std::fs::write(&file_path, &data) {
+                log::warn!("Failed to save attachment {}: {}", att.name, e);
+                continue;
+            }
+
+            meta_list.push(serde_json::json!({
+                "name": att.name,
+                "mime_type": att.mime_type,
+                "size": data.len(),
+                "path": file_path.to_string_lossy(),
+            }));
+        }
+        Some(serde_json::to_string(&meta_list).unwrap_or_default())
+    } else {
+        None
+    };
+
+    // Save user message to DB
+    let mut user_msg = session::NewMessage::user(&message);
+    user_msg.attachments_meta = attachments_meta;
+    let _ = db.append_message(&sid, &user_msg);
+
+    // Auto-generate title from first user message if session has no title
+    if let Ok(Some(meta)) = db.get_session(&sid) {
+        if meta.title.is_none() && meta.message_count <= 1 {
+            let title = session::auto_title(&message);
+            let _ = db.update_session_title(&sid, &title);
+        }
+    }
+
+    // Resolve model chain from current agent config
+    let agent_model_config = agent_loader::load_agent(&current_agent_id)
+        .map(|def| def.config.model)
+        .unwrap_or_default();
+
+    let (primary, fallbacks) = {
+        let store = state.provider_store.lock().await;
+        provider::resolve_model_chain(&agent_model_config, &store)
+    };
+
+    // Build ordered model chain: [primary, ...fallbacks]
+    let mut model_chain: Vec<ActiveModel> = Vec::new();
+    if let Some(p) = primary {
+        model_chain.push(p);
+    }
+    for fb in fallbacks {
+        // Avoid duplicates
+        if !model_chain.iter().any(|m| m.provider_id == fb.provider_id && m.model_id == fb.model_id) {
+            model_chain.push(fb);
+        }
+    }
+
+    if model_chain.is_empty() {
+        // No model chain resolved — fall back to existing agent instance
+        let agent_lock = state.agent.lock().await;
+        return match agent_lock.as_ref() {
+            Some(agent) => {
+                let effort_ref = if effort_ref_str == "none" { None } else { Some(effort_ref_str.as_str()) };
+                let db_for_cb = db.clone();
+                let sid_for_cb = sid.clone();
+                let result = agent.chat(&message, &attachments, effort_ref, move |delta| {
+                    // Intercept tool events and persist them
+                    persist_tool_event(&db_for_cb, &sid_for_cb, delta);
+                    let _ = on_event.send(delta.to_string());
+                }).await.map_err(|e| e.to_string())?;
+                // Save assistant reply
+                let _ = db.append_message(&sid, &session::NewMessage::assistant(&result));
+                Ok(result)
+            }
+            None => Err("Agent not initialized. Please sign in first.".to_string()),
+        };
+    }
+
+    let mut last_error: Option<String> = None;
+    let total_models = model_chain.len();
+    // Track first model for "from_model" in fallback events
+    let primary_display = {
+        let first = &model_chain[0];
+        model_display_name(first, &state).await
+    };
+
+    for (idx, model_ref) in model_chain.iter().enumerate() {
+        let agent = match build_agent_for_model(model_ref, &state).await {
+            Some(a) => a,
+            None => {
+                last_error = Some(format!("Cannot build agent for {}::{}", model_ref.provider_id, model_ref.model_id));
+                continue;
+            }
+        };
+
+        // Determine max retries for this model
+        const MAX_RETRIES: u32 = 2;
+        const RETRY_BASE_MS: u64 = 1000;
+        const RETRY_MAX_MS: u64 = 10000;
+
+        let mut retry_count: u32 = 0;
+
+        loop {
+            // If this is a fallback (not the first model) and first attempt, notify frontend
+            if idx > 0 && retry_count == 0 {
+                let display = model_display_name(model_ref, &state).await;
+                let reason_str = last_error.as_deref()
+                    .map(|e| failover::classify_error(e))
+                    .unwrap_or(failover::FailoverReason::Unknown);
+                let event = serde_json::json!({
+                    "type": "model_fallback",
+                    "model": display,
+                    "from_model": primary_display,
+                    "provider_id": model_ref.provider_id,
+                    "model_id": model_ref.model_id,
+                    "reason": reason_str,
+                    "attempt": idx + 1,
+                    "total": total_models,
+                    "error": last_error.as_deref().unwrap_or(""),
+                });
+                if let Ok(json_str) = serde_json::to_string(&event) {
+                    let _ = on_event.send(json_str);
+                }
+            }
+
+            // Update session with current model info
+            if retry_count == 0 {
+                let store = state.provider_store.lock().await;
+                let provider_name = store.providers.iter()
+                    .find(|p| p.id == model_ref.provider_id)
+                    .map(|p| p.name.as_str());
+                let _ = db.update_session_model(&sid, provider_name, Some(&model_ref.model_id));
+            }
+
+            let effort_ref = if effort_ref_str == "none" { None } else { Some(effort_ref_str.as_str()) };
+            let on_event_clone = on_event.clone();
+            let db_for_cb = db.clone();
+            let sid_for_cb = sid.clone();
+
+            match agent.chat(&message, &attachments, effort_ref, move |delta| {
+                persist_tool_event(&db_for_cb, &sid_for_cb, delta);
+                let _ = on_event_clone.send(delta.to_string());
+            }).await {
+                Ok(result) => {
+                    // Save assistant reply to DB
+                    let _ = db.append_message(&sid, &session::NewMessage::assistant(&result));
+                    // Update the active agent instance for conversation continuity
+                    *state.agent.lock().await = Some(agent);
+                    return Ok(result);
+                }
+                Err(e) => {
+                    let error_msg = e.to_string();
+                    let reason = failover::classify_error(&error_msg);
+
+                    log::warn!(
+                        "Model {}::{} failed (attempt {}/{}, retry {}, reason {:?}): {}",
+                        model_ref.provider_id, model_ref.model_id,
+                        idx + 1, total_models, retry_count, reason, error_msg
+                    );
+
+                    // Terminal errors — surface immediately, no fallback
+                    if reason.is_terminal() {
+                        return Err(error_msg);
+                    }
+
+                    // Retryable errors — retry on same model with backoff
+                    if reason.is_retryable() && retry_count < MAX_RETRIES {
+                        retry_count += 1;
+                        let delay = failover::retry_delay_ms(retry_count - 1, RETRY_BASE_MS, RETRY_MAX_MS);
+                        log::info!(
+                            "Retrying {}::{} in {}ms (retry {}/{}, reason {:?})",
+                            model_ref.provider_id, model_ref.model_id,
+                            delay, retry_count, MAX_RETRIES, reason
+                        );
+                        tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                        continue; // Retry same model
+                    }
+
+                    // Non-retryable or retries exhausted — move to next model
+                    last_error = Some(error_msg);
+                    break; // Break inner retry loop, continue outer model loop
+                }
+            }
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| "All models in the fallback chain failed.".to_string()))
+}
+
+/// Parse tool_call and tool_result events from the streaming callback and persist to DB.
+fn persist_tool_event(db: &Arc<SessionDB>, session_id: &str, delta: &str) {
+    if let Ok(event) = serde_json::from_str::<serde_json::Value>(delta) {
+        match event.get("type").and_then(|t| t.as_str()) {
+            Some("tool_result") => {
+                let call_id = event.get("call_id").and_then(|v| v.as_str()).unwrap_or("");
+                let result = event.get("result").and_then(|v| v.as_str()).unwrap_or("");
+                // We need the tool name, but tool_result events may not have it.
+                // Use call_id as fallback for now.
+                let tool_msg = session::NewMessage::tool(
+                    call_id,
+                    "", // name filled from tool_call event
+                    "",
+                    result,
+                    None,
+                    false,
+                );
+                let _ = db.append_message(session_id, &tool_msg);
+            }
+            _ => {
+                // text_delta and tool_call events are not persisted as separate messages.
+                // text_delta is accumulated into assistant message.
+                // tool_call info is captured in tool_result.
+            }
+        }
     }
 }
 
@@ -1060,13 +1410,22 @@ pub fn run() {
 
             Ok(())
         })
-        .manage(AppState {
-            agent: Mutex::new(None),
-            auth_result: Arc::new(Mutex::new(None)),
-            provider_store: Mutex::new(initial_store),
-            reasoning_effort: Mutex::new("medium".to_string()),
-            codex_token: Mutex::new(None),
-            current_agent_id: Mutex::new("default".to_string()),
+        .manage({
+            // Initialize the SessionDB
+            let db_path = session::db_path().expect("Failed to resolve database path");
+            let session_db = Arc::new(
+                SessionDB::open(&db_path).expect("Failed to open session database")
+            );
+
+            AppState {
+                agent: Mutex::new(None),
+                auth_result: Arc::new(Mutex::new(None)),
+                provider_store: Mutex::new(initial_store),
+                reasoning_effort: Mutex::new("medium".to_string()),
+                codex_token: Mutex::new(None),
+                current_agent_id: Mutex::new("default".to_string()),
+                session_db,
+            }
         })
         .invoke_handler(tauri::generate_handler![
             // Provider management
@@ -1080,6 +1439,8 @@ pub fn run() {
             get_available_models,
             get_active_model,
             set_active_model,
+            get_fallback_models,
+            set_fallback_models,
             has_providers,
             // Legacy auth
             initialize_agent,
@@ -1119,6 +1480,13 @@ pub fn run() {
             get_user_config,
             save_user_config,
             get_system_timezone,
+            // Session management
+            create_session_cmd,
+            list_sessions_cmd,
+            load_session_messages_cmd,
+            get_session_cmd,
+            delete_session_cmd,
+            rename_session_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
