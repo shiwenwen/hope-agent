@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
@@ -613,6 +613,7 @@ function UserProfilePanel() {
   const [saved, setSaved] = useState(false)
   const [customStyle, setCustomStyle] = useState(false)
   const [customGender, setCustomGender] = useState(false)
+  const composingRef = useRef(false)
 
   useEffect(() => {
     Promise.all([
@@ -651,6 +652,24 @@ function UserProfilePanel() {
     setConfig((prev) => ({ ...prev, ...patch }))
   }
 
+  /** Props for text inputs that handle IME composition correctly */
+  const textInputProps = (field: keyof UserConfig) => ({
+    value: (config[field] as string) ?? "",
+    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      // During IME composing, keep raw value; on blur, normalize empty to null
+      update({ [field]: e.target.value })
+    },
+    onCompositionStart: () => { composingRef.current = true },
+    onCompositionEnd: (e: React.CompositionEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      composingRef.current = false
+      update({ [field]: (e.target as HTMLInputElement).value })
+    },
+    onBlur: (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      // Normalize: empty string → null for clean storage
+      if (!e.target.value) update({ [field]: null })
+    },
+  })
+
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
       {/* Scrollable content */}
@@ -685,8 +704,7 @@ function UserProfilePanel() {
               <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.profileName")}</div>
               <input
                 className="w-full px-3 py-2.5 text-sm bg-secondary/40 rounded-lg text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors"
-                value={config.name ?? ""}
-                onChange={(e) => update({ name: e.target.value || null })}
+                {...textInputProps("name")}
                 placeholder={t("settings.profileNamePlaceholder")}
               />
             </div>
@@ -736,8 +754,7 @@ function UserProfilePanel() {
               {customGender && (
                 <input
                   className="w-full mt-2 px-3 py-2.5 text-sm bg-secondary/40 rounded-lg text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors"
-                  value={config.gender ?? ""}
-                  onChange={(e) => update({ gender: e.target.value || null })}
+                  {...textInputProps("gender")}
                   placeholder={t("settings.profileGenderCustomPlaceholder")}
                 />
               )}
@@ -765,8 +782,7 @@ function UserProfilePanel() {
               <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.profileRole")}</div>
               <input
                 className="w-full px-3 py-2.5 text-sm bg-secondary/40 rounded-lg text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors"
-                value={config.role ?? ""}
-                onChange={(e) => update({ role: e.target.value || null })}
+                {...textInputProps("role")}
                 placeholder={t("settings.profileRolePlaceholder")}
               />
             </div>
@@ -912,8 +928,7 @@ function UserProfilePanel() {
                 <textarea
                   className="w-full mt-2 px-3 py-2.5 text-sm bg-secondary/40 rounded-lg text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors resize-none leading-relaxed"
                   rows={4}
-                  value={config.responseStyle ?? ""}
-                  onChange={(e) => update({ responseStyle: e.target.value || null })}
+                  {...textInputProps("responseStyle")}
                   placeholder={t("settings.profileStyleCustomPlaceholder")}
                 />
               )}
@@ -927,8 +942,7 @@ function UserProfilePanel() {
               <textarea
                 className="w-full px-3 py-2.5 text-sm bg-secondary/40 rounded-lg text-foreground placeholder:text-muted-foreground/30 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors resize-none leading-relaxed"
                 rows={5}
-                value={config.customInfo ?? ""}
-                onChange={(e) => update({ customInfo: e.target.value || null })}
+                {...textInputProps("customInfo")}
                 placeholder={t("settings.profileCustomInfoPlaceholder")}
               />
             </div>
