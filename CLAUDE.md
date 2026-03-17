@@ -102,6 +102,7 @@ npm run lint
 - 样式只用 Tailwind utility class，不写行内 style 和自定义 CSS（除非必要）
 - **样式 / 动效 / 交互优先复用现有资源**：优先使用 shadcn/ui 组件、Radix UI 原语、Tailwind CSS 内置 utility（`transition-*`、`animate-*`、`hover:` / `focus:` 等）和 CSS 变量实现样式、动画与交互效果，避免手写自定义 CSS 动画、keyframes 或 JS 动效逻辑。只有在确认现有组件库和工具链无法满足需求时，才允许手写实现
 - 路径别名：`@/` → `src/`
+- **响应式布局规范**：在实现新的设置页面或内容面板时，避免在最外层或主体滚动区域硬编码过小的最大宽度（如 `max-w-md`, `max-w-lg`, `max-w-xl`）。应当使用更大的阈值（如 `max-w-4xl`、`max-w-5xl` 或 `max-w-screen-md`），或允许弹性伸缩，以确保应用在横向调整窗口大小时能自适应拉伸，充分利用宽屏空间避免过多无意义留白。
 
 ### 后端（Rust）
 - 新功能工具/能力放在单独的模块文件，在 `lib.rs` 中注册命令

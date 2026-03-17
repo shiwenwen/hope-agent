@@ -101,7 +101,7 @@ function AppearancePanel() {
   const { theme, setTheme } = useTheme()
 
   return (
-    <div className="flex-1 overflow-y-auto p-6 max-w-xl">
+    <div className="flex-1 overflow-y-auto p-6 max-w-4xl">
       <h2 className="text-lg font-semibold text-foreground mb-1">
         {t("settings.appearance")}
       </h2>
@@ -170,7 +170,7 @@ function LanguagePanel() {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-6 max-w-xl">
+    <div className="flex-1 overflow-y-auto p-6 max-w-4xl">
       <h2 className="text-lg font-semibold text-foreground mb-1">
         {t("settings.language")}
       </h2>
@@ -347,7 +347,7 @@ function GlobalModelPanel() {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-6 max-w-xl">
+    <div className="flex-1 overflow-y-auto p-6 max-w-4xl">
       <h2 className="text-lg font-semibold text-foreground mb-1">
         {t("settings.globalModel")}
       </h2>
@@ -619,7 +619,7 @@ function SkillsPanel() {
   if (selectedSkill) {
     return (
       <div className="flex-1 flex flex-col min-h-0 overflow-y-auto p-6">
-        <div className="max-w-2xl">
+        <div className="max-w-4xl">
           <button
             onClick={() => setSelectedSkill(null)}
             className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-4"
@@ -1038,7 +1038,7 @@ function AgentCreateView({
 
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-y-auto p-6">
-      <div className="max-w-xl">
+      <div className="max-w-4xl">
         <button
           onClick={onBack}
           className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-4"
@@ -1314,7 +1314,7 @@ function AgentEditView({
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
       <div className="flex-1 overflow-y-auto p-6">
-        <div className="max-w-xl">
+        <div className="max-w-4xl">
           {/* Back button */}
           <button
             onClick={onBack}
@@ -2201,7 +2201,7 @@ function UserProfilePanel() {
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
       {/* Scrollable content */}
       <div className="flex-1 overflow-y-auto p-6">
-        <div className="max-w-xl">
+        <div className="max-w-4xl">
           <h2 className="text-lg font-semibold text-foreground mb-1">
             {t("settings.profile")}
           </h2>

@@ -893,7 +893,7 @@ function ChatScreen({ onOpenAgentSettings }: { onOpenAgentSettings?: () => void 
               <span className="font-normal normal-case text-muted-foreground/60 ml-0.5">({agents.length})</span>
             </button>
             {agentsExpanded && (
-              <div className="px-2 pb-2 grid grid-cols-2 gap-1">
+              <div className={cn("px-2 pb-2 grid gap-1", panelWidth >= 280 ? "grid-cols-2" : "grid-cols-1")}>
                 {agents.map((agent) => (
                   <button
                     key={agent.id}
@@ -910,7 +910,7 @@ function ChatScreen({ onOpenAgentSettings }: { onOpenAgentSettings?: () => void 
                         <Bot className="h-3 w-3" />
                       )}
                     </div>
-                    <span className="truncate text-foreground/80">{agent.name}</span>
+                    <span className="truncate text-foreground/80">{agent.name}{agent.emoji ? ` ${agent.emoji}` : ""}</span>
                   </button>
                 ))}
               </div>

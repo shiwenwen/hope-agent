@@ -34,6 +34,7 @@ import {
 // ── Types (shared with ProviderSetup) ─────────────────────────────
 
 type ApiType = "anthropic" | "openai-chat" | "openai-responses" | "codex"
+type ThinkingStyleType = "openai" | "anthropic" | "zai" | "qwen" | "none"
 
 export interface ProviderConfig {
   id: string
@@ -44,6 +45,7 @@ export interface ProviderConfig {
   models: ModelConfig[]
   enabled: boolean
   userAgent: string
+  thinkingStyle: ThinkingStyleType
 }
 
 // ── Helpers ───────────────────────────────────────────────────────
