@@ -8,6 +8,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **会话上下文持久化与恢复**：完整的 conversation_history 序列化/反序列化机制
+  - `session.rs`：sessions 表新增 `context_json` 列，新增 `save_context()` / `load_context()` 方法
+  - `agent.rs`：新增 `set_conversation_history()` / `get_conversation_history()` 方法
+  - `lib.rs`：`chat` 命令中恢复历史上下文（`restore_agent_context`）+ 成功后保存（`save_agent_context`）
+  - 数据库文件重命名为 `sessions.db`
+- **Event 消息角色**：新增 `MessageRole::Event`（替代 `System`，避免与 LLM API 的 system role 冲突）
+  - 错误消息、降级通知等系统事件统一使用 `event` 角色落库和渲染
+  - 前端 event 消息居中显示，柔和样式，与用户/助手消息区分
+- **消息排队与自动发送**：loading 中可继续输入并发送，消息进入 pending 队列
+  - 回复结束后自动发送（可在「设置 → 对话」中关闭，改为回填输入框）
+  - pending 消息指示器：琥珀色脉冲圆点 + 消息预览 + 取消按钮
+- **打断回复（Stop Chat）**：loading 中显示红色停止按钮，可随时中断 LLM 回复
+  - `AppState` 新增 `chat_cancel: Arc<AtomicBool>` + `stop_chat` Tauri 命令
+  - 3 个 SSE 解析器 + 4 个工具循环中检查取消标志，取消后保存部分回复
+- **连续 user 消息兼容**：`agent.rs` 新增 `push_user_message()` 方法，合并连续 user 消息
+  - 避免 Anthropic API 的 role 交替校验错误（打断发送、异常等场景）
+- **多会话独立支持**：切换会话时各会话的消息状态独立保存和恢复
+  - `sessionCacheRef`（Map）缓存每个会话的消息，`loadingSessionsRef`（Set）跟踪加载中的会话
+  - 流式回调通过 `updateSessionMessages` 按 session ID 更新，支持后台会话继续接收数据
+- **对话设置面板**：设置页新增「对话」分区（MessageSquare 图标）
+  - 自动发送排队消息开关，存储到 `~/.opencomputer/user.json`
+  - `UserConfig` 新增 `auto_send_pending: bool` 字段（默认 true）
 - **全局默认模型 + 降级模型系统**：支持设置有序降级链，每个 Agent 可继承全局设置或自定义覆盖
   - `provider.rs`：`ProviderStore` 新增 `fallback_models` 字段 + `resolve_model_chain()` / `parse_model_ref()` / `find_provider()` 辅助函数
   - 新增 Tauri 命令：`get_fallback_models` / `set_fallback_models`
