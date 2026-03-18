@@ -49,7 +49,14 @@ pub struct UserConfig {
     /// Free-form extra info the user wants the AI to know
     #[serde(default)]
     pub custom_info: Option<String>,
+
+    // ── Chat behavior settings ──
+    /// Whether pending messages auto-send after reply finishes (default: true)
+    #[serde(default = "default_true")]
+    pub auto_send_pending: bool,
 }
+
+fn default_true() -> bool { true }
 
 // ── Persistence ──────────────────────────────────────────────────
 

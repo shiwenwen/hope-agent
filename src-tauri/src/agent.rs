@@ -1,6 +1,8 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::provider::{ApiType, ProviderConfig, ThinkingStyle};
 use crate::tools::{self, ToolProvider};
@@ -552,26 +554,69 @@ impl AssistantAgent {
         }
     }
 
-    pub async fn chat(&self, message: &str, attachments: &[Attachment], reasoning_effort: Option<&str>, on_delta: impl Fn(&str) + Send + 'static) -> Result<String> {
+    /// Replace the conversation history (used to restore context from DB).
+    pub fn set_conversation_history(&self, history: Vec<serde_json::Value>) {
+        *self.conversation_history.lock().unwrap() = history;
+    }
+
+    /// Get a clone of the current conversation history (used to persist context to DB).
+    pub fn get_conversation_history(&self) -> Vec<serde_json::Value> {
+        self.conversation_history.lock().unwrap().clone()
+    }
+
+    /// Push a user message, merging with the last message if it's also a user message.
+    /// This avoids consecutive user messages which Anthropic API rejects.
+    fn push_user_message(messages: &mut Vec<serde_json::Value>, new_content: serde_json::Value) {
+        if let Some(last) = messages.last_mut() {
+            if last.get("role").and_then(|r| r.as_str()) == Some("user") {
+                // Merge into existing user message
+                let old_content = last.get("content").cloned();
+                let merged = match (old_content, &new_content) {
+                    (Some(serde_json::Value::String(old)), serde_json::Value::String(new)) => {
+                        serde_json::Value::String(format!("{}\n\n{}", old, new))
+                    }
+                    (Some(serde_json::Value::Array(mut old_arr)), serde_json::Value::Array(new_arr)) => {
+                        old_arr.extend(new_arr.iter().cloned());
+                        serde_json::Value::Array(old_arr)
+                    }
+                    (Some(serde_json::Value::Array(mut old_arr)), serde_json::Value::String(s)) => {
+                        old_arr.push(json!({"type": "text", "text": s}));
+                        serde_json::Value::Array(old_arr)
+                    }
+                    (Some(serde_json::Value::String(old)), serde_json::Value::Array(new_arr)) => {
+                        let mut arr = vec![json!({"type": "text", "text": old})];
+                        arr.extend(new_arr.iter().cloned());
+                        serde_json::Value::Array(arr)
+                    }
+                    (_, _) => new_content.clone(),
+                };
+                last["content"] = merged;
+                return;
+            }
+        }
+        messages.push(json!({ "role": "user", "content": new_content }));
+    }
+
+    pub async fn chat(&self, message: &str, attachments: &[Attachment], reasoning_effort: Option<&str>, cancel: Arc<AtomicBool>, on_delta: impl Fn(&str) + Send + 'static) -> Result<String> {
         match &self.provider {
             LlmProvider::Anthropic { api_key, base_url, model } => {
-                self.chat_anthropic(api_key, base_url, model, message, attachments, reasoning_effort, &on_delta).await
+                self.chat_anthropic(api_key, base_url, model, message, attachments, reasoning_effort, &cancel, &on_delta).await
             }
             LlmProvider::OpenAIChat { api_key, base_url, model } => {
-                self.chat_openai_chat(api_key, base_url, model, message, attachments, reasoning_effort, &on_delta).await
+                self.chat_openai_chat(api_key, base_url, model, message, attachments, reasoning_effort, &cancel, &on_delta).await
             }
             LlmProvider::OpenAIResponses { api_key, base_url, model } => {
-                self.chat_openai_responses(api_key, base_url, model, message, attachments, reasoning_effort, &on_delta).await
+                self.chat_openai_responses(api_key, base_url, model, message, attachments, reasoning_effort, &cancel, &on_delta).await
             }
             LlmProvider::Codex { access_token, account_id, model } => {
-                self.chat_openai(access_token, account_id, model, message, attachments, reasoning_effort, &on_delta).await
+                self.chat_openai(access_token, account_id, model, message, attachments, reasoning_effort, &cancel, &on_delta).await
             }
         }
     }
 
     // ── Anthropic Messages API with Tool Loop ─────────────────────
 
-    async fn chat_anthropic(&self, api_key: &str, base_url: &str, model: &str, message: &str, attachments: &[Attachment], reasoning_effort: Option<&str>, on_delta: &(impl Fn(&str) + Send)) -> Result<String> {
+    async fn chat_anthropic(&self, api_key: &str, base_url: &str, model: &str, message: &str, attachments: &[Attachment], reasoning_effort: Option<&str>, cancel: &Arc<AtomicBool>, on_delta: &(impl Fn(&str) + Send)) -> Result<String> {
         let client = reqwest::Client::builder()
             .user_agent(&self.user_agent)
             .build()
@@ -581,7 +626,7 @@ impl AssistantAgent {
         // Build messages from conversation history + new user message (with optional image attachments)
         let mut messages = self.conversation_history.lock().unwrap().clone();
         let user_content = build_user_content_anthropic(message, attachments);
-        messages.push(json!({ "role": "user", "content": user_content }));
+        Self::push_user_message(&mut messages, user_content);
 
         let mut collected_text = String::new();
 
@@ -595,6 +640,8 @@ impl AssistantAgent {
         let max_rounds = get_max_tool_rounds();
         let max_rounds = if max_rounds == 0 { u32::MAX } else { max_rounds };
         for _round in 0..max_rounds {
+            if cancel.load(Ordering::SeqCst) { break; }
+
             let mut body = json!({
                 "model": model,
                 "max_tokens": max_tokens,
@@ -626,10 +673,10 @@ impl AssistantAgent {
             }
 
             // Parse SSE stream
-            let (text, tool_calls, stop_reason) = self.parse_anthropic_sse(resp, on_delta).await?;
+            let (text, tool_calls, stop_reason) = self.parse_anthropic_sse(resp, cancel, on_delta).await?;
             collected_text.push_str(&text);
 
-            // If no tool calls, we're done
+            // If cancelled, no tool calls, or not tool_use stop reason — done
             if tool_calls.is_empty() || stop_reason.as_deref() != Some("tool_use") {
                 break;
             }
@@ -673,13 +720,15 @@ impl AssistantAgent {
             messages.push(json!({ "role": "user", "content": tool_results }));
         }
 
-        if collected_text.is_empty() {
+        let cancelled = cancel.load(Ordering::SeqCst);
+        if collected_text.is_empty() && !cancelled {
             return Err(anyhow::anyhow!("No content received from Anthropic API"));
         }
 
-        // Persist conversation history: save the final messages state
-        // We need to save: all messages up to and including the final assistant response
-        messages.push(json!({ "role": "assistant", "content": collected_text }));
+        // Persist conversation history (including partial response if cancelled)
+        if !collected_text.is_empty() {
+            messages.push(json!({ "role": "assistant", "content": collected_text }));
+        }
         *self.conversation_history.lock().unwrap() = messages;
 
         Ok(collected_text)
@@ -689,6 +738,7 @@ impl AssistantAgent {
     async fn parse_anthropic_sse(
         &self,
         resp: reqwest::Response,
+        cancel: &Arc<AtomicBool>,
         on_delta: &(impl Fn(&str) + Send),
     ) -> Result<(String, Vec<FunctionCallItem>, Option<String>)> {
         use futures_util::StreamExt;
@@ -703,6 +753,10 @@ impl AssistantAgent {
         let mut buffer = String::new();
 
         while let Some(chunk) = stream.next().await {
+            if cancel.load(Ordering::SeqCst) {
+                stop_reason = Some("cancelled".to_string());
+                break;
+            }
             let chunk = chunk?;
             buffer.push_str(&String::from_utf8_lossy(&chunk));
 
@@ -795,7 +849,7 @@ impl AssistantAgent {
 
     // ── OpenAI Chat Completions API with Tool Loop ───────────────
 
-    async fn chat_openai_chat(&self, api_key: &str, base_url: &str, model: &str, message: &str, attachments: &[Attachment], reasoning_effort: Option<&str>, on_delta: &(impl Fn(&str) + Send)) -> Result<String> {
+    async fn chat_openai_chat(&self, api_key: &str, base_url: &str, model: &str, message: &str, attachments: &[Attachment], reasoning_effort: Option<&str>, cancel: &Arc<AtomicBool>, on_delta: &(impl Fn(&str) + Send)) -> Result<String> {
         let client = reqwest::Client::builder()
             .user_agent(&self.user_agent)
             .build()
@@ -804,7 +858,7 @@ impl AssistantAgent {
 
         let mut messages = self.conversation_history.lock().unwrap().clone();
         let user_content = build_user_content_openai_chat(message, attachments);
-        messages.push(json!({ "role": "user", "content": user_content }));
+        Self::push_user_message(&mut messages, user_content);
 
         let api_url = build_api_url(base_url, "/v1/chat/completions");
         let mut collected_text = String::new();
@@ -815,6 +869,8 @@ impl AssistantAgent {
         let max_rounds = get_max_tool_rounds();
         let max_rounds = if max_rounds == 0 { u32::MAX } else { max_rounds };
         for _round in 0..max_rounds {
+            if cancel.load(Ordering::SeqCst) { break; }
+
             // Build messages array: system + conversation
             let mut api_messages = vec![json!({ "role": "system", "content": &system_prompt })];
             api_messages.extend(messages.iter().cloned());
@@ -853,7 +909,7 @@ impl AssistantAgent {
             }
 
             // Parse SSE stream for Chat Completions format
-            let (text, tool_calls) = self.parse_chat_completions_sse(resp, on_delta).await?;
+            let (text, tool_calls) = self.parse_chat_completions_sse(resp, cancel, on_delta).await?;
             collected_text.push_str(&text);
 
             if tool_calls.is_empty() {
@@ -899,11 +955,14 @@ impl AssistantAgent {
             }
         }
 
-        if collected_text.is_empty() {
+        let cancelled = cancel.load(Ordering::SeqCst);
+        if collected_text.is_empty() && !cancelled {
             return Err(anyhow::anyhow!("No content received from OpenAI Chat API"));
         }
 
-        messages.push(json!({ "role": "assistant", "content": collected_text }));
+        if !collected_text.is_empty() {
+            messages.push(json!({ "role": "assistant", "content": collected_text }));
+        }
         *self.conversation_history.lock().unwrap() = messages;
         Ok(collected_text)
     }
@@ -912,6 +971,7 @@ impl AssistantAgent {
     async fn parse_chat_completions_sse(
         &self,
         resp: reqwest::Response,
+        cancel: &Arc<AtomicBool>,
         on_delta: &(impl Fn(&str) + Send),
     ) -> Result<(String, Vec<FunctionCallItem>)> {
         use futures_util::StreamExt;
@@ -925,6 +985,9 @@ impl AssistantAgent {
         let mut buffer = String::new();
 
         while let Some(chunk) = stream.next().await {
+            if cancel.load(Ordering::SeqCst) {
+                break;
+            }
             let chunk = chunk?;
             buffer.push_str(&String::from_utf8_lossy(&chunk));
 
@@ -1006,7 +1069,7 @@ impl AssistantAgent {
 
     // ── OpenAI Responses API (custom base_url) ────────────────────
 
-    async fn chat_openai_responses(&self, api_key: &str, base_url: &str, model: &str, message: &str, attachments: &[Attachment], reasoning_effort: Option<&str>, on_delta: &(impl Fn(&str) + Send)) -> Result<String> {
+    async fn chat_openai_responses(&self, api_key: &str, base_url: &str, model: &str, message: &str, attachments: &[Attachment], reasoning_effort: Option<&str>, cancel: &Arc<AtomicBool>, on_delta: &(impl Fn(&str) + Send)) -> Result<String> {
         let client = reqwest::Client::builder()
             .user_agent(&self.user_agent)
             .build()
@@ -1019,7 +1082,7 @@ impl AssistantAgent {
 
         let mut input: Vec<serde_json::Value> = self.conversation_history.lock().unwrap().clone();
         let user_content = build_user_content_responses(message, attachments);
-        input.push(json!({ "role": "user", "content": user_content }));
+        Self::push_user_message(&mut input, user_content);
 
         let api_url = build_api_url(base_url, "/v1/responses");
         let mut collected_text = String::new();
@@ -1028,6 +1091,8 @@ impl AssistantAgent {
         let max_rounds = get_max_tool_rounds();
         let max_rounds = if max_rounds == 0 { u32::MAX } else { max_rounds };
         for _round in 0..max_rounds {
+            if cancel.load(Ordering::SeqCst) { break; }
+
             let request = ResponsesRequest {
                 model: model.to_string(),
                 store: false,
@@ -1056,7 +1121,7 @@ impl AssistantAgent {
                 return Err(anyhow::anyhow!("OpenAI Responses API error ({}): {}", status, error_text));
             }
 
-            let (text, tool_calls) = self.parse_openai_sse(resp, on_delta).await?;
+            let (text, tool_calls) = self.parse_openai_sse(resp, cancel, on_delta).await?;
             collected_text.push_str(&text);
 
             if tool_calls.is_empty() {
@@ -1089,18 +1154,21 @@ impl AssistantAgent {
             }
         }
 
-        if collected_text.is_empty() {
+        let cancelled = cancel.load(Ordering::SeqCst);
+        if collected_text.is_empty() && !cancelled {
             return Err(anyhow::anyhow!("No content received from OpenAI Responses API"));
         }
 
-        input.push(json!({ "role": "assistant", "content": collected_text }));
+        if !collected_text.is_empty() {
+            input.push(json!({ "role": "assistant", "content": collected_text }));
+        }
         *self.conversation_history.lock().unwrap() = input;
         Ok(collected_text)
     }
 
     // ── OpenAI Codex Responses API with Tool Loop ─────────────────
 
-    async fn chat_openai(&self, access_token: &str, account_id: &str, model: &str, message: &str, attachments: &[Attachment], reasoning_effort: Option<&str>, on_delta: &(impl Fn(&str) + Send)) -> Result<String> {
+    async fn chat_openai(&self, access_token: &str, account_id: &str, model: &str, message: &str, attachments: &[Attachment], reasoning_effort: Option<&str>, cancel: &Arc<AtomicBool>, on_delta: &(impl Fn(&str) + Send)) -> Result<String> {
         let client = reqwest::Client::new();
         let tool_schemas = tools::get_tools_for_provider(ToolProvider::OpenAI);
 
@@ -1112,7 +1180,7 @@ impl AssistantAgent {
         // Build input from conversation history + new user message (with optional image attachments)
         let mut input: Vec<serde_json::Value> = self.conversation_history.lock().unwrap().clone();
         let user_content = build_user_content_responses(message, attachments);
-        input.push(json!({ "role": "user", "content": user_content }));
+        Self::push_user_message(&mut input, user_content);
 
         let user_agent = format!(
             "OpenComputer ({} {}; {})",
@@ -1127,6 +1195,8 @@ impl AssistantAgent {
         let max_rounds = get_max_tool_rounds();
         let max_rounds = if max_rounds == 0 { u32::MAX } else { max_rounds };
         for _round in 0..max_rounds {
+            if cancel.load(Ordering::SeqCst) { break; }
+
             let request = ResponsesRequest {
                 model: model.to_string(),
                 store: false,
@@ -1196,7 +1266,7 @@ impl AssistantAgent {
             })?;
 
             // Parse SSE stream
-            let (text, tool_calls) = self.parse_openai_sse(resp, on_delta).await?;
+            let (text, tool_calls) = self.parse_openai_sse(resp, cancel, on_delta).await?;
             collected_text.push_str(&text);
 
             // If no tool calls, we're done
@@ -1235,13 +1305,15 @@ impl AssistantAgent {
             }
         }
 
-        if collected_text.is_empty() {
+        let cancelled = cancel.load(Ordering::SeqCst);
+        if collected_text.is_empty() && !cancelled {
             return Err(anyhow::anyhow!("No content received from Codex API"));
         }
 
         // Persist conversation history
-        // For OpenAI Responses API, store as simple role-based messages
-        input.push(json!({ "role": "assistant", "content": collected_text }));
+        if !collected_text.is_empty() {
+            input.push(json!({ "role": "assistant", "content": collected_text }));
+        }
         *self.conversation_history.lock().unwrap() = input;
 
         Ok(collected_text)
@@ -1251,6 +1323,7 @@ impl AssistantAgent {
     async fn parse_openai_sse(
         &self,
         resp: reqwest::Response,
+        cancel: &Arc<AtomicBool>,
         on_delta: &(impl Fn(&str) + Send),
     ) -> Result<(String, Vec<FunctionCallItem>)> {
         use futures_util::StreamExt;
@@ -1263,6 +1336,9 @@ impl AssistantAgent {
         let mut buffer = String::new();
 
         while let Some(chunk) = stream.next().await {
+            if cancel.load(Ordering::SeqCst) {
+                break;
+            }
             let chunk = chunk?;
             buffer.push_str(&String::from_utf8_lossy(&chunk));
 

@@ -26,6 +26,7 @@
   --color-input: hsl(0 0% 89%);
   --color-ring: hsl(0 0% 45%);
   --radius: 0.5rem;
+  --color-user-bubble: hsl(210 40% 93%);
 }
 
 /* Dark theme overrides */
@@ -47,6 +48,7 @@
   --color-border: hsl(220 13% 22%);
   --color-input: hsl(220 13% 22%);
   --color-ring: hsl(215 15% 50%);
+  --color-user-bubble: hsl(215 20% 28%);
 }
 
 @layer base {

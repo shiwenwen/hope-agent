@@ -24,7 +24,7 @@ pub struct SessionMeta {
 pub enum MessageRole {
     User,
     Assistant,
-    System,
+    Event,
     Tool,
 }
 
@@ -33,7 +33,7 @@ impl MessageRole {
         match self {
             MessageRole::User => "user",
             MessageRole::Assistant => "assistant",
-            MessageRole::System => "system",
+            MessageRole::Event => "event",
             MessageRole::Tool => "tool",
         }
     }
@@ -42,7 +42,7 @@ impl MessageRole {
         match s {
             "user" => MessageRole::User,
             "assistant" => MessageRole::Assistant,
-            "system" => MessageRole::System,
+            "event" => MessageRole::Event,
             "tool" => MessageRole::Tool,
             _ => MessageRole::User,
         }
@@ -50,6 +50,7 @@ impl MessageRole {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SessionMessage {
     pub id: i64,
     pub session_id: String,
@@ -114,7 +115,8 @@ impl SessionDB {
                 provider_name TEXT,
                 model_id TEXT,
                 created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
+                updated_at TEXT NOT NULL,
+                context_json TEXT
             );
 
             CREATE TABLE IF NOT EXISTS messages (
@@ -347,6 +349,29 @@ impl SessionDB {
         Ok(())
     }
 
+    /// Save the agent's conversation_history JSON for a session.
+    pub fn save_context(&self, session_id: &str, context_json: &str) -> Result<()> {
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        conn.execute(
+            "UPDATE sessions SET context_json = ?1 WHERE id = ?2",
+            params![context_json, session_id],
+        )?;
+        Ok(())
+    }
+
+    /// Load the agent's conversation_history JSON for a session.
+    /// Returns None if the session has no saved context.
+    pub fn load_context(&self, session_id: &str) -> Result<Option<String>> {
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT context_json FROM sessions WHERE id = ?1"
+        )?;
+        let result = stmt.query_row(params![session_id], |row| {
+            row.get::<_, Option<String>>(0)
+        }).ok().flatten();
+        Ok(result)
+    }
+
     /// Get a single session's metadata.
     pub fn get_session(&self, session_id: &str) -> Result<Option<SessionMeta>> {
         let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
@@ -460,10 +485,10 @@ impl NewMessage {
         }
     }
 
-    /// Create a system event message (e.g. model fallback notifications).
-    pub fn system(content: &str) -> Self {
+    /// Create an event message (e.g. errors, model fallback notifications).
+    pub fn event(content: &str) -> Self {
         Self {
-            role: MessageRole::System,
+            role: MessageRole::Event,
             content: content.to_string(),
             timestamp: chrono::Utc::now().to_rfc3339(),
             attachments_meta: None,
@@ -500,7 +525,7 @@ pub fn auto_title(content: &str) -> String {
 
 // ── Database path helper ─────────────────────────────────────────
 
-/// Get the database file path: ~/.opencomputer/data.db
+/// Get the database file path: ~/.opencomputer/sessions.db
 pub fn db_path() -> Result<PathBuf> {
-    Ok(crate::paths::root_dir()?.join("data.db"))
+    Ok(crate::paths::root_dir()?.join("sessions.db"))
 }

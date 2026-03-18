@@ -6,7 +6,7 @@ export interface ToolCall {
 }
 
 export interface Message {
-  role: "user" | "assistant"
+  role: "user" | "assistant" | "event"
   content: string
   toolCalls?: ToolCall[]
 }

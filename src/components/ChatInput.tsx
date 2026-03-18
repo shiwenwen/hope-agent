@@ -5,6 +5,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import {
   Send,
+  Square,
   Brain,
   ChevronRight,
   ImagePlus,
@@ -27,6 +28,9 @@ interface ChatInputProps {
   attachedFiles: File[]
   onAttachFiles: (files: File[]) => void
   onRemoveFile: (index: number) => void
+  pendingMessage?: string | null
+  onCancelPending?: () => void
+  onStop?: () => void
 }
 
 export default function ChatInput({
@@ -42,6 +46,9 @@ export default function ChatInput({
   attachedFiles,
   onAttachFiles,
   onRemoveFile,
+  pendingMessage,
+  onCancelPending,
+  onStop,
 }: ChatInputProps) {
   const { t } = useTranslation()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -143,10 +150,26 @@ export default function ChatInput({
           </div>
         )}
 
+        {/* Pending message indicator */}
+        {loading && pendingMessage && (
+          <div className="flex items-center gap-2 px-4 pt-2 pb-0">
+            <div className="flex items-center gap-1.5 bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded-lg px-2.5 py-1 text-xs">
+              <div className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+              <span className="truncate max-w-[300px]">{pendingMessage}</span>
+              <button
+                className="hover:text-foreground transition-colors"
+                onClick={onCancelPending}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Textarea */}
         <Textarea
           ref={textareaRef}
-          placeholder={t("chat.askAnything")}
+          placeholder={loading && pendingMessage ? t("chat.pendingQueued") : t("chat.askAnything")}
           value={input}
           onChange={(e) => onInputChange(e.target.value)}
           onKeyDown={handleKeyDown}
@@ -317,12 +340,26 @@ export default function ChatInput({
 
           <div className="flex-1" />
 
+          {/* Stop Button (always visible during loading) */}
+          {loading && (
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-8 w-8 rounded-full shrink-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+              onClick={onStop}
+              title={t("chat.stopReply")}
+            >
+              <Square className="h-3.5 w-3.5" />
+            </Button>
+          )}
+
           {/* Send Button */}
           <Button
             size="icon"
             className="h-8 w-8 rounded-full shrink-0"
             onClick={onSend}
-            disabled={loading || !input.trim()}
+            disabled={!input.trim() || (loading && !!pendingMessage)}
+            title={loading && input.trim() ? t("chat.queueMessage") : undefined}
           >
             <Send className="h-4 w-4" />
           </Button>

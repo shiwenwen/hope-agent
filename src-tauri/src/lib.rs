@@ -19,6 +19,7 @@ use provider::{
     ActiveModel, ApiType, AvailableModel, ModelConfig, ProviderConfig, ProviderStore,
 };
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::Mutex;
 use tauri::State;
 use serde::Serialize;
@@ -44,6 +45,8 @@ struct AppState {
     current_agent_id: Mutex<String>,
     /// Session database
     session_db: Arc<SessionDB>,
+    /// Cancel flag for stopping ongoing chat
+    chat_cancel: Arc<AtomicBool>,
 }
 
 // ── Provider Management Commands ──────────────────────────────────
@@ -928,6 +931,8 @@ async fn chat(
     let effort = state.reasoning_effort.lock().await.clone();
     let effort_ref_str = effort.clone();
     let db = state.session_db.clone();
+    let cancel = state.chat_cancel.clone();
+    cancel.store(false, Ordering::SeqCst); // Reset cancel flag
 
     // Resolve or create session
     let current_agent_id = state.current_agent_id.lock().await.clone();
@@ -1021,19 +1026,36 @@ async fn chat(
         let agent_lock = state.agent.lock().await;
         return match agent_lock.as_ref() {
             Some(agent) => {
+                // Restore conversation history from DB for this session
+                restore_agent_context(&db, &sid, agent);
+
                 let effort_ref = if effort_ref_str == "none" { None } else { Some(effort_ref_str.as_str()) };
                 let db_for_cb = db.clone();
                 let sid_for_cb = sid.clone();
-                let result = agent.chat(&message, &attachments, effort_ref, move |delta| {
+                let cancel_clone = cancel.clone();
+                let result = match agent.chat(&message, &attachments, effort_ref, cancel_clone, move |delta| {
                     // Intercept tool events and persist them
                     persist_tool_event(&db_for_cb, &sid_for_cb, delta);
                     let _ = on_event.send(delta.to_string());
-                }).await.map_err(|e| e.to_string())?;
+                }).await {
+                    Ok(r) => r,
+                    Err(e) => {
+                        let err = e.to_string();
+                        let _ = db.append_message(&sid, &session::NewMessage::event(&err));
+                        return Err(err);
+                    }
+                };
                 // Save assistant reply
                 let _ = db.append_message(&sid, &session::NewMessage::assistant(&result));
+                // Persist conversation context for future restoration
+                save_agent_context(&db, &sid, agent);
                 Ok(result)
             }
-            None => Err("Agent not initialized. Please sign in first.".to_string()),
+            None => {
+                let err = "Agent not initialized. Please sign in first.".to_string();
+                let _ = db.append_message(&sid, &session::NewMessage::event(&err));
+                Err(err)
+            }
         };
     }
 
@@ -1053,6 +1075,9 @@ async fn chat(
                 continue;
             }
         };
+
+        // Restore conversation history from DB for this session
+        restore_agent_context(&db, &sid, &agent);
 
         // Determine max retries for this model
         const MAX_RETRIES: u32 = 2;
@@ -1082,7 +1107,7 @@ async fn chat(
                 if let Ok(json_str) = serde_json::to_string(&event) {
                     let _ = on_event.send(json_str.clone());
                     // Persist fallback event to session DB
-                    let _ = db.append_message(&sid, &session::NewMessage::system(&json_str));
+                    let _ = db.append_message(&sid, &session::NewMessage::event(&json_str));
                 }
             }
 
@@ -1099,14 +1124,17 @@ async fn chat(
             let on_event_clone = on_event.clone();
             let db_for_cb = db.clone();
             let sid_for_cb = sid.clone();
+            let cancel_clone = cancel.clone();
 
-            match agent.chat(&message, &attachments, effort_ref, move |delta| {
+            match agent.chat(&message, &attachments, effort_ref, cancel_clone, move |delta| {
                 persist_tool_event(&db_for_cb, &sid_for_cb, delta);
                 let _ = on_event_clone.send(delta.to_string());
             }).await {
                 Ok(result) => {
                     // Save assistant reply to DB
                     let _ = db.append_message(&sid, &session::NewMessage::assistant(&result));
+                    // Persist conversation context for future restoration
+                    save_agent_context(&db, &sid, &agent);
                     // Update the active agent instance for conversation continuity
                     *state.agent.lock().await = Some(agent);
                     return Ok(result);
@@ -1123,6 +1151,7 @@ async fn chat(
 
                     // Terminal errors — surface immediately, no fallback
                     if reason.is_terminal() {
+                        let _ = db.append_message(&sid, &session::NewMessage::event(&error_msg));
                         return Err(error_msg);
                     }
 
@@ -1147,7 +1176,34 @@ async fn chat(
         }
     }
 
-    Err(last_error.unwrap_or_else(|| "All models in the fallback chain failed.".to_string()))
+    let final_error = last_error.unwrap_or_else(|| "All models in the fallback chain failed.".to_string());
+    let _ = db.append_message(&sid, &session::NewMessage::event(&final_error));
+    Err(final_error)
+}
+
+#[tauri::command]
+async fn stop_chat(state: State<'_, AppState>) -> Result<(), String> {
+    state.chat_cancel.store(true, Ordering::SeqCst);
+    Ok(())
+}
+
+/// Restore conversation history from DB into the agent (if the session has saved context).
+fn restore_agent_context(db: &Arc<SessionDB>, session_id: &str, agent: &crate::agent::AssistantAgent) {
+    if let Ok(Some(json_str)) = db.load_context(session_id) {
+        if let Ok(history) = serde_json::from_str::<Vec<serde_json::Value>>(&json_str) {
+            if !history.is_empty() {
+                agent.set_conversation_history(history);
+            }
+        }
+    }
+}
+
+/// Save the agent's conversation history to DB for future restoration.
+fn save_agent_context(db: &Arc<SessionDB>, session_id: &str, agent: &crate::agent::AssistantAgent) {
+    let history = agent.get_conversation_history();
+    if let Ok(json_str) = serde_json::to_string(&history) {
+        let _ = db.save_context(session_id, &json_str);
+    }
 }
 
 /// Parse tool_call and tool_result events from the streaming callback and persist to DB.
@@ -1169,10 +1225,23 @@ fn persist_tool_event(db: &Arc<SessionDB>, session_id: &str, delta: &str) {
                 );
                 let _ = db.append_message(session_id, &tool_msg);
             }
+            Some("tool_call") => {
+                let call_id = event.get("call_id").and_then(|v| v.as_str()).unwrap_or("");
+                let name = event.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                let arguments = event.get("arguments").and_then(|v| v.as_str()).unwrap_or("");
+                let tool_msg = session::NewMessage::tool(
+                    call_id,
+                    name,
+                    arguments,
+                    "", // result will be filled in tool_result event
+                    None,
+                    false,
+                );
+                let _ = db.append_message(session_id, &tool_msg);
+            }
             _ => {
-                // text_delta and tool_call events are not persisted as separate messages.
-                // text_delta is accumulated into assistant message.
-                // tool_call info is captured in tool_result.
+                // text_delta events are not persisted as separate messages.
+                // text_delta is accumulated into the final assistant message.
             }
         }
     }
@@ -1477,6 +1546,7 @@ pub fn run() {
                 codex_token: Mutex::new(None),
                 current_agent_id: Mutex::new("default".to_string()),
                 session_db,
+                chat_cancel: Arc::new(AtomicBool::new(false)),
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -1508,6 +1578,7 @@ pub fn run() {
             set_reasoning_effort,
             // Chat
             chat,
+            stop_chat,
             // Command approval
             respond_to_approval,
             // Tools info

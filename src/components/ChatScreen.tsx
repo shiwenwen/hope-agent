@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils"
 import { Settings } from "lucide-react"
 import type {
   Message,
+  ToolCall,
   AvailableModel,
   ActiveModel,
   SessionMeta,
@@ -23,6 +24,38 @@ interface ChatScreenProps {
   onOpenAgentSettings?: (agentId: string) => void
 }
 
+/** Parse DB SessionMessage[] into display Message[] */
+function parseSessionMessages(msgs: SessionMessage[]): Message[] {
+  const displayMessages: Message[] = []
+  const pendingTools: ToolCall[] = []
+  for (const msg of msgs) {
+    if (msg.role === "user") {
+      displayMessages.push({ role: "user", content: msg.content })
+    } else if (msg.role === "tool" && msg.toolCallId) {
+      const existing = pendingTools.find(c => c.callId === msg.toolCallId)
+      if (existing) {
+        if (msg.toolResult) existing.result = msg.toolResult
+        if (msg.toolName && !existing.name) existing.name = msg.toolName
+        if (msg.toolArguments && !existing.arguments) existing.arguments = msg.toolArguments
+      } else {
+        pendingTools.push({
+          callId: msg.toolCallId,
+          name: msg.toolName || "",
+          arguments: msg.toolArguments || "",
+          result: msg.toolResult || undefined,
+        })
+      }
+    } else if (msg.role === "assistant") {
+      const toolCalls = pendingTools.length > 0 ? [...pendingTools] : undefined
+      pendingTools.length = 0
+      displayMessages.push({ role: "assistant", content: msg.content, toolCalls })
+    } else if (msg.role === "event") {
+      displayMessages.push({ role: "event", content: msg.content })
+    }
+  }
+  return displayMessages
+}
+
 export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
   const { t } = useTranslation()
   const [messages, setMessages] = useState<Message[]>([])
@@ -30,6 +63,35 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
   const [loading, setLoading] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
+
+  // Pending message queue: when user sends while loading, message is queued here
+  const [pendingMessage, setPendingMessage] = useState<string | null>(null)
+  const pendingMessageRef = useRef<string | null>(null)
+  // Keep ref in sync
+  useEffect(() => {
+    pendingMessageRef.current = pendingMessage
+  }, [pendingMessage])
+
+  // Auto-send pending messages setting (loaded from user config)
+  const autoSendPendingRef = useRef(true)
+  useEffect(() => {
+    invoke<{ autoSendPending?: boolean }>("get_user_config").then((cfg) => {
+      autoSendPendingRef.current = cfg.autoSendPending !== false
+    }).catch(() => {})
+  }, [])
+
+  // Auto-send flag: when set, triggers handleSend after input state is flushed
+  const autoSendRef = useRef(false)
+
+  // Per-session message cache & loading tracking
+  const sessionCacheRef = useRef<Map<string, Message[]>>(new Map())
+  const loadingSessionsRef = useRef<Set<string>>(new Set())
+  const currentSessionIdRef = useRef<string | null>(null)
+
+  // Keep ref in sync with state
+  useEffect(() => {
+    currentSessionIdRef.current = currentSessionId
+  }, [currentSessionId])
 
   // Session & Agent list state
   const [sessions, setSessions] = useState<SessionMeta[]>([])
@@ -145,37 +207,65 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
     reloadAgents()
   }, [reloadSessions, reloadAgents])
 
+  /** Update messages for a specific session. If it's the current session, also update state. */
+  function updateSessionMessages(sessionId: string, updater: (prev: Message[]) => Message[]) {
+    const prev = sessionCacheRef.current.get(sessionId) || []
+    const next = updater(prev)
+    sessionCacheRef.current.set(sessionId, next)
+    if (currentSessionIdRef.current === sessionId) {
+      setMessages(next)
+    }
+  }
+
   // Switch to an existing session
   async function handleSwitchSession(sessionId: string) {
     if (sessionId === currentSessionId) return
-    try {
-      const msgs = await invoke<SessionMessage[]>("load_session_messages_cmd", { sessionId })
-      const displayMessages: Message[] = []
-      for (const msg of msgs) {
-        if (msg.role === "user") {
-          displayMessages.push({ role: "user", content: msg.content })
-        } else if (msg.role === "assistant") {
-          displayMessages.push({ role: "assistant", content: msg.content })
-        }
-      }
-      setMessages(displayMessages)
+
+    // Save current session's messages to cache
+    if (currentSessionId) {
+      sessionCacheRef.current.set(currentSessionId, messages)
+    }
+
+    // If target session is in cache (e.g. still loading), restore from cache
+    const cached = sessionCacheRef.current.get(sessionId)
+    if (cached) {
+      setMessages(cached)
+      setLoading(loadingSessionsRef.current.has(sessionId))
       setCurrentSessionId(sessionId)
-      const session = sessions.find(s => s.id === sessionId)
-      if (session) {
-        setCurrentAgentId(session.agentId)
-        const agent = agents.find(a => a.id === session.agentId)
-        if (agent) setAgentName(agent.name)
+    } else {
+      // Load from DB
+      try {
+        const msgs = await invoke<SessionMessage[]>("load_session_messages_cmd", { sessionId })
+        const displayMessages = parseSessionMessages(msgs)
+        sessionCacheRef.current.set(sessionId, displayMessages)
+        setMessages(displayMessages)
+        setLoading(loadingSessionsRef.current.has(sessionId))
+        setCurrentSessionId(sessionId)
+      } catch (e) {
+        console.error("Failed to load session:", e)
+        return
       }
-    } catch (e) {
-      console.error("Failed to load session:", e)
+    }
+
+    const session = sessions.find(s => s.id === sessionId)
+    if (session) {
+      setCurrentAgentId(session.agentId)
+      const agent = agents.find(a => a.id === session.agentId)
+      if (agent) setAgentName(agent.name)
     }
   }
 
   // Create a new chat with a specific agent
   async function handleNewChat(agentId: string) {
+    // Save current session to cache
+    if (currentSessionId) {
+      sessionCacheRef.current.set(currentSessionId, messages)
+    }
+
     const agent = agents.find(a => a.id === agentId)
     setMessages([])
     setCurrentSessionId(null)
+    setLoading(false)
     setCurrentAgentId(agentId)
     if (agent) {
       setAgentName(agent.name)
@@ -186,9 +276,12 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
   async function handleDeleteSession(sessionId: string) {
     try {
       await invoke("delete_session_cmd", { sessionId })
+      sessionCacheRef.current.delete(sessionId)
+      loadingSessionsRef.current.delete(sessionId)
       if (currentSessionId === sessionId) {
         setMessages([])
         setCurrentSessionId(null)
+        setLoading(false)
       }
       reloadSessions()
     } catch (err) {
@@ -231,8 +324,24 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
     }
   }
 
+  async function handleStop() {
+    try {
+      await invoke("stop_chat")
+    } catch (e) {
+      console.error("Failed to stop chat:", e)
+    }
+  }
+
   async function handleSend() {
-    if (!input.trim() || loading) return
+    if (!input.trim()) return
+
+    // If currently loading, queue the message as pending
+    if (loading) {
+      setPendingMessage(input.trim())
+      setInput("")
+      return
+    }
+
     const text = input.trim()
     const filesToSend = [...attachedFiles]
     setInput("")
@@ -264,12 +373,31 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
     // Add empty assistant message that we'll stream into
     setMessages((prev) => [...prev, { role: "assistant", content: "" }])
 
+    // Capture the session ID for this request (may be null for new chats, will be set by session_created event)
+    let targetSessionId = currentSessionId
+
     try {
       const onEvent = new Channel<string>()
       onEvent.onmessage = (raw) => {
         try {
           const event = JSON.parse(raw)
-          setMessages((prev) => {
+
+          // Handle session_created first — sets targetSessionId for the rest of this chat
+          if (event.type === "session_created" && event.session_id) {
+            targetSessionId = event.session_id
+            // Move cached messages from null to the new session ID
+            const current = sessionCacheRef.current.get("__pending__")
+            if (current) {
+              sessionCacheRef.current.delete("__pending__")
+              sessionCacheRef.current.set(event.session_id, current)
+            }
+            setCurrentSessionId(event.session_id)
+            return
+          }
+
+          const sid = targetSessionId || "__pending__"
+
+          updateSessionMessages(sid, (prev) => {
             const updated = [...prev]
             const last = updated[updated.length - 1]
             if (!last || last.role !== "assistant") return updated
@@ -303,12 +431,6 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
                 updated[updated.length - 1] = { ...last, toolCalls: calls }
                 break
               }
-              case "session_created": {
-                if (event.session_id) {
-                  setCurrentSessionId(event.session_id)
-                }
-                break
-              }
               case "model_fallback": {
                 const from = event.from_model ? ` ← ${event.from_model}` : ""
                 const reason = event.reason && event.reason !== "unknown" ? ` (${event.reason})` : ""
@@ -324,7 +446,8 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
             return updated
           })
         } catch {
-          setMessages((prev) => {
+          const sid = targetSessionId || "__pending__"
+          updateSessionMessages(sid, (prev) => {
             const updated = [...prev]
             const last = updated[updated.length - 1]
             if (last && last.role === "assistant") {
@@ -338,26 +461,55 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
         }
       }
 
+      // Track loading state for this session
+      // Use the up-to-date messages: old messages + new user message + empty assistant
+      const freshMessages = [...messages, { role: "user" as const, content: text }, { role: "assistant" as const, content: "" }]
+      if (targetSessionId) {
+        loadingSessionsRef.current.add(targetSessionId)
+        sessionCacheRef.current.set(targetSessionId, freshMessages)
+      } else {
+        sessionCacheRef.current.set("__pending__", freshMessages)
+      }
+
       await invoke<string>("chat", { message: text, attachments, sessionId: currentSessionId, onEvent })
     } catch (e) {
-      setMessages((prev) => {
+      const sid = targetSessionId || "__pending__"
+      updateSessionMessages(sid, (prev) => {
         const updated = [...prev]
         const last = updated[updated.length - 1]
-        if (last && last.role === "assistant" && last.content === "") {
-          updated[updated.length - 1] = {
-            ...last,
-            content: `Error: ${e}`,
-          }
-        } else {
-          updated.push({ role: "assistant", content: `Error: ${e}` })
+        if (last && last.role === "assistant" && last.content === "" && !last.toolCalls?.length) {
+          updated.pop()
         }
+        updated.push({ role: "event", content: `${e}` })
         return updated
       })
     } finally {
-      setLoading(false)
+      const sid = targetSessionId || "__pending__"
+      loadingSessionsRef.current.delete(sid)
+      if (currentSessionIdRef.current === sid) {
+        setLoading(false)
+      }
       reloadSessions()
+
+      // Handle pending message after loading finishes
+      if (pendingMessageRef.current) {
+        const pending = pendingMessageRef.current
+        setPendingMessage(null)
+        setInput(pending)
+        if (autoSendPendingRef.current) {
+          autoSendRef.current = true
+        }
+      }
     }
   }
+
+  // Auto-send: fires after React flushes the input state + loading=false
+  useEffect(() => {
+    if (autoSendRef.current && input.trim() && !loading) {
+      autoSendRef.current = false
+      handleSend()
+    }
+  }, [input, loading]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <>
@@ -411,14 +563,19 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
               key={i}
               className={cn(
                 "flex",
-                msg.role === "user" ? "justify-end" : "justify-start",
+                msg.role === "event" ? "justify-center" : msg.role === "user" ? "justify-end" : "justify-start",
               )}
             >
+              {msg.role === "event" ? (
+                <div className="max-w-[80%] px-3 py-1.5 rounded-lg text-xs text-muted-foreground bg-muted/50 border border-border/50 text-center">
+                  {msg.content}
+                </div>
+              ) : (
               <div
                 className={cn(
-                  "max-w-[70%] px-4 py-2.5 rounded-xl text-sm leading-relaxed overflow-hidden break-words select-text",
+                  "max-w-[95%] px-4 py-2.5 rounded-xl text-sm leading-relaxed overflow-hidden break-words select-text",
                   msg.role === "user"
-                    ? "bg-secondary text-foreground whitespace-pre-wrap"
+                    ? "bg-[var(--color-user-bubble)] text-foreground whitespace-pre-wrap"
                     : "bg-card text-foreground/80",
                   msg.role === "assistant" && !msg.content && !msg.toolCalls?.length && "animate-pulse"
                 )}
@@ -443,6 +600,7 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
                   )
                 )}
               </div>
+              )}
             </div>
           ))}
 
@@ -463,6 +621,12 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
           attachedFiles={attachedFiles}
           onAttachFiles={(files) => setAttachedFiles((prev) => [...prev, ...files])}
           onRemoveFile={(index) => setAttachedFiles((prev) => prev.filter((_, i) => i !== index))}
+          pendingMessage={pendingMessage}
+          onCancelPending={() => {
+            setInput(pendingMessage || "")
+            setPendingMessage(null)
+          }}
+          onStop={handleStop}
         />
       </div>
     </>
