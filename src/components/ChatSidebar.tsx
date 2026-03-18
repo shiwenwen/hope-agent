@@ -49,6 +49,7 @@ export default function ChatSidebar({
   const [showNewChatMenu, setShowNewChatMenu] = useState(false)
   const newChatMenuRef = useRef<HTMLDivElement>(null)
   const [deleteConfirmSessionId, setDeleteConfirmSessionId] = useState<string | null>(null)
+  const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Agent filter state
   const [selectedAgentIds, setSelectedAgentIds] = useState<Set<string>>(new Set())
@@ -239,10 +240,26 @@ export default function ChatSidebar({
                       )}
                       title={agent.description || agent.name}
                     >
-                      {/* Clickable area: toggle filter */}
+                      {/* Clickable area: single click = toggle filter, double click = new chat */}
                       <button
                         className="flex items-center gap-2 flex-1 min-w-0"
-                        onClick={() => toggleAgentFilter(agent.id)}
+                        onClick={() => {
+                          if (clickTimerRef.current) {
+                            clearTimeout(clickTimerRef.current)
+                            clickTimerRef.current = null
+                          }
+                          clickTimerRef.current = setTimeout(() => {
+                            toggleAgentFilter(agent.id)
+                            clickTimerRef.current = null
+                          }, 250)
+                        }}
+                        onDoubleClick={() => {
+                          if (clickTimerRef.current) {
+                            clearTimeout(clickTimerRef.current)
+                            clickTimerRef.current = null
+                          }
+                          onNewChat(agent.id)
+                        }}
                       >
                         <div className={cn(
                           "w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[10px] overflow-hidden",
