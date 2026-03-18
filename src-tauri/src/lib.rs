@@ -1424,6 +1424,25 @@ async fn save_user_config(config: user_config::UserConfig) -> Result<(), String>
     user_config::save_user_config_to_disk(&config).map_err(|e| e.to_string())
 }
 
+/// Save a cropped avatar image (base64-encoded) to ~/.opencomputer/avatars/
+/// Returns the absolute path to the saved file.
+#[tauri::command]
+async fn save_avatar(image_data: String, file_name: String) -> Result<String, String> {
+    use base64::Engine;
+
+    let dir = paths::avatars_dir().map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(&image_data)
+        .map_err(|e| format!("Base64 decode error: {}", e))?;
+
+    let path = dir.join(&file_name);
+    std::fs::write(&path, &bytes).map_err(|e| format!("Failed to write avatar: {}", e))?;
+
+    Ok(path.to_string_lossy().to_string())
+}
+
 /// Get the system's IANA timezone name
 #[tauri::command]
 async fn get_system_timezone() -> Result<String, String> {
@@ -1602,6 +1621,7 @@ pub fn run() {
             // User config
             get_user_config,
             save_user_config,
+            save_avatar,
             get_system_timezone,
             // Session management
             create_session_cmd,

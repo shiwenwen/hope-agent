@@ -57,6 +57,7 @@ import ProviderSettings from "@/components/ProviderSettings"
 import type { ProviderConfig } from "@/components/ProviderSettings"
 import ProviderSetup from "@/components/ProviderSetup"
 import ProviderEditPage from "@/components/ProviderEditPage"
+import { AvatarCropDialog } from "@/components/AvatarCropDialog"
 
 type SettingsSection = "providers" | "models" | "skills" | "agents" | "profile" | "chat" | "appearance" | "language" | "about"
 
@@ -1256,6 +1257,8 @@ function AgentEditView({
     }
   }
 
+  const [agentCropSrc, setAgentCropSrc] = useState<string | null>(null)
+
   const handleAvatarPick = async () => {
     try {
       const { open } = await import("@tauri-apps/plugin-dialog")
@@ -1264,10 +1267,26 @@ function AgentEditView({
         multiple: false,
       })
       if (selected) {
-        updateConfig({ avatar: selected as string })
+        setAgentCropSrc(convertFileSrc(selected as string))
       }
     } catch (e) {
       console.error("Failed to pick avatar:", e)
+    }
+  }
+
+  const handleAgentCropConfirm = async (blob: Blob) => {
+    setAgentCropSrc(null)
+    try {
+      const buf = await blob.arrayBuffer()
+      const bytes = new Uint8Array(buf)
+      let binary = ""
+      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
+      const base64 = window.btoa(binary)
+      const fileName = `agent_${agentId}_${Date.now()}.png`
+      const savedPath = await invoke<string>("save_avatar", { imageData: base64, fileName })
+      updateConfig({ avatar: savedPath })
+    } catch (e) {
+      console.error("Failed to save avatar:", e)
     }
   }
 
@@ -1417,6 +1436,16 @@ function AgentEditView({
               {config.description && <p className="text-xs text-muted-foreground truncate">{config.description}</p>}
             </div>
           </div>
+
+          {/* Agent avatar crop dialog */}
+          {agentCropSrc && (
+            <AvatarCropDialog
+              open={!!agentCropSrc}
+              imageSrc={agentCropSrc}
+              onConfirm={handleAgentCropConfirm}
+              onCancel={() => setAgentCropSrc(null)}
+            />
+          )}
 
           {/* Tabs */}
           <div className="flex gap-1 mb-5 border-b border-border pb-px">
@@ -2190,6 +2219,7 @@ function UserProfilePanel() {
   const [customStyle, setCustomStyle] = useState(false)
   const [customGender, setCustomGender] = useState(false)
   const composingRef = useRef(false)
+  const [cropSrc, setCropSrc] = useState<string | null>(null)
 
   useEffect(() => {
     Promise.all([
@@ -2246,6 +2276,37 @@ function UserProfilePanel() {
     },
   })
 
+  const handleAvatarPick = async () => {
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog")
+      const selected = await open({
+        filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "gif", "webp", "svg"] }],
+        multiple: false,
+      })
+      if (selected) {
+        setCropSrc(convertFileSrc(selected as string))
+      }
+    } catch (e) {
+      console.error("Failed to pick avatar:", e)
+    }
+  }
+
+  const handleCropConfirm = async (blob: Blob) => {
+    setCropSrc(null)
+    try {
+      const buf = await blob.arrayBuffer()
+      const bytes = new Uint8Array(buf)
+      let binary = ""
+      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
+      const base64 = window.btoa(binary)
+      const fileName = `user_${Date.now()}.png`
+      const savedPath = await invoke<string>("save_avatar", { imageData: base64, fileName })
+      update({ avatar: savedPath })
+    } catch (e) {
+      console.error("Failed to save avatar:", e)
+    }
+  }
+
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
       {/* Scrollable content */}
@@ -2263,20 +2324,7 @@ function UserProfilePanel() {
             {/* ── Avatar ── */}
             <div
               className="flex flex-col items-center gap-2 py-4 cursor-pointer"
-              onClick={async () => {
-                try {
-                  const { open } = await import("@tauri-apps/plugin-dialog")
-                  const selected = await open({
-                    filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "gif", "webp", "svg"] }],
-                    multiple: false,
-                  })
-                  if (selected) {
-                    update({ avatar: selected as string })
-                  }
-                } catch (e) {
-                  console.error("Failed to pick avatar:", e)
-                }
-              }}
+              onClick={handleAvatarPick}
             >
               <div className="w-16 h-16 rounded-full bg-secondary border border-border/50 flex items-center justify-center overflow-hidden hover:border-primary/30 transition-colors">
                 {config.avatar ? (
@@ -2287,6 +2335,16 @@ function UserProfilePanel() {
               </div>
               <span className="text-xs text-muted-foreground">{t("settings.profileAvatarChange")}</span>
             </div>
+
+            {/* Avatar crop dialog */}
+            {cropSrc && (
+              <AvatarCropDialog
+                open={!!cropSrc}
+                imageSrc={cropSrc}
+                onConfirm={handleCropConfirm}
+                onCancel={() => setCropSrc(null)}
+              />
+            )}
 
             {/* ── Name ── */}
             <div>

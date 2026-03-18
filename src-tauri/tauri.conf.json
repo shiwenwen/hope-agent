@@ -30,7 +30,7 @@
       "csp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": ["**"]
+        "scope": ["**", "$HOME/**", "$HOME/.opencomputer/**"]
       }
     }
   },

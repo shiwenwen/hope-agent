@@ -75,6 +75,13 @@ pub fn attachments_dir(session_id: &str) -> Result<PathBuf> {
     Ok(root_dir()?.join("attachments").join(session_id))
 }
 
+// ── Avatars ──────────────────────────────────────────────────────
+
+/// Avatars directory: ~/.opencomputer/avatars/
+pub fn avatars_dir() -> Result<PathBuf> {
+    Ok(root_dir()?.join("avatars"))
+}
+
 // ── Share ────────────────────────────────────────────────────────
 
 /// Shared directory for inter-agent data: ~/.opencomputer/share/
@@ -93,6 +100,7 @@ pub fn ensure_dirs() -> Result<()> {
         skills_dir()?,
         agents_dir()?,
         home_dir()?,
+        avatars_dir()?,
         share_dir()?,
     ];
     for dir in &dirs_to_create {
