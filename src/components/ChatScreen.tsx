@@ -392,6 +392,8 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
               sessionCacheRef.current.set(event.session_id, current)
             }
             setCurrentSessionId(event.session_id)
+            // Immediately refresh session list so the new session appears in sidebar
+            reloadSessions()
             return
           }
 
