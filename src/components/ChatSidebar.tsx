@@ -156,7 +156,13 @@ export default function ChatSidebar({
           <div className="ml-auto relative" ref={newChatMenuRef}>
             <button
               className="text-muted-foreground hover:text-foreground transition-colors pb-1.5"
-              onClick={() => setShowNewChatMenu(!showNewChatMenu)}
+              onClick={() => {
+                if (agents.length === 1) {
+                  onNewChat(agents[0].id)
+                } else {
+                  setShowNewChatMenu(!showNewChatMenu)
+                }
+              }}
               title={t("chat.newChat") || "New Chat"}
             >
               <MessageSquarePlus className="h-4 w-4" />
