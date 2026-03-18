@@ -28,6 +28,8 @@ import {
   CheckCircle2,
 
   Clock,
+  Eye,
+  EyeOff,
   Globe,
   GripVertical,
   Info,
@@ -806,6 +808,7 @@ export default function ProviderSetup({
   const [error, setError] = useState("")
   const [modelsExpanded, setModelsExpanded] = useState(false)
   const [thinkingStyle, setThinkingStyle] = useState<ThinkingStyleType>("openai")
+  const [showApiKey, setShowApiKey] = useState(false)
 
   const modelSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -938,32 +941,33 @@ export default function ProviderSetup({
   if (mode === "choose") {
     return (
     <div className="flex flex-col h-full bg-background">
-        {/* Header with optional back button */}
-        {onCancel && (
-          <div className="h-11 flex items-center px-4 border-b border-border shrink-0">
+        {/* Header with title */}
+        <div className="h-[4.5rem] flex items-end pb-2 px-4 border-b border-border shrink-0 relative" data-tauri-drag-region>
+          {onCancel && (
             <Button
               variant="ghost"
               size="sm"
               onClick={onCancel}
-              className="gap-1.5 text-muted-foreground hover:text-foreground"
+              className="gap-1.5 text-muted-foreground hover:text-foreground z-10"
             >
               <ArrowLeft className="h-4 w-4" />
               {t("common.back")}
             </Button>
+          )}
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <h1 className="text-sm font-semibold tracking-tight text-foreground mt-5">
+              OpenComputer
+            </h1>
           </div>
-        )}
+        </div>
 
         {/* Scrollable content area */}
         <div className="flex-1 overflow-y-auto">
-        {/* Title */}
-        <div className="text-center pt-10 pb-5 px-4">
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-            OpenComputer
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            {t("provider.selectProvider")}
-          </p>
-        </div>
+
+        {/* Subtitle */}
+        <p className="text-sm text-muted-foreground text-center pt-5 pb-3 px-4">
+          {t("provider.selectProvider")}
+        </p>
 
         {/* Codex Quick Auth */}
         <div className="px-6 pb-4 max-w-xl mx-auto w-full">
@@ -1064,7 +1068,7 @@ export default function ProviderSetup({
     return (
     <div className="flex flex-col h-full bg-background">
         {/* Header */}
-        <div className="h-11 flex items-center px-4 border-b border-border shrink-0">
+        <div className="h-[4.5rem] flex items-end pb-2 px-4 border-b border-border shrink-0" data-tauri-drag-region>
           <Button
             variant="ghost"
             size="sm"
@@ -1120,13 +1124,22 @@ export default function ProviderSetup({
                   <span className="text-[10px] text-muted-foreground/60 font-normal">({t("provider.optional")})</span>
                 )}
               </label>
-              <Input
-                type="password"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder={selectedTemplate.requiresApiKey ? selectedTemplate.apiKeyPlaceholder : t("provider.leaveEmptyNoAuth")}
-                className="bg-background font-mono text-xs"
-              />
+              <div className="relative">
+                <Input
+                  type={showApiKey ? "text" : "password"}
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder={selectedTemplate.requiresApiKey ? selectedTemplate.apiKeyPlaceholder : t("provider.leaveEmptyNoAuth")}
+                  className="bg-background font-mono text-xs pr-9"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowApiKey(!showApiKey)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {showApiKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                </button>
+              </div>
             </div>
 
             <div className="space-y-1.5">
@@ -1340,7 +1353,7 @@ export default function ProviderSetup({
   return (
     <div className="flex flex-col h-full bg-background">
       {/* Header */}
-      <div className="h-11 flex items-center px-4 border-b border-border shrink-0">
+      <div className="h-[4.5rem] flex items-end pb-2 px-4 border-b border-border shrink-0" data-tauri-drag-region>
         <Button
           variant="ghost"
           size="sm"
@@ -1449,13 +1462,22 @@ export default function ProviderSetup({
                   API Key
                   <span className="text-[10px] text-muted-foreground/60 font-normal">({t("provider.optional")})</span>
                 </label>
-                <Input
-                  type="password"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  placeholder={t("provider.authRequired")}
-                  className="bg-card font-mono text-xs"
-                />
+                <div className="relative">
+                  <Input
+                    type={showApiKey ? "text" : "password"}
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                    placeholder={t("provider.authRequired")}
+                    className="bg-card font-mono text-xs pr-9"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowApiKey(!showApiKey)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    {showApiKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                  </button>
+                </div>
               </div>
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">

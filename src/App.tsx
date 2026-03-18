@@ -88,10 +88,12 @@ export default function App() {
 
   if (view === "setup") {
     return (
-      <ProviderSetup
-        onComplete={() => setView("chat")}
-        onCodexAuth={handleCodexAuth}
-      />
+      <div className="h-screen overflow-hidden">
+        <ProviderSetup
+          onComplete={() => setView("chat")}
+          onCodexAuth={handleCodexAuth}
+        />
+      </div>
     )
   }
 
