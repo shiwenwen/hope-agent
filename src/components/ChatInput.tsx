@@ -1,0 +1,333 @@
+import { useState, useRef, useEffect, useCallback } from "react"
+import { useTranslation } from "react-i18next"
+import { Button } from "@/components/ui/button"
+import { Textarea } from "@/components/ui/textarea"
+import { cn } from "@/lib/utils"
+import {
+  Send,
+  Brain,
+  ChevronRight,
+  ImagePlus,
+  Paperclip,
+  X,
+} from "lucide-react"
+import type { AvailableModel, ActiveModel } from "@/types/chat"
+import { getEffortOptionsForType } from "@/types/chat"
+
+interface ChatInputProps {
+  input: string
+  onInputChange: (value: string) => void
+  onSend: () => void
+  loading: boolean
+  availableModels: AvailableModel[]
+  activeModel: ActiveModel | null
+  reasoningEffort: string
+  onModelChange: (key: string) => void
+  onEffortChange: (effort: string) => void
+  attachedFiles: File[]
+  onAttachFiles: (files: File[]) => void
+  onRemoveFile: (index: number) => void
+}
+
+export default function ChatInput({
+  input,
+  onInputChange,
+  onSend,
+  loading,
+  availableModels,
+  activeModel,
+  reasoningEffort,
+  onModelChange,
+  onEffortChange,
+  attachedFiles,
+  onAttachFiles,
+  onRemoveFile,
+}: ChatInputProps) {
+  const { t } = useTranslation()
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const imageInputRef = useRef<HTMLInputElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Model selector popup state
+  const [showModelMenu, setShowModelMenu] = useState(false)
+  const [menuProvider, setMenuProvider] = useState<string | null>(null)
+  const modelMenuRef = useRef<HTMLDivElement>(null)
+  const [showThinkMenu, setShowThinkMenu] = useState(false)
+  const thinkMenuRef = useRef<HTMLDivElement>(null)
+
+  // Close menus on outside click
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (modelMenuRef.current && !modelMenuRef.current.contains(e.target as Node)) {
+        setShowModelMenu(false)
+        setMenuProvider(null)
+      }
+      if (thinkMenuRef.current && !thinkMenuRef.current.contains(e.target as Node)) {
+        setShowThinkMenu(false)
+      }
+    }
+    if (showModelMenu || showThinkMenu) {
+      document.addEventListener("mousedown", handleClickOutside)
+      return () => document.removeEventListener("mousedown", handleClickOutside)
+    }
+  }, [showModelMenu, showThinkMenu])
+
+  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (files) {
+      onAttachFiles(Array.from(files))
+    }
+    e.target.value = ""
+  }, [onAttachFiles])
+
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items
+    if (!items) return
+    const files: File[] = []
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i]
+      if (item.kind === "file") {
+        const file = item.getAsFile()
+        if (file) files.push(file)
+      }
+    }
+    if (files.length > 0) {
+      e.preventDefault()
+      onAttachFiles(files)
+    }
+  }, [onAttachFiles])
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault()
+      onSend()
+    }
+  }
+
+  const currentModelInfo = availableModels.find(
+    (m) =>
+      m.providerId === activeModel?.providerId &&
+      m.modelId === activeModel?.modelId,
+  )
+
+  return (
+    <div className="px-3 pb-3 pt-2">
+      <div className="rounded-2xl border border-border bg-card">
+        {/* Attached files preview */}
+        {attachedFiles.length > 0 && (
+          <div className="flex gap-2 px-3 pt-3 pb-1 flex-wrap">
+            {attachedFiles.map((file, index) => (
+              <div
+                key={`${file.name}-${index}`}
+                className="group relative flex items-center gap-1.5 bg-secondary rounded-lg px-2 py-1 text-xs text-foreground/80 border border-border/50"
+              >
+                {file.type.startsWith("image/") ? (
+                  <img
+                    src={URL.createObjectURL(file)}
+                    alt={file.name}
+                    className="h-8 w-8 rounded object-cover"
+                  />
+                ) : (
+                  <Paperclip className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                )}
+                <span className="max-w-[120px] truncate">{file.name}</span>
+                <button
+                  className="ml-0.5 text-muted-foreground hover:text-foreground transition-colors"
+                  onClick={() => onRemoveFile(index)}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Textarea */}
+        <Textarea
+          ref={textareaRef}
+          placeholder={t("chat.askAnything")}
+          value={input}
+          onChange={(e) => onInputChange(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
+          rows={2}
+          className="border-0 shadow-none bg-transparent px-4 pt-3 pb-1 text-sm text-foreground placeholder:text-muted-foreground focus-visible:ring-0 resize-none min-h-[52px] max-h-[200px]"
+        />
+
+        {/* Toolbar */}
+        <div className="flex items-center gap-1 px-2 pb-2">
+          {/* Attach buttons */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground"
+            onClick={() => imageInputRef.current?.click()}
+            title={t("chat.attachImage")}
+          >
+            <ImagePlus className="h-4 w-4" />
+          </Button>
+          <input
+            ref={imageInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={handleFileSelect}
+          />
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground"
+            onClick={() => fileInputRef.current?.click()}
+            title={t("chat.attachFile")}
+          >
+            <Paperclip className="h-4 w-4" />
+          </Button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={handleFileSelect}
+          />
+
+          {/* Model Selector */}
+          {availableModels.length > 0 && (
+            <div className="relative" ref={modelMenuRef}>
+              <button
+                onClick={() => {
+                  setShowModelMenu(!showModelMenu)
+                  setMenuProvider(null)
+                }}
+                className="flex items-center gap-1 bg-transparent text-muted-foreground hover:text-foreground text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary"
+              >
+                <span className="truncate">
+                  {currentModelInfo
+                    ? `${currentModelInfo.providerName} / ${currentModelInfo.modelName}`
+                    : t("chat.selectModel")}
+                </span>
+              </button>
+
+              {/* Cascading menu */}
+              {showModelMenu && (
+                <div className="absolute bottom-full left-0 mb-2 bg-popover/95 backdrop-blur-xl border border-border/60 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] z-50 min-w-[160px] max-w-[220px] p-1.5">
+                  <div className="flex flex-col gap-0.5">
+                    {Array.from(
+                      new Map(
+                        availableModels.map((m) => [m.providerId, m.providerName])
+                      )
+                    ).map(([pid, pname]) => {
+                      const models = availableModels.filter((m) => m.providerId === pid)
+                      const hasMultiple = models.length > 1
+                      return (
+                        <div key={pid} className="relative">
+                          <button
+                            className={cn(
+                              "w-full text-left px-2.5 py-1.5 text-[13px] rounded-md transition-all duration-150 flex items-center justify-between gap-3",
+                              menuProvider === pid
+                                ? "bg-secondary text-foreground shadow-sm"
+                                : "text-foreground/80 hover:bg-secondary/60 hover:text-foreground"
+                            )}
+                            onMouseEnter={() => setMenuProvider(hasMultiple ? pid : null)}
+                            onClick={() => {
+                              if (!hasMultiple) {
+                                onModelChange(`${models[0].providerId}::${models[0].modelId}`)
+                                setShowModelMenu(false)
+                                setMenuProvider(null)
+                              }
+                            }}
+                          >
+                            <span className="truncate">{pname}</span>
+                            {hasMultiple && (
+                              <ChevronRight className="h-3.5 w-3.5 shrink-0 opacity-50" />
+                            )}
+                          </button>
+
+                          {/* Submenu */}
+                          {hasMultiple && menuProvider === pid && (
+                            <div className="absolute left-full bottom-[-6px] ml-1.5 bg-popover/95 backdrop-blur-xl border border-border/60 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] z-50 min-w-[160px] max-w-[260px] p-1.5">
+                              <div className="flex flex-col gap-0.5 max-h-[50vh] overflow-y-auto overscroll-contain">
+                                {models.map((m) => (
+                                  <button
+                                    key={m.modelId}
+                                    className={cn(
+                                      "w-full text-left px-2.5 py-1.5 text-[13px] rounded-md transition-all duration-150 truncate",
+                                      activeModel?.providerId === m.providerId && activeModel?.modelId === m.modelId
+                                        ? "bg-secondary text-foreground font-medium shadow-sm"
+                                        : "text-foreground/80 hover:bg-secondary/60 hover:text-foreground"
+                                    )}
+                                    onClick={() => {
+                                      onModelChange(`${m.providerId}::${m.modelId}`)
+                                      setShowModelMenu(false)
+                                      setMenuProvider(null)
+                                    }}
+                                  >
+                                    {m.modelName}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Think Mode Toggle */}
+          {(currentModelInfo?.reasoning ?? true) && (
+            <div className="relative" ref={thinkMenuRef}>
+              <button
+                onClick={() => setShowThinkMenu(!showThinkMenu)}
+                className="flex items-center gap-1 bg-transparent text-muted-foreground hover:text-foreground text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary"
+              >
+                <Brain className="h-3.5 w-3.5 shrink-0" />
+                <span>{getEffortOptionsForType(currentModelInfo?.apiType, t).find((o) => o.value === reasoningEffort)?.label ?? reasoningEffort}</span>
+              </button>
+
+              {showThinkMenu && (
+                <div className="absolute bottom-full left-0 mb-2 bg-popover/95 backdrop-blur-xl border border-border/60 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] z-50 min-w-[120px] p-1.5">
+                  <div className="flex flex-col gap-0.5">
+                    {getEffortOptionsForType(currentModelInfo?.apiType, t).map((opt) => (
+                      <button
+                        key={opt.value}
+                        className={cn(
+                          "w-full text-left px-2.5 py-1.5 text-[13px] rounded-md transition-all duration-150",
+                          reasoningEffort === opt.value
+                            ? "bg-secondary text-foreground font-medium shadow-sm"
+                            : "text-foreground/80 hover:bg-secondary/60 hover:text-foreground"
+                        )}
+                        onClick={() => {
+                          onEffortChange(opt.value)
+                          setShowThinkMenu(false)
+                        }}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="flex-1" />
+
+          {/* Send Button */}
+          <Button
+            size="icon"
+            className="h-8 w-8 rounded-full shrink-0"
+            onClick={onSend}
+            disabled={loading || !input.trim()}
+          >
+            <Send className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
