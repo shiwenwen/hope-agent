@@ -1377,6 +1377,34 @@ async fn get_system_timezone() -> Result<String, String> {
 
 // ── App Entry ─────────────────────────────────────────────────────
 
+// ── Window Theme Command ──────────────────────────────────────────
+
+#[tauri::command]
+async fn set_window_theme(
+    is_dark: bool,
+    app_handle: tauri::AppHandle,
+) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        use tauri::Manager;
+        if let Some(window) = app_handle.get_webview_window("main") {
+            let _ = window.with_webview(move |webview| unsafe {
+                let ns_window: &objc2_app_kit::NSWindow =
+                    &*webview.ns_window().cast();
+                let (r, g, b) = if is_dark {
+                    (15.0 / 255.0, 15.0 / 255.0, 15.0 / 255.0)
+                } else {
+                    (1.0, 1.0, 1.0)
+                };
+                let bg_color =
+                    objc2_app_kit::NSColor::colorWithSRGBRed_green_blue_alpha(r, g, b, 1.0);
+                ns_window.setBackgroundColor(Some(&bg_color));
+            });
+        }
+    }
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Initialize directory structure
@@ -1405,7 +1433,7 @@ pub fn run() {
                 )?;
             }
 
-            // Fix macOS dark mode white flash on window resize
+            // Fix macOS theme-aware background to prevent flash on window resize
             #[cfg(target_os = "macos")]
             {
                 use tauri::Manager;
@@ -1413,13 +1441,20 @@ pub fn run() {
                     let _ = window.with_webview(|webview| unsafe {
                         let ns_window: &objc2_app_kit::NSWindow =
                             &*webview.ns_window().cast();
+                        // Detect system dark mode via appearance name
+                        let is_dark = {
+                            use objc2_app_kit::NSAppearanceCustomization;
+                            let appearance = ns_window.effectiveAppearance();
+                            let name = appearance.name();
+                            name.to_string().contains("Dark")
+                        };
+                        let (r, g, b) = if is_dark {
+                            (15.0 / 255.0, 15.0 / 255.0, 15.0 / 255.0)
+                        } else {
+                            (1.0, 1.0, 1.0)
+                        };
                         let bg_color =
-                            objc2_app_kit::NSColor::colorWithSRGBRed_green_blue_alpha(
-                                15.0 / 255.0,
-                                15.0 / 255.0,
-                                15.0 / 255.0,
-                                1.0,
-                            );
+                            objc2_app_kit::NSColor::colorWithSRGBRed_green_blue_alpha(r, g, b, 1.0);
                         ns_window.setBackgroundColor(Some(&bg_color));
                     });
                 }
@@ -1504,6 +1539,8 @@ pub fn run() {
             get_session_cmd,
             delete_session_cmd,
             rename_session_cmd,
+            // Window theme
+            set_window_theme,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

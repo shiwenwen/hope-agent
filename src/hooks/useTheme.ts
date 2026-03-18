@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
+import { invoke } from "@tauri-apps/api/core"
 
 export type ThemeMode = "auto" | "light" | "dark"
 
@@ -35,6 +36,8 @@ function applyTheme(mode: ThemeMode) {
   // Sync inline background to prevent flash on resize
   root.style.backgroundColor = isDark ? "#0f0f0f" : "#ffffff"
   root.style.colorScheme = isDark ? "dark" : "light"
+  // Sync macOS NSWindow background color to match theme
+  invoke("set_window_theme", { isDark }).catch(() => {})
 }
 
 export function useTheme() {
