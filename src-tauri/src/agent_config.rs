@@ -175,7 +175,7 @@ fn default_max_rounds() -> u32 {
 }
 
 fn default_approval_tools() -> Vec<String> {
-    vec!["exec".to_string()]
+    vec!["*".to_string()]
 }
 
 impl Default for BehaviorConfig {

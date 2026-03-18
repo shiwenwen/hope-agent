@@ -1049,7 +1049,7 @@ function AgentCreateView({
         skills: { allow: [], deny: [] },
         tools: { allow: [], deny: [] },
         personality: { ...DEFAULT_PERSONALITY },
-        behavior: { maxToolRounds: 10, requireApproval: ["exec"], sandbox: false },
+        behavior: { maxToolRounds: 10, requireApproval: ["*"], sandbox: false },
         useCustomPrompt: false,
       }
       await invoke("save_agent_config_cmd", { id: trimmedId, config })
