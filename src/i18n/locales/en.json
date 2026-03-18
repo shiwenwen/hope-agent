@@ -7,6 +7,7 @@
     "delete": "Delete",
     "edit": "Edit",
     "done": "Done",
+    "confirm": "Confirm",
     "saving": "Saving...",
     "testing": "Testing...",
     "nextStep": "Next",
@@ -287,7 +288,9 @@
     "agentModelInheritHint": "Currently inheriting global default and fallback model settings. Enable \"Custom Model\" to configure agent-specific models.",
     "agentModelInheritDesc": "Uses the global default and fallback model settings",
     "agentModelPrimary": "Primary Model",
-    "modelFallbackNotice": "Primary model unavailable, switched to {{model}}"
+    "modelFallbackNotice": "Primary model unavailable, switched to {{model}}",
+    "avatarCropTitle": "Crop Avatar",
+    "avatarZoom": "Zoom"
   },
   "tz": {
     "shanghai": "Shanghai (UTC+8)",
@@ -347,6 +350,9 @@
     "allowAlways": "Always Allow",
     "deny": "Deny",
     "queueIndicator": "{{current}} of {{total}}"
+  },
+  "thinking": {
+    "label": "Thinking"
   },
   "provider_templates": {
     "anthropic": {

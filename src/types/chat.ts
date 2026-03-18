@@ -9,6 +9,7 @@ export interface Message {
   role: "user" | "assistant" | "event"
   content: string
   toolCalls?: ToolCall[]
+  thinking?: string
 }
 
 export interface AvailableModel {

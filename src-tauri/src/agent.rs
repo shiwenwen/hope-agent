@@ -315,6 +315,13 @@ fn emit_tool_result(on_delta: &(impl Fn(&str) + Send), call_id: &str, result: &s
     }));
 }
 
+fn emit_thinking_delta(on_delta: &(impl Fn(&str) + Send), text: &str) {
+    emit_event(on_delta, &json!({
+        "type": "thinking_delta",
+        "content": text,
+    }));
+}
+
 // ── OpenAI Responses API types ────────────────────────────────────
 
 #[derive(Serialize)]
@@ -747,6 +754,7 @@ impl AssistantAgent {
         let mut tool_calls: Vec<FunctionCallItem> = Vec::new();
         // Track current content blocks by index
         let mut current_tool: Option<(usize, FunctionCallItem)> = None;
+        let mut in_thinking_block = false;
         let mut stop_reason: Option<String> = None;
 
         let mut stream = resp.bytes_stream();
@@ -789,19 +797,30 @@ impl AssistantAgent {
                     match event_name.as_str() {
                         "content_block_start" => {
                             if let Some(block) = &event.content_block {
-                                if block.block_type.as_deref() == Some("tool_use") {
-                                    let idx = event.index.unwrap_or(0);
-                                    current_tool = Some((idx, FunctionCallItem {
-                                        call_id: block.id.clone().unwrap_or_default(),
-                                        name: block.name.clone().unwrap_or_default(),
-                                        arguments: String::new(),
-                                    }));
+                                match block.block_type.as_deref() {
+                                    Some("tool_use") => {
+                                        let idx = event.index.unwrap_or(0);
+                                        current_tool = Some((idx, FunctionCallItem {
+                                            call_id: block.id.clone().unwrap_or_default(),
+                                            name: block.name.clone().unwrap_or_default(),
+                                            arguments: String::new(),
+                                        }));
+                                    }
+                                    Some("thinking") => {
+                                        in_thinking_block = true;
+                                    }
+                                    _ => {}
                                 }
                             }
                         }
                         "content_block_delta" => {
                             if let Some(delta) = &event.delta {
                                 match delta.delta_type.as_deref() {
+                                    Some("thinking_delta") => {
+                                        if let Some(text) = &delta.text {
+                                            emit_thinking_delta(on_delta, text);
+                                        }
+                                    }
                                     Some("text_delta") => {
                                         if let Some(text) = &delta.text {
                                             emit_text_delta(on_delta, text);
@@ -820,6 +839,9 @@ impl AssistantAgent {
                             }
                         }
                         "content_block_stop" => {
+                            if in_thinking_block {
+                                in_thinking_block = false;
+                            }
                             if let Some((_, tc)) = current_tool.take() {
                                 tool_calls.push(tc);
                             }
@@ -1013,6 +1035,13 @@ impl AssistantAgent {
                                     Some(d) => d,
                                     None => continue,
                                 };
+
+                                // Reasoning/thinking content (DeepSeek, OpenAI o-series, etc.)
+                                if let Some(reasoning) = delta.get("reasoning_content").and_then(|c| c.as_str()) {
+                                    if !reasoning.is_empty() {
+                                        emit_thinking_delta(on_delta, reasoning);
+                                    }
+                                }
 
                                 // Text content
                                 if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
@@ -1365,6 +1394,13 @@ impl AssistantAgent {
                     let event_type = event.event_type.as_deref().unwrap_or("");
 
                     match event_type {
+                        // Reasoning summary deltas
+                        "response.reasoning_summary_text.delta" => {
+                            if let Some(delta) = &event.delta {
+                                emit_thinking_delta(on_delta, delta);
+                            }
+                        }
+
                         // Text deltas
                         "response.output_text.delta" => {
                             if let Some(delta) = &event.delta {

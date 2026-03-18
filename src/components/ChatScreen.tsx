@@ -17,6 +17,7 @@ import { getEffortOptionsForType } from "@/types/chat"
 import MarkdownRenderer from "@/components/MarkdownRenderer"
 import ApprovalDialog, { type ApprovalRequest } from "@/components/ApprovalDialog"
 import ToolCallBlock from "@/components/ToolCallBlock"
+import ThinkingBlock from "@/components/ThinkingBlock"
 import ChatSidebar from "@/components/ChatSidebar"
 import ChatInput from "@/components/ChatInput"
 
@@ -433,6 +434,13 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
                 updated[updated.length - 1] = { ...last, toolCalls: calls }
                 break
               }
+              case "thinking_delta": {
+                updated[updated.length - 1] = {
+                  ...last,
+                  thinking: (last.thinking || "") + (event.content || ""),
+                }
+                break
+              }
               case "model_fallback": {
                 const from = event.from_model ? ` ← ${event.from_model}` : ""
                 const reason = event.reason && event.reason !== "unknown" ? ` (${event.reason})` : ""
@@ -582,6 +590,12 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
                   msg.role === "assistant" && !msg.content && !msg.toolCalls?.length && "animate-pulse"
                 )}
               >
+                {msg.role === "assistant" && msg.thinking && (
+                  <ThinkingBlock
+                    content={msg.thinking}
+                    isStreaming={loading && i === messages.length - 1 && !msg.content}
+                  />
+                )}
                 {msg.role === "assistant" &&
                   msg.toolCalls?.map((tool) => (
                     <ToolCallBlock key={tool.callId} tool={tool} />

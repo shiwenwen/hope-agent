@@ -7,6 +7,7 @@
     "delete": "删除",
     "edit": "编辑",
     "done": "完成",
+    "confirm": "确认",
     "saving": "保存中...",
     "testing": "测试中...",
     "nextStep": "下一步",
@@ -287,7 +288,9 @@
     "agentModelInheritHint": "当前继承全局默认模型和降级模型设置。开启「自定义模型」可为此 Agent 指定独立配置。",
     "agentModelInheritDesc": "使用全局默认模型和降级模型设置",
     "agentModelPrimary": "主模型",
-    "modelFallbackNotice": "主模型不可用，已切换到 {{model}}"
+    "modelFallbackNotice": "主模型不可用，已切换到 {{model}}",
+    "avatarCropTitle": "裁剪头像",
+    "avatarZoom": "缩放"
   },
   "tz": {
     "shanghai": "上海 (UTC+8)",
@@ -347,6 +350,9 @@
     "allowAlways": "始终允许",
     "deny": "拒绝",
     "queueIndicator": "第 {{current}} 个，共 {{total}} 个"
+  },
+  "thinking": {
+    "label": "思考过程"
   },
   "provider_templates": {
     "anthropic": {
