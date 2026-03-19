@@ -1,7 +1,3 @@
----
-trigger: always_on
----
-
 # OpenComputer
 
 OpenComputer 是一款基于 Tauri 2 + React 19 + Rust 的本地 AI 助手桌面应用（桌面只是降低普通人的使用门槛，但是和系统内核要做无缝打通，底层有强大的cli能力），支持 24+ 内置 Provider 模板（Anthropic、OpenAI、DeepSeek、Moonshot、通义千问、Ollama 等），GUI 傻瓜式配置。
@@ -116,6 +112,12 @@ npm run lint
 - **错误处理**：Rust 命令返回 `Result<T, String>`，前端 `invoke` 用 try/catch 捕获
 
 ## 编码规范
+
+### 通用（性能与体验优先）
+- **所有实现必须注重性能和用户体验**，这是最高优先级的编码原则
+- 前端：避免不必要的重渲染（善用 `React.memo`、`useMemo`、`useCallback`），长列表使用虚拟滚动，动画保持 60fps（优先使用 CSS `transform`/`opacity`、`will-change`，避免触发 layout/paint），事件处理注意 debounce/throttle
+- 后端：异步操作不阻塞主线程，大数据处理使用流式/分块，避免不必要的内存拷贝（善用 `&str`/`Cow`/零拷贝），数据库查询注意索引和批量操作
+- 交互体验：操作响应应即时反馈（乐观更新、loading 态、骨架屏），动效流畅自然不卡顿，错误状态有清晰提示和恢复路径
 
 ### 前端
 - 组件用函数式 + hooks，不用 class 组件
