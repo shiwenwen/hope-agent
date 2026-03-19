@@ -1537,8 +1537,8 @@ impl AssistantAgent {
                         "response.output_item.added" => {
                             if let Some(item) = &event.item {
                                 if item.item_type.as_deref() == Some("function_call") {
-                                    let call_id = item.call_id.clone()
-                                        .or_else(|| item.id.clone())
+                                    let call_id = item.id.clone()
+                                        .or_else(|| item.call_id.clone())
                                         .unwrap_or_default();
                                     let name = item.name.clone().unwrap_or_default();
                                     pending_calls.insert(call_id.clone(), FunctionCallItem {
@@ -1556,8 +1556,8 @@ impl AssistantAgent {
                                 // Find the pending call to append args to
                                 // The event doesn't always include item_id, try all pending
                                 if let Some(item) = &event.item {
-                                    let call_id = item.call_id.clone()
-                                        .or_else(|| item.id.clone())
+                                    let call_id = item.id.clone()
+                                        .or_else(|| item.call_id.clone())
                                         .unwrap_or_default();
                                     if let Some(tc) = pending_calls.get_mut(&call_id) {
                                         tc.arguments.push_str(delta);
@@ -1575,8 +1575,8 @@ impl AssistantAgent {
                         "response.function_call_arguments.done" | "response.output_item.done" => {
                             if let Some(item) = &event.item {
                                 if item.item_type.as_deref() == Some("function_call") {
-                                    let call_id = item.call_id.clone()
-                                        .or_else(|| item.id.clone())
+                                    let call_id = item.id.clone()
+                                        .or_else(|| item.call_id.clone())
                                         .unwrap_or_default();
                                     if let Some(mut tc) = pending_calls.remove(&call_id) {
                                         // Use final arguments from the event if available
@@ -1647,8 +1647,8 @@ impl AssistantAgent {
                                             }
                                             // Also pick up function_call items from completed response
                                             if item.item_type.as_deref() == Some("function_call") {
-                                                let call_id = item.call_id.clone()
-                                                    .or_else(|| item.id.clone())
+                                                let call_id = item.id.clone()
+                                                    .or_else(|| item.call_id.clone())
                                                     .unwrap_or_default();
                                                 tool_calls.push(FunctionCallItem {
                                                     call_id,
