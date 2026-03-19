@@ -73,6 +73,11 @@
   }
 }
 
+/* Smooth streaming bubble growth */
+.streaming-bubble {
+  transition: min-height 0.15s ease-out;
+}
+
 @keyframes bounce-pulse {
   0%, 100% { transform: translateY(0) scale(1); opacity: 0.3; }
   50% { transform: translateY(-6px) scale(1.1); opacity: 1; }

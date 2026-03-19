@@ -144,6 +144,7 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
   // Copied message feedback
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null)
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [hoveredMsgIndex, setHoveredMsgIndex] = useState<number | null>(null)
   function handleCopyMessage(content: string, index: number) {
     navigator.clipboard.writeText(content).then(() => {
       if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current)
@@ -154,15 +155,65 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
 
   const scrollContainerRef = useRef<HTMLDivElement>(null)
 
+  // --- Smooth auto-scroll during streaming ---
+  const isUserScrolledUpRef = useRef(false)
+  const rafIdRef = useRef<number | null>(null)
+  const prevScrollHeightRef = useRef(0)
+
+  // Detect user scrolling up to pause auto-scroll
+  useEffect(() => {
+    const el = scrollContainerRef.current
+    if (!el) return
+    const handleScroll = () => {
+      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+      isUserScrolledUpRef.current = distanceFromBottom > 150
+    }
+    el.addEventListener("scroll", handleScroll, { passive: true })
+    return () => el.removeEventListener("scroll", handleScroll)
+  }, [])
+
+  // rAF loop: smoothly follow content growth during streaming
+  useEffect(() => {
+    const el = scrollContainerRef.current
+    if (!el) return
+
+    if (loading) {
+      // Reset scroll-up detection when new message starts
+      isUserScrolledUpRef.current = false
+      prevScrollHeightRef.current = el.scrollHeight
+
+      const tick = () => {
+        if (!isUserScrolledUpRef.current && el.scrollHeight !== prevScrollHeightRef.current) {
+          prevScrollHeightRef.current = el.scrollHeight
+          el.scrollTo({ top: el.scrollHeight, behavior: "smooth" })
+        }
+        rafIdRef.current = requestAnimationFrame(tick)
+      }
+      rafIdRef.current = requestAnimationFrame(tick)
+
+      return () => {
+        if (rafIdRef.current !== null) {
+          cancelAnimationFrame(rafIdRef.current)
+          rafIdRef.current = null
+        }
+      }
+    } else {
+      // Streaming ended — do a final smooth scroll to bottom
+      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" })
+    }
+  }, [loading])
+
+  // When user sends a new message, immediately scroll to bottom
   useLayoutEffect(() => {
     const el = scrollContainerRef.current
     if (!el) return
-    if (loading) {
-      el.scrollTop = el.scrollHeight
-    } else {
+    // Only trigger on user messages being added
+    const lastMsg = messages[messages.length - 1]
+    if (lastMsg?.role === "user") {
+      isUserScrolledUpRef.current = false
       el.scrollTo({ top: el.scrollHeight, behavior: "smooth" })
     }
-  }, [messages, loading])
+  }, [messages.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Listen for command approval events
   useEffect(() => {
@@ -618,14 +669,19 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
                   {msg.content}
                 </div>
               ) : (
-              <div className={cn("relative inline-flex items-end gap-1", msg.role === "user" ? "flex-row-reverse" : "flex-row")}>
+              <div
+                className="relative max-w-[95%]"
+                onMouseEnter={() => setHoveredMsgIndex(i)}
+                onMouseLeave={() => setHoveredMsgIndex((prev) => prev === i ? null : prev)}
+              >
                 <div
                   className={cn(
-                    "max-w-[95%] px-4 py-2.5 rounded-xl text-sm leading-relaxed overflow-hidden break-words select-text",
+                    "px-4 py-2.5 rounded-xl text-sm leading-relaxed overflow-hidden break-words select-text",
                     msg.role === "user"
                       ? "bg-[var(--color-user-bubble)] text-foreground whitespace-pre-wrap"
                       : "bg-card text-foreground/80",
-                    msg.role === "assistant" && !msg.content && !msg.toolCalls?.length && "animate-pulse"
+                    msg.role === "assistant" && !msg.content && !msg.toolCalls?.length && "animate-pulse",
+                    msg.role === "assistant" && loading && i === messages.length - 1 && "streaming-bubble"
                   )}
                 >
                   {msg.role === "assistant" && msg.thinking && (
@@ -647,9 +703,9 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
                     msg.role === "assistant" &&
                     !msg.toolCalls?.length && (
                       <div className="flex items-center gap-1.5 h-6 px-2 relative top-1">
-                        <span className="w-2 h-2 rounded-full bg-foreground animate-bounce-pulse" />
-                        <span className="w-2 h-2 rounded-full bg-foreground animate-bounce-pulse [animation-delay:200ms]" />
-                        <span className="w-2 h-2 rounded-full bg-foreground animate-bounce-pulse [animation-delay:400ms]" />
+                        <span className="block w-2 h-2 aspect-square rounded-full bg-foreground animate-bounce-pulse" />
+                        <span className="block w-2 h-2 aspect-square rounded-full bg-foreground animate-bounce-pulse [animation-delay:200ms]" />
+                        <span className="block w-2 h-2 aspect-square rounded-full bg-foreground animate-bounce-pulse [animation-delay:400ms]" />
                       </div>
                     )
                   )}
@@ -662,9 +718,12 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
                     </div>
                   )}
                 </div>
-                {/* Hover toolbar */}
-                {msg.content && (
-                  <div className="shrink-0 mb-1">
+                {/* Hover toolbar — absolutely positioned, no layout impact */}
+                {msg.content && (hoveredMsgIndex === i || copiedIndex === i) && (
+                  <div className={cn(
+                    "absolute bottom-0 flex items-center",
+                    msg.role === "user" ? "right-full mr-1" : "left-full ml-1"
+                  )}>
                     <button
                       onClick={() => handleCopyMessage(msg.content, i)}
                       className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors"
