@@ -760,6 +760,21 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
       })
     } finally {
       const sid = targetSessionId || "__pending__"
+      // Clean up empty assistant message if chat was stopped before any response arrived
+      updateSessionMessages(sid, (prev) => {
+        const updated = [...prev]
+        const last = updated[updated.length - 1]
+        if (
+          last &&
+          last.role === "assistant" &&
+          !last.content &&
+          !last.toolCalls?.length &&
+          !last.contentBlocks?.length
+        ) {
+          updated.pop()
+        }
+        return updated
+      })
       loadingSessionsRef.current.delete(sid)
       if (currentSessionIdRef.current === sid) {
         setLoading(false)

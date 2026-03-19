@@ -344,12 +344,12 @@ export default function ChatInput({
           {loading && (
             <Button
               size="icon"
-              variant="ghost"
-              className="h-8 w-8 rounded-full shrink-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+              variant="destructive"
+              className="h-8 w-8 rounded-full shrink-0"
               onClick={onStop}
               title={t("chat.stopReply")}
             >
-              <Square className="h-3.5 w-3.5" />
+              <Square className="h-4 w-4 fill-white stroke-white" />
             </Button>
           )}
 
