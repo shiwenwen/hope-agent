@@ -56,7 +56,21 @@
     "statusNewSession": "(New Session)",
     "statusAuth": "Auth",
     "statusContext": "Context",
-    "statusCache": "Cache"
+    "statusCache": "Cache",
+    "fallbackTitle": "Model Fallback",
+    "fallbackReason": "Reason",
+    "fallbackFrom": "Original",
+    "fallbackTo": "Fallback",
+    "fallbackProgress": "Chain",
+    "fallbackError": "Error Details",
+    "reasonRateLimit": "Rate limit exceeded",
+    "reasonOverloaded": "Service overloaded",
+    "reasonTimeout": "Request timeout",
+    "reasonAuth": "Authentication failed",
+    "reasonBilling": "Billing / quota exceeded",
+    "reasonModelNotFound": "Model not found",
+    "reasonContextOverflow": "Context overflow",
+    "reasonUnknown": "Unknown error"
   },
   "effort": {
     "off": "Off",

@@ -56,7 +56,21 @@
     "statusNewSession": "(新会话)",
     "statusAuth": "认证",
     "statusContext": "上下文",
-    "statusCache": "缓存"
+    "statusCache": "缓存",
+    "fallbackTitle": "降级切换",
+    "fallbackReason": "原因",
+    "fallbackFrom": "原模型",
+    "fallbackTo": "降级模型",
+    "fallbackProgress": "降级链",
+    "fallbackError": "错误详情",
+    "reasonRateLimit": "请求频率超限",
+    "reasonOverloaded": "服务过载",
+    "reasonTimeout": "请求超时",
+    "reasonAuth": "认证失败",
+    "reasonBilling": "账户余额不足",
+    "reasonModelNotFound": "模型不存在",
+    "reasonContextOverflow": "上下文超限",
+    "reasonUnknown": "未知错误"
   },
   "effort": {
     "off": "关闭",

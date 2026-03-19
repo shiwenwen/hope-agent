@@ -20,6 +20,19 @@ export interface Message {
   thinking?: string
   timestamp?: string
   usage?: MessageUsage
+  fallbackEvent?: FallbackEvent
+}
+
+export interface FallbackEvent {
+  type?: string
+  model: string
+  from_model?: string
+  reason?: string
+  error?: string
+  attempt?: number
+  total?: number
+  provider_id?: string
+  model_id?: string
 }
 
 export interface AvailableModel {

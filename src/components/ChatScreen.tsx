@@ -3,7 +3,7 @@ import { invoke, Channel } from "@tauri-apps/api/core"
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
-import { Settings, Copy, Check, Info, BarChart3 } from "lucide-react"
+import { Settings, Copy, Check, Info, BarChart3, AlertCircle } from "lucide-react"
 import type {
   Message,
   MessageUsage,
@@ -13,6 +13,7 @@ import type {
   SessionMeta,
   SessionMessage,
   AgentSummaryForSidebar,
+  FallbackEvent,
 } from "@/types/chat"
 import { getEffortOptionsForType } from "@/types/chat"
 import MarkdownRenderer from "@/components/MarkdownRenderer"
@@ -21,6 +22,44 @@ import ToolCallBlock from "@/components/ToolCallBlock"
 import ThinkingBlock from "@/components/ThinkingBlock"
 import ChatSidebar from "@/components/ChatSidebar"
 import ChatInput from "@/components/ChatInput"
+import FallbackDetailsPopover from "@/components/FallbackDetailsPopover"
+
+/** Inline banner that mimics the original blockquote style, with a clickable ⚠️ icon for details */
+function FallbackBanner({ event }: { event: FallbackEvent }) {
+  const [showPopover, setShowPopover] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  // Close popover on outside click
+  useEffect(() => {
+    if (!showPopover) return
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setShowPopover(false)
+      }
+    }
+    document.addEventListener("mousedown", handler)
+    return () => document.removeEventListener("mousedown", handler)
+  }, [showPopover])
+
+  const from = event.from_model ? ` ← ${event.from_model}` : ""
+  const attempt = event.attempt && event.total ? ` [${event.attempt}/${event.total}]` : ""
+
+  return (
+    <div className="mb-2 border-l-2 border-muted-foreground/30 pl-3 py-0.5 text-sm text-muted-foreground italic" ref={ref}>
+      <span className="relative inline-block">
+        <button
+          onClick={() => setShowPopover((v) => !v)}
+          className="not-italic cursor-pointer hover:scale-110 transition-transform inline-block"
+          title="Details"
+        >
+          <AlertCircle className="inline h-4 w-4 text-amber-500 -mt-0.5" />
+        </button>
+        <FallbackDetailsPopover event={event} open={showPopover} />
+      </span>
+      {` Fallback: ${event.model}${from}${attempt}`}
+    </div>
+  )
+}
 
 /** Format token count: ≥10000 → "12.3k tokens", else "1,234 tokens" */
 function formatTokens(n: number): string {
@@ -617,13 +656,9 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
                 break
               }
               case "model_fallback": {
-                const from = event.from_model ? ` ← ${event.from_model}` : ""
-                const reason = event.reason && event.reason !== "unknown" ? ` (${event.reason})` : ""
-                const attempt = event.attempt && event.total ? ` [${event.attempt}/${event.total}]` : ""
-                const notice = `⚠️ Fallback → ${event.model}${from}${reason}${attempt}`
                 updated[updated.length - 1] = {
                   ...last,
-                  content: `> _${notice}_\n\n` + last.content,
+                  fallbackEvent: event,
                 }
                 break
               }
@@ -908,6 +943,9 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
                   setDetailsIndex((prev) => prev === i ? null : prev)
                 }}
               >
+                {msg.role === "assistant" && msg.fallbackEvent && (
+                  <FallbackBanner event={msg.fallbackEvent} />
+                )}
                 <div
                   className={cn(
                     "px-4 py-2.5 rounded-xl text-sm leading-relaxed overflow-hidden break-words select-text",
