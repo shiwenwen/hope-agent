@@ -39,7 +39,8 @@
     "attachFile": "添加文件",
     "selectModel": "选择模型",
     "deleteSessionTitle": "删除对话",
-    "deleteSessionWarning": "此操作将永久删除该对话及其所有消息记录，且无法恢复。请确认是否继续？"
+    "deleteSessionWarning": "此操作将永久删除该对话及其所有消息记录，且无法恢复。请确认是否继续？",
+    "copy": "复制"
   },
   "effort": {
     "off": "关闭",

@@ -3,7 +3,7 @@ import { invoke, Channel } from "@tauri-apps/api/core"
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
-import { Settings } from "lucide-react"
+import { Settings, Copy, Check } from "lucide-react"
 import type {
   Message,
   ToolCall,
@@ -25,13 +25,38 @@ interface ChatScreenProps {
   onOpenAgentSettings?: (agentId: string) => void
 }
 
+/** Format message timestamp to HH:mm */
+function formatMessageTime(timestamp?: string): string {
+  if (!timestamp) return ""
+  try {
+    const date = new Date(timestamp)
+    if (isNaN(date.getTime())) return ""
+    const now = new Date()
+    const isToday = date.toDateString() === now.toDateString()
+    const yesterday = new Date(now)
+    yesterday.setDate(yesterday.getDate() - 1)
+    const isYesterday = date.toDateString() === yesterday.toDateString()
+    const hours = date.getHours().toString().padStart(2, "0")
+    const minutes = date.getMinutes().toString().padStart(2, "0")
+    const time = `${hours}:${minutes}`
+    if (isToday) return time
+    if (isYesterday) return `昨天 ${time}`
+    const month = date.getMonth() + 1
+    const day = date.getDate()
+    if (date.getFullYear() === now.getFullYear()) return `${month}/${day} ${time}`
+    return `${date.getFullYear()}/${month}/${day} ${time}`
+  } catch {
+    return ""
+  }
+}
+
 /** Parse DB SessionMessage[] into display Message[] */
 function parseSessionMessages(msgs: SessionMessage[]): Message[] {
   const displayMessages: Message[] = []
   const pendingTools: ToolCall[] = []
   for (const msg of msgs) {
     if (msg.role === "user") {
-      displayMessages.push({ role: "user", content: msg.content })
+      displayMessages.push({ role: "user", content: msg.content, timestamp: msg.timestamp })
     } else if (msg.role === "tool" && msg.toolCallId) {
       const existing = pendingTools.find(c => c.callId === msg.toolCallId)
       if (existing) {
@@ -49,9 +74,9 @@ function parseSessionMessages(msgs: SessionMessage[]): Message[] {
     } else if (msg.role === "assistant") {
       const toolCalls = pendingTools.length > 0 ? [...pendingTools] : undefined
       pendingTools.length = 0
-      displayMessages.push({ role: "assistant", content: msg.content, toolCalls })
+      displayMessages.push({ role: "assistant", content: msg.content, toolCalls, timestamp: msg.timestamp })
     } else if (msg.role === "event") {
-      displayMessages.push({ role: "event", content: msg.content })
+      displayMessages.push({ role: "event", content: msg.content, timestamp: msg.timestamp })
     }
   }
   return displayMessages
@@ -115,6 +140,17 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
 
   // Attached files
   const [attachedFiles, setAttachedFiles] = useState<File[]>([])
+
+  // Copied message feedback
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null)
+  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  function handleCopyMessage(content: string, index: number) {
+    navigator.clipboard.writeText(content).then(() => {
+      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current)
+      setCopiedIndex(index)
+      copiedTimerRef.current = setTimeout(() => setCopiedIndex(null), 1500)
+    }).catch(() => {})
+  }
 
   const scrollContainerRef = useRef<HTMLDivElement>(null)
 
@@ -347,7 +383,8 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
     const filesToSend = [...attachedFiles]
     setInput("")
     setAttachedFiles([])
-    setMessages((prev) => [...prev, { role: "user", content: text }])
+    const now = new Date().toISOString()
+    setMessages((prev) => [...prev, { role: "user", content: text, timestamp: now }])
     setLoading(true)
 
     // Read attached files as base64
@@ -372,7 +409,7 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
     }
 
     // Add empty assistant message that we'll stream into
-    setMessages((prev) => [...prev, { role: "assistant", content: "" }])
+    setMessages((prev) => [...prev, { role: "assistant", content: "", timestamp: new Date().toISOString() }])
 
     // Capture the session ID for this request (may be null for new chats, will be set by session_created event)
     let targetSessionId = currentSessionId
@@ -473,7 +510,7 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
 
       // Track loading state for this session
       // Use the up-to-date messages: old messages + new user message + empty assistant
-      const freshMessages = [...messages, { role: "user" as const, content: text }, { role: "assistant" as const, content: "" }]
+      const freshMessages = [...messages, { role: "user" as const, content: text, timestamp: now }, { role: "assistant" as const, content: "", timestamp: new Date().toISOString() }]
       if (targetSessionId) {
         loadingSessionsRef.current.add(targetSessionId)
         sessionCacheRef.current.set(targetSessionId, freshMessages)
@@ -581,39 +618,65 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
                   {msg.content}
                 </div>
               ) : (
-              <div
-                className={cn(
-                  "max-w-[95%] px-4 py-2.5 rounded-xl text-sm leading-relaxed overflow-hidden break-words select-text",
-                  msg.role === "user"
-                    ? "bg-[var(--color-user-bubble)] text-foreground whitespace-pre-wrap"
-                    : "bg-card text-foreground/80",
-                  msg.role === "assistant" && !msg.content && !msg.toolCalls?.length && "animate-pulse"
-                )}
-              >
-                {msg.role === "assistant" && msg.thinking && (
-                  <ThinkingBlock
-                    content={msg.thinking}
-                    isStreaming={loading && i === messages.length - 1 && !msg.content}
-                  />
-                )}
-                {msg.role === "assistant" &&
-                  msg.toolCalls?.map((tool) => (
-                    <ToolCallBlock key={tool.callId} tool={tool} />
-                  ))}
-                {msg.content ? (
-                  <MarkdownRenderer
-                    content={msg.content}
-                    isStreaming={msg.role === "assistant" && loading && i === messages.length - 1}
-                  />
-                ) : (
-                  msg.role === "assistant" &&
-                  !msg.toolCalls?.length && (
-                    <div className="flex items-center gap-1.5 h-6 px-2 relative top-1">
-                      <span className="w-2 h-2 rounded-full bg-foreground animate-bounce-pulse" />
-                      <span className="w-2 h-2 rounded-full bg-foreground animate-bounce-pulse [animation-delay:200ms]" />
-                      <span className="w-2 h-2 rounded-full bg-foreground animate-bounce-pulse [animation-delay:400ms]" />
+              <div className={cn("relative inline-flex items-end gap-1", msg.role === "user" ? "flex-row-reverse" : "flex-row")}>
+                <div
+                  className={cn(
+                    "max-w-[95%] px-4 py-2.5 rounded-xl text-sm leading-relaxed overflow-hidden break-words select-text",
+                    msg.role === "user"
+                      ? "bg-[var(--color-user-bubble)] text-foreground whitespace-pre-wrap"
+                      : "bg-card text-foreground/80",
+                    msg.role === "assistant" && !msg.content && !msg.toolCalls?.length && "animate-pulse"
+                  )}
+                >
+                  {msg.role === "assistant" && msg.thinking && (
+                    <ThinkingBlock
+                      content={msg.thinking}
+                      isStreaming={loading && i === messages.length - 1 && !msg.content}
+                    />
+                  )}
+                  {msg.role === "assistant" &&
+                    msg.toolCalls?.map((tool) => (
+                      <ToolCallBlock key={tool.callId} tool={tool} />
+                    ))}
+                  {msg.content ? (
+                    <MarkdownRenderer
+                      content={msg.content}
+                      isStreaming={msg.role === "assistant" && loading && i === messages.length - 1}
+                    />
+                  ) : (
+                    msg.role === "assistant" &&
+                    !msg.toolCalls?.length && (
+                      <div className="flex items-center gap-1.5 h-6 px-2 relative top-1">
+                        <span className="w-2 h-2 rounded-full bg-foreground animate-bounce-pulse" />
+                        <span className="w-2 h-2 rounded-full bg-foreground animate-bounce-pulse [animation-delay:200ms]" />
+                        <span className="w-2 h-2 rounded-full bg-foreground animate-bounce-pulse [animation-delay:400ms]" />
+                      </div>
+                    )
+                  )}
+                  {msg.timestamp && (
+                    <div className={cn(
+                      "mt-1 text-[10px] leading-none select-none",
+                      msg.role === "user" ? "text-foreground/40 text-right" : "text-muted-foreground/60"
+                    )}>
+                      {formatMessageTime(msg.timestamp)}
                     </div>
-                  )
+                  )}
+                </div>
+                {/* Hover toolbar */}
+                {msg.content && (
+                  <div className="shrink-0 mb-1">
+                    <button
+                      onClick={() => handleCopyMessage(msg.content, i)}
+                      className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors"
+                      title={t("chat.copy")}
+                    >
+                      {copiedIndex === i ? (
+                        <Check className="h-3.5 w-3.5 text-green-500" />
+                      ) : (
+                        <Copy className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                  </div>
                 )}
               </div>
               )}

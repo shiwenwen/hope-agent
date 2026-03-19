@@ -10,6 +10,7 @@ export interface Message {
   content: string
   toolCalls?: ToolCall[]
   thinking?: string
+  timestamp?: string
 }
 
 export interface AvailableModel {
