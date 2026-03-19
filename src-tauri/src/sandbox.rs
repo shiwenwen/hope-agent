@@ -65,6 +65,7 @@ pub fn save_sandbox_config(config: &SandboxConfig) -> Result<()> {
 // ── Docker Operations ─────────────────────────────────────────────
 
 /// Check if Docker is available and running.
+#[allow(dead_code)]
 pub async fn check_docker_available() -> bool {
     match Docker::connect_with_local_defaults() {
         Ok(docker) => docker.ping().await.is_ok(),

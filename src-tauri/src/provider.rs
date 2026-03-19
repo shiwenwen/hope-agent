@@ -299,6 +299,7 @@ pub fn parse_model_ref(ref_str: &str) -> Option<ActiveModel> {
 }
 
 /// Format an ActiveModel as "provider_id::model_id" string.
+#[allow(dead_code)]
 pub fn format_model_ref(model: &ActiveModel) -> String {
     format!("{}::{}", model.provider_id, model.model_id)
 }

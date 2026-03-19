@@ -213,7 +213,7 @@ fn build_skills_section(filter: &FilterConfig) -> String {
     let all_skills = skills::load_all_skills_with_extra(&store.extra_skills_dirs);
 
     // Start with globally disabled skills
-    let mut disabled = store.disabled_skills.clone();
+    let disabled = store.disabled_skills.clone();
 
     // Apply agent-level filtering
     let filtered: Vec<skills::SkillEntry> = all_skills

@@ -679,7 +679,7 @@ async fn try_restore_session(
                             });
                             provider::save_store(&store).map_err(|e| e.to_string())?;
                         } else {
-                            model_id = store.active_model.as_ref().unwrap().model_id.clone();
+                            _ = store.active_model.as_ref().unwrap().model_id.clone();
                         }
                     }
 

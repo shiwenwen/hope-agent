@@ -6,6 +6,7 @@ use uuid::Uuid;
 // ── Process Session ───────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct ProcessSession {
     pub id: String,
     pub command: String,
@@ -69,6 +70,7 @@ impl ProcessRegistry {
         self.sessions.get_mut(id)
     }
 
+    #[allow(dead_code)]
     pub fn list_running(&self) -> Vec<&ProcessSession> {
         self.sessions
             .values()
@@ -76,6 +78,7 @@ impl ProcessRegistry {
             .collect()
     }
 
+    #[allow(dead_code)]
     pub fn list_finished(&self) -> Vec<&ProcessSession> {
         self.sessions
             .values()
@@ -142,6 +145,7 @@ impl ProcessRegistry {
     }
 
     /// Cleanup finished sessions older than ttl_ms
+    #[allow(dead_code)]
     pub fn cleanup_old_sessions(&mut self, ttl_ms: u64) {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

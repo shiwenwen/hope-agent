@@ -193,6 +193,7 @@ impl Default for BehaviorConfig {
 /// Complete Agent definition loaded from the filesystem.
 /// Combines the JSON config with Markdown file contents.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct AgentDefinition {
     /// Agent ID (directory name, e.g. "default", "coder")
     pub id: String,
