@@ -11,13 +11,27 @@ OpenComputer 是一款基于 Tauri 2 + React 19 + Rust 的本地 AI 助手桌面
 ```
 src/            前端（React + TypeScript）
   components/
+    ApprovalDialog.tsx    命令审批对话框（监听 approval_required 事件，AllowOnce/AllowAlways/Deny 三按钮，FIFO 队列）
+    AvatarCropDialog.tsx  头像裁剪对话框（react-easy-crop，圆形裁剪 + 缩放，保存至 ~/.opencomputer/avatars/）
+    ChatInput.tsx         底部输入区（附件/模型级联选择器/思考模式/发送按钮，可拖拽高度）
+    ChatScreen.tsx        聊天主屏幕（消息列表 + ThinkingBlock + ToolCallBlock + 流式渲染）
+    ChatSidebar.tsx       左侧 Agent 网格 + 会话列表面板（多选过滤/双击新建/重命名/删除）
+    IconSidebar.tsx       左侧图标导航栏（设置/技能/语言切换/用户头像）
     MarkdownRenderer.tsx  Markdown 渲染封装（Streamdown + 代码高亮/KaTeX/Mermaid/CJK）
-    ApprovalDialog.tsx    命令审批对话框（监听 approval_required 事件）
+    ProviderEditPage.tsx  Provider 配置编辑页（模型列表/User-Agent/Thinking Style）
+    ProviderIcon.tsx      Provider 品牌 SVG 图标（@lobehub/icons，支持 key 直接映射和名称模糊匹配）
     ProviderSetup.tsx     Provider 引导向导（24+ 模板 + 自定义 + Codex OAuth）
-    ProviderSettings.tsx  Provider 管理面板（查看/编辑/删除）
+    ProviderSettings.tsx  Provider 管理面板（查看/编辑/删除/拖拽排序）
+    SettingsView.tsx      设置页（Provider / Agent / 用户信息 / 模型 / 对话 / 技能，各 section 独立面板）
+    TestResultDisplay.tsx Provider 连通性测试结果展示
+    ThinkingBlock.tsx     模型推理过程折叠展示（流式时紫色脉冲自动展开，完成后折叠，MarkdownRenderer 渲染）
+    ToolCallBlock.tsx     工具调用折叠块（工具名 + 参数 + 执行结果）
   i18n/
     i18n.ts               i18n 初始化 & 语言列表
-    locales/*.json         12 种语言翻译文件
+    locales/*.json        12 种语言翻译文件（zh/en/zh-TW/ja/ko/tr/vi/pt/ru/ar/es/ms，新功能只需实现 zh+en）
+  types/
+    chat.ts               共享类型定义（Message / Attachment / LlmApiType / effort options）
+  App.tsx                 根组件（路由 + 全局状态初始化，约 110 行，业务逻辑分发到各子组件）
 src-tauri/src/  后端（Rust）
   lib.rs        Tauri 命令注册 & AppState
   agent.rs      AssistantAgent（多 Provider 封装 + Tool Loop）
@@ -87,7 +101,7 @@ npm run lint
 - **数据存储**：所有数据统一存储到 `~/.opencomputer/` 目录，`paths.rs` 集中管理路径。目录结构包含 `config.json`（通用配置）、`credentials/`（OAuth 凭证）、`agents/`（Agent 定义）、`home/`（主 Agent Home）、`share/`（共享目录）、`{name}-home/`（其他 Agent Home）
 - **Provider 管理**：`provider.rs` 定义 `ProviderConfig` / `ModelConfig` / `ApiType` / `ThinkingStyle`，支持自定义 `user_agent` 兼容 WAF 和 `thinking_style`（openai/anthropic/zai/qwen/none）适配不同服务商的思考参数格式，持久化至 `~/.opencomputer/config.json`。`ProviderStore` 同时管理 `fallback_models` 全局降级模型链
 - **模型降级系统**（参考 OpenClaw）：`failover.rs` 定义 `FailoverReason` 枚举（RateLimit / Overloaded / Timeout / Auth / Billing / ModelNotFound / ContextOverflow / Unknown）和 `classify_error()` 函数。`chat` 命令执行降级链：ContextOverflow 终止不降级 → RateLimit/Overloaded/Timeout 指数退避重试 2 次 → Auth/Billing/ModelNotFound 跳到下一模型。降级事件包含 reason/from_model/attempt 详情。Agent 可通过 `AgentModelConfig` 覆盖全局设置
-- **会话持久化**：`session.rs` 基于 SQLite（WAL 模式）持久化会话及消息（`sessions.db`）。`SessionDB` 管理 sessions 和 messages 两张表，支持 user/assistant/event/tool 四种消息角色。sessions 表包含 `context_json` 列用于序列化 agent 的 `conversation_history`。`chat` 命令自动创建/关联会话，保存用户消息（发送即落库）、助手回复、工具调用结果和降级/错误事件（`role=event`）。`paths.rs` 提供 `attachments_dir()` 管理附件存储。新增 Tauri 命令：`create_session_cmd` / `list_sessions_cmd` / `load_session_messages_cmd` / `delete_session_cmd` / `stop_chat`
+- **会话持久化**：`session.rs` 基于 SQLite（WAL 模式）持久化会话及消息（`sessions.db`）。`SessionDB` 管理 sessions 和 messages 两张表，支持 user/assistant/event/tool 四种消息角色。sessions 表包含 `context_json` 列用于序列化 agent 的 `conversation_history`。`chat` 命令自动创建/关联会话，保存用户消息（发送即落库）、助手回复、工具调用结果和降级/错误事件（`role=event`）。`paths.rs` 提供 `attachments_dir()` 管理附件存储。Tauri 命令：`create_session_cmd` / `list_sessions_cmd` / `load_session_messages_cmd` / `get_session_cmd` / `delete_session_cmd` / `rename_session_cmd` / `stop_chat`
 - **打断与排队**：`chat` 命令支持 `stop_chat` 中断正在进行的回复（`AtomicBool` 取消标志，SSE 解析器和工具循环中检查）。前端支持 loading 中排队新消息（pending），回复结束后自动发送或回填输入框（通过 `UserConfig.auto_send_pending` 控制）。连续 user 消息通过 `push_user_message()` 自动合并，兼容 Anthropic API 的 role 交替要求
 - **内置模板**：`ProviderSetup.tsx` 中 `PROVIDER_TEMPLATES` 数组包含 24 个预配置模板（API 类型参照 OpenClaw 源码），均默认使用 `claude-code/0.1.0` 作为 User-Agent。
 - **统一 Tool 架构**：所有 tool 定义和执行逻辑集中在 `tools.rs`，通过 `ToolProvider` 枚举 + `to_provider_schema()` 自动适配不同 LLM 的 schema 格式。内置 11 个工具：`exec`（Shell 命令，支持 cwd/timeout/env/background/yield_ms/pty/sandbox，默认超时 1800s，login shell PATH 解析，动态输出截断，Docker 沙箱隔离）、`process`（后台进程管理：list/poll/log/write/kill/clear/remove）、`read`（自适应分页 + offset/limit 行级分页、图片自动检测与 base64 返回、MIME 二次校验、超大图片自动缩放、结构化参数解析、file_path 别名）、`write`（file_path 别名 + 结构化参数解析）、`edit`（搜索替换编辑，支持 oldText/old_string/newText/new_string/file_path 别名 + 结构化参数解析）、`ls`（~ 展开、limit 参数、50KB 输出上限、大小写不敏感排序）、`grep`（正则/字面量搜索文件内容，尊重 .gitignore，支持 glob 过滤/上下文行/大小写/100 条限制/50KB 输出上限）、`find`（按 glob 模式查找文件，尊重 .gitignore，1000 条限制/50KB 输出上限）、`apply_patch`（多文件补丁：Add/Update/Delete/Move，3-pass fuzzy matching）、`web_search`（DuckDuckGo）、`web_fetch`（URL 内容抓取）
@@ -97,6 +111,8 @@ npm run lint
 - **OAuth 封装**：Codex 登录流程集中在 `oauth.rs`，包括 PKCE、本地回调服务器、token 持久化与刷新
 - **Markdown 渲染**：消息内容通过 `MarkdownRenderer` 组件渲染，基于 Streamdown（专为 AI 流式场景设计），支持 GFM、代码高亮（Shiki）、KaTeX 数学公式、Mermaid 图表、CJK 标点优化。流式生成中的消息启用 `isAnimating` 动画
 - **多语言 (i18n)**：使用 `i18next` + `react-i18next`，翻译文件集中在 `src/i18n/locales/`，支持 12 种语言（zh / zh-TW / en / ja / ko / tr / vi / pt / ru / ar / es / ms），默认检测系统语言，回退英文，偏好持久化到 localStorage
+- **Thinking/Reasoning 展示**：`agent.rs` 新增 `emit_thinking_delta` 事件，三种 Provider SSE 均解析 thinking 内容（Anthropic: `thinking_delta` content block；OpenAI Chat: `delta.reasoning_content`；OpenAI Responses: `response.reasoning_summary_text.delta`）。前端 `ThinkingBlock.tsx` 折叠展示推理内容：流式中紫色脉冲自动展开，完成后自动折叠；`Message` 类型新增 `thinking` 字段
+- **头像裁剪**：选头像后经 `AvatarCropDialog`（react-easy-crop）圆形裁剪，裁剪结果通过 `save_avatar` Tauri 命令保存至 `~/.opencomputer/avatars/`；`paths.rs` 新增 `avatars_dir()`，启动时自动创建
 - **错误处理**：Rust 命令返回 `Result<T, String>`，前端 `invoke` 用 try/catch 捕获
 
 ## 编码规范
