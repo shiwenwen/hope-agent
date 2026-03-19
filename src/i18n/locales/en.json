@@ -45,7 +45,18 @@
     "duration": "Duration",
     "inputTokens": "Input",
     "outputTokens": "Output",
-    "totalTokens": "Total"
+    "totalTokens": "Total",
+    "sessionStatus": "Session Status",
+    "statusModel": "Model",
+    "statusAgent": "Agent",
+    "statusSession": "Session",
+    "statusThinking": "Thinking",
+    "statusUpdated": "Updated",
+    "statusMessages": "{{count}} messages",
+    "statusNewSession": "(New Session)",
+    "statusAuth": "Auth",
+    "statusContext": "Context",
+    "statusCache": "Cache"
   },
   "effort": {
     "off": "Off",

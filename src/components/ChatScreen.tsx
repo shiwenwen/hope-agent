@@ -3,7 +3,7 @@ import { invoke, Channel } from "@tauri-apps/api/core"
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
-import { Settings, Copy, Check, Info } from "lucide-react"
+import { Settings, Copy, Check, Info, BarChart3 } from "lucide-react"
 import type {
   Message,
   MessageUsage,
@@ -160,6 +160,22 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
   const [hoveredMsgIndex, setHoveredMsgIndex] = useState<number | null>(null)
   // Details popover state
   const [detailsIndex, setDetailsIndex] = useState<number | null>(null)
+  // Session status popover
+  const [showStatus, setShowStatus] = useState(false)
+  const statusRef = useRef<HTMLDivElement>(null)
+
+  // Close status popover on outside click
+  useEffect(() => {
+    if (!showStatus) return
+    const handler = (e: MouseEvent) => {
+      if (statusRef.current && !statusRef.current.contains(e.target as Node)) {
+        setShowStatus(false)
+      }
+    }
+    document.addEventListener("mousedown", handler)
+    return () => document.removeEventListener("mousedown", handler)
+  }, [showStatus])
+
   function handleCopyMessage(content: string, index: number) {
     navigator.clipboard.writeText(content).then(() => {
       if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current)
@@ -564,6 +580,8 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
                 ...(event.duration_ms != null ? { durationMs: event.duration_ms } : {}),
                 ...(event.input_tokens != null ? { inputTokens: event.input_tokens } : {}),
                 ...(event.output_tokens != null ? { outputTokens: event.output_tokens } : {}),
+                ...(event.cache_creation_input_tokens != null ? { cacheCreationInputTokens: event.cache_creation_input_tokens } : {}),
+                ...(event.cache_read_input_tokens != null ? { cacheReadInputTokens: event.cache_read_input_tokens } : {}),
               }
               updated[updated.length - 1] = { ...last, usage }
               return updated
@@ -705,15 +723,159 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
           <span className="text-sm font-medium text-foreground shrink-0 pb-1.5">
             {agentName || t("chat.mainAgent")}
           </span>
-          {onOpenAgentSettings && (
-            <button
-              className="pb-1.5 text-muted-foreground hover:text-foreground transition-colors"
-              onClick={() => onOpenAgentSettings(currentAgentId)}
-              title={t("settings.agents")}
-            >
-              <Settings className="h-4 w-4" />
-            </button>
-          )}
+          <div className="flex items-end gap-1">
+            {/* Session Status Button */}
+            <div className="relative" ref={statusRef}>
+              <button
+                className={cn(
+                  "pb-1.5 text-muted-foreground hover:text-foreground transition-colors",
+                  showStatus && "text-foreground"
+                )}
+                onClick={() => setShowStatus((v) => !v)}
+                title={t("chat.sessionStatus")}
+              >
+                <BarChart3 className="h-4 w-4" />
+              </button>
+              {showStatus && (
+                <div
+                  className="absolute top-full right-0 mt-1.5 z-50 min-w-[260px] rounded-xl border border-border bg-popover p-3.5 shadow-xl"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="space-y-2 text-xs">
+                    {/* App version */}
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-muted-foreground">🖥️ OpenComputer</span>
+                      <span className="font-medium text-foreground tabular-nums">v0.1.0</span>
+                    </div>
+                    <div className="border-t border-border" />
+                    {/* Model + Auth */}
+                    {(() => {
+                      const m = activeModel
+                        ? availableModels.find(
+                            (x) => x.providerId === activeModel.providerId && x.modelId === activeModel.modelId
+                          )
+                        : null
+                      const modelLabel = m
+                        ? `${m.providerName}/${m.modelId}`
+                        : activeModel?.modelId || "—"
+                      const apiType = m?.apiType || "—"
+                      const authLabel = apiType === "codex" ? "oauth" : "api-key"
+                      return (
+                        <>
+                          <div className="flex items-start gap-2">
+                            <span className="text-muted-foreground shrink-0">🧠 {t("chat.statusModel")}</span>
+                            <span className="font-medium text-foreground text-right ml-auto">
+                              {modelLabel}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-muted-foreground">🔑 {t("chat.statusAuth")}</span>
+                            <span className="font-medium text-foreground">{authLabel}</span>
+                          </div>
+                        </>
+                      )
+                    })()}
+                    {/* Context window usage */}
+                    {(() => {
+                      const m = activeModel
+                        ? availableModels.find(
+                            (x) => x.providerId === activeModel.providerId && x.modelId === activeModel.modelId
+                          )
+                        : null
+                      if (!m) return null
+                      const ctxK = Math.round(m.contextWindow / 1000)
+                      // Find the latest assistant message with usage to show context consumption
+                      const lastAssistantWithUsage = [...messages].reverse().find(
+                        (msg) => msg.role === "assistant" && msg.usage?.inputTokens
+                      )
+                      const usedTokens = lastAssistantWithUsage?.usage?.inputTokens || 0
+                      const usedK = Math.round(usedTokens / 1000)
+                      const pct = m.contextWindow > 0 ? Math.round((usedTokens / m.contextWindow) * 100) : 0
+                      return (
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-muted-foreground">📚 {t("chat.statusContext")}</span>
+                          <span className="font-medium text-foreground tabular-nums">{usedK}/{ctxK}k ({pct}%)</span>
+                        </div>
+                      )
+                    })()}
+                    {/* Cache info (Anthropic) */}
+                    {(() => {
+                      const lastAssistantWithUsage = [...messages].reverse().find(
+                        (msg) => msg.role === "assistant" && msg.usage
+                      )
+                      const u = lastAssistantWithUsage?.usage
+                      if (!u || (u.cacheCreationInputTokens == null && u.cacheReadInputTokens == null)) return null
+                      const created = u.cacheCreationInputTokens || 0
+                      const read = u.cacheReadInputTokens || 0
+                      return (
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-muted-foreground">🗄️ {t("chat.statusCache")}</span>
+                          <span className="font-medium text-foreground tabular-nums">
+                            +{created > 1000 ? `${(created / 1000).toFixed(1)}k` : created}
+                            {" / "}
+                            ⚡{read > 1000 ? `${(read / 1000).toFixed(1)}k` : read}
+                          </span>
+                        </div>
+                      )
+                    })()}
+                    <div className="border-t border-border" />
+                    {/* Agent */}
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-muted-foreground">🤖 {t("chat.statusAgent")}</span>
+                      <span className="font-medium text-foreground">{agentName || t("chat.mainAgent")}</span>
+                    </div>
+                    {/* Session */}
+                    <div className="flex items-start gap-2">
+                      <span className="text-muted-foreground shrink-0">🧵 {t("chat.statusSession")}</span>
+                      <span className="font-medium text-foreground text-right ml-auto truncate max-w-[160px]">
+                        {currentSessionId
+                          ? (() => {
+                              const sess = sessions.find((s) => s.id === currentSessionId)
+                              return sess?.title || currentSessionId.slice(0, 8)
+                            })()
+                          : t("chat.statusNewSession")}
+                      </span>
+                    </div>
+                    {/* Message count */}
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-muted-foreground">📊 {t("chat.statusMessages", { count: messages.length })}</span>
+                    </div>
+                    <div className="border-t border-border" />
+                    {/* Runtime: Thinking */}
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-muted-foreground">⚙️ {t("chat.statusThinking")}</span>
+                      <span className="font-medium text-foreground">
+                        {t(`effort.${reasoningEffort}`)}
+                      </span>
+                    </div>
+                    {/* Updated */}
+                    {currentSessionId && (() => {
+                      const sess = sessions.find((s) => s.id === currentSessionId)
+                      if (!sess) return null
+                      return (
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-muted-foreground">🕒 {t("chat.statusUpdated")}</span>
+                          <span className="font-medium text-foreground tabular-nums">
+                            {formatMessageTime(sess.updatedAt)}
+                          </span>
+                        </div>
+                      )
+                    })()}
+                  </div>
+                </div>
+              )}
+            </div>
+            {/* Settings Button */}
+            {onOpenAgentSettings && (
+              <button
+                className="pb-1.5 text-muted-foreground hover:text-foreground transition-colors"
+                onClick={() => onOpenAgentSettings(currentAgentId)}
+                title={t("settings.agents")}
+              >
+                <Settings className="h-4 w-4" />
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Messages */}

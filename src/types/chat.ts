@@ -9,6 +9,8 @@ export interface MessageUsage {
   durationMs?: number
   inputTokens?: number
   outputTokens?: number
+  cacheCreationInputTokens?: number
+  cacheReadInputTokens?: number
 }
 
 export interface Message {

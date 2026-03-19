@@ -327,6 +327,8 @@ fn emit_thinking_delta(on_delta: &(impl Fn(&str) + Send), text: &str) {
 pub struct ChatUsage {
     pub input_tokens: u64,
     pub output_tokens: u64,
+    pub cache_creation_input_tokens: u64,
+    pub cache_read_input_tokens: u64,
 }
 
 fn emit_usage(on_delta: &(impl Fn(&str) + Send), usage: &ChatUsage) {
@@ -334,6 +336,8 @@ fn emit_usage(on_delta: &(impl Fn(&str) + Send), usage: &ChatUsage) {
         "type": "usage",
         "input_tokens": usage.input_tokens,
         "output_tokens": usage.output_tokens,
+        "cache_creation_input_tokens": usage.cache_creation_input_tokens,
+        "cache_read_input_tokens": usage.cache_read_input_tokens,
     }));
 }
 
@@ -405,6 +409,11 @@ struct SseUsage {
     prompt_tokens: Option<u64>,
     #[serde(default)]
     completion_tokens: Option<u64>,
+    // Anthropic cache tokens
+    #[serde(default)]
+    cache_creation_input_tokens: Option<u64>,
+    #[serde(default)]
+    cache_read_input_tokens: Option<u64>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -719,6 +728,8 @@ impl AssistantAgent {
             collected_text.push_str(&text);
             total_usage.input_tokens += round_usage.input_tokens;
             total_usage.output_tokens += round_usage.output_tokens;
+            total_usage.cache_creation_input_tokens += round_usage.cache_creation_input_tokens;
+            total_usage.cache_read_input_tokens += round_usage.cache_read_input_tokens;
 
             // If cancelled, no tool calls, or not tool_use stop reason — done
             if tool_calls.is_empty() || stop_reason.as_deref() != Some("tool_use") {
@@ -888,11 +899,17 @@ impl AssistantAgent {
                             }
                         }
                         "message_start" => {
-                            // Extract input_tokens from message.usage
+                            // Extract input_tokens + cache tokens from message.usage
                             if let Some(msg) = &event.message {
                                 if let Some(u) = &msg.usage {
                                     if let Some(it) = u.input_tokens {
                                         usage.input_tokens = it;
+                                    }
+                                    if let Some(ct) = u.cache_creation_input_tokens {
+                                        usage.cache_creation_input_tokens = ct;
+                                    }
+                                    if let Some(cr) = u.cache_read_input_tokens {
+                                        usage.cache_read_input_tokens = cr;
                                     }
                                 }
                             }
@@ -994,6 +1011,8 @@ impl AssistantAgent {
             collected_text.push_str(&text);
             total_usage.input_tokens += round_usage.input_tokens;
             total_usage.output_tokens += round_usage.output_tokens;
+            total_usage.cache_creation_input_tokens += round_usage.cache_creation_input_tokens;
+            total_usage.cache_read_input_tokens += round_usage.cache_read_input_tokens;
 
             if tool_calls.is_empty() {
                 break;
@@ -1102,6 +1121,18 @@ impl AssistantAgent {
                             }
                             if let Some(ct) = u.get("completion_tokens").and_then(|v| v.as_u64()) {
                                 usage.output_tokens = ct;
+                            }
+                            // OpenAI: prompt_tokens_details.cached_tokens
+                            if let Some(details) = u.get("prompt_tokens_details") {
+                                if let Some(cached) = details.get("cached_tokens").and_then(|v| v.as_u64()) {
+                                    usage.cache_read_input_tokens = cached;
+                                }
+                            }
+                            // Moonshot/Kimi: cached_tokens at top level
+                            if let Some(cached) = u.get("cached_tokens").and_then(|v| v.as_u64()) {
+                                if usage.cache_read_input_tokens == 0 {
+                                    usage.cache_read_input_tokens = cached;
+                                }
                             }
                         }
                         if let Some(choices) = chunk.get("choices").and_then(|c| c.as_array()) {
@@ -1230,6 +1261,8 @@ impl AssistantAgent {
             collected_text.push_str(&text);
             total_usage.input_tokens += round_usage.input_tokens;
             total_usage.output_tokens += round_usage.output_tokens;
+            total_usage.cache_creation_input_tokens += round_usage.cache_creation_input_tokens;
+            total_usage.cache_read_input_tokens += round_usage.cache_read_input_tokens;
 
             if tool_calls.is_empty() {
                 break;
@@ -1382,6 +1415,8 @@ impl AssistantAgent {
             collected_text.push_str(&text);
             total_usage.input_tokens += round_usage.input_tokens;
             total_usage.output_tokens += round_usage.output_tokens;
+            total_usage.cache_creation_input_tokens += round_usage.cache_creation_input_tokens;
+            total_usage.cache_read_input_tokens += round_usage.cache_read_input_tokens;
 
             // If no tool calls, we're done
             if tool_calls.is_empty() {
@@ -1585,6 +1620,13 @@ impl AssistantAgent {
                                     }
                                     if let Some(ot) = u.output_tokens {
                                         usage.output_tokens = ot;
+                                    }
+                                    // Responses API cache tokens
+                                    if let Some(cr) = u.cache_read_input_tokens {
+                                        usage.cache_read_input_tokens = cr;
+                                    }
+                                    if let Some(cc) = u.cache_creation_input_tokens {
+                                        usage.cache_creation_input_tokens = cc;
                                     }
                                 }
                             }

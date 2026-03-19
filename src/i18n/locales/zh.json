@@ -45,7 +45,18 @@
     "duration": "耗时",
     "inputTokens": "输入",
     "outputTokens": "输出",
-    "totalTokens": "总计"
+    "totalTokens": "总计",
+    "sessionStatus": "会话状态",
+    "statusModel": "模型",
+    "statusAgent": "Agent",
+    "statusSession": "会话",
+    "statusThinking": "思考模式",
+    "statusUpdated": "更新时间",
+    "statusMessages": "{{count}} 条消息",
+    "statusNewSession": "(新会话)",
+    "statusAuth": "认证",
+    "statusContext": "上下文",
+    "statusCache": "缓存"
   },
   "effort": {
     "off": "关闭",
