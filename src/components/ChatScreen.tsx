@@ -160,6 +160,10 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
   const rafIdRef = useRef<number | null>(null)
   const prevScrollHeightRef = useRef(0)
 
+  // Delta 批量合并缓冲区：累积 text_delta / thinking_delta，每帧刷新一次
+  const deltaBufferRef = useRef({ text: "", thinking: "", sid: "" })
+  const deltaFlushRafRef = useRef<number | null>(null)
+
   // Detect user scrolling up to pause auto-scroll
   useEffect(() => {
     const el = scrollContainerRef.current
@@ -183,9 +187,9 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
       prevScrollHeightRef.current = el.scrollHeight
 
       const tick = () => {
-        if (!isUserScrolledUpRef.current && el.scrollHeight !== prevScrollHeightRef.current) {
-          prevScrollHeightRef.current = el.scrollHeight
-          el.scrollTo({ top: el.scrollHeight, behavior: "smooth" })
+        if (!isUserScrolledUpRef.current) {
+          // 直接设置 scrollTop，每帧跟随内容增长，避免 smooth scroll 冲突
+          el.scrollTop = el.scrollHeight
         }
         rafIdRef.current = requestAnimationFrame(tick)
       }
@@ -488,19 +492,47 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
 
           const sid = targetSessionId || "__pending__"
 
+          // text_delta 和 thinking_delta 累积到 buffer，rAF 批量刷新
+          if (event.type === "text_delta" || event.type === "thinking_delta") {
+            if (event.type === "text_delta") {
+              deltaBufferRef.current.text += (event.content || "")
+            } else {
+              deltaBufferRef.current.thinking += (event.content || "")
+            }
+            deltaBufferRef.current.sid = sid
+            // 调度 rAF flush（如果还没调度的话）
+            if (deltaFlushRafRef.current === null) {
+              deltaFlushRafRef.current = requestAnimationFrame(() => {
+                deltaFlushRafRef.current = null
+                const buf = deltaBufferRef.current
+                const textChunk = buf.text
+                const thinkingChunk = buf.thinking
+                const flushSid = buf.sid
+                buf.text = ""
+                buf.thinking = ""
+                if (!textChunk && !thinkingChunk) return
+                updateSessionMessages(flushSid, (prev) => {
+                  const updated = [...prev]
+                  const last = updated[updated.length - 1]
+                  if (!last || last.role !== "assistant") return updated
+                  updated[updated.length - 1] = {
+                    ...last,
+                    ...(textChunk ? { content: last.content + textChunk } : {}),
+                    ...(thinkingChunk ? { thinking: (last.thinking || "") + thinkingChunk } : {}),
+                  }
+                  return updated
+                })
+              })
+            }
+            return
+          }
+
           updateSessionMessages(sid, (prev) => {
             const updated = [...prev]
             const last = updated[updated.length - 1]
             if (!last || last.role !== "assistant") return updated
 
             switch (event.type) {
-              case "text_delta": {
-                updated[updated.length - 1] = {
-                  ...last,
-                  content: last.content + (event.content || ""),
-                }
-                break
-              }
               case "tool_call": {
                 const calls = [...(last.toolCalls || [])]
                 calls.push({
@@ -520,13 +552,6 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
                   calls[idx] = { ...calls[idx], result: event.result }
                 }
                 updated[updated.length - 1] = { ...last, toolCalls: calls }
-                break
-              }
-              case "thinking_delta": {
-                updated[updated.length - 1] = {
-                  ...last,
-                  thinking: (last.thinking || "") + (event.content || ""),
-                }
                 break
               }
               case "model_fallback": {
