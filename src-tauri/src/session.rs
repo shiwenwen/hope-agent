@@ -516,10 +516,13 @@ pub fn auto_title(content: &str) -> String {
     }
     // Take first line only
     let first_line = trimmed.lines().next().unwrap_or(trimmed);
-    if first_line.len() <= 50 {
+    // Use char count (not byte length) to handle CJK/emoji correctly
+    if first_line.chars().count() <= 50 {
         first_line.to_string()
     } else {
-        format!("{}...", &first_line[..47])
+        // Find the byte offset of the 47th character boundary
+        let cut = first_line.char_indices().nth(47).map(|(i, _)| i).unwrap_or(first_line.len());
+        format!("{}...", &first_line[..cut])
     }
 }
 
