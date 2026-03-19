@@ -8,6 +8,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Thinking/Reasoning 推理过程展示**：流式显示模型推理内容，支持三种 Provider
+  - 后端 `agent.rs` 新增 `emit_thinking_delta` 事件，Anthropic（thinking_delta content block）/ OpenAI Chat（delta.reasoning_content，适配 DeepSeek/o-series）/ OpenAI Responses（reasoning_summary_text.delta）均支持
+  - 前端新增 `ThinkingBlock.tsx` 折叠展示组件：流式生成中紫色脉冲自动展开，完成后自动折叠；左侧紫色竖线 + MarkdownRenderer 渲染
+  - `Message` 类型新增 `thinking` 字段，`ChatScreen` 处理 `thinking_delta` 事件
+- **头像裁剪功能**：用户头像和 Agent 头像均支持选图后裁剪
+  - 新增 `AvatarCropDialog` 组件（基于 `react-easy-crop`，圆形裁剪、缩放滑条）
+  - 后端新增 `save_avatar` Tauri 命令，裁剪后图片保存至 `~/.opencomputer/avatars/`
+  - `paths.rs` 新增 `avatars_dir()`，`ensure_dirs` 自动创建
+  - `tauri.conf.json` 扩展 asset protocol scope 支持 `$HOME` 路径
+- **会话管理增强**：新增 `get_session_cmd` / `rename_session_cmd` Tauri 命令
+  - 会话列表在新消息发送后立即自动刷新（按更新时间重排序）
+  - 右键菜单或双击支持会话重命名
+- **Agent 列表交互升级**：
+  - 点击 Agent 项切换选中态，选中后过滤下方会话列表（支持多选）
+  - Agents 标题栏显示清除过滤按钮（X + 选中数量）
+  - 双击 Agent 项直接快速新建会话（跳过选择菜单）
+  - 仅一个 Agent 时点击新建按钮直接创建会话（跳过选择菜单）
+  - Agent 项悬浮时显示 MessageSquarePlus 新建对话图标
+- **侧边栏用户头像**：`IconSidebar` 顶部展示当前用户头像（无头像时显示 User 图标）
+- **暗黑模式配色优化**：从纯黑背景调整为柔和深蓝灰色调，提升长时间使用舒适度；修复拖拽窗口时出现黑色闪烁背景的问题
+- **对话气泡 UI 优化**：消息气泡宽度调整至 95%，用户/助手消息颜色对比度增强
+
 - **会话上下文持久化与恢复**：完整的 conversation_history 序列化/反序列化机制
   - `session.rs`：sessions 表新增 `context_json` 列，新增 `save_context()` / `load_context()` 方法
   - `agent.rs`：新增 `set_conversation_history()` / `get_conversation_history()` 方法
@@ -250,6 +272,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **图片消息发送**：前端读取图片为 base64 传递给 Rust 后端，后端按各 Provider API 格式构建多模态请求
 
 ### Changed
+- **App.tsx 组件化重构**：将 1583 行的 `App.tsx` 拆分为 6 个独立模块，主文件精简至约 110 行
+  - `types/chat.ts`：共享类型定义（Message / Attachment / LlmApiType）+ `getEffortOptionsForType`
+  - `ChatInput.tsx`：底部输入区（附件 / 模型选择器 / 思考模式 / 发送按钮）
+  - `ChatScreen.tsx`：聊天主屏幕（消息列表 + ThinkingBlock + ToolCallBlock + 流式渲染）
+  - `ChatSidebar.tsx`：左侧 Agent 网格 + 会话列表面板
+  - `IconSidebar.tsx`：左侧图标导航栏
+  - `ToolCallBlock.tsx`：工具调用折叠块
+- **默认工具审批模式**：新建 Agent 默认改为所有工具均需审批（`requireApproval: ["*"]`），原为仅 `exec` 需审批
+- **全面替换原生 HTML 表单组件**：`SettingsView`、各对话框中所有原生 `<select>` / `<input>` / `<textarea>` 统一替换为 shadcn/ui 封装组件（Select / Input / Textarea），保证 UI 和交互一致性
+- **i18n 翻译补全**：所有 12 种语言补齐缺失的翻译键，Provider 模板名称和描述完整国际化
+- **内置 Provider 模板升级**（同步 OpenClaw 最新变更）：
+  - xAI：Grok 3 → Grok 4，base URL 加 `/v1`
+  - 智谱 AI：base URL 升级到 `/v4`，模型扩展为 5 个（GLM-5 / GLM-5 Turbo / GLM-4.7 / GLM-4.7 Flash / GLM-4.7 FlashX），全部支持 reasoning
+  - Kimi Coding：新增推荐模型 `kimi-code`，保留 `k2p5` 兼容
+  - Mistral：base URL 加 `/v1`，移除 Codestral，Mistral Large 支持 image 输入，contextWindow/maxTokens 提升至 262144
+  - Moonshot：精简为 `kimi-k2.5` 单模型
+  - OpenRouter：新增 `auto` 自动模型选择
+  - Together AI：新增 Llama 4 Maverick 17B
+  - Ollama：默认模型从 `llama3.3` 改为 `glm-4.7-flash`
 - `agent.rs` `LlmProvider` 从 2 种（Anthropic/OpenAI）扩展到 4 种（Anthropic/OpenAIChat/OpenAIResponses/Codex），全部支持自定义 base_url
 - `lib.rs` `AppState` 使用 `ProviderStore` 替代独立的 codex_model 字段
 - `lib.rs` `initialize_agent` 命令改为自动创建 Anthropic Provider
@@ -263,15 +304,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `tools.rs` `ToolDefinition` 重构为 provider-agnostic 格式，新增 `to_anthropic_schema()` / `to_openai_schema()` 方法
 - `LlmProvider::Anthropic` 从包装 `rig-core::Client` 改为存储 API key 字符串
 - 对话界面从单栏改为三栏布局（图标侧边栏 / Agent 列表 / 对话区）
-- **内置 Provider 模板升级**（同步 OpenClaw 最新变更）：
-  - xAI：Grok 3 → Grok 4，base URL 加 `/v1`
-  - 智谱 AI：base URL 升级到 `/v4`，模型扩展为 5 个（GLM-5 / GLM-5 Turbo / GLM-4.7 / GLM-4.7 Flash / GLM-4.7 FlashX），全部支持 reasoning
-  - Kimi Coding：新增推荐模型 `kimi-code`，保留 `k2p5` 兼容
-  - Mistral：base URL 加 `/v1`，移除 Codestral，Mistral Large 支持 image 输入，contextWindow/maxTokens 提升至 262144
-  - Moonshot：精简为 `kimi-k2.5` 单模型
-  - OpenRouter：新增 `auto` 自动模型选择
-  - Together AI：新增 Llama 4 Maverick 17B
-  - Ollama：默认模型从 `llama3.3` 改为 `glm-4.7-flash`
 
 ### Fixed
 - 修复对话上下文丢失问题：`AssistantAgent` 新增 `conversation_history` 字段保存多轮对话历史
