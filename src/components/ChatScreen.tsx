@@ -7,6 +7,7 @@ import { Settings, Copy, Check, Info, BarChart3, AlertCircle } from "lucide-reac
 import type {
   Message,
   MessageUsage,
+  ContentBlock,
   ToolCall,
   AvailableModel,
   ActiveModel,
@@ -100,39 +101,62 @@ function formatMessageTime(timestamp?: string): string {
 function parseSessionMessages(msgs: SessionMessage[]): Message[] {
   const displayMessages: Message[] = []
   const pendingTools: ToolCall[] = []
+  const pendingBlocks: ContentBlock[] = []
   for (const msg of msgs) {
     if (msg.role === "user") {
       displayMessages.push({ role: "user", content: msg.content, timestamp: msg.timestamp })
     } else if (msg.role === "tool" && msg.toolCallId) {
+      const tool: ToolCall = {
+        callId: msg.toolCallId,
+        name: msg.toolName || "",
+        arguments: msg.toolArguments || "",
+        result: msg.toolResult || undefined,
+      }
+      // Check if already exists in pendingTools (merge result)
       const existing = pendingTools.find(c => c.callId === msg.toolCallId)
       if (existing) {
         if (msg.toolResult) existing.result = msg.toolResult
         if (msg.toolName && !existing.name) existing.name = msg.toolName
         if (msg.toolArguments && !existing.arguments) existing.arguments = msg.toolArguments
+        // Update matching block too
+        const blockIdx = pendingBlocks.findIndex(b => b.type === "tool_call" && b.tool.callId === msg.toolCallId)
+        if (blockIdx >= 0) {
+          pendingBlocks[blockIdx] = { type: "tool_call", tool: { ...existing } }
+        }
       } else {
-        pendingTools.push({
-          callId: msg.toolCallId,
-          name: msg.toolName || "",
-          arguments: msg.toolArguments || "",
-          result: msg.toolResult || undefined,
-        })
+        pendingTools.push(tool)
+        pendingBlocks.push({ type: "tool_call", tool })
       }
     } else if (msg.role === "assistant") {
       const toolCalls = pendingTools.length > 0 ? [...pendingTools] : undefined
+      // Build contentBlocks: tool_call blocks first, then text block
+      const blocks: ContentBlock[] = [...pendingBlocks]
+      if (msg.content) {
+        blocks.push({ type: "text", content: msg.content })
+      }
       pendingTools.length = 0
+      pendingBlocks.length = 0
       const hasUsage = msg.toolDurationMs || msg.tokensIn || msg.tokensOut
       const usage = hasUsage ? {
         durationMs: msg.toolDurationMs || undefined,
         inputTokens: msg.tokensIn || undefined,
         outputTokens: msg.tokensOut || undefined,
       } : undefined
-      displayMessages.push({ role: "assistant", content: msg.content, toolCalls, timestamp: msg.timestamp, usage })
+      displayMessages.push({
+        role: "assistant",
+        content: msg.content,
+        contentBlocks: blocks.length > 0 ? blocks : undefined,
+        toolCalls,
+        timestamp: msg.timestamp,
+        usage,
+      })
     } else if (msg.role === "event") {
       displayMessages.push({ role: "event", content: msg.content, timestamp: msg.timestamp })
     }
   }
   return displayMessages
 }
+
 
 export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
   const { t } = useTranslation()
@@ -595,8 +619,27 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
                   const updated = [...prev]
                   const last = updated[updated.length - 1]
                   if (!last || last.role !== "assistant") return updated
+                  // Build new contentBlocks
+                  const blocks: ContentBlock[] = [...(last.contentBlocks || [])]
+                  if (thinkingChunk) {
+                    const lastBlock = blocks[blocks.length - 1]
+                    if (lastBlock && lastBlock.type === "thinking") {
+                      blocks[blocks.length - 1] = { type: "thinking", content: lastBlock.content + thinkingChunk }
+                    } else {
+                      blocks.push({ type: "thinking", content: thinkingChunk })
+                    }
+                  }
+                  if (textChunk) {
+                    const lastBlock = blocks[blocks.length - 1]
+                    if (lastBlock && lastBlock.type === "text") {
+                      blocks[blocks.length - 1] = { type: "text", content: lastBlock.content + textChunk }
+                    } else {
+                      blocks.push({ type: "text", content: textChunk })
+                    }
+                  }
                   updated[updated.length - 1] = {
                     ...last,
+                    contentBlocks: blocks,
                     ...(textChunk ? { content: last.content + textChunk } : {}),
                     ...(thinkingChunk ? { thinking: (last.thinking || "") + thinkingChunk } : {}),
                   }
@@ -636,12 +679,15 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
             switch (event.type) {
               case "tool_call": {
                 const calls = [...(last.toolCalls || [])]
-                calls.push({
+                const newTool = {
                   callId: event.call_id,
                   name: event.name,
                   arguments: event.arguments,
-                })
-                updated[updated.length - 1] = { ...last, toolCalls: calls }
+                }
+                calls.push(newTool)
+                const blocks: ContentBlock[] = [...(last.contentBlocks || [])]
+                blocks.push({ type: "tool_call", tool: { ...newTool } })
+                updated[updated.length - 1] = { ...last, toolCalls: calls, contentBlocks: blocks }
                 break
               }
               case "tool_result": {
@@ -652,7 +698,16 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
                 if (idx >= 0) {
                   calls[idx] = { ...calls[idx], result: event.result }
                 }
-                updated[updated.length - 1] = { ...last, toolCalls: calls }
+                // Also update the matching tool_call block in contentBlocks
+                const blocks: ContentBlock[] = [...(last.contentBlocks || [])]
+                const blockIdx = blocks.findIndex(
+                  (b) => b.type === "tool_call" && b.tool.callId === event.call_id,
+                )
+                if (blockIdx >= 0) {
+                  const block = blocks[blockIdx] as { type: "tool_call"; tool: ToolCall }
+                  blocks[blockIdx] = { type: "tool_call", tool: { ...block.tool, result: event.result } }
+                }
+                updated[updated.length - 1] = { ...last, toolCalls: calls, contentBlocks: blocks }
                 break
               }
               case "model_fallback": {
@@ -952,34 +1007,82 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
                     msg.role === "user"
                       ? "bg-[var(--color-user-bubble)] text-foreground whitespace-pre-wrap"
                       : "bg-card text-foreground/80",
-                    msg.role === "assistant" && !msg.content && !msg.toolCalls?.length && "animate-pulse",
+                    msg.role === "assistant" && !msg.content && !msg.toolCalls?.length && !msg.contentBlocks?.length && "animate-pulse",
                     msg.role === "assistant" && loading && i === messages.length - 1 && "streaming-bubble"
                   )}
                 >
-                  {msg.role === "assistant" && msg.thinking && (
-                    <ThinkingBlock
-                      content={msg.thinking}
-                      isStreaming={loading && i === messages.length - 1 && !msg.content}
-                    />
-                  )}
-                  {msg.role === "assistant" &&
-                    msg.toolCalls?.map((tool) => (
-                      <ToolCallBlock key={tool.callId} tool={tool} />
-                    ))}
-                  {msg.content ? (
-                    <MarkdownRenderer
-                      content={msg.content}
-                      isStreaming={msg.role === "assistant" && loading && i === messages.length - 1}
-                    />
-                  ) : (
-                    msg.role === "assistant" &&
-                    !msg.toolCalls?.length && (
-                      <div className="flex items-center gap-1.5 h-6 px-2 relative top-1">
-                        <span className="block w-2 h-2 aspect-square rounded-full bg-foreground animate-bounce-pulse" />
-                        <span className="block w-2 h-2 aspect-square rounded-full bg-foreground animate-bounce-pulse [animation-delay:200ms]" />
-                        <span className="block w-2 h-2 aspect-square rounded-full bg-foreground animate-bounce-pulse [animation-delay:400ms]" />
-                      </div>
+                  {msg.role === "assistant" && msg.contentBlocks && msg.contentBlocks.length > 0 ? (
+                    // New path: render content blocks in order (thinking → tool → text)
+                    msg.contentBlocks.map((block, blockIdx) => {
+                      if (block.type === "thinking") {
+                        // isStreaming only for the last block of the actively streaming message
+                        const isLast = blockIdx === msg.contentBlocks!.length - 1
+                        return (
+                          <ThinkingBlock
+                            key={blockIdx}
+                            content={block.content}
+                            isStreaming={loading && i === messages.length - 1 && isLast && !msg.content.trim()}
+                          />
+                        )
+                      }
+                      if (block.type === "tool_call") {
+                        return <ToolCallBlock key={block.tool.callId} tool={block.tool} />
+                      }
+                      if (block.type === "text") {
+                        return (
+                          <MarkdownRenderer
+                            key={blockIdx}
+                            content={block.content}
+                            isStreaming={loading && i === messages.length - 1 && blockIdx === msg.contentBlocks!.length - 1}
+                          />
+                        )
+                      }
+                      return null
+                    }).concat(
+                      // Show loading dots between tool rounds: last block is a completed tool_call
+                      (loading && i === messages.length - 1) ? (() => {
+                        const lastBlock = msg.contentBlocks![msg.contentBlocks!.length - 1]
+                        const waitingForNextRound = lastBlock.type === "tool_call" && lastBlock.tool.result !== undefined
+                        if (!waitingForNextRound) return null
+                        return (
+                          <div key="__loading__" className="flex items-center gap-1 py-1 px-2">
+                            <span className="block w-1.5 h-1.5 rounded-full bg-foreground/50 animate-pulse" />
+                            <span className="block w-1.5 h-1.5 rounded-full bg-foreground/50 animate-pulse [animation-delay:300ms]" />
+                            <span className="block w-1.5 h-1.5 rounded-full bg-foreground/50 animate-pulse [animation-delay:600ms]" />
+                          </div>
+                        )
+                      })() : null
                     )
+                  ) : msg.role === "assistant" ? (
+                    // Legacy fallback path for old messages without contentBlocks
+                    <>
+                      {msg.thinking && (
+                        <ThinkingBlock
+                          content={msg.thinking}
+                          isStreaming={loading && i === messages.length - 1 && !msg.content}
+                        />
+                      )}
+                      {msg.toolCalls?.map((tool) => (
+                        <ToolCallBlock key={tool.callId} tool={tool} />
+                      ))}
+                      {msg.content ? (
+                        <MarkdownRenderer
+                          content={msg.content}
+                          isStreaming={loading && i === messages.length - 1}
+                        />
+                      ) : (
+                        !msg.toolCalls?.length && (
+                          <div className="flex items-center gap-1.5 h-6 px-2 relative top-1">
+                            <span className="block w-2 h-2 aspect-square rounded-full bg-foreground animate-bounce-pulse" />
+                            <span className="block w-2 h-2 aspect-square rounded-full bg-foreground animate-bounce-pulse [animation-delay:200ms]" />
+                            <span className="block w-2 h-2 aspect-square rounded-full bg-foreground animate-bounce-pulse [animation-delay:400ms]" />
+                          </div>
+                        )
+                      )}
+                    </>
+                  ) : (
+                    // User message content
+                    msg.content
                   )}
                   {msg.timestamp && (
                     <div className={cn(

@@ -13,9 +13,16 @@ export interface MessageUsage {
   cacheReadInputTokens?: number
 }
 
+/** Ordered content block within an assistant message */
+export type ContentBlock =
+  | { type: "thinking"; content: string }
+  | { type: "text"; content: string }
+  | { type: "tool_call"; tool: ToolCall }
+
 export interface Message {
   role: "user" | "assistant" | "event"
   content: string
+  contentBlocks?: ContentBlock[]
   toolCalls?: ToolCall[]
   thinking?: string
   timestamp?: string
