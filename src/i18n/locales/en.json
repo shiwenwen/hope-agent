@@ -70,7 +70,8 @@
     "reasonBilling": "Billing / quota exceeded",
     "reasonModelNotFound": "Model not found",
     "reasonContextOverflow": "Context overflow",
-    "reasonUnknown": "Unknown error"
+    "reasonUnknown": "Unknown error",
+    "thinking": "Thinking..."
   },
   "effort": {
     "off": "Off",

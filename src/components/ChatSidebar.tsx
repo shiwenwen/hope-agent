@@ -20,6 +20,7 @@ import {
   Trash2,
   MessageSquarePlus,
   X,
+  Loader2,
 } from "lucide-react"
 import type { SessionMeta, AgentSummaryForSidebar } from "@/types/chat"
 
@@ -27,6 +28,7 @@ interface ChatSidebarProps {
   sessions: SessionMeta[]
   agents: AgentSummaryForSidebar[]
   currentSessionId: string | null
+  loadingSessionIds: Set<string>
   panelWidth: number
   onPanelWidthChange: (width: number) => void
   onSwitchSession: (sessionId: string) => void
@@ -38,6 +40,7 @@ export default function ChatSidebar({
   sessions,
   agents,
   currentSessionId,
+  loadingSessionIds,
   panelWidth,
   onPanelWidthChange,
   onSwitchSession,
@@ -310,6 +313,7 @@ export default function ChatSidebar({
               filteredSessions.map((session) => {
                 const agent = getAgentInfo(session.agentId)
                 const isActive = session.id === currentSessionId
+                const isLoading = loadingSessionIds.has(session.id)
                 return (
                   <button
                     key={session.id}
@@ -321,9 +325,11 @@ export default function ChatSidebar({
                     )}
                     onClick={() => onSwitchSession(session.id)}
                   >
-                    {/* Agent avatar (small) */}
-                    <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center text-primary shrink-0 text-[10px] overflow-hidden">
-                      {agent?.avatar ? (
+                    {/* Agent avatar (small) — with loading spinner overlay */}
+                    <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center text-primary shrink-0 text-[10px] overflow-hidden relative">
+                      {isLoading ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                      ) : agent?.avatar ? (
                         <img src={agent.avatar.startsWith("/") ? convertFileSrc(agent.avatar) : agent.avatar} className="w-full h-full object-cover" alt="" />
                       ) : agent?.emoji ? (
                         <span>{agent.emoji}</span>
@@ -340,7 +346,11 @@ export default function ChatSidebar({
                       <div className="text-[11px] text-muted-foreground truncate">
                         {agent?.name || session.agentId}
                         <span className="mx-1">·</span>
-                        {formatRelativeTime(session.updatedAt)}
+                        {isLoading ? (
+                          <span className="text-primary animate-pulse">{t("chat.thinking") || "思考中..."}</span>
+                        ) : (
+                          formatRelativeTime(session.updatedAt)
+                        )}
                       </div>
                     </div>
 

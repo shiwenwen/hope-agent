@@ -188,6 +188,7 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
   // Per-session message cache & loading tracking
   const sessionCacheRef = useRef<Map<string, Message[]>>(new Map())
   const loadingSessionsRef = useRef<Set<string>>(new Set())
+  const [loadingSessionIds, setLoadingSessionIds] = useState<Set<string>>(new Set())
   const currentSessionIdRef = useRef<string | null>(null)
 
   // Keep ref in sync with state
@@ -474,6 +475,7 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
       await invoke("delete_session_cmd", { sessionId })
       sessionCacheRef.current.delete(sessionId)
       loadingSessionsRef.current.delete(sessionId)
+      setLoadingSessionIds(new Set(loadingSessionsRef.current))
       if (currentSessionId === sessionId) {
         setMessages([])
         setCurrentSessionId(null)
@@ -588,6 +590,9 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
               sessionCacheRef.current.delete("__pending__")
               sessionCacheRef.current.set(event.session_id, current)
             }
+            // Transfer loading state to the new session ID
+            loadingSessionsRef.current.add(event.session_id)
+            setLoadingSessionIds(new Set(loadingSessionsRef.current))
             setCurrentSessionId(event.session_id)
             // Immediately refresh session list so the new session appears in sidebar
             reloadSessions()
@@ -741,6 +746,7 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
       const freshMessages = [...messages, { role: "user" as const, content: text, timestamp: now }, { role: "assistant" as const, content: "", timestamp: new Date().toISOString() }]
       if (targetSessionId) {
         loadingSessionsRef.current.add(targetSessionId)
+        setLoadingSessionIds(new Set(loadingSessionsRef.current))
         sessionCacheRef.current.set(targetSessionId, freshMessages)
       } else {
         sessionCacheRef.current.set("__pending__", freshMessages)
@@ -776,6 +782,7 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
         return updated
       })
       loadingSessionsRef.current.delete(sid)
+      setLoadingSessionIds(new Set(loadingSessionsRef.current))
       if (currentSessionIdRef.current === sid) {
         setLoading(false)
       }
@@ -808,6 +815,7 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
         sessions={sessions}
         agents={agents}
         currentSessionId={currentSessionId}
+        loadingSessionIds={loadingSessionIds}
         panelWidth={panelWidth}
         onPanelWidthChange={setPanelWidth}
         onSwitchSession={handleSwitchSession}
