@@ -322,6 +322,21 @@ fn emit_thinking_delta(on_delta: &(impl Fn(&str) + Send), text: &str) {
     }));
 }
 
+/// Token usage accumulated across tool rounds
+#[derive(Debug, Clone, Default)]
+pub struct ChatUsage {
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+}
+
+fn emit_usage(on_delta: &(impl Fn(&str) + Send), usage: &ChatUsage) {
+    emit_event(on_delta, &json!({
+        "type": "usage",
+        "input_tokens": usage.input_tokens,
+        "output_tokens": usage.output_tokens,
+    }));
+}
+
 // ── OpenAI Responses API types ────────────────────────────────────
 
 #[derive(Serialize)]
@@ -375,6 +390,21 @@ struct SseResponseObj {
     output: Option<Vec<SseOutputItem>>,
     #[serde(default)]
     error: Option<SseResponseError>,
+    #[serde(default)]
+    usage: Option<SseUsage>,
+}
+
+#[derive(Deserialize, Debug, Default)]
+struct SseUsage {
+    #[serde(default)]
+    input_tokens: Option<u64>,
+    #[serde(default)]
+    output_tokens: Option<u64>,
+    // OpenAI Chat Completions uses these names
+    #[serde(default)]
+    prompt_tokens: Option<u64>,
+    #[serde(default)]
+    completion_tokens: Option<u64>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -448,6 +478,8 @@ struct AnthropicSseEvent {
     message: Option<AnthropicMessage>,
     #[serde(default)]
     error: Option<AnthropicError>,
+    #[serde(default)]
+    usage: Option<SseUsage>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -486,6 +518,8 @@ struct AnthropicMessage {
     stop_reason: Option<String>,
     #[serde(default)]
     content: Option<Vec<AnthropicContentBlock>>,
+    #[serde(default)]
+    usage: Option<SseUsage>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -636,6 +670,7 @@ impl AssistantAgent {
         Self::push_user_message(&mut messages, user_content);
 
         let mut collected_text = String::new();
+        let mut total_usage = ChatUsage::default();
 
         let api_url = build_api_url(base_url, "/v1/messages");
         let system_prompt = build_system_prompt();
@@ -680,8 +715,10 @@ impl AssistantAgent {
             }
 
             // Parse SSE stream
-            let (text, tool_calls, stop_reason) = self.parse_anthropic_sse(resp, cancel, on_delta).await?;
+            let (text, tool_calls, stop_reason, round_usage) = self.parse_anthropic_sse(resp, cancel, on_delta).await?;
             collected_text.push_str(&text);
+            total_usage.input_tokens += round_usage.input_tokens;
+            total_usage.output_tokens += round_usage.output_tokens;
 
             // If cancelled, no tool calls, or not tool_use stop reason — done
             if tool_calls.is_empty() || stop_reason.as_deref() != Some("tool_use") {
@@ -738,16 +775,19 @@ impl AssistantAgent {
         }
         *self.conversation_history.lock().unwrap() = messages;
 
+        // Emit accumulated usage
+        emit_usage(on_delta, &total_usage);
+
         Ok(collected_text)
     }
 
-    /// Parse Anthropic SSE stream. Returns (collected_text, tool_calls, stop_reason)
+    /// Parse Anthropic SSE stream. Returns (collected_text, tool_calls, stop_reason, usage)
     async fn parse_anthropic_sse(
         &self,
         resp: reqwest::Response,
         cancel: &Arc<AtomicBool>,
         on_delta: &(impl Fn(&str) + Send),
-    ) -> Result<(String, Vec<FunctionCallItem>, Option<String>)> {
+    ) -> Result<(String, Vec<FunctionCallItem>, Option<String>, ChatUsage)> {
         use futures_util::StreamExt;
 
         let mut collected_text = String::new();
@@ -755,6 +795,7 @@ impl AssistantAgent {
         // Track current content blocks by index
         let mut current_tool: Option<(usize, FunctionCallItem)> = None;
         let mut in_thinking_block = false;
+        let mut usage = ChatUsage::default();
         let mut stop_reason: Option<String> = None;
 
         let mut stream = resp.bytes_stream();
@@ -846,10 +887,26 @@ impl AssistantAgent {
                                 tool_calls.push(tc);
                             }
                         }
+                        "message_start" => {
+                            // Extract input_tokens from message.usage
+                            if let Some(msg) = &event.message {
+                                if let Some(u) = &msg.usage {
+                                    if let Some(it) = u.input_tokens {
+                                        usage.input_tokens = it;
+                                    }
+                                }
+                            }
+                        }
                         "message_delta" => {
                             if let Some(delta) = &event.delta {
                                 if let Some(reason) = &delta.stop_reason {
                                     stop_reason = Some(reason.clone());
+                                }
+                            }
+                            // Extract output_tokens from usage
+                            if let Some(u) = &event.usage {
+                                if let Some(ot) = u.output_tokens {
+                                    usage.output_tokens = ot;
                                 }
                             }
                         }
@@ -866,7 +923,7 @@ impl AssistantAgent {
             }
         }
 
-        Ok((collected_text, tool_calls, stop_reason))
+        Ok((collected_text, tool_calls, stop_reason, usage))
     }
 
     // ── OpenAI Chat Completions API with Tool Loop ───────────────
@@ -884,6 +941,7 @@ impl AssistantAgent {
 
         let api_url = build_api_url(base_url, "/v1/chat/completions");
         let mut collected_text = String::new();
+        let mut total_usage = ChatUsage::default();
         let system_prompt = build_system_prompt();
 
         // Apply thinking parameters based on ThinkingStyle
@@ -907,6 +965,7 @@ impl AssistantAgent {
                 "messages": api_messages,
                 "tools": tools_array,
                 "stream": true,
+                "stream_options": { "include_usage": true },
             });
 
             // Apply thinking parameters based on provider's ThinkingStyle
@@ -931,8 +990,10 @@ impl AssistantAgent {
             }
 
             // Parse SSE stream for Chat Completions format
-            let (text, tool_calls) = self.parse_chat_completions_sse(resp, cancel, on_delta).await?;
+            let (text, tool_calls, round_usage) = self.parse_chat_completions_sse(resp, cancel, on_delta).await?;
             collected_text.push_str(&text);
+            total_usage.input_tokens += round_usage.input_tokens;
+            total_usage.output_tokens += round_usage.output_tokens;
 
             if tool_calls.is_empty() {
                 break;
@@ -986,6 +1047,10 @@ impl AssistantAgent {
             messages.push(json!({ "role": "assistant", "content": collected_text }));
         }
         *self.conversation_history.lock().unwrap() = messages;
+
+        // Emit accumulated usage
+        emit_usage(on_delta, &total_usage);
+
         Ok(collected_text)
     }
 
@@ -995,13 +1060,14 @@ impl AssistantAgent {
         resp: reqwest::Response,
         cancel: &Arc<AtomicBool>,
         on_delta: &(impl Fn(&str) + Send),
-    ) -> Result<(String, Vec<FunctionCallItem>)> {
+    ) -> Result<(String, Vec<FunctionCallItem>, ChatUsage)> {
         use futures_util::StreamExt;
 
         let mut collected_text = String::new();
         let mut tool_calls: Vec<FunctionCallItem> = Vec::new();
         // Track tool calls by index
         let mut pending_calls: std::collections::HashMap<usize, FunctionCallItem> = std::collections::HashMap::new();
+        let mut usage = ChatUsage::default();
 
         let mut stream = resp.bytes_stream();
         let mut buffer = String::new();
@@ -1029,6 +1095,15 @@ impl AssistantAgent {
                     }
 
                     if let Ok(chunk) = serde_json::from_str::<serde_json::Value>(data) {
+                        // Parse usage from stream (when stream_options.include_usage is set)
+                        if let Some(u) = chunk.get("usage") {
+                            if let Some(pt) = u.get("prompt_tokens").and_then(|v| v.as_u64()) {
+                                usage.input_tokens = pt;
+                            }
+                            if let Some(ct) = u.get("completion_tokens").and_then(|v| v.as_u64()) {
+                                usage.output_tokens = ct;
+                            }
+                        }
                         if let Some(choices) = chunk.get("choices").and_then(|c| c.as_array()) {
                             for choice in choices {
                                 let delta = match choice.get("delta") {
@@ -1093,7 +1168,7 @@ impl AssistantAgent {
             }
         }
 
-        Ok((collected_text, tool_calls))
+        Ok((collected_text, tool_calls, usage))
     }
 
     // ── OpenAI Responses API (custom base_url) ────────────────────
@@ -1115,6 +1190,7 @@ impl AssistantAgent {
 
         let api_url = build_api_url(base_url, "/v1/responses");
         let mut collected_text = String::new();
+        let mut total_usage = ChatUsage::default();
         let system_prompt = build_system_prompt();
 
         let max_rounds = get_max_tool_rounds();
@@ -1150,8 +1226,10 @@ impl AssistantAgent {
                 return Err(anyhow::anyhow!("OpenAI Responses API error ({}): {}", status, error_text));
             }
 
-            let (text, tool_calls) = self.parse_openai_sse(resp, cancel, on_delta).await?;
+            let (text, tool_calls, round_usage) = self.parse_openai_sse(resp, cancel, on_delta).await?;
             collected_text.push_str(&text);
+            total_usage.input_tokens += round_usage.input_tokens;
+            total_usage.output_tokens += round_usage.output_tokens;
 
             if tool_calls.is_empty() {
                 break;
@@ -1192,6 +1270,10 @@ impl AssistantAgent {
             input.push(json!({ "role": "assistant", "content": collected_text }));
         }
         *self.conversation_history.lock().unwrap() = input;
+
+        // Emit accumulated usage
+        emit_usage(on_delta, &total_usage);
+
         Ok(collected_text)
     }
 
@@ -1219,6 +1301,7 @@ impl AssistantAgent {
         );
 
         let mut collected_text = String::new();
+        let mut total_usage = ChatUsage::default();
         let system_prompt = build_system_prompt();
 
         let max_rounds = get_max_tool_rounds();
@@ -1295,8 +1378,10 @@ impl AssistantAgent {
             })?;
 
             // Parse SSE stream
-            let (text, tool_calls) = self.parse_openai_sse(resp, cancel, on_delta).await?;
+            let (text, tool_calls, round_usage) = self.parse_openai_sse(resp, cancel, on_delta).await?;
             collected_text.push_str(&text);
+            total_usage.input_tokens += round_usage.input_tokens;
+            total_usage.output_tokens += round_usage.output_tokens;
 
             // If no tool calls, we're done
             if tool_calls.is_empty() {
@@ -1345,21 +1430,25 @@ impl AssistantAgent {
         }
         *self.conversation_history.lock().unwrap() = input;
 
+        // Emit accumulated usage
+        emit_usage(on_delta, &total_usage);
+
         Ok(collected_text)
     }
 
-    /// Parse OpenAI SSE stream. Returns (collected_text, tool_calls)
+    /// Parse OpenAI SSE stream. Returns (collected_text, tool_calls, usage)
     async fn parse_openai_sse(
         &self,
         resp: reqwest::Response,
         cancel: &Arc<AtomicBool>,
         on_delta: &(impl Fn(&str) + Send),
-    ) -> Result<(String, Vec<FunctionCallItem>)> {
+    ) -> Result<(String, Vec<FunctionCallItem>, ChatUsage)> {
         use futures_util::StreamExt;
 
         let mut collected_text = String::new();
         let mut tool_calls: Vec<FunctionCallItem> = Vec::new();
         let mut pending_calls: std::collections::HashMap<String, FunctionCallItem> = std::collections::HashMap::new();
+        let mut usage = ChatUsage::default();
 
         let mut stream = resp.bytes_stream();
         let mut buffer = String::new();
@@ -1488,6 +1577,17 @@ impl AssistantAgent {
 
                         // Response completed — extract from full response if no deltas collected
                         "response.completed" | "response.done" => {
+                            // Extract usage from response
+                            if let Some(resp_obj) = &event.response {
+                                if let Some(u) = &resp_obj.usage {
+                                    if let Some(it) = u.input_tokens {
+                                        usage.input_tokens = it;
+                                    }
+                                    if let Some(ot) = u.output_tokens {
+                                        usage.output_tokens = ot;
+                                    }
+                                }
+                            }
                             if collected_text.is_empty() && tool_calls.is_empty() {
                                 if let Some(resp_obj) = &event.response {
                                     if let Some(outputs) = &resp_obj.output {
@@ -1531,7 +1631,7 @@ impl AssistantAgent {
             tool_calls.push(tc);
         }
 
-        Ok((collected_text, tool_calls))
+        Ok((collected_text, tool_calls, usage))
     }
 }
 

@@ -40,7 +40,12 @@
     "selectModel": "Select Model",
     "deleteSessionTitle": "Delete Conversation",
     "deleteSessionWarning": "This will permanently delete this conversation and all its messages. This action cannot be undone. Are you sure?",
-    "copy": "Copy"
+    "copy": "Copy",
+    "details": "Details",
+    "duration": "Duration",
+    "inputTokens": "Input",
+    "outputTokens": "Output",
+    "totalTokens": "Total"
   },
   "effort": {
     "off": "Off",

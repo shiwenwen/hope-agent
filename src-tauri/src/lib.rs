@@ -1033,10 +1033,27 @@ async fn chat(
                 let db_for_cb = db.clone();
                 let sid_for_cb = sid.clone();
                 let cancel_clone = cancel.clone();
+                let chat_start = std::time::Instant::now();
+                let on_event_clone = on_event.clone();
+                // Shared state to capture token usage from on_delta callback
+                let captured_tokens: Arc<std::sync::Mutex<(Option<i64>, Option<i64>)>> = Arc::new(std::sync::Mutex::new((None, None)));
+                let captured_tokens_clone = captured_tokens.clone();
                 let result = match agent.chat(&message, &attachments, effort_ref, cancel_clone, move |delta| {
-                    // Intercept tool events and persist them
+                    // Intercept usage events to capture token counts
+                    if let Ok(event) = serde_json::from_str::<serde_json::Value>(delta) {
+                        if event.get("type").and_then(|t| t.as_str()) == Some("usage") {
+                            if let Ok(mut tokens) = captured_tokens_clone.lock() {
+                                if let Some(it) = event.get("input_tokens").and_then(|v| v.as_i64()) {
+                                    tokens.0 = Some(it);
+                                }
+                                if let Some(ot) = event.get("output_tokens").and_then(|v| v.as_i64()) {
+                                    tokens.1 = Some(ot);
+                                }
+                            }
+                        }
+                    }
                     persist_tool_event(&db_for_cb, &sid_for_cb, delta);
-                    let _ = on_event.send(delta.to_string());
+                    let _ = on_event_clone.send(delta.to_string());
                 }).await {
                     Ok(r) => r,
                     Err(e) => {
@@ -1045,8 +1062,17 @@ async fn chat(
                         return Err(err);
                     }
                 };
-                // Save assistant reply
-                let _ = db.append_message(&sid, &session::NewMessage::assistant(&result));
+                let duration_ms = chat_start.elapsed().as_millis() as u64;
+                // Emit usage event with duration
+                emit_usage_event(&on_event, duration_ms);
+                // Save assistant reply with duration and tokens
+                let mut assistant_msg = session::NewMessage::assistant(&result);
+                assistant_msg.tool_duration_ms = Some(duration_ms as i64);
+                if let Ok(tokens) = captured_tokens.lock() {
+                    assistant_msg.tokens_in = tokens.0;
+                    assistant_msg.tokens_out = tokens.1;
+                }
+                let _ = db.append_message(&sid, &assistant_msg);
                 // Persist conversation context for future restoration
                 save_agent_context(&db, &sid, agent);
                 Ok(result)
@@ -1126,13 +1152,40 @@ async fn chat(
             let sid_for_cb = sid.clone();
             let cancel_clone = cancel.clone();
 
+            // Shared state to capture token usage from on_delta callback
+            let captured_tokens: Arc<std::sync::Mutex<(Option<i64>, Option<i64>)>> = Arc::new(std::sync::Mutex::new((None, None)));
+            let captured_tokens_clone = captured_tokens.clone();
+
+            let chat_start = std::time::Instant::now();
             match agent.chat(&message, &attachments, effort_ref, cancel_clone, move |delta| {
+                // Intercept usage events to capture token counts
+                if let Ok(event) = serde_json::from_str::<serde_json::Value>(delta) {
+                    if event.get("type").and_then(|t| t.as_str()) == Some("usage") {
+                        if let Ok(mut tokens) = captured_tokens_clone.lock() {
+                            if let Some(it) = event.get("input_tokens").and_then(|v| v.as_i64()) {
+                                tokens.0 = Some(it);
+                            }
+                            if let Some(ot) = event.get("output_tokens").and_then(|v| v.as_i64()) {
+                                tokens.1 = Some(ot);
+                            }
+                        }
+                    }
+                }
                 persist_tool_event(&db_for_cb, &sid_for_cb, delta);
                 let _ = on_event_clone.send(delta.to_string());
             }).await {
                 Ok(result) => {
-                    // Save assistant reply to DB
-                    let _ = db.append_message(&sid, &session::NewMessage::assistant(&result));
+                    let duration_ms = chat_start.elapsed().as_millis() as u64;
+                    // Emit usage event with duration
+                    emit_usage_event(&on_event, duration_ms);
+                    // Save assistant reply to DB with duration and tokens
+                    let mut assistant_msg = session::NewMessage::assistant(&result);
+                    assistant_msg.tool_duration_ms = Some(duration_ms as i64);
+                    if let Ok(tokens) = captured_tokens.lock() {
+                        assistant_msg.tokens_in = tokens.0;
+                        assistant_msg.tokens_out = tokens.1;
+                    }
+                    let _ = db.append_message(&sid, &assistant_msg);
                     // Persist conversation context for future restoration
                     save_agent_context(&db, &sid, &agent);
                     // Update the active agent instance for conversation continuity
@@ -1203,6 +1256,17 @@ fn save_agent_context(db: &Arc<SessionDB>, session_id: &str, agent: &crate::agen
     let history = agent.get_conversation_history();
     if let Ok(json_str) = serde_json::to_string(&history) {
         let _ = db.save_context(session_id, &json_str);
+    }
+}
+
+/// Emit a usage event (with duration) to the frontend via the Tauri Channel.
+fn emit_usage_event(on_event: &tauri::ipc::Channel<String>, duration_ms: u64) {
+    let event = serde_json::json!({
+        "type": "usage",
+        "duration_ms": duration_ms,
+    });
+    if let Ok(json_str) = serde_json::to_string(&event) {
+        let _ = on_event.send(json_str);
     }
 }
 

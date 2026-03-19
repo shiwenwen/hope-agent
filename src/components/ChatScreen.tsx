@@ -3,9 +3,10 @@ import { invoke, Channel } from "@tauri-apps/api/core"
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
-import { Settings, Copy, Check } from "lucide-react"
+import { Settings, Copy, Check, Info } from "lucide-react"
 import type {
   Message,
+  MessageUsage,
   ToolCall,
   AvailableModel,
   ActiveModel,
@@ -20,6 +21,12 @@ import ToolCallBlock from "@/components/ToolCallBlock"
 import ThinkingBlock from "@/components/ThinkingBlock"
 import ChatSidebar from "@/components/ChatSidebar"
 import ChatInput from "@/components/ChatInput"
+
+/** Format token count: ≥10000 → "12.3k tokens", else "1,234 tokens" */
+function formatTokens(n: number): string {
+  if (n >= 10000) return `${(n / 1000).toFixed(1)}k tokens`
+  return `${n.toLocaleString()} tokens`
+}
 
 interface ChatScreenProps {
   onOpenAgentSettings?: (agentId: string) => void
@@ -74,7 +81,13 @@ function parseSessionMessages(msgs: SessionMessage[]): Message[] {
     } else if (msg.role === "assistant") {
       const toolCalls = pendingTools.length > 0 ? [...pendingTools] : undefined
       pendingTools.length = 0
-      displayMessages.push({ role: "assistant", content: msg.content, toolCalls, timestamp: msg.timestamp })
+      const hasUsage = msg.toolDurationMs || msg.tokensIn || msg.tokensOut
+      const usage = hasUsage ? {
+        durationMs: msg.toolDurationMs || undefined,
+        inputTokens: msg.tokensIn || undefined,
+        outputTokens: msg.tokensOut || undefined,
+      } : undefined
+      displayMessages.push({ role: "assistant", content: msg.content, toolCalls, timestamp: msg.timestamp, usage })
     } else if (msg.role === "event") {
       displayMessages.push({ role: "event", content: msg.content, timestamp: msg.timestamp })
     }
@@ -145,12 +158,24 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null)
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [hoveredMsgIndex, setHoveredMsgIndex] = useState<number | null>(null)
+  // Details popover state
+  const [detailsIndex, setDetailsIndex] = useState<number | null>(null)
   function handleCopyMessage(content: string, index: number) {
     navigator.clipboard.writeText(content).then(() => {
       if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current)
       setCopiedIndex(index)
       copiedTimerRef.current = setTimeout(() => setCopiedIndex(null), 1500)
     }).catch(() => {})
+  }
+
+  /** Format duration in ms to human-readable string */
+  function formatDuration(ms: number): string {
+    if (ms < 1000) return `${ms}ms`
+    const seconds = ms / 1000
+    if (seconds < 60) return `${seconds.toFixed(1)}s`
+    const minutes = Math.floor(seconds / 60)
+    const remainingSeconds = Math.round(seconds % 60)
+    return `${minutes}m ${remainingSeconds}s`
   }
 
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -527,6 +552,25 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
             return
           }
 
+          // Handle usage event — store on last assistant message (may receive multiple: tokens then duration)
+          if (event.type === "usage") {
+            updateSessionMessages(sid, (prev) => {
+              const updated = [...prev]
+              const last = updated[updated.length - 1]
+              if (!last || last.role !== "assistant") return updated
+              const prevUsage = last.usage || {}
+              const usage: MessageUsage = {
+                ...prevUsage,
+                ...(event.duration_ms != null ? { durationMs: event.duration_ms } : {}),
+                ...(event.input_tokens != null ? { inputTokens: event.input_tokens } : {}),
+                ...(event.output_tokens != null ? { outputTokens: event.output_tokens } : {}),
+              }
+              updated[updated.length - 1] = { ...last, usage }
+              return updated
+            })
+            return
+          }
+
           updateSessionMessages(sid, (prev) => {
             const updated = [...prev]
             const last = updated[updated.length - 1]
@@ -697,7 +741,10 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
               <div
                 className="relative max-w-[95%]"
                 onMouseEnter={() => setHoveredMsgIndex(i)}
-                onMouseLeave={() => setHoveredMsgIndex((prev) => prev === i ? null : prev)}
+                onMouseLeave={() => {
+                  setHoveredMsgIndex((prev) => prev === i ? null : prev)
+                  setDetailsIndex((prev) => prev === i ? null : prev)
+                }}
               >
                 <div
                   className={cn(
@@ -743,11 +790,12 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
                     </div>
                   )}
                 </div>
-                {/* Hover toolbar — absolutely positioned, no layout impact */}
-                {msg.content && (hoveredMsgIndex === i || copiedIndex === i) && (
+                {/* Hover toolbar — below the bubble, always reserves space */}
+                {msg.content && (
                   <div className={cn(
-                    "absolute bottom-0 flex items-center",
-                    msg.role === "user" ? "right-full mr-1" : "left-full ml-1"
+                    "flex items-center gap-0.5 mt-0.5 h-6",
+                    msg.role === "user" ? "justify-end" : "justify-start",
+                    !(hoveredMsgIndex === i || copiedIndex === i || detailsIndex === i) && "invisible"
                   )}>
                     <button
                       onClick={() => handleCopyMessage(msg.content, i)}
@@ -760,6 +808,63 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
                         <Copy className="h-3.5 w-3.5" />
                       )}
                     </button>
+                    {msg.role === "assistant" && msg.usage && (
+                      <div className="relative">
+                        <button
+                          onClick={() => setDetailsIndex(detailsIndex === i ? null : i)}
+                          className={cn(
+                            "p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors",
+                            detailsIndex === i && "text-foreground bg-muted/80"
+                          )}
+                          title={t("chat.details")}
+                        >
+                          <Info className="h-3.5 w-3.5" />
+                        </button>
+                        {detailsIndex === i && (
+                          <div
+                            className="absolute top-full mt-1 z-50 min-w-[180px] rounded-lg border border-border bg-popover p-2.5 shadow-lg left-0"
+                          >
+                            <div className="space-y-1.5 text-xs">
+                              {msg.usage.inputTokens != null && (
+                                <div className="flex items-center justify-between gap-3">
+                                  <span className="text-muted-foreground">{t("chat.inputTokens")}</span>
+                                  <span className="font-medium text-foreground tabular-nums">
+                                    {formatTokens(msg.usage.inputTokens)}
+                                  </span>
+                                </div>
+                              )}
+                              {msg.usage.outputTokens != null && (
+                                <div className="flex items-center justify-between gap-3">
+                                  <span className="text-muted-foreground">{t("chat.outputTokens")}</span>
+                                  <span className="font-medium text-foreground tabular-nums">
+                                    {formatTokens(msg.usage.outputTokens)}
+                                  </span>
+                                </div>
+                              )}
+                              {msg.usage.inputTokens != null && msg.usage.outputTokens != null && (
+                                <>
+                                  <div className="border-t border-border" />
+                                  <div className="flex items-center justify-between gap-3">
+                                    <span className="text-muted-foreground">{t("chat.totalTokens")}</span>
+                                    <span className="font-medium text-foreground tabular-nums">
+                                      {formatTokens(msg.usage.inputTokens + msg.usage.outputTokens)}
+                                    </span>
+                                  </div>
+                                </>
+                              )}
+                              {msg.usage.durationMs != null && (
+                                <div className="flex items-center justify-between gap-3">
+                                  <span className="text-muted-foreground">{t("chat.duration")}</span>
+                                  <span className="font-medium text-foreground tabular-nums">
+                                    {formatDuration(msg.usage.durationMs)}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

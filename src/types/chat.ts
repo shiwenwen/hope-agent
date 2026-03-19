@@ -5,12 +5,19 @@ export interface ToolCall {
   result?: string
 }
 
+export interface MessageUsage {
+  durationMs?: number
+  inputTokens?: number
+  outputTokens?: number
+}
+
 export interface Message {
   role: "user" | "assistant" | "event"
   content: string
   toolCalls?: ToolCall[]
   thinking?: string
   timestamp?: string
+  usage?: MessageUsage
 }
 
 export interface AvailableModel {
