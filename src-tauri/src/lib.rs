@@ -1505,6 +1505,24 @@ async fn toggle_skill(
 }
 
 #[tauri::command]
+async fn get_skill_env_check(
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    let store = state.provider_store.lock().await;
+    Ok(store.skill_env_check)
+}
+
+#[tauri::command]
+async fn set_skill_env_check(
+    enabled: bool,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let mut store = state.provider_store.lock().await;
+    store.skill_env_check = enabled;
+    provider::save_store(&store).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn open_directory(path: String) -> Result<(), String> {
     // Resolve ~ to home directory
     let resolved = if path.starts_with("~/") {
@@ -1756,6 +1774,8 @@ pub fn run() {
             add_extra_skills_dir,
             remove_extra_skills_dir,
             toggle_skill,
+            get_skill_env_check,
+            set_skill_env_check,
             open_directory,
             // Agent management
             list_agents,

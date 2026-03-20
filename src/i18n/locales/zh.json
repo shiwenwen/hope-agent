@@ -242,6 +242,8 @@
     "toolWebFetchDesc": "获取并提取网页内容",
     "agentSandbox": "Docker 沙箱",
     "agentSandboxDesc": "在 Docker 容器中执行命令",
+    "agentSkillEnvCheck": "运行环境检查",
+    "agentSkillEnvCheckDesc": "注入技能前检查所需命令、环境变量和操作系统是否满足，不满足则跳过该技能",
     "agentPrompts": "提示词",
     "agentMd": "Agent 说明",
     "agentMdDesc": "描述这个 Agent 的职责、工作方式和原则",

@@ -620,15 +620,18 @@ function SkillsPanel() {
   const [extraDirs, setExtraDirs] = useState<string[]>([])
   const [selectedSkill, setSelectedSkill] = useState<SkillDetail | null>(null)
   const [loading, setLoading] = useState(true)
+  const [skillEnvCheck, setSkillEnvCheck] = useState(true)
 
   async function reload() {
     try {
-      const [list, dirs] = await Promise.all([
+      const [list, dirs, envCheck] = await Promise.all([
         invoke<SkillSummary[]>("get_skills"),
         invoke<string[]>("get_extra_skills_dirs"),
+        invoke<boolean>("get_skill_env_check"),
       ])
       setSkills(list)
       setExtraDirs(dirs)
+      setSkillEnvCheck(envCheck)
     } catch (e) {
       console.error("Failed to load skills:", e)
     } finally {
@@ -838,6 +841,23 @@ function SkillsPanel() {
         )}
       </h3>
 
+      {/* Env check toggle */}
+      <div className="flex items-center justify-between px-1 mb-5">
+        <div>
+          <div className="text-sm text-foreground">{t("settings.agentSkillEnvCheck")}</div>
+          <div className="text-xs text-muted-foreground">{t("settings.agentSkillEnvCheckDesc")}</div>
+        </div>
+        <Switch
+          checked={skillEnvCheck}
+          onCheckedChange={async (v) => {
+            setSkillEnvCheck(v)
+            await invoke("set_skill_env_check", { enabled: v })
+          }}
+        />
+      </div>
+
+      <div className="border-t border-border mb-4" />
+
       {loading ? (
         <div className="flex items-center justify-center py-12">
           <div className="animate-spin h-5 w-5 border-2 border-foreground border-t-transparent rounded-full" />
@@ -935,7 +955,7 @@ interface AgentConfig {
   skills: { allow: string[]; deny: string[] }
   tools: { allow: string[]; deny: string[] }
   personality: PersonalityConfig
-  behavior: { maxToolRounds: number; requireApproval: string[]; sandbox: boolean }
+  behavior: { maxToolRounds: number; requireApproval: string[]; sandbox: boolean; skillEnvCheck: boolean }
   useCustomPrompt: boolean
 }
 
@@ -1103,7 +1123,7 @@ function AgentCreateView({
         skills: { allow: [], deny: [] },
         tools: { allow: [], deny: [] },
         personality: { ...DEFAULT_PERSONALITY },
-        behavior: { maxToolRounds: 10, requireApproval: ["*"], sandbox: false },
+        behavior: { maxToolRounds: 10, requireApproval: ["*"], sandbox: false, skillEnvCheck: true },
         useCustomPrompt: false,
       }
       await invoke("save_agent_config_cmd", { id: trimmedId, config })
@@ -1831,44 +1851,53 @@ function AgentEditView({
               <div className="border-t border-border/50" />
 
               {/* Skills */}
-              {availableSkills.length > 0 && (
-                <>
-                  <div>
-                    <div className="text-xs font-medium text-muted-foreground mb-1 px-1">{t("settings.agentSkills")}</div>
-                    <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">{t("settings.agentSkillsDesc")}</p>
-                    <div className="rounded-lg border border-border/50 overflow-hidden">
-                      {availableSkills.map((skill, idx) => {
-                        const isDenied = config.skills.deny.includes(skill.name)
-                        return (
-                          <div
-                            key={skill.name}
-                            className={cn(
-                              "flex items-center justify-between px-3 py-2 gap-3",
-                              idx > 0 && "border-t border-border/30"
-                            )}
-                          >
-                            <div className="min-w-0 flex-1">
-                              <div className="text-xs font-medium text-foreground truncate">{skill.name}</div>
-                              <div className="text-[11px] text-muted-foreground/60 truncate">{skill.description}</div>
-                            </div>
-                            <Switch
-                              checked={!isDenied}
-                              onCheckedChange={(checked) => {
-                                const newDeny = checked
-                                  ? config.skills.deny.filter(n => n !== skill.name)
-                                  : [...config.skills.deny, skill.name]
-                                updateConfig({ skills: { ...config.skills, deny: newDeny } })
-                              }}
-                            />
+              <div>
+                <div className="text-xs font-medium text-muted-foreground mb-1 px-1">{t("settings.agentSkills")}</div>
+                <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">{t("settings.agentSkillsDesc")}</p>
+                {availableSkills.length > 0 && (
+                  <div className="rounded-lg border border-border/50 overflow-hidden mb-3">
+                    {availableSkills.map((skill, idx) => {
+                      const isDenied = config.skills.deny.includes(skill.name)
+                      return (
+                        <div
+                          key={skill.name}
+                          className={cn(
+                            "flex items-center justify-between px-3 py-2 gap-3",
+                            idx > 0 && "border-t border-border/30"
+                          )}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="text-xs font-medium text-foreground truncate">{skill.name}</div>
+                            <div className="text-[11px] text-muted-foreground/60 truncate">{skill.description}</div>
                           </div>
-                        )
-                      })}
-                    </div>
+                          <Switch
+                            checked={!isDenied}
+                            onCheckedChange={(checked) => {
+                              const newDeny = checked
+                                ? config.skills.deny.filter(n => n !== skill.name)
+                                : [...config.skills.deny, skill.name]
+                              updateConfig({ skills: { ...config.skills, deny: newDeny } })
+                            }}
+                          />
+                        </div>
+                      )
+                    })}
                   </div>
+                )}
+                {/* Skill env check */}
+                <div className="flex items-center justify-between px-1">
+                  <div>
+                    <div className="text-sm text-foreground">{t("settings.agentSkillEnvCheck")}</div>
+                    <div className="text-xs text-muted-foreground">{t("settings.agentSkillEnvCheckDesc")}</div>
+                  </div>
+                  <Switch
+                    checked={config.behavior.skillEnvCheck ?? true}
+                    onCheckedChange={(v) => updateConfig({ behavior: { ...config.behavior, skillEnvCheck: v } })}
+                  />
+                </div>
+              </div>
 
-                  <div className="border-t border-border/50" />
-                </>
-              )}
+              <div className="border-t border-border/50" />
 
               {/* Tool guidance */}
               <div>

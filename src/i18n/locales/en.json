@@ -242,6 +242,8 @@
     "toolWebFetchDesc": "Fetch and extract content from web pages",
     "agentSandbox": "Docker Sandbox",
     "agentSandboxDesc": "Execute commands in Docker container",
+    "agentSkillEnvCheck": "Environment Check",
+    "agentSkillEnvCheckDesc": "Before injecting a skill, verify its required binaries, env vars, and OS are available; skip if not met",
     "agentPrompts": "Prompts",
     "agentMd": "Agent Instructions",
     "agentMdDesc": "Describe this Agent's responsibilities, workflow, and principles",

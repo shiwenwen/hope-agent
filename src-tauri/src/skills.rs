@@ -12,6 +12,18 @@ const MAX_SKILL_FILE_BYTES: u64 = 256 * 1024;
 
 // ── Types ─────────────────────────────────────────────────────────
 
+/// Environment requirements parsed from SKILL.md frontmatter `requires:` block.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SkillRequires {
+    /// Binaries that must exist in PATH (all required).
+    pub bins: Vec<String>,
+    /// Environment variables that must be set (all required).
+    pub env: Vec<String>,
+    /// OS identifiers the skill supports, e.g. ["darwin", "linux"].
+    /// Empty means all OSes are supported.
+    pub os: Vec<String>,
+}
+
 /// A parsed skill entry.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SkillEntry {
@@ -25,6 +37,9 @@ pub struct SkillEntry {
     pub file_path: String,
     /// Directory containing the skill.
     pub base_dir: String,
+    /// Environment requirements from frontmatter `requires:` block.
+    #[serde(default)]
+    pub requires: SkillRequires,
 }
 
 /// Lightweight summary returned to the frontend.
@@ -64,8 +79,8 @@ pub struct SkillDetail {
 // ── Frontmatter Parsing ──────────────────────────────────────────
 
 /// Extract YAML frontmatter from a SKILL.md file content.
-/// Returns (name, description, body) or None if parsing fails.
-fn parse_frontmatter(content: &str) -> Option<(String, String, String)> {
+/// Returns (name, description, requires, body) or None if parsing fails.
+fn parse_frontmatter(content: &str) -> Option<(String, String, SkillRequires, String)> {
     let trimmed = content.trim_start();
     if !trimmed.starts_with("---") {
         return None;
@@ -76,10 +91,9 @@ fn parse_frontmatter(content: &str) -> Option<(String, String, String)> {
     let yaml_block = &after_opening[..end_idx];
     let body = &after_opening[end_idx + 4..]; // skip \n---
 
-    // Parse name and description from YAML manually
-    // We avoid pulling in a full YAML parser by doing simple line-based extraction.
     let mut name: Option<String> = None;
     let mut description: Option<String> = None;
+    let requires = parse_requires(yaml_block);
 
     for line in yaml_block.lines() {
         let line = line.trim();
@@ -93,7 +107,136 @@ fn parse_frontmatter(content: &str) -> Option<(String, String, String)> {
     let name = name.filter(|n| !n.is_empty())?;
     let description = description.unwrap_or_default();
 
-    Some((name, description, body.to_string()))
+    Some((name, description, requires, body.to_string()))
+}
+
+/// Parse the `requires:` block from a YAML frontmatter string.
+/// Supports both inline arrays `[a, b]` and list style `- item`.
+fn parse_requires(yaml_block: &str) -> SkillRequires {
+    let mut req = SkillRequires::default();
+    let mut in_requires = false;
+    let mut current_key = String::new();
+
+    for line in yaml_block.lines() {
+        if line.trim().is_empty() || line.trim().starts_with('#') {
+            continue;
+        }
+        let indent = line.len() - line.trim_start().len();
+        let trimmed = line.trim();
+
+        if indent == 0 {
+            // Root-level key
+            in_requires = trimmed == "requires:" || trimmed.starts_with("requires:");
+            current_key.clear();
+            continue;
+        }
+
+        if !in_requires {
+            continue;
+        }
+
+        if indent >= 2 && indent < 4 {
+            // Sub-key of requires (e.g., "bins:", "env:", "os:")
+            if let Some((key, val)) = trimmed.split_once(':') {
+                let key = key.trim();
+                let val = val.trim();
+                current_key = key.to_string();
+                if !val.is_empty() {
+                    // Inline array: bins: [git, gh]
+                    let items = parse_yaml_inline_list(val);
+                    push_requires_items(&mut req, key, items);
+                }
+            }
+        } else if indent >= 4 {
+            // List item: - git
+            if let Some(item) = trimmed.strip_prefix("- ") {
+                let item = unquote(item.trim()).to_string();
+                if !item.is_empty() {
+                    push_requires_items(&mut req, &current_key, vec![item]);
+                }
+            }
+        }
+    }
+
+    req
+}
+
+/// Parse a YAML inline list like `[git, gh]` or `["git", "gh"]`.
+fn parse_yaml_inline_list(s: &str) -> Vec<String> {
+    let s = s.trim();
+    if s.starts_with('[') && s.ends_with(']') {
+        let inner = &s[1..s.len() - 1];
+        inner
+            .split(',')
+            .map(|item| unquote(item.trim()).to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
+    } else {
+        Vec::new()
+    }
+}
+
+fn push_requires_items(req: &mut SkillRequires, key: &str, items: Vec<String>) {
+    match key {
+        "bins" => req.bins.extend(items),
+        "env" => req.env.extend(items),
+        "os" => req.os.extend(items),
+        _ => {}
+    }
+}
+
+/// Check whether a skill's requirements are satisfied in the current environment.
+pub fn check_requirements(req: &SkillRequires) -> bool {
+    // Check OS constraint
+    if !req.os.is_empty() {
+        let current = std::env::consts::OS; // "macos", "linux", "windows"
+        let ok = req.os.iter().any(|os| {
+            let os = os.as_str();
+            os == current
+                || (os == "darwin" && current == "macos")
+                || (os == "mac" && current == "macos")
+        });
+        if !ok {
+            return false;
+        }
+    }
+
+    // Check binaries in PATH
+    for bin in &req.bins {
+        if !binary_in_path(bin) {
+            return false;
+        }
+    }
+
+    // Check environment variables
+    for key in &req.env {
+        if std::env::var(key).map(|v| v.is_empty()).unwrap_or(true) {
+            return false;
+        }
+    }
+
+    true
+}
+
+/// Check whether a binary exists anywhere in PATH.
+fn binary_in_path(name: &str) -> bool {
+    if let Ok(path_var) = std::env::var("PATH") {
+        for dir in std::env::split_paths(&path_var) {
+            let candidate = dir.join(name);
+            if candidate.is_file() {
+                return true;
+            }
+            // Windows: also check .exe
+            #[cfg(target_os = "windows")]
+            {
+                let exe = dir.join(format!("{}.exe", name));
+                if exe.is_file() {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 /// Remove surrounding quotes from a YAML string value.
@@ -148,13 +291,14 @@ fn load_skills_from_dir(dir: &Path, source: &str) -> Vec<SkillEntry> {
             }
         };
 
-        if let Some((name, description, _body)) = parse_frontmatter(&content) {
+        if let Some((name, description, requires, _body)) = parse_frontmatter(&content) {
             entries.push(SkillEntry {
                 name,
                 description,
                 source: source.to_string(),
                 file_path: skill_md.to_string_lossy().to_string(),
                 base_dir: path.to_string_lossy().to_string(),
+                requires,
             });
         }
     }
@@ -225,10 +369,13 @@ pub fn load_all_skills() -> Vec<SkillEntry> {
 
 /// Build the skills section of the system prompt.
 /// Disabled skills are excluded.
+/// When `env_check` is true, skills whose `requires` conditions are not met are also excluded.
 /// Returns an empty string if no skills are available.
-pub fn build_skills_prompt(skills: &[SkillEntry], disabled: &[String]) -> String {
-    let active: Vec<&SkillEntry> = skills.iter()
+pub fn build_skills_prompt(skills: &[SkillEntry], disabled: &[String], env_check: bool) -> String {
+    let active: Vec<&SkillEntry> = skills
+        .iter()
         .filter(|s| !disabled.contains(&s.name))
+        .filter(|s| !env_check || check_requirements(&s.requires))
         .collect();
     if active.is_empty() {
         return String::new();
@@ -291,7 +438,7 @@ pub fn get_skill_content(name: &str, extra_dirs: &[String], disabled: &[String])
 
     let content = std::fs::read_to_string(&entry.file_path).ok()?;
     // Strip frontmatter, return only the body
-    let body = if let Some((_name, _desc, body)) = parse_frontmatter(&content) {
+    let body = if let Some((_name, _desc, _req, body)) = parse_frontmatter(&content) {
         body.trim().to_string()
     } else {
         content
@@ -318,6 +465,17 @@ pub fn get_skill_content(name: &str, extra_dirs: &[String], disabled: &[String])
 mod tests {
     use super::*;
 
+    fn make_skill(name: &str, desc: &str) -> SkillEntry {
+        SkillEntry {
+            name: name.to_string(),
+            description: desc.to_string(),
+            source: "managed".to_string(),
+            file_path: format!("/tmp/{}/SKILL.md", name),
+            base_dir: format!("/tmp/{}", name),
+            requires: SkillRequires::default(),
+        }
+    }
+
     #[test]
     fn test_parse_frontmatter_basic() {
         let content = r#"---
@@ -329,7 +487,7 @@ description: "GitHub operations via gh CLI"
 
 Use the gh CLI.
 "#;
-        let (name, desc, body) = parse_frontmatter(content).unwrap();
+        let (name, desc, _req, body) = parse_frontmatter(content).unwrap();
         assert_eq!(name, "github");
         assert_eq!(desc, "GitHub operations via gh CLI");
         assert!(body.contains("# GitHub Skill"));
@@ -338,7 +496,7 @@ Use the gh CLI.
     #[test]
     fn test_parse_frontmatter_unquoted() {
         let content = "---\nname: my-skill\ndescription: A simple skill\n---\nBody here";
-        let (name, desc, _body) = parse_frontmatter(content).unwrap();
+        let (name, desc, _req, _body) = parse_frontmatter(content).unwrap();
         assert_eq!(name, "my-skill");
         assert_eq!(desc, "A simple skill");
     }
@@ -356,34 +514,63 @@ Use the gh CLI.
     }
 
     #[test]
+    fn test_parse_requires_inline() {
+        let yaml = "name: git\ndescription: d\nrequires:\n  bins: [git, gh]\n  env: [GITHUB_TOKEN]\n  os: [darwin, linux]\n";
+        let req = parse_requires(yaml);
+        assert_eq!(req.bins, vec!["git", "gh"]);
+        assert_eq!(req.env, vec!["GITHUB_TOKEN"]);
+        assert_eq!(req.os, vec!["darwin", "linux"]);
+    }
+
+    #[test]
+    fn test_parse_requires_list_style() {
+        let yaml = "name: git\ndescription: d\nrequires:\n  bins:\n    - git\n    - gh\n  env:\n    - GITHUB_TOKEN\n";
+        let req = parse_requires(yaml);
+        assert_eq!(req.bins, vec!["git", "gh"]);
+        assert_eq!(req.env, vec!["GITHUB_TOKEN"]);
+    }
+
+    #[test]
     fn test_build_skills_prompt_empty() {
-        assert_eq!(build_skills_prompt(&[], &[]), "");
+        assert_eq!(build_skills_prompt(&[], &[], false), "");
     }
 
     #[test]
     fn test_build_skills_prompt_one_skill() {
-        let skills = vec![SkillEntry {
-            name: "github".to_string(),
-            description: "GitHub ops".to_string(),
-            source: "managed".to_string(),
-            file_path: "/tmp/github/SKILL.md".to_string(),
-            base_dir: "/tmp/github".to_string(),
-        }];
-        let prompt = build_skills_prompt(&skills, &[]);
+        let skills = vec![make_skill("github", "GitHub ops")];
+        let prompt = build_skills_prompt(&skills, &[], false);
         assert!(prompt.contains("- github: GitHub ops"));
     }
 
     #[test]
     fn test_build_skills_prompt_disabled() {
-        let skills = vec![SkillEntry {
-            name: "github".to_string(),
-            description: "GitHub ops".to_string(),
-            source: "managed".to_string(),
-            file_path: "/tmp/github/SKILL.md".to_string(),
-            base_dir: "/tmp/github".to_string(),
-        }];
-        let prompt = build_skills_prompt(&skills, &["github".to_string()]);
+        let skills = vec![make_skill("github", "GitHub ops")];
+        let prompt = build_skills_prompt(&skills, &["github".to_string()], false);
         assert_eq!(prompt, "");
+    }
+
+    #[test]
+    fn test_build_skills_prompt_env_check_no_requires() {
+        // Skill with no requires should always pass env_check
+        let skills = vec![make_skill("basic", "A basic skill")];
+        let prompt = build_skills_prompt(&skills, &[], true);
+        assert!(prompt.contains("- basic: A basic skill"));
+    }
+
+    #[test]
+    fn test_check_requirements_empty() {
+        // Empty requirements always pass
+        assert!(check_requirements(&SkillRequires::default()));
+    }
+
+    #[test]
+    fn test_check_requirements_wrong_os() {
+        let req = SkillRequires {
+            bins: vec![],
+            env: vec![],
+            os: vec!["nonexistent-os-xyz".to_string()],
+        };
+        assert!(!check_requirements(&req));
     }
 
     #[test]

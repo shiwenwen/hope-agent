@@ -194,7 +194,7 @@ pub struct ActiveModel {
 // ── Serializable Store ────────────────────────────────────────────
 
 /// Root structure for persistence
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderStore {
     pub providers: Vec<ProviderConfig>,
@@ -210,6 +210,27 @@ pub struct ProviderStore {
     /// Disabled skill names
     #[serde(default)]
     pub disabled_skills: Vec<String>,
+    /// Whether to check skill runtime requirements (bins/env/os) before injecting.
+    /// Default true. When false, all skills are injected regardless of environment.
+    #[serde(default = "default_skill_env_check")]
+    pub skill_env_check: bool,
+}
+
+fn default_skill_env_check() -> bool {
+    true
+}
+
+impl Default for ProviderStore {
+    fn default() -> Self {
+        Self {
+            providers: Vec::new(),
+            active_model: None,
+            fallback_models: Vec::new(),
+            extra_skills_dirs: Vec::new(),
+            disabled_skills: Vec::new(),
+            skill_env_check: true,
+        }
+    }
 }
 
 // ── Flat model list item for frontend ─────────────────────────────

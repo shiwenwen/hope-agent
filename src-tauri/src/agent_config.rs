@@ -168,6 +168,11 @@ pub struct BehaviorConfig {
     /// Whether to use Docker sandbox by default
     #[serde(default)]
     pub sandbox: bool,
+
+    /// Whether to check skill runtime requirements (bins/env/os) before injecting into system prompt.
+    /// When true (default), skills whose requirements are not met are silently excluded.
+    #[serde(default = "default_skill_env_check")]
+    pub skill_env_check: bool,
 }
 
 fn default_max_rounds() -> u32 {
@@ -178,12 +183,17 @@ fn default_approval_tools() -> Vec<String> {
     vec!["*".to_string()]
 }
 
+fn default_skill_env_check() -> bool {
+    true
+}
+
 impl Default for BehaviorConfig {
     fn default() -> Self {
         Self {
             max_tool_rounds: default_max_rounds(),
             require_approval: default_approval_tools(),
             sandbox: false,
+            skill_env_check: default_skill_env_check(),
         }
     }
 }
