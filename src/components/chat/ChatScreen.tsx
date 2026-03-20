@@ -450,6 +450,16 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
       setCurrentAgentId(session.agentId)
       const agent = agents.find(a => a.id === session.agentId)
       if (agent) setAgentName(agent.name)
+
+      // Restore the model used in this session (if still available)
+      if (session.providerId && session.modelId) {
+        const modelExists = availableModels.some(
+          (m) => m.providerId === session.providerId && m.modelId === session.modelId
+        )
+        if (modelExists) {
+          handleModelChange(`${session.providerId}::${session.modelId}`)
+        }
+      }
     }
   }
 

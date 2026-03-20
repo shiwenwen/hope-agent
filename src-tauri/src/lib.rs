@@ -1229,7 +1229,7 @@ async fn chat(
                 let provider_name = store.providers.iter()
                     .find(|p| p.id == model_ref.provider_id)
                     .map(|p| p.name.as_str());
-                let _ = db.update_session_model(&sid, provider_name, Some(&model_ref.model_id));
+                let _ = db.update_session_model(&sid, Some(&model_ref.provider_id), provider_name, Some(&model_ref.model_id));
             }
 
             let effort_ref = if effort_ref_str == "none" { None } else { Some(effort_ref_str.as_str()) };
