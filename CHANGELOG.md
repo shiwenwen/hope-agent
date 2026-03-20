@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **文件附件内容提取**：非图片文件（PDF/Word/Excel/PPT/文本代码）发送给 LLM 前自动提取内容
+  - 新增 `file_extract.rs` 模块，统一文件内容提取逻辑
+  - PDF：`pdf-extract` 提取文本 + `pdfium-render` 渲染页面为 PNG 图片
+  - Word (.docx)：zip + quick-xml 解析提取段落文本
+  - Excel (.xlsx/.xls)：`calamine` 读取所有 sheet 转 TSV 文本
+  - PPT (.pptx)：提取幻灯片文本 + 嵌入图片（ppt/media/）
+  - 文本/代码文件：直接 UTF-8 读取，20 万字符截断
+  - 所有文件类型始终透传磁盘路径（`<file name="x" path="/path">`），模型可通过 tools 自行决策进一步处理
+  - 未知二进制文件仅透传路径，不做"不支持"提示
+  - 新增依赖：pdf-extract、pdfium-render、calamine、zip、quick-xml
+
 - **Thinking/Reasoning 推理过程展示**：流式显示模型推理内容，支持三种 Provider
   - 后端 `agent.rs` 新增 `emit_thinking_delta` 事件，Anthropic（thinking_delta content block）/ OpenAI Chat（delta.reasoning_content，适配 DeepSeek/o-series）/ OpenAI Responses（reasoning_summary_text.delta）均支持
   - 前端新增 `ThinkingBlock.tsx` 折叠展示组件：流式生成中紫色脉冲自动展开，完成后自动折叠；左侧紫色竖线 + MarkdownRenderer 渲染

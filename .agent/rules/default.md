@@ -35,6 +35,7 @@ src-tauri/src/  后端（Rust）
   agent_loader.rs  Agent 文件 CRUD + 多语言模板（include_str! 嵌入）
   system_prompt.rs 系统提示词组装（结构化/自定义双模式 + 性格/身份/工具/技能/运行时 模块化拼装）
   user_config.rs   用户个人配置（~/.opencomputer/user.json）
+  file_extract.rs 文件内容提取（PDF文本+页面渲染/Word/Excel/PPT/文本代码，统一提取文本和图片供 LLM 消费）
   tools.rs      统一 Tool 定义 & 执行 & Provider Schema 适配（exec/process/read/write/edit/ls/grep/find/apply_patch/web_search/web_fetch）
   skills.rs     技能加载 + 提示词注入
   process_registry.rs  进程会话注册表（后台进程管理）

@@ -2,6 +2,7 @@ mod agent;
 mod agent_config;
 mod agent_loader;
 mod failover;
+mod file_extract;
 mod oauth;
 mod paths;
 mod process_registry;

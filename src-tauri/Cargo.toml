@@ -45,6 +45,11 @@ glob = "0.3.3"
 tauri-plugin-dialog = "2.6.0"
 rusqlite = { version = "0.34", features = ["bundled"] }
 chrono = { version = "0.4", features = ["serde"] }
+pdf-extract = "0.7"
+pdfium-render = "0.8"
+calamine = "0.26"
+zip = "2"
+quick-xml = "0.37"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-app-kit = { version = "0.3.2", features = ["NSWindow", "NSColor"] }
