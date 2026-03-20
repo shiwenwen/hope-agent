@@ -74,6 +74,7 @@
     "thinking": "Thinking..."
   },
   "effort": {
+    "none": "Off",
     "off": "Off",
     "on": "On",
     "low": "Low",
