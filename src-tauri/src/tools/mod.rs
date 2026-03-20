@@ -417,7 +417,21 @@ pub async fn execute_tool_with_context(
     args: &Value,
     ctx: &ToolExecContext,
 ) -> anyhow::Result<String> {
-    match name {
+    let start = std::time::Instant::now();
+
+    // Log tool execution start
+    if let Some(logger) = crate::get_logger() {
+        let args_preview = {
+            let s = args.to_string();
+            if s.len() > 500 { format!("{}...", &s[..500]) } else { s }
+        };
+        logger.log("info", "tool", &format!("tools::{}", name),
+            &format!("Tool '{}' started", name),
+            Some(serde_json::json!({"args": args_preview}).to_string()),
+            None, None);
+    }
+
+    let result = match name {
         "exec" => exec::tool_exec(args, ctx).await,
         "process" => process::tool_process(args).await,
         "read" | "read_file" => read::tool_read_file(args, ctx).await,
@@ -430,5 +444,28 @@ pub async fn execute_tool_with_context(
         "web_search" => web::tool_web_search(args).await,
         "web_fetch" => web::tool_web_fetch(args).await,
         _ => Err(anyhow::anyhow!("Unknown tool: {}", name)),
+    };
+
+    let duration_ms = start.elapsed().as_millis() as u64;
+
+    // Log tool execution result
+    if let Some(logger) = crate::get_logger() {
+        match &result {
+            Ok(output) => {
+                let output_preview = if output.len() > 300 { format!("{}...", &output[..300]) } else { output.clone() };
+                logger.log("info", "tool", &format!("tools::{}", name),
+                    &format!("Tool '{}' completed in {}ms", name, duration_ms),
+                    Some(serde_json::json!({"duration_ms": duration_ms, "output_preview": output_preview}).to_string()),
+                    None, None);
+            }
+            Err(e) => {
+                logger.log("error", "tool", &format!("tools::{}", name),
+                    &format!("Tool '{}' failed in {}ms: {}", name, duration_ms, e),
+                    Some(serde_json::json!({"duration_ms": duration_ms, "error": e.to_string()}).to_string()),
+                    None, None);
+            }
+        }
     }
+
+    result
 }

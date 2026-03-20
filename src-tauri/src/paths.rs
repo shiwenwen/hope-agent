@@ -82,6 +82,13 @@ pub fn avatars_dir() -> Result<PathBuf> {
     Ok(root_dir()?.join("avatars"))
 }
 
+// ── Logs ──────────────────────────────────────────────────────────
+
+/// Logs database path: ~/.opencomputer/logs.db
+pub fn logs_db_path() -> Result<PathBuf> {
+    Ok(root_dir()?.join("logs.db"))
+}
+
 // ── Share ────────────────────────────────────────────────────────
 
 /// Shared directory for inter-agent data: ~/.opencomputer/share/

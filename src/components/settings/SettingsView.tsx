@@ -11,6 +11,7 @@ import {
   MessageSquare,
   Palette,
   Puzzle,
+  ScrollText,
   Server,
   User,
 } from "lucide-react"
@@ -26,6 +27,7 @@ import SkillsPanel from "@/components/settings/SkillsPanel"
 import AgentPanel from "@/components/settings/AgentPanel"
 import UserProfilePanel from "@/components/settings/UserProfilePanel"
 import AboutPanel from "@/components/settings/AboutPanel"
+import LogPanel from "@/components/settings/LogPanel"
 import type { SettingsSection, SettingsSectionItem } from "./types"
 
 const SECTIONS: SettingsSectionItem[] = [
@@ -68,6 +70,11 @@ const SECTIONS: SettingsSectionItem[] = [
     id: "language",
     icon: <Globe className="h-4 w-4" />,
     labelKey: "settings.language",
+  },
+  {
+    id: "logs",
+    icon: <ScrollText className="h-4 w-4" />,
+    labelKey: "settings.logs",
   },
   {
     id: "about",
@@ -186,6 +193,7 @@ export default function SettingsView({
           {activeSection === "chat" && <ChatSettingsPanel />}
           {activeSection === "appearance" && <AppearancePanel />}
           {activeSection === "language" && <LanguagePanel />}
+          {activeSection === "logs" && <LogPanel />}
           {activeSection === "about" && <AboutPanel />}
         </div>
       </div>

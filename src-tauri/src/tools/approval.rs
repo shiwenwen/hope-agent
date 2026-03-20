@@ -153,15 +153,35 @@ pub(crate) async fn check_and_request_approval(
 
     // Wait for response with timeout (5 minutes)
     match tokio::time::timeout(std::time::Duration::from_secs(300), rx).await {
-        Ok(Ok(response)) => Ok(response),
+        Ok(Ok(response)) => {
+            if let Some(logger) = crate::get_logger() {
+                let response_str = match &response {
+                    ApprovalResponse::AllowOnce => "allow_once",
+                    ApprovalResponse::AllowAlways => "allow_always",
+                    ApprovalResponse::Deny => "deny",
+                };
+                logger.log("info", "tool", "approval::response",
+                    &format!("Approval response: {} for '{}'", response_str, command),
+                    Some(serde_json::json!({"command": command, "response": response_str, "request_id": request_id}).to_string()),
+                    None, None);
+            }
+            Ok(response)
+        }
         Ok(Err(_)) => {
-            // Channel dropped (sender was removed)
+            if let Some(logger) = crate::get_logger() {
+                logger.log("warn", "tool", "approval::cancelled",
+                    &format!("Approval cancelled for '{}'", command), None, None, None);
+            }
             Err(anyhow::anyhow!("Approval request cancelled"))
         }
         Err(_) => {
             // Timeout — clean up
             let mut pending = get_pending_approvals().lock().await;
             pending.remove(&request_id);
+            if let Some(logger) = crate::get_logger() {
+                logger.log("warn", "tool", "approval::timeout",
+                    &format!("Approval timed out for '{}'", command), None, None, None);
+            }
             Err(anyhow::anyhow!("Approval request timed out (5 min)"))
         }
     }

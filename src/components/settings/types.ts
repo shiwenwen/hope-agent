@@ -1,4 +1,4 @@
-export type SettingsSection = "providers" | "models" | "skills" | "agents" | "profile" | "chat" | "appearance" | "language" | "about"
+export type SettingsSection = "providers" | "models" | "skills" | "agents" | "profile" | "chat" | "appearance" | "language" | "logs" | "about"
 
 export interface SettingsSectionItem {
   id: SettingsSection
@@ -64,6 +64,48 @@ export interface AgentConfig {
   personality: PersonalityConfig
   behavior: { maxToolRounds: number; requireApproval: string[]; sandbox: boolean; skillEnvCheck: boolean }
   useCustomPrompt: boolean
+}
+
+// ── Log Types ────────────────────────────────────────────────────
+
+export interface LogEntry {
+  id: number
+  timestamp: string
+  level: string
+  category: string
+  source: string
+  message: string
+  details?: string | null
+  sessionId?: string | null
+  agentId?: string | null
+}
+
+export interface LogFilter {
+  levels: string[] | null
+  categories: string[] | null
+  keyword: string | null
+  sessionId: string | null
+  startTime: string | null
+  endTime: string | null
+}
+
+export interface LogConfig {
+  enabled: boolean
+  level: string
+  maxAgeDays: number
+  maxSizeMb: number
+}
+
+export interface LogStats {
+  total: number
+  byLevel: Record<string, number>
+  byCategory: Record<string, number>
+  dbSizeBytes: number
+}
+
+export interface LogQueryResult {
+  logs: LogEntry[]
+  total: number
 }
 
 export const DEFAULT_PERSONALITY: PersonalityConfig = {
