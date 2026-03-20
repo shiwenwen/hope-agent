@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react"
 import { invoke } from "@tauri-apps/api/core"
-import ProviderSetup from "@/components/ProviderSetup"
-import SettingsView from "@/components/SettingsView"
-import IconSidebar from "@/components/IconSidebar"
-import ChatScreen from "@/components/ChatScreen"
+import ProviderSetup from "@/components/settings/ProviderSetup"
+import SettingsView from "@/components/settings/SettingsView"
+import IconSidebar from "@/components/common/IconSidebar"
+import ChatScreen from "@/components/chat/ChatScreen"
 
 export default function App() {
   const [view, setView] = useState<

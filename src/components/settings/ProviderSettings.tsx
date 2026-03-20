@@ -2,8 +2,8 @@ import { useState, useEffect } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
-import type { ModelConfig } from "@/components/ProviderSetup"
-import ProviderIcon from "@/components/ProviderIcon"
+import type { ModelConfig } from "@/components/settings/ProviderSetup"
+import ProviderIcon from "@/components/common/ProviderIcon"
 import {
   DndContext,
   closestCenter,

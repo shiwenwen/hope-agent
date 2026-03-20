@@ -7,21 +7,25 @@ OpenComputer 是一款基于 Tauri 2 + React 19 + Rust 的本地 AI 助手桌面
 ```
 src/            前端（React + TypeScript）
   components/
-    ApprovalDialog.tsx    命令审批对话框（监听 approval_required 事件，AllowOnce/AllowAlways/Deny 三按钮，FIFO 队列）
-    AvatarCropDialog.tsx  头像裁剪对话框（react-easy-crop，圆形裁剪 + 缩放，保存至 ~/.opencomputer/avatars/）
-    ChatInput.tsx         底部输入区（附件/模型级联选择器/思考模式/发送按钮，可拖拽高度）
-    ChatScreen.tsx        聊天主屏幕（消息列表 + ThinkingBlock + ToolCallBlock + 流式渲染）
-    ChatSidebar.tsx       左侧 Agent 网格 + 会话列表面板（多选过滤/双击新建/重命名/删除）
-    IconSidebar.tsx       左侧图标导航栏（设置/技能/语言切换/用户头像）
-    MarkdownRenderer.tsx  Markdown 渲染封装（Streamdown + 代码高亮/KaTeX/Mermaid/CJK）
-    ProviderEditPage.tsx  Provider 配置编辑页（模型列表/User-Agent/Thinking Style）
-    ProviderIcon.tsx      Provider 品牌 SVG 图标（@lobehub/icons，支持 key 直接映射和名称模糊匹配）
-    ProviderSetup.tsx     Provider 引导向导（24+ 模板 + 自定义 + Codex OAuth）
-    ProviderSettings.tsx  Provider 管理面板（查看/编辑/删除/拖拽排序）
-    SettingsView.tsx      设置页（Provider / Agent / 用户信息 / 模型 / 对话 / 技能，各 section 独立面板）
-    TestResultDisplay.tsx Provider 连通性测试结果展示
-    ThinkingBlock.tsx     模型推理过程折叠展示（流式时紫色脉冲自动展开，完成后折叠，MarkdownRenderer 渲染）
-    ToolCallBlock.tsx     工具调用折叠块（工具名 + 参数 + 执行结果）
+    chat/
+      ApprovalDialog.tsx    命令审批对话框（监听 approval_required 事件，AllowOnce/AllowAlways/Deny 三按钮，FIFO 队列）
+      ChatInput.tsx         底部输入区（附件/模型级联选择器/思考模式/发送按钮，可拖拽高度）
+      ChatScreen.tsx        聊天主屏幕（消息列表 + ThinkingBlock + ToolCallBlock + 流式渲染）
+      ChatSidebar.tsx       左侧 Agent 网格 + 会话列表面板（多选过滤/双击新建/重命名/删除）
+      FallbackDetailsPopover.tsx  降级详情气泡（显示降级原因/模型/重试次数）
+      ThinkingBlock.tsx     模型推理过程折叠展示（流式时紫色脉冲自动展开，完成后折叠，MarkdownRenderer 渲染）
+      ToolCallBlock.tsx     工具调用折叠块（工具名 + 参数 + 执行结果）
+    settings/
+      AvatarCropDialog.tsx  头像裁剪对话框（react-easy-crop，圆形裁剪 + 缩放，保存至 ~/.opencomputer/avatars/）
+      ProviderEditPage.tsx  Provider 配置编辑页（模型列表/User-Agent/Thinking Style）
+      ProviderSetup.tsx     Provider 引导向导（24+ 模板 + 自定义 + Codex OAuth）
+      ProviderSettings.tsx  Provider 管理面板（查看/编辑/删除/拖拽排序）
+      SettingsView.tsx      设置页（Provider / Agent / 用户信息 / 模型 / 对话 / 技能，各 section 独立面板）
+      TestResultDisplay.tsx Provider 连通性测试结果展示
+    common/
+      IconSidebar.tsx       左侧图标导航栏（设置/技能/语言切换/用户头像）
+      MarkdownRenderer.tsx  Markdown 渲染封装（Streamdown + 代码高亮/KaTeX/Mermaid/CJK）
+      ProviderIcon.tsx      Provider 品牌 SVG 图标（@lobehub/icons，支持 key 直接映射和名称模糊匹配）
   i18n/
     i18n.ts               i18n 初始化 & 语言列表
     locales/*.json        12 种语言翻译文件（zh/en/zh-TW/ja/ko/tr/vi/pt/ru/ar/es/ms，新功能只需实现 zh+en）

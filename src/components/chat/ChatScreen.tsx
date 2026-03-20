@@ -17,13 +17,13 @@ import type {
   FallbackEvent,
 } from "@/types/chat"
 import { getEffortOptionsForType } from "@/types/chat"
-import MarkdownRenderer from "@/components/MarkdownRenderer"
-import ApprovalDialog, { type ApprovalRequest } from "@/components/ApprovalDialog"
-import ToolCallBlock from "@/components/ToolCallBlock"
-import ThinkingBlock from "@/components/ThinkingBlock"
-import ChatSidebar from "@/components/ChatSidebar"
-import ChatInput from "@/components/ChatInput"
-import FallbackDetailsPopover from "@/components/FallbackDetailsPopover"
+import MarkdownRenderer from "@/components/common/MarkdownRenderer"
+import ApprovalDialog, { type ApprovalRequest } from "@/components/chat/ApprovalDialog"
+import ToolCallBlock from "@/components/chat/ToolCallBlock"
+import ThinkingBlock from "@/components/chat/ThinkingBlock"
+import ChatSidebar from "@/components/chat/ChatSidebar"
+import ChatInput from "@/components/chat/ChatInput"
+import FallbackDetailsPopover from "@/components/chat/FallbackDetailsPopover"
 
 /** Inline banner that mimics the original blockquote style, with a clickable ⚠️ icon for details */
 function FallbackBanner({ event }: { event: FallbackEvent }) {

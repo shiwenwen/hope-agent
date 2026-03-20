@@ -4,9 +4,9 @@ import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { SortableModelEditor, type ModelConfig } from "@/components/ProviderSetup"
-import ProviderIcon from "@/components/ProviderIcon"
-import TestResultDisplay, { parseTestResult, type TestResult } from "@/components/TestResultDisplay"
+import { SortableModelEditor, type ModelConfig } from "@/components/settings/ProviderSetup"
+import ProviderIcon from "@/components/common/ProviderIcon"
+import TestResultDisplay, { parseTestResult, type TestResult } from "@/components/settings/TestResultDisplay"
 import {
   DndContext,
   closestCenter,

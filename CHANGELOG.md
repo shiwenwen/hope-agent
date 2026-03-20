@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **前端组件目录重构**：`src/components/` 按功能模块拆分为三个子目录
+  - `chat/`：ChatScreen / ChatInput / ChatSidebar / ThinkingBlock / ToolCallBlock / FallbackDetailsPopover / ApprovalDialog
+  - `settings/`：SettingsView / ProviderSettings / ProviderSetup / ProviderEditPage / TestResultDisplay / AvatarCropDialog
+  - `common/`：MarkdownRenderer / ProviderIcon / IconSidebar
+  - `ui/` 保持不变（shadcn/ui 基础组件）
+  - 所有跨组件 import 路径同步更新
+
 ### Added
 - **文件附件内容提取**：非图片文件（PDF/Word/Excel/PPT/文本代码）发送给 LLM 前自动提取内容
   - 新增 `file_extract.rs` 模块，统一文件内容提取逻辑

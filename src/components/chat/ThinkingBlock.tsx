@@ -2,7 +2,7 @@ import { useState, useEffect } from "react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { ChevronRight, BrainCircuit } from "lucide-react"
-import MarkdownRenderer from "@/components/MarkdownRenderer"
+import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 
 interface ThinkingBlockProps {
   content: string
