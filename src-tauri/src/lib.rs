@@ -99,6 +99,7 @@ async fn update_provider(
         existing.models = config.models;
         existing.enabled = config.enabled;
         existing.user_agent = config.user_agent;
+        existing.thinking_style = config.thinking_style;
         provider::save_store(&store).map_err(|e| e.to_string())?;
         Ok(())
     } else {
@@ -1111,7 +1112,7 @@ async fn chat(
                 // Restore conversation history from DB for this session
                 restore_agent_context(&db, &sid, agent);
 
-                let effort_ref = if effort_ref_str == "none" { None } else { Some(effort_ref_str.as_str()) };
+                let effort_ref = Some(effort_ref_str.as_str());
                 let db_for_cb = db.clone();
                 let sid_for_cb = sid.clone();
                 let cancel_clone = cancel.clone();
@@ -1232,7 +1233,7 @@ async fn chat(
                 let _ = db.update_session_model(&sid, Some(&model_ref.provider_id), provider_name, Some(&model_ref.model_id));
             }
 
-            let effort_ref = if effort_ref_str == "none" { None } else { Some(effort_ref_str.as_str()) };
+            let effort_ref = Some(effort_ref_str.as_str());
             let on_event_clone = on_event.clone();
             let db_for_cb = db.clone();
             let sid_for_cb = sid.clone();
