@@ -920,10 +920,47 @@ async fn rename_session_cmd(
     state.session_db.update_session_title(&session_id, &title).map_err(|e| e.to_string())
 }
 
+/// Save an attachment file to disk. Uses a temp directory when session_id is empty.
+/// Returns the absolute path to the saved file.
+#[tauri::command]
+async fn save_attachment(
+    session_id: Option<String>,
+    file_name: String,
+    _mime_type: String,
+    data: Vec<u8>,
+) -> Result<String, String> {
+    // Use temp directory if no session ID yet (new chat)
+    let att_dir = match &session_id {
+        Some(sid) if !sid.is_empty() => {
+            crate::paths::attachments_dir(sid).map_err(|e| e.to_string())?
+        }
+        _ => {
+            let root = crate::paths::root_dir().map_err(|e| e.to_string())?;
+            root.join("attachments").join("_temp")
+        }
+    };
+    std::fs::create_dir_all(&att_dir)
+        .map_err(|e| format!("Failed to create attachments dir: {}", e))?;
+
+    // Generate unique filename with timestamp to avoid collisions
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let safe_name = file_name.replace(['/', '\\', ':'], "_");
+    let filename = format!("{}_{}", ts, safe_name);
+    let file_path = att_dir.join(&filename);
+
+    std::fs::write(&file_path, &data)
+        .map_err(|e| format!("Failed to write attachment {}: {}", file_name, e))?;
+
+    Ok(file_path.to_string_lossy().to_string())
+}
+
 #[tauri::command]
 async fn chat(
     message: String,
-    attachments: Vec<Attachment>,
+    mut attachments: Vec<Attachment>,
     session_id: Option<String>,
     on_event: tauri::ipc::Channel<String>,
     state: State<'_, AppState>,
@@ -953,33 +990,77 @@ async fn chat(
         }
     };
 
-    // Save attachments to disk and build metadata
+    // Build attachments metadata from file paths (files already saved by save_attachment)
     let attachments_meta = if !attachments.is_empty() {
+        // Ensure session attachments directory exists and move temp files if needed
         let att_dir = crate::paths::attachments_dir(&sid).map_err(|e| e.to_string())?;
         std::fs::create_dir_all(&att_dir).map_err(|e| format!("Failed to create attachments dir: {}", e))?;
 
-        let mut meta_list = Vec::new();
-        for (i, att) in attachments.iter().enumerate() {
-            // Decode base64 data and write to file
-            let data = base64::Engine::decode(
-                &base64::engine::general_purpose::STANDARD,
-                &att.data,
-            ).unwrap_or_default();
+        let temp_dir = crate::paths::root_dir()
+            .map(|r| r.join("attachments").join("_temp"))
+            .unwrap_or_default();
 
-            // Generate unique filename: {index}_{original_name}
-            let filename = format!("{}_{}", i, att.name.replace(['/', '\\', ':'], "_"));
-            let file_path = att_dir.join(&filename);
-            if let Err(e) = std::fs::write(&file_path, &data) {
-                log::warn!("Failed to save attachment {}: {}", att.name, e);
+        let mut meta_list = Vec::new();
+        for att in attachments.iter_mut() {
+            // Images: have base64 data directly, save to disk for persistence
+            if let Some(ref b64_data) = att.data {
+                use base64::Engine;
+                let decoded = base64::engine::general_purpose::STANDARD
+                    .decode(b64_data)
+                    .unwrap_or_default();
+                let ts = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis();
+                let safe_name = att.name.replace(['/', '\\', ':'], "_");
+                let filename = format!("{}_{}", ts, safe_name);
+                let file_path = att_dir.join(&filename);
+                if let Err(e) = std::fs::write(&file_path, &decoded) {
+                    log::warn!("Failed to save image attachment {}: {}", att.name, e);
+                    continue;
+                }
+                meta_list.push(serde_json::json!({
+                    "name": att.name,
+                    "mime_type": att.mime_type,
+                    "size": decoded.len(),
+                    "path": file_path.to_string_lossy(),
+                }));
                 continue;
             }
 
-            meta_list.push(serde_json::json!({
-                "name": att.name,
-                "mime_type": att.mime_type,
-                "size": data.len(),
-                "path": file_path.to_string_lossy(),
-            }));
+            // Non-image files: have file_path, move from temp dir if needed
+            if let Some(ref fp) = att.file_path {
+                let src_path = std::path::Path::new(fp);
+
+                let final_path = if src_path.starts_with(&temp_dir) {
+                    if let Some(fname) = src_path.file_name() {
+                        let dest = att_dir.join(fname);
+                        if let Err(e) = std::fs::rename(src_path, &dest) {
+                            if let Err(e2) = std::fs::copy(src_path, &dest) {
+                                log::warn!("Failed to move attachment {}: rename={}, copy={}", att.name, e, e2);
+                                continue;
+                            }
+                            let _ = std::fs::remove_file(src_path);
+                        }
+                        dest
+                    } else {
+                        src_path.to_path_buf()
+                    }
+                } else {
+                    src_path.to_path_buf()
+                };
+
+                // Update the attachment's file_path to the final location
+                att.file_path = Some(final_path.to_string_lossy().to_string());
+
+                let size = std::fs::metadata(&final_path).map(|m| m.len()).unwrap_or(0);
+                meta_list.push(serde_json::json!({
+                    "name": att.name,
+                    "mime_type": att.mime_type,
+                    "size": size,
+                    "path": final_path.to_string_lossy(),
+                }));
+            }
         }
         Some(serde_json::to_string(&meta_list).unwrap_or_default())
     } else {
@@ -1660,6 +1741,7 @@ pub fn run() {
             set_codex_model,
             set_reasoning_effort,
             // Chat
+            save_attachment,
             chat,
             stop_chat,
             // Command approval

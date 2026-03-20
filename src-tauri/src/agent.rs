@@ -12,8 +12,32 @@ use crate::tools::{self, ToolProvider};
 pub struct Attachment {
     pub name: String,
     pub mime_type: String,
-    /// Base64-encoded file data
-    pub data: String,
+    /// Base64-encoded file data (used for images — passed directly through IPC)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data: Option<String>,
+    /// Absolute path to the file on disk (used for non-image files)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_path: Option<String>,
+}
+
+impl Attachment {
+    /// Get base64-encoded data: use `data` field if present, otherwise read from `file_path`.
+    fn get_base64_data(&self) -> Result<String> {
+        if let Some(ref data) = self.data {
+            return Ok(data.clone());
+        }
+        if let Some(ref path) = self.file_path {
+            return read_and_encode_base64(path);
+        }
+        Err(anyhow::anyhow!("Attachment '{}' has neither data nor file_path", self.name))
+    }
+}
+/// Read a file from disk and return its contents as a base64-encoded string.
+fn read_and_encode_base64(path: &str) -> Result<String> {
+    let data = std::fs::read(path)
+        .map_err(|e| anyhow::anyhow!("Failed to read attachment '{}': {}", path, e))?;
+    use base64::Engine;
+    Ok(base64::engine::general_purpose::STANDARD.encode(&data))
 }
 
 /// Build multimodal user content array for Anthropic Messages API.
@@ -25,14 +49,21 @@ fn build_user_content_anthropic(message: &str, attachments: &[Attachment]) -> se
     let mut parts: Vec<serde_json::Value> = Vec::new();
     for att in attachments {
         if att.mime_type.starts_with("image/") {
-            parts.push(json!({
-                "type": "image",
-                "source": {
-                    "type": "base64",
-                    "media_type": att.mime_type,
-                    "data": att.data,
+            match att.get_base64_data() {
+                Ok(b64) => {
+                    parts.push(json!({
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": att.mime_type,
+                            "data": b64,
+                        }
+                    }));
                 }
-            }));
+                Err(e) => {
+                    log::warn!("Skipping attachment {}: {}", att.name, e);
+                }
+            }
         }
     }
     parts.push(json!({ "type": "text", "text": message }));
@@ -48,11 +79,18 @@ fn build_user_content_openai_chat(message: &str, attachments: &[Attachment]) -> 
     let mut parts: Vec<serde_json::Value> = Vec::new();
     for att in attachments {
         if att.mime_type.starts_with("image/") {
-            let data_url = format!("data:{};base64,{}", att.mime_type, att.data);
-            parts.push(json!({
-                "type": "image_url",
-                "image_url": { "url": data_url }
-            }));
+            match att.get_base64_data() {
+                Ok(b64) => {
+                    let data_url = format!("data:{};base64,{}", att.mime_type, b64);
+                    parts.push(json!({
+                        "type": "image_url",
+                        "image_url": { "url": data_url }
+                    }));
+                }
+                Err(e) => {
+                    log::warn!("Skipping attachment {}: {}", att.name, e);
+                }
+            }
         }
     }
     parts.push(json!({ "type": "text", "text": message }));
@@ -68,11 +106,18 @@ fn build_user_content_responses(message: &str, attachments: &[Attachment]) -> se
     let mut parts: Vec<serde_json::Value> = Vec::new();
     for att in attachments {
         if att.mime_type.starts_with("image/") {
-            let data_url = format!("data:{};base64,{}", att.mime_type, att.data);
-            parts.push(json!({
-                "type": "input_image",
-                "image_url": data_url,
-            }));
+            match att.get_base64_data() {
+                Ok(b64) => {
+                    let data_url = format!("data:{};base64,{}", att.mime_type, b64);
+                    parts.push(json!({
+                        "type": "input_image",
+                        "image_url": data_url,
+                    }));
+                }
+                Err(e) => {
+                    log::warn!("Skipping attachment {}: {}", att.name, e);
+                }
+            }
         }
     }
     parts.push(json!({ "type": "input_text", "text": message }));
@@ -400,15 +445,10 @@ struct SseResponseObj {
 
 #[derive(Deserialize, Debug, Default)]
 struct SseUsage {
-    #[serde(default)]
+    #[serde(default, alias = "prompt_tokens")]
     input_tokens: Option<u64>,
-    #[serde(default)]
+    #[serde(default, alias = "completion_tokens")]
     output_tokens: Option<u64>,
-    // OpenAI Chat Completions uses these names
-    #[serde(default)]
-    prompt_tokens: Option<u64>,
-    #[serde(default)]
-    completion_tokens: Option<u64>,
     // Anthropic cache tokens
     #[serde(default)]
     cache_creation_input_tokens: Option<u64>,

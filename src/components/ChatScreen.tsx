@@ -548,24 +548,44 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
     setMessages((prev) => [...prev, { role: "user", content: text, timestamp: now }])
     setLoading(true)
 
-    // Read attached files as base64
-    const attachments: { name: string; mime_type: string; data: string }[] = []
+    // Process attached files: images → base64 data, non-images → save to disk via Rust
+    const attachments: { name: string; mime_type: string; data?: string; file_path?: string }[] = []
     for (const file of filesToSend) {
       try {
+        const mimeType = file.type || "application/octet-stream"
         const arrayBuffer = await file.arrayBuffer()
-        const bytes = new Uint8Array(arrayBuffer)
-        let binary = ""
-        for (let i = 0; i < bytes.length; i++) {
-          binary += String.fromCharCode(bytes[i])
+
+        if (mimeType.startsWith("image/")) {
+          // Images: encode as base64 and pass directly (needed for LLM API)
+          const bytes = new Uint8Array(arrayBuffer)
+          // Use chunked approach to avoid stack overflow on large files
+          let binary = ""
+          const chunkSize = 8192
+          for (let i = 0; i < bytes.length; i += chunkSize) {
+            binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize))
+          }
+          attachments.push({
+            name: file.name,
+            mime_type: mimeType,
+            data: btoa(binary),
+          })
+        } else {
+          // Non-image files: save to disk via Rust backend, pass file path
+          const bytes = Array.from(new Uint8Array(arrayBuffer))
+          const filePath = await invoke<string>("save_attachment", {
+            sessionId: currentSessionId,
+            fileName: file.name,
+            mimeType,
+            data: bytes,
+          })
+          attachments.push({
+            name: file.name,
+            mime_type: mimeType,
+            file_path: filePath,
+          })
         }
-        const base64 = btoa(binary)
-        attachments.push({
-          name: file.name,
-          mime_type: file.type || "application/octet-stream",
-          data: base64,
-        })
       } catch (err) {
-        console.error("Failed to read file:", file.name, err)
+        console.error("Failed to process attachment:", file.name, err)
       }
     }
 
