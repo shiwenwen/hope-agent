@@ -16,11 +16,20 @@ src/            前端（React + TypeScript）
       ThinkingBlock.tsx     模型推理过程折叠展示（流式时紫色脉冲自动展开，完成后折叠，MarkdownRenderer 渲染）
       ToolCallBlock.tsx     工具调用折叠块（工具名 + 参数 + 执行结果）
     settings/
+      types.ts              设置模块共享类型（SettingsSection / AvailableModel / AgentConfig / PersonalityConfig 等）
+      SettingsView.tsx      设置页编排入口（左侧导航 + 右侧面板切换，~170 行）
+      ChatSettingsPanel.tsx 对话设置面板（自动发送 pending 消息等）
+      AppearancePanel.tsx   外观/主题设置面板（亮色/暗色/跟随系统）
+      LanguagePanel.tsx     语言切换面板（12 种语言 + 跟随系统）
+      GlobalModelPanel.tsx  全局模型设置面板（默认模型 + 降级链拖拽排序）
+      SkillsPanel.tsx       技能管理面板（目录管理/技能列表/详情/启停）
+      AgentPanel.tsx        Agent 管理面板（列表/创建/编辑，含 Identity/Personality/Behavior/Model/Custom 五个 Tab）
+      UserProfilePanel.tsx  用户资料面板（头像/姓名/性别/时区/语言/AI 经验/回复风格）
+      AboutPanel.tsx        关于页面板（版本/技术栈）
       AvatarCropDialog.tsx  头像裁剪对话框（react-easy-crop，圆形裁剪 + 缩放，保存至 ~/.opencomputer/avatars/）
       ProviderEditPage.tsx  Provider 配置编辑页（模型列表/User-Agent/Thinking Style）
       ProviderSetup.tsx     Provider 引导向导（24+ 模板 + 自定义 + Codex OAuth）
       ProviderSettings.tsx  Provider 管理面板（查看/编辑/删除/拖拽排序）
-      SettingsView.tsx      设置页（Provider / Agent / 用户信息 / 模型 / 对话 / 技能，各 section 独立面板）
       TestResultDisplay.tsx Provider 连通性测试结果展示
     common/
       IconSidebar.tsx       左侧图标导航栏（设置/技能/语言切换/用户头像）
