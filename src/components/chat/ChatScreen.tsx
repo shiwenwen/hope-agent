@@ -149,6 +149,7 @@ function parseSessionMessages(msgs: SessionMessage[]): Message[] {
         toolCalls,
         timestamp: msg.timestamp,
         usage,
+        model: msg.model || undefined,
       })
     } else if (msg.role === "event") {
       displayMessages.push({ role: "event", content: msg.content, timestamp: msg.timestamp })
@@ -690,7 +691,8 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
                 ...(event.cache_creation_input_tokens != null ? { cacheCreationInputTokens: event.cache_creation_input_tokens } : {}),
                 ...(event.cache_read_input_tokens != null ? { cacheReadInputTokens: event.cache_read_input_tokens } : {}),
               }
-              updated[updated.length - 1] = { ...last, usage }
+              const model = event.model ? String(event.model) : last.model
+              updated[updated.length - 1] = { ...last, usage, model }
               return updated
             })
             return
@@ -1154,7 +1156,7 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
                         <Copy className="h-3.5 w-3.5" />
                       )}
                     </button>
-                    {msg.role === "assistant" && msg.usage && (
+                    {msg.role === "assistant" && (msg.usage || msg.model) && (
                       <div className="relative">
                         <button
                           onClick={() => setDetailsIndex(detailsIndex === i ? null : i)}
@@ -1171,7 +1173,18 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
                             className="absolute top-full mt-1 z-50 min-w-[180px] rounded-lg border border-border bg-popover p-2.5 shadow-lg left-0"
                           >
                             <div className="space-y-1.5 text-xs">
-                              {msg.usage.inputTokens != null && (
+                              {msg.model && (
+                                <div className="flex items-center justify-between gap-3">
+                                  <span className="text-muted-foreground">{t("chat.statusModel")}</span>
+                                  <span className="font-medium text-foreground truncate max-w-[160px]" title={msg.model}>
+                                    {msg.model}
+                                  </span>
+                                </div>
+                              )}
+                              {msg.model && msg.usage?.inputTokens != null && (
+                                <div className="border-t border-border" />
+                              )}
+                              {msg.usage?.inputTokens != null && (
                                 <div className="flex items-center justify-between gap-3">
                                   <span className="text-muted-foreground">{t("chat.inputTokens")}</span>
                                   <span className="font-medium text-foreground tabular-nums">
@@ -1179,7 +1192,7 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
                                   </span>
                                 </div>
                               )}
-                              {msg.usage.outputTokens != null && (
+                              {msg.usage?.outputTokens != null && (
                                 <div className="flex items-center justify-between gap-3">
                                   <span className="text-muted-foreground">{t("chat.outputTokens")}</span>
                                   <span className="font-medium text-foreground tabular-nums">
@@ -1187,7 +1200,7 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
                                   </span>
                                 </div>
                               )}
-                              {msg.usage.inputTokens != null && msg.usage.outputTokens != null && (
+                              {msg.usage?.inputTokens != null && msg.usage?.outputTokens != null && (
                                 <>
                                   <div className="border-t border-border" />
                                   <div className="flex items-center justify-between gap-3">
@@ -1198,7 +1211,7 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
                                   </div>
                                 </>
                               )}
-                              {msg.usage.durationMs != null && (
+                              {msg.usage?.durationMs != null && (
                                 <div className="flex items-center justify-between gap-3">
                                   <span className="text-muted-foreground">{t("chat.duration")}</span>
                                   <span className="font-medium text-foreground tabular-nums">

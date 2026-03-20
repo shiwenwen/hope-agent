@@ -27,6 +27,7 @@ export interface Message {
   thinking?: string
   timestamp?: string
   usage?: MessageUsage
+  model?: string
   fallbackEvent?: FallbackEvent
 }
 

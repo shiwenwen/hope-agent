@@ -498,13 +498,14 @@ pub struct ChatUsage {
     pub cache_read_input_tokens: u64,
 }
 
-fn emit_usage(on_delta: &(impl Fn(&str) + Send), usage: &ChatUsage) {
+fn emit_usage(on_delta: &(impl Fn(&str) + Send), usage: &ChatUsage, model: &str) {
     emit_event(on_delta, &json!({
         "type": "usage",
         "input_tokens": usage.input_tokens,
         "output_tokens": usage.output_tokens,
         "cache_creation_input_tokens": usage.cache_creation_input_tokens,
         "cache_read_input_tokens": usage.cache_read_input_tokens,
+        "model": model,
     }));
 }
 
@@ -949,7 +950,7 @@ impl AssistantAgent {
         *self.conversation_history.lock().unwrap() = messages;
 
         // Emit accumulated usage
-        emit_usage(on_delta, &total_usage);
+        emit_usage(on_delta, &total_usage, model);
 
         Ok(collected_text)
     }
@@ -1230,7 +1231,7 @@ impl AssistantAgent {
         *self.conversation_history.lock().unwrap() = messages;
 
         // Emit accumulated usage
-        emit_usage(on_delta, &total_usage);
+        emit_usage(on_delta, &total_usage, model);
 
         Ok(collected_text)
     }
@@ -1467,7 +1468,7 @@ impl AssistantAgent {
         *self.conversation_history.lock().unwrap() = input;
 
         // Emit accumulated usage
-        emit_usage(on_delta, &total_usage);
+        emit_usage(on_delta, &total_usage, model);
 
         Ok(collected_text)
     }
@@ -1628,7 +1629,7 @@ impl AssistantAgent {
         *self.conversation_history.lock().unwrap() = input;
 
         // Emit accumulated usage
-        emit_usage(on_delta, &total_usage);
+        emit_usage(on_delta, &total_usage, model);
 
         Ok(collected_text)
     }
