@@ -12,6 +12,7 @@ pub struct SessionMeta {
     pub id: String,
     pub title: Option<String>,
     pub agent_id: String,
+    pub provider_id: Option<String>,
     pub provider_name: Option<String>,
     pub model_id: Option<String>,
     pub created_at: String,
@@ -144,6 +145,9 @@ impl SessionDB {
             CREATE INDEX IF NOT EXISTS idx_sessions_updated_at ON sessions(updated_at DESC);"
         )?;
 
+        // Migration: add provider_id column if not exists
+        let _ = conn.execute_batch("ALTER TABLE sessions ADD COLUMN provider_id TEXT;");
+
         Ok(Self { conn: Mutex::new(conn) })
     }
 
@@ -164,6 +168,7 @@ impl SessionDB {
             id,
             title: None,
             agent_id: agent_id.to_string(),
+            provider_id: None,
             provider_name: None,
             model_id: None,
             created_at: now.clone(),
@@ -181,7 +186,7 @@ impl SessionDB {
 
         if let Some(agent_id) = agent_id {
             let mut stmt = conn.prepare(
-                "SELECT s.id, s.title, s.agent_id, s.provider_name, s.model_id,
+                "SELECT s.id, s.title, s.agent_id, s.provider_id, s.provider_name, s.model_id,
                         s.created_at, s.updated_at,
                         (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) as msg_count
                  FROM sessions s
@@ -193,11 +198,12 @@ impl SessionDB {
                     id: row.get(0)?,
                     title: row.get(1)?,
                     agent_id: row.get(2)?,
-                    provider_name: row.get(3)?,
-                    model_id: row.get(4)?,
-                    created_at: row.get(5)?,
-                    updated_at: row.get(6)?,
-                    message_count: row.get(7)?,
+                    provider_id: row.get(3)?,
+                    provider_name: row.get(4)?,
+                    model_id: row.get(5)?,
+                    created_at: row.get(6)?,
+                    updated_at: row.get(7)?,
+                    message_count: row.get(8)?,
                 })
             })?;
             for row in rows {
@@ -205,7 +211,7 @@ impl SessionDB {
             }
         } else {
             let mut stmt = conn.prepare(
-                "SELECT s.id, s.title, s.agent_id, s.provider_name, s.model_id,
+                "SELECT s.id, s.title, s.agent_id, s.provider_id, s.provider_name, s.model_id,
                         s.created_at, s.updated_at,
                         (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) as msg_count
                  FROM sessions s
@@ -216,11 +222,12 @@ impl SessionDB {
                     id: row.get(0)?,
                     title: row.get(1)?,
                     agent_id: row.get(2)?,
-                    provider_name: row.get(3)?,
-                    model_id: row.get(4)?,
-                    created_at: row.get(5)?,
-                    updated_at: row.get(6)?,
-                    message_count: row.get(7)?,
+                    provider_id: row.get(3)?,
+                    provider_name: row.get(4)?,
+                    model_id: row.get(5)?,
+                    created_at: row.get(6)?,
+                    updated_at: row.get(7)?,
+                    message_count: row.get(8)?,
                 })
             })?;
             for row in rows {
@@ -327,11 +334,11 @@ impl SessionDB {
     }
 
     /// Update session's provider/model info.
-    pub fn update_session_model(&self, session_id: &str, provider_name: Option<&str>, model_id: Option<&str>) -> Result<()> {
+    pub fn update_session_model(&self, session_id: &str, provider_id: Option<&str>, provider_name: Option<&str>, model_id: Option<&str>) -> Result<()> {
         let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         conn.execute(
-            "UPDATE sessions SET provider_name = ?1, model_id = ?2 WHERE id = ?3",
-            params![provider_name, model_id, session_id],
+            "UPDATE sessions SET provider_id = ?1, provider_name = ?2, model_id = ?3 WHERE id = ?4",
+            params![provider_id, provider_name, model_id, session_id],
         )?;
         Ok(())
     }
@@ -376,7 +383,7 @@ impl SessionDB {
     pub fn get_session(&self, session_id: &str) -> Result<Option<SessionMeta>> {
         let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let mut stmt = conn.prepare(
-            "SELECT s.id, s.title, s.agent_id, s.provider_name, s.model_id,
+            "SELECT s.id, s.title, s.agent_id, s.provider_id, s.provider_name, s.model_id,
                     s.created_at, s.updated_at,
                     (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) as msg_count
              FROM sessions s WHERE s.id = ?1"
@@ -387,11 +394,12 @@ impl SessionDB {
                 id: row.get(0)?,
                 title: row.get(1)?,
                 agent_id: row.get(2)?,
-                provider_name: row.get(3)?,
-                model_id: row.get(4)?,
-                created_at: row.get(5)?,
-                updated_at: row.get(6)?,
-                message_count: row.get(7)?,
+                provider_id: row.get(3)?,
+                provider_name: row.get(4)?,
+                model_id: row.get(5)?,
+                created_at: row.get(6)?,
+                updated_at: row.get(7)?,
+                message_count: row.get(8)?,
             })
         })?;
 

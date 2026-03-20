@@ -27,6 +27,7 @@ export interface Message {
   thinking?: string
   timestamp?: string
   usage?: MessageUsage
+  model?: string
   fallbackEvent?: FallbackEvent
 }
 
@@ -63,6 +64,7 @@ export interface SessionMeta {
   id: string
   title?: string | null
   agentId: string
+  providerId?: string | null
   providerName?: string | null
   modelId?: string | null
   createdAt: string
