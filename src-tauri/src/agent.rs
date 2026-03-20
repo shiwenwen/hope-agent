@@ -452,6 +452,77 @@ pub struct AssistantAgent {
 // ── Shared Event Types (sent to frontend via on_delta JSON) ───────
 
 /// Emit a JSON event string via the on_delta callback
+/// Stateful filter that strips `<think>...</think>` tags from streaming content.
+/// Content inside tags is redirected to thinking output; content outside goes to text output.
+struct ThinkTagFilter {
+    in_thinking: bool,
+    /// Buffer for potential partial tag at the end of a chunk (e.g. "<", "<th", "</thi")
+    tag_buffer: String,
+}
+
+impl ThinkTagFilter {
+    fn new() -> Self {
+        Self { in_thinking: false, tag_buffer: String::new() }
+    }
+
+    /// Process a chunk of content text. Returns (text_outside_tags, thinking_inside_tags).
+    fn process(&mut self, input: &str) -> (String, String) {
+        let mut text_out = String::new();
+        let mut think_out = String::new();
+
+        // Prepend any buffered partial tag
+        let full_input = if self.tag_buffer.is_empty() {
+            input.to_string()
+        } else {
+            let mut s = std::mem::take(&mut self.tag_buffer);
+            s.push_str(input);
+            s
+        };
+
+        let mut chars = full_input.chars().peekable();
+        while let Some(ch) = chars.next() {
+            if ch == '<' {
+                // Collect potential tag
+                let mut tag = String::from('<');
+                while let Some(&next) = chars.peek() {
+                    tag.push(next);
+                    chars.next();
+                    if next == '>' {
+                        break;
+                    }
+                }
+
+                if !tag.ends_with('>') {
+                    // Incomplete tag at end of chunk — buffer it
+                    self.tag_buffer = tag;
+                    continue;
+                }
+
+                let tag_lower = tag.to_lowercase();
+                let tag_trimmed = tag_lower.trim_matches(|c: char| c == '<' || c == '>' || c.is_whitespace());
+                if tag_trimmed == "think" || tag_trimmed == "thinking" {
+                    self.in_thinking = true;
+                } else if tag_trimmed == "/think" || tag_trimmed == "/thinking" {
+                    self.in_thinking = false;
+                } else {
+                    // Not a think tag — emit as content
+                    if self.in_thinking {
+                        think_out.push_str(&tag);
+                    } else {
+                        text_out.push_str(&tag);
+                    }
+                }
+            } else if self.in_thinking {
+                think_out.push(ch);
+            } else {
+                text_out.push(ch);
+            }
+        }
+
+        (text_out, think_out)
+    }
+}
+
 fn emit_event(on_delta: &(impl Fn(&str) + Send), event: &serde_json::Value) {
     if let Ok(json_str) = serde_json::to_string(event) {
         on_delta(&json_str);
@@ -1170,7 +1241,7 @@ impl AssistantAgent {
             }
 
             // Parse SSE stream for Chat Completions format
-            let (text, tool_calls, round_usage) = self.parse_chat_completions_sse(resp, cancel, on_delta).await?;
+            let (text, tool_calls, round_usage) = self.parse_chat_completions_sse(resp, reasoning_effort, cancel, on_delta).await?;
             collected_text.push_str(&text);
             total_usage.input_tokens += round_usage.input_tokens;
             total_usage.output_tokens += round_usage.output_tokens;
@@ -1240,6 +1311,7 @@ impl AssistantAgent {
     async fn parse_chat_completions_sse(
         &self,
         resp: reqwest::Response,
+        reasoning_effort: Option<&str>,
         cancel: &Arc<AtomicBool>,
         on_delta: &(impl Fn(&str) + Send),
     ) -> Result<(String, Vec<FunctionCallItem>, ChatUsage)> {
@@ -1250,6 +1322,7 @@ impl AssistantAgent {
         // Track tool calls by index
         let mut pending_calls: std::collections::HashMap<usize, FunctionCallItem> = std::collections::HashMap::new();
         let mut usage = ChatUsage::default();
+        let mut think_filter = ThinkTagFilter::new();
 
         let mut stream = resp.bytes_stream();
         let mut buffer = String::new();
@@ -1312,10 +1385,19 @@ impl AssistantAgent {
                                     }
                                 }
 
-                                // Text content
+                                // Text content — filter <think>...</think> tags from content stream
+                                // Qwen models may embed thinking in content via <think> tags
                                 if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
-                                    emit_text_delta(on_delta, content);
-                                    collected_text.push_str(content);
+                                    let (text_part, think_part) = think_filter.process(content);
+                                    // When thinking is enabled, redirect <think> content as thinking_delta;
+                                    // when disabled ("none"), discard it entirely
+                                    if !think_part.is_empty() && reasoning_effort != Some("none") {
+                                        emit_thinking_delta(on_delta, &think_part);
+                                    }
+                                    if !text_part.is_empty() {
+                                        emit_text_delta(on_delta, &text_part);
+                                        collected_text.push_str(&text_part);
+                                    }
                                 }
 
                                 // Tool calls

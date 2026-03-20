@@ -65,7 +65,7 @@ export function ModelSelector({
         className
       )}>
         <span className={selectedModel ? "text-foreground" : "text-muted-foreground"}>
-          {selectedModel ? selectedModel.modelName : placeholder || t("settings.selectDefaultModel", "Select model")}
+          {selectedModel ? `${selectedModel.providerName} / ${selectedModel.modelName}` : placeholder || t("settings.selectDefaultModel", "Select model")}
         </span>
         <ChevronDown className="h-4 w-4 opacity-50" />
       </DropdownMenu.Trigger>
