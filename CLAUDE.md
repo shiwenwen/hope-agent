@@ -40,7 +40,19 @@ src-tauri/src/  后端（Rust）
   system_prompt.rs 系统提示词组装（结构化/自定义双模式 + 性格/身份/工具/技能/运行时 模块化拼装）
   user_config.rs   用户个人配置（~/.opencomputer/user.json）
   file_extract.rs 文件内容提取（PDF文本+页面渲染/Word/Excel/PPT/文本代码，统一提取文本和图片供 LLM 消费）
-  tools.rs      统一 Tool 定义 & 执行 & Provider Schema 适配（exec/process/read/write/edit/ls/grep/find/apply_patch/web_search/web_fetch）
+  tools/        统一 Tool 定义 & 执行 & Provider Schema 适配（按工具拆分为子模块）
+    mod.rs        公共类型（ToolProvider/ToolDefinition/ToolExecContext）、工具目录、execute_tool 分发入口、共享工具函数
+    approval.rs   命令审批系统（allowlist + Tauri 事件）
+    exec.rs       exec 工具（Shell 命令执行 / PTY / 沙箱 / 后台 / ANSI 处理）
+    process.rs    process 工具（后台进程会话管理）
+    read.rs       read 工具（图片 MIME 检测 / 自动缩放 / 自适应分页）
+    write.rs      write 工具
+    edit.rs       edit 工具（搜索替换）
+    ls.rs         ls 工具（目录列表 / ~ 展开）
+    grep.rs       grep 工具（正则搜索 / .gitignore / 上下文行）
+    find.rs       find 工具（glob 文件查找）
+    apply_patch.rs apply_patch 工具（多文件补丁 / 3-pass 模糊匹配）
+    web.rs        web_search + web_fetch 工具（DuckDuckGo / HTML 提取）
   skills.rs     技能加载 + 提示词注入
   process_registry.rs  进程会话注册表（后台进程管理）
   sandbox.rs      Docker 沙箱执行模块（bollard 异步 Docker 客户端）

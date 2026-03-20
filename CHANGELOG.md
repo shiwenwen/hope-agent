@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **`tools.rs` 拆分为子模块目录**：原 2927 行单文件拆分为 `src-tauri/src/tools/` 目录下 12 个模块（mod.rs / approval.rs / exec.rs / process.rs / read.rs / write.rs / edit.rs / ls.rs / grep.rs / find.rs / apply_patch.rs / web.rs），公共 API 保持不变
 - **前端组件目录重构**：`src/components/` 按功能模块拆分为三个子目录
   - `chat/`：ChatScreen / ChatInput / ChatSidebar / ThinkingBlock / ToolCallBlock / FallbackDetailsPopover / ApprovalDialog
   - `settings/`：SettingsView / ProviderSettings / ProviderSetup / ProviderEditPage / TestResultDisplay / AvatarCropDialog
