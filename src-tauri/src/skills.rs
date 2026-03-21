@@ -472,12 +472,6 @@ pub fn get_skill_content(name: &str, extra_dirs: &[String], disabled: &[String])
     let entry = skills.into_iter().find(|s| s.name == name)?;
 
     let content = std::fs::read_to_string(&entry.file_path).ok()?;
-    // Strip frontmatter, return only the body
-    let body = if let Some((_name, _desc, _req, body)) = parse_frontmatter(&content) {
-        body.trim().to_string()
-    } else {
-        content
-    };
 
     let files = scan_skill_files(&entry.base_dir);
     let enabled = !disabled.contains(&entry.name);
@@ -488,7 +482,7 @@ pub fn get_skill_content(name: &str, extra_dirs: &[String], disabled: &[String])
         source: entry.source,
         file_path: entry.file_path,
         base_dir: entry.base_dir,
-        content: body,
+        content,
         enabled,
         files,
         requires: entry.requires,
