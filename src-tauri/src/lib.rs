@@ -951,6 +951,15 @@ async fn rename_session_cmd(
     state.session_db.update_session_title(&session_id, &title).map_err(|e| e.to_string())
 }
 
+/// Mark all messages in a session as read.
+#[tauri::command]
+async fn mark_session_read_cmd(
+    session_id: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    state.session_db.mark_session_read(&session_id).map_err(|e| e.to_string())
+}
+
 /// Save an attachment file to disk. Uses a temp directory when session_id is empty.
 /// Returns the absolute path to the saved file.
 #[tauri::command]
@@ -1881,6 +1890,19 @@ async fn memory_export(scope: Option<memory::MemoryScope>) -> Result<String, Str
 }
 
 #[tauri::command]
+async fn get_web_search_config() -> Result<tools::web::WebSearchConfig, String> {
+    let store = provider::load_store().map_err(|e| e.to_string())?;
+    Ok(store.web_search)
+}
+
+#[tauri::command]
+async fn save_web_search_config(config: tools::web::WebSearchConfig) -> Result<(), String> {
+    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    store.web_search = config;
+    provider::save_store(&store).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn get_embedding_config() -> Result<memory::EmbeddingConfig, String> {
     let store = provider::load_store().map_err(|e| e.to_string())?;
     Ok(store.embedding)
@@ -2441,6 +2463,8 @@ pub fn run() {
             memory_search,
             memory_count,
             memory_export,
+            get_web_search_config,
+            save_web_search_config,
             get_embedding_config,
             save_embedding_config,
             get_embedding_presets,
@@ -2460,6 +2484,7 @@ pub fn run() {
             get_session_cmd,
             delete_session_cmd,
             rename_session_cmd,
+            mark_session_read_cmd,
             // Window theme
             set_window_theme,
             // Logging

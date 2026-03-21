@@ -70,6 +70,7 @@ export interface SessionMeta {
   createdAt: string
   updatedAt: string
   messageCount: number
+  unreadCount: number
 }
 
 export interface SessionMessage {

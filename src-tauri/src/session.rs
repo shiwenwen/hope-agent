@@ -18,6 +18,7 @@ pub struct SessionMeta {
     pub created_at: String,
     pub updated_at: String,
     pub message_count: i64,
+    pub unread_count: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -152,6 +153,9 @@ impl SessionDB {
         // Migration: add provider_id column if not exists
         let _ = conn.execute_batch("ALTER TABLE sessions ADD COLUMN provider_id TEXT;");
 
+        // Migration: add last_read_message_id column for unread tracking
+        let _ = conn.execute_batch("ALTER TABLE sessions ADD COLUMN last_read_message_id INTEGER DEFAULT 0;");
+
         Ok(Self { conn: Mutex::new(conn) })
     }
 
@@ -178,6 +182,7 @@ impl SessionDB {
             created_at: now.clone(),
             updated_at: now,
             message_count: 0,
+            unread_count: 0,
         })
     }
 
@@ -192,7 +197,8 @@ impl SessionDB {
             let mut stmt = conn.prepare(
                 "SELECT s.id, s.title, s.agent_id, s.provider_id, s.provider_name, s.model_id,
                         s.created_at, s.updated_at,
-                        (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) as msg_count
+                        (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) as msg_count,
+                        (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.id > COALESCE(s.last_read_message_id, 0)) as unread_count
                  FROM sessions s
                  WHERE s.agent_id = ?1
                  ORDER BY s.updated_at DESC"
@@ -208,6 +214,7 @@ impl SessionDB {
                     created_at: row.get(6)?,
                     updated_at: row.get(7)?,
                     message_count: row.get(8)?,
+                    unread_count: row.get(9)?,
                 })
             })?;
             for row in rows {
@@ -217,7 +224,8 @@ impl SessionDB {
             let mut stmt = conn.prepare(
                 "SELECT s.id, s.title, s.agent_id, s.provider_id, s.provider_name, s.model_id,
                         s.created_at, s.updated_at,
-                        (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) as msg_count
+                        (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) as msg_count,
+                        (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.id > COALESCE(s.last_read_message_id, 0)) as unread_count
                  FROM sessions s
                  ORDER BY s.updated_at DESC"
             )?;
@@ -232,6 +240,7 @@ impl SessionDB {
                     created_at: row.get(6)?,
                     updated_at: row.get(7)?,
                     message_count: row.get(8)?,
+                    unread_count: row.get(9)?,
                 })
             })?;
             for row in rows {
@@ -389,7 +398,8 @@ impl SessionDB {
         let mut stmt = conn.prepare(
             "SELECT s.id, s.title, s.agent_id, s.provider_id, s.provider_name, s.model_id,
                     s.created_at, s.updated_at,
-                    (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) as msg_count
+                    (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) as msg_count,
+                    (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.id > COALESCE(s.last_read_message_id, 0)) as unread_count
              FROM sessions s WHERE s.id = ?1"
         )?;
 
@@ -404,6 +414,7 @@ impl SessionDB {
                 created_at: row.get(6)?,
                 updated_at: row.get(7)?,
                 message_count: row.get(8)?,
+                unread_count: row.get(9)?,
             })
         })?;
 
@@ -412,6 +423,17 @@ impl SessionDB {
             Some(Err(e)) => Err(anyhow::anyhow!("DB error: {}", e)),
             None => Ok(None),
         }
+    }
+
+    /// Mark all messages in a session as read by updating last_read_message_id
+    /// to the current maximum message id.
+    pub fn mark_session_read(&self, session_id: &str) -> Result<()> {
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        conn.execute(
+            "UPDATE sessions SET last_read_message_id = (SELECT COALESCE(MAX(id), 0) FROM messages WHERE session_id = ?1) WHERE id = ?1",
+            params![session_id],
+        )?;
+        Ok(())
     }
 }
 

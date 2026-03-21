@@ -14,6 +14,7 @@ export default function App() {
   const [agentIdForSettings, setAgentIdForSettings] = useState<string | undefined>(undefined)
   const [userAvatar, setUserAvatar] = useState<string | null>(null)
   const [pendingSessionId, setPendingSessionId] = useState<string | undefined>(undefined)
+  const [totalUnreadCount, setTotalUnreadCount] = useState(0)
 
   // Load user avatar
   async function fetchUserAvatar() {
@@ -111,6 +112,7 @@ export default function App() {
         onOpenProfile={() => { setView("profile") }}
         onOpenCalendar={() => setView("calendar")}
         userAvatar={userAvatar}
+        totalUnreadCount={totalUnreadCount}
       />
       {view === "settings" ? (
         <SettingsView
@@ -143,7 +145,7 @@ export default function App() {
       ) : view === "calendar" ? (
         <CronCalendarView onBack={() => setView("chat")} onNavigateToSession={(sessionId) => { setPendingSessionId(sessionId); setView("chat") }} />
       ) : (
-        <ChatScreen onOpenAgentSettings={(agentId) => { setAgentIdForSettings(agentId); setView("agents") }} onCodexReauth={handleCodexAuth} initialSessionId={pendingSessionId} onSessionNavigated={() => setPendingSessionId(undefined)} />
+        <ChatScreen onOpenAgentSettings={(agentId) => { setAgentIdForSettings(agentId); setView("agents") }} onCodexReauth={handleCodexAuth} initialSessionId={pendingSessionId} onSessionNavigated={() => setPendingSessionId(undefined)} onUnreadCountChange={setTotalUnreadCount} />
       )}
     </div>
   )

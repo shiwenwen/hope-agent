@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useLayoutEffect } from "react"
+import { useState, useRef, useEffect, useCallback, useLayoutEffect, useMemo } from "react"
 import { invoke, Channel } from "@tauri-apps/api/core"
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import { useTranslation } from "react-i18next"
@@ -86,6 +86,8 @@ interface ChatScreenProps {
   initialSessionId?: string
   /** Called after the initial session navigation completes */
   onSessionNavigated?: () => void
+  /** Called when total unread count changes across all sessions */
+  onUnreadCountChange?: (count: number) => void
 }
 
 /** Format message timestamp to HH:mm */
@@ -180,7 +182,7 @@ function parseSessionMessages(msgs: SessionMessage[]): Message[] {
 }
 
 
-export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initialSessionId, onSessionNavigated }: ChatScreenProps) {
+export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initialSessionId, onSessionNavigated, onUnreadCountChange }: ChatScreenProps) {
   const { t } = useTranslation()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
@@ -429,6 +431,29 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
     reloadAgents()
   }, [reloadSessions, reloadAgents])
 
+  // Listen for cron job completions to refresh unread counts
+  useEffect(() => {
+    let unlisten: UnlistenFn | undefined
+    listen("cron:run_completed", () => {
+      reloadSessions()
+    }).then((fn) => {
+      unlisten = fn
+    })
+    return () => {
+      unlisten?.()
+    }
+  }, [reloadSessions])
+
+  // Compute total unread count and notify parent
+  const totalUnreadCount = useMemo(
+    () => sessions.reduce((sum, s) => sum + (s.id === currentSessionId ? 0 : s.unreadCount), 0),
+    [sessions, currentSessionId]
+  )
+
+  useEffect(() => {
+    onUnreadCountChange?.(totalUnreadCount)
+  }, [totalUnreadCount, onUnreadCountChange])
+
   // Navigate to a specific session when initialSessionId changes (e.g. from cron run history)
   useEffect(() => {
     if (!initialSessionId) return
@@ -496,6 +521,10 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
         }
       }
     }
+
+    // Mark session as read and refresh unread counts
+    invoke("mark_session_read_cmd", { sessionId }).catch(() => {})
+    reloadSessions()
   }
 
   // Create a new chat with a specific agent

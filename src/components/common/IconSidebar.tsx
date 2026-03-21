@@ -27,6 +27,7 @@ interface IconSidebarProps {
   onOpenProfile: () => void
   onOpenCalendar: () => void
   userAvatar?: string | null
+  totalUnreadCount?: number
 }
 
 export default function IconSidebar({
@@ -38,6 +39,7 @@ export default function IconSidebar({
   onOpenProfile,
   onOpenCalendar,
   userAvatar,
+  totalUnreadCount,
 }: IconSidebarProps) {
   const { t, i18n } = useTranslation()
   const { theme, cycleTheme } = useTheme()
@@ -61,20 +63,25 @@ export default function IconSidebar({
             />
           </button>
         )}
-        <Button
-          variant="ghost"
-          size="icon"
-          className={cn(
-            "rounded-xl h-8 w-8",
-            view === "chat"
-              ? "bg-primary/10 text-primary hover:bg-primary/20"
-              : "text-muted-foreground hover:text-foreground"
+        <div className="relative">
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn(
+              "rounded-xl h-8 w-8",
+              view === "chat"
+                ? "bg-primary/10 text-primary hover:bg-primary/20"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+            onClick={onOpenChat}
+            title={t("chat.conversations")}
+          >
+            <MessageSquare className="h-4 w-4" />
+          </Button>
+          {!!totalUnreadCount && totalUnreadCount > 0 && (
+            <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-destructive pointer-events-none" />
           )}
-          onClick={onOpenChat}
-          title={t("chat.conversations")}
-        >
-          <MessageSquare className="h-4 w-4" />
-        </Button>
+        </div>
       </div>
 
       {/* Agents entry */}

@@ -358,6 +358,13 @@ export default function ChatSidebar({
                       </div>
                     </div>
 
+                    {/* Unread badge */}
+                    {!isActive && session.unreadCount > 0 && (
+                      <span className="shrink-0 min-w-[18px] h-[18px] px-1 rounded-full bg-destructive text-destructive-foreground text-[10px] font-medium flex items-center justify-center">
+                        {session.unreadCount > 99 ? "99+" : session.unreadCount}
+                      </span>
+                    )}
+
                     {/* Delete button (hover) */}
                     <button
                       className="shrink-0 text-muted-foreground/0 group-hover:text-muted-foreground/40 hover:!text-destructive transition-colors p-0.5"
