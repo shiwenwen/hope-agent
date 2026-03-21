@@ -249,13 +249,30 @@ fn build_user_content_responses(message: &str, attachments: &[Attachment]) -> se
 /// Build the full system prompt.
 /// Uses the new system_prompt module with AgentDefinition if available,
 /// otherwise falls back to legacy behavior for backward compatibility.
-fn build_system_prompt() -> String {
-    // Try loading the current agent definition
-    if let Ok(definition) = crate::agent_loader::load_agent("default") {
-        return crate::system_prompt::build(&definition);
+fn build_system_prompt(agent_id: &str, model: &str, provider: &str) -> String {
+    // Try loading the agent definition
+    if let Ok(definition) = crate::agent_loader::load_agent(agent_id) {
+        // Build memory context if enabled
+        let memory_context = if definition.config.memory.enabled {
+            crate::get_memory_backend().and_then(|b| {
+                b.build_prompt_summary(
+                    agent_id,
+                    definition.config.memory.shared,
+                    definition.config.memory.prompt_budget,
+                )
+                .ok()
+            })
+        } else {
+            None
+        };
+        // Resolve agent home directory
+        let agent_home = crate::paths::agent_home_dir(agent_id)
+            .ok()
+            .map(|p| p.to_string_lossy().to_string());
+        return crate::system_prompt::build(&definition, Some(model), Some(provider), memory_context.as_deref(), agent_home.as_deref());
     }
     // Fallback: legacy prompt
-    crate::system_prompt::build_legacy()
+    crate::system_prompt::build_legacy(Some(model), Some(provider))
 }
 
 const CODEX_API_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
@@ -447,6 +464,8 @@ pub struct AssistantAgent {
     thinking_style: ThinkingStyle,
     /// Conversation history persisted across chat() calls
     conversation_history: std::sync::Mutex<Vec<serde_json::Value>>,
+    /// Current agent ID (for memory context loading)
+    agent_id: String,
 }
 
 // ── Shared Event Types (sent to frontend via on_delta JSON) ───────
@@ -551,6 +570,36 @@ fn emit_tool_result(on_delta: &(impl Fn(&str) + Send), call_id: &str, result: &s
         "call_id": call_id,
         "result": result,
     }));
+}
+
+/// Build tool result content, detecting image base64 markers for multimodal responses.
+/// For Anthropic: returns a content array with image + text blocks.
+/// For OpenAI: returns a plain string (OpenAI tool results don't support images directly).
+fn build_anthropic_tool_result_content(result: &str) -> serde_json::Value {
+    use crate::tools::browser::IMAGE_BASE64_PREFIX;
+    if let Some(rest) = result.strip_prefix(IMAGE_BASE64_PREFIX) {
+        // Format: __IMAGE_BASE64__<mime>__<base64data>\n<text description>
+        if let Some(sep_idx) = rest.find("__") {
+            let mime = &rest[..sep_idx];
+            let after = &rest[sep_idx + 2..];
+            let (b64, text) = after.split_once('\n').unwrap_or((after, ""));
+            return json!([
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": mime,
+                        "data": b64
+                    }
+                },
+                {
+                    "type": "text",
+                    "text": if text.trim().is_empty() { "Screenshot captured." } else { text.trim() }
+                }
+            ]);
+        }
+    }
+    json!(result)
 }
 
 fn emit_thinking_delta(on_delta: &(impl Fn(&str) + Send), text: &str) {
@@ -803,6 +852,7 @@ impl AssistantAgent {
             user_agent: USER_AGENT.to_string(),
             thinking_style: ThinkingStyle::Anthropic,
             conversation_history: std::sync::Mutex::new(Vec::new()),
+            agent_id: "default".to_string(),
         }
     }
 
@@ -817,6 +867,7 @@ impl AssistantAgent {
             user_agent: USER_AGENT.to_string(),
             thinking_style: ThinkingStyle::Openai,
             conversation_history: std::sync::Mutex::new(Vec::new()),
+            agent_id: "default".to_string(),
         }
     }
 
@@ -849,6 +900,27 @@ impl AssistantAgent {
             user_agent: config.user_agent.clone(),
             thinking_style: config.thinking_style.clone(),
             conversation_history: std::sync::Mutex::new(Vec::new()),
+            agent_id: "default".to_string(),
+        }
+    }
+
+    /// Set the agent ID (for memory context and home directory).
+    pub fn set_agent_id(&mut self, id: &str) {
+        self.agent_id = id.to_string();
+    }
+
+    /// Get the agent's home directory path.
+    fn agent_home(&self) -> Option<String> {
+        crate::paths::agent_home_dir(&self.agent_id)
+            .ok()
+            .map(|p| p.to_string_lossy().to_string())
+    }
+
+    /// Build a ToolExecContext with agent home directory.
+    fn tool_context(&self) -> tools::ToolExecContext {
+        tools::ToolExecContext {
+            context_window_tokens: None,
+            home_dir: self.agent_home(),
         }
     }
 
@@ -953,7 +1025,7 @@ impl AssistantAgent {
         let mut total_usage = ChatUsage::default();
 
         let api_url = build_api_url(base_url, "/v1/messages");
-        let system_prompt = build_system_prompt();
+        let system_prompt = build_system_prompt(&self.agent_id, model, "Anthropic");
 
         // Map thinking effort for Anthropic
         let max_tokens: u32 = 16384;
@@ -1092,7 +1164,7 @@ impl AssistantAgent {
 
                 emit_tool_call(on_delta, &tc.call_id, &tc.name, &tc.arguments);
 
-                let result = match tools::execute_tool(&tc.name, &args).await {
+                let result = match tools::execute_tool_with_context(&tc.name, &args, &self.tool_context()).await {
                     Ok(r) => r,
                     Err(e) => format!("Tool error: {}", e),
                 };
@@ -1102,7 +1174,7 @@ impl AssistantAgent {
                 tool_results.push(json!({
                     "type": "tool_result",
                     "tool_use_id": tc.call_id,
-                    "content": result,
+                    "content": build_anthropic_tool_result_content(&result),
                 }));
             }
             messages.push(json!({ "role": "user", "content": tool_results }));
@@ -1335,7 +1407,7 @@ impl AssistantAgent {
         let api_url = build_api_url(base_url, "/v1/chat/completions");
         let mut collected_text = String::new();
         let mut total_usage = ChatUsage::default();
-        let system_prompt = build_system_prompt();
+        let system_prompt = build_system_prompt(&self.agent_id, model, "OpenAIChat");
 
         // Apply thinking parameters based on ThinkingStyle
 
@@ -1478,7 +1550,7 @@ impl AssistantAgent {
                 let args: serde_json::Value = serde_json::from_str(&tc.arguments).unwrap_or(json!({}));
                 emit_tool_call(on_delta, &tc.call_id, &tc.name, &tc.arguments);
 
-                let result = match tools::execute_tool(&tc.name, &args).await {
+                let result = match tools::execute_tool_with_context(&tc.name, &args, &self.tool_context()).await {
                     Ok(r) => r,
                     Err(e) => format!("Tool error: {}", e),
                 };
@@ -1711,7 +1783,7 @@ impl AssistantAgent {
         let api_url = build_api_url(base_url, "/v1/responses");
         let mut collected_text = String::new();
         let mut total_usage = ChatUsage::default();
-        let system_prompt = build_system_prompt();
+        let system_prompt = build_system_prompt(&self.agent_id, model, "OpenAIResponses");
 
         let max_rounds = get_max_tool_rounds();
         let max_rounds = if max_rounds == 0 { u32::MAX } else { max_rounds };
@@ -1822,7 +1894,7 @@ impl AssistantAgent {
                 let args: serde_json::Value = serde_json::from_str(&tc.arguments).unwrap_or(json!({}));
                 emit_tool_call(on_delta, &tc.call_id, &tc.name, &tc.arguments);
 
-                let result = match tools::execute_tool(&tc.name, &args).await {
+                let result = match tools::execute_tool_with_context(&tc.name, &args, &self.tool_context()).await {
                     Ok(r) => r,
                     Err(e) => format!("Tool error: {}", e),
                 };
@@ -1907,7 +1979,7 @@ impl AssistantAgent {
 
         let mut collected_text = String::new();
         let mut total_usage = ChatUsage::default();
-        let system_prompt = build_system_prompt();
+        let system_prompt = build_system_prompt(&self.agent_id, model, "Codex");
 
         let max_rounds = get_max_tool_rounds();
         let max_rounds = if max_rounds == 0 { u32::MAX } else { max_rounds };
@@ -2066,7 +2138,7 @@ impl AssistantAgent {
 
                 emit_tool_call(on_delta, &tc.call_id, &tc.name, &tc.arguments);
 
-                let result = match tools::execute_tool(&tc.name, &args).await {
+                let result = match tools::execute_tool_with_context(&tc.name, &args, &self.tool_context()).await {
                     Ok(r) => r,
                     Err(e) => format!("Tool error: {}", e),
                 };

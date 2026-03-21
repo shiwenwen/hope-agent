@@ -3,11 +3,14 @@ use serde_json::{Value, json};
 
 mod approval;
 mod apply_patch;
+pub(crate) mod browser;
+mod cron;
 mod edit;
 mod exec;
 mod find;
 mod grep;
 mod ls;
+mod memory;
 mod process;
 mod read;
 mod web;
@@ -376,6 +379,234 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                 "additionalProperties": false
             }),
         },
+        ToolDefinition {
+            name: "save_memory".into(),
+            description: "Save information to persistent memory for future conversations. Use this when the user shares personal info, preferences, corrections to your behavior, project context, or reference materials. Memories persist across conversations and help you provide better, personalized assistance.".into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "content": {
+                        "type": "string",
+                        "description": "The information to remember. Be concise but complete."
+                    },
+                    "type": {
+                        "type": "string",
+                        "enum": ["user", "feedback", "project", "reference"],
+                        "description": "Memory type: user (about the user), feedback (behavior preferences), project (project context), reference (external resources)"
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Optional tags for categorization"
+                    },
+                    "scope": {
+                        "type": "string",
+                        "enum": ["global", "agent"],
+                        "description": "Scope: global (shared across agents) or agent (private to current agent). Default: global"
+                    }
+                },
+                "required": ["content", "type"],
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: "recall_memory".into(),
+            description: "Search persistent memories by keyword or semantic query. Use this to recall previously stored information about the user, their preferences, project context, or reference materials.".into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query (keyword or natural language)"
+                    },
+                    "type": {
+                        "type": "string",
+                        "enum": ["user", "feedback", "project", "reference"],
+                        "description": "Filter by memory type (optional)"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max results (default 10)"
+                    }
+                },
+                "required": ["query"],
+                "additionalProperties": false
+            }),
+        },
+        // ── Cron / Scheduled Tasks ──────────────────────────────
+        ToolDefinition {
+            name: "manage_cron".into(),
+            description: "Create, list, update, delete, and trigger scheduled tasks (cron jobs). Jobs automatically send messages to the AI agent on a schedule. Supports one-time (at), recurring (every), and cron expression schedules.".into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["create", "list", "get", "delete", "pause", "resume", "run_now"],
+                        "description": "Action to perform"
+                    },
+                    "id": {
+                        "type": "string",
+                        "description": "Job ID (required for get/delete/pause/resume/run_now)"
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Job name (for create)"
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Job description (for create)"
+                    },
+                    "schedule_type": {
+                        "type": "string",
+                        "enum": ["at", "every", "cron"],
+                        "description": "Schedule type (for create)"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "description": "ISO8601 timestamp for 'at' schedule"
+                    },
+                    "interval_ms": {
+                        "type": "integer",
+                        "description": "Interval in milliseconds for 'every' schedule (min 60000)"
+                    },
+                    "cron_expression": {
+                        "type": "string",
+                        "description": "Cron expression for 'cron' schedule (e.g. '0 0 9 * * 1-5 *' = weekdays 9am)"
+                    },
+                    "timezone": {
+                        "type": "string",
+                        "description": "Timezone for cron schedule (default UTC)"
+                    },
+                    "message": {
+                        "type": "string",
+                        "description": "Message to send to the agent when triggered (for create)"
+                    },
+                    "agent_id": {
+                        "type": "string",
+                        "description": "Target agent ID (default: current agent)"
+                    }
+                },
+                "required": ["action"],
+                "additionalProperties": false
+            }),
+        },
+        // ── Browser Control ──────────────────────────────────────
+        ToolDefinition {
+            name: "browser".into(),
+            description: "Control a Chrome browser via DevTools Protocol. Supports navigation, element interaction (click/fill/hover/drag), screenshots, accessibility snapshots, JavaScript execution, and tab management. Chrome must be running with --remote-debugging-port=9222, or use action='launch' to start a managed instance. Use 'take_snapshot' to get element refs, then use those refs for click/fill/hover actions.".into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": [
+                            "connect", "launch", "disconnect",
+                            "list_pages", "new_page", "select_page", "close_page",
+                            "navigate", "go_back", "go_forward",
+                            "take_snapshot", "take_screenshot",
+                            "click", "fill", "fill_form", "hover", "drag",
+                            "press_key", "upload_file",
+                            "evaluate", "wait_for",
+                            "handle_dialog", "resize", "scroll"
+                        ],
+                        "description": "Browser action to perform"
+                    },
+                    "url": {
+                        "type": "string",
+                        "description": "URL for navigate/new_page/connect"
+                    },
+                    "ref": {
+                        "type": "integer",
+                        "description": "Element ref ID from take_snapshot for click/fill/hover/drag"
+                    },
+                    "value": {
+                        "type": "string",
+                        "description": "Value for fill action"
+                    },
+                    "expression": {
+                        "type": "string",
+                        "description": "JavaScript expression for evaluate action"
+                    },
+                    "text": {
+                        "type": "string",
+                        "description": "Text to wait for (wait_for action)"
+                    },
+                    "key": {
+                        "type": "string",
+                        "description": "Key name for press_key (e.g. 'Enter', 'Tab', 'Escape', 'ArrowDown')"
+                    },
+                    "page_id": {
+                        "type": "string",
+                        "description": "Page/tab target ID for select_page/close_page"
+                    },
+                    "fields": {
+                        "type": "object",
+                        "description": "For fill_form: map of ref IDs to values (e.g. {\"3\": \"hello\", \"5\": \"world\"})",
+                        "additionalProperties": { "type": "string" }
+                    },
+                    "format": {
+                        "type": "string",
+                        "enum": ["png", "jpeg"],
+                        "description": "Screenshot format (default: png)"
+                    },
+                    "full_page": {
+                        "type": "boolean",
+                        "description": "Capture full page screenshot (default: false)"
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "description": "Timeout in ms for navigate/wait_for (default: 30000)"
+                    },
+                    "width": {
+                        "type": "integer",
+                        "description": "Viewport width for resize action"
+                    },
+                    "height": {
+                        "type": "integer",
+                        "description": "Viewport height for resize action"
+                    },
+                    "double_click": {
+                        "type": "boolean",
+                        "description": "Double-click for click action"
+                    },
+                    "accept": {
+                        "type": "boolean",
+                        "description": "Accept (true) or dismiss (false) dialog"
+                    },
+                    "dialog_text": {
+                        "type": "string",
+                        "description": "Text to enter in prompt dialog"
+                    },
+                    "target_ref": {
+                        "type": "integer",
+                        "description": "Target element ref for drag action"
+                    },
+                    "file_path": {
+                        "type": "string",
+                        "description": "File path for upload_file action"
+                    },
+                    "executable_path": {
+                        "type": "string",
+                        "description": "Chrome executable path for launch action"
+                    },
+                    "headless": {
+                        "type": "boolean",
+                        "description": "Launch in headless mode (default: false)"
+                    },
+                    "direction": {
+                        "type": "string",
+                        "enum": ["up", "down", "left", "right"],
+                        "description": "Scroll direction (default: down)"
+                    },
+                    "amount": {
+                        "type": "integer",
+                        "description": "Scroll amount in pixels (default: 500)"
+                    }
+                },
+                "required": ["action"]
+            }),
+        },
     ]
 }
 
@@ -394,13 +625,24 @@ pub fn get_tools_for_provider(provider: ToolProvider) -> Vec<Value> {
 pub struct ToolExecContext {
     /// Model context window in tokens (for dynamic output truncation)
     pub context_window_tokens: Option<u32>,
+    /// Agent home directory — used as default cwd/path for tools.
+    /// Falls back to user ~ if None.
+    pub home_dir: Option<String>,
 }
 
 impl Default for ToolExecContext {
     fn default() -> Self {
         Self {
             context_window_tokens: None,
+            home_dir: None,
         }
+    }
+}
+
+impl ToolExecContext {
+    /// Returns the default path for tools: agent home if set, otherwise ".".
+    pub fn default_path(&self) -> &str {
+        self.home_dir.as_deref().unwrap_or(".")
     }
 }
 
@@ -437,12 +679,16 @@ pub async fn execute_tool_with_context(
         "read" | "read_file" => read::tool_read_file(args, ctx).await,
         "write" | "write_file" => write::tool_write_file(args).await,
         "edit" | "patch_file" => edit::tool_edit(args).await,
-        "ls" | "list_dir" => ls::tool_ls(args).await,
-        "grep" => grep::tool_grep(args).await,
-        "find" => find::tool_find(args).await,
+        "ls" | "list_dir" => ls::tool_ls(args, ctx).await,
+        "grep" => grep::tool_grep(args, ctx).await,
+        "find" => find::tool_find(args, ctx).await,
         "apply_patch" => apply_patch::tool_apply_patch(args).await,
         "web_search" => web::tool_web_search(args).await,
         "web_fetch" => web::tool_web_fetch(args).await,
+        "save_memory" => memory::tool_save_memory(args).await,
+        "recall_memory" => memory::tool_recall_memory(args).await,
+        "manage_cron" => cron::tool_manage_cron(args).await,
+        "browser" => browser::tool_browser(args).await,
         _ => Err(anyhow::anyhow!("Unknown tool: {}", name)),
     };
 

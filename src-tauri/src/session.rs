@@ -27,6 +27,8 @@ pub enum MessageRole {
     Assistant,
     Event,
     Tool,
+    /// Intermediate text block emitted before tool calls to preserve ordering.
+    TextBlock,
 }
 
 impl MessageRole {
@@ -36,6 +38,7 @@ impl MessageRole {
             MessageRole::Assistant => "assistant",
             MessageRole::Event => "event",
             MessageRole::Tool => "tool",
+            MessageRole::TextBlock => "text_block",
         }
     }
 
@@ -45,6 +48,7 @@ impl MessageRole {
             "assistant" => MessageRole::Assistant,
             "event" => MessageRole::Event,
             "tool" => MessageRole::Tool,
+            "text_block" => MessageRole::TextBlock,
             _ => MessageRole::User,
         }
     }
@@ -490,6 +494,26 @@ impl NewMessage {
             tool_result: Some(result.to_string()),
             tool_duration_ms: duration_ms,
             is_error: Some(is_error),
+        }
+    }
+
+    /// Create a text_block message (intermediate text before tool calls).
+    pub fn text_block(content: &str) -> Self {
+        Self {
+            role: MessageRole::TextBlock,
+            content: content.to_string(),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            attachments_meta: None,
+            model: None,
+            tokens_in: None,
+            tokens_out: None,
+            reasoning_effort: None,
+            tool_call_id: None,
+            tool_name: None,
+            tool_arguments: None,
+            tool_result: None,
+            tool_duration_ms: None,
+            is_error: None,
         }
     }
 

@@ -214,6 +214,13 @@ pub struct ProviderStore {
     /// Default true. When false, all skills are injected regardless of environment.
     #[serde(default = "default_skill_env_check")]
     pub skill_env_check: bool,
+    /// Embedding model configuration for memory vector search
+    #[serde(default)]
+    pub embedding: crate::memory::EmbeddingConfig,
+    /// Per-skill environment variable overrides configured by user.
+    /// Outer key: skill name, inner key: env var name, value: env var value.
+    #[serde(default)]
+    pub skill_env: std::collections::HashMap<String, std::collections::HashMap<String, String>>,
 }
 
 fn default_skill_env_check() -> bool {
@@ -229,6 +236,8 @@ impl Default for ProviderStore {
             extra_skills_dirs: Vec::new(),
             disabled_skills: Vec::new(),
             skill_env_check: true,
+            embedding: crate::memory::EmbeddingConfig::default(),
+            skill_env: std::collections::HashMap::new(),
         }
     }
 }

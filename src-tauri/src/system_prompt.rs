@@ -31,6 +31,12 @@ Params: pattern (required), path, limit (default 1000). \
 Use *** Begin Patch / *** End Patch format with Add File, Update File, Delete File markers. \
 Update hunks use @@ context + -/+ line prefixes with 3-pass fuzzy matching. \
 - web_search / web_fetch: Search the web and fetch page content. \
+- save_memory: Save information to persistent memory. Use when the user shares personal info, \
+preferences, corrections, project context, or says \"remember this\". \
+Params: content (required), type (user/feedback/project/reference), tags (optional array), scope (global/agent). \
+- recall_memory: Search persistent memories by keyword or semantic query. \
+Use to recall user preferences, project context, or previously stored information. \
+Params: query (required), type (optional filter), limit (default 10). \
 \
 For long-running commands (builds, installs), consider using background=true and then \
 process(action='poll') to check progress.";
@@ -47,10 +53,10 @@ process(action='poll') to check progress.";
 /// ⑤ tools.md — custom tool guidance
 /// ⑥ Tool definitions — built-in tool descriptions (filtered)
 /// ⑦ Skills — available skill descriptions (filtered)
-/// ⑧ (reserved for memory — not yet implemented)
+/// ⑧ Memory — injected from memory backend
 /// ⑨ Runtime info — date, OS, etc.
 /// ⑩ (reserved for project context — not yet implemented)
-pub fn build(definition: &AgentDefinition) -> String {
+pub fn build(definition: &AgentDefinition, model: Option<&str>, provider: Option<&str>, memory_context: Option<&str>, agent_home: Option<&str>) -> String {
     let mut sections: Vec<String> = Vec::new();
 
     let os = std::env::consts::OS;
@@ -123,10 +129,41 @@ pub fn build(definition: &AgentDefinition) -> String {
     // ⑦ Skills (filtered by agent config)
     sections.push(build_skills_section(&definition.config.skills, definition.config.behavior.skill_env_check));
 
-    // ⑧ Memory — not yet implemented
+    // ⑧ Memory
+    if definition.config.memory.enabled {
+        let mut memory_section = String::new();
+
+        // Existing memories
+        if let Some(mem) = memory_context {
+            if !mem.is_empty() {
+                memory_section.push_str(mem);
+                memory_section.push_str("\n\n");
+            }
+        }
+
+        // Memory usage guidance
+        memory_section.push_str(
+            "## Memory Guidelines\n\
+             Use save_memory when:\n\
+             - The user shares personal info (name, role, preferences, expertise)\n\
+             - The user corrects your behavior or says \"don't do X\" / \"always do Y\"\n\
+             - The user mentions project context, deadlines, or architecture decisions\n\
+             - The user explicitly says \"remember this\" or \"don't forget\"\n\
+             - You learn something important that would help in future conversations\n\n\
+             Use recall_memory when:\n\
+             - You need context about the user or project from prior conversations\n\
+             - The user references something discussed before\n\
+             - You want to check if preferences or constraints were previously established\n\n\
+             Do NOT save: ephemeral task details, code snippets, debugging steps, or anything derivable from the codebase."
+        );
+
+        if !memory_section.is_empty() {
+            sections.push(memory_section);
+        }
+    }
 
     // ⑨ Runtime info
-    sections.push(build_runtime_section());
+    sections.push(build_runtime_section(model, provider, agent_home));
 
     // ⑩ Project context — not yet implemented
 
@@ -157,10 +194,10 @@ pub fn build(definition: &AgentDefinition) -> String {
 
 /// Build a system prompt using the legacy path (no AgentDefinition).
 /// This preserves backward compatibility during the transition.
-pub fn build_legacy() -> String {
+pub fn build_legacy(model: Option<&str>, provider: Option<&str>) -> String {
     let store = crate::provider::load_store().unwrap_or_default();
     let available_skills = skills::load_all_skills_with_extra(&store.extra_skills_dirs);
-    let skills_section = skills::build_skills_prompt(&available_skills, &store.disabled_skills, store.skill_env_check);
+    let skills_section = skills::build_skills_prompt(&available_skills, &store.disabled_skills, store.skill_env_check, &store.skill_env);
 
     let mut sections = Vec::new();
 
@@ -189,8 +226,8 @@ pub fn build_legacy() -> String {
         sections.push(skills_section);
     }
 
-    // Runtime
-    sections.push(build_runtime_section());
+    // Runtime (legacy mode has no agent home)
+    sections.push(build_runtime_section(model, provider, None));
 
     sections.join("\n\n")
 }
@@ -208,6 +245,7 @@ fn build_tools_section(filter: &FilterConfig) -> String {
     let all_tools = [
         "exec", "process", "read", "write", "edit",
         "ls", "grep", "find", "apply_patch", "web_search", "web_fetch",
+        "save_memory", "recall_memory",
     ];
 
     let active: Vec<&&str> = all_tools.iter().filter(|t| filter.is_allowed(t)).collect();
@@ -238,7 +276,7 @@ fn build_skills_section(filter: &FilterConfig, env_check: bool) -> String {
         .filter(|s| filter.is_allowed(&s.name))
         .collect();
 
-    skills::build_skills_prompt(&filtered, &disabled, env_check)
+    skills::build_skills_prompt(&filtered, &disabled, env_check, &store.skill_env)
 }
 
 /// Build personality section from structured config.
@@ -278,27 +316,96 @@ fn build_personality_section(p: &PersonalityConfig) -> String {
 }
 
 /// Build runtime information section.
-fn build_runtime_section() -> String {
-    let now = chrono_now();
-    let cwd = std::env::current_dir()
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|_| "unknown".to_string());
+fn build_runtime_section(model: Option<&str>, provider: Option<&str>, agent_home: Option<&str>) -> String {
+    let now = current_date();
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "unknown".to_string());
+    let os = format!("{} {}", std::env::consts::OS, os_version());
+    let arch = std::env::consts::ARCH;
+    let hostname = hostname();
 
-    format!(
-        "# Runtime\n\n\
-         - Date: {}\n\
-         - Working directory: {}\n\
-         - Shell: {}",
-        now, cwd, shell
-    )
+    // Working directory: agent home if set, otherwise process cwd
+    let working_dir = agent_home
+        .map(|h| h.to_string())
+        .unwrap_or_else(|| {
+            std::env::current_dir()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|_| "unknown".to_string())
+        });
+    let git_root = find_git_root(&working_dir);
+
+    // Shared directory for cross-agent data
+    let shared_dir = crate::paths::home_dir()
+        .ok()
+        .map(|p| p.to_string_lossy().to_string());
+
+    let mut lines = vec![
+        format!("- Date: {} (use `date` command for exact time)", now),
+        format!("- Host: {}", hostname),
+        format!("- OS: {} ({})", os, arch),
+        format!("- Shell: {}", shell),
+        format!("- Working directory: {}", working_dir),
+    ];
+
+    if let Some(ref shared) = shared_dir {
+        lines.push(format!("- Shared directory: {} (shared across all agents — use for cross-agent data exchange)", shared));
+    }
+
+    if let Some(root) = &git_root {
+        lines.push(format!("- Git root: {}", root));
+    }
+
+    if let Some(m) = model {
+        let label = match provider {
+            Some(p) => format!("{}/{}", p, m),
+            None => m.to_string(),
+        };
+        lines.push(format!("- Model: {}", label));
+    }
+
+    format!("# Runtime\n\n{}", lines.join("\n"))
 }
 
-/// Get current date/time as a simple string (no chrono dependency).
-fn chrono_now() -> String {
-    // Use the `date` command for a simple timestamp
+/// Get OS version string via `uname -r`.
+fn os_version() -> String {
+    std::process::Command::new("uname")
+        .arg("-r")
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+/// Get machine hostname.
+fn hostname() -> String {
+    std::process::Command::new("hostname")
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+/// Walk up from `start` to find the nearest `.git` directory.
+fn find_git_root(start: &str) -> Option<String> {
+    let mut dir = std::path::PathBuf::from(start);
+    loop {
+        if dir.join(".git").exists() {
+            return Some(dir.to_string_lossy().to_string());
+        }
+        if !dir.pop() {
+            return None;
+        }
+    }
+}
+
+/// Get current date as a stable string (date-only, no time).
+/// Excludes time to maximize prompt cache hit rate — the system prompt
+/// stays identical throughout the day. Agents can use `exec date` for
+/// the precise time when needed.
+fn current_date() -> String {
     std::process::Command::new("date")
-        .arg("+%Y-%m-%d %H:%M %Z")
+        .arg("+%Y-%m-%d %Z")
         .output()
         .ok()
         .and_then(|o| String::from_utf8(o.stdout).ok())

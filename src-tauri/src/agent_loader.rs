@@ -181,6 +181,11 @@ pub fn load_agent(id: &str) -> Result<AgentDefinition> {
     let persona = read_optional_md(&dir, PERSONA_MD)?;
     let tools_guide = read_optional_md(&dir, TOOLS_MD)?;
 
+    // Ensure agent home directory exists
+    if let Ok(home) = paths::agent_home_dir(id) {
+        let _ = std::fs::create_dir_all(&home);
+    }
+
     Ok(AgentDefinition {
         id: id.to_string(),
         dir,
@@ -243,6 +248,13 @@ pub fn list_agents() -> Result<Vec<AgentSummary>> {
             AgentConfig::default()
         };
 
+        // Count memories for this agent
+        let memory_count = crate::get_memory_backend()
+            .and_then(|b| {
+                b.count(Some(&crate::memory::MemoryScope::Agent { id: id.clone() })).ok()
+            })
+            .unwrap_or(0);
+
         summaries.push(AgentSummary {
             id,
             name: config.name,
@@ -252,6 +264,7 @@ pub fn list_agents() -> Result<Vec<AgentSummary>> {
             has_agent_md: path.join(AGENT_MD).exists(),
             has_persona: path.join(PERSONA_MD).exists(),
             has_tools_guide: path.join(TOOLS_MD).exists(),
+            memory_count,
         });
     }
 

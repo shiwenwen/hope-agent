@@ -8,6 +8,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **定时任务系统 (cron)**：支持 AI Agent 按计划自动执行任务
+  - 新增 `cron.rs` 模块：3 种调度类型（一次性 At / 固定间隔 Every / Cron 表达式）
+  - `CronDB`：基于 `~/.opencomputer/cron.db`（SQLite + WAL），持久化任务和运行日志
+  - 后台调度器：tokio 定时任务每 15 秒轮询，到期任务自动 spawn 执行
+  - 任务执行：创建隔离 session，构建 AssistantAgent，支持模型链降级
+  - 错误处理：指数退避重试（30s → 1h），连续失败 N 次自动禁用
+  - 启动恢复：孤立运行标记为 error，过期一次性任务标记为 missed
+  - 日历范围查询：展开 Cron/Every 表达式计算月度事件，关联运行日志
+  - 9 个 Tauri 命令：`cron_list_jobs` / `cron_get_job` / `cron_create_job` / `cron_update_job` / `cron_delete_job` / `cron_toggle_job` / `cron_run_now` / `cron_get_run_logs` / `cron_get_calendar_events`
+  - Agent 工具 `manage_cron`：AI 可直接创建/管理定时任务（7 个 action）
+  - **日历视图页面**：侧边栏入口，月历网格显示任务圆点，点击日期展开任务列表
+  - **设置面板 CronPanel**：列表管理视图，搜索/筛选/批量操作
+  - 共享组件：`CronJobForm`（新建/编辑表单 + Cron 预设）、`CronJobDetail`（详情 + 运行历史）
+  - 实时刷新：Tauri 事件 `cron:run_completed` 通知前端
+  - 依赖：`cron` crate 0.13（Cron 表达式解析）
+  - i18n：中英文翻译（70+ 翻译键）
+- **浏览器控制工具 (browser)**：通过 Chrome DevTools Protocol 直接控制浏览器
+  - 新增 `browser_state.rs`：全局浏览器连接管理（OnceLock 单例，支持连接已运行 Chrome 或启动托管实例）
+  - 新增 `tools/browser.rs`：24 个 action 的 browser tool（connect/launch/disconnect/navigate/go_back/go_forward/take_snapshot/take_screenshot/click/fill/fill_form/hover/drag/press_key/upload_file/evaluate/wait_for/handle_dialog/resize/scroll/list_pages/new_page/select_page/close_page）
+  - 页面可访问性快照：注入 JS 提取元素树，生成 LLM 友好文本格式，ref ID 用于后续交互
+  - 截图返回 base64 image content block（Anthropic multimodal 格式）
+  - 自动连接：tool 调用时自动尝试连接 localhost:9222
+  - 依赖：`chromiumoxide` crate（tokio-runtime），纯 Rust 实现无 Node.js 依赖
+- **记忆系统后端（Phase 2A）**：实现持久化、可搜索的 Agent 记忆系统
+  - 新增 `memory.rs` 模块：`MemoryBackend` trait 可插拔架构（MVP 使用 SQLite + FTS5）
+  - `SqliteMemoryBackend`：基于 `~/.opencomputer/memory.db`，WAL 模式，FTS5 全文搜索（BM25 排序）
+  - 4 种记忆类型：`user`（用户信息）/ `feedback`（行为偏好）/ `project`（项目上下文）/ `reference`（外部资源）
+  - 2 种作用域：`Global`（所有 Agent 共享）/ `Agent`（私有）
+  - 记忆自动注入系统提示词 section ⑧（按类型分组格式化，可配置字符预算，默认 5000）
+  - `MemoryConfig`：per-Agent 配置（enabled / shared / promptBudget），`serde(default)` 零破坏性
+  - 12 个新 Tauri 命令：`memory_add` / `memory_update` / `memory_delete` / `memory_get` / `memory_list` / `memory_search` / `memory_count` / `memory_export` / `get_embedding_config` / `save_embedding_config` / `get_embedding_presets` / `list_local_embedding_models`
+  - `AgentSummary` 新增 `memory_count` 字段
+  - Embedding 配置系统：支持 API 模式（OpenAI / Google Gemini / Jina / Cohere / 硅基流动 / 自定义）和本地 ONNX 模型，类 Provider 设计
+  - `EmbeddingConfig` 存储在 `config.json`（ProviderStore），内置 5 个 API 预设 + 4 个本地模型预设
+  - SQLite FTS5 通过 build.rs 编译时启用
+- **向量语义搜索（Phase 2B）**：在 FTS5 关键词搜索基础上增加向量相似度搜索
+  - 集成 `fastembed`（本地 ONNX embedding）+ `sqlite-vec`（SQLite 向量扩展）
+  - `EmbeddingProvider` trait + `ApiEmbeddingProvider`（OpenAI/Google/Jina/Cohere 兼容）+ `LocalEmbeddingProvider`（fastembed-rs）
+  - RRF（Reciprocal Rank Fusion）混合检索：FTS5 BM25 + 向量余弦相似度融合排序
+  - 记忆 `add()`/`update()` 自动生成向量，`delete()` 自动清理 vec0 表
+  - memories 表新增 `embedding BLOB` 列 + `memories_vec` vec0 虚拟表
+- **记忆管理前端 UI（Phase 2C）**：完整的 GUI 记忆管理界面
+  - 新增 `MemoryPanel.tsx` 设置面板：记忆列表（按类型图标 + 搜索 + 过滤）、添加/编辑/删除、导出 Markdown
+  - Embedding 配置子页面：API 模式（5 个预设一键切换）/ 本地模型选择、API Key + Model + Dimensions 配置
+  - 设置侧边栏新增 "Memory"（Brain 图标）入口
+  - i18n 支持（中文 + 英文，32 个翻译 key）
 - **完整的日志记录系统**：记录应用执行全流程的详细日志，支持可视化查看和检索
   - 新增 `logging.rs` 模块：SQLite 持久化日志（`~/.opencomputer/logs.db`），WAL 模式
   - `LogDB`：支持分页查询、多条件过滤（级别/分类/关键词/时间/会话）、统计、导出（JSON/CSV）、自动清理过期日志

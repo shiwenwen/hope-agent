@@ -1,4 +1,4 @@
-export type SettingsSection = "providers" | "models" | "skills" | "agents" | "profile" | "chat" | "appearance" | "language" | "logs" | "about"
+export type SettingsSection = "providers" | "models" | "skills" | "agents" | "memory" | "profile" | "chat" | "appearance" | "language" | "logs" | "about"
 
 export interface SettingsSectionItem {
   id: SettingsSection
@@ -29,6 +29,7 @@ export interface SkillSummary {
   source: string
   base_dir: string
   enabled: boolean
+  requires_env: string[]
 }
 
 export interface AgentSummary {

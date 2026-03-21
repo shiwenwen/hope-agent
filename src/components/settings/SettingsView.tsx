@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import {
   ArrowLeft,
   Bot,
+  Brain,
   Globe,
   Info,
   Layers,
@@ -28,6 +29,7 @@ import AgentPanel from "@/components/settings/AgentPanel"
 import UserProfilePanel from "@/components/settings/UserProfilePanel"
 import AboutPanel from "@/components/settings/AboutPanel"
 import LogPanel from "@/components/settings/LogPanel"
+import MemoryPanel from "@/components/settings/MemoryPanel"
 import type { SettingsSection, SettingsSectionItem } from "./types"
 
 const SECTIONS: SettingsSectionItem[] = [
@@ -55,6 +57,11 @@ const SECTIONS: SettingsSectionItem[] = [
     id: "skills",
     icon: <Puzzle className="h-4 w-4" />,
     labelKey: "settings.skills",
+  },
+  {
+    id: "memory",
+    icon: <Brain className="h-4 w-4" />,
+    labelKey: "settings.memory",
   },
   {
     id: "chat",
@@ -190,6 +197,7 @@ export default function SettingsView({
           {activeSection === "skills" && <SkillsPanel />}
           {activeSection === "agents" && <AgentPanel initialAgentId={initialAgentId} />}
           {activeSection === "profile" && <UserProfilePanel />}
+          {activeSection === "memory" && <MemoryPanel />}
           {activeSection === "chat" && <ChatSettingsPanel />}
           {activeSection === "appearance" && <AppearancePanel />}
           {activeSection === "language" && <LanguagePanel />}

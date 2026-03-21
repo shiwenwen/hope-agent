@@ -63,7 +63,6 @@ pub fn home_dir() -> Result<PathBuf> {
 }
 
 /// Named agent home directory: ~/.opencomputer/{name}-home/
-#[allow(dead_code)]
 pub fn agent_home_dir(name: &str) -> Result<PathBuf> {
     Ok(root_dir()?.join(format!("{}-home", name)))
 }
@@ -102,6 +101,18 @@ pub fn share_dir() -> Result<PathBuf> {
     Ok(root_dir()?.join("share"))
 }
 
+// ── Memory ──────────────────────────────────────────────────────
+
+/// Memory database path: ~/.opencomputer/memory.db
+pub fn memory_db_path() -> Result<PathBuf> {
+    Ok(root_dir()?.join("memory.db"))
+}
+
+/// Embedding model cache directory: ~/.opencomputer/models/
+pub fn models_cache_dir() -> Result<PathBuf> {
+    Ok(root_dir()?.join("models"))
+}
+
 // ── Directory Initialization ─────────────────────────────────────
 
 /// Ensure all required directories exist.
@@ -115,6 +126,7 @@ pub fn ensure_dirs() -> Result<()> {
         avatars_dir()?,
         share_dir()?,
         logs_dir()?,
+        models_cache_dir()?,
     ];
     for dir in &dirs_to_create {
         std::fs::create_dir_all(dir)?;

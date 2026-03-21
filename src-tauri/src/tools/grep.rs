@@ -10,7 +10,7 @@ const GREP_MAX_LINE_LENGTH: usize = 500;
 /// Max output bytes for grep/find (50KB).
 pub(crate) const GREP_FIND_MAX_OUTPUT_BYTES: usize = 50 * 1024;
 
-pub(crate) async fn tool_grep(args: &Value) -> Result<String> {
+pub(crate) async fn tool_grep(args: &Value, ctx: &super::ToolExecContext) -> Result<String> {
     let pattern_str = args
         .get("pattern")
         .and_then(|v| extract_string_param(v))
@@ -20,7 +20,7 @@ pub(crate) async fn tool_grep(args: &Value) -> Result<String> {
         .get("path")
         .or_else(|| args.get("file_path"))
         .and_then(|v| extract_string_param(v))
-        .unwrap_or(".");
+        .unwrap_or(ctx.default_path());
     let search_path = expand_tilde(raw_path);
 
     let glob_pattern = args.get("glob").and_then(|v| extract_string_param(v));

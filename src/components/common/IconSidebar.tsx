@@ -47,7 +47,7 @@ export default function IconSidebar({
         {/* User avatar (if set) */}
         {userAvatar && (
           <button
-            className="w-9 h-9 rounded-full overflow-hidden ring-2 ring-primary/20 hover:ring-primary/40 transition-all cursor-pointer shrink-0"
+            className="w-9 h-9 rounded-full overflow-hidden ring-1 ring-primary/20 hover:ring-primary/40 transition-all cursor-pointer shrink-0"
             onClick={onOpenProfile}
             title={t("settings.profile")}
           >

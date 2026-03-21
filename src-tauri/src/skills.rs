@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use crate::paths;
@@ -50,6 +51,9 @@ pub struct SkillSummary {
     pub source: String,
     pub base_dir: String,
     pub enabled: bool,
+    /// Environment variable names required by this skill (from `requires.env`).
+    #[serde(default)]
+    pub requires_env: Vec<String>,
 }
 
 /// File metadata inside a skill directory.
@@ -74,6 +78,9 @@ pub struct SkillDetail {
     pub enabled: bool,
     /// All files/dirs inside the skill directory.
     pub files: Vec<FileInfo>,
+    /// Environment requirements from frontmatter.
+    #[serde(default)]
+    pub requires: SkillRequires,
 }
 
 // ── Frontmatter Parsing ──────────────────────────────────────────
@@ -186,7 +193,8 @@ fn push_requires_items(req: &mut SkillRequires, key: &str, items: Vec<String>) {
 }
 
 /// Check whether a skill's requirements are satisfied in the current environment.
-pub fn check_requirements(req: &SkillRequires) -> bool {
+/// `configured_env` provides user-configured env var overrides from the settings UI.
+pub fn check_requirements(req: &SkillRequires, configured_env: Option<&HashMap<String, String>>) -> bool {
     // Check OS constraint
     if !req.os.is_empty() {
         let current = std::env::consts::OS; // "macos", "linux", "windows"
@@ -208,14 +216,35 @@ pub fn check_requirements(req: &SkillRequires) -> bool {
         }
     }
 
-    // Check environment variables
+    // Check environment variables: user-configured values take priority over system env
     for key in &req.env {
-        if std::env::var(key).map(|v| v.is_empty()).unwrap_or(true) {
+        let has_configured = configured_env
+            .and_then(|m| m.get(key))
+            .map(|v| !v.is_empty())
+            .unwrap_or(false);
+        if !has_configured && std::env::var(key).map(|v| v.is_empty()).unwrap_or(true) {
             return false;
         }
     }
 
     true
+}
+
+/// Mask a secret value for frontend display.
+/// Same pattern as ProviderConfig::masked().
+pub fn mask_value(v: &str) -> String {
+    if v.len() > 8 {
+        format!("{}...{}", &v[..4], &v[v.len() - 4..])
+    } else if !v.is_empty() {
+        "****".to_string()
+    } else {
+        String::new()
+    }
+}
+
+/// Check if a value is a masked placeholder (should not overwrite real value).
+pub fn is_masked_value(v: &str) -> bool {
+    v == "****" || (v.len() > 7 && v.contains("..."))
 }
 
 /// Check whether a binary exists anywhere in PATH.
@@ -370,12 +399,18 @@ pub fn load_all_skills() -> Vec<SkillEntry> {
 /// Build the skills section of the system prompt.
 /// Disabled skills are excluded.
 /// When `env_check` is true, skills whose `requires` conditions are not met are also excluded.
+/// `skill_env` provides user-configured env vars per skill.
 /// Returns an empty string if no skills are available.
-pub fn build_skills_prompt(skills: &[SkillEntry], disabled: &[String], env_check: bool) -> String {
+pub fn build_skills_prompt(
+    skills: &[SkillEntry],
+    disabled: &[String],
+    env_check: bool,
+    skill_env: &HashMap<String, HashMap<String, String>>,
+) -> String {
     let active: Vec<&SkillEntry> = skills
         .iter()
         .filter(|s| !disabled.contains(&s.name))
-        .filter(|s| !env_check || check_requirements(&s.requires))
+        .filter(|s| !env_check || check_requirements(&s.requires, skill_env.get(&s.name)))
         .collect();
     if active.is_empty() {
         return String::new();
@@ -437,12 +472,6 @@ pub fn get_skill_content(name: &str, extra_dirs: &[String], disabled: &[String])
     let entry = skills.into_iter().find(|s| s.name == name)?;
 
     let content = std::fs::read_to_string(&entry.file_path).ok()?;
-    // Strip frontmatter, return only the body
-    let body = if let Some((_name, _desc, _req, body)) = parse_frontmatter(&content) {
-        body.trim().to_string()
-    } else {
-        content
-    };
 
     let files = scan_skill_files(&entry.base_dir);
     let enabled = !disabled.contains(&entry.name);
@@ -453,9 +482,10 @@ pub fn get_skill_content(name: &str, extra_dirs: &[String], disabled: &[String])
         source: entry.source,
         file_path: entry.file_path,
         base_dir: entry.base_dir,
-        content: body,
+        content,
         enabled,
         files,
+        requires: entry.requires,
     })
 }
 
@@ -532,20 +562,20 @@ Use the gh CLI.
 
     #[test]
     fn test_build_skills_prompt_empty() {
-        assert_eq!(build_skills_prompt(&[], &[], false), "");
+        assert_eq!(build_skills_prompt(&[], &[], false, &HashMap::new()), "");
     }
 
     #[test]
     fn test_build_skills_prompt_one_skill() {
         let skills = vec![make_skill("github", "GitHub ops")];
-        let prompt = build_skills_prompt(&skills, &[], false);
+        let prompt = build_skills_prompt(&skills, &[], false, &HashMap::new());
         assert!(prompt.contains("- github: GitHub ops"));
     }
 
     #[test]
     fn test_build_skills_prompt_disabled() {
         let skills = vec![make_skill("github", "GitHub ops")];
-        let prompt = build_skills_prompt(&skills, &["github".to_string()], false);
+        let prompt = build_skills_prompt(&skills, &["github".to_string()], false, &HashMap::new());
         assert_eq!(prompt, "");
     }
 
@@ -553,14 +583,14 @@ Use the gh CLI.
     fn test_build_skills_prompt_env_check_no_requires() {
         // Skill with no requires should always pass env_check
         let skills = vec![make_skill("basic", "A basic skill")];
-        let prompt = build_skills_prompt(&skills, &[], true);
+        let prompt = build_skills_prompt(&skills, &[], true, &HashMap::new());
         assert!(prompt.contains("- basic: A basic skill"));
     }
 
     #[test]
     fn test_check_requirements_empty() {
         // Empty requirements always pass
-        assert!(check_requirements(&SkillRequires::default()));
+        assert!(check_requirements(&SkillRequires::default(), None));
     }
 
     #[test]
@@ -570,7 +600,42 @@ Use the gh CLI.
             env: vec![],
             os: vec!["nonexistent-os-xyz".to_string()],
         };
-        assert!(!check_requirements(&req));
+        assert!(!check_requirements(&req, None));
+    }
+
+    #[test]
+    fn test_check_requirements_with_configured_env() {
+        let req = SkillRequires {
+            bins: vec![],
+            env: vec!["MY_TEST_KEY_XYZ".to_string()],
+            os: vec![],
+        };
+        // Without configured env, should fail (assuming MY_TEST_KEY_XYZ is not set)
+        assert!(!check_requirements(&req, None));
+        // With configured env, should pass
+        let mut configured = HashMap::new();
+        configured.insert("MY_TEST_KEY_XYZ".to_string(), "some-value".to_string());
+        assert!(check_requirements(&req, Some(&configured)));
+        // Empty value should still fail
+        configured.insert("MY_TEST_KEY_XYZ".to_string(), String::new());
+        assert!(!check_requirements(&req, Some(&configured)));
+    }
+
+    #[test]
+    fn test_mask_value() {
+        assert_eq!(mask_value(""), "");
+        assert_eq!(mask_value("short"), "****");
+        assert_eq!(mask_value("12345678"), "****");
+        assert_eq!(mask_value("123456789"), "1234...6789");
+        assert_eq!(mask_value("sk-abcdefghijklmnop"), "sk-a...mnop");
+    }
+
+    #[test]
+    fn test_is_masked_value() {
+        assert!(is_masked_value("****"));
+        assert!(is_masked_value("1234...6789"));
+        assert!(!is_masked_value("real-value"));
+        assert!(!is_masked_value(""));
     }
 
     #[test]

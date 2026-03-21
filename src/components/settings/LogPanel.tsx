@@ -332,7 +332,7 @@ export default function LogPanel() {
         )}
 
         {/* View mode tabs + Action buttons */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {/* View mode toggle */}
           <div className="flex items-center rounded-md border border-border overflow-hidden">
             <button

@@ -7,7 +7,7 @@ use super::grep::GREP_FIND_MAX_OUTPUT_BYTES;
 /// Default max results for find.
 const FIND_DEFAULT_LIMIT: usize = 1000;
 
-pub(crate) async fn tool_find(args: &Value) -> Result<String> {
+pub(crate) async fn tool_find(args: &Value, ctx: &super::ToolExecContext) -> Result<String> {
     let pattern_str = args
         .get("pattern")
         .and_then(|v| extract_string_param(v))
@@ -17,7 +17,7 @@ pub(crate) async fn tool_find(args: &Value) -> Result<String> {
         .get("path")
         .or_else(|| args.get("file_path"))
         .and_then(|v| extract_string_param(v))
-        .unwrap_or(".");
+        .unwrap_or(ctx.default_path());
     let search_path = expand_tilde(raw_path);
 
     let limit = args

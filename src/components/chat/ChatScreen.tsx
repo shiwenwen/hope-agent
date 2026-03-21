@@ -128,9 +128,14 @@ function parseSessionMessages(msgs: SessionMessage[]): Message[] {
         pendingTools.push(tool)
         pendingBlocks.push({ type: "tool_call", tool })
       }
+    } else if (msg.role === "text_block") {
+      // Intermediate text emitted before tool calls — preserve ordering
+      if (msg.content) {
+        pendingBlocks.push({ type: "text", content: msg.content })
+      }
     } else if (msg.role === "assistant") {
       const toolCalls = pendingTools.length > 0 ? [...pendingTools] : undefined
-      // Build contentBlocks: tool_call blocks first, then text block
+      // Build contentBlocks: pending blocks (text_block + tool_call in order), then remaining text
       const blocks: ContentBlock[] = [...pendingBlocks]
       if (msg.content) {
         blocks.push({ type: "text", content: msg.content })
@@ -1181,7 +1186,7 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
                         </button>
                         {detailsIndex === i && (
                           <div
-                            className="absolute top-full mt-1 z-50 min-w-[180px] rounded-lg border border-border bg-popover p-2.5 shadow-lg left-0"
+                            className="absolute bottom-full mb-1 z-50 min-w-[180px] rounded-lg border border-border bg-popover p-2.5 shadow-lg left-0"
                           >
                             <div className="space-y-1.5 text-xs">
                               {msg.model && (

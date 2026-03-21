@@ -124,9 +124,11 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
     let mut cmd = Command::new("sh");
     cmd.arg("-c").arg(command);
 
-    // Set working directory
+    // Set working directory: explicit cwd > agent home > user home
     if let Some(dir) = cwd {
         cmd.current_dir(dir);
+    } else if let Some(ref agent_home) = ctx.home_dir {
+        cmd.current_dir(agent_home);
     } else if let Some(home) = dirs::home_dir() {
         cmd.current_dir(home);
     }
@@ -149,6 +151,7 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
     let session_id = create_session_id();
     let session_cwd = cwd
         .map(|s| s.to_string())
+        .or_else(|| ctx.home_dir.clone())
         .unwrap_or_else(|| {
             dirs::home_dir()
                 .map(|p| p.to_string_lossy().to_string())
@@ -338,7 +341,7 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
     // ── PTY execution path ──────────────────────────────────────
     if use_pty {
         log::info!("Using PTY mode for command: {}", command);
-        match exec_via_pty(command, cwd, args, timeout_secs, max_output, &session_id).await {
+        match exec_via_pty(command, cwd, args, timeout_secs, max_output, &session_id, ctx).await {
             Ok(result) => return Ok(result),
             Err(e) => {
                 log::warn!("PTY execution failed ({}), falling back to normal mode", e);
@@ -544,12 +547,14 @@ async fn exec_via_pty(
     timeout_secs: u64,
     max_output: usize,
     session_id: &str,
+    ctx: &super::ToolExecContext,
 ) -> Result<String> {
     use portable_pty::{CommandBuilder, PtySize, native_pty_system};
     use std::io::Read;
 
     let command_owned = command.to_string();
     let cwd_owned = cwd.map(|s| s.to_string());
+    let agent_home_owned = ctx.home_dir.clone();
     let env_vars: Vec<(String, String)> = args
         .get("env")
         .and_then(|v| v.as_object())
@@ -578,9 +583,11 @@ async fn exec_via_pty(
         cmd.arg("-c");
         cmd.arg(&command_owned);
 
-        // Set working directory
+        // Set working directory: explicit cwd > agent home > user home
         if let Some(ref dir) = cwd_owned {
             cmd.cwd(dir);
+        } else if let Some(ref agent_home) = agent_home_owned {
+            cmd.cwd(agent_home);
         } else if let Some(home) = dirs::home_dir() {
             cmd.cwd(home);
         }
