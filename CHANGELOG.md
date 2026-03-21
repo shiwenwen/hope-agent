@@ -12,14 +12,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `update_memory`：根据 ID 修改记忆内容和标签
   - `delete_memory`：根据 ID 删除记忆
   - `recall_memory` 输出中增加 ID 显示，便于修改和删除操作
-- **Web 搜索多 Provider 支持**：web_search 工具支持 7 个搜索引擎切换
-  - 零成本 Provider：DuckDuckGo（默认）、SearXNG（自托管元搜索）
+- **Web 搜索多 Provider 支持**：web_search 工具支持 7 个搜索引擎，可拖拽排序 + 独立开关
+  - 零成本 Provider：DuckDuckGo（默认开启）、SearXNG（自托管元搜索）
   - 付费 Provider：Brave Search、Perplexity、Google Custom Search、Grok (X.AI)、Kimi (Moonshot)
-  - 自动检测：未显式选择时按已配置 API Key 优先级自动选用（Brave > Google > Perplexity > Grok > Kimi > SearXNG > DDG）
-  - 新增设置面板 `WebSearchPanel`：搜索引擎选择 + 对应 API Key / 实例地址配置
+  - 有序优先级：按列表顺序使用第一个已开启的引擎，拖拽调整优先级
+  - 智能约束：需要 API Key 的引擎必须填写密钥后才能开启，清空密钥自动关闭
+  - 新增设置面板 `WebSearchPanel`：@dnd-kit 拖拽排序 + 展开编辑 + 开关切换
+  - 数据模型：`WebSearchProviderEntry[]`（id/enabled/apiKey/apiKey2/baseUrl）
   - 2 个 Tauri 命令：`get_web_search_config` / `save_web_search_config`
-  - 配置持久化在 `config.json` 的 `webSearch` 字段
+  - 配置持久化在 `config.json` 的 `webSearch.providers` 有序数组
   - i18n：中英文翻译
+- **SearXNG Docker 一键部署**：选择 SearXNG 时提供 Docker 一键部署功能
+  - 新增 `docker.rs` 模块：Docker CLI 交互（检测/拉取镜像/启动/停止/删除容器）
+  - 自动注入 `settings.yml`（禁用 limiter + 启用 JSON 格式）
+  - 端口冲突检测（8080-8089 自动递增）+ 健康检查轮询
+  - 前端状态指示灯（运行中/已停止）+ 启动/停止/删除按钮
+  - 5 个 Tauri 命令：`searxng_docker_status/deploy/start/stop/remove`
 - **开机自动启动**：设置面板「系统」分类，一键开启/关闭登录时自动启动
   - 集成 `tauri-plugin-autostart`，macOS 使用 LaunchAgent 方式注册
   - 2 个 Tauri 命令：`get_autostart_enabled` / `set_autostart_enabled`

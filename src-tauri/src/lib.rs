@@ -3,6 +3,7 @@ mod agent_config;
 mod agent_loader;
 mod browser_state;
 mod cron;
+mod docker;
 mod memory;
 mod failover;
 mod file_extract;
@@ -1788,6 +1789,11 @@ async fn open_directory(path: String) -> Result<(), String> {
     open::that(&resolved).map_err(|e| format!("Failed to open directory: {}", e))
 }
 
+#[tauri::command]
+async fn open_url(url: String) -> Result<(), String> {
+    open::that(&url).map_err(|e| format!("Failed to open URL: {}", e))
+}
+
 // ── Agent Management Commands ────────────────────────────────────
 
 #[tauri::command]
@@ -1900,6 +1906,49 @@ async fn save_web_search_config(config: tools::web::WebSearchConfig) -> Result<(
     let mut store = provider::load_store().map_err(|e| e.to_string())?;
     store.web_search = config;
     provider::save_store(&store).map_err(|e| e.to_string())
+}
+
+// ── SearXNG Docker Management ─────────────────────────────────
+
+#[tauri::command]
+async fn searxng_docker_status() -> Result<docker::SearxngDockerStatus, String> {
+    Ok(docker::status().await)
+}
+
+#[tauri::command]
+async fn searxng_docker_deploy() -> Result<String, String> {
+    let url = docker::deploy().await.map_err(|e| e.to_string())?;
+    // Auto-save the URL into the SearXNG provider entry and mark as docker-managed
+    if let Ok(mut store) = provider::load_store() {
+        if let Some(entry) = store.web_search.providers.iter_mut().find(|e| e.id == tools::web::WebSearchProvider::Searxng) {
+            entry.base_url = Some(url.clone());
+            entry.enabled = true;
+        }
+        store.web_search.searxng_docker_managed = Some(true);
+        let _ = provider::save_store(&store);
+    }
+    Ok(url)
+}
+
+#[tauri::command]
+async fn searxng_docker_start() -> Result<(), String> {
+    docker::start().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn searxng_docker_stop() -> Result<(), String> {
+    docker::stop().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn searxng_docker_remove() -> Result<(), String> {
+    docker::remove().await.map_err(|e| e.to_string())?;
+    // Clear docker-managed flag
+    if let Ok(mut store) = provider::load_store() {
+        store.web_search.searxng_docker_managed = None;
+        let _ = provider::save_store(&store);
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -2446,6 +2495,7 @@ pub fn run() {
             remove_skill_env_var,
             get_skills_env_status,
             open_directory,
+            open_url,
             // Agent management
             list_agents,
             get_agent_config,
@@ -2465,6 +2515,11 @@ pub fn run() {
             memory_export,
             get_web_search_config,
             save_web_search_config,
+            searxng_docker_status,
+            searxng_docker_deploy,
+            searxng_docker_start,
+            searxng_docker_stop,
+            searxng_docker_remove,
             get_embedding_config,
             save_embedding_config,
             get_embedding_presets,

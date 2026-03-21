@@ -1,0 +1,621 @@
+import { useState, useEffect, useCallback } from "react"
+import { invoke } from "@tauri-apps/api/core"
+import { useTranslation } from "react-i18next"
+import { logger } from "@/lib/logger"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Switch } from "@/components/ui/switch"
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core"
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+  arrayMove,
+} from "@dnd-kit/sortable"
+import { CSS } from "@dnd-kit/utilities"
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Circle,
+  Download,
+  ExternalLink,
+  GripVertical,
+  Loader2,
+  Play,
+  Square,
+  Trash2,
+} from "lucide-react"
+
+// ── Types ────────────────────────────────────────────────────────
+
+interface ProviderEntry {
+  id: string
+  enabled: boolean
+  apiKey: string | null
+  apiKey2: string | null
+  baseUrl: string | null
+}
+
+interface WebSearchConfig {
+  providers: ProviderEntry[]
+  searxngDockerManaged: boolean | null
+}
+
+interface SearxngDockerStatus {
+  dockerInstalled: boolean
+  containerExists: boolean
+  containerRunning: boolean
+  port: number | null
+  healthOk: boolean
+}
+
+// ── Provider metadata (static) ──────────────────────────────────
+
+interface ProviderMeta {
+  id: string
+  labelKey: string
+  free: boolean
+  needsApiKey: boolean
+  fields: FieldDef[]
+}
+
+interface FieldDef {
+  configKey: "apiKey" | "apiKey2" | "baseUrl"
+  labelKey: string
+  placeholder: string
+  secret?: boolean
+}
+
+const PROVIDER_META: Record<string, ProviderMeta> = {
+  "duck-duck-go": {
+    id: "duck-duck-go",
+    labelKey: "settings.webSearchProviderDDG",
+    free: true,
+    needsApiKey: false,
+    fields: [],
+  },
+  searxng: {
+    id: "searxng",
+    labelKey: "settings.webSearchProviderSearXNG",
+    free: true,
+    needsApiKey: false,
+    fields: [
+      {
+        configKey: "baseUrl",
+        labelKey: "settings.webSearchInstanceUrl",
+        placeholder: "http://localhost:8080",
+      },
+    ],
+  },
+  brave: {
+    id: "brave",
+    labelKey: "settings.webSearchProviderBrave",
+    free: false,
+    needsApiKey: true,
+    fields: [
+      {
+        configKey: "apiKey",
+        labelKey: "settings.webSearchApiKey",
+        placeholder: "BSA...",
+        secret: true,
+      },
+    ],
+  },
+  perplexity: {
+    id: "perplexity",
+    labelKey: "settings.webSearchProviderPerplexity",
+    free: false,
+    needsApiKey: true,
+    fields: [
+      {
+        configKey: "apiKey",
+        labelKey: "settings.webSearchApiKey",
+        placeholder: "pplx-...",
+        secret: true,
+      },
+    ],
+  },
+  google: {
+    id: "google",
+    labelKey: "settings.webSearchProviderGoogle",
+    free: false,
+    needsApiKey: true,
+    fields: [
+      {
+        configKey: "apiKey",
+        labelKey: "settings.webSearchApiKey",
+        placeholder: "AIza...",
+        secret: true,
+      },
+      {
+        configKey: "apiKey2",
+        labelKey: "settings.webSearchGoogleCx",
+        placeholder: "Search Engine ID",
+      },
+    ],
+  },
+  grok: {
+    id: "grok",
+    labelKey: "settings.webSearchProviderGrok",
+    free: false,
+    needsApiKey: true,
+    fields: [
+      {
+        configKey: "apiKey",
+        labelKey: "settings.webSearchApiKey",
+        placeholder: "xai-...",
+        secret: true,
+      },
+    ],
+  },
+  kimi: {
+    id: "kimi",
+    labelKey: "settings.webSearchProviderKimi",
+    free: false,
+    needsApiKey: true,
+    fields: [
+      {
+        configKey: "apiKey",
+        labelKey: "settings.webSearchApiKey",
+        placeholder: "sk-...",
+        secret: true,
+      },
+    ],
+  },
+}
+
+function hasRequiredCredentials(entry: ProviderEntry): boolean {
+  const meta = PROVIDER_META[entry.id]
+  if (!meta) return false
+  // DuckDuckGo: always ready
+  if (entry.id === "duck-duck-go") return true
+  // SearXNG: needs baseUrl (instance address)
+  if (entry.id === "searxng") return !!entry.baseUrl?.trim()
+  // Paid providers: need apiKey
+  if (!entry.apiKey?.trim()) return false
+  // Google also needs apiKey2 (CX)
+  if (entry.id === "google" && !entry.apiKey2?.trim()) return false
+  return true
+}
+
+// ── Sortable Provider Row ───────────────────────────────────────
+
+function SortableProviderItem({
+  entry,
+  index,
+  expanded,
+  onToggleExpand,
+  onToggleEnabled,
+  onFieldChange,
+}: {
+  entry: ProviderEntry
+  index: number
+  expanded: boolean
+  onToggleExpand: () => void
+  onToggleEnabled: (enabled: boolean) => void
+  onFieldChange: (key: "apiKey" | "apiKey2" | "baseUrl", value: string | null) => void
+}) {
+  const { t } = useTranslation()
+  const meta = PROVIDER_META[entry.id]
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: entry.id })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+    zIndex: isDragging ? 50 : undefined,
+  }
+
+  if (!meta) return null
+
+  const canEnable = hasRequiredCredentials(entry)
+  const hasFields = meta.fields.length > 0
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="rounded-lg border border-border/50 bg-secondary/20 overflow-hidden"
+    >
+      {/* Main row */}
+      <div className="flex items-center gap-2 px-3 py-2.5">
+        {/* Drag handle */}
+        <div
+          className="cursor-grab active:cursor-grabbing text-muted-foreground/40 hover:text-muted-foreground/70 shrink-0 touch-none"
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical className="h-3.5 w-3.5" />
+        </div>
+
+        {/* Priority badge */}
+        <span className="text-[10px] font-bold text-muted-foreground/50 w-5 text-center shrink-0">
+          #{index + 1}
+        </span>
+
+        {/* Expand toggle + name */}
+        <button
+          className="flex items-center gap-1.5 flex-1 min-w-0 text-left"
+          onClick={onToggleExpand}
+        >
+          {hasFields ? (
+            expanded ? (
+              <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            )
+          ) : (
+            <span className="w-3.5 shrink-0" />
+          )}
+          <span className="text-sm font-medium truncate">{t(meta.labelKey)}</span>
+          {meta.free && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/10 text-green-600 dark:text-green-400 font-medium shrink-0">
+              {t("settings.webSearchFree")}
+            </span>
+          )}
+          {!canEnable && entry.id !== "duck-duck-go" && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 font-medium shrink-0">
+              {t(meta.needsApiKey ? "settings.webSearchNeedsKey" : "settings.webSearchNeedsConfig")}
+            </span>
+          )}
+        </button>
+
+        {/* Enable toggle */}
+        <Switch
+          checked={entry.enabled}
+          disabled={!canEnable && !entry.enabled}
+          onCheckedChange={onToggleEnabled}
+        />
+      </div>
+
+      {/* Expanded fields */}
+      {expanded && hasFields && (
+        <div className="px-3 pb-3 pt-1 space-y-2.5 border-t border-border/30 ml-[52px]">
+          {meta.fields.map((field) => (
+            <div key={field.configKey} className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">
+                {t(field.labelKey)}
+              </label>
+              <Input
+                type={field.secret ? "password" : "text"}
+                placeholder={field.placeholder}
+                className="h-8 text-sm"
+                value={(entry[field.configKey] as string) ?? ""}
+                onChange={(e) =>
+                  onFieldChange(field.configKey, e.target.value || null)
+                }
+              />
+            </div>
+          ))}
+
+          {/* SearXNG Docker section */}
+          {entry.id === "searxng" && (
+            <SearxngDockerSection
+              onUrlSet={(url) => onFieldChange("baseUrl", url)}
+            />
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── SearXNG Docker Section ──────────────────────────────────────
+
+function SearxngDockerSection({
+  onUrlSet,
+}: {
+  onUrlSet: (url: string) => void
+}) {
+  const { t } = useTranslation()
+  const [status, setStatus] = useState<SearxngDockerStatus | null>(null)
+  const [checking, setChecking] = useState(true)
+  const [deploying, setDeploying] = useState(false)
+  const [actionLoading, setActionLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const refreshStatus = useCallback(async () => {
+    setChecking(true)
+    try {
+      const s = await invoke<SearxngDockerStatus>("searxng_docker_status")
+      setStatus(s)
+    } catch (e) {
+      logger.error("settings", "SearxngDocker::status", "Failed to check Docker status", e)
+    } finally {
+      setChecking(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    refreshStatus()
+  }, [refreshStatus])
+
+  const handleDeploy = useCallback(async () => {
+    setDeploying(true)
+    setError(null)
+    try {
+      const url = await invoke<string>("searxng_docker_deploy")
+      onUrlSet(url)
+      await refreshStatus()
+    } catch (e) {
+      setError(String(e))
+    } finally {
+      setDeploying(false)
+    }
+  }, [onUrlSet, refreshStatus])
+
+  const handleAction = useCallback(
+    async (action: "start" | "stop" | "remove") => {
+      setActionLoading(true)
+      setError(null)
+      try {
+        await invoke(`searxng_docker_${action}`)
+        await refreshStatus()
+      } catch (e) {
+        setError(String(e))
+      } finally {
+        setActionLoading(false)
+      }
+    },
+    [refreshStatus]
+  )
+
+  if (checking && !status) {
+    return (
+      <div className="rounded-md border border-border/50 p-3 mt-1">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          {t("settings.webSearchDockerChecking")}
+        </div>
+      </div>
+    )
+  }
+
+  if (!status) return null
+
+  if (!status.dockerInstalled) {
+    return (
+      <div className="rounded-md border border-border/50 p-3 mt-1 space-y-2">
+        <div className="text-xs font-medium">{t("settings.webSearchDockerTitle")}</div>
+        <p className="text-xs text-muted-foreground">
+          {t("settings.webSearchDockerNotInstalled")}
+        </p>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 text-xs"
+          onClick={() =>
+            invoke("open_url", { url: "https://www.docker.com/products/docker-desktop/" })
+          }
+        >
+          <ExternalLink className="h-3 w-3 mr-1" />
+          {t("settings.webSearchDockerInstall")}
+        </Button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="rounded-md border border-border/50 p-3 mt-1 space-y-2">
+      <div className="text-xs font-medium">{t("settings.webSearchDockerTitle")}</div>
+
+      {status.containerExists && (
+        <div className="flex items-center gap-2 text-xs">
+          <Circle
+            className={`h-2 w-2 fill-current ${
+              status.containerRunning && status.healthOk
+                ? "text-green-500"
+                : status.containerRunning
+                  ? "text-yellow-500"
+                  : "text-muted-foreground"
+            }`}
+          />
+          <span>
+            {status.containerRunning
+              ? status.healthOk
+                ? t("settings.webSearchDockerRunning")
+                : t("settings.webSearchDockerStarting")
+              : t("settings.webSearchDockerStopped")}
+          </span>
+          {status.port && status.containerRunning && (
+            <span className="text-muted-foreground">localhost:{status.port}</span>
+          )}
+        </div>
+      )}
+
+      {error && <p className="text-xs text-destructive">{error}</p>}
+
+      <div className="flex items-center gap-2">
+        {!status.containerExists && (
+          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={handleDeploy} disabled={deploying}>
+            {deploying ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Download className="h-3 w-3 mr-1" />}
+            {deploying ? t("settings.webSearchDockerDeploying") : t("settings.webSearchDockerDeploy")}
+          </Button>
+        )}
+        {status.containerExists && !status.containerRunning && (
+          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => handleAction("start")} disabled={actionLoading}>
+            {actionLoading ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Play className="h-3 w-3 mr-1" />}
+            {t("settings.webSearchDockerStart")}
+          </Button>
+        )}
+        {status.containerExists && status.containerRunning && (
+          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => handleAction("stop")} disabled={actionLoading}>
+            {actionLoading ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Square className="h-3 w-3 mr-1" />}
+            {t("settings.webSearchDockerStop")}
+          </Button>
+        )}
+        {status.containerExists && (
+          <Button size="sm" variant="ghost" className="h-7 text-xs text-destructive hover:text-destructive" onClick={() => handleAction("remove")} disabled={actionLoading || deploying}>
+            <Trash2 className="h-3 w-3 mr-1" />
+            {t("settings.webSearchDockerRemove")}
+          </Button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Main Component ──────────────────────────────────────────────
+
+export default function WebSearchPanel() {
+  const { t } = useTranslation()
+  const [config, setConfig] = useState<WebSearchConfig | null>(null)
+  const [savedJson, setSavedJson] = useState("")
+  const [saving, setSaving] = useState(false)
+  const [justSaved, setJustSaved] = useState(false)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
+  )
+
+  useEffect(() => {
+    invoke<WebSearchConfig>("get_web_search_config")
+      .then((cfg) => {
+        setConfig(cfg)
+        setSavedJson(JSON.stringify(cfg))
+      })
+      .catch((e) =>
+        logger.error("settings", "WebSearchPanel::load", "Failed to load config", e)
+      )
+  }, [])
+
+  const isDirty = config ? JSON.stringify(config) !== savedJson : false
+
+  const handleSave = useCallback(async () => {
+    if (!config) return
+    setSaving(true)
+    try {
+      await invoke("save_web_search_config", { config })
+      setSavedJson(JSON.stringify(config))
+      setJustSaved(true)
+      setTimeout(() => setJustSaved(false), 2000)
+    } catch (e) {
+      logger.error("settings", "WebSearchPanel::save", "Failed to save config", e)
+    } finally {
+      setSaving(false)
+    }
+  }, [config])
+
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event
+      if (!over || !config || active.id === over.id) return
+      const oldIndex = config.providers.findIndex((p) => p.id === active.id)
+      const newIndex = config.providers.findIndex((p) => p.id === over.id)
+      if (oldIndex === -1 || newIndex === -1) return
+      setConfig((prev) =>
+        prev ? { ...prev, providers: arrayMove(prev.providers, oldIndex, newIndex) } : prev
+      )
+    },
+    [config]
+  )
+
+  const handleToggleEnabled = useCallback(
+    (id: string, enabled: boolean) => {
+      setConfig((prev) => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          providers: prev.providers.map((p) =>
+            p.id === id ? { ...p, enabled } : p
+          ),
+        }
+      })
+    },
+    []
+  )
+
+  const handleFieldChange = useCallback(
+    (id: string, key: "apiKey" | "apiKey2" | "baseUrl", value: string | null) => {
+      setConfig((prev) => {
+        if (!prev) return prev
+        const providers = prev.providers.map((p) => {
+          if (p.id !== id) return p
+          const updated = { ...p, [key]: value }
+          // Auto-disable if key was cleared and provider requires key
+          const meta = PROVIDER_META[id]
+          if (meta?.needsApiKey && !hasRequiredCredentials(updated)) {
+            updated.enabled = false
+          }
+          return updated
+        })
+        return { ...prev, providers }
+      })
+    },
+    []
+  )
+
+  if (!config) return null
+
+  return (
+    <div className="flex-1 overflow-y-auto p-6">
+      <div className="max-w-2xl space-y-4">
+        <p className="text-xs text-muted-foreground">
+          {t("settings.webSearchDesc")}
+        </p>
+
+        {/* Drag-sortable provider list */}
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext
+            items={config.providers.map((p) => p.id)}
+            strategy={verticalListSortingStrategy}
+          >
+            <div className="space-y-2">
+              {config.providers.map((entry, index) => (
+                <SortableProviderItem
+                  key={entry.id}
+                  entry={entry}
+                  index={index}
+                  expanded={expandedId === entry.id}
+                  onToggleExpand={() =>
+                    setExpandedId((prev) => (prev === entry.id ? null : entry.id))
+                  }
+                  onToggleEnabled={(enabled) => handleToggleEnabled(entry.id, enabled)}
+                  onFieldChange={(key, value) => handleFieldChange(entry.id, key, value)}
+                />
+              ))}
+            </div>
+          </SortableContext>
+        </DndContext>
+
+        {/* Save button */}
+        <div className="flex items-center gap-3 pt-2">
+          <Button
+            onClick={handleSave}
+            disabled={!isDirty || saving}
+            size="sm"
+          >
+            {saving ? (
+              <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
+            ) : justSaved ? (
+              <Check className="h-4 w-4 mr-1.5" />
+            ) : null}
+            {justSaved
+              ? t("settings.webSearchSaved")
+              : t("settings.webSearchSave")}
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}

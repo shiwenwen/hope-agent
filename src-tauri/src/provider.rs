@@ -217,6 +217,9 @@ pub struct ProviderStore {
     /// Embedding model configuration for memory vector search
     #[serde(default)]
     pub embedding: crate::memory::EmbeddingConfig,
+    /// Web search provider configuration
+    #[serde(default)]
+    pub web_search: crate::tools::web::WebSearchConfig,
     /// Per-skill environment variable overrides configured by user.
     /// Outer key: skill name, inner key: env var name, value: env var value.
     #[serde(default)]
@@ -237,6 +240,7 @@ impl Default for ProviderStore {
             disabled_skills: Vec::new(),
             skill_env_check: true,
             embedding: crate::memory::EmbeddingConfig::default(),
+            web_search: crate::tools::web::WebSearchConfig::default(),
             skill_env: std::collections::HashMap::new(),
         }
     }

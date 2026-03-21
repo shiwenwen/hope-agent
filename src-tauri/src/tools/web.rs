@@ -1,9 +1,116 @@
 use anyhow::Result;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+use crate::provider;
 
 const WEB_FETCH_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 const DEFAULT_WEB_FETCH_MAX_CHARS: usize = 50000;
 const WEB_FETCH_TIMEOUT_SECS: u64 = 30;
+
+// ── Web Search Provider Config ───────────────────────────────────
+
+/// Supported web search providers
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum WebSearchProvider {
+    /// DuckDuckGo HTML scraping — free, no API key
+    DuckDuckGo,
+    /// SearXNG self-hosted meta-search — free, needs instance URL
+    Searxng,
+    /// Brave Search API — requires API key
+    Brave,
+    /// Perplexity Sonar API — requires API key
+    Perplexity,
+    /// Google Custom Search JSON API — requires API key + CX
+    Google,
+    /// Grok (X.AI) — requires API key
+    Grok,
+    /// Kimi (Moonshot) — requires API key
+    Kimi,
+}
+
+impl std::fmt::Display for WebSearchProvider {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::DuckDuckGo => write!(f, "DuckDuckGo"),
+            Self::Searxng => write!(f, "SearXNG"),
+            Self::Brave => write!(f, "Brave"),
+            Self::Perplexity => write!(f, "Perplexity"),
+            Self::Google => write!(f, "Google"),
+            Self::Grok => write!(f, "Grok"),
+            Self::Kimi => write!(f, "Kimi"),
+        }
+    }
+}
+
+/// A single search provider entry with enabled state and credentials.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebSearchProviderEntry {
+    pub id: WebSearchProvider,
+    pub enabled: bool,
+    /// API key (Brave / Perplexity / Google / Grok / Kimi)
+    #[serde(default)]
+    pub api_key: Option<String>,
+    /// Second credential (Google CX)
+    #[serde(default)]
+    pub api_key2: Option<String>,
+    /// Instance URL (SearXNG)
+    #[serde(default)]
+    pub base_url: Option<String>,
+}
+
+/// Persistent web search configuration, stored in config.json
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebSearchConfig {
+    /// Ordered list of providers. First enabled provider is used.
+    #[serde(default = "default_providers")]
+    pub providers: Vec<WebSearchProviderEntry>,
+    /// Docker-managed SearXNG container
+    #[serde(default)]
+    pub searxng_docker_managed: Option<bool>,
+}
+
+fn default_providers() -> Vec<WebSearchProviderEntry> {
+    vec![
+        WebSearchProviderEntry { id: WebSearchProvider::DuckDuckGo, enabled: true, api_key: None, api_key2: None, base_url: None },
+        WebSearchProviderEntry { id: WebSearchProvider::Searxng, enabled: false, api_key: None, api_key2: None, base_url: None },
+        WebSearchProviderEntry { id: WebSearchProvider::Brave, enabled: false, api_key: None, api_key2: None, base_url: None },
+        WebSearchProviderEntry { id: WebSearchProvider::Perplexity, enabled: false, api_key: None, api_key2: None, base_url: None },
+        WebSearchProviderEntry { id: WebSearchProvider::Google, enabled: false, api_key: None, api_key2: None, base_url: None },
+        WebSearchProviderEntry { id: WebSearchProvider::Grok, enabled: false, api_key: None, api_key2: None, base_url: None },
+        WebSearchProviderEntry { id: WebSearchProvider::Kimi, enabled: false, api_key: None, api_key2: None, base_url: None },
+    ]
+}
+
+impl Default for WebSearchConfig {
+    fn default() -> Self {
+        Self {
+            providers: default_providers(),
+            searxng_docker_managed: None,
+        }
+    }
+}
+
+/// Resolve which provider to use: first enabled provider in the ordered list.
+/// Falls back to DuckDuckGo if none enabled.
+fn resolve_provider(config: &WebSearchConfig) -> (WebSearchProvider, &WebSearchProviderEntry) {
+    for entry in &config.providers {
+        if entry.enabled {
+            return (entry.id.clone(), entry);
+        }
+    }
+    // Fallback: DDG (always works)
+    // Return a static ref for the fallback case
+    static DDG_FALLBACK: std::sync::LazyLock<WebSearchProviderEntry> = std::sync::LazyLock::new(|| {
+        WebSearchProviderEntry { id: WebSearchProvider::DuckDuckGo, enabled: true, api_key: None, api_key2: None, base_url: None }
+    });
+    (WebSearchProvider::DuckDuckGo, &DDG_FALLBACK)
+}
+
+// ── Tool Entry Point ─────────────────────────────────────────────
 
 pub(crate) async fn tool_web_search(args: &Value) -> Result<String> {
     let query = args
@@ -17,44 +124,47 @@ pub(crate) async fn tool_web_search(args: &Value) -> Result<String> {
         .unwrap_or(5)
         .min(10) as usize;
 
-    log::info!("Web search: {} (count: {})", query, count);
+    let config = provider::load_store()
+        .map(|s| s.web_search)
+        .unwrap_or_default();
+    let (provider_id, entry) = resolve_provider(&config);
 
-    let client = reqwest::Client::builder()
-        .user_agent(WEB_FETCH_USER_AGENT)
-        .timeout(std::time::Duration::from_secs(WEB_FETCH_TIMEOUT_SECS))
-        .build()
-        .map_err(|e| anyhow::anyhow!("Failed to create HTTP client: {}", e))?;
+    log::info!("Web search [{}]: {} (count: {})", provider_id, query, count);
 
-    let search_url = format!(
-        "https://html.duckduckgo.com/html/?q={}",
-        urlencoding::encode(query)
-    );
-
-    let resp = client
-        .get(&search_url)
-        .send()
-        .await
-        .map_err(|e| anyhow::anyhow!("Search request failed: {}", e))?;
-
-    if !resp.status().is_success() {
-        return Err(anyhow::anyhow!(
-            "Search failed with status: {}",
-            resp.status()
-        ));
-    }
-
-    let html = resp
-        .text()
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to read search response: {}", e))?;
-
-    let results = parse_ddg_results(&html, count);
+    let results = match provider_id {
+        WebSearchProvider::DuckDuckGo => search_duckduckgo(query, count).await,
+        WebSearchProvider::Searxng => {
+            let url = entry.base_url.as_deref().unwrap_or("http://localhost:8080");
+            search_searxng(url, query, count).await
+        }
+        WebSearchProvider::Brave => {
+            let key = entry.api_key.as_deref().unwrap_or("");
+            search_brave(key, query, count).await
+        }
+        WebSearchProvider::Perplexity => {
+            let key = entry.api_key.as_deref().unwrap_or("");
+            search_perplexity(key, query, count).await
+        }
+        WebSearchProvider::Google => {
+            let key = entry.api_key.as_deref().unwrap_or("");
+            let cx = entry.api_key2.as_deref().unwrap_or("");
+            search_google(key, cx, query, count).await
+        }
+        WebSearchProvider::Grok => {
+            let key = entry.api_key.as_deref().unwrap_or("");
+            search_grok(key, query, count).await
+        }
+        WebSearchProvider::Kimi => {
+            let key = entry.api_key.as_deref().unwrap_or("");
+            search_kimi(key, query, count).await
+        }
+    }?;
 
     if results.is_empty() {
         return Ok(format!("No results found for: {}", query));
     }
 
-    let mut output = format!("Search results for: {}\n\n", query);
+    let mut output = format!("Search results for: {} (via {})\n\n", query, provider_id);
     for (i, result) in results.iter().enumerate() {
         output.push_str(&format!(
             "{}. {}\n   URL: {}\n   {}\n\n",
@@ -123,8 +233,14 @@ fn parse_ddg_results(html: &str, max_results: usize) -> Vec<SearchResult> {
             let abs_snippet_start = title_end + snippet_start;
             if let Some(tag_end) = html[abs_snippet_start..].find('>') {
                 let content_start = abs_snippet_start + tag_end + 1;
-                if let Some(end) = html[content_start..].find("</a>") {
-                    strip_html_tags(&html[content_start..content_start + end])
+                // Try multiple end markers — DDG wraps snippets in <a> or <span>
+                let end_pos = [
+                    html[content_start..].find("</a>"),
+                    html[content_start..].find("</span>"),
+                    html[content_start..].find("</div>"),
+                ].iter().filter_map(|x| *x).min().unwrap_or(0);
+                if end_pos > 0 {
+                    strip_html_tags(&html[content_start..content_start + end_pos])
                 } else {
                     String::new()
                 }
@@ -191,6 +307,541 @@ fn html_decode(s: &str) -> String {
         .replace("&apos;", "'")
         .replace("&#x27;", "'")
         .replace("&nbsp;", " ")
+}
+
+// ── Provider: DuckDuckGo ─────────────────────────────────────────
+
+async fn search_duckduckgo(query: &str, count: usize) -> Result<Vec<SearchResult>> {
+    let client = build_ddg_client()?;
+
+    // 1. Try Instant Answer API first (structured JSON, high quality for factual queries)
+    let instant = ddg_instant_answer(&client, query).await;
+
+    // 2. Scrape HTML search results, fallback to Lite endpoint
+    let mut results = match ddg_html_search(&client, query, count).await {
+        Ok(r) if !r.is_empty() => r,
+        _ => ddg_lite_search(&client, query, count).await?,
+    };
+
+    // 3. Prepend instant answer if we got one and it's useful
+    if let Some(ia) = instant {
+        results.insert(0, ia);
+    }
+
+    // 4. Deduplicate by URL
+    let mut seen = std::collections::HashSet::new();
+    results.retain(|r| {
+        if r.url.is_empty() { return true; }
+        seen.insert(r.url.clone())
+    });
+
+    results.truncate(count);
+    Ok(results)
+}
+
+/// Build a client with browser-like headers to avoid DDG bot detection.
+fn build_ddg_client() -> Result<reqwest::Client> {
+    use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, ACCEPT_LANGUAGE, REFERER};
+    let mut headers = HeaderMap::new();
+    headers.insert(ACCEPT, HeaderValue::from_static("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"));
+    headers.insert(ACCEPT_LANGUAGE, HeaderValue::from_static("en-US,en;q=0.9"));
+    headers.insert(REFERER, HeaderValue::from_static("https://duckduckgo.com/"));
+    headers.insert("Sec-Fetch-Mode", HeaderValue::from_static("navigate"));
+    headers.insert("Sec-Fetch-Site", HeaderValue::from_static("same-origin"));
+
+    reqwest::Client::builder()
+        .user_agent(WEB_FETCH_USER_AGENT)
+        .default_headers(headers)
+        .timeout(std::time::Duration::from_secs(WEB_FETCH_TIMEOUT_SECS))
+        .build()
+        .map_err(|e| anyhow::anyhow!("Failed to create DDG HTTP client: {}", e))
+}
+
+/// DuckDuckGo Instant Answer API — returns structured data for factual queries.
+async fn ddg_instant_answer(client: &reqwest::Client, query: &str) -> Option<SearchResult> {
+    let url = format!(
+        "https://api.duckduckgo.com/?q={}&format=json&no_html=1&skip_disambig=1",
+        urlencoding::encode(query)
+    );
+    let resp = client.get(&url).send().await.ok()?;
+    if !resp.status().is_success() { return None; }
+    let data: Value = resp.json().await.ok()?;
+
+    // AbstractText + AbstractURL — encyclopedia-style answer
+    let abstract_text = data.get("AbstractText").and_then(|v| v.as_str()).unwrap_or("");
+    let abstract_url = data.get("AbstractURL").and_then(|v| v.as_str()).unwrap_or("");
+    let abstract_source = data.get("AbstractSource").and_then(|v| v.as_str()).unwrap_or("");
+
+    if !abstract_text.is_empty() && !abstract_url.is_empty() {
+        return Some(SearchResult {
+            title: format!("{} ({})", query, abstract_source),
+            url: abstract_url.to_string(),
+            snippet: abstract_text.chars().take(300).collect(),
+        });
+    }
+
+    // Answer field — direct factual answer
+    let answer = data.get("Answer").and_then(|v| v.as_str()).unwrap_or("");
+    if !answer.is_empty() {
+        return Some(SearchResult {
+            title: format!("{} — Instant Answer", query),
+            url: String::new(),
+            snippet: answer.to_string(),
+        });
+    }
+
+    None
+}
+
+/// Primary DDG search via the HTML endpoint.
+async fn ddg_html_search(client: &reqwest::Client, query: &str, count: usize) -> Result<Vec<SearchResult>> {
+    let search_url = format!(
+        "https://html.duckduckgo.com/html/?q={}",
+        urlencoding::encode(query)
+    );
+    let resp = client
+        .post(&search_url)
+        .form(&[("q", query), ("b", ""), ("kl", "")])
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("DuckDuckGo HTML request failed: {}", e))?;
+    if !resp.status().is_success() {
+        return Err(anyhow::anyhow!("DuckDuckGo HTML failed with status: {}", resp.status()));
+    }
+    let html = resp.text().await
+        .map_err(|e| anyhow::anyhow!("Failed to read DuckDuckGo response: {}", e))?;
+    Ok(parse_ddg_results(&html, count))
+}
+
+/// Fallback: DDG Lite endpoint (simpler HTML, more resilient).
+async fn ddg_lite_search(client: &reqwest::Client, query: &str, count: usize) -> Result<Vec<SearchResult>> {
+    let url = format!(
+        "https://lite.duckduckgo.com/lite/?q={}",
+        urlencoding::encode(query)
+    );
+    let resp = client.get(&url).send().await
+        .map_err(|e| anyhow::anyhow!("DuckDuckGo Lite request failed: {}", e))?;
+    if !resp.status().is_success() {
+        return Err(anyhow::anyhow!("DuckDuckGo Lite failed with status: {}", resp.status()));
+    }
+    let html = resp.text().await
+        .map_err(|e| anyhow::anyhow!("Failed to read DDG Lite response: {}", e))?;
+    Ok(parse_ddg_lite_results(&html, count))
+}
+
+/// Parse DDG Lite HTML (table-based layout, simpler structure).
+fn parse_ddg_lite_results(html: &str, max_results: usize) -> Vec<SearchResult> {
+    let mut results = Vec::new();
+    let mut pos = 0;
+
+    // DDG Lite uses <a rel="nofollow" ...> for result links inside <td> with class "result-link"
+    while results.len() < max_results {
+        // Find next result link
+        let marker = "class=\"result-link\"";
+        let block_start = match html[pos..].find(marker) {
+            Some(idx) => pos + idx,
+            None => break,
+        };
+
+        // Extract href
+        let href = if let Some(a_start) = html[block_start..].find("href=\"") {
+            let abs_start = block_start + a_start + 6;
+            if let Some(end) = html[abs_start..].find('"') {
+                html[abs_start..abs_start + end].to_string()
+            } else {
+                pos = block_start + marker.len();
+                continue;
+            }
+        } else {
+            pos = block_start + marker.len();
+            continue;
+        };
+
+        // Extract title (text inside the <a> tag)
+        let title = if let Some(tag_end) = html[block_start..].find('>') {
+            let content_start = block_start + tag_end + 1;
+            if let Some(a_end) = html[content_start..].find("</a>") {
+                strip_html_tags(&html[content_start..content_start + a_end])
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        };
+
+        // Find snippet in the next <td class="result-snippet">
+        let snippet_marker = "class=\"result-snippet\"";
+        let snippet = if let Some(snip_start) = html[block_start..].find(snippet_marker) {
+            let abs_snip = block_start + snip_start;
+            if let Some(tag_end) = html[abs_snip..].find('>') {
+                let content_start = abs_snip + tag_end + 1;
+                if let Some(td_end) = html[content_start..].find("</td>") {
+                    html_decode(&strip_html_tags(&html[content_start..content_start + td_end]))
+                } else {
+                    String::new()
+                }
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        };
+
+        let url = extract_ddg_url(&href);
+        if !title.is_empty() && !url.is_empty() {
+            results.push(SearchResult {
+                title: html_decode(&title),
+                url,
+                snippet,
+            });
+        }
+
+        pos = block_start + marker.len();
+    }
+
+    results
+}
+
+// ── Provider: SearXNG ────────────────────────────────────────────
+
+async fn search_searxng(instance_url: &str, query: &str, count: usize) -> Result<Vec<SearchResult>> {
+    let client = build_client()?;
+    let url = format!(
+        "{}/search?q={}&format=json&categories=general&pageno=1",
+        instance_url.trim_end_matches('/'),
+        urlencoding::encode(query)
+    );
+    let resp = client.get(&url).send().await
+        .map_err(|e| anyhow::anyhow!("SearXNG request failed: {}", e))?;
+    if !resp.status().is_success() {
+        return Err(anyhow::anyhow!("SearXNG failed with status: {}", resp.status()));
+    }
+    let body: Value = resp.json().await
+        .map_err(|e| anyhow::anyhow!("SearXNG JSON parse failed: {}", e))?;
+    let results = body.get("results").and_then(|v| v.as_array());
+    Ok(results.map_or_else(Vec::new, |arr| {
+        arr.iter()
+            .take(count)
+            .filter_map(|item| {
+                let title = item.get("title")?.as_str()?.to_string();
+                let url = item.get("url")?.as_str()?.to_string();
+                let snippet = item.get("content").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                Some(SearchResult { title, url, snippet })
+            })
+            .collect()
+    }))
+}
+
+// ── Provider: Brave Search ───────────────────────────────────────
+
+async fn search_brave(api_key: &str, query: &str, count: usize) -> Result<Vec<SearchResult>> {
+    if api_key.is_empty() {
+        return Err(anyhow::anyhow!("Brave Search API key not configured"));
+    }
+    let client = build_client()?;
+    let url = format!(
+        "https://api.search.brave.com/res/v1/web/search?q={}&count={}",
+        urlencoding::encode(query),
+        count
+    );
+    let resp = client
+        .get(&url)
+        .header("X-Subscription-Token", api_key)
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("Brave Search request failed: {}", e))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!("Brave Search failed ({}): {}", status, body));
+    }
+    let body: Value = resp.json().await
+        .map_err(|e| anyhow::anyhow!("Brave Search JSON parse failed: {}", e))?;
+    let web = body.get("web").and_then(|w| w.get("results")).and_then(|v| v.as_array());
+    Ok(web.map_or_else(Vec::new, |arr| {
+        arr.iter()
+            .take(count)
+            .filter_map(|item| {
+                let title = item.get("title")?.as_str()?.to_string();
+                let url = item.get("url")?.as_str()?.to_string();
+                let snippet = item.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                Some(SearchResult { title, url, snippet })
+            })
+            .collect()
+    }))
+}
+
+// ── Provider: Perplexity ─────────────────────────────────────────
+
+async fn search_perplexity(api_key: &str, query: &str, count: usize) -> Result<Vec<SearchResult>> {
+    if api_key.is_empty() {
+        return Err(anyhow::anyhow!("Perplexity API key not configured"));
+    }
+    let client = build_client()?;
+    let body = serde_json::json!({
+        "model": "sonar",
+        "messages": [{"role": "user", "content": query}],
+        "max_tokens": 1024,
+        "return_citations": true
+    });
+    let resp = client
+        .post("https://api.perplexity.ai/chat/completions")
+        .header("Authorization", format!("Bearer {}", api_key))
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("Perplexity request failed: {}", e))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!("Perplexity failed ({}): {}", status, text));
+    }
+    let data: Value = resp.json().await
+        .map_err(|e| anyhow::anyhow!("Perplexity JSON parse failed: {}", e))?;
+
+    // Extract citations as search results
+    let citations = data.get("citations").and_then(|v| v.as_array());
+    let content = data
+        .get("choices")
+        .and_then(|c| c.get(0))
+        .and_then(|c| c.get("message"))
+        .and_then(|m| m.get("content"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    let mut results: Vec<SearchResult> = citations.map_or_else(Vec::new, |arr| {
+        arr.iter()
+            .take(count)
+            .filter_map(|c| {
+                let url = c.as_str()?.to_string();
+                // Extract domain as title fallback
+                let title = url.split('/').nth(2).unwrap_or(&url).to_string();
+                Some(SearchResult { title, url, snippet: String::new() })
+            })
+            .collect()
+    });
+
+    // If we got a summary but no citations, return the summary as a single result
+    if results.is_empty() && !content.is_empty() {
+        results.push(SearchResult {
+            title: "Perplexity Summary".into(),
+            url: String::new(),
+            snippet: content.chars().take(500).collect(),
+        });
+    }
+
+    Ok(results)
+}
+
+// ── Provider: Google Custom Search ───────────────────────────────
+
+async fn search_google(api_key: &str, cx: &str, query: &str, count: usize) -> Result<Vec<SearchResult>> {
+    if api_key.is_empty() || cx.is_empty() {
+        return Err(anyhow::anyhow!("Google Custom Search API key or CX not configured"));
+    }
+    let client = build_client()?;
+    let url = format!(
+        "https://www.googleapis.com/customsearch/v1?key={}&cx={}&q={}&num={}",
+        urlencoding::encode(api_key),
+        urlencoding::encode(cx),
+        urlencoding::encode(query),
+        count.min(10)
+    );
+    let resp = client.get(&url).send().await
+        .map_err(|e| anyhow::anyhow!("Google Custom Search request failed: {}", e))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!("Google Custom Search failed ({}): {}", status, text));
+    }
+    let data: Value = resp.json().await
+        .map_err(|e| anyhow::anyhow!("Google Custom Search JSON parse failed: {}", e))?;
+    let items = data.get("items").and_then(|v| v.as_array());
+    Ok(items.map_or_else(Vec::new, |arr| {
+        arr.iter()
+            .take(count)
+            .filter_map(|item| {
+                let title = item.get("title")?.as_str()?.to_string();
+                let url = item.get("link")?.as_str()?.to_string();
+                let snippet = item.get("snippet").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                Some(SearchResult { title, url, snippet })
+            })
+            .collect()
+    }))
+}
+
+// ── Provider: Grok (X.AI) ───────────────────────────────────────
+
+async fn search_grok(api_key: &str, query: &str, count: usize) -> Result<Vec<SearchResult>> {
+    if api_key.is_empty() {
+        return Err(anyhow::anyhow!("Grok (X.AI) API key not configured"));
+    }
+    let client = build_client()?;
+    let body = serde_json::json!({
+        "model": "grok-3-mini-fast",
+        "messages": [{"role": "user", "content": format!(
+            "Search the web for: {}. Return exactly {} results as JSON array with fields: title, url, snippet. Only return the JSON array, no other text.",
+            query, count
+        )}],
+        "search_parameters": {"mode": "auto"}
+    });
+    let resp = client
+        .post("https://api.x.ai/v1/chat/completions")
+        .header("Authorization", format!("Bearer {}", api_key))
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("Grok request failed: {}", e))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!("Grok failed ({}): {}", status, text));
+    }
+    let data: Value = resp.json().await
+        .map_err(|e| anyhow::anyhow!("Grok JSON parse failed: {}", e))?;
+
+    // Extract search results from response
+    let mut results = Vec::new();
+
+    // Try to parse citations/search_results from the response
+    if let Some(search_results) = data.get("search_results").and_then(|v| v.as_array()) {
+        for item in search_results.iter().take(count) {
+            if let (Some(title), Some(url)) = (
+                item.get("title").and_then(|v| v.as_str()),
+                item.get("url").and_then(|v| v.as_str()),
+            ) {
+                results.push(SearchResult {
+                    title: title.to_string(),
+                    url: url.to_string(),
+                    snippet: item.get("snippet").or(item.get("description"))
+                        .and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                });
+            }
+        }
+    }
+
+    // Fallback: parse model content as JSON array
+    if results.is_empty() {
+        if let Some(content) = data.get("choices")
+            .and_then(|c| c.get(0))
+            .and_then(|c| c.get("message"))
+            .and_then(|m| m.get("content"))
+            .and_then(|v| v.as_str())
+        {
+            // Try to find JSON array in the content
+            if let Some(start) = content.find('[') {
+                if let Some(end) = content.rfind(']') {
+                    if let Ok(arr) = serde_json::from_str::<Vec<Value>>(&content[start..=end]) {
+                        for item in arr.iter().take(count) {
+                            if let (Some(title), Some(url)) = (
+                                item.get("title").and_then(|v| v.as_str()),
+                                item.get("url").and_then(|v| v.as_str()),
+                            ) {
+                                results.push(SearchResult {
+                                    title: title.to_string(),
+                                    url: url.to_string(),
+                                    snippet: item.get("snippet")
+                                        .and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+            // If still empty, return content as a single result
+            if results.is_empty() && !content.is_empty() {
+                results.push(SearchResult {
+                    title: "Grok Summary".into(),
+                    url: String::new(),
+                    snippet: content.chars().take(500).collect(),
+                });
+            }
+        }
+    }
+
+    Ok(results)
+}
+
+// ── Provider: Kimi (Moonshot) ────────────────────────────────────
+
+async fn search_kimi(api_key: &str, query: &str, count: usize) -> Result<Vec<SearchResult>> {
+    if api_key.is_empty() {
+        return Err(anyhow::anyhow!("Kimi (Moonshot) API key not configured"));
+    }
+    let client = build_client()?;
+    let body = serde_json::json!({
+        "model": "moonshot-v1-8k",
+        "messages": [{"role": "user", "content": format!(
+            "Search the web for: {}. Return exactly {} results as JSON array with fields: title, url, snippet. Only return the JSON array, no other text.",
+            query, count
+        )}],
+        "tools": [{"type": "builtin_function", "function": {"name": "web_search"}}]
+    });
+    let resp = client
+        .post("https://api.moonshot.cn/v1/chat/completions")
+        .header("Authorization", format!("Bearer {}", api_key))
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("Kimi request failed: {}", e))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!("Kimi failed ({}): {}", status, text));
+    }
+    let data: Value = resp.json().await
+        .map_err(|e| anyhow::anyhow!("Kimi JSON parse failed: {}", e))?;
+
+    let mut results = Vec::new();
+
+    // Extract search results from Kimi's response
+    if let Some(content) = data.get("choices")
+        .and_then(|c| c.get(0))
+        .and_then(|c| c.get("message"))
+        .and_then(|m| m.get("content"))
+        .and_then(|v| v.as_str())
+    {
+        // Try to parse as JSON array
+        if let Some(start) = content.find('[') {
+            if let Some(end) = content.rfind(']') {
+                if let Ok(arr) = serde_json::from_str::<Vec<Value>>(&content[start..=end]) {
+                    for item in arr.iter().take(count) {
+                        if let (Some(title), Some(url)) = (
+                            item.get("title").and_then(|v| v.as_str()),
+                            item.get("url").and_then(|v| v.as_str()),
+                        ) {
+                            results.push(SearchResult {
+                                title: title.to_string(),
+                                url: url.to_string(),
+                                snippet: item.get("snippet")
+                                    .and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        if results.is_empty() && !content.is_empty() {
+            results.push(SearchResult {
+                title: "Kimi Summary".into(),
+                url: String::new(),
+                snippet: content.chars().take(500).collect(),
+            });
+        }
+    }
+
+    Ok(results)
+}
+
+// ── Shared HTTP Client ───────────────────────────────────────────
+
+fn build_client() -> Result<reqwest::Client> {
+    reqwest::Client::builder()
+        .user_agent(WEB_FETCH_USER_AGENT)
+        .timeout(std::time::Duration::from_secs(WEB_FETCH_TIMEOUT_SECS))
+        .build()
+        .map_err(|e| anyhow::anyhow!("Failed to create HTTP client: {}", e))
 }
 
 pub(crate) async fn tool_web_fetch(args: &Value) -> Result<String> {
