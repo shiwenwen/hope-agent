@@ -110,12 +110,14 @@ export default function SettingsView({
   onCodexReauth,
   initialSection,
   initialAgentId,
+  onProfileSaved,
 }: {
   onBack: () => void
   onCodexAuth: () => Promise<void>
   onCodexReauth?: () => void
   initialSection?: SettingsSection
   initialAgentId?: string
+  onProfileSaved?: () => void
 }) {
   const { t } = useTranslation()
   const [activeSection, setActiveSection] =
@@ -210,7 +212,7 @@ export default function SettingsView({
           {activeSection === "models" && <GlobalModelPanel />}
           {activeSection === "skills" && <SkillsPanel />}
           {activeSection === "agents" && <AgentPanel initialAgentId={initialAgentId} />}
-          {activeSection === "profile" && <UserProfilePanel />}
+          {activeSection === "profile" && <UserProfilePanel onSaved={onProfileSaved} />}
           {activeSection === "memory" && <MemoryPanel />}
           {activeSection === "cron" && <CronPanel />}
           {activeSection === "chat" && <ChatSettingsPanel />}

@@ -30,6 +30,8 @@
     "clearFilter": "Clear filter",
     "noMatchingSessions": "No matching sessions",
     "howCanIHelp": "How can I help you today?",
+    "loadMore": "Load earlier messages",
+    "loadingMore": "Loading...",
     "askAnything": "Ask, create, code — anything goes...",
     "pendingQueued": "Message queued, will send after reply...",
     "queueMessage": "Queue message",

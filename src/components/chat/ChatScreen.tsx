@@ -209,9 +209,25 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth }: ChatS
   const [loadingSessionIds, setLoadingSessionIds] = useState<Set<string>>(new Set())
   const currentSessionIdRef = useRef<string | null>(null)
 
+  // Pagination: track whether there are older messages and the oldest loaded DB id per session
+  const PAGE_SIZE = 10
+  const hasMoreRef = useRef<Map<string, boolean>>(new Map())
+  const oldestDbIdRef = useRef<Map<string, number>>(new Map())
+  const [hasMore, setHasMore] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+
   // Keep ref in sync with state
   useEffect(() => {
     currentSessionIdRef.current = currentSessionId
+  }, [currentSessionId])
+
+  // Scroll to bottom when switching to a session (after React renders the new messages)
+  useLayoutEffect(() => {
+    if (!currentSessionId) return
+    const el = scrollContainerRef.current
+    if (el) {
+      el.scrollTop = el.scrollHeight
+    }
   }, [currentSessionId])
 
   // Session & Agent list state
@@ -448,15 +464,22 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth }: ChatS
     const cached = sessionCacheRef.current.get(sessionId)
     if (cached) {
       setMessages(cached)
+      setHasMore(hasMoreRef.current.get(sessionId) ?? false)
       setLoading(loadingSessionsRef.current.has(sessionId))
       setCurrentSessionId(sessionId)
     } else {
-      // Load from DB
+      // Load latest PAGE_SIZE messages from DB
       try {
-        const msgs = await invoke<SessionMessage[]>("load_session_messages_cmd", { sessionId })
+        const [msgs, total] = await invoke<[SessionMessage[], number]>("load_session_messages_latest_cmd", { sessionId, limit: PAGE_SIZE })
         const displayMessages = parseSessionMessages(msgs)
         sessionCacheRef.current.set(sessionId, displayMessages)
+        const moreAvailable = msgs.length < total
+        hasMoreRef.current.set(sessionId, moreAvailable)
+        if (msgs.length > 0) {
+          oldestDbIdRef.current.set(sessionId, msgs[0].id)
+        }
         setMessages(displayMessages)
+        setHasMore(moreAvailable)
         setLoading(loadingSessionsRef.current.has(sessionId))
         setCurrentSessionId(sessionId)
       } catch (e) {
@@ -483,6 +506,67 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth }: ChatS
     }
   }
 
+  // Load older messages when user scrolls to top
+  const handleLoadMore = useCallback(async () => {
+    if (!currentSessionId || loadingMore || !hasMore) return
+    const oldestId = oldestDbIdRef.current.get(currentSessionId)
+    if (oldestId === undefined) return
+
+    setLoadingMore(true)
+    try {
+      const olderMsgs = await invoke<SessionMessage[]>("load_session_messages_before_cmd", {
+        sessionId: currentSessionId,
+        beforeId: oldestId,
+        limit: PAGE_SIZE,
+      })
+      if (olderMsgs.length === 0) {
+        hasMoreRef.current.set(currentSessionId, false)
+        setHasMore(false)
+        return
+      }
+      const olderDisplay = parseSessionMessages(olderMsgs)
+      oldestDbIdRef.current.set(currentSessionId, olderMsgs[0].id)
+      if (olderMsgs.length < PAGE_SIZE) {
+        hasMoreRef.current.set(currentSessionId, false)
+        setHasMore(false)
+      }
+
+      // Preserve scroll position: record scrollHeight before prepend
+      const el = scrollContainerRef.current
+      const prevScrollHeight = el?.scrollHeight ?? 0
+
+      setMessages(prev => {
+        const merged = [...olderDisplay, ...prev]
+        sessionCacheRef.current.set(currentSessionId!, merged)
+        return merged
+      })
+
+      // After React renders, restore scroll position
+      requestAnimationFrame(() => {
+        if (el) {
+          el.scrollTop = el.scrollHeight - prevScrollHeight
+        }
+      })
+    } catch (e) {
+      logger.error("session", "ChatScreen::loadMore", "Failed to load older messages", { error: e })
+    } finally {
+      setLoadingMore(false)
+    }
+  }, [currentSessionId, loadingMore, hasMore])
+
+  // Scroll-to-top detection: load older messages
+  useEffect(() => {
+    const el = scrollContainerRef.current
+    if (!el) return
+    const onScroll = () => {
+      if (el.scrollTop < 50) {
+        handleLoadMore()
+      }
+    }
+    el.addEventListener("scroll", onScroll, { passive: true })
+    return () => el.removeEventListener("scroll", onScroll)
+  }, [handleLoadMore])
+
   // Create a new chat with a specific agent
   async function handleNewChat(agentId: string) {
     // Save current session to cache
@@ -494,6 +578,7 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth }: ChatS
     setMessages([])
     setCurrentSessionId(null)
     setLoading(false)
+    setHasMore(false)
     setCurrentAgentId(agentId)
     if (agent) {
       setAgentName(agent.name)
@@ -506,11 +591,14 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth }: ChatS
       await invoke("delete_session_cmd", { sessionId })
       sessionCacheRef.current.delete(sessionId)
       loadingSessionsRef.current.delete(sessionId)
+      hasMoreRef.current.delete(sessionId)
+      oldestDbIdRef.current.delete(sessionId)
       setLoadingSessionIds(new Set(loadingSessionsRef.current))
       if (currentSessionId === sessionId) {
         setMessages([])
         setCurrentSessionId(null)
         setLoading(false)
+        setHasMore(false)
       }
       reloadSessions()
     } catch (err) {
@@ -1073,6 +1161,24 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth }: ChatS
 
         {/* Messages */}
         <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
+          {/* Load more indicator */}
+          {hasMore && (
+            <div className="flex justify-center py-2">
+              {loadingMore ? (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
+                  {t("chat.loadingMore")}
+                </div>
+              ) : (
+                <button
+                  onClick={handleLoadMore}
+                  className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {t("chat.loadMore")}
+                </button>
+              )}
+            </div>
+          )}
           {messages.length === 0 && (
             <div className="flex items-center justify-center h-full">
               <p className="text-muted-foreground text-sm">
