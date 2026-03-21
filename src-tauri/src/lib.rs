@@ -1978,6 +1978,25 @@ async fn save_user_config(config: user_config::UserConfig) -> Result<(), String>
     user_config::save_user_config_to_disk(&config).map_err(|e| e.to_string())
 }
 
+// ── Autostart ────────────────────────────────────────────────────
+
+#[tauri::command]
+async fn get_autostart_enabled(app: tauri::AppHandle) -> Result<bool, String> {
+    use tauri_plugin_autostart::ManagerExt;
+    app.autolaunch().is_enabled().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn set_autostart_enabled(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    use tauri_plugin_autostart::ManagerExt;
+    let manager = app.autolaunch();
+    if enabled {
+        manager.enable().map_err(|e| e.to_string())
+    } else {
+        manager.disable().map_err(|e| e.to_string())
+    }
+}
+
 /// Save a cropped avatar image (base64-encoded) to ~/.opencomputer/avatars/
 /// Returns the absolute path to the saved file.
 #[tauri::command]
@@ -2208,6 +2227,19 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            // When a second instance is launched, focus the existing window
+            use tauri::Manager;
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             // Store global AppHandle for event emission
             let _ = APP_HANDLE.set(app.handle().clone());
@@ -2390,6 +2422,9 @@ pub fn run() {
             save_user_config,
             save_avatar,
             get_system_timezone,
+            // Autostart
+            get_autostart_enabled,
+            set_autostart_enabled,
             // Session management
             create_session_cmd,
             list_sessions_cmd,
