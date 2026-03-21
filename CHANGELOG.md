@@ -19,6 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 6 个新 Tauri 命令：`query_logs_cmd` / `get_log_stats_cmd` / `clear_logs_cmd` / `get_log_config_cmd` / `save_log_config_cmd` / `export_logs_cmd`
   - 新增 `LogPanel.tsx` 设置面板：日志浏览器（过滤栏 + 日志列表 + 分页 + 详情展开 + 导出）+ 可折叠配置区
   - 在 `tools/mod.rs`、`tools/exec.rs`、`tools/approval.rs`、`agent.rs`、`lib.rs` 中添加结构化日志埋点
+  - **纯文本日志文件输出**：SQLite + 文件双写，日志同时输出到 `~/.opencomputer/logs/opencomputer-YYYY-MM-DD.log`
+  - 日志文件按日期切分、按大小轮转（默认单文件 10MB），支持 `tail -f`、`grep` 等外部工具直接查看
+  - Agent 可通过内置 `read`/`grep` 工具读取日志文件实现自我排查
+  - 新增 3 个 Tauri 命令：`list_log_files_cmd` / `read_log_file_cmd` / `get_log_file_path_cmd`
+  - `LogPanel` 新增双视图模式：结构化查询视图（SQLite）+ 文件浏览视图（左侧文件列表 + 右侧内容查看器）
+  - 配置面板新增文件日志开关和单文件大小上限，SQLite 和文件日志可独立开关
 
 ### Changed
 - **`SettingsView.tsx` 拆分为独立面板组件**：原 2831 行单文件拆分为 `types.ts`（共享类型）+ 8 个独立面板组件（ChatSettingsPanel / AppearancePanel / LanguagePanel / GlobalModelPanel / SkillsPanel / AgentPanel / UserProfilePanel / AboutPanel）+ 瘦身后的 SettingsView 编排入口（~170 行）

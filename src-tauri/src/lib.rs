@@ -1714,6 +1714,24 @@ async fn save_log_config_cmd(
 }
 
 #[tauri::command]
+async fn list_log_files_cmd() -> Result<Vec<logging::LogFileInfo>, String> {
+    logging::list_log_files().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn read_log_file_cmd(
+    filename: String,
+    tail_lines: Option<u32>,
+) -> Result<String, String> {
+    logging::read_log_file(&filename, tail_lines).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_log_file_path_cmd() -> Result<String, String> {
+    logging::current_log_file_path().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn export_logs_cmd(
     filter: logging::LogFilter,
     format: String,
@@ -1847,7 +1865,10 @@ pub fn run() {
             // Load log config and cleanup old logs
             let log_config = logging::load_log_config().unwrap_or_default();
             let _ = log_db.cleanup_old(log_config.max_age_days);
-            let logger = AppLogger::new(log_db.clone());
+            // Clean up old log files
+            let _ = logging::cleanup_old_log_files(log_config.max_age_days);
+            let logs_dir = paths::logs_dir().expect("Failed to resolve logs directory");
+            let logger = AppLogger::new(log_db.clone(), logs_dir);
             logger.update_config(log_config);
 
             // Store logger globally for access from non-State contexts
@@ -1943,6 +1964,9 @@ pub fn run() {
             get_log_config_cmd,
             save_log_config_cmd,
             export_logs_cmd,
+            list_log_files_cmd,
+            read_log_file_cmd,
+            get_log_file_path_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

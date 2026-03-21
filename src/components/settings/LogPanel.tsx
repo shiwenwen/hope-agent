@@ -21,14 +21,16 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronUp,
+  Copy,
   Download,
+  FileText,
   RefreshCw,
   Search,
   Settings2,
   Trash2,
   X,
 } from "lucide-react"
-import type { LogConfig, LogEntry, LogFilter, LogQueryResult, LogStats } from "./types"
+import type { LogConfig, LogEntry, LogFileInfo, LogFilter, LogQueryResult, LogStats } from "./types"
 
 const LEVEL_COLORS: Record<string, string> = {
   error: "bg-red-500/10 text-red-500",
@@ -40,8 +42,13 @@ const LEVEL_COLORS: Record<string, string> = {
 const CATEGORIES = ["agent", "tool", "provider", "system", "session"]
 const LEVELS = ["error", "warn", "info", "debug"]
 
+type ViewMode = "structured" | "files"
+
 export default function LogPanel() {
   const { t } = useTranslation()
+
+  // View mode: structured (SQLite) or files (plain text)
+  const [viewMode, setViewMode] = useState<ViewMode>("structured")
 
   // Config
   const [config, setConfig] = useState<LogConfig>({
@@ -49,10 +56,12 @@ export default function LogPanel() {
     level: "info",
     maxAgeDays: 30,
     maxSizeMb: 100,
+    fileEnabled: true,
+    fileMaxSizeMb: 10,
   })
   const [showConfig, setShowConfig] = useState(false)
 
-  // Query state
+  // Query state (structured mode)
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -66,6 +75,13 @@ export default function LogPanel() {
   const [keyword, setKeyword] = useState("")
   const keywordRef = useRef("")
   const debounceRef = useRef<ReturnType<typeof setTimeout>>()
+
+  // File mode state
+  const [logFiles, setLogFiles] = useState<LogFileInfo[]>([])
+  const [selectedFile, setSelectedFile] = useState<string | null>(null)
+  const [fileContent, setFileContent] = useState("")
+  const [fileLoading, setFileLoading] = useState(false)
+  const [currentLogPath, setCurrentLogPath] = useState("")
 
   // Loading
   const [loading, setLoading] = useState(false)
@@ -114,14 +130,59 @@ export default function LogPanel() {
     }
   }, [])
 
+  const fetchLogFiles = useCallback(async () => {
+    try {
+      const files = await invoke<LogFileInfo[]>("list_log_files_cmd")
+      setLogFiles(files)
+    } catch (e) {
+      console.error("Failed to list log files:", e)
+    }
+  }, [])
+
+  const fetchCurrentLogPath = useCallback(async () => {
+    try {
+      const path = await invoke<string>("get_log_file_path_cmd")
+      setCurrentLogPath(path)
+    } catch (e) {
+      console.error("Failed to get log file path:", e)
+    }
+  }, [])
+
+  const fetchFileContent = useCallback(async (filename: string) => {
+    setFileLoading(true)
+    try {
+      const content = await invoke<string>("read_log_file_cmd", {
+        filename,
+        tailLines: 500,
+      })
+      setFileContent(content)
+    } catch (e) {
+      console.error("Failed to read log file:", e)
+      setFileContent("")
+    } finally {
+      setFileLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
     fetchConfig()
     fetchStats()
-  }, [fetchConfig, fetchStats])
+    fetchCurrentLogPath()
+  }, [fetchConfig, fetchStats, fetchCurrentLogPath])
 
   useEffect(() => {
-    fetchLogs()
-  }, [fetchLogs])
+    if (viewMode === "structured") {
+      fetchLogs()
+    } else {
+      fetchLogFiles()
+    }
+  }, [viewMode, fetchLogs, fetchLogFiles])
+
+  useEffect(() => {
+    if (selectedFile) {
+      fetchFileContent(selectedFile)
+    }
+  }, [selectedFile, fetchFileContent])
 
   const handleKeywordChange = (val: string) => {
     setKeyword(val)
@@ -188,6 +249,12 @@ export default function LogPanel() {
     }
   }
 
+  const handleCopyPath = async () => {
+    if (currentLogPath) {
+      await navigator.clipboard.writeText(currentLogPath)
+    }
+  }
+
   const totalPages = Math.ceil(total / pageSize)
 
   const formatTime = (ts: string) => {
@@ -216,6 +283,23 @@ export default function LogPanel() {
       {/* Stats + Config Bar */}
       <div className="shrink-0 px-6 pt-4 pb-3 space-y-3">
         <p className="text-xs text-muted-foreground">{t("settings.logsDesc")}</p>
+
+        {/* Log file path hint */}
+        {currentLogPath && (
+          <div className="flex items-center gap-2">
+            <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            <code className="text-xs text-muted-foreground font-mono truncate flex-1">
+              {currentLogPath}
+            </code>
+            <button
+              onClick={handleCopyPath}
+              className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+              title={t("settings.logsCopyPath")}
+            >
+              <Copy className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
 
         {/* Stats summary */}
         {stats && (
@@ -246,8 +330,34 @@ export default function LogPanel() {
           </div>
         )}
 
-        {/* Action buttons */}
+        {/* View mode tabs + Action buttons */}
         <div className="flex items-center gap-2">
+          {/* View mode toggle */}
+          <div className="flex items-center rounded-md border border-border overflow-hidden">
+            <button
+              onClick={() => setViewMode("structured")}
+              className={cn(
+                "px-3 py-1 text-xs font-medium transition-colors",
+                viewMode === "structured"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-secondary/30 text-muted-foreground hover:bg-secondary/50"
+              )}
+            >
+              {t("settings.logsStructured")}
+            </button>
+            <button
+              onClick={() => setViewMode("files")}
+              className={cn(
+                "px-3 py-1 text-xs font-medium transition-colors",
+                viewMode === "files"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-secondary/30 text-muted-foreground hover:bg-secondary/50"
+              )}
+            >
+              {t("settings.logsFiles")}
+            </button>
+          </div>
+
           <Button
             variant="ghost"
             size="sm"
@@ -261,31 +371,42 @@ export default function LogPanel() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => { fetchLogs(); fetchStats() }}
+            onClick={() => {
+              if (viewMode === "structured") {
+                fetchLogs(); fetchStats()
+              } else {
+                fetchLogFiles()
+                if (selectedFile) fetchFileContent(selectedFile)
+              }
+            }}
             className="gap-1.5 text-xs"
           >
             <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
             {t("settings.logsRefresh")}
           </Button>
           <div className="flex-1" />
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => handleExport("json")}
-            className="gap-1.5 text-xs"
-          >
-            <Download className="h-3.5 w-3.5" />
-            JSON
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => handleExport("csv")}
-            className="gap-1.5 text-xs"
-          >
-            <Download className="h-3.5 w-3.5" />
-            CSV
-          </Button>
+          {viewMode === "structured" && (
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => handleExport("json")}
+                className="gap-1.5 text-xs"
+              >
+                <Download className="h-3.5 w-3.5" />
+                JSON
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => handleExport("csv")}
+                className="gap-1.5 text-xs"
+              >
+                <Download className="h-3.5 w-3.5" />
+                CSV
+              </Button>
+            </>
+          )}
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button
@@ -327,7 +448,17 @@ export default function LogPanel() {
                 onCheckedChange={(checked) => handleSaveConfig({ ...config, enabled: checked })}
               />
             </div>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium">{t("settings.logsFileEnabled")}</p>
+                <p className="text-xs text-muted-foreground">{t("settings.logsFileEnabledDesc")}</p>
+              </div>
+              <Switch
+                checked={config.fileEnabled}
+                onCheckedChange={(checked) => handleSaveConfig({ ...config, fileEnabled: checked })}
+              />
+            </div>
+            <div className="grid grid-cols-4 gap-3">
               <div>
                 <label className="text-xs text-muted-foreground">{t("settings.logsLevel")}</label>
                 <select
@@ -362,172 +493,237 @@ export default function LogPanel() {
                   max={1000}
                 />
               </div>
+              <div>
+                <label className="text-xs text-muted-foreground">{t("settings.logsFileMaxSize")}</label>
+                <Input
+                  type="number"
+                  value={config.fileMaxSizeMb}
+                  onChange={(e) => handleSaveConfig({ ...config, fileMaxSizeMb: parseInt(e.target.value) || 10 })}
+                  className="mt-1 h-8 text-sm"
+                  min={1}
+                  max={100}
+                />
+              </div>
             </div>
           </div>
         )}
 
-        {/* Filter bar */}
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Level filter chips */}
-          {LEVELS.map((level) => (
-            <button
-              key={level}
-              onClick={() => toggleLevel(level)}
-              className={cn(
-                "px-2 py-0.5 rounded-full text-xs font-medium transition-colors",
-                filterLevels.includes(level)
-                  ? LEVEL_COLORS[level]
-                  : "bg-secondary/40 text-muted-foreground hover:bg-secondary/60"
-              )}
-            >
-              {level}
-            </button>
-          ))}
-          <span className="w-px h-4 bg-border" />
-          {/* Category filter chips */}
-          {CATEGORIES.map((cat) => (
-            <button
-              key={cat}
-              onClick={() => toggleCategory(cat)}
-              className={cn(
-                "px-2 py-0.5 rounded-full text-xs font-medium transition-colors",
-                filterCategories.includes(cat)
-                  ? "bg-primary/10 text-primary"
-                  : "bg-secondary/40 text-muted-foreground hover:bg-secondary/60"
-              )}
-            >
-              {cat}
-            </button>
-          ))}
-          <span className="w-px h-4 bg-border" />
-          {/* Keyword search */}
-          <div className="relative flex-1 min-w-[160px] max-w-[300px]">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-            <Input
-              value={keyword}
-              onChange={(e) => handleKeywordChange(e.target.value)}
-              placeholder={t("settings.logsSearch")}
-              className="h-7 pl-7 pr-7 text-xs"
-            />
-            {keyword && (
+        {/* Filter bar (structured mode only) */}
+        {viewMode === "structured" && (
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Level filter chips */}
+            {LEVELS.map((level) => (
               <button
-                onClick={() => handleKeywordChange("")}
-                className="absolute right-2 top-1/2 -translate-y-1/2"
+                key={level}
+                onClick={() => toggleLevel(level)}
+                className={cn(
+                  "px-2 py-0.5 rounded-full text-xs font-medium transition-colors",
+                  filterLevels.includes(level)
+                    ? LEVEL_COLORS[level]
+                    : "bg-secondary/40 text-muted-foreground hover:bg-secondary/60"
+                )}
               >
-                <X className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                {level}
+              </button>
+            ))}
+            <span className="w-px h-4 bg-border" />
+            {/* Category filter chips */}
+            {CATEGORIES.map((cat) => (
+              <button
+                key={cat}
+                onClick={() => toggleCategory(cat)}
+                className={cn(
+                  "px-2 py-0.5 rounded-full text-xs font-medium transition-colors",
+                  filterCategories.includes(cat)
+                    ? "bg-primary/10 text-primary"
+                    : "bg-secondary/40 text-muted-foreground hover:bg-secondary/60"
+                )}
+              >
+                {cat}
+              </button>
+            ))}
+            <span className="w-px h-4 bg-border" />
+            {/* Keyword search */}
+            <div className="relative flex-1 min-w-[160px] max-w-[300px]">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <Input
+                value={keyword}
+                onChange={(e) => handleKeywordChange(e.target.value)}
+                placeholder={t("settings.logsSearch")}
+                className="h-7 pl-7 pr-7 text-xs"
+              />
+              {keyword && (
+                <button
+                  onClick={() => handleKeywordChange("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2"
+                >
+                  <X className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                </button>
+              )}
+            </div>
+            {(filterLevels.length > 0 || filterCategories.length > 0 || keyword) && (
+              <button
+                onClick={() => {
+                  setFilterLevels([])
+                  setFilterCategories([])
+                  handleKeywordChange("")
+                }}
+                className="text-xs text-muted-foreground hover:text-foreground"
+              >
+                {t("settings.logsClearFilter")}
               </button>
             )}
-          </div>
-          {(filterLevels.length > 0 || filterCategories.length > 0 || keyword) && (
-            <button
-              onClick={() => {
-                setFilterLevels([])
-                setFilterCategories([])
-                handleKeywordChange("")
-              }}
-              className="text-xs text-muted-foreground hover:text-foreground"
-            >
-              {t("settings.logsClearFilter")}
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Log list */}
-      <div className="flex-1 overflow-y-auto px-6">
-        {logs.length === 0 ? (
-          <div className="flex items-center justify-center h-32 text-sm text-muted-foreground">
-            {loading ? t("settings.logsLoading") : t("settings.logsEmpty")}
-          </div>
-        ) : (
-          <div className="space-y-0.5">
-            {logs.map((log) => (
-              <div key={log.id}>
-                <button
-                  onClick={() => setExpandedId(expandedId === log.id ? null : log.id)}
-                  className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-left text-xs hover:bg-secondary/40 transition-colors"
-                >
-                  <span className="shrink-0 w-[110px] text-muted-foreground font-mono">
-                    {formatTime(log.timestamp)}
-                  </span>
-                  <span
-                    className={cn(
-                      "shrink-0 w-[46px] text-center rounded px-1 py-0.5 font-medium",
-                      LEVEL_COLORS[log.level] || "bg-secondary text-foreground"
-                    )}
-                  >
-                    {log.level}
-                  </span>
-                  <span className="shrink-0 w-[64px] text-muted-foreground truncate">
-                    {log.category}
-                  </span>
-                  <span className="shrink-0 w-[140px] text-muted-foreground truncate font-mono">
-                    {log.source}
-                  </span>
-                  <span className="flex-1 truncate text-foreground">
-                    {log.message}
-                  </span>
-                  {log.details && (
-                    <ChevronDown
-                      className={cn(
-                        "h-3 w-3 shrink-0 text-muted-foreground transition-transform",
-                        expandedId === log.id && "rotate-180"
-                      )}
-                    />
-                  )}
-                </button>
-                {expandedId === log.id && log.details && (
-                  <div className="ml-[112px] mb-1 px-3 py-2 rounded bg-secondary/30 text-xs font-mono overflow-x-auto">
-                    <pre className="whitespace-pre-wrap break-all text-muted-foreground">
-                      {(() => {
-                        try {
-                          return JSON.stringify(JSON.parse(log.details), null, 2)
-                        } catch {
-                          return log.details
-                        }
-                      })()}
-                    </pre>
-                    {log.sessionId && (
-                      <p className="mt-1 text-muted-foreground/70">
-                        session: {log.sessionId}
-                      </p>
-                    )}
-                  </div>
-                )}
-              </div>
-            ))}
           </div>
         )}
       </div>
 
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="shrink-0 px-6 py-2 border-t border-border flex items-center justify-between">
-          <span className="text-xs text-muted-foreground">
-            {t("settings.logsPagination", { page, totalPages, total })}
-          </span>
-          <div className="flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={page <= 1}
-              onClick={() => setPage(page - 1)}
-              className="h-7 w-7 p-0"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <span className="text-xs text-muted-foreground px-2">
-              {page} / {totalPages}
-            </span>
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={page >= totalPages}
-              onClick={() => setPage(page + 1)}
-              className="h-7 w-7 p-0"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </Button>
+      {/* Content area */}
+      {viewMode === "structured" ? (
+        <>
+          {/* Structured log list */}
+          <div className="flex-1 overflow-y-auto px-6">
+            {logs.length === 0 ? (
+              <div className="flex items-center justify-center h-32 text-sm text-muted-foreground">
+                {loading ? t("settings.logsLoading") : t("settings.logsEmpty")}
+              </div>
+            ) : (
+              <div className="space-y-0.5">
+                {logs.map((log) => (
+                  <div key={log.id}>
+                    <button
+                      onClick={() => setExpandedId(expandedId === log.id ? null : log.id)}
+                      className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-left text-xs hover:bg-secondary/40 transition-colors"
+                    >
+                      <span className="shrink-0 w-[110px] text-muted-foreground font-mono">
+                        {formatTime(log.timestamp)}
+                      </span>
+                      <span
+                        className={cn(
+                          "shrink-0 w-[46px] text-center rounded px-1 py-0.5 font-medium",
+                          LEVEL_COLORS[log.level] || "bg-secondary text-foreground"
+                        )}
+                      >
+                        {log.level}
+                      </span>
+                      <span className="shrink-0 w-[64px] text-muted-foreground truncate">
+                        {log.category}
+                      </span>
+                      <span className="shrink-0 w-[140px] text-muted-foreground truncate font-mono">
+                        {log.source}
+                      </span>
+                      <span className="flex-1 truncate text-foreground">
+                        {log.message}
+                      </span>
+                      {log.details && (
+                        <ChevronDown
+                          className={cn(
+                            "h-3 w-3 shrink-0 text-muted-foreground transition-transform",
+                            expandedId === log.id && "rotate-180"
+                          )}
+                        />
+                      )}
+                    </button>
+                    {expandedId === log.id && log.details && (
+                      <div className="ml-[112px] mb-1 px-3 py-2 rounded bg-secondary/30 text-xs font-mono overflow-x-auto">
+                        <pre className="whitespace-pre-wrap break-all text-muted-foreground">
+                          {(() => {
+                            try {
+                              return JSON.stringify(JSON.parse(log.details), null, 2)
+                            } catch {
+                              return log.details
+                            }
+                          })()}
+                        </pre>
+                        {log.sessionId && (
+                          <p className="mt-1 text-muted-foreground/70">
+                            session: {log.sessionId}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="shrink-0 px-6 py-2 border-t border-border flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">
+                {t("settings.logsPagination", { page, totalPages, total })}
+              </span>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={page <= 1}
+                  onClick={() => setPage(page - 1)}
+                  className="h-7 w-7 p-0"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <span className="text-xs text-muted-foreground px-2">
+                  {page} / {totalPages}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage(page + 1)}
+                  className="h-7 w-7 p-0"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
+        </>
+      ) : (
+        /* File mode */
+        <div className="flex-1 flex overflow-hidden">
+          {/* File list sidebar */}
+          <div className="w-[220px] shrink-0 border-r border-border overflow-y-auto">
+            {logFiles.length === 0 ? (
+              <div className="flex items-center justify-center h-32 text-xs text-muted-foreground">
+                {t("settings.logsNoFiles")}
+              </div>
+            ) : (
+              <div className="py-1">
+                {logFiles.map((file) => (
+                  <button
+                    key={file.name}
+                    onClick={() => setSelectedFile(file.name)}
+                    className={cn(
+                      "w-full px-3 py-2 text-left text-xs hover:bg-secondary/40 transition-colors",
+                      selectedFile === file.name && "bg-secondary/60"
+                    )}
+                  >
+                    <p className="font-medium truncate">{file.name}</p>
+                    <p className="text-muted-foreground">{formatSize(file.sizeBytes)}</p>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* File content viewer */}
+          <div className="flex-1 overflow-y-auto">
+            {selectedFile ? (
+              fileLoading ? (
+                <div className="flex items-center justify-center h-32 text-sm text-muted-foreground">
+                  {t("settings.logsLoading")}
+                </div>
+              ) : (
+                <pre className="px-4 py-3 text-xs font-mono text-muted-foreground whitespace-pre-wrap break-all leading-relaxed">
+                  {fileContent || t("settings.logsEmpty")}
+                </pre>
+              )
+            ) : (
+              <div className="flex items-center justify-center h-32 text-sm text-muted-foreground">
+                {t("settings.logsSelectFile")}
+              </div>
+            )}
           </div>
         </div>
       )}

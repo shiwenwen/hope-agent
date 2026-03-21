@@ -94,6 +94,14 @@ export interface LogConfig {
   level: string
   maxAgeDays: number
   maxSizeMb: number
+  fileEnabled: boolean
+  fileMaxSizeMb: number
+}
+
+export interface LogFileInfo {
+  name: string
+  sizeBytes: number
+  modified: string
 }
 
 export interface LogStats {

@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::collections::HashMap;
+use std::io::Write;
 
 // ── Data Structures ──────────────────────────────────────────────
 
@@ -42,7 +43,16 @@ pub struct LogConfig {
     pub level: String,
     pub max_age_days: u32,
     pub max_size_mb: u32,
+    /// Enable plain text log file output (for external tools / Agent self-inspection)
+    #[serde(default = "default_true")]
+    pub file_enabled: bool,
+    /// Max single log file size in MB before rotation (default 10MB)
+    #[serde(default = "default_file_max_size")]
+    pub file_max_size_mb: u32,
 }
+
+fn default_true() -> bool { true }
+fn default_file_max_size() -> u32 { 10 }
 
 impl Default for LogConfig {
     fn default() -> Self {
@@ -51,6 +61,8 @@ impl Default for LogConfig {
             level: "info".to_string(),
             max_age_days: 30,
             max_size_mb: 100,
+            file_enabled: true,
+            file_max_size_mb: 10,
         }
     }
 }
@@ -333,6 +345,113 @@ impl LogDB {
     }
 }
 
+// ── Log File Writer ──────────────────────────────────────────────
+
+/// Writes plain text log lines to date-based files under ~/.opencomputer/logs/
+/// Format: `[TIMESTAMP] LEVEL [CATEGORY] SOURCE — MESSAGE`
+/// Files named: `opencomputer-YYYY-MM-DD.log`, auto-rotate by date and size.
+struct LogFileWriter {
+    logs_dir: PathBuf,
+    current_file: Option<std::fs::File>,
+    current_date: String,
+    current_size: u64,
+    max_size_bytes: u64,
+}
+
+impl LogFileWriter {
+    fn new(logs_dir: PathBuf, max_size_mb: u32) -> Self {
+        Self {
+            logs_dir,
+            current_file: None,
+            current_date: String::new(),
+            current_size: 0,
+            max_size_bytes: max_size_mb as u64 * 1024 * 1024,
+        }
+    }
+
+    fn update_max_size(&mut self, max_size_mb: u32) {
+        self.max_size_bytes = max_size_mb as u64 * 1024 * 1024;
+    }
+
+    fn write_entry(&mut self, entry: &PendingLog) {
+        let date = &entry.timestamp[..10]; // "2026-03-21"
+
+        // Rotate if date changed or file exceeded max size
+        if date != self.current_date || self.current_size >= self.max_size_bytes {
+            self.current_file = None;
+        }
+
+        if self.current_file.is_none() {
+            if let Err(e) = self.open_file(date) {
+                eprintln!("Failed to open log file: {}", e);
+                return;
+            }
+        }
+
+        if let Some(ref mut file) = self.current_file {
+            // Format: [2026-03-21T10:30:00Z] INFO [agent] agent::run — Starting chat session
+            let line = if let Some(ref details) = entry.details {
+                format!(
+                    "[{}] {} [{}] {} — {} | {}\n",
+                    entry.timestamp, entry.level.to_uppercase(), entry.category,
+                    entry.source, entry.message, details
+                )
+            } else {
+                format!(
+                    "[{}] {} [{}] {} — {}\n",
+                    entry.timestamp, entry.level.to_uppercase(), entry.category,
+                    entry.source, entry.message
+                )
+            };
+            let bytes = line.as_bytes();
+            if file.write_all(bytes).is_ok() {
+                self.current_size += bytes.len() as u64;
+            }
+        }
+    }
+
+    fn open_file(&mut self, date: &str) -> Result<()> {
+        std::fs::create_dir_all(&self.logs_dir)?;
+        self.current_date = date.to_string();
+
+        // Find a non-full file for this date
+        let base_name = format!("opencomputer-{}.log", date);
+        let path = self.logs_dir.join(&base_name);
+
+        // If base file exists and is over max size, use numbered suffix
+        let (final_path, existing_size) = if path.exists() {
+            let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            if size >= self.max_size_bytes {
+                // Find next available numbered file
+                let mut n = 1u32;
+                loop {
+                    let numbered = self.logs_dir.join(format!("opencomputer-{}.{}.log", date, n));
+                    if !numbered.exists() {
+                        break (numbered, 0);
+                    }
+                    let s = std::fs::metadata(&numbered).map(|m| m.len()).unwrap_or(0);
+                    if s < self.max_size_bytes {
+                        break (numbered, s);
+                    }
+                    n += 1;
+                }
+            } else {
+                (path, size)
+            }
+        } else {
+            (path, 0)
+        };
+
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&final_path)?;
+        self.current_file = Some(file);
+        self.current_size = existing_size;
+        Ok(())
+    }
+}
+
 // ── Async Logger (non-blocking) ──────────────────────────────────
 
 #[derive(Debug, Clone)]
@@ -354,12 +473,13 @@ pub struct AppLogger {
 }
 
 impl AppLogger {
-    pub fn new(db: std::sync::Arc<LogDB>) -> Self {
+    pub fn new(db: std::sync::Arc<LogDB>, logs_dir: PathBuf) -> Self {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let config = std::sync::Arc::new(std::sync::RwLock::new(LogConfig::default()));
+        let config_clone = config.clone();
 
         // Spawn background writer task
-        tokio::spawn(Self::writer_loop(rx, db));
+        tokio::spawn(Self::writer_loop(rx, db, logs_dir, config_clone));
 
         Self { sender: tx, config }
     }
@@ -367,7 +487,11 @@ impl AppLogger {
     async fn writer_loop(
         mut rx: tokio::sync::mpsc::UnboundedReceiver<PendingLog>,
         db: std::sync::Arc<LogDB>,
+        logs_dir: PathBuf,
+        config: std::sync::Arc<std::sync::RwLock<LogConfig>>,
     ) {
+        let file_max_mb = config.read().map(|c| c.file_max_size_mb).unwrap_or(10);
+        let mut file_writer = LogFileWriter::new(logs_dir, file_max_mb);
         let mut buffer: Vec<PendingLog> = Vec::new();
         let flush_interval = tokio::time::Duration::from_millis(200);
 
@@ -390,6 +514,12 @@ impl AppLogger {
                     // Channel closed, flush remaining and exit
                     if !buffer.is_empty() {
                         let _ = db.batch_insert(&buffer);
+                        let file_enabled = config.read().map(|c| c.file_enabled).unwrap_or(true);
+                        if file_enabled {
+                            for entry in &buffer {
+                                file_writer.write_entry(entry);
+                            }
+                        }
                     }
                     break;
                 }
@@ -400,6 +530,18 @@ impl AppLogger {
 
             if !buffer.is_empty() {
                 let _ = db.batch_insert(&buffer);
+
+                // Dual-write to log file
+                let (file_enabled, file_max_mb) = config.read()
+                    .map(|c| (c.file_enabled, c.file_max_size_mb))
+                    .unwrap_or((true, 10));
+                if file_enabled {
+                    file_writer.update_max_size(file_max_mb);
+                    for entry in &buffer {
+                        file_writer.write_entry(entry);
+                    }
+                }
+
                 buffer.clear();
             }
         }
@@ -471,6 +613,102 @@ pub fn save_log_config(config: &LogConfig) -> Result<()> {
 
 pub fn db_path() -> Result<PathBuf> {
     Ok(crate::paths::root_dir()?.join("logs.db"))
+}
+
+// ── Log File Operations ─────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LogFileInfo {
+    pub name: String,
+    pub size_bytes: u64,
+    pub modified: String,
+}
+
+/// List all .log files under ~/.opencomputer/logs/, newest first.
+pub fn list_log_files() -> Result<Vec<LogFileInfo>> {
+    let logs_dir = crate::paths::logs_dir()?;
+    if !logs_dir.exists() {
+        return Ok(Vec::new());
+    }
+    let mut files = Vec::new();
+    for entry in std::fs::read_dir(&logs_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) == Some("log") {
+            let meta = std::fs::metadata(&path)?;
+            let modified = meta.modified()
+                .map(|t| {
+                    let dt: chrono::DateTime<chrono::Utc> = t.into();
+                    dt.to_rfc3339()
+                })
+                .unwrap_or_default();
+            files.push(LogFileInfo {
+                name: entry.file_name().to_string_lossy().to_string(),
+                size_bytes: meta.len(),
+                modified,
+            });
+        }
+    }
+    // Sort newest first by name (date-based names sort naturally)
+    files.sort_by(|a, b| b.name.cmp(&a.name));
+    Ok(files)
+}
+
+/// Read a log file with optional tail (last N lines). Returns the content as a string.
+/// If `tail_lines` is Some(n), returns only the last n lines; otherwise returns full content.
+pub fn read_log_file(filename: &str, tail_lines: Option<u32>) -> Result<String> {
+    // Sanitize filename to prevent path traversal
+    if filename.contains('/') || filename.contains('\\') || filename.contains("..") {
+        return Err(anyhow::anyhow!("Invalid log filename"));
+    }
+    let logs_dir = crate::paths::logs_dir()?;
+    let path = logs_dir.join(filename);
+    if !path.exists() {
+        return Err(anyhow::anyhow!("Log file not found: {}", filename));
+    }
+
+    let content = std::fs::read_to_string(&path)?;
+
+    if let Some(n) = tail_lines {
+        let lines: Vec<&str> = content.lines().collect();
+        let start = lines.len().saturating_sub(n as usize);
+        Ok(lines[start..].join("\n"))
+    } else {
+        Ok(content)
+    }
+}
+
+/// Clean up old log files beyond max_age_days.
+pub fn cleanup_old_log_files(max_age_days: u32) -> Result<u64> {
+    let logs_dir = crate::paths::logs_dir()?;
+    if !logs_dir.exists() {
+        return Ok(0);
+    }
+    let cutoff = chrono::Utc::now() - chrono::Duration::days(max_age_days as i64);
+    let cutoff_date = cutoff.format("%Y-%m-%d").to_string();
+    let mut removed = 0u64;
+    for entry in std::fs::read_dir(&logs_dir)? {
+        let entry = entry?;
+        let name = entry.file_name().to_string_lossy().to_string();
+        // Parse date from filename: opencomputer-YYYY-MM-DD.log or opencomputer-YYYY-MM-DD.N.log
+        if let Some(date_part) = name.strip_prefix("opencomputer-") {
+            let date = &date_part[..10.min(date_part.len())];
+            if date < cutoff_date.as_str() {
+                let _ = std::fs::remove_file(entry.path());
+                removed += 1;
+            }
+        }
+    }
+    Ok(removed)
+}
+
+/// Get the path to today's log file (for display in UI).
+pub fn current_log_file_path() -> Result<String> {
+    let logs_dir = crate::paths::logs_dir()?;
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    let path = logs_dir.join(format!("opencomputer-{}.log", today));
+    Ok(path.to_string_lossy().to_string())
 }
 
 // ── Sensitive Data Redaction ─────────────────────────────────────

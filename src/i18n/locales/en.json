@@ -343,6 +343,14 @@
     "logsLevel": "Log Level",
     "logsMaxAge": "Retention Days",
     "logsMaxSize": "Max Size (MB)",
+    "logsFileEnabled": "Enable File Logging",
+    "logsFileEnabledDesc": "Output plain text log files for external tools and Agent self-inspection",
+    "logsFileMaxSize": "File Max Size (MB)",
+    "logsStructured": "Structured",
+    "logsFiles": "Log Files",
+    "logsCopyPath": "Copy path",
+    "logsNoFiles": "No log files yet",
+    "logsSelectFile": "Select a file on the left to view",
     "logsPagination": "Page {{page}} / {{totalPages}} ({{total}} entries)"
   },
   "tz": {

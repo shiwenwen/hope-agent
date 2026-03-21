@@ -89,6 +89,11 @@ pub fn logs_db_path() -> Result<PathBuf> {
     Ok(root_dir()?.join("logs.db"))
 }
 
+/// Logs directory for plain text log files: ~/.opencomputer/logs/
+pub fn logs_dir() -> Result<PathBuf> {
+    Ok(root_dir()?.join("logs"))
+}
+
 // ── Share ────────────────────────────────────────────────────────
 
 /// Shared directory for inter-agent data: ~/.opencomputer/share/
@@ -109,6 +114,7 @@ pub fn ensure_dirs() -> Result<()> {
         home_dir()?,
         avatars_dir()?,
         share_dir()?,
+        logs_dir()?,
     ];
     for dir in &dirs_to_create {
         std::fs::create_dir_all(dir)?;
