@@ -2,6 +2,7 @@ import { useState, useEffect } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
+import { logger } from "@/lib/logger"
 import { Switch } from "@/components/ui/switch"
 import {
   ArrowLeft,
@@ -57,7 +58,7 @@ export default function SkillsPanel() {
       setExtraDirs(dirs)
       setSkillEnvCheck(envCheck)
     } catch (e) {
-      console.error("Failed to load skills:", e)
+      logger.error("settings", "SkillsPanel::load", "Failed to load skills", e)
     } finally {
       setLoading(false)
     }
@@ -69,7 +70,7 @@ export default function SkillsPanel() {
     try {
       await invoke("open_directory", { path })
     } catch (e) {
-      console.error("Failed to open directory:", e)
+      logger.error("settings", "SkillsPanel::openDir", "Failed to open directory", e)
     }
   }
 
@@ -82,7 +83,7 @@ export default function SkillsPanel() {
         await reload()
       }
     } catch (e) {
-      console.error("Failed to add skills directory:", e)
+      logger.error("settings", "SkillsPanel::addDir", "Failed to add skills directory", e)
     }
   }
 
@@ -91,7 +92,7 @@ export default function SkillsPanel() {
       await invoke("remove_extra_skills_dir", { dir })
       await reload()
     } catch (e) {
-      console.error("Failed to remove skills directory:", e)
+      logger.error("settings", "SkillsPanel::removeDir", "Failed to remove skills directory", e)
     }
   }
 
@@ -106,7 +107,7 @@ export default function SkillsPanel() {
         setSelectedSkill((prev) => prev ? { ...prev, enabled } : prev)
       }
     } catch (e) {
-      console.error("Failed to toggle skill:", e)
+      logger.error("settings", "SkillsPanel::toggle", "Failed to toggle skill", e)
     }
   }
 
@@ -115,7 +116,7 @@ export default function SkillsPanel() {
       const detail = await invoke<SkillDetail>("get_skill_detail", { name })
       setSelectedSkill(detail)
     } catch (e) {
-      console.error("Failed to load skill detail:", e)
+      logger.error("settings", "SkillsPanel::detail", "Failed to load skill detail", e)
     }
   }
 

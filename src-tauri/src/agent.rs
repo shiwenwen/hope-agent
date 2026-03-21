@@ -896,6 +896,29 @@ impl AssistantAgent {
     }
 
     pub async fn chat(&self, message: &str, attachments: &[Attachment], reasoning_effort: Option<&str>, cancel: Arc<AtomicBool>, on_delta: impl Fn(&str) + Send + 'static) -> Result<String> {
+        // Log agent chat dispatch
+        if let Some(logger) = crate::get_logger() {
+            let (provider_type, model_name) = match &self.provider {
+                LlmProvider::Anthropic { model, .. } => ("Anthropic", model.as_str()),
+                LlmProvider::OpenAIChat { model, .. } => ("OpenAIChat", model.as_str()),
+                LlmProvider::OpenAIResponses { model, .. } => ("OpenAIResponses", model.as_str()),
+                LlmProvider::Codex { model, .. } => ("Codex", model.as_str()),
+            };
+            let history_len = self.conversation_history.lock().unwrap().len();
+            let msg_preview = if message.len() > 200 { format!("{}...", &message[..200]) } else { message.to_string() };
+            logger.log("info", "agent", "agent::chat",
+                &format!("Agent chat dispatching: provider={}, model={}", provider_type, model_name),
+                Some(json!({
+                    "provider_type": provider_type,
+                    "model": model_name,
+                    "reasoning_effort": reasoning_effort,
+                    "attachments": attachments.len(),
+                    "history_messages": history_len,
+                    "message_preview": msg_preview,
+                }).to_string()),
+                None, None);
+        }
+
         match &self.provider {
             LlmProvider::Anthropic { api_key, base_url, model } => {
                 self.chat_anthropic(api_key, base_url, model, message, attachments, reasoning_effort, &cancel, &on_delta).await
@@ -938,8 +961,10 @@ impl AssistantAgent {
 
         let max_rounds = get_max_tool_rounds();
         let max_rounds = if max_rounds == 0 { u32::MAX } else { max_rounds };
-        for _round in 0..max_rounds {
+        let mut round_count: u32 = 0;
+        for round in 0..max_rounds {
             if cancel.load(Ordering::SeqCst) { break; }
+            round_count = round + 1;
 
             let mut body = json!({
                 "model": model,
@@ -955,6 +980,25 @@ impl AssistantAgent {
                 body["thinking"] = think_config.clone();
             }
 
+            // Log API request details
+            if let Some(logger) = crate::get_logger() {
+                let body_size = serde_json::to_string(&body).map(|s| s.len()).unwrap_or(0);
+                logger.log("debug", "agent", "agent::chat_anthropic::request",
+                    &format!("Anthropic API request round {}: {} messages, {} tools, body {}B",
+                        round, messages.len(), tool_schemas.len(), body_size),
+                    Some(json!({
+                        "round": round,
+                        "api_url": &api_url,
+                        "model": model,
+                        "message_count": messages.len(),
+                        "tool_count": tool_schemas.len(),
+                        "body_size_bytes": body_size,
+                        "thinking_enabled": thinking.is_some(),
+                    }).to_string()),
+                    None, None);
+            }
+
+            let request_start = std::time::Instant::now();
             let resp = client
                 .post(&api_url)
                 .header("x-api-key", api_key)
@@ -965,9 +1009,37 @@ impl AssistantAgent {
                 .await
                 .map_err(|e| anyhow::anyhow!("Anthropic API request failed: {}", e))?;
 
+            // Log API response status
+            if let Some(logger) = crate::get_logger() {
+                let status = resp.status().as_u16();
+                let request_id = resp.headers().get("x-request-id")
+                    .or_else(|| resp.headers().get("request-id"))
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("-")
+                    .to_string();
+                let ttfb_ms = request_start.elapsed().as_millis() as u64;
+                logger.log("debug", "agent", "agent::chat_anthropic::response",
+                    &format!("Anthropic API response: status={}, request_id={}, ttfb={}ms", status, request_id, ttfb_ms),
+                    Some(json!({
+                        "status": status,
+                        "request_id": request_id,
+                        "ttfb_ms": ttfb_ms,
+                        "round": round,
+                    }).to_string()),
+                    None, None);
+            }
+
             if !resp.status().is_success() {
                 let status = resp.status().as_u16();
                 let error_text = resp.text().await.unwrap_or_default();
+                // Log API error
+                if let Some(logger) = crate::get_logger() {
+                    let error_preview = if error_text.len() > 500 { format!("{}...", &error_text[..500]) } else { error_text.clone() };
+                    logger.log("error", "agent", "agent::chat_anthropic::error",
+                        &format!("Anthropic API error ({}): {}", status, error_preview),
+                        Some(json!({"status": status, "error": error_text, "round": round}).to_string()),
+                        None, None);
+                }
                 return Err(anyhow::anyhow!("Anthropic API error ({}): {}", status, error_text));
             }
 
@@ -999,6 +1071,19 @@ impl AssistantAgent {
                 }));
             }
             messages.push(json!({ "role": "assistant", "content": assistant_content }));
+
+            // Log tool loop progress
+            if let Some(logger) = crate::get_logger() {
+                let tool_names: Vec<&str> = tool_calls.iter().map(|tc| tc.name.as_str()).collect();
+                logger.log("info", "agent", "agent::chat_anthropic::tool_loop",
+                    &format!("Tool loop round {}: executing {} tools: {:?}", round, tool_calls.len(), tool_names),
+                    Some(json!({
+                        "round": round,
+                        "tool_count": tool_calls.len(),
+                        "tools": tool_names,
+                    }).to_string()),
+                    None, None);
+            }
 
             // Execute tools and build tool_result messages
             let mut tool_results: Vec<serde_json::Value> = Vec::new();
@@ -1036,6 +1121,28 @@ impl AssistantAgent {
 
         // Emit accumulated usage
         emit_usage(on_delta, &total_usage, model);
+
+        // Log chat completion summary
+        if let Some(logger) = crate::get_logger() {
+            let history_len = self.conversation_history.lock().unwrap().len();
+            logger.log("info", "agent", "agent::chat_anthropic::done",
+                &format!("Anthropic chat complete: {}chars, {} rounds, usage in={}/out={}",
+                    collected_text.len(), round_count, total_usage.input_tokens, total_usage.output_tokens),
+                Some(json!({
+                    "text_length": collected_text.len(),
+                    "total_rounds": round_count,
+                    "history_length": history_len,
+                    "cancelled": cancelled,
+                    "model": model,
+                    "usage": {
+                        "input_tokens": total_usage.input_tokens,
+                        "output_tokens": total_usage.output_tokens,
+                        "cache_creation": total_usage.cache_creation_input_tokens,
+                        "cache_read": total_usage.cache_read_input_tokens,
+                    }
+                }).to_string()),
+                None, None);
+        }
 
         Ok(collected_text)
     }
@@ -1188,6 +1295,27 @@ impl AssistantAgent {
             }
         }
 
+        // Log SSE stream completion
+        if let Some(logger) = crate::get_logger() {
+            let tool_names: Vec<&str> = tool_calls.iter().map(|tc| tc.name.as_str()).collect();
+            logger.log("debug", "agent", "agent::parse_anthropic_sse::done",
+                &format!("Anthropic SSE done: {}chars text, {} tool_calls, stop={:?}",
+                    collected_text.len(), tool_calls.len(), stop_reason),
+                Some(json!({
+                    "text_length": collected_text.len(),
+                    "tool_calls": tool_names,
+                    "tool_call_count": tool_calls.len(),
+                    "stop_reason": stop_reason,
+                    "usage": {
+                        "input_tokens": usage.input_tokens,
+                        "output_tokens": usage.output_tokens,
+                        "cache_creation": usage.cache_creation_input_tokens,
+                        "cache_read": usage.cache_read_input_tokens,
+                    }
+                }).to_string()),
+                None, None);
+        }
+
         Ok((collected_text, tool_calls, stop_reason, usage))
     }
 
@@ -1213,8 +1341,10 @@ impl AssistantAgent {
 
         let max_rounds = get_max_tool_rounds();
         let max_rounds = if max_rounds == 0 { u32::MAX } else { max_rounds };
-        for _round in 0..max_rounds {
+        let mut round_count: u32 = 0;
+        for round in 0..max_rounds {
             if cancel.load(Ordering::SeqCst) { break; }
+            round_count = round + 1;
 
             // Build messages array: system + conversation
             let mut api_messages = vec![json!({ "role": "system", "content": &system_prompt })];
@@ -1236,21 +1366,66 @@ impl AssistantAgent {
             // Apply thinking parameters based on provider's ThinkingStyle
             apply_thinking_to_chat_body(&mut body, &self.thinking_style, reasoning_effort, 16384);
 
+            // Log API request details
+            if let Some(logger) = crate::get_logger() {
+                let body_size = serde_json::to_string(&body).map(|s| s.len()).unwrap_or(0);
+                logger.log("debug", "agent", "agent::chat_openai_chat::request",
+                    &format!("OpenAI Chat API request round {}: {} messages, {} tools, body {}B",
+                        round, api_messages.len(), tools_array.len(), body_size),
+                    Some(json!({
+                        "round": round,
+                        "api_url": &api_url,
+                        "model": model,
+                        "message_count": api_messages.len(),
+                        "tool_count": tools_array.len(),
+                        "body_size_bytes": body_size,
+                    }).to_string()),
+                    None, None);
+            }
+
             let mut req = client
                 .post(&api_url)
                 .header("Content-Type", "application/json");
             if !api_key.is_empty() {
                 req = req.header("Authorization", format!("Bearer {}", api_key));
             }
+            let request_start = std::time::Instant::now();
             let resp = req
                 .json(&body)
                 .send()
                 .await
                 .map_err(|e| anyhow::anyhow!("OpenAI Chat API request failed: {}", e))?;
 
+            // Log API response status
+            if let Some(logger) = crate::get_logger() {
+                let status = resp.status().as_u16();
+                let request_id = resp.headers().get("x-request-id")
+                    .or_else(|| resp.headers().get("request-id"))
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("-")
+                    .to_string();
+                let ttfb_ms = request_start.elapsed().as_millis() as u64;
+                logger.log("debug", "agent", "agent::chat_openai_chat::response",
+                    &format!("OpenAI Chat API response: status={}, request_id={}, ttfb={}ms", status, request_id, ttfb_ms),
+                    Some(json!({
+                        "status": status,
+                        "request_id": request_id,
+                        "ttfb_ms": ttfb_ms,
+                        "round": round,
+                    }).to_string()),
+                    None, None);
+            }
+
             if !resp.status().is_success() {
                 let status = resp.status().as_u16();
                 let error_text = resp.text().await.unwrap_or_default();
+                if let Some(logger) = crate::get_logger() {
+                    let error_preview = if error_text.len() > 500 { format!("{}...", &error_text[..500]) } else { error_text.clone() };
+                    logger.log("error", "agent", "agent::chat_openai_chat::error",
+                        &format!("OpenAI Chat API error ({}): {}", status, error_preview),
+                        Some(json!({"status": status, "error": error_text, "round": round}).to_string()),
+                        None, None);
+                }
                 return Err(anyhow::anyhow!("OpenAI Chat API error ({}): {}", status, error_text));
             }
 
@@ -1264,6 +1439,19 @@ impl AssistantAgent {
 
             if tool_calls.is_empty() {
                 break;
+            }
+
+            // Log tool loop progress
+            if let Some(logger) = crate::get_logger() {
+                let tool_names: Vec<&str> = tool_calls.iter().map(|tc| tc.name.as_str()).collect();
+                logger.log("info", "agent", "agent::chat_openai_chat::tool_loop",
+                    &format!("Tool loop round {}: executing {} tools: {:?}", round, tool_calls.len(), tool_names),
+                    Some(json!({
+                        "round": round,
+                        "tool_count": tool_calls.len(),
+                        "tools": tool_names,
+                    }).to_string()),
+                    None, None);
             }
 
             // Build assistant message with tool_calls
@@ -1317,6 +1505,28 @@ impl AssistantAgent {
 
         // Emit accumulated usage
         emit_usage(on_delta, &total_usage, model);
+
+        // Log chat completion summary
+        if let Some(logger) = crate::get_logger() {
+            let history_len = self.conversation_history.lock().unwrap().len();
+            logger.log("info", "agent", "agent::chat_openai_chat::done",
+                &format!("OpenAI Chat complete: {}chars, {} rounds, usage in={}/out={}",
+                    collected_text.len(), round_count, total_usage.input_tokens, total_usage.output_tokens),
+                Some(json!({
+                    "text_length": collected_text.len(),
+                    "total_rounds": round_count,
+                    "history_length": history_len,
+                    "cancelled": cancelled,
+                    "model": model,
+                    "usage": {
+                        "input_tokens": total_usage.input_tokens,
+                        "output_tokens": total_usage.output_tokens,
+                        "cache_creation": total_usage.cache_creation_input_tokens,
+                        "cache_read": total_usage.cache_read_input_tokens,
+                    }
+                }).to_string()),
+                None, None);
+        }
 
         Ok(collected_text)
     }
@@ -1458,6 +1668,26 @@ impl AssistantAgent {
             }
         }
 
+        // Log SSE stream completion
+        if let Some(logger) = crate::get_logger() {
+            let tool_names: Vec<&str> = tool_calls.iter().map(|tc| tc.name.as_str()).collect();
+            logger.log("debug", "agent", "agent::parse_chat_completions_sse::done",
+                &format!("OpenAI Chat SSE done: {}chars text, {} tool_calls",
+                    collected_text.len(), tool_calls.len()),
+                Some(json!({
+                    "text_length": collected_text.len(),
+                    "tool_calls": tool_names,
+                    "tool_call_count": tool_calls.len(),
+                    "usage": {
+                        "input_tokens": usage.input_tokens,
+                        "output_tokens": usage.output_tokens,
+                        "cache_creation": usage.cache_creation_input_tokens,
+                        "cache_read": usage.cache_read_input_tokens,
+                    }
+                }).to_string()),
+                None, None);
+        }
+
         Ok((collected_text, tool_calls, usage))
     }
 
@@ -1485,8 +1715,10 @@ impl AssistantAgent {
 
         let max_rounds = get_max_tool_rounds();
         let max_rounds = if max_rounds == 0 { u32::MAX } else { max_rounds };
-        for _round in 0..max_rounds {
+        let mut round_count: u32 = 0;
+        for round in 0..max_rounds {
             if cancel.load(Ordering::SeqCst) { break; }
+            round_count = round + 1;
 
             let request = ResponsesRequest {
                 model: model.to_string(),
@@ -1498,21 +1730,67 @@ impl AssistantAgent {
                 tools: Some(tool_schemas.clone()),
             };
 
+            // Log API request details
+            if let Some(logger) = crate::get_logger() {
+                let body_size = serde_json::to_string(&request).map(|s| s.len()).unwrap_or(0);
+                logger.log("debug", "agent", "agent::chat_openai_responses::request",
+                    &format!("OpenAI Responses API request round {}: {} input items, {} tools, body {}B",
+                        round, input.len(), tool_schemas.len(), body_size),
+                    Some(json!({
+                        "round": round,
+                        "api_url": &api_url,
+                        "model": model,
+                        "input_count": input.len(),
+                        "tool_count": tool_schemas.len(),
+                        "body_size_bytes": body_size,
+                        "reasoning": reasoning.as_ref().map(|r| r.effort.as_str()),
+                    }).to_string()),
+                    None, None);
+            }
+
             let mut req = client
                 .post(&api_url)
                 .header("Content-Type", "application/json");
             if !api_key.is_empty() {
                 req = req.header("Authorization", format!("Bearer {}", api_key));
             }
+            let request_start = std::time::Instant::now();
             let resp = req
                 .json(&request)
                 .send()
                 .await
                 .map_err(|e| anyhow::anyhow!("OpenAI Responses API request failed: {}", e))?;
 
+            // Log API response status
+            if let Some(logger) = crate::get_logger() {
+                let status = resp.status().as_u16();
+                let request_id = resp.headers().get("x-request-id")
+                    .or_else(|| resp.headers().get("request-id"))
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("-")
+                    .to_string();
+                let ttfb_ms = request_start.elapsed().as_millis() as u64;
+                logger.log("debug", "agent", "agent::chat_openai_responses::response",
+                    &format!("OpenAI Responses API response: status={}, request_id={}, ttfb={}ms", status, request_id, ttfb_ms),
+                    Some(json!({
+                        "status": status,
+                        "request_id": request_id,
+                        "ttfb_ms": ttfb_ms,
+                        "round": round,
+                    }).to_string()),
+                    None, None);
+            }
+
             if !resp.status().is_success() {
                 let status = resp.status().as_u16();
                 let error_text = resp.text().await.unwrap_or_default();
+                if let Some(logger) = crate::get_logger() {
+                    let error_preview = if error_text.len() > 500 { format!("{}...", &error_text[..500]) } else { error_text.clone() };
+                    logger.log("error", "agent", "agent::chat_openai_responses::error",
+                        &format!("OpenAI Responses API error ({}): {}", status, error_preview),
+                        Some(json!({"status": status, "error": error_text, "round": round}).to_string()),
+                        None, None);
+                }
                 return Err(anyhow::anyhow!("OpenAI Responses API error ({}): {}", status, error_text));
             }
 
@@ -1525,6 +1803,19 @@ impl AssistantAgent {
 
             if tool_calls.is_empty() {
                 break;
+            }
+
+            // Log tool loop progress
+            if let Some(logger) = crate::get_logger() {
+                let tool_names: Vec<&str> = tool_calls.iter().map(|tc| tc.name.as_str()).collect();
+                logger.log("info", "agent", "agent::chat_openai_responses::tool_loop",
+                    &format!("Tool loop round {}: executing {} tools: {:?}", round, tool_calls.len(), tool_names),
+                    Some(json!({
+                        "round": round,
+                        "tool_count": tool_calls.len(),
+                        "tools": tool_names,
+                    }).to_string()),
+                    None, None);
             }
 
             for tc in &tool_calls {
@@ -1566,6 +1857,28 @@ impl AssistantAgent {
         // Emit accumulated usage
         emit_usage(on_delta, &total_usage, model);
 
+        // Log chat completion summary
+        if let Some(logger) = crate::get_logger() {
+            let history_len = self.conversation_history.lock().unwrap().len();
+            logger.log("info", "agent", "agent::chat_openai_responses::done",
+                &format!("OpenAI Responses chat complete: {}chars, {} rounds, usage in={}/out={}",
+                    collected_text.len(), round_count, total_usage.input_tokens, total_usage.output_tokens),
+                Some(json!({
+                    "text_length": collected_text.len(),
+                    "total_rounds": round_count,
+                    "history_length": history_len,
+                    "cancelled": cancelled,
+                    "model": model,
+                    "usage": {
+                        "input_tokens": total_usage.input_tokens,
+                        "output_tokens": total_usage.output_tokens,
+                        "cache_creation": total_usage.cache_creation_input_tokens,
+                        "cache_read": total_usage.cache_read_input_tokens,
+                    }
+                }).to_string()),
+                None, None);
+        }
+
         Ok(collected_text)
     }
 
@@ -1598,8 +1911,10 @@ impl AssistantAgent {
 
         let max_rounds = get_max_tool_rounds();
         let max_rounds = if max_rounds == 0 { u32::MAX } else { max_rounds };
-        for _round in 0..max_rounds {
+        let mut round_count: u32 = 0;
+        for round in 0..max_rounds {
             if cancel.load(Ordering::SeqCst) { break; }
+            round_count = round + 1;
 
             let request = ResponsesRequest {
                 model: model.to_string(),
@@ -1613,10 +1928,28 @@ impl AssistantAgent {
 
             let body_json = serde_json::to_string(&request)?;
 
+            // Log API request details
+            if let Some(logger) = crate::get_logger() {
+                logger.log("debug", "agent", "agent::chat_codex::request",
+                    &format!("Codex API request round {}: {} input items, {} tools, body {}B",
+                        round, input.len(), tool_schemas.len(), body_json.len()),
+                    Some(json!({
+                        "round": round,
+                        "api_url": CODEX_API_URL,
+                        "model": model,
+                        "input_count": input.len(),
+                        "tool_count": tool_schemas.len(),
+                        "body_size_bytes": body_json.len(),
+                        "reasoning": reasoning.as_ref().map(|r| r.effort.as_str()),
+                    }).to_string()),
+                    None, None);
+            }
+
             // Retry loop with exponential backoff
             let mut last_error: Option<String> = None;
             let mut resp_opt: Option<reqwest::Response> = None;
 
+            let request_start = std::time::Instant::now();
             for attempt in 0..=MAX_RETRIES {
                 let response = client
                     .post(CODEX_API_URL)
@@ -1634,6 +1967,19 @@ impl AssistantAgent {
                 match response {
                     Ok(resp) => {
                         if resp.status().is_success() {
+                            // Log successful response
+                            if let Some(logger) = crate::get_logger() {
+                                let ttfb_ms = request_start.elapsed().as_millis() as u64;
+                                logger.log("debug", "agent", "agent::chat_codex::response",
+                                    &format!("Codex API response: status=200, ttfb={}ms, attempt={}", ttfb_ms, attempt + 1),
+                                    Some(json!({
+                                        "status": 200,
+                                        "ttfb_ms": ttfb_ms,
+                                        "attempt": attempt + 1,
+                                        "round": round,
+                                    }).to_string()),
+                                    None, None);
+                            }
                             resp_opt = Some(resp);
                             break;
                         }
@@ -1644,11 +1990,24 @@ impl AssistantAgent {
                         if attempt < MAX_RETRIES && is_retryable_error(status, &error_text) {
                             let delay = BASE_DELAY_MS * 2u64.pow(attempt);
                             log::warn!("Codex API error {} (attempt {}/{}), retrying in {}ms", status, attempt + 1, MAX_RETRIES, delay);
+                            if let Some(logger) = crate::get_logger() {
+                                logger.log("warn", "agent", "agent::chat_codex::retry",
+                                    &format!("Codex API error {}, retrying (attempt {}/{})", status, attempt + 1, MAX_RETRIES),
+                                    Some(json!({"status": status, "attempt": attempt + 1, "delay_ms": delay, "error": &error_text}).to_string()),
+                                    None, None);
+                            }
                             tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
                             last_error = Some(error_text);
                             continue;
                         }
 
+                        if let Some(logger) = crate::get_logger() {
+                            let error_preview = if error_text.len() > 500 { format!("{}...", &error_text[..500]) } else { error_text.clone() };
+                            logger.log("error", "agent", "agent::chat_codex::error",
+                                &format!("Codex API error ({}): {}", status, error_preview),
+                                Some(json!({"status": status, "error": error_text, "round": round}).to_string()),
+                                None, None);
+                        }
                         let friendly = parse_error_response(status, &error_text);
                         return Err(anyhow::anyhow!("{}", friendly));
                     }
@@ -1656,6 +2015,12 @@ impl AssistantAgent {
                         if attempt < MAX_RETRIES {
                             let delay = BASE_DELAY_MS * 2u64.pow(attempt);
                             log::warn!("Codex API network error (attempt {}/{}): {}, retrying in {}ms", attempt + 1, MAX_RETRIES, e, delay);
+                            if let Some(logger) = crate::get_logger() {
+                                logger.log("warn", "agent", "agent::chat_codex::retry",
+                                    &format!("Codex API network error, retrying (attempt {}/{}): {}", attempt + 1, MAX_RETRIES, e),
+                                    Some(json!({"attempt": attempt + 1, "delay_ms": delay, "error": e.to_string()}).to_string()),
+                                    None, None);
+                            }
                             tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
                             last_error = Some(e.to_string());
                             continue;
@@ -1680,6 +2045,19 @@ impl AssistantAgent {
             // If no tool calls, we're done
             if tool_calls.is_empty() {
                 break;
+            }
+
+            // Log tool loop progress
+            if let Some(logger) = crate::get_logger() {
+                let tool_names: Vec<&str> = tool_calls.iter().map(|tc| tc.name.as_str()).collect();
+                logger.log("info", "agent", "agent::chat_codex::tool_loop",
+                    &format!("Tool loop round {}: executing {} tools: {:?}", round, tool_calls.len(), tool_names),
+                    Some(json!({
+                        "round": round,
+                        "tool_count": tool_calls.len(),
+                        "tools": tool_names,
+                    }).to_string()),
+                    None, None);
             }
 
             // Execute tools and append results to input
@@ -1726,6 +2104,28 @@ impl AssistantAgent {
 
         // Emit accumulated usage
         emit_usage(on_delta, &total_usage, model);
+
+        // Log chat completion summary
+        if let Some(logger) = crate::get_logger() {
+            let history_len = self.conversation_history.lock().unwrap().len();
+            logger.log("info", "agent", "agent::chat_codex::done",
+                &format!("Codex chat complete: {}chars, {} rounds, usage in={}/out={}",
+                    collected_text.len(), round_count, total_usage.input_tokens, total_usage.output_tokens),
+                Some(json!({
+                    "text_length": collected_text.len(),
+                    "total_rounds": round_count,
+                    "history_length": history_len,
+                    "cancelled": cancelled,
+                    "model": model,
+                    "usage": {
+                        "input_tokens": total_usage.input_tokens,
+                        "output_tokens": total_usage.output_tokens,
+                        "cache_creation": total_usage.cache_creation_input_tokens,
+                        "cache_read": total_usage.cache_read_input_tokens,
+                    }
+                }).to_string()),
+                None, None);
+        }
 
         Ok(collected_text)
     }
@@ -1930,6 +2330,26 @@ impl AssistantAgent {
         // Drain any remaining pending calls
         for (_, tc) in pending_calls {
             tool_calls.push(tc);
+        }
+
+        // Log SSE stream completion
+        if let Some(logger) = crate::get_logger() {
+            let tool_names: Vec<&str> = tool_calls.iter().map(|tc| tc.name.as_str()).collect();
+            logger.log("debug", "agent", "agent::parse_openai_sse::done",
+                &format!("OpenAI Responses SSE done: {}chars text, {} tool_calls",
+                    collected_text.len(), tool_calls.len()),
+                Some(json!({
+                    "text_length": collected_text.len(),
+                    "tool_calls": tool_names,
+                    "tool_call_count": tool_calls.len(),
+                    "usage": {
+                        "input_tokens": usage.input_tokens,
+                        "output_tokens": usage.output_tokens,
+                        "cache_creation": usage.cache_creation_input_tokens,
+                        "cache_read": usage.cache_read_input_tokens,
+                    }
+                }).to_string()),
+                None, None);
         }
 
         Ok((collected_text, tool_calls, usage))

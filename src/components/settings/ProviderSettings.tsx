@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
+import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
 import type { ModelConfig } from "@/components/settings/ProviderSetup"
 import ProviderIcon from "@/components/common/ProviderIcon"
@@ -259,7 +260,7 @@ export default function ProviderSettings({
       const list = await invoke<ProviderConfig[]>("get_providers")
       setProviders(list)
     } catch (e) {
-      console.error("Failed to load providers:", e)
+      logger.error("settings", "ProviderSettings::load", "Failed to load providers", e)
     } finally {
       setLoading(false)
     }
@@ -271,7 +272,7 @@ export default function ProviderSettings({
       await invoke("delete_provider", { providerId: id })
       await loadProviders()
     } catch (e) {
-      console.error("Failed to delete provider:", e)
+      logger.error("settings", "ProviderSettings::delete", "Failed to delete provider", e)
     }
     setMenuId(null)
   }
@@ -283,7 +284,7 @@ export default function ProviderSettings({
       })
       await loadProviders()
     } catch (e) {
-      console.error("Failed to toggle provider:", e)
+      logger.error("settings", "ProviderSettings::toggle", "Failed to toggle provider", e)
     }
     setMenuId(null)
   }
@@ -297,7 +298,7 @@ export default function ProviderSettings({
     setProviders(updated)
     invoke("reorder_providers", {
       providerIds: updated.map((p) => p.id),
-    }).catch((e) => console.error("Failed to reorder providers:", e))
+    }).catch((e) => logger.error("settings", "ProviderSettings::reorder", "Failed to reorder providers", e))
   }
 
   return (

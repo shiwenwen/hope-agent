@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react"
 import { invoke } from "@tauri-apps/api/core"
+import { logger } from "@/lib/logger"
 import ProviderSetup from "@/components/settings/ProviderSetup"
 import SettingsView from "@/components/settings/SettingsView"
 import IconSidebar from "@/components/common/IconSidebar"
@@ -47,7 +48,7 @@ export default function App() {
           setView(has ? "chat" : "setup")
         }
       } catch (e) {
-        console.error("Failed to restore session:", e)
+        logger.error("app", "App::init", "Failed to restore session", e)
         setView("setup")
       }
     })()

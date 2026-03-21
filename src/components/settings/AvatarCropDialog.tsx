@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react"
+import { logger } from "@/lib/logger"
 import Cropper from "react-easy-crop"
 import type { Area } from "react-easy-crop"
 import {
@@ -95,7 +96,7 @@ export function AvatarCropDialog({
       const blob = await getCroppedBlob(imageSrc, croppedAreaPixels)
       onConfirm(blob)
     } catch (e) {
-      console.error("Crop failed:", e)
+      logger.error("ui", "AvatarCropDialog::crop", "Crop failed", e)
     } finally {
       setProcessing(false)
     }

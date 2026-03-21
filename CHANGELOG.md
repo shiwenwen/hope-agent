@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 新增 3 个 Tauri 命令：`list_log_files_cmd` / `read_log_file_cmd` / `get_log_file_path_cmd`
   - `LogPanel` 新增双视图模式：结构化查询视图（SQLite）+ 文件浏览视图（左侧文件列表 + 右侧内容查看器）
   - 配置面板新增文件日志开关和单文件大小上限，SQLite 和文件日志可独立开关
+- **Agent 执行全链路日志**：后端 `agent.rs` 和 `lib.rs` 新增 30+ 个结构化日志点，覆盖 chat 入口调度（provider/model/history）、API 请求详情（URL/消息数/body 大小/TTFB）、API 响应状态（HTTP status/request-id）、SSE 流解析结果（text 长度/tool_calls/usage）、Tool Loop 进度、chat 完成总结（rounds/tokens）、模型链解析、模型降级尝试、会话上下文恢复、系统提示词组装
+- **前端统一日志**：新增 `src/lib/logger.ts` 前端日志工具，通过 `frontend_log` / `frontend_log_batch` Tauri 命令将前端日志写入后端统一日志系统，支持批量缓冲（500ms/20 条），error/warn 级别同时镜像到 console。替换全部 10 个组件中 ~45 处 `console.error` 为结构化 logger 调用
 
 ### Changed
 - **`SettingsView.tsx` 拆分为独立面板组件**：原 2831 行单文件拆分为 `types.ts`（共享类型）+ 8 个独立面板组件（ChatSettingsPanel / AppearancePanel / LanguagePanel / GlobalModelPanel / SkillsPanel / AgentPanel / UserProfilePanel / AboutPanel）+ 瘦身后的 SettingsView 编排入口（~170 行）

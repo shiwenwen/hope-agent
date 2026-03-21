@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
+import { logger } from "@/lib/logger"
 import {
   DndContext,
   closestCenter,
@@ -103,7 +104,7 @@ export default function GlobalModelPanel() {
         setActiveModel(active)
         setFallbackModels(fallbacks)
       } catch (e) {
-        console.error("Failed to load model settings:", e)
+        logger.error("settings", "GlobalModelPanel::load", "Failed to load model settings", e)
       } finally {
         setLoading(false)
       }
@@ -123,7 +124,7 @@ export default function GlobalModelPanel() {
       await invoke("set_active_model", { providerId, modelId })
       setActiveModel({ providerId, modelId })
     } catch (e) {
-      console.error("Failed to set default model:", e)
+      logger.error("settings", "GlobalModelPanel::setDefault", "Failed to set default model", e)
     }
   }
 
@@ -132,7 +133,7 @@ export default function GlobalModelPanel() {
       await invoke("set_fallback_models", { models: newFallbacks })
       setFallbackModels(newFallbacks)
     } catch (e) {
-      console.error("Failed to save fallback models:", e)
+      logger.error("settings", "GlobalModelPanel::saveFallbacks", "Failed to save fallback models", e)
     }
   }
 

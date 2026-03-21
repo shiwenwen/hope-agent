@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react"
 import { invoke, convertFileSrc } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
+import { logger } from "@/lib/logger"
 import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -14,7 +15,7 @@ interface UserConfig {
   name?: string | null
   avatar?: string | null
   gender?: string | null
-  age?: number | null
+  birthday?: string | null
   role?: string | null
   timezone?: string | null
   language?: string | null
@@ -111,7 +112,7 @@ export default function UserProfilePanel() {
       if (cfg.gender && !GENDER_PRESETS.includes(cfg.gender)) {
         setCustomGender(true)
       }
-    }).catch(console.error)
+    }).catch((e: unknown) => logger.error("settings", "UserProfilePanel::load", "Failed to load user config", e))
   }, [i18n.language])
 
   const handleSave = async () => {
@@ -121,7 +122,7 @@ export default function UserProfilePanel() {
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
     } catch (e) {
-      console.error(e)
+      logger.error("settings", "UserProfilePanel::save", "Failed to save user config", e)
     } finally {
       setSaving(false)
     }
@@ -160,7 +161,7 @@ export default function UserProfilePanel() {
         setCropSrc(convertFileSrc(selected as string))
       }
     } catch (e) {
-      console.error("Failed to pick avatar:", e)
+      logger.error("settings", "UserProfilePanel::pickAvatar", "Failed to pick avatar", e)
     }
   }
 
@@ -176,7 +177,7 @@ export default function UserProfilePanel() {
       const savedPath = await invoke<string>("save_avatar", { imageData: base64, fileName })
       update({ avatar: savedPath })
     } catch (e) {
-      console.error("Failed to save avatar:", e)
+      logger.error("settings", "UserProfilePanel::saveAvatar", "Failed to save avatar", e)
     }
   }
 
@@ -280,21 +281,40 @@ export default function UserProfilePanel() {
               )}
             </div>
 
-            {/* ── Age ── */}
+            {/* ── Birthday ── */}
             <div>
-              <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.profileAge")}</div>
+              <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.profileBirthday")}</div>
               <Input
-                type="number"
-                min={1}
-                max={150}
-                className="bg-secondary/40 rounded-lg [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                value={config.age ?? ""}
+                type="date"
+                className="bg-secondary/40 rounded-lg"
+                value={config.birthday ?? ""}
                 onChange={(e) => {
-                  const v = e.target.value
-                  update({ age: v ? parseInt(v, 10) || null : null })
+                  update({ birthday: e.target.value || null })
                 }}
-                placeholder={t("settings.profileAgePlaceholder")}
               />
+              {config.birthday && (() => {
+                const bd = new Date(config.birthday + "T00:00:00")
+                if (isNaN(bd.getTime())) return null
+                const today = new Date()
+                let age = today.getFullYear() - bd.getFullYear()
+                const hadBirthdayThisYear =
+                  today.getMonth() > bd.getMonth() ||
+                  (today.getMonth() === bd.getMonth() && today.getDate() >= bd.getDate())
+                if (!hadBirthdayThisYear) age -= 1
+                const isBirthday = today.getMonth() === bd.getMonth() && today.getDate() === bd.getDate()
+                return (
+                  <div className="mt-2 px-1 flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">
+                      {t("settings.profileAgeDisplay", { age })}
+                    </span>
+                    {isBirthday && (
+                      <span className="text-xs font-medium text-amber-500 animate-pulse">
+                        🎂 {t("settings.profileBirthdaySurprise")}
+                      </span>
+                    )}
+                  </div>
+                )
+              })()}
             </div>
 
             {/* ── Role ── */}

@@ -131,11 +131,28 @@ pub fn build(definition: &AgentDefinition) -> String {
     // ⑩ Project context — not yet implemented
 
     // Join all non-empty sections
-    sections
+    let section_lengths: Vec<usize> = sections.iter().map(|s| s.len()).collect();
+    let prompt = sections
         .into_iter()
         .filter(|s| !s.is_empty())
         .collect::<Vec<_>>()
-        .join("\n\n")
+        .join("\n\n");
+
+    // Log system prompt build result
+    if let Some(logger) = crate::get_logger() {
+        logger.log("debug", "agent", "system_prompt::build",
+            &format!("System prompt built: {} chars, {} sections", prompt.len(), section_lengths.len()),
+            Some(serde_json::json!({
+                "total_length": prompt.len(),
+                "section_count": section_lengths.len(),
+                "section_lengths": section_lengths,
+                "agent_name": &definition.config.name,
+                "custom_prompt_mode": definition.config.use_custom_prompt,
+            }).to_string()),
+            None, None);
+    }
+
+    prompt
 }
 
 /// Build a system prompt using the legacy path (no AgentDefinition).

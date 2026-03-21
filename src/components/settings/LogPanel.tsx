@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { invoke } from "@tauri-apps/api/core"
 import { cn } from "@/lib/utils"
+import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
@@ -106,7 +107,7 @@ export default function LogPanel() {
       setLogs(result.logs)
       setTotal(result.total)
     } catch (e) {
-      console.error("Failed to query logs:", e)
+      logger.error("settings", "LogPanel::queryLogs", "Failed to query logs", e)
     } finally {
       setLoading(false)
     }
@@ -117,7 +118,7 @@ export default function LogPanel() {
       const s = await invoke<LogStats>("get_log_stats_cmd")
       setStats(s)
     } catch (e) {
-      console.error("Failed to get log stats:", e)
+      logger.error("settings", "LogPanel::getStats", "Failed to get log stats", e)
     }
   }, [])
 
@@ -126,7 +127,7 @@ export default function LogPanel() {
       const c = await invoke<LogConfig>("get_log_config_cmd")
       setConfig(c)
     } catch (e) {
-      console.error("Failed to get log config:", e)
+      logger.error("settings", "LogPanel::getConfig", "Failed to get log config", e)
     }
   }, [])
 
@@ -135,7 +136,7 @@ export default function LogPanel() {
       const files = await invoke<LogFileInfo[]>("list_log_files_cmd")
       setLogFiles(files)
     } catch (e) {
-      console.error("Failed to list log files:", e)
+      logger.error("settings", "LogPanel::listFiles", "Failed to list log files", e)
     }
   }, [])
 
@@ -144,7 +145,7 @@ export default function LogPanel() {
       const path = await invoke<string>("get_log_file_path_cmd")
       setCurrentLogPath(path)
     } catch (e) {
-      console.error("Failed to get log file path:", e)
+      logger.error("settings", "LogPanel::getFilePath", "Failed to get log file path", e)
     }
   }, [])
 
@@ -157,7 +158,7 @@ export default function LogPanel() {
       })
       setFileContent(content)
     } catch (e) {
-      console.error("Failed to read log file:", e)
+      logger.error("settings", "LogPanel::readFile", "Failed to read log file", e)
       setFileContent("")
     } finally {
       setFileLoading(false)
@@ -218,7 +219,7 @@ export default function LogPanel() {
       await fetchLogs()
       await fetchStats()
     } catch (e) {
-      console.error("Failed to clear logs:", e)
+      logger.error("settings", "LogPanel::clearLogs", "Failed to clear logs", e)
     }
   }
 
@@ -227,7 +228,7 @@ export default function LogPanel() {
       await invoke("save_log_config_cmd", { config: newConfig })
       setConfig(newConfig)
     } catch (e) {
-      console.error("Failed to save log config:", e)
+      logger.error("settings", "LogPanel::saveConfig", "Failed to save log config", e)
     }
   }
 
@@ -245,7 +246,7 @@ export default function LogPanel() {
       a.click()
       URL.revokeObjectURL(url)
     } catch (e) {
-      console.error("Failed to export logs:", e)
+      logger.error("settings", "LogPanel::export", "Failed to export logs", e)
     }
   }
 

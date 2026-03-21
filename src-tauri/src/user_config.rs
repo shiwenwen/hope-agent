@@ -1,4 +1,5 @@
 use anyhow::Result;
+use chrono::Datelike;
 use serde::{Deserialize, Serialize};
 
 use crate::paths;
@@ -22,9 +23,9 @@ pub struct UserConfig {
     #[serde(default)]
     pub gender: Option<String>,
 
-    /// Age
+    /// Birthday in "YYYY-MM-DD" format
     #[serde(default)]
-    pub age: Option<u32>,
+    pub birthday: Option<String>,
 
     /// Role description, e.g. "全栈开发者"
     #[serde(default)]
@@ -101,8 +102,25 @@ pub fn build_user_context(config: &UserConfig) -> Option<String> {
 
     push_if(&mut lines, "Name", &config.name);
     push_if(&mut lines, "Gender", &config.gender);
-    if let Some(age) = config.age {
-        lines.push(format!("- Age: {}", age));
+    if let Some(birthday) = &config.birthday {
+        if !birthday.is_empty() {
+            lines.push(format!("- Birthday: {}", birthday));
+            // Calculate age from birthday
+            if let Ok(bd) = chrono::NaiveDate::parse_from_str(birthday, "%Y-%m-%d") {
+                let today = chrono::Local::now().date_naive();
+                let mut age = today.year() - bd.year();
+                if today.ordinal() < bd.ordinal() {
+                    age -= 1;
+                }
+                if age >= 0 {
+                    lines.push(format!("- Age: {}", age));
+                }
+                // Check if today is their birthday
+                if today.month() == bd.month() && today.day() == bd.day() {
+                    lines.push("- 🎂 Today is the user's birthday! Feel free to wish them a happy birthday warmly.".to_string());
+                }
+            }
+        }
     }
     push_if(&mut lines, "Role", &config.role);
     push_if(&mut lines, "AI experience level", &config.ai_experience);

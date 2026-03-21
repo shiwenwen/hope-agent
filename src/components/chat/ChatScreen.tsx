@@ -3,6 +3,7 @@ import { invoke, Channel } from "@tauri-apps/api/core"
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
+import { logger } from "@/lib/logger"
 import { Settings, Copy, Check, Info, BarChart3, AlertCircle } from "lucide-react"
 import type {
   Message,
@@ -333,7 +334,7 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
         const request: ApprovalRequest = JSON.parse(event.payload)
         setApprovalRequests((prev) => [...prev, request])
       } catch (e) {
-        console.error("Failed to parse approval request:", e)
+        logger.error("ui", "ChatScreen::approval", "Failed to parse approval request", e)
       }
     }).then((fn) => {
       unlisten = fn
@@ -353,7 +354,7 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
     try {
       await invoke("respond_to_approval", { requestId, response })
     } catch (e) {
-      console.error("Failed to respond to approval:", e)
+      logger.error("ui", "ChatScreen::approval", "Failed to respond to approval", e)
     }
   }
 
@@ -376,7 +377,7 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
           setAgentName(agentConfig.name)
         }
       } catch (e) {
-        console.error("Failed to load settings:", e)
+        logger.error("ui", "ChatScreen::loadSettings", "Failed to load settings", e)
       }
     })()
   }, [])
@@ -387,7 +388,7 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
       const list = await invoke<SessionMeta[]>("list_sessions_cmd", {})
       setSessions(list)
     } catch (e) {
-      console.error("Failed to load sessions:", e)
+      logger.error("ui", "ChatScreen::loadSessions", "Failed to load sessions", e)
     }
   }, [])
 
@@ -396,7 +397,7 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
       const list = await invoke<AgentSummaryForSidebar[]>("list_agents")
       setAgents(list)
     } catch (e) {
-      console.error("Failed to load agents:", e)
+      logger.error("ui", "ChatScreen::loadAgents", "Failed to load agents", e)
     }
   }, [])
 
@@ -440,7 +441,7 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
         setLoading(loadingSessionsRef.current.has(sessionId))
         setCurrentSessionId(sessionId)
       } catch (e) {
-        console.error("Failed to load session:", e)
+        logger.error("session", "ChatScreen::switchSession", "Failed to load session", { sessionId, error: e })
         return
       }
     }
@@ -494,7 +495,7 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
       }
       reloadSessions()
     } catch (err) {
-      console.error("Failed to delete session:", err)
+      logger.error("session", "ChatScreen::deleteSession", "Failed to delete session", err)
     }
   }
 
@@ -506,7 +507,7 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
     try {
       await invoke("set_active_model", { providerId, modelId })
     } catch (e) {
-      console.error("Failed to set model:", e)
+      logger.error("ui", "ChatScreen::modelChange", "Failed to set model", e)
     }
 
     const newModel = availableModels.find(
@@ -529,7 +530,7 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
     try {
       await invoke("set_reasoning_effort", { effort })
     } catch (e) {
-      console.error("Failed to set reasoning effort:", e)
+      logger.error("ui", "ChatScreen::effortChange", "Failed to set reasoning effort", e)
     }
   }
 
@@ -537,7 +538,7 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
     try {
       await invoke("stop_chat")
     } catch (e) {
-      console.error("Failed to stop chat:", e)
+      logger.error("ui", "ChatScreen::stop", "Failed to stop chat", e)
     }
   }
 
@@ -596,7 +597,7 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
           })
         }
       } catch (err) {
-        console.error("Failed to process attachment:", file.name, err)
+        logger.error("ui", "ChatScreen::attachment", "Failed to process attachment", { fileName: file.name, error: err })
       }
     }
 

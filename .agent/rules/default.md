@@ -26,6 +26,7 @@ src/                    前端（React + TypeScript）
     chat/               聊天相关组件（消息列表/输入框/审批对话框/思考块/工具调用块）
     settings/           设置面板（Provider/Agent/外观/语言/模型/技能/用户资料）
     common/             共享组件（导航栏/Markdown 渲染/Provider 图标）
+  lib/logger.ts         前端统一日志工具（写入后端日志系统）
   i18n/locales/         12 种语言翻译文件
   types/chat.ts         共享类型定义
 src-tauri/src/          后端（Rust）
@@ -58,6 +59,7 @@ src-tauri/src/          后端（Rust）
 - **数据存储**：所有数据统一在 `~/.opencomputer/`，`paths.rs` 集中管理
 - **降级策略**：ContextOverflow 终止 → RateLimit/Overloaded/Timeout 指数退避重试 2 次 → Auth/Billing/ModelNotFound 跳下一模型
 - **连续消息合并**：`push_user_message()` 自动合并连续 user 消息，兼容 Anthropic role 交替要求
+- **统一日志**：前后端日志统一写入后端 `logging.rs`（SQLite + 纯文本双写）。前端通过 `src/lib/logger.ts` 调用 `frontend_log` / `frontend_log_batch` 命令，支持批量缓冲（500ms / 20 条）。后端 Agent 执行全链路日志覆盖：chat 入口 → 模型链 → API 请求/响应 → SSE 流 → Tool Loop → 完成总结
 
 ## 编码规范
 

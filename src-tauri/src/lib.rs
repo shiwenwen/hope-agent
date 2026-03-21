@@ -1123,6 +1123,15 @@ async fn chat(
         }
     }
 
+    // Log model chain resolution
+    logger.log("info", "agent", "lib::chat::model_chain",
+        &format!("Model chain resolved: {} models", model_chain.len()),
+        Some(serde_json::json!({
+            "chain": model_chain.iter().map(|m| format!("{}::{}", m.provider_id, m.model_id)).collect::<Vec<_>>(),
+            "total": model_chain.len(),
+        }).to_string()),
+        Some(sid.clone()), Some(current_agent_id.clone()));
+
     if model_chain.is_empty() {
         // No model chain resolved — fall back to existing agent instance
         let agent_lock = state.agent.lock().await;
@@ -1200,6 +1209,17 @@ async fn chat(
     };
 
     for (idx, model_ref) in model_chain.iter().enumerate() {
+        // Log model attempt
+        logger.log("info", "agent", "lib::chat::model_attempt",
+            &format!("Trying model {}/{}: {}::{}", idx + 1, total_models, model_ref.provider_id, model_ref.model_id),
+            Some(serde_json::json!({
+                "model_index": idx,
+                "total_models": total_models,
+                "provider_id": &model_ref.provider_id,
+                "model_id": &model_ref.model_id,
+            }).to_string()),
+            Some(sid.clone()), Some(current_agent_id.clone()));
+
         let agent = match build_agent_for_model(model_ref, &state).await {
             Some(a) => a,
             None => {
@@ -1298,6 +1318,19 @@ async fn chat(
                     let _ = db.append_message(&sid, &assistant_msg);
                     // Persist conversation context for future restoration
                     save_agent_context(&db, &sid, &agent);
+                    // Log chat success
+                    logger.log("info", "session", "lib::chat::done",
+                        &format!("Chat completed in {}ms, model {}::{}", duration_ms, model_ref.provider_id, model_ref.model_id),
+                        Some(serde_json::json!({
+                            "duration_ms": duration_ms,
+                            "provider_id": &model_ref.provider_id,
+                            "model_id": &model_ref.model_id,
+                            "model_index": idx,
+                            "response_length": result.len(),
+                            "tokens_in": assistant_msg.tokens_in,
+                            "tokens_out": assistant_msg.tokens_out,
+                        }).to_string()),
+                        Some(sid.clone()), Some(current_agent_id.clone()));
                     // Update the active agent instance for conversation continuity
                     *state.agent.lock().await = Some(agent);
                     return Ok(result);
@@ -1366,6 +1399,15 @@ fn restore_agent_context(db: &Arc<SessionDB>, session_id: &str, agent: &crate::a
     if let Ok(Some(json_str)) = db.load_context(session_id) {
         if let Ok(history) = serde_json::from_str::<Vec<serde_json::Value>>(&json_str) {
             if !history.is_empty() {
+                if let Some(logger) = crate::get_logger() {
+                    logger.log("debug", "session", "lib::restore_context",
+                        &format!("Restored {} messages for session {} ({}B JSON)", history.len(), session_id, json_str.len()),
+                        Some(serde_json::json!({
+                            "message_count": history.len(),
+                            "json_size_bytes": json_str.len(),
+                        }).to_string()),
+                        Some(session_id.to_string()), None);
+                }
                 agent.set_conversation_history(history);
             }
         }
@@ -1731,6 +1773,54 @@ async fn get_log_file_path_cmd() -> Result<String, String> {
     logging::current_log_file_path().map_err(|e| e.to_string())
 }
 
+/// Receive log entries from the frontend and write them to the unified logging system.
+#[tauri::command]
+async fn frontend_log(
+    level: String,
+    category: String,
+    source: String,
+    message: String,
+    details: Option<String>,
+    session_id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    // Validate level
+    let valid_levels = ["error", "warn", "info", "debug"];
+    let level = if valid_levels.contains(&level.as_str()) { level } else { "info".to_string() };
+
+    state.logger.log(
+        &level,
+        &category,
+        &source,
+        &message,
+        details,
+        session_id,
+        None,
+    );
+    Ok(())
+}
+
+/// Receive a batch of log entries from the frontend.
+#[tauri::command]
+async fn frontend_log_batch(
+    entries: Vec<serde_json::Value>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let valid_levels = ["error", "warn", "info", "debug"];
+    for entry in entries {
+        let level = entry.get("level").and_then(|v| v.as_str()).unwrap_or("info");
+        let level = if valid_levels.contains(&level) { level } else { "info" };
+        let category = entry.get("category").and_then(|v| v.as_str()).unwrap_or("frontend");
+        let source = entry.get("source").and_then(|v| v.as_str()).unwrap_or("frontend");
+        let message = entry.get("message").and_then(|v| v.as_str()).unwrap_or("");
+        let details = entry.get("details").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let session_id = entry.get("sessionId").and_then(|v| v.as_str()).map(|s| s.to_string());
+
+        state.logger.log(level, category, source, message, details, session_id, None);
+    }
+    Ok(())
+}
+
 #[tauri::command]
 async fn export_logs_cmd(
     filter: logging::LogFilter,
@@ -1967,6 +2057,8 @@ pub fn run() {
             list_log_files_cmd,
             read_log_file_cmd,
             get_log_file_path_cmd,
+            frontend_log,
+            frontend_log_batch,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

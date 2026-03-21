@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react"
 import { invoke, convertFileSrc } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
+import { logger } from "@/lib/logger"
 import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -51,7 +52,7 @@ export default function AgentPanel({ initialAgentId }: { initialAgentId?: string
       const list = await invoke<AgentSummary[]>("list_agents")
       setAgents(list)
     } catch (e) {
-      console.error("Failed to load agents:", e)
+      logger.error("settings", "AgentPanel::loadAgents", "Failed to load agents", e)
     } finally {
       setLoading(false)
     }
@@ -301,7 +302,7 @@ function AgentEditView({
         // Flag: content came from disk empty, will be filled with template after render
         if (!md) setNeedsFillTemplate(true)
       } catch (e) {
-        console.error("Failed to load agent:", e)
+        logger.error("settings", "AgentPanel::loadAgent", "Failed to load agent", e)
       }
     }
     load()
@@ -320,7 +321,7 @@ function AgentEditView({
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
     } catch (e) {
-      console.error("Failed to save agent:", e)
+      logger.error("settings", "AgentPanel::saveAgent", "Failed to save agent", e)
     } finally {
       setSaving(false)
     }
@@ -333,7 +334,7 @@ function AgentEditView({
       await invoke("delete_agent", { id: agentId })
       onBack()
     } catch (e) {
-      console.error("Failed to delete agent:", e)
+      logger.error("settings", "AgentPanel::deleteAgent", "Failed to delete agent", e)
     }
   }
 
@@ -350,7 +351,7 @@ function AgentEditView({
         setAgentCropSrc(convertFileSrc(selected as string))
       }
     } catch (e) {
-      console.error("Failed to pick avatar:", e)
+      logger.error("settings", "AgentPanel::pickAvatar", "Failed to pick avatar", e)
     }
   }
 
@@ -366,7 +367,7 @@ function AgentEditView({
       const savedPath = await invoke<string>("save_avatar", { imageData: base64, fileName })
       updateConfig({ avatar: savedPath })
     } catch (e) {
-      console.error("Failed to save avatar:", e)
+      logger.error("settings", "AgentPanel::saveAvatar", "Failed to save avatar", e)
     }
   }
 

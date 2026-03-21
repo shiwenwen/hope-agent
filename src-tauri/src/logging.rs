@@ -478,8 +478,13 @@ impl AppLogger {
         let config = std::sync::Arc::new(std::sync::RwLock::new(LogConfig::default()));
         let config_clone = config.clone();
 
-        // Spawn background writer task
-        tokio::spawn(Self::writer_loop(rx, db, logs_dir, config_clone));
+        // Spawn background writer task.
+        // .manage() runs before the Tokio runtime is ready, so we always use a
+        // dedicated thread with its own runtime to avoid the "no reactor" panic.
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().expect("Failed to create logging runtime");
+            rt.block_on(Self::writer_loop(rx, db, logs_dir, config_clone));
+        });
 
         Self { sender: tx, config }
     }

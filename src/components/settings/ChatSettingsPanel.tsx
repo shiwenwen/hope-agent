@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
+import { logger } from "@/lib/logger"
 import { Switch } from "@/components/ui/switch"
 
 interface ChatConfig {
@@ -26,7 +27,7 @@ export default function ChatSettingsPanel() {
       const full = await invoke<Record<string, unknown>>("get_user_config")
       await invoke("save_user_config", { config: { ...full, ...updated } })
     } catch (e) {
-      console.error("Failed to save chat config:", e)
+      logger.error("settings", "ChatSettingsPanel::save", "Failed to save chat config", e)
     }
   }
 
