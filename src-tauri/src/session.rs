@@ -118,11 +118,13 @@ impl SessionDB {
                 id TEXT PRIMARY KEY,
                 title TEXT,
                 agent_id TEXT NOT NULL DEFAULT 'default',
+                provider_id TEXT,
                 provider_name TEXT,
                 model_id TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
-                context_json TEXT
+                context_json TEXT,
+                last_read_message_id INTEGER DEFAULT 0
             );
 
             CREATE TABLE IF NOT EXISTS messages (
@@ -149,12 +151,6 @@ impl SessionDB {
             CREATE INDEX IF NOT EXISTS idx_sessions_agent_id ON sessions(agent_id);
             CREATE INDEX IF NOT EXISTS idx_sessions_updated_at ON sessions(updated_at DESC);"
         )?;
-
-        // Migration: add provider_id column if not exists
-        let _ = conn.execute_batch("ALTER TABLE sessions ADD COLUMN provider_id TEXT;");
-
-        // Migration: add last_read_message_id column for unread tracking
-        let _ = conn.execute_batch("ALTER TABLE sessions ADD COLUMN last_read_message_id INTEGER DEFAULT 0;");
 
         Ok(Self { conn: Mutex::new(conn) })
     }
