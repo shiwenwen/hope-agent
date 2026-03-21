@@ -9,6 +9,10 @@
     "core:default",
     "core:event:default",
     "core:window:allow-start-dragging",
-    "dialog:default"
+    "dialog:default",
+    "autostart:allow-enable",
+    "autostart:allow-disable",
+    "autostart:allow-is-enabled",
+    "process:allow-restart"
   ]
 }

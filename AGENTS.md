@@ -20,7 +20,7 @@ node scripts/sync-i18n.mjs --apply   # 从翻译文件补齐缺失翻译
 src/                    前端（React + TypeScript）
   components/
     chat/               聊天相关组件（消息列表/输入框/审批对话框/思考块/工具调用块）
-    settings/           设置面板（Provider/Agent/外观/语言/模型/技能/用户资料）
+    settings/           设置面板（Provider/Agent/外观/语言/模型/技能/用户资料/系统）
     common/             共享组件（导航栏/Markdown 渲染/Provider 图标）
   lib/logger.ts         前端统一日志工具（写入后端日志系统）
   i18n/locales/         12 种语言翻译文件

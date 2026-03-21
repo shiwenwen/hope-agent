@@ -5,10 +5,11 @@ import ProviderSetup from "@/components/settings/ProviderSetup"
 import SettingsView from "@/components/settings/SettingsView"
 import IconSidebar from "@/components/common/IconSidebar"
 import ChatScreen from "@/components/chat/ChatScreen"
+import CronCalendarView from "@/components/cron/CronCalendarView"
 
 export default function App() {
   const [view, setView] = useState<
-    "loading" | "setup" | "chat" | "settings" | "skills" | "profile" | "agents"
+    "loading" | "setup" | "chat" | "settings" | "skills" | "profile" | "agents" | "calendar"
   >("loading")
   const [agentIdForSettings, setAgentIdForSettings] = useState<string | undefined>(undefined)
   const [userAvatar, setUserAvatar] = useState<string | null>(null)
@@ -101,12 +102,13 @@ export default function App() {
   return (
     <div className="flex h-screen overflow-hidden bg-background">
       <IconSidebar
-        view={view === "settings" ? "settings" : view === "skills" ? "skills" : view === "profile" ? "profile" : view === "agents" ? "agents" : "chat"}
+        view={view === "settings" ? "settings" : view === "skills" ? "skills" : view === "profile" ? "profile" : view === "agents" ? "agents" : view === "calendar" ? "calendar" : "chat"}
         onOpenSettings={() => setView("settings")}
         onOpenChat={() => setView("chat")}
         onOpenAgents={() => { setAgentIdForSettings(undefined); setView("agents") }}
         onOpenSkills={() => setView("skills")}
         onOpenProfile={() => { setView("profile") }}
+        onOpenCalendar={() => setView("calendar")}
         userAvatar={userAvatar}
       />
       {view === "settings" ? (
@@ -137,8 +139,10 @@ export default function App() {
           initialSection="agents"
           initialAgentId={agentIdForSettings}
         />
+      ) : view === "calendar" ? (
+        <CronCalendarView onBack={() => setView("chat")} />
       ) : (
-        <ChatScreen onOpenAgentSettings={(agentId) => { setAgentIdForSettings(agentId); setView("agents") }} />
+        <ChatScreen onOpenAgentSettings={(agentId) => { setAgentIdForSettings(agentId); setView("agents") }} onCodexReauth={handleCodexAuth} />
       )}
     </div>
   )

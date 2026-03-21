@@ -25,6 +25,16 @@ import ThinkingBlock from "@/components/chat/ThinkingBlock"
 import ChatSidebar from "@/components/chat/ChatSidebar"
 import ChatInput from "@/components/chat/ChatInput"
 import FallbackDetailsPopover from "@/components/chat/FallbackDetailsPopover"
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogCancel,
+  AlertDialogAction,
+} from "@/components/ui/alert-dialog"
 
 /** Inline banner that mimics the original blockquote style, with a clickable ⚠️ icon for details */
 function FallbackBanner({ event }: { event: FallbackEvent }) {
@@ -71,6 +81,7 @@ function formatTokens(n: number): string {
 
 interface ChatScreenProps {
   onOpenAgentSettings?: (agentId: string) => void
+  onCodexReauth?: () => void
 }
 
 /** Format message timestamp to HH:mm */
@@ -165,7 +176,7 @@ function parseSessionMessages(msgs: SessionMessage[]): Message[] {
 }
 
 
-export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
+export default function ChatScreen({ onOpenAgentSettings, onCodexReauth }: ChatScreenProps) {
   const { t } = useTranslation()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
@@ -186,7 +197,7 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
   useEffect(() => {
     invoke<{ autoSendPending?: boolean }>("get_user_config").then((cfg) => {
       autoSendPendingRef.current = cfg.autoSendPending !== false
-    }).catch(() => {})
+    }).catch(() => { })
   }, [])
 
   // Auto-send flag: when set, triggers handleSend after input state is flushed
@@ -222,6 +233,9 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
   // Command approval queue
   const [approvalRequests, setApprovalRequests] = useState<ApprovalRequest[]>([])
 
+  // Codex auth expired dialog
+  const [showCodexAuthExpired, setShowCodexAuthExpired] = useState(false)
+
   // Attached files
   const [attachedFiles, setAttachedFiles] = useState<File[]>([])
 
@@ -252,7 +266,7 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
       if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current)
       setCopiedIndex(index)
       copiedTimerRef.current = setTimeout(() => setCopiedIndex(null), 1500)
-    }).catch(() => {})
+    }).catch(() => { })
   }
 
   /** Format duration in ms to human-readable string */
@@ -365,7 +379,7 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
 
   // Fetch models and current settings on mount
   useEffect(() => {
-    ;(async () => {
+    ; (async () => {
       try {
         const [models, active, settings, agentConfig] = await Promise.all([
           invoke<AvailableModel[]>("get_available_models"),
@@ -760,6 +774,10 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
                 }
                 break
               }
+              case "codex_auth_expired": {
+                setShowCodexAuthExpired(true)
+                break
+              }
             }
             return updated
           })
@@ -790,7 +808,8 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
         sessionCacheRef.current.set("__pending__", freshMessages)
       }
 
-      await invoke<string>("chat", { message: text, attachments, sessionId: currentSessionId, agentId: currentAgentId, onEvent })
+      const modelOverride = activeModel ? `${activeModel.providerId}::${activeModel.modelId}` : undefined
+      await invoke<string>("chat", { message: text, attachments, sessionId: currentSessionId, modelOverride, agentId: currentAgentId, onEvent })
     } catch (e) {
       const sid = targetSessionId || "__pending__"
       updateSessionMessages(sid, (prev) => {
@@ -867,6 +886,29 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
         onRespond={handleApprovalResponse}
       />
 
+      {/* Codex Auth Expired Dialog */}
+      <AlertDialog open={showCodexAuthExpired} onOpenChange={setShowCodexAuthExpired}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("codexAuth.expiredTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>{t("codexAuth.expiredDescription")}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            {onCodexReauth && (
+              <AlertDialogAction
+                onClick={() => {
+                  setShowCodexAuthExpired(false)
+                  onCodexReauth()
+                }}
+              >
+                {t("codexAuth.reauth")}
+              </AlertDialogAction>
+            )}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Chat Area */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Title bar */}
@@ -903,8 +945,8 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
                     {(() => {
                       const m = activeModel
                         ? availableModels.find(
-                            (x) => x.providerId === activeModel.providerId && x.modelId === activeModel.modelId
-                          )
+                          (x) => x.providerId === activeModel.providerId && x.modelId === activeModel.modelId
+                        )
                         : null
                       const modelLabel = m
                         ? `${m.providerName}/${m.modelId}`
@@ -930,8 +972,8 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
                     {(() => {
                       const m = activeModel
                         ? availableModels.find(
-                            (x) => x.providerId === activeModel.providerId && x.modelId === activeModel.modelId
-                          )
+                          (x) => x.providerId === activeModel.providerId && x.modelId === activeModel.modelId
+                        )
                         : null
                       if (!m) return null
                       const ctxK = Math.round(m.contextWindow / 1000)
@@ -981,9 +1023,9 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
                       <span className="font-medium text-foreground text-right ml-auto truncate max-w-[160px]">
                         {currentSessionId
                           ? (() => {
-                              const sess = sessions.find((s) => s.id === currentSessionId)
-                              return sess?.title || currentSessionId.slice(0, 8)
-                            })()
+                            const sess = sessions.find((s) => s.id === currentSessionId)
+                            return sess?.title || currentSessionId.slice(0, 8)
+                          })()
                           : t("chat.statusNewSession")}
                       </span>
                     </div>
@@ -1051,198 +1093,198 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
                   {msg.content}
                 </div>
               ) : (
-              <div
-                className="relative max-w-[95%]"
-                onMouseEnter={() => setHoveredMsgIndex(i)}
-                onMouseLeave={() => {
-                  setHoveredMsgIndex((prev) => prev === i ? null : prev)
-                  setDetailsIndex((prev) => prev === i ? null : prev)
-                }}
-              >
-                {msg.role === "assistant" && msg.fallbackEvent && (
-                  <FallbackBanner event={msg.fallbackEvent} />
-                )}
                 <div
-                  className={cn(
-                    "px-4 py-2.5 rounded-xl text-sm leading-relaxed overflow-hidden break-words select-text",
-                    msg.role === "user"
-                      ? "bg-[var(--color-user-bubble)] text-foreground whitespace-pre-wrap"
-                      : "bg-card text-foreground/80",
-                    msg.role === "assistant" && !msg.content && !msg.toolCalls?.length && !msg.contentBlocks?.length && "animate-pulse",
-                    msg.role === "assistant" && loading && i === messages.length - 1 && "streaming-bubble"
-                  )}
+                  className="relative max-w-[95%]"
+                  onMouseEnter={() => setHoveredMsgIndex(i)}
+                  onMouseLeave={() => {
+                    setHoveredMsgIndex((prev) => prev === i ? null : prev)
+                    setDetailsIndex((prev) => prev === i ? null : prev)
+                  }}
                 >
-                  {msg.role === "assistant" && msg.contentBlocks && msg.contentBlocks.length > 0 ? (
-                    // New path: render content blocks in order (thinking → tool → text)
-                    msg.contentBlocks.map((block, blockIdx) => {
-                      if (block.type === "thinking") {
-                        // isStreaming only for the last block of the actively streaming message
-                        const isLast = blockIdx === msg.contentBlocks!.length - 1
-                        return (
-                          <ThinkingBlock
-                            key={blockIdx}
-                            content={block.content}
-                            isStreaming={loading && i === messages.length - 1 && isLast && !msg.content.trim()}
-                          />
-                        )
-                      }
-                      if (block.type === "tool_call") {
-                        return <ToolCallBlock key={block.tool.callId} tool={block.tool} />
-                      }
-                      if (block.type === "text") {
-                        return (
-                          <MarkdownRenderer
-                            key={blockIdx}
-                            content={block.content}
-                            isStreaming={loading && i === messages.length - 1 && blockIdx === msg.contentBlocks!.length - 1}
-                          />
-                        )
-                      }
-                      return null
-                    }).concat(
-                      // Show loading dots between tool rounds: last block is a completed tool_call
-                      (loading && i === messages.length - 1) ? (() => {
-                        const lastBlock = msg.contentBlocks![msg.contentBlocks!.length - 1]
-                        const waitingForNextRound = lastBlock.type === "tool_call" && lastBlock.tool.result !== undefined
-                        if (!waitingForNextRound) return null
-                        return (
-                          <div key="__loading__" className="flex items-center gap-1 py-1 px-2">
-                            <span className="block w-1.5 h-1.5 rounded-full bg-foreground/50 animate-pulse" />
-                            <span className="block w-1.5 h-1.5 rounded-full bg-foreground/50 animate-pulse [animation-delay:300ms]" />
-                            <span className="block w-1.5 h-1.5 rounded-full bg-foreground/50 animate-pulse [animation-delay:600ms]" />
-                          </div>
-                        )
-                      })() : null
-                    )
-                  ) : msg.role === "assistant" ? (
-                    // Legacy fallback path for old messages without contentBlocks
-                    <>
-                      {msg.thinking && (
-                        <ThinkingBlock
-                          content={msg.thinking}
-                          isStreaming={loading && i === messages.length - 1 && !msg.content}
-                        />
-                      )}
-                      {msg.toolCalls?.map((tool) => (
-                        <ToolCallBlock key={tool.callId} tool={tool} />
-                      ))}
-                      {msg.content ? (
-                        <MarkdownRenderer
-                          content={msg.content}
-                          isStreaming={loading && i === messages.length - 1}
-                        />
-                      ) : (
-                        !msg.toolCalls?.length && (
-                          <div className="flex items-center gap-1.5 h-6 px-2 relative top-1">
-                            <span className="block w-2 h-2 aspect-square rounded-full bg-foreground animate-bounce-pulse" />
-                            <span className="block w-2 h-2 aspect-square rounded-full bg-foreground animate-bounce-pulse [animation-delay:200ms]" />
-                            <span className="block w-2 h-2 aspect-square rounded-full bg-foreground animate-bounce-pulse [animation-delay:400ms]" />
-                          </div>
-                        )
-                      )}
-                    </>
-                  ) : (
-                    // User message content
-                    msg.content
+                  {msg.role === "assistant" && msg.fallbackEvent && (
+                    <FallbackBanner event={msg.fallbackEvent} />
                   )}
-                  {msg.timestamp && (
-                    <div className={cn(
-                      "mt-1 text-[10px] leading-none select-none",
-                      msg.role === "user" ? "text-foreground/40 text-right" : "text-muted-foreground/60"
-                    )}>
-                      {formatMessageTime(msg.timestamp)}
-                    </div>
-                  )}
-                </div>
-                {/* Hover toolbar — below the bubble, always reserves space */}
-                {msg.content && (
-                  <div className={cn(
-                    "flex items-center gap-0.5 mt-0.5 h-6",
-                    msg.role === "user" ? "justify-end" : "justify-start",
-                    !(hoveredMsgIndex === i || copiedIndex === i || detailsIndex === i) && "invisible"
-                  )}>
-                    <button
-                      onClick={() => handleCopyMessage(msg.content, i)}
-                      className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors"
-                      title={t("chat.copy")}
-                    >
-                      {copiedIndex === i ? (
-                        <Check className="h-3.5 w-3.5 text-green-500" />
-                      ) : (
-                        <Copy className="h-3.5 w-3.5" />
-                      )}
-                    </button>
-                    {msg.role === "assistant" && (msg.usage || msg.model) && (
-                      <div className="relative">
-                        <button
-                          onClick={() => setDetailsIndex(detailsIndex === i ? null : i)}
-                          className={cn(
-                            "p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors",
-                            detailsIndex === i && "text-foreground bg-muted/80"
-                          )}
-                          title={t("chat.details")}
-                        >
-                          <Info className="h-3.5 w-3.5" />
-                        </button>
-                        {detailsIndex === i && (
-                          <div
-                            className="absolute bottom-full mb-1 z-50 min-w-[180px] rounded-lg border border-border bg-popover p-2.5 shadow-lg left-0"
-                          >
-                            <div className="space-y-1.5 text-xs">
-                              {msg.model && (
-                                <div className="flex items-center justify-between gap-3">
-                                  <span className="text-muted-foreground">{t("chat.statusModel")}</span>
-                                  <span className="font-medium text-foreground truncate max-w-[160px]" title={msg.model}>
-                                    {msg.model}
-                                  </span>
-                                </div>
-                              )}
-                              {msg.model && msg.usage?.inputTokens != null && (
-                                <div className="border-t border-border" />
-                              )}
-                              {msg.usage?.inputTokens != null && (
-                                <div className="flex items-center justify-between gap-3">
-                                  <span className="text-muted-foreground">{t("chat.inputTokens")}</span>
-                                  <span className="font-medium text-foreground tabular-nums">
-                                    {formatTokens(msg.usage.inputTokens)}
-                                  </span>
-                                </div>
-                              )}
-                              {msg.usage?.outputTokens != null && (
-                                <div className="flex items-center justify-between gap-3">
-                                  <span className="text-muted-foreground">{t("chat.outputTokens")}</span>
-                                  <span className="font-medium text-foreground tabular-nums">
-                                    {formatTokens(msg.usage.outputTokens)}
-                                  </span>
-                                </div>
-                              )}
-                              {msg.usage?.inputTokens != null && msg.usage?.outputTokens != null && (
-                                <>
-                                  <div className="border-t border-border" />
-                                  <div className="flex items-center justify-between gap-3">
-                                    <span className="text-muted-foreground">{t("chat.totalTokens")}</span>
-                                    <span className="font-medium text-foreground tabular-nums">
-                                      {formatTokens(msg.usage.inputTokens + msg.usage.outputTokens)}
-                                    </span>
-                                  </div>
-                                </>
-                              )}
-                              {msg.usage?.durationMs != null && (
-                                <div className="flex items-center justify-between gap-3">
-                                  <span className="text-muted-foreground">{t("chat.duration")}</span>
-                                  <span className="font-medium text-foreground tabular-nums">
-                                    {formatDuration(msg.usage.durationMs)}
-                                  </span>
-                                </div>
-                              )}
+                  <div
+                    className={cn(
+                      "px-4 py-2.5 rounded-xl text-sm leading-relaxed overflow-hidden break-words select-text",
+                      msg.role === "user"
+                        ? "bg-[var(--color-user-bubble)] text-foreground whitespace-pre-wrap"
+                        : "bg-card text-foreground/80",
+                      msg.role === "assistant" && !msg.content && !msg.toolCalls?.length && !msg.contentBlocks?.length && "animate-pulse",
+                      msg.role === "assistant" && loading && i === messages.length - 1 && "streaming-bubble"
+                    )}
+                  >
+                    {msg.role === "assistant" && msg.contentBlocks && msg.contentBlocks.length > 0 ? (
+                      // New path: render content blocks in order (thinking → tool → text)
+                      msg.contentBlocks.map((block, blockIdx) => {
+                        if (block.type === "thinking") {
+                          // isStreaming only for the last block of the actively streaming message
+                          const isLast = blockIdx === msg.contentBlocks!.length - 1
+                          return (
+                            <ThinkingBlock
+                              key={blockIdx}
+                              content={block.content}
+                              isStreaming={loading && i === messages.length - 1 && isLast && !msg.content.trim()}
+                            />
+                          )
+                        }
+                        if (block.type === "tool_call") {
+                          return <ToolCallBlock key={block.tool.callId} tool={block.tool} />
+                        }
+                        if (block.type === "text") {
+                          return (
+                            <MarkdownRenderer
+                              key={blockIdx}
+                              content={block.content}
+                              isStreaming={loading && i === messages.length - 1 && blockIdx === msg.contentBlocks!.length - 1}
+                            />
+                          )
+                        }
+                        return null
+                      }).concat(
+                        // Show loading dots between tool rounds: last block is a completed tool_call
+                        (loading && i === messages.length - 1) ? (() => {
+                          const lastBlock = msg.contentBlocks![msg.contentBlocks!.length - 1]
+                          const waitingForNextRound = lastBlock.type === "tool_call" && lastBlock.tool.result !== undefined
+                          if (!waitingForNextRound) return null
+                          return (
+                            <div key="__loading__" className="flex items-center gap-1 py-1 px-2">
+                              <span className="block w-1.5 h-1.5 rounded-full bg-foreground/50 animate-pulse" />
+                              <span className="block w-1.5 h-1.5 rounded-full bg-foreground/50 animate-pulse [animation-delay:300ms]" />
+                              <span className="block w-1.5 h-1.5 rounded-full bg-foreground/50 animate-pulse [animation-delay:600ms]" />
                             </div>
-                          </div>
+                          )
+                        })() : null
+                      )
+                    ) : msg.role === "assistant" ? (
+                      // Legacy fallback path for old messages without contentBlocks
+                      <>
+                        {msg.thinking && (
+                          <ThinkingBlock
+                            content={msg.thinking}
+                            isStreaming={loading && i === messages.length - 1 && !msg.content}
+                          />
                         )}
+                        {msg.toolCalls?.map((tool) => (
+                          <ToolCallBlock key={tool.callId} tool={tool} />
+                        ))}
+                        {msg.content ? (
+                          <MarkdownRenderer
+                            content={msg.content}
+                            isStreaming={loading && i === messages.length - 1}
+                          />
+                        ) : (
+                          !msg.toolCalls?.length && (
+                            <div className="flex items-center gap-1.5 h-6 px-2 relative top-1">
+                              <span className="block w-2 h-2 aspect-square rounded-full bg-foreground animate-bounce-pulse" />
+                              <span className="block w-2 h-2 aspect-square rounded-full bg-foreground animate-bounce-pulse [animation-delay:200ms]" />
+                              <span className="block w-2 h-2 aspect-square rounded-full bg-foreground animate-bounce-pulse [animation-delay:400ms]" />
+                            </div>
+                          )
+                        )}
+                      </>
+                    ) : (
+                      // User message content
+                      msg.content
+                    )}
+                    {msg.timestamp && (
+                      <div className={cn(
+                        "mt-1 text-[10px] leading-none select-none",
+                        msg.role === "user" ? "text-foreground/40 text-right" : "text-muted-foreground/60"
+                      )}>
+                        {formatMessageTime(msg.timestamp)}
                       </div>
                     )}
                   </div>
-                )}
-              </div>
+                  {/* Hover toolbar — below the bubble, always reserves space */}
+                  {msg.content && (
+                    <div className={cn(
+                      "flex items-center gap-0.5 mt-0.5 h-6",
+                      msg.role === "user" ? "justify-end" : "justify-start",
+                      !(hoveredMsgIndex === i || copiedIndex === i || detailsIndex === i) && "invisible"
+                    )}>
+                      <button
+                        onClick={() => handleCopyMessage(msg.content, i)}
+                        className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors"
+                        title={t("chat.copy")}
+                      >
+                        {copiedIndex === i ? (
+                          <Check className="h-3.5 w-3.5 text-green-500" />
+                        ) : (
+                          <Copy className="h-3.5 w-3.5" />
+                        )}
+                      </button>
+                      {msg.role === "assistant" && (msg.usage || msg.model) && (
+                        <div className="relative">
+                          <button
+                            onClick={() => setDetailsIndex(detailsIndex === i ? null : i)}
+                            className={cn(
+                              "p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors",
+                              detailsIndex === i && "text-foreground bg-muted/80"
+                            )}
+                            title={t("chat.details")}
+                          >
+                            <Info className="h-3.5 w-3.5" />
+                          </button>
+                          {detailsIndex === i && (
+                            <div
+                              className="absolute bottom-full mb-1 z-50 min-w-[180px] rounded-lg border border-border bg-popover p-2.5 shadow-lg left-0"
+                            >
+                              <div className="space-y-1.5 text-xs">
+                                {msg.model && (
+                                  <div className="flex items-center justify-between gap-3">
+                                    <span className="text-muted-foreground">{t("chat.statusModel")}</span>
+                                    <span className="font-medium text-foreground truncate max-w-[160px]" title={msg.model}>
+                                      {msg.model}
+                                    </span>
+                                  </div>
+                                )}
+                                {msg.model && msg.usage?.inputTokens != null && (
+                                  <div className="border-t border-border" />
+                                )}
+                                {msg.usage?.inputTokens != null && (
+                                  <div className="flex items-center justify-between gap-3">
+                                    <span className="text-muted-foreground">{t("chat.inputTokens")}</span>
+                                    <span className="font-medium text-foreground tabular-nums">
+                                      {formatTokens(msg.usage.inputTokens)}
+                                    </span>
+                                  </div>
+                                )}
+                                {msg.usage?.outputTokens != null && (
+                                  <div className="flex items-center justify-between gap-3">
+                                    <span className="text-muted-foreground">{t("chat.outputTokens")}</span>
+                                    <span className="font-medium text-foreground tabular-nums">
+                                      {formatTokens(msg.usage.outputTokens)}
+                                    </span>
+                                  </div>
+                                )}
+                                {msg.usage?.inputTokens != null && msg.usage?.outputTokens != null && (
+                                  <>
+                                    <div className="border-t border-border" />
+                                    <div className="flex items-center justify-between gap-3">
+                                      <span className="text-muted-foreground">{t("chat.totalTokens")}</span>
+                                      <span className="font-medium text-foreground tabular-nums">
+                                        {formatTokens(msg.usage.inputTokens + msg.usage.outputTokens)}
+                                      </span>
+                                    </div>
+                                  </>
+                                )}
+                                {msg.usage?.durationMs != null && (
+                                  <div className="flex items-center justify-between gap-3">
+                                    <span className="text-muted-foreground">{t("chat.duration")}</span>
+                                    <span className="font-medium text-foreground tabular-nums">
+                                      {formatDuration(msg.usage.durationMs)}
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           ))}

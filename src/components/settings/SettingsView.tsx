@@ -10,8 +10,10 @@ import {
   Info,
   Layers,
   MessageSquare,
+  Monitor,
   Palette,
   Puzzle,
+  Clock,
   ScrollText,
   Server,
   User,
@@ -30,6 +32,8 @@ import UserProfilePanel from "@/components/settings/UserProfilePanel"
 import AboutPanel from "@/components/settings/AboutPanel"
 import LogPanel from "@/components/settings/LogPanel"
 import MemoryPanel from "@/components/settings/MemoryPanel"
+import CronPanel from "@/components/settings/CronPanel"
+import SystemPanel from "@/components/settings/SystemPanel"
 import type { SettingsSection, SettingsSectionItem } from "./types"
 
 const SECTIONS: SettingsSectionItem[] = [
@@ -64,9 +68,19 @@ const SECTIONS: SettingsSectionItem[] = [
     labelKey: "settings.memory",
   },
   {
+    id: "cron",
+    icon: <Clock className="h-4 w-4" />,
+    labelKey: "settings.cron",
+  },
+  {
     id: "chat",
     icon: <MessageSquare className="h-4 w-4" />,
     labelKey: "settings.chat",
+  },
+  {
+    id: "system",
+    icon: <Monitor className="h-4 w-4" />,
+    labelKey: "settings.system",
   },
   {
     id: "appearance",
@@ -198,7 +212,9 @@ export default function SettingsView({
           {activeSection === "agents" && <AgentPanel initialAgentId={initialAgentId} />}
           {activeSection === "profile" && <UserProfilePanel />}
           {activeSection === "memory" && <MemoryPanel />}
+          {activeSection === "cron" && <CronPanel />}
           {activeSection === "chat" && <ChatSettingsPanel />}
+          {activeSection === "system" && <SystemPanel />}
           {activeSection === "appearance" && <AppearancePanel />}
           {activeSection === "language" && <LanguagePanel />}
           {activeSection === "logs" && <LogPanel />}

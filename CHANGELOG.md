@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **开机自动启动**：设置面板「系统」分类，一键开启/关闭登录时自动启动
+  - 集成 `tauri-plugin-autostart`，macOS 使用 LaunchAgent 方式注册
+  - 2 个 Tauri 命令：`get_autostart_enabled` / `set_autostart_enabled`
+  - 新增设置面板 `SystemPanel`（系统设置入口）
+  - i18n：中英文翻译
+- **单实例保护**：集成 `tauri-plugin-single-instance`，防止重复启动，第二次启动自动聚焦已有窗口
+- **崩溃自动恢复**：`main.rs` 实现 panic 捕获 + 自动重启循环（最多 3 次），1 秒间隔防止频繁重启
+  - 集成 `tauri-plugin-process` 支持应用内重启能力
 - **定时任务系统 (cron)**：支持 AI Agent 按计划自动执行任务
   - 新增 `cron.rs` 模块：3 种调度类型（一次性 At / 固定间隔 Every / Cron 表达式）
   - `CronDB`：基于 `~/.opencomputer/cron.db`（SQLite + WAL），持久化任务和运行日志
