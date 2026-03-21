@@ -466,6 +466,8 @@ pub struct AssistantAgent {
     conversation_history: std::sync::Mutex<Vec<serde_json::Value>>,
     /// Current agent ID (for memory context loading)
     agent_id: String,
+    /// Extra context appended to the system prompt (e.g. cron execution context)
+    extra_system_context: Option<String>,
 }
 
 // ── Shared Event Types (sent to frontend via on_delta JSON) ───────
@@ -853,6 +855,7 @@ impl AssistantAgent {
             thinking_style: ThinkingStyle::Anthropic,
             conversation_history: std::sync::Mutex::new(Vec::new()),
             agent_id: "default".to_string(),
+            extra_system_context: None,
         }
     }
 
@@ -868,6 +871,7 @@ impl AssistantAgent {
             thinking_style: ThinkingStyle::Openai,
             conversation_history: std::sync::Mutex::new(Vec::new()),
             agent_id: "default".to_string(),
+            extra_system_context: None,
         }
     }
 
@@ -901,12 +905,28 @@ impl AssistantAgent {
             thinking_style: config.thinking_style.clone(),
             conversation_history: std::sync::Mutex::new(Vec::new()),
             agent_id: "default".to_string(),
+            extra_system_context: None,
         }
     }
 
     /// Set the agent ID (for memory context and home directory).
     pub fn set_agent_id(&mut self, id: &str) {
         self.agent_id = id.to_string();
+    }
+
+    /// Set extra context to append to the system prompt.
+    pub fn set_extra_system_context(&mut self, context: String) {
+        self.extra_system_context = Some(context);
+    }
+
+    /// Build the full system prompt, including any extra context.
+    fn build_full_system_prompt(&self, model: &str, provider: &str) -> String {
+        let mut prompt = build_system_prompt(&self.agent_id, model, provider);
+        if let Some(extra) = &self.extra_system_context {
+            prompt.push_str("\n\n");
+            prompt.push_str(extra);
+        }
+        prompt
     }
 
     /// Get the agent's home directory path.
@@ -1025,7 +1045,7 @@ impl AssistantAgent {
         let mut total_usage = ChatUsage::default();
 
         let api_url = build_api_url(base_url, "/v1/messages");
-        let system_prompt = build_system_prompt(&self.agent_id, model, "Anthropic");
+        let system_prompt = self.build_full_system_prompt(model, "Anthropic");
 
         // Map thinking effort for Anthropic
         let max_tokens: u32 = 16384;
@@ -1407,7 +1427,7 @@ impl AssistantAgent {
         let api_url = build_api_url(base_url, "/v1/chat/completions");
         let mut collected_text = String::new();
         let mut total_usage = ChatUsage::default();
-        let system_prompt = build_system_prompt(&self.agent_id, model, "OpenAIChat");
+        let system_prompt = self.build_full_system_prompt(model, "OpenAIChat");
 
         // Apply thinking parameters based on ThinkingStyle
 
@@ -1783,7 +1803,7 @@ impl AssistantAgent {
         let api_url = build_api_url(base_url, "/v1/responses");
         let mut collected_text = String::new();
         let mut total_usage = ChatUsage::default();
-        let system_prompt = build_system_prompt(&self.agent_id, model, "OpenAIResponses");
+        let system_prompt = self.build_full_system_prompt(model, "OpenAIResponses");
 
         let max_rounds = get_max_tool_rounds();
         let max_rounds = if max_rounds == 0 { u32::MAX } else { max_rounds };
@@ -1979,7 +1999,7 @@ impl AssistantAgent {
 
         let mut collected_text = String::new();
         let mut total_usage = ChatUsage::default();
-        let system_prompt = build_system_prompt(&self.agent_id, model, "Codex");
+        let system_prompt = self.build_full_system_prompt(model, "Codex");
 
         let max_rounds = get_max_tool_rounds();
         let max_rounds = if max_rounds == 0 { u32::MAX } else { max_rounds };

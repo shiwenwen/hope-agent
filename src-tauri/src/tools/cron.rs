@@ -18,9 +18,9 @@ pub(crate) async fn tool_manage_cron(args: &Value) -> Result<String> {
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| anyhow::anyhow!("Missing 'name' parameter"))?;
 
-            let message = args.get("message")
+            let prompt = args.get("prompt")
                 .and_then(|v| v.as_str())
-                .ok_or_else(|| anyhow::anyhow!("Missing 'message' parameter"))?;
+                .ok_or_else(|| anyhow::anyhow!("Missing 'prompt' parameter"))?;
 
             let schedule = parse_schedule(args)?;
 
@@ -37,7 +37,7 @@ pub(crate) async fn tool_manage_cron(args: &Value) -> Result<String> {
                 description,
                 schedule,
                 payload: CronPayload::AgentTurn {
-                    message: message.to_string(),
+                    prompt: prompt.to_string(),
                     agent_id,
                 },
                 max_failures: args.get("max_failures").and_then(|v| v.as_u64()).map(|v| v as u32),

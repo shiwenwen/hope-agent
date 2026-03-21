@@ -32,9 +32,9 @@ pub enum CronSchedule {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum CronPayload {
-    /// Send a message to an agent and get a response
+    /// Run an agent turn with the given prompt
     AgentTurn {
-        message: String,
+        prompt: String,
         agent_id: Option<String>,
     },
 }
@@ -857,10 +857,10 @@ async fn execute_job(
 
     log::info!("[cron] Executing job '{}' ({})", job.name, job.id);
 
-    // Extract agent_id and message from payload
-    let (message, agent_id) = match &job.payload {
-        CronPayload::AgentTurn { message, agent_id } => {
-            (message.clone(), agent_id.clone().unwrap_or_else(|| "default".to_string()))
+    // Extract prompt and agent_id from payload
+    let (prompt, agent_id) = match &job.payload {
+        CronPayload::AgentTurn { prompt, agent_id } => {
+            (prompt.clone(), agent_id.clone().unwrap_or_else(|| "default".to_string()))
         }
     };
 
@@ -880,7 +880,7 @@ async fn execute_job(
     };
 
     // Build agent from provider store
-    let result = build_and_run_agent(&agent_id, &message, &session_id, session_db).await;
+    let result = build_and_run_agent(&agent_id, &prompt, &session_id, session_db).await;
 
     let duration_ms = start_time.elapsed().as_millis() as u64;
     let finished_at = Utc::now().to_rfc3339();
@@ -890,7 +890,7 @@ async fn execute_job(
             log::info!("[cron] Job '{}' completed successfully ({}ms)", job.name, duration_ms);
 
             // Save user prompt and assistant response into the session
-            let _ = session_db.append_message(&session_id, &crate::session::NewMessage::user(&message));
+            let _ = session_db.append_message(&session_id, &crate::session::NewMessage::user(&prompt));
             let _ = session_db.append_message(&session_id, &crate::session::NewMessage::assistant(&response));
 
             // Record success run log
@@ -920,8 +920,8 @@ async fn execute_job(
         Err(e) => {
             log::error!("[cron] Job '{}' failed: {}", job.name, e);
 
-            // Write the user prompt + error message into the session so the user can see what happened
-            let _ = session_db.append_message(&session_id, &crate::session::NewMessage::user(&message));
+            // Write the prompt + error message into the session so the user can see what happened
+            let _ = session_db.append_message(&session_id, &crate::session::NewMessage::user(&prompt));
             let mut err_msg = crate::session::NewMessage::assistant(&e.to_string());
             err_msg.is_error = Some(true);
             let _ = session_db.append_message(&session_id, &err_msg);
@@ -992,6 +992,14 @@ async fn build_and_run_agent(
         loop {
             let mut agent = AssistantAgent::new_from_provider(prov, &model_ref.model_id);
             agent.set_agent_id(agent_id);
+            agent.set_extra_system_context(
+                "## Execution Context\n\
+                 You are running as a **scheduled task** (cron job), not an interactive chat.\n\
+                 - No user is actively waiting — execute the prompt directly and concisely.\n\
+                 - This is an isolated session with no prior conversation history.\n\
+                 - Focus on completing the task described in the user message."
+                .to_string()
+            );
 
             let cancel = Arc::new(AtomicBool::new(false));
             match agent.chat(message, &[], None, cancel, |_delta| {}).await {
