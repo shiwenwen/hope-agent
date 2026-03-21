@@ -48,6 +48,7 @@ sqlite-vec = "0.1"
 fastembed = "5"
 zerocopy = { version = "0.8", features = ["derive"] }
 chrono = { version = "0.4", features = ["serde"] }
+cron = "0.13"
 pdf-extract = "0.7"
 pdfium-render = "0.8"
 calamine = "0.26"

@@ -77,8 +77,6 @@ struct AppState {
     logger: AppLogger,
     /// Cron database
     cron_db: Arc<cron::CronDB>,
-    /// Cron scheduler shutdown signal
-    cron_shutdown: std::sync::Mutex<Option<tokio::sync::watch::Sender<bool>>>,
 }
 
 // ── Provider Management Commands ──────────────────────────────────
@@ -2236,6 +2234,17 @@ pub fn run() {
                 }
             }
 
+            // Start cron scheduler on dedicated thread with its own tokio runtime
+            if let (Some(cron_db), Ok(db_path)) = (CRON_DB.get(), session::db_path()) {
+                if let Ok(session_db) = SessionDB::open(&db_path) {
+                    let _handle = cron::start_scheduler(
+                        cron_db.clone(),
+                        Arc::new(session_db),
+                    );
+                    // Thread runs until app exits
+                }
+            }
+
             Ok(())
         })
         .manage({
@@ -2270,15 +2279,12 @@ pub fn run() {
             );
             let _ = MEMORY_BACKEND.set(memory_backend);
 
-            // Initialize the CronDB
+            // Initialize the CronDB (scheduler started in .setup() where tokio runtime is available)
             let cron_db_path = paths::cron_db_path().expect("Failed to resolve cron database path");
             let cron_db = Arc::new(
                 cron::CronDB::open(&cron_db_path).expect("Failed to open cron database")
             );
             let _ = CRON_DB.set(cron_db.clone());
-
-            // Start the cron scheduler
-            let (_cron_handle, cron_shutdown_tx) = cron::start_scheduler(cron_db.clone(), session_db.clone());
 
             // Log system startup
             logger.log("info", "system", "lib::run", "OpenComputer started", None, None, None);
@@ -2295,7 +2301,6 @@ pub fn run() {
                 log_db,
                 logger,
                 cron_db,
-                cron_shutdown: std::sync::Mutex::new(Some(cron_shutdown_tx)),
             }
         })
         .invoke_handler(tauri::generate_handler![

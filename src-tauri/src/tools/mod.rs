@@ -3,7 +3,8 @@ use serde_json::{Value, json};
 
 mod approval;
 mod apply_patch;
-mod browser;
+pub(crate) mod browser;
+mod cron;
 mod edit;
 mod exec;
 mod find;
@@ -432,6 +433,64 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                 "additionalProperties": false
             }),
         },
+        // ── Cron / Scheduled Tasks ──────────────────────────────
+        ToolDefinition {
+            name: "manage_cron".into(),
+            description: "Create, list, update, delete, and trigger scheduled tasks (cron jobs). Jobs automatically send messages to the AI agent on a schedule. Supports one-time (at), recurring (every), and cron expression schedules.".into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["create", "list", "get", "delete", "pause", "resume", "run_now"],
+                        "description": "Action to perform"
+                    },
+                    "id": {
+                        "type": "string",
+                        "description": "Job ID (required for get/delete/pause/resume/run_now)"
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Job name (for create)"
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Job description (for create)"
+                    },
+                    "schedule_type": {
+                        "type": "string",
+                        "enum": ["at", "every", "cron"],
+                        "description": "Schedule type (for create)"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "description": "ISO8601 timestamp for 'at' schedule"
+                    },
+                    "interval_ms": {
+                        "type": "integer",
+                        "description": "Interval in milliseconds for 'every' schedule (min 60000)"
+                    },
+                    "cron_expression": {
+                        "type": "string",
+                        "description": "Cron expression for 'cron' schedule (e.g. '0 0 9 * * 1-5 *' = weekdays 9am)"
+                    },
+                    "timezone": {
+                        "type": "string",
+                        "description": "Timezone for cron schedule (default UTC)"
+                    },
+                    "message": {
+                        "type": "string",
+                        "description": "Message to send to the agent when triggered (for create)"
+                    },
+                    "agent_id": {
+                        "type": "string",
+                        "description": "Target agent ID (default: current agent)"
+                    }
+                },
+                "required": ["action"],
+                "additionalProperties": false
+            }),
+        },
         // ── Browser Control ──────────────────────────────────────
         ToolDefinition {
             name: "browser".into(),
@@ -628,6 +687,7 @@ pub async fn execute_tool_with_context(
         "web_fetch" => web::tool_web_fetch(args).await,
         "save_memory" => memory::tool_save_memory(args).await,
         "recall_memory" => memory::tool_recall_memory(args).await,
+        "manage_cron" => cron::tool_manage_cron(args).await,
         "browser" => browser::tool_browser(args).await,
         _ => Err(anyhow::anyhow!("Unknown tool: {}", name)),
     };

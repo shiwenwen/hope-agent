@@ -8,6 +8,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **定时任务系统 (cron)**：支持 AI Agent 按计划自动执行任务
+  - 新增 `cron.rs` 模块：3 种调度类型（一次性 At / 固定间隔 Every / Cron 表达式）
+  - `CronDB`：基于 `~/.opencomputer/cron.db`（SQLite + WAL），持久化任务和运行日志
+  - 后台调度器：tokio 定时任务每 15 秒轮询，到期任务自动 spawn 执行
+  - 任务执行：创建隔离 session，构建 AssistantAgent，支持模型链降级
+  - 错误处理：指数退避重试（30s → 1h），连续失败 N 次自动禁用
+  - 启动恢复：孤立运行标记为 error，过期一次性任务标记为 missed
+  - 日历范围查询：展开 Cron/Every 表达式计算月度事件，关联运行日志
+  - 9 个 Tauri 命令：`cron_list_jobs` / `cron_get_job` / `cron_create_job` / `cron_update_job` / `cron_delete_job` / `cron_toggle_job` / `cron_run_now` / `cron_get_run_logs` / `cron_get_calendar_events`
+  - Agent 工具 `manage_cron`：AI 可直接创建/管理定时任务（7 个 action）
+  - **日历视图页面**：侧边栏入口，月历网格显示任务圆点，点击日期展开任务列表
+  - **设置面板 CronPanel**：列表管理视图，搜索/筛选/批量操作
+  - 共享组件：`CronJobForm`（新建/编辑表单 + Cron 预设）、`CronJobDetail`（详情 + 运行历史）
+  - 实时刷新：Tauri 事件 `cron:run_completed` 通知前端
+  - 依赖：`cron` crate 0.13（Cron 表达式解析）
+  - i18n：中英文翻译（70+ 翻译键）
+- **浏览器控制工具 (browser)**：通过 Chrome DevTools Protocol 直接控制浏览器
+  - 新增 `browser_state.rs`：全局浏览器连接管理（OnceLock 单例，支持连接已运行 Chrome 或启动托管实例）
+  - 新增 `tools/browser.rs`：24 个 action 的 browser tool（connect/launch/disconnect/navigate/go_back/go_forward/take_snapshot/take_screenshot/click/fill/fill_form/hover/drag/press_key/upload_file/evaluate/wait_for/handle_dialog/resize/scroll/list_pages/new_page/select_page/close_page）
+  - 页面可访问性快照：注入 JS 提取元素树，生成 LLM 友好文本格式，ref ID 用于后续交互
+  - 截图返回 base64 image content block（Anthropic multimodal 格式）
+  - 自动连接：tool 调用时自动尝试连接 localhost:9222
+  - 依赖：`chromiumoxide` crate（tokio-runtime），纯 Rust 实现无 Node.js 依赖
 - **记忆系统后端（Phase 2A）**：实现持久化、可搜索的 Agent 记忆系统
   - 新增 `memory.rs` 模块：`MemoryBackend` trait 可插拔架构（MVP 使用 SQLite + FTS5）
   - `SqliteMemoryBackend`：基于 `~/.opencomputer/memory.db`，WAL 模式，FTS5 全文搜索（BM25 排序）
