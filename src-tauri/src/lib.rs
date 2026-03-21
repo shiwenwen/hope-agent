@@ -3,6 +3,7 @@ mod agent_config;
 mod agent_loader;
 mod failover;
 mod file_extract;
+mod logging;
 mod oauth;
 mod paths;
 mod process_registry;
@@ -25,8 +26,15 @@ use tokio::sync::Mutex;
 use tauri::State;
 use serde::Serialize;
 use session::SessionDB;
+use logging::{LogDB, AppLogger};
 
 static APP_HANDLE: std::sync::OnceLock<tauri::AppHandle> = std::sync::OnceLock::new();
+static APP_LOGGER: std::sync::OnceLock<AppLogger> = std::sync::OnceLock::new();
+
+/// Get stored AppLogger for global logging
+pub fn get_logger() -> Option<&'static AppLogger> {
+    APP_LOGGER.get()
+}
 
 /// Get stored AppHandle for global event emission (e.g., command approval)
 pub fn get_app_handle() -> Option<&'static tauri::AppHandle> {
@@ -48,6 +56,10 @@ struct AppState {
     session_db: Arc<SessionDB>,
     /// Cancel flag for stopping ongoing chat
     chat_cancel: Arc<AtomicBool>,
+    /// Log database
+    log_db: Arc<LogDB>,
+    /// Async logger
+    logger: AppLogger,
 }
 
 // ── Provider Management Commands ──────────────────────────────────
@@ -972,6 +984,7 @@ async fn chat(
     let db = state.session_db.clone();
     let cancel = state.chat_cancel.clone();
     cancel.store(false, Ordering::SeqCst); // Reset cancel flag
+    let logger = state.logger.clone();
 
     // Resolve or create session
     let current_agent_id = state.current_agent_id.lock().await.clone();
@@ -1073,6 +1086,12 @@ async fn chat(
     let mut user_msg = session::NewMessage::user(&message);
     user_msg.attachments_meta = attachments_meta;
     let _ = db.append_message(&sid, &user_msg);
+
+    // Log chat start
+    let msg_preview = if message.len() > 100 { format!("{}...", &message[..100]) } else { message.clone() };
+    logger.log("info", "session", "lib::chat", &format!("Chat started: {}", msg_preview),
+        Some(serde_json::json!({"session_id": &sid, "attachments": attachments.len()}).to_string()),
+        Some(sid.clone()), Some(current_agent_id.clone()));
 
     // Auto-generate title from first user message if session has no title
     if let Ok(Some(meta)) = db.get_session(&sid) {
@@ -1292,6 +1311,17 @@ async fn chat(
                         model_ref.provider_id, model_ref.model_id,
                         idx + 1, total_models, retry_count, reason, error_msg
                     );
+                    logger.log("warn", "provider", "lib::chat::failover",
+                        &format!("Model {}::{} failed: {:?}", model_ref.provider_id, model_ref.model_id, reason),
+                        Some(serde_json::json!({
+                            "provider_id": model_ref.provider_id,
+                            "model_id": model_ref.model_id,
+                            "attempt": idx + 1,
+                            "retry": retry_count,
+                            "reason": format!("{:?}", reason),
+                            "error": error_msg,
+                        }).to_string()),
+                        Some(sid.clone()), Some(current_agent_id.clone()));
 
                     // Terminal errors — surface immediately, no fallback
                     if reason.is_terminal() {
@@ -1636,6 +1666,102 @@ async fn get_system_timezone() -> Result<String, String> {
     Ok("UTC".to_string())
 }
 
+// ── Logging Commands ──────────────────────────────────────────────
+
+#[tauri::command]
+async fn query_logs_cmd(
+    filter: logging::LogFilter,
+    page: u32,
+    page_size: u32,
+    state: State<'_, AppState>,
+) -> Result<logging::LogQueryResult, String> {
+    let ps = if page_size == 0 { 50 } else { page_size.min(500) };
+    let pg = if page == 0 { 1 } else { page };
+    state.log_db.query(&filter, pg, ps).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_log_stats_cmd(
+    state: State<'_, AppState>,
+) -> Result<logging::LogStats, String> {
+    let db_path = logging::db_path().map_err(|e| e.to_string())?;
+    state.log_db.get_stats(&db_path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn clear_logs_cmd(
+    before_date: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<u64, String> {
+    state.log_db.clear(before_date.as_deref()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_log_config_cmd(
+    state: State<'_, AppState>,
+) -> Result<logging::LogConfig, String> {
+    Ok(state.logger.get_config())
+}
+
+#[tauri::command]
+async fn save_log_config_cmd(
+    config: logging::LogConfig,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    logging::save_log_config(&config).map_err(|e| e.to_string())?;
+    state.logger.update_config(config);
+    Ok(())
+}
+
+#[tauri::command]
+async fn list_log_files_cmd() -> Result<Vec<logging::LogFileInfo>, String> {
+    logging::list_log_files().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn read_log_file_cmd(
+    filename: String,
+    tail_lines: Option<u32>,
+) -> Result<String, String> {
+    logging::read_log_file(&filename, tail_lines).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_log_file_path_cmd() -> Result<String, String> {
+    logging::current_log_file_path().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn export_logs_cmd(
+    filter: logging::LogFilter,
+    format: String,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let logs = state.log_db.export(&filter).map_err(|e| e.to_string())?;
+    match format.as_str() {
+        "csv" => {
+            let mut csv = String::from("id,timestamp,level,category,source,message,session_id,agent_id\n");
+            for log in &logs {
+                csv.push_str(&format!(
+                    "{},{},{},{},{},\"{}\",{},{}\n",
+                    log.id,
+                    log.timestamp,
+                    log.level,
+                    log.category,
+                    log.source,
+                    log.message.replace('"', "\"\""),
+                    log.session_id.as_deref().unwrap_or(""),
+                    log.agent_id.as_deref().unwrap_or(""),
+                ));
+            }
+            Ok(csv)
+        }
+        _ => {
+            serde_json::to_string_pretty(&logs).map_err(|e| e.to_string())
+        }
+    }
+}
+
 // ── App Entry ─────────────────────────────────────────────────────
 
 // ── Window Theme Command ──────────────────────────────────────────
@@ -1730,6 +1856,27 @@ pub fn run() {
                 SessionDB::open(&db_path).expect("Failed to open session database")
             );
 
+            // Initialize the LogDB and AppLogger
+            let log_db_path = logging::db_path().expect("Failed to resolve log database path");
+            let log_db = Arc::new(
+                LogDB::open(&log_db_path).expect("Failed to open log database")
+            );
+
+            // Load log config and cleanup old logs
+            let log_config = logging::load_log_config().unwrap_or_default();
+            let _ = log_db.cleanup_old(log_config.max_age_days);
+            // Clean up old log files
+            let _ = logging::cleanup_old_log_files(log_config.max_age_days);
+            let logs_dir = paths::logs_dir().expect("Failed to resolve logs directory");
+            let logger = AppLogger::new(log_db.clone(), logs_dir);
+            logger.update_config(log_config);
+
+            // Store logger globally for access from non-State contexts
+            let _ = APP_LOGGER.set(logger.clone());
+
+            // Log system startup
+            logger.log("info", "system", "lib::run", "OpenComputer started", None, None, None);
+
             AppState {
                 agent: Mutex::new(None),
                 auth_result: Arc::new(Mutex::new(None)),
@@ -1739,6 +1886,8 @@ pub fn run() {
                 current_agent_id: Mutex::new("default".to_string()),
                 session_db,
                 chat_cancel: Arc::new(AtomicBool::new(false)),
+                log_db,
+                logger,
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -1808,6 +1957,16 @@ pub fn run() {
             rename_session_cmd,
             // Window theme
             set_window_theme,
+            // Logging
+            query_logs_cmd,
+            get_log_stats_cmd,
+            clear_logs_cmd,
+            get_log_config_cmd,
+            save_log_config_cmd,
+            export_logs_cmd,
+            list_log_files_cmd,
+            read_log_file_cmd,
+            get_log_file_path_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

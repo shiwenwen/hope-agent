@@ -108,6 +108,18 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
         max_output
     );
 
+    // Structured logging
+    if let Some(logger) = crate::get_logger() {
+        let cmd_preview = if command.len() > 200 { format!("{}...", &command[..200]) } else { command.to_string() };
+        logger.log("info", "tool", "exec::start",
+            &format!("exec: {}", cmd_preview),
+            Some(serde_json::json!({
+                "cwd": cwd, "timeout": timeout_secs,
+                "background": background, "pty": use_pty, "sandbox": sandbox,
+            }).to_string()),
+            None, None);
+    }
+
     // Build the command
     let mut cmd = Command::new("sh");
     cmd.arg("-c").arg(command);

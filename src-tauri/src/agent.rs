@@ -578,6 +578,20 @@ fn emit_usage(on_delta: &(impl Fn(&str) + Send), usage: &ChatUsage, model: &str)
         "cache_read_input_tokens": usage.cache_read_input_tokens,
         "model": model,
     }));
+
+    // Structured logging for LLM usage
+    if let Some(logger) = crate::get_logger() {
+        logger.log("info", "agent", "agent::usage",
+            &format!("LLM usage: model={}, in={}, out={}", model, usage.input_tokens, usage.output_tokens),
+            Some(serde_json::json!({
+                "model": model,
+                "input_tokens": usage.input_tokens,
+                "output_tokens": usage.output_tokens,
+                "cache_creation": usage.cache_creation_input_tokens,
+                "cache_read": usage.cache_read_input_tokens,
+            }).to_string()),
+            None, None);
+    }
 }
 
 // ── OpenAI Responses API types ────────────────────────────────────
