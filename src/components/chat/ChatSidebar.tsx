@@ -19,7 +19,6 @@ import {
   Bot,
   Trash2,
   MessageSquarePlus,
-  X,
   Loader2,
 } from "lucide-react"
 import type { SessionMeta, AgentSummaryForSidebar } from "@/types/chat"
@@ -221,16 +220,6 @@ export default function ChatSidebar({
                 <span>Agents</span>
                 <span className="font-normal normal-case text-muted-foreground/60 ml-0.5">({agents.length})</span>
               </button>
-              {/* Clear agent filter */}
-              {selectedAgentId !== null && (
-                <button
-                  className="mr-3 flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] text-primary bg-primary/10 hover:bg-primary/20 transition-colors"
-                  onClick={() => setSelectedAgentId(null)}
-                  title={t("chat.clearFilter") || "Clear filter"}
-                >
-                  <X className="h-2.5 w-2.5" />
-                </button>
-              )}
             </div>
             {agentsExpanded && (
               <div className={cn("px-2 pb-2 grid gap-1", panelWidth >= 280 ? "grid-cols-2" : "grid-cols-1")}>

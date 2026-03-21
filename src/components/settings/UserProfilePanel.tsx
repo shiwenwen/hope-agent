@@ -85,7 +85,7 @@ const LANGUAGE_OPTIONS = [
 
 const PRESET_STYLES = ["concise", "detailed"]
 
-export default function UserProfilePanel() {
+export default function UserProfilePanel({ onSaved }: { onSaved?: () => void } = {}) {
   const { t, i18n } = useTranslation()
   const [config, setConfig] = useState<UserConfig>({})
   const [saving, setSaving] = useState(false)
@@ -120,6 +120,7 @@ export default function UserProfilePanel() {
     try {
       await invoke("save_user_config", { config })
       setSaved(true)
+      onSaved?.()
       setTimeout(() => setSaved(false), 2000)
     } catch (e) {
       logger.error("settings", "UserProfilePanel::save", "Failed to save user config", e)
