@@ -101,6 +101,13 @@ pub fn share_dir() -> Result<PathBuf> {
     Ok(root_dir()?.join("share"))
 }
 
+// ── Cron ────────────────────────────────────────────────────────
+
+/// Cron database path: ~/.opencomputer/cron.db
+pub fn cron_db_path() -> Result<PathBuf> {
+    Ok(root_dir()?.join("cron.db"))
+}
+
 // ── Memory ──────────────────────────────────────────────────────
 
 /// Memory database path: ~/.opencomputer/memory.db

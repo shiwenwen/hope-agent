@@ -9,6 +9,7 @@ import {
   Settings,
   Languages,
   Puzzle,
+  CalendarDays,
   Sun,
   Moon,
   Monitor,
@@ -18,12 +19,13 @@ import { useTheme } from "@/hooks/useTheme"
 import { SUPPORTED_LANGUAGES, isFollowingSystem, setFollowSystemLanguage } from "@/i18n/i18n"
 
 interface IconSidebarProps {
-  view: "chat" | "settings" | "skills" | "profile" | "agents"
+  view: "chat" | "settings" | "skills" | "profile" | "agents" | "calendar"
   onOpenSettings: () => void
   onOpenChat: () => void
   onOpenAgents: () => void
   onOpenSkills: () => void
   onOpenProfile: () => void
+  onOpenCalendar: () => void
   userAvatar?: string | null
 }
 
@@ -34,6 +36,7 @@ export default function IconSidebar({
   onOpenAgents,
   onOpenSkills,
   onOpenProfile,
+  onOpenCalendar,
   userAvatar,
 }: IconSidebarProps) {
   const { t, i18n } = useTranslation()
@@ -107,6 +110,24 @@ export default function IconSidebar({
           title={t("settings.skills")}
         >
           <Puzzle className="h-4 w-4" />
+        </Button>
+      </div>
+
+      {/* Calendar / Scheduled Tasks entry */}
+      <div className="w-full flex justify-center mt-1">
+        <Button
+          variant="ghost"
+          size="icon"
+          className={cn(
+            "rounded-xl h-8 w-8",
+            view === "calendar"
+              ? "bg-primary/10 text-primary hover:bg-primary/20"
+              : "text-muted-foreground hover:text-foreground"
+          )}
+          onClick={onOpenCalendar}
+          title={t("cron.title")}
+        >
+          <CalendarDays className="h-4 w-4" />
         </Button>
       </div>
 
