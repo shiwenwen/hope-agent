@@ -197,7 +197,11 @@ pub struct BehaviorConfig { max_tool_rounds, require_approval, sandbox }
 
 ### 3.5 后续 Phase
 
-- **Phase 2**: 记忆系统（单独设计）
+- **Phase 2**: 记忆系统
+  - **Phase 2A**: ✅ 后端完成 — `memory.rs` (MemoryBackend trait + SQLite/FTS5)、Embedding 配置系统、12 个 Tauri 命令、系统提示词注入
+  - **Phase 2B**: 向量搜索（fastembed + sqlite-vec 混合检索）
+  - **Phase 2C**: 前端记忆管理 UI
+  - **Phase 2D**: Agent 自动记忆提取
 - **Phase 3**: 项目级覆盖（`.opencomputer/agent.json` + `agent.md`）
 - **Phase 4**: 对话历史按 Agent 保存、子 Agent、Agent 切换器
 
@@ -214,8 +218,9 @@ lib.rs (Tauri 命令 + AppState)
   ├── user_config.rs    用户配置
   ├── tools.rs          11 个工具定义 + 执行
   ├── skills.rs         技能加载 + 提示词注入
-  ├── provider.rs       ProviderStore + config.json 持久化
-  ├── paths.rs          路径管理
+  ├── memory.rs         记忆系统（MemoryBackend trait + SqliteMemoryBackend + EmbeddingConfig）
+  ├── provider.rs       ProviderStore + config.json 持久化（含 EmbeddingConfig）
+  ├── paths.rs          路径管理（含 memory_db_path / models_cache_dir）
   ├── oauth.rs          Codex OAuth
   ├── process_registry.rs  后台进程管理
   └── sandbox.rs        Docker 沙箱

@@ -1,6 +1,7 @@
 mod agent;
 mod agent_config;
 mod agent_loader;
+mod browser_state;
 mod memory;
 mod failover;
 mod file_extract;

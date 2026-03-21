@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { ModelSelector } from "@/components/ui/model-selector"
 import { AvatarCropDialog } from "@/components/settings/AvatarCropDialog"
+import MemoryPanel from "@/components/settings/MemoryPanel"
 import {
   ArrowDown,
   ArrowLeft,
@@ -250,7 +251,7 @@ function AgentCreateView({
 
 // ── Agent Edit View ─────────────────────────────────────────────
 
-type AgentTab = "identity" | "personality" | "behavior" | "model" | "custom"
+type AgentTab = "identity" | "personality" | "behavior" | "model" | "memory" | "custom"
 
 function AgentEditView({
   agentId,
@@ -473,6 +474,7 @@ function AgentEditView({
     { id: "personality", labelKey: "settings.agentPersonalityTab" },
     { id: "behavior", labelKey: "settings.agentBehavior" },
     { id: "model", labelKey: "settings.agentModel" },
+    { id: "memory", labelKey: "settings.memory" },
     { id: "custom", labelKey: "settings.agentCustomPrompt" },
   ]
 
@@ -972,6 +974,11 @@ function AgentEditView({
                 <CharCounter value={toolsGuide} />
               </div>
             </div>
+          )}
+
+          {/* ── Memory Tab ── */}
+          {activeTab === "memory" && (
+            <MemoryPanel agentId={agentId} compact />
           )}
 
           {/* ── Custom Prompt Tab ── */}

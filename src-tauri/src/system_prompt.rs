@@ -31,6 +31,12 @@ Params: pattern (required), path, limit (default 1000). \
 Use *** Begin Patch / *** End Patch format with Add File, Update File, Delete File markers. \
 Update hunks use @@ context + -/+ line prefixes with 3-pass fuzzy matching. \
 - web_search / web_fetch: Search the web and fetch page content. \
+- save_memory: Save information to persistent memory. Use when the user shares personal info, \
+preferences, corrections, project context, or says \"remember this\". \
+Params: content (required), type (user/feedback/project/reference), tags (optional array), scope (global/agent). \
+- recall_memory: Search persistent memories by keyword or semantic query. \
+Use to recall user preferences, project context, or previously stored information. \
+Params: query (required), type (optional filter), limit (default 10). \
 \
 For long-running commands (builds, installs), consider using background=true and then \
 process(action='poll') to check progress.";
@@ -124,9 +130,35 @@ pub fn build(definition: &AgentDefinition, model: Option<&str>, provider: Option
     sections.push(build_skills_section(&definition.config.skills, definition.config.behavior.skill_env_check));
 
     // ⑧ Memory
-    if let Some(mem) = memory_context {
-        if !mem.is_empty() {
-            sections.push(mem.to_string());
+    if definition.config.memory.enabled {
+        let mut memory_section = String::new();
+
+        // Existing memories
+        if let Some(mem) = memory_context {
+            if !mem.is_empty() {
+                memory_section.push_str(mem);
+                memory_section.push_str("\n\n");
+            }
+        }
+
+        // Memory usage guidance
+        memory_section.push_str(
+            "## Memory Guidelines\n\
+             Use save_memory when:\n\
+             - The user shares personal info (name, role, preferences, expertise)\n\
+             - The user corrects your behavior or says \"don't do X\" / \"always do Y\"\n\
+             - The user mentions project context, deadlines, or architecture decisions\n\
+             - The user explicitly says \"remember this\" or \"don't forget\"\n\
+             - You learn something important that would help in future conversations\n\n\
+             Use recall_memory when:\n\
+             - You need context about the user or project from prior conversations\n\
+             - The user references something discussed before\n\
+             - You want to check if preferences or constraints were previously established\n\n\
+             Do NOT save: ephemeral task details, code snippets, debugging steps, or anything derivable from the codebase."
+        );
+
+        if !memory_section.is_empty() {
+            sections.push(memory_section);
         }
     }
 
@@ -213,6 +245,7 @@ fn build_tools_section(filter: &FilterConfig) -> String {
     let all_tools = [
         "exec", "process", "read", "write", "edit",
         "ls", "grep", "find", "apply_patch", "web_search", "web_fetch",
+        "save_memory", "recall_memory",
     ];
 
     let active: Vec<&&str> = all_tools.iter().filter(|t| filter.is_allowed(t)).collect();

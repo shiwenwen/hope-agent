@@ -34,6 +34,7 @@ src-tauri/src/          后端（Rust）
   paths.rs              统一路径管理（~/.opencomputer/）
   failover.rs           模型降级错误分类 & 重试策略
   system_prompt.rs      系统提示词模块化拼装
+  memory.rs             记忆系统（MemoryBackend trait + SQLite/FTS5 实现 + Embedding 配置）
 ```
 
 ## 技术栈
@@ -56,6 +57,7 @@ src-tauri/src/          后端（Rust）
 - **降级策略**：ContextOverflow 终止 → RateLimit/Overloaded/Timeout 指数退避重试 2 次 → Auth/Billing/ModelNotFound 跳下一模型
 - **连续消息合并**：`push_user_message()` 自动合并连续 user 消息，兼容 Anthropic role 交替要求
 - **统一日志**：前后端日志统一写入后端 `logging.rs`（SQLite + 纯文本双写）。前端通过 `src/lib/logger.ts` 调用 `frontend_log` / `frontend_log_batch` 命令，支持批量缓冲（500ms / 20 条）。后端 Agent 执行全链路日志覆盖：chat 入口 → 模型链 → API 请求/响应 → SSE 流 → Tool Loop → 完成总结
+- **记忆系统**：`memory.rs` 实现 `MemoryBackend` trait 可插拔架构，MVP 使用 SQLite + FTS5 全文搜索。4 种记忆类型（user/feedback/project/reference），2 种作用域（global/agent）。记忆自动注入系统提示词 section ⑧。Embedding 配置支持 API 模式（5 个预设）和本地 ONNX 模型（4 个预设），存储在 `config.json`
 
 ## 编码规范
 

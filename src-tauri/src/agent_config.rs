@@ -44,6 +44,10 @@ pub struct AgentConfig {
     #[serde(default)]
     pub behavior: BehaviorConfig,
 
+    /// Memory settings
+    #[serde(default)]
+    pub memory: MemoryConfig,
+
     /// If true, use custom markdown prompts instead of structured config
     #[serde(default)]
     pub use_custom_prompt: bool,
@@ -65,6 +69,7 @@ impl Default for AgentConfig {
             tools: FilterConfig::default(),
             personality: PersonalityConfig::default(),
             behavior: BehaviorConfig::default(),
+            memory: MemoryConfig::default(),
             use_custom_prompt: false,
         }
     }
@@ -198,6 +203,43 @@ impl Default for BehaviorConfig {
     }
 }
 
+// ── Memory Config ───────────────────────────────────────────────
+
+/// Memory system configuration in agent.json.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryConfig {
+    /// Whether memory is enabled for this agent
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// Whether to also load global shared memories
+    #[serde(default = "default_true")]
+    pub shared: bool,
+
+    /// Max chars for memory section in system prompt
+    #[serde(default = "default_memory_budget")]
+    pub prompt_budget: usize,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_memory_budget() -> usize {
+    5000
+}
+
+impl Default for MemoryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            shared: true,
+            prompt_budget: default_memory_budget(),
+        }
+    }
+}
+
 // ── Agent Definition (runtime) ───────────────────────────────────
 
 /// Complete Agent definition loaded from the filesystem.
@@ -238,4 +280,5 @@ pub struct AgentSummary {
     pub has_agent_md: bool,
     pub has_persona: bool,
     pub has_tools_guide: bool,
+    pub memory_count: usize,
 }

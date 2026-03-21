@@ -44,12 +44,16 @@ ignore = "0.4.25"
 glob = "0.3.3"
 tauri-plugin-dialog = "2.6.0"
 rusqlite = { version = "0.34", features = ["bundled"] }
+sqlite-vec = "0.1"
+fastembed = "5"
+zerocopy = { version = "0.8", features = ["derive"] }
 chrono = { version = "0.4", features = ["serde"] }
 pdf-extract = "0.7"
 pdfium-render = "0.8"
 calamine = "0.26"
 zip = "2"
 quick-xml = "0.37"
+chromiumoxide = { version = "0.7", features = ["tokio-runtime"], default-features = false }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-app-kit = { version = "0.3.2", features = ["NSWindow", "NSColor"] }
