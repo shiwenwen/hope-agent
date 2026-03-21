@@ -976,6 +976,7 @@ async fn chat(
     message: String,
     mut attachments: Vec<Attachment>,
     session_id: Option<String>,
+    agent_id: Option<String>,
     on_event: tauri::ipc::Channel<String>,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
@@ -986,8 +987,15 @@ async fn chat(
     cancel.store(false, Ordering::SeqCst); // Reset cancel flag
     let logger = state.logger.clone();
 
-    // Resolve or create session
-    let current_agent_id = state.current_agent_id.lock().await.clone();
+    // Resolve or create session — prefer explicit agent_id from frontend
+    let current_agent_id = match agent_id {
+        Some(id) => {
+            // Sync backend state so other code paths see the correct agent
+            *state.current_agent_id.lock().await = id.clone();
+            id
+        }
+        None => state.current_agent_id.lock().await.clone(),
+    };
     let sid = match session_id {
         Some(id) if !id.is_empty() => id,
         _ => {

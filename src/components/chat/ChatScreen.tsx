@@ -785,7 +785,7 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
         sessionCacheRef.current.set("__pending__", freshMessages)
       }
 
-      await invoke<string>("chat", { message: text, attachments, sessionId: currentSessionId, onEvent })
+      await invoke<string>("chat", { message: text, attachments, sessionId: currentSessionId, agentId: currentAgentId, onEvent })
     } catch (e) {
       const sid = targetSessionId || "__pending__"
       updateSessionMessages(sid, (prev) => {
