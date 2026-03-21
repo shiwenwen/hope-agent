@@ -82,6 +82,11 @@
     "high": "High",
     "xhigh": "XHigh"
   },
+  "codexAuth": {
+    "expiredTitle": "Codex Authentication Expired",
+    "expiredDescription": "Your Codex OAuth token is no longer valid. Please sign in again to continue.",
+    "reauth": "Sign In Again"
+  },
   "provider": {
     "title": "Providers",
     "selectProvider": "Select a provider to get started",

@@ -1430,6 +1430,26 @@ async fn chat(
                         continue; // Retry same model
                     }
 
+                    // Emit codex_auth_expired event when a Codex provider gets an Auth error
+                    if matches!(reason, failover::FailoverReason::Auth) {
+                        let is_codex = {
+                            let store = state.provider_store.lock().await;
+                            store.providers.iter()
+                                .find(|p| p.id == model_ref.provider_id)
+                                .map(|p| p.api_type == ApiType::Codex)
+                                .unwrap_or(false)
+                        };
+                        if is_codex {
+                            let event = serde_json::json!({
+                                "type": "codex_auth_expired",
+                                "error": &error_msg,
+                            });
+                            if let Ok(json_str) = serde_json::to_string(&event) {
+                                let _ = on_event.send(json_str);
+                            }
+                        }
+                    }
+
                     // Non-retryable or retries exhausted — move to next model
                     last_error = Some(error_msg);
                     break; // Break inner retry loop, continue outer model loop

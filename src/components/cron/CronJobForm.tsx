@@ -39,6 +39,7 @@ export interface CronJob {
   status: "active" | "paused" | "disabled" | "completed" | "missed"
   nextRunAt?: string | null
   lastRunAt?: string | null
+  runningAt?: string | null
   consecutiveFailures: number
   maxFailures: number
   createdAt: string

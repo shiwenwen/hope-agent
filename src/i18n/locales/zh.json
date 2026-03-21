@@ -82,6 +82,11 @@
     "high": "高",
     "xhigh": "极高"
   },
+  "codexAuth": {
+    "expiredTitle": "Codex 认证已过期",
+    "expiredDescription": "你的 Codex OAuth 认证令牌已失效，请重新登录以继续使用。",
+    "reauth": "重新登录"
+  },
   "provider": {
     "title": "模型服务商",
     "selectProvider": "选择模型服务商开始使用",

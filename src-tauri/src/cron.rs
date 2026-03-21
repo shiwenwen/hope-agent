@@ -84,6 +84,8 @@ pub struct CronJob {
     pub status: CronJobStatus,
     pub next_run_at: Option<String>,
     pub last_run_at: Option<String>,
+    /// Set when the job is currently executing; cleared on completion.
+    pub running_at: Option<String>,
     pub consecutive_failures: u32,
     pub max_failures: u32,
     pub created_at: String,
@@ -228,6 +230,16 @@ impl CronDB {
                 ON cron_run_logs(job_id, started_at DESC);",
         )?;
 
+        // Migration: add running_at column if missing (for existing DBs)
+        let has_running_at: bool = conn
+            .prepare("SELECT running_at FROM cron_jobs LIMIT 0")
+            .is_ok();
+        if !has_running_at {
+            conn.execute_batch(
+                "ALTER TABLE cron_jobs ADD COLUMN running_at TEXT;",
+            )?;
+        }
+
         Ok(Self {
             conn: Mutex::new(conn),
         })
@@ -268,6 +280,7 @@ impl CronDB {
             status: CronJobStatus::Active,
             next_run_at: next_run,
             last_run_at: None,
+            running_at: None,
             consecutive_failures: 0,
             max_failures,
             created_at: now.clone(),
@@ -316,7 +329,7 @@ impl CronDB {
     pub fn get_job(&self, id: &str) -> Result<Option<CronJob>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, consecutive_failures, max_failures, created_at, updated_at
+            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at
              FROM cron_jobs WHERE id=?1"
         )?;
         let mut rows = stmt.query(params![id])?;
@@ -331,7 +344,7 @@ impl CronDB {
     pub fn list_jobs(&self) -> Result<Vec<CronJob>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, consecutive_failures, max_failures, created_at, updated_at
+            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at
              FROM cron_jobs ORDER BY created_at DESC"
         )?;
         let rows = stmt.query_map([], |row| {
@@ -344,13 +357,13 @@ impl CronDB {
         Ok(jobs)
     }
 
-    /// Get all jobs that are due for execution (status=active, next_run_at <= now).
+    /// Get all jobs that are due for execution (status=active, not running, next_run_at <= now).
     pub fn get_due_jobs(&self, now: &DateTime<Utc>) -> Result<Vec<CronJob>> {
         let now_str = now.to_rfc3339();
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, consecutive_failures, max_failures, created_at, updated_at
-             FROM cron_jobs WHERE status='active' AND next_run_at IS NOT NULL AND next_run_at <= ?1"
+            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at
+             FROM cron_jobs WHERE status='active' AND running_at IS NULL AND next_run_at IS NOT NULL AND next_run_at <= ?1"
         )?;
         let rows = stmt.query_map(params![now_str], |row| {
             row_to_cron_job(row).map_err(|e| rusqlite::Error::ToSqlConversionFailure(e.into()))
@@ -643,6 +656,48 @@ impl CronDB {
         Ok(count)
     }
 
+    /// Atomically claim a job for execution: set running_at and advance next_run_at.
+    /// Returns true if the job was claimed (no one else grabbed it first).
+    pub fn claim_job_for_execution(&self, job: &CronJob) -> Result<bool> {
+        let now = Utc::now();
+        let now_str = now.to_rfc3339();
+        let conn = self.conn.lock().unwrap();
+
+        // Compute next scheduled time
+        let next_run = match &job.schedule {
+            CronSchedule::At { .. } => None, // one-shot: clear next_run_at
+            other => compute_next_run(other, &now).map(|dt| dt.to_rfc3339()),
+        };
+
+        // Atomically claim: only succeed if still active, not running, and next_run_at matches
+        let rows = conn.execute(
+            "UPDATE cron_jobs SET running_at=?1, next_run_at=?2, updated_at=?1
+             WHERE id=?3 AND next_run_at=?4 AND status='active' AND running_at IS NULL",
+            params![now_str, next_run, job.id, job.next_run_at],
+        )?;
+        Ok(rows > 0)
+    }
+
+    /// Clear running_at after job execution completes (called by execute_job).
+    pub fn clear_running(&self, id: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE cron_jobs SET running_at=NULL WHERE id=?1",
+            params![id],
+        )?;
+        Ok(())
+    }
+
+    /// Clear all stale running_at markers (for startup recovery after crash).
+    pub fn clear_all_running(&self) -> Result<usize> {
+        let conn = self.conn.lock().unwrap();
+        let count = conn.execute(
+            "UPDATE cron_jobs SET running_at=NULL WHERE running_at IS NOT NULL",
+            [],
+        )?;
+        Ok(count)
+    }
+
     /// Mark missed one-shot At jobs as 'missed'.
     pub fn mark_missed_at_jobs(&self) -> Result<usize> {
         let now = Utc::now().to_rfc3339();
@@ -674,10 +729,11 @@ fn row_to_cron_job(row: &rusqlite::Row) -> Result<CronJob> {
         status: CronJobStatus::from_str(&status_str),
         next_run_at: row.get(6)?,
         last_run_at: row.get(7)?,
-        consecutive_failures: row.get(8)?,
-        max_failures: row.get(9)?,
-        created_at: row.get(10)?,
-        updated_at: row.get(11)?,
+        running_at: row.get(8)?,
+        consecutive_failures: row.get(9)?,
+        max_failures: row.get(10)?,
+        created_at: row.get(11)?,
+        updated_at: row.get(12)?,
     })
 }
 
@@ -703,6 +759,11 @@ pub fn start_scheduler(
                 if let Err(e) = cron_db.recover_orphaned_runs() {
                     log::error!("[cron] Failed to recover orphaned runs: {}", e);
                 }
+                match cron_db.clear_all_running() {
+                    Ok(n) if n > 0 => log::warn!("[cron] Cleared {} stale running markers from previous session", n),
+                    Err(e) => log::error!("[cron] Failed to clear stale running markers: {}", e),
+                    _ => {}
+                }
                 if let Err(e) = cron_db.mark_missed_at_jobs() {
                     log::error!("[cron] Failed to mark missed at jobs: {}", e);
                 }
@@ -712,35 +773,64 @@ pub fn start_scheduler(
                     if !due_jobs.is_empty() {
                         log::info!("[cron] Catch-up: {} overdue jobs found at startup", due_jobs.len());
                         for job in due_jobs {
-                            let db = cron_db.clone();
-                            let sdb = session_db.clone();
-                            tokio::spawn(async move {
-                                execute_job(&db, &sdb, &job).await;
-                            });
+                            match cron_db.claim_job_for_execution(&job) {
+                                Ok(true) => {
+                                    let db = cron_db.clone();
+                                    let sdb = session_db.clone();
+                                    tokio::spawn(async move {
+                                        execute_job(&db, &sdb, &job).await;
+                                    });
+                                }
+                                Ok(false) => {}
+                                Err(e) => {
+                                    log::error!("[cron] Failed to claim catch-up job '{}': {}", job.name, e);
+                                }
+                            }
                         }
                     }
                 }
 
                 log::info!("[cron] Scheduler started");
                 let mut interval = tokio::time::interval(std::time::Duration::from_secs(15));
+                let tick_running = Arc::new(AtomicBool::new(false));
 
                 loop {
                     interval.tick().await;
+
+                    // Scheduler-level guard: skip if previous tick is still processing
+                    if tick_running.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_err() {
+                        log::debug!("[cron] Previous tick still running, skipping");
+                        continue;
+                    }
+
                     let now = Utc::now();
                     match cron_db.get_due_jobs(&now) {
                         Ok(due_jobs) => {
                             for job in due_jobs {
-                                let db = cron_db.clone();
-                                let sdb = session_db.clone();
-                                tokio::spawn(async move {
-                                    execute_job(&db, &sdb, &job).await;
-                                });
+                                // Claim job first to prevent duplicate execution
+                                match cron_db.claim_job_for_execution(&job) {
+                                    Ok(true) => {
+                                        let db = cron_db.clone();
+                                        let sdb = session_db.clone();
+                                        tokio::spawn(async move {
+                                            execute_job(&db, &sdb, &job).await;
+                                        });
+                                    }
+                                    Ok(false) => {
+                                        log::debug!("[cron] Job '{}' already claimed, skipping", job.name);
+                                    }
+                                    Err(e) => {
+                                        log::error!("[cron] Failed to claim job '{}': {}", job.name, e);
+                                    }
+                                }
                             }
                         }
                         Err(e) => {
                             log::error!("[cron] Failed to query due jobs: {}", e);
                         }
                     }
+
+                    tick_running.store(false, Ordering::Release);
                 }
             });
         })
@@ -784,7 +874,7 @@ async fn execute_job(
         }
         Err(e) => {
             log::error!("[cron] Failed to create session for job '{}': {}", job.name, e);
-            record_failure(cron_db, job, &started_at, start_time, "no_session", &e.to_string());
+            record_failure(cron_db, job, &started_at, start_time, "no_session", &e.to_string(), "");
             return;
         }
     };
@@ -818,18 +908,32 @@ async fn execute_job(
             };
             let _ = cron_db.add_run_log(&run_log);
             let _ = cron_db.update_after_run(&job.id, true, &job.schedule);
+            let _ = cron_db.clear_running(&job.id);
 
             // Emit Tauri event
             emit_cron_event(&job.id, "success");
         }
         Err(e) => {
             log::error!("[cron] Job '{}' failed: {}", job.name, e);
-            record_failure(cron_db, job, &started_at, start_time, "error", &e.to_string());
+
+            // Write the user prompt + error message into the session so the user can see what happened
+            let _ = session_db.append_message(&session_id, &crate::session::NewMessage::user(&message));
+            let mut err_msg = crate::session::NewMessage::assistant(&e.to_string());
+            err_msg.is_error = Some(true);
+            let _ = session_db.append_message(&session_id, &err_msg);
+
+            record_failure(cron_db, job, &started_at, start_time, "error", &e.to_string(), &session_id);
         }
     }
 }
 
-/// Build an AssistantAgent and run a chat message.
+/// Build an AssistantAgent and run a chat message with full failover logic.
+///
+/// Uses the same error classification and retry strategy as the regular chat flow:
+/// - Retryable errors (RateLimit/Overloaded/Timeout): retry same model up to MAX_RETRIES
+///   with exponential backoff before falling back to the next model.
+/// - Terminal errors (ContextOverflow): surface immediately, no fallback.
+/// - Non-retryable errors (Auth/Billing/ModelNotFound/Unknown): skip to next model.
 async fn build_and_run_agent(
     agent_id: &str,
     message: &str,
@@ -837,7 +941,12 @@ async fn build_and_run_agent(
     _session_db: &Arc<crate::session::SessionDB>,
 ) -> Result<String> {
     use crate::agent::AssistantAgent;
+    use crate::failover;
     use crate::provider;
+
+    const MAX_RETRIES: u32 = 2;
+    const RETRY_BASE_MS: u64 = 1000;
+    const RETRY_MAX_MS: u64 = 10_000;
 
     // Load provider store from disk
     let store = provider::load_store().unwrap_or_default();
@@ -864,28 +973,62 @@ async fn build_and_run_agent(
         return Err(anyhow::anyhow!("No model configured for cron job execution"));
     }
 
-    // Try each model in the chain
+    // Try each model in the chain with proper failover
     let mut last_error = String::new();
-    for model_ref in &model_chain {
+    for (idx, model_ref) in model_chain.iter().enumerate() {
         let prov = match provider::find_provider(&store.providers, &model_ref.provider_id) {
             Some(p) => p,
             None => continue,
         };
 
-        let mut agent = AssistantAgent::new_from_provider(prov, &model_ref.model_id);
-        agent.set_agent_id(agent_id);
+        let model_label = format!("{}::{}", model_ref.provider_id, model_ref.model_id);
 
-        let cancel = Arc::new(AtomicBool::new(false));
-        // No streaming needed for cron jobs — collect full response
-        match agent.chat(message, &[], None, cancel, |_delta| {}).await {
-            Ok(response) => return Ok(response),
-            Err(e) => {
-                last_error = e.to_string();
-                log::warn!(
-                    "[cron] Model {}::{} failed: {}, trying next",
-                    model_ref.provider_id, model_ref.model_id, last_error
-                );
-                continue;
+        // Per-model retry loop
+        let mut retry_count: u32 = 0;
+        loop {
+            let mut agent = AssistantAgent::new_from_provider(prov, &model_ref.model_id);
+            agent.set_agent_id(agent_id);
+
+            let cancel = Arc::new(AtomicBool::new(false));
+            match agent.chat(message, &[], None, cancel, |_delta| {}).await {
+                Ok(response) => {
+                    if idx > 0 {
+                        log::info!("[cron] Fallback model {} succeeded", model_label);
+                    }
+                    return Ok(response);
+                }
+                Err(e) => {
+                    last_error = e.to_string();
+                    let reason = failover::classify_error(&last_error);
+
+                    // Terminal error — surface immediately, no point trying other models
+                    if reason.is_terminal() {
+                        log::error!(
+                            "[cron] Model {} hit terminal error ({:?}): {}",
+                            model_label, reason, last_error
+                        );
+                        return Err(anyhow::anyhow!("{}", last_error));
+                    }
+
+                    // Retryable error — retry same model with backoff
+                    if reason.is_retryable() && retry_count < MAX_RETRIES {
+                        retry_count += 1;
+                        let delay = failover::retry_delay_ms(retry_count - 1, RETRY_BASE_MS, RETRY_MAX_MS);
+                        log::warn!(
+                            "[cron] Model {} retryable error ({:?}), attempt {}/{}, retrying in {}ms: {}",
+                            model_label, reason, retry_count, MAX_RETRIES, delay, last_error
+                        );
+                        tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                        continue;
+                    }
+
+                    // Non-retryable or retries exhausted — skip to next model
+                    log::warn!(
+                        "[cron] Model {} failed ({:?}), skipping to next model: {}",
+                        model_label, reason, last_error
+                    );
+                    break;
+                }
             }
         }
     }
@@ -901,6 +1044,7 @@ fn record_failure(
     start_time: std::time::Instant,
     status: &str,
     error: &str,
+    session_id: &str,
 ) {
     let duration_ms = start_time.elapsed().as_millis() as u64;
     let finished_at = Utc::now().to_rfc3339();
@@ -908,7 +1052,7 @@ fn record_failure(
     let run_log = CronRunLog {
         id: 0,
         job_id: job.id.clone(),
-        session_id: String::new(),
+        session_id: session_id.to_string(),
         status: status.to_string(),
         started_at: started_at.to_string(),
         finished_at: Some(finished_at),
@@ -918,6 +1062,7 @@ fn record_failure(
     };
     let _ = cron_db.add_run_log(&run_log);
     let _ = cron_db.update_after_run(&job.id, false, &job.schedule);
+    let _ = cron_db.clear_running(&job.id);
 
     // Emit Tauri event
     emit_cron_event(&job.id, "error");

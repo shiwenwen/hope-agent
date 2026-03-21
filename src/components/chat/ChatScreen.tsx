@@ -25,6 +25,16 @@ import ThinkingBlock from "@/components/chat/ThinkingBlock"
 import ChatSidebar from "@/components/chat/ChatSidebar"
 import ChatInput from "@/components/chat/ChatInput"
 import FallbackDetailsPopover from "@/components/chat/FallbackDetailsPopover"
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogCancel,
+  AlertDialogAction,
+} from "@/components/ui/alert-dialog"
 
 /** Inline banner that mimics the original blockquote style, with a clickable ⚠️ icon for details */
 function FallbackBanner({ event }: { event: FallbackEvent }) {
@@ -71,6 +81,7 @@ function formatTokens(n: number): string {
 
 interface ChatScreenProps {
   onOpenAgentSettings?: (agentId: string) => void
+  onCodexReauth?: () => void
 }
 
 /** Format message timestamp to HH:mm */
@@ -165,7 +176,7 @@ function parseSessionMessages(msgs: SessionMessage[]): Message[] {
 }
 
 
-export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
+export default function ChatScreen({ onOpenAgentSettings, onCodexReauth }: ChatScreenProps) {
   const { t } = useTranslation()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
@@ -221,6 +232,9 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
 
   // Command approval queue
   const [approvalRequests, setApprovalRequests] = useState<ApprovalRequest[]>([])
+
+  // Codex auth expired dialog
+  const [showCodexAuthExpired, setShowCodexAuthExpired] = useState(false)
 
   // Attached files
   const [attachedFiles, setAttachedFiles] = useState<File[]>([])
@@ -760,6 +774,10 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
                 }
                 break
               }
+              case "codex_auth_expired": {
+                setShowCodexAuthExpired(true)
+                break
+              }
             }
             return updated
           })
@@ -867,6 +885,29 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
         requests={approvalRequests}
         onRespond={handleApprovalResponse}
       />
+
+      {/* Codex Auth Expired Dialog */}
+      <AlertDialog open={showCodexAuthExpired} onOpenChange={setShowCodexAuthExpired}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("codexAuth.expiredTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>{t("codexAuth.expiredDescription")}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            {onCodexReauth && (
+              <AlertDialogAction
+                onClick={() => {
+                  setShowCodexAuthExpired(false)
+                  onCodexReauth()
+                }}
+              >
+                {t("codexAuth.reauth")}
+              </AlertDialogAction>
+            )}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Chat Area */}
       <div className="flex-1 flex flex-col min-w-0">

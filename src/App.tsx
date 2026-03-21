@@ -142,7 +142,7 @@ export default function App() {
       ) : view === "calendar" ? (
         <CronCalendarView onBack={() => setView("chat")} />
       ) : (
-        <ChatScreen onOpenAgentSettings={(agentId) => { setAgentIdForSettings(agentId); setView("agents") }} />
+        <ChatScreen onOpenAgentSettings={(agentId) => { setAgentIdForSettings(agentId); setView("agents") }} onCodexReauth={handleCodexAuth} />
       )}
     </div>
   )
