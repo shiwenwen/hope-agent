@@ -106,13 +106,13 @@ export default function CronJobDetail({ jobId, onBack, onEdit, onRefresh, onView
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleRunNow} title={t("cron.runNow")}>
             <Zap className="h-3.5 w-3.5" />
           </Button>
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onEdit(job)} title={t("cron.edit")}>
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onEdit(job)} title={t("common.edit")}>
             <Pencil className="h-3.5 w-3.5" />
           </Button>
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleToggle} title={job.status === "active" ? t("cron.pause") : t("cron.resume")}>
             {job.status === "active" ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
           </Button>
-          <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500 hover:text-red-600" onClick={handleDelete} title={t("cron.delete")}>
+          <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500 hover:text-red-600" onClick={handleDelete} title={t("common.delete")}>
             <Trash2 className="h-3.5 w-3.5" />
           </Button>
         </div>
@@ -138,7 +138,7 @@ export default function CronJobDetail({ jobId, onBack, onEdit, onRefresh, onView
         </div>
         <div>
           <span className="text-muted-foreground">{t("cron.message")}</span>
-          <p className="mt-1 whitespace-pre-wrap break-words bg-secondary/30 rounded px-2 py-1.5">{job.payload.message}</p>
+          <p className="mt-1 whitespace-pre-wrap break-words bg-secondary/30 rounded px-2 py-1.5">{job.payload.prompt}</p>
         </div>
       </div>
 

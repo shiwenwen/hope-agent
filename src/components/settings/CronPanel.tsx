@@ -156,13 +156,13 @@ export default function CronPanel() {
                   <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleRunNow(job)} title={t("cron.runNow")}>
                     <Zap className="h-3.5 w-3.5" />
                   </Button>
-                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditingJob(job); setShowForm(true) }} title={t("cron.edit")}>
+                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditingJob(job); setShowForm(true) }} title={t("common.edit")}>
                     <Pencil className="h-3.5 w-3.5" />
                   </Button>
                   <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleToggle(job)} title={job.status === "active" ? t("cron.pause") : t("cron.resume")}>
                     {job.status === "active" ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
                   </Button>
-                  <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500 hover:text-red-600" onClick={() => handleDelete(job)} title={t("cron.delete")}>
+                  <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500 hover:text-red-600" onClick={() => handleDelete(job)} title={t("common.delete")}>
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>
                 </div>

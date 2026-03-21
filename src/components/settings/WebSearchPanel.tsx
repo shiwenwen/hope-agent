@@ -612,7 +612,7 @@ export default function WebSearchPanel() {
             ) : null}
             {justSaved
               ? t("settings.webSearchSaved")
-              : t("settings.webSearchSave")}
+              : t("common.save")}
           </Button>
         </div>
       </div>

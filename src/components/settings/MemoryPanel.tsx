@@ -605,7 +605,7 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
                 size="sm"
                 disabled={!formContent.trim()}
               >
-                {isEdit ? t("settings.save") : t("settings.memoryAdd")}
+                {isEdit ? t("common.save") : t("settings.memoryAdd")}
               </Button>
               <Button
                 variant="ghost"
