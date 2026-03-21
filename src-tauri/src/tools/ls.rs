@@ -8,13 +8,13 @@ const LS_DEFAULT_LIMIT: usize = 500;
 /// Max output bytes for ls (50KB).
 const LS_MAX_OUTPUT_BYTES: usize = 50 * 1024;
 
-pub(crate) async fn tool_ls(args: &Value) -> Result<String> {
+pub(crate) async fn tool_ls(args: &Value, ctx: &super::ToolExecContext) -> Result<String> {
     // Accept path aliases: path, file_path; with structured content support
     let raw_path = args
         .get("path")
         .or_else(|| args.get("file_path"))
         .and_then(|v| extract_string_param(v))
-        .unwrap_or(".");
+        .unwrap_or(ctx.default_path());
 
     let path = expand_tilde(raw_path);
     let limit = args

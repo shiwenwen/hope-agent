@@ -394,13 +394,24 @@ pub fn get_tools_for_provider(provider: ToolProvider) -> Vec<Value> {
 pub struct ToolExecContext {
     /// Model context window in tokens (for dynamic output truncation)
     pub context_window_tokens: Option<u32>,
+    /// Agent home directory — used as default cwd/path for tools.
+    /// Falls back to user ~ if None.
+    pub home_dir: Option<String>,
 }
 
 impl Default for ToolExecContext {
     fn default() -> Self {
         Self {
             context_window_tokens: None,
+            home_dir: None,
         }
+    }
+}
+
+impl ToolExecContext {
+    /// Returns the default path for tools: agent home if set, otherwise ".".
+    pub fn default_path(&self) -> &str {
+        self.home_dir.as_deref().unwrap_or(".")
     }
 }
 
@@ -437,9 +448,9 @@ pub async fn execute_tool_with_context(
         "read" | "read_file" => read::tool_read_file(args, ctx).await,
         "write" | "write_file" => write::tool_write_file(args).await,
         "edit" | "patch_file" => edit::tool_edit(args).await,
-        "ls" | "list_dir" => ls::tool_ls(args).await,
-        "grep" => grep::tool_grep(args).await,
-        "find" => find::tool_find(args).await,
+        "ls" | "list_dir" => ls::tool_ls(args, ctx).await,
+        "grep" => grep::tool_grep(args, ctx).await,
+        "find" => find::tool_find(args, ctx).await,
         "apply_patch" => apply_patch::tool_apply_patch(args).await,
         "web_search" => web::tool_web_search(args).await,
         "web_fetch" => web::tool_web_fetch(args).await,
