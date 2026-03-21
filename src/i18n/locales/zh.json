@@ -30,6 +30,8 @@
     "clearFilter": "清除筛选",
     "noMatchingSessions": "没有匹配的会话",
     "howCanIHelp": "有什么可以帮你的？",
+    "loadMore": "加载更早的消息",
+    "loadingMore": "加载中...",
     "askAnything": "想做什么，尽管说...",
     "pendingQueued": "消息已排队，等待回复完成后发送...",
     "queueMessage": "排队发送",

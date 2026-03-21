@@ -111,27 +111,31 @@ export default function App() {
         onOpenCalendar={() => setView("calendar")}
         userAvatar={userAvatar}
       />
-      {view === "settings" ? (
+      {view === "settings" && (
         <SettingsView
           onBack={() => setView("chat")}
           onCodexAuth={handleCodexAuth}
           onCodexReauth={handleCodexAuth}
         />
-      ) : view === "skills" ? (
+      )}
+      {view === "skills" && (
         <SettingsView
           onBack={() => setView("chat")}
           onCodexAuth={handleCodexAuth}
           onCodexReauth={handleCodexAuth}
           initialSection="skills"
         />
-      ) : view === "profile" ? (
+      )}
+      {view === "profile" && (
         <SettingsView
           onBack={() => setView("chat")}
           onCodexAuth={handleCodexAuth}
           onCodexReauth={handleCodexAuth}
           initialSection="profile"
+          onProfileSaved={() => fetchUserAvatar().then(setUserAvatar)}
         />
-      ) : view === "agents" ? (
+      )}
+      {view === "agents" && (
         <SettingsView
           onBack={() => { setView("chat"); setAgentIdForSettings(undefined) }}
           onCodexAuth={handleCodexAuth}
@@ -139,11 +143,13 @@ export default function App() {
           initialSection="agents"
           initialAgentId={agentIdForSettings}
         />
-      ) : view === "calendar" ? (
-        <CronCalendarView onBack={() => setView("chat")} />
-      ) : (
-        <ChatScreen onOpenAgentSettings={(agentId) => { setAgentIdForSettings(agentId); setView("agents") }} onCodexReauth={handleCodexAuth} />
       )}
+      {view === "calendar" && (
+        <CronCalendarView onBack={() => setView("chat")} />
+      )}
+      <div className={view === "chat" ? "flex-1 flex overflow-hidden" : "hidden"}>
+        <ChatScreen onOpenAgentSettings={(agentId) => { setAgentIdForSettings(agentId); setView("agents") }} onCodexReauth={handleCodexAuth} />
+      </div>
     </div>
   )
 }

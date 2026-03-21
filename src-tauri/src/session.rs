@@ -257,25 +257,7 @@ impl SessionDB {
         )?;
 
         let rows = stmt.query_map(params![session_id], |row| {
-            let is_error_val: Option<i64> = row.get(15)?;
-            Ok(SessionMessage {
-                id: row.get(0)?,
-                session_id: row.get(1)?,
-                role: MessageRole::from_str(&row.get::<_, String>(2)?),
-                content: row.get(3)?,
-                timestamp: row.get(4)?,
-                attachments_meta: row.get(5)?,
-                model: row.get(6)?,
-                tokens_in: row.get(7)?,
-                tokens_out: row.get(8)?,
-                reasoning_effort: row.get(9)?,
-                tool_call_id: row.get(10)?,
-                tool_name: row.get(11)?,
-                tool_arguments: row.get(12)?,
-                tool_result: row.get(13)?,
-                tool_duration_ms: row.get(14)?,
-                is_error: is_error_val.map(|v| v != 0),
-            })
+            Self::row_to_session_message(row)
         })?;
 
         let mut messages = Vec::new();
@@ -283,6 +265,91 @@ impl SessionDB {
             messages.push(row?);
         }
         Ok(messages)
+    }
+
+    /// Load the latest N messages for a session (for initial page load).
+    /// Returns (messages_in_asc_order, total_count).
+    pub fn load_session_messages_latest(&self, session_id: &str, limit: u32) -> Result<(Vec<SessionMessage>, u32)> {
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+
+        let total: u32 = conn.query_row(
+            "SELECT COUNT(*) FROM messages WHERE session_id = ?1",
+            params![session_id],
+            |row| row.get(0),
+        )?;
+
+        let mut stmt = conn.prepare(
+            "SELECT id, session_id, role, content, timestamp,
+                    attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
+                    tool_call_id, tool_name, tool_arguments, tool_result,
+                    tool_duration_ms, is_error
+             FROM messages
+             WHERE session_id = ?1
+             ORDER BY id DESC
+             LIMIT ?2"
+        )?;
+
+        let rows = stmt.query_map(params![session_id, limit], |row| {
+            Self::row_to_session_message(row)
+        })?;
+
+        let mut messages = Vec::new();
+        for row in rows {
+            messages.push(row?);
+        }
+        // Reverse to get ASC order
+        messages.reverse();
+        Ok((messages, total))
+    }
+
+    /// Load messages before a given message id (for "load more" / scroll up).
+    /// Returns messages in ASC order.
+    pub fn load_session_messages_before(&self, session_id: &str, before_id: i64, limit: u32) -> Result<Vec<SessionMessage>> {
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+
+        let mut stmt = conn.prepare(
+            "SELECT id, session_id, role, content, timestamp,
+                    attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
+                    tool_call_id, tool_name, tool_arguments, tool_result,
+                    tool_duration_ms, is_error
+             FROM messages
+             WHERE session_id = ?1 AND id < ?2
+             ORDER BY id DESC
+             LIMIT ?3"
+        )?;
+
+        let rows = stmt.query_map(params![session_id, before_id, limit], |row| {
+            Self::row_to_session_message(row)
+        })?;
+
+        let mut messages = Vec::new();
+        for row in rows {
+            messages.push(row?);
+        }
+        messages.reverse();
+        Ok(messages)
+    }
+
+    fn row_to_session_message(row: &rusqlite::Row) -> rusqlite::Result<SessionMessage> {
+        let is_error_val: Option<i64> = row.get(15)?;
+        Ok(SessionMessage {
+            id: row.get(0)?,
+            session_id: row.get(1)?,
+            role: MessageRole::from_str(&row.get::<_, String>(2)?),
+            content: row.get(3)?,
+            timestamp: row.get(4)?,
+            attachments_meta: row.get(5)?,
+            model: row.get(6)?,
+            tokens_in: row.get(7)?,
+            tokens_out: row.get(8)?,
+            reasoning_effort: row.get(9)?,
+            tool_call_id: row.get(30)?,
+            tool_name: row.get(11)?,
+            tool_arguments: row.get(12)?,
+            tool_result: row.get(13)?,
+            tool_duration_ms: row.get(14)?,
+            is_error: is_error_val.map(|v| v != 0),
+        })
     }
 
     /// Append a message to a session and update the session's updated_at.

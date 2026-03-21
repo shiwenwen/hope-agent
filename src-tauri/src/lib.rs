@@ -927,6 +927,25 @@ async fn load_session_messages_cmd(
 }
 
 #[tauri::command]
+async fn load_session_messages_latest_cmd(
+    session_id: String,
+    limit: u32,
+    state: State<'_, AppState>,
+) -> Result<(Vec<session::SessionMessage>, u32), String> {
+    state.session_db.load_session_messages_latest(&session_id, limit).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn load_session_messages_before_cmd(
+    session_id: String,
+    before_id: i64,
+    limit: u32,
+    state: State<'_, AppState>,
+) -> Result<Vec<session::SessionMessage>, String> {
+    state.session_db.load_session_messages_before(&session_id, before_id, limit).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn get_session_cmd(
     session_id: String,
     state: State<'_, AppState>,
@@ -2457,6 +2476,8 @@ pub fn run() {
             create_session_cmd,
             list_sessions_cmd,
             load_session_messages_cmd,
+            load_session_messages_latest_cmd,
+            load_session_messages_before_cmd,
             get_session_cmd,
             delete_session_cmd,
             rename_session_cmd,
