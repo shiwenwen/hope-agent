@@ -52,8 +52,8 @@ pub struct UserConfig {
     pub custom_info: Option<String>,
 
     // ── Chat behavior settings ──
-    /// Whether pending messages auto-send after reply finishes (default: true)
-    #[serde(default = "default_true")]
+    /// Whether pending messages auto-send after reply finishes (default: false)
+    #[serde(default)]
     pub auto_send_pending: bool,
 }
 
