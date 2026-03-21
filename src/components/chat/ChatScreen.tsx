@@ -128,9 +128,14 @@ function parseSessionMessages(msgs: SessionMessage[]): Message[] {
         pendingTools.push(tool)
         pendingBlocks.push({ type: "tool_call", tool })
       }
+    } else if (msg.role === "text_block") {
+      // Intermediate text emitted before tool calls — preserve ordering
+      if (msg.content) {
+        pendingBlocks.push({ type: "text", content: msg.content })
+      }
     } else if (msg.role === "assistant") {
       const toolCalls = pendingTools.length > 0 ? [...pendingTools] : undefined
-      // Build contentBlocks: tool_call blocks first, then text block
+      // Build contentBlocks: pending blocks (text_block + tool_call in order), then remaining text
       const blocks: ContentBlock[] = [...pendingBlocks]
       if (msg.content) {
         blocks.push({ type: "text", content: msg.content })

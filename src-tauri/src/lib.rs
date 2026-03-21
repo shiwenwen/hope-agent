@@ -2,6 +2,7 @@ mod agent;
 mod agent_config;
 mod agent_loader;
 mod browser_state;
+mod cron;
 mod memory;
 mod failover;
 mod file_extract;
@@ -33,6 +34,7 @@ use logging::{LogDB, AppLogger};
 static APP_HANDLE: std::sync::OnceLock<tauri::AppHandle> = std::sync::OnceLock::new();
 static APP_LOGGER: std::sync::OnceLock<AppLogger> = std::sync::OnceLock::new();
 static MEMORY_BACKEND: std::sync::OnceLock<Arc<dyn memory::MemoryBackend>> = std::sync::OnceLock::new();
+static CRON_DB: std::sync::OnceLock<Arc<cron::CronDB>> = std::sync::OnceLock::new();
 
 /// Get stored AppLogger for global logging
 pub fn get_logger() -> Option<&'static AppLogger> {
@@ -47,6 +49,11 @@ pub fn get_app_handle() -> Option<&'static tauri::AppHandle> {
 /// Get stored MemoryBackend for memory operations
 pub fn get_memory_backend() -> Option<&'static Arc<dyn memory::MemoryBackend>> {
     MEMORY_BACKEND.get()
+}
+
+/// Get stored CronDB for cron operations (used by agent tool)
+pub fn get_cron_db() -> Option<&'static Arc<cron::CronDB>> {
+    CRON_DB.get()
 }
 
 struct AppState {
@@ -68,6 +75,10 @@ struct AppState {
     log_db: Arc<LogDB>,
     /// Async logger
     logger: AppLogger,
+    /// Cron database
+    cron_db: Arc<cron::CronDB>,
+    /// Cron scheduler shutdown signal
+    cron_shutdown: std::sync::Mutex<Option<tokio::sync::watch::Sender<bool>>>,
 }
 
 // ── Provider Management Commands ──────────────────────────────────
@@ -1291,22 +1302,47 @@ async fn chat(
             let captured_usage: Arc<std::sync::Mutex<(Option<i64>, Option<i64>, Option<String>)>> = Arc::new(std::sync::Mutex::new((None, None, None)));
             let captured_usage_clone = captured_usage.clone();
 
+            // Accumulate text_delta content; flush as text_block before tool_call to preserve ordering
+            let pending_text: Arc<std::sync::Mutex<String>> = Arc::new(std::sync::Mutex::new(String::new()));
+            let pending_text_clone = pending_text.clone();
+
             let chat_start = std::time::Instant::now();
             match agent.chat(&message, &attachments, effort_ref, cancel_clone, move |delta| {
                 // Intercept usage events to capture token counts and model
                 if let Ok(event) = serde_json::from_str::<serde_json::Value>(delta) {
-                    if event.get("type").and_then(|t| t.as_str()) == Some("usage") {
-                        if let Ok(mut usage) = captured_usage_clone.lock() {
-                            if let Some(it) = event.get("input_tokens").and_then(|v| v.as_i64()) {
-                                usage.0 = Some(it);
-                            }
-                            if let Some(ot) = event.get("output_tokens").and_then(|v| v.as_i64()) {
-                                usage.1 = Some(ot);
-                            }
-                            if let Some(m) = event.get("model").and_then(|v| v.as_str()) {
-                                usage.2 = Some(m.to_string());
+                    match event.get("type").and_then(|t| t.as_str()) {
+                        Some("usage") => {
+                            if let Ok(mut usage) = captured_usage_clone.lock() {
+                                if let Some(it) = event.get("input_tokens").and_then(|v| v.as_i64()) {
+                                    usage.0 = Some(it);
+                                }
+                                if let Some(ot) = event.get("output_tokens").and_then(|v| v.as_i64()) {
+                                    usage.1 = Some(ot);
+                                }
+                                if let Some(m) = event.get("model").and_then(|v| v.as_str()) {
+                                    usage.2 = Some(m.to_string());
+                                }
                             }
                         }
+                        Some("text_delta") => {
+                            // Accumulate text content for ordering preservation
+                            if let Some(text) = event.get("text").and_then(|t| t.as_str()) {
+                                if let Ok(mut pt) = pending_text_clone.lock() {
+                                    pt.push_str(text);
+                                }
+                            }
+                        }
+                        Some("tool_call") => {
+                            // Flush accumulated text as text_block before tool_call
+                            if let Ok(mut pt) = pending_text_clone.lock() {
+                                if !pt.is_empty() {
+                                    let text_msg = session::NewMessage::text_block(&pt);
+                                    let _ = db_for_cb.append_message(&sid_for_cb, &text_msg);
+                                    pt.clear();
+                                }
+                            }
+                        }
+                        _ => {}
                     }
                 }
                 persist_tool_event(&db_for_cb, &sid_for_cb, delta);
@@ -1829,6 +1865,97 @@ async fn list_local_embedding_models() -> Result<Vec<memory::LocalEmbeddingModel
     Ok(memory::list_local_models_with_status())
 }
 
+// ── Cron Management Commands ─────────────────────────────────────
+
+#[tauri::command]
+async fn cron_list_jobs(
+    state: State<'_, AppState>,
+) -> Result<Vec<cron::CronJob>, String> {
+    state.cron_db.list_jobs().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn cron_get_job(
+    id: String,
+    state: State<'_, AppState>,
+) -> Result<Option<cron::CronJob>, String> {
+    state.cron_db.get_job(&id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn cron_create_job(
+    job: cron::NewCronJob,
+    state: State<'_, AppState>,
+) -> Result<cron::CronJob, String> {
+    state.cron_db.add_job(&job).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn cron_update_job(
+    job: cron::CronJob,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    state.cron_db.update_job(&job).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn cron_delete_job(
+    id: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    state.cron_db.delete_job(&id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn cron_toggle_job(
+    id: String,
+    enabled: bool,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    state.cron_db.toggle_job(&id, enabled).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn cron_run_now(
+    id: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let job = state.cron_db.get_job(&id).map_err(|e| e.to_string())?
+        .ok_or_else(|| "Job not found".to_string())?;
+
+    let db = state.cron_db.clone();
+    let sdb = state.session_db.clone();
+    tokio::spawn(async move {
+        cron::execute_job_public(&db, &sdb, &job).await;
+    });
+    Ok(())
+}
+
+#[tauri::command]
+async fn cron_get_run_logs(
+    job_id: String,
+    limit: Option<usize>,
+    state: State<'_, AppState>,
+) -> Result<Vec<cron::CronRunLog>, String> {
+    let limit = limit.unwrap_or(50);
+    state.cron_db.get_run_logs(&job_id, limit).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn cron_get_calendar_events(
+    start: String,
+    end: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<cron::CalendarEvent>, String> {
+    let start_dt = chrono::DateTime::parse_from_rfc3339(&start)
+        .map_err(|e| format!("Invalid start date: {}", e))?
+        .with_timezone(&chrono::Utc);
+    let end_dt = chrono::DateTime::parse_from_rfc3339(&end)
+        .map_err(|e| format!("Invalid end date: {}", e))?
+        .with_timezone(&chrono::Utc);
+    state.cron_db.get_calendar_events(&start_dt, &end_dt).map_err(|e| e.to_string())
+}
+
 // ── User Config Commands ─────────────────────────────────────────
 
 #[tauri::command]
@@ -2143,6 +2270,16 @@ pub fn run() {
             );
             let _ = MEMORY_BACKEND.set(memory_backend);
 
+            // Initialize the CronDB
+            let cron_db_path = paths::cron_db_path().expect("Failed to resolve cron database path");
+            let cron_db = Arc::new(
+                cron::CronDB::open(&cron_db_path).expect("Failed to open cron database")
+            );
+            let _ = CRON_DB.set(cron_db.clone());
+
+            // Start the cron scheduler
+            let (_cron_handle, cron_shutdown_tx) = cron::start_scheduler(cron_db.clone(), session_db.clone());
+
             // Log system startup
             logger.log("info", "system", "lib::run", "OpenComputer started", None, None, None);
 
@@ -2157,6 +2294,8 @@ pub fn run() {
                 chat_cancel: Arc::new(AtomicBool::new(false)),
                 log_db,
                 logger,
+                cron_db,
+                cron_shutdown: std::sync::Mutex::new(Some(cron_shutdown_tx)),
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -2255,6 +2394,16 @@ pub fn run() {
             get_log_file_path_cmd,
             frontend_log,
             frontend_log_batch,
+            // Cron management
+            cron_list_jobs,
+            cron_get_job,
+            cron_create_job,
+            cron_update_job,
+            cron_delete_job,
+            cron_toggle_job,
+            cron_run_now,
+            cron_get_run_logs,
+            cron_get_calendar_events,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
