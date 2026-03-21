@@ -790,7 +790,8 @@ export default function ChatScreen({ onOpenAgentSettings }: ChatScreenProps) {
         sessionCacheRef.current.set("__pending__", freshMessages)
       }
 
-      await invoke<string>("chat", { message: text, attachments, sessionId: currentSessionId, onEvent })
+      const modelOverride = activeModel ? `${activeModel.providerId}::${activeModel.modelId}` : undefined
+      await invoke<string>("chat", { message: text, attachments, sessionId: currentSessionId, modelOverride, onEvent })
     } catch (e) {
       const sid = targetSessionId || "__pending__"
       updateSessionMessages(sid, (prev) => {

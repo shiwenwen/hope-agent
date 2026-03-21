@@ -993,6 +993,7 @@ async fn chat(
     message: String,
     mut attachments: Vec<Attachment>,
     session_id: Option<String>,
+    model_override: Option<String>,
     on_event: tauri::ipc::Channel<String>,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
@@ -1125,7 +1126,18 @@ async fn chat(
 
     let (primary, fallbacks) = {
         let store = state.provider_store.lock().await;
-        provider::resolve_model_chain(&agent_model_config, &store)
+        // If user explicitly selected a model in the input box, use it as primary
+        // (overrides agent's configured model)
+        if let Some(ref override_str) = model_override {
+            let override_model = provider::parse_model_ref(override_str);
+            let mut cfg = agent_model_config.clone();
+            if override_model.is_some() {
+                cfg.primary = Some(override_str.clone());
+            }
+            provider::resolve_model_chain(&cfg, &store)
+        } else {
+            provider::resolve_model_chain(&agent_model_config, &store)
+        }
     };
 
     // Build ordered model chain: [primary, ...fallbacks]
