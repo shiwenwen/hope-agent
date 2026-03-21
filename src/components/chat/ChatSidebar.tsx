@@ -54,24 +54,29 @@ export default function ChatSidebar({
   const [deleteConfirmSessionId, setDeleteConfirmSessionId] = useState<string | null>(null)
   const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Agent filter state
-  const [selectedAgentIds, setSelectedAgentIds] = useState<Set<string>>(new Set())
+  // Agent filter state (single-select)
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
 
-  const filteredSessions = selectedAgentIds.size === 0
+  const filteredSessions = selectedAgentId === null
     ? sessions
-    : sessions.filter(s => selectedAgentIds.has(s.agentId))
+    : sessions.filter(s => s.agentId === selectedAgentId)
 
   const toggleAgentFilter = useCallback((agentId: string) => {
-    setSelectedAgentIds(prev => {
-      const next = new Set(prev)
-      if (next.has(agentId)) {
-        next.delete(agentId)
-      } else {
-        next.add(agentId)
+    setSelectedAgentId(prev => {
+      if (prev === agentId) {
+        // Deselect: no auto-switch needed
+        return null
       }
-      return next
+      // Select: switch to the first session of this agent
+      const firstSession = sessions.find(s => s.agentId === agentId)
+      if (firstSession) {
+        onSwitchSession(firstSession.id)
+      } else {
+        onNewChat(agentId)
+      }
+      return agentId
     })
-  }, [])
+  }, [sessions, onSwitchSession, onNewChat])
 
   // Drag handler for resizable panel
   const isDragging = useRef(false)
@@ -216,22 +221,21 @@ export default function ChatSidebar({
                 <span>Agents</span>
                 <span className="font-normal normal-case text-muted-foreground/60 ml-0.5">({agents.length})</span>
               </button>
-              {/* Clear all agent filters */}
-              {selectedAgentIds.size > 0 && (
+              {/* Clear agent filter */}
+              {selectedAgentId !== null && (
                 <button
                   className="mr-3 flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] text-primary bg-primary/10 hover:bg-primary/20 transition-colors"
-                  onClick={() => setSelectedAgentIds(new Set())}
+                  onClick={() => setSelectedAgentId(null)}
                   title={t("chat.clearFilter") || "Clear filter"}
                 >
                   <X className="h-2.5 w-2.5" />
-                  <span>{selectedAgentIds.size}</span>
                 </button>
               )}
             </div>
             {agentsExpanded && (
               <div className={cn("px-2 pb-2 grid gap-1", panelWidth >= 280 ? "grid-cols-2" : "grid-cols-1")}>
                 {agents.map((agent) => {
-                  const isSelected = selectedAgentIds.has(agent.id)
+                  const isSelected = selectedAgentId === agent.id
                   return (
                     <div
                       key={agent.id}
@@ -304,7 +308,7 @@ export default function ChatSidebar({
               <div className="text-center py-8">
                 <MessageSquare className="h-8 w-8 text-muted-foreground/20 mx-auto mb-2" />
                 <p className="text-xs text-muted-foreground/60">
-                  {selectedAgentIds.size > 0
+                  {selectedAgentId !== null
                     ? (t("chat.noMatchingSessions") || "No matching sessions")
                     : t("chat.startConversation")}
                 </p>
