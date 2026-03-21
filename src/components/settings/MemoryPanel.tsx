@@ -612,7 +612,7 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
                 size="sm"
                 onClick={() => { setView("list"); setEditingMemory(null) }}
               >
-                {t("settings.cancel")}
+                {t("common.cancel")}
               </Button>
             </div>
           </div>
