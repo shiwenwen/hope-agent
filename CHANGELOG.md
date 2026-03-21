@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **记忆工具完善**：新增 `update_memory` 和 `delete_memory` AI 工具
+  - `update_memory`：根据 ID 修改记忆内容和标签
+  - `delete_memory`：根据 ID 删除记忆
+  - `recall_memory` 输出中增加 ID 显示，便于修改和删除操作
+- **Web 搜索多 Provider 支持**：web_search 工具支持 7 个搜索引擎切换
+  - 零成本 Provider：DuckDuckGo（默认）、SearXNG（自托管元搜索）
+  - 付费 Provider：Brave Search、Perplexity、Google Custom Search、Grok (X.AI)、Kimi (Moonshot)
+  - 自动检测：未显式选择时按已配置 API Key 优先级自动选用（Brave > Google > Perplexity > Grok > Kimi > SearXNG > DDG）
+  - 新增设置面板 `WebSearchPanel`：搜索引擎选择 + 对应 API Key / 实例地址配置
+  - 2 个 Tauri 命令：`get_web_search_config` / `save_web_search_config`
+  - 配置持久化在 `config.json` 的 `webSearch` 字段
+  - i18n：中英文翻译
 - **开机自动启动**：设置面板「系统」分类，一键开启/关闭登录时自动启动
   - 集成 `tauri-plugin-autostart`，macOS 使用 LaunchAgent 方式注册
   - 2 个 Tauri 命令：`get_autostart_enabled` / `set_autostart_enabled`

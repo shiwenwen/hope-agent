@@ -92,8 +92,9 @@ pub(crate) async fn tool_recall_memory(args: &Value) -> Result<String> {
         };
         let tags_str = if mem.tags.is_empty() { String::new() } else { format!(" [{}]", mem.tags.join(", ")) };
         output.push_str(&format!(
-            "{}. [{}|{}]{}\n{}\n\n",
+            "{}. (id: {}) [{}|{}]{}\n{}\n\n",
             i + 1,
+            mem.id,
             mem.memory_type.as_str(),
             scope_label,
             tags_str,
@@ -102,4 +103,52 @@ pub(crate) async fn tool_recall_memory(args: &Value) -> Result<String> {
     }
 
     Ok(output)
+}
+
+/// Tool: update_memory — update an existing memory's content and/or tags.
+pub(crate) async fn tool_update_memory(args: &Value) -> Result<String> {
+    let id = args.get("id")
+        .and_then(|v| v.as_i64())
+        .ok_or_else(|| anyhow::anyhow!("Missing 'id' parameter (integer)"))?;
+
+    let content = args.get("content")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Missing 'content' parameter"))?;
+
+    let tags: Vec<String> = args.get("tags")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .unwrap_or_default();
+
+    let backend = crate::get_memory_backend()
+        .ok_or_else(|| anyhow::anyhow!("Memory backend not initialized"))?;
+
+    let existing = backend.get(id)?;
+    if existing.is_none() {
+        return Ok(format!("Memory with id {} not found.", id));
+    }
+
+    backend.update(id, content, &tags)?;
+
+    Ok(format!("Memory updated (id: {}).", id))
+}
+
+/// Tool: delete_memory — remove a memory by its ID.
+pub(crate) async fn tool_delete_memory(args: &Value) -> Result<String> {
+    let id = args.get("id")
+        .and_then(|v| v.as_i64())
+        .ok_or_else(|| anyhow::anyhow!("Missing 'id' parameter (integer)"))?;
+
+    let backend = crate::get_memory_backend()
+        .ok_or_else(|| anyhow::anyhow!("Memory backend not initialized"))?;
+
+    // Check if memory exists before deleting
+    let existing = backend.get(id)?;
+    if existing.is_none() {
+        return Ok(format!("Memory with id {} not found.", id));
+    }
+
+    backend.delete(id)?;
+
+    Ok(format!("Memory deleted (id: {}).", id))
 }

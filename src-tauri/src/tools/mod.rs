@@ -13,7 +13,7 @@ mod ls;
 mod memory;
 mod process;
 mod read;
-mod web;
+pub(crate) mod web;
 mod write;
 
 // ── Public Re-exports ─────────────────────────────────────────────
@@ -433,10 +433,49 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                 "additionalProperties": false
             }),
         },
+        ToolDefinition {
+            name: "update_memory".into(),
+            description: "Update an existing memory's content and tags by its ID. Use recall_memory first to find the memory ID. Use when a memory needs correction or its information has changed.".into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "description": "The memory ID to update (obtained from recall_memory results)"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "The new content to replace the existing memory"
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "New tags (replaces existing tags). Omit to clear tags."
+                    }
+                },
+                "required": ["id", "content"],
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: "delete_memory".into(),
+            description: "Delete a memory by its ID. Use recall_memory first to find the memory ID, then use this tool to remove it. Use when the user asks to forget something or when a memory is outdated/incorrect.".into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "description": "The memory ID to delete (obtained from recall_memory results)"
+                    }
+                },
+                "required": ["id"],
+                "additionalProperties": false
+            }),
+        },
         // ── Cron / Scheduled Tasks ──────────────────────────────
         ToolDefinition {
             name: "manage_cron".into(),
-            description: "Create, list, update, delete, and trigger scheduled tasks (cron jobs). Jobs automatically send messages to the AI agent on a schedule. Supports one-time (at), recurring (every), and cron expression schedules.".into(),
+            description: "Create, list, update, delete, and trigger scheduled tasks (cron jobs). Jobs run an agent turn with the given prompt on a schedule (isolated session, no prior history). Supports one-time (at), recurring (every), and cron expression schedules.".into(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -478,9 +517,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                         "type": "string",
                         "description": "Timezone for cron schedule (default UTC)"
                     },
-                    "message": {
+                    "prompt": {
                         "type": "string",
-                        "description": "Message to send to the agent when triggered (for create)"
+                        "description": "The text prompt that the agent will execute when the job triggers. This runs as an isolated agent turn with no prior conversation history."
                     },
                     "agent_id": {
                         "type": "string",
@@ -687,6 +726,8 @@ pub async fn execute_tool_with_context(
         "web_fetch" => web::tool_web_fetch(args).await,
         "save_memory" => memory::tool_save_memory(args).await,
         "recall_memory" => memory::tool_recall_memory(args).await,
+        "update_memory" => memory::tool_update_memory(args).await,
+        "delete_memory" => memory::tool_delete_memory(args).await,
         "manage_cron" => cron::tool_manage_cron(args).await,
         "browser" => browser::tool_browser(args).await,
         _ => Err(anyhow::anyhow!("Unknown tool: {}", name)),
