@@ -490,7 +490,7 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
               {/* Save button */}
               {embeddingDirty && (
                 <Button onClick={saveEmbeddingConfig} size="sm" className="mt-4">
-                  {t("settings.save")}
+                  {t("common.save")}
                 </Button>
               )}
             </div>
