@@ -1,17 +1,22 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
 import { Switch } from "@/components/ui/switch"
+import { Input } from "@/components/ui/input"
 import {
+  AlertTriangle,
   ArrowLeft,
+  Check,
   ChevronRight,
   ExternalLink,
   File,
   Folder,
   FolderOpen,
   Puzzle,
+  Settings2,
+  Trash2,
   X,
 } from "lucide-react"
 import type { SkillSummary } from "./types"
@@ -20,6 +25,12 @@ interface SkillFileInfo {
   name: string
   size: number
   is_dir: boolean
+}
+
+interface SkillRequires {
+  bins: string[]
+  env: string[]
+  os: string[]
 }
 
 interface SkillDetail {
@@ -31,6 +42,7 @@ interface SkillDetail {
   content: string
   enabled: boolean
   files: SkillFileInfo[]
+  requires: SkillRequires
 }
 
 function formatFileSize(bytes: number): string {
@@ -46,25 +58,35 @@ export default function SkillsPanel() {
   const [selectedSkill, setSelectedSkill] = useState<SkillDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [skillEnvCheck, setSkillEnvCheck] = useState(true)
+  // Per-skill env status: skill_name -> { env_var -> is_configured }
+  const [envStatus, setEnvStatus] = useState<Record<string, Record<string, boolean>>>({})
+  // Env var values for the currently selected skill detail (masked from backend)
+  const [envValues, setEnvValues] = useState<Record<string, string>>({})
+  // Tracks which env vars the user has edited (dirty state)
+  const [envDirty, setEnvDirty] = useState<Record<string, boolean>>({})
+  // Saving state per key
+  const [envSaving, setEnvSaving] = useState<Record<string, boolean>>({})
 
-  async function reload() {
+  const reload = useCallback(async () => {
     try {
-      const [list, dirs, envCheck] = await Promise.all([
+      const [list, dirs, envCheck, status] = await Promise.all([
         invoke<SkillSummary[]>("get_skills"),
         invoke<string[]>("get_extra_skills_dirs"),
         invoke<boolean>("get_skill_env_check"),
+        invoke<Record<string, Record<string, boolean>>>("get_skills_env_status"),
       ])
       setSkills(list)
       setExtraDirs(dirs)
       setSkillEnvCheck(envCheck)
+      setEnvStatus(status)
     } catch (e) {
       logger.error("settings", "SkillsPanel::load", "Failed to load skills", e)
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
-  useEffect(() => { reload() }, [])
+  useEffect(() => { reload() }, [reload])
 
   async function handleOpenDir(path: string) {
     try {
@@ -113,15 +135,68 @@ export default function SkillsPanel() {
 
   async function handleSelectSkill(name: string) {
     try {
-      const detail = await invoke<SkillDetail>("get_skill_detail", { name })
+      const [detail, maskedEnv] = await Promise.all([
+        invoke<SkillDetail>("get_skill_detail", { name }),
+        invoke<Record<string, string>>("get_skill_env", { name }),
+      ])
       setSelectedSkill(detail)
+      setEnvValues(maskedEnv)
+      setEnvDirty({})
+      setEnvSaving({})
     } catch (e) {
       logger.error("settings", "SkillsPanel::detail", "Failed to load skill detail", e)
     }
   }
 
+  async function handleSaveEnvVar(key: string) {
+    if (!selectedSkill) return
+    const value = envValues[key] ?? ""
+    setEnvSaving((prev) => ({ ...prev, [key]: true }))
+    try {
+      await invoke("set_skill_env_var", { skill: selectedSkill.name, key, value })
+      // Re-fetch the masked value
+      const maskedEnv = await invoke<Record<string, string>>("get_skill_env", { name: selectedSkill.name })
+      setEnvValues(maskedEnv)
+      setEnvDirty((prev) => ({ ...prev, [key]: false }))
+      // Refresh env status
+      const status = await invoke<Record<string, Record<string, boolean>>>("get_skills_env_status")
+      setEnvStatus(status)
+    } catch (e) {
+      logger.error("settings", "SkillsPanel::saveEnv", "Failed to save env var", e)
+    } finally {
+      setEnvSaving((prev) => ({ ...prev, [key]: false }))
+    }
+  }
+
+  async function handleRemoveEnvVar(key: string) {
+    if (!selectedSkill) return
+    try {
+      await invoke("remove_skill_env_var", { skill: selectedSkill.name, key })
+      setEnvValues((prev) => {
+        const next = { ...prev }
+        delete next[key]
+        return next
+      })
+      setEnvDirty((prev) => ({ ...prev, [key]: false }))
+      // Refresh env status
+      const status = await invoke<Record<string, Record<string, boolean>>>("get_skills_env_status")
+      setEnvStatus(status)
+    } catch (e) {
+      logger.error("settings", "SkillsPanel::removeEnv", "Failed to remove env var", e)
+    }
+  }
+
+  /** Check if a skill has unconfigured required env vars */
+  function hasEnvWarning(skillName: string): boolean {
+    const status = envStatus[skillName]
+    if (!status) return false
+    return Object.values(status).some((v) => !v)
+  }
+
   // ── Skill Detail View ──────────────────────────────────────────
   if (selectedSkill) {
+    const requiresEnv = selectedSkill.requires?.env ?? []
+
     return (
       <div className="flex-1 flex flex-col min-h-0 overflow-y-auto p-6">
         <div className="max-w-4xl">
@@ -157,6 +232,85 @@ export default function SkillsPanel() {
               </button>
             </div>
           </div>
+
+          {/* Environment Variables Configuration */}
+          {requiresEnv.length > 0 && (
+            <div className="mb-4">
+              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
+                {t("settings.skillEnvVars")}
+              </h3>
+              <p className="text-xs text-muted-foreground mb-3">
+                {t("settings.skillEnvVarsDesc")}
+              </p>
+              <div className="space-y-2">
+                {requiresEnv.map((envKey) => {
+                  const currentValue = envValues[envKey] ?? ""
+                  const isDirty = envDirty[envKey] ?? false
+                  const isSaving = envSaving[envKey] ?? false
+                  const isConfigured = envStatus[selectedSkill.name]?.[envKey] ?? false
+
+                  return (
+                    <div key={envKey} className="flex items-center gap-2">
+                      {/* Status indicator */}
+                      <div
+                        className={cn(
+                          "h-2 w-2 rounded-full shrink-0",
+                          isConfigured ? "bg-green-500" : "bg-orange-400"
+                        )}
+                        title={isConfigured ? t("settings.skillEnvConfigured") : t("settings.skillEnvNotConfigured")}
+                      />
+                      {/* Label */}
+                      <code className="text-xs text-foreground/80 w-44 shrink-0 truncate" title={envKey}>
+                        {envKey}
+                      </code>
+                      {/* Input */}
+                      <Input
+                        type="password"
+                        className="h-7 text-xs flex-1 min-w-0"
+                        placeholder={t("settings.skillEnvPlaceholder", { key: envKey })}
+                        value={currentValue}
+                        onChange={(e) => {
+                          setEnvValues((prev) => ({ ...prev, [envKey]: e.target.value }))
+                          setEnvDirty((prev) => ({ ...prev, [envKey]: true }))
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && isDirty) handleSaveEnvVar(envKey)
+                        }}
+                      />
+                      {/* Save button */}
+                      <button
+                        className={cn(
+                          "shrink-0 p-1 rounded transition-colors",
+                          isDirty && !isSaving
+                            ? "text-primary hover:bg-primary/10"
+                            : "text-muted-foreground/30 cursor-default"
+                        )}
+                        onClick={() => isDirty && handleSaveEnvVar(envKey)}
+                        disabled={!isDirty || isSaving}
+                        title={t("settings.skillEnvSave")}
+                      >
+                        <Check className="h-3.5 w-3.5" />
+                      </button>
+                      {/* Clear button */}
+                      <button
+                        className={cn(
+                          "shrink-0 p-1 rounded transition-colors",
+                          currentValue
+                            ? "text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                            : "text-muted-foreground/30 cursor-default"
+                        )}
+                        onClick={() => currentValue && handleRemoveEnvVar(envKey)}
+                        disabled={!currentValue}
+                        title={t("settings.skillEnvClear")}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Files in skill directory */}
           {selectedSkill.files.length > 0 && (
@@ -295,52 +449,82 @@ export default function SkillsPanel() {
         </div>
       ) : (
         <div className="space-y-1">
-          {skills.map((skill) => (
-            <div
-              key={skill.name}
-              className={cn(
-                "flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm transition-colors group",
-                skill.enabled
-                  ? "text-foreground hover:bg-secondary/60"
-                  : "text-muted-foreground/50 hover:bg-secondary/40"
-              )}
-            >
-              {/* Toggle */}
-              <Switch
-                checked={skill.enabled}
-                onCheckedChange={(v) => handleToggleSkill(skill.name, v)}
-                onClick={(e) => e.stopPropagation()}
-              />
+          {skills.map((skill) => {
+            const showWarning = hasEnvWarning(skill.name)
+            const hasEnvConfig = skill.requires_env.length > 0
 
-              {/* Name + description (clickable → detail) */}
-              <button
-                className="flex-1 text-left min-w-0"
-                onClick={() => handleSelectSkill(skill.name)}
+            return (
+              <div
+                key={skill.name}
+                className={cn(
+                  "flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm transition-colors group",
+                  skill.enabled
+                    ? "text-foreground hover:bg-secondary/60"
+                    : "text-muted-foreground/50 hover:bg-secondary/40"
+                )}
               >
-                <div className={cn("font-medium truncate", !skill.enabled && "line-through")}>{skill.name}</div>
-                <div className="text-xs text-muted-foreground truncate">{skill.description}</div>
-              </button>
+                {/* Toggle */}
+                <Switch
+                  checked={skill.enabled}
+                  onCheckedChange={(v) => handleToggleSkill(skill.name, v)}
+                  onClick={(e) => e.stopPropagation()}
+                />
 
-              {/* Source tag */}
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-secondary text-muted-foreground font-medium shrink-0">
-                {skill.source}
-              </span>
+                {/* Name + description (clickable → detail) */}
+                <button
+                  className="flex-1 text-left min-w-0"
+                  onClick={() => handleSelectSkill(skill.name)}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span className={cn("font-medium truncate", !skill.enabled && "line-through")}>{skill.name}</span>
+                    {/* Warning icon for unconfigured env vars */}
+                    {showWarning && (
+                      <AlertTriangle
+                        className="h-3.5 w-3.5 text-orange-400 shrink-0"
+                        title={t("settings.skillEnvNotConfigured")}
+                      />
+                    )}
+                  </div>
+                  <div className="text-xs text-muted-foreground truncate">{skill.description}</div>
+                </button>
 
-              {/* Open directory */}
-              <button
-                className="shrink-0 text-muted-foreground/40 hover:text-muted-foreground transition-colors opacity-0 group-hover:opacity-100"
-                onClick={(e) => { e.stopPropagation(); handleOpenDir(skill.base_dir) }}
-                title={skill.base_dir}
-              >
-                <FolderOpen className="h-3.5 w-3.5" />
-              </button>
+                {/* Source tag */}
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-secondary text-muted-foreground font-medium shrink-0">
+                  {skill.source}
+                </span>
 
-              <ChevronRight
-                className="h-4 w-4 text-muted-foreground/30 shrink-0 group-hover:text-muted-foreground/60 transition-colors cursor-pointer"
-                onClick={() => handleSelectSkill(skill.name)}
-              />
-            </div>
-          ))}
+                {/* Settings button for skills with env requirements */}
+                {hasEnvConfig && (
+                  <button
+                    className={cn(
+                      "shrink-0 transition-colors",
+                      showWarning
+                        ? "text-orange-400 hover:text-orange-500"
+                        : "text-muted-foreground/40 hover:text-muted-foreground opacity-0 group-hover:opacity-100"
+                    )}
+                    onClick={(e) => { e.stopPropagation(); handleSelectSkill(skill.name) }}
+                    title={t("settings.skillEnvVars")}
+                  >
+                    <Settings2 className="h-3.5 w-3.5" />
+                  </button>
+                )}
+
+                {/* Open directory */}
+                <button
+                  className="shrink-0 text-muted-foreground/40 hover:text-muted-foreground transition-colors opacity-0 group-hover:opacity-100"
+                  onClick={(e) => { e.stopPropagation(); handleOpenDir(skill.base_dir) }}
+                  title={skill.base_dir}
+                >
+                  <FolderOpen className="h-3.5 w-3.5" />
+                </button>
+
+                <ChevronRight
+                  className="h-4 w-4 text-muted-foreground/30 shrink-0 group-hover:text-muted-foreground/60 transition-colors cursor-pointer"
+                  onClick={() => handleSelectSkill(skill.name)}
+                />
+              </div>
+            )
+          })}
         </div>
       )}
     </div>

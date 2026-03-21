@@ -165,7 +165,7 @@ pub fn build(definition: &AgentDefinition, model: Option<&str>, provider: Option
 pub fn build_legacy(model: Option<&str>, provider: Option<&str>) -> String {
     let store = crate::provider::load_store().unwrap_or_default();
     let available_skills = skills::load_all_skills_with_extra(&store.extra_skills_dirs);
-    let skills_section = skills::build_skills_prompt(&available_skills, &store.disabled_skills, store.skill_env_check);
+    let skills_section = skills::build_skills_prompt(&available_skills, &store.disabled_skills, store.skill_env_check, &store.skill_env);
 
     let mut sections = Vec::new();
 
@@ -243,7 +243,7 @@ fn build_skills_section(filter: &FilterConfig, env_check: bool) -> String {
         .filter(|s| filter.is_allowed(&s.name))
         .collect();
 
-    skills::build_skills_prompt(&filtered, &disabled, env_check)
+    skills::build_skills_prompt(&filtered, &disabled, env_check, &store.skill_env)
 }
 
 /// Build personality section from structured config.

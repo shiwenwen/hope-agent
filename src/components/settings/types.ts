@@ -29,6 +29,7 @@ export interface SkillSummary {
   source: string
   base_dir: string
   enabled: boolean
+  requires_env: string[]
 }
 
 export interface AgentSummary {

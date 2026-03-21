@@ -1,6 +1,7 @@
 mod agent;
 mod agent_config;
 mod agent_loader;
+mod memory;
 mod failover;
 mod file_extract;
 mod logging;
@@ -30,6 +31,7 @@ use logging::{LogDB, AppLogger};
 
 static APP_HANDLE: std::sync::OnceLock<tauri::AppHandle> = std::sync::OnceLock::new();
 static APP_LOGGER: std::sync::OnceLock<AppLogger> = std::sync::OnceLock::new();
+static MEMORY_BACKEND: std::sync::OnceLock<Arc<dyn memory::MemoryBackend>> = std::sync::OnceLock::new();
 
 /// Get stored AppLogger for global logging
 pub fn get_logger() -> Option<&'static AppLogger> {
@@ -39,6 +41,11 @@ pub fn get_logger() -> Option<&'static AppLogger> {
 /// Get stored AppHandle for global event emission (e.g., command approval)
 pub fn get_app_handle() -> Option<&'static tauri::AppHandle> {
     APP_HANDLE.get()
+}
+
+/// Get stored MemoryBackend for memory operations
+pub fn get_memory_backend() -> Option<&'static Arc<dyn memory::MemoryBackend>> {
+    MEMORY_BACKEND.get()
 }
 
 struct AppState {
@@ -1220,13 +1227,14 @@ async fn chat(
             }).to_string()),
             Some(sid.clone()), Some(current_agent_id.clone()));
 
-        let agent = match build_agent_for_model(model_ref, &state).await {
+        let mut agent = match build_agent_for_model(model_ref, &state).await {
             Some(a) => a,
             None => {
                 last_error = Some(format!("Cannot build agent for {}::{}", model_ref.provider_id, model_ref.model_id));
                 continue;
             }
         };
+        agent.set_agent_id(&current_agent_id);
 
         // Restore conversation history from DB for this session
         restore_agent_context(&db, &sid, &agent);
@@ -1515,12 +1523,14 @@ async fn get_skills(
         .into_iter()
         .map(|e| {
             let enabled = !disabled.contains(&e.name);
+            let requires_env = e.requires.env.clone();
             skills::SkillSummary {
                 name: e.name,
                 description: e.description,
                 source: e.source,
                 base_dir: e.base_dir,
                 enabled,
+                requires_env,
             }
         })
         .collect())
@@ -1603,6 +1613,82 @@ async fn set_skill_env_check(
     provider::save_store(&store).map_err(|e| e.to_string())
 }
 
+/// Get the configured env vars for a specific skill (values masked).
+#[tauri::command]
+async fn get_skill_env(
+    name: String,
+    state: State<'_, AppState>,
+) -> Result<std::collections::HashMap<String, String>, String> {
+    let store = state.provider_store.lock().await;
+    let env_map = store.skill_env.get(&name).cloned().unwrap_or_default();
+    Ok(env_map
+        .into_iter()
+        .map(|(k, v)| (k, skills::mask_value(&v)))
+        .collect())
+}
+
+/// Set a single env var for a skill. Skips masked placeholder values.
+#[tauri::command]
+async fn set_skill_env_var(
+    skill: String,
+    key: String,
+    value: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    // Don't overwrite real value with a masked placeholder
+    if skills::is_masked_value(&value) {
+        return Ok(());
+    }
+    let mut store = state.provider_store.lock().await;
+    store.skill_env.entry(skill).or_default().insert(key, value);
+    provider::save_store(&store).map_err(|e| e.to_string())
+}
+
+/// Remove a configured env var for a skill.
+#[tauri::command]
+async fn remove_skill_env_var(
+    skill: String,
+    key: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let mut store = state.provider_store.lock().await;
+    if let Some(map) = store.skill_env.get_mut(&skill) {
+        map.remove(&key);
+        if map.is_empty() {
+            store.skill_env.remove(&skill);
+        }
+    }
+    provider::save_store(&store).map_err(|e| e.to_string())
+}
+
+/// Batch-return env configuration status for all skills.
+/// Returns skill_name -> { env_var_name -> is_configured }.
+#[tauri::command]
+async fn get_skills_env_status(
+    state: State<'_, AppState>,
+) -> Result<std::collections::HashMap<String, std::collections::HashMap<String, bool>>, String> {
+    let store = state.provider_store.lock().await;
+    let entries = skills::load_all_skills_with_extra(&store.extra_skills_dirs);
+    let mut result = std::collections::HashMap::new();
+    for entry in &entries {
+        if entry.requires.env.is_empty() {
+            continue;
+        }
+        let configured = store.skill_env.get(&entry.name);
+        let mut status = std::collections::HashMap::new();
+        for key in &entry.requires.env {
+            let has_configured = configured
+                .and_then(|m| m.get(key))
+                .map(|v| !v.is_empty())
+                .unwrap_or(false);
+            let has_system = std::env::var(key).map(|v| !v.is_empty()).unwrap_or(false);
+            status.insert(key.clone(), has_configured || has_system);
+        }
+        result.insert(entry.name.clone(), status);
+    }
+    Ok(result)
+}
+
 #[tauri::command]
 async fn open_directory(path: String) -> Result<(), String> {
     // Resolve ~ to home directory
@@ -1655,6 +1741,91 @@ async fn delete_agent(id: String) -> Result<(), String> {
 async fn get_agent_template(name: String, locale: String) -> Result<String, String> {
     agent_loader::get_template(&name, &locale)
         .ok_or_else(|| format!("Template not found: {}", name))
+}
+
+// ── Memory Commands ──────────────────────────────────────────────
+
+#[tauri::command]
+async fn memory_add(entry: memory::NewMemory) -> Result<i64, String> {
+    let backend = get_memory_backend().ok_or("Memory backend not initialized")?;
+    backend.add(entry).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn memory_update(id: i64, content: String, tags: Vec<String>) -> Result<(), String> {
+    let backend = get_memory_backend().ok_or("Memory backend not initialized")?;
+    backend.update(id, &content, &tags).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn memory_delete(id: i64) -> Result<(), String> {
+    let backend = get_memory_backend().ok_or("Memory backend not initialized")?;
+    backend.delete(id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn memory_get(id: i64) -> Result<Option<memory::MemoryEntry>, String> {
+    let backend = get_memory_backend().ok_or("Memory backend not initialized")?;
+    backend.get(id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn memory_list(
+    scope: Option<memory::MemoryScope>,
+    types: Option<Vec<memory::MemoryType>>,
+    limit: Option<usize>,
+    offset: Option<usize>,
+) -> Result<Vec<memory::MemoryEntry>, String> {
+    let backend = get_memory_backend().ok_or("Memory backend not initialized")?;
+    backend
+        .list(
+            scope.as_ref(),
+            types.as_deref(),
+            limit.unwrap_or(50),
+            offset.unwrap_or(0),
+        )
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn memory_search(query: memory::MemorySearchQuery) -> Result<Vec<memory::MemoryEntry>, String> {
+    let backend = get_memory_backend().ok_or("Memory backend not initialized")?;
+    backend.search(&query).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn memory_count(scope: Option<memory::MemoryScope>) -> Result<usize, String> {
+    let backend = get_memory_backend().ok_or("Memory backend not initialized")?;
+    backend.count(scope.as_ref()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn memory_export(scope: Option<memory::MemoryScope>) -> Result<String, String> {
+    let backend = get_memory_backend().ok_or("Memory backend not initialized")?;
+    backend.export_markdown(scope.as_ref()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_embedding_config() -> Result<memory::EmbeddingConfig, String> {
+    let store = provider::load_store().map_err(|e| e.to_string())?;
+    Ok(store.embedding)
+}
+
+#[tauri::command]
+async fn save_embedding_config(config: memory::EmbeddingConfig) -> Result<(), String> {
+    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    store.embedding = config;
+    provider::save_store(&store).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_embedding_presets() -> Result<Vec<memory::EmbeddingPreset>, String> {
+    Ok(memory::embedding_presets())
+}
+
+#[tauri::command]
+async fn list_local_embedding_models() -> Result<Vec<memory::LocalEmbeddingModel>, String> {
+    Ok(memory::list_local_models_with_status())
 }
 
 // ── User Config Commands ─────────────────────────────────────────
@@ -1964,6 +2135,13 @@ pub fn run() {
             // Store logger globally for access from non-State contexts
             let _ = APP_LOGGER.set(logger.clone());
 
+            // Initialize the MemoryDB
+            let memory_db_path = paths::memory_db_path().expect("Failed to resolve memory database path");
+            let memory_backend: Arc<dyn memory::MemoryBackend> = Arc::new(
+                memory::SqliteMemoryBackend::open(&memory_db_path).expect("Failed to open memory database")
+            );
+            let _ = MEMORY_BACKEND.set(memory_backend);
+
             // Log system startup
             logger.log("info", "system", "lib::run", "OpenComputer started", None, None, None);
 
@@ -2024,6 +2202,10 @@ pub fn run() {
             toggle_skill,
             get_skill_env_check,
             set_skill_env_check,
+            get_skill_env,
+            set_skill_env_var,
+            remove_skill_env_var,
+            get_skills_env_status,
             open_directory,
             // Agent management
             list_agents,
@@ -2033,6 +2215,19 @@ pub fn run() {
             save_agent_markdown,
             delete_agent,
             get_agent_template,
+            // Memory management
+            memory_add,
+            memory_update,
+            memory_delete,
+            memory_get,
+            memory_list,
+            memory_search,
+            memory_count,
+            memory_export,
+            get_embedding_config,
+            save_embedding_config,
+            get_embedding_presets,
+            list_local_embedding_models,
             // User config
             get_user_config,
             save_user_config,
