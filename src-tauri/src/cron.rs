@@ -889,6 +889,10 @@ async fn execute_job(
         Ok(response) => {
             log::info!("[cron] Job '{}' completed successfully ({}ms)", job.name, duration_ms);
 
+            // Save user prompt and assistant response into the session
+            let _ = session_db.append_message(&session_id, &crate::session::NewMessage::user(&message));
+            let _ = session_db.append_message(&session_id, &crate::session::NewMessage::assistant(&response));
+
             // Record success run log
             let preview = if response.len() > 500 {
                 Some(response[..500].to_string())

@@ -13,6 +13,7 @@ export default function App() {
   >("loading")
   const [agentIdForSettings, setAgentIdForSettings] = useState<string | undefined>(undefined)
   const [userAvatar, setUserAvatar] = useState<string | null>(null)
+  const [pendingSessionId, setPendingSessionId] = useState<string | undefined>(undefined)
 
   // Load user avatar
   async function fetchUserAvatar() {
@@ -140,9 +141,9 @@ export default function App() {
           initialAgentId={agentIdForSettings}
         />
       ) : view === "calendar" ? (
-        <CronCalendarView onBack={() => setView("chat")} />
+        <CronCalendarView onBack={() => setView("chat")} onNavigateToSession={(sessionId) => { setPendingSessionId(sessionId); setView("chat") }} />
       ) : (
-        <ChatScreen onOpenAgentSettings={(agentId) => { setAgentIdForSettings(agentId); setView("agents") }} onCodexReauth={handleCodexAuth} />
+        <ChatScreen onOpenAgentSettings={(agentId) => { setAgentIdForSettings(agentId); setView("agents") }} onCodexReauth={handleCodexAuth} initialSessionId={pendingSessionId} onSessionNavigated={() => setPendingSessionId(undefined)} />
       )}
     </div>
   )

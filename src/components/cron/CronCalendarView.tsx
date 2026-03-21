@@ -11,9 +11,10 @@ import { statusColor } from "./CronJobForm"
 
 interface CronCalendarViewProps {
   onBack: () => void
+  onNavigateToSession?: (sessionId: string) => void
 }
 
-export default function CronCalendarView({ onBack }: CronCalendarViewProps) {
+export default function CronCalendarView({ onBack, onNavigateToSession }: CronCalendarViewProps) {
   const { t } = useTranslation()
   const [currentDate, setCurrentDate] = useState(new Date())
   const [events, setEvents] = useState<CalendarEvent[]>([])
@@ -137,6 +138,7 @@ export default function CronCalendarView({ onBack }: CronCalendarViewProps) {
           onBack={() => setDetailJobId(null)}
           onEdit={handleEditJob}
           onRefresh={fetchEvents}
+          onViewSession={onNavigateToSession}
         />
         {showForm && (
           <CronJobForm
@@ -267,7 +269,7 @@ export default function CronCalendarView({ onBack }: CronCalendarViewProps) {
                         </div>
                         {runStatus && (
                           <div className={`text-[10px] mt-1 ${runStatus === "success" ? "text-emerald-500" : "text-red-500"}`}>
-                            {runStatus === "success" ? "✓ " : "✕ "}{runStatus}
+                            {runStatus === "success" ? "✓ " : "✕ "}{runStatus === "success" ? t("cron.runStatusSuccess") : t("cron.runStatusError")}
                             {evt.runLog?.durationMs ? ` (${(evt.runLog.durationMs / 1000).toFixed(1)}s)` : ""}
                           </div>
                         )}

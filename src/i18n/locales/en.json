@@ -501,6 +501,8 @@
     "noJobs": "No scheduled tasks yet",
     "noResults": "No matching tasks",
     "noRuns": "No run history yet",
+    "runStatusSuccess": "Success",
+    "runStatusError": "Error",
     "noTasksThisDay": "No tasks on this day",
     "tasks": "tasks",
     "today": "Today",

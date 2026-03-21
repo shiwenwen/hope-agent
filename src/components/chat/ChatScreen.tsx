@@ -82,6 +82,10 @@ function formatTokens(n: number): string {
 interface ChatScreenProps {
   onOpenAgentSettings?: (agentId: string) => void
   onCodexReauth?: () => void
+  /** Navigate to a specific session (e.g. from cron run history) */
+  initialSessionId?: string
+  /** Called after the initial session navigation completes */
+  onSessionNavigated?: () => void
 }
 
 /** Format message timestamp to HH:mm */
@@ -176,7 +180,7 @@ function parseSessionMessages(msgs: SessionMessage[]): Message[] {
 }
 
 
-export default function ChatScreen({ onOpenAgentSettings, onCodexReauth }: ChatScreenProps) {
+export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initialSessionId, onSessionNavigated }: ChatScreenProps) {
   const { t } = useTranslation()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
@@ -424,6 +428,17 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth }: ChatS
     reloadSessions()
     reloadAgents()
   }, [reloadSessions, reloadAgents])
+
+  // Navigate to a specific session when initialSessionId changes (e.g. from cron run history)
+  useEffect(() => {
+    if (!initialSessionId) return
+    ;(async () => {
+      // Ensure session list is fresh so handleSwitchSession can find it
+      await reloadSessions()
+      await handleSwitchSession(initialSessionId)
+      onSessionNavigated?.()
+    })()
+  }, [initialSessionId])
 
   /** Update messages for a specific session. If it's the current session, also update state. */
   function updateSessionMessages(sessionId: string, updater: (prev: Message[]) => Message[]) {

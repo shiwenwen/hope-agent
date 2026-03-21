@@ -501,6 +501,8 @@
     "noJobs": "暂无定时任务",
     "noResults": "没有匹配的任务",
     "noRuns": "暂无运行记录",
+    "runStatusSuccess": "成功",
+    "runStatusError": "失败",
     "noTasksThisDay": "当天没有任务",
     "tasks": "个任务",
     "today": "今天",
