@@ -475,6 +475,8 @@ pub struct AssistantAgent {
     compact_config: crate::context_compact::CompactConfig,
     /// Token estimate calibrator (updated with actual API usage)
     token_calibrator: std::sync::Mutex<crate::context_compact::TokenEstimateCalibrator>,
+    /// Whether this agent can use the send_notification tool
+    notification_enabled: bool,
 }
 
 // ── Shared Event Types (sent to frontend via on_delta JSON) ───────
@@ -879,6 +881,7 @@ impl AssistantAgent {
             context_window: 200_000,
             compact_config: crate::context_compact::CompactConfig::default(),
             token_calibrator: std::sync::Mutex::new(crate::context_compact::TokenEstimateCalibrator::new()),
+            notification_enabled: false,
         }
     }
 
@@ -898,6 +901,7 @@ impl AssistantAgent {
             context_window: 200_000,
             compact_config: crate::context_compact::CompactConfig::default(),
             token_calibrator: std::sync::Mutex::new(crate::context_compact::TokenEstimateCalibrator::new()),
+            notification_enabled: false,
         }
     }
 
@@ -941,6 +945,7 @@ impl AssistantAgent {
             context_window,
             compact_config: crate::context_compact::CompactConfig::default(),
             token_calibrator: std::sync::Mutex::new(crate::context_compact::TokenEstimateCalibrator::new()),
+            notification_enabled: false,
         }
     }
 
@@ -954,9 +959,17 @@ impl AssistantAgent {
         self.extra_system_context = Some(context);
     }
 
+    /// Enable or disable the send_notification tool for this agent.
+    pub fn set_notification_enabled(&mut self, enabled: bool) {
+        self.notification_enabled = enabled;
+    }
+
     /// Build the full system prompt, including any extra context.
     fn build_full_system_prompt(&self, model: &str, provider: &str) -> String {
         let mut prompt = build_system_prompt(&self.agent_id, model, provider);
+        if self.notification_enabled {
+            prompt.push_str("\n\n- **send_notification**: Send a native desktop notification to alert the user about important events, task completions, or findings that need their attention. Parameters: title (optional), body (required).");
+        }
         if let Some(extra) = &self.extra_system_context {
             prompt.push_str("\n\n");
             prompt.push_str(extra);
@@ -1328,7 +1341,10 @@ impl AssistantAgent {
             .user_agent(&self.user_agent)
             .build()
             .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
-        let tool_schemas = tools::get_tools_for_provider(ToolProvider::Anthropic);
+        let mut tool_schemas = tools::get_tools_for_provider(ToolProvider::Anthropic);
+        if self.notification_enabled {
+            tool_schemas.push(tools::get_notification_tool().to_provider_schema(ToolProvider::Anthropic));
+        }
 
         // Build messages from conversation history + new user message (with optional image attachments)
         let mut messages = self.conversation_history.lock().unwrap().clone();
@@ -1731,7 +1747,10 @@ impl AssistantAgent {
             .user_agent(&self.user_agent)
             .build()
             .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
-        let tool_schemas = tools::get_tools_for_provider(ToolProvider::OpenAI);
+        let mut tool_schemas = tools::get_tools_for_provider(ToolProvider::OpenAI);
+        if self.notification_enabled {
+            tool_schemas.push(tools::get_notification_tool().to_provider_schema(ToolProvider::OpenAI));
+        }
 
         let mut messages = self.conversation_history.lock().unwrap().clone();
         let user_content = build_user_content_openai_chat(message, attachments);
@@ -2109,7 +2128,10 @@ impl AssistantAgent {
             .user_agent(&self.user_agent)
             .build()
             .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
-        let tool_schemas = tools::get_tools_for_provider(ToolProvider::OpenAI);
+        let mut tool_schemas = tools::get_tools_for_provider(ToolProvider::OpenAI);
+        if self.notification_enabled {
+            tool_schemas.push(tools::get_notification_tool().to_provider_schema(ToolProvider::OpenAI));
+        }
 
         let reasoning = reasoning_effort
             .and_then(|e| clamp_reasoning_effort(model, e))
@@ -2303,7 +2325,10 @@ impl AssistantAgent {
 
     async fn chat_openai(&self, access_token: &str, account_id: &str, model: &str, message: &str, attachments: &[Attachment], reasoning_effort: Option<&str>, cancel: &Arc<AtomicBool>, on_delta: &(impl Fn(&str) + Send)) -> Result<String> {
         let client = reqwest::Client::new();
-        let tool_schemas = tools::get_tools_for_provider(ToolProvider::OpenAI);
+        let mut tool_schemas = tools::get_tools_for_provider(ToolProvider::OpenAI);
+        if self.notification_enabled {
+            tool_schemas.push(tools::get_notification_tool().to_provider_schema(ToolProvider::OpenAI));
+        }
 
         // Build reasoning config with clamping
         let reasoning = reasoning_effort

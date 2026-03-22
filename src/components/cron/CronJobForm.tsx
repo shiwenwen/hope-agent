@@ -11,6 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
 import { X, Code2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -44,6 +45,7 @@ export interface CronJob {
   maxFailures: number
   createdAt: string
   updatedAt: string
+  notifyOnComplete: boolean
 }
 
 export interface CronRunLog {
@@ -229,6 +231,7 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
   const [message, setMessage] = useState(job?.payload.prompt ?? "")
   const [agentId, setAgentId] = useState(job?.payload.agentId ?? "default")
   const [maxFailures, setMaxFailures] = useState(String(job?.maxFailures ?? 5))
+  const [notifyOnComplete, setNotifyOnComplete] = useState(job?.notifyOnComplete ?? true)
   const [agents, setAgents] = useState<AgentInfo[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
@@ -262,6 +265,7 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
           schedule,
           payload: { type: "agentTurn", prompt: message.trim(), agentId: agentId || null },
           maxFailures: parseInt(maxFailures) || 5,
+          notifyOnComplete,
         }
         await invoke("cron_update_job", { job: updated })
       } else {
@@ -273,6 +277,7 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
             schedule,
             payload: { type: "agentTurn", prompt: message.trim(), agentId: agentId || null },
             maxFailures: parseInt(maxFailures) || 5,
+            notifyOnComplete,
           },
         })
       }
@@ -626,6 +631,15 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
               value={maxFailures}
               onChange={(e) => setMaxFailures(e.target.value)}
             />
+          </div>
+
+          {/* Notify on complete */}
+          <div className="flex items-center justify-between">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground block">{t("notification.cronNotify")}</label>
+              <p className="text-xs text-muted-foreground/70 mt-0.5">{t("notification.cronNotifyDesc")}</p>
+            </div>
+            <Switch checked={notifyOnComplete} onCheckedChange={setNotifyOnComplete} />
           </div>
 
           {/* Error */}

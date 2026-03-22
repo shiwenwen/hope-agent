@@ -97,6 +97,7 @@ export interface AgentSummaryForSidebar {
   description?: string | null
   emoji?: string | null
   avatar?: string | null
+  notifyOnComplete?: boolean | null
 }
 
 export function getEffortOptionsForType(apiType: string | undefined, t: (key: string) => string) {

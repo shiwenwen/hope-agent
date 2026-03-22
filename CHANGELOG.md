@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **系统消息通知功能**：macOS 原生桌面通知，支持三级粒度控制
+  - 全局通知开关（默认开启），通过 `tauri-plugin-notification` 实现原生通知
+  - 按 Agent 级别通知覆盖配置（默认/开启/关闭）
+  - 按定时任务级别通知开关，在定时任务创建/编辑表单中配置
+  - 非当前会话的模型回复完成或异常时发送通知
+  - 定时任务执行成功/失败后发送通知
+  - Agent 可自主调用 `send_notification` 工具发送通知（仅在通知开启时注入）
+  - 通知设置面板（设置 → 通知），支持全局开关 + 按 Agent 独立配置
 - **自愈式自动重启系统**：Guardian Process 架构实现全类型崩溃检测与自动恢复
   - Guardian/Child 双模式进程架构：同一二进制通过 `OPENCOMPUTER_CHILD` 环境变量区分模式，Guardian 作为父进程监控子进程退出码
   - 捕获所有崩溃类型：Rust panic、segfault（SIGSEGV）、OOM kill（SIGKILL）、abort（SIGABRT）等

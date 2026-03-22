@@ -1400,10 +1400,20 @@ async fn chat(
         }
     }
 
-    // Resolve model chain from current agent config
-    let agent_model_config = agent_loader::load_agent(&current_agent_id)
-        .map(|def| def.config.model)
+    // Resolve model chain and notification config from current agent config
+    let agent_def = agent_loader::load_agent(&current_agent_id).ok();
+    let agent_model_config = agent_def.as_ref()
+        .map(|def| def.config.model.clone())
         .unwrap_or_default();
+    let agent_notify_on_complete = agent_def.as_ref()
+        .and_then(|def| def.config.notify_on_complete);
+
+    // Determine if notification tool should be available for this agent
+    let notification_enabled = {
+        let store = state.provider_store.lock().await;
+        let global_enabled = store.notification.enabled;
+        global_enabled && agent_notify_on_complete != Some(false)
+    };
 
     let (primary, fallbacks) = {
         let store = state.provider_store.lock().await;
@@ -1538,6 +1548,7 @@ async fn chat(
             }
         };
         agent.set_agent_id(&current_agent_id);
+        agent.set_notification_enabled(notification_enabled);
 
         // Restore conversation history from DB for this session
         restore_agent_context(&db, &sid, &agent);

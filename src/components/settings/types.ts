@@ -1,4 +1,4 @@
-export type SettingsSection = "general" | "modelConfig" | "tools" | "skills" | "agents" | "memory" | "cron" | "permissions" | "profile" | "chat" | "logs" | "health" | "about"
+export type SettingsSection = "general" | "modelConfig" | "tools" | "skills" | "agents" | "memory" | "cron" | "notifications" | "permissions" | "profile" | "chat" | "logs" | "health" | "about"
 
 export interface SettingsSectionItem {
   id: SettingsSection
@@ -65,6 +65,7 @@ export interface AgentConfig {
   personality: PersonalityConfig
   behavior: { maxToolRounds: number; requireApproval: string[]; sandbox: boolean; skillEnvCheck: boolean }
   useCustomPrompt: boolean
+  notifyOnComplete?: boolean | null
 }
 
 // ── Log Types ────────────────────────────────────────────────────

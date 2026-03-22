@@ -17,6 +17,7 @@ import {
   Shield,
   User,
   Wrench,
+  Bell,
 } from "lucide-react"
 import type { ProviderConfig } from "@/components/settings/ProviderSettings"
 import ProviderSetup from "@/components/settings/ProviderSetup"
@@ -34,6 +35,7 @@ import MemoryPanel from "@/components/settings/MemoryPanel"
 import CronPanel from "@/components/settings/CronPanel"
 import PermissionsPanel from "@/components/settings/PermissionsPanel"
 import CrashHistoryPanel from "@/components/settings/CrashHistoryPanel"
+import NotificationPanel from "@/components/settings/NotificationPanel"
 import type { SettingsSection, SettingsSectionItem } from "./types"
 
 const SECTIONS: SettingsSectionItem[] = [
@@ -71,6 +73,11 @@ const SECTIONS: SettingsSectionItem[] = [
     id: "cron",
     icon: <Clock className="h-4 w-4" />,
     labelKey: "settings.cron",
+  },
+  {
+    id: "notifications",
+    icon: <Bell className="h-4 w-4" />,
+    labelKey: "settings.notifications",
   },
   {
     id: "chat",
@@ -215,6 +222,7 @@ export default function SettingsView({
           {activeSection === "profile" && <UserProfilePanel onSaved={onProfileSaved} />}
           {activeSection === "memory" && <MemoryPanel />}
           {activeSection === "cron" && <CronPanel />}
+          {activeSection === "notifications" && <NotificationPanel />}
           {activeSection === "tools" && <ToolSettingsPanel />}
           {activeSection === "permissions" && <PermissionsPanel />}
           {activeSection === "chat" && <ChatSettingsPanel />}

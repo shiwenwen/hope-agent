@@ -235,6 +235,7 @@
     "memoryScopeAll": "All",
     "memorySelectAgent": "Select agent...",
     "cron": "Scheduled Tasks",
+    "notifications": "Notifications",
     "webSearch": "Web Search",
     "webSearchDesc": "Drag to reorder search providers. The first enabled provider will be used. Providers requiring an API key must have credentials configured before enabling.",
     "webSearchProviderDDG": "DuckDuckGo",
@@ -702,6 +703,23 @@
     "weekFri": "Fri",
     "weekSat": "Sat",
     "weekSun": "Sun"
+  },
+  "notification": {
+    "title": "Notification Settings",
+    "globalToggle": "Enable notifications",
+    "globalDesc": "Receive native desktop notifications for background events",
+    "agentSection": "Agent Notifications",
+    "agentDesc": "Per-agent notification overrides. When set to Default, uses the global setting.",
+    "default": "Default",
+    "on": "On",
+    "off": "Off",
+    "cronNote": "Cron task notifications can be configured per-job in the Scheduled Tasks settings panel.",
+    "chatCompleted": "Chat completed",
+    "chatError": "Chat error",
+    "cronSuccess": "Scheduled task completed",
+    "cronError": "Scheduled task failed",
+    "cronNotify": "Notify on complete",
+    "cronNotifyDesc": "Send a desktop notification when this task finishes"
   },
   "about": {
     "title": "About",

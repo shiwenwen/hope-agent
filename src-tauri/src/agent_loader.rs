@@ -265,6 +265,7 @@ pub fn list_agents() -> Result<Vec<AgentSummary>> {
             has_persona: path.join(PERSONA_MD).exists(),
             has_tools_guide: path.join(TOOLS_MD).exists(),
             memory_count,
+            notify_on_complete: config.notify_on_complete,
         });
     }
 

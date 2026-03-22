@@ -90,6 +90,13 @@ pub struct CronJob {
     pub max_failures: u32,
     pub created_at: String,
     pub updated_at: String,
+    /// Whether to send a desktop notification when this job completes.
+    #[serde(default = "default_true")]
+    pub notify_on_complete: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// A single run log entry.
@@ -116,6 +123,7 @@ pub struct NewCronJob {
     pub schedule: CronSchedule,
     pub payload: CronPayload,
     pub max_failures: Option<u32>,
+    pub notify_on_complete: Option<bool>,
 }
 
 /// Calendar event for the calendar view.
@@ -240,6 +248,16 @@ impl CronDB {
             )?;
         }
 
+        // Migration: add notify_on_complete column if missing (for existing DBs)
+        let has_notify: bool = conn
+            .prepare("SELECT notify_on_complete FROM cron_jobs LIMIT 0")
+            .is_ok();
+        if !has_notify {
+            conn.execute_batch(
+                "ALTER TABLE cron_jobs ADD COLUMN notify_on_complete INTEGER NOT NULL DEFAULT 1;",
+            )?;
+        }
+
         Ok(Self {
             conn: Mutex::new(conn),
         })
@@ -264,11 +282,13 @@ impl CronDB {
         let next_run = compute_next_run(&input.schedule, &Utc::now())
             .map(|dt| dt.to_rfc3339());
 
+        let notify = input.notify_on_complete.unwrap_or(true);
+
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO cron_jobs (id, name, description, schedule_json, payload_json, status, next_run_at, max_failures, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, 'active', ?6, ?7, ?8, ?8)",
-            params![id, input.name, input.description, schedule_json, payload_json, next_run, max_failures, now],
+            "INSERT INTO cron_jobs (id, name, description, schedule_json, payload_json, status, next_run_at, max_failures, notify_on_complete, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, 'active', ?6, ?7, ?8, ?9, ?9)",
+            params![id, input.name, input.description, schedule_json, payload_json, next_run, max_failures, notify as i32, now],
         )?;
 
         Ok(CronJob {
@@ -285,6 +305,7 @@ impl CronDB {
             max_failures,
             created_at: now.clone(),
             updated_at: now,
+            notify_on_complete: notify,
         })
     }
 
@@ -308,11 +329,11 @@ impl CronDB {
 
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "UPDATE cron_jobs SET name=?1, description=?2, schedule_json=?3, payload_json=?4, status=?5, next_run_at=?6, max_failures=?7, updated_at=?8
-             WHERE id=?9",
+            "UPDATE cron_jobs SET name=?1, description=?2, schedule_json=?3, payload_json=?4, status=?5, next_run_at=?6, max_failures=?7, notify_on_complete=?8, updated_at=?9
+             WHERE id=?10",
             params![
                 job.name, job.description, schedule_json, payload_json,
-                job.status.as_str(), next_run, job.max_failures, now, job.id
+                job.status.as_str(), next_run, job.max_failures, job.notify_on_complete as i32, now, job.id
             ],
         )?;
         Ok(())
@@ -329,7 +350,7 @@ impl CronDB {
     pub fn get_job(&self, id: &str) -> Result<Option<CronJob>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at
+            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete
              FROM cron_jobs WHERE id=?1"
         )?;
         let mut rows = stmt.query(params![id])?;
@@ -344,7 +365,7 @@ impl CronDB {
     pub fn list_jobs(&self) -> Result<Vec<CronJob>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at
+            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete
              FROM cron_jobs ORDER BY created_at DESC"
         )?;
         let rows = stmt.query_map([], |row| {
@@ -362,7 +383,7 @@ impl CronDB {
         let now_str = now.to_rfc3339();
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at
+            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete
              FROM cron_jobs WHERE status='active' AND running_at IS NULL AND next_run_at IS NOT NULL AND next_run_at <= ?1"
         )?;
         let rows = stmt.query_map(params![now_str], |row| {
@@ -734,6 +755,7 @@ fn row_to_cron_job(row: &rusqlite::Row) -> Result<CronJob> {
         max_failures: row.get(10)?,
         created_at: row.get(11)?,
         updated_at: row.get(12)?,
+        notify_on_complete: row.get::<_, i32>(13).unwrap_or(1) != 0,
     })
 }
 
@@ -915,7 +937,7 @@ async fn execute_job(
             let _ = cron_db.clear_running(&job.id);
 
             // Emit Tauri event
-            emit_cron_event(&job.id, "success");
+            emit_cron_event(&job.id, &job.name, "success", job.notify_on_complete);
         }
         Err(e) => {
             app_error!("cron", "executor", "Job '{}' failed: {}", job.name, e);
@@ -1068,16 +1090,18 @@ fn record_failure(
     let _ = cron_db.clear_running(&job.id);
 
     // Emit Tauri event
-    emit_cron_event(&job.id, "error");
+    emit_cron_event(&job.id, &job.name, "error", job.notify_on_complete);
 }
 
 /// Emit a Tauri event to notify the frontend of a cron run result.
-fn emit_cron_event(job_id: &str, status: &str) {
+fn emit_cron_event(job_id: &str, job_name: &str, status: &str, notify: bool) {
     if let Some(handle) = crate::get_app_handle() {
         use tauri::Emitter;
         let payload = serde_json::json!({
             "job_id": job_id,
+            "job_name": job_name,
             "status": status,
+            "notify": notify,
         });
         let _ = handle.emit("cron:run_completed", payload);
     }

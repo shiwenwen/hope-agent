@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { logger } from "@/lib/logger"
+import { notify, loadNotificationConfig, isAgentNotifyEnabled } from "@/lib/notifications"
 import { Settings, Copy, Check, Info, BarChart3, AlertCircle } from "lucide-react"
 import type {
   Message,
@@ -206,6 +207,8 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
     invoke<{ autoSendPending?: boolean }>("get_user_config").then((cfg) => {
       autoSendPendingRef.current = cfg.autoSendPending !== false
     }).catch(() => { })
+    // Load notification config for desktop notification support
+    loadNotificationConfig().catch(() => { })
   }, [])
 
   // Auto-send flag: when set, triggers handleSend after input state is flushed
@@ -450,18 +453,39 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
     reloadAgents()
   }, [reloadSessions, reloadAgents])
 
-  // Listen for cron job completions to refresh unread counts
+  // Listen for cron job completions to refresh unread counts + send notification
   useEffect(() => {
     let unlisten: UnlistenFn | undefined
-    listen("cron:run_completed", () => {
+    listen("cron:run_completed", (event) => {
       reloadSessions()
+      const payload = event.payload as { job_id: string; job_name: string; status: string; notify: boolean }
+      if (payload.notify && payload.job_name) {
+        const title = payload.status === "success"
+          ? t("notification.cronSuccess")
+          : t("notification.cronError")
+        notify(title, payload.job_name)
+      }
     }).then((fn) => {
       unlisten = fn
     })
     return () => {
       unlisten?.()
     }
-  }, [reloadSessions])
+  }, [reloadSessions, t])
+
+  // Listen for agent-initiated notification events
+  useEffect(() => {
+    let unlisten: UnlistenFn | undefined
+    listen("agent:send_notification", (event) => {
+      const { title, body } = event.payload as { title: string; body: string }
+      notify(title || "OpenComputer", body)
+    }).then((fn) => {
+      unlisten = fn
+    })
+    return () => {
+      unlisten?.()
+    }
+  }, [])
 
   // Compute total unread count and notify parent
   const totalUnreadCount = useMemo(
@@ -956,6 +980,14 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
         updated.push({ role: "event", content: `${e}` })
         return updated
       })
+      // Notify on error for non-current sessions
+      if (targetSessionId && currentSessionIdRef.current !== targetSessionId) {
+        const agent = agents.find(a => a.id === currentAgentId)
+        if (isAgentNotifyEnabled(agent?.notifyOnComplete)) {
+          const sessionTitle = sessions.find(s => s.id === targetSessionId)?.title || t("notification.chatError")
+          notify(t("notification.chatError"), sessionTitle)
+        }
+      }
     } finally {
       const sid = targetSessionId || "__pending__"
       // Clean up empty assistant message if chat was stopped before any response arrived
@@ -977,6 +1009,14 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
       setLoadingSessionIds(new Set(loadingSessionsRef.current))
       if (currentSessionIdRef.current === sid) {
         setLoading(false)
+      }
+      // Notify on completion for non-current sessions
+      if (targetSessionId && currentSessionIdRef.current !== targetSessionId) {
+        const agent = agents.find(a => a.id === currentAgentId)
+        if (isAgentNotifyEnabled(agent?.notifyOnComplete)) {
+          const sessionTitle = sessions.find(s => s.id === targetSessionId)?.title || agentName
+          notify(t("notification.chatCompleted"), sessionTitle)
+        }
       }
       // Mark current session as read so unread count stays 0 for active session
       if (targetSessionId) {

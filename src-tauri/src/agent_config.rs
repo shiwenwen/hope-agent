@@ -51,6 +51,14 @@ pub struct AgentConfig {
     /// If true, use custom markdown prompts instead of structured config
     #[serde(default)]
     pub use_custom_prompt: bool,
+
+    /// Per-agent notification override. None = use global setting.
+    #[serde(default)]
+    pub notify_on_complete: Option<bool>,
+
+    /// Sub-agent delegation settings
+    #[serde(default)]
+    pub subagents: SubagentConfig,
 }
 
 fn default_name() -> String {
@@ -71,6 +79,8 @@ impl Default for AgentConfig {
             behavior: BehaviorConfig::default(),
             memory: MemoryConfig::default(),
             use_custom_prompt: false,
+            notify_on_complete: None,
+            subagents: SubagentConfig::default(),
         }
     }
 }
@@ -281,4 +291,5 @@ pub struct AgentSummary {
     pub has_persona: bool,
     pub has_tools_guide: bool,
     pub memory_count: usize,
+    pub notify_on_complete: Option<bool>,
 }

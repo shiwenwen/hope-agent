@@ -11,6 +11,7 @@ mod find;
 mod grep;
 mod ls;
 mod memory;
+mod notification;
 mod process;
 mod read;
 pub(crate) mod web_fetch;
@@ -698,6 +699,29 @@ pub fn get_tools_for_provider(provider: ToolProvider) -> Vec<Value> {
         .collect()
 }
 
+/// Returns the notification tool definition (conditionally injected).
+pub fn get_notification_tool() -> ToolDefinition {
+    ToolDefinition {
+        name: "send_notification".into(),
+        description: "Send a native desktop notification to the user. Use this to proactively alert the user about important events, task completions, or findings that need their attention.".into(),
+        parameters: json!({
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Notification title (short, descriptive)"
+                },
+                "body": {
+                    "type": "string",
+                    "description": "Notification body text with details"
+                }
+            },
+            "required": ["body"],
+            "additionalProperties": false
+        }),
+    }
+}
+
 // ── Tool Execution Context ────────────────────────────────────────
 
 /// Context passed to tool execution for dynamic behavior
@@ -771,6 +795,7 @@ pub async fn execute_tool_with_context(
         "delete_memory" => memory::tool_delete_memory(args).await,
         "manage_cron" => cron::tool_manage_cron(args).await,
         "browser" => browser::tool_browser(args).await,
+        "send_notification" => notification::tool_send_notification(args, ctx).await,
         _ => Err(anyhow::anyhow!("Unknown tool: {}", name)),
     };
 

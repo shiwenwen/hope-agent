@@ -193,6 +193,23 @@ pub struct ActiveModel {
 
 // ── Serializable Store ────────────────────────────────────────────
 
+// ── Notification Config ─────────────────────────────────────────
+
+/// Global notification configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationConfig {
+    /// Global on/off toggle (default: true)
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+impl Default for NotificationConfig {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
 /// Root structure for persistence
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -230,6 +247,9 @@ pub struct ProviderStore {
     /// Context compaction configuration
     #[serde(default)]
     pub compact: crate::context_compact::CompactConfig,
+    /// Notification configuration
+    #[serde(default)]
+    pub notification: NotificationConfig,
 }
 
 fn default_skill_env_check() -> bool {
@@ -250,6 +270,7 @@ impl Default for ProviderStore {
             web_fetch: crate::tools::web_fetch::WebFetchConfig::default(),
             skill_env: std::collections::HashMap::new(),
             compact: crate::context_compact::CompactConfig::default(),
+            notification: NotificationConfig::default(),
         }
     }
 }
