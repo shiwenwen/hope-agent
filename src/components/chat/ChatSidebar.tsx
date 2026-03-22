@@ -363,7 +363,9 @@ export default function ChatSidebar({
                         )}
                       </div>
                       {!isActive && session.unreadCount > 0 && (
-                        <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-destructive border-2 border-background pointer-events-none" />
+                        <span className="absolute -top-1 -right-1.5 z-10 min-w-[16px] h-[16px] px-0.5 rounded-full bg-destructive text-destructive-foreground text-[9px] font-bold flex items-center justify-center border-2 border-background pointer-events-none leading-none">
+                          {session.unreadCount > 99 ? "99+" : session.unreadCount}
+                        </span>
                       )}
                     </div>
 
