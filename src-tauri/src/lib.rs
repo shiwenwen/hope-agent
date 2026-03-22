@@ -58,6 +58,51 @@ pub fn get_cron_db() -> Option<&'static Arc<cron::CronDB>> {
     CRON_DB.get()
 }
 
+/// If SearXNG is docker-managed and enabled, auto-start the container on app launch.
+fn auto_start_searxng_docker() {
+    let store = match provider::load_store() {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    // Check: docker-managed + SearXNG enabled
+    let docker_managed = store.web_search.searxng_docker_managed.unwrap_or(false);
+    let searxng_enabled = store.web_search.providers.iter()
+        .any(|e| e.id == tools::web::WebSearchProvider::Searxng && e.enabled);
+
+    if !docker_managed || !searxng_enabled {
+        return;
+    }
+
+    // Spawn background task — don't block app startup
+    std::thread::spawn(|| {
+        let rt = tokio::runtime::Runtime::new().expect("Failed to create runtime for SearXNG auto-start");
+        rt.block_on(async {
+            let status = docker::status().await;
+            if !status.docker_installed || status.docker_not_running {
+                if let Some(logger) = get_logger() {
+                    logger.log("warn", "docker", "auto_start", "Docker not available, skipping SearXNG auto-start", None, None, None);
+                }
+                return;
+            }
+            if status.container_running && status.health_ok {
+                // Already running, nothing to do
+                return;
+            }
+            if status.container_exists && !status.container_running {
+                if let Some(logger) = get_logger() {
+                    logger.log("info", "docker", "auto_start", "Auto-starting SearXNG container...", None, None, None);
+                }
+                if let Err(e) = docker::start().await {
+                    if let Some(logger) = get_logger() {
+                        logger.log("error", "docker", "auto_start", "Failed to auto-start SearXNG", Some(e.to_string()), None, None);
+                    }
+                }
+            }
+        });
+    });
+}
+
 struct AppState {
     agent: Mutex<Option<AssistantAgent>>,
     auth_result: Arc<Mutex<Option<anyhow::Result<TokenData>>>>,
@@ -2410,6 +2455,9 @@ pub fn run() {
                     // Thread runs until app exits
                 }
             }
+
+            // Auto-start Docker SearXNG if previously configured
+            auto_start_searxng_docker();
 
             Ok(())
         })

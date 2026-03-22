@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { invoke, Channel } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
@@ -30,6 +30,7 @@ import {
   GripVertical,
   Loader2,
   Play,
+  RefreshCw,
   Square,
   Trash2,
 } from "lucide-react"
@@ -51,6 +52,7 @@ interface WebSearchConfig {
 
 interface SearxngDockerStatus {
   dockerInstalled: boolean
+  dockerNotRunning: boolean
   containerExists: boolean
   containerRunning: boolean
   port: number | null
@@ -326,6 +328,7 @@ function SearxngDockerSection({
   const [status, setStatus] = useState<SearxngDockerStatus | null>(null)
   const [checking, setChecking] = useState(true)
   const [deploying, setDeploying] = useState(false)
+  const [deployStep, setDeployStep] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -345,17 +348,34 @@ function SearxngDockerSection({
     refreshStatus()
   }, [refreshStatus])
 
+  const deployStepLabels: Record<string, string> = {
+    checking_docker: t("settings.webSearchDockerStepCheckingDocker"),
+    pulling_image: t("settings.webSearchDockerStepPullingImage"),
+    removing_old: t("settings.webSearchDockerStepRemovingOld"),
+    starting_container: t("settings.webSearchDockerStepStarting"),
+    injecting_config: t("settings.webSearchDockerStepConfig"),
+    restarting: t("settings.webSearchDockerStepRestarting"),
+    health_check: t("settings.webSearchDockerStepHealthCheck"),
+    done: t("settings.webSearchDockerStepDone"),
+  }
+
   const handleDeploy = useCallback(async () => {
     setDeploying(true)
+    setDeployStep(null)
     setError(null)
     try {
-      const url = await invoke<string>("searxng_docker_deploy")
+      const channel = new Channel<string>()
+      channel.onmessage = (step) => {
+        setDeployStep(step)
+      }
+      const url = await invoke<string>("searxng_docker_deploy", { channel })
       onUrlSet(url)
       await refreshStatus()
     } catch (e) {
       setError(String(e))
     } finally {
       setDeploying(false)
+      setDeployStep(null)
     }
   }, [onUrlSet, refreshStatus])
 
@@ -366,6 +386,15 @@ function SearxngDockerSection({
       try {
         await invoke(`searxng_docker_${action}`)
         await refreshStatus()
+        // After start, poll until healthy (up to 15s)
+        if (action === "start") {
+          for (let i = 0; i < 10; i++) {
+            await new Promise((r) => setTimeout(r, 1500))
+            const s = await invoke<SearxngDockerStatus>("searxng_docker_status")
+            setStatus(s)
+            if (s.healthOk) break
+          }
+        }
       } catch (e) {
         setError(String(e))
       } finally {
@@ -410,6 +439,26 @@ function SearxngDockerSection({
     )
   }
 
+  if (status.dockerNotRunning) {
+    return (
+      <div className="rounded-md border border-border/50 p-3 mt-1 space-y-2">
+        <div className="text-xs font-medium">{t("settings.webSearchDockerTitle")}</div>
+        <p className="text-xs text-muted-foreground">
+          {t("settings.webSearchDockerNotRunning")}
+        </p>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 text-xs"
+          onClick={refreshStatus}
+        >
+          <RefreshCw className="h-3 w-3 mr-1" />
+          {t("settings.webSearchDockerRefresh")}
+        </Button>
+      </div>
+    )
+  }
+
   return (
     <div className="rounded-md border border-border/50 p-3 mt-1 space-y-2">
       <div className="text-xs font-medium">{t("settings.webSearchDockerTitle")}</div>
@@ -433,12 +482,26 @@ function SearxngDockerSection({
               : t("settings.webSearchDockerStopped")}
           </span>
           {status.port && status.containerRunning && (
-            <span className="text-muted-foreground">localhost:{status.port}</span>
+            <button
+              type="button"
+              className="text-muted-foreground hover:text-primary underline decoration-dotted underline-offset-2 transition-colors"
+              onClick={() => onUrlSet(`http://localhost:${status.port}`)}
+              title={t("settings.webSearchDockerFillUrl")}
+            >
+              localhost:{status.port}
+            </button>
           )}
         </div>
       )}
 
-      {error && <p className="text-xs text-destructive">{error}</p>}
+      {error && <p className="text-xs text-destructive whitespace-pre-wrap break-all">{error}</p>}
+
+      {deploying && deployStep && (
+        <p className="text-xs text-muted-foreground">
+          <Loader2 className="h-3 w-3 animate-spin inline mr-1" />
+          {deployStepLabels[deployStep] || deployStep}
+        </p>
+      )}
 
       <div className="flex items-center gap-2">
         {!status.containerExists && (
