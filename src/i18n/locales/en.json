@@ -21,6 +21,7 @@
     "mainAgent": "Main Agent",
     "toolCalling": "Calling tools...",
     "startConversation": "Start a conversation",
+    "subagentFrom": "Delegated by {{agent}}",
     "newChat": "New Chat",
     "justNow": "Just now",
     "minutesAgo": "{{count}}min ago",

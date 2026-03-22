@@ -1,10 +1,42 @@
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import { ChevronDown, ChevronRight, Terminal } from "lucide-react"
 import type { ToolCall } from "@/types/chat"
+import SubagentBlock from "@/components/chat/SubagentBlock"
 
 export default function ToolCallBlock({ tool }: { tool: ToolCall }) {
   const [expanded, setExpanded] = useState(false)
   const isRunning = tool.result === undefined
+
+  // Detect subagent spawn — render SubagentBlock instead
+  const subagentSpawn = useMemo(() => {
+    if (tool.name !== "subagent") return null
+    try {
+      const args = JSON.parse(tool.arguments)
+      if (args.action !== "spawn") return null
+      // Extract run_id from tool result
+      let runId: string | undefined
+      if (tool.result) {
+        try {
+          const res = JSON.parse(tool.result)
+          runId = res.run_id
+        } catch { /* ignore */ }
+      }
+      return { agentId: args.agent_id || "default", task: args.task || "", runId }
+    } catch {
+      return null
+    }
+  }, [tool.name, tool.arguments, tool.result])
+
+  if (subagentSpawn?.runId) {
+    return (
+      <SubagentBlock
+        runId={subagentSpawn.runId}
+        agentId={subagentSpawn.agentId}
+        task={subagentSpawn.task}
+      />
+    )
+  }
+
   const displayArgs = (() => {
     try {
       const parsed = JSON.parse(tool.arguments)
@@ -12,6 +44,7 @@ export default function ToolCallBlock({ tool }: { tool: ToolCall }) {
       if (tool.name === "read_file" || tool.name === "list_dir")
         return parsed.path || "."
       if (tool.name === "write_file") return parsed.path
+      if (tool.name === "subagent") return `${parsed.action}${parsed.run_id ? ` ${parsed.run_id}` : ""}`
       return tool.arguments
     } catch {
       return tool.arguments

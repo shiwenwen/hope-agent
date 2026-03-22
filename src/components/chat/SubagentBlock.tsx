@@ -1,14 +1,15 @@
 import { useState, useEffect } from "react"
 import { ChevronDown, ChevronRight, Users, CheckCircle, XCircle, Clock, Loader2, Skull } from "lucide-react"
+import { invoke } from "@tauri-apps/api/core"
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
-import type { SubagentEvent } from "@/types/chat"
+import type { SubagentEvent, SubagentRun } from "@/types/chat"
+import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 
 interface SubagentBlockProps {
   runId: string
   agentId: string
   task: string
   initialStatus?: string
-  onNavigateToSession?: (sessionId: string) => void
 }
 
 const statusConfig: Record<string, { icon: React.ReactNode; label: string; color: string }> = {
@@ -23,17 +24,29 @@ const statusConfig: Record<string, { icon: React.ReactNode; label: string; color
 export default function SubagentBlock({ runId, agentId, task, initialStatus }: SubagentBlockProps) {
   const [expanded, setExpanded] = useState(false)
   const [status, setStatus] = useState(initialStatus || "spawning")
-  const [resultPreview, setResultPreview] = useState<string | undefined>()
+  const [resultFull, setResultFull] = useState<string | undefined>()
   const [error, setError] = useState<string | undefined>()
   const [durationMs, setDurationMs] = useState<number | undefined>()
 
+  // Hydrate from DB on mount (handles re-mount after switching sessions)
+  useEffect(() => {
+    invoke<SubagentRun | null>("get_subagent_run", { runId }).then((run) => {
+      if (!run) return
+      setStatus(run.status)
+      if (run.result) setResultFull(run.result)
+      if (run.error) setError(run.error)
+      if (run.durationMs) setDurationMs(run.durationMs)
+    }).catch(() => {})
+  }, [runId])
+
+  // Live updates via Tauri events
   useEffect(() => {
     let unlisten: UnlistenFn | undefined
     listen<SubagentEvent>("subagent_event", (event) => {
       const payload = event.payload
       if (payload.runId !== runId) return
       setStatus(payload.status)
-      if (payload.resultPreview) setResultPreview(payload.resultPreview)
+      if (payload.resultFull) setResultFull(payload.resultFull)
       if (payload.error) setError(payload.error)
       if (payload.durationMs) setDurationMs(payload.durationMs)
     }).then((fn) => {
@@ -71,17 +84,17 @@ export default function SubagentBlock({ runId, agentId, task, initialStatus }: S
           <span className="text-muted-foreground">{(durationMs / 1000).toFixed(1)}s</span>
         )}
       </button>
-      {expanded && (resultPreview || error) && (
-        <div className="px-2.5 pb-2 pt-0.5">
+      {expanded && (resultFull || error) && (
+        <div className="px-2.5 pb-2 pt-0.5 max-h-96 overflow-y-auto">
           {error && (
-            <pre className="whitespace-pre-wrap text-red-400 bg-background rounded p-2 max-h-48 overflow-y-auto text-[11px] leading-relaxed">
+            <pre className="whitespace-pre-wrap text-red-400 bg-background rounded p-2 text-[11px] leading-relaxed">
               {error}
             </pre>
           )}
-          {resultPreview && (
-            <pre className="whitespace-pre-wrap text-muted-foreground bg-background rounded p-2 max-h-48 overflow-y-auto text-[11px] leading-relaxed">
-              {resultPreview}
-            </pre>
+          {resultFull && (
+            <div className="bg-background rounded p-2 text-[11px] leading-relaxed">
+              <MarkdownRenderer content={resultFull} />
+            </div>
           )}
         </div>
       )}

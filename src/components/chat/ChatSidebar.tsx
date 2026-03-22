@@ -29,6 +29,7 @@ import {
   Loader2,
   Timer,
   Pencil,
+  Network,
 } from "lucide-react"
 import type { SessionMeta, AgentSummaryForSidebar } from "@/types/chat"
 
@@ -375,6 +376,22 @@ export default function ChatSidebar({
                             <Timer className="w-2.5 h-2.5" />
                           </span>
                         )}
+                        {session.parentSessionId && (() => {
+                          const parentSession = sessions.find(s => s.id === session.parentSessionId)
+                          const parentAgent = parentSession ? getAgentInfo(parentSession.agentId) : undefined
+                          return (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="inline-flex items-center justify-center shrink-0 w-4 h-4 rounded bg-purple-500/15 text-purple-500">
+                                  <Network className="w-2.5 h-2.5" />
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                {t("chat.subagentFrom", { agent: parentAgent?.name || parentSession?.agentId || "unknown" })}
+                              </TooltipContent>
+                            </Tooltip>
+                          )
+                        })()}
                         {session.title || t("chat.newChat") || "New Chat"}
                       </div>
                       <div className="text-[11px] text-muted-foreground truncate">

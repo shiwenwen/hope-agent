@@ -827,7 +827,7 @@ pub async fn execute_tool_with_context(
     if let Some(logger) = crate::get_logger() {
         let args_preview = {
             let s = args.to_string();
-            if s.len() > 500 { format!("{}...", &s[..500]) } else { s }
+            if s.len() > 500 { format!("{}...", crate::truncate_utf8(&s, 500)) } else { s }
         };
         logger.log("info", "tool", &format!("tools::{}", name),
             &format!("Tool '{}' started", name),
@@ -864,7 +864,7 @@ pub async fn execute_tool_with_context(
     if let Some(logger) = crate::get_logger() {
         match &result {
             Ok(output) => {
-                let output_preview = if output.len() > 300 { format!("{}...", &output[..300]) } else { output.clone() };
+                let output_preview = if output.len() > 300 { format!("{}...", crate::truncate_utf8(output, 300)) } else { output.clone() };
                 logger.log("info", "tool", &format!("tools::{}", name),
                     &format!("Tool '{}' completed in {}ms", name, duration_ms),
                     Some(serde_json::json!({"duration_ms": duration_ms, "output_preview": output_preview}).to_string()),

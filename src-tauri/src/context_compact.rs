@@ -1154,7 +1154,7 @@ pub fn build_summarization_prompt(
         if is_tool_result(msg) {
             if let Some(text) = get_tool_result_text(msg) {
                 let preview = if text.len() > 500 {
-                    format!("{}... [{}+ chars]", &text[..500], text.len())
+                    format!("{}... [{}+ chars]", crate::truncate_utf8(&text, 500), text.len())
                 } else {
                     text
                 };

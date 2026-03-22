@@ -110,7 +110,7 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
 
     // Structured logging
     if let Some(logger) = crate::get_logger() {
-        let cmd_preview = if command.len() > 200 { format!("{}...", &command[..200]) } else { command.to_string() };
+        let cmd_preview = if command.len() > 200 { format!("{}...", crate::truncate_utf8(command, 200)) } else { command.to_string() };
         logger.log("info", "tool", "exec::start",
             &format!("exec: {}", cmd_preview),
             Some(serde_json::json!({

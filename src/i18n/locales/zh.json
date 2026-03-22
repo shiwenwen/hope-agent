@@ -21,6 +21,7 @@
     "mainAgent": "Main Agent",
     "toolCalling": "工具调用中...",
     "startConversation": "开始对话",
+    "subagentFrom": "由 {{agent}} 指派",
     "newChat": "新建对话",
     "justNow": "刚刚",
     "minutesAgo": "{{count}}分钟前",

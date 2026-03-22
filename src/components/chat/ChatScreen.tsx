@@ -1,12 +1,12 @@
 import { useState, useRef, useEffect, useCallback, useLayoutEffect, useMemo } from "react"
-import { invoke, Channel } from "@tauri-apps/api/core"
+import { invoke, Channel, convertFileSrc } from "@tauri-apps/api/core"
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { logger } from "@/lib/logger"
 import { notify, loadNotificationConfig, isAgentNotifyEnabled } from "@/lib/notifications"
-import { Settings, Copy, Check, Info, BarChart3, AlertCircle, Pencil } from "lucide-react"
+import { Settings, Copy, Check, Info, BarChart3, AlertCircle, Pencil, Network } from "lucide-react"
 import type {
   Message,
   MessageUsage,
@@ -120,13 +120,16 @@ function formatMessageTime(timestamp?: string): string {
 }
 
 /** Parse DB SessionMessage[] into display Message[] */
-function parseSessionMessages(msgs: SessionMessage[]): Message[] {
+function parseSessionMessages(msgs: SessionMessage[], parentAgentId?: string | null): Message[] {
   const displayMessages: Message[] = []
   const pendingTools: ToolCall[] = []
   const pendingBlocks: ContentBlock[] = []
+  let firstUserSeen = false
   for (const msg of msgs) {
     if (msg.role === "user") {
-      displayMessages.push({ role: "user", content: msg.content, timestamp: msg.timestamp, dbId: msg.id })
+      const isAgentMessage = parentAgentId && !firstUserSeen
+      firstUserSeen = true
+      displayMessages.push({ role: "user", content: msg.content, timestamp: msg.timestamp, dbId: msg.id, fromAgentId: isAgentMessage ? parentAgentId : undefined })
     } else if (msg.role === "tool" && msg.toolCallId) {
       const tool: ToolCall = {
         callId: msg.toolCallId,
@@ -625,7 +628,9 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
       // Load latest PAGE_SIZE messages from DB
       try {
         const [msgs, total] = await invoke<[SessionMessage[], number]>("load_session_messages_latest_cmd", { sessionId, limit: PAGE_SIZE })
-        const displayMessages = parseSessionMessages(msgs)
+        const sessionMeta = sessions.find(s => s.id === sessionId)
+        const parentSession = sessionMeta?.parentSessionId ? sessions.find(s => s.id === sessionMeta.parentSessionId) : undefined
+        const displayMessages = parseSessionMessages(msgs, parentSession?.agentId)
         sessionCacheRef.current.set(sessionId, displayMessages)
         const moreAvailable = msgs.length < total
         hasMoreRef.current.set(sessionId, moreAvailable)
@@ -702,7 +707,9 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
         setHasMore(false)
         return
       }
-      const olderDisplay = parseSessionMessages(olderMsgs)
+      const sessionMeta = sessions.find(s => s.id === currentSessionId)
+      const parentSession = sessionMeta?.parentSessionId ? sessions.find(s => s.id === sessionMeta.parentSessionId) : undefined
+      const olderDisplay = parseSessionMessages(olderMsgs, parentSession?.agentId)
       oldestDbIdRef.current.set(currentSessionId, olderMsgs[0].id)
       if (olderMsgs.length < PAGE_SIZE) {
         hasMoreRef.current.set(currentSessionId, false)
@@ -1480,12 +1487,14 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
               </p>
             </div>
           )}
-          {messages.map((msg, i) => (
+          {messages.map((msg, i) => {
+            const fromAgent = msg.fromAgentId ? agents.find(a => a.id === msg.fromAgentId) : undefined
+            return (
             <div
               key={i}
               className={cn(
                 "flex",
-                msg.role === "event" ? "justify-center" : msg.role === "user" ? "justify-end" : "justify-start",
+                msg.role === "event" ? "justify-center" : (msg.role === "user" && !msg.fromAgentId) ? "justify-end" : "justify-start",
               )}
             >
               {msg.role === "event" ? (
@@ -1494,7 +1503,7 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
                 </div>
               ) : (
                 <div
-                  className="relative max-w-[95%]"
+                  className={cn("relative max-w-[95%]", msg.fromAgentId && "flex items-start gap-2")}
                   onMouseEnter={() => setHoveredMsgIndex(i)}
                   onMouseLeave={() => {
                     setHoveredMsgIndex((prev) => prev === i ? null : prev)
@@ -1502,14 +1511,34 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
                   }}
                   onContextMenu={(e) => handleContextMenu(e, i)}
                 >
+                  {/* Parent agent avatar for delegated messages */}
+                  {msg.fromAgentId && (
+                    <div className="w-6 h-6 rounded-full bg-purple-500/15 flex items-center justify-center text-purple-500 shrink-0 mt-1 text-[10px] overflow-hidden">
+                      {fromAgent?.avatar ? (
+                        <img src={fromAgent.avatar.startsWith("/") ? convertFileSrc(fromAgent.avatar) : fromAgent.avatar} className="w-full h-full object-cover" alt="" />
+                      ) : fromAgent?.emoji ? (
+                        <span>{fromAgent.emoji}</span>
+                      ) : (
+                        <Network className="w-3 h-3" />
+                      )}
+                    </div>
+                  )}
+                  <div>
+                  {msg.fromAgentId && (
+                    <div className="text-[10px] text-purple-500 mb-0.5 font-medium">
+                      {fromAgent?.name || msg.fromAgentId}
+                    </div>
+                  )}
                   {msg.role === "assistant" && msg.fallbackEvent && (
                     <FallbackBanner event={msg.fallbackEvent} />
                   )}
                   <div
                     className={cn(
                       "px-4 py-2.5 rounded-xl text-sm leading-relaxed overflow-hidden break-words select-text",
-                      msg.role === "user"
+                      msg.role === "user" && !msg.fromAgentId
                         ? "bg-[var(--color-user-bubble)] text-foreground whitespace-pre-wrap"
+                        : msg.fromAgentId
+                        ? "bg-purple-500/10 border border-purple-500/20 text-foreground whitespace-pre-wrap"
                         : "bg-card text-foreground/80",
                       msg.role === "assistant" && !msg.content && !msg.toolCalls?.length && !msg.contentBlocks?.length && "animate-pulse",
                       msg.role === "assistant" && loading && i === messages.length - 1 && "streaming-bubble"
@@ -1724,9 +1753,10 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
                     </TooltipProvider>
                   )}
                 </div>
+              </div>
               )}
             </div>
-          ))}
+          )})}
 
           <div ref={bottomRef} />
         </div>

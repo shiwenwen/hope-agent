@@ -29,6 +29,8 @@ export interface Message {
   usage?: MessageUsage
   model?: string
   fallbackEvent?: FallbackEvent
+  /** If set, this user message was sent by a parent agent (not a human) */
+  fromAgentId?: string
 }
 
 export interface FallbackEvent {
@@ -112,6 +114,7 @@ export interface SubagentEvent {
   taskPreview: string
   status: "spawning" | "running" | "completed" | "error" | "timeout" | "killed"
   resultPreview?: string
+  resultFull?: string
   error?: string
   durationMs?: number
 }

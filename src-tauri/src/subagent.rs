@@ -315,6 +315,13 @@ pub async fn spawn_subagent(
             }
         };
 
+        // Save messages to child session so they're visible when clicking into it
+        let _ = db.append_message(&child_session_id, &crate::session::NewMessage::user(&task));
+        let reply_text = result_text.as_deref()
+            .or(error_text.as_deref())
+            .unwrap_or("(no response)");
+        let _ = db.append_message(&child_session_id, &crate::session::NewMessage::assistant(reply_text));
+
         // Update DB — guaranteed to run even after panic
         let _ = db.update_subagent_status(
             &run_id_clone, status.clone(),

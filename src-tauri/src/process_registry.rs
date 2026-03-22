@@ -193,7 +193,7 @@ pub fn derive_session_name(command: &str) -> String {
     if trimmed.len() <= 60 {
         trimmed.to_string()
     } else {
-        format!("{}…", &trimmed[..57])
+        format!("{}…", crate::truncate_utf8(trimmed, 57))
     }
 }
 

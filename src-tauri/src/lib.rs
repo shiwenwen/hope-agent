@@ -39,6 +39,19 @@ use serde::Serialize;
 use session::SessionDB;
 use logging::{LogDB, AppLogger};
 
+/// Truncate a string to at most `max_bytes` bytes on a valid UTF-8 char boundary.
+pub fn truncate_utf8(s: &str, max_bytes: usize) -> &str {
+    if s.len() <= max_bytes {
+        return s;
+    }
+    // floor_char_boundary is nightly-only, so do it manually
+    let mut end = max_bytes;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+
 static APP_HANDLE: std::sync::OnceLock<tauri::AppHandle> = std::sync::OnceLock::new();
 static APP_LOGGER: std::sync::OnceLock<AppLogger> = std::sync::OnceLock::new();
 static MEMORY_BACKEND: std::sync::OnceLock<Arc<dyn memory::MemoryBackend>> = std::sync::OnceLock::new();
@@ -455,7 +468,7 @@ async fn test_model(
                     .ok()
                     .and_then(|v| v["content"].as_array()?.first()?.get("text")?.as_str().map(|s| s.to_string()))
                     .unwrap_or_default();
-                let preview = if reply.len() > 100 { format!("{}...", &reply[..100]) } else { reply.clone() };
+                let preview = if reply.len() > 100 { format!("{}...", truncate_utf8(&reply, 100)) } else { reply.clone() };
                 Ok(serde_json::to_string(&serde_json::json!({
                     "success": true, "message": "模型响应正常",
                     "model": model_id, "status": status, "latencyMs": latency,
@@ -507,7 +520,7 @@ async fn test_model(
                     .ok()
                     .and_then(|v| v["choices"].as_array()?.first()?.get("message")?.get("content")?.as_str().map(|s| s.to_string()))
                     .unwrap_or_default();
-                let preview = if reply.len() > 100 { format!("{}...", &reply[..100]) } else { reply.clone() };
+                let preview = if reply.len() > 100 { format!("{}...", truncate_utf8(&reply, 100)) } else { reply.clone() };
                 Ok(serde_json::to_string(&serde_json::json!({
                     "success": true, "message": "模型响应正常",
                     "model": model_id, "status": status, "latencyMs": latency,
@@ -1402,7 +1415,7 @@ async fn chat(
     let _ = db.append_message(&sid, &user_msg);
 
     // Log chat start
-    let msg_preview = if message.len() > 100 { format!("{}...", &message[..100]) } else { message.clone() };
+    let msg_preview = if message.len() > 100 { format!("{}...", truncate_utf8(&message, 100)) } else { message.clone() };
     logger.log("info", "session", "lib::chat", &format!("Chat started: {}", msg_preview),
         Some(serde_json::json!({"session_id": &sid, "attachments": attachments.len()}).to_string()),
         Some(sid.clone()), Some(current_agent_id.clone()));

@@ -1337,7 +1337,7 @@ impl AssistantAgent {
                 LlmProvider::Codex { model, .. } => ("Codex", model.as_str()),
             };
             let history_len = self.conversation_history.lock().unwrap().len();
-            let msg_preview = if message.len() > 200 { format!("{}...", &message[..200]) } else { message.to_string() };
+            let msg_preview = if message.len() > 200 { format!("{}...", crate::truncate_utf8(message, 200)) } else { message.to_string() };
             logger.log("info", "agent", "agent::chat",
                 &format!("Agent chat dispatching: provider={}, model={}", provider_type, model_name),
                 Some(json!({
@@ -1488,7 +1488,7 @@ impl AssistantAgent {
                 let error_text = resp.text().await.unwrap_or_default();
                 // Log API error
                 if let Some(logger) = crate::get_logger() {
-                    let error_preview = if error_text.len() > 500 { format!("{}...", &error_text[..500]) } else { error_text.clone() };
+                    let error_preview = if error_text.len() > 500 { format!("{}...", crate::truncate_utf8(&error_text, 500)) } else { error_text.clone() };
                     logger.log("error", "agent", "agent::chat_anthropic::error",
                         &format!("Anthropic API error ({}): {}", status, error_preview),
                         Some(json!({"status": status, "error": error_text, "round": round}).to_string()),
@@ -1886,7 +1886,7 @@ impl AssistantAgent {
                 let status = resp.status().as_u16();
                 let error_text = resp.text().await.unwrap_or_default();
                 if let Some(logger) = crate::get_logger() {
-                    let error_preview = if error_text.len() > 500 { format!("{}...", &error_text[..500]) } else { error_text.clone() };
+                    let error_preview = if error_text.len() > 500 { format!("{}...", crate::truncate_utf8(&error_text, 500)) } else { error_text.clone() };
                     logger.log("error", "agent", "agent::chat_openai_chat::error",
                         &format!("OpenAI Chat API error ({}): {}", status, error_preview),
                         Some(json!({"status": status, "error": error_text, "round": round}).to_string()),
@@ -2263,7 +2263,7 @@ impl AssistantAgent {
                 let status = resp.status().as_u16();
                 let error_text = resp.text().await.unwrap_or_default();
                 if let Some(logger) = crate::get_logger() {
-                    let error_preview = if error_text.len() > 500 { format!("{}...", &error_text[..500]) } else { error_text.clone() };
+                    let error_preview = if error_text.len() > 500 { format!("{}...", crate::truncate_utf8(&error_text, 500)) } else { error_text.clone() };
                     logger.log("error", "agent", "agent::chat_openai_responses::error",
                         &format!("OpenAI Responses API error ({}): {}", status, error_preview),
                         Some(json!({"status": status, "error": error_text, "round": round}).to_string()),
@@ -2492,7 +2492,7 @@ impl AssistantAgent {
                         }
 
                         if let Some(logger) = crate::get_logger() {
-                            let error_preview = if error_text.len() > 500 { format!("{}...", &error_text[..500]) } else { error_text.clone() };
+                            let error_preview = if error_text.len() > 500 { format!("{}...", crate::truncate_utf8(&error_text, 500)) } else { error_text.clone() };
                             logger.log("error", "agent", "agent::chat_codex::error",
                                 &format!("Codex API error ({}): {}", status, error_preview),
                                 Some(json!({"status": status, "error": error_text, "round": round}).to_string()),

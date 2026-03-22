@@ -916,7 +916,7 @@ async fn execute_job(
 
             // Record success run log
             let preview = if response.len() > 500 {
-                Some(response[..500].to_string())
+                Some(crate::truncate_utf8(&response, 500).to_string())
             } else {
                 Some(response.clone())
             };
