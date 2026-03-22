@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from "react"
 import { invoke, Channel } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
+import i18n from "@/i18n/i18n"
+import { SUPPORTED_LANGUAGES } from "@/i18n/i18n"
 import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -588,7 +590,7 @@ export default function WebSearchPanel() {
   const [saving, setSaving] = useState(false)
   const [justSaved, setJustSaved] = useState(false)
   const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [advancedOpen, setAdvancedOpen] = useState(false)
+  const [advancedOpen, setAdvancedOpen] = useState(true)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
@@ -792,17 +794,36 @@ export default function WebSearchPanel() {
                   <label className="text-xs font-medium text-muted-foreground">
                     {t("settings.webSearchDefaultCountry")}
                   </label>
-                  <Input
-                    type="text"
-                    className="h-8 text-sm"
-                    placeholder={t("settings.webSearchDefaultCountryPlaceholder")}
-                    value={config.defaultCountry ?? ""}
-                    onChange={(e) =>
+                  <Select
+                    value={config.defaultCountry ?? "auto"}
+                    onValueChange={(v) =>
                       setConfig((prev) =>
-                        prev ? { ...prev, defaultCountry: e.target.value.toUpperCase().slice(0, 2) || null } : prev
+                        prev ? { ...prev, defaultCountry: v === "auto" ? null : v } : prev
                       )
                     }
-                  />
+                  >
+                    <SelectTrigger className="h-8 text-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="auto">{t("settings.webSearchCountryAuto")}</SelectItem>
+                      <SelectItem value="CN">🇨🇳 China</SelectItem>
+                      <SelectItem value="US">🇺🇸 United States</SelectItem>
+                      <SelectItem value="JP">🇯🇵 Japan</SelectItem>
+                      <SelectItem value="KR">🇰🇷 South Korea</SelectItem>
+                      <SelectItem value="GB">🇬🇧 United Kingdom</SelectItem>
+                      <SelectItem value="DE">🇩🇪 Germany</SelectItem>
+                      <SelectItem value="FR">🇫🇷 France</SelectItem>
+                      <SelectItem value="RU">🇷🇺 Russia</SelectItem>
+                      <SelectItem value="BR">🇧🇷 Brazil</SelectItem>
+                      <SelectItem value="IN">🇮🇳 India</SelectItem>
+                      <SelectItem value="AU">🇦🇺 Australia</SelectItem>
+                      <SelectItem value="CA">🇨🇦 Canada</SelectItem>
+                      <SelectItem value="SG">🇸🇬 Singapore</SelectItem>
+                      <SelectItem value="TW">🇹🇼 Taiwan</SelectItem>
+                      <SelectItem value="HK">🇭🇰 Hong Kong</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 {/* Default language */}
@@ -810,17 +831,28 @@ export default function WebSearchPanel() {
                   <label className="text-xs font-medium text-muted-foreground">
                     {t("settings.webSearchDefaultLanguage")}
                   </label>
-                  <Input
-                    type="text"
-                    className="h-8 text-sm"
-                    placeholder={t("settings.webSearchDefaultLanguagePlaceholder")}
-                    value={config.defaultLanguage ?? ""}
-                    onChange={(e) =>
+                  <Select
+                    value={config.defaultLanguage ?? "auto"}
+                    onValueChange={(v) =>
                       setConfig((prev) =>
-                        prev ? { ...prev, defaultLanguage: e.target.value.toLowerCase().slice(0, 2) || null } : prev
+                        prev ? { ...prev, defaultLanguage: v === "auto" ? null : v } : prev
                       )
                     }
-                  />
+                  >
+                    <SelectTrigger className="h-8 text-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="auto">
+                        {t("settings.webSearchLanguageAuto")} ({SUPPORTED_LANGUAGES.find((l) => l.code === i18n.language)?.label ?? i18n.language})
+                      </SelectItem>
+                      {SUPPORTED_LANGUAGES.map((lang) => (
+                        <SelectItem key={lang.code} value={lang.code.split("-")[0]}>
+                          {lang.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 {/* Default freshness */}
