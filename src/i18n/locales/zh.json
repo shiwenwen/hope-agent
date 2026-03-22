@@ -147,6 +147,12 @@
   },
   "settings": {
     "title": "设置",
+    "general": "通用",
+    "generalDesc": "外观、语言和系统设置",
+    "modelConfig": "模型配置",
+    "modelConfigDesc": "管理模型服务商和全局模型设置",
+    "tools": "工具设置",
+    "toolsDesc": "配置网页搜索、网页抓取等工具",
     "providers": "模型服务商",
     "language": "语言",
     "languageDesc": "选择界面显示语言",

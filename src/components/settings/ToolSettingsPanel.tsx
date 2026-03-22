@@ -1,0 +1,25 @@
+import { useTranslation } from "react-i18next"
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
+import WebSearchPanel from "@/components/settings/WebSearchPanel"
+import WebFetchPanel from "@/components/settings/WebFetchPanel"
+
+export default function ToolSettingsPanel() {
+  const { t } = useTranslation()
+
+  return (
+    <Tabs defaultValue="webSearch" className="flex-1 flex flex-col min-h-0 overflow-hidden">
+      <div className="px-6 pt-4 pb-2 shrink-0">
+        <TabsList className="w-fit">
+          <TabsTrigger value="webSearch">{t("settings.webSearch")}</TabsTrigger>
+          <TabsTrigger value="webFetch">{t("settings.webFetch")}</TabsTrigger>
+        </TabsList>
+      </div>
+      <TabsContent value="webSearch" className="flex-1 min-h-0 overflow-hidden mt-0 flex flex-col">
+        <WebSearchPanel />
+      </TabsContent>
+      <TabsContent value="webFetch" className="flex-1 min-h-0 overflow-hidden mt-0 flex flex-col">
+        <WebFetchPanel />
+      </TabsContent>
+    </Tabs>
+  )
+}

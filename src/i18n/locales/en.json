@@ -147,6 +147,12 @@
   },
   "settings": {
     "title": "Settings",
+    "general": "General",
+    "generalDesc": "Appearance, language and system settings",
+    "modelConfig": "Model Configuration",
+    "modelConfigDesc": "Manage model providers and global model settings",
+    "tools": "Tool Settings",
+    "toolsDesc": "Configure web search, web fetch and other tools",
     "providers": "Providers",
     "language": "Language",
     "languageDesc": "Choose the display language",

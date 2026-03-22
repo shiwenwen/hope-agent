@@ -6,28 +6,23 @@ import {
   ArrowLeft,
   Bot,
   Brain,
-  Download,
-  Globe,
   Info,
-  Layers,
   MessageSquare,
-  Monitor,
-  Palette,
   Puzzle,
   Clock,
   ScrollText,
-  Search,
   Server,
+  Settings2,
   User,
+  Wrench,
 } from "lucide-react"
-import ProviderSettings from "@/components/settings/ProviderSettings"
 import type { ProviderConfig } from "@/components/settings/ProviderSettings"
 import ProviderSetup from "@/components/settings/ProviderSetup"
 import ProviderEditPage from "@/components/settings/ProviderEditPage"
+import GeneralPanel from "@/components/settings/GeneralPanel"
+import ModelConfigPanel from "@/components/settings/ModelConfigPanel"
+import ToolSettingsPanel from "@/components/settings/ToolSettingsPanel"
 import ChatSettingsPanel from "@/components/settings/ChatSettingsPanel"
-import AppearancePanel from "@/components/settings/AppearancePanel"
-import LanguagePanel from "@/components/settings/LanguagePanel"
-import GlobalModelPanel from "@/components/settings/GlobalModelPanel"
 import SkillsPanel from "@/components/settings/SkillsPanel"
 import AgentPanel from "@/components/settings/AgentPanel"
 import UserProfilePanel from "@/components/settings/UserProfilePanel"
@@ -35,9 +30,6 @@ import AboutPanel from "@/components/settings/AboutPanel"
 import LogPanel from "@/components/settings/LogPanel"
 import MemoryPanel from "@/components/settings/MemoryPanel"
 import CronPanel from "@/components/settings/CronPanel"
-import WebSearchPanel from "@/components/settings/WebSearchPanel"
-import WebFetchPanel from "@/components/settings/WebFetchPanel"
-import SystemPanel from "@/components/settings/SystemPanel"
 import type { SettingsSection, SettingsSectionItem } from "./types"
 
 const SECTIONS: SettingsSectionItem[] = [
@@ -47,14 +39,14 @@ const SECTIONS: SettingsSectionItem[] = [
     labelKey: "settings.profile",
   },
   {
-    id: "providers",
-    icon: <Server className="h-4 w-4" />,
-    labelKey: "settings.providers",
+    id: "general",
+    icon: <Settings2 className="h-4 w-4" />,
+    labelKey: "settings.general",
   },
   {
-    id: "models",
-    icon: <Layers className="h-4 w-4" />,
-    labelKey: "settings.globalModel",
+    id: "modelConfig",
+    icon: <Server className="h-4 w-4" />,
+    labelKey: "settings.modelConfig",
   },
   {
     id: "agents",
@@ -77,34 +69,14 @@ const SECTIONS: SettingsSectionItem[] = [
     labelKey: "settings.cron",
   },
   {
-    id: "webSearch",
-    icon: <Search className="h-4 w-4" />,
-    labelKey: "settings.webSearch",
-  },
-  {
-    id: "webFetch",
-    icon: <Download className="h-4 w-4" />,
-    labelKey: "settings.webFetch",
+    id: "tools",
+    icon: <Wrench className="h-4 w-4" />,
+    labelKey: "settings.tools",
   },
   {
     id: "chat",
     icon: <MessageSquare className="h-4 w-4" />,
     labelKey: "settings.chat",
-  },
-  {
-    id: "system",
-    icon: <Monitor className="h-4 w-4" />,
-    labelKey: "settings.system",
-  },
-  {
-    id: "appearance",
-    icon: <Palette className="h-4 w-4" />,
-    labelKey: "settings.appearance",
-  },
-  {
-    id: "language",
-    icon: <Globe className="h-4 w-4" />,
-    labelKey: "settings.language",
   },
   {
     id: "logs",
@@ -135,7 +107,7 @@ export default function SettingsView({
 }) {
   const { t } = useTranslation()
   const [activeSection, setActiveSection] =
-    useState<SettingsSection>(initialSection ?? "providers")
+    useState<SettingsSection>(initialSection ?? "modelConfig")
   const [addingProvider, setAddingProvider] = useState(false)
   const [editingProvider, setEditingProvider] = useState<ProviderConfig | null>(null)
 
@@ -201,7 +173,8 @@ export default function SettingsView({
 
         {/* Content Area */}
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-          {activeSection === "providers" && (
+          {activeSection === "general" && <GeneralPanel />}
+          {activeSection === "modelConfig" && (
             addingProvider ? (
               <ProviderSetup
                 onComplete={() => setAddingProvider(false)}
@@ -216,25 +189,20 @@ export default function SettingsView({
                 onCodexReauth={onCodexReauth}
               />
             ) : (
-              <ProviderSettings
+              <ModelConfigPanel
                 onAddProvider={() => setAddingProvider(true)}
                 onEditProvider={(p) => setEditingProvider(p)}
                 onCodexReauth={onCodexReauth}
               />
             )
           )}
-          {activeSection === "models" && <GlobalModelPanel />}
           {activeSection === "skills" && <SkillsPanel />}
           {activeSection === "agents" && <AgentPanel initialAgentId={initialAgentId} />}
           {activeSection === "profile" && <UserProfilePanel onSaved={onProfileSaved} />}
           {activeSection === "memory" && <MemoryPanel />}
           {activeSection === "cron" && <CronPanel />}
-          {activeSection === "webSearch" && <WebSearchPanel />}
-          {activeSection === "webFetch" && <WebFetchPanel />}
+          {activeSection === "tools" && <ToolSettingsPanel />}
           {activeSection === "chat" && <ChatSettingsPanel />}
-          {activeSection === "system" && <SystemPanel />}
-          {activeSection === "appearance" && <AppearancePanel />}
-          {activeSection === "language" && <LanguagePanel />}
           {activeSection === "logs" && <LogPanel />}
           {activeSection === "about" && <AboutPanel />}
         </div>
