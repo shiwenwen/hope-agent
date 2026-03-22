@@ -1595,7 +1595,7 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
             </div>
           )}
           {messages.length === 0 && (
-            <div className="flex items-center justify-center h-full">
+            <div className="flex items-center justify-center h-full animate-in fade-in-0 duration-300">
               <p className="text-muted-foreground text-sm">
                 {t("chat.howCanIHelp")}
               </p>
@@ -1609,6 +1609,7 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
               className={cn(
                 "flex",
                 msg.role === "event" ? "justify-center" : (msg.role === "user" && !msg.fromAgentId) ? "justify-end" : "justify-start",
+                i === messages.length - 1 && "animate-fade-slide-in",
               )}
             >
               {msg.role === "event" ? (

@@ -134,7 +134,8 @@ export default function ChatInput({
             {attachedFiles.map((file, index) => (
               <div
                 key={`${file.name}-${index}`}
-                className="group relative flex items-center gap-1.5 bg-secondary rounded-lg px-2 py-1 text-xs text-foreground/80 border border-border/50"
+                className="group relative flex items-center gap-1.5 bg-secondary rounded-lg px-2 py-1 text-xs text-foreground/80 border border-border/50 animate-in fade-in-0 slide-in-from-bottom-1 duration-150"
+                style={{ animationDelay: `${index * 50}ms`, animationFillMode: "both" }}
               >
                 {file.type.startsWith("image/") ? (
                   <img
@@ -159,7 +160,7 @@ export default function ChatInput({
 
         {/* Pending message indicator */}
         {loading && pendingMessage && (
-          <div className="flex items-center gap-2 px-4 pt-2 pb-0">
+          <div className="flex items-center gap-2 px-4 pt-2 pb-0 animate-in fade-in-0 slide-in-from-top-1 duration-200">
             <div className="flex items-center gap-1.5 bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded-lg px-2.5 py-1 text-xs">
               <div className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
               <span className="truncate max-w-[300px]">{pendingMessage}</span>
@@ -243,7 +244,7 @@ export default function ChatInput({
 
               {/* Cascading menu */}
               {showModelMenu && (
-                <div className="absolute bottom-full left-0 mb-2 bg-popover/95 backdrop-blur-xl border border-border/60 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] z-50 min-w-[160px] max-w-[220px] p-1.5">
+                <div className="absolute bottom-full left-0 mb-2 bg-popover/95 backdrop-blur-xl border border-border/60 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] z-50 min-w-[160px] max-w-[220px] p-1.5 animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-1 duration-150">
                   <div className="flex flex-col gap-0.5">
                     {Array.from(
                       new Map(
@@ -322,7 +323,7 @@ export default function ChatInput({
               </button>
 
               {showThinkMenu && (
-                <div className="absolute bottom-full left-0 mb-2 bg-popover/95 backdrop-blur-xl border border-border/60 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] z-50 min-w-[120px] p-1.5">
+                <div className="absolute bottom-full left-0 mb-2 bg-popover/95 backdrop-blur-xl border border-border/60 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] z-50 min-w-[120px] p-1.5 animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-1 duration-150">
                   <div className="flex flex-col gap-0.5">
                     {getEffortOptionsForType(currentModelInfo?.apiType, t).map((opt) => (
                       <button
@@ -366,6 +367,7 @@ export default function ChatInput({
 
           {/* Stop Button (always visible during loading) */}
           {loading && (
+            <div className="animate-in fade-in-0 zoom-in-90 duration-150">
             <IconTip label={t("chat.stopReply")}>
                 <Button
                   size="icon"
@@ -376,6 +378,7 @@ export default function ChatInput({
                   <Square className="h-4 w-4 fill-white stroke-white" />
                 </Button>
             </IconTip>
+            </div>
           )}
 
           {/* Send Button */}

@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react"
-import { ChevronDown, ChevronRight, Users, CheckCircle, XCircle, Clock, Loader2, Skull } from "lucide-react"
+import { ChevronRight, Users, CheckCircle, XCircle, Clock, Loader2, Skull } from "lucide-react"
+import { cn } from "@/lib/utils"
 import { invoke } from "@tauri-apps/api/core"
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import type { SubagentEvent, SubagentRun } from "@/types/chat"
@@ -68,15 +69,18 @@ export default function SubagentBlock({ runId, agentId, task, initialStatus }: S
       >
         {!isTerminal ? (
           <span className="animate-spin h-3 w-3 border border-current border-t-transparent rounded-full shrink-0" />
-        ) : expanded ? (
-          <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
         ) : (
-          <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
+          <ChevronRight
+            className={cn(
+              "h-3 w-3 shrink-0 text-muted-foreground transition-transform duration-200",
+              expanded && "rotate-90"
+            )}
+          />
         )}
         <Users className="h-3 w-3 shrink-0 text-muted-foreground" />
         <span className="font-medium text-foreground">subagent</span>
         <span className="text-muted-foreground truncate flex-1">{agentId}: {task}</span>
-        <span className={`flex items-center gap-1 ${config.color}`}>
+        <span className={cn("flex items-center gap-1 transition-colors duration-200", config.color)}>
           {config.icon}
           <span>{config.label}</span>
         </span>
@@ -84,7 +88,12 @@ export default function SubagentBlock({ runId, agentId, task, initialStatus }: S
           <span className="text-muted-foreground">{(durationMs / 1000).toFixed(1)}s</span>
         )}
       </button>
-      {expanded && (resultFull || error) && (
+      <div
+        className={cn(
+          "overflow-hidden transition-all duration-200 ease-out",
+          expanded && (resultFull || error) ? "max-h-96 opacity-100" : "max-h-0 opacity-0"
+        )}
+      >
         <div className="px-2.5 pb-2 pt-0.5 max-h-96 overflow-y-auto">
           {error && (
             <pre className="whitespace-pre-wrap text-red-400 bg-background rounded p-2 text-[11px] leading-relaxed">
@@ -97,7 +106,7 @@ export default function SubagentBlock({ runId, agentId, task, initialStatus }: S
             </div>
           )}
         </div>
-      )}
+      </div>
     </div>
   )
 }

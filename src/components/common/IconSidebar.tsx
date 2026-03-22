@@ -84,7 +84,7 @@ export default function IconSidebar({
               </Button>
             </IconTip>
             {!!totalUnreadCount && totalUnreadCount > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 z-10 w-2.5 h-2.5 rounded-full bg-destructive border-2 border-background pointer-events-none" />
+              <span className="absolute -top-0.5 -right-0.5 z-10 w-2.5 h-2.5 rounded-full bg-destructive border-2 border-background pointer-events-none animate-in zoom-in-0 duration-200" />
             )}
           </div>
         </div>
@@ -199,7 +199,7 @@ export default function IconSidebar({
             {showLangMenu && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setShowLangMenu(false)} />
-                <div className="absolute left-12 bottom-0 z-50 bg-card border border-border rounded-lg shadow-lg py-1 min-w-[160px] max-h-[400px] overflow-y-auto">
+                <div className="absolute left-12 bottom-0 z-50 bg-card border border-border rounded-lg shadow-lg py-1 min-w-[160px] max-h-[400px] overflow-y-auto animate-in fade-in-0 zoom-in-95 slide-in-from-left-1 duration-150">
                   {/* Follow System option */}
                   <button
                     className={`flex items-center gap-2.5 w-full px-3 py-1.5 text-xs transition-colors hover:bg-secondary ${

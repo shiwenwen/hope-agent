@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react"
-import { ChevronDown, ChevronRight, Terminal } from "lucide-react"
+import { ChevronRight, Terminal } from "lucide-react"
+import { cn } from "@/lib/utils"
 import type { ToolCall } from "@/types/chat"
 import SubagentBlock from "@/components/chat/SubagentBlock"
 
@@ -59,22 +60,30 @@ export default function ToolCallBlock({ tool }: { tool: ToolCall }) {
       >
         {isRunning ? (
           <span className="animate-spin h-3 w-3 border border-current border-t-transparent rounded-full shrink-0" />
-        ) : expanded ? (
-          <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
         ) : (
-          <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
+          <ChevronRight
+            className={cn(
+              "h-3 w-3 shrink-0 text-muted-foreground transition-transform duration-200",
+              expanded && "rotate-90"
+            )}
+          />
         )}
         <Terminal className="h-3 w-3 shrink-0 text-muted-foreground" />
         <span className="font-medium text-foreground">{tool.name}</span>
         <span className="text-muted-foreground truncate">{displayArgs}</span>
       </button>
-      {expanded && tool.result && (
+      <div
+        className={cn(
+          "overflow-hidden transition-all duration-200 ease-out",
+          expanded && tool.result ? "max-h-[300px] opacity-100" : "max-h-0 opacity-0"
+        )}
+      >
         <div className="px-2.5 pb-2 pt-0.5">
           <pre className="whitespace-pre-wrap text-muted-foreground bg-background rounded p-2 max-h-48 overflow-y-auto text-[11px] leading-relaxed">
             {tool.result}
           </pre>
         </div>
-      )}
+      </div>
     </div>
   )
 }

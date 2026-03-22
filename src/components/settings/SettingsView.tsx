@@ -194,6 +194,7 @@ export default function SettingsView({
 
         {/* Content Area */}
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+          <div key={activeSection} className="flex-1 flex flex-col min-h-0 overflow-hidden animate-in fade-in-0 duration-150">
           {activeSection === "general" && <GeneralPanel />}
           {activeSection === "modelConfig" && (
             addingProvider ? (
@@ -229,6 +230,7 @@ export default function SettingsView({
           {activeSection === "health" && <CrashHistoryPanel />}
           {activeSection === "logs" && <LogPanel />}
           {activeSection === "about" && <AboutPanel />}
+          </div>
         </div>
       </div>
     </div>

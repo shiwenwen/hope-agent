@@ -20,7 +20,6 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
 import {
-  ChevronDown,
   ChevronRight,
   MessageSquare,
   Bot,
@@ -193,7 +192,7 @@ export default function ChatSidebar({
             </IconTip>
             {/* Agent selector popup */}
             {showNewChatMenu && (
-              <div className="absolute right-0 top-full mt-1 bg-popover/95 backdrop-blur-xl border border-border/60 rounded-xl shadow-lg z-50 min-w-[180px] p-1.5">
+              <div className="absolute right-0 top-full mt-1 bg-popover/95 backdrop-blur-xl border border-border/60 rounded-xl shadow-lg z-50 min-w-[180px] p-1.5 animate-in fade-in-0 zoom-in-95 duration-150">
                 {agents.map((agent) => (
                   <button
                     key={agent.id}
@@ -228,16 +227,22 @@ export default function ChatSidebar({
                 className="flex items-center gap-1.5 flex-1 px-4 py-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
                 onClick={() => setAgentsExpanded(!agentsExpanded)}
               >
-                {agentsExpanded ? (
-                  <ChevronDown className="h-3 w-3" />
-                ) : (
-                  <ChevronRight className="h-3 w-3" />
-                )}
+                <ChevronRight
+                  className={cn(
+                    "h-3 w-3 transition-transform duration-200",
+                    agentsExpanded && "rotate-90"
+                  )}
+                />
                 <span>Agents</span>
                 <span className="font-normal normal-case text-muted-foreground/60 ml-0.5">({agents.length})</span>
               </button>
             </div>
-            {agentsExpanded && (
+            <div
+              className={cn(
+                "overflow-hidden transition-all duration-200 ease-out",
+                agentsExpanded ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0"
+              )}
+            >
               <div className={cn("px-2 pb-2 grid gap-1", panelWidth >= 280 ? "grid-cols-2" : "grid-cols-1")}>
                 {agents.map((agent) => {
                   const isSelected = selectedAgentId === agent.id
@@ -316,7 +321,7 @@ export default function ChatSidebar({
                   )
                 })}
               </div>
-            )}
+            </div>
           </div>
 
           {/* Session list */}
