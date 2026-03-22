@@ -68,7 +68,7 @@ fn auto_start_searxng_docker() {
     // Check: docker-managed + SearXNG enabled
     let docker_managed = store.web_search.searxng_docker_managed.unwrap_or(false);
     let searxng_enabled = store.web_search.providers.iter()
-        .any(|e| e.id == tools::web::WebSearchProvider::Searxng && e.enabled);
+        .any(|e| e.id == tools::web_search::WebSearchProvider::Searxng && e.enabled);
 
     if !docker_managed || !searxng_enabled {
         return;
@@ -1961,28 +1961,28 @@ async fn memory_export(scope: Option<memory::MemoryScope>) -> Result<String, Str
 }
 
 #[tauri::command]
-async fn get_web_search_config() -> Result<tools::web::WebSearchConfig, String> {
+async fn get_web_search_config() -> Result<tools::web_search::WebSearchConfig, String> {
     let store = provider::load_store().map_err(|e| e.to_string())?;
     let mut config = store.web_search;
-    tools::web::backfill_providers(&mut config);
+    tools::web_search::backfill_providers(&mut config);
     Ok(config)
 }
 
 #[tauri::command]
-async fn save_web_search_config(config: tools::web::WebSearchConfig) -> Result<(), String> {
+async fn save_web_search_config(config: tools::web_search::WebSearchConfig) -> Result<(), String> {
     let mut store = provider::load_store().map_err(|e| e.to_string())?;
     store.web_search = config;
     provider::save_store(&store).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-async fn get_web_fetch_config() -> Result<tools::web::WebFetchConfig, String> {
+async fn get_web_fetch_config() -> Result<tools::web_fetch::WebFetchConfig, String> {
     let store = provider::load_store().map_err(|e| e.to_string())?;
     Ok(store.web_fetch)
 }
 
 #[tauri::command]
-async fn save_web_fetch_config(config: tools::web::WebFetchConfig) -> Result<(), String> {
+async fn save_web_fetch_config(config: tools::web_fetch::WebFetchConfig) -> Result<(), String> {
     let mut store = provider::load_store().map_err(|e| e.to_string())?;
     store.web_fetch = config;
     provider::save_store(&store).map_err(|e| e.to_string())
@@ -2002,7 +2002,7 @@ async fn searxng_docker_deploy(channel: tauri::ipc::Channel<String>) -> Result<S
     }).await.map_err(|e| e.to_string())?;
     // Auto-save the URL into the SearXNG provider entry and mark as docker-managed
     if let Ok(mut store) = provider::load_store() {
-        if let Some(entry) = store.web_search.providers.iter_mut().find(|e| e.id == tools::web::WebSearchProvider::Searxng) {
+        if let Some(entry) = store.web_search.providers.iter_mut().find(|e| e.id == tools::web_search::WebSearchProvider::Searxng) {
             entry.base_url = Some(url.clone());
             entry.enabled = true;
         }

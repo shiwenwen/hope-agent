@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Refactored
+- **`tools/web.rs` 拆分为独立模块**：`web_search.rs`（搜索 Provider 配置 + 8 个搜索引擎实现 + 搜索缓存）和 `web_fetch.rs`（网页抓取配置 + SSRF 防护 + Readability 提取 + 抓取缓存），职责分离更清晰
+
 ### Changed
 - **web_fetch 工具全面升级**：从简单正则 HTML 清理升级为生产级网页抓取工具
   - Mozilla Readability（`readability` crate）正文提取 + `htmd` crate HTML→Markdown 转换

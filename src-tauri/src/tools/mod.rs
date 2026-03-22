@@ -13,7 +13,8 @@ mod ls;
 mod memory;
 mod process;
 mod read;
-pub(crate) mod web;
+pub(crate) mod web_fetch;
+pub(crate) mod web_search;
 mod write;
 
 // ── Public Re-exports ─────────────────────────────────────────────
@@ -740,8 +741,8 @@ pub async fn execute_tool_with_context(
         "grep" => grep::tool_grep(args, ctx).await,
         "find" => find::tool_find(args, ctx).await,
         "apply_patch" => apply_patch::tool_apply_patch(args).await,
-        "web_search" => web::tool_web_search(args).await,
-        "web_fetch" => web::tool_web_fetch(args).await,
+        "web_search" => web_search::tool_web_search(args).await,
+        "web_fetch" => web_fetch::tool_web_fetch(args).await,
         "save_memory" => memory::tool_save_memory(args).await,
         "recall_memory" => memory::tool_recall_memory(args).await,
         "update_memory" => memory::tool_update_memory(args).await,
