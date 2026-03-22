@@ -164,7 +164,8 @@
     "update_memory": "更新记忆",
     "delete_memory": "删除记忆",
     "manage_cron": "定时任务",
-    "browser": "浏览器"
+    "browser": "浏览器",
+    "send_notification": "发送通知"
   },
   "settings": {
     "title": "设置",

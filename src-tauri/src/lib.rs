@@ -16,6 +16,7 @@ pub mod provider;
 mod sandbox;
 mod session;
 mod skills;
+mod subagent;
 mod system_prompt;
 mod permissions;
 mod tools;
@@ -42,6 +43,8 @@ static APP_HANDLE: std::sync::OnceLock<tauri::AppHandle> = std::sync::OnceLock::
 static APP_LOGGER: std::sync::OnceLock<AppLogger> = std::sync::OnceLock::new();
 static MEMORY_BACKEND: std::sync::OnceLock<Arc<dyn memory::MemoryBackend>> = std::sync::OnceLock::new();
 static CRON_DB: std::sync::OnceLock<Arc<cron::CronDB>> = std::sync::OnceLock::new();
+static SESSION_DB: std::sync::OnceLock<Arc<SessionDB>> = std::sync::OnceLock::new();
+static SUBAGENT_CANCELS: std::sync::OnceLock<Arc<subagent::SubagentCancelRegistry>> = std::sync::OnceLock::new();
 
 /// Get stored AppLogger for global logging
 pub fn get_logger() -> Option<&'static AppLogger> {
@@ -61,6 +64,16 @@ pub fn get_memory_backend() -> Option<&'static Arc<dyn memory::MemoryBackend>> {
 /// Get stored CronDB for cron operations (used by agent tool)
 pub fn get_cron_db() -> Option<&'static Arc<cron::CronDB>> {
     CRON_DB.get()
+}
+
+/// Get stored SessionDB for sub-agent operations
+pub fn get_session_db() -> Option<&'static Arc<SessionDB>> {
+    SESSION_DB.get()
+}
+
+/// Get stored SubagentCancelRegistry for sub-agent cancellation
+pub fn get_subagent_cancels() -> Option<&'static Arc<subagent::SubagentCancelRegistry>> {
+    SUBAGENT_CANCELS.get()
 }
 
 /// If SearXNG is docker-managed and enabled, auto-start the container on app launch.
@@ -129,6 +142,8 @@ struct AppState {
     logger: AppLogger,
     /// Cron database
     cron_db: Arc<cron::CronDB>,
+    /// Sub-agent cancel registry
+    subagent_cancels: Arc<subagent::SubagentCancelRegistry>,
 }
 
 // ── Provider Management Commands ──────────────────────────────────
@@ -1548,6 +1563,7 @@ async fn chat(
             }
         };
         agent.set_agent_id(&current_agent_id);
+        agent.set_session_id(&sid);
         agent.set_notification_enabled(notification_enabled);
 
         // Restore conversation history from DB for this session
@@ -1897,7 +1913,10 @@ async fn respond_to_approval(
 
 #[tauri::command]
 async fn list_builtin_tools() -> Result<Vec<serde_json::Value>, String> {
-    Ok(tools::get_available_tools()
+    let mut all = tools::get_available_tools();
+    // Include conditionally-injected tools so they appear in settings
+    all.push(tools::get_notification_tool());
+    Ok(all
         .into_iter()
         .map(|t| serde_json::json!({ "name": t.name, "description": t.description }))
         .collect())
@@ -2494,6 +2513,48 @@ async fn cron_get_calendar_events(
     state.cron_db.get_calendar_events(&start_dt, &end_dt).map_err(|e| e.to_string())
 }
 
+// ── Sub-Agent Commands ────────────────────────────────────────────
+
+#[tauri::command]
+async fn list_subagent_runs(
+    session_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<subagent::SubagentRun>, String> {
+    state.session_db.list_subagent_runs(&session_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_subagent_run(
+    run_id: String,
+    state: State<'_, AppState>,
+) -> Result<Option<subagent::SubagentRun>, String> {
+    state.session_db.get_subagent_run(&run_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn kill_subagent(
+    run_id: String,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    // Verify run exists
+    let run = state.session_db.get_subagent_run(&run_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Sub-agent run '{}' not found", run_id))?;
+
+    if run.status.is_terminal() {
+        return Ok(format!("Sub-agent already in terminal state: {}", run.status.as_str()));
+    }
+
+    let cancelled = state.subagent_cancels.cancel(&run_id);
+    if !cancelled {
+        let _ = state.session_db.update_subagent_status(
+            &run_id, subagent::SubagentStatus::Killed,
+            None, Some("Killed from UI"), None, None,
+        );
+    }
+    Ok(format!("Sub-agent '{}' killed", run_id))
+}
+
 // ── Crash Recovery Commands ───────────────────────────────────────
 
 #[tauri::command]
@@ -2954,6 +3015,11 @@ pub fn run() {
             // Log system startup
             logger.log("info", "system", "lib::run", "OpenComputer started", None, None, None);
 
+            // Initialize sub-agent cancel registry
+            let subagent_cancels = Arc::new(subagent::SubagentCancelRegistry::new());
+            let _ = SUBAGENT_CANCELS.set(subagent_cancels.clone());
+            let _ = SESSION_DB.set(session_db.clone());
+
             AppState {
                 agent: Mutex::new(None),
                 auth_result: Arc::new(Mutex::new(None)),
@@ -2966,6 +3032,7 @@ pub fn run() {
                 log_db,
                 logger,
                 cron_db,
+                subagent_cancels,
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -3100,6 +3167,10 @@ pub fn run() {
             cron_run_now,
             cron_get_run_logs,
             cron_get_calendar_events,
+            // Sub-agent management
+            list_subagent_runs,
+            get_subagent_run,
+            kill_subagent,
             // Crash recovery & backup
             get_crash_recovery_info,
             get_crash_history,

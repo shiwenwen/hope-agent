@@ -164,7 +164,8 @@
     "update_memory": "Update Memory",
     "delete_memory": "Delete Memory",
     "manage_cron": "Cron Jobs",
-    "browser": "Browser"
+    "browser": "Browser",
+    "send_notification": "Send Notification"
   },
   "settings": {
     "title": "Settings",
