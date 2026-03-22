@@ -1,10 +1,12 @@
 import { useState, useRef, useEffect, useCallback, useLayoutEffect, useMemo } from "react"
-import { invoke, Channel } from "@tauri-apps/api/core"
+import { invoke, Channel, convertFileSrc } from "@tauri-apps/api/core"
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
+import { TooltipProvider, IconTip } from "@/components/ui/tooltip"
 import { logger } from "@/lib/logger"
-import { Settings, Copy, Check, Info, BarChart3, AlertCircle } from "lucide-react"
+import { notify, loadNotificationConfig, isAgentNotifyEnabled } from "@/lib/notifications"
+import { Settings, Copy, Check, Info, BarChart3, AlertCircle, Pencil, Network } from "lucide-react"
 import type {
   Message,
   MessageUsage,
@@ -17,15 +19,16 @@ import type {
   AgentSummaryForSidebar,
   FallbackEvent,
 } from "@/types/chat"
+import type { AgentConfig } from "@/components/settings/types"
 import { getEffortOptionsForType } from "@/types/chat"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import ApprovalDialog, { type ApprovalRequest } from "@/components/chat/ApprovalDialog"
-import { TooltipProvider, IconTip } from "@/components/ui/tooltip"
 import ToolCallBlock from "@/components/chat/ToolCallBlock"
 import ThinkingBlock from "@/components/chat/ThinkingBlock"
 import ChatSidebar from "@/components/chat/ChatSidebar"
 import ChatInput from "@/components/chat/ChatInput"
 import FallbackDetailsPopover from "@/components/chat/FallbackDetailsPopover"
+import CrashRecoveryBanner from "@/components/common/CrashRecoveryBanner"
 import {
   AlertDialog,
   AlertDialogContent,
@@ -117,13 +120,16 @@ function formatMessageTime(timestamp?: string): string {
 }
 
 /** Parse DB SessionMessage[] into display Message[] */
-function parseSessionMessages(msgs: SessionMessage[]): Message[] {
+function parseSessionMessages(msgs: SessionMessage[], parentAgentId?: string | null): Message[] {
   const displayMessages: Message[] = []
   const pendingTools: ToolCall[] = []
   const pendingBlocks: ContentBlock[] = []
+  let firstUserSeen = false
   for (const msg of msgs) {
     if (msg.role === "user") {
-      displayMessages.push({ role: "user", content: msg.content, timestamp: msg.timestamp })
+      const isAgentMessage = parentAgentId && !firstUserSeen
+      firstUserSeen = true
+      displayMessages.push({ role: "user", content: msg.content, timestamp: msg.timestamp, dbId: msg.id, fromAgentId: isAgentMessage ? parentAgentId : undefined })
     } else if (msg.role === "tool" && msg.toolCallId) {
       const tool: ToolCall = {
         callId: msg.toolCallId,
@@ -174,9 +180,10 @@ function parseSessionMessages(msgs: SessionMessage[]): Message[] {
         timestamp: msg.timestamp,
         usage,
         model: msg.model || undefined,
+        dbId: msg.id,
       })
     } else if (msg.role === "event") {
-      displayMessages.push({ role: "event", content: msg.content, timestamp: msg.timestamp })
+      displayMessages.push({ role: "event", content: msg.content, timestamp: msg.timestamp, dbId: msg.id })
     }
   }
   return displayMessages
@@ -205,6 +212,8 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
     invoke<{ autoSendPending?: boolean }>("get_user_config").then((cfg) => {
       autoSendPendingRef.current = cfg.autoSendPending !== false
     }).catch(() => { })
+    // Load notification config for desktop notification support
+    loadNotificationConfig().catch(() => { })
   }, [])
 
   // Auto-send flag: when set, triggers handleSend after input state is flushed
@@ -252,6 +261,8 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
   const [activeModel, setActiveModel] = useState<ActiveModel | null>(null)
   const [reasoningEffort, setReasoningEffort] = useState("medium")
+  // Global default model (read-only, only changed in settings panel)
+  const globalActiveModelRef = useRef<ActiveModel | null>(null)
 
   // Command approval queue
   const [approvalRequests, setApprovalRequests] = useState<ApprovalRequest[]>([])
@@ -268,8 +279,15 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
   const [hoveredMsgIndex, setHoveredMsgIndex] = useState<number | null>(null)
   // Details popover state
   const [detailsIndex, setDetailsIndex] = useState<number | null>(null)
+  // Context menu state
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; index: number } | null>(null)
+  // Edit message state
+  const [editingIndex, setEditingIndex] = useState<number | null>(null)
+  const [editContent, setEditContent] = useState("")
+  const editTextareaRef = useRef<HTMLTextAreaElement>(null)
   // Session status popover
   const [showStatus, setShowStatus] = useState(false)
+  const [compacting, setCompacting] = useState(false)
   const statusRef = useRef<HTMLDivElement>(null)
 
   // Close status popover on outside click
@@ -283,6 +301,66 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
     document.addEventListener("mousedown", handler)
     return () => document.removeEventListener("mousedown", handler)
   }, [showStatus])
+
+  // Close context menu on outside click or scroll
+  useEffect(() => {
+    if (!contextMenu) return
+    const close = () => setContextMenu(null)
+    document.addEventListener("mousedown", close)
+    document.addEventListener("scroll", close, true)
+    return () => {
+      document.removeEventListener("mousedown", close)
+      document.removeEventListener("scroll", close, true)
+    }
+  }, [contextMenu])
+
+  // Auto-focus textarea when entering edit mode
+  useEffect(() => {
+    if (editingIndex !== null) {
+      editTextareaRef.current?.focus()
+    }
+  }, [editingIndex])
+
+  function handleContextMenu(e: React.MouseEvent, index: number) {
+    const msg = messages[index]
+    if (msg.role !== "assistant" || !msg.content) return
+    e.preventDefault()
+    setContextMenu({ x: e.clientX, y: e.clientY, index })
+  }
+
+  function handleStartEdit(index: number) {
+    const msg = messages[index]
+    setEditingIndex(index)
+    setEditContent(msg.content)
+    setContextMenu(null)
+  }
+
+  async function handleSaveEdit(index: number) {
+    const msg = messages[index]
+    const trimmed = editContent.trim()
+    if (!trimmed || trimmed === msg.content) {
+      setEditingIndex(null)
+      return
+    }
+    // Update local state
+    setMessages(prev => prev.map((m, i) => i === index ? { ...m, content: trimmed } : m))
+    // Also update session cache
+    if (currentSessionId) {
+      const cached = sessionCacheRef.current.get(currentSessionId)
+      if (cached) {
+        sessionCacheRef.current.set(currentSessionId, cached.map((m, i) => i === index ? { ...m, content: trimmed } : m))
+      }
+    }
+    // Persist to DB
+    if (msg.dbId) {
+      try {
+        await invoke("update_message_content_cmd", { messageId: msg.dbId, content: trimmed })
+      } catch (e) {
+        logger.error("chat", "ChatScreen::handleSaveEdit", "Failed to persist edit", { error: e })
+      }
+    }
+    setEditingIndex(null)
+  }
 
   function handleCopyMessage(content: string, index: number) {
     navigator.clipboard.writeText(content).then(() => {
@@ -414,6 +492,7 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
         ])
         setAvailableModels(models)
         setActiveModel(active)
+        globalActiveModelRef.current = active
         setReasoningEffort(settings.reasoning_effort)
         if (agentConfig) {
           setAgentName(agentConfig.name)
@@ -448,11 +527,34 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
     reloadAgents()
   }, [reloadSessions, reloadAgents])
 
-  // Listen for cron job completions to refresh unread counts
+  // Listen for cron job completions to refresh unread counts + send notification
   useEffect(() => {
     let unlisten: UnlistenFn | undefined
-    listen("cron:run_completed", () => {
+    listen("cron:run_completed", (event) => {
       reloadSessions()
+      const payload = event.payload as { job_id: string; job_name: string; status: string; notify: boolean }
+      if (payload.notify && payload.job_name) {
+        const title = payload.status === "success"
+          ? t("notification.cronSuccess")
+          : t("notification.cronError")
+        notify(title, payload.job_name)
+      }
+    }).then((fn) => {
+      unlisten = fn
+    })
+    return () => {
+      unlisten?.()
+    }
+  }, [reloadSessions, t])
+
+  // Listen for sub-agent terminal events — refresh sidebar to reflect child session status
+  useEffect(() => {
+    let unlisten: UnlistenFn | undefined
+    listen("subagent_event", (event) => {
+      const payload = event.payload as { status: string }
+      if (["completed", "error", "timeout", "killed"].includes(payload.status)) {
+        reloadSessions()
+      }
     }).then((fn) => {
       unlisten = fn
     })
@@ -460,6 +562,20 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
       unlisten?.()
     }
   }, [reloadSessions])
+
+  // Listen for agent-initiated notification events
+  useEffect(() => {
+    let unlisten: UnlistenFn | undefined
+    listen("agent:send_notification", (event) => {
+      const { title, body } = event.payload as { title: string; body: string }
+      notify(title || "OpenComputer", body)
+    }).then((fn) => {
+      unlisten = fn
+    })
+    return () => {
+      unlisten?.()
+    }
+  }, [])
 
   // Compute total unread count and notify parent
   const totalUnreadCount = useMemo(
@@ -512,7 +628,9 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
       // Load latest PAGE_SIZE messages from DB
       try {
         const [msgs, total] = await invoke<[SessionMessage[], number]>("load_session_messages_latest_cmd", { sessionId, limit: PAGE_SIZE })
-        const displayMessages = parseSessionMessages(msgs)
+        const sessionMeta = sessions.find(s => s.id === sessionId)
+        const parentSession = sessionMeta?.parentSessionId ? sessions.find(s => s.id === sessionMeta.parentSessionId) : undefined
+        const displayMessages = parseSessionMessages(msgs, parentSession?.agentId)
         sessionCacheRef.current.set(sessionId, displayMessages)
         const moreAvailable = msgs.length < total
         hasMoreRef.current.set(sessionId, moreAvailable)
@@ -543,6 +661,26 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
         if (modelExists) {
           handleModelChange(`${session.providerId}::${session.modelId}`)
         }
+      } else {
+        // Session has no model info, fallback to agent's configured model or global default
+        try {
+          const agentConfig = await invoke<AgentConfig>("get_agent_config", { id: session.agentId })
+          if (agentConfig.model.primary) {
+            const modelExists = availableModels.some(
+              (m) => `${m.providerId}::${m.modelId}` === agentConfig.model.primary
+            )
+            if (modelExists) {
+              applyModelForDisplay(agentConfig.model.primary)
+              return
+            }
+          }
+        } catch {
+          // ignore
+        }
+        // No agent model or unavailable — restore global default
+        if (globalActiveModelRef.current) {
+          setActiveModel(globalActiveModelRef.current)
+        }
       }
     }
 
@@ -569,7 +707,9 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
         setHasMore(false)
         return
       }
-      const olderDisplay = parseSessionMessages(olderMsgs)
+      const sessionMeta = sessions.find(s => s.id === currentSessionId)
+      const parentSession = sessionMeta?.parentSessionId ? sessions.find(s => s.id === sessionMeta.parentSessionId) : undefined
+      const olderDisplay = parseSessionMessages(olderMsgs, parentSession?.agentId)
       oldestDbIdRef.current.set(currentSessionId, olderMsgs[0].id)
       if (olderMsgs.length < PAGE_SIZE) {
         hasMoreRef.current.set(currentSessionId, false)
@@ -628,6 +768,26 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
     if (agent) {
       setAgentName(agent.name)
     }
+
+    // Apply agent's configured model, or restore global default
+    try {
+      const agentConfig = await invoke<AgentConfig>("get_agent_config", { id: agentId })
+      if (agentConfig.model.primary) {
+        const modelExists = availableModels.some(
+          (m) => `${m.providerId}::${m.modelId}` === agentConfig.model.primary
+        )
+        if (modelExists) {
+          applyModelForDisplay(agentConfig.model.primary)
+          return
+        }
+      }
+    } catch {
+      // ignore
+    }
+    // No agent model configured or unavailable — restore global default
+    if (globalActiveModelRef.current) {
+      setActiveModel(globalActiveModelRef.current)
+    }
   }
 
   // Delete a session
@@ -648,6 +808,29 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
       reloadSessions()
     } catch (err) {
       logger.error("session", "ChatScreen::deleteSession", "Failed to delete session", err)
+    }
+  }
+
+  // Update model display + reasoning effort without persisting to global settings.
+  // Used when switching agents to reflect the agent's configured model.
+  function applyModelForDisplay(key: string) {
+    const [providerId, modelId] = key.split("::")
+    if (!providerId || !modelId) return
+
+    setActiveModel({ providerId, modelId })
+
+    const newModel = availableModels.find(
+      (m) => m.providerId === providerId && m.modelId === modelId,
+    )
+    if (newModel) {
+      const validOptions = getEffortOptionsForType(newModel.apiType, t)
+      const isValid = validOptions.some((opt) => opt.value === reasoningEffort)
+      if (!isValid) {
+        const fallback = validOptions.some((o) => o.value === "medium")
+          ? "medium"
+          : "none"
+        setReasoningEffort(fallback)
+      }
     }
   }
 
@@ -954,6 +1137,14 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
         updated.push({ role: "event", content: `${e}` })
         return updated
       })
+      // Notify on error for non-current sessions
+      if (targetSessionId && currentSessionIdRef.current !== targetSessionId) {
+        const agent = agents.find(a => a.id === currentAgentId)
+        if (isAgentNotifyEnabled(agent?.notifyOnComplete)) {
+          const sessionTitle = sessions.find(s => s.id === targetSessionId)?.title || t("notification.chatError")
+          notify(t("notification.chatError"), sessionTitle)
+        }
+      }
     } finally {
       const sid = targetSessionId || "__pending__"
       // Clean up empty assistant message if chat was stopped before any response arrived
@@ -975,6 +1166,14 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
       setLoadingSessionIds(new Set(loadingSessionsRef.current))
       if (currentSessionIdRef.current === sid) {
         setLoading(false)
+      }
+      // Notify on completion for non-current sessions
+      if (targetSessionId && currentSessionIdRef.current !== targetSessionId) {
+        const agent = agents.find(a => a.id === currentAgentId)
+        if (isAgentNotifyEnabled(agent?.notifyOnComplete)) {
+          const sessionTitle = sessions.find(s => s.id === targetSessionId)?.title || agentName
+          notify(t("notification.chatCompleted"), sessionTitle)
+        }
       }
       // Mark current session as read so unread count stays 0 for active session
       if (targetSessionId) {
@@ -1003,7 +1202,6 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
   }, [input, loading]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <TooltipProvider>
     <>
       {/* Sidebar: Agents + Sessions */}
       <ChatSidebar
@@ -1016,6 +1214,7 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
         onSwitchSession={handleSwitchSession}
         onNewChat={handleNewChat}
         onDeleteSession={handleDeleteSession}
+        onEditAgent={onOpenAgentSettings}
       />
 
       {/* Command Approval Dialog */}
@@ -1055,18 +1254,19 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
             {agentName || t("chat.mainAgent")}
           </span>
           <div className="flex items-end gap-1">
+            <TooltipProvider>
             {/* Session Status Button */}
             <div className="relative" ref={statusRef}>
               <IconTip label={t("chat.sessionStatus")}>
-                <button
-                  className={cn(
-                    "pb-1.5 text-muted-foreground hover:text-foreground transition-colors",
-                    showStatus && "text-foreground"
-                  )}
-                  onClick={() => setShowStatus((v) => !v)}
-                >
-                  <BarChart3 className="h-4 w-4" />
-                </button>
+                  <button
+                    className={cn(
+                      "pb-1.5 text-muted-foreground hover:text-foreground transition-colors",
+                      showStatus && "text-foreground"
+                    )}
+                    onClick={() => setShowStatus((v) => !v)}
+                  >
+                    <BarChart3 className="h-4 w-4" />
+                  </button>
               </IconTip>
               {showStatus && (
                 <div
@@ -1123,10 +1323,49 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
                       const usedTokens = lastAssistantWithUsage?.usage?.inputTokens || 0
                       const usedK = Math.round(usedTokens / 1000)
                       const pct = m.contextWindow > 0 ? Math.round((usedTokens / m.contextWindow) * 100) : 0
+                      const barColor = pct < 50 ? "bg-green-500/70" : pct < 80 ? "bg-yellow-500/70" : "bg-red-500/70"
                       return (
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-muted-foreground">📚 {t("chat.statusContext")}</span>
-                          <span className="font-medium text-foreground tabular-nums">{usedK}/{ctxK}k ({pct}%)</span>
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-muted-foreground">📚 {t("chat.statusContext")}</span>
+                            <span className="font-medium text-foreground tabular-nums">{usedK}/{ctxK}k ({pct}%)</span>
+                          </div>
+                          <div className="h-1.5 w-full bg-secondary rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all duration-300 ${barColor}`}
+                              style={{ width: `${Math.min(pct, 100)}%` }}
+                            />
+                          </div>
+                          {currentSessionId && usedTokens > 0 && (
+                            <button
+                              className="w-full mt-1 px-2 py-1 text-[11px] rounded-md border border-border/50 text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors disabled:opacity-50"
+                              disabled={compacting || loading}
+                              onClick={async () => {
+                                setCompacting(true)
+                                try {
+                                  const result = await invoke<{ tierApplied: number; tokensBefore: number; tokensAfter: number; messagesAffected: number }>(
+                                    "compact_context_now",
+                                    { sessionId: currentSessionId }
+                                  )
+                                  if (result.messagesAffected > 0) {
+                                    // Reload messages to reflect compacted state
+                                    const loaded = await invoke<{ id: number; role: string; content: string; toolCalls?: string; toolResult?: string; model?: string; tokensIn?: number; tokensOut?: number; toolDurationMs?: number; createdAt: string }[]>(
+                                      "load_session_messages_cmd",
+                                      { sessionId: currentSessionId }
+                                    )
+                                    // Just close the popover — user will see updated token count on next message
+                                    setShowStatus(false)
+                                  }
+                                } catch (e) {
+                                  console.error("compact failed", e)
+                                } finally {
+                                  setCompacting(false)
+                                }
+                              }}
+                            >
+                              {compacting ? t("chat.compacting") : t("chat.compactNow")}
+                            </button>
+                          )}
                         </div>
                       )
                     })()}
@@ -1200,16 +1439,20 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
             {/* Settings Button */}
             {onOpenAgentSettings && (
               <IconTip label={t("settings.agentSettings")}>
-                <button
-                  className="pb-1.5 text-muted-foreground hover:text-foreground transition-colors"
-                  onClick={() => onOpenAgentSettings(currentAgentId)}
-                >
-                  <Settings className="h-4 w-4" />
-                </button>
+                  <button
+                    className="pb-1.5 text-muted-foreground hover:text-foreground transition-colors"
+                    onClick={() => onOpenAgentSettings(currentAgentId)}
+                  >
+                    <Settings className="h-4 w-4" />
+                  </button>
               </IconTip>
             )}
+            </TooltipProvider>
           </div>
         </div>
+
+        {/* Crash Recovery Banner */}
+        <CrashRecoveryBanner />
 
         {/* Messages */}
         <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
@@ -1238,12 +1481,14 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
               </p>
             </div>
           )}
-          {messages.map((msg, i) => (
+          {messages.map((msg, i) => {
+            const fromAgent = msg.fromAgentId ? agents.find(a => a.id === msg.fromAgentId) : undefined
+            return (
             <div
               key={i}
               className={cn(
                 "flex",
-                msg.role === "event" ? "justify-center" : msg.role === "user" ? "justify-end" : "justify-start",
+                msg.role === "event" ? "justify-center" : (msg.role === "user" && !msg.fromAgentId) ? "justify-end" : "justify-start",
               )}
             >
               {msg.role === "event" ? (
@@ -1252,27 +1497,76 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
                 </div>
               ) : (
                 <div
-                  className="relative max-w-[95%]"
+                  className={cn("relative max-w-[95%]", msg.fromAgentId && "flex items-start gap-2")}
                   onMouseEnter={() => setHoveredMsgIndex(i)}
                   onMouseLeave={() => {
                     setHoveredMsgIndex((prev) => prev === i ? null : prev)
                     setDetailsIndex((prev) => prev === i ? null : prev)
                   }}
+                  onContextMenu={(e) => handleContextMenu(e, i)}
                 >
+                  {/* Parent agent avatar for delegated messages */}
+                  {msg.fromAgentId && (
+                    <div className="w-6 h-6 rounded-full bg-purple-500/15 flex items-center justify-center text-purple-500 shrink-0 mt-1 text-[10px] overflow-hidden">
+                      {fromAgent?.avatar ? (
+                        <img src={fromAgent.avatar.startsWith("/") ? convertFileSrc(fromAgent.avatar) : fromAgent.avatar} className="w-full h-full object-cover" alt="" />
+                      ) : fromAgent?.emoji ? (
+                        <span>{fromAgent.emoji}</span>
+                      ) : (
+                        <Network className="w-3 h-3" />
+                      )}
+                    </div>
+                  )}
+                  <div>
+                  {msg.fromAgentId && (
+                    <div className="text-[10px] text-purple-500 mb-0.5 font-medium">
+                      {fromAgent?.name || msg.fromAgentId}
+                    </div>
+                  )}
                   {msg.role === "assistant" && msg.fallbackEvent && (
                     <FallbackBanner event={msg.fallbackEvent} />
                   )}
                   <div
                     className={cn(
                       "px-4 py-2.5 rounded-xl text-sm leading-relaxed overflow-hidden break-words select-text",
-                      msg.role === "user"
+                      msg.role === "user" && !msg.fromAgentId
                         ? "bg-[var(--color-user-bubble)] text-foreground whitespace-pre-wrap"
+                        : msg.fromAgentId
+                        ? "bg-purple-500/10 border border-purple-500/20 text-foreground whitespace-pre-wrap"
                         : "bg-card text-foreground/80",
                       msg.role === "assistant" && !msg.content && !msg.toolCalls?.length && !msg.contentBlocks?.length && "animate-pulse",
                       msg.role === "assistant" && loading && i === messages.length - 1 && "streaming-bubble"
                     )}
                   >
-                    {msg.role === "assistant" && msg.contentBlocks && msg.contentBlocks.length > 0 ? (
+                    {msg.role === "assistant" && editingIndex === i ? (
+                      // Edit mode: show textarea
+                      <div className="space-y-2">
+                        <textarea
+                          ref={editTextareaRef}
+                          value={editContent}
+                          onChange={(e) => setEditContent(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Escape") { setEditingIndex(null) }
+                            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { handleSaveEdit(i) }
+                          }}
+                          className="w-full min-h-[80px] rounded-lg border border-border bg-background p-2 text-sm text-foreground resize-y focus:outline-none focus:ring-1 focus:ring-ring"
+                        />
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => setEditingIndex(null)}
+                            className="px-2.5 py-1 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors"
+                          >
+                            {t("common.cancel")}
+                          </button>
+                          <button
+                            onClick={() => handleSaveEdit(i)}
+                            className="px-2.5 py-1 rounded-md text-xs bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                          >
+                            {t("common.save")}
+                          </button>
+                        </div>
+                      </div>
+                    ) : msg.role === "assistant" && msg.contentBlocks && msg.contentBlocks.length > 0 ? (
                       // New path: render content blocks in order (thinking → tool → text)
                       msg.contentBlocks.map((block, blockIdx) => {
                         if (block.type === "thinking") {
@@ -1356,35 +1650,36 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
                   </div>
                   {/* Hover toolbar — below the bubble, always reserves space */}
                   {msg.content && (
+                    <TooltipProvider>
                     <div className={cn(
                       "flex items-center gap-0.5 mt-0.5 h-6",
                       msg.role === "user" ? "justify-end" : "justify-start",
                       !(hoveredMsgIndex === i || copiedIndex === i || detailsIndex === i) && "invisible"
                     )}>
                       <IconTip label={t("chat.copy")}>
-                        <button
-                          onClick={() => handleCopyMessage(msg.content, i)}
-                          className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors"
-                        >
-                          {copiedIndex === i ? (
-                            <Check className="h-3.5 w-3.5 text-green-500" />
-                          ) : (
-                            <Copy className="h-3.5 w-3.5" />
-                          )}
-                        </button>
+                          <button
+                            onClick={() => handleCopyMessage(msg.content, i)}
+                            className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors"
+                          >
+                            {copiedIndex === i ? (
+                              <Check className="h-3.5 w-3.5 text-green-500" />
+                            ) : (
+                              <Copy className="h-3.5 w-3.5" />
+                            )}
+                          </button>
                       </IconTip>
                       {msg.role === "assistant" && (msg.usage || msg.model) && (
                         <div className="relative">
                           <IconTip label={t("chat.details")}>
-                            <button
-                              onClick={() => setDetailsIndex(detailsIndex === i ? null : i)}
-                              className={cn(
-                                "p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors",
-                                detailsIndex === i && "text-foreground bg-muted/80"
-                              )}
-                            >
-                              <Info className="h-3.5 w-3.5" />
-                            </button>
+                              <button
+                                onClick={() => setDetailsIndex(detailsIndex === i ? null : i)}
+                                className={cn(
+                                  "p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors",
+                                  detailsIndex === i && "text-foreground bg-muted/80"
+                                )}
+                              >
+                                <Info className="h-3.5 w-3.5" />
+                              </button>
                           </IconTip>
                           {detailsIndex === i && (
                             <div
@@ -1394,7 +1689,7 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
                                 {msg.model && (
                                   <div className="flex items-center justify-between gap-3">
                                     <span className="text-muted-foreground">{t("chat.statusModel")}</span>
-                                    <span className="font-medium text-foreground truncate max-w-[160px]">
+                                    <span className="font-medium text-foreground truncate max-w-[160px]" title={msg.model}>
                                       {msg.model}
                                     </span>
                                   </div>
@@ -1443,11 +1738,13 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
                         </div>
                       )}
                     </div>
+                    </TooltipProvider>
                   )}
                 </div>
+              </div>
               )}
             </div>
-          ))}
+          )})}
 
           <div ref={bottomRef} />
         </div>
@@ -1472,9 +1769,46 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
             setPendingMessage(null)
           }}
           onStop={handleStop}
+          compacting={compacting}
+          onCompact={currentSessionId ? async () => {
+            setCompacting(true)
+            try {
+              await invoke("compact_context_now", { sessionId: currentSessionId })
+            } catch (e) {
+              console.error("compact failed", e)
+            } finally {
+              setCompacting(false)
+            }
+          } : undefined}
         />
       </div>
+
+      {/* Right-click context menu for assistant messages */}
+      {contextMenu && (
+        <div
+          className="fixed z-[100] min-w-[140px] rounded-lg border border-border bg-popover p-1 shadow-lg animate-in fade-in-0 zoom-in-95"
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <button
+            className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-foreground hover:bg-muted/80 transition-colors"
+            onClick={() => handleStartEdit(contextMenu.index)}
+          >
+            <Pencil className="h-3.5 w-3.5" />
+            {t("common.edit")}
+          </button>
+          <button
+            className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-foreground hover:bg-muted/80 transition-colors"
+            onClick={() => {
+              handleCopyMessage(messages[contextMenu.index].content, contextMenu.index)
+              setContextMenu(null)
+            }}
+          >
+            <Copy className="h-3.5 w-3.5" />
+            {t("chat.copy")}
+          </button>
+        </div>
+      )}
     </>
-    </TooltipProvider>
   )
 }

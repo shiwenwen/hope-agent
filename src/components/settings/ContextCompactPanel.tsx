@@ -9,6 +9,7 @@ import {
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
+  IconTip,
 } from "@/components/ui/tooltip"
 import { ChevronDown, ChevronRight, Loader2, Info } from "lucide-react"
 import { logger } from "@/lib/logger"
@@ -180,7 +181,7 @@ export default function ContextCompactPanel() {
   }
 
   return (
-    <TooltipProvider delayDuration={100} skipDelayDuration={50}>
+    <TooltipProvider>
       <div className="space-y-4">
         <div className="border-t border-border/30 pt-4 mt-2">
           <h3 className="text-sm font-medium mb-1">{t("settings.contextCompact")}</h3>
@@ -258,14 +259,9 @@ export default function ContextCompactPanel() {
                         <label className="text-sm">
                           {t("settings.contextCompactToolsDeny")}
                         </label>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Info className="h-3 w-3 text-muted-foreground/50" />
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            {t("settings.contextCompactToolsDenyDesc")}
-                          </TooltipContent>
-                        </Tooltip>
+                        <IconTip label={t("settings.contextCompactToolsDenyDesc")}>
+                          <Info className="h-3 w-3 text-muted-foreground/50" />
+                        </IconTip>
                       </div>
                       <div className="grid grid-cols-2 gap-x-3 gap-y-1">
                         {availableTools.map((tool) => {

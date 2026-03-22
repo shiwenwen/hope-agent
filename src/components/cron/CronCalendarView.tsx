@@ -3,7 +3,6 @@ import { invoke } from "@tauri-apps/api/core"
 import { listen } from "@tauri-apps/api/event"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
-import { TooltipProvider, IconTip } from "@/components/ui/tooltip"
 import { ChevronLeft, ChevronRight, Plus, CalendarDays } from "lucide-react"
 import CronJobForm from "./CronJobForm"
 import CronJobDetail from "./CronJobDetail"
@@ -154,7 +153,6 @@ export default function CronCalendarView({ onBack, onNavigateToSession }: CronCa
   }
 
   return (
-    <TooltipProvider>
     <div className="flex flex-col flex-1 min-w-0 h-full bg-background">
       {/* Top Bar */}
       <div className="flex items-center gap-3 px-5 py-3 border-b border-border shrink-0" data-tauri-drag-region>
@@ -221,11 +219,11 @@ export default function CronCalendarView({ onBack, onNavigateToSession }: CronCa
                     {eventsByDay.has(day) && (
                       <div className="flex gap-0.5 mt-1 flex-wrap">
                         {eventsByDay.get(day)!.slice(0, 4).map((evt, j) => (
-                          <IconTip label={evt.jobName} key={j}>
-                            <span
-                              className={`inline-block w-1.5 h-1.5 rounded-full ${statusColor(evt.status)}`}
-                            />
-                          </IconTip>
+                          <span
+                            key={j}
+                            className={`inline-block w-1.5 h-1.5 rounded-full ${statusColor(evt.status)}`}
+                            title={evt.jobName}
+                          />
                         ))}
                         {(eventsByDay.get(day)!.length > 4) && (
                           <span className="text-[9px] text-muted-foreground">+{eventsByDay.get(day)!.length - 4}</span>
@@ -304,6 +302,5 @@ export default function CronCalendarView({ onBack, onNavigateToSession }: CronCa
         />
       )}
     </div>
-    </TooltipProvider>
   )
 }

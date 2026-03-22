@@ -2,7 +2,7 @@ import { useState } from "react"
 import { convertFileSrc } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+import { TooltipProvider, IconTip } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import {
   MessageSquare,
@@ -54,41 +54,35 @@ export default function IconSidebar({
         <div className="w-full pt-10 flex flex-col items-center gap-2" data-tauri-drag-region>
           {/* User avatar (if set) */}
           {userAvatar && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  className="w-9 h-9 rounded-full overflow-hidden ring-1 ring-primary/20 hover:ring-primary/40 transition-all cursor-pointer shrink-0"
-                  onClick={onOpenProfile}
-                >
-                  <img
-                    src={userAvatar.startsWith("/") ? convertFileSrc(userAvatar) : userAvatar}
-                    className="w-full h-full object-cover"
-                    alt="avatar"
-                  />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="right">{t("settings.profile")}</TooltipContent>
-            </Tooltip>
+            <IconTip label={t("settings.profile")} side="right">
+              <button
+                className="w-9 h-9 rounded-full overflow-hidden ring-1 ring-primary/20 hover:ring-primary/40 transition-all cursor-pointer shrink-0"
+                onClick={onOpenProfile}
+              >
+                <img
+                  src={userAvatar.startsWith("/") ? convertFileSrc(userAvatar) : userAvatar}
+                  className="w-full h-full object-cover"
+                  alt="avatar"
+                />
+              </button>
+            </IconTip>
           )}
           <div className="relative">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className={cn(
-                    "rounded-xl h-8 w-8",
-                    view === "chat"
-                      ? "bg-primary/10 text-primary hover:bg-primary/20"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
-                  onClick={onOpenChat}
-                >
-                  <MessageSquare className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="right">{t("chat.conversations")}</TooltipContent>
-            </Tooltip>
+            <IconTip label={t("chat.conversations")} side="right">
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  "rounded-xl h-8 w-8",
+                  view === "chat"
+                    ? "bg-primary/10 text-primary hover:bg-primary/20"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+                onClick={onOpenChat}
+              >
+                <MessageSquare className="h-4 w-4" />
+              </Button>
+            </IconTip>
             {!!totalUnreadCount && totalUnreadCount > 0 && (
               <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-destructive pointer-events-none" />
             )}
@@ -97,129 +91,111 @@ export default function IconSidebar({
 
         {/* Agents entry */}
         <div className="w-full flex justify-center mt-1">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className={cn(
-                  "rounded-xl h-8 w-8",
-                  view === "agents"
-                    ? "bg-primary/10 text-primary hover:bg-primary/20"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-                onClick={onOpenAgents}
-              >
-                <Bot className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="right">{t("settings.agents")}</TooltipContent>
-          </Tooltip>
+          <IconTip label={t("settings.agents")} side="right">
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn(
+                "rounded-xl h-8 w-8",
+                view === "agents"
+                  ? "bg-primary/10 text-primary hover:bg-primary/20"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+              onClick={onOpenAgents}
+            >
+              <Bot className="h-4 w-4" />
+            </Button>
+          </IconTip>
         </div>
 
         {/* Skills entry */}
         <div className="w-full flex justify-center mt-1">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className={cn(
-                  "rounded-xl h-8 w-8",
-                  view === "skills"
-                    ? "bg-primary/10 text-primary hover:bg-primary/20"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-                onClick={onOpenSkills}
-              >
-                <Puzzle className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="right">{t("settings.skills")}</TooltipContent>
-          </Tooltip>
+          <IconTip label={t("settings.skills")} side="right">
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn(
+                "rounded-xl h-8 w-8",
+                view === "skills"
+                  ? "bg-primary/10 text-primary hover:bg-primary/20"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+              onClick={onOpenSkills}
+            >
+              <Puzzle className="h-4 w-4" />
+            </Button>
+          </IconTip>
         </div>
 
         {/* Calendar / Scheduled Tasks entry */}
         <div className="w-full flex justify-center mt-1">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className={cn(
-                  "rounded-xl h-8 w-8",
-                  view === "calendar"
-                    ? "bg-primary/10 text-primary hover:bg-primary/20"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-                onClick={onOpenCalendar}
-              >
-                <CalendarDays className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="right">{t("cron.title")}</TooltipContent>
-          </Tooltip>
+          <IconTip label={t("cron.title")} side="right">
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn(
+                "rounded-xl h-8 w-8",
+                view === "calendar"
+                  ? "bg-primary/10 text-primary hover:bg-primary/20"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+              onClick={onOpenCalendar}
+            >
+              <CalendarDays className="h-4 w-4" />
+            </Button>
+          </IconTip>
         </div>
 
         <div className="flex-1" />
 
         <div className="py-3 flex flex-col gap-2">
           {/* Profile */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className={cn(
-                  "rounded-xl h-8 w-8",
-                  view === "profile"
-                    ? "bg-primary/10 text-primary hover:bg-primary/20"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-                onClick={onOpenProfile}
-              >
-                <User className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="right">{t("settings.profile")}</TooltipContent>
-          </Tooltip>
+          <IconTip label={t("settings.profile")} side="right">
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn(
+                "rounded-xl h-8 w-8",
+                view === "profile"
+                  ? "bg-primary/10 text-primary hover:bg-primary/20"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+              onClick={onOpenProfile}
+            >
+              <User className="h-4 w-4" />
+            </Button>
+          </IconTip>
 
           {/* Theme Toggle */}
-          <Tooltip>
-            <TooltipTrigger asChild>
+          <IconTip label={`${t("theme.title")}: ${t(`theme.${theme}`)}`} side="right">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="rounded-xl text-muted-foreground hover:text-foreground h-8 w-8"
+              onClick={cycleTheme}
+            >
+              {theme === "auto" ? (
+                <SunMoon className="h-4 w-4" />
+              ) : theme === "light" ? (
+                <Sun className="h-4 w-4" />
+              ) : (
+                <Moon className="h-4 w-4" />
+              )}
+            </Button>
+          </IconTip>
+
+          {/* Language Selector */}
+          <div className="relative">
+            <IconTip label={t("language.title")} side="right">
               <Button
                 variant="ghost"
                 size="icon"
                 className="rounded-xl text-muted-foreground hover:text-foreground h-8 w-8"
-                onClick={cycleTheme}
+                onClick={() => setShowLangMenu(!showLangMenu)}
               >
-                {theme === "auto" ? (
-                  <SunMoon className="h-4 w-4" />
-                ) : theme === "light" ? (
-                  <Sun className="h-4 w-4" />
-                ) : (
-                  <Moon className="h-4 w-4" />
-                )}
+                <Languages className="h-4 w-4" />
               </Button>
-            </TooltipTrigger>
-            <TooltipContent side="right">{`${t("theme.title")}: ${t(`theme.${theme}`)}`}</TooltipContent>
-          </Tooltip>
-
-          {/* Language Selector */}
-          <div className="relative">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="rounded-xl text-muted-foreground hover:text-foreground h-8 w-8"
-                  onClick={() => setShowLangMenu(!showLangMenu)}
-                >
-                  <Languages className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="right">{t("language.title")}</TooltipContent>
-            </Tooltip>
+            </IconTip>
             {showLangMenu && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setShowLangMenu(false)} />
@@ -268,24 +244,21 @@ export default function IconSidebar({
             )}
           </div>
           {/* Settings */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className={cn(
-                  "rounded-xl h-8 w-8",
-                  view === "settings"
-                    ? "bg-primary/10 text-primary hover:bg-primary/20"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-                onClick={onOpenSettings}
-              >
-                <Settings className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="right">{t("chat.settings")}</TooltipContent>
-          </Tooltip>
+          <IconTip label={t("chat.settings")} side="right">
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn(
+                "rounded-xl h-8 w-8",
+                view === "settings"
+                  ? "bg-primary/10 text-primary hover:bg-primary/20"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+              onClick={onOpenSettings}
+            >
+              <Settings className="h-4 w-4" />
+            </Button>
+          </IconTip>
         </div>
       </div>
     </TooltipProvider>

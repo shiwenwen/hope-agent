@@ -4,12 +4,7 @@ import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
+import { TooltipProvider, IconTip } from "@/components/ui/tooltip"
 import {
   Hand,
   Monitor,
@@ -299,24 +294,19 @@ export default function PermissionsPanel() {
 
               {/* Action button — show for not_granted and unknown */}
               {state !== "granted" && !loading && (
-                <TooltipProvider delayDuration={100} skipDelayDuration={50}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={isRequesting}
-                        onClick={() => handleRequest(item.id)}
-                        className="shrink-0 gap-1.5"
-                      >
-                        <ExternalLink className="h-3.5 w-3.5" />
-                        {state === "unknown" ? t("settings.permCheck") : t("settings.permGrant")}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>{t("settings.permGrantTooltip")}</p>
-                    </TooltipContent>
-                  </Tooltip>
+                <TooltipProvider>
+                  <IconTip label={t("settings.permGrantTooltip")}>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={isRequesting}
+                      onClick={() => handleRequest(item.id)}
+                      className="shrink-0 gap-1.5"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      {state === "unknown" ? t("settings.permCheck") : t("settings.permGrant")}
+                    </Button>
+                  </IconTip>
                 </TooltipProvider>
               )}
 

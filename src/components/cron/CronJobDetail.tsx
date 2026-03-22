@@ -88,7 +88,6 @@ export default function CronJobDetail({ jobId, onBack, onEdit, onRefresh, onView
   }
 
   return (
-    <TooltipProvider>
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="flex items-center gap-3 px-5 py-4 border-b border-border">
@@ -105,26 +104,28 @@ export default function CronJobDetail({ jobId, onBack, onEdit, onRefresh, onView
           )}
         </div>
         <div className="flex gap-1">
-          <IconTip label={t("cron.runNow")}>
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleRunNow}>
-              <Zap className="h-3.5 w-3.5" />
-            </Button>
-          </IconTip>
-          <IconTip label={t("cron.edit")}>
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onEdit(job)}>
-              <Pencil className="h-3.5 w-3.5" />
-            </Button>
-          </IconTip>
-          <IconTip label={job.status === "active" ? t("cron.pause") : t("cron.resume")}>
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleToggle}>
-              {job.status === "active" ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-            </Button>
-          </IconTip>
-          <IconTip label={t("cron.delete")}>
-            <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500 hover:text-red-600" onClick={handleDelete}>
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
-          </IconTip>
+          <TooltipProvider>
+            <IconTip label={t("cron.runNow")}>
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleRunNow}>
+                <Zap className="h-3.5 w-3.5" />
+              </Button>
+            </IconTip>
+            <IconTip label={t("common.edit")}>
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onEdit(job)}>
+                <Pencil className="h-3.5 w-3.5" />
+              </Button>
+            </IconTip>
+            <IconTip label={job.status === "active" ? t("cron.pause") : t("cron.resume")}>
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleToggle}>
+                {job.status === "active" ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+              </Button>
+            </IconTip>
+            <IconTip label={t("common.delete")}>
+              <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500 hover:text-red-600" onClick={handleDelete}>
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            </IconTip>
+          </TooltipProvider>
         </div>
       </div>
 
@@ -203,6 +204,5 @@ export default function CronJobDetail({ jobId, onBack, onEdit, onRefresh, onView
         )}
       </div>
     </div>
-    </TooltipProvider>
   )
 }

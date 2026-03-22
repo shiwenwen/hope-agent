@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
-import { TooltipProvider, IconTip } from "@/components/ui/tooltip"
 import { Textarea } from "@/components/ui/textarea"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, IconTip } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import {
   Send,
@@ -10,6 +10,7 @@ import {
   Brain,
   ChevronRight,
   ImagePlus,
+  Zap,
   Paperclip,
   X,
 } from "lucide-react"
@@ -32,6 +33,8 @@ interface ChatInputProps {
   pendingMessage?: string | null
   onCancelPending?: () => void
   onStop?: () => void
+  onCompact?: () => void
+  compacting?: boolean
 }
 
 export default function ChatInput({
@@ -50,6 +53,8 @@ export default function ChatInput({
   pendingMessage,
   onCancelPending,
   onStop,
+  onCompact,
+  compacting,
 }: ChatInputProps) {
   const { t } = useTranslation()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -184,14 +189,14 @@ export default function ChatInput({
         <div className="flex items-center gap-1 px-2 pb-2">
           {/* Attach buttons */}
           <IconTip label={t("chat.attachImage")}>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground"
-              onClick={() => imageInputRef.current?.click()}
-            >
-              <ImagePlus className="h-4 w-4" />
-            </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground"
+                onClick={() => imageInputRef.current?.click()}
+              >
+                <ImagePlus className="h-4 w-4" />
+              </Button>
           </IconTip>
           <input
             ref={imageInputRef}
@@ -202,14 +207,14 @@ export default function ChatInput({
             onChange={handleFileSelect}
           />
           <IconTip label={t("chat.attachFile")}>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground"
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <Paperclip className="h-4 w-4" />
-            </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <Paperclip className="h-4 w-4" />
+              </Button>
           </IconTip>
           <input
             ref={fileInputRef}
@@ -342,33 +347,53 @@ export default function ChatInput({
             </div>
           )}
 
+          {/* Compact Context Button */}
+          {onCompact && (
+            <IconTip label={t("chat.compactNow")}>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground"
+                  onClick={onCompact}
+                  disabled={compacting || loading}
+                >
+                  <Zap className={cn("h-4 w-4", compacting && "animate-pulse")} />
+                </Button>
+            </IconTip>
+          )}
+
           <div className="flex-1" />
 
           {/* Stop Button (always visible during loading) */}
           {loading && (
             <IconTip label={t("chat.stopReply")}>
-              <Button
-                size="icon"
-                variant="destructive"
-                className="h-8 w-8 rounded-full shrink-0"
-                onClick={onStop}
-              >
-                <Square className="h-4 w-4 fill-white stroke-white" />
-              </Button>
+                <Button
+                  size="icon"
+                  variant="destructive"
+                  className="h-8 w-8 rounded-full shrink-0"
+                  onClick={onStop}
+                >
+                  <Square className="h-4 w-4 fill-white stroke-white" />
+                </Button>
             </IconTip>
           )}
 
           {/* Send Button */}
-          <IconTip label={loading && input.trim() ? t("chat.queueMessage") : null}>
-            <Button
-              size="icon"
-              className="h-8 w-8 rounded-full shrink-0"
-              onClick={onSend}
-              disabled={!input.trim() || (loading && !!pendingMessage)}
-            >
-              <Send className="h-4 w-4" />
-            </Button>
-          </IconTip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="icon"
+                className="h-8 w-8 rounded-full shrink-0"
+                onClick={onSend}
+                disabled={!input.trim() || (loading && !!pendingMessage)}
+              >
+                <Send className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            {loading && input.trim() && (
+              <TooltipContent>{t("chat.queueMessage")}</TooltipContent>
+            )}
+          </Tooltip>
         </div>
       </div>
     </div>

@@ -2,9 +2,9 @@ import { useState, useEffect, useCallback, useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { invoke } from "@tauri-apps/api/core"
 import { cn } from "@/lib/utils"
+import { TooltipProvider, IconTip } from "@/components/ui/tooltip"
 import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
-import { TooltipProvider, IconTip } from "@/components/ui/tooltip"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import {
@@ -281,7 +281,6 @@ export default function LogPanel() {
   }
 
   return (
-    <TooltipProvider>
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Stats + Config Bar */}
       <div className="shrink-0 px-6 pt-4 pb-3 space-y-3">
@@ -294,14 +293,16 @@ export default function LogPanel() {
             <code className="text-xs text-muted-foreground font-mono truncate flex-1">
               {currentLogPath}
             </code>
-            <IconTip label={t("settings.logsCopyPath")}>
-              <button
-                onClick={handleCopyPath}
-                className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <Copy className="h-3.5 w-3.5" />
-              </button>
-            </IconTip>
+            <TooltipProvider>
+              <IconTip label={t("settings.logsCopyPath")}>
+                <button
+                  onClick={handleCopyPath}
+                  className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                </button>
+              </IconTip>
+            </TooltipProvider>
           </div>
         )}
 
@@ -732,6 +733,5 @@ export default function LogPanel() {
         </div>
       )}
     </div>
-    </TooltipProvider>
   )
 }

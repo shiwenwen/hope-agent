@@ -14,12 +14,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
+import { TooltipProvider, IconTip } from "@/components/ui/tooltip"
 import {
   Archive,
   ChevronDown,
@@ -181,36 +176,27 @@ export default function CrashHistoryPanel() {
 
       {/* Header Actions */}
       <div className="flex items-center gap-2 flex-wrap">
-        <TooltipProvider delayDuration={100} skipDelayDuration={50}>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="outline" size="sm" onClick={loadData} disabled={loading}>
-                <RefreshCw className={cn("h-4 w-4 mr-1.5", loading && "animate-spin")} />
-                {t("health.refresh")}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t("health.refreshTooltip")}</TooltipContent>
-          </Tooltip>
+        <TooltipProvider>
+          <IconTip label={t("health.refreshTooltip")}>
+            <Button variant="outline" size="sm" onClick={loadData} disabled={loading}>
+              <RefreshCw className={cn("h-4 w-4 mr-1.5", loading && "animate-spin")} />
+              {t("health.refresh")}
+            </Button>
+          </IconTip>
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="outline" size="sm" onClick={handleCreateBackup} disabled={backupLoading}>
-                <Download className="h-4 w-4 mr-1.5" />
-                {t("health.createBackup")}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t("health.createBackupTooltip")}</TooltipContent>
-          </Tooltip>
+          <IconTip label={t("health.createBackupTooltip")}>
+            <Button variant="outline" size="sm" onClick={handleCreateBackup} disabled={backupLoading}>
+              <Download className="h-4 w-4 mr-1.5" />
+              {t("health.createBackup")}
+            </Button>
+          </IconTip>
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="outline" size="sm" onClick={handleRestart}>
-                <RotateCcw className="h-4 w-4 mr-1.5" />
-                {t("health.restart")}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t("health.restartTooltip")}</TooltipContent>
-          </Tooltip>
+          <IconTip label={t("health.restartTooltip")}>
+            <Button variant="outline" size="sm" onClick={handleRestart}>
+              <RotateCcw className="h-4 w-4 mr-1.5" />
+              {t("health.restart")}
+            </Button>
+          </IconTip>
         </TooltipProvider>
 
         {crashes.length > 0 && (
