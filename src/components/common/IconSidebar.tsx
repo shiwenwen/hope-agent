@@ -84,7 +84,7 @@ export default function IconSidebar({
               </Button>
             </IconTip>
             {!!totalUnreadCount && totalUnreadCount > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-destructive pointer-events-none" />
+              <span className="absolute -top-0.5 -right-0.5 z-10 w-2.5 h-2.5 rounded-full bg-destructive border-2 border-background pointer-events-none" />
             )}
           </div>
         </div>

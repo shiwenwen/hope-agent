@@ -349,16 +349,21 @@ export default function ChatSidebar({
                     onClick={() => onSwitchSession(session.id)}
                     onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSwitchSession(session.id) } }}
                   >
-                    {/* Agent avatar (small) — with loading spinner overlay */}
-                    <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center text-primary shrink-0 text-[10px] overflow-hidden relative">
-                      {isLoading ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-                      ) : agent?.avatar ? (
-                        <img src={agent.avatar.startsWith("/") ? convertFileSrc(agent.avatar) : agent.avatar} className="w-full h-full object-cover" alt="" />
-                      ) : agent?.emoji ? (
-                        <span>{agent.emoji}</span>
-                      ) : (
-                        <Bot className="h-3.5 w-3.5" />
+                    {/* Agent avatar (small) — with loading spinner overlay + unread dot */}
+                    <div className="relative shrink-0">
+                      <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center text-primary text-[10px] overflow-hidden">
+                        {isLoading ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                        ) : agent?.avatar ? (
+                          <img src={agent.avatar.startsWith("/") ? convertFileSrc(agent.avatar) : agent.avatar} className="w-full h-full object-cover" alt="" />
+                        ) : agent?.emoji ? (
+                          <span>{agent.emoji}</span>
+                        ) : (
+                          <Bot className="h-3.5 w-3.5" />
+                        )}
+                      </div>
+                      {!isActive && session.unreadCount > 0 && (
+                        <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-destructive border-2 border-background pointer-events-none" />
                       )}
                     </div>
 
@@ -393,13 +398,6 @@ export default function ChatSidebar({
                         )}
                       </div>
                     </div>
-
-                    {/* Unread badge */}
-                    {!isActive && session.unreadCount > 0 && (
-                      <span className="shrink-0 min-w-[18px] h-[18px] px-1 rounded-full bg-destructive text-destructive-foreground text-[10px] font-medium flex items-center justify-center">
-                        {session.unreadCount > 99 ? "99+" : session.unreadCount}
-                      </span>
-                    )}
 
                     {/* Delete button (hover) */}
                     <IconTip label={t("common.delete")}>
