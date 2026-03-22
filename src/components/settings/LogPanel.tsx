@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { invoke } from "@tauri-apps/api/core"
 import { cn } from "@/lib/utils"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -292,13 +293,19 @@ export default function LogPanel() {
             <code className="text-xs text-muted-foreground font-mono truncate flex-1">
               {currentLogPath}
             </code>
-            <button
-              onClick={handleCopyPath}
-              className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
-              title={t("settings.logsCopyPath")}
-            >
-              <Copy className="h-3.5 w-3.5" />
-            </button>
+            <TooltipProvider delayDuration={100} skipDelayDuration={50}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={handleCopyPath}
+                    className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{t("settings.logsCopyPath")}</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </div>
         )}
 

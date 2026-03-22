@@ -6,6 +6,7 @@ import { SUPPORTED_LANGUAGES } from "@/i18n/i18n"
 import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import {
   Select,
   SelectContent,
@@ -543,14 +544,20 @@ function SearxngDockerSection({
               : t("settings.webSearchDockerStopped")}
           </span>
           {status.port && status.containerRunning && (
-            <button
-              type="button"
-              className="text-muted-foreground hover:text-primary underline decoration-dotted underline-offset-2 transition-colors"
-              onClick={() => onUrlSet(`http://localhost:${status.port}`)}
-              title={t("settings.webSearchDockerFillUrl")}
-            >
-              localhost:{status.port}
-            </button>
+            <TooltipProvider delayDuration={100} skipDelayDuration={50}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className="text-muted-foreground hover:text-primary underline decoration-dotted underline-offset-2 transition-colors"
+                    onClick={() => onUrlSet(`http://localhost:${status.port}`)}
+                  >
+                    localhost:{status.port}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{t("settings.webSearchDockerFillUrl")}</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           )}
         </div>
       )}

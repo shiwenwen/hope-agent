@@ -3,6 +3,7 @@ import { invoke, Channel } from "@tauri-apps/api/core"
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { logger } from "@/lib/logger"
 import { Settings, Copy, Check, Info, BarChart3, AlertCircle } from "lucide-react"
 import type {
@@ -25,6 +26,7 @@ import ThinkingBlock from "@/components/chat/ThinkingBlock"
 import ChatSidebar from "@/components/chat/ChatSidebar"
 import ChatInput from "@/components/chat/ChatInput"
 import FallbackDetailsPopover from "@/components/chat/FallbackDetailsPopover"
+import CrashRecoveryBanner from "@/components/common/CrashRecoveryBanner"
 import {
   AlertDialog,
   AlertDialogContent,
@@ -1054,18 +1056,23 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
             {agentName || t("chat.mainAgent")}
           </span>
           <div className="flex items-end gap-1">
+            <TooltipProvider delayDuration={100} skipDelayDuration={50}>
             {/* Session Status Button */}
             <div className="relative" ref={statusRef}>
-              <button
-                className={cn(
-                  "pb-1.5 text-muted-foreground hover:text-foreground transition-colors",
-                  showStatus && "text-foreground"
-                )}
-                onClick={() => setShowStatus((v) => !v)}
-                title={t("chat.sessionStatus")}
-              >
-                <BarChart3 className="h-4 w-4" />
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    className={cn(
+                      "pb-1.5 text-muted-foreground hover:text-foreground transition-colors",
+                      showStatus && "text-foreground"
+                    )}
+                    onClick={() => setShowStatus((v) => !v)}
+                  >
+                    <BarChart3 className="h-4 w-4" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{t("chat.sessionStatus")}</TooltipContent>
+              </Tooltip>
               {showStatus && (
                 <div
                   className="absolute top-full right-0 mt-1.5 z-50 min-w-[260px] rounded-xl border border-border bg-popover p-3.5 shadow-xl"
@@ -1236,16 +1243,24 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
             </div>
             {/* Settings Button */}
             {onOpenAgentSettings && (
-              <button
-                className="pb-1.5 text-muted-foreground hover:text-foreground transition-colors"
-                onClick={() => onOpenAgentSettings(currentAgentId)}
-                title={t("settings.agents")}
-              >
-                <Settings className="h-4 w-4" />
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    className="pb-1.5 text-muted-foreground hover:text-foreground transition-colors"
+                    onClick={() => onOpenAgentSettings(currentAgentId)}
+                  >
+                    <Settings className="h-4 w-4" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{t("settings.agents")}</TooltipContent>
+              </Tooltip>
             )}
+            </TooltipProvider>
           </div>
         </div>
+
+        {/* Crash Recovery Banner */}
+        <CrashRecoveryBanner />
 
         {/* Messages */}
         <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
@@ -1397,29 +1412,37 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
                       msg.role === "user" ? "justify-end" : "justify-start",
                       !(hoveredMsgIndex === i || copiedIndex === i || detailsIndex === i) && "invisible"
                     )}>
-                      <button
-                        onClick={() => handleCopyMessage(msg.content, i)}
-                        className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors"
-                        title={t("chat.copy")}
-                      >
-                        {copiedIndex === i ? (
-                          <Check className="h-3.5 w-3.5 text-green-500" />
-                        ) : (
-                          <Copy className="h-3.5 w-3.5" />
-                        )}
-                      </button>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            onClick={() => handleCopyMessage(msg.content, i)}
+                            className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors"
+                          >
+                            {copiedIndex === i ? (
+                              <Check className="h-3.5 w-3.5 text-green-500" />
+                            ) : (
+                              <Copy className="h-3.5 w-3.5" />
+                            )}
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>{t("chat.copy")}</TooltipContent>
+                      </Tooltip>
                       {msg.role === "assistant" && (msg.usage || msg.model) && (
                         <div className="relative">
-                          <button
-                            onClick={() => setDetailsIndex(detailsIndex === i ? null : i)}
-                            className={cn(
-                              "p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors",
-                              detailsIndex === i && "text-foreground bg-muted/80"
-                            )}
-                            title={t("chat.details")}
-                          >
-                            <Info className="h-3.5 w-3.5" />
-                          </button>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                onClick={() => setDetailsIndex(detailsIndex === i ? null : i)}
+                                className={cn(
+                                  "p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors",
+                                  detailsIndex === i && "text-foreground bg-muted/80"
+                                )}
+                              >
+                                <Info className="h-3.5 w-3.5" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent>{t("chat.details")}</TooltipContent>
+                          </Tooltip>
                           {detailsIndex === i && (
                             <div
                               className="absolute bottom-full mb-1 z-50 min-w-[180px] rounded-lg border border-border bg-popover p-2.5 shadow-lg left-0"

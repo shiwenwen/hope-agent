@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { SortableModelEditor, type ModelConfig } from "@/components/settings/ProviderSetup"
 import ProviderIcon from "@/components/common/ProviderIcon"
@@ -164,18 +165,24 @@ export default function ProviderEditPage({
         </span>
         <div className="w-12 flex justify-end">
           {isCodex && onCodexReauth && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              onClick={() => {
-                onCancel()
-                onCodexReauth()
-              }}
-              title={t("provider.relogin")}
-            >
-              <RefreshCw className="h-3.5 w-3.5" />
-            </Button>
+            <TooltipProvider delayDuration={100} skipDelayDuration={50}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={() => {
+                      onCancel()
+                      onCodexReauth()
+                    }}
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{t("provider.relogin")}</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           )}
         </div>
       </div>

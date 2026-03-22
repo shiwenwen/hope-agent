@@ -12,6 +12,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { cn } from "@/lib/utils"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import {
   ChevronDown,
   ChevronRight,
@@ -153,6 +154,7 @@ export default function ChatSidebar({
 
   return (
     <>
+      <TooltipProvider delayDuration={100} skipDelayDuration={50}>
       <div
         style={{ width: panelWidth }}
         className="shrink-0 border-r border-border bg-background flex flex-col"
@@ -162,19 +164,23 @@ export default function ChatSidebar({
           <h2 className="text-sm font-semibold text-foreground pb-1.5">{t("chat.conversations")}</h2>
           {/* New Chat button */}
           <div className="ml-auto relative" ref={newChatMenuRef}>
-            <button
-              className="text-muted-foreground hover:text-foreground transition-colors pb-1.5"
-              onClick={() => {
-                if (agents.length === 1) {
-                  onNewChat(agents[0].id)
-                } else {
-                  setShowNewChatMenu(!showNewChatMenu)
-                }
-              }}
-              title={t("chat.newChat") || "New Chat"}
-            >
-              <MessageSquarePlus className="h-4 w-4" />
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  className="text-muted-foreground hover:text-foreground transition-colors pb-1.5"
+                  onClick={() => {
+                    if (agents.length === 1) {
+                      onNewChat(agents[0].id)
+                    } else {
+                      setShowNewChatMenu(!showNewChatMenu)
+                    }
+                  }}
+                >
+                  <MessageSquarePlus className="h-4 w-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{t("chat.newChat")}</TooltipContent>
+            </Tooltip>
             {/* Agent selector popup */}
             {showNewChatMenu && (
               <div className="absolute right-0 top-full mt-1 bg-popover/95 backdrop-blur-xl border border-border/60 rounded-xl shadow-lg z-50 min-w-[180px] p-1.5">
@@ -274,16 +280,20 @@ export default function ChatSidebar({
                         </span>
                       </button>
                       {/* New chat button */}
-                      <button
-                        className="shrink-0 p-0.5 rounded text-muted-foreground/0 group-hover/agent:text-muted-foreground/60 hover:!text-primary transition-colors"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          onNewChat(agent.id)
-                        }}
-                        title={t("chat.newChat") || "New Chat"}
-                      >
-                        <MessageSquarePlus className="h-3 w-3" />
-                      </button>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            className="shrink-0 p-0.5 rounded text-muted-foreground/0 group-hover/agent:text-muted-foreground/60 hover:!text-primary transition-colors"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              onNewChat(agent.id)
+                            }}
+                          >
+                            <MessageSquarePlus className="h-3 w-3" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>{t("chat.newChat")}</TooltipContent>
+                      </Tooltip>
                     </div>
                   )
                 })}
@@ -355,13 +365,17 @@ export default function ChatSidebar({
                     )}
 
                     {/* Delete button (hover) */}
-                    <button
-                      className="shrink-0 text-muted-foreground/0 group-hover:text-muted-foreground/40 hover:!text-destructive transition-colors p-0.5"
-                      onClick={(e) => handleDeleteClick(session.id, e)}
-                      title="Delete"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          className="shrink-0 text-muted-foreground/0 group-hover:text-muted-foreground/40 hover:!text-destructive transition-colors p-0.5"
+                          onClick={(e) => handleDeleteClick(session.id, e)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>{t("common.delete")}</TooltipContent>
+                    </Tooltip>
                   </button>
                 )
               })
@@ -391,6 +405,7 @@ export default function ChatSidebar({
         </AlertDialogContent>
       </AlertDialog>
 
+      </TooltipProvider>
       {/* Drag Handle */}
       <div
         className="w-1 shrink-0 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors"

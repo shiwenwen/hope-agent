@@ -732,19 +732,22 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
             {MEMORY_TYPES.map((type) => {
               const Icon = MEMORY_TYPE_ICONS[type]
               return (
-                <button
-                  key={type}
-                  onClick={() => setFilterType(filterType === type ? null : type)}
-                  className={cn(
-                    "p-2 rounded-lg border transition-colors",
-                    filterType === type
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-transparent text-muted-foreground hover:text-foreground hover:bg-secondary/40"
-                  )}
-                  title={t(`settings.memoryType_${type}`)}
-                >
-                  <Icon className="h-4 w-4" />
-                </button>
+                <Tooltip key={type}>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => setFilterType(filterType === type ? null : type)}
+                      className={cn(
+                        "p-2 rounded-lg border transition-colors",
+                        filterType === type
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-transparent text-muted-foreground hover:text-foreground hover:bg-secondary/40"
+                      )}
+                    >
+                      <Icon className="h-4 w-4" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>{t(`settings.memoryType_${type}`)}</TooltipContent>
+                </Tooltip>
               )
             })}
           </div>
