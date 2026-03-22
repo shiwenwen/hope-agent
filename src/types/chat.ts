@@ -72,6 +72,7 @@ export interface SessionMeta {
   messageCount: number
   unreadCount: number
   isCron: boolean
+  parentSessionId?: string | null
 }
 
 export interface SessionMessage {

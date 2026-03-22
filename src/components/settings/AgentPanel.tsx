@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { ModelSelector } from "@/components/ui/model-selector"
 import { AvatarCropDialog } from "@/components/settings/AvatarCropDialog"
 import MemoryPanel from "@/components/settings/MemoryPanel"
+import SubagentPanelComponent from "@/components/settings/SubagentPanel"
 import {
   ArrowDown,
   ArrowLeft,
@@ -251,7 +252,7 @@ function AgentCreateView({
 
 // ── Agent Edit View ─────────────────────────────────────────────
 
-type AgentTab = "identity" | "personality" | "behavior" | "model" | "memory" | "custom"
+type AgentTab = "identity" | "personality" | "behavior" | "model" | "memory" | "subagent" | "custom"
 
 function AgentEditView({
   agentId,
@@ -295,6 +296,10 @@ function AgentEditView({
         // Ensure personality exists (for agents created before this field was added)
         if (!cfg.personality) {
           cfg.personality = { ...DEFAULT_PERSONALITY }
+        }
+        // Ensure subagents config exists
+        if (!cfg.subagents) {
+          cfg.subagents = { enabled: true, allowedAgents: [], deniedAgents: [], maxConcurrent: 5, defaultTimeoutSecs: 300, model: null }
         }
         setConfig(cfg)
         setAgentMd(md ?? "")
@@ -475,6 +480,7 @@ function AgentEditView({
     { id: "behavior", labelKey: "settings.agentBehavior" },
     { id: "model", labelKey: "settings.agentModel" },
     { id: "memory", labelKey: "settings.memory" },
+    { id: "subagent", labelKey: "settings.subagentTitle" },
     { id: "custom", labelKey: "settings.agentCustomPrompt" },
   ]
 
@@ -979,6 +985,15 @@ function AgentEditView({
           {/* ── Memory Tab ── */}
           {activeTab === "memory" && (
             <MemoryPanel agentId={agentId} compact />
+          )}
+
+          {/* ── Sub-Agent Tab ── */}
+          {activeTab === "subagent" && (
+            <SubagentPanelComponent
+              config={config.subagents}
+              currentAgentId={agentId}
+              onChange={(subagents) => updateConfig({ subagents })}
+            />
           )}
 
           {/* ── Custom Prompt Tab ── */}

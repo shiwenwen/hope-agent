@@ -37,6 +37,8 @@ Params: content (required), type (user/feedback/project/reference), tags (option
 - recall_memory: Search persistent memories by keyword or semantic query. \
 Use to recall user preferences, project context, or previously stored information. \
 Params: query (required), type (optional filter), limit (default 10). \
+- subagent: Spawn and manage sub-agents to delegate tasks to other agents. \
+Actions: spawn (start sub-agent with task), check (poll status), list, result, kill, kill_all. \
 \
 For long-running commands (builds, installs), consider using background=true and then \
 process(action='poll') to check progress.";
@@ -45,7 +47,7 @@ process(action='poll') to check progress.";
 
 /// Build the complete system prompt from an AgentDefinition.
 ///
-/// Assembly order (10 sections):
+/// Assembly order (11 sections):
 /// ① Identity line
 /// ② agent.md — what this agent does
 /// ③ persona.md — personality
@@ -55,7 +57,8 @@ process(action='poll') to check progress.";
 /// ⑦ Skills — available skill descriptions (filtered)
 /// ⑧ Memory — injected from memory backend
 /// ⑨ Runtime info — date, OS, etc.
-/// ⑩ (reserved for project context — not yet implemented)
+/// ⑩ Sub-agent delegation (conditional)
+/// ⑪ (reserved for project context — not yet implemented)
 pub fn build(definition: &AgentDefinition, model: Option<&str>, provider: Option<&str>, memory_context: Option<&str>, agent_home: Option<&str>) -> String {
     let mut sections: Vec<String> = Vec::new();
 
@@ -165,7 +168,15 @@ pub fn build(definition: &AgentDefinition, model: Option<&str>, provider: Option
     // ⑨ Runtime info
     sections.push(build_runtime_section(model, provider, agent_home));
 
-    // ⑩ Project context — not yet implemented
+    // ⑩ Sub-agent delegation (conditionally injected)
+    if definition.config.subagents.enabled {
+        let subagent_section = build_subagent_section(&definition.config.subagents, &definition.id, 0);
+        if !subagent_section.is_empty() {
+            sections.push(subagent_section);
+        }
+    }
+
+    // ⑪ Project context — not yet implemented
 
     // Join all non-empty sections
     let section_lengths: Vec<usize> = sections.iter().map(|s| s.len()).collect();
@@ -245,7 +256,7 @@ fn build_tools_section(filter: &FilterConfig) -> String {
     let all_tools = [
         "exec", "process", "read", "write", "edit",
         "ls", "grep", "find", "apply_patch", "web_search", "web_fetch",
-        "save_memory", "recall_memory",
+        "save_memory", "recall_memory", "subagent",
     ];
 
     let active: Vec<&&str> = all_tools.iter().filter(|t| filter.is_allowed(t)).collect();
@@ -411,6 +422,59 @@ fn current_date() -> String {
         .and_then(|o| String::from_utf8(o.stdout).ok())
         .map(|s| s.trim().to_string())
         .unwrap_or_else(|| "unknown".to_string())
+}
+
+/// Build sub-agent delegation section.
+/// Only included when `SubagentConfig.enabled == true` and `depth < MAX_DEPTH`.
+fn build_subagent_section(config: &crate::agent_config::SubagentConfig, current_agent_id: &str, depth: u32) -> String {
+    if depth >= crate::subagent::MAX_DEPTH {
+        return String::new();
+    }
+
+    let mut lines = vec![
+        "# Sub-Agent Delegation".to_string(),
+        String::new(),
+        "You can delegate tasks to other agents using the `subagent` tool.".to_string(),
+    ];
+
+    // List available agents for delegation
+    let agents = crate::agent_loader::list_agents().unwrap_or_default();
+    let available: Vec<_> = agents.iter()
+        .filter(|a| a.id != current_agent_id) // Don't delegate to self
+        .filter(|a| config.is_agent_allowed(&a.id))
+        .collect();
+
+    if !available.is_empty() {
+        lines.push(String::new());
+        lines.push("Available agents for delegation:".to_string());
+        for a in &available {
+            let desc = a.description.as_deref().unwrap_or("No description");
+            let emoji = a.emoji.as_deref().unwrap_or("");
+            lines.push(format!("- {} {} (id: `{}`): {}", emoji, a.name, a.id, desc));
+        }
+    }
+
+    lines.push(String::new());
+    lines.push("## How it works".to_string());
+    lines.push("1. Call `subagent(action=\"spawn\", task=\"...\", agent_id=\"...\")` to delegate a task".to_string());
+    lines.push("2. The sub-agent runs **asynchronously** — you can continue working on other things".to_string());
+    lines.push("3. When the sub-agent completes, its result is **automatically pushed** to you as a new message".to_string());
+    lines.push("4. If you need to actively wait: `subagent(action=\"check\", run_id=\"...\", wait=true)` blocks until done (fallback)".to_string());
+    lines.push(String::new());
+    lines.push("## Other actions".to_string());
+    lines.push("- `subagent(action=\"check\", run_id=\"...\")` — quick status check (non-blocking)".to_string());
+    lines.push("- `subagent(action=\"list\")` — list all sub-agent runs".to_string());
+    lines.push("- `subagent(action=\"kill\", run_id=\"...\")` — terminate a sub-agent".to_string());
+    lines.push(String::new());
+    lines.push("Sub-agents run in isolated sessions with their own tools and context.".to_string());
+    lines.push(format!("Current depth: {}/{}", depth, crate::subagent::MAX_DEPTH));
+
+    lines.join("\n")
+}
+
+/// Build sub-agent section with explicit depth (called from subagent execution context).
+pub fn build_subagent_section_with_depth(config: &crate::agent_config::SubagentConfig, current_agent_id: &str, depth: u32) -> String {
+    build_subagent_section(config, current_agent_id, depth)
 }
 
 // ── Truncation ───────────────────────────────────────────────────

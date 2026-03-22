@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **子 Agent 配置、调度与协作通讯系统**：Agent 可通过 `subagent` 工具委派子任务给其他 Agent
+  - 新增 `subagent` 工具：spawn（委派任务）、check（轮询状态）、list（查看所有子 Agent）、result（获取完整结果）、kill/kill_all（终止）
+  - 非阻塞异步执行：spawn 立即返回 run_id，子 Agent 在隔离 session 中独立运行
+  - 最大嵌套深度 3 层，每个父 session 最多 5 个并发子 Agent
+  - 完整模型链降级：子 Agent 复用 cron 的 `build_and_run_agent` 模式（load agent → resolve model chain → failover retry）
+  - `SubagentConfig` per-Agent 配置：启用/禁用、允许/禁止委派的 Agent 列表、最大并发数、默认超时、模型覆盖
+  - SQLite 持久化 `subagent_runs` 表：记录所有子 Agent 运行状态、结果、耗时
+  - 取消注册表（`SubagentCancelRegistry`）：基于 `AtomicBool` 的运行时取消机制
+  - Tauri 全局事件 `subagent_event`：前端实时收到 spawned/completed/error/killed/timeout 通知
+  - 系统提示词自动注入子 Agent 委派说明（section ⑩），包含可用 Agent 列表和用法
+  - 前端组件：`SubagentBlock.tsx`（聊天内嵌实时状态）、`SubagentPanel.tsx`（Agent 设置面板子 Agent 配置）
+  - Tauri 命令：`list_subagent_runs`、`get_subagent_run`、`kill_subagent`
+  - Cron 任务也支持生成子 Agent（depth=0）
 - **系统消息通知功能**：macOS 原生桌面通知，支持三级粒度控制
   - 全局通知开关（默认开启），通过 `tauri-plugin-notification` 实现原生通知
   - 按 Agent 级别通知覆盖配置（默认/开启/关闭）

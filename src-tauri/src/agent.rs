@@ -477,6 +477,10 @@ pub struct AssistantAgent {
     token_calibrator: std::sync::Mutex<crate::context_compact::TokenEstimateCalibrator>,
     /// Whether this agent can use the send_notification tool
     notification_enabled: bool,
+    /// Current session ID (for sub-agent context)
+    session_id: Option<String>,
+    /// Sub-agent nesting depth (0 = top-level)
+    subagent_depth: u32,
 }
 
 // ── Shared Event Types (sent to frontend via on_delta JSON) ───────
@@ -882,6 +886,8 @@ impl AssistantAgent {
             compact_config: crate::context_compact::CompactConfig::default(),
             token_calibrator: std::sync::Mutex::new(crate::context_compact::TokenEstimateCalibrator::new()),
             notification_enabled: false,
+            session_id: None,
+            subagent_depth: 0,
         }
     }
 
@@ -902,6 +908,8 @@ impl AssistantAgent {
             compact_config: crate::context_compact::CompactConfig::default(),
             token_calibrator: std::sync::Mutex::new(crate::context_compact::TokenEstimateCalibrator::new()),
             notification_enabled: false,
+            session_id: None,
+            subagent_depth: 0,
         }
     }
 
@@ -946,6 +954,8 @@ impl AssistantAgent {
             compact_config: crate::context_compact::CompactConfig::default(),
             token_calibrator: std::sync::Mutex::new(crate::context_compact::TokenEstimateCalibrator::new()),
             notification_enabled: false,
+            session_id: None,
+            subagent_depth: 0,
         }
     }
 
@@ -964,6 +974,16 @@ impl AssistantAgent {
         self.notification_enabled = enabled;
     }
 
+    /// Set the current session ID (for sub-agent context propagation).
+    pub fn set_session_id(&mut self, id: &str) {
+        self.session_id = Some(id.to_string());
+    }
+
+    /// Set the sub-agent nesting depth.
+    pub fn set_subagent_depth(&mut self, depth: u32) {
+        self.subagent_depth = depth;
+    }
+
     /// Build the full system prompt, including any extra context.
     fn build_full_system_prompt(&self, model: &str, provider: &str) -> String {
         let mut prompt = build_system_prompt(&self.agent_id, model, provider);
@@ -975,6 +995,16 @@ impl AssistantAgent {
             prompt.push_str(extra);
         }
         prompt
+    }
+
+    /// Whether the subagent tool should be available for this agent.
+    fn subagent_tool_enabled(&self) -> bool {
+        if self.subagent_depth >= crate::subagent::MAX_DEPTH {
+            return false;
+        }
+        crate::agent_loader::load_agent(&self.agent_id)
+            .map(|def| def.config.subagents.enabled)
+            .unwrap_or(true)
     }
 
     /// Get the agent's home directory path.
@@ -989,6 +1019,9 @@ impl AssistantAgent {
         tools::ToolExecContext {
             context_window_tokens: Some(self.context_window),
             home_dir: self.agent_home(),
+            session_id: self.session_id.clone(),
+            agent_id: Some(self.agent_id.clone()),
+            subagent_depth: self.subagent_depth,
         }
     }
 
@@ -1344,6 +1377,9 @@ impl AssistantAgent {
         let mut tool_schemas = tools::get_tools_for_provider(ToolProvider::Anthropic);
         if self.notification_enabled {
             tool_schemas.push(tools::get_notification_tool().to_provider_schema(ToolProvider::Anthropic));
+        }
+        if self.subagent_tool_enabled() {
+            tool_schemas.push(tools::get_subagent_tool().to_provider_schema(ToolProvider::Anthropic));
         }
 
         // Build messages from conversation history + new user message (with optional image attachments)
@@ -1751,6 +1787,9 @@ impl AssistantAgent {
         if self.notification_enabled {
             tool_schemas.push(tools::get_notification_tool().to_provider_schema(ToolProvider::OpenAI));
         }
+        if self.subagent_tool_enabled() {
+            tool_schemas.push(tools::get_subagent_tool().to_provider_schema(ToolProvider::OpenAI));
+        }
 
         let mut messages = self.conversation_history.lock().unwrap().clone();
         let user_content = build_user_content_openai_chat(message, attachments);
@@ -2132,6 +2171,9 @@ impl AssistantAgent {
         if self.notification_enabled {
             tool_schemas.push(tools::get_notification_tool().to_provider_schema(ToolProvider::OpenAI));
         }
+        if self.subagent_tool_enabled() {
+            tool_schemas.push(tools::get_subagent_tool().to_provider_schema(ToolProvider::OpenAI));
+        }
 
         let reasoning = reasoning_effort
             .and_then(|e| clamp_reasoning_effort(model, e))
@@ -2328,6 +2370,9 @@ impl AssistantAgent {
         let mut tool_schemas = tools::get_tools_for_provider(ToolProvider::OpenAI);
         if self.notification_enabled {
             tool_schemas.push(tools::get_notification_tool().to_provider_schema(ToolProvider::OpenAI));
+        }
+        if self.subagent_tool_enabled() {
+            tool_schemas.push(tools::get_subagent_tool().to_provider_schema(ToolProvider::OpenAI));
         }
 
         // Build reasoning config with clamping

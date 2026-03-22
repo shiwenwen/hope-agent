@@ -43,6 +43,7 @@ src-tauri/src/          后端（Rust）
   browser_state.rs      浏览器连接状态管理（全局单例 + CDP 生命周期 + Profile 隔离）
   permissions.rs        macOS 系统权限检测 & 申请（15 项权限，JXA + 框架 API 检测）
   context_compact.rs    上下文压缩系统（4 层渐进式压缩 + Token 估算校准 + 工具结果截断 + 上下文裁剪 + LLM 摘要 + 溢出恢复）
+  subagent.rs           子 Agent 系统（数据模型 + SQLite 持久化 + 异步 spawn + CancelRegistry + Tauri 事件）
   crash_journal.rs      崩溃日志（JSON 持久化 + 信号映射 + 诊断结果记录）
   backup.rs             配置备份（创建/恢复/轮转 + 增量文件备份）
   self_diagnosis.rs     自诊断系统（多 Provider Failover LLM 调用 + 基础分析降级 + 保守自动修复）
@@ -74,6 +75,7 @@ src-tauri/src/          后端（Rust）
 - **Web Fetch 网页抓取**：`tools/web_fetch.rs` 的 `tool_web_fetch` 使用 Mozilla Readability（`readability` crate）提取正文 + `htmd` crate 转 Markdown，支持 markdown/text 双模式。内存缓存（15 分钟 TTL / 100 条上限）、SSRF 防护（DNS 解析 + 私有 IP 拦截）、流式字节限制读取（默认 2MB）、结构化 JSON 响应。配置存储在 `config.json` 的 `webFetch` 字段，设置面板 `WebFetchPanel` 管理
 - **上下文压缩系统**：`context_compact.rs` 实现 4 层渐进式上下文压缩。Tier 1 工具结果截断（head+tail，结构感知边界切割）→ Tier 2 上下文裁剪（软裁剪 + 硬替换，age×size 优先级评分）→ Tier 3 LLM 摘要（分块摘要 + 合并 + 3 级 fallback）→ Tier 4 溢出恢复（ContextOverflow 触发紧急压缩 + 自动重试）。Token 估算校准器利用 API 返回的实际 token 数做 EMA 滑动平均。15 个可配置参数存储在 `config.json` 的 `compact` 字段，设置面板 `ContextCompactPanel` 管理
 - **系统消息通知**：`tauri-plugin-notification` 实现 macOS 原生桌面通知。三级粒度控制：全局开关（`config.json` 的 `notification` 字段，默认开启）→ 按 Agent 覆盖（`agent.json` 的 `notifyOnComplete`，None/true/false）→ 按定时任务开关（`cron_jobs.notify_on_complete` 列）。通知触发场景：非当前会话模型完成/异常、定时任务成功/失败。Agent 可调用 `send_notification` 工具（`tools/notification.rs`），仅在通知开启时条件注入到工具列表。前端 `src/lib/notifications.ts` 统一管理权限检查和通知发送。设置面板 `NotificationPanel` 管理
+- **子 Agent 系统**：`subagent.rs` 实现 Agent 间任务委派。`subagent` 工具支持 spawn/check/list/result/kill/kill_all 六种操作。非阻塞异步 spawn（`tokio::spawn`），子 Agent 在隔离 session 中运行，复用 cron 的 `build_and_run_agent` 模式（load agent → resolve model chain → failover retry）。最大嵌套深度 3 层，每个父 session 最多 5 个并发。`SubagentCancelRegistry`（`AtomicBool`）管理运行时取消。SQLite `subagent_runs` 表持久化运行记录。Tauri 全局事件 `subagent_event` 实时通知前端。`SubagentConfig` per-Agent 配置（enabled/allowedAgents/deniedAgents/maxConcurrent/defaultTimeoutSecs/model）。系统提示词 section ⑩ 条件注入委派说明。前端 `SubagentBlock.tsx`（聊天内嵌状态）+ `SubagentPanel.tsx`（Agent 设置面板）
 - **自愈式自动重启**：`main.rs` 实现 Guardian Process 架构，同一二进制通过 `OPENCOMPUTER_CHILD` 环境变量区分 Guardian/Child 模式。Guardian 监控子进程退出码，捕获所有崩溃类型（panic/segfault/OOM/abort），指数退避重启。连续崩溃 5 次触发 `backup.rs` 配置备份 + `self_diagnosis.rs` LLM 自诊断（多 Provider Failover + 基础分析降级），保守自动修复（仅 config/logs.db 损坏）。崩溃记录持久化到 `crash_journal.json`（JSON 格式，最近 50 条）。信号转发确保 Force Quit 不误判。退出码：0=正常、42=请求重启、其他=崩溃。设置面板 `CrashHistoryPanel` 管理崩溃历史和备份
 
 ## 编码规范

@@ -250,6 +250,71 @@ impl Default for MemoryConfig {
     }
 }
 
+// ── Sub-Agent Config ────────────────────────────────────────────
+
+/// Configuration for sub-agent delegation capabilities.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubagentConfig {
+    /// Whether this agent can spawn sub-agents
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// Which agents this agent is allowed to delegate to (empty = all)
+    #[serde(default)]
+    pub allowed_agents: Vec<String>,
+
+    /// Which agents are denied (takes precedence over allowed)
+    #[serde(default)]
+    pub denied_agents: Vec<String>,
+
+    /// Max concurrent sub-agents this agent can have running
+    #[serde(default = "default_max_concurrent")]
+    pub max_concurrent: u32,
+
+    /// Default timeout for spawned sub-agents (seconds)
+    #[serde(default = "default_subagent_timeout")]
+    pub default_timeout_secs: u64,
+
+    /// Model override for sub-agents (e.g., use a cheaper model for delegation)
+    #[serde(default)]
+    pub model: Option<String>,
+}
+
+fn default_max_concurrent() -> u32 {
+    5
+}
+
+fn default_subagent_timeout() -> u64 {
+    300
+}
+
+impl Default for SubagentConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            allowed_agents: Vec::new(),
+            denied_agents: Vec::new(),
+            max_concurrent: default_max_concurrent(),
+            default_timeout_secs: default_subagent_timeout(),
+            model: None,
+        }
+    }
+}
+
+impl SubagentConfig {
+    /// Check if delegation to a specific agent is allowed.
+    pub fn is_agent_allowed(&self, agent_id: &str) -> bool {
+        if self.denied_agents.iter().any(|d| d == agent_id) {
+            return false;
+        }
+        if !self.allowed_agents.is_empty() && !self.allowed_agents.iter().any(|a| a == agent_id) {
+            return false;
+        }
+        true
+    }
+}
+
 // ── Agent Definition (runtime) ───────────────────────────────────
 
 /// Complete Agent definition loaded from the filesystem.

@@ -3,7 +3,6 @@ import { useTranslation } from "react-i18next"
 import { invoke } from "@tauri-apps/api/core"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
-import { Label } from "@/components/ui/label"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -166,9 +165,9 @@ export default function CrashHistoryPanel() {
       {/* Guardian Toggle */}
       <div className="flex items-center justify-between rounded-lg border bg-card p-4">
         <div className="space-y-0.5">
-          <Label htmlFor="guardian-toggle" className="text-sm font-medium">
+          <label htmlFor="guardian-toggle" className="text-sm font-medium">
             {t("health.guardianEnabled")}
-          </Label>
+          </label>
           <p className="text-xs text-muted-foreground">
             {t("health.guardianEnabledDesc")}
           </p>

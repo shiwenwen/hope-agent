@@ -14,6 +14,7 @@ mod memory;
 mod notification;
 mod process;
 mod read;
+pub(crate) mod subagent;
 pub(crate) mod web_fetch;
 pub(crate) mod web_search;
 mod write;
@@ -691,6 +692,54 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
     ]
 }
 
+/// Returns the subagent tool definition (conditionally injected when enabled).
+pub fn get_subagent_tool() -> ToolDefinition {
+    ToolDefinition {
+        name: "subagent".into(),
+        description: "Spawn and manage sub-agents to delegate tasks. Sub-agents run asynchronously — their results are automatically pushed to you when complete. Use check(wait=true) as fallback if you need to actively wait for a result.".into(),
+        parameters: json!({
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["spawn", "check", "list", "result", "kill", "kill_all"],
+                    "description": "Action: spawn (delegate task), check (poll/wait for status), list (all runs), result (full output), kill (terminate one), kill_all (terminate all)"
+                },
+                "task": {
+                    "type": "string",
+                    "description": "Task description for the sub-agent (required for spawn)"
+                },
+                "agent_id": {
+                    "type": "string",
+                    "description": "Agent to delegate to (default: 'default')"
+                },
+                "run_id": {
+                    "type": "string",
+                    "description": "Run ID (for check/result/kill)"
+                },
+                "timeout_secs": {
+                    "type": "integer",
+                    "description": "Timeout in seconds for spawn (default 300, max 1800)"
+                },
+                "wait": {
+                    "type": "boolean",
+                    "description": "For check: block until sub-agent completes (default false). Use as fallback if push notification was missed."
+                },
+                "wait_timeout": {
+                    "type": "integer",
+                    "description": "For check with wait=true: max seconds to wait (default 60, max 300)"
+                },
+                "model": {
+                    "type": "string",
+                    "description": "Model override: 'provider_id/model_id'"
+                }
+            },
+            "required": ["action"],
+            "additionalProperties": false
+        }),
+    }
+}
+
 /// Returns all tool schemas formatted for the given provider
 pub fn get_tools_for_provider(provider: ToolProvider) -> Vec<Value> {
     get_available_tools()
@@ -732,6 +781,12 @@ pub struct ToolExecContext {
     /// Agent home directory — used as default cwd/path for tools.
     /// Falls back to user ~ if None.
     pub home_dir: Option<String>,
+    /// Current session ID (for sub-agent spawning context)
+    pub session_id: Option<String>,
+    /// Current agent ID
+    pub agent_id: Option<String>,
+    /// Sub-agent nesting depth (0 = top-level)
+    pub subagent_depth: u32,
 }
 
 impl Default for ToolExecContext {
@@ -739,6 +794,9 @@ impl Default for ToolExecContext {
         Self {
             context_window_tokens: None,
             home_dir: None,
+            session_id: None,
+            agent_id: None,
+            subagent_depth: 0,
         }
     }
 }
@@ -796,6 +854,7 @@ pub async fn execute_tool_with_context(
         "manage_cron" => cron::tool_manage_cron(args).await,
         "browser" => browser::tool_browser(args).await,
         "send_notification" => notification::tool_send_notification(args, ctx).await,
+        "subagent" => subagent::tool_subagent(args, ctx).await,
         _ => Err(anyhow::anyhow!("Unknown tool: {}", name)),
     };
 

@@ -20,6 +20,8 @@ pub struct SessionMeta {
     pub message_count: i64,
     pub unread_count: i64,
     pub is_cron: bool,
+    /// If this session was created by a sub-agent spawn, stores the parent session ID.
+    pub parent_session_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -126,7 +128,8 @@ impl SessionDB {
                 updated_at TEXT NOT NULL,
                 context_json TEXT,
                 last_read_message_id INTEGER DEFAULT 0,
-                is_cron INTEGER NOT NULL DEFAULT 0
+                is_cron INTEGER NOT NULL DEFAULT 0,
+                parent_session_id TEXT
             );
 
             CREATE TABLE IF NOT EXISTS messages (
@@ -191,13 +194,18 @@ impl SessionDB {
 
     /// Create a new session, return its metadata.
     pub fn create_session(&self, agent_id: &str) -> Result<SessionMeta> {
+        self.create_session_with_parent(agent_id, None)
+    }
+
+    /// Create a new session with an optional parent session ID (for sub-agent sessions).
+    pub fn create_session_with_parent(&self, agent_id: &str, parent_session_id: Option<&str>) -> Result<SessionMeta> {
         let id = uuid::Uuid::new_v4().to_string();
         let now = chrono::Utc::now().to_rfc3339();
 
         let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         conn.execute(
-            "INSERT INTO sessions (id, agent_id, created_at, updated_at) VALUES (?1, ?2, ?3, ?4)",
-            params![id, agent_id, now, now],
+            "INSERT INTO sessions (id, agent_id, created_at, updated_at, parent_session_id) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![id, agent_id, now, now, parent_session_id],
         )?;
 
         Ok(SessionMeta {
@@ -212,6 +220,7 @@ impl SessionDB {
             message_count: 0,
             unread_count: 0,
             is_cron: false,
+            parent_session_id: parent_session_id.map(|s| s.to_string()),
         })
     }
 
@@ -228,7 +237,8 @@ impl SessionDB {
                         s.created_at, s.updated_at,
                         (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) as msg_count,
                         (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.id > COALESCE(s.last_read_message_id, 0)) as unread_count,
-                        s.is_cron
+                        s.is_cron,
+                        s.parent_session_id
                  FROM sessions s
                  WHERE s.agent_id = ?1
                  ORDER BY s.updated_at DESC"
@@ -246,6 +256,7 @@ impl SessionDB {
                     message_count: row.get(8)?,
                     unread_count: row.get(9)?,
                     is_cron: row.get::<_, i64>(10).unwrap_or(0) != 0,
+                    parent_session_id: row.get(11)?,
                 })
             })?;
             for row in rows {
@@ -257,7 +268,8 @@ impl SessionDB {
                         s.created_at, s.updated_at,
                         (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) as msg_count,
                         (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.id > COALESCE(s.last_read_message_id, 0)) as unread_count,
-                        s.is_cron
+                        s.is_cron,
+                        s.parent_session_id
                  FROM sessions s
                  ORDER BY s.updated_at DESC"
             )?;
@@ -274,6 +286,7 @@ impl SessionDB {
                     message_count: row.get(8)?,
                     unread_count: row.get(9)?,
                     is_cron: row.get::<_, i64>(10).unwrap_or(0) != 0,
+                    parent_session_id: row.get(11)?,
                 })
             })?;
             for row in rows {
@@ -510,7 +523,8 @@ impl SessionDB {
                     s.created_at, s.updated_at,
                     (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) as msg_count,
                     (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.id > COALESCE(s.last_read_message_id, 0)) as unread_count,
-                    s.is_cron
+                    s.is_cron,
+                    s.parent_session_id
              FROM sessions s WHERE s.id = ?1"
         )?;
 
@@ -527,6 +541,7 @@ impl SessionDB {
                 message_count: row.get(8)?,
                 unread_count: row.get(9)?,
                 is_cron: row.get::<_, i64>(10).unwrap_or(0) != 0,
+                parent_session_id: row.get(11)?,
             })
         })?;
 
@@ -656,6 +671,18 @@ impl SessionDB {
             |row| row.get(0),
         )?;
         Ok(count as usize)
+    }
+
+    /// Mark all non-terminal sub-agent runs as error (orphan cleanup on startup).
+    pub fn cleanup_orphan_subagent_runs(&self) -> Result<usize> {
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let now = chrono::Utc::now().to_rfc3339();
+        let affected = conn.execute(
+            "UPDATE subagent_runs SET status = 'error', error = 'Orphaned: app restarted before completion', finished_at = ?1
+             WHERE status IN ('spawning', 'running')",
+            params![now],
+        )?;
+        Ok(affected)
     }
 
     fn row_to_subagent_run(row: &rusqlite::Row) -> rusqlite::Result<crate::subagent::SubagentRun> {

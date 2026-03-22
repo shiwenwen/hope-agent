@@ -3020,6 +3020,9 @@ pub fn run() {
             let _ = SUBAGENT_CANCELS.set(subagent_cancels.clone());
             let _ = SESSION_DB.set(session_db.clone());
 
+            // Clean up orphan sub-agent runs from previous app session
+            subagent::cleanup_orphan_runs(&session_db);
+
             AppState {
                 agent: Mutex::new(None),
                 auth_result: Arc::new(Mutex::new(None)),

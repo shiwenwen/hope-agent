@@ -66,6 +66,14 @@ export interface AgentConfig {
   behavior: { maxToolRounds: number; requireApproval: string[]; sandbox: boolean; skillEnvCheck: boolean }
   useCustomPrompt: boolean
   notifyOnComplete?: boolean | null
+  subagents: {
+    enabled: boolean
+    allowedAgents: string[]
+    deniedAgents: string[]
+    maxConcurrent: number
+    defaultTimeoutSecs: number
+    model?: string | null
+  }
 }
 
 // ── Log Types ────────────────────────────────────────────────────
