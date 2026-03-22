@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { Switch } from "@/components/ui/switch"
+import ContextCompactPanel from "@/components/settings/ContextCompactPanel"
 
 interface ChatConfig {
   autoSendPending: boolean
@@ -34,16 +35,21 @@ export default function ChatSettingsPanel() {
   if (!loaded) return null
 
   return (
-    <div className="space-y-4">
-      <div
-        className="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-secondary/40 transition-colors cursor-pointer"
-        onClick={() => toggle("autoSendPending")}
-      >
-        <div className="space-y-0.5">
-          <div className="text-sm font-medium">{t("settings.chatAutoSend")}</div>
-          <div className="text-xs text-muted-foreground">{t("settings.chatAutoSendDesc")}</div>
+    <div className="flex-1 overflow-y-auto p-6">
+      <div className="space-y-6">
+        <div
+          className="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-secondary/40 transition-colors cursor-pointer"
+          onClick={() => toggle("autoSendPending")}
+        >
+          <div className="space-y-0.5">
+            <div className="text-sm font-medium">{t("settings.chatAutoSend")}</div>
+            <div className="text-xs text-muted-foreground">{t("settings.chatAutoSendDesc")}</div>
+          </div>
+          <Switch checked={config.autoSendPending} onCheckedChange={() => toggle("autoSendPending")} />
         </div>
-        <Switch checked={config.autoSendPending} onCheckedChange={() => toggle("autoSendPending")} />
+
+        {/* 上下文管理 */}
+        <ContextCompactPanel />
       </div>
     </div>
   )
