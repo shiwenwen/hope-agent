@@ -552,7 +552,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         // ── Browser Control ──────────────────────────────────────
         ToolDefinition {
             name: "browser".into(),
-            description: "Control a Chrome browser via DevTools Protocol. Supports navigation, element interaction (click/fill/hover/drag), screenshots, accessibility snapshots, JavaScript execution, and tab management. Chrome must be running with --remote-debugging-port=9222, or use action='launch' to start a managed instance. Use 'take_snapshot' to get element refs, then use those refs for click/fill/hover actions.".into(),
+            description: "Control a Chrome browser via DevTools Protocol. Supports navigation, element interaction (click/fill/hover/drag), screenshots, accessibility snapshots, JavaScript execution, tab management, profile isolation, and PDF export. Chrome must be running with --remote-debugging-port=9222, or use action='launch' to start a managed instance. Use 'take_snapshot' to get element refs, then use those refs for click/fill/hover actions. Use 'list_profiles' to see available profiles and 'save_pdf' to export pages as PDF.".into(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -566,7 +566,8 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                             "click", "fill", "fill_form", "hover", "drag",
                             "press_key", "upload_file",
                             "evaluate", "wait_for",
-                            "handle_dialog", "resize", "scroll"
+                            "handle_dialog", "resize", "scroll",
+                            "list_profiles", "save_pdf"
                         ],
                         "description": "Browser action to perform"
                     },
@@ -651,6 +652,27 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     "headless": {
                         "type": "boolean",
                         "description": "Launch in headless mode (default: false)"
+                    },
+                    "profile": {
+                        "type": "string",
+                        "description": "Browser profile name for launch action. Each profile has isolated cookies, storage, and login state. Use 'list_profiles' to see existing profiles."
+                    },
+                    "output_path": {
+                        "type": "string",
+                        "description": "File path for save_pdf output. Defaults to ~/.opencomputer/share/page_<timestamp>.pdf"
+                    },
+                    "paper_format": {
+                        "type": "string",
+                        "enum": ["a3", "a4", "a5", "letter", "legal", "tabloid"],
+                        "description": "Paper format for save_pdf (default: letter)"
+                    },
+                    "landscape": {
+                        "type": "boolean",
+                        "description": "Use landscape orientation for save_pdf (default: false)"
+                    },
+                    "print_background": {
+                        "type": "boolean",
+                        "description": "Include background graphics in save_pdf (default: false)"
                     },
                     "direction": {
                         "type": "string",

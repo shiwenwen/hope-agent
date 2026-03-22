@@ -37,8 +37,10 @@ pub(crate) async fn tool_browser(args: &Value) -> Result<String> {
         "handle_dialog" => action_handle_dialog(args).await,
         "resize" => action_resize(args).await,
         "scroll" => action_scroll(args).await,
+        "list_profiles" => action_list_profiles().await,
+        "save_pdf" => action_save_pdf(args).await,
         _ => Err(anyhow::anyhow!(
-            "Unknown browser action: '{}'. Available: connect, launch, disconnect, list_pages, new_page, select_page, close_page, navigate, go_back, go_forward, take_snapshot, take_screenshot, click, fill, fill_form, hover, drag, press_key, upload_file, evaluate, wait_for, handle_dialog, resize, scroll",
+            "Unknown browser action: '{}'. Available: connect, launch, disconnect, list_pages, new_page, select_page, close_page, navigate, go_back, go_forward, take_snapshot, take_screenshot, click, fill, fill_form, hover, drag, press_key, upload_file, evaluate, wait_for, handle_dialog, resize, scroll, list_profiles, save_pdf",
             action
         )),
     }
@@ -94,19 +96,22 @@ async fn action_connect(args: &Value) -> Result<String> {
 async fn action_launch(args: &Value) -> Result<String> {
     let executable = get_str(args, "executable_path");
     let headless = get_bool(args, "headless").unwrap_or(false);
+    let profile = get_str(args, "profile");
 
     let mut state = get_browser_state().lock().await;
     if state.is_connected() {
         state.disconnect().await;
     }
 
-    state.launch(executable, headless).await?;
+    state.launch(executable, headless, profile).await?;
 
     let page_count = state.pages.len();
+    let profile_info = profile.map(|p| format!(", profile: {}", p)).unwrap_or_default();
 
     Ok(format!(
-        "Chrome launched successfully{}. {} page(s) available.",
+        "Chrome launched successfully{}{}. {} page(s) available.",
         if headless { " (headless)" } else { "" },
+        profile_info,
         page_count
     ))
 }
@@ -991,4 +996,118 @@ async fn action_scroll(args: &Value) -> Result<String> {
         .map_err(|e| anyhow::anyhow!("Scroll failed: {}", e))?;
 
     Ok(format!("Scrolled {} by {} pixels", direction, amount.abs()))
+}
+
+// ══════════════════════════════════════════════════════════════════
+// Profile Management
+// ══════════════════════════════════════════════════════════════════
+
+async fn action_list_profiles() -> Result<String> {
+    let profiles_dir = crate::paths::browser_profiles_dir()?;
+
+    if !profiles_dir.exists() {
+        return Ok("No browser profiles found. Use action='launch' with 'profile' parameter to create one.".to_string());
+    }
+
+    let mut profiles = Vec::new();
+    for entry in std::fs::read_dir(&profiles_dir)? {
+        let entry = entry?;
+        if entry.file_type()?.is_dir() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            profiles.push(name);
+        }
+    }
+
+    if profiles.is_empty() {
+        return Ok("No browser profiles found. Use action='launch' with 'profile' parameter to create one.".to_string());
+    }
+
+    profiles.sort();
+
+    // Show which profile is currently active
+    let state = get_browser_state().lock().await;
+    let active_profile = state.profile.as_deref();
+
+    let mut lines = vec![format!("Browser profiles ({}):", profiles.len())];
+    for name in &profiles {
+        let marker = if active_profile == Some(name.as_str()) { " [active]" } else { "" };
+        lines.push(format!("  - {}{}", name, marker));
+    }
+
+    Ok(lines.join("\n"))
+}
+
+// ══════════════════════════════════════════════════════════════════
+// PDF Export
+// ══════════════════════════════════════════════════════════════════
+
+async fn action_save_pdf(args: &Value) -> Result<String> {
+    require_browser().await?;
+
+    let state = get_browser_state().lock().await;
+    let page = state.get_active_page()?;
+
+    use chromiumoxide::cdp::browser_protocol::page::PrintToPdfParams;
+
+    let mut params = PrintToPdfParams::default();
+
+    // Optional paper format
+    if let Some(paper) = get_str(args, "paper_format") {
+        let (w, h) = match paper {
+            "a3" | "A3" => (11.69, 16.54),
+            "a4" | "A4" => (8.27, 11.69),
+            "a5" | "A5" => (5.83, 8.27),
+            "letter" => (8.5, 11.0),
+            "legal" => (8.5, 14.0),
+            "tabloid" => (11.0, 17.0),
+            _ => return Err(anyhow::anyhow!(
+                "Unknown paper_format: '{}'. Options: a3, a4, a5, letter, legal, tabloid", paper
+            )),
+        };
+        params.paper_width = Some(w);
+        params.paper_height = Some(h);
+    }
+
+    // Optional landscape
+    if let Some(landscape) = get_bool(args, "landscape") {
+        params.landscape = Some(landscape);
+    }
+
+    // Optional print background
+    if let Some(bg) = get_bool(args, "print_background") {
+        params.print_background = Some(bg);
+    }
+
+    let pdf_bytes = page.pdf(params).await
+        .map_err(|e| anyhow::anyhow!("PDF export failed: {}. Note: PDF generation requires Chrome to NOT be in non-headless mode with some configurations.", e))?;
+
+    // Determine output path
+    let output_path = if let Some(path) = get_str(args, "output_path") {
+        std::path::PathBuf::from(path)
+    } else {
+        // Default: save to ~/.opencomputer/share/ with timestamp
+        let share_dir = crate::paths::share_dir()?;
+        std::fs::create_dir_all(&share_dir)?;
+        let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+        share_dir.join(format!("page_{}.pdf", timestamp))
+    };
+
+    // Ensure parent directory exists
+    if let Some(parent) = output_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    std::fs::write(&output_path, &pdf_bytes)?;
+
+    let url = page.url().await
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "unknown".to_string());
+
+    Ok(format!(
+        "PDF saved: {} ({} bytes)\nSource: {}",
+        output_path.display(),
+        pdf_bytes.len(),
+        url
+    ))
 }

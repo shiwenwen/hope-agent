@@ -36,7 +36,7 @@ src-tauri/src/          后端（Rust）
   system_prompt.rs      系统提示词模块化拼装
   memory.rs             记忆系统（MemoryBackend trait + SQLite/FTS5 实现 + Embedding 配置）
   cron.rs               定时任务系统（调度器 + CronDB + 任务执行 + 日历查询）
-  browser_state.rs      浏览器连接状态管理（全局单例 + CDP 生命周期）
+  browser_state.rs      浏览器连接状态管理（全局单例 + CDP 生命周期 + Profile 隔离）
 ```
 
 ## 技术栈

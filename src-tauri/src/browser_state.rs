@@ -40,6 +40,8 @@ pub struct BrowserState {
     pub snapshot_url: Option<String>,
     /// Connection URL (for reconnection)
     pub connection_url: Option<String>,
+    /// Active browser profile name (None = default Chrome profile)
+    pub profile: Option<String>,
 }
 
 impl BrowserState {
@@ -52,6 +54,7 @@ impl BrowserState {
             element_refs: Vec::new(),
             snapshot_url: None,
             connection_url: None,
+            profile: None,
         }
     }
 
@@ -98,7 +101,7 @@ impl BrowserState {
     }
 
     /// Launch a new managed Chrome instance
-    pub async fn launch(&mut self, executable_path: Option<&str>, headless: bool) -> anyhow::Result<()> {
+    pub async fn launch(&mut self, executable_path: Option<&str>, headless: bool, profile: Option<&str>) -> anyhow::Result<()> {
         let mut config = BrowserConfig::builder();
 
         if let Some(path) = executable_path {
@@ -107,6 +110,14 @@ impl BrowserState {
 
         if headless {
             config = config.arg("--headless=new");
+        }
+
+        // Profile support: use a dedicated user-data-dir per profile
+        if let Some(profile_name) = profile {
+            let profile_dir = crate::paths::browser_profile_dir(profile_name)?;
+            std::fs::create_dir_all(&profile_dir)?;
+            config = config.user_data_dir(profile_dir);
+            app_info!("browser", "cdp", "Launching with profile: {}", profile_name);
         }
 
         // Common args for stability
@@ -139,6 +150,7 @@ impl BrowserState {
         self.browser = Some(browser);
         self.handler_task = Some(handle);
         self.connection_url = None;
+        self.profile = profile.map(|s| s.to_string());
 
         tokio::task::yield_now().await;
 
@@ -155,6 +167,7 @@ impl BrowserState {
         self.element_refs.clear();
         self.snapshot_url = None;
         self.connection_url = None;
+        self.profile = None;
 
         // Drop the browser (closes the CDP connection)
         self.browser.take();

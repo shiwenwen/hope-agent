@@ -120,6 +120,18 @@ pub fn models_cache_dir() -> Result<PathBuf> {
     Ok(root_dir()?.join("models"))
 }
 
+// ── Browser Profiles ────────────────────────────────────────────
+
+/// Browser profiles root directory: ~/.opencomputer/browser-profiles/
+pub fn browser_profiles_dir() -> Result<PathBuf> {
+    Ok(root_dir()?.join("browser-profiles"))
+}
+
+/// Specific browser profile directory: ~/.opencomputer/browser-profiles/{profile_name}/
+pub fn browser_profile_dir(profile_name: &str) -> Result<PathBuf> {
+    Ok(browser_profiles_dir()?.join(profile_name))
+}
+
 // ── Directory Initialization ─────────────────────────────────────
 
 /// Ensure all required directories exist.
@@ -134,6 +146,7 @@ pub fn ensure_dirs() -> Result<()> {
         share_dir()?,
         logs_dir()?,
         models_cache_dir()?,
+        browser_profiles_dir()?,
     ];
     for dir in &dirs_to_create {
         std::fs::create_dir_all(dir)?;
