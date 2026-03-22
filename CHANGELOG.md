@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **重构 `agent.rs` 为模块目录**：将 2940 行的 `agent.rs` 拆分为 `agent/` 模块目录，提升可维护性
+  - `agent/mod.rs`：模块声明 + 公共 API 重导出 + 构造器/setter/chat 分发器
+  - `agent/types.rs`：核心类型定义（`AssistantAgent`、`LlmProvider`、`Attachment`、`ChatUsage`、`CodexModel`、`ThinkTagFilter`）
+  - `agent/config.rs`：常量、系统提示词构建、API URL 构建、thinking 风格映射
+  - `agent/content.rs`：多模态内容构建器（Anthropic/OpenAI Chat/Responses 三种格式）
+  - `agent/events.rs`：前端事件发射函数（text_delta/tool_call/tool_result/thinking_delta/usage）
+  - `agent/api_types.rs`：SSE/请求/响应 DTO 类型（15+ struct）
+  - `agent/context.rs`：上下文管理（compaction、summarization、conversation history）
+  - `agent/errors.rs`：错误处理与重试判断
+  - `agent/providers/`：四种 Provider 独立实现（anthropic.rs、openai_chat.rs、openai_responses.rs、codex.rs）
+  - 公共 API 保持不变，外部调用方无需修改
+
 ### Added
 - **子 Agent 配置、调度与协作通讯系统**：Agent 可通过 `subagent` 工具委派子任务给其他 Agent
   - 新增 `subagent` 工具：spawn（委派任务）、check（轮询状态）、list（查看所有子 Agent）、result（获取完整结果）、kill/kill_all（终止）

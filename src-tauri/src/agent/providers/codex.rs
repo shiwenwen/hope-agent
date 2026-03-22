@@ -1,0 +1,275 @@
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use anyhow::Result;
+use serde_json::json;
+
+use crate::tools::{self, ToolProvider};
+use super::super::api_types::{ReasoningConfig, ResponsesRequest};
+use super::super::config::{clamp_reasoning_effort, get_max_tool_rounds, CODEX_API_URL, MAX_RETRIES, BASE_DELAY_MS};
+use super::super::content::build_user_content_responses;
+use super::super::errors::{is_retryable_error, os_version, parse_error_response};
+use super::super::events::{emit_tool_call, emit_tool_result, emit_usage};
+use super::super::types::{AssistantAgent, Attachment, ChatUsage};
+
+impl AssistantAgent {
+    // ── OpenAI Codex Responses API with Tool Loop ─────────────────
+
+    pub(crate) async fn chat_openai(&self, access_token: &str, account_id: &str, model: &str, message: &str, attachments: &[Attachment], reasoning_effort: Option<&str>, cancel: &Arc<AtomicBool>, on_delta: &(impl Fn(&str) + Send)) -> Result<String> {
+        let client = reqwest::Client::new();
+        let mut tool_schemas = tools::get_tools_for_provider(ToolProvider::OpenAI);
+        if self.notification_enabled {
+            tool_schemas.push(tools::get_notification_tool().to_provider_schema(ToolProvider::OpenAI));
+        }
+        if self.subagent_tool_enabled() {
+            tool_schemas.push(tools::get_subagent_tool().to_provider_schema(ToolProvider::OpenAI));
+        }
+
+        // Build reasoning config with clamping
+        let reasoning = reasoning_effort
+            .and_then(|e| clamp_reasoning_effort(model, e))
+            .map(|effort| ReasoningConfig { effort, summary: "auto".to_string() });
+
+        // Build input from conversation history + new user message (with optional image attachments)
+        let mut input: Vec<serde_json::Value> = self.conversation_history.lock().unwrap().clone();
+        let user_content = build_user_content_responses(message, attachments);
+        Self::push_user_message(&mut input, user_content);
+
+        let user_agent = format!(
+            "OpenComputer ({} {}; {})",
+            std::env::consts::OS,
+            os_version(),
+            std::env::consts::ARCH,
+        );
+
+        let mut collected_text = String::new();
+        let mut total_usage = ChatUsage::default();
+        let system_prompt = self.build_full_system_prompt(model, "Codex");
+
+        // Run context compaction (Tier 1-3) before API call
+        self.run_compaction(&mut input, &system_prompt, 16384, on_delta).await;
+
+        let max_rounds = get_max_tool_rounds();
+        let max_rounds = if max_rounds == 0 { u32::MAX } else { max_rounds };
+        let mut round_count: u32 = 0;
+        for round in 0..max_rounds {
+            if cancel.load(Ordering::SeqCst) { break; }
+            round_count = round + 1;
+
+            let request = ResponsesRequest {
+                model: model.to_string(),
+                store: false,
+                stream: true,
+                instructions: system_prompt.clone(),
+                input: input.clone(),
+                reasoning: reasoning.as_ref().map(|r| ReasoningConfig { effort: r.effort.clone(), summary: "auto".to_string() }),
+                tools: Some(tool_schemas.clone()),
+            };
+
+            let body_json = serde_json::to_string(&request)?;
+
+            // Log API request details
+            if let Some(logger) = crate::get_logger() {
+                logger.log("debug", "agent", "agent::chat_codex::request",
+                    &format!("Codex API request round {}: {} input items, {} tools, body {}B",
+                        round, input.len(), tool_schemas.len(), body_json.len()),
+                    Some(json!({
+                        "round": round,
+                        "api_url": CODEX_API_URL,
+                        "model": model,
+                        "input_count": input.len(),
+                        "tool_count": tool_schemas.len(),
+                        "body_size_bytes": body_json.len(),
+                        "reasoning": reasoning.as_ref().map(|r| r.effort.as_str()),
+                    }).to_string()),
+                    None, None);
+            }
+
+            // Retry loop with exponential backoff
+            let mut last_error: Option<String> = None;
+            let mut resp_opt: Option<reqwest::Response> = None;
+
+            let request_start = std::time::Instant::now();
+            for attempt in 0..=MAX_RETRIES {
+                let response = client
+                    .post(CODEX_API_URL)
+                    .header("Authorization", format!("Bearer {}", access_token))
+                    .header("Content-Type", "application/json")
+                    .header("chatgpt-account-id", account_id)
+                    .header("OpenAI-Beta", "responses=experimental")
+                    .header("originator", "opencomputer")
+                    .header("User-Agent", &user_agent)
+                    .header("accept", "text/event-stream")
+                    .body(body_json.clone())
+                    .send()
+                    .await;
+
+                match response {
+                    Ok(resp) => {
+                        if resp.status().is_success() {
+                            // Log successful response
+                            if let Some(logger) = crate::get_logger() {
+                                let ttfb_ms = request_start.elapsed().as_millis() as u64;
+                                logger.log("debug", "agent", "agent::chat_codex::response",
+                                    &format!("Codex API response: status=200, ttfb={}ms, attempt={}", ttfb_ms, attempt + 1),
+                                    Some(json!({
+                                        "status": 200,
+                                        "ttfb_ms": ttfb_ms,
+                                        "attempt": attempt + 1,
+                                        "round": round,
+                                    }).to_string()),
+                                    None, None);
+                            }
+                            resp_opt = Some(resp);
+                            break;
+                        }
+
+                        let status = resp.status().as_u16();
+                        let error_text = resp.text().await.unwrap_or_default();
+
+                        if attempt < MAX_RETRIES && is_retryable_error(status, &error_text) {
+                            let delay = BASE_DELAY_MS * 2u64.pow(attempt);
+                            app_warn!("agent", "codex", "Codex API error {} (attempt {}/{}), retrying in {}ms", status, attempt + 1, MAX_RETRIES, delay);
+                            if let Some(logger) = crate::get_logger() {
+                                logger.log("warn", "agent", "agent::chat_codex::retry",
+                                    &format!("Codex API error {}, retrying (attempt {}/{})", status, attempt + 1, MAX_RETRIES),
+                                    Some(json!({"status": status, "attempt": attempt + 1, "delay_ms": delay, "error": &error_text}).to_string()),
+                                    None, None);
+                            }
+                            tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                            last_error = Some(error_text);
+                            continue;
+                        }
+
+                        if let Some(logger) = crate::get_logger() {
+                            let error_preview = if error_text.len() > 500 { format!("{}...", crate::truncate_utf8(&error_text, 500)) } else { error_text.clone() };
+                            logger.log("error", "agent", "agent::chat_codex::error",
+                                &format!("Codex API error ({}): {}", status, error_preview),
+                                Some(json!({"status": status, "error": error_text, "round": round}).to_string()),
+                                None, None);
+                        }
+                        let friendly = parse_error_response(status, &error_text);
+                        return Err(anyhow::anyhow!("{}", friendly));
+                    }
+                    Err(e) => {
+                        if attempt < MAX_RETRIES {
+                            let delay = BASE_DELAY_MS * 2u64.pow(attempt);
+                            app_warn!("agent", "codex", "Codex API network error (attempt {}/{}): {}, retrying in {}ms", attempt + 1, MAX_RETRIES, e, delay);
+                            if let Some(logger) = crate::get_logger() {
+                                logger.log("warn", "agent", "agent::chat_codex::retry",
+                                    &format!("Codex API network error, retrying (attempt {}/{}): {}", attempt + 1, MAX_RETRIES, e),
+                                    Some(json!({"attempt": attempt + 1, "delay_ms": delay, "error": e.to_string()}).to_string()),
+                                    None, None);
+                            }
+                            tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                            last_error = Some(e.to_string());
+                            continue;
+                        }
+                        return Err(anyhow::anyhow!("Codex API request failed: {}", e));
+                    }
+                }
+            }
+
+            let resp = resp_opt.ok_or_else(|| {
+                anyhow::anyhow!("Codex API failed after {} retries: {}", MAX_RETRIES, last_error.unwrap_or_default())
+            })?;
+
+            // Parse SSE stream
+            let (text, tool_calls, round_usage) = self.parse_openai_sse(resp, cancel, on_delta).await?;
+            collected_text.push_str(&text);
+            total_usage.input_tokens += round_usage.input_tokens;
+            total_usage.output_tokens += round_usage.output_tokens;
+            total_usage.cache_creation_input_tokens += round_usage.cache_creation_input_tokens;
+            total_usage.cache_read_input_tokens += round_usage.cache_read_input_tokens;
+
+            // If no tool calls, we're done
+            if tool_calls.is_empty() {
+                break;
+            }
+
+            // Log tool loop progress
+            if let Some(logger) = crate::get_logger() {
+                let tool_names: Vec<&str> = tool_calls.iter().map(|tc| tc.name.as_str()).collect();
+                logger.log("info", "agent", "agent::chat_codex::tool_loop",
+                    &format!("Tool loop round {}: executing {} tools: {:?}", round, tool_calls.len(), tool_names),
+                    Some(json!({
+                        "round": round,
+                        "tool_count": tool_calls.len(),
+                        "tools": tool_names,
+                    }).to_string()),
+                    None, None);
+            }
+
+            // Execute tools and append results to input
+            for tc in &tool_calls {
+                let args: serde_json::Value = serde_json::from_str(&tc.arguments).unwrap_or(json!({}));
+
+                emit_tool_call(on_delta, &tc.call_id, &tc.name, &tc.arguments);
+
+                let result = match tools::execute_tool_with_context(&tc.name, &args, &self.tool_context()).await {
+                    Ok(r) => r,
+                    Err(e) => format!("Tool error: {}", e),
+                };
+
+                emit_tool_result(on_delta, &tc.call_id, &result);
+
+                // Append function_call item to input
+                input.push(json!({
+                    "type": "function_call",
+                    "id": tc.call_id,
+                    "call_id": tc.call_id,
+                    "name": tc.name,
+                    "arguments": tc.arguments,
+                }));
+
+                // Append function_call_output to input
+                input.push(json!({
+                    "type": "function_call_output",
+                    "call_id": tc.call_id,
+                    "output": result,
+                }));
+            }
+
+            // Tier 1 quick check: truncate any oversized tool results added this round
+            crate::context_compact::truncate_tool_results(&mut input, self.context_window, &self.compact_config);
+        }
+
+        let cancelled = cancel.load(Ordering::SeqCst);
+        if collected_text.is_empty() && !cancelled {
+            return Err(anyhow::anyhow!("No content received from Codex API"));
+        }
+
+        // Persist conversation history
+        if !collected_text.is_empty() {
+            input.push(json!({ "role": "assistant", "content": collected_text }));
+        }
+        *self.conversation_history.lock().unwrap() = input;
+
+        // Emit accumulated usage
+        emit_usage(on_delta, &total_usage, model);
+
+        // Log chat completion summary
+        if let Some(logger) = crate::get_logger() {
+            let history_len = self.conversation_history.lock().unwrap().len();
+            logger.log("info", "agent", "agent::chat_codex::done",
+                &format!("Codex chat complete: {}chars, {} rounds, usage in={}/out={}",
+                    collected_text.len(), round_count, total_usage.input_tokens, total_usage.output_tokens),
+                Some(json!({
+                    "text_length": collected_text.len(),
+                    "total_rounds": round_count,
+                    "history_length": history_len,
+                    "cancelled": cancelled,
+                    "model": model,
+                    "usage": {
+                        "input_tokens": total_usage.input_tokens,
+                        "output_tokens": total_usage.output_tokens,
+                        "cache_creation": total_usage.cache_creation_input_tokens,
+                        "cache_read": total_usage.cache_read_input_tokens,
+                    }
+                }).to_string()),
+                None, None);
+        }
+
+        Ok(collected_text)
+    }
+}
