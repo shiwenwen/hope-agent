@@ -31,6 +31,8 @@ export interface Message {
   fallbackEvent?: FallbackEvent
   /** If set, this user message was sent by a parent agent (not a human) */
   fromAgentId?: string
+  /** Database row ID, used for deduplication during streaming append */
+  dbId?: number
 }
 
 export interface FallbackEvent {
@@ -111,6 +113,7 @@ export interface SubagentEvent {
   runId: string
   parentSessionId: string
   childAgentId: string
+  childSessionId: string
   taskPreview: string
   status: "spawning" | "running" | "completed" | "error" | "timeout" | "killed"
   resultPreview?: string

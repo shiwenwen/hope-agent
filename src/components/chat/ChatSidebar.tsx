@@ -381,7 +381,7 @@ export default function ChatSidebar({
                             </IconTip>
                           )
                         })()}
-                        {session.title || t("chat.newChat") || "New Chat"}
+                        <span className="truncate">{session.title || t("chat.newChat") || "New Chat"}</span>
                       </div>
                       <div className="text-[11px] text-muted-foreground truncate">
                         {agent?.name || session.agentId}

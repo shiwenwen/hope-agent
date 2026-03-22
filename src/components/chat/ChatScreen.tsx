@@ -18,6 +18,7 @@ import type {
   SessionMessage,
   AgentSummaryForSidebar,
   FallbackEvent,
+  SubagentEvent,
 } from "@/types/chat"
 import type { AgentConfig } from "@/components/settings/types"
 import { getEffortOptionsForType } from "@/types/chat"
@@ -547,13 +548,129 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
     }
   }, [reloadSessions, t])
 
-  // Listen for sub-agent terminal events — refresh sidebar to reflect child session status
+  // Listen for sub-agent events — manage loading state + refresh sidebar + push result to parent
   useEffect(() => {
     let unlisten: UnlistenFn | undefined
     listen("subagent_event", (event) => {
-      const payload = event.payload as { status: string }
-      if (["completed", "error", "timeout", "killed"].includes(payload.status)) {
+      const payload = event.payload as SubagentEvent
+      const childSid = payload.childSessionId
+      if (childSid) {
+        if (["spawning", "running"].includes(payload.status)) {
+          loadingSessionsRef.current.add(childSid)
+          setLoadingSessionIds(new Set(loadingSessionsRef.current))
+        } else {
+          loadingSessionsRef.current.delete(childSid)
+          setLoadingSessionIds(new Set(loadingSessionsRef.current))
+        }
+      }
+      if (["completed", "error", "timeout", "killed", "spawning"].includes(payload.status)) {
         reloadSessions()
+      }
+
+      // Push result to parent agent — auto-send completion message
+      if (["completed", "error", "timeout"].includes(payload.status) && payload.parentSessionId) {
+        const parentSid = payload.parentSessionId
+        const agentName = payload.childAgentId
+        const status = payload.status
+        const duration = payload.durationMs ? `${(payload.durationMs / 1000).toFixed(1)}s` : "unknown"
+        const result = payload.resultFull || payload.resultPreview || payload.error || "(no output)"
+
+        const pushMessage = `[Sub-Agent Completion — auto-delivered]\nRun ID: ${payload.runId}\nAgent: ${agentName}\nTask: ${payload.taskPreview}\nStatus: ${status}\nDuration: ${duration}\n<<<BEGIN_SUBAGENT_RESULT>>>\n${result}\n<<<END_SUBAGENT_RESULT>>>`
+
+        // Only auto-send if parent session is current AND not currently loading
+        const isParentActive = currentSessionIdRef.current === parentSid
+        const isParentLoading = loadingSessionsRef.current.has(parentSid)
+
+        if (isParentActive && !isParentLoading) {
+          // Directly invoke chat for the parent session
+          const onEvent = new Channel<string>()
+          setMessages((prev) => [
+            ...prev,
+            { role: "user", content: pushMessage, timestamp: new Date().toISOString() },
+            { role: "assistant", content: "", timestamp: new Date().toISOString() },
+          ])
+          setLoading(true)
+          loadingSessionsRef.current.add(parentSid)
+          setLoadingSessionIds(new Set(loadingSessionsRef.current))
+
+          onEvent.onmessage = (raw) => {
+            try {
+              const ev = JSON.parse(raw)
+              const sid = parentSid
+              if (ev.type === "text_delta" && ev.text) {
+                setMessages((prev) => {
+                  const updated = [...prev]
+                  const last = updated[updated.length - 1]
+                  if (last?.role === "assistant") {
+                    updated[updated.length - 1] = { ...last, content: last.content + ev.text }
+                    sessionCacheRef.current.set(sid, updated)
+                  }
+                  return updated
+                })
+              } else if (ev.type === "tool_call") {
+                setMessages((prev) => {
+                  const updated = [...prev]
+                  const last = updated[updated.length - 1]
+                  if (last?.role === "assistant") {
+                    const toolCalls = [...(last.toolCalls || []), { callId: ev.call_id, name: ev.name, arguments: ev.arguments || "" }]
+                    const blocks = [...(last.contentBlocks || [])]
+                    if (last.content) blocks.push({ type: "text" as const, content: last.content })
+                    blocks.push({ type: "tool_call" as const, tool: toolCalls[toolCalls.length - 1] })
+                    updated[updated.length - 1] = { ...last, toolCalls, contentBlocks: blocks }
+                    sessionCacheRef.current.set(sid, updated)
+                  }
+                  return updated
+                })
+              } else if (ev.type === "tool_result") {
+                setMessages((prev) => {
+                  const updated = [...prev]
+                  const last = updated[updated.length - 1]
+                  if (last?.role === "assistant" && last.toolCalls) {
+                    const toolCalls = last.toolCalls.map((tc) =>
+                      tc.callId === ev.call_id ? { ...tc, result: ev.result } : tc
+                    )
+                    const blocks = (last.contentBlocks || []).map((b) =>
+                      b.type === "tool_call" && b.tool?.callId === ev.call_id
+                        ? { ...b, tool: { ...b.tool!, result: ev.result } }
+                        : b
+                    )
+                    updated[updated.length - 1] = { ...last, toolCalls, contentBlocks: blocks }
+                    sessionCacheRef.current.set(sid, updated)
+                  }
+                  return updated
+                })
+              } else if (ev.type === "usage") {
+                setMessages((prev) => {
+                  const updated = [...prev]
+                  const last = updated[updated.length - 1]
+                  if (last?.role === "assistant") {
+                    updated[updated.length - 1] = { ...last, usage: ev, model: ev.model }
+                    sessionCacheRef.current.set(sid, updated)
+                  }
+                  return updated
+                })
+              }
+            } catch { /* ignore parse errors */ }
+          }
+
+          invoke("chat", {
+            sessionId: parentSid,
+            message: pushMessage,
+            onEvent,
+            attachments: [],
+          }).then(() => {
+            setLoading(false)
+            loadingSessionsRef.current.delete(parentSid)
+            setLoadingSessionIds(new Set(loadingSessionsRef.current))
+          }).catch((err) => {
+            logger.error("subagent", "push-result", "Failed to push sub-agent result to parent", err)
+            setLoading(false)
+            loadingSessionsRef.current.delete(parentSid)
+            setLoadingSessionIds(new Set(loadingSessionsRef.current))
+          })
+        }
+        // If parent is not active or is loading, the result is already in the DB.
+        // The parent agent can use `check(wait=true)` to retrieve it next turn.
       }
     }).then((fn) => {
       unlisten = fn
@@ -1349,10 +1466,6 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
                                   )
                                   if (result.messagesAffected > 0) {
                                     // Reload messages to reflect compacted state
-                                    const loaded = await invoke<{ id: number; role: string; content: string; toolCalls?: string; toolResult?: string; model?: string; tokensIn?: number; tokensOut?: number; toolDurationMs?: number; createdAt: string }[]>(
-                                      "load_session_messages_cmd",
-                                      { sessionId: currentSessionId }
-                                    )
                                     // Just close the popover — user will see updated token count on next message
                                     setShowStatus(false)
                                   }

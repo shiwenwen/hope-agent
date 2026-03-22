@@ -104,6 +104,7 @@ pub struct SubagentEvent {
     pub run_id: String,
     pub parent_session_id: String,
     pub child_agent_id: String,
+    pub child_session_id: String,
     pub task_preview: String,
     pub status: SubagentStatus,
     pub result_preview: Option<String>,
@@ -247,6 +248,7 @@ pub async fn spawn_subagent(
         run_id: run_id.clone(),
         parent_session_id: params.parent_session_id.clone(),
         child_agent_id: params.agent_id.clone(),
+        child_session_id: child_session_id.clone(),
         task_preview: task_preview.clone(),
         status: SubagentStatus::Spawning,
         result_preview: None,
@@ -265,6 +267,7 @@ pub async fn spawn_subagent(
     let timeout_secs = params.timeout_secs.unwrap_or(DEFAULT_TIMEOUT_SECS);
     let model_override = params.model_override.clone();
     let parent_session_id = params.parent_session_id.clone();
+    let child_session_id_clone = child_session_id.clone();
 
     tokio::spawn(async move {
         let start = std::time::Instant::now();
@@ -337,6 +340,7 @@ pub async fn spawn_subagent(
             run_id: run_id_clone.clone(),
             parent_session_id,
             child_agent_id: agent_id,
+            child_session_id: child_session_id_clone,
             task_preview: truncate_str(&task, 50),
             status,
             result_preview,
