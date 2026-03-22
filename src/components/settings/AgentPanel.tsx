@@ -405,6 +405,10 @@ function AgentEditView({
     exec: "Exec", process: "Process", read: "Read", write: "Write",
     edit: "Edit", ls: "Ls", grep: "Grep", find: "Find",
     apply_patch: "ApplyPatch", web_search: "WebSearch", web_fetch: "WebFetch",
+    save_memory: "SaveMemory", recall_memory: "RecallMemory",
+    update_memory: "UpdateMemory", delete_memory: "DeleteMemory",
+    manage_cron: "ManageCron", browser: "Browser",
+    send_notification: "SendNotification", subagent: "Subagent",
   }
   const toolDisplayName = (name: string) => {
     const key = toolI18nKey[name]
