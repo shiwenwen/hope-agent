@@ -1199,7 +1199,7 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
             </div>
             {/* Settings Button */}
             {onOpenAgentSettings && (
-              <IconTip label={t("settings.agents")}>
+              <IconTip label={t("settings.agentSettings")}>
                 <button
                   className="pb-1.5 text-muted-foreground hover:text-foreground transition-colors"
                   onClick={() => onOpenAgentSettings(currentAgentId)}

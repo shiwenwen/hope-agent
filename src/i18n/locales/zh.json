@@ -432,6 +432,7 @@
     "profileCustomInfoPlaceholder": "其他你希望 AI 了解的信息...",
     "profileSaved": "已保存",
     "agents": "Agent",
+    "agentSettings": "Agent 设置",
     "agentsDesc": "定义和管理 AI Agent，每个 Agent 可以有不同的身份、能力和行为方式。",
     "agentDefault": "默认",
     "agentNew": "新建 Agent",

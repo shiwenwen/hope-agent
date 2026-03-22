@@ -432,6 +432,7 @@
     "profileCustomInfoPlaceholder": "Anything else you'd like the AI to know...",
     "profileSaved": "Saved",
     "agents": "Agents",
+    "agentSettings": "Agent Settings",
     "agentsDesc": "Define and manage AI Agents. Each Agent can have a different identity, capabilities, and behavior.",
     "agentDefault": "Default",
     "agentNew": "New Agent",
