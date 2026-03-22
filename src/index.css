@@ -73,9 +73,23 @@
   }
 }
 
-/* Smooth streaming bubble growth */
+/* Smooth streaming bubble growth — height + padding transitions */
 .streaming-bubble {
-  transition: min-height 0.15s ease-out;
+  transition: padding 0.15s ease-out;
+}
+
+/* Streaming content height transition — new lines slide in smoothly */
+.streaming-height {
+  overflow: hidden;
+  transition: height 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Anti-flicker: Streamdown sets --sd-duration:0ms on already-visible chars,
+   but animation: sd-fadeIn 0ms both still flashes opacity:0 on DOM reconstruction.
+   Skip animation entirely and keep opacity:1. */
+[data-sd-animate][style*="sd-duration:0ms"] {
+  animation: none !important;
+  opacity: 1 !important;
 }
 
 @keyframes bounce-pulse {
