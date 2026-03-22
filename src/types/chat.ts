@@ -71,6 +71,7 @@ export interface SessionMeta {
   updatedAt: string
   messageCount: number
   unreadCount: number
+  isCron: boolean
 }
 
 export interface SessionMessage {
@@ -98,6 +99,46 @@ export interface AgentSummaryForSidebar {
   emoji?: string | null
   avatar?: string | null
   notifyOnComplete?: boolean | null
+}
+
+// ── Sub-Agent Types ─────────────────────────────────────────────
+
+export interface SubagentEvent {
+  eventType: "spawned" | "running" | "completed" | "error" | "killed" | "timeout"
+  runId: string
+  parentSessionId: string
+  childAgentId: string
+  taskPreview: string
+  status: "spawning" | "running" | "completed" | "error" | "timeout" | "killed"
+  resultPreview?: string
+  error?: string
+  durationMs?: number
+}
+
+export interface SubagentRun {
+  runId: string
+  parentSessionId: string
+  parentAgentId: string
+  childAgentId: string
+  childSessionId: string
+  task: string
+  status: "spawning" | "running" | "completed" | "error" | "timeout" | "killed"
+  result?: string
+  error?: string
+  depth: number
+  modelUsed?: string
+  startedAt: string
+  finishedAt?: string
+  durationMs?: number
+}
+
+export interface SubagentConfig {
+  enabled: boolean
+  allowedAgents: string[]
+  deniedAgents: string[]
+  maxConcurrent: number
+  defaultTimeoutSecs: number
+  model?: string
 }
 
 export function getEffortOptionsForType(apiType: string | undefined, t: (key: string) => string) {

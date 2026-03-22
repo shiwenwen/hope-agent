@@ -21,6 +21,7 @@ import {
   Trash2,
   MessageSquarePlus,
   Loader2,
+  Timer,
 } from "lucide-react"
 import type { SessionMeta, AgentSummaryForSidebar } from "@/types/chat"
 
@@ -343,7 +344,12 @@ export default function ChatSidebar({
 
                     {/* Title + meta */}
                     <div className="flex-1 min-w-0">
-                      <div className="text-[13px] font-medium text-foreground truncate">
+                      <div className="text-[13px] font-medium text-foreground truncate flex items-center gap-1">
+                        {session.isCron && (
+                          <span className="inline-flex items-center justify-center shrink-0 w-4 h-4 rounded bg-orange-500/15 text-orange-500">
+                            <Timer className="w-2.5 h-2.5" />
+                          </span>
+                        )}
                         {session.title || t("chat.newChat") || "New Chat"}
                       </div>
                       <div className="text-[11px] text-muted-foreground truncate">

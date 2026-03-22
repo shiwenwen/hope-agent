@@ -889,9 +889,8 @@ async fn execute_job(
     // Create an isolated session for this cron run
     let session_id = match session_db.create_session(&agent_id) {
         Ok(meta) => {
-            // Set a title indicating this is a cron run
-            let title = format!("[Cron] {}", job.name);
-            let _ = session_db.update_session_title(&meta.id, &title);
+            let _ = session_db.update_session_title(&meta.id, &job.name);
+            let _ = session_db.mark_session_cron(&meta.id);
             meta.id
         }
         Err(e) => {
@@ -963,7 +962,7 @@ async fn execute_job(
 async fn build_and_run_agent(
     agent_id: &str,
     message: &str,
-    _session_id: &str,
+    session_id: &str,
     _session_db: &Arc<crate::session::SessionDB>,
 ) -> Result<String> {
     use crate::agent::AssistantAgent;
@@ -1014,6 +1013,7 @@ async fn build_and_run_agent(
         loop {
             let mut agent = AssistantAgent::new_from_provider(prov, &model_ref.model_id);
             agent.set_agent_id(agent_id);
+            agent.set_session_id(session_id);
             agent.set_extra_system_context(
                 "## Execution Context\n\
                  You are running as a **scheduled task** (cron job), not an interactive chat.\n\
