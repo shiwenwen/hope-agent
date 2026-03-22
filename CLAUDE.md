@@ -79,6 +79,7 @@ src-tauri/src/          后端（Rust）
 - 布局避免硬编码过小的 max-width（如 `max-w-md`），使用 `max-w-4xl` 以上或弹性伸缩
 - **i18n 功能实现时只需实现中文（zh）和英文（en）**，其余语言通过单独的任务进行补齐，`scripts/sync-i18n.mjs` 统一补齐（翻译数据在 `scripts/i18n-translations.json`）
 - 避免不必要的重渲染（`React.memo`、`useMemo`、`useCallback`）
+- **Tooltip 必须使用 Radix UI `<Tooltip>` 组件**（`@/components/ui/tooltip`），禁止用 HTML 原生 `title` 属性（延迟过长，体验不一致）。用 `<TooltipProvider delayDuration={100} skipDelayDuration={50}>` 包裹
 
 ### 后端（Rust）
 - 新功能放单独模块文件，在 `lib.rs` 注册命令
