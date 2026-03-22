@@ -469,6 +469,12 @@ pub struct AssistantAgent {
     agent_id: String,
     /// Extra context appended to the system prompt (e.g. cron execution context)
     extra_system_context: Option<String>,
+    /// Model context window size in tokens
+    context_window: u32,
+    /// Context compaction configuration
+    compact_config: crate::context_compact::CompactConfig,
+    /// Token estimate calibrator (updated with actual API usage)
+    token_calibrator: std::sync::Mutex<crate::context_compact::TokenEstimateCalibrator>,
 }
 
 // ── Shared Event Types (sent to frontend via on_delta JSON) ───────
@@ -705,6 +711,12 @@ struct SseResponseObj {
 }
 
 #[derive(Deserialize, Debug, Default)]
+struct SseTokenDetails {
+    #[serde(default)]
+    cached_tokens: Option<u64>,
+}
+
+#[derive(Deserialize, Debug, Default)]
 struct SseUsage {
     #[serde(default, alias = "prompt_tokens")]
     input_tokens: Option<u64>,
@@ -715,6 +727,12 @@ struct SseUsage {
     cache_creation_input_tokens: Option<u64>,
     #[serde(default)]
     cache_read_input_tokens: Option<u64>,
+    // OpenAI Responses API: input_tokens_details.cached_tokens
+    #[serde(default)]
+    input_tokens_details: Option<SseTokenDetails>,
+    // OpenAI Chat Completions: prompt_tokens_details.cached_tokens
+    #[serde(default)]
+    prompt_tokens_details: Option<SseTokenDetails>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -858,6 +876,9 @@ impl AssistantAgent {
             conversation_history: std::sync::Mutex::new(Vec::new()),
             agent_id: "default".to_string(),
             extra_system_context: None,
+            context_window: 200_000,
+            compact_config: crate::context_compact::CompactConfig::default(),
+            token_calibrator: std::sync::Mutex::new(crate::context_compact::TokenEstimateCalibrator::new()),
         }
     }
 
@@ -874,6 +895,9 @@ impl AssistantAgent {
             conversation_history: std::sync::Mutex::new(Vec::new()),
             agent_id: "default".to_string(),
             extra_system_context: None,
+            context_window: 200_000,
+            compact_config: crate::context_compact::CompactConfig::default(),
+            token_calibrator: std::sync::Mutex::new(crate::context_compact::TokenEstimateCalibrator::new()),
         }
     }
 
@@ -901,6 +925,12 @@ impl AssistantAgent {
                 model: model_id.to_string(),
             },
         };
+        // Look up context_window from the provider's model config
+        let context_window = config.models.iter()
+            .find(|m| m.id == model_id)
+            .map(|m| m.context_window)
+            .unwrap_or(200_000);
+
         Self {
             provider,
             user_agent: config.user_agent.clone(),
@@ -908,6 +938,9 @@ impl AssistantAgent {
             conversation_history: std::sync::Mutex::new(Vec::new()),
             agent_id: "default".to_string(),
             extra_system_context: None,
+            context_window,
+            compact_config: crate::context_compact::CompactConfig::default(),
+            token_calibrator: std::sync::Mutex::new(crate::context_compact::TokenEstimateCalibrator::new()),
         }
     }
 
@@ -938,11 +971,28 @@ impl AssistantAgent {
             .map(|p| p.to_string_lossy().to_string())
     }
 
-    /// Build a ToolExecContext with agent home directory.
+    /// Build a ToolExecContext with agent home directory and context window.
     fn tool_context(&self) -> tools::ToolExecContext {
         tools::ToolExecContext {
-            context_window_tokens: None,
+            context_window_tokens: Some(self.context_window),
             home_dir: self.agent_home(),
+        }
+    }
+
+    /// Set the context window size (called from lib.rs after agent construction).
+    pub fn set_context_window(&mut self, cw: u32) {
+        self.context_window = cw;
+    }
+
+    /// Set the compact config (called from lib.rs after agent construction).
+    pub fn set_compact_config(&mut self, config: crate::context_compact::CompactConfig) {
+        self.compact_config = config;
+    }
+
+    /// Update the token estimate calibrator with actual API usage.
+    pub fn update_token_calibration(&self, estimated: u32, actual: u32) {
+        if let Ok(mut calibrator) = self.token_calibrator.lock() {
+            calibrator.update(estimated, actual);
         }
     }
 
@@ -1060,11 +1110,24 @@ impl AssistantAgent {
             if cancel.load(Ordering::SeqCst) { break; }
             round_count = round + 1;
 
+            // Build system prompt with cache_control for Anthropic prompt caching
+            let system_with_cache = json!([{
+                "type": "text",
+                "text": system_prompt,
+                "cache_control": { "type": "ephemeral" }
+            }]);
+
+            // Add cache_control to the last tool definition (tools are static, worth caching)
+            let mut tools_with_cache = tool_schemas.clone();
+            if let Some(last_tool) = tools_with_cache.last_mut() {
+                last_tool["cache_control"] = json!({ "type": "ephemeral" });
+            }
+
             let mut body = json!({
                 "model": model,
                 "max_tokens": max_tokens,
-                "system": system_prompt,
-                "tools": tool_schemas,
+                "system": system_with_cache,
+                "tools": tools_with_cache,
                 "messages": messages,
                 "stream": true,
             });
@@ -2375,11 +2438,20 @@ impl AssistantAgent {
                                         usage.output_tokens = ot;
                                     }
                                     // Responses API cache tokens
+                                    // Anthropic-style: cache_read_input_tokens / cache_creation_input_tokens
                                     if let Some(cr) = u.cache_read_input_tokens {
                                         usage.cache_read_input_tokens = cr;
                                     }
                                     if let Some(cc) = u.cache_creation_input_tokens {
                                         usage.cache_creation_input_tokens = cc;
+                                    }
+                                    // OpenAI-style: input_tokens_details.cached_tokens
+                                    if usage.cache_read_input_tokens == 0 {
+                                        if let Some(details) = &u.input_tokens_details {
+                                            if let Some(cached) = details.cached_tokens {
+                                                usage.cache_read_input_tokens = cached;
+                                            }
+                                        }
                                     }
                                 }
                             }
