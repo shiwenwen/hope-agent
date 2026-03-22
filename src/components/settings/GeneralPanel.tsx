@@ -6,6 +6,7 @@ import { useTheme, type ThemeMode } from "@/hooks/useTheme"
 import { SUPPORTED_LANGUAGES, isFollowingSystem, setFollowSystemLanguage } from "@/i18n/i18n"
 import { logger } from "@/lib/logger"
 import { Switch } from "@/components/ui/switch"
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem, SelectSeparator } from "@/components/ui/select"
 import { Monitor, Sun, Moon, Check } from "lucide-react"
 
 const THEME_OPTIONS: { mode: ThemeMode; icon: React.ReactNode; labelKey: string; descKey: string }[] = [
@@ -115,47 +116,32 @@ export default function GeneralPanel() {
       <p className="text-xs text-muted-foreground mb-3">
         {t("settings.languageDesc")}
       </p>
-      <div className="space-y-0.5 mb-8">
-        <button
-          className={cn(
-            "flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm transition-colors",
-            followSystem
-              ? "bg-primary/10 text-primary font-medium"
-              : "text-foreground hover:bg-secondary/60"
-          )}
-          onClick={handleFollowSystem}
+      <div className="mb-8">
+        <Select
+          value={followSystem ? "system" : (SUPPORTED_LANGUAGES.find((l) => i18n.language === l.code || i18n.language.startsWith(l.code + "-"))?.code ?? "system")}
+          onValueChange={(val) => {
+            if (val === "system") {
+              handleFollowSystem()
+            } else {
+              handleSelectLanguage(val)
+            }
+          }}
         >
-          <span className={cn("shrink-0", followSystem ? "text-primary" : "text-muted-foreground")}>
-            <Monitor className="h-4 w-4" />
-          </span>
-          <span className="flex-1 text-left">{t("language.system")}</span>
-          {followSystem && (
-            <Check className="h-4 w-4 text-primary shrink-0" />
-          )}
-        </button>
-
-        <div className="border-t border-border/50 my-1.5" />
-
-        {SUPPORTED_LANGUAGES.map((lang) => (
-          <button
-            key={lang.code}
-            className={cn(
-              "flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm transition-colors",
-              isCurrentLang(lang.code)
-                ? "bg-primary/10 text-primary font-medium"
-                : "text-foreground hover:bg-secondary/60"
-            )}
-            onClick={() => handleSelectLanguage(lang.code)}
-          >
-            <span className="text-xs font-bold w-6 text-center opacity-60">
-              {lang.shortLabel}
-            </span>
-            <span className="flex-1 text-left">{lang.label}</span>
-            {isCurrentLang(lang.code) && (
-              <Check className="h-4 w-4 text-primary shrink-0" />
-            )}
-          </button>
-        ))}
+          <SelectTrigger className="w-full max-w-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="system">
+              {t("language.system")}
+            </SelectItem>
+            <SelectSeparator />
+            {SUPPORTED_LANGUAGES.map((lang) => (
+              <SelectItem key={lang.code} value={lang.code}>
+                {lang.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {/* ── System ── */}
