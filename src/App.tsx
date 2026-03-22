@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { logger } from "@/lib/logger"
 import ProviderSetup from "@/components/settings/ProviderSetup"
@@ -36,6 +36,19 @@ export default function App() {
       return () => { cancelled = true }
     }
   }, [view])
+
+  // Cmd+, to open settings (macOS convention)
+  const handleOpenSettings = useCallback(() => setView("settings"), [])
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.metaKey && e.key === ",") {
+        e.preventDefault()
+        handleOpenSettings()
+      }
+    }
+    document.addEventListener("keydown", onKeyDown)
+    return () => document.removeEventListener("keydown", onKeyDown)
+  }, [handleOpenSettings])
 
   // Try to restore previous session on mount
   useEffect(() => {
