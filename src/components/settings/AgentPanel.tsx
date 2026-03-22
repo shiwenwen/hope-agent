@@ -305,8 +305,8 @@ function AgentEditView({
         setAgentMd(md ?? "")
         setPersona(per ?? "")
         setToolsGuide(tg ?? "")
-        // Flag: content came from disk empty, will be filled with template after render
-        if (!md) setNeedsFillTemplate(true)
+        // Flag: file never created → fill with template; empty string means user cleared it intentionally
+        if (md === null || md === undefined) setNeedsFillTemplate(true)
       } catch (e) {
         logger.error("settings", "AgentPanel::loadAgent", "Failed to load agent", e)
       }
@@ -570,7 +570,7 @@ function AgentEditView({
               <div>
                 <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.agentDescription")}</div>
                 <Textarea
-                  className="bg-secondary/40 rounded-lg resize-none leading-relaxed"
+                  className="bg-secondary/40 rounded-lg resize-y leading-relaxed min-h-[50px]"
                   rows={2}
                   {...textInputProps(config.description ?? "", (v) => updateConfig({ description: v || null }))}
                   placeholder={t("settings.agentDescriptionPlaceholder")}
@@ -593,7 +593,7 @@ function AgentEditView({
               <div>
                 <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.agentRole")}</div>
                 <Textarea
-                  className="bg-secondary/40 rounded-lg resize-none leading-relaxed"
+                  className="bg-secondary/40 rounded-lg resize-y leading-relaxed min-h-[60px]"
                   rows={3}
                   {...textInputProps(config.personality.role ?? "", (v) => updatePersonality({ role: v || null }))}
                   placeholder={t("settings.agentRolePlaceholder")}
@@ -607,7 +607,7 @@ function AgentEditView({
                 <div className="text-xs font-medium text-muted-foreground mb-1 px-1">{t("settings.agentSupplement")}</div>
                 <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">{t("settings.agentIdentitySupplementDesc")}</p>
                 <Textarea
-                  className="bg-secondary/40 rounded-lg resize-none leading-relaxed font-mono"
+                  className="bg-secondary/40 rounded-lg resize-y leading-relaxed font-mono min-h-[120px]"
                   rows={8}
                   {...textInputProps(agentMd, setAgentMd)}
                   placeholder={t("settings.agentSupplementPlaceholder")}
@@ -625,7 +625,7 @@ function AgentEditView({
                 <div className="text-xs font-medium text-muted-foreground mb-1 px-1">{t("settings.agentVibe")}</div>
                 <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">{t("settings.agentVibeDesc")}</p>
                 <Textarea
-                  className="bg-secondary/40 rounded-lg resize-none leading-relaxed"
+                  className="bg-secondary/40 rounded-lg resize-y leading-relaxed min-h-[60px]"
                   rows={3}
                   {...textInputProps(config.personality.vibe ?? "", (v) => updatePersonality({ vibe: v || null }))}
                   placeholder={t("settings.agentVibePlaceholder")}
@@ -654,7 +654,7 @@ function AgentEditView({
                   ))}
                 </div>
                 <Textarea
-                  className="bg-secondary/40 rounded-lg resize-none leading-relaxed"
+                  className="bg-secondary/40 rounded-lg resize-y leading-relaxed min-h-[60px]"
                   rows={3}
                   {...textInputProps(config.personality.tone ?? "", (v) => updatePersonality({ tone: v || null }))}
                   placeholder={t("settings.agentTonePlaceholder")}
@@ -725,7 +725,7 @@ function AgentEditView({
                   ))}
                 </div>
                 <Textarea
-                  className="bg-secondary/40 rounded-lg resize-none leading-relaxed"
+                  className="bg-secondary/40 rounded-lg resize-y leading-relaxed min-h-[50px]"
                   rows={2}
                   value={principleInput}
                   onChange={(e) => setPrincipleInput(e.target.value)}
@@ -749,7 +749,7 @@ function AgentEditView({
                 <div className="text-xs font-medium text-muted-foreground mb-1 px-1">{t("settings.agentBoundaries")}</div>
                 <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">{t("settings.agentBoundariesDesc")}</p>
                 <Textarea
-                  className="bg-secondary/40 rounded-lg resize-none leading-relaxed"
+                  className="bg-secondary/40 rounded-lg resize-y leading-relaxed min-h-[60px]"
                   rows={3}
                   {...textInputProps(config.personality.boundaries ?? "", (v) => updatePersonality({ boundaries: v || null }))}
                   placeholder={t("settings.agentBoundariesPlaceholder")}
@@ -761,7 +761,7 @@ function AgentEditView({
                 <div className="text-xs font-medium text-muted-foreground mb-1 px-1">{t("settings.agentQuirks")}</div>
                 <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">{t("settings.agentQuirksDesc")}</p>
                 <Textarea
-                  className="bg-secondary/40 rounded-lg resize-none leading-relaxed"
+                  className="bg-secondary/40 rounded-lg resize-y leading-relaxed min-h-[60px]"
                   rows={3}
                   {...textInputProps(config.personality.quirks ?? "", (v) => updatePersonality({ quirks: v || null }))}
                   placeholder={t("settings.agentQuirksPlaceholder")}
@@ -773,7 +773,7 @@ function AgentEditView({
                 <div className="text-xs font-medium text-muted-foreground mb-1 px-1">{t("settings.agentCommStyle")}</div>
                 <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">{t("settings.agentCommStyleDesc")}</p>
                 <Textarea
-                  className="bg-secondary/40 rounded-lg resize-none leading-relaxed"
+                  className="bg-secondary/40 rounded-lg resize-y leading-relaxed min-h-[60px]"
                   rows={3}
                   {...textInputProps(config.personality.communicationStyle ?? "", (v) => updatePersonality({ communicationStyle: v || null }))}
                   placeholder={t("settings.agentCommStylePlaceholder")}
@@ -787,7 +787,7 @@ function AgentEditView({
                 <div className="text-xs font-medium text-muted-foreground mb-1 px-1">{t("settings.agentSupplement")}</div>
                 <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">{t("settings.agentPersonaSupplementDesc")}</p>
                 <Textarea
-                  className="bg-secondary/40 rounded-lg resize-none leading-relaxed font-mono"
+                  className="bg-secondary/40 rounded-lg resize-y leading-relaxed font-mono min-h-[120px]"
                   rows={8}
                   {...textInputProps(persona, setPersona)}
                   placeholder={t("settings.agentSupplementPlaceholder")}
@@ -972,7 +972,7 @@ function AgentEditView({
                 <div className="text-xs font-medium text-muted-foreground mb-1 px-1">{t("settings.agentToolsGuide")}</div>
                 <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">{t("settings.agentToolsGuideDesc")}</p>
                 <Textarea
-                  className="bg-secondary/40 rounded-lg resize-none leading-relaxed font-mono"
+                  className="bg-secondary/40 rounded-lg resize-y leading-relaxed font-mono min-h-[80px]"
                   rows={5}
                   {...textInputProps(toolsGuide, setToolsGuide)}
                   placeholder={t("settings.agentToolsGuidePlaceholder")}
@@ -1025,7 +1025,7 @@ function AgentEditView({
                     <div className="text-xs font-medium text-muted-foreground mb-1 px-1">{t("settings.agentMd")}</div>
                     <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">{t("settings.agentCustomIdentityDesc")}</p>
                     <Textarea
-                      className="bg-secondary/40 rounded-lg resize-none leading-relaxed font-mono"
+                      className="bg-secondary/40 rounded-lg resize-y leading-relaxed font-mono min-h-[160px]"
                       rows={10}
                       {...textInputProps(agentMd, setAgentMd)}
                       placeholder={t("settings.agentMdPlaceholder")}
@@ -1038,7 +1038,7 @@ function AgentEditView({
                     <div className="text-xs font-medium text-muted-foreground mb-1 px-1">{t("settings.agentPersona")}</div>
                     <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">{t("settings.agentCustomPersonaDesc")}</p>
                     <Textarea
-                      className="bg-secondary/40 rounded-lg resize-none leading-relaxed font-mono"
+                      className="bg-secondary/40 rounded-lg resize-y leading-relaxed font-mono min-h-[120px]"
                       rows={8}
                       {...textInputProps(persona, setPersona)}
                       placeholder={t("settings.agentPersonaPlaceholder")}

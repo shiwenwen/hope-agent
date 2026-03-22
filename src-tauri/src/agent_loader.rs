@@ -196,8 +196,9 @@ pub fn load_agent(id: &str) -> Result<AgentDefinition> {
     })
 }
 
-/// Read a markdown file if it exists, return None if missing.
-/// Returns None for empty files too.
+/// Read a markdown file if it exists, return None only if file is missing.
+/// Returns Some("") for empty files so the frontend can distinguish
+/// "never created" (None → fill template) from "user cleared it" (Some("") → keep empty).
 fn read_optional_md(dir: &Path, filename: &str) -> Result<Option<String>> {
     let path = dir.join(filename);
     if !path.exists() {
@@ -205,9 +206,6 @@ fn read_optional_md(dir: &Path, filename: &str) -> Result<Option<String>> {
     }
     let content = std::fs::read_to_string(&path)
         .with_context(|| format!("Failed to read {}", path.display()))?;
-    if content.trim().is_empty() {
-        return Ok(None);
-    }
     Ok(Some(content))
 }
 

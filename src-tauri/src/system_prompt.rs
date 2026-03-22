@@ -75,12 +75,12 @@ pub fn build(definition: &AgentDefinition, model: Option<&str>, provider: Option
         ));
 
         // agent.md — custom identity / instructions
-        if let Some(md) = &definition.agent_md {
+        if let Some(md) = definition.agent_md.as_deref().filter(|s| !s.trim().is_empty()) {
             sections.push(truncate(md, MAX_FILE_CHARS));
         }
 
         // persona.md — custom personality
-        if let Some(persona) = &definition.persona {
+        if let Some(persona) = definition.persona.as_deref().filter(|s| !s.trim().is_empty()) {
             sections.push(truncate(persona, MAX_FILE_CHARS));
         }
     } else {
@@ -104,12 +104,12 @@ pub fn build(definition: &AgentDefinition, model: Option<&str>, provider: Option
         }
 
         // ③ agent.md — supplementary identity notes
-        if let Some(md) = &definition.agent_md {
+        if let Some(md) = definition.agent_md.as_deref().filter(|s| !s.trim().is_empty()) {
             sections.push(truncate(md, MAX_FILE_CHARS));
         }
 
         // ④ persona.md — supplementary personality notes
-        if let Some(persona) = &definition.persona {
+        if let Some(persona) = definition.persona.as_deref().filter(|s| !s.trim().is_empty()) {
             sections.push(truncate(persona, MAX_FILE_CHARS));
         }
     }
