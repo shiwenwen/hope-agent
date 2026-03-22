@@ -1963,7 +1963,9 @@ async fn memory_export(scope: Option<memory::MemoryScope>) -> Result<String, Str
 #[tauri::command]
 async fn get_web_search_config() -> Result<tools::web::WebSearchConfig, String> {
     let store = provider::load_store().map_err(|e| e.to_string())?;
-    Ok(store.web_search)
+    let mut config = store.web_search;
+    tools::web::backfill_providers(&mut config);
+    Ok(config)
 }
 
 #[tauri::command]

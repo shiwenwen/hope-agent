@@ -123,6 +123,18 @@ fn default_providers() -> Vec<WebSearchProviderEntry> {
     ]
 }
 
+/// Ensure all known providers exist in the list (appends any missing ones).
+/// This handles the case where a new provider is added but the user's saved config
+/// was created before that provider existed.
+pub fn backfill_providers(config: &mut WebSearchConfig) {
+    let defaults = default_providers();
+    for default_entry in &defaults {
+        if !config.providers.iter().any(|p| p.id == default_entry.id) {
+            config.providers.push(default_entry.clone());
+        }
+    }
+}
+
 fn default_ws_result_count() -> usize { DEFAULT_WEB_SEARCH_RESULT_COUNT }
 fn default_ws_timeout_secs() -> u64 { DEFAULT_WEB_SEARCH_TIMEOUT_SECS }
 fn default_ws_cache_ttl() -> u64 { DEFAULT_WEB_SEARCH_CACHE_TTL_MINUTES }
