@@ -48,7 +48,7 @@ export default function IconSidebar({
   const [showLangMenu, setShowLangMenu] = useState(false)
 
   return (
-    <TooltipProvider delayDuration={100} skipDelayDuration={50}>
+    <TooltipProvider>
       <div className="w-[72px] shrink-0 border-r border-border bg-secondary/30 flex flex-col items-center">
         {/* Drag region for window movement — covers traffic light area */}
         <div className="w-full pt-10 flex flex-col items-center gap-2" data-tauri-drag-region>

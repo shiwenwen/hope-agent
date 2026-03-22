@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
 import { Switch } from "@/components/ui/switch"
+import { TooltipProvider, IconTip } from "@/components/ui/tooltip"
 import { Input } from "@/components/ui/input"
 import {
   AlertTriangle,
@@ -198,6 +199,7 @@ export default function SkillsPanel() {
     const requiresEnv = selectedSkill.requires?.env ?? []
 
     return (
+      <TooltipProvider>
       <div className="flex-1 flex flex-col min-h-0 overflow-y-auto p-6">
         <div className="max-w-4xl">
           <button
@@ -222,14 +224,15 @@ export default function SkillsPanel() {
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-secondary text-muted-foreground font-medium">
                 {selectedSkill.source}
               </span>
-              <button
-                className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
-                onClick={() => handleOpenDir(selectedSkill.base_dir)}
-                title={selectedSkill.base_dir}
-              >
-                <ExternalLink className="h-3 w-3" />
-                <span className="truncate max-w-[300px]">{selectedSkill.base_dir}</span>
-              </button>
+              <IconTip label={selectedSkill.base_dir}>
+                <button
+                  className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                  onClick={() => handleOpenDir(selectedSkill.base_dir)}
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  <span className="truncate max-w-[300px]">{selectedSkill.base_dir}</span>
+                </button>
+              </IconTip>
             </div>
           </div>
 
@@ -252,15 +255,16 @@ export default function SkillsPanel() {
                   return (
                     <div key={envKey} className="flex items-center gap-2">
                       {/* Status indicator */}
-                      <div
-                        className={cn(
-                          "h-2 w-2 rounded-full shrink-0",
-                          isConfigured ? "bg-green-500" : "bg-orange-400"
-                        )}
-                        title={isConfigured ? t("settings.skillEnvConfigured") : t("settings.skillEnvNotConfigured")}
-                      />
+                      <IconTip label={isConfigured ? t("settings.skillEnvConfigured") : t("settings.skillEnvNotConfigured")}>
+                        <div
+                          className={cn(
+                            "h-2 w-2 rounded-full shrink-0",
+                            isConfigured ? "bg-green-500" : "bg-orange-400"
+                          )}
+                        />
+                      </IconTip>
                       {/* Label */}
-                      <code className="text-xs text-foreground/80 w-44 shrink-0 truncate" title={envKey}>
+                      <code className="text-xs text-foreground/80 w-44 shrink-0 truncate">
                         {envKey}
                       </code>
                       {/* Input */}
@@ -278,33 +282,35 @@ export default function SkillsPanel() {
                         }}
                       />
                       {/* Save button */}
-                      <button
-                        className={cn(
-                          "shrink-0 p-1 rounded transition-colors",
-                          isDirty && !isSaving
-                            ? "text-primary hover:bg-primary/10"
-                            : "text-muted-foreground/30 cursor-default"
-                        )}
-                        onClick={() => isDirty && handleSaveEnvVar(envKey)}
-                        disabled={!isDirty || isSaving}
-                        title={t("settings.skillEnvSave")}
-                      >
-                        <Check className="h-3.5 w-3.5" />
-                      </button>
+                      <IconTip label={t("settings.skillEnvSave")}>
+                        <button
+                          className={cn(
+                            "shrink-0 p-1 rounded transition-colors",
+                            isDirty && !isSaving
+                              ? "text-primary hover:bg-primary/10"
+                              : "text-muted-foreground/30 cursor-default"
+                          )}
+                          onClick={() => isDirty && handleSaveEnvVar(envKey)}
+                          disabled={!isDirty || isSaving}
+                        >
+                          <Check className="h-3.5 w-3.5" />
+                        </button>
+                      </IconTip>
                       {/* Clear button */}
-                      <button
-                        className={cn(
-                          "shrink-0 p-1 rounded transition-colors",
-                          currentValue
-                            ? "text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                            : "text-muted-foreground/30 cursor-default"
-                        )}
-                        onClick={() => currentValue && handleRemoveEnvVar(envKey)}
-                        disabled={!currentValue}
-                        title={t("settings.skillEnvClear")}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
+                      <IconTip label={t("settings.skillEnvClear")}>
+                        <button
+                          className={cn(
+                            "shrink-0 p-1 rounded transition-colors",
+                            currentValue
+                              ? "text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                              : "text-muted-foreground/30 cursor-default"
+                          )}
+                          onClick={() => currentValue && handleRemoveEnvVar(envKey)}
+                          disabled={!currentValue}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </IconTip>
                     </div>
                   )
                 })}
@@ -347,11 +353,13 @@ export default function SkillsPanel() {
           </div>
         </div>
       </div>
+      </TooltipProvider>
     )
   }
 
   // ── Skills List View ───────────────────────────────────────────
   return (
+    <TooltipProvider>
     <div className="flex-1 min-h-0 overflow-y-auto p-6">
       <h2 className="text-lg font-semibold text-foreground mb-1">
         {t("settings.skills")}
@@ -386,15 +394,16 @@ export default function SkillsPanel() {
                 onClick={() => handleOpenDir(dir)}
               >
                 <FolderOpen className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                <code className="flex-1 text-foreground/80 truncate" title={dir}>{dir}</code>
+                <code className="flex-1 text-foreground/80 truncate">{dir}</code>
               </button>
-              <button
-                className="text-muted-foreground/50 hover:text-destructive transition-colors shrink-0 opacity-0 group-hover:opacity-100"
-                onClick={() => handleRemoveDir(dir)}
-                title={t("settings.skillsDirRemove")}
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
+              <IconTip label={t("settings.skillsDirRemove")}>
+                <button
+                  className="text-muted-foreground/50 hover:text-destructive transition-colors shrink-0 opacity-0 group-hover:opacity-100"
+                  onClick={() => handleRemoveDir(dir)}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </IconTip>
             </div>
           ))}
         </div>
@@ -479,10 +488,11 @@ export default function SkillsPanel() {
                     <span className={cn("font-medium truncate", !skill.enabled && "line-through")}>{skill.name}</span>
                     {/* Warning icon for unconfigured env vars */}
                     {showWarning && (
-                      <AlertTriangle
-                        className="h-3.5 w-3.5 text-orange-400 shrink-0"
-                        title={t("settings.skillEnvNotConfigured")}
-                      />
+                      <IconTip label={t("settings.skillEnvNotConfigured")}>
+                        <AlertTriangle
+                          className="h-3.5 w-3.5 text-orange-400 shrink-0"
+                        />
+                      </IconTip>
                     )}
                   </div>
                   <div className="text-xs text-muted-foreground truncate">{skill.description}</div>
@@ -495,28 +505,30 @@ export default function SkillsPanel() {
 
                 {/* Settings button for skills with env requirements */}
                 {hasEnvConfig && (
-                  <button
-                    className={cn(
-                      "shrink-0 transition-colors",
-                      showWarning
-                        ? "text-orange-400 hover:text-orange-500"
-                        : "text-muted-foreground/40 hover:text-muted-foreground opacity-0 group-hover:opacity-100"
-                    )}
-                    onClick={(e) => { e.stopPropagation(); handleSelectSkill(skill.name) }}
-                    title={t("settings.skillEnvVars")}
-                  >
-                    <Settings2 className="h-3.5 w-3.5" />
-                  </button>
+                  <IconTip label={t("settings.skillEnvVars")}>
+                    <button
+                      className={cn(
+                        "shrink-0 transition-colors",
+                        showWarning
+                          ? "text-orange-400 hover:text-orange-500"
+                          : "text-muted-foreground/40 hover:text-muted-foreground opacity-0 group-hover:opacity-100"
+                      )}
+                      onClick={(e) => { e.stopPropagation(); handleSelectSkill(skill.name) }}
+                    >
+                      <Settings2 className="h-3.5 w-3.5" />
+                    </button>
+                  </IconTip>
                 )}
 
                 {/* Open directory */}
-                <button
-                  className="shrink-0 text-muted-foreground/40 hover:text-muted-foreground transition-colors opacity-0 group-hover:opacity-100"
-                  onClick={(e) => { e.stopPropagation(); handleOpenDir(skill.base_dir) }}
-                  title={skill.base_dir}
-                >
-                  <FolderOpen className="h-3.5 w-3.5" />
-                </button>
+                <IconTip label={skill.base_dir}>
+                  <button
+                    className="shrink-0 text-muted-foreground/40 hover:text-muted-foreground transition-colors opacity-0 group-hover:opacity-100"
+                    onClick={(e) => { e.stopPropagation(); handleOpenDir(skill.base_dir) }}
+                  >
+                    <FolderOpen className="h-3.5 w-3.5" />
+                  </button>
+                </IconTip>
 
                 <ChevronRight
                   className="h-4 w-4 text-muted-foreground/30 shrink-0 group-hover:text-muted-foreground/60 transition-colors cursor-pointer"
@@ -528,5 +540,6 @@ export default function SkillsPanel() {
         </div>
       )}
     </div>
+    </TooltipProvider>
   )
 }

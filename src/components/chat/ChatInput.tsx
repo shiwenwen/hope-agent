@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
+import { TooltipProvider, IconTip } from "@/components/ui/tooltip"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import {
@@ -119,6 +120,7 @@ export default function ChatInput({
   )
 
   return (
+    <TooltipProvider>
     <div className="px-3 pb-3 pt-2">
       <div className="rounded-2xl border border-border bg-card">
         {/* Attached files preview */}
@@ -181,15 +183,16 @@ export default function ChatInput({
         {/* Toolbar */}
         <div className="flex items-center gap-1 px-2 pb-2">
           {/* Attach buttons */}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground"
-            onClick={() => imageInputRef.current?.click()}
-            title={t("chat.attachImage")}
-          >
-            <ImagePlus className="h-4 w-4" />
-          </Button>
+          <IconTip label={t("chat.attachImage")}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground"
+              onClick={() => imageInputRef.current?.click()}
+            >
+              <ImagePlus className="h-4 w-4" />
+            </Button>
+          </IconTip>
           <input
             ref={imageInputRef}
             type="file"
@@ -198,15 +201,16 @@ export default function ChatInput({
             className="hidden"
             onChange={handleFileSelect}
           />
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground"
-            onClick={() => fileInputRef.current?.click()}
-            title={t("chat.attachFile")}
-          >
-            <Paperclip className="h-4 w-4" />
-          </Button>
+          <IconTip label={t("chat.attachFile")}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Paperclip className="h-4 w-4" />
+            </Button>
+          </IconTip>
           <input
             ref={fileInputRef}
             type="file"
@@ -342,29 +346,32 @@ export default function ChatInput({
 
           {/* Stop Button (always visible during loading) */}
           {loading && (
-            <Button
-              size="icon"
-              variant="destructive"
-              className="h-8 w-8 rounded-full shrink-0"
-              onClick={onStop}
-              title={t("chat.stopReply")}
-            >
-              <Square className="h-4 w-4 fill-white stroke-white" />
-            </Button>
+            <IconTip label={t("chat.stopReply")}>
+              <Button
+                size="icon"
+                variant="destructive"
+                className="h-8 w-8 rounded-full shrink-0"
+                onClick={onStop}
+              >
+                <Square className="h-4 w-4 fill-white stroke-white" />
+              </Button>
+            </IconTip>
           )}
 
           {/* Send Button */}
-          <Button
-            size="icon"
-            className="h-8 w-8 rounded-full shrink-0"
-            onClick={onSend}
-            disabled={!input.trim() || (loading && !!pendingMessage)}
-            title={loading && input.trim() ? t("chat.queueMessage") : undefined}
-          >
-            <Send className="h-4 w-4" />
-          </Button>
+          <IconTip label={loading && input.trim() ? t("chat.queueMessage") : null}>
+            <Button
+              size="icon"
+              className="h-8 w-8 rounded-full shrink-0"
+              onClick={onSend}
+              disabled={!input.trim() || (loading && !!pendingMessage)}
+            >
+              <Send className="h-4 w-4" />
+            </Button>
+          </IconTip>
         </div>
       </div>
     </div>
+    </TooltipProvider>
   )
 }
