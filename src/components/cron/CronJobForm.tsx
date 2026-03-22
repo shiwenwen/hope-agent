@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { invoke, convertFileSrc } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -12,7 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
-import { X, Code2 } from "lucide-react"
+import { X, Code2, Bot } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 // ── Types ─────────────────────────────────────────────────────────
@@ -72,6 +72,7 @@ interface AgentInfo {
   id: string
   name: string
   emoji?: string | null
+  avatar?: string | null
 }
 
 // ── Form Props ────────────────────────────────────────────────────
@@ -614,7 +615,18 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
               <SelectContent>
                 {agents.map((a) => (
                   <SelectItem key={a.id} value={a.id}>
-                    {a.emoji ? `${a.emoji} ` : ""}{a.name}
+                    <div className="flex items-center gap-2">
+                      <div className="w-5 h-5 rounded-full bg-primary/15 flex items-center justify-center text-primary shrink-0 text-[10px] overflow-hidden">
+                        {a.avatar ? (
+                          <img src={a.avatar.startsWith("/") ? convertFileSrc(a.avatar) : a.avatar} className="w-full h-full object-cover" alt="" />
+                        ) : a.emoji ? (
+                          <span>{a.emoji}</span>
+                        ) : (
+                          <Bot className="h-3 w-3" />
+                        )}
+                      </div>
+                      <span>{a.name}</span>
+                    </div>
                   </SelectItem>
                 ))}
               </SelectContent>
