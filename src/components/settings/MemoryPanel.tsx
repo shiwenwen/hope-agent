@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
+import { TooltipProvider, IconTip } from "@/components/ui/tooltip"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
@@ -623,6 +624,7 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
 
   // ── List View (default) ──
   return (
+    <TooltipProvider>
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden p-6">
       <div className="max-w-4xl w-full flex flex-col min-h-0">
         {/* Header */}
@@ -630,13 +632,17 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
           <h2 className="text-lg font-semibold">{t("settings.memory")}</h2>
           <div className="flex items-center gap-2">
             {!compact && (
-              <Button variant="ghost" size="sm" onClick={() => setView("embedding")} title={t("settings.memoryEmbedding")}>
-                <Zap className={cn("h-4 w-4", embeddingConfig.enabled ? "text-primary" : "text-muted-foreground")} />
-              </Button>
+              <IconTip label={t("settings.memoryEmbedding")}>
+                <Button variant="ghost" size="sm" onClick={() => setView("embedding")}>
+                  <Zap className={cn("h-4 w-4", embeddingConfig.enabled ? "text-primary" : "text-muted-foreground")} />
+                </Button>
+              </IconTip>
             )}
-            <Button variant="ghost" size="sm" onClick={handleExport} title={t("settings.memoryExport")}>
-              <FileDown className="h-4 w-4" />
-            </Button>
+            <IconTip label={t("settings.memoryExport")}>
+              <Button variant="ghost" size="sm" onClick={handleExport}>
+                <FileDown className="h-4 w-4" />
+              </Button>
+            </IconTip>
             <Button size="sm" onClick={startAdd} className="gap-1.5">
               <Plus className="h-3.5 w-3.5" />
               {t("settings.memoryAdd")}
@@ -668,19 +674,19 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
             {MEMORY_TYPES.map((type) => {
               const Icon = MEMORY_TYPE_ICONS[type]
               return (
-                <button
-                  key={type}
-                  onClick={() => setFilterType(filterType === type ? null : type)}
-                  className={cn(
-                    "p-2 rounded-lg border transition-colors",
-                    filterType === type
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-transparent text-muted-foreground hover:text-foreground hover:bg-secondary/40"
-                  )}
-                  title={t(`settings.memoryType_${type}`)}
-                >
-                  <Icon className="h-4 w-4" />
-                </button>
+                <IconTip label={t(`settings.memoryType_${type}`)} key={type}>
+                  <button
+                    onClick={() => setFilterType(filterType === type ? null : type)}
+                    className={cn(
+                      "p-2 rounded-lg border transition-colors",
+                      filterType === type
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-transparent text-muted-foreground hover:text-foreground hover:bg-secondary/40"
+                    )}
+                  >
+                    <Icon className="h-4 w-4" />
+                  </button>
+                </IconTip>
               )
             })}
           </div>
@@ -793,5 +799,6 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
         </div>
       </div>
     </div>
+    </TooltipProvider>
   )
 }
