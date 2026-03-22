@@ -14,6 +14,12 @@ import {
 import { cn } from "@/lib/utils"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu"
+import {
   ChevronDown,
   ChevronRight,
   MessageSquare,
@@ -22,6 +28,7 @@ import {
   MessageSquarePlus,
   Loader2,
   Timer,
+  Pencil,
 } from "lucide-react"
 import type { SessionMeta, AgentSummaryForSidebar } from "@/types/chat"
 
@@ -35,6 +42,7 @@ interface ChatSidebarProps {
   onSwitchSession: (sessionId: string) => void
   onNewChat: (agentId: string) => void
   onDeleteSession: (sessionId: string) => void
+  onEditAgent?: (agentId: string) => void
 }
 
 export default function ChatSidebar({
@@ -47,6 +55,7 @@ export default function ChatSidebar({
   onSwitchSession,
   onNewChat,
   onDeleteSession,
+  onEditAgent,
 }: ChatSidebarProps) {
   const { t } = useTranslation()
   const [agentsExpanded, setAgentsExpanded] = useState(true)
@@ -235,69 +244,80 @@ export default function ChatSidebar({
                 {agents.map((agent) => {
                   const isSelected = selectedAgentId === agent.id
                   return (
-                    <div
-                      key={agent.id}
-                      className={cn(
-                        "flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs transition-colors truncate group/agent",
-                        isSelected
-                          ? "bg-primary/10"
-                          : "hover:bg-secondary/60"
-                      )}
-                      title={agent.description || agent.name}
-                    >
-                      {/* Clickable area: single click = toggle filter, double click = new chat */}
-                      <button
-                        className="flex items-center gap-2 flex-1 min-w-0"
-                        onClick={() => {
-                          if (clickTimerRef.current) {
-                            clearTimeout(clickTimerRef.current)
-                            clickTimerRef.current = null
-                          }
-                          clickTimerRef.current = setTimeout(() => {
-                            toggleAgentFilter(agent.id)
-                            clickTimerRef.current = null
-                          }, 250)
-                        }}
-                        onDoubleClick={() => {
-                          if (clickTimerRef.current) {
-                            clearTimeout(clickTimerRef.current)
-                            clickTimerRef.current = null
-                          }
-                          onNewChat(agent.id)
-                        }}
-                      >
-                        <div className={cn(
-                          "w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[10px] overflow-hidden",
-                          isSelected ? "bg-primary/25 text-primary" : "bg-primary/15 text-primary"
-                        )}>
-                          {agent.avatar ? (
-                            <img src={agent.avatar.startsWith("/") ? convertFileSrc(agent.avatar) : agent.avatar} className="w-full h-full object-cover" alt="" />
-                          ) : agent.emoji ? (
-                            <span>{agent.emoji}</span>
-                          ) : (
-                            <Bot className="h-3 w-3" />
+                    <ContextMenu key={agent.id}>
+                      <ContextMenuTrigger asChild>
+                        <div
+                          className={cn(
+                            "flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs transition-colors truncate group/agent",
+                            isSelected
+                              ? "bg-primary/10"
+                              : "hover:bg-secondary/60"
                           )}
-                        </div>
-                        <span className={cn("truncate", isSelected ? "text-primary font-medium" : "text-foreground/80")}>
-                          {agent.name}{agent.emoji ? ` ${agent.emoji}` : ""}
-                        </span>
-                      </button>
-                      {/* New chat button */}
-                      <Tooltip>
-                        <TooltipTrigger asChild>
+                          title={agent.description || agent.name}
+                        >
+                          {/* Clickable area: single click = toggle filter, double click = new chat */}
                           <button
-                            className="shrink-0 p-0.5 rounded text-muted-foreground/0 group-hover/agent:text-muted-foreground/60 hover:!text-primary transition-colors"
-                            onClick={(e) => {
-                              e.stopPropagation()
+                            className="flex items-center gap-2 flex-1 min-w-0"
+                            onClick={() => {
+                              if (clickTimerRef.current) {
+                                clearTimeout(clickTimerRef.current)
+                                clickTimerRef.current = null
+                              }
+                              clickTimerRef.current = setTimeout(() => {
+                                toggleAgentFilter(agent.id)
+                                clickTimerRef.current = null
+                              }, 250)
+                            }}
+                            onDoubleClick={() => {
+                              if (clickTimerRef.current) {
+                                clearTimeout(clickTimerRef.current)
+                                clickTimerRef.current = null
+                              }
                               onNewChat(agent.id)
                             }}
                           >
-                            <MessageSquarePlus className="h-3 w-3" />
+                            <div className={cn(
+                              "w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[10px] overflow-hidden",
+                              isSelected ? "bg-primary/25 text-primary" : "bg-primary/15 text-primary"
+                            )}>
+                              {agent.avatar ? (
+                                <img src={agent.avatar.startsWith("/") ? convertFileSrc(agent.avatar) : agent.avatar} className="w-full h-full object-cover" alt="" />
+                              ) : agent.emoji ? (
+                                <span>{agent.emoji}</span>
+                              ) : (
+                                <Bot className="h-3 w-3" />
+                              )}
+                            </div>
+                            <span className={cn("truncate", isSelected ? "text-primary font-medium" : "text-foreground/80")}>
+                              {agent.name}{agent.emoji ? ` ${agent.emoji}` : ""}
+                            </span>
                           </button>
-                        </TooltipTrigger>
-                        <TooltipContent>{t("chat.newChat")}</TooltipContent>
-                      </Tooltip>
-                    </div>
+                          {/* New chat button */}
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                className="shrink-0 p-0.5 rounded text-muted-foreground/0 group-hover/agent:text-muted-foreground/60 hover:!text-primary transition-colors"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  onNewChat(agent.id)
+                                }}
+                              >
+                                <MessageSquarePlus className="h-3 w-3" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent>{t("chat.newChat")}</TooltipContent>
+                          </Tooltip>
+                        </div>
+                      </ContextMenuTrigger>
+                      {onEditAgent && (
+                        <ContextMenuContent>
+                          <ContextMenuItem onClick={() => onEditAgent(agent.id)}>
+                            <Pencil className="h-3 w-3 mr-2" />
+                            {t("common.edit")}
+                          </ContextMenuItem>
+                        </ContextMenuContent>
+                      )}
+                    </ContextMenu>
                   )
                 })}
               </div>

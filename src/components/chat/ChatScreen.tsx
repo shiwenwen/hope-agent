@@ -540,14 +540,50 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
     }
   }, [reloadSessions, t])
 
-  // Listen for sub-agent completion events — reload sessions to show new sub-agent sessions
+  // Listen for sub-agent completion events — push result to parent agent's conversation
   useEffect(() => {
     let unlisten: UnlistenFn | undefined
     listen("subagent_event", (event) => {
-      const payload = event.payload as { eventType: string; status: string }
-      if (["completed", "error", "timeout", "killed"].includes(payload.status)) {
-        reloadSessions()
+      const payload = event.payload as {
+        eventType: string
+        status: string
+        runId: string
+        parentSessionId: string
+        childAgentId: string
+        taskPreview: string
+        resultFull?: string
+        error?: string
+        durationMs?: number
       }
+      if (!["completed", "error", "timeout", "killed"].includes(payload.status)) return
+
+      reloadSessions()
+
+      // Build the push message to inject into parent agent's conversation
+      const resultContent = payload.resultFull || payload.error || `Sub-agent finished with status: ${payload.status}`
+      const pushMessage = [
+        `[Sub-Agent Completion — auto-delivered]`,
+        `Agent: ${payload.childAgentId}`,
+        `Task: ${payload.taskPreview}`,
+        `Status: ${payload.status}`,
+        payload.durationMs ? `Duration: ${(payload.durationMs / 1000).toFixed(1)}s` : null,
+        `<<<BEGIN_SUBAGENT_RESULT>>>`,
+        resultContent,
+        `<<<END_SUBAGENT_RESULT>>>`,
+      ].filter(Boolean).join("\n")
+
+      // Auto-send to parent session — triggers a new agent turn to process the result
+      const onEvent = new Channel<string>()
+      invoke<string>("chat", {
+        message: pushMessage,
+        attachments: [],
+        sessionId: payload.parentSessionId,
+        modelOverride: undefined,
+        agentId: undefined,
+        onEvent,
+      }).catch((e) => {
+        logger.error("ui", "ChatScreen::subagentPush", "Failed to push sub-agent result", e)
+      })
     }).then((fn) => {
       unlisten = fn
     })
@@ -1140,6 +1176,7 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
         onSwitchSession={handleSwitchSession}
         onNewChat={handleNewChat}
         onDeleteSession={handleDeleteSession}
+        onEditAgent={onOpenAgentSettings}
       />
 
       {/* Command Approval Dialog */}
