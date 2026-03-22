@@ -27,7 +27,20 @@ src/                    前端（React + TypeScript）
   types/chat.ts         共享类型定义
 src-tauri/src/          后端（Rust）
   lib.rs                Tauri 命令注册 & AppState
-  agent.rs              AssistantAgent（多 Provider 封装 + Tool Loop）
+  agent/                AssistantAgent 模块目录（多 Provider 封装 + Tool Loop）
+    mod.rs              模块声明 + 公共 API 重导出 + 构造器/setter/chat 分发器
+    types.rs            核心类型（AssistantAgent/LlmProvider/Attachment/ChatUsage/CodexModel/ThinkTagFilter）
+    config.rs           常量 + 系统提示词构建 + API URL 构建 + thinking 风格映射
+    content.rs          多模态内容构建器（Anthropic/OpenAI Chat/Responses 三种格式）
+    events.rs           前端事件发射（text_delta/tool_call/tool_result/thinking_delta/usage）
+    api_types.rs        SSE/请求/响应 DTO 类型
+    context.rs          上下文管理（compaction/summarization/conversation history）
+    errors.rs           错误处理与重试判断
+    providers/          四种 Provider 独立实现
+      anthropic.rs      Anthropic Messages API + SSE 解析
+      openai_chat.rs    OpenAI Chat Completions API + SSE 解析
+      openai_responses.rs  OpenAI Responses API
+      codex.rs          Codex OAuth API + 重试逻辑
   tools/                统一 Tool 定义 & 执行（按工具拆分为子模块）
   provider.rs           Provider 数据模型 & 持久化
   session.rs            会话持久化（SQLite）
@@ -59,7 +72,7 @@ src-tauri/src/          后端（Rust）
 
 - **前后端通信**：前端通过 `invoke()` 调用 Tauri 命令，流式输出通过 `Channel<String>` 推送事件
 - **状态管理**：后端用 `State<AppState>`（`tokio::sync::Mutex`），前端保持轻量 React state
-- **LLM 调用**：集中在 `agent.rs`，支持 Anthropic / OpenAIChat / OpenAIResponses / Codex 四种 Provider
+- **LLM 调用**：集中在 `agent/` 模块，支持 Anthropic / OpenAIChat / OpenAIResponses / Codex 四种 Provider
 - **Tool Loop**：请求 → 解析 tool_call → 执行 → 回传 → 继续，最多 10 轮
 - **数据存储**：所有数据统一在 `~/.opencomputer/`，`paths.rs` 集中管理
 - **降级策略**：ContextOverflow 终止 → RateLimit/Overloaded/Timeout 指数退避重试 2 次 → Auth/Billing/ModelNotFound 跳下一模型
