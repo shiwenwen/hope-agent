@@ -46,6 +46,7 @@ tauri-plugin-dialog = "2.6.0"
 tauri-plugin-autostart = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-process = "2"
+tauri-plugin-notification = "2"
 rusqlite = { version = "0.34", features = ["bundled"] }
 sqlite-vec = "0.1"
 fastembed = "5"
@@ -62,6 +63,7 @@ readability = "0.3"
 htmd = "0.5"
 once_cell = "1"
 url = "2"
+signal-hook = "0.3"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-app-kit = { version = "0.3.2", features = ["NSWindow", "NSColor"] }

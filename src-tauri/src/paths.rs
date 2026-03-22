@@ -132,6 +132,20 @@ pub fn browser_profile_dir(profile_name: &str) -> Result<PathBuf> {
     Ok(browser_profiles_dir()?.join(profile_name))
 }
 
+// ── Crash Journal ──────────────────────────────────────────────────
+
+/// Crash journal file path: ~/.opencomputer/crash_journal.json
+pub fn crash_journal_path() -> Result<PathBuf> {
+    Ok(root_dir()?.join("crash_journal.json"))
+}
+
+// ── Backups ────────────────────────────────────────────────────────
+
+/// Backups directory: ~/.opencomputer/backups/
+pub fn backups_dir() -> Result<PathBuf> {
+    Ok(root_dir()?.join("backups"))
+}
+
 // ── Directory Initialization ─────────────────────────────────────
 
 /// Ensure all required directories exist.
@@ -147,6 +161,7 @@ pub fn ensure_dirs() -> Result<()> {
         logs_dir()?,
         models_cache_dir()?,
         browser_profiles_dir()?,
+        backups_dir()?,
     ];
     for dir in &dirs_to_create {
         std::fs::create_dir_all(dir)?;

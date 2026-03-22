@@ -10,9 +10,9 @@ mod memory;
 mod failover;
 mod file_extract;
 mod oauth;
-mod paths;
+pub mod paths;
 mod process_registry;
-mod provider;
+pub mod provider;
 mod sandbox;
 mod session;
 mod skills;
@@ -21,6 +21,9 @@ mod permissions;
 mod tools;
 mod user_config;
 mod context_compact;
+pub mod crash_journal;
+pub mod backup;
+pub mod self_diagnosis;
 
 use agent::AssistantAgent;
 use oauth::TokenData;
@@ -2230,6 +2233,19 @@ async fn save_compact_config(config: context_compact::CompactConfig) -> Result<(
     provider::save_store(&store).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+async fn get_notification_config() -> Result<provider::NotificationConfig, String> {
+    let store = provider::load_store().map_err(|e| e.to_string())?;
+    Ok(store.notification)
+}
+
+#[tauri::command]
+async fn save_notification_config(config: provider::NotificationConfig) -> Result<(), String> {
+    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    store.notification = config;
+    provider::save_store(&store).map_err(|e| e.to_string())
+}
+
 /// Manually trigger context compaction on the current session.
 /// Returns the compaction result for frontend display.
 #[tauri::command]
@@ -2465,6 +2481,94 @@ async fn cron_get_calendar_events(
         .map_err(|e| format!("Invalid end date: {}", e))?
         .with_timezone(&chrono::Utc);
     state.cron_db.get_calendar_events(&start_dt, &end_dt).map_err(|e| e.to_string())
+}
+
+// ── Crash Recovery Commands ───────────────────────────────────────
+
+#[tauri::command]
+async fn get_crash_recovery_info() -> Result<serde_json::Value, String> {
+    let recovered = std::env::var("OPENCOMPUTER_RECOVERED").is_ok();
+    let crash_count: u32 = std::env::var("OPENCOMPUTER_CRASH_COUNT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+
+    let mut info = serde_json::json!({
+        "recovered": recovered,
+        "crashCount": crash_count,
+    });
+
+    // If recovered, load the latest diagnosis from crash journal
+    if recovered {
+        if let Ok(path) = paths::crash_journal_path() {
+            let journal = crash_journal::CrashJournal::load(&path);
+            if let Some(last) = journal.crashes.last() {
+                if let Some(ref diagnosis) = last.diagnosis_result {
+                    info["diagnosis"] = serde_json::to_value(diagnosis).unwrap_or_default();
+                }
+            }
+        }
+    }
+
+    Ok(info)
+}
+
+#[tauri::command]
+async fn get_crash_history() -> Result<serde_json::Value, String> {
+    let path = paths::crash_journal_path().map_err(|e| e.to_string())?;
+    let journal = crash_journal::CrashJournal::load(&path);
+    serde_json::to_value(&journal).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn clear_crash_history() -> Result<(), String> {
+    let path = paths::crash_journal_path().map_err(|e| e.to_string())?;
+    let mut journal = crash_journal::CrashJournal::load(&path);
+    journal.clear();
+    journal.save(&path)
+}
+
+#[tauri::command]
+async fn request_app_restart(app: tauri::AppHandle) -> Result<(), String> {
+    app.exit(42);
+    Ok(())
+}
+
+#[tauri::command]
+async fn list_backups_cmd() -> Result<Vec<backup::BackupInfo>, String> {
+    backup::list_backups()
+}
+
+#[tauri::command]
+async fn restore_backup_cmd(name: String) -> Result<(), String> {
+    backup::restore_backup(&name)
+}
+
+#[tauri::command]
+async fn create_backup_cmd() -> Result<String, String> {
+    backup::create_backup()
+}
+
+#[tauri::command]
+async fn get_guardian_enabled() -> Result<bool, String> {
+    let config_path = paths::config_path().map_err(|e| e.to_string())?;
+    let content = std::fs::read_to_string(&config_path).unwrap_or_default();
+    let config: serde_json::Value = serde_json::from_str(&content).unwrap_or_default();
+    Ok(config
+        .get("guardian")
+        .and_then(|g| g.get("enabled"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true))
+}
+
+#[tauri::command]
+async fn set_guardian_enabled(enabled: bool) -> Result<(), String> {
+    let config_path = paths::config_path().map_err(|e| e.to_string())?;
+    let content = std::fs::read_to_string(&config_path).unwrap_or_default();
+    let mut config: serde_json::Value = serde_json::from_str(&content).unwrap_or(serde_json::json!({}));
+    config["guardian"] = serde_json::json!({ "enabled": enabled });
+    let json_str = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
+    std::fs::write(&config_path, json_str).map_err(|e| format!("Failed to save config: {}", e))
 }
 
 // ── User Config Commands ─────────────────────────────────────────
@@ -2729,6 +2833,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
@@ -2934,6 +3039,8 @@ pub fn run() {
             get_embedding_presets,
             get_compact_config,
             save_compact_config,
+            get_notification_config,
+            save_notification_config,
             compact_context_now,
             list_local_embedding_models,
             // User config
@@ -2982,6 +3089,16 @@ pub fn run() {
             cron_run_now,
             cron_get_run_logs,
             cron_get_calendar_events,
+            // Crash recovery & backup
+            get_crash_recovery_info,
+            get_crash_history,
+            clear_crash_history,
+            request_app_restart,
+            list_backups_cmd,
+            restore_backup_cmd,
+            create_backup_cmd,
+            get_guardian_enabled,
+            set_guardian_enabled,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

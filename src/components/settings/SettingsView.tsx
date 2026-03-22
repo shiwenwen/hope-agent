@@ -10,6 +10,7 @@ import {
   MessageSquare,
   Puzzle,
   Clock,
+  HeartPulse,
   ScrollText,
   Server,
   Settings2,
@@ -32,6 +33,7 @@ import LogPanel from "@/components/settings/LogPanel"
 import MemoryPanel from "@/components/settings/MemoryPanel"
 import CronPanel from "@/components/settings/CronPanel"
 import PermissionsPanel from "@/components/settings/PermissionsPanel"
+import CrashHistoryPanel from "@/components/settings/CrashHistoryPanel"
 import type { SettingsSection, SettingsSectionItem } from "./types"
 
 const SECTIONS: SettingsSectionItem[] = [
@@ -84,6 +86,11 @@ const SECTIONS: SettingsSectionItem[] = [
     id: "permissions",
     icon: <Shield className="h-4 w-4" />,
     labelKey: "settings.permissions",
+  },
+  {
+    id: "health",
+    icon: <HeartPulse className="h-4 w-4" />,
+    labelKey: "settings.health",
   },
   {
     id: "logs",
@@ -211,6 +218,7 @@ export default function SettingsView({
           {activeSection === "tools" && <ToolSettingsPanel />}
           {activeSection === "permissions" && <PermissionsPanel />}
           {activeSection === "chat" && <ChatSettingsPanel />}
+          {activeSection === "health" && <CrashHistoryPanel />}
           {activeSection === "logs" && <LogPanel />}
           {activeSection === "about" && <AboutPanel />}
         </div>

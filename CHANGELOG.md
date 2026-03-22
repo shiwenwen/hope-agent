@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **自愈式自动重启系统**：Guardian Process 架构实现全类型崩溃检测与自动恢复
+  - Guardian/Child 双模式进程架构：同一二进制通过 `OPENCOMPUTER_CHILD` 环境变量区分模式，Guardian 作为父进程监控子进程退出码
+  - 捕获所有崩溃类型：Rust panic、segfault（SIGSEGV）、OOM kill（SIGKILL）、abort（SIGABRT）等
+  - 智能重启策略：指数退避（1s→3s→9s→15s→30s）、10 分钟窗口自动重置崩溃计数
+  - 信号转发：SIGTERM/SIGINT 正确转发给子进程，macOS Force Quit 不会被误判为崩溃
+  - 退出码约定：0=正常退出、42=请求重启、其他=崩溃
+  - 配置备份系统：连续崩溃 5 次后自动备份 config.json、user.json、agents/、credentials/ 到 `~/.opencomputer/backups/`，保留最近 5 份
+  - LLM 自诊断：读取崩溃日志 + 纯文本日志，遍历所有可用 Provider（按 cost 排序）调用 LLM 分析崩溃原因，全部失败降级为基于退出码/信号的基础分析
+  - 保守自动修复：仅修复 config.json 损坏、logs.db 损坏、compact 配置异常，绝不动凭证和会话数据
+  - 崩溃日志（crash_journal.json）：JSON 格式持久化崩溃记录（最近 50 条），记录退出码、信号名、诊断结果
+  - 新增设置 → 系统健康面板：崩溃历史、诊断结果展示、手动创建/恢复备份、一键重启
+  - 崩溃恢复横幅：应用从崩溃恢复后在聊天界面顶部显示通知横幅
+  - 新增 `crash_journal.rs`、`backup.rs`、`self_diagnosis.rs` 后端模块
+  - 7 个 Tauri 命令：`get_crash_recovery_info` / `get_crash_history` / `clear_crash_history` / `request_app_restart` / `list_backups_cmd` / `restore_backup_cmd` / `create_backup_cmd`
 - **对话上下文压缩系统**：4 层渐进式上下文压缩，防止 context overflow 卡死会话。参考 openclaw 方案优化适配桌面场景
   - Tier 1：工具结果截断 — 单个结果超过 context 30% 时 head+tail 截断（结构感知边界切割）
   - Tier 2：上下文裁剪 — 软裁剪旧工具结果 → 硬替换为占位符，基于 age×size 优先级评分

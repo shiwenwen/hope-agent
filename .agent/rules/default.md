@@ -40,7 +40,12 @@ src-tauri/src/          后端（Rust）
   system_prompt.rs      系统提示词模块化拼装
   memory.rs             记忆系统（MemoryBackend trait + SQLite/FTS5 实现 + Embedding 配置）
   cron.rs               定时任务系统（调度器 + CronDB + 任务执行 + 日历查询）
-  browser_state.rs      浏览器连接状态管理（全局单例 + CDP 生命周期）
+  browser_state.rs      浏览器连接状态管理（全局单例 + CDP 生命周期 + Profile 隔离）
+  permissions.rs        macOS 系统权限检测 & 申请（15 项权限，JXA + 框架 API 检测）
+  context_compact.rs    上下文压缩系统（4 层渐进式压缩 + Token 估算校准 + 工具结果截断 + 上下文裁剪 + LLM 摘要 + 溢出恢复）
+  crash_journal.rs      崩溃日志（JSON 持久化 + 信号映射 + 诊断结果记录）
+  backup.rs             配置备份（创建/恢复/轮转 + 增量文件备份）
+  self_diagnosis.rs     自诊断系统（多 Provider Failover LLM 调用 + 基础分析降级 + 保守自动修复）
 ```
 
 ## 技术栈
@@ -67,6 +72,8 @@ src-tauri/src/          后端（Rust）
 - **定时任务系统**：`cron.rs` 实现完整定时任务调度。3 种调度类型（At 一次性 / Every 固定间隔 / Cron 表达式），tokio 后台轮询执行，隔离 session + 模型链降级。指数退避重试 + 自动禁用。日历视图页面（侧边栏入口）+ 设置面板列表管理。Agent 工具 `manage_cron` 支持 AI 直接管理定时任务
 - **Web 搜索多 Provider**：`tools/web_search.rs` 支持 8 个搜索引擎（DuckDuckGo / SearXNG / Brave / Perplexity / Google / Grok / Kimi / Tavily），enum 派发 + 自动检测。配置存储在 `config.json` 的 `webSearch` 字段，设置面板 `WebSearchPanel` 管理。SearXNG 支持 Docker 一键部署（`docker.rs`：镜像拉取 → 容器启动 → 配置注入 → 健康检查）
 - **Web Fetch 网页抓取**：`tools/web_fetch.rs` 的 `tool_web_fetch` 使用 Mozilla Readability（`readability` crate）提取正文 + `htmd` crate 转 Markdown，支持 markdown/text 双模式。内存缓存（15 分钟 TTL / 100 条上限）、SSRF 防护（DNS 解析 + 私有 IP 拦截）、流式字节限制读取（默认 2MB）、结构化 JSON 响应。配置存储在 `config.json` 的 `webFetch` 字段，设置面板 `WebFetchPanel` 管理
+- **上下文压缩系统**：`context_compact.rs` 实现 4 层渐进式上下文压缩。Tier 1 工具结果截断（head+tail，结构感知边界切割）→ Tier 2 上下文裁剪（软裁剪 + 硬替换，age×size 优先级评分）→ Tier 3 LLM 摘要（分块摘要 + 合并 + 3 级 fallback）→ Tier 4 溢出恢复（ContextOverflow 触发紧急压缩 + 自动重试）。Token 估算校准器利用 API 返回的实际 token 数做 EMA 滑动平均。15 个可配置参数存储在 `config.json` 的 `compact` 字段，设置面板 `ContextCompactPanel` 管理
+- **自愈式自动重启**：`main.rs` 实现 Guardian Process 架构，同一二进制通过 `OPENCOMPUTER_CHILD` 环境变量区分 Guardian/Child 模式。Guardian 监控子进程退出码，捕获所有崩溃类型（panic/segfault/OOM/abort），指数退避重启。连续崩溃 5 次触发 `backup.rs` 配置备份 + `self_diagnosis.rs` LLM 自诊断（多 Provider Failover + 基础分析降级），保守自动修复（仅 config/logs.db 损坏）。崩溃记录持久化到 `crash_journal.json`（JSON 格式，最近 50 条）。信号转发确保 Force Quit 不误判。退出码：0=正常、42=请求重启、其他=崩溃。设置面板 `CrashHistoryPanel` 管理崩溃历史和备份
 
 ## 编码规范
 
