@@ -445,6 +445,10 @@ fn resolve_provider(config: &WebSearchConfig) -> (WebSearchProvider, &WebSearchP
 // ── Tool Entry Point ─────────────────────────────────────────────
 
 pub(crate) async fn tool_web_search(args: &Value) -> Result<String> {
+    let config = provider::load_store()
+        .map(|s| s.web_search)
+        .unwrap_or_default();
+
     let query = args
         .get("query")
         .and_then(|v| v.as_str())
@@ -453,46 +457,61 @@ pub(crate) async fn tool_web_search(args: &Value) -> Result<String> {
     let count = args
         .get("count")
         .and_then(|v| v.as_u64())
-        .unwrap_or(5)
+        .unwrap_or(config.default_result_count as u64)
         .min(10) as usize;
 
-    let config = provider::load_store()
-        .map(|s| s.web_search)
-        .unwrap_or_default();
-    let (provider_id, entry) = resolve_provider(&config);
+    let params = SearchParams {
+        country: args.get("country").and_then(|v| v.as_str()).map(String::from)
+            .or_else(|| config.default_country.clone()),
+        language: args.get("language").and_then(|v| v.as_str()).map(String::from)
+            .or_else(|| config.default_language.clone()),
+        freshness: args.get("freshness").and_then(|v| v.as_str()).map(String::from)
+            .or_else(|| config.default_freshness.clone()),
+    };
 
-    app_info!("tool", "web_search", "Web search [{}]: {} (count: {})", provider_id, query, count);
+    let (provider_id, entry) = resolve_provider(&config);
+    let timeout = config.timeout_seconds;
+
+    app_info!("tool", "web_search", "Web search [{}]: {} (count: {}, country: {:?}, lang: {:?}, freshness: {:?})",
+        provider_id, query, count, params.country, params.language, params.freshness);
+
+    // Check cache
+    let ck = search_cache_key(&provider_id.to_string(), query, count, &params);
+    if let Some(cached) = read_search_cache(&ck, config.cache_ttl_minutes) {
+        app_info!("tool", "web_search", "Cache hit for [{}]: {}", provider_id, query);
+        return Ok(cached);
+    }
 
     let results = match provider_id {
-        WebSearchProvider::DuckDuckGo => search_duckduckgo(query, count).await,
+        WebSearchProvider::DuckDuckGo => search_duckduckgo(query, count, timeout).await,
         WebSearchProvider::Searxng => {
             let url = entry.base_url.as_deref().unwrap_or("http://localhost:8080");
-            search_searxng(url, query, count).await
+            search_searxng(url, query, count, &params, timeout).await
         }
         WebSearchProvider::Brave => {
             let key = entry.api_key.as_deref().unwrap_or("");
-            search_brave(key, query, count).await
+            search_brave(key, query, count, &params, timeout).await
         }
         WebSearchProvider::Perplexity => {
             let key = entry.api_key.as_deref().unwrap_or("");
-            search_perplexity(key, query, count).await
+            search_perplexity(key, query, count, &params, timeout).await
         }
         WebSearchProvider::Google => {
             let key = entry.api_key.as_deref().unwrap_or("");
             let cx = entry.api_key2.as_deref().unwrap_or("");
-            search_google(key, cx, query, count).await
+            search_google(key, cx, query, count, &params, timeout).await
         }
         WebSearchProvider::Grok => {
             let key = entry.api_key.as_deref().unwrap_or("");
-            search_grok(key, query, count).await
+            search_grok(key, query, count, timeout).await
         }
         WebSearchProvider::Kimi => {
             let key = entry.api_key.as_deref().unwrap_or("");
-            search_kimi(key, query, count).await
+            search_kimi(key, query, count, timeout).await
         }
         WebSearchProvider::Tavily => {
             let key = entry.api_key.as_deref().unwrap_or("");
-            search_tavily(key, query, count).await
+            search_tavily(key, query, count, &params, timeout).await
         }
     }?;
 
@@ -510,6 +529,9 @@ pub(crate) async fn tool_web_search(args: &Value) -> Result<String> {
             result.snippet
         ));
     }
+
+    // Write to cache
+    write_search_cache(ck, output.clone(), config.cache_ttl_minutes);
 
     Ok(output)
 }
@@ -721,7 +743,7 @@ fn html_decode(s: &str) -> String {
 
 // ── Provider: DuckDuckGo ─────────────────────────────────────────
 
-async fn search_duckduckgo(query: &str, count: usize) -> Result<Vec<SearchResult>> {
+async fn search_duckduckgo(query: &str, count: usize, _timeout_secs: u64) -> Result<Vec<SearchResult>> {
     let client = build_ddg_client()?;
 
     // 1. Try Instant Answer API first (structured JSON, high quality for factual queries)
@@ -914,13 +936,19 @@ fn parse_ddg_lite_results(html: &str, max_results: usize) -> Vec<SearchResult> {
 
 // ── Provider: SearXNG ────────────────────────────────────────────
 
-async fn search_searxng(instance_url: &str, query: &str, count: usize) -> Result<Vec<SearchResult>> {
-    let client = build_client()?;
-    let url = format!(
+async fn search_searxng(instance_url: &str, query: &str, count: usize, params: &SearchParams, timeout_secs: u64) -> Result<Vec<SearchResult>> {
+    let client = build_search_client(timeout_secs)?;
+    let mut url = format!(
         "{}/search?q={}&format=json&categories=general&pageno=1",
         instance_url.trim_end_matches('/'),
         urlencoding::encode(query)
     );
+    if let Some(ref lang) = params.language {
+        url.push_str(&format!("&language={}", urlencoding::encode(lang)));
+    }
+    if let Some(ref freshness) = params.freshness {
+        url.push_str(&format!("&time_range={}", urlencoding::encode(freshness)));
+    }
     let resp = client.get(&url).send().await
         .map_err(|e| anyhow::anyhow!("SearXNG request failed: {}", e))?;
     if !resp.status().is_success() {
@@ -944,16 +972,25 @@ async fn search_searxng(instance_url: &str, query: &str, count: usize) -> Result
 
 // ── Provider: Brave Search ───────────────────────────────────────
 
-async fn search_brave(api_key: &str, query: &str, count: usize) -> Result<Vec<SearchResult>> {
+async fn search_brave(api_key: &str, query: &str, count: usize, params: &SearchParams, timeout_secs: u64) -> Result<Vec<SearchResult>> {
     if api_key.is_empty() {
         return Err(anyhow::anyhow!("Brave Search API key not configured"));
     }
-    let client = build_client()?;
-    let url = format!(
+    let client = build_search_client(timeout_secs)?;
+    let mut url = format!(
         "https://api.search.brave.com/res/v1/web/search?q={}&count={}",
         urlencoding::encode(query),
         count
     );
+    if let Some(ref country) = params.country {
+        url.push_str(&format!("&country={}", urlencoding::encode(country)));
+    }
+    if let Some(ref lang) = params.language {
+        url.push_str(&format!("&search_lang={}", urlencoding::encode(lang)));
+    }
+    if let Some(ref freshness) = params.freshness {
+        url.push_str(&format!("&freshness={}", brave_freshness(freshness)));
+    }
     let resp = client
         .get(&url)
         .header("X-Subscription-Token", api_key)
@@ -984,17 +1021,20 @@ async fn search_brave(api_key: &str, query: &str, count: usize) -> Result<Vec<Se
 
 // ── Provider: Perplexity ─────────────────────────────────────────
 
-async fn search_perplexity(api_key: &str, query: &str, count: usize) -> Result<Vec<SearchResult>> {
+async fn search_perplexity(api_key: &str, query: &str, count: usize, params: &SearchParams, timeout_secs: u64) -> Result<Vec<SearchResult>> {
     if api_key.is_empty() {
         return Err(anyhow::anyhow!("Perplexity API key not configured"));
     }
-    let client = build_client()?;
-    let body = serde_json::json!({
+    let client = build_search_client(timeout_secs)?;
+    let mut body = serde_json::json!({
         "model": "sonar",
         "messages": [{"role": "user", "content": query}],
         "max_tokens": 1024,
         "return_citations": true
     });
+    if let Some(ref freshness) = params.freshness {
+        body["search_recency_filter"] = serde_json::Value::String(freshness.clone());
+    }
     let resp = client
         .post("https://api.perplexity.ai/chat/completions")
         .header("Authorization", format!("Bearer {}", api_key))
@@ -1046,18 +1086,27 @@ async fn search_perplexity(api_key: &str, query: &str, count: usize) -> Result<V
 
 // ── Provider: Google Custom Search ───────────────────────────────
 
-async fn search_google(api_key: &str, cx: &str, query: &str, count: usize) -> Result<Vec<SearchResult>> {
+async fn search_google(api_key: &str, cx: &str, query: &str, count: usize, params: &SearchParams, timeout_secs: u64) -> Result<Vec<SearchResult>> {
     if api_key.is_empty() || cx.is_empty() {
         return Err(anyhow::anyhow!("Google Custom Search API key or CX not configured"));
     }
-    let client = build_client()?;
-    let url = format!(
+    let client = build_search_client(timeout_secs)?;
+    let mut url = format!(
         "https://www.googleapis.com/customsearch/v1?key={}&cx={}&q={}&num={}",
         urlencoding::encode(api_key),
         urlencoding::encode(cx),
         urlencoding::encode(query),
         count.min(10)
     );
+    if let Some(ref country) = params.country {
+        url.push_str(&format!("&gl={}", urlencoding::encode(country)));
+    }
+    if let Some(ref lang) = params.language {
+        url.push_str(&format!("&lr=lang_{}", urlencoding::encode(lang)));
+    }
+    if let Some(ref freshness) = params.freshness {
+        url.push_str(&format!("&dateRestrict={}", google_date_restrict(freshness)));
+    }
     let resp = client.get(&url).send().await
         .map_err(|e| anyhow::anyhow!("Google Custom Search request failed: {}", e))?;
     if !resp.status().is_success() {
@@ -1083,11 +1132,11 @@ async fn search_google(api_key: &str, cx: &str, query: &str, count: usize) -> Re
 
 // ── Provider: Grok (X.AI) ───────────────────────────────────────
 
-async fn search_grok(api_key: &str, query: &str, count: usize) -> Result<Vec<SearchResult>> {
+async fn search_grok(api_key: &str, query: &str, count: usize, timeout_secs: u64) -> Result<Vec<SearchResult>> {
     if api_key.is_empty() {
         return Err(anyhow::anyhow!("Grok (X.AI) API key not configured"));
     }
-    let client = build_client()?;
+    let client = build_search_client(timeout_secs)?;
     let body = serde_json::json!({
         "model": "grok-3-mini-fast",
         "messages": [{"role": "user", "content": format!(
@@ -1175,11 +1224,11 @@ async fn search_grok(api_key: &str, query: &str, count: usize) -> Result<Vec<Sea
 
 // ── Provider: Kimi (Moonshot) ────────────────────────────────────
 
-async fn search_kimi(api_key: &str, query: &str, count: usize) -> Result<Vec<SearchResult>> {
+async fn search_kimi(api_key: &str, query: &str, count: usize, timeout_secs: u64) -> Result<Vec<SearchResult>> {
     if api_key.is_empty() {
         return Err(anyhow::anyhow!("Kimi (Moonshot) API key not configured"));
     }
-    let client = build_client()?;
+    let client = build_search_client(timeout_secs)?;
     let body = serde_json::json!({
         "model": "moonshot-v1-8k",
         "messages": [{"role": "user", "content": format!(
@@ -1246,17 +1295,23 @@ async fn search_kimi(api_key: &str, query: &str, count: usize) -> Result<Vec<Sea
 
 // ── Provider: Tavily ────────────────────────────────────────────
 
-async fn search_tavily(api_key: &str, query: &str, count: usize) -> Result<Vec<SearchResult>> {
+async fn search_tavily(api_key: &str, query: &str, count: usize, params: &SearchParams, timeout_secs: u64) -> Result<Vec<SearchResult>> {
     if api_key.is_empty() {
         return Err(anyhow::anyhow!("Tavily API key not configured"));
     }
-    let client = build_client()?;
-    let body = serde_json::json!({
+    let client = build_search_client(timeout_secs)?;
+    let mut body = serde_json::json!({
         "api_key": api_key,
         "query": query,
         "max_results": count,
         "include_answer": false,
     });
+    if let Some(ref country) = params.country {
+        body["country"] = serde_json::Value::String(country.clone());
+    }
+    if let Some(ref freshness) = params.freshness {
+        body["days"] = serde_json::Value::Number(serde_json::Number::from(tavily_days(freshness)));
+    }
     let resp = client
         .post("https://api.tavily.com/search")
         .json(&body)

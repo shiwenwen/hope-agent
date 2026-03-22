@@ -353,7 +353,20 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     },
                     "count": {
                         "type": "integer",
-                        "description": "Number of results to return (1-10, default 5)"
+                        "description": "Number of results to return (1-10, default from settings)"
+                    },
+                    "country": {
+                        "type": "string",
+                        "description": "ISO 3166-1 alpha-2 country code (e.g. 'US', 'CN'). Limits results to this country. Supported by: Brave, Google, Tavily."
+                    },
+                    "language": {
+                        "type": "string",
+                        "description": "ISO 639-1 language code (e.g. 'en', 'zh'). Prefer results in this language. Supported by: Brave, SearXNG, Google."
+                    },
+                    "freshness": {
+                        "type": "string",
+                        "enum": ["day", "week", "month", "year"],
+                        "description": "Time filter: only return results from the specified period. Supported by: Brave, SearXNG, Perplexity, Google, Tavily."
                     }
                 },
                 "required": ["query"],
