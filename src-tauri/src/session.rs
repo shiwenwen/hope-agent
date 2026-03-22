@@ -348,7 +348,7 @@ impl SessionDB {
             tokens_in: row.get(7)?,
             tokens_out: row.get(8)?,
             reasoning_effort: row.get(9)?,
-            tool_call_id: row.get(30)?,
+            tool_call_id: row.get(10)?,
             tool_name: row.get(11)?,
             tool_arguments: row.get(12)?,
             tool_result: row.get(13)?,

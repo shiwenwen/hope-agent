@@ -216,7 +216,7 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
   const currentSessionIdRef = useRef<string | null>(null)
 
   // Pagination: track whether there are older messages and the oldest loaded DB id per session
-  const PAGE_SIZE = 10
+  const PAGE_SIZE = 30
   const hasMoreRef = useRef<Map<string, boolean>>(new Map())
   const oldestDbIdRef = useRef<Map<string, number>>(new Map())
   const [hasMore, setHasMore] = useState(false)
@@ -974,6 +974,10 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
       setLoadingSessionIds(new Set(loadingSessionsRef.current))
       if (currentSessionIdRef.current === sid) {
         setLoading(false)
+      }
+      // Mark current session as read so unread count stays 0 for active session
+      if (targetSessionId) {
+        invoke("mark_session_read_cmd", { sessionId: targetSessionId }).catch(() => {})
       }
       reloadSessions()
 
