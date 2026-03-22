@@ -666,13 +666,13 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
 
   // ── List View (default) ──
   return (
+    <TooltipProvider delayDuration={100} skipDelayDuration={50}>
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden p-6">
       <div className="max-w-4xl w-full flex flex-col min-h-0">
         {/* Header */}
         <div className="flex items-center justify-between mb-1 shrink-0">
           <h2 className="text-lg font-semibold">{t("settings.memory")}</h2>
           <div className="flex items-center gap-2">
-            <TooltipProvider delayDuration={100} skipDelayDuration={50}>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button variant="ghost" size="sm" onClick={handleExport}>
@@ -700,7 +700,6 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
                 )}
               </Button>
             )}
-            </TooltipProvider>
             <Button size="sm" onClick={startAdd} className="gap-1.5">
               <Plus className="h-3.5 w-3.5" />
               {t("settings.memoryAdd")}
@@ -860,5 +859,6 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
         </div>
       </div>
     </div>
+    </TooltipProvider>
   )
 }

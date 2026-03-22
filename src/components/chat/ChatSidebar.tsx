@@ -319,15 +319,18 @@ export default function ChatSidebar({
                 const isActive = session.id === currentSessionId
                 const isLoading = loadingSessionIds.has(session.id)
                 return (
-                  <button
+                  <div
                     key={session.id}
+                    role="button"
+                    tabIndex={0}
                     className={cn(
-                      "flex items-center gap-2.5 w-full px-2.5 py-2 rounded-lg text-left transition-colors group",
+                      "flex items-center gap-2.5 w-full px-2.5 py-2 rounded-lg text-left transition-colors group cursor-pointer",
                       isActive
                         ? "bg-secondary/70 border border-border/50"
                         : "hover:bg-secondary/40"
                     )}
                     onClick={() => onSwitchSession(session.id)}
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSwitchSession(session.id) } }}
                   >
                     {/* Agent avatar (small) — with loading spinner overlay */}
                     <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center text-primary shrink-0 text-[10px] overflow-hidden relative">
@@ -382,7 +385,7 @@ export default function ChatSidebar({
                       </TooltipTrigger>
                       <TooltipContent>{t("common.delete")}</TooltipContent>
                     </Tooltip>
-                  </button>
+                  </div>
                 )
               })
             )}

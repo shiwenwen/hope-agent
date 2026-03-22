@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { logger } from "@/lib/logger"
 import { notify, loadNotificationConfig, isAgentNotifyEnabled } from "@/lib/notifications"
-import { Settings, Copy, Check, Info, BarChart3, AlertCircle } from "lucide-react"
+import { Settings, Copy, Check, Info, BarChart3, AlertCircle, Pencil } from "lucide-react"
 import type {
   Message,
   MessageUsage,
@@ -125,7 +125,7 @@ function parseSessionMessages(msgs: SessionMessage[]): Message[] {
   const pendingBlocks: ContentBlock[] = []
   for (const msg of msgs) {
     if (msg.role === "user") {
-      displayMessages.push({ role: "user", content: msg.content, timestamp: msg.timestamp })
+      displayMessages.push({ role: "user", content: msg.content, timestamp: msg.timestamp, dbId: msg.id })
     } else if (msg.role === "tool" && msg.toolCallId) {
       const tool: ToolCall = {
         callId: msg.toolCallId,
@@ -176,9 +176,10 @@ function parseSessionMessages(msgs: SessionMessage[]): Message[] {
         timestamp: msg.timestamp,
         usage,
         model: msg.model || undefined,
+        dbId: msg.id,
       })
     } else if (msg.role === "event") {
-      displayMessages.push({ role: "event", content: msg.content, timestamp: msg.timestamp })
+      displayMessages.push({ role: "event", content: msg.content, timestamp: msg.timestamp, dbId: msg.id })
     }
   }
   return displayMessages
@@ -272,6 +273,12 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
   const [hoveredMsgIndex, setHoveredMsgIndex] = useState<number | null>(null)
   // Details popover state
   const [detailsIndex, setDetailsIndex] = useState<number | null>(null)
+  // Context menu state
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; index: number } | null>(null)
+  // Edit message state
+  const [editingIndex, setEditingIndex] = useState<number | null>(null)
+  const [editContent, setEditContent] = useState("")
+  const editTextareaRef = useRef<HTMLTextAreaElement>(null)
   // Session status popover
   const [showStatus, setShowStatus] = useState(false)
   const [compacting, setCompacting] = useState(false)
@@ -288,6 +295,66 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
     document.addEventListener("mousedown", handler)
     return () => document.removeEventListener("mousedown", handler)
   }, [showStatus])
+
+  // Close context menu on outside click or scroll
+  useEffect(() => {
+    if (!contextMenu) return
+    const close = () => setContextMenu(null)
+    document.addEventListener("mousedown", close)
+    document.addEventListener("scroll", close, true)
+    return () => {
+      document.removeEventListener("mousedown", close)
+      document.removeEventListener("scroll", close, true)
+    }
+  }, [contextMenu])
+
+  // Auto-focus textarea when entering edit mode
+  useEffect(() => {
+    if (editingIndex !== null) {
+      editTextareaRef.current?.focus()
+    }
+  }, [editingIndex])
+
+  function handleContextMenu(e: React.MouseEvent, index: number) {
+    const msg = messages[index]
+    if (msg.role !== "assistant" || !msg.content) return
+    e.preventDefault()
+    setContextMenu({ x: e.clientX, y: e.clientY, index })
+  }
+
+  function handleStartEdit(index: number) {
+    const msg = messages[index]
+    setEditingIndex(index)
+    setEditContent(msg.content)
+    setContextMenu(null)
+  }
+
+  async function handleSaveEdit(index: number) {
+    const msg = messages[index]
+    const trimmed = editContent.trim()
+    if (!trimmed || trimmed === msg.content) {
+      setEditingIndex(null)
+      return
+    }
+    // Update local state
+    setMessages(prev => prev.map((m, i) => i === index ? { ...m, content: trimmed } : m))
+    // Also update session cache
+    if (currentSessionId) {
+      const cached = sessionCacheRef.current.get(currentSessionId)
+      if (cached) {
+        sessionCacheRef.current.set(currentSessionId, cached.map((m, i) => i === index ? { ...m, content: trimmed } : m))
+      }
+    }
+    // Persist to DB
+    if (msg.dbId) {
+      try {
+        await invoke("update_message_content_cmd", { messageId: msg.dbId, content: trimmed })
+      } catch (e) {
+        logger.error("chat", "ChatScreen::handleSaveEdit", "Failed to persist edit", { error: e })
+      }
+    }
+    setEditingIndex(null)
+  }
 
   function handleCopyMessage(content: string, index: number) {
     navigator.clipboard.writeText(content).then(() => {
@@ -472,6 +539,22 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
       unlisten?.()
     }
   }, [reloadSessions, t])
+
+  // Listen for sub-agent completion events — reload sessions to show new sub-agent sessions
+  useEffect(() => {
+    let unlisten: UnlistenFn | undefined
+    listen("subagent_event", (event) => {
+      const payload = event.payload as { eventType: string; status: string }
+      if (["completed", "error", "timeout", "killed"].includes(payload.status)) {
+        reloadSessions()
+      }
+    }).then((fn) => {
+      unlisten = fn
+    })
+    return () => {
+      unlisten?.()
+    }
+  }, [reloadSessions])
 
   // Listen for agent-initiated notification events
   useEffect(() => {
@@ -1349,6 +1432,7 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
                     setHoveredMsgIndex((prev) => prev === i ? null : prev)
                     setDetailsIndex((prev) => prev === i ? null : prev)
                   }}
+                  onContextMenu={(e) => handleContextMenu(e, i)}
                 >
                   {msg.role === "assistant" && msg.fallbackEvent && (
                     <FallbackBanner event={msg.fallbackEvent} />
@@ -1363,7 +1447,35 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
                       msg.role === "assistant" && loading && i === messages.length - 1 && "streaming-bubble"
                     )}
                   >
-                    {msg.role === "assistant" && msg.contentBlocks && msg.contentBlocks.length > 0 ? (
+                    {msg.role === "assistant" && editingIndex === i ? (
+                      // Edit mode: show textarea
+                      <div className="space-y-2">
+                        <textarea
+                          ref={editTextareaRef}
+                          value={editContent}
+                          onChange={(e) => setEditContent(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Escape") { setEditingIndex(null) }
+                            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { handleSaveEdit(i) }
+                          }}
+                          className="w-full min-h-[80px] rounded-lg border border-border bg-background p-2 text-sm text-foreground resize-y focus:outline-none focus:ring-1 focus:ring-ring"
+                        />
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => setEditingIndex(null)}
+                            className="px-2.5 py-1 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors"
+                          >
+                            {t("common.cancel")}
+                          </button>
+                          <button
+                            onClick={() => handleSaveEdit(i)}
+                            className="px-2.5 py-1 rounded-md text-xs bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                          >
+                            {t("common.save")}
+                          </button>
+                        </div>
+                      </div>
+                    ) : msg.role === "assistant" && msg.contentBlocks && msg.contentBlocks.length > 0 ? (
                       // New path: render content blocks in order (thinking → tool → text)
                       msg.contentBlocks.map((block, blockIdx) => {
                         if (block.type === "thinking") {
@@ -1447,6 +1559,7 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
                   </div>
                   {/* Hover toolbar — below the bubble, always reserves space */}
                   {msg.content && (
+                    <TooltipProvider delayDuration={100} skipDelayDuration={50}>
                     <div className={cn(
                       "flex items-center gap-0.5 mt-0.5 h-6",
                       msg.role === "user" ? "justify-end" : "justify-start",
@@ -1540,6 +1653,7 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
                         </div>
                       )}
                     </div>
+                    </TooltipProvider>
                   )}
                 </div>
               )}
@@ -1582,6 +1696,33 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
           } : undefined}
         />
       </div>
+
+      {/* Right-click context menu for assistant messages */}
+      {contextMenu && (
+        <div
+          className="fixed z-[100] min-w-[140px] rounded-lg border border-border bg-popover p-1 shadow-lg animate-in fade-in-0 zoom-in-95"
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <button
+            className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-foreground hover:bg-muted/80 transition-colors"
+            onClick={() => handleStartEdit(contextMenu.index)}
+          >
+            <Pencil className="h-3.5 w-3.5" />
+            {t("common.edit")}
+          </button>
+          <button
+            className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-foreground hover:bg-muted/80 transition-colors"
+            onClick={() => {
+              handleCopyMessage(messages[contextMenu.index].content, contextMenu.index)
+              setContextMenu(null)
+            }}
+          >
+            <Copy className="h-3.5 w-3.5" />
+            {t("chat.copy")}
+          </button>
+        </div>
+      )}
     </>
   )
 }
