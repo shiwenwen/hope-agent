@@ -13,7 +13,8 @@ mod ls;
 mod memory;
 mod process;
 mod read;
-mod web;
+pub(crate) mod web_fetch;
+pub(crate) mod web_search;
 mod write;
 
 // ── Public Re-exports ─────────────────────────────────────────────
@@ -353,7 +354,20 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     },
                     "count": {
                         "type": "integer",
-                        "description": "Number of results to return (1-10, default 5)"
+                        "description": "Number of results to return (1-10, default from settings)"
+                    },
+                    "country": {
+                        "type": "string",
+                        "description": "ISO 3166-1 alpha-2 country code (e.g. 'US', 'CN'). Limits results to this country. Supported by: Brave, Google, Tavily."
+                    },
+                    "language": {
+                        "type": "string",
+                        "description": "ISO 639-1 language code (e.g. 'en', 'zh'). Prefer results in this language. Supported by: Brave, SearXNG, Google."
+                    },
+                    "freshness": {
+                        "type": "string",
+                        "enum": ["day", "week", "month", "year"],
+                        "description": "Time filter: only return results from the specified period. Supported by: Brave, SearXNG, Perplexity, Google, Tavily."
                     }
                 },
                 "required": ["query"],
@@ -362,7 +376,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "web_fetch".into(),
-            description: "Fetch and extract readable content from a URL. Returns the page content as cleaned text. Use this to read web pages, documentation, articles, or API responses.".into(),
+            description: "Fetch and extract readable content from a URL using Mozilla Readability. Supports markdown and plain text output modes. Returns structured JSON with page content, metadata, and extraction info. Use this to read web pages, documentation, articles, or API responses.".into(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -372,7 +386,12 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     },
                     "max_chars": {
                         "type": "integer",
-                        "description": "Maximum characters to return (default 50000)"
+                        "description": "Maximum content characters to return (default from config, capped by server limit)"
+                    },
+                    "extract_mode": {
+                        "type": "string",
+                        "enum": ["markdown", "text"],
+                        "description": "Content extraction mode: 'markdown' (default) preserves formatting with links/headings/lists, 'text' returns plain text"
                     }
                 },
                 "required": ["url"],
@@ -433,10 +452,49 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                 "additionalProperties": false
             }),
         },
+        ToolDefinition {
+            name: "update_memory".into(),
+            description: "Update an existing memory's content and tags by its ID. Use recall_memory first to find the memory ID. Use when a memory needs correction or its information has changed.".into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "description": "The memory ID to update (obtained from recall_memory results)"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "The new content to replace the existing memory"
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "New tags (replaces existing tags). Omit to clear tags."
+                    }
+                },
+                "required": ["id", "content"],
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: "delete_memory".into(),
+            description: "Delete a memory by its ID. Use recall_memory first to find the memory ID, then use this tool to remove it. Use when the user asks to forget something or when a memory is outdated/incorrect.".into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "description": "The memory ID to delete (obtained from recall_memory results)"
+                    }
+                },
+                "required": ["id"],
+                "additionalProperties": false
+            }),
+        },
         // ── Cron / Scheduled Tasks ──────────────────────────────
         ToolDefinition {
             name: "manage_cron".into(),
-            description: "Create, list, update, delete, and trigger scheduled tasks (cron jobs). Jobs automatically send messages to the AI agent on a schedule. Supports one-time (at), recurring (every), and cron expression schedules.".into(),
+            description: "Create, list, update, delete, and trigger scheduled tasks (cron jobs). Jobs run an agent turn with the given prompt on a schedule (isolated session, no prior history). Supports one-time (at), recurring (every), and cron expression schedules.".into(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -478,9 +536,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                         "type": "string",
                         "description": "Timezone for cron schedule (default UTC)"
                     },
-                    "message": {
+                    "prompt": {
                         "type": "string",
-                        "description": "Message to send to the agent when triggered (for create)"
+                        "description": "The text prompt that the agent will execute when the job triggers. This runs as an isolated agent turn with no prior conversation history."
                     },
                     "agent_id": {
                         "type": "string",
@@ -683,10 +741,12 @@ pub async fn execute_tool_with_context(
         "grep" => grep::tool_grep(args, ctx).await,
         "find" => find::tool_find(args, ctx).await,
         "apply_patch" => apply_patch::tool_apply_patch(args).await,
-        "web_search" => web::tool_web_search(args).await,
-        "web_fetch" => web::tool_web_fetch(args).await,
+        "web_search" => web_search::tool_web_search(args).await,
+        "web_fetch" => web_fetch::tool_web_fetch(args).await,
         "save_memory" => memory::tool_save_memory(args).await,
         "recall_memory" => memory::tool_recall_memory(args).await,
+        "update_memory" => memory::tool_update_memory(args).await,
+        "delete_memory" => memory::tool_delete_memory(args).await,
         "manage_cron" => cron::tool_manage_cron(args).await,
         "browser" => browser::tool_browser(args).await,
         _ => Err(anyhow::anyhow!("Unknown tool: {}", name)),

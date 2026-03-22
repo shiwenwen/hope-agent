@@ -26,7 +26,7 @@ export interface CronSchedule {
 
 export interface CronPayload {
   type: "agentTurn"
-  message: string
+  prompt: string
   agentId?: string | null
 }
 
@@ -226,7 +226,7 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
     [cronFreq, cronHour, cronMinute, cronWeekdays, cronMonthDay, cronRawExpr],
   )
 
-  const [message, setMessage] = useState(job?.payload.message ?? "")
+  const [message, setMessage] = useState(job?.payload.prompt ?? "")
   const [agentId, setAgentId] = useState(job?.payload.agentId ?? "default")
   const [maxFailures, setMaxFailures] = useState(String(job?.maxFailures ?? 5))
   const [agents, setAgents] = useState<AgentInfo[]>([])
@@ -260,7 +260,7 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
           name: name.trim(),
           description: description.trim() || null,
           schedule,
-          payload: { type: "agentTurn", message: message.trim(), agentId: agentId || null },
+          payload: { type: "agentTurn", prompt: message.trim(), agentId: agentId || null },
           maxFailures: parseInt(maxFailures) || 5,
         }
         await invoke("cron_update_job", { job: updated })
@@ -271,7 +271,7 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
             name: name.trim(),
             description: description.trim() || null,
             schedule,
-            payload: { type: "agentTurn", message: message.trim(), agentId: agentId || null },
+            payload: { type: "agentTurn", prompt: message.trim(), agentId: agentId || null },
             maxFailures: parseInt(maxFailures) || 5,
           },
         })
@@ -636,9 +636,9 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
 
         {/* Footer */}
         <div className="flex justify-end gap-2 px-5 py-4 border-t border-border">
-          <Button variant="outline" size="sm" onClick={onCancel}>{t("cron.cancel")}</Button>
+          <Button variant="outline" size="sm" onClick={onCancel}>{t("common.cancel")}</Button>
           <Button size="sm" onClick={handleSave} disabled={saving}>
-            {saving ? t("cron.saving") : isEditing ? t("cron.save") : t("cron.create")}
+            {saving ? t("common.saving") : isEditing ? t("common.save") : t("cron.create")}
           </Button>
         </div>
       </div>

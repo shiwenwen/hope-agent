@@ -225,7 +225,7 @@ pub(crate) async fn tool_read_file(
         .and_then(|v| v.as_u64())
         .map(|v| v as usize);
 
-    log::info!(
+    app_info!("tool", "read",
         "Reading file: {} (offset={}, limit={:?})",
         path,
         offset,
@@ -240,7 +240,7 @@ pub(crate) async fn tool_read_file(
     // Check if file is an image via magic bytes
     let mime = detect_image_mime(&data);
     if let Some(mime_type) = mime {
-        log::info!("Detected image file: {} ({})", path, mime_type);
+        app_info!("tool", "read", "Detected image file: {} ({})", path, mime_type);
         match resize_image_if_needed(&data, mime_type) {
             Ok((b64, declared_mime)) => {
                 // Secondary MIME verification: decode base64 header and re-sniff

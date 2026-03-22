@@ -24,7 +24,7 @@ node scripts/sync-i18n.mjs --apply   # 从翻译文件补齐缺失翻译
 src/                    前端（React + TypeScript）
   components/
     chat/               聊天相关组件（消息列表/输入框/审批对话框/思考块/工具调用块）
-    settings/           设置面板（Provider/Agent/外观/语言/模型/技能/用户资料）
+    settings/           设置面板（Provider/Agent/外观/语言/模型/技能/用户资料/系统）
     common/             共享组件（导航栏/Markdown 渲染/Provider 图标）
   lib/logger.ts         前端统一日志工具（写入后端日志系统）
   i18n/locales/         12 种语言翻译文件
@@ -40,6 +40,7 @@ src-tauri/src/          后端（Rust）
   system_prompt.rs      系统提示词模块化拼装
   memory.rs             记忆系统（MemoryBackend trait + SQLite/FTS5 实现 + Embedding 配置）
   cron.rs               定时任务系统（调度器 + CronDB + 任务执行 + 日历查询）
+  browser_state.rs      浏览器连接状态管理（全局单例 + CDP 生命周期）
 ```
 
 ## 技术栈
@@ -64,6 +65,8 @@ src-tauri/src/          后端（Rust）
 - **统一日志**：前后端日志统一写入后端 `logging.rs`（SQLite + 纯文本双写）。前端通过 `src/lib/logger.ts` 调用 `frontend_log` / `frontend_log_batch` 命令，支持批量缓冲（500ms / 20 条）。后端 Agent 执行全链路日志覆盖：chat 入口 → 模型链 → API 请求/响应 → SSE 流 → Tool Loop → 完成总结
 - **记忆系统**：`memory.rs` 实现 `MemoryBackend` trait 可插拔架构，MVP 使用 SQLite + FTS5 全文搜索。4 种记忆类型（user/feedback/project/reference），2 种作用域（global/agent）。记忆自动注入系统提示词 section ⑧。Embedding 配置支持 API 模式（5 个预设）和本地 ONNX 模型（4 个预设），存储在 `config.json`
 - **定时任务系统**：`cron.rs` 实现完整定时任务调度。3 种调度类型（At 一次性 / Every 固定间隔 / Cron 表达式），tokio 后台轮询执行，隔离 session + 模型链降级。指数退避重试 + 自动禁用。日历视图页面（侧边栏入口）+ 设置面板列表管理。Agent 工具 `manage_cron` 支持 AI 直接管理定时任务
+- **Web 搜索多 Provider**：`tools/web_search.rs` 支持 8 个搜索引擎（DuckDuckGo / SearXNG / Brave / Perplexity / Google / Grok / Kimi / Tavily），enum 派发 + 自动检测。配置存储在 `config.json` 的 `webSearch` 字段，设置面板 `WebSearchPanel` 管理。SearXNG 支持 Docker 一键部署（`docker.rs`：镜像拉取 → 容器启动 → 配置注入 → 健康检查）
+- **Web Fetch 网页抓取**：`tools/web_fetch.rs` 的 `tool_web_fetch` 使用 Mozilla Readability（`readability` crate）提取正文 + `htmd` crate 转 Markdown，支持 markdown/text 双模式。内存缓存（15 分钟 TTL / 100 条上限）、SSRF 防护（DNS 解析 + 私有 IP 拦截）、流式字节限制读取（默认 2MB）、结构化 JSON 响应。配置存储在 `config.json` 的 `webFetch` 字段，设置面板 `WebFetchPanel` 管理
 
 ## 编码规范
 
@@ -80,11 +83,14 @@ src-tauri/src/          后端（Rust）
 - 布局避免硬编码过小的 max-width（如 `max-w-md`），使用 `max-w-4xl` 以上或弹性伸缩
 - **i18n 功能实现时只需实现中文（zh）和英文（en）**，其余语言通过单独的任务进行补齐，`scripts/sync-i18n.mjs` 统一补齐（翻译数据在 `scripts/i18n-translations.json`）
 - 避免不必要的重渲染（`React.memo`、`useMemo`、`useCallback`）
+- **Tooltip 必须使用 Radix UI `<Tooltip>` 组件**（`@/components/ui/tooltip`），禁止用 HTML 原生 `title` 属性（延迟过长，体验不一致）。用 `<TooltipProvider delayDuration={100} skipDelayDuration={50}>` 包裹
 
 ### 后端（Rust）
 - 新功能放单独模块文件，在 `lib.rs` 注册命令
 - 内部用 `anyhow::Result`，命令边界转为 `String`
 - 异步命令加 `async`，不要自己 `block_on`
+- **禁止使用 `log::info!` / `log::warn!` / `log::error!` / `log::debug!` 等 `log` crate 宏**，必须使用项目统一日志宏 `app_info!` / `app_warn!` / `app_error!` / `app_debug!`（定义在 `logging.rs`），以确保日志同时写入 SQLite 和日志文件。`log` crate 只输出到控制台（stderr），不会写入日志文件。唯一例外：`lib.rs` 的 `run()` 函数中 `AppLogger` 初始化之前的启动阶段代码，以及 `main.rs` 的 panic 恢复代码
+- 日志宏用法：`app_info!("category", "source", "message {}", arg)`，category 为功能分类（如 `cron`/`tool`/`agent`），source 为具体来源（如 `scheduler`/`exec`/`codex`）
 
 ## 安全红线
 

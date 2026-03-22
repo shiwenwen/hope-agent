@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useLayoutEffect } from "react"
+import { useState, useRef, useEffect, useCallback, useLayoutEffect, useMemo } from "react"
 import { invoke, Channel } from "@tauri-apps/api/core"
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import { useTranslation } from "react-i18next"
@@ -83,6 +83,12 @@ function formatTokens(n: number): string {
 interface ChatScreenProps {
   onOpenAgentSettings?: (agentId: string) => void
   onCodexReauth?: () => void
+  /** Navigate to a specific session (e.g. from cron run history) */
+  initialSessionId?: string
+  /** Called after the initial session navigation completes */
+  onSessionNavigated?: () => void
+  /** Called when total unread count changes across all sessions */
+  onUnreadCountChange?: (count: number) => void
 }
 
 /** Format message timestamp to HH:mm */
@@ -177,7 +183,7 @@ function parseSessionMessages(msgs: SessionMessage[]): Message[] {
 }
 
 
-export default function ChatScreen({ onOpenAgentSettings, onCodexReauth }: ChatScreenProps) {
+export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initialSessionId, onSessionNavigated, onUnreadCountChange }: ChatScreenProps) {
   const { t } = useTranslation()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
@@ -211,7 +217,7 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth }: ChatS
   const currentSessionIdRef = useRef<string | null>(null)
 
   // Pagination: track whether there are older messages and the oldest loaded DB id per session
-  const PAGE_SIZE = 10
+  const PAGE_SIZE = 30
   const hasMoreRef = useRef<Map<string, boolean>>(new Map())
   const oldestDbIdRef = useRef<Map<string, number>>(new Map())
   const [hasMore, setHasMore] = useState(false)
@@ -442,6 +448,40 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth }: ChatS
     reloadAgents()
   }, [reloadSessions, reloadAgents])
 
+  // Listen for cron job completions to refresh unread counts
+  useEffect(() => {
+    let unlisten: UnlistenFn | undefined
+    listen("cron:run_completed", () => {
+      reloadSessions()
+    }).then((fn) => {
+      unlisten = fn
+    })
+    return () => {
+      unlisten?.()
+    }
+  }, [reloadSessions])
+
+  // Compute total unread count and notify parent
+  const totalUnreadCount = useMemo(
+    () => sessions.reduce((sum, s) => sum + (s.id === currentSessionId ? 0 : s.unreadCount), 0),
+    [sessions, currentSessionId]
+  )
+
+  useEffect(() => {
+    onUnreadCountChange?.(totalUnreadCount)
+  }, [totalUnreadCount, onUnreadCountChange])
+
+  // Navigate to a specific session when initialSessionId changes (e.g. from cron run history)
+  useEffect(() => {
+    if (!initialSessionId) return
+    ;(async () => {
+      // Ensure session list is fresh so handleSwitchSession can find it
+      await reloadSessions()
+      await handleSwitchSession(initialSessionId)
+      onSessionNavigated?.()
+    })()
+  }, [initialSessionId])
+
   /** Update messages for a specific session. If it's the current session, also update state. */
   function updateSessionMessages(sessionId: string, updater: (prev: Message[]) => Message[]) {
     const prev = sessionCacheRef.current.get(sessionId) || []
@@ -505,6 +545,10 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth }: ChatS
         }
       }
     }
+
+    // Mark session as read and refresh unread counts
+    invoke("mark_session_read_cmd", { sessionId }).catch(() => {})
+    reloadSessions()
   }
 
   // Load older messages when user scrolls to top
@@ -931,6 +975,10 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth }: ChatS
       setLoadingSessionIds(new Set(loadingSessionsRef.current))
       if (currentSessionIdRef.current === sid) {
         setLoading(false)
+      }
+      // Mark current session as read so unread count stays 0 for active session
+      if (targetSessionId) {
+        invoke("mark_session_read_cmd", { sessionId: targetSessionId }).catch(() => {})
       }
       reloadSessions()
 

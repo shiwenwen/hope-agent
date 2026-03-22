@@ -29,6 +29,7 @@ interface IconSidebarProps {
   onOpenProfile: () => void
   onOpenCalendar: () => void
   userAvatar?: string | null
+  totalUnreadCount?: number
 }
 
 export default function IconSidebar({
@@ -40,6 +41,7 @@ export default function IconSidebar({
   onOpenProfile,
   onOpenCalendar,
   userAvatar,
+  totalUnreadCount,
 }: IconSidebarProps) {
   const { t, i18n } = useTranslation()
   const { theme, cycleTheme } = useTheme()
@@ -68,24 +70,29 @@ export default function IconSidebar({
               <TooltipContent side="right">{t("settings.profile")}</TooltipContent>
             </Tooltip>
           )}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className={cn(
-                  "rounded-xl h-8 w-8",
-                  view === "chat"
-                    ? "bg-primary/10 text-primary hover:bg-primary/20"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-                onClick={onOpenChat}
-              >
-                <MessageSquare className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="right">{t("chat.conversations")}</TooltipContent>
-          </Tooltip>
+          <div className="relative">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={cn(
+                    "rounded-xl h-8 w-8",
+                    view === "chat"
+                      ? "bg-primary/10 text-primary hover:bg-primary/20"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                  onClick={onOpenChat}
+                >
+                  <MessageSquare className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="right">{t("chat.conversations")}</TooltipContent>
+            </Tooltip>
+            {!!totalUnreadCount && totalUnreadCount > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-destructive pointer-events-none" />
+            )}
+          </div>
         </div>
 
         {/* Agents entry */}

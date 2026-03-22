@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   XCircle,
   Clock,
+  ExternalLink,
 } from "lucide-react"
 import type { CronJob, CronRunLog } from "./CronJobForm"
 import { statusColor, formatSchedule } from "./CronJobForm"
@@ -22,9 +23,10 @@ interface CronJobDetailProps {
   onBack: () => void
   onEdit: (job: CronJob) => void
   onRefresh: () => void
+  onViewSession?: (sessionId: string) => void
 }
 
-export default function CronJobDetail({ jobId, onBack, onEdit, onRefresh }: CronJobDetailProps) {
+export default function CronJobDetail({ jobId, onBack, onEdit, onRefresh, onViewSession }: CronJobDetailProps) {
   const { t } = useTranslation()
   const [job, setJob] = useState<CronJob | null>(null)
   const [logs, setLogs] = useState<CronRunLog[]>([])
@@ -144,9 +146,9 @@ export default function CronJobDetail({ jobId, onBack, onEdit, onRefresh }: Cron
           <span className="text-muted-foreground">{t("cron.failures")}</span>
           <span>{job.consecutiveFailures} / {job.maxFailures}</span>
         </div>
-        <div className="flex justify-between">
+        <div>
           <span className="text-muted-foreground">{t("cron.message")}</span>
-          <span className="max-w-[60%] truncate text-right">{job.payload.message}</span>
+          <p className="mt-1 whitespace-pre-wrap break-words bg-secondary/30 rounded px-2 py-1.5">{job.payload.prompt}</p>
         </div>
       </div>
 
@@ -158,7 +160,11 @@ export default function CronJobDetail({ jobId, onBack, onEdit, onRefresh }: Cron
         ) : (
           <div className="space-y-2">
             {logs.map((log) => (
-              <div key={log.id} className="border border-border rounded-lg p-3 text-xs">
+              <div
+                key={log.id}
+                className={`border border-border rounded-lg p-3 text-xs ${onViewSession && log.sessionId ? "cursor-pointer hover:bg-secondary/50 transition-colors" : ""}`}
+                onClick={() => onViewSession && log.sessionId && onViewSession(log.sessionId)}
+              >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5">
                     {log.status === "success" ? (
@@ -166,11 +172,16 @@ export default function CronJobDetail({ jobId, onBack, onEdit, onRefresh }: Cron
                     ) : (
                       <XCircle className="h-3.5 w-3.5 text-red-500" />
                     )}
-                    <span className="font-medium">{log.status}</span>
+                    <span className="font-medium">{log.status === "success" ? t("cron.runStatusSuccess") : t("cron.runStatusError")}</span>
                   </div>
-                  <div className="flex items-center gap-1.5 text-muted-foreground">
-                    <Clock className="h-3 w-3" />
-                    <span>{log.durationMs ? `${(log.durationMs / 1000).toFixed(1)}s` : "-"}</span>
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-1.5 text-muted-foreground">
+                      <Clock className="h-3 w-3" />
+                      <span>{log.durationMs ? `${(log.durationMs / 1000).toFixed(1)}s` : "-"}</span>
+                    </div>
+                    {onViewSession && log.sessionId && (
+                      <ExternalLink className="h-3 w-3 text-muted-foreground" />
+                    )}
                   </div>
                 </div>
                 <div className="text-muted-foreground mt-1">

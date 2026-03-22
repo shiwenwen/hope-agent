@@ -303,7 +303,7 @@ fn load_skills_from_dir(dir: &Path, source: &str) -> Vec<SkillEntry> {
         // Check file size
         if let Ok(meta) = std::fs::metadata(&skill_md) {
             if meta.len() > MAX_SKILL_FILE_BYTES {
-                log::warn!(
+                app_warn!("skills", "loader",
                     "Skipping oversized SKILL.md: {} ({} bytes)",
                     skill_md.display(),
                     meta.len()
@@ -315,7 +315,7 @@ fn load_skills_from_dir(dir: &Path, source: &str) -> Vec<SkillEntry> {
         let content = match std::fs::read_to_string(&skill_md) {
             Ok(c) => c,
             Err(e) => {
-                log::warn!("Failed to read {}: {}", skill_md.display(), e);
+                app_warn!("skills", "loader", "Failed to read {}: {}", skill_md.display(), e);
                 continue;
             }
         };

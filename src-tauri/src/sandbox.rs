@@ -80,7 +80,7 @@ async fn ensure_image(docker: &Docker, image: &str) -> Result<()> {
         return Ok(());
     }
 
-    log::info!("Pulling Docker image: {}", image);
+    app_info!("sandbox", "docker", "Pulling Docker image: {}", image);
 
     let (repo, tag) = if let Some(idx) = image.rfind(':') {
         (&image[..idx], &image[idx + 1..])
@@ -99,7 +99,7 @@ async fn ensure_image(docker: &Docker, image: &str) -> Result<()> {
         match result {
             Ok(info) => {
                 if let Some(status) = info.status {
-                    log::debug!("Pull: {}", status);
+                    app_debug!("sandbox", "docker", "Pull: {}", status);
                 }
             }
             Err(e) => {
@@ -215,7 +215,7 @@ pub async fn exec_in_sandbox(
             anyhow::anyhow!("Failed to start container: {}", e)
         })?;
 
-    log::info!(
+    app_info!("sandbox", "docker",
         "Sandbox container started: {} (image: {}, command: {})",
         &container_id[..12],
         config.image,
@@ -232,7 +232,7 @@ pub async fn exec_in_sandbox(
     let (exit_code, timed_out) = match wait_result {
         Ok(Ok(code)) => (code, false),
         Ok(Err(e)) => {
-            log::warn!("Container wait error: {}", e);
+            app_warn!("sandbox", "docker", "Container wait error: {}", e);
             // Try to stop and cleanup
             let _ = docker
                 .stop_container(&container_id, None)
@@ -242,7 +242,7 @@ pub async fn exec_in_sandbox(
         }
         Err(_) => {
             // Timeout — kill the container
-            log::warn!(
+            app_warn!("sandbox", "docker",
                 "Sandbox container timed out after {}s, killing...",
                 timeout_secs
             );
@@ -313,7 +313,7 @@ async fn collect_logs(docker: &Docker, container_id: &str) -> Result<(String, St
                 _ => {}
             },
             Err(e) => {
-                log::warn!("Error reading container logs: {}", e);
+                app_warn!("sandbox", "docker", "Error reading container logs: {}", e);
                 break;
             }
         }
@@ -335,6 +335,6 @@ async fn cleanup_container(docker: &Docker, container_id: &str) -> Result<()> {
         )
         .await
         .map_err(|e| anyhow::anyhow!("Failed to remove container: {}", e))?;
-    log::info!("Sandbox container removed: {}", &container_id[..12.min(container_id.len())]);
+    app_info!("sandbox", "docker", "Sandbox container removed: {}", &container_id[..12.min(container_id.len())]);
     Ok(())
 }

@@ -8,6 +8,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **记忆 Embedding Provider 测试功能**：向量搜索设置新增"测试 Embedding"按钮，支持 OpenAI 兼容 API、Google Gemini、本地 ONNX 模型三种类型的连接测试，复用 `TestResultDisplay` 组件展示测试结果（状态码、延迟、返回维度）
+
+### Refactored
+- **`tools/web.rs` 拆分为独立模块**：`web_search.rs`（搜索 Provider 配置 + 8 个搜索引擎实现 + 搜索缓存）和 `web_fetch.rs`（网页抓取配置 + SSRF 防护 + Readability 提取 + 抓取缓存），职责分离更清晰
+
+### Changed
+- **web_fetch 工具全面升级**：从简单正则 HTML 清理升级为生产级网页抓取工具
+  - Mozilla Readability（`readability` crate）正文提取 + `htmd` crate HTML→Markdown 转换
+  - 新增 `extract_mode` 参数：`markdown`（默认）保留格式结构，`text` 纯文本
+  - 内存缓存：15 分钟 TTL，100 条上限，自动淘汰过期/最早条目
+  - SSRF 防护：DNS 解析 + 私有/保留 IP 地址拦截（IPv4 + IPv6）
+  - 流式字节限制读取：默认 2MB，防止大页面 OOM
+  - 结构化 JSON 响应：url/finalUrl/status/title/extractor/tookMs/cached/truncated 等元数据
+  - 外部内容标记：`<web_fetch_result>` 标签包装，标识不可信外部来源
+  - 可视化配置面板 `WebFetchPanel`：8 项配置（字符限制/网络/缓存/安全）
+  - 2 个 Tauri 命令：`get_web_fetch_config` / `save_web_fetch_config`
+  - 配置持久化在 `config.json` 的 `webFetch` 字段
+  - i18n：中英文翻译
+
+### Added
+- **记忆工具完善**：新增 `update_memory` 和 `delete_memory` AI 工具
+  - `update_memory`：根据 ID 修改记忆内容和标签
+  - `delete_memory`：根据 ID 删除记忆
+  - `recall_memory` 输出中增加 ID 显示，便于修改和删除操作
+- **Web 搜索多 Provider 支持**：web_search 工具支持 7 个搜索引擎，可拖拽排序 + 独立开关
+  - 零成本 Provider：DuckDuckGo（默认开启）、SearXNG（自托管元搜索）
+  - 付费 Provider：Brave Search、Perplexity、Google Custom Search、Grok (X.AI)、Kimi (Moonshot)
+  - 有序优先级：按列表顺序使用第一个已开启的引擎，拖拽调整优先级
+  - 智能约束：需要 API Key 的引擎必须填写密钥后才能开启，清空密钥自动关闭
+  - 新增设置面板 `WebSearchPanel`：@dnd-kit 拖拽排序 + 展开编辑 + 开关切换
+  - 数据模型：`WebSearchProviderEntry[]`（id/enabled/apiKey/apiKey2/baseUrl）
+  - 2 个 Tauri 命令：`get_web_search_config` / `save_web_search_config`
+  - 配置持久化在 `config.json` 的 `webSearch.providers` 有序数组
+  - i18n：中英文翻译
+- **SearXNG Docker 一键部署**：选择 SearXNG 时提供 Docker 一键部署功能
+  - 新增 `docker.rs` 模块：Docker CLI 交互（检测/拉取镜像/启动/停止/删除容器）
+  - 自动注入 `settings.yml`（禁用 limiter + 启用 JSON 格式）
+  - 端口冲突检测（8080-8089 自动递增）+ 健康检查轮询
+  - 前端状态指示灯（运行中/已停止）+ 启动/停止/删除按钮
+  - 5 个 Tauri 命令：`searxng_docker_status/deploy/start/stop/remove`
 - **开机自动启动**：设置面板「系统」分类，一键开启/关闭登录时自动启动
   - 集成 `tauri-plugin-autostart`，macOS 使用 LaunchAgent 方式注册
   - 2 个 Tauri 命令：`get_autostart_enabled` / `set_autostart_enabled`

@@ -17,7 +17,7 @@ pub(crate) async fn tool_write_file(args: &Value) -> Result<String> {
         .and_then(|v| extract_string_param(v))
         .ok_or_else(|| anyhow::anyhow!("Missing 'content' parameter"))?;
 
-    log::info!("Writing file: {}", path);
+    app_info!("tool", "write", "Writing file: {}", path);
 
     if let Some(parent) = Path::new(path).parent() {
         tokio::fs::create_dir_all(parent)

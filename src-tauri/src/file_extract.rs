@@ -83,7 +83,7 @@ pub fn extract(file_path: &str, file_name: &str, mime_type: &str) -> FileContent
             file_name: file_name.to_string(),
         },
         Err(e) => {
-            log::warn!("Failed to extract content from '{}': {}", file_name, e);
+            app_warn!("tool", "file_extract", "Failed to extract content from '{}': {}", file_name, e);
             FileContent {
                 text: Some(format!("[Error extracting content: {}]", e)),
                 images: Vec::new(),
@@ -124,14 +124,14 @@ fn extract_pdf(path: &Path) -> Result<(Option<String>, Vec<ExtractedImage>)> {
             }
         }
         Err(e) => {
-            log::warn!("PDF text extraction failed for {:?}: {}", path, e);
+            app_warn!("tool", "file_extract", "PDF text extraction failed for {:?}: {}", path, e);
             None
         }
     };
 
     // 2. Render pages as images via pdfium
     let images = render_pdf_pages(path).unwrap_or_else(|e| {
-        log::warn!("PDF page rendering failed for {:?}: {}", path, e);
+        app_warn!("tool", "file_extract", "PDF page rendering failed for {:?}: {}", path, e);
         Vec::new()
     });
 
@@ -513,7 +513,7 @@ fn extract_xml_text(xml: &str, target_tag: &[u8]) -> String {
             }
             Ok(Event::Eof) => break,
             Err(e) => {
-                log::warn!("XML parse error: {}", e);
+                app_warn!("tool", "file_extract", "XML parse error: {}", e);
                 break;
             }
             _ => {}

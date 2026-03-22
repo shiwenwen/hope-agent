@@ -1,12 +1,14 @@
+#[macro_use]
+mod logging;
 mod agent;
 mod agent_config;
 mod agent_loader;
 mod browser_state;
 mod cron;
+mod docker;
 mod memory;
 mod failover;
 mod file_extract;
-mod logging;
 mod oauth;
 mod paths;
 mod process_registry;
@@ -54,6 +56,51 @@ pub fn get_memory_backend() -> Option<&'static Arc<dyn memory::MemoryBackend>> {
 /// Get stored CronDB for cron operations (used by agent tool)
 pub fn get_cron_db() -> Option<&'static Arc<cron::CronDB>> {
     CRON_DB.get()
+}
+
+/// If SearXNG is docker-managed and enabled, auto-start the container on app launch.
+fn auto_start_searxng_docker() {
+    let store = match provider::load_store() {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    // Check: docker-managed + SearXNG enabled
+    let docker_managed = store.web_search.searxng_docker_managed.unwrap_or(false);
+    let searxng_enabled = store.web_search.providers.iter()
+        .any(|e| e.id == tools::web_search::WebSearchProvider::Searxng && e.enabled);
+
+    if !docker_managed || !searxng_enabled {
+        return;
+    }
+
+    // Spawn background task — don't block app startup
+    std::thread::spawn(|| {
+        let rt = tokio::runtime::Runtime::new().expect("Failed to create runtime for SearXNG auto-start");
+        rt.block_on(async {
+            let status = docker::status().await;
+            if !status.docker_installed || status.docker_not_running {
+                if let Some(logger) = get_logger() {
+                    logger.log("warn", "docker", "auto_start", "Docker not available, skipping SearXNG auto-start", None, None, None);
+                }
+                return;
+            }
+            if status.container_running && status.health_ok {
+                // Already running, nothing to do
+                return;
+            }
+            if status.container_exists && !status.container_running {
+                if let Some(logger) = get_logger() {
+                    logger.log("info", "docker", "auto_start", "Auto-starting SearXNG container...", None, None, None);
+                }
+                if let Err(e) = docker::start().await {
+                    if let Some(logger) = get_logger() {
+                        logger.log("error", "docker", "auto_start", "Failed to auto-start SearXNG", Some(e.to_string()), None, None);
+                    }
+                }
+            }
+        });
+    });
 }
 
 struct AppState {
@@ -463,6 +510,195 @@ async fn test_model(
         }
     }
 }
+
+#[tauri::command]
+async fn test_embedding(
+    config: memory::EmbeddingConfig,
+) -> Result<String, String> {
+    use std::time::{Duration, Instant};
+
+    let start = Instant::now();
+
+    match config.provider_type {
+        memory::EmbeddingProviderType::Local => {
+            let model_id = config.local_model_id.clone().unwrap_or_else(|| "bge-small-en-v1.5".to_string());
+            let model_id_clone = model_id.clone();
+            // Local model init + embed is blocking, run in spawn_blocking
+            let result = tokio::task::spawn_blocking(move || -> Result<(usize, u64), String> {
+                use memory::EmbeddingProvider;
+                let t = Instant::now();
+                let provider = memory::LocalEmbeddingProvider::new(&model_id_clone)
+                    .map_err(|e| format!("{}", e))?;
+                let vec = provider.embed("test")
+                    .map_err(|e| format!("{}", e))?;
+                Ok((vec.len(), t.elapsed().as_millis() as u64))
+            }).await.map_err(|e| serde_json::to_string(&serde_json::json!({
+                "success": false, "message": format!("任务执行失败: {}", e),
+                "latencyMs": start.elapsed().as_millis() as u64,
+            })).unwrap_or_default())?;
+
+            match result {
+                Ok((dims, latency)) => Ok(serde_json::to_string(&serde_json::json!({
+                    "success": true,
+                    "message": format!("本地模型测试成功（{}维）", dims),
+                    "url": model_id,
+                    "latencyMs": latency,
+                })).unwrap_or_default()),
+                Err(e) => Err(serde_json::to_string(&serde_json::json!({
+                    "success": false,
+                    "message": format!("本地模型测试失败: {}", e),
+                    "latencyMs": start.elapsed().as_millis() as u64,
+                })).unwrap_or_default()),
+            }
+        }
+        memory::EmbeddingProviderType::Google => {
+            let base_url = config.api_base_url.as_deref().unwrap_or("https://generativelanguage.googleapis.com").trim_end_matches('/').to_string();
+            let api_key = config.api_key.as_deref().unwrap_or("").to_string();
+            let model = config.api_model.as_deref().unwrap_or("gemini-embedding-001").to_string();
+
+            let url = format!("{}/v1beta/models/{}:embedContent?key={}", base_url, model, api_key);
+
+            let mut body = serde_json::json!({
+                "content": { "parts": [{"text": "test"}] }
+            });
+            if let Some(dims) = config.api_dimensions {
+                if dims > 0 { body["outputDimensionality"] = serde_json::json!(dims); }
+            }
+
+            let client = reqwest::Client::builder()
+                .timeout(Duration::from_secs(15))
+                .build()
+                .map_err(|e| serde_json::to_string(&serde_json::json!({
+                    "success": false, "message": format!("Client error: {}", e),
+                })).unwrap_or_default())?;
+
+            let display_url = format!("{}/v1beta/models/{}:embedContent", base_url, model);
+
+            match client.post(&url)
+                .header("Content-Type", "application/json")
+                .json(&body)
+                .send().await
+            {
+                Ok(resp) => {
+                    let status = resp.status().as_u16();
+                    let resp_text = resp.text().await.unwrap_or_default();
+                    let latency = start.elapsed().as_millis() as u64;
+
+                    if status == 200 {
+                        let dims = serde_json::from_str::<serde_json::Value>(&resp_text)
+                            .ok()
+                            .and_then(|v| v["embedding"]["values"].as_array().map(|a| a.len()))
+                            .unwrap_or(0);
+                        Ok(serde_json::to_string(&serde_json::json!({
+                            "success": true,
+                            "message": format!("Embedding 连接成功（{}维）", dims),
+                            "url": display_url,
+                            "status": status,
+                            "latencyMs": latency,
+                            "auth": "API Key (query)",
+                        })).unwrap_or_default())
+                    } else {
+                        Err(serde_json::to_string(&serde_json::json!({
+                            "success": false,
+                            "message": format!("API 错误 ({})", status),
+                            "url": display_url,
+                            "status": status,
+                            "latencyMs": latency,
+                            "detail": &resp_text[..resp_text.len().min(500)],
+                        })).unwrap_or_default())
+                    }
+                }
+                Err(e) => Err(serde_json::to_string(&serde_json::json!({
+                    "success": false,
+                    "message": format!("连接失败: {}", e),
+                    "url": display_url,
+                    "latencyMs": start.elapsed().as_millis() as u64,
+                })).unwrap_or_default()),
+            }
+        }
+        _ => {
+            // OpenAI-compatible
+            let base_url = config.api_base_url.as_deref().unwrap_or("https://api.openai.com").trim_end_matches('/').to_string();
+            let api_key = config.api_key.as_deref().unwrap_or("").to_string();
+            let model = config.api_model.as_deref().unwrap_or("text-embedding-3-small").to_string();
+
+            let url = format!("{}/v1/embeddings", base_url);
+
+            let mut body = serde_json::json!({
+                "model": model,
+                "input": ["test"],
+            });
+            if let Some(dims) = config.api_dimensions {
+                if dims > 0 { body["dimensions"] = serde_json::json!(dims); }
+            }
+
+            let client = reqwest::Client::builder()
+                .timeout(Duration::from_secs(15))
+                .build()
+                .map_err(|e| serde_json::to_string(&serde_json::json!({
+                    "success": false, "message": format!("Client error: {}", e),
+                })).unwrap_or_default())?;
+
+            let mut req = client.post(&url)
+                .header("Content-Type", "application/json")
+                .json(&body);
+            if !api_key.is_empty() {
+                req = req.header("Authorization", format!("Bearer {}", api_key));
+            }
+
+            match req.send().await {
+                Ok(resp) => {
+                    let status = resp.status().as_u16();
+                    let resp_text = resp.text().await.unwrap_or_default();
+                    let latency = start.elapsed().as_millis() as u64;
+
+                    if status == 200 {
+                        let dims = serde_json::from_str::<serde_json::Value>(&resp_text)
+                            .ok()
+                            .and_then(|v| v["data"].as_array()?.first()?["embedding"].as_array().map(|a| a.len()))
+                            .unwrap_or(0);
+                        Ok(serde_json::to_string(&serde_json::json!({
+                            "success": true,
+                            "message": format!("Embedding 连接成功（{}维）", dims),
+                            "url": url,
+                            "status": status,
+                            "latencyMs": latency,
+                            "auth": "Bearer",
+                        })).unwrap_or_default())
+                    } else if status == 401 || status == 403 {
+                        let detail = &resp_text[..resp_text.len().min(500)];
+                        Err(serde_json::to_string(&serde_json::json!({
+                            "success": false,
+                            "message": format!("认证失败 ({})", status),
+                            "url": url,
+                            "status": status,
+                            "latencyMs": latency,
+                            "auth": "Bearer",
+                            "detail": detail,
+                        })).unwrap_or_default())
+                    } else {
+                        let detail = &resp_text[..resp_text.len().min(500)];
+                        Err(serde_json::to_string(&serde_json::json!({
+                            "success": false,
+                            "message": format!("API 错误 ({})", status),
+                            "url": url,
+                            "status": status,
+                            "latencyMs": latency,
+                            "detail": detail,
+                        })).unwrap_or_default())
+                    }
+                }
+                Err(e) => Err(serde_json::to_string(&serde_json::json!({
+                    "success": false,
+                    "message": format!("连接失败: {}", e),
+                    "url": url,
+                    "latencyMs": start.elapsed().as_millis() as u64,
+                })).unwrap_or_default()),
+            }
+        }
+    }
+}
+
 #[tauri::command]
 async fn get_available_models(
     state: State<'_, AppState>,
@@ -659,7 +895,7 @@ async fn try_restore_session(
         let mut store = state.provider_store.lock().await;
         match provider::load_store() {
             Ok(loaded) => *store = loaded,
-            Err(e) => log::warn!("Failed to load provider store: {}", e),
+            Err(e) => app_warn!("app", "session", "Failed to load provider store: {}", e),
         }
     }
 
@@ -667,21 +903,21 @@ async fn try_restore_session(
     match oauth::load_token() {
         Ok(Some(mut token)) => {
             if oauth::is_token_expired(&token) {
-                log::info!("Saved token is expired, attempting refresh...");
+                app_info!("app", "session", "Saved token is expired, attempting refresh...");
                 if let Some(refresh_token) = &token.refresh_token {
                     match oauth::refresh_access_token(refresh_token).await {
                         Ok(new_token) => {
-                            log::info!("Token refreshed successfully");
+                            app_info!("app", "session", "Token refreshed successfully");
                             token = new_token;
                         }
                         Err(e) => {
-                            log::warn!("Token refresh failed: {}, clearing saved session", e);
+                            app_warn!("app", "session", "Token refresh failed: {}, clearing saved session", e);
                             let _ = oauth::clear_token();
                             return Ok(try_restore_non_codex_session(&state).await);
                         }
                     }
                 } else {
-                    log::warn!("Token expired and no refresh_token available");
+                    app_warn!("app", "session", "Token expired and no refresh_token available");
                     let _ = oauth::clear_token();
                     return Ok(try_restore_non_codex_session(&state).await);
                 }
@@ -734,7 +970,7 @@ async fn try_restore_session(
                     Ok(true)
                 }
                 None => {
-                    log::warn!("Failed to extract account_id from saved token");
+                    app_warn!("app", "session", "Failed to extract account_id from saved token");
                     let _ = oauth::clear_token();
                     Ok(try_restore_non_codex_session(&state).await)
                 }
@@ -742,7 +978,7 @@ async fn try_restore_session(
         }
         Ok(None) => Ok(try_restore_non_codex_session(&state).await),
         Err(e) => {
-            log::warn!("Failed to load saved token: {}", e);
+            app_warn!("app", "session", "Failed to load saved token: {}", e);
             Ok(try_restore_non_codex_session(&state).await)
         }
     }
@@ -970,6 +1206,15 @@ async fn rename_session_cmd(
     state.session_db.update_session_title(&session_id, &title).map_err(|e| e.to_string())
 }
 
+/// Mark all messages in a session as read.
+#[tauri::command]
+async fn mark_session_read_cmd(
+    session_id: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    state.session_db.mark_session_read(&session_id).map_err(|e| e.to_string())
+}
+
 /// Save an attachment file to disk. Uses a temp directory when session_id is empty.
 /// Returns the absolute path to the saved file.
 #[tauri::command]
@@ -1076,7 +1321,7 @@ async fn chat(
                 let filename = format!("{}_{}", ts, safe_name);
                 let file_path = att_dir.join(&filename);
                 if let Err(e) = std::fs::write(&file_path, &decoded) {
-                    log::warn!("Failed to save image attachment {}: {}", att.name, e);
+                    app_warn!("app", "chat", "Failed to save image attachment {}: {}", att.name, e);
                     continue;
                 }
                 meta_list.push(serde_json::json!({
@@ -1097,7 +1342,7 @@ async fn chat(
                         let dest = att_dir.join(fname);
                         if let Err(e) = std::fs::rename(src_path, &dest) {
                             if let Err(e2) = std::fs::copy(src_path, &dest) {
-                                log::warn!("Failed to move attachment {}: rename={}, copy={}", att.name, e, e2);
+                                app_warn!("app", "chat", "Failed to move attachment {}: rename={}, copy={}", att.name, e, e2);
                                 continue;
                             }
                             let _ = std::fs::remove_file(src_path);
@@ -1421,7 +1666,7 @@ async fn chat(
                     let error_msg = e.to_string();
                     let reason = failover::classify_error(&error_msg);
 
-                    log::warn!(
+                    app_warn!("provider", "failover",
                         "Model {}::{} failed (attempt {}/{}, retry {}, reason {:?}): {}",
                         model_ref.provider_id, model_ref.model_id,
                         idx + 1, total_models, retry_count, reason, error_msg
@@ -1448,7 +1693,7 @@ async fn chat(
                     if reason.is_retryable() && retry_count < MAX_RETRIES {
                         retry_count += 1;
                         let delay = failover::retry_delay_ms(retry_count - 1, RETRY_BASE_MS, RETRY_MAX_MS);
-                        log::info!(
+                        app_info!("provider", "failover",
                             "Retrying {}::{} in {}ms (retry {}/{}, reason {:?})",
                             model_ref.provider_id, model_ref.model_id,
                             delay, retry_count, MAX_RETRIES, reason
@@ -1798,6 +2043,11 @@ async fn open_directory(path: String) -> Result<(), String> {
     open::that(&resolved).map_err(|e| format!("Failed to open directory: {}", e))
 }
 
+#[tauri::command]
+async fn open_url(url: String) -> Result<(), String> {
+    open::that(&url).map_err(|e| format!("Failed to open URL: {}", e))
+}
+
 // ── Agent Management Commands ────────────────────────────────────
 
 #[tauri::command]
@@ -1897,6 +2147,79 @@ async fn memory_count(scope: Option<memory::MemoryScope>) -> Result<usize, Strin
 async fn memory_export(scope: Option<memory::MemoryScope>) -> Result<String, String> {
     let backend = get_memory_backend().ok_or("Memory backend not initialized")?;
     backend.export_markdown(scope.as_ref()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_web_search_config() -> Result<tools::web_search::WebSearchConfig, String> {
+    let store = provider::load_store().map_err(|e| e.to_string())?;
+    let mut config = store.web_search;
+    tools::web_search::backfill_providers(&mut config);
+    Ok(config)
+}
+
+#[tauri::command]
+async fn save_web_search_config(config: tools::web_search::WebSearchConfig) -> Result<(), String> {
+    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    store.web_search = config;
+    provider::save_store(&store).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_web_fetch_config() -> Result<tools::web_fetch::WebFetchConfig, String> {
+    let store = provider::load_store().map_err(|e| e.to_string())?;
+    Ok(store.web_fetch)
+}
+
+#[tauri::command]
+async fn save_web_fetch_config(config: tools::web_fetch::WebFetchConfig) -> Result<(), String> {
+    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    store.web_fetch = config;
+    provider::save_store(&store).map_err(|e| e.to_string())
+}
+
+// ── SearXNG Docker Management ─────────────────────────────────
+
+#[tauri::command]
+async fn searxng_docker_status() -> Result<docker::SearxngDockerStatus, String> {
+    Ok(docker::status().await)
+}
+
+#[tauri::command]
+async fn searxng_docker_deploy(channel: tauri::ipc::Channel<String>) -> Result<String, String> {
+    let url = docker::deploy(|step| {
+        let _ = channel.send(step.to_string());
+    }).await.map_err(|e| e.to_string())?;
+    // Auto-save the URL into the SearXNG provider entry and mark as docker-managed
+    if let Ok(mut store) = provider::load_store() {
+        if let Some(entry) = store.web_search.providers.iter_mut().find(|e| e.id == tools::web_search::WebSearchProvider::Searxng) {
+            entry.base_url = Some(url.clone());
+            entry.enabled = true;
+        }
+        store.web_search.searxng_docker_managed = Some(true);
+        let _ = provider::save_store(&store);
+    }
+    Ok(url)
+}
+
+#[tauri::command]
+async fn searxng_docker_start() -> Result<(), String> {
+    docker::start().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn searxng_docker_stop() -> Result<(), String> {
+    docker::stop().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn searxng_docker_remove() -> Result<(), String> {
+    docker::remove().await.map_err(|e| e.to_string())?;
+    // Clear docker-managed flag
+    if let Ok(mut store) = provider::load_store() {
+        store.web_search.searxng_docker_managed = None;
+        let _ = provider::save_store(&store);
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -2260,6 +2583,7 @@ async fn set_window_theme(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Initialize directory structure
+    // NOTE: log::error! is intentional here — AppLogger is not yet initialized at this point
     if let Err(e) = paths::ensure_dirs() {
         log::error!("Failed to initialize data directories: {}", e);
     }
@@ -2336,6 +2660,9 @@ pub fn run() {
                 }
             }
 
+            // Auto-start Docker SearXNG if previously configured
+            auto_start_searxng_docker();
+
             Ok(())
         })
         .manage({
@@ -2403,6 +2730,7 @@ pub fn run() {
             delete_provider,
             test_provider,
             test_model,
+            test_embedding,
             get_available_models,
             get_active_model,
             set_active_model,
@@ -2443,6 +2771,7 @@ pub fn run() {
             remove_skill_env_var,
             get_skills_env_status,
             open_directory,
+            open_url,
             // Agent management
             list_agents,
             get_agent_config,
@@ -2460,6 +2789,15 @@ pub fn run() {
             memory_search,
             memory_count,
             memory_export,
+            get_web_search_config,
+            save_web_search_config,
+            get_web_fetch_config,
+            save_web_fetch_config,
+            searxng_docker_status,
+            searxng_docker_deploy,
+            searxng_docker_start,
+            searxng_docker_stop,
+            searxng_docker_remove,
             get_embedding_config,
             save_embedding_config,
             get_embedding_presets,
@@ -2481,6 +2819,7 @@ pub fn run() {
             get_session_cmd,
             delete_session_cmd,
             rename_session_cmd,
+            mark_session_read_cmd,
             // Window theme
             set_window_theme,
             // Logging

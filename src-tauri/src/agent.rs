@@ -122,7 +122,7 @@ fn build_user_content_anthropic(message: &str, attachments: &[Attachment]) -> se
                     }));
                 }
                 Err(e) => {
-                    log::warn!("Skipping attachment {}: {}", att.name, e);
+                    app_warn!("agent", "attachment", "Skipping attachment {}: {}", att.name, e);
                 }
             }
         }
@@ -177,7 +177,7 @@ fn build_user_content_openai_chat(message: &str, attachments: &[Attachment]) -> 
                     }));
                 }
                 Err(e) => {
-                    log::warn!("Skipping attachment {}: {}", att.name, e);
+                    app_warn!("agent", "attachment", "Skipping attachment {}: {}", att.name, e);
                 }
             }
         }
@@ -228,7 +228,7 @@ fn build_user_content_responses(message: &str, attachments: &[Attachment]) -> se
                     }));
                 }
                 Err(e) => {
-                    log::warn!("Skipping attachment {}: {}", att.name, e);
+                    app_warn!("agent", "attachment", "Skipping attachment {}: {}", att.name, e);
                 }
             }
         }
@@ -347,19 +347,20 @@ pub fn clamp_reasoning_effort(model: &str, effort: &str) -> Option<String> {
     if effort == "none" {
         return None;
     }
-    let efforts = ["low", "medium", "high", "xhigh"];
+    let efforts = ["minimal", "low", "medium", "high", "xhigh"];
     if !efforts.contains(&effort) {
         return Some("medium".to_string());
     }
     if model.contains("5.1-codex-mini") {
         return match effort {
-            "low" => Some("medium".to_string()),
+            "minimal" | "low" => Some("medium".to_string()),
             "xhigh" => Some("high".to_string()),
             _ => Some(effort.to_string()),
         };
     }
     if model.contains("5.1") {
         return match effort {
+            "minimal" => Some("low".to_string()),
             "xhigh" => Some("high".to_string()),
             _ => Some(effort.to_string()),
         };
@@ -398,8 +399,8 @@ fn map_think_openai_style(effort: Option<&str>) -> Option<String> {
     let effort = effort?;
     match effort {
         "none" => None,
-        "xhigh" => Some("high".to_string()), // Downgrade xhigh to high
-        "low" | "medium" | "high" => Some(effort.to_string()),
+        "xhigh" => Some("high".to_string()), // Downgrade xhigh to high for Chat Completions
+        "minimal" | "low" | "medium" | "high" => Some(effort.to_string()),
         _ => None,
     }
 }
@@ -466,6 +467,8 @@ pub struct AssistantAgent {
     conversation_history: std::sync::Mutex<Vec<serde_json::Value>>,
     /// Current agent ID (for memory context loading)
     agent_id: String,
+    /// Extra context appended to the system prompt (e.g. cron execution context)
+    extra_system_context: Option<String>,
 }
 
 // ── Shared Event Types (sent to frontend via on_delta JSON) ───────
@@ -648,6 +651,7 @@ fn emit_usage(on_delta: &(impl Fn(&str) + Send), usage: &ChatUsage, model: &str)
 #[derive(Serialize)]
 struct ReasoningConfig {
     effort: String,
+    summary: String,
 }
 
 #[derive(Serialize)]
@@ -853,6 +857,7 @@ impl AssistantAgent {
             thinking_style: ThinkingStyle::Anthropic,
             conversation_history: std::sync::Mutex::new(Vec::new()),
             agent_id: "default".to_string(),
+            extra_system_context: None,
         }
     }
 
@@ -868,6 +873,7 @@ impl AssistantAgent {
             thinking_style: ThinkingStyle::Openai,
             conversation_history: std::sync::Mutex::new(Vec::new()),
             agent_id: "default".to_string(),
+            extra_system_context: None,
         }
     }
 
@@ -901,12 +907,28 @@ impl AssistantAgent {
             thinking_style: config.thinking_style.clone(),
             conversation_history: std::sync::Mutex::new(Vec::new()),
             agent_id: "default".to_string(),
+            extra_system_context: None,
         }
     }
 
     /// Set the agent ID (for memory context and home directory).
     pub fn set_agent_id(&mut self, id: &str) {
         self.agent_id = id.to_string();
+    }
+
+    /// Set extra context to append to the system prompt.
+    pub fn set_extra_system_context(&mut self, context: String) {
+        self.extra_system_context = Some(context);
+    }
+
+    /// Build the full system prompt, including any extra context.
+    fn build_full_system_prompt(&self, model: &str, provider: &str) -> String {
+        let mut prompt = build_system_prompt(&self.agent_id, model, provider);
+        if let Some(extra) = &self.extra_system_context {
+            prompt.push_str("\n\n");
+            prompt.push_str(extra);
+        }
+        prompt
     }
 
     /// Get the agent's home directory path.
@@ -1025,7 +1047,7 @@ impl AssistantAgent {
         let mut total_usage = ChatUsage::default();
 
         let api_url = build_api_url(base_url, "/v1/messages");
-        let system_prompt = build_system_prompt(&self.agent_id, model, "Anthropic");
+        let system_prompt = self.build_full_system_prompt(model, "Anthropic");
 
         // Map thinking effort for Anthropic
         let max_tokens: u32 = 16384;
@@ -1407,7 +1429,7 @@ impl AssistantAgent {
         let api_url = build_api_url(base_url, "/v1/chat/completions");
         let mut collected_text = String::new();
         let mut total_usage = ChatUsage::default();
-        let system_prompt = build_system_prompt(&self.agent_id, model, "OpenAIChat");
+        let system_prompt = self.build_full_system_prompt(model, "OpenAIChat");
 
         // Apply thinking parameters based on ThinkingStyle
 
@@ -1774,7 +1796,7 @@ impl AssistantAgent {
 
         let reasoning = reasoning_effort
             .and_then(|e| clamp_reasoning_effort(model, e))
-            .map(|effort| ReasoningConfig { effort });
+            .map(|effort| ReasoningConfig { effort, summary: "auto".to_string() });
 
         let mut input: Vec<serde_json::Value> = self.conversation_history.lock().unwrap().clone();
         let user_content = build_user_content_responses(message, attachments);
@@ -1783,7 +1805,7 @@ impl AssistantAgent {
         let api_url = build_api_url(base_url, "/v1/responses");
         let mut collected_text = String::new();
         let mut total_usage = ChatUsage::default();
-        let system_prompt = build_system_prompt(&self.agent_id, model, "OpenAIResponses");
+        let system_prompt = self.build_full_system_prompt(model, "OpenAIResponses");
 
         let max_rounds = get_max_tool_rounds();
         let max_rounds = if max_rounds == 0 { u32::MAX } else { max_rounds };
@@ -1798,7 +1820,7 @@ impl AssistantAgent {
                 stream: true,
                 instructions: system_prompt.clone(),
                 input: input.clone(),
-                reasoning: reasoning.as_ref().map(|r| ReasoningConfig { effort: r.effort.clone() }),
+                reasoning: reasoning.as_ref().map(|r| ReasoningConfig { effort: r.effort.clone(), summary: "auto".to_string() }),
                 tools: Some(tool_schemas.clone()),
             };
 
@@ -1963,7 +1985,7 @@ impl AssistantAgent {
         // Build reasoning config with clamping
         let reasoning = reasoning_effort
             .and_then(|e| clamp_reasoning_effort(model, e))
-            .map(|effort| ReasoningConfig { effort });
+            .map(|effort| ReasoningConfig { effort, summary: "auto".to_string() });
 
         // Build input from conversation history + new user message (with optional image attachments)
         let mut input: Vec<serde_json::Value> = self.conversation_history.lock().unwrap().clone();
@@ -1979,7 +2001,7 @@ impl AssistantAgent {
 
         let mut collected_text = String::new();
         let mut total_usage = ChatUsage::default();
-        let system_prompt = build_system_prompt(&self.agent_id, model, "Codex");
+        let system_prompt = self.build_full_system_prompt(model, "Codex");
 
         let max_rounds = get_max_tool_rounds();
         let max_rounds = if max_rounds == 0 { u32::MAX } else { max_rounds };
@@ -1994,7 +2016,7 @@ impl AssistantAgent {
                 stream: true,
                 instructions: system_prompt.clone(),
                 input: input.clone(),
-                reasoning: reasoning.as_ref().map(|r| ReasoningConfig { effort: r.effort.clone() }),
+                reasoning: reasoning.as_ref().map(|r| ReasoningConfig { effort: r.effort.clone(), summary: "auto".to_string() }),
                 tools: Some(tool_schemas.clone()),
             };
 
@@ -2061,7 +2083,7 @@ impl AssistantAgent {
 
                         if attempt < MAX_RETRIES && is_retryable_error(status, &error_text) {
                             let delay = BASE_DELAY_MS * 2u64.pow(attempt);
-                            log::warn!("Codex API error {} (attempt {}/{}), retrying in {}ms", status, attempt + 1, MAX_RETRIES, delay);
+                            app_warn!("agent", "codex", "Codex API error {} (attempt {}/{}), retrying in {}ms", status, attempt + 1, MAX_RETRIES, delay);
                             if let Some(logger) = crate::get_logger() {
                                 logger.log("warn", "agent", "agent::chat_codex::retry",
                                     &format!("Codex API error {}, retrying (attempt {}/{})", status, attempt + 1, MAX_RETRIES),
@@ -2086,7 +2108,7 @@ impl AssistantAgent {
                     Err(e) => {
                         if attempt < MAX_RETRIES {
                             let delay = BASE_DELAY_MS * 2u64.pow(attempt);
-                            log::warn!("Codex API network error (attempt {}/{}): {}, retrying in {}ms", attempt + 1, MAX_RETRIES, e, delay);
+                            app_warn!("agent", "codex", "Codex API network error (attempt {}/{}): {}, retrying in {}ms", attempt + 1, MAX_RETRIES, e, delay);
                             if let Some(logger) = crate::get_logger() {
                                 logger.log("warn", "agent", "agent::chat_codex::retry",
                                     &format!("Codex API network error, retrying (attempt {}/{}): {}", attempt + 1, MAX_RETRIES, e),

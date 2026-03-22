@@ -21,7 +21,6 @@ import {
   Trash2,
   Search,
   Download,
-  Settings2,
   User,
   MessageSquareHeart,
   FolderKanban,
@@ -30,7 +29,10 @@ import {
   X,
   FileDown,
   Zap,
+  Wifi,
+  Loader2,
 } from "lucide-react"
+import TestResultDisplay, { parseTestResult, type TestResult } from "./TestResultDisplay"
 
 // ── Types ─────────────────────────────────────────────────────────
 
@@ -152,6 +154,8 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
   const [presets, setPresets] = useState<EmbeddingPreset[]>([])
   const [localModels, setLocalModels] = useState<LocalEmbeddingModel[]>([])
   const [embeddingDirty, setEmbeddingDirty] = useState(false)
+  const [embeddingTestLoading, setEmbeddingTestLoading] = useState(false)
+  const [embeddingTestResult, setEmbeddingTestResult] = useState<TestResult | null>(null)
 
   // ── Load agents for scope picker (standalone mode) ──
   useEffect(() => {
@@ -488,11 +492,48 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
                 </div>
               )}
 
-              {/* Save button */}
-              {embeddingDirty && (
-                <Button onClick={saveEmbeddingConfig} size="sm" className="mt-4">
-                  {t("settings.save")}
+              {/* Test & Save buttons */}
+              <div className="flex items-center gap-2 mt-4">
+                {embeddingDirty && (
+                  <Button onClick={saveEmbeddingConfig} size="sm">
+                    {t("common.save")}
+                  </Button>
+                )}
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={embeddingTestLoading || (embeddingConfig.providerType === "local" ? !embeddingConfig.localModelId : !embeddingConfig.apiBaseUrl?.trim())}
+                  onClick={async () => {
+                    setEmbeddingTestLoading(true)
+                    setEmbeddingTestResult(null)
+                    try {
+                      const msg = await invoke<string>("test_embedding", { config: embeddingConfig })
+                      setEmbeddingTestResult(parseTestResult(msg, false))
+                    } catch (e) {
+                      setEmbeddingTestResult(parseTestResult(String(e), true))
+                    } finally {
+                      setEmbeddingTestLoading(false)
+                    }
+                  }}
+                >
+                  {embeddingTestLoading ? (
+                    <span className="flex items-center gap-2">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      {t("common.testing")}
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-2">
+                      <Wifi className="h-3.5 w-3.5" />
+                      {t("settings.memoryEmbeddingTest")}
+                    </span>
+                  )}
                 </Button>
+              </div>
+
+              {embeddingTestResult && (
+                <div className="mt-3">
+                  <TestResultDisplay result={embeddingTestResult} />
+                </div>
               )}
             </div>
           )}
@@ -606,14 +647,14 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
                 size="sm"
                 disabled={!formContent.trim()}
               >
-                {isEdit ? t("settings.save") : t("settings.memoryAdd")}
+                {isEdit ? t("common.save") : t("settings.memoryAdd")}
               </Button>
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => { setView("list"); setEditingMemory(null) }}
               >
-                {t("settings.cancel")}
+                {t("common.cancel")}
               </Button>
             </div>
           </div>

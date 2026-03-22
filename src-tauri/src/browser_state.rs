@@ -60,7 +60,7 @@ impl BrowserState {
         // First, discover the WebSocket debugger URL from /json/version
         let ws_url = discover_ws_url(debug_url).await?;
 
-        log::info!("Connecting to Chrome at {}", ws_url);
+        app_info!("browser", "cdp", "Connecting to Chrome at {}", ws_url);
 
         let (browser, mut handler) = Browser::connect(&ws_url).await
             .map_err(|e| anyhow::anyhow!("Failed to connect to Chrome at {}: {}. Make sure Chrome is running with --remote-debugging-port", debug_url, e))?;
@@ -73,11 +73,11 @@ impl BrowserState {
                 match handler.next().await {
                     Some(Ok(_)) => {}
                     Some(Err(e)) => {
-                        log::warn!("Browser CDP handler error (continuing): {}", e);
+                        app_warn!("browser", "cdp", "CDP handler error (continuing): {}", e);
                         // Don't break — transient errors are normal in the CDP stream
                     }
                     None => {
-                        log::info!("Browser CDP handler stream ended");
+                        app_info!("browser", "cdp", "CDP handler stream ended");
                         break;
                     }
                 }
@@ -126,10 +126,10 @@ impl BrowserState {
                 match handler.next().await {
                     Some(Ok(_)) => {}
                     Some(Err(e)) => {
-                        log::warn!("Browser CDP handler error (continuing): {}", e);
+                        app_warn!("browser", "cdp", "CDP handler error (continuing): {}", e);
                     }
                     None => {
-                        log::info!("Browser CDP handler stream ended (launch)");
+                        app_info!("browser", "cdp", "CDP handler stream ended (launch)");
                         break;
                     }
                 }
@@ -164,7 +164,7 @@ impl BrowserState {
             handle.abort();
         }
 
-        log::info!("Browser disconnected");
+        app_info!("browser", "cdp", "Browser disconnected");
     }
 
     /// Check if connected to a browser (browser exists AND handler is still running)
@@ -237,7 +237,7 @@ pub async fn ensure_connected() -> anyhow::Result<()> {
 
     // Clean up stale connection if handler died
     if state.browser.is_some() {
-        log::info!("Cleaning up stale browser connection (handler died)");
+        app_info!("browser", "cdp", "Cleaning up stale browser connection (handler died)");
         state.disconnect().await;
     }
 
