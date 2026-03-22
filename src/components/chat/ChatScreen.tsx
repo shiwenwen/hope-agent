@@ -19,6 +19,7 @@ import type {
   AgentSummaryForSidebar,
   FallbackEvent,
 } from "@/types/chat"
+import type { AgentConfig } from "@/components/settings/types"
 import { getEffortOptionsForType } from "@/types/chat"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import ApprovalDialog, { type ApprovalRequest } from "@/components/chat/ApprovalDialog"
@@ -257,6 +258,8 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
   const [activeModel, setActiveModel] = useState<ActiveModel | null>(null)
   const [reasoningEffort, setReasoningEffort] = useState("medium")
+  // Global default model (read-only, only changed in settings panel)
+  const globalActiveModelRef = useRef<ActiveModel | null>(null)
 
   // Command approval queue
   const [approvalRequests, setApprovalRequests] = useState<ApprovalRequest[]>([])
@@ -486,6 +489,7 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
         ])
         setAvailableModels(models)
         setActiveModel(active)
+        globalActiveModelRef.current = active
         setReasoningEffort(settings.reasoning_effort)
         if (agentConfig) {
           setAgentName(agentConfig.name)
@@ -540,50 +544,14 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
     }
   }, [reloadSessions, t])
 
-  // Listen for sub-agent completion events — push result to parent agent's conversation
+  // Listen for sub-agent terminal events — refresh sidebar to reflect child session status
   useEffect(() => {
     let unlisten: UnlistenFn | undefined
     listen("subagent_event", (event) => {
-      const payload = event.payload as {
-        eventType: string
-        status: string
-        runId: string
-        parentSessionId: string
-        childAgentId: string
-        taskPreview: string
-        resultFull?: string
-        error?: string
-        durationMs?: number
+      const payload = event.payload as { status: string }
+      if (["completed", "error", "timeout", "killed"].includes(payload.status)) {
+        reloadSessions()
       }
-      if (!["completed", "error", "timeout", "killed"].includes(payload.status)) return
-
-      reloadSessions()
-
-      // Build the push message to inject into parent agent's conversation
-      const resultContent = payload.resultFull || payload.error || `Sub-agent finished with status: ${payload.status}`
-      const pushMessage = [
-        `[Sub-Agent Completion — auto-delivered]`,
-        `Agent: ${payload.childAgentId}`,
-        `Task: ${payload.taskPreview}`,
-        `Status: ${payload.status}`,
-        payload.durationMs ? `Duration: ${(payload.durationMs / 1000).toFixed(1)}s` : null,
-        `<<<BEGIN_SUBAGENT_RESULT>>>`,
-        resultContent,
-        `<<<END_SUBAGENT_RESULT>>>`,
-      ].filter(Boolean).join("\n")
-
-      // Auto-send to parent session — triggers a new agent turn to process the result
-      const onEvent = new Channel<string>()
-      invoke<string>("chat", {
-        message: pushMessage,
-        attachments: [],
-        sessionId: payload.parentSessionId,
-        modelOverride: undefined,
-        agentId: undefined,
-        onEvent,
-      }).catch((e) => {
-        logger.error("ui", "ChatScreen::subagentPush", "Failed to push sub-agent result", e)
-      })
     }).then((fn) => {
       unlisten = fn
     })
@@ -688,6 +656,26 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
         if (modelExists) {
           handleModelChange(`${session.providerId}::${session.modelId}`)
         }
+      } else {
+        // Session has no model info, fallback to agent's configured model or global default
+        try {
+          const agentConfig = await invoke<AgentConfig>("get_agent_config", { id: session.agentId })
+          if (agentConfig.model.primary) {
+            const modelExists = availableModels.some(
+              (m) => `${m.providerId}::${m.modelId}` === agentConfig.model.primary
+            )
+            if (modelExists) {
+              applyModelForDisplay(agentConfig.model.primary)
+              return
+            }
+          }
+        } catch {
+          // ignore
+        }
+        // No agent model or unavailable — restore global default
+        if (globalActiveModelRef.current) {
+          setActiveModel(globalActiveModelRef.current)
+        }
       }
     }
 
@@ -773,6 +761,26 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
     if (agent) {
       setAgentName(agent.name)
     }
+
+    // Apply agent's configured model, or restore global default
+    try {
+      const agentConfig = await invoke<AgentConfig>("get_agent_config", { id: agentId })
+      if (agentConfig.model.primary) {
+        const modelExists = availableModels.some(
+          (m) => `${m.providerId}::${m.modelId}` === agentConfig.model.primary
+        )
+        if (modelExists) {
+          applyModelForDisplay(agentConfig.model.primary)
+          return
+        }
+      }
+    } catch {
+      // ignore
+    }
+    // No agent model configured or unavailable — restore global default
+    if (globalActiveModelRef.current) {
+      setActiveModel(globalActiveModelRef.current)
+    }
   }
 
   // Delete a session
@@ -793,6 +801,29 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
       reloadSessions()
     } catch (err) {
       logger.error("session", "ChatScreen::deleteSession", "Failed to delete session", err)
+    }
+  }
+
+  // Update model display + reasoning effort without persisting to global settings.
+  // Used when switching agents to reflect the agent's configured model.
+  function applyModelForDisplay(key: string) {
+    const [providerId, modelId] = key.split("::")
+    if (!providerId || !modelId) return
+
+    setActiveModel({ providerId, modelId })
+
+    const newModel = availableModels.find(
+      (m) => m.providerId === providerId && m.modelId === modelId,
+    )
+    if (newModel) {
+      const validOptions = getEffortOptionsForType(newModel.apiType, t)
+      const isValid = validOptions.some((opt) => opt.value === reasoningEffort)
+      if (!isValid) {
+        const fallback = validOptions.some((o) => o.value === "medium")
+          ? "medium"
+          : "none"
+        setReasoningEffort(fallback)
+      }
     }
   }
 
