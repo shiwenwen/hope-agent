@@ -17,8 +17,10 @@ mod sandbox;
 mod session;
 mod skills;
 mod system_prompt;
+mod permissions;
 mod tools;
 mod user_config;
+mod context_compact;
 
 use agent::AssistantAgent;
 use oauth::TokenData;
@@ -1102,20 +1104,24 @@ use agent::Attachment;
 
 /// Build an AssistantAgent for a given ActiveModel.
 /// Handles Codex (OAuth) vs regular API key providers.
+/// Sets context_window from ModelConfig and compact_config from ProviderStore.
 async fn build_agent_for_model(
     model: &ActiveModel,
     state: &State<'_, AppState>,
 ) -> Option<AssistantAgent> {
     let store = state.provider_store.lock().await;
     let prov = provider::find_provider(&store.providers, &model.provider_id)?;
+    let compact_config = store.compact.clone();
 
-    if prov.api_type == ApiType::Codex {
+    let mut agent = if prov.api_type == ApiType::Codex {
         let token_info = state.codex_token.lock().await.clone();
         let (access_token, account_id) = token_info?;
-        Some(AssistantAgent::new_openai(&access_token, &account_id, &model.model_id))
+        AssistantAgent::new_openai(&access_token, &account_id, &model.model_id)
     } else {
-        Some(AssistantAgent::new_from_provider(prov, &model.model_id))
-    }
+        AssistantAgent::new_from_provider(prov, &model.model_id)
+    };
+    agent.set_compact_config(compact_config);
+    Some(agent)
 }
 
 /// Find the provider name + model name for display in fallback notifications.
@@ -2177,6 +2183,19 @@ async fn save_web_fetch_config(config: tools::web_fetch::WebFetchConfig) -> Resu
     provider::save_store(&store).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+async fn get_compact_config() -> Result<context_compact::CompactConfig, String> {
+    let store = provider::load_store().map_err(|e| e.to_string())?;
+    Ok(store.compact)
+}
+
+#[tauri::command]
+async fn save_compact_config(config: context_compact::CompactConfig) -> Result<(), String> {
+    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    store.compact = config;
+    provider::save_store(&store).map_err(|e| e.to_string())
+}
+
 // ── SearXNG Docker Management ─────────────────────────────────
 
 #[tauri::command]
@@ -2801,6 +2820,8 @@ pub fn run() {
             get_embedding_config,
             save_embedding_config,
             get_embedding_presets,
+            get_compact_config,
+            save_compact_config,
             list_local_embedding_models,
             // User config
             get_user_config,
@@ -2810,6 +2831,10 @@ pub fn run() {
             // Autostart
             get_autostart_enabled,
             set_autostart_enabled,
+            // Permissions
+            permissions::check_all_permissions,
+            permissions::check_permission,
+            permissions::request_permission,
             // Session management
             create_session_cmd,
             list_sessions_cmd,

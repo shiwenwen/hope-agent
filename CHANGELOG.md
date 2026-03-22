@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **对话上下文压缩系统**：4 层渐进式上下文压缩，防止 context overflow 卡死会话。参考 openclaw 方案优化适配桌面场景
+  - Tier 1：工具结果截断 — 单个结果超过 context 30% 时 head+tail 截断（结构感知边界切割）
+  - Tier 2：上下文裁剪 — 软裁剪旧工具结果 → 硬替换为占位符，基于 age×size 优先级评分
+  - Tier 3：LLM 摘要 — 调用当前模型摘要旧消息，保留最近 N 轮，3 级 fallback
+  - Tier 4：溢出恢复 — ContextOverflow 不再是 terminal 错误，触发紧急压缩后自动重试
+  - Token 估算校准器：利用 API 返回的实际 input_tokens 做 EMA 滑动平均校准
+  - 新增 `context_compact.rs` 后端模块，`CompactConfig` 配置存储在 `config.json` 的 `compact` 字段
+  - 新增设置面板「上下文管理」：3 个可折叠区域（工具裁剪 / 摘要压缩 / 高级设置），15 个可配置参数
+  - 修复 `tool_context()` 始终传 `None` 的问题，工具输出现在自适应 context window
+  - 2 个 Tauri 命令：`get_compact_config` / `save_compact_config`
+- **系统权限管理页面**：新增设置 → 系统权限面板，检测并引导用户授权 macOS 辅助功能、屏幕录制、自动化、应用管理、完全磁盘访问、文件和文件夹、定位服务、通讯录、日历、提醒事项、照片、相机、麦克风、本地网络、蓝牙（共 15 项）。新增 `permissions.rs` 后端模块（`check_all_permissions` / `check_permission` / `request_permission` 三个 Tauri 命令），支持自动检测权限状态、跳转系统设置授权、窗口聚焦时自动刷新
 - **浏览器 Profile 隔离**：`browser` 工具 `launch` action 新增 `profile` 参数，支持多配置档隔离（独立 cookies/存储/登录状态）。新增 `list_profiles` action 列出已有配置档。Profile 数据存储在 `~/.opencomputer/browser-profiles/{name}/`
 - **浏览器 PDF 导出**：`browser` 工具新增 `save_pdf` action，将当前页面导出为 PDF 文件。支持 `paper_format`（a3/a4/a5/letter/legal/tabloid）、`landscape`、`print_background` 参数，默认输出到 `~/.opencomputer/share/`
 - **记忆 Embedding Provider 测试功能**：向量搜索设置新增"测试 Embedding"按钮，支持 OpenAI 兼容 API、Google Gemini、本地 ONNX 模型三种类型的连接测试，复用 `TestResultDisplay` 组件展示测试结果（状态码、延迟、返回维度）

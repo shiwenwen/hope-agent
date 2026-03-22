@@ -13,6 +13,7 @@ import {
   ScrollText,
   Server,
   Settings2,
+  Shield,
   User,
   Wrench,
 } from "lucide-react"
@@ -30,6 +31,7 @@ import AboutPanel from "@/components/settings/AboutPanel"
 import LogPanel from "@/components/settings/LogPanel"
 import MemoryPanel from "@/components/settings/MemoryPanel"
 import CronPanel from "@/components/settings/CronPanel"
+import PermissionsPanel from "@/components/settings/PermissionsPanel"
 import type { SettingsSection, SettingsSectionItem } from "./types"
 
 const SECTIONS: SettingsSectionItem[] = [
@@ -69,14 +71,19 @@ const SECTIONS: SettingsSectionItem[] = [
     labelKey: "settings.cron",
   },
   {
+    id: "chat",
+    icon: <MessageSquare className="h-4 w-4" />,
+    labelKey: "settings.chat",
+  },
+  {
     id: "tools",
     icon: <Wrench className="h-4 w-4" />,
     labelKey: "settings.tools",
   },
   {
-    id: "chat",
-    icon: <MessageSquare className="h-4 w-4" />,
-    labelKey: "settings.chat",
+    id: "permissions",
+    icon: <Shield className="h-4 w-4" />,
+    labelKey: "settings.permissions",
   },
   {
     id: "logs",
@@ -202,6 +209,7 @@ export default function SettingsView({
           {activeSection === "memory" && <MemoryPanel />}
           {activeSection === "cron" && <CronPanel />}
           {activeSection === "tools" && <ToolSettingsPanel />}
+          {activeSection === "permissions" && <PermissionsPanel />}
           {activeSection === "chat" && <ChatSettingsPanel />}
           {activeSection === "logs" && <LogPanel />}
           {activeSection === "about" && <AboutPanel />}
