@@ -24,10 +24,13 @@ const BACKOFF_DELAYS: [u64; 5] = [1, 3, 9, 15, 30];
 fn main() {
     if env::var("OPENCOMPUTER_CHILD").is_ok() {
         run_child();
+    } else if cfg!(debug_assertions) {
+        // Dev mode — skip guardian, run app directly
+        run_child();
     } else if is_guardian_enabled() {
         run_guardian();
     } else {
-        // Guardian disabled — run app directly (same as old behavior)
+        // Guardian disabled by user — run app directly
         run_child();
     }
 }
