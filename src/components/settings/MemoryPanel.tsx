@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -629,14 +630,26 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
         <div className="flex items-center justify-between mb-1 shrink-0">
           <h2 className="text-lg font-semibold">{t("settings.memory")}</h2>
           <div className="flex items-center gap-2">
+            <TooltipProvider delayDuration={100} skipDelayDuration={50}>
             {!compact && (
-              <Button variant="ghost" size="sm" onClick={() => setView("embedding")} title={t("settings.memoryEmbedding")}>
-                <Zap className={cn("h-4 w-4", embeddingConfig.enabled ? "text-primary" : "text-muted-foreground")} />
-              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="sm" onClick={() => setView("embedding")}>
+                    <Zap className={cn("h-4 w-4", embeddingConfig.enabled ? "text-primary" : "text-muted-foreground")} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{t("settings.memoryEmbedding")}</TooltipContent>
+              </Tooltip>
             )}
-            <Button variant="ghost" size="sm" onClick={handleExport} title={t("settings.memoryExport")}>
-              <FileDown className="h-4 w-4" />
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="sm" onClick={handleExport}>
+                  <FileDown className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t("settings.memoryExport")}</TooltipContent>
+            </Tooltip>
+            </TooltipProvider>
             <Button size="sm" onClick={startAdd} className="gap-1.5">
               <Plus className="h-3.5 w-3.5" />
               {t("settings.memoryAdd")}
