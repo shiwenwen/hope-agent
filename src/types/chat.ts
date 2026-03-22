@@ -102,6 +102,7 @@ export interface AgentSummaryForSidebar {
 export function getEffortOptionsForType(apiType: string | undefined, t: (key: string) => string) {
   const off = t("effort.off")
   const on = t("effort.on")
+  const minimal = t("effort.minimal")
   const low = t("effort.low")
   const medium = t("effort.medium")
   const high = t("effort.high")
@@ -111,6 +112,7 @@ export function getEffortOptionsForType(apiType: string | undefined, t: (key: st
     case "codex":
       return [
         { value: "none", label: off },
+        { value: "minimal", label: minimal },
         { value: "low", label: low },
         { value: "medium", label: medium },
         { value: "high", label: high },

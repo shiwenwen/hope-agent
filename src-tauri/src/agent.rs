@@ -347,19 +347,20 @@ pub fn clamp_reasoning_effort(model: &str, effort: &str) -> Option<String> {
     if effort == "none" {
         return None;
     }
-    let efforts = ["low", "medium", "high", "xhigh"];
+    let efforts = ["minimal", "low", "medium", "high", "xhigh"];
     if !efforts.contains(&effort) {
         return Some("medium".to_string());
     }
     if model.contains("5.1-codex-mini") {
         return match effort {
-            "low" => Some("medium".to_string()),
+            "minimal" | "low" => Some("medium".to_string()),
             "xhigh" => Some("high".to_string()),
             _ => Some(effort.to_string()),
         };
     }
     if model.contains("5.1") {
         return match effort {
+            "minimal" => Some("low".to_string()),
             "xhigh" => Some("high".to_string()),
             _ => Some(effort.to_string()),
         };
@@ -398,8 +399,8 @@ fn map_think_openai_style(effort: Option<&str>) -> Option<String> {
     let effort = effort?;
     match effort {
         "none" => None,
-        "xhigh" => Some("high".to_string()), // Downgrade xhigh to high
-        "low" | "medium" | "high" => Some(effort.to_string()),
+        "xhigh" => Some("high".to_string()), // Downgrade xhigh to high for Chat Completions
+        "minimal" | "low" | "medium" | "high" => Some(effort.to_string()),
         _ => None,
     }
 }
@@ -650,6 +651,7 @@ fn emit_usage(on_delta: &(impl Fn(&str) + Send), usage: &ChatUsage, model: &str)
 #[derive(Serialize)]
 struct ReasoningConfig {
     effort: String,
+    summary: String,
 }
 
 #[derive(Serialize)]
@@ -1794,7 +1796,7 @@ impl AssistantAgent {
 
         let reasoning = reasoning_effort
             .and_then(|e| clamp_reasoning_effort(model, e))
-            .map(|effort| ReasoningConfig { effort });
+            .map(|effort| ReasoningConfig { effort, summary: "auto".to_string() });
 
         let mut input: Vec<serde_json::Value> = self.conversation_history.lock().unwrap().clone();
         let user_content = build_user_content_responses(message, attachments);
@@ -1818,7 +1820,7 @@ impl AssistantAgent {
                 stream: true,
                 instructions: system_prompt.clone(),
                 input: input.clone(),
-                reasoning: reasoning.as_ref().map(|r| ReasoningConfig { effort: r.effort.clone() }),
+                reasoning: reasoning.as_ref().map(|r| ReasoningConfig { effort: r.effort.clone(), summary: "auto".to_string() }),
                 tools: Some(tool_schemas.clone()),
             };
 
@@ -1983,7 +1985,7 @@ impl AssistantAgent {
         // Build reasoning config with clamping
         let reasoning = reasoning_effort
             .and_then(|e| clamp_reasoning_effort(model, e))
-            .map(|effort| ReasoningConfig { effort });
+            .map(|effort| ReasoningConfig { effort, summary: "auto".to_string() });
 
         // Build input from conversation history + new user message (with optional image attachments)
         let mut input: Vec<serde_json::Value> = self.conversation_history.lock().unwrap().clone();
@@ -2014,7 +2016,7 @@ impl AssistantAgent {
                 stream: true,
                 instructions: system_prompt.clone(),
                 input: input.clone(),
-                reasoning: reasoning.as_ref().map(|r| ReasoningConfig { effort: r.effort.clone() }),
+                reasoning: reasoning.as_ref().map(|r| ReasoningConfig { effort: r.effort.clone(), summary: "auto".to_string() }),
                 tools: Some(tool_schemas.clone()),
             };
 
