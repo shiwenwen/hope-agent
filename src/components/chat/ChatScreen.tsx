@@ -269,6 +269,7 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
   const [detailsIndex, setDetailsIndex] = useState<number | null>(null)
   // Session status popover
   const [showStatus, setShowStatus] = useState(false)
+  const [compacting, setCompacting] = useState(false)
   const statusRef = useRef<HTMLDivElement>(null)
 
   // Close status popover on outside click
@@ -1120,10 +1121,49 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
                       const usedTokens = lastAssistantWithUsage?.usage?.inputTokens || 0
                       const usedK = Math.round(usedTokens / 1000)
                       const pct = m.contextWindow > 0 ? Math.round((usedTokens / m.contextWindow) * 100) : 0
+                      const barColor = pct < 50 ? "bg-green-500/70" : pct < 80 ? "bg-yellow-500/70" : "bg-red-500/70"
                       return (
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-muted-foreground">📚 {t("chat.statusContext")}</span>
-                          <span className="font-medium text-foreground tabular-nums">{usedK}/{ctxK}k ({pct}%)</span>
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-muted-foreground">📚 {t("chat.statusContext")}</span>
+                            <span className="font-medium text-foreground tabular-nums">{usedK}/{ctxK}k ({pct}%)</span>
+                          </div>
+                          <div className="h-1.5 w-full bg-secondary rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all duration-300 ${barColor}`}
+                              style={{ width: `${Math.min(pct, 100)}%` }}
+                            />
+                          </div>
+                          {currentSessionId && usedTokens > 0 && (
+                            <button
+                              className="w-full mt-1 px-2 py-1 text-[11px] rounded-md border border-border/50 text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors disabled:opacity-50"
+                              disabled={compacting || loading}
+                              onClick={async () => {
+                                setCompacting(true)
+                                try {
+                                  const result = await invoke<{ tierApplied: number; tokensBefore: number; tokensAfter: number; messagesAffected: number }>(
+                                    "compact_context_now",
+                                    { sessionId: currentSessionId }
+                                  )
+                                  if (result.messagesAffected > 0) {
+                                    // Reload messages to reflect compacted state
+                                    const loaded = await invoke<{ id: number; role: string; content: string; toolCalls?: string; toolResult?: string; model?: string; tokensIn?: number; tokensOut?: number; toolDurationMs?: number; createdAt: string }[]>(
+                                      "load_session_messages_cmd",
+                                      { sessionId: currentSessionId }
+                                    )
+                                    // Just close the popover — user will see updated token count on next message
+                                    setShowStatus(false)
+                                  }
+                                } catch (e) {
+                                  console.error("compact failed", e)
+                                } finally {
+                                  setCompacting(false)
+                                }
+                              }}
+                            >
+                              {compacting ? t("chat.compacting") : t("chat.compactNow")}
+                            </button>
+                          )}
                         </div>
                       )
                     })()}
@@ -1466,6 +1506,17 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
             setPendingMessage(null)
           }}
           onStop={handleStop}
+          compacting={compacting}
+          onCompact={currentSessionId ? async () => {
+            setCompacting(true)
+            try {
+              await invoke("compact_context_now", { sessionId: currentSessionId })
+            } catch (e) {
+              console.error("compact failed", e)
+            } finally {
+              setCompacting(false)
+            }
+          } : undefined}
         />
       </div>
     </>

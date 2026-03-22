@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import {
   Send,
@@ -9,6 +10,7 @@ import {
   Brain,
   ChevronRight,
   ImagePlus,
+  Zap,
   Paperclip,
   X,
 } from "lucide-react"
@@ -31,6 +33,8 @@ interface ChatInputProps {
   pendingMessage?: string | null
   onCancelPending?: () => void
   onStop?: () => void
+  onCompact?: () => void
+  compacting?: boolean
 }
 
 export default function ChatInput({
@@ -49,6 +53,8 @@ export default function ChatInput({
   pendingMessage,
   onCancelPending,
   onStop,
+  onCompact,
+  compacting,
 }: ChatInputProps) {
   const { t } = useTranslation()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -119,6 +125,7 @@ export default function ChatInput({
   )
 
   return (
+    <TooltipProvider delayDuration={100} skipDelayDuration={50}>
     <div className="px-3 pb-3 pt-2">
       <div className="rounded-2xl border border-border bg-card">
         {/* Attached files preview */}
@@ -181,15 +188,19 @@ export default function ChatInput({
         {/* Toolbar */}
         <div className="flex items-center gap-1 px-2 pb-2">
           {/* Attach buttons */}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground"
-            onClick={() => imageInputRef.current?.click()}
-            title={t("chat.attachImage")}
-          >
-            <ImagePlus className="h-4 w-4" />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground"
+                onClick={() => imageInputRef.current?.click()}
+              >
+                <ImagePlus className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t("chat.attachImage")}</TooltipContent>
+          </Tooltip>
           <input
             ref={imageInputRef}
             type="file"
@@ -198,15 +209,19 @@ export default function ChatInput({
             className="hidden"
             onChange={handleFileSelect}
           />
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground"
-            onClick={() => fileInputRef.current?.click()}
-            title={t("chat.attachFile")}
-          >
-            <Paperclip className="h-4 w-4" />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <Paperclip className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t("chat.attachFile")}</TooltipContent>
+          </Tooltip>
           <input
             ref={fileInputRef}
             type="file"
@@ -338,33 +353,62 @@ export default function ChatInput({
             </div>
           )}
 
+          {/* Compact Context Button */}
+          {onCompact && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground"
+                  onClick={onCompact}
+                  disabled={compacting || loading}
+                >
+                  <Zap className={cn("h-4 w-4", compacting && "animate-pulse")} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t("chat.compactNow")}</TooltipContent>
+            </Tooltip>
+          )}
+
           <div className="flex-1" />
 
           {/* Stop Button (always visible during loading) */}
           {loading && (
-            <Button
-              size="icon"
-              variant="destructive"
-              className="h-8 w-8 rounded-full shrink-0"
-              onClick={onStop}
-              title={t("chat.stopReply")}
-            >
-              <Square className="h-4 w-4 fill-white stroke-white" />
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  size="icon"
+                  variant="destructive"
+                  className="h-8 w-8 rounded-full shrink-0"
+                  onClick={onStop}
+                >
+                  <Square className="h-4 w-4 fill-white stroke-white" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t("chat.stopReply")}</TooltipContent>
+            </Tooltip>
           )}
 
           {/* Send Button */}
-          <Button
-            size="icon"
-            className="h-8 w-8 rounded-full shrink-0"
-            onClick={onSend}
-            disabled={!input.trim() || (loading && !!pendingMessage)}
-            title={loading && input.trim() ? t("chat.queueMessage") : undefined}
-          >
-            <Send className="h-4 w-4" />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="icon"
+                className="h-8 w-8 rounded-full shrink-0"
+                onClick={onSend}
+                disabled={!input.trim() || (loading && !!pendingMessage)}
+              >
+                <Send className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            {loading && input.trim() && (
+              <TooltipContent>{t("chat.queueMessage")}</TooltipContent>
+            )}
+          </Tooltip>
         </div>
       </div>
     </div>
+    </TooltipProvider>
   )
 }

@@ -227,6 +227,9 @@ pub struct ProviderStore {
     /// Outer key: skill name, inner key: env var name, value: env var value.
     #[serde(default)]
     pub skill_env: std::collections::HashMap<String, std::collections::HashMap<String, String>>,
+    /// Context compaction configuration
+    #[serde(default)]
+    pub compact: crate::context_compact::CompactConfig,
 }
 
 fn default_skill_env_check() -> bool {
@@ -246,6 +249,7 @@ impl Default for ProviderStore {
             web_search: crate::tools::web_search::WebSearchConfig::default(),
             web_fetch: crate::tools::web_fetch::WebFetchConfig::default(),
             skill_env: std::collections::HashMap::new(),
+            compact: crate::context_compact::CompactConfig::default(),
         }
     }
 }

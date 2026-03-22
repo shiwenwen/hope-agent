@@ -58,6 +58,8 @@
     "statusNewSession": "(New Session)",
     "statusAuth": "Auth",
     "statusContext": "Context",
+    "compactNow": "Compress Context",
+    "compacting": "Compressing...",
     "statusCache": "Cache",
     "fallbackTitle": "Model Fallback",
     "fallbackReason": "Reason",

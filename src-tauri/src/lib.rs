@@ -1689,8 +1689,38 @@ async fn chat(
                         }).to_string()),
                         Some(sid.clone()), Some(current_agent_id.clone()));
 
+                    // Context overflow — try emergency compaction, then retry once
+                    if reason.needs_compaction() && retry_count == 0 {
+                        app_info!("context", "compact",
+                            "Context overflow on {}::{}, attempting emergency compaction",
+                            model_ref.provider_id, model_ref.model_id
+                        );
+                        let compact_config = {
+                            let store = state.provider_store.lock().await;
+                            store.compact.clone()
+                        };
+                        let mut history = agent.get_conversation_history();
+                        let result = context_compact::emergency_compact(&mut history, &compact_config);
+                        agent.set_conversation_history(history);
+                        // Persist compacted context immediately to prevent data loss
+                        save_agent_context(&db, &sid, &agent);
+
+                        // Notify frontend
+                        if let Ok(event_str) = serde_json::to_string(&serde_json::json!({
+                            "type": "context_compacted",
+                            "data": result,
+                        })) {
+                            let _ = on_event.send(event_str);
+                        }
+
+                        retry_count += 1;
+                        continue; // Retry with compacted context
+                    }
+
                     // Terminal errors — surface immediately, no fallback
-                    if reason.is_terminal() {
+                    if reason.is_terminal() || reason.needs_compaction() {
+                        // Still persist any in-memory compaction that happened during this attempt
+                        save_agent_context(&db, &sid, &agent);
                         let _ = db.append_message(&sid, &session::NewMessage::event(&error_msg));
                         return Err(error_msg);
                     }
@@ -1736,6 +1766,10 @@ async fn chat(
         }
     }
 
+    // Persist any in-memory compaction before returning error
+    if let Some(ref agent) = *state.agent.lock().await {
+        save_agent_context(&db, &sid, agent);
+    }
     let final_error = last_error.unwrap_or_else(|| "All models in the fallback chain failed.".to_string());
     let _ = db.append_message(&sid, &session::NewMessage::event(&final_error));
     Err(final_error)
@@ -2194,6 +2228,84 @@ async fn save_compact_config(config: context_compact::CompactConfig) -> Result<(
     let mut store = provider::load_store().map_err(|e| e.to_string())?;
     store.compact = config;
     provider::save_store(&store).map_err(|e| e.to_string())
+}
+
+/// Manually trigger context compaction on the current session.
+/// Returns the compaction result for frontend display.
+#[tauri::command]
+async fn compact_context_now(
+    session_id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<context_compact::CompactResult, String> {
+    let agent = state.agent.lock().await;
+    let agent = agent.as_ref().ok_or("No active agent")?;
+
+    let mut history = agent.get_conversation_history();
+    if history.is_empty() {
+        return Ok(context_compact::CompactResult {
+            tier_applied: 0,
+            tokens_before: 0,
+            tokens_after: 0,
+            messages_affected: 0,
+            description: "no_messages".to_string(),
+            details: None,
+        });
+    }
+
+    let store = provider::load_store().map_err(|e| e.to_string())?;
+    let compact_config = store.compact;
+
+    let system_prompt_estimate = "system";
+    let max_tokens: u32 = 16384;
+
+    // Run Tier 1 + Tier 2
+    let result = context_compact::compact_if_needed(
+        &mut history,
+        system_prompt_estimate,
+        agent.get_context_window(),
+        max_tokens,
+        &compact_config,
+    );
+
+    // If thresholds not reached, force compaction with lowered thresholds
+    if result.tier_applied == 0 {
+        let mut forced_config = compact_config;
+        forced_config.soft_trim_ratio = 0.0;
+        forced_config.hard_clear_ratio = 0.0;
+
+        let forced_result = context_compact::compact_if_needed(
+            &mut history,
+            system_prompt_estimate,
+            agent.get_context_window(),
+            max_tokens,
+            &forced_config,
+        );
+
+        if forced_result.messages_affected > 0 {
+            agent.set_conversation_history(history);
+            save_agent_context(&state.session_db, &session_id, agent);
+
+            if let Some(logger) = crate::get_logger() {
+                logger.log("info", "context", "compact::manual",
+                    &format!("Manual compaction: {} → {} tokens, {} affected",
+                        forced_result.tokens_before, forced_result.tokens_after, forced_result.messages_affected),
+                    None, None, None);
+            }
+        }
+        return Ok(forced_result);
+    }
+
+    agent.set_conversation_history(history);
+    save_agent_context(&state.session_db, &session_id, agent);
+
+    if let Some(logger) = crate::get_logger() {
+        logger.log("info", "context", "compact::manual",
+            &format!("Manual compaction: tier={}, {} → {} tokens, {} affected",
+                result.tier_applied, result.tokens_before, result.tokens_after, result.messages_affected),
+            None, None, None);
+    }
+
+    Ok(result)
 }
 
 // ── SearXNG Docker Management ─────────────────────────────────
@@ -2822,6 +2934,7 @@ pub fn run() {
             get_embedding_presets,
             get_compact_config,
             save_compact_config,
+            compact_context_now,
             list_local_embedding_models,
             // User config
             get_user_config,

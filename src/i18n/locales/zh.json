@@ -58,6 +58,8 @@
     "statusNewSession": "(新会话)",
     "statusAuth": "认证",
     "statusContext": "上下文",
+    "compactNow": "压缩上下文",
+    "compacting": "压缩中...",
     "statusCache": "缓存",
     "fallbackTitle": "降级切换",
     "fallbackReason": "原因",

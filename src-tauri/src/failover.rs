@@ -37,7 +37,13 @@ impl FailoverReason {
 
     /// Whether this error should immediately surface to the user
     /// without trying any fallback models.
+    /// Note: ContextOverflow is no longer terminal — it triggers compaction first.
     pub fn is_terminal(&self) -> bool {
+        false
+    }
+
+    /// Whether this error should trigger context compaction before retry.
+    pub fn needs_compaction(&self) -> bool {
         matches!(self, Self::ContextOverflow)
     }
 }
