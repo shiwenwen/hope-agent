@@ -12,13 +12,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { cn } from "@/lib/utils"
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuTrigger,
-} from "@/components/ui/context-menu"
+import { TooltipProvider, IconTip } from "@/components/ui/tooltip"
 import {
   ChevronDown,
   ChevronRight,
@@ -27,9 +21,6 @@ import {
   Trash2,
   MessageSquarePlus,
   Loader2,
-  Timer,
-  Pencil,
-  Network,
 } from "lucide-react"
 import type { SessionMeta, AgentSummaryForSidebar } from "@/types/chat"
 
@@ -43,7 +34,6 @@ interface ChatSidebarProps {
   onSwitchSession: (sessionId: string) => void
   onNewChat: (agentId: string) => void
   onDeleteSession: (sessionId: string) => void
-  onEditAgent?: (agentId: string) => void
 }
 
 export default function ChatSidebar({
@@ -56,7 +46,6 @@ export default function ChatSidebar({
   onSwitchSession,
   onNewChat,
   onDeleteSession,
-  onEditAgent,
 }: ChatSidebarProps) {
   const { t } = useTranslation()
   const [agentsExpanded, setAgentsExpanded] = useState(true)
@@ -75,21 +64,19 @@ export default function ChatSidebar({
   const toggleAgentFilter = useCallback((agentId: string) => {
     setSelectedAgentId(prev => {
       if (prev === agentId) {
+        // Deselect: no auto-switch needed
         return null
       }
-      return agentId
-    })
-    // Move parent callbacks outside the state updater to avoid
-    // updating ChatScreen state during ChatSidebar render
-    if (selectedAgentId !== agentId) {
+      // Select: switch to the first session of this agent
       const firstSession = sessions.find(s => s.agentId === agentId)
       if (firstSession) {
         onSwitchSession(firstSession.id)
       } else {
         onNewChat(agentId)
       }
-    }
-  }, [selectedAgentId, sessions, onSwitchSession, onNewChat])
+      return agentId
+    })
+  }, [sessions, onSwitchSession, onNewChat])
 
   // Drag handler for resizable panel
   const isDragging = useRef(false)
@@ -166,8 +153,8 @@ export default function ChatSidebar({
   }
 
   return (
+    <TooltipProvider>
     <>
-      <TooltipProvider delayDuration={100} skipDelayDuration={50}>
       <div
         style={{ width: panelWidth }}
         className="shrink-0 border-r border-border bg-background flex flex-col"
@@ -177,23 +164,20 @@ export default function ChatSidebar({
           <h2 className="text-sm font-semibold text-foreground pb-1.5">{t("chat.conversations")}</h2>
           {/* New Chat button */}
           <div className="ml-auto relative" ref={newChatMenuRef}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  className="text-muted-foreground hover:text-foreground transition-colors pb-1.5"
-                  onClick={() => {
-                    if (agents.length === 1) {
-                      onNewChat(agents[0].id)
-                    } else {
-                      setShowNewChatMenu(!showNewChatMenu)
-                    }
-                  }}
-                >
-                  <MessageSquarePlus className="h-4 w-4" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>{t("chat.newChat")}</TooltipContent>
-            </Tooltip>
+            <IconTip label={t("chat.newChat") || "New Chat"}>
+              <button
+                className="text-muted-foreground hover:text-foreground transition-colors pb-1.5"
+                onClick={() => {
+                  if (agents.length === 1) {
+                    onNewChat(agents[0].id)
+                  } else {
+                    setShowNewChatMenu(!showNewChatMenu)
+                  }
+                }}
+              >
+                <MessageSquarePlus className="h-4 w-4" />
+              </button>
+            </IconTip>
             {/* Agent selector popup */}
             {showNewChatMenu && (
               <div className="absolute right-0 top-full mt-1 bg-popover/95 backdrop-blur-xl border border-border/60 rounded-xl shadow-lg z-50 min-w-[180px] p-1.5">
@@ -245,80 +229,66 @@ export default function ChatSidebar({
                 {agents.map((agent) => {
                   const isSelected = selectedAgentId === agent.id
                   return (
-                    <ContextMenu key={agent.id}>
-                      <ContextMenuTrigger asChild>
-                        <div
-                          className={cn(
-                            "flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs transition-colors truncate group/agent",
-                            isSelected
-                              ? "bg-primary/10"
-                              : "hover:bg-secondary/60"
-                          )}
-                          title={agent.description || agent.name}
-                        >
-                          {/* Clickable area: single click = toggle filter, double click = new chat */}
-                          <button
-                            className="flex items-center gap-2 flex-1 min-w-0"
-                            onClick={() => {
-                              if (clickTimerRef.current) {
-                                clearTimeout(clickTimerRef.current)
-                                clickTimerRef.current = null
-                              }
-                              clickTimerRef.current = setTimeout(() => {
-                                toggleAgentFilter(agent.id)
-                                clickTimerRef.current = null
-                              }, 250)
-                            }}
-                            onDoubleClick={() => {
-                              if (clickTimerRef.current) {
-                                clearTimeout(clickTimerRef.current)
-                                clickTimerRef.current = null
-                              }
-                              onNewChat(agent.id)
-                            }}
-                          >
-                            <div className={cn(
-                              "w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[10px] overflow-hidden",
-                              isSelected ? "bg-primary/25 text-primary" : "bg-primary/15 text-primary"
-                            )}>
-                              {agent.avatar ? (
-                                <img src={agent.avatar.startsWith("/") ? convertFileSrc(agent.avatar) : agent.avatar} className="w-full h-full object-cover" alt="" />
-                              ) : agent.emoji ? (
-                                <span>{agent.emoji}</span>
-                              ) : (
-                                <Bot className="h-3 w-3" />
-                              )}
-                            </div>
-                            <span className={cn("truncate", isSelected ? "text-primary font-medium" : "text-foreground/80")}>
-                              {agent.name}{agent.emoji ? ` ${agent.emoji}` : ""}
-                            </span>
-                          </button>
-                          {/* New chat button */}
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <button
-                                className="shrink-0 p-0.5 rounded text-muted-foreground/0 group-hover/agent:text-muted-foreground/60 hover:!text-primary transition-colors"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  onNewChat(agent.id)
-                                }}
-                              >
-                                <MessageSquarePlus className="h-3 w-3" />
-                              </button>
-                            </TooltipTrigger>
-                            <TooltipContent>{t("chat.newChat")}</TooltipContent>
-                          </Tooltip>
-                        </div>
-                      </ContextMenuTrigger>
-                      {onEditAgent && (
-                        <ContextMenuContent>
-                          <ContextMenuItem onClick={() => onEditAgent(agent.id)}>
-                            <Pencil className="h-3 w-3 mr-2" />
-                            {t("common.edit")}
-                          </ContextMenuItem>
-                        </ContextMenuContent>
+                    <IconTip label={agent.description || agent.name} key={agent.id}>
+                    <div
+                      className={cn(
+                        "flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs transition-colors truncate group/agent",
+                        isSelected
+                          ? "bg-primary/10"
+                          : "hover:bg-secondary/60"
                       )}
-                    </ContextMenu>
+                    >
+                      {/* Clickable area: single click = toggle filter, double click = new chat */}
+                      <button
+                        className="flex items-center gap-2 flex-1 min-w-0"
+                        onClick={() => {
+                          if (clickTimerRef.current) {
+                            clearTimeout(clickTimerRef.current)
+                            clickTimerRef.current = null
+                          }
+                          clickTimerRef.current = setTimeout(() => {
+                            toggleAgentFilter(agent.id)
+                            clickTimerRef.current = null
+                          }, 250)
+                        }}
+                        onDoubleClick={() => {
+                          if (clickTimerRef.current) {
+                            clearTimeout(clickTimerRef.current)
+                            clickTimerRef.current = null
+                          }
+                          onNewChat(agent.id)
+                        }}
+                      >
+                        <div className={cn(
+                          "w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[10px] overflow-hidden",
+                          isSelected ? "bg-primary/25 text-primary" : "bg-primary/15 text-primary"
+                        )}>
+                          {agent.avatar ? (
+                            <img src={agent.avatar.startsWith("/") ? convertFileSrc(agent.avatar) : agent.avatar} className="w-full h-full object-cover" alt="" />
+                          ) : agent.emoji ? (
+                            <span>{agent.emoji}</span>
+                          ) : (
+                            <Bot className="h-3 w-3" />
+                          )}
+                        </div>
+                        <span className={cn("truncate", isSelected ? "text-primary font-medium" : "text-foreground/80")}>
+                          {agent.name}{agent.emoji ? ` ${agent.emoji}` : ""}
+                        </span>
+                      </button>
+                      {/* New chat button */}
+                      <IconTip label={t("chat.newChat") || "New Chat"}>
+                        <button
+                          className="shrink-0 p-0.5 rounded text-muted-foreground/0 group-hover/agent:text-muted-foreground/60 hover:!text-primary transition-colors"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            onNewChat(agent.id)
+                          }}
+                        >
+                          <MessageSquarePlus className="h-3 w-3" />
+                        </button>
+                      </IconTip>
+                    </div>
+                    </IconTip>
                   )
                 })}
               </div>
@@ -342,18 +312,15 @@ export default function ChatSidebar({
                 const isActive = session.id === currentSessionId
                 const isLoading = loadingSessionIds.has(session.id)
                 return (
-                  <div
+                  <button
                     key={session.id}
-                    role="button"
-                    tabIndex={0}
                     className={cn(
-                      "flex items-center gap-2.5 w-full px-2.5 py-2 rounded-lg text-left transition-colors group cursor-pointer",
+                      "flex items-center gap-2.5 w-full px-2.5 py-2 rounded-lg text-left transition-colors group",
                       isActive
                         ? "bg-secondary/70 border border-border/50"
                         : "hover:bg-secondary/40"
                     )}
                     onClick={() => onSwitchSession(session.id)}
-                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSwitchSession(session.id) } }}
                   >
                     {/* Agent avatar (small) — with loading spinner overlay */}
                     <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center text-primary shrink-0 text-[10px] overflow-hidden relative">
@@ -370,28 +337,7 @@ export default function ChatSidebar({
 
                     {/* Title + meta */}
                     <div className="flex-1 min-w-0">
-                      <div className="text-[13px] font-medium text-foreground truncate flex items-center gap-1">
-                        {session.isCron && (
-                          <span className="inline-flex items-center justify-center shrink-0 w-4 h-4 rounded bg-orange-500/15 text-orange-500">
-                            <Timer className="w-2.5 h-2.5" />
-                          </span>
-                        )}
-                        {session.parentSessionId && (() => {
-                          const parentSession = sessions.find(s => s.id === session.parentSessionId)
-                          const parentAgent = parentSession ? getAgentInfo(parentSession.agentId) : undefined
-                          return (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span className="inline-flex items-center justify-center shrink-0 w-4 h-4 rounded bg-purple-500/15 text-purple-500">
-                                  <Network className="w-2.5 h-2.5" />
-                                </span>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                {t("chat.subagentFrom", { agent: parentAgent?.name || parentSession?.agentId || "unknown" })}
-                              </TooltipContent>
-                            </Tooltip>
-                          )
-                        })()}
+                      <div className="text-[13px] font-medium text-foreground truncate">
                         {session.title || t("chat.newChat") || "New Chat"}
                       </div>
                       <div className="text-[11px] text-muted-foreground truncate">
@@ -413,18 +359,15 @@ export default function ChatSidebar({
                     )}
 
                     {/* Delete button (hover) */}
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button
-                          className="shrink-0 text-muted-foreground/0 group-hover:text-muted-foreground/40 hover:!text-destructive transition-colors p-0.5"
-                          onClick={(e) => handleDeleteClick(session.id, e)}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent>{t("common.delete")}</TooltipContent>
-                    </Tooltip>
-                  </div>
+                    <IconTip label={t("common.delete")}>
+                      <button
+                        className="shrink-0 text-muted-foreground/0 group-hover:text-muted-foreground/40 hover:!text-destructive transition-colors p-0.5"
+                        onClick={(e) => handleDeleteClick(session.id, e)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </IconTip>
+                  </button>
                 )
               })
             )}
@@ -453,12 +396,12 @@ export default function ChatSidebar({
         </AlertDialogContent>
       </AlertDialog>
 
-      </TooltipProvider>
       {/* Drag Handle */}
       <div
         className="w-1 shrink-0 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors"
         onMouseDown={handleDragStart}
       />
     </>
+    </TooltipProvider>
   )
 }
