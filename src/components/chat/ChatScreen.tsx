@@ -416,8 +416,15 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
 
       const tick = () => {
         if (!isUserScrolledUpRef.current) {
-          // 直接设置 scrollTop，每帧跟随内容增长，避免 smooth scroll 冲突
-          el.scrollTop = el.scrollHeight
+          // Lerp toward bottom for silky-smooth scrolling instead of snapping
+          const target = el.scrollHeight - el.clientHeight
+          const diff = target - el.scrollTop
+          if (diff > 1) {
+            // Interpolate: cover 25% of remaining distance per frame (~60fps → ~4 frames to settle)
+            el.scrollTop += diff * 0.25
+          } else if (diff > 0) {
+            el.scrollTop = target
+          }
         }
         rafIdRef.current = requestAnimationFrame(tick)
       }

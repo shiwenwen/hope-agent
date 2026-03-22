@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Streamdown } from "streamdown";
+import { Streamdown, type AnimateOptions } from "streamdown";
 import { code } from "@streamdown/code";
 import { cjk } from "@streamdown/cjk";
 import { math } from "@streamdown/math";
@@ -9,13 +9,18 @@ import "streamdown/styles.css";
 
 const plugins = { code, cjk, math, mermaid };
 
-/**
- * 打字机速度调参：
- * - BASE_CHARS_PER_FRAME: 积压较小时每帧显示的字符数
- * - CATCHUP_THRESHOLD: 积压超过此值时自动加速追赶
- */
-const BASE_CHARS_PER_FRAME = 1;
-const CATCHUP_THRESHOLD = 80;
+/** Word-level blurIn: each completed word gets a blur-to-clear entrance */
+const streamingAnimation: AnimateOptions = {
+  animation: "blurIn",
+  sep: "word",
+  duration: 500,
+  easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+};
+
+/** Start catching up when backlog exceeds this */
+const CATCHUP_THRESHOLD = 60;
+/** Max chars per frame when catching up, prevents jarring jumps */
+const MAX_STEP = 8;
 
 interface MarkdownRendererProps {
   content: string;
@@ -26,60 +31,117 @@ export default function MarkdownRenderer({
   content,
   isStreaming = false,
 }: MarkdownRendererProps) {
-  // 当前显示的字符数（打字机光标位置）
-  const [displayLen, setDisplayLen] = useState(isStreaming ? 0 : content.length);
-  const targetLenRef = useRef(content.length);
+  const [displayLen, setDisplayLen] = useState(() =>
+    isStreaming ? 0 : content.length,
+  );
+
+  const cursorRef = useRef(isStreaming ? 0 : content.length);
+  const targetRef = useRef(content.length);
+  const streamingRef = useRef(isStreaming);
   const rafRef = useRef<number | null>(null);
 
-  // 始终跟踪完整内容长度
-  targetLenRef.current = content.length;
+  // Height animation refs
+  const containerRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
 
-  // 非流式状态下立即显示全部内容
+  targetRef.current = content.length;
+  streamingRef.current = isStreaming;
+
+  // Non-streaming (history): show full content immediately
   useEffect(() => {
-    if (!isStreaming) {
+    if (!isStreaming && rafRef.current === null) {
+      cursorRef.current = content.length;
       setDisplayLen(content.length);
-      if (rafRef.current !== null) {
-        cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
-      }
     }
   }, [isStreaming, content.length]);
 
-  // 流式输出时的打字机 rAF 循环
+  // rAF loop: +1 char per frame, continues draining after stream ends (no jump)
   useEffect(() => {
     if (!isStreaming) return;
+    if (rafRef.current !== null) return;
 
     const tick = () => {
-      setDisplayLen((prev) => {
-        const target = targetLenRef.current;
-        if (prev >= target) return prev;
-        const backlog = target - prev;
-        // 自适应步长：积压过多时加速追赶
+      const cursor = cursorRef.current;
+      const target = targetRef.current;
+
+      if (cursor >= target && !streamingRef.current) {
+        rafRef.current = null;
+        return;
+      }
+
+      if (cursor < target) {
+        const backlog = target - cursor;
         const step =
           backlog > CATCHUP_THRESHOLD
-            ? Math.max(BASE_CHARS_PER_FRAME, Math.ceil(backlog / 10))
-            : BASE_CHARS_PER_FRAME;
-        return Math.min(prev + step, target);
-      });
+            ? Math.min(Math.ceil(backlog * 0.1), MAX_STEP)
+            : 1;
+        const next = Math.min(cursor + step, target);
+        cursorRef.current = next;
+        setDisplayLen(next);
+      }
+
       rafRef.current = requestAnimationFrame(tick);
     };
 
     rafRef.current = requestAnimationFrame(tick);
+  }, [isStreaming]);
+
+  // Smooth height transition: mount ResizeObserver once when streaming starts,
+  // let it detect height changes on its own to avoid breaking CSS transitions
+  useEffect(() => {
+    const container = containerRef.current;
+    const contentEl = contentRef.current;
+    if (!container || !contentEl || !isStreaming) {
+      if (containerRef.current) containerRef.current.style.height = "";
+      return;
+    }
+
+    container.style.height = `${contentEl.offsetHeight}px`;
+
+    const observer = new ResizeObserver(() => {
+      const h = contentEl.offsetHeight;
+      if (container.style.height !== `${h}px`) {
+        container.style.height = `${h}px`;
+      }
+    });
+    observer.observe(contentEl);
+
+    return () => {
+      observer.disconnect();
+      container.style.height = "";
+    };
+  }, [isStreaming]);
+
+  useEffect(() => {
     return () => {
       if (rafRef.current !== null) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
       }
     };
-  }, [isStreaming]);
+  }, []);
 
   if (!content) return null;
 
-  const displayContent = isStreaming ? content.slice(0, displayLen) : content;
+  const revealing = displayLen < content.length;
+  const displayContent = revealing ? content.slice(0, displayLen) : content;
+  const isActive = isStreaming || revealing;
 
   return (
-    <Streamdown animated plugins={plugins} isAnimating={isStreaming}>
-      {displayContent}
-    </Streamdown>
+    <div
+      ref={containerRef}
+      className={isActive ? "streaming-height" : undefined}
+    >
+      <div ref={contentRef}>
+        <Streamdown
+          animated={isActive ? streamingAnimation : true}
+          plugins={plugins}
+          isAnimating={isActive}
+          parseIncompleteMarkdown={isActive}
+        >
+          {displayContent}
+        </Streamdown>
+      </div>
+    </div>
   );
 }
