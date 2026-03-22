@@ -65,19 +65,21 @@ export default function ChatSidebar({
   const toggleAgentFilter = useCallback((agentId: string) => {
     setSelectedAgentId(prev => {
       if (prev === agentId) {
-        // Deselect: no auto-switch needed
         return null
       }
-      // Select: switch to the first session of this agent
+      return agentId
+    })
+    // Move parent callbacks outside the state updater to avoid
+    // updating ChatScreen state during ChatSidebar render
+    if (selectedAgentId !== agentId) {
       const firstSession = sessions.find(s => s.agentId === agentId)
       if (firstSession) {
         onSwitchSession(firstSession.id)
       } else {
         onNewChat(agentId)
       }
-      return agentId
-    })
-  }, [sessions, onSwitchSession, onNewChat])
+    }
+  }, [selectedAgentId, sessions, onSwitchSession, onNewChat])
 
   // Drag handler for resizable panel
   const isDragging = useRef(false)
