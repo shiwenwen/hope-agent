@@ -30,7 +30,10 @@ import {
   X,
   FileDown,
   Zap,
+  Wifi,
+  Loader2,
 } from "lucide-react"
+import TestResultDisplay, { parseTestResult, type TestResult } from "./TestResultDisplay"
 
 // ── Types ─────────────────────────────────────────────────────────
 
@@ -152,6 +155,8 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
   const [presets, setPresets] = useState<EmbeddingPreset[]>([])
   const [localModels, setLocalModels] = useState<LocalEmbeddingModel[]>([])
   const [embeddingDirty, setEmbeddingDirty] = useState(false)
+  const [embeddingTestLoading, setEmbeddingTestLoading] = useState(false)
+  const [embeddingTestResult, setEmbeddingTestResult] = useState<TestResult | null>(null)
 
   // ── Load agents for scope picker (standalone mode) ──
   useEffect(() => {
@@ -488,11 +493,48 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
                 </div>
               )}
 
-              {/* Save button */}
-              {embeddingDirty && (
-                <Button onClick={saveEmbeddingConfig} size="sm" className="mt-4">
-                  {t("common.save")}
+              {/* Test & Save buttons */}
+              <div className="flex items-center gap-2 mt-4">
+                {embeddingDirty && (
+                  <Button onClick={saveEmbeddingConfig} size="sm">
+                    {t("common.save")}
+                  </Button>
+                )}
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={embeddingTestLoading || (embeddingConfig.providerType === "local" ? !embeddingConfig.localModelId : !embeddingConfig.apiBaseUrl?.trim())}
+                  onClick={async () => {
+                    setEmbeddingTestLoading(true)
+                    setEmbeddingTestResult(null)
+                    try {
+                      const msg = await invoke<string>("test_embedding", { config: embeddingConfig })
+                      setEmbeddingTestResult(parseTestResult(msg, false))
+                    } catch (e) {
+                      setEmbeddingTestResult(parseTestResult(String(e), true))
+                    } finally {
+                      setEmbeddingTestLoading(false)
+                    }
+                  }}
+                >
+                  {embeddingTestLoading ? (
+                    <span className="flex items-center gap-2">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      {t("common.testing")}
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-2">
+                      <Wifi className="h-3.5 w-3.5" />
+                      {t("settings.memoryEmbeddingTest")}
+                    </span>
+                  )}
                 </Button>
+              </div>
+
+              {embeddingTestResult && (
+                <div className="mt-3">
+                  <TestResultDisplay result={embeddingTestResult} />
+                </div>
               )}
             </div>
           )}
@@ -631,16 +673,6 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
           <h2 className="text-lg font-semibold">{t("settings.memory")}</h2>
           <div className="flex items-center gap-2">
             <TooltipProvider delayDuration={100} skipDelayDuration={50}>
-            {!compact && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="ghost" size="sm" onClick={() => setView("embedding")}>
-                    <Zap className={cn("h-4 w-4", embeddingConfig.enabled ? "text-primary" : "text-muted-foreground")} />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>{t("settings.memoryEmbedding")}</TooltipContent>
-              </Tooltip>
-            )}
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button variant="ghost" size="sm" onClick={handleExport}>
@@ -649,6 +681,25 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
               </TooltipTrigger>
               <TooltipContent>{t("settings.memoryExport")}</TooltipContent>
             </Tooltip>
+            {!compact && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setView("embedding")}
+                className={cn(
+                  "gap-1.5 text-xs",
+                  embeddingConfig.enabled
+                    ? "border-primary/40 text-primary hover:bg-primary/10"
+                    : "text-muted-foreground"
+                )}
+              >
+                <Zap className="h-3.5 w-3.5" />
+                {t("settings.memoryEmbedding")}
+                {embeddingConfig.enabled && (
+                  <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+                )}
+              </Button>
+            )}
             </TooltipProvider>
             <Button size="sm" onClick={startAdd} className="gap-1.5">
               <Plus className="h-3.5 w-3.5" />

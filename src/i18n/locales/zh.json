@@ -198,6 +198,7 @@
     "memoryEmbeddingEnabled": "启用向量搜索",
     "memoryEmbeddingEnabledDesc": "使用 Embedding 模型查找语义相似的记忆",
     "memoryEmbeddingProvider": "服务商",
+    "memoryEmbeddingTest": "测试 Embedding",
     "memoryLocalModel": "本地模型",
     "memorySelectModel": "选择模型",
     "memoryModel": "模型",

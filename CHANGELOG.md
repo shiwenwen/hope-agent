@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **记忆 Embedding Provider 测试功能**：向量搜索设置新增"测试 Embedding"按钮，支持 OpenAI 兼容 API、Google Gemini、本地 ONNX 模型三种类型的连接测试，复用 `TestResultDisplay` 组件展示测试结果（状态码、延迟、返回维度）
+
 ### Refactored
 - **`tools/web.rs` 拆分为独立模块**：`web_search.rs`（搜索 Provider 配置 + 8 个搜索引擎实现 + 搜索缓存）和 `web_fetch.rs`（网页抓取配置 + SSRF 防护 + Readability 提取 + 抓取缓存），职责分离更清晰
 

@@ -198,6 +198,7 @@
     "memoryEmbeddingEnabled": "Enable Vector Search",
     "memoryEmbeddingEnabledDesc": "Use embedding models to find semantically similar memories",
     "memoryEmbeddingProvider": "Provider",
+    "memoryEmbeddingTest": "Test Embedding",
     "memoryLocalModel": "Local Model",
     "memorySelectModel": "Select Model",
     "memoryModel": "Model",
