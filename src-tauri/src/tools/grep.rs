@@ -45,7 +45,7 @@ pub(crate) async fn tool_grep(args: &Value, ctx: &super::ToolExecContext) -> Res
         .and_then(|v| v.as_u64())
         .unwrap_or(GREP_DEFAULT_LIMIT as u64) as usize;
 
-    log::info!(
+    app_info!("tool", "grep",
         "Grep: pattern='{}', path='{}', glob={:?}, limit={}",
         pattern_str,
         search_path,

@@ -1,3 +1,5 @@
+#[macro_use]
+mod logging;
 mod agent;
 mod agent_config;
 mod agent_loader;
@@ -7,7 +9,6 @@ mod docker;
 mod memory;
 mod failover;
 mod file_extract;
-mod logging;
 mod oauth;
 mod paths;
 mod process_registry;
@@ -660,7 +661,7 @@ async fn try_restore_session(
         let mut store = state.provider_store.lock().await;
         match provider::load_store() {
             Ok(loaded) => *store = loaded,
-            Err(e) => log::warn!("Failed to load provider store: {}", e),
+            Err(e) => app_warn!("app", "session", "Failed to load provider store: {}", e),
         }
     }
 
@@ -668,21 +669,21 @@ async fn try_restore_session(
     match oauth::load_token() {
         Ok(Some(mut token)) => {
             if oauth::is_token_expired(&token) {
-                log::info!("Saved token is expired, attempting refresh...");
+                app_info!("app", "session", "Saved token is expired, attempting refresh...");
                 if let Some(refresh_token) = &token.refresh_token {
                     match oauth::refresh_access_token(refresh_token).await {
                         Ok(new_token) => {
-                            log::info!("Token refreshed successfully");
+                            app_info!("app", "session", "Token refreshed successfully");
                             token = new_token;
                         }
                         Err(e) => {
-                            log::warn!("Token refresh failed: {}, clearing saved session", e);
+                            app_warn!("app", "session", "Token refresh failed: {}, clearing saved session", e);
                             let _ = oauth::clear_token();
                             return Ok(try_restore_non_codex_session(&state).await);
                         }
                     }
                 } else {
-                    log::warn!("Token expired and no refresh_token available");
+                    app_warn!("app", "session", "Token expired and no refresh_token available");
                     let _ = oauth::clear_token();
                     return Ok(try_restore_non_codex_session(&state).await);
                 }
@@ -735,7 +736,7 @@ async fn try_restore_session(
                     Ok(true)
                 }
                 None => {
-                    log::warn!("Failed to extract account_id from saved token");
+                    app_warn!("app", "session", "Failed to extract account_id from saved token");
                     let _ = oauth::clear_token();
                     Ok(try_restore_non_codex_session(&state).await)
                 }
@@ -743,7 +744,7 @@ async fn try_restore_session(
         }
         Ok(None) => Ok(try_restore_non_codex_session(&state).await),
         Err(e) => {
-            log::warn!("Failed to load saved token: {}", e);
+            app_warn!("app", "session", "Failed to load saved token: {}", e);
             Ok(try_restore_non_codex_session(&state).await)
         }
     }
@@ -1086,7 +1087,7 @@ async fn chat(
                 let filename = format!("{}_{}", ts, safe_name);
                 let file_path = att_dir.join(&filename);
                 if let Err(e) = std::fs::write(&file_path, &decoded) {
-                    log::warn!("Failed to save image attachment {}: {}", att.name, e);
+                    app_warn!("app", "chat", "Failed to save image attachment {}: {}", att.name, e);
                     continue;
                 }
                 meta_list.push(serde_json::json!({
@@ -1107,7 +1108,7 @@ async fn chat(
                         let dest = att_dir.join(fname);
                         if let Err(e) = std::fs::rename(src_path, &dest) {
                             if let Err(e2) = std::fs::copy(src_path, &dest) {
-                                log::warn!("Failed to move attachment {}: rename={}, copy={}", att.name, e, e2);
+                                app_warn!("app", "chat", "Failed to move attachment {}: rename={}, copy={}", att.name, e, e2);
                                 continue;
                             }
                             let _ = std::fs::remove_file(src_path);
@@ -1431,7 +1432,7 @@ async fn chat(
                     let error_msg = e.to_string();
                     let reason = failover::classify_error(&error_msg);
 
-                    log::warn!(
+                    app_warn!("provider", "failover",
                         "Model {}::{} failed (attempt {}/{}, retry {}, reason {:?}): {}",
                         model_ref.provider_id, model_ref.model_id,
                         idx + 1, total_models, retry_count, reason, error_msg
@@ -1458,7 +1459,7 @@ async fn chat(
                     if reason.is_retryable() && retry_count < MAX_RETRIES {
                         retry_count += 1;
                         let delay = failover::retry_delay_ms(retry_count - 1, RETRY_BASE_MS, RETRY_MAX_MS);
-                        log::info!(
+                        app_info!("provider", "failover",
                             "Retrying {}::{} in {}ms (retry {}/{}, reason {:?})",
                             model_ref.provider_id, model_ref.model_id,
                             delay, retry_count, MAX_RETRIES, reason
@@ -1935,8 +1936,10 @@ async fn searxng_docker_status() -> Result<docker::SearxngDockerStatus, String> 
 }
 
 #[tauri::command]
-async fn searxng_docker_deploy() -> Result<String, String> {
-    let url = docker::deploy().await.map_err(|e| e.to_string())?;
+async fn searxng_docker_deploy(channel: tauri::ipc::Channel<String>) -> Result<String, String> {
+    let url = docker::deploy(|step| {
+        let _ = channel.send(step.to_string());
+    }).await.map_err(|e| e.to_string())?;
     // Auto-save the URL into the SearXNG provider entry and mark as docker-managed
     if let Ok(mut store) = provider::load_store() {
         if let Some(entry) = store.web_search.providers.iter_mut().find(|e| e.id == tools::web::WebSearchProvider::Searxng) {
@@ -2331,6 +2334,7 @@ async fn set_window_theme(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Initialize directory structure
+    // NOTE: log::error! is intentional here — AppLogger is not yet initialized at this point
     if let Err(e) = paths::ensure_dirs() {
         log::error!("Failed to initialize data directories: {}", e);
     }

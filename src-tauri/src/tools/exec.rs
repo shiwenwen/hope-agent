@@ -38,7 +38,7 @@ pub(crate) fn get_login_shell_path() -> Option<&'static str> {
             if output.status.success() {
                 let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
                 if !path.is_empty() {
-                    log::info!(
+                    app_info!("tool", "exec",
                         "Resolved login shell PATH: {}",
                         &path[..path.len().min(120)]
                     );
@@ -47,7 +47,7 @@ pub(crate) fn get_login_shell_path() -> Option<&'static str> {
                     None
                 }
             } else {
-                log::warn!("Failed to resolve login shell PATH");
+                app_warn!("tool", "exec", "Failed to resolve login shell PATH");
                 None
             }
         })
@@ -98,7 +98,7 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
 
     let max_output = compute_max_output_chars(ctx.context_window_tokens);
 
-    log::info!(
+    app_info!("tool", "exec",
         "Executing command: {} (cwd: {:?}, timeout: {}s, bg: {}, pty: {}, max_out: {})",
         command,
         cwd,
@@ -187,10 +187,10 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
     if !is_command_allowed(command).await {
         match check_and_request_approval(command, &session_cwd).await {
             Ok(ApprovalResponse::AllowOnce) => {
-                log::info!("Command approved (once): {}", command);
+                app_info!("tool", "exec", "Command approved (once): {}", command);
             }
             Ok(ApprovalResponse::AllowAlways) => {
-                log::info!("Command approved (always): {}", command);
+                app_info!("tool", "exec", "Command approved (always): {}", command);
                 add_to_allowlist(command).await;
             }
             Ok(ApprovalResponse::Deny) => {
@@ -202,7 +202,7 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
                 ));
             }
             Err(e) => {
-                log::warn!(
+                app_warn!("tool", "exec",
                     "Approval check failed ({}), proceeding with execution",
                     e
                 );
@@ -213,7 +213,7 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
 
     // ── Docker sandbox execution path ─────────────────────────
     if sandbox {
-        log::info!("Using Docker sandbox for command: {}", command);
+        app_info!("tool", "exec", "Using Docker sandbox for command: {}", command);
         let sandbox_config = crate::sandbox::load_sandbox_config().unwrap_or_default();
         let env_map = args.get("env").and_then(|v| v.as_object());
 
@@ -340,11 +340,11 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
 
     // ── PTY execution path ──────────────────────────────────────
     if use_pty {
-        log::info!("Using PTY mode for command: {}", command);
+        app_info!("tool", "exec", "Using PTY mode for command: {}", command);
         match exec_via_pty(command, cwd, args, timeout_secs, max_output, &session_id, ctx).await {
             Ok(result) => return Ok(result),
             Err(e) => {
-                log::warn!("PTY execution failed ({}), falling back to normal mode", e);
+                app_warn!("tool", "exec", "PTY execution failed ({}), falling back to normal mode", e);
                 // Fall through to normal execution
             }
         }

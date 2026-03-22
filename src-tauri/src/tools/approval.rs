@@ -137,7 +137,7 @@ pub(crate) async fn check_and_request_approval(
         handle
             .emit("approval_required", event_data)
             .map_err(|e| anyhow::anyhow!("Failed to emit approval event: {}", e))?;
-        log::info!(
+        app_info!("tool", "approval",
             "Approval requested for command: {} (id: {})",
             command,
             request_id

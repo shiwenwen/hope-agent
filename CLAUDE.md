@@ -83,6 +83,8 @@ src-tauri/src/          后端（Rust）
 - 新功能放单独模块文件，在 `lib.rs` 注册命令
 - 内部用 `anyhow::Result`，命令边界转为 `String`
 - 异步命令加 `async`，不要自己 `block_on`
+- **禁止使用 `log::info!` / `log::warn!` / `log::error!` / `log::debug!` 等 `log` crate 宏**，必须使用项目统一日志宏 `app_info!` / `app_warn!` / `app_error!` / `app_debug!`（定义在 `logging.rs`），以确保日志同时写入 SQLite 和日志文件。`log` crate 只输出到控制台（stderr），不会写入日志文件。唯一例外：`lib.rs` 的 `run()` 函数中 `AppLogger` 初始化之前的启动阶段代码，以及 `main.rs` 的 panic 恢复代码
+- 日志宏用法：`app_info!("category", "source", "message {}", arg)`，category 为功能分类（如 `cron`/`tool`/`agent`），source 为具体来源（如 `scheduler`/`exec`/`codex`）
 
 ## 安全红线
 

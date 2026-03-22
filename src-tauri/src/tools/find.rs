@@ -25,7 +25,7 @@ pub(crate) async fn tool_find(args: &Value, ctx: &super::ToolExecContext) -> Res
         .and_then(|v| v.as_u64())
         .unwrap_or(FIND_DEFAULT_LIMIT as u64) as usize;
 
-    log::info!(
+    app_info!("tool", "find",
         "Find: pattern='{}', path='{}', limit={}",
         pattern_str,
         search_path,

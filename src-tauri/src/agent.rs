@@ -122,7 +122,7 @@ fn build_user_content_anthropic(message: &str, attachments: &[Attachment]) -> se
                     }));
                 }
                 Err(e) => {
-                    log::warn!("Skipping attachment {}: {}", att.name, e);
+                    app_warn!("agent", "attachment", "Skipping attachment {}: {}", att.name, e);
                 }
             }
         }
@@ -177,7 +177,7 @@ fn build_user_content_openai_chat(message: &str, attachments: &[Attachment]) -> 
                     }));
                 }
                 Err(e) => {
-                    log::warn!("Skipping attachment {}: {}", att.name, e);
+                    app_warn!("agent", "attachment", "Skipping attachment {}: {}", att.name, e);
                 }
             }
         }
@@ -228,7 +228,7 @@ fn build_user_content_responses(message: &str, attachments: &[Attachment]) -> se
                     }));
                 }
                 Err(e) => {
-                    log::warn!("Skipping attachment {}: {}", att.name, e);
+                    app_warn!("agent", "attachment", "Skipping attachment {}: {}", att.name, e);
                 }
             }
         }
@@ -2081,7 +2081,7 @@ impl AssistantAgent {
 
                         if attempt < MAX_RETRIES && is_retryable_error(status, &error_text) {
                             let delay = BASE_DELAY_MS * 2u64.pow(attempt);
-                            log::warn!("Codex API error {} (attempt {}/{}), retrying in {}ms", status, attempt + 1, MAX_RETRIES, delay);
+                            app_warn!("agent", "codex", "Codex API error {} (attempt {}/{}), retrying in {}ms", status, attempt + 1, MAX_RETRIES, delay);
                             if let Some(logger) = crate::get_logger() {
                                 logger.log("warn", "agent", "agent::chat_codex::retry",
                                     &format!("Codex API error {}, retrying (attempt {}/{})", status, attempt + 1, MAX_RETRIES),
@@ -2106,7 +2106,7 @@ impl AssistantAgent {
                     Err(e) => {
                         if attempt < MAX_RETRIES {
                             let delay = BASE_DELAY_MS * 2u64.pow(attempt);
-                            log::warn!("Codex API network error (attempt {}/{}): {}, retrying in {}ms", attempt + 1, MAX_RETRIES, e, delay);
+                            app_warn!("agent", "codex", "Codex API network error (attempt {}/{}): {}, retrying in {}ms", attempt + 1, MAX_RETRIES, e, delay);
                             if let Some(logger) = crate::get_logger() {
                                 logger.log("warn", "agent", "agent::chat_codex::retry",
                                     &format!("Codex API network error, retrying (attempt {}/{}): {}", attempt + 1, MAX_RETRIES, e),

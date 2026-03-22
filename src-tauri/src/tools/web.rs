@@ -129,7 +129,7 @@ pub(crate) async fn tool_web_search(args: &Value) -> Result<String> {
         .unwrap_or_default();
     let (provider_id, entry) = resolve_provider(&config);
 
-    log::info!("Web search [{}]: {} (count: {})", provider_id, query, count);
+    app_info!("tool", "web_search", "Web search [{}]: {} (count: {})", provider_id, query, count);
 
     let results = match provider_id {
         WebSearchProvider::DuckDuckGo => search_duckduckgo(query, count).await,
@@ -855,7 +855,7 @@ pub(crate) async fn tool_web_fetch(args: &Value) -> Result<String> {
         .and_then(|v| v.as_u64())
         .unwrap_or(DEFAULT_WEB_FETCH_MAX_CHARS as u64) as usize;
 
-    log::info!("Fetching URL: {} (max_chars: {})", url, max_chars);
+    app_info!("tool", "web_fetch", "Fetching URL: {} (max_chars: {})", url, max_chars);
 
     if !url.starts_with("http://") && !url.starts_with("https://") {
         return Err(anyhow::anyhow!(

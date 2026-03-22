@@ -757,21 +757,21 @@ pub fn start_scheduler(
             rt.block_on(async move {
                 // Startup recovery
                 if let Err(e) = cron_db.recover_orphaned_runs() {
-                    log::error!("[cron] Failed to recover orphaned runs: {}", e);
+                    app_error!("cron", "scheduler", "Failed to recover orphaned runs: {}", e);
                 }
                 match cron_db.clear_all_running() {
-                    Ok(n) if n > 0 => log::warn!("[cron] Cleared {} stale running markers from previous session", n),
-                    Err(e) => log::error!("[cron] Failed to clear stale running markers: {}", e),
+                    Ok(n) if n > 0 => app_warn!("cron", "scheduler", "Cleared {} stale running markers from previous session", n),
+                    Err(e) => app_error!("cron", "scheduler", "Failed to clear stale running markers: {}", e),
                     _ => {}
                 }
                 if let Err(e) = cron_db.mark_missed_at_jobs() {
-                    log::error!("[cron] Failed to mark missed at jobs: {}", e);
+                    app_error!("cron", "scheduler", "Failed to mark missed at jobs: {}", e);
                 }
 
                 // Run catch-up for overdue recurring jobs
                 if let Ok(due_jobs) = cron_db.get_due_jobs(&Utc::now()) {
                     if !due_jobs.is_empty() {
-                        log::info!("[cron] Catch-up: {} overdue jobs found at startup", due_jobs.len());
+                        app_info!("cron", "scheduler", "Catch-up: {} overdue jobs found at startup", due_jobs.len());
                         for job in due_jobs {
                             match cron_db.claim_job_for_execution(&job) {
                                 Ok(true) => {
@@ -783,14 +783,14 @@ pub fn start_scheduler(
                                 }
                                 Ok(false) => {}
                                 Err(e) => {
-                                    log::error!("[cron] Failed to claim catch-up job '{}': {}", job.name, e);
+                                    app_error!("cron", "scheduler", "Failed to claim catch-up job '{}': {}", job.name, e);
                                 }
                             }
                         }
                     }
                 }
 
-                log::info!("[cron] Scheduler started");
+                app_info!("cron", "scheduler", "Scheduler started");
                 let mut interval = tokio::time::interval(std::time::Duration::from_secs(15));
                 let tick_running = Arc::new(AtomicBool::new(false));
 
@@ -799,7 +799,7 @@ pub fn start_scheduler(
 
                     // Scheduler-level guard: skip if previous tick is still processing
                     if tick_running.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_err() {
-                        log::debug!("[cron] Previous tick still running, skipping");
+                        app_debug!("cron", "scheduler", "Previous tick still running, skipping");
                         continue;
                     }
 
@@ -817,16 +817,16 @@ pub fn start_scheduler(
                                         });
                                     }
                                     Ok(false) => {
-                                        log::debug!("[cron] Job '{}' already claimed, skipping", job.name);
+                                        app_debug!("cron", "scheduler", "Job '{}' already claimed, skipping", job.name);
                                     }
                                     Err(e) => {
-                                        log::error!("[cron] Failed to claim job '{}': {}", job.name, e);
+                                        app_error!("cron", "scheduler", "Failed to claim job '{}': {}", job.name, e);
                                     }
                                 }
                             }
                         }
                         Err(e) => {
-                            log::error!("[cron] Failed to query due jobs: {}", e);
+                            app_error!("cron", "scheduler", "Failed to query due jobs: {}", e);
                         }
                     }
 
@@ -855,7 +855,7 @@ async fn execute_job(
     let start_time = std::time::Instant::now();
     let started_at = Utc::now().to_rfc3339();
 
-    log::info!("[cron] Executing job '{}' ({})", job.name, job.id);
+    app_info!("cron", "executor", "Executing job '{}' ({})", job.name, job.id);
 
     // Extract prompt and agent_id from payload
     let (prompt, agent_id) = match &job.payload {
@@ -873,7 +873,7 @@ async fn execute_job(
             meta.id
         }
         Err(e) => {
-            log::error!("[cron] Failed to create session for job '{}': {}", job.name, e);
+            app_error!("cron", "executor", "Failed to create session for job '{}': {}", job.name, e);
             record_failure(cron_db, job, &started_at, start_time, "no_session", &e.to_string(), "");
             return;
         }
@@ -887,7 +887,7 @@ async fn execute_job(
 
     match result {
         Ok(response) => {
-            log::info!("[cron] Job '{}' completed successfully ({}ms)", job.name, duration_ms);
+            app_info!("cron", "executor", "Job '{}' completed successfully ({}ms)", job.name, duration_ms);
 
             // Save user prompt and assistant response into the session
             let _ = session_db.append_message(&session_id, &crate::session::NewMessage::user(&prompt));
@@ -918,7 +918,7 @@ async fn execute_job(
             emit_cron_event(&job.id, "success");
         }
         Err(e) => {
-            log::error!("[cron] Job '{}' failed: {}", job.name, e);
+            app_error!("cron", "executor", "Job '{}' failed: {}", job.name, e);
 
             // Write the prompt + error message into the session so the user can see what happened
             let _ = session_db.append_message(&session_id, &crate::session::NewMessage::user(&prompt));
@@ -1005,7 +1005,7 @@ async fn build_and_run_agent(
             match agent.chat(message, &[], None, cancel, |_delta| {}).await {
                 Ok(response) => {
                     if idx > 0 {
-                        log::info!("[cron] Fallback model {} succeeded", model_label);
+                        app_info!("cron", "failover", "Fallback model {} succeeded", model_label);
                     }
                     return Ok(response);
                 }
@@ -1015,10 +1015,7 @@ async fn build_and_run_agent(
 
                     // Terminal error — surface immediately, no point trying other models
                     if reason.is_terminal() {
-                        log::error!(
-                            "[cron] Model {} hit terminal error ({:?}): {}",
-                            model_label, reason, last_error
-                        );
+                        app_error!("cron", "failover", "Model {} hit terminal error ({:?}): {}", model_label, reason, last_error);
                         return Err(anyhow::anyhow!("{}", last_error));
                     }
 
@@ -1026,19 +1023,13 @@ async fn build_and_run_agent(
                     if reason.is_retryable() && retry_count < MAX_RETRIES {
                         retry_count += 1;
                         let delay = failover::retry_delay_ms(retry_count - 1, RETRY_BASE_MS, RETRY_MAX_MS);
-                        log::warn!(
-                            "[cron] Model {} retryable error ({:?}), attempt {}/{}, retrying in {}ms: {}",
-                            model_label, reason, retry_count, MAX_RETRIES, delay, last_error
-                        );
+                        app_warn!("cron", "failover", "Model {} retryable error ({:?}), attempt {}/{}, retrying in {}ms: {}", model_label, reason, retry_count, MAX_RETRIES, delay, last_error);
                         tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
                         continue;
                     }
 
                     // Non-retryable or retries exhausted — skip to next model
-                    log::warn!(
-                        "[cron] Model {} failed ({:?}), skipping to next model: {}",
-                        model_label, reason, last_error
-                    );
+                    app_warn!("cron", "failover", "Model {} failed ({:?}), skipping to next model: {}", model_label, reason, last_error);
                     break;
                 }
             }

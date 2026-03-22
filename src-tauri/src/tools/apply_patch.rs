@@ -297,7 +297,7 @@ pub(crate) async fn tool_apply_patch(args: &Value) -> Result<String> {
         return Err(anyhow::anyhow!("Provide a patch input."));
     }
 
-    log::info!("Applying patch ({} chars)", input.len());
+    app_info!("tool", "apply_patch", "Applying patch ({} chars)", input.len());
 
     let hunks = parse_patch(input)?;
     if hunks.is_empty() {

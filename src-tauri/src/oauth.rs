@@ -156,7 +156,7 @@ pub async fn start_oauth_flow(auth_result: Arc<Mutex<Option<Result<TokenData>>>>
             Ok(token) => {
                 // Save token to disk
                 if let Err(e) = save_token(&token) {
-                    log::error!("Failed to save token: {}", e);
+                    app_error!("auth", "oauth", "Failed to save token: {}", e);
                 }
                 let mut lock = result_clone.blocking_lock();
                 *lock = Some(Ok(token));
@@ -184,7 +184,7 @@ fn run_callback_server(expected_state: &str, code_verifier: &str) -> Result<Toke
     let server = tiny_http::Server::http(&addr)
         .map_err(|e| anyhow!("Failed to start callback server on {}: {}", addr, e))?;
 
-    log::info!("OAuth callback server listening on {}", addr);
+    app_info!("auth", "oauth", "OAuth callback server listening on {}", addr);
 
     // Wait for the callback request (with a timeout)
     let timeout = std::time::Duration::from_secs(300); // 5 minutes
