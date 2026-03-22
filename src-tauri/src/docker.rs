@@ -72,7 +72,7 @@ pub async fn status() -> SearxngDockerStatus {
     };
     let health_ok = if container_running {
         if let Some(p) = port {
-            health_check(p, 1, 1).await
+            health_check(p, 2, 1).await
         } else {
             false
         }
@@ -404,7 +404,7 @@ async fn fetch_container_logs(tail: u32) -> String {
 /// Poll the SearXNG JSON endpoint until it responds 200.
 async fn health_check(port: u16, max_attempts: u32, interval_secs: u64) -> bool {
     let url = format!(
-        "http://localhost:{}/search?q=test&format=json",
+        "http://127.0.0.1:{}/search?q=test&format=json",
         port
     );
     let client = reqwest::Client::builder()

@@ -396,6 +396,19 @@ function SearxngDockerSection({
     refreshStatus()
   }, [refreshStatus])
 
+  // Poll status while container is running but not yet healthy
+  useEffect(() => {
+    if (!status?.containerRunning || status?.healthOk) return
+    const timer = setInterval(async () => {
+      try {
+        const s = await invoke<SearxngDockerStatus>("searxng_docker_status")
+        setStatus(s)
+        if (s.healthOk) clearInterval(timer)
+      } catch { /* ignore */ }
+    }, 3000)
+    return () => clearInterval(timer)
+  }, [status?.containerRunning, status?.healthOk])
+
   const deployStepLabels: Record<string, string> = {
     checking_docker: t("settings.webSearchDockerStepCheckingDocker"),
     pulling_image: t("settings.webSearchDockerStepPullingImage"),
