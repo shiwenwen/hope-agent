@@ -362,7 +362,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "web_fetch".into(),
-            description: "Fetch and extract readable content from a URL. Returns the page content as cleaned text. Use this to read web pages, documentation, articles, or API responses.".into(),
+            description: "Fetch and extract readable content from a URL using Mozilla Readability. Supports markdown and plain text output modes. Returns structured JSON with page content, metadata, and extraction info. Use this to read web pages, documentation, articles, or API responses.".into(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -372,7 +372,12 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     },
                     "max_chars": {
                         "type": "integer",
-                        "description": "Maximum characters to return (default 50000)"
+                        "description": "Maximum content characters to return (default from config, capped by server limit)"
+                    },
+                    "extract_mode": {
+                        "type": "string",
+                        "enum": ["markdown", "text"],
+                        "description": "Content extraction mode: 'markdown' (default) preserves formatting with links/headings/lists, 'text' returns plain text"
                     }
                 },
                 "required": ["url"],

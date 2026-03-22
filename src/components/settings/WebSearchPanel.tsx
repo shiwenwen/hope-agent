@@ -66,6 +66,7 @@ interface ProviderMeta {
   labelKey: string
   free: boolean
   needsApiKey: boolean
+  url: string
   fields: FieldDef[]
 }
 
@@ -82,6 +83,7 @@ const PROVIDER_META: Record<string, ProviderMeta> = {
     labelKey: "settings.webSearchProviderDDG",
     free: true,
     needsApiKey: false,
+    url: "https://duckduckgo.com",
     fields: [],
   },
   searxng: {
@@ -89,6 +91,7 @@ const PROVIDER_META: Record<string, ProviderMeta> = {
     labelKey: "settings.webSearchProviderSearXNG",
     free: true,
     needsApiKey: false,
+    url: "https://docs.searxng.org",
     fields: [
       {
         configKey: "baseUrl",
@@ -102,6 +105,7 @@ const PROVIDER_META: Record<string, ProviderMeta> = {
     labelKey: "settings.webSearchProviderBrave",
     free: false,
     needsApiKey: true,
+    url: "https://brave.com/search/api/",
     fields: [
       {
         configKey: "apiKey",
@@ -116,6 +120,7 @@ const PROVIDER_META: Record<string, ProviderMeta> = {
     labelKey: "settings.webSearchProviderPerplexity",
     free: false,
     needsApiKey: true,
+    url: "https://docs.perplexity.ai",
     fields: [
       {
         configKey: "apiKey",
@@ -130,6 +135,7 @@ const PROVIDER_META: Record<string, ProviderMeta> = {
     labelKey: "settings.webSearchProviderGoogle",
     free: false,
     needsApiKey: true,
+    url: "https://developers.google.com/custom-search/v1/overview",
     fields: [
       {
         configKey: "apiKey",
@@ -149,6 +155,7 @@ const PROVIDER_META: Record<string, ProviderMeta> = {
     labelKey: "settings.webSearchProviderGrok",
     free: false,
     needsApiKey: true,
+    url: "https://console.x.ai",
     fields: [
       {
         configKey: "apiKey",
@@ -163,11 +170,27 @@ const PROVIDER_META: Record<string, ProviderMeta> = {
     labelKey: "settings.webSearchProviderKimi",
     free: false,
     needsApiKey: true,
+    url: "https://platform.moonshot.cn",
     fields: [
       {
         configKey: "apiKey",
         labelKey: "settings.webSearchApiKey",
         placeholder: "sk-...",
+        secret: true,
+      },
+    ],
+  },
+  tavily: {
+    id: "tavily",
+    labelKey: "settings.webSearchProviderTavily",
+    free: false,
+    needsApiKey: true,
+    url: "https://tavily.com",
+    fields: [
+      {
+        configKey: "apiKey",
+        labelKey: "settings.webSearchApiKey",
+        placeholder: "tvly-...",
         secret: true,
       },
     ],
@@ -275,6 +298,16 @@ function SortableProviderItem({
               {t(meta.needsApiKey ? "settings.webSearchNeedsKey" : "settings.webSearchNeedsConfig")}
             </span>
           )}
+        </button>
+
+        {/* Website link */}
+        <button
+          type="button"
+          className="text-muted-foreground/40 hover:text-primary shrink-0 transition-colors"
+          onClick={() => invoke("open_url", { url: meta.url })}
+          title={meta.url}
+        >
+          <ExternalLink className="h-3.5 w-3.5" />
         </button>
 
         {/* Enable toggle */}

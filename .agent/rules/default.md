@@ -24,7 +24,7 @@ node scripts/sync-i18n.mjs --apply   # 从翻译文件补齐缺失翻译
 src/                    前端（React + TypeScript）
   components/
     chat/               聊天相关组件（消息列表/输入框/审批对话框/思考块/工具调用块）
-    settings/           设置面板（Provider/Agent/外观/语言/模型/技能/用户资料）
+    settings/           设置面板（Provider/Agent/外观/语言/模型/技能/用户资料/系统）
     common/             共享组件（导航栏/Markdown 渲染/Provider 图标）
   lib/logger.ts         前端统一日志工具（写入后端日志系统）
   i18n/locales/         12 种语言翻译文件
@@ -40,6 +40,7 @@ src-tauri/src/          后端（Rust）
   system_prompt.rs      系统提示词模块化拼装
   memory.rs             记忆系统（MemoryBackend trait + SQLite/FTS5 实现 + Embedding 配置）
   cron.rs               定时任务系统（调度器 + CronDB + 任务执行 + 日历查询）
+  browser_state.rs      浏览器连接状态管理（全局单例 + CDP 生命周期）
 ```
 
 ## 技术栈
@@ -65,6 +66,7 @@ src-tauri/src/          后端（Rust）
 - **记忆系统**：`memory.rs` 实现 `MemoryBackend` trait 可插拔架构，MVP 使用 SQLite + FTS5 全文搜索。4 种记忆类型（user/feedback/project/reference），2 种作用域（global/agent）。记忆自动注入系统提示词 section ⑧。Embedding 配置支持 API 模式（5 个预设）和本地 ONNX 模型（4 个预设），存储在 `config.json`
 - **定时任务系统**：`cron.rs` 实现完整定时任务调度。3 种调度类型（At 一次性 / Every 固定间隔 / Cron 表达式），tokio 后台轮询执行，隔离 session + 模型链降级。指数退避重试 + 自动禁用。日历视图页面（侧边栏入口）+ 设置面板列表管理。Agent 工具 `manage_cron` 支持 AI 直接管理定时任务
 - **Web 搜索多 Provider**：`tools/web.rs` 支持 7 个搜索引擎（DuckDuckGo / SearXNG / Brave / Perplexity / Google / Grok / Kimi），enum 派发 + 自动检测。配置存储在 `config.json` 的 `webSearch` 字段，设置面板 `WebSearchPanel` 管理。SearXNG 支持 Docker 一键部署（`docker.rs`：镜像拉取 → 容器启动 → 配置注入 → 健康检查）
+- **Web Fetch 网页抓取**：`tools/web.rs` 的 `tool_web_fetch` 使用 Mozilla Readability（`readability` crate）提取正文 + `htmd` crate 转 Markdown，支持 markdown/text 双模式。内存缓存（15 分钟 TTL / 100 条上限）、SSRF 防护（DNS 解析 + 私有 IP 拦截）、流式字节限制读取（默认 2MB）、结构化 JSON 响应。配置存储在 `config.json` 的 `webFetch` 字段，设置面板 `WebFetchPanel` 管理
 
 ## 编码规范
 

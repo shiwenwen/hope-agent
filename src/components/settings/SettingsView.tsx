@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   Bot,
   Brain,
+  Download,
   Globe,
   Info,
   Layers,
@@ -35,6 +36,7 @@ import LogPanel from "@/components/settings/LogPanel"
 import MemoryPanel from "@/components/settings/MemoryPanel"
 import CronPanel from "@/components/settings/CronPanel"
 import WebSearchPanel from "@/components/settings/WebSearchPanel"
+import WebFetchPanel from "@/components/settings/WebFetchPanel"
 import SystemPanel from "@/components/settings/SystemPanel"
 import type { SettingsSection, SettingsSectionItem } from "./types"
 
@@ -78,6 +80,11 @@ const SECTIONS: SettingsSectionItem[] = [
     id: "webSearch",
     icon: <Search className="h-4 w-4" />,
     labelKey: "settings.webSearch",
+  },
+  {
+    id: "webFetch",
+    icon: <Download className="h-4 w-4" />,
+    labelKey: "settings.webFetch",
   },
   {
     id: "chat",
@@ -223,6 +230,7 @@ export default function SettingsView({
           {activeSection === "memory" && <MemoryPanel />}
           {activeSection === "cron" && <CronPanel />}
           {activeSection === "webSearch" && <WebSearchPanel />}
+          {activeSection === "webFetch" && <WebFetchPanel />}
           {activeSection === "chat" && <ChatSettingsPanel />}
           {activeSection === "system" && <SystemPanel />}
           {activeSection === "appearance" && <AppearancePanel />}

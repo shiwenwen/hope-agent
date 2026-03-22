@@ -220,6 +220,9 @@ pub struct ProviderStore {
     /// Web search provider configuration
     #[serde(default)]
     pub web_search: crate::tools::web::WebSearchConfig,
+    /// Web fetch tool configuration
+    #[serde(default)]
+    pub web_fetch: crate::tools::web::WebFetchConfig,
     /// Per-skill environment variable overrides configured by user.
     /// Outer key: skill name, inner key: env var name, value: env var value.
     #[serde(default)]
@@ -241,6 +244,7 @@ impl Default for ProviderStore {
             skill_env_check: true,
             embedding: crate::memory::EmbeddingConfig::default(),
             web_search: crate::tools::web::WebSearchConfig::default(),
+            web_fetch: crate::tools::web::WebFetchConfig::default(),
             skill_env: std::collections::HashMap::new(),
         }
     }

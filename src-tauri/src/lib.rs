@@ -1973,6 +1973,19 @@ async fn save_web_search_config(config: tools::web::WebSearchConfig) -> Result<(
     provider::save_store(&store).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+async fn get_web_fetch_config() -> Result<tools::web::WebFetchConfig, String> {
+    let store = provider::load_store().map_err(|e| e.to_string())?;
+    Ok(store.web_fetch)
+}
+
+#[tauri::command]
+async fn save_web_fetch_config(config: tools::web::WebFetchConfig) -> Result<(), String> {
+    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    store.web_fetch = config;
+    provider::save_store(&store).map_err(|e| e.to_string())
+}
+
 // ── SearXNG Docker Management ─────────────────────────────────
 
 #[tauri::command]
@@ -2586,6 +2599,8 @@ pub fn run() {
             memory_export,
             get_web_search_config,
             save_web_search_config,
+            get_web_fetch_config,
+            save_web_fetch_config,
             searxng_docker_status,
             searxng_docker_deploy,
             searxng_docker_start,

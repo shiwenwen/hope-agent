@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **web_fetch 工具全面升级**：从简单正则 HTML 清理升级为生产级网页抓取工具
+  - Mozilla Readability（`readability` crate）正文提取 + `htmd` crate HTML→Markdown 转换
+  - 新增 `extract_mode` 参数：`markdown`（默认）保留格式结构，`text` 纯文本
+  - 内存缓存：15 分钟 TTL，100 条上限，自动淘汰过期/最早条目
+  - SSRF 防护：DNS 解析 + 私有/保留 IP 地址拦截（IPv4 + IPv6）
+  - 流式字节限制读取：默认 2MB，防止大页面 OOM
+  - 结构化 JSON 响应：url/finalUrl/status/title/extractor/tookMs/cached/truncated 等元数据
+  - 外部内容标记：`<web_fetch_result>` 标签包装，标识不可信外部来源
+  - 可视化配置面板 `WebFetchPanel`：8 项配置（字符限制/网络/缓存/安全）
+  - 2 个 Tauri 命令：`get_web_fetch_config` / `save_web_fetch_config`
+  - 配置持久化在 `config.json` 的 `webFetch` 字段
+  - i18n：中英文翻译
+
 ### Added
 - **记忆工具完善**：新增 `update_memory` 和 `delete_memory` AI 工具
   - `update_memory`：根据 ID 修改记忆内容和标签
