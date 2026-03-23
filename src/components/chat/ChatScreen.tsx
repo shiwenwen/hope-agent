@@ -19,6 +19,7 @@ import type {
   AgentSummaryForSidebar,
   FallbackEvent,
   SubagentEvent,
+  ParentAgentStreamEvent,
 } from "@/types/chat"
 import type { AgentConfig } from "@/components/settings/types"
 import { getEffortOptionsForType } from "@/types/chat"
@@ -128,9 +129,21 @@ function parseSessionMessages(msgs: SessionMessage[], parentAgentId?: string | n
   let firstUserSeen = false
   for (const msg of msgs) {
     if (msg.role === "user") {
+      // Detect sub-agent result messages via attachments_meta marker
+      let isSubagentResult = false
+      let subagentResultAgentId: string | undefined
+      if (msg.attachmentsMeta) {
+        try {
+          const meta = JSON.parse(msg.attachmentsMeta)
+          if (meta?.subagent_result) {
+            isSubagentResult = true
+            subagentResultAgentId = meta.subagent_result.agent_id
+          }
+        } catch { /* ignore */ }
+      }
       const isAgentMessage = parentAgentId && !firstUserSeen
       firstUserSeen = true
-      displayMessages.push({ role: "user", content: msg.content, timestamp: msg.timestamp, dbId: msg.id, fromAgentId: isAgentMessage ? parentAgentId : undefined })
+      displayMessages.push({ role: "user", content: msg.content, timestamp: msg.timestamp, dbId: msg.id, fromAgentId: isAgentMessage ? parentAgentId : undefined, isSubagentResult, subagentResultAgentId })
     } else if (msg.role === "tool" && msg.toolCallId) {
       const tool: ToolCall = {
         callId: msg.toolCallId,
@@ -581,110 +594,114 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
         reloadSessions()
       }
 
-      // Push result to parent agent — auto-send completion message
-      if (["completed", "error", "timeout"].includes(payload.status) && payload.parentSessionId) {
-        const parentSid = payload.parentSessionId
-        const agentName = payload.childAgentId
-        const status = payload.status
-        const duration = payload.durationMs ? `${(payload.durationMs / 1000).toFixed(1)}s` : "unknown"
-        const result = payload.resultFull || payload.resultPreview || payload.error || "(no output)"
+    }).then((fn) => {
+      unlisten = fn
+    })
+    return () => {
+      unlisten?.()
+    }
+  }, [reloadSessions])
 
-        const pushMessage = `[Sub-Agent Completion — auto-delivered]\nRun ID: ${payload.runId}\nAgent: ${agentName}\nTask: ${payload.taskPreview}\nStatus: ${status}\nDuration: ${duration}\n<<<BEGIN_SUBAGENT_RESULT>>>\n${result}\n<<<END_SUBAGENT_RESULT>>>`
+  // Listen for backend-driven parent agent streaming (sub-agent result injection)
+  useEffect(() => {
+    let unlisten: UnlistenFn | undefined
+    listen<ParentAgentStreamEvent>("parent_agent_stream", (event) => {
+      const payload = event.payload
+      const { eventType, parentSessionId, delta } = payload
+      const isCurrentSession = currentSessionIdRef.current === parentSessionId
 
-        // Only auto-send if parent session is current AND not currently loading
-        const isParentActive = currentSessionIdRef.current === parentSid
-        const isParentLoading = loadingSessionsRef.current.has(parentSid)
-
-        if (isParentActive && !isParentLoading) {
-          // Directly invoke chat for the parent session
-          const onEvent = new Channel<string>()
-          setMessages((prev) => [
-            ...prev,
-            { role: "user", content: pushMessage, timestamp: new Date().toISOString() },
-            { role: "assistant", content: "", timestamp: new Date().toISOString() },
-          ])
-          setLoading(true)
-          loadingSessionsRef.current.add(parentSid)
-          setLoadingSessionIds(new Set(loadingSessionsRef.current))
-
-          onEvent.onmessage = (raw) => {
-            try {
-              const ev = JSON.parse(raw)
-              const sid = parentSid
-              if (ev.type === "text_delta" && ev.text) {
-                setMessages((prev) => {
-                  const updated = [...prev]
-                  const last = updated[updated.length - 1]
-                  if (last?.role === "assistant") {
-                    updated[updated.length - 1] = { ...last, content: last.content + ev.text }
-                    sessionCacheRef.current.set(sid, updated)
-                  }
-                  return updated
-                })
-              } else if (ev.type === "tool_call") {
-                setMessages((prev) => {
-                  const updated = [...prev]
-                  const last = updated[updated.length - 1]
-                  if (last?.role === "assistant") {
-                    const toolCalls = [...(last.toolCalls || []), { callId: ev.call_id, name: ev.name, arguments: ev.arguments || "" }]
-                    const blocks = [...(last.contentBlocks || [])]
-                    if (last.content) blocks.push({ type: "text" as const, content: last.content })
-                    blocks.push({ type: "tool_call" as const, tool: toolCalls[toolCalls.length - 1] })
-                    updated[updated.length - 1] = { ...last, toolCalls, contentBlocks: blocks }
-                    sessionCacheRef.current.set(sid, updated)
-                  }
-                  return updated
-                })
-              } else if (ev.type === "tool_result") {
-                setMessages((prev) => {
-                  const updated = [...prev]
-                  const last = updated[updated.length - 1]
-                  if (last?.role === "assistant" && last.toolCalls) {
-                    const toolCalls = last.toolCalls.map((tc) =>
-                      tc.callId === ev.call_id ? { ...tc, result: ev.result } : tc
-                    )
-                    const blocks = (last.contentBlocks || []).map((b) =>
-                      b.type === "tool_call" && b.tool?.callId === ev.call_id
-                        ? { ...b, tool: { ...b.tool!, result: ev.result } }
-                        : b
-                    )
-                    updated[updated.length - 1] = { ...last, toolCalls, contentBlocks: blocks }
-                    sessionCacheRef.current.set(sid, updated)
-                  }
-                  return updated
-                })
-              } else if (ev.type === "usage") {
-                setMessages((prev) => {
-                  const updated = [...prev]
-                  const last = updated[updated.length - 1]
-                  if (last?.role === "assistant") {
-                    updated[updated.length - 1] = { ...last, usage: ev, model: ev.model }
-                    sessionCacheRef.current.set(sid, updated)
-                  }
-                  return updated
-                })
-              }
-            } catch { /* ignore parse errors */ }
-          }
-
-          invoke("chat", {
-            sessionId: parentSid,
-            message: pushMessage,
-            onEvent,
-            attachments: [],
-          }).then(() => {
-            setLoading(false)
-            loadingSessionsRef.current.delete(parentSid)
-            setLoadingSessionIds(new Set(loadingSessionsRef.current))
-          }).catch((err) => {
-            logger.error("subagent", "push-result", "Failed to push sub-agent result to parent", err)
-            setLoading(false)
-            loadingSessionsRef.current.delete(parentSid)
-            setLoadingSessionIds(new Set(loadingSessionsRef.current))
+      if (eventType === "started") {
+        if (isCurrentSession) {
+          // Only add blank assistant message; subagent result user message will load from DB on done
+          setMessages((prev) => {
+            const next = [...prev, { role: "assistant" as const, content: "", timestamp: new Date().toISOString() }]
+            sessionCacheRef.current.set(parentSessionId, next)
+            return next
           })
         }
-        // If parent is not active or is loading, the result is already in the DB.
-        // The parent agent can use `check(wait=true)` to retrieve it next turn.
+        setLoading(true)
+        loadingSessionsRef.current.add(parentSessionId)
+        setLoadingSessionIds(new Set(loadingSessionsRef.current))
+      } else if (eventType === "delta" && delta && isCurrentSession) {
+        try {
+          const ev = JSON.parse(delta)
+          const sid = parentSessionId
+          if (ev.type === "text_delta" && ev.text) {
+            setMessages((prev) => {
+              const updated = [...prev]
+              const last = updated[updated.length - 1]
+              if (last?.role === "assistant") {
+                updated[updated.length - 1] = { ...last, content: last.content + ev.text }
+                sessionCacheRef.current.set(sid, updated)
+              }
+              return updated
+            })
+          } else if (ev.type === "tool_call") {
+            setMessages((prev) => {
+              const updated = [...prev]
+              const last = updated[updated.length - 1]
+              if (last?.role === "assistant") {
+                const toolCalls = [...(last.toolCalls || []), { callId: ev.call_id, name: ev.name, arguments: ev.arguments || "" }]
+                const blocks = [...(last.contentBlocks || [])]
+                if (last.content) blocks.push({ type: "text" as const, content: last.content })
+                blocks.push({ type: "tool_call" as const, tool: toolCalls[toolCalls.length - 1] })
+                updated[updated.length - 1] = { ...last, toolCalls, contentBlocks: blocks }
+                sessionCacheRef.current.set(sid, updated)
+              }
+              return updated
+            })
+          } else if (ev.type === "tool_result") {
+            setMessages((prev) => {
+              const updated = [...prev]
+              const last = updated[updated.length - 1]
+              if (last?.role === "assistant" && last.toolCalls) {
+                const toolCalls = last.toolCalls.map((tc) =>
+                  tc.callId === ev.call_id ? { ...tc, result: ev.result } : tc
+                )
+                const blocks = (last.contentBlocks || []).map((b) =>
+                  b.type === "tool_call" && b.tool?.callId === ev.call_id
+                    ? { ...b, tool: { ...b.tool!, result: ev.result } }
+                    : b
+                )
+                updated[updated.length - 1] = { ...last, toolCalls, contentBlocks: blocks }
+                sessionCacheRef.current.set(sid, updated)
+              }
+              return updated
+            })
+          } else if (ev.type === "usage") {
+            setMessages((prev) => {
+              const updated = [...prev]
+              const last = updated[updated.length - 1]
+              if (last?.role === "assistant") {
+                updated[updated.length - 1] = { ...last, usage: ev, model: ev.model }
+                sessionCacheRef.current.set(sid, updated)
+              }
+              return updated
+            })
+          }
+        } catch { /* ignore parse errors */ }
+      } else if (eventType === "done" || eventType === "error") {
+        if (eventType === "error") {
+          logger.error("subagent", "inject", "Backend parent agent injection failed", payload.error)
+        }
+        setLoading(false)
+        loadingSessionsRef.current.delete(parentSessionId)
+        setLoadingSessionIds(new Set(loadingSessionsRef.current))
+        reloadSessions()
+        // Reload messages from DB so subagent result message renders with correct type
+        if (currentSessionIdRef.current === parentSessionId) {
+          invoke<[SessionMessage[], number]>("load_session_messages_latest_cmd", {
+            sessionId: parentSessionId,
+            limit: PAGE_SIZE,
+          }).then(([msgs]) => {
+            const displayMessages = parseSessionMessages(msgs)
+            sessionCacheRef.current.set(parentSessionId, displayMessages)
+            setMessages(displayMessages)
+          }).catch(() => {})
+        } else {
+          // Not current session — clear cache so next visit loads fresh from DB
+          sessionCacheRef.current.delete(parentSessionId)
+        }
       }
     }).then((fn) => {
       unlisten = fn
@@ -1345,7 +1362,8 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
         onSwitchSession={handleSwitchSession}
         onNewChat={handleNewChat}
         onDeleteSession={handleDeleteSession}
-        onEditAgent={onOpenAgentSettings}
+        onEditAgent={(id) => onNavigateToSettings?.("agents", id)}
+        onMarkAllRead={reloadSessions}
       />
 
       {/* Command Approval Dialog */}
@@ -1631,13 +1649,22 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
               key={i}
               className={cn(
                 "flex",
-                msg.role === "event" ? "justify-center" : (msg.role === "user" && !msg.fromAgentId) ? "justify-end" : "justify-start",
+                msg.role === "event" || msg.isSubagentResult ? "justify-center" : (msg.role === "user" && !msg.fromAgentId) ? "justify-end" : "justify-start",
                 i === messages.length - 1 && "animate-fade-slide-in",
               )}
             >
               {msg.role === "event" ? (
                 <div className="max-w-[80%] px-3 py-1.5 rounded-lg text-xs text-muted-foreground bg-muted/50 border border-border/50 text-center">
                   {msg.content}
+                </div>
+              ) : msg.isSubagentResult ? (
+                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-purple-500/8 border border-purple-500/20 text-xs text-purple-400/80 max-w-[80%]">
+                  <Network className="w-3 h-3 shrink-0 text-purple-500" />
+                  <span className="font-medium text-purple-500">
+                    {agents.find(a => a.id === msg.subagentResultAgentId)?.name || msg.subagentResultAgentId || "Sub-agent"}
+                  </span>
+                  <span className="text-purple-400/50">·</span>
+                  <span>任务完成，结果已注入</span>
                 </div>
               ) : (
                 <div

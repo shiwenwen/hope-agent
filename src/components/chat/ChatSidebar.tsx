@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react"
+import { invoke } from "@tauri-apps/api/core"
 import { convertFileSrc } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import {
@@ -43,6 +44,7 @@ interface ChatSidebarProps {
   onNewChat: (agentId: string) => void
   onDeleteSession: (sessionId: string) => void
   onEditAgent?: (agentId: string) => void
+  onMarkAllRead?: () => void
 }
 
 export default function ChatSidebar({
@@ -56,6 +58,7 @@ export default function ChatSidebar({
   onNewChat,
   onDeleteSession,
   onEditAgent,
+  onMarkAllRead,
 }: ChatSidebarProps) {
   const { t } = useTranslation()
   const [agentsExpanded, setAgentsExpanded] = useState(true)
@@ -347,32 +350,59 @@ export default function ChatSidebar({
                 cron: t("chat.filterCron"),
                 subagent: t("chat.filterSubagent"),
               }[filter]
-              const count = {
-                all: sessions.reduce((sum, s) => sum + s.unreadCount, 0),
-                session: sessions.filter(s => !s.isCron && !s.parentSessionId).reduce((sum, s) => sum + s.unreadCount, 0),
-                cron: sessions.filter(s => s.isCron).reduce((sum, s) => sum + s.unreadCount, 0),
-                subagent: sessions.filter(s => !!s.parentSessionId).reduce((sum, s) => sum + s.unreadCount, 0),
+              const filterSessions = {
+                all: sessions,
+                session: sessions.filter(s => !s.isCron && !s.parentSessionId),
+                cron: sessions.filter(s => s.isCron),
+                subagent: sessions.filter(s => !!s.parentSessionId),
               }[filter]
+              const count = filterSessions.reduce((sum, s) => sum + s.unreadCount, 0)
               const isActive = sessionFilter === filter
+              const handleMarkAllRead = async () => {
+                const unreadSessions = filterSessions.filter(s => s.unreadCount > 0)
+                if (unreadSessions.length === 0) return
+                try {
+                  await Promise.all(
+                    unreadSessions.map(s => invoke("mark_session_read_cmd", { sessionId: s.id }))
+                  )
+                  if (onMarkAllRead) onMarkAllRead()
+                } catch (err) {
+                  console.error("Failed to mark sessions as read:", err)
+                }
+              }
+
               return (
-                <button
-                  key={filter}
-                  className={cn(
-                    "relative px-2 py-1 text-[11px] rounded-md transition-colors whitespace-nowrap",
-                    isActive
-                      ? "text-foreground font-semibold"
-                      : "text-muted-foreground hover:text-foreground/70"
-                  )}
-                  onClick={() => setSessionFilter(filter)}
-                >
-                  {label}
-                  {count > 0 && !isActive && (
-                    <span className="ml-0.5 text-[10px] text-muted-foreground/50">{count}</span>
-                  )}
-                  {isActive && (
-                    <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-3/5 h-[2px] rounded-full bg-primary" />
-                  )}
-                </button>
+                <ContextMenu key={filter}>
+                  <ContextMenuTrigger asChild>
+                    <button
+                      className={cn(
+                        "relative px-2 py-1 text-[11px] rounded-md transition-colors whitespace-nowrap",
+                        isActive
+                          ? "text-foreground font-semibold"
+                          : "text-muted-foreground hover:text-foreground/70"
+                      )}
+                      onClick={() => setSessionFilter(filter)}
+                    >
+                      {label}
+                      {count > 0 && !isActive && (
+                        <span className="ml-0.5 text-[10px] text-muted-foreground/50">
+                          {count > 99 ? "99+" : count}
+                        </span>
+                      )}
+                      {isActive && (
+                        <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-3/5 h-[2px] rounded-full bg-primary" />
+                      )}
+                    </button>
+                  </ContextMenuTrigger>
+                  <ContextMenuContent>
+                    <ContextMenuItem
+                      onClick={handleMarkAllRead}
+                      disabled={count === 0}
+                    >
+                      {t("chat.markAllRead") || "全部已读"}
+                    </ContextMenuItem>
+                  </ContextMenuContent>
+                </ContextMenu>
               )
             })}
           </div>
