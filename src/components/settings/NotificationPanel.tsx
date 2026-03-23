@@ -2,9 +2,19 @@ import { useState, useEffect, useCallback } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { Switch } from "@/components/ui/switch"
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select"
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select"
 import { logger } from "@/lib/logger"
-import { saveNotificationConfig, loadNotificationConfig, type NotificationConfig } from "@/lib/notifications"
+import {
+  saveNotificationConfig,
+  loadNotificationConfig,
+  type NotificationConfig,
+} from "@/lib/notifications"
 import type { AgentConfig } from "./types"
 
 interface AgentInfo {
@@ -26,7 +36,8 @@ export default function NotificationPanel() {
       const cfg = await loadNotificationConfig()
       setConfig(cfg)
 
-      const agentList = await invoke<{ id: string; name: string; emoji?: string | null }[]>("list_agents")
+      const agentList =
+        await invoke<{ id: string; name: string; emoji?: string | null }[]>("list_agents")
       const agentsWithNotify = await Promise.all(
         agentList.map(async (a) => {
           try {
@@ -35,7 +46,7 @@ export default function NotificationPanel() {
           } catch {
             return { ...a, notifyOnComplete: null }
           }
-        })
+        }),
       )
       setAgents(agentsWithNotify)
     } catch (e) {
@@ -68,7 +79,7 @@ export default function NotificationPanel() {
       const updated = { ...agentConfig, notifyOnComplete: notifyValue }
       await invoke("save_agent_config_cmd", { id: agentId, config: updated })
       setAgents((prev) =>
-        prev.map((a) => (a.id === agentId ? { ...a, notifyOnComplete: notifyValue } : a))
+        prev.map((a) => (a.id === agentId ? { ...a, notifyOnComplete: notifyValue } : a)),
       )
     } catch (e) {
       logger.error("settings", "NotificationPanel::saveAgent", "Failed to save agent config", e)
@@ -86,11 +97,7 @@ export default function NotificationPanel() {
             <h3 className="text-sm font-medium">{t("notification.globalToggle")}</h3>
             <p className="text-xs text-muted-foreground mt-0.5">{t("notification.globalDesc")}</p>
           </div>
-          <Switch
-            checked={config.enabled}
-            onCheckedChange={handleGlobalToggle}
-            disabled={saving}
-          />
+          <Switch checked={config.enabled} onCheckedChange={handleGlobalToggle} disabled={saving} />
         </div>
       </div>
 
@@ -104,13 +111,16 @@ export default function NotificationPanel() {
           {agents.map((agent) => (
             <div key={agent.id} className="flex items-center justify-between py-1.5">
               <span className="text-sm">
-                {agent.emoji ? `${agent.emoji} ` : ""}{agent.name}
+                {agent.emoji ? `${agent.emoji} ` : ""}
+                {agent.name}
               </span>
               <Select
                 value={
-                  agent.notifyOnComplete === true ? "on"
-                    : agent.notifyOnComplete === false ? "off"
-                    : "default"
+                  agent.notifyOnComplete === true
+                    ? "on"
+                    : agent.notifyOnComplete === false
+                      ? "off"
+                      : "default"
                 }
                 onValueChange={(v) => handleAgentNotify(agent.id, v)}
               >

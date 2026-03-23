@@ -20,7 +20,9 @@ export default function ToolCallBlock({ tool }: { tool: ToolCall }) {
         try {
           const res = JSON.parse(tool.result)
           runId = res.run_id
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
       }
       return { agentId: args.agent_id || "default", task: args.task || "", runId }
     } catch {
@@ -42,10 +44,10 @@ export default function ToolCallBlock({ tool }: { tool: ToolCall }) {
     try {
       const parsed = JSON.parse(tool.arguments)
       if (tool.name === "exec") return parsed.command
-      if (tool.name === "read_file" || tool.name === "list_dir")
-        return parsed.path || "."
+      if (tool.name === "read_file" || tool.name === "list_dir") return parsed.path || "."
       if (tool.name === "write_file") return parsed.path
-      if (tool.name === "subagent") return `${parsed.action}${parsed.run_id ? ` ${parsed.run_id}` : ""}`
+      if (tool.name === "subagent")
+        return `${parsed.action}${parsed.run_id ? ` ${parsed.run_id}` : ""}`
       return tool.arguments
     } catch {
       return tool.arguments
@@ -64,7 +66,7 @@ export default function ToolCallBlock({ tool }: { tool: ToolCall }) {
           <ChevronRight
             className={cn(
               "h-3 w-3 shrink-0 text-muted-foreground transition-transform duration-200",
-              expanded && "rotate-90"
+              expanded && "rotate-90",
             )}
           />
         )}
@@ -75,7 +77,7 @@ export default function ToolCallBlock({ tool }: { tool: ToolCall }) {
       <div
         className={cn(
           "overflow-hidden transition-all duration-200 ease-out",
-          expanded && tool.result ? "max-h-[300px] opacity-100" : "max-h-0 opacity-0"
+          expanded && tool.result ? "max-h-[300px] opacity-100" : "max-h-0 opacity-0",
         )}
       >
         <div className="px-2.5 pb-2 pt-0.5">

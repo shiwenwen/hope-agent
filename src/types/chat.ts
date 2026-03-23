@@ -147,9 +147,9 @@ export interface ParentAgentStreamEvent {
   eventType: "started" | "delta" | "done" | "error"
   parentSessionId: string
   runId: string
-  pushMessage?: string  // only for "started"
-  delta?: string        // raw JSON delta string, only for "delta"
-  error?: string        // only for "error"
+  pushMessage?: string // only for "started"
+  delta?: string // raw JSON delta string, only for "delta"
+  error?: string // only for "error"
 }
 
 export interface SubagentConfig {

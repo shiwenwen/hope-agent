@@ -23,9 +23,7 @@ export function getCachedConfig(): NotificationConfig | null {
 }
 
 /** Save notification config to backend and update cache. */
-export async function saveNotificationConfig(
-  config: NotificationConfig
-): Promise<void> {
+export async function saveNotificationConfig(config: NotificationConfig): Promise<void> {
   await invoke("save_notification_config", { config })
   cachedConfig = config
 }
@@ -51,9 +49,7 @@ export async function notify(title: string, body: string): Promise<void> {
  * Determine if notifications are enabled for a given agent.
  * @param agentNotify - Per-agent override: true=on, false=off, null/undefined=use global
  */
-export function isAgentNotifyEnabled(
-  agentNotify: boolean | null | undefined
-): boolean {
+export function isAgentNotifyEnabled(agentNotify: boolean | null | undefined): boolean {
   if (agentNotify === true) return true
   if (agentNotify === false) return false
   return cachedConfig?.enabled ?? true

@@ -85,14 +85,9 @@ function SortableProviderCard({
   onCodexReauth?: () => void
   t: (key: string, opts?: Record<string, unknown>) => string
 }) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: provider.id })
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: provider.id,
+  })
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -125,9 +120,7 @@ function SortableProviderCard({
           <ProviderIcon providerName={provider.name} size={20} color />
         </div>
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium text-foreground truncate">
-            {provider.name}
-          </div>
+          <div className="text-sm font-medium text-foreground truncate">{provider.name}</div>
           <div className="text-[11px] text-muted-foreground flex items-center gap-1.5">
             <span>{apiTypeLabel(provider.apiType)}</span>
             <span>·</span>
@@ -147,18 +140,13 @@ function SortableProviderCard({
             variant="ghost"
             size="icon"
             className="h-7 w-7"
-            onClick={() =>
-              setMenuId(menuId === provider.id ? null : provider.id)
-            }
+            onClick={() => setMenuId(menuId === provider.id ? null : provider.id)}
           >
             <MoreVertical className="h-3.5 w-3.5" />
           </Button>
           {menuId === provider.id && (
             <>
-              <div
-                className="fixed inset-0 z-40"
-                onClick={() => setMenuId(null)}
-              />
+              <div className="fixed inset-0 z-40" onClick={() => setMenuId(null)} />
               <div className="absolute right-0 top-8 z-50 bg-card border border-border rounded-lg shadow-lg py-1 min-w-[130px]">
                 <button
                   className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-foreground hover:bg-secondary transition-colors"
@@ -246,9 +234,7 @@ export default function ProviderSettings({
   const [loading, setLoading] = useState(true)
   const [menuId, setMenuId] = useState<string | null>(null)
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-  )
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
   useEffect(() => {
     loadProviders()
@@ -298,7 +284,9 @@ export default function ProviderSettings({
     setProviders(updated)
     invoke("reorder_providers", {
       providerIds: updated.map((p) => p.id),
-    }).catch((e) => logger.error("settings", "ProviderSettings::reorder", "Failed to reorder providers", e))
+    }).catch((e) =>
+      logger.error("settings", "ProviderSettings::reorder", "Failed to reorder providers", e),
+    )
   }
 
   return (
@@ -306,9 +294,7 @@ export default function ProviderSettings({
       {/* Add Provider Button */}
       <div className="flex items-center justify-between px-5 pt-5 pb-2">
         <div>
-          <h2 className="text-lg font-semibold text-foreground">
-            {t("provider.title")}
-          </h2>
+          <h2 className="text-lg font-semibold text-foreground">{t("provider.title")}</h2>
           {providers.length > 1 && (
             <p className="text-[10px] text-muted-foreground/60 mt-0.5">{t("common.dragToSort")}</p>
           )}
@@ -327,15 +313,8 @@ export default function ProviderSettings({
           </div>
         ) : providers.length === 0 ? (
           <div className="text-center py-12">
-            <p className="text-sm text-muted-foreground">
-              {t("provider.noProviders")}
-            </p>
-            <Button
-              variant="secondary"
-              size="sm"
-              className="mt-3"
-              onClick={onAddProvider}
-            >
+            <p className="text-sm text-muted-foreground">{t("provider.noProviders")}</p>
+            <Button variant="secondary" size="sm" className="mt-3" onClick={onAddProvider}>
               <Plus className="h-3.5 w-3.5 mr-1" />
               {t("provider.addProvider")}
             </Button>

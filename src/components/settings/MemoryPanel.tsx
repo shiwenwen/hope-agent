@@ -135,7 +135,9 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
   const [filterType, setFilterType] = useState<string | null>(null)
-  const [filterScope, setFilterScope] = useState<"all" | "global" | "agent">(isAgentMode ? "all" : "all")
+  const [filterScope, setFilterScope] = useState<"all" | "global" | "agent">(
+    isAgentMode ? "all" : "all",
+  )
   const [agents, setAgents] = useState<AgentInfo[]>([])
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(agentId ?? null)
 
@@ -160,7 +162,9 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
   // ── Load agents for scope picker (standalone mode) ──
   useEffect(() => {
     if (!isAgentMode) {
-      invoke<AgentInfo[]>("list_agents").then(setAgents).catch(() => {})
+      invoke<AgentInfo[]>("list_agents")
+        .then(setAgents)
+        .catch(() => {})
     }
   }, [isAgentMode])
 
@@ -245,7 +249,10 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
         memoryType: formType,
         scope: formScope === "global" ? { kind: "global" } : { kind: "agent", id: scopeAgentId },
         content: formContent.trim(),
-        tags: formTags.split(",").map((t) => t.trim()).filter(Boolean),
+        tags: formTags
+          .split(",")
+          .map((t) => t.trim())
+          .filter(Boolean),
         source: "user",
       }
       await invoke("memory_add", { entry })
@@ -261,7 +268,10 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
   async function handleUpdate() {
     if (!editingMemory) return
     try {
-      const tags = formTags.split(",").map((t) => t.trim()).filter(Boolean)
+      const tags = formTags
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean)
       await invoke("memory_update", {
         id: editingMemory.id,
         content: formContent.trim(),
@@ -339,7 +349,9 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
           <div className="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-secondary/40 mb-4">
             <div>
               <div className="text-sm font-medium">{t("settings.memoryEmbeddingEnabled")}</div>
-              <div className="text-xs text-muted-foreground">{t("settings.memoryEmbeddingEnabledDesc")}</div>
+              <div className="text-xs text-muted-foreground">
+                {t("settings.memoryEmbeddingEnabledDesc")}
+              </div>
             </div>
             <Switch
               checked={embeddingConfig.enabled}
@@ -354,7 +366,9 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
             <div className="space-y-4">
               {/* Provider type selector */}
               <div>
-                <label className="text-sm font-medium mb-1.5 block">{t("settings.memoryEmbeddingProvider")}</label>
+                <label className="text-sm font-medium mb-1.5 block">
+                  {t("settings.memoryEmbeddingProvider")}
+                </label>
                 <div className="flex flex-wrap gap-2">
                   {presets.map((preset) => (
                     <button
@@ -373,7 +387,7 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
                         "px-3 py-1.5 rounded-lg text-xs border transition-colors",
                         embeddingConfig.apiBaseUrl === preset.baseUrl
                           ? "border-primary bg-primary/10 text-primary"
-                          : "border-border text-muted-foreground hover:border-foreground/30"
+                          : "border-border text-muted-foreground hover:border-foreground/30",
                       )}
                     >
                       {preset.name}
@@ -394,7 +408,7 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
                       "px-3 py-1.5 rounded-lg text-xs border transition-colors",
                       embeddingConfig.providerType === "local"
                         ? "border-primary bg-primary/10 text-primary"
-                        : "border-border text-muted-foreground hover:border-foreground/30"
+                        : "border-border text-muted-foreground hover:border-foreground/30",
                     )}
                   >
                     {t("settings.memoryLocalModel")}
@@ -432,7 +446,9 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
                   </div>
                   <div className="flex gap-3">
                     <div className="flex-1">
-                      <label className="text-xs text-muted-foreground mb-1 block">{t("settings.memoryModel")}</label>
+                      <label className="text-xs text-muted-foreground mb-1 block">
+                        {t("settings.memoryModel")}
+                      </label>
                       <Input
                         value={embeddingConfig.apiModel ?? ""}
                         onChange={(e) => {
@@ -444,12 +460,17 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
                       />
                     </div>
                     <div className="w-28">
-                      <label className="text-xs text-muted-foreground mb-1 block">{t("settings.memoryDimensions")}</label>
+                      <label className="text-xs text-muted-foreground mb-1 block">
+                        {t("settings.memoryDimensions")}
+                      </label>
                       <Input
                         type="number"
                         value={embeddingConfig.apiDimensions ?? ""}
                         onChange={(e) => {
-                          setEmbeddingConfig({ ...embeddingConfig, apiDimensions: e.target.value ? Number(e.target.value) : null })
+                          setEmbeddingConfig({
+                            ...embeddingConfig,
+                            apiDimensions: e.target.value ? Number(e.target.value) : null,
+                          })
                           setEmbeddingDirty(true)
                         }}
                         placeholder="1536"
@@ -461,25 +482,32 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
               ) : (
                 /* Local model selector */
                 <div className="space-y-2">
-                  <label className="text-sm font-medium mb-1.5 block">{t("settings.memorySelectModel")}</label>
+                  <label className="text-sm font-medium mb-1.5 block">
+                    {t("settings.memorySelectModel")}
+                  </label>
                   {localModels.map((model) => (
                     <button
                       key={model.id}
                       onClick={() => {
-                        setEmbeddingConfig({ ...embeddingConfig, localModelId: model.id, apiDimensions: model.dimensions })
+                        setEmbeddingConfig({
+                          ...embeddingConfig,
+                          localModelId: model.id,
+                          apiDimensions: model.dimensions,
+                        })
                         setEmbeddingDirty(true)
                       }}
                       className={cn(
                         "w-full flex items-center justify-between px-3 py-2.5 rounded-lg border transition-colors text-left",
                         embeddingConfig.localModelId === model.id
                           ? "border-primary bg-primary/10"
-                          : "border-border hover:border-foreground/30"
+                          : "border-border hover:border-foreground/30",
                       )}
                     >
                       <div>
                         <div className="text-sm font-medium">{model.name}</div>
                         <div className="text-xs text-muted-foreground">
-                          {model.dimensions}d | {model.sizeMb}MB | RAM {model.minRamGb}GB+ | {model.languages.join(", ")}
+                          {model.dimensions}d | {model.sizeMb}MB | RAM {model.minRamGb}GB+ |{" "}
+                          {model.languages.join(", ")}
                         </div>
                       </div>
                       {model.downloaded ? (
@@ -502,12 +530,19 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
                 <Button
                   variant="secondary"
                   size="sm"
-                  disabled={embeddingTestLoading || (embeddingConfig.providerType === "local" ? !embeddingConfig.localModelId : !embeddingConfig.apiBaseUrl?.trim())}
+                  disabled={
+                    embeddingTestLoading ||
+                    (embeddingConfig.providerType === "local"
+                      ? !embeddingConfig.localModelId
+                      : !embeddingConfig.apiBaseUrl?.trim())
+                  }
                   onClick={async () => {
                     setEmbeddingTestLoading(true)
                     setEmbeddingTestResult(null)
                     try {
-                      const msg = await invoke<string>("test_embedding", { config: embeddingConfig })
+                      const msg = await invoke<string>("test_embedding", {
+                        config: embeddingConfig,
+                      })
                       setEmbeddingTestResult(parseTestResult(msg, false))
                     } catch (e) {
                       setEmbeddingTestResult(parseTestResult(String(e), true))
@@ -549,7 +584,10 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
       <div className="flex-1 overflow-y-auto p-6">
         <div className="max-w-4xl">
           <button
-            onClick={() => { setView("list"); setEditingMemory(null) }}
+            onClick={() => {
+              setView("list")
+              setEditingMemory(null)
+            }}
             className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-4"
           >
             <ArrowLeft className="h-4 w-4" />
@@ -576,7 +614,7 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
                         formType === type
                           ? "border-primary bg-primary/10 text-primary"
                           : "border-border text-muted-foreground hover:border-foreground/30",
-                        isEdit && "opacity-60 cursor-default"
+                        isEdit && "opacity-60 cursor-default",
                       )}
                     >
                       <Icon className="h-3.5 w-3.5" />
@@ -590,7 +628,9 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
             {/* Scope selector (add only) */}
             {!isEdit && (
               <div>
-                <label className="text-sm font-medium mb-1.5 block">{t("settings.memoryScope")}</label>
+                <label className="text-sm font-medium mb-1.5 block">
+                  {t("settings.memoryScope")}
+                </label>
                 <div className="flex gap-2">
                   <button
                     onClick={() => setFormScope("global")}
@@ -598,7 +638,7 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
                       "px-3 py-1.5 rounded-lg text-xs border transition-colors",
                       formScope === "global"
                         ? "border-primary bg-primary/10 text-primary"
-                        : "border-border text-muted-foreground"
+                        : "border-border text-muted-foreground",
                     )}
                   >
                     {t("settings.memoryScopeGlobal")}
@@ -609,7 +649,7 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
                       "px-3 py-1.5 rounded-lg text-xs border transition-colors",
                       formScope === "agent"
                         ? "border-primary bg-primary/10 text-primary"
-                        : "border-border text-muted-foreground"
+                        : "border-border text-muted-foreground",
                     )}
                   >
                     {t("settings.memoryScopeAgent")}
@@ -620,7 +660,9 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
 
             {/* Content */}
             <div>
-              <label className="text-sm font-medium mb-1.5 block">{t("settings.memoryContent")}</label>
+              <label className="text-sm font-medium mb-1.5 block">
+                {t("settings.memoryContent")}
+              </label>
               <Textarea
                 value={formContent}
                 onChange={(e) => setFormContent(e.target.value)}
@@ -652,7 +694,10 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => { setView("list"); setEditingMemory(null) }}
+                onClick={() => {
+                  setView("list")
+                  setEditingMemory(null)
+                }}
               >
                 {t("common.cancel")}
               </Button>
@@ -666,192 +711,202 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
   // ── List View (default) ──
   return (
     <TooltipProvider>
-    <div className="flex-1 flex flex-col min-h-0 overflow-hidden p-6">
-      <div className="max-w-4xl w-full flex flex-col min-h-0">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-1 shrink-0">
-          <h2 className="text-lg font-semibold">{t("settings.memory")}</h2>
-          <div className="flex items-center gap-2">
-            <IconTip label={t("settings.memoryExport")}>
-              <Button variant="ghost" size="sm" onClick={handleExport}>
-                <FileDown className="h-4 w-4" />
-              </Button>
-            </IconTip>
-            {!compact && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setView("embedding")}
-                className={cn(
-                  "gap-1.5 text-xs",
-                  embeddingConfig.enabled
-                    ? "border-primary/40 text-primary hover:bg-primary/10"
-                    : "text-muted-foreground"
-                )}
-              >
-                <Zap className="h-3.5 w-3.5" />
-                {t("settings.memoryEmbedding")}
-                {embeddingConfig.enabled && (
-                  <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-                )}
-              </Button>
-            )}
-            <Button size="sm" onClick={startAdd} className="gap-1.5">
-              <Plus className="h-3.5 w-3.5" />
-              {t("settings.memoryAdd")}
-            </Button>
-          </div>
-        </div>
-        <p className="text-xs text-muted-foreground mb-4 shrink-0">{t("settings.memoryDesc")}</p>
-
-        {/* Search + Filter */}
-        <div className="flex gap-2 mb-4 shrink-0">
-          <div className="relative flex-1">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={t("settings.memorySearch")}
-              className="pl-8 text-sm"
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery("")}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </div>
-          <div className="flex gap-1">
-            {MEMORY_TYPES.map((type) => {
-              const Icon = MEMORY_TYPE_ICONS[type]
-              return (
-                <IconTip key={type} label={t(`settings.memoryType_${type}`)}>
-                  <button
-                    onClick={() => setFilterType(filterType === type ? null : type)}
-                    className={cn(
-                      "p-2 rounded-lg border transition-colors",
-                      filterType === type
-                        ? "border-primary bg-primary/10 text-primary"
-                        : "border-transparent text-muted-foreground hover:text-foreground hover:bg-secondary/40"
-                    )}
-                  >
-                    <Icon className="h-4 w-4" />
-                  </button>
-                </IconTip>
-              )
-            })}
-          </div>
-        </div>
-
-        {/* Scope filter */}
-        <div className="flex items-center gap-2 mb-3 shrink-0">
-          <div className="flex gap-1">
-            {(["all", "global", "agent"] as const).map((scope) => (
-              <button
-                key={scope}
-                onClick={() => setFilterScope(scope)}
-                className={cn(
-                  "px-2.5 py-1 rounded-md text-xs transition-colors",
-                  filterScope === scope
-                    ? "bg-secondary text-foreground font-medium"
-                    : "text-muted-foreground hover:text-foreground hover:bg-secondary/40"
-                )}
-              >
-                {scope === "all" ? t("settings.memoryScopeAll") : scope === "global" ? t("settings.memoryScopeGlobal") : t("settings.memoryScopeAgent")}
-              </button>
-            ))}
-          </div>
-          {/* Agent picker (standalone mode, agent scope selected) */}
-          {!isAgentMode && filterScope === "agent" && agents.length > 0 && (
-            <Select
-              value={selectedAgentId ?? ""}
-              onValueChange={(v) => setSelectedAgentId(v || null)}
-            >
-              <SelectTrigger className="w-40 h-7 text-xs">
-                <SelectValue placeholder={t("settings.memorySelectAgent")} />
-              </SelectTrigger>
-              <SelectContent>
-                {agents.map((a) => (
-                  <SelectItem key={a.id} value={a.id} className="text-xs">
-                    {a.emoji ? `${a.emoji} ` : ""}{a.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-        </div>
-
-        {/* Stats */}
-        <div className="text-xs text-muted-foreground mb-3 shrink-0">
-          {t("settings.memoryCount", { count: totalCount })}
-          {embeddingConfig.enabled && (
-            <span className="ml-2 text-primary">
-              <Zap className="h-3 w-3 inline -mt-0.5 mr-0.5" />
-              {t("settings.memoryVectorEnabled")}
-            </span>
-          )}
-        </div>
-
-        {/* Memory List */}
-        <div className="flex-1 overflow-y-auto space-y-1.5">
-          {loading && memories.length === 0 ? (
-            <div className="text-sm text-muted-foreground py-8 text-center">
-              {t("settings.loading")}
-            </div>
-          ) : memories.length === 0 ? (
-            <div className="text-sm text-muted-foreground py-8 text-center">
-              {searchQuery ? t("settings.memoryNoResults") : t("settings.memoryEmpty")}
-            </div>
-          ) : (
-            memories.map((mem) => {
-              const Icon = MEMORY_TYPE_ICONS[mem.memoryType] || User
-              const scopeLabel = mem.scope.kind === "global" ? "Global" : `Agent: ${(mem.scope as { kind: "agent"; id: string }).id}`
-              return (
-                <div
-                  key={mem.id}
-                  className="group flex items-start gap-3 px-3 py-2.5 rounded-lg hover:bg-secondary/40 cursor-pointer transition-colors"
-                  onClick={() => startEdit(mem)}
+      <div className="flex-1 flex flex-col min-h-0 overflow-hidden p-6">
+        <div className="max-w-4xl w-full flex flex-col min-h-0">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-1 shrink-0">
+            <h2 className="text-lg font-semibold">{t("settings.memory")}</h2>
+            <div className="flex items-center gap-2">
+              <IconTip label={t("settings.memoryExport")}>
+                <Button variant="ghost" size="sm" onClick={handleExport}>
+                  <FileDown className="h-4 w-4" />
+                </Button>
+              </IconTip>
+              {!compact && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setView("embedding")}
+                  className={cn(
+                    "gap-1.5 text-xs",
+                    embeddingConfig.enabled
+                      ? "border-primary/40 text-primary hover:bg-primary/10"
+                      : "text-muted-foreground",
+                  )}
                 >
-                  <Icon className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm line-clamp-2">{mem.content}</div>
-                    <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
-                      <span>{t(`settings.memoryType_${mem.memoryType}`)}</span>
-                      <span>·</span>
-                      <span>{scopeLabel}</span>
-                      {mem.tags.length > 0 && (
-                        <>
-                          <span>·</span>
-                          <span>{mem.tags.join(", ")}</span>
-                        </>
+                  <Zap className="h-3.5 w-3.5" />
+                  {t("settings.memoryEmbedding")}
+                  {embeddingConfig.enabled && (
+                    <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+                  )}
+                </Button>
+              )}
+              <Button size="sm" onClick={startAdd} className="gap-1.5">
+                <Plus className="h-3.5 w-3.5" />
+                {t("settings.memoryAdd")}
+              </Button>
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground mb-4 shrink-0">{t("settings.memoryDesc")}</p>
+
+          {/* Search + Filter */}
+          <div className="flex gap-2 mb-4 shrink-0">
+            <div className="relative flex-1">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder={t("settings.memorySearch")}
+                className="pl-8 text-sm"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+            <div className="flex gap-1">
+              {MEMORY_TYPES.map((type) => {
+                const Icon = MEMORY_TYPE_ICONS[type]
+                return (
+                  <IconTip key={type} label={t(`settings.memoryType_${type}`)}>
+                    <button
+                      onClick={() => setFilterType(filterType === type ? null : type)}
+                      className={cn(
+                        "p-2 rounded-lg border transition-colors",
+                        filterType === type
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-transparent text-muted-foreground hover:text-foreground hover:bg-secondary/40",
                       )}
-                      {mem.relevanceScore != null && (
-                        <>
-                          <span>·</span>
-                          <span className="text-primary">{(mem.relevanceScore * 100).toFixed(0)}%</span>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleDelete(mem.id)
-                    }}
-                    className="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground hover:text-destructive transition-opacity"
+                    >
+                      <Icon className="h-4 w-4" />
+                    </button>
+                  </IconTip>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Scope filter */}
+          <div className="flex items-center gap-2 mb-3 shrink-0">
+            <div className="flex gap-1">
+              {(["all", "global", "agent"] as const).map((scope) => (
+                <button
+                  key={scope}
+                  onClick={() => setFilterScope(scope)}
+                  className={cn(
+                    "px-2.5 py-1 rounded-md text-xs transition-colors",
+                    filterScope === scope
+                      ? "bg-secondary text-foreground font-medium"
+                      : "text-muted-foreground hover:text-foreground hover:bg-secondary/40",
+                  )}
+                >
+                  {scope === "all"
+                    ? t("settings.memoryScopeAll")
+                    : scope === "global"
+                      ? t("settings.memoryScopeGlobal")
+                      : t("settings.memoryScopeAgent")}
+                </button>
+              ))}
+            </div>
+            {/* Agent picker (standalone mode, agent scope selected) */}
+            {!isAgentMode && filterScope === "agent" && agents.length > 0 && (
+              <Select
+                value={selectedAgentId ?? ""}
+                onValueChange={(v) => setSelectedAgentId(v || null)}
+              >
+                <SelectTrigger className="w-40 h-7 text-xs">
+                  <SelectValue placeholder={t("settings.memorySelectAgent")} />
+                </SelectTrigger>
+                <SelectContent>
+                  {agents.map((a) => (
+                    <SelectItem key={a.id} value={a.id} className="text-xs">
+                      {a.emoji ? `${a.emoji} ` : ""}
+                      {a.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
+
+          {/* Stats */}
+          <div className="text-xs text-muted-foreground mb-3 shrink-0">
+            {t("settings.memoryCount", { count: totalCount })}
+            {embeddingConfig.enabled && (
+              <span className="ml-2 text-primary">
+                <Zap className="h-3 w-3 inline -mt-0.5 mr-0.5" />
+                {t("settings.memoryVectorEnabled")}
+              </span>
+            )}
+          </div>
+
+          {/* Memory List */}
+          <div className="flex-1 overflow-y-auto space-y-1.5">
+            {loading && memories.length === 0 ? (
+              <div className="text-sm text-muted-foreground py-8 text-center">
+                {t("settings.loading")}
+              </div>
+            ) : memories.length === 0 ? (
+              <div className="text-sm text-muted-foreground py-8 text-center">
+                {searchQuery ? t("settings.memoryNoResults") : t("settings.memoryEmpty")}
+              </div>
+            ) : (
+              memories.map((mem) => {
+                const Icon = MEMORY_TYPE_ICONS[mem.memoryType] || User
+                const scopeLabel =
+                  mem.scope.kind === "global"
+                    ? "Global"
+                    : `Agent: ${(mem.scope as { kind: "agent"; id: string }).id}`
+                return (
+                  <div
+                    key={mem.id}
+                    className="group flex items-start gap-3 px-3 py-2.5 rounded-lg hover:bg-secondary/40 cursor-pointer transition-colors"
+                    onClick={() => startEdit(mem)}
                   >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                  <ChevronRight className="h-4 w-4 text-muted-foreground/30 mt-0.5 shrink-0" />
-                </div>
-              )
-            })
-          )}
+                    <Icon className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm line-clamp-2">{mem.content}</div>
+                      <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+                        <span>{t(`settings.memoryType_${mem.memoryType}`)}</span>
+                        <span>·</span>
+                        <span>{scopeLabel}</span>
+                        {mem.tags.length > 0 && (
+                          <>
+                            <span>·</span>
+                            <span>{mem.tags.join(", ")}</span>
+                          </>
+                        )}
+                        {mem.relevanceScore != null && (
+                          <>
+                            <span>·</span>
+                            <span className="text-primary">
+                              {(mem.relevanceScore * 100).toFixed(0)}%
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleDelete(mem.id)
+                      }}
+                      className="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground hover:text-destructive transition-opacity"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                    <ChevronRight className="h-4 w-4 text-muted-foreground/30 mt-0.5 shrink-0" />
+                  </div>
+                )
+              })
+            )}
+          </div>
         </div>
       </div>
-    </div>
     </TooltipProvider>
   )
 }

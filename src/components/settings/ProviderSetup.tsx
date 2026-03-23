@@ -3,9 +3,18 @@ import { invoke } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import ProviderIcon from "@/components/common/ProviderIcon"
-import TestResultDisplay, { parseTestResult, type TestResult } from "@/components/settings/TestResultDisplay"
+import TestResultDisplay, {
+  parseTestResult,
+  type TestResult,
+} from "@/components/settings/TestResultDisplay"
 import {
   DndContext,
   closestCenter,
@@ -26,7 +35,6 @@ import {
   ArrowRight,
   Check,
   CheckCircle2,
-
   Clock,
   Eye,
   EyeOff,
@@ -102,9 +110,36 @@ const PROVIDER_TEMPLATES: ProviderTemplate[] = [
     apiKeyPlaceholder: "sk-ant-...",
     requiresApiKey: true,
     models: [
-      { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6", inputTypes: ["text", "image"], contextWindow: 200000, maxTokens: 8192, reasoning: false, costInput: 3.0, costOutput: 15.0 },
-      { id: "claude-opus-4-6", name: "Claude Opus 4.6", inputTypes: ["text", "image"], contextWindow: 200000, maxTokens: 8192, reasoning: true, costInput: 15.0, costOutput: 75.0 },
-      { id: "claude-haiku-3-5", name: "Claude Haiku 3.5", inputTypes: ["text", "image"], contextWindow: 200000, maxTokens: 8192, reasoning: false, costInput: 0.25, costOutput: 1.25 },
+      {
+        id: "claude-sonnet-4-6",
+        name: "Claude Sonnet 4.6",
+        inputTypes: ["text", "image"],
+        contextWindow: 200000,
+        maxTokens: 8192,
+        reasoning: false,
+        costInput: 3.0,
+        costOutput: 15.0,
+      },
+      {
+        id: "claude-opus-4-6",
+        name: "Claude Opus 4.6",
+        inputTypes: ["text", "image"],
+        contextWindow: 200000,
+        maxTokens: 8192,
+        reasoning: true,
+        costInput: 15.0,
+        costOutput: 75.0,
+      },
+      {
+        id: "claude-haiku-3-5",
+        name: "Claude Haiku 3.5",
+        inputTypes: ["text", "image"],
+        contextWindow: 200000,
+        maxTokens: 8192,
+        reasoning: false,
+        costInput: 0.25,
+        costOutput: 1.25,
+      },
     ],
     thinkingStyle: "anthropic",
   },
@@ -118,10 +153,46 @@ const PROVIDER_TEMPLATES: ProviderTemplate[] = [
     apiKeyPlaceholder: "sk-...",
     requiresApiKey: true,
     models: [
-      { id: "gpt-4o", name: "GPT-4o", inputTypes: ["text", "image"], contextWindow: 128000, maxTokens: 16384, reasoning: false, costInput: 2.5, costOutput: 10.0 },
-      { id: "gpt-4o-mini", name: "GPT-4o Mini", inputTypes: ["text", "image"], contextWindow: 128000, maxTokens: 16384, reasoning: false, costInput: 0.15, costOutput: 0.6 },
-      { id: "o3", name: "GPT o3", inputTypes: ["text", "image"], contextWindow: 200000, maxTokens: 100000, reasoning: true, costInput: 10.0, costOutput: 40.0 },
-      { id: "o4-mini", name: "GPT o4-mini", inputTypes: ["text", "image"], contextWindow: 200000, maxTokens: 100000, reasoning: true, costInput: 1.1, costOutput: 4.4 },
+      {
+        id: "gpt-4o",
+        name: "GPT-4o",
+        inputTypes: ["text", "image"],
+        contextWindow: 128000,
+        maxTokens: 16384,
+        reasoning: false,
+        costInput: 2.5,
+        costOutput: 10.0,
+      },
+      {
+        id: "gpt-4o-mini",
+        name: "GPT-4o Mini",
+        inputTypes: ["text", "image"],
+        contextWindow: 128000,
+        maxTokens: 16384,
+        reasoning: false,
+        costInput: 0.15,
+        costOutput: 0.6,
+      },
+      {
+        id: "o3",
+        name: "GPT o3",
+        inputTypes: ["text", "image"],
+        contextWindow: 200000,
+        maxTokens: 100000,
+        reasoning: true,
+        costInput: 10.0,
+        costOutput: 40.0,
+      },
+      {
+        id: "o4-mini",
+        name: "GPT o4-mini",
+        inputTypes: ["text", "image"],
+        contextWindow: 200000,
+        maxTokens: 100000,
+        reasoning: true,
+        costInput: 1.1,
+        costOutput: 4.4,
+      },
     ],
   },
   {
@@ -134,9 +205,36 @@ const PROVIDER_TEMPLATES: ProviderTemplate[] = [
     apiKeyPlaceholder: "sk-...",
     requiresApiKey: true,
     models: [
-      { id: "gpt-4o", name: "GPT-4o", inputTypes: ["text", "image"], contextWindow: 128000, maxTokens: 16384, reasoning: false, costInput: 2.5, costOutput: 10.0 },
-      { id: "gpt-4o-mini", name: "GPT-4o Mini", inputTypes: ["text", "image"], contextWindow: 128000, maxTokens: 16384, reasoning: false, costInput: 0.15, costOutput: 0.6 },
-      { id: "o3", name: "GPT o3", inputTypes: ["text", "image"], contextWindow: 200000, maxTokens: 100000, reasoning: true, costInput: 10.0, costOutput: 40.0 },
+      {
+        id: "gpt-4o",
+        name: "GPT-4o",
+        inputTypes: ["text", "image"],
+        contextWindow: 128000,
+        maxTokens: 16384,
+        reasoning: false,
+        costInput: 2.5,
+        costOutput: 10.0,
+      },
+      {
+        id: "gpt-4o-mini",
+        name: "GPT-4o Mini",
+        inputTypes: ["text", "image"],
+        contextWindow: 128000,
+        maxTokens: 16384,
+        reasoning: false,
+        costInput: 0.15,
+        costOutput: 0.6,
+      },
+      {
+        id: "o3",
+        name: "GPT o3",
+        inputTypes: ["text", "image"],
+        contextWindow: 200000,
+        maxTokens: 100000,
+        reasoning: true,
+        costInput: 10.0,
+        costOutput: 40.0,
+      },
     ],
   },
   {
@@ -149,8 +247,26 @@ const PROVIDER_TEMPLATES: ProviderTemplate[] = [
     apiKeyPlaceholder: "sk-...",
     requiresApiKey: true,
     models: [
-      { id: "deepseek-chat", name: "DeepSeek V3", inputTypes: ["text"], contextWindow: 128000, maxTokens: 8192, reasoning: false, costInput: 0.27, costOutput: 1.1 },
-      { id: "deepseek-reasoner", name: "DeepSeek R1", inputTypes: ["text"], contextWindow: 128000, maxTokens: 8192, reasoning: true, costInput: 0.55, costOutput: 2.19 },
+      {
+        id: "deepseek-chat",
+        name: "DeepSeek V3",
+        inputTypes: ["text"],
+        contextWindow: 128000,
+        maxTokens: 8192,
+        reasoning: false,
+        costInput: 0.27,
+        costOutput: 1.1,
+      },
+      {
+        id: "deepseek-reasoner",
+        name: "DeepSeek R1",
+        inputTypes: ["text"],
+        contextWindow: 128000,
+        maxTokens: 8192,
+        reasoning: true,
+        costInput: 0.55,
+        costOutput: 2.19,
+      },
     ],
   },
   {
@@ -163,8 +279,26 @@ const PROVIDER_TEMPLATES: ProviderTemplate[] = [
     apiKeyPlaceholder: "AIza...",
     requiresApiKey: true,
     models: [
-      { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro", inputTypes: ["text", "image", "video"], contextWindow: 1000000, maxTokens: 65536, reasoning: true, costInput: 1.25, costOutput: 10.0 },
-      { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash", inputTypes: ["text", "image", "video"], contextWindow: 1000000, maxTokens: 65536, reasoning: true, costInput: 0.15, costOutput: 0.6 },
+      {
+        id: "gemini-2.5-pro",
+        name: "Gemini 2.5 Pro",
+        inputTypes: ["text", "image", "video"],
+        contextWindow: 1000000,
+        maxTokens: 65536,
+        reasoning: true,
+        costInput: 1.25,
+        costOutput: 10.0,
+      },
+      {
+        id: "gemini-2.5-flash",
+        name: "Gemini 2.5 Flash",
+        inputTypes: ["text", "image", "video"],
+        contextWindow: 1000000,
+        maxTokens: 65536,
+        reasoning: true,
+        costInput: 0.15,
+        costOutput: 0.6,
+      },
     ],
   },
   {
@@ -177,7 +311,16 @@ const PROVIDER_TEMPLATES: ProviderTemplate[] = [
     apiKeyPlaceholder: "xai-...",
     requiresApiKey: true,
     models: [
-      { id: "grok-4", name: "Grok 4", inputTypes: ["text"], contextWindow: 131072, maxTokens: 8192, reasoning: false, costInput: 0, costOutput: 0 },
+      {
+        id: "grok-4",
+        name: "Grok 4",
+        inputTypes: ["text"],
+        contextWindow: 131072,
+        maxTokens: 8192,
+        reasoning: false,
+        costInput: 0,
+        costOutput: 0,
+      },
     ],
   },
   {
@@ -190,7 +333,16 @@ const PROVIDER_TEMPLATES: ProviderTemplate[] = [
     apiKeyPlaceholder: "...",
     requiresApiKey: true,
     models: [
-      { id: "mistral-large-latest", name: "Mistral Large", inputTypes: ["text", "image"], contextWindow: 262144, maxTokens: 262144, reasoning: false, costInput: 0, costOutput: 0 },
+      {
+        id: "mistral-large-latest",
+        name: "Mistral Large",
+        inputTypes: ["text", "image"],
+        contextWindow: 262144,
+        maxTokens: 262144,
+        reasoning: false,
+        costInput: 0,
+        costOutput: 0,
+      },
     ],
   },
   {
@@ -203,13 +355,76 @@ const PROVIDER_TEMPLATES: ProviderTemplate[] = [
     apiKeyPlaceholder: "sk-or-...",
     requiresApiKey: true,
     models: [
-      { id: "auto", name: "OpenRouter Auto", inputTypes: ["text", "image"], contextWindow: 200000, maxTokens: 8192, reasoning: false, costInput: 0, costOutput: 0 },
-      { id: "anthropic/claude-sonnet-4-5", name: "Claude Sonnet 4.5", inputTypes: ["text", "image"], contextWindow: 200000, maxTokens: 8192, reasoning: false, costInput: 3.0, costOutput: 15.0 },
-      { id: "openai/gpt-4o", name: "GPT-4o", inputTypes: ["text", "image"], contextWindow: 128000, maxTokens: 16384, reasoning: false, costInput: 2.5, costOutput: 10.0 },
-      { id: "google/gemini-2.5-pro-preview", name: "Gemini 2.5 Pro", inputTypes: ["text", "image"], contextWindow: 1000000, maxTokens: 65536, reasoning: true, costInput: 1.25, costOutput: 10.0 },
-      { id: "deepseek/deepseek-r1", name: "DeepSeek R1", inputTypes: ["text"], contextWindow: 128000, maxTokens: 8192, reasoning: true, costInput: 0.55, costOutput: 2.19 },
-      { id: "openrouter/hunter-alpha", name: "Hunter Alpha", inputTypes: ["text"], contextWindow: 1048576, maxTokens: 65536, reasoning: true, costInput: 0, costOutput: 0 },
-      { id: "openrouter/healer-alpha", name: "Healer Alpha", inputTypes: ["text", "image"], contextWindow: 262144, maxTokens: 65536, reasoning: true, costInput: 0, costOutput: 0 },
+      {
+        id: "auto",
+        name: "OpenRouter Auto",
+        inputTypes: ["text", "image"],
+        contextWindow: 200000,
+        maxTokens: 8192,
+        reasoning: false,
+        costInput: 0,
+        costOutput: 0,
+      },
+      {
+        id: "anthropic/claude-sonnet-4-5",
+        name: "Claude Sonnet 4.5",
+        inputTypes: ["text", "image"],
+        contextWindow: 200000,
+        maxTokens: 8192,
+        reasoning: false,
+        costInput: 3.0,
+        costOutput: 15.0,
+      },
+      {
+        id: "openai/gpt-4o",
+        name: "GPT-4o",
+        inputTypes: ["text", "image"],
+        contextWindow: 128000,
+        maxTokens: 16384,
+        reasoning: false,
+        costInput: 2.5,
+        costOutput: 10.0,
+      },
+      {
+        id: "google/gemini-2.5-pro-preview",
+        name: "Gemini 2.5 Pro",
+        inputTypes: ["text", "image"],
+        contextWindow: 1000000,
+        maxTokens: 65536,
+        reasoning: true,
+        costInput: 1.25,
+        costOutput: 10.0,
+      },
+      {
+        id: "deepseek/deepseek-r1",
+        name: "DeepSeek R1",
+        inputTypes: ["text"],
+        contextWindow: 128000,
+        maxTokens: 8192,
+        reasoning: true,
+        costInput: 0.55,
+        costOutput: 2.19,
+      },
+      {
+        id: "openrouter/hunter-alpha",
+        name: "Hunter Alpha",
+        inputTypes: ["text"],
+        contextWindow: 1048576,
+        maxTokens: 65536,
+        reasoning: true,
+        costInput: 0,
+        costOutput: 0,
+      },
+      {
+        id: "openrouter/healer-alpha",
+        name: "Healer Alpha",
+        inputTypes: ["text", "image"],
+        contextWindow: 262144,
+        maxTokens: 65536,
+        reasoning: true,
+        costInput: 0,
+        costOutput: 0,
+      },
     ],
   },
   {
@@ -222,8 +437,26 @@ const PROVIDER_TEMPLATES: ProviderTemplate[] = [
     apiKeyPlaceholder: "gsk_...",
     requiresApiKey: true,
     models: [
-      { id: "llama-3.3-70b-versatile", name: "Llama 3.3 70B", inputTypes: ["text"], contextWindow: 128000, maxTokens: 32768, reasoning: false, costInput: 0.59, costOutput: 0.79 },
-      { id: "mixtral-8x7b-32768", name: "Mixtral 8x7B", inputTypes: ["text"], contextWindow: 32768, maxTokens: 32768, reasoning: false, costInput: 0.24, costOutput: 0.24 },
+      {
+        id: "llama-3.3-70b-versatile",
+        name: "Llama 3.3 70B",
+        inputTypes: ["text"],
+        contextWindow: 128000,
+        maxTokens: 32768,
+        reasoning: false,
+        costInput: 0.59,
+        costOutput: 0.79,
+      },
+      {
+        id: "mixtral-8x7b-32768",
+        name: "Mixtral 8x7B",
+        inputTypes: ["text"],
+        contextWindow: 32768,
+        maxTokens: 32768,
+        reasoning: false,
+        costInput: 0.24,
+        costOutput: 0.24,
+      },
     ],
   },
   // ── 国内 Provider ──
@@ -237,7 +470,16 @@ const PROVIDER_TEMPLATES: ProviderTemplate[] = [
     apiKeyPlaceholder: "sk-...",
     requiresApiKey: true,
     models: [
-      { id: "kimi-k2.5", name: "Kimi K2.5", inputTypes: ["text", "image"], contextWindow: 256000, maxTokens: 8192, reasoning: false, costInput: 0, costOutput: 0 },
+      {
+        id: "kimi-k2.5",
+        name: "Kimi K2.5",
+        inputTypes: ["text", "image"],
+        contextWindow: 256000,
+        maxTokens: 8192,
+        reasoning: false,
+        costInput: 0,
+        costOutput: 0,
+      },
     ],
   },
   {
@@ -250,10 +492,46 @@ const PROVIDER_TEMPLATES: ProviderTemplate[] = [
     apiKeyPlaceholder: "sk-...",
     requiresApiKey: true,
     models: [
-      { id: "qwen-max", name: "Qwen Max", inputTypes: ["text"], contextWindow: 32768, maxTokens: 8192, reasoning: false, costInput: 2.4, costOutput: 9.6 },
-      { id: "qwen-plus", name: "Qwen Plus", inputTypes: ["text"], contextWindow: 131072, maxTokens: 8192, reasoning: false, costInput: 0.8, costOutput: 2.0 },
-      { id: "qwen-turbo", name: "Qwen Turbo", inputTypes: ["text"], contextWindow: 131072, maxTokens: 8192, reasoning: false, costInput: 0.3, costOutput: 0.6 },
-      { id: "qwq-plus", name: "QwQ Plus (推理)", inputTypes: ["text"], contextWindow: 131072, maxTokens: 16384, reasoning: true, costInput: 1.6, costOutput: 4.0 },
+      {
+        id: "qwen-max",
+        name: "Qwen Max",
+        inputTypes: ["text"],
+        contextWindow: 32768,
+        maxTokens: 8192,
+        reasoning: false,
+        costInput: 2.4,
+        costOutput: 9.6,
+      },
+      {
+        id: "qwen-plus",
+        name: "Qwen Plus",
+        inputTypes: ["text"],
+        contextWindow: 131072,
+        maxTokens: 8192,
+        reasoning: false,
+        costInput: 0.8,
+        costOutput: 2.0,
+      },
+      {
+        id: "qwen-turbo",
+        name: "Qwen Turbo",
+        inputTypes: ["text"],
+        contextWindow: 131072,
+        maxTokens: 8192,
+        reasoning: false,
+        costInput: 0.3,
+        costOutput: 0.6,
+      },
+      {
+        id: "qwq-plus",
+        name: "QwQ Plus (推理)",
+        inputTypes: ["text"],
+        contextWindow: 131072,
+        maxTokens: 16384,
+        reasoning: true,
+        costInput: 1.6,
+        costOutput: 4.0,
+      },
     ],
     thinkingStyle: "qwen",
   },
@@ -267,11 +545,56 @@ const PROVIDER_TEMPLATES: ProviderTemplate[] = [
     apiKeyPlaceholder: "...",
     requiresApiKey: true,
     models: [
-      { id: "doubao-seed-1-8-251228", name: "Doubao Seed 1.8", inputTypes: ["text", "image"], contextWindow: 256000, maxTokens: 4096, reasoning: false, costInput: 0, costOutput: 0 },
-      { id: "doubao-seed-code-preview-251028", name: "Doubao Seed Code", inputTypes: ["text", "image"], contextWindow: 256000, maxTokens: 4096, reasoning: false, costInput: 0, costOutput: 0 },
-      { id: "kimi-k2-5-260127", name: "Kimi K2.5", inputTypes: ["text", "image"], contextWindow: 256000, maxTokens: 4096, reasoning: false, costInput: 0, costOutput: 0 },
-      { id: "glm-4-7-251222", name: "GLM 4.7", inputTypes: ["text", "image"], contextWindow: 200000, maxTokens: 4096, reasoning: false, costInput: 0, costOutput: 0 },
-      { id: "deepseek-v3-2-251201", name: "DeepSeek V3.2", inputTypes: ["text", "image"], contextWindow: 128000, maxTokens: 4096, reasoning: false, costInput: 0, costOutput: 0 },
+      {
+        id: "doubao-seed-1-8-251228",
+        name: "Doubao Seed 1.8",
+        inputTypes: ["text", "image"],
+        contextWindow: 256000,
+        maxTokens: 4096,
+        reasoning: false,
+        costInput: 0,
+        costOutput: 0,
+      },
+      {
+        id: "doubao-seed-code-preview-251028",
+        name: "Doubao Seed Code",
+        inputTypes: ["text", "image"],
+        contextWindow: 256000,
+        maxTokens: 4096,
+        reasoning: false,
+        costInput: 0,
+        costOutput: 0,
+      },
+      {
+        id: "kimi-k2-5-260127",
+        name: "Kimi K2.5",
+        inputTypes: ["text", "image"],
+        contextWindow: 256000,
+        maxTokens: 4096,
+        reasoning: false,
+        costInput: 0,
+        costOutput: 0,
+      },
+      {
+        id: "glm-4-7-251222",
+        name: "GLM 4.7",
+        inputTypes: ["text", "image"],
+        contextWindow: 200000,
+        maxTokens: 4096,
+        reasoning: false,
+        costInput: 0,
+        costOutput: 0,
+      },
+      {
+        id: "deepseek-v3-2-251201",
+        name: "DeepSeek V3.2",
+        inputTypes: ["text", "image"],
+        contextWindow: 128000,
+        maxTokens: 4096,
+        reasoning: false,
+        costInput: 0,
+        costOutput: 0,
+      },
     ],
   },
   {
@@ -284,11 +607,56 @@ const PROVIDER_TEMPLATES: ProviderTemplate[] = [
     apiKeyPlaceholder: "...",
     requiresApiKey: true,
     models: [
-      { id: "glm-5", name: "GLM-5", inputTypes: ["text"], contextWindow: 204800, maxTokens: 131072, reasoning: true, costInput: 0, costOutput: 0 },
-      { id: "glm-5-turbo", name: "GLM-5 Turbo", inputTypes: ["text"], contextWindow: 204800, maxTokens: 131072, reasoning: true, costInput: 0, costOutput: 0 },
-      { id: "glm-4.7", name: "GLM-4.7", inputTypes: ["text"], contextWindow: 204800, maxTokens: 131072, reasoning: true, costInput: 0, costOutput: 0 },
-      { id: "glm-4.7-flash", name: "GLM-4.7 Flash", inputTypes: ["text"], contextWindow: 204800, maxTokens: 131072, reasoning: true, costInput: 0, costOutput: 0 },
-      { id: "glm-4.7-flashx", name: "GLM-4.7 FlashX", inputTypes: ["text"], contextWindow: 204800, maxTokens: 131072, reasoning: true, costInput: 0, costOutput: 0 },
+      {
+        id: "glm-5",
+        name: "GLM-5",
+        inputTypes: ["text"],
+        contextWindow: 204800,
+        maxTokens: 131072,
+        reasoning: true,
+        costInput: 0,
+        costOutput: 0,
+      },
+      {
+        id: "glm-5-turbo",
+        name: "GLM-5 Turbo",
+        inputTypes: ["text"],
+        contextWindow: 204800,
+        maxTokens: 131072,
+        reasoning: true,
+        costInput: 0,
+        costOutput: 0,
+      },
+      {
+        id: "glm-4.7",
+        name: "GLM-4.7",
+        inputTypes: ["text"],
+        contextWindow: 204800,
+        maxTokens: 131072,
+        reasoning: true,
+        costInput: 0,
+        costOutput: 0,
+      },
+      {
+        id: "glm-4.7-flash",
+        name: "GLM-4.7 Flash",
+        inputTypes: ["text"],
+        contextWindow: 204800,
+        maxTokens: 131072,
+        reasoning: true,
+        costInput: 0,
+        costOutput: 0,
+      },
+      {
+        id: "glm-4.7-flashx",
+        name: "GLM-4.7 FlashX",
+        inputTypes: ["text"],
+        contextWindow: 204800,
+        maxTokens: 131072,
+        reasoning: true,
+        costInput: 0,
+        costOutput: 0,
+      },
     ],
     thinkingStyle: "zai",
   },
@@ -302,9 +670,36 @@ const PROVIDER_TEMPLATES: ProviderTemplate[] = [
     apiKeyPlaceholder: "...",
     requiresApiKey: true,
     models: [
-      { id: "MiniMax-VL-01", name: "MiniMax VL 01", inputTypes: ["text", "image"], contextWindow: 200000, maxTokens: 8192, reasoning: false, costInput: 0.3, costOutput: 1.2 },
-      { id: "MiniMax-M2.5", name: "MiniMax M2.5", inputTypes: ["text"], contextWindow: 200000, maxTokens: 8192, reasoning: true, costInput: 0.3, costOutput: 1.2 },
-      { id: "MiniMax-M2.5-highspeed", name: "MiniMax M2.5 Highspeed", inputTypes: ["text"], contextWindow: 200000, maxTokens: 8192, reasoning: true, costInput: 0.3, costOutput: 1.2 },
+      {
+        id: "MiniMax-VL-01",
+        name: "MiniMax VL 01",
+        inputTypes: ["text", "image"],
+        contextWindow: 200000,
+        maxTokens: 8192,
+        reasoning: false,
+        costInput: 0.3,
+        costOutput: 1.2,
+      },
+      {
+        id: "MiniMax-M2.5",
+        name: "MiniMax M2.5",
+        inputTypes: ["text"],
+        contextWindow: 200000,
+        maxTokens: 8192,
+        reasoning: true,
+        costInput: 0.3,
+        costOutput: 1.2,
+      },
+      {
+        id: "MiniMax-M2.5-highspeed",
+        name: "MiniMax M2.5 Highspeed",
+        inputTypes: ["text"],
+        contextWindow: 200000,
+        maxTokens: 8192,
+        reasoning: true,
+        costInput: 0.3,
+        costOutput: 1.2,
+      },
     ],
     thinkingStyle: "anthropic",
   },
@@ -318,8 +713,26 @@ const PROVIDER_TEMPLATES: ProviderTemplate[] = [
     apiKeyPlaceholder: "sk-...",
     requiresApiKey: true,
     models: [
-      { id: "kimi-code", name: "Kimi Code", inputTypes: ["text", "image"], contextWindow: 262144, maxTokens: 32768, reasoning: true, costInput: 0, costOutput: 0 },
-      { id: "k2p5", name: "Kimi Code (legacy)", inputTypes: ["text", "image"], contextWindow: 262144, maxTokens: 32768, reasoning: true, costInput: 0, costOutput: 0 },
+      {
+        id: "kimi-code",
+        name: "Kimi Code",
+        inputTypes: ["text", "image"],
+        contextWindow: 262144,
+        maxTokens: 32768,
+        reasoning: true,
+        costInput: 0,
+        costOutput: 0,
+      },
+      {
+        id: "k2p5",
+        name: "Kimi Code (legacy)",
+        inputTypes: ["text", "image"],
+        contextWindow: 262144,
+        maxTokens: 32768,
+        reasoning: true,
+        costInput: 0,
+        costOutput: 0,
+      },
     ],
     thinkingStyle: "anthropic",
   },
@@ -333,7 +746,16 @@ const PROVIDER_TEMPLATES: ProviderTemplate[] = [
     apiKeyPlaceholder: "...",
     requiresApiKey: true,
     models: [
-      { id: "mimo-v2-flash", name: "MiMo V2 Flash", inputTypes: ["text"], contextWindow: 262144, maxTokens: 8192, reasoning: false, costInput: 0, costOutput: 0 },
+      {
+        id: "mimo-v2-flash",
+        name: "MiMo V2 Flash",
+        inputTypes: ["text"],
+        contextWindow: 262144,
+        maxTokens: 8192,
+        reasoning: false,
+        costInput: 0,
+        costOutput: 0,
+      },
     ],
     thinkingStyle: "anthropic",
   },
@@ -347,8 +769,26 @@ const PROVIDER_TEMPLATES: ProviderTemplate[] = [
     apiKeyPlaceholder: "...",
     requiresApiKey: true,
     models: [
-      { id: "deepseek-v3.2", name: "DeepSeek V3.2", inputTypes: ["text"], contextWindow: 98304, maxTokens: 32768, reasoning: true, costInput: 0, costOutput: 0 },
-      { id: "ernie-5.0-thinking-preview", name: "ERNIE 5.0 Thinking", inputTypes: ["text", "image"], contextWindow: 119000, maxTokens: 64000, reasoning: true, costInput: 0, costOutput: 0 },
+      {
+        id: "deepseek-v3.2",
+        name: "DeepSeek V3.2",
+        inputTypes: ["text"],
+        contextWindow: 98304,
+        maxTokens: 32768,
+        reasoning: true,
+        costInput: 0,
+        costOutput: 0,
+      },
+      {
+        id: "ernie-5.0-thinking-preview",
+        name: "ERNIE 5.0 Thinking",
+        inputTypes: ["text", "image"],
+        contextWindow: 119000,
+        maxTokens: 64000,
+        reasoning: true,
+        costInput: 0,
+        costOutput: 0,
+      },
     ],
   },
   {
@@ -361,14 +801,86 @@ const PROVIDER_TEMPLATES: ProviderTemplate[] = [
     apiKeyPlaceholder: "sk-...",
     requiresApiKey: true,
     models: [
-      { id: "qwen3.5-plus", name: "Qwen 3.5 Plus", inputTypes: ["text", "image"], contextWindow: 1000000, maxTokens: 65536, reasoning: false, costInput: 0, costOutput: 0 },
-      { id: "qwen3-coder-plus", name: "Qwen 3 Coder Plus", inputTypes: ["text"], contextWindow: 1000000, maxTokens: 65536, reasoning: false, costInput: 0, costOutput: 0 },
-      { id: "qwen3-coder-next", name: "Qwen 3 Coder Next", inputTypes: ["text"], contextWindow: 262144, maxTokens: 65536, reasoning: false, costInput: 0, costOutput: 0 },
-      { id: "qwen3-max-2026-01-23", name: "Qwen 3 Max", inputTypes: ["text"], contextWindow: 262144, maxTokens: 65536, reasoning: false, costInput: 0, costOutput: 0 },
-      { id: "MiniMax-M2.5", name: "MiniMax M2.5", inputTypes: ["text"], contextWindow: 1000000, maxTokens: 65536, reasoning: true, costInput: 0, costOutput: 0 },
-      { id: "glm-5", name: "GLM-5", inputTypes: ["text"], contextWindow: 202752, maxTokens: 16384, reasoning: false, costInput: 0, costOutput: 0 },
-      { id: "glm-4.7", name: "GLM 4.7", inputTypes: ["text"], contextWindow: 202752, maxTokens: 16384, reasoning: false, costInput: 0, costOutput: 0 },
-      { id: "kimi-k2.5", name: "Kimi K2.5", inputTypes: ["text", "image"], contextWindow: 262144, maxTokens: 32768, reasoning: false, costInput: 0, costOutput: 0 },
+      {
+        id: "qwen3.5-plus",
+        name: "Qwen 3.5 Plus",
+        inputTypes: ["text", "image"],
+        contextWindow: 1000000,
+        maxTokens: 65536,
+        reasoning: false,
+        costInput: 0,
+        costOutput: 0,
+      },
+      {
+        id: "qwen3-coder-plus",
+        name: "Qwen 3 Coder Plus",
+        inputTypes: ["text"],
+        contextWindow: 1000000,
+        maxTokens: 65536,
+        reasoning: false,
+        costInput: 0,
+        costOutput: 0,
+      },
+      {
+        id: "qwen3-coder-next",
+        name: "Qwen 3 Coder Next",
+        inputTypes: ["text"],
+        contextWindow: 262144,
+        maxTokens: 65536,
+        reasoning: false,
+        costInput: 0,
+        costOutput: 0,
+      },
+      {
+        id: "qwen3-max-2026-01-23",
+        name: "Qwen 3 Max",
+        inputTypes: ["text"],
+        contextWindow: 262144,
+        maxTokens: 65536,
+        reasoning: false,
+        costInput: 0,
+        costOutput: 0,
+      },
+      {
+        id: "MiniMax-M2.5",
+        name: "MiniMax M2.5",
+        inputTypes: ["text"],
+        contextWindow: 1000000,
+        maxTokens: 65536,
+        reasoning: true,
+        costInput: 0,
+        costOutput: 0,
+      },
+      {
+        id: "glm-5",
+        name: "GLM-5",
+        inputTypes: ["text"],
+        contextWindow: 202752,
+        maxTokens: 16384,
+        reasoning: false,
+        costInput: 0,
+        costOutput: 0,
+      },
+      {
+        id: "glm-4.7",
+        name: "GLM 4.7",
+        inputTypes: ["text"],
+        contextWindow: 202752,
+        maxTokens: 16384,
+        reasoning: false,
+        costInput: 0,
+        costOutput: 0,
+      },
+      {
+        id: "kimi-k2.5",
+        name: "Kimi K2.5",
+        inputTypes: ["text", "image"],
+        contextWindow: 262144,
+        maxTokens: 32768,
+        reasoning: false,
+        costInput: 0,
+        costOutput: 0,
+      },
     ],
     thinkingStyle: "qwen",
   },
@@ -382,9 +894,36 @@ const PROVIDER_TEMPLATES: ProviderTemplate[] = [
     apiKeyPlaceholder: "nvapi-...",
     requiresApiKey: true,
     models: [
-      { id: "nvidia/llama-3.1-nemotron-70b-instruct", name: "Llama 3.1 Nemotron 70B", inputTypes: ["text"], contextWindow: 131072, maxTokens: 4096, reasoning: false, costInput: 0, costOutput: 0 },
-      { id: "meta/llama-3.3-70b-instruct", name: "Llama 3.3 70B", inputTypes: ["text"], contextWindow: 131072, maxTokens: 4096, reasoning: false, costInput: 0, costOutput: 0 },
-      { id: "nvidia/mistral-nemo-minitron-8b-8k-instruct", name: "Mistral NeMo Minitron 8B", inputTypes: ["text"], contextWindow: 8192, maxTokens: 2048, reasoning: false, costInput: 0, costOutput: 0 },
+      {
+        id: "nvidia/llama-3.1-nemotron-70b-instruct",
+        name: "Llama 3.1 Nemotron 70B",
+        inputTypes: ["text"],
+        contextWindow: 131072,
+        maxTokens: 4096,
+        reasoning: false,
+        costInput: 0,
+        costOutput: 0,
+      },
+      {
+        id: "meta/llama-3.3-70b-instruct",
+        name: "Llama 3.3 70B",
+        inputTypes: ["text"],
+        contextWindow: 131072,
+        maxTokens: 4096,
+        reasoning: false,
+        costInput: 0,
+        costOutput: 0,
+      },
+      {
+        id: "nvidia/mistral-nemo-minitron-8b-8k-instruct",
+        name: "Mistral NeMo Minitron 8B",
+        inputTypes: ["text"],
+        contextWindow: 8192,
+        maxTokens: 2048,
+        reasoning: false,
+        costInput: 0,
+        costOutput: 0,
+      },
     ],
   },
   {
@@ -397,14 +936,86 @@ const PROVIDER_TEMPLATES: ProviderTemplate[] = [
     apiKeyPlaceholder: "...",
     requiresApiKey: true,
     models: [
-      { id: "meta-llama/Llama-3.3-70B-Instruct-Turbo", name: "Llama 3.3 70B Turbo", inputTypes: ["text"], contextWindow: 131072, maxTokens: 8192, reasoning: false, costInput: 0.88, costOutput: 0.88 },
-      { id: "moonshotai/Kimi-K2.5", name: "Kimi K2.5", inputTypes: ["text", "image"], contextWindow: 262144, maxTokens: 32768, reasoning: true, costInput: 0.5, costOutput: 2.8 },
-      { id: "zai-org/GLM-4.7", name: "GLM 4.7 Fp8", inputTypes: ["text"], contextWindow: 202752, maxTokens: 8192, reasoning: false, costInput: 0.45, costOutput: 2.0 },
-      { id: "meta-llama/Llama-4-Scout-17B-16E-Instruct", name: "Llama 4 Scout 17B", inputTypes: ["text", "image"], contextWindow: 10000000, maxTokens: 32768, reasoning: false, costInput: 0.18, costOutput: 0.59 },
-      { id: "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8", name: "Llama 4 Maverick 17B", inputTypes: ["text", "image"], contextWindow: 20000000, maxTokens: 32768, reasoning: false, costInput: 0.27, costOutput: 0.85 },
-      { id: "deepseek-ai/DeepSeek-V3.1", name: "DeepSeek V3.1", inputTypes: ["text"], contextWindow: 131072, maxTokens: 8192, reasoning: false, costInput: 0.6, costOutput: 1.25 },
-      { id: "deepseek-ai/DeepSeek-R1", name: "DeepSeek R1", inputTypes: ["text"], contextWindow: 131072, maxTokens: 8192, reasoning: true, costInput: 3.0, costOutput: 7.0 },
-      { id: "moonshotai/Kimi-K2-Instruct-0905", name: "Kimi K2 Instruct", inputTypes: ["text"], contextWindow: 262144, maxTokens: 8192, reasoning: false, costInput: 1.0, costOutput: 3.0 },
+      {
+        id: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+        name: "Llama 3.3 70B Turbo",
+        inputTypes: ["text"],
+        contextWindow: 131072,
+        maxTokens: 8192,
+        reasoning: false,
+        costInput: 0.88,
+        costOutput: 0.88,
+      },
+      {
+        id: "moonshotai/Kimi-K2.5",
+        name: "Kimi K2.5",
+        inputTypes: ["text", "image"],
+        contextWindow: 262144,
+        maxTokens: 32768,
+        reasoning: true,
+        costInput: 0.5,
+        costOutput: 2.8,
+      },
+      {
+        id: "zai-org/GLM-4.7",
+        name: "GLM 4.7 Fp8",
+        inputTypes: ["text"],
+        contextWindow: 202752,
+        maxTokens: 8192,
+        reasoning: false,
+        costInput: 0.45,
+        costOutput: 2.0,
+      },
+      {
+        id: "meta-llama/Llama-4-Scout-17B-16E-Instruct",
+        name: "Llama 4 Scout 17B",
+        inputTypes: ["text", "image"],
+        contextWindow: 10000000,
+        maxTokens: 32768,
+        reasoning: false,
+        costInput: 0.18,
+        costOutput: 0.59,
+      },
+      {
+        id: "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
+        name: "Llama 4 Maverick 17B",
+        inputTypes: ["text", "image"],
+        contextWindow: 20000000,
+        maxTokens: 32768,
+        reasoning: false,
+        costInput: 0.27,
+        costOutput: 0.85,
+      },
+      {
+        id: "deepseek-ai/DeepSeek-V3.1",
+        name: "DeepSeek V3.1",
+        inputTypes: ["text"],
+        contextWindow: 131072,
+        maxTokens: 8192,
+        reasoning: false,
+        costInput: 0.6,
+        costOutput: 1.25,
+      },
+      {
+        id: "deepseek-ai/DeepSeek-R1",
+        name: "DeepSeek R1",
+        inputTypes: ["text"],
+        contextWindow: 131072,
+        maxTokens: 8192,
+        reasoning: true,
+        costInput: 3.0,
+        costOutput: 7.0,
+      },
+      {
+        id: "moonshotai/Kimi-K2-Instruct-0905",
+        name: "Kimi K2 Instruct",
+        inputTypes: ["text"],
+        contextWindow: 262144,
+        maxTokens: 8192,
+        reasoning: false,
+        costInput: 1.0,
+        costOutput: 3.0,
+      },
     ],
   },
   // ── 本地 Provider ──
@@ -418,11 +1029,56 @@ const PROVIDER_TEMPLATES: ProviderTemplate[] = [
     apiKeyPlaceholder: "（无需填写）",
     requiresApiKey: false,
     models: [
-      { id: "glm-4.7-flash", name: "GLM 4.7 Flash", inputTypes: ["text"], contextWindow: 128000, maxTokens: 8192, reasoning: true, costInput: 0, costOutput: 0 },
-      { id: "qwen3:32b", name: "Qwen 3 32B", inputTypes: ["text"], contextWindow: 128000, maxTokens: 8192, reasoning: true, costInput: 0, costOutput: 0 },
-      { id: "kimi-k2.5:cloud", name: "Kimi K2.5 (云端)", inputTypes: ["text", "image"], contextWindow: 256000, maxTokens: 8192, reasoning: false, costInput: 0, costOutput: 0 },
-      { id: "minimax-m2.5:cloud", name: "MiniMax M2.5 (云端)", inputTypes: ["text"], contextWindow: 200000, maxTokens: 8192, reasoning: true, costInput: 0, costOutput: 0 },
-      { id: "glm-5:cloud", name: "GLM-5 (云端)", inputTypes: ["text"], contextWindow: 204800, maxTokens: 131072, reasoning: true, costInput: 0, costOutput: 0 },
+      {
+        id: "glm-4.7-flash",
+        name: "GLM 4.7 Flash",
+        inputTypes: ["text"],
+        contextWindow: 128000,
+        maxTokens: 8192,
+        reasoning: true,
+        costInput: 0,
+        costOutput: 0,
+      },
+      {
+        id: "qwen3:32b",
+        name: "Qwen 3 32B",
+        inputTypes: ["text"],
+        contextWindow: 128000,
+        maxTokens: 8192,
+        reasoning: true,
+        costInput: 0,
+        costOutput: 0,
+      },
+      {
+        id: "kimi-k2.5:cloud",
+        name: "Kimi K2.5 (云端)",
+        inputTypes: ["text", "image"],
+        contextWindow: 256000,
+        maxTokens: 8192,
+        reasoning: false,
+        costInput: 0,
+        costOutput: 0,
+      },
+      {
+        id: "minimax-m2.5:cloud",
+        name: "MiniMax M2.5 (云端)",
+        inputTypes: ["text"],
+        contextWindow: 200000,
+        maxTokens: 8192,
+        reasoning: true,
+        costInput: 0,
+        costOutput: 0,
+      },
+      {
+        id: "glm-5:cloud",
+        name: "GLM-5 (云端)",
+        inputTypes: ["text"],
+        contextWindow: 204800,
+        maxTokens: 131072,
+        reasoning: true,
+        costInput: 0,
+        costOutput: 0,
+      },
     ],
   },
   {
@@ -435,7 +1091,16 @@ const PROVIDER_TEMPLATES: ProviderTemplate[] = [
     apiKeyPlaceholder: "（无需填写）",
     requiresApiKey: false,
     models: [
-      { id: "your-model-id", name: "Your Model", inputTypes: ["text"], contextWindow: 128000, maxTokens: 8192, reasoning: false, costInput: 0, costOutput: 0 },
+      {
+        id: "your-model-id",
+        name: "Your Model",
+        inputTypes: ["text"],
+        contextWindow: 128000,
+        maxTokens: 8192,
+        reasoning: false,
+        costInput: 0,
+        costOutput: 0,
+      },
     ],
   },
   {
@@ -448,7 +1113,16 @@ const PROVIDER_TEMPLATES: ProviderTemplate[] = [
     apiKeyPlaceholder: "（无需填写）",
     requiresApiKey: false,
     models: [
-      { id: "your-model-id", name: "Your Model", inputTypes: ["text"], contextWindow: 128000, maxTokens: 8192, reasoning: false, costInput: 0, costOutput: 0 },
+      {
+        id: "your-model-id",
+        name: "Your Model",
+        inputTypes: ["text"],
+        contextWindow: 128000,
+        maxTokens: 8192,
+        reasoning: false,
+        costInput: 0,
+        costOutput: 0,
+      },
     ],
   },
 ]
@@ -468,14 +1142,9 @@ export function SortableModelEditor({
   onRemove: () => void
   onTest?: (modelId: string) => Promise<string>
 }) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: sortableId })
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: sortableId,
+  })
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -516,7 +1185,10 @@ export function ModelEditor({
   const { t } = useTranslation()
   const inputTypes = ["text", "image", "video"]
   const [testLoading, setTestLoading] = useState(false)
-  const [testResult, setTestResult] = useState<{ ok: boolean; data: Record<string, unknown> } | null>(null)
+  const [testResult, setTestResult] = useState<{
+    ok: boolean
+    data: Record<string, unknown>
+  } | null>(null)
   const [logExpanded, setLogExpanded] = useState(false)
 
   function toggleInput(type: string) {
@@ -585,15 +1257,20 @@ export function ModelEditor({
             <button
               key={type}
               onClick={() => toggleInput(type)}
-              className={`px-2.5 py-1 text-[11px] rounded-md border transition-colors flex items-center gap-1.5 ${model.inputTypes.includes(type)
+              className={`px-2.5 py-1 text-[11px] rounded-md border transition-colors flex items-center gap-1.5 ${
+                model.inputTypes.includes(type)
                   ? "border-primary bg-primary/10 text-primary"
                   : "border-border bg-background text-muted-foreground hover:border-primary/40"
-                }`}
+              }`}
             >
               {type === "text" && <Type className="h-3 w-3" />}
               {type === "image" && <Image className="h-3 w-3" />}
               {type === "video" && <Video className="h-3 w-3" />}
-              {type === "text" ? t("model.text") : type === "image" ? t("model.image") : t("model.video")}
+              {type === "text"
+                ? t("model.text")
+                : type === "image"
+                  ? t("model.image")
+                  : t("model.video")}
             </button>
           ))}
         </div>
@@ -601,9 +1278,7 @@ export function ModelEditor({
 
       <div className="grid grid-cols-2 gap-2.5">
         <div className="space-y-1">
-          <label className="text-[10px] text-muted-foreground">
-            Context Window
-          </label>
+          <label className="text-[10px] text-muted-foreground">Context Window</label>
           <Input
             type="number"
             value={model.contextWindow}
@@ -617,15 +1292,11 @@ export function ModelEditor({
           />
         </div>
         <div className="space-y-1">
-          <label className="text-[10px] text-muted-foreground">
-            Max Tokens
-          </label>
+          <label className="text-[10px] text-muted-foreground">Max Tokens</label>
           <Input
             type="number"
             value={model.maxTokens}
-            onChange={(e) =>
-              onChange({ ...model, maxTokens: parseInt(e.target.value) || 0 })
-            }
+            onChange={(e) => onChange({ ...model, maxTokens: parseInt(e.target.value) || 0 })}
             className="bg-background text-xs h-8"
           />
         </div>
@@ -635,21 +1306,21 @@ export function ModelEditor({
         <label className="text-xs text-muted-foreground">{t("model.reasoning")}</label>
         <button
           onClick={() => onChange({ ...model, reasoning: !model.reasoning })}
-          className={`w-9 h-5 rounded-full transition-colors relative ${model.reasoning ? "bg-primary" : "bg-secondary border border-border"
-            }`}
+          className={`w-9 h-5 rounded-full transition-colors relative ${
+            model.reasoning ? "bg-primary" : "bg-secondary border border-border"
+          }`}
         >
           <span
-            className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${model.reasoning ? "left-[18px]" : "left-0.5"
-              }`}
+            className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
+              model.reasoning ? "left-[18px]" : "left-0.5"
+            }`}
           />
         </button>
       </div>
 
       <div className="grid grid-cols-2 gap-2.5">
         <div className="space-y-1">
-          <label className="text-[10px] text-muted-foreground">
-            {t("model.inputCost")}
-          </label>
+          <label className="text-[10px] text-muted-foreground">{t("model.inputCost")}</label>
           <Input
             type="number"
             step="0.01"
@@ -664,9 +1335,7 @@ export function ModelEditor({
           />
         </div>
         <div className="space-y-1">
-          <label className="text-[10px] text-muted-foreground">
-            {t("model.outputCost")}
-          </label>
+          <label className="text-[10px] text-muted-foreground">{t("model.outputCost")}</label>
           <Input
             type="number"
             step="0.01"
@@ -710,12 +1379,22 @@ export function ModelEditor({
               disabled={testLoading}
               className="flex items-center gap-1 text-[10px] text-primary/70 hover:text-primary transition-colors disabled:opacity-50"
             >
-              {testLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3 fill-current" />}
+              {testLoading ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Play className="h-3 w-3 fill-current" />
+              )}
               发送 "Hi" 测试
             </button>
             {testResult && (
-              <span className={`flex items-center gap-1 text-[10px] ${testResult.ok ? "text-green-400" : "text-red-400"}`}>
-                {testResult.ok ? <CheckCircle2 className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
+              <span
+                className={`flex items-center gap-1 text-[10px] ${testResult.ok ? "text-green-400" : "text-red-400"}`}
+              >
+                {testResult.ok ? (
+                  <CheckCircle2 className="h-3 w-3" />
+                ) : (
+                  <XCircle className="h-3 w-3" />
+                )}
                 {testResult.data.message}
                 {testResult.data.latencyMs != null && testResult.data.latencyMs > 0 && (
                   <span className="text-muted-foreground flex items-center gap-0.5">
@@ -739,33 +1418,55 @@ export function ModelEditor({
               {testResult.data.reply}
             </div>
           )}
-          {logExpanded && testResult && (() => {
-            const d = testResult.data
-            return (
-              <div className="px-2.5 py-2 rounded-md bg-secondary/30 border border-border/50 overflow-hidden space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-[9px] font-medium text-foreground/60">完整日志</span>
-                  <button onClick={() => setLogExpanded(false)} className="text-muted-foreground hover:text-foreground">
-                    <X className="h-2.5 w-2.5" />
-                  </button>
-                </div>
-                {d.request && (
+          {logExpanded &&
+            testResult &&
+            (() => {
+              const d = testResult.data
+              return (
+                <div className="px-2.5 py-2 rounded-md bg-secondary/30 border border-border/50 overflow-hidden space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[9px] font-medium text-foreground/60">完整日志</span>
+                    <button
+                      onClick={() => setLogExpanded(false)}
+                      className="text-muted-foreground hover:text-foreground"
+                    >
+                      <X className="h-2.5 w-2.5" />
+                    </button>
+                  </div>
+                  {d.request && (
+                    <div>
+                      <span className="text-[9px] font-semibold text-blue-400">▸ 请求</span>
+                      <pre className="text-[10px] text-muted-foreground whitespace-pre-wrap break-all max-h-32 overflow-y-auto font-mono mt-0.5 pl-2 border-l-2 border-blue-500/30">
+                        {JSON.stringify(d.request, null, 2)}
+                      </pre>
+                    </div>
+                  )}
                   <div>
-                    <span className="text-[9px] font-semibold text-blue-400">▸ 请求</span>
-                    <pre className="text-[10px] text-muted-foreground whitespace-pre-wrap break-all max-h-32 overflow-y-auto font-mono mt-0.5 pl-2 border-l-2 border-blue-500/30">
-                      {JSON.stringify(d.request, null, 2)}
+                    <span
+                      className={`text-[9px] font-semibold ${d.success ? "text-green-400" : "text-red-400"}`}
+                    >
+                      ▸ 响应 {d.status ? `(${d.status})` : ""}
+                    </span>
+                    <pre
+                      className={`text-[10px] text-muted-foreground whitespace-pre-wrap break-all max-h-40 overflow-y-auto font-mono mt-0.5 pl-2 border-l-2 ${d.success ? "border-green-500/30" : "border-red-500/30"}`}
+                    >
+                      {d.response
+                        ? JSON.stringify(d.response, null, 2)
+                        : JSON.stringify(
+                            {
+                              success: d.success,
+                              message: d.message,
+                              model: d.model,
+                              latencyMs: d.latencyMs,
+                            },
+                            null,
+                            2,
+                          )}
                     </pre>
                   </div>
-                )}
-                <div>
-                  <span className={`text-[9px] font-semibold ${d.success ? "text-green-400" : "text-red-400"}`}>▸ 响应 {d.status ? `(${d.status})` : ""}</span>
-                  <pre className={`text-[10px] text-muted-foreground whitespace-pre-wrap break-all max-h-40 overflow-y-auto font-mono mt-0.5 pl-2 border-l-2 ${d.success ? "border-green-500/30" : "border-red-500/30"}`}>
-                    {d.response ? JSON.stringify(d.response, null, 2) : JSON.stringify({ success: d.success, message: d.message, model: d.model, latencyMs: d.latencyMs }, null, 2)}
-                  </pre>
                 </div>
-              </div>
-            )
-          })()}
+              )
+            })()}
         </div>
       )}
     </div>
@@ -783,16 +1484,13 @@ export default function ProviderSetup({
   onCodexAuth: () => Promise<void>
   onCancel?: () => void
 }) {
-  const [mode, setMode] = useState<"choose" | "template-config" | "custom">(
-    "choose",
-  )
+  const [mode, setMode] = useState<"choose" | "template-config" | "custom">("choose")
   const [codexLoading, setCodexLoading] = useState(false)
   const [codexError, setCodexError] = useState("")
   const { t } = useTranslation()
 
   // Template selection
-  const [selectedTemplate, setSelectedTemplate] =
-    useState<ProviderTemplate | null>(null)
+  const [selectedTemplate, setSelectedTemplate] = useState<ProviderTemplate | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
 
   // Config form (for both template & custom)
@@ -926,23 +1624,28 @@ export default function ProviderSetup({
   // ── Filtered Templates ──────────────────────────────────────────
 
   const filteredTemplates = searchQuery.trim()
-    ? PROVIDER_TEMPLATES.filter(
-      (tmpl) => {
+    ? PROVIDER_TEMPLATES.filter((tmpl) => {
         const name = t(`provider_templates.${tmpl.key}.name`, { defaultValue: tmpl.name })
-        const desc = t(`provider_templates.${tmpl.key}.description`, { defaultValue: tmpl.description })
-        return name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-               desc.toLowerCase().includes(searchQuery.toLowerCase())
-      }
-    )
+        const desc = t(`provider_templates.${tmpl.key}.description`, {
+          defaultValue: tmpl.description,
+        })
+        return (
+          name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          desc.toLowerCase().includes(searchQuery.toLowerCase())
+        )
+      })
     : PROVIDER_TEMPLATES
 
   // ── Choose Mode Screen (Template Grid) ──────────────────────────
 
   if (mode === "choose") {
     return (
-    <div className="flex flex-col h-full bg-background">
+      <div className="flex flex-col h-full bg-background">
         {/* Header with title */}
-        <div className="h-[4.5rem] flex items-end pb-2 px-4 border-b border-border shrink-0 relative" data-tauri-drag-region>
+        <div
+          className="h-[4.5rem] flex items-end pb-2 px-4 border-b border-border shrink-0 relative"
+          data-tauri-drag-region
+        >
           {onCancel && (
             <Button
               variant="ghost"
@@ -963,95 +1666,92 @@ export default function ProviderSetup({
 
         {/* Scrollable content area */}
         <div className="flex-1 overflow-y-auto">
+          {/* Subtitle */}
+          <p className="text-sm text-muted-foreground text-center pt-5 pb-3 px-4">
+            {t("provider.selectProvider")}
+          </p>
 
-        {/* Subtitle */}
-        <p className="text-sm text-muted-foreground text-center pt-5 pb-3 px-4">
-          {t("provider.selectProvider")}
-        </p>
-
-        {/* Codex Quick Auth */}
-        <div className="px-6 pb-4 max-w-xl mx-auto w-full">
-          <Button
-            onClick={handleCodexAuth}
-            disabled={codexLoading}
-            className="w-full h-11 text-sm font-medium bg-primary hover:bg-primary/90"
-          >
-            {codexLoading ? (
-              <span className="flex items-center gap-2">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                {t("provider.waitingBrowserLogin")}
+          {/* Codex Quick Auth */}
+          <div className="px-6 pb-4 max-w-xl mx-auto w-full">
+            <Button
+              onClick={handleCodexAuth}
+              disabled={codexLoading}
+              className="w-full h-11 text-sm font-medium bg-primary hover:bg-primary/90"
+            >
+              {codexLoading ? (
+                <span className="flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  {t("provider.waitingBrowserLogin")}
+                </span>
+              ) : (
+                t("provider.codexSignIn")
+              )}
+            </Button>
+            {codexError && <p className="text-xs text-red-400 text-center mt-2">{codexError}</p>}
+            <div className="flex items-center gap-3 mt-4">
+              <div className="flex-1 h-px bg-border" />
+              <span className="text-xs text-muted-foreground">
+                {t("provider.orSelectProvider")}
               </span>
-            ) : (
-              t("provider.codexSignIn")
-            )}
-          </Button>
-          {codexError && (
-            <p className="text-xs text-red-400 text-center mt-2">
-              {codexError}
-            </p>
-          )}
-          <div className="flex items-center gap-3 mt-4">
-            <div className="flex-1 h-px bg-border" />
-            <span className="text-xs text-muted-foreground">
-              {t("provider.orSelectProvider")}
-            </span>
-            <div className="flex-1 h-px bg-border" />
+              <div className="flex-1 h-px bg-border" />
+            </div>
           </div>
-        </div>
 
-        {/* Search */}
-        <div className="px-6 pb-3 max-w-xl mx-auto w-full">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-            <Input
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={t("provider.searchProviders")}
-              className="bg-card pl-9 h-9 text-xs"
-            />
+          {/* Search */}
+          <div className="px-6 pb-3 max-w-xl mx-auto w-full">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <Input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder={t("provider.searchProviders")}
+                className="bg-card pl-9 h-9 text-xs"
+              />
+            </div>
           </div>
-        </div>
 
-        {/* Template Grid */}
-        <div className="px-6 pb-6 max-w-xl mx-auto w-full">
-          <div className="grid grid-cols-2 gap-2">
-            {filteredTemplates.map((template) => (
-              <button
-                key={template.key}
-                onClick={() => selectTemplate(template)}
-                className="flex items-center gap-2.5 p-3 rounded-xl border border-border bg-card hover:border-primary/40 hover:bg-secondary/50 text-left transition-all duration-200"
-              >
-                <ProviderIcon providerKey={template.key} size={24} className="shrink-0" color />
-                <div className="min-w-0">
-                  <div className="text-xs font-medium text-foreground truncate">
-                    {t(`provider_templates.${template.key}.name`, { defaultValue: template.name })}
+          {/* Template Grid */}
+          <div className="px-6 pb-6 max-w-xl mx-auto w-full">
+            <div className="grid grid-cols-2 gap-2">
+              {filteredTemplates.map((template) => (
+                <button
+                  key={template.key}
+                  onClick={() => selectTemplate(template)}
+                  className="flex items-center gap-2.5 p-3 rounded-xl border border-border bg-card hover:border-primary/40 hover:bg-secondary/50 text-left transition-all duration-200"
+                >
+                  <ProviderIcon providerKey={template.key} size={24} className="shrink-0" color />
+                  <div className="min-w-0">
+                    <div className="text-xs font-medium text-foreground truncate">
+                      {t(`provider_templates.${template.key}.name`, {
+                        defaultValue: template.name,
+                      })}
+                    </div>
+                    <div className="text-[10px] text-muted-foreground truncate">
+                      {t(`provider_templates.${template.key}.description`, {
+                        defaultValue: template.description,
+                      })}
+                    </div>
                   </div>
-                  <div className="text-[10px] text-muted-foreground truncate">
-                    {t(`provider_templates.${template.key}.description`, { defaultValue: template.description })}
+                </button>
+              ))}
+
+              {/* Custom Provider */}
+              <button
+                onClick={startCustom}
+                className="flex items-center gap-2.5 p-3 rounded-xl border border-dashed border-border bg-card/50 hover:border-primary/40 hover:bg-secondary/50 text-left transition-all duration-200"
+              >
+                <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-secondary text-muted-foreground shrink-0">
+                  <Settings2 className="h-4 w-4" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-xs font-medium text-foreground">{t("provider.custom")}</div>
+                  <div className="text-[10px] text-muted-foreground">
+                    {t("provider.customDescription")}
                   </div>
                 </div>
               </button>
-            ))}
-
-            {/* Custom Provider */}
-            <button
-              onClick={startCustom}
-              className="flex items-center gap-2.5 p-3 rounded-xl border border-dashed border-border bg-card/50 hover:border-primary/40 hover:bg-secondary/50 text-left transition-all duration-200"
-            >
-              <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-secondary text-muted-foreground shrink-0">
-                <Settings2 className="h-4 w-4" />
-              </div>
-              <div className="min-w-0">
-                <div className="text-xs font-medium text-foreground">
-                  {t("provider.custom")}
-                </div>
-                <div className="text-[10px] text-muted-foreground">
-                  {t("provider.customDescription")}
-                </div>
-              </div>
-            </button>
+            </div>
           </div>
-        </div>
         </div>
       </div>
     )
@@ -1066,9 +1766,12 @@ export default function ProviderSetup({
       models.every((m) => m.id.trim() && m.name.trim())
 
     return (
-    <div className="flex flex-col h-full bg-background">
+      <div className="flex flex-col h-full bg-background">
         {/* Header */}
-        <div className="h-[4.5rem] flex items-end pb-2 px-4 border-b border-border shrink-0" data-tauri-drag-region>
+        <div
+          className="h-[4.5rem] flex items-end pb-2 px-4 border-b border-border shrink-0"
+          data-tauri-drag-region
+        >
           <Button
             variant="ghost"
             size="sm"
@@ -1080,7 +1783,9 @@ export default function ProviderSetup({
           </Button>
           <span className="text-sm font-semibold text-foreground mx-auto flex items-center gap-1.5">
             <ProviderIcon providerKey={selectedTemplate.key} size={18} color />
-            {t(`provider_templates.${selectedTemplate.key}.name`, { defaultValue: selectedTemplate.name })}
+            {t(`provider_templates.${selectedTemplate.key}.name`, {
+              defaultValue: selectedTemplate.name,
+            })}
           </span>
           <div className="w-12" /> {/* spacer */}
         </div>
@@ -1121,7 +1826,9 @@ export default function ProviderSetup({
                 <Key className="h-3 w-3" />
                 API Key
                 {!selectedTemplate.requiresApiKey && (
-                  <span className="text-[10px] text-muted-foreground/60 font-normal">({t("provider.optional")})</span>
+                  <span className="text-[10px] text-muted-foreground/60 font-normal">
+                    ({t("provider.optional")})
+                  </span>
                 )}
               </label>
               <div className="relative">
@@ -1129,7 +1836,11 @@ export default function ProviderSetup({
                   type={showApiKey ? "text" : "password"}
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
-                  placeholder={selectedTemplate.requiresApiKey ? selectedTemplate.apiKeyPlaceholder : t("provider.leaveEmptyNoAuth")}
+                  placeholder={
+                    selectedTemplate.requiresApiKey
+                      ? selectedTemplate.apiKeyPlaceholder
+                      : t("provider.leaveEmptyNoAuth")
+                  }
                   className="bg-background font-mono text-xs pr-9"
                 />
                 <button
@@ -1137,7 +1848,11 @@ export default function ProviderSetup({
                   onClick={() => setShowApiKey(!showApiKey)}
                   className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                 >
-                  {showApiKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                  {showApiKey ? (
+                    <EyeOff className="h-3.5 w-3.5" />
+                  ) : (
+                    <Eye className="h-3.5 w-3.5" />
+                  )}
                 </button>
               </div>
             </div>
@@ -1159,7 +1874,10 @@ export default function ProviderSetup({
                 <Settings2 className="h-3 w-3" />
                 {t("provider.thinkingStyle")}
               </label>
-              <Select value={thinkingStyle} onValueChange={(v) => setThinkingStyle(v as ThinkingStyleType)}>
+              <Select
+                value={thinkingStyle}
+                onValueChange={(v) => setThinkingStyle(v as ThinkingStyleType)}
+              >
                 <SelectTrigger className="bg-background text-xs font-medium">
                   <SelectValue />
                 </SelectTrigger>
@@ -1195,9 +1913,7 @@ export default function ProviderSetup({
               )}
             </Button>
 
-            {testResult && (
-              <TestResultDisplay result={testResult} />
-            )}
+            {testResult && <TestResultDisplay result={testResult} />}
           </div>
 
           {/* Models (collapsed by default for templates, shows summary) */}
@@ -1214,12 +1930,15 @@ export default function ProviderSetup({
                   {models.length}
                 </span>
                 {models.length > 1 && (
-                  <span className="text-[10px] text-muted-foreground/50">{t("common.dragToSort")}</span>
+                  <span className="text-[10px] text-muted-foreground/50">
+                    {t("common.dragToSort")}
+                  </span>
                 )}
               </div>
               <ArrowRight
-                className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${modelsExpanded ? "rotate-90" : ""
-                  }`}
+                className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${
+                  modelsExpanded ? "rotate-90" : ""
+                }`}
               />
             </button>
 
@@ -1257,13 +1976,25 @@ export default function ProviderSetup({
                           updated[i] = m
                           setModels(updated)
                         }}
-                        onRemove={() =>
-                          setModels(models.filter((_, j) => j !== i))
+                        onRemove={() => setModels(models.filter((_, j) => j !== i))}
+                        onTest={
+                          baseUrl.trim()
+                            ? (modelId) =>
+                                invoke<string>("test_model", {
+                                  config: {
+                                    id: "",
+                                    name: providerName,
+                                    apiType,
+                                    baseUrl,
+                                    apiKey: apiKey || "ollama",
+                                    userAgent: "claude-code/0.1.0",
+                                    models: [],
+                                    enabled: true,
+                                  },
+                                  modelId,
+                                })
+                            : undefined
                         }
-                        onTest={baseUrl.trim() ? (modelId) => invoke<string>("test_model", {
-                          config: { id: "", name: providerName, apiType, baseUrl, apiKey: apiKey || "ollama", userAgent: "claude-code/0.1.0", models: [], enabled: true },
-                          modelId,
-                        }) : undefined}
                       />
                     ))}
                   </SortableContext>
@@ -1325,35 +2056,37 @@ export default function ProviderSetup({
     label: string
     description: string
   }[] = [
-      {
-        value: "anthropic",
-        label: "Anthropic Messages API",
-        description: t("wizard.anthropicDesc"),
-      },
-      {
-        value: "openai-chat",
-        label: "OpenAI Chat Completions",
-        description: t("wizard.openaiChatDesc"),
-      },
-      {
-        value: "openai-responses",
-        label: "OpenAI Responses API",
-        description: t("wizard.openaiResponsesDesc"),
-      },
-    ]
+    {
+      value: "anthropic",
+      label: "Anthropic Messages API",
+      description: t("wizard.anthropicDesc"),
+    },
+    {
+      value: "openai-chat",
+      label: "OpenAI Chat Completions",
+      description: t("wizard.openaiChatDesc"),
+    },
+    {
+      value: "openai-responses",
+      label: "OpenAI Responses API",
+      description: t("wizard.openaiResponsesDesc"),
+    },
+  ]
 
   const canNext =
     customStep === 0
       ? true
       : customStep === 1
         ? baseUrl.trim() && providerName.trim()
-        : models.length > 0 &&
-        models.every((m) => m.id.trim() && m.name.trim())
+        : models.length > 0 && models.every((m) => m.id.trim() && m.name.trim())
 
   return (
     <div className="flex flex-col h-full bg-background">
       {/* Header */}
-      <div className="h-[4.5rem] flex items-end pb-2 px-4 border-b border-border shrink-0" data-tauri-drag-region>
+      <div
+        className="h-[4.5rem] flex items-end pb-2 px-4 border-b border-border shrink-0"
+        data-tauri-drag-region
+      >
         <Button
           variant="ghost"
           size="sm"
@@ -1368,28 +2101,29 @@ export default function ProviderSetup({
         </Button>
 
         <div className="flex items-center gap-2 mx-auto">
-          {[t("wizard.apiType"), t("wizard.connectionConfig"), t("wizard.models")].map((label, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <div
-                className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-medium transition-colors ${i === customStep
-                    ? "bg-primary text-primary-foreground"
-                    : i < customStep
-                      ? "bg-primary/20 text-primary"
-                      : "bg-secondary text-muted-foreground"
+          {[t("wizard.apiType"), t("wizard.connectionConfig"), t("wizard.models")].map(
+            (label, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <div
+                  className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-medium transition-colors ${
+                    i === customStep
+                      ? "bg-primary text-primary-foreground"
+                      : i < customStep
+                        ? "bg-primary/20 text-primary"
+                        : "bg-secondary text-muted-foreground"
                   }`}
-              >
-                {i < customStep ? <Check className="h-3 w-3" /> : i + 1}
+                >
+                  {i < customStep ? <Check className="h-3 w-3" /> : i + 1}
+                </div>
+                <span
+                  className={`text-xs hidden sm:inline ${i === customStep ? "text-foreground font-medium" : "text-muted-foreground"}`}
+                >
+                  {label}
+                </span>
+                {i < 2 && <div className="w-6 h-px bg-border hidden sm:block" />}
               </div>
-              <span
-                className={`text-xs hidden sm:inline ${i === customStep ? "text-foreground font-medium" : "text-muted-foreground"}`}
-              >
-                {label}
-              </span>
-              {i < 2 && (
-                <div className="w-6 h-px bg-border hidden sm:block" />
-              )}
-            </div>
-          ))}
+            ),
+          )}
         </div>
       </div>
 
@@ -1397,26 +2131,21 @@ export default function ProviderSetup({
       <div className="flex-1 overflow-y-auto px-6 py-6 max-w-lg mx-auto w-full">
         {customStep === 0 && (
           <div className="space-y-3">
-            <h3 className="text-base font-semibold text-foreground">
-              {t("wizard.selectApiType")}
-            </h3>
+            <h3 className="text-base font-semibold text-foreground">{t("wizard.selectApiType")}</h3>
             <div className="grid gap-2.5">
               {API_TYPE_OPTIONS.map((opt) => (
                 <button
                   key={opt.value}
                   onClick={() => setApiType(opt.value)}
-                  className={`flex items-center gap-3 p-3.5 rounded-xl border text-left transition-all duration-200 ${apiType === opt.value
+                  className={`flex items-center gap-3 p-3.5 rounded-xl border text-left transition-all duration-200 ${
+                    apiType === opt.value
                       ? "border-primary bg-primary/5 ring-1 ring-primary/30"
                       : "border-border bg-card hover:border-primary/40 hover:bg-secondary/50"
-                    }`}
+                  }`}
                 >
                   <div className="min-w-0">
-                    <div className="text-sm font-medium text-foreground">
-                      {opt.label}
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      {opt.description}
-                    </div>
+                    <div className="text-sm font-medium text-foreground">{opt.label}</div>
+                    <div className="text-xs text-muted-foreground">{opt.description}</div>
                   </div>
                   {apiType === opt.value && (
                     <Check className="h-4 w-4 text-primary ml-auto shrink-0" />
@@ -1460,7 +2189,9 @@ export default function ProviderSetup({
                 <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
                   <Key className="h-3 w-3" />
                   API Key
-                  <span className="text-[10px] text-muted-foreground/60 font-normal">({t("provider.optional")})</span>
+                  <span className="text-[10px] text-muted-foreground/60 font-normal">
+                    ({t("provider.optional")})
+                  </span>
                 </label>
                 <div className="relative">
                   <Input
@@ -1475,7 +2206,11 @@ export default function ProviderSetup({
                     onClick={() => setShowApiKey(!showApiKey)}
                     className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                   >
-                    {showApiKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                    {showApiKey ? (
+                      <EyeOff className="h-3.5 w-3.5" />
+                    ) : (
+                      <Eye className="h-3.5 w-3.5" />
+                    )}
                   </button>
                 </div>
               </div>
@@ -1484,7 +2219,10 @@ export default function ProviderSetup({
                   <Settings2 className="h-3 w-3" />
                   {t("provider.thinkingStyle")}
                 </label>
-                <Select value={thinkingStyle} onValueChange={(v) => setThinkingStyle(v as ThinkingStyleType)}>
+                <Select
+                  value={thinkingStyle}
+                  onValueChange={(v) => setThinkingStyle(v as ThinkingStyleType)}
+                >
                   <SelectTrigger className="bg-card text-xs font-medium">
                     <SelectValue />
                   </SelectTrigger>
@@ -1513,9 +2251,7 @@ export default function ProviderSetup({
                   t("provider.testConnection")
                 )}
               </Button>
-              {testResult && (
-                <TestResultDisplay result={testResult} />
-              )}
+              {testResult && <TestResultDisplay result={testResult} />}
             </div>
           </div>
         )}
@@ -1524,13 +2260,13 @@ export default function ProviderSetup({
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-base font-semibold text-foreground">
-                  {t("model.addModels")}
-                </h3>
+                <h3 className="text-base font-semibold text-foreground">{t("model.addModels")}</h3>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   {t("model.configModels")}
                   {models.length > 1 && (
-                    <span className="ml-2 text-[10px] text-muted-foreground/50">{t("common.dragToSort")}</span>
+                    <span className="ml-2 text-[10px] text-muted-foreground/50">
+                      {t("common.dragToSort")}
+                    </span>
                   )}
                 </p>
               </div>
@@ -1577,13 +2313,25 @@ export default function ProviderSetup({
                         updated[i] = m
                         setModels(updated)
                       }}
-                      onRemove={() =>
-                        setModels(models.filter((_, j) => j !== i))
+                      onRemove={() => setModels(models.filter((_, j) => j !== i))}
+                      onTest={
+                        baseUrl.trim()
+                          ? (modelId) =>
+                              invoke<string>("test_model", {
+                                config: {
+                                  id: "",
+                                  name: providerName,
+                                  apiType,
+                                  baseUrl,
+                                  apiKey: apiKey || "ollama",
+                                  userAgent: "claude-code/0.1.0",
+                                  models: [],
+                                  enabled: true,
+                                },
+                                modelId,
+                              })
+                          : undefined
                       }
-                      onTest={baseUrl.trim() ? (modelId) => invoke<string>("test_model", {
-                        config: { id: "", name: providerName, apiType, baseUrl, apiKey: apiKey || "ollama", userAgent: "claude-code/0.1.0", models: [], enabled: true },
-                        modelId,
-                      }) : undefined}
                     />
                   ))}
                 </SortableContext>

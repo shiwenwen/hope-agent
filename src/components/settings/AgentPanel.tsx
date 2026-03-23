@@ -60,13 +60,18 @@ export default function AgentPanel({ initialAgentId }: { initialAgentId?: string
     }
   }
 
-  useEffect(() => { reload() }, [])
+  useEffect(() => {
+    reload()
+  }, [])
 
   if (editingId) {
     return (
       <AgentEditView
         agentId={editingId}
-        onBack={() => { setEditingId(null); reload() }}
+        onBack={() => {
+          setEditingId(null)
+          reload()
+        }}
       />
     )
   }
@@ -75,7 +80,10 @@ export default function AgentPanel({ initialAgentId }: { initialAgentId?: string
     return (
       <AgentCreateView
         onBack={() => setCreating(false)}
-        onCreated={(id) => { setCreating(false); setEditingId(id) }}
+        onCreated={(id) => {
+          setCreating(false)
+          setEditingId(id)
+        }}
       />
     )
   }
@@ -83,12 +91,8 @@ export default function AgentPanel({ initialAgentId }: { initialAgentId?: string
   // ── Agent List View ───────────────────────────────────────────
   return (
     <div className="flex-1 min-h-0 overflow-y-auto p-6">
-      <h2 className="text-lg font-semibold text-foreground mb-1">
-        {t("settings.agents")}
-      </h2>
-      <p className="text-xs text-muted-foreground mb-4">
-        {t("settings.agentsDesc")}
-      </p>
+      <h2 className="text-lg font-semibold text-foreground mb-1">{t("settings.agents")}</h2>
+      <p className="text-xs text-muted-foreground mb-4">{t("settings.agentsDesc")}</p>
 
       {/* New Agent button */}
       <button
@@ -122,7 +126,11 @@ export default function AgentPanel({ initialAgentId }: { initialAgentId?: string
               {/* Avatar / fallback */}
               <div className="w-9 h-9 rounded-full bg-primary/15 flex items-center justify-center text-primary shrink-0 overflow-hidden">
                 {agent.avatar ? (
-                  <img src={agent.avatar.startsWith("/") ? convertFileSrc(agent.avatar) : agent.avatar} className="w-full h-full object-cover" alt="" />
+                  <img
+                    src={agent.avatar.startsWith("/") ? convertFileSrc(agent.avatar) : agent.avatar}
+                    className="w-full h-full object-cover"
+                    alt=""
+                  />
                 ) : (
                   <Bot className="h-5 w-5" />
                 )}
@@ -131,7 +139,8 @@ export default function AgentPanel({ initialAgentId }: { initialAgentId?: string
               {/* Name + emoji + description */}
               <div className="flex-1 text-left min-w-0">
                 <div className="font-medium truncate flex items-center gap-2">
-                  {agent.name}{agent.emoji ? ` ${agent.emoji}` : ""}
+                  {agent.name}
+                  {agent.emoji ? ` ${agent.emoji}` : ""}
                   {agent.id === "default" && (
                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-secondary text-muted-foreground font-medium">
                       {t("settings.agentDefault")}
@@ -143,9 +152,7 @@ export default function AgentPanel({ initialAgentId }: { initialAgentId?: string
                 )}
               </div>
 
-              <ChevronRight
-                className="h-4 w-4 text-muted-foreground/30 shrink-0 group-hover:text-muted-foreground/60 transition-colors"
-              />
+              <ChevronRight className="h-4 w-4 text-muted-foreground/30 shrink-0 group-hover:text-muted-foreground/60 transition-colors" />
             </button>
           ))}
         </div>
@@ -186,7 +193,12 @@ function AgentCreateView({
         skills: { allow: [], deny: [] },
         tools: { allow: [], deny: [] },
         personality: { ...DEFAULT_PERSONALITY },
-        behavior: { maxToolRounds: 10, requireApproval: ["*"], sandbox: false, skillEnvCheck: true },
+        behavior: {
+          maxToolRounds: 10,
+          requireApproval: ["*"],
+          sandbox: false,
+          skillEnvCheck: true,
+        },
         useCustomPrompt: false,
       }
       await invoke("save_agent_config_cmd", { id: trimmedId, config })
@@ -210,37 +222,44 @@ function AgentCreateView({
           <span>{t("settings.agents")}</span>
         </Button>
 
-        <h2 className="text-lg font-semibold text-foreground mb-5">
-          {t("settings.agentNew")}
-        </h2>
+        <h2 className="text-lg font-semibold text-foreground mb-5">{t("settings.agentNew")}</h2>
 
         <div className="space-y-4">
           <div>
-            <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.agentNewId")}</div>
+            <div className="text-xs font-medium text-muted-foreground mb-2 px-1">
+              {t("settings.agentNewId")}
+            </div>
             <Input
               className="bg-secondary/40 rounded-lg font-mono"
               value={id}
-              onChange={(e) => { setId(e.target.value); setError("") }}
+              onChange={(e) => {
+                setId(e.target.value)
+                setError("")
+              }}
               placeholder={t("settings.agentNewIdPlaceholder")}
               autoFocus
             />
-            <p className="text-[11px] text-muted-foreground/60 mt-1 px-1">{t("settings.agentNewIdHint")}</p>
+            <p className="text-[11px] text-muted-foreground/60 mt-1 px-1">
+              {t("settings.agentNewIdHint")}
+            </p>
           </div>
 
           <div>
-            <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.agentName")}</div>
+            <div className="text-xs font-medium text-muted-foreground mb-2 px-1">
+              {t("settings.agentName")}
+            </div>
             <Input
               className="bg-secondary/40 rounded-lg"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder={t("settings.agentNamePlaceholder")}
-              onKeyDown={(e) => { if (e.key === "Enter") handleCreate() }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleCreate()
+              }}
             />
           </div>
 
-          {error && (
-            <p className="text-xs text-destructive px-1">{error}</p>
-          )}
+          {error && <p className="text-xs text-destructive px-1">{error}</p>}
 
           <Button onClick={handleCreate} disabled={!id.trim()}>
             {t("common.add")}
@@ -255,13 +274,7 @@ function AgentCreateView({
 
 type AgentTab = "identity" | "personality" | "behavior" | "model" | "memory" | "subagent" | "custom"
 
-function AgentEditView({
-  agentId,
-  onBack,
-}: {
-  agentId: string
-  onBack: () => void
-}) {
+function AgentEditView({ agentId, onBack }: { agentId: string; onBack: () => void }) {
   const { t, i18n } = useTranslation()
   const [config, setConfig] = useState<AgentConfig | null>(null)
   const [agentMd, setAgentMd] = useState("")
@@ -292,7 +305,7 @@ function AgentEditView({
           invoke<AvailableModel[]>("get_available_models"),
         ])
         setAvailableModels(models)
-        setAvailableSkills(skills.filter(s => s.enabled))
+        setAvailableSkills(skills.filter((s) => s.enabled))
         setBuiltinTools(tools)
         // Ensure personality exists (for agents created before this field was added)
         if (!cfg.personality) {
@@ -300,7 +313,14 @@ function AgentEditView({
         }
         // Ensure subagents config exists
         if (!cfg.subagents) {
-          cfg.subagents = { enabled: true, allowedAgents: [], deniedAgents: [], maxConcurrent: 5, defaultTimeoutSecs: 300, model: null }
+          cfg.subagents = {
+            enabled: true,
+            allowedAgents: [],
+            deniedAgents: [],
+            maxConcurrent: 5,
+            defaultTimeoutSecs: 300,
+            model: null,
+          }
         }
         setConfig(cfg)
         setAgentMd(md ?? "")
@@ -381,14 +401,18 @@ function AgentEditView({
   }
 
   const updateConfig = (patch: Partial<AgentConfig>) => {
-    setConfig((prev) => prev ? { ...prev, ...patch } : prev)
+    setConfig((prev) => (prev ? { ...prev, ...patch } : prev))
   }
 
   const updatePersonality = (patch: Partial<PersonalityConfig>) => {
-    setConfig((prev) => prev ? {
-      ...prev,
-      personality: { ...prev.personality, ...patch },
-    } : prev)
+    setConfig((prev) =>
+      prev
+        ? {
+            ...prev,
+            personality: { ...prev.personality, ...patch },
+          }
+        : prev,
+    )
   }
 
   const textInputProps = (getter: string, setter: (v: string) => void) => ({
@@ -396,7 +420,9 @@ function AgentEditView({
     onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
       setter(e.target.value)
     },
-    onCompositionStart: () => { composingRef.current = true },
+    onCompositionStart: () => {
+      composingRef.current = true
+    },
     onCompositionEnd: (e: React.CompositionEvent<HTMLInputElement | HTMLTextAreaElement>) => {
       composingRef.current = false
       setter((e.target as HTMLInputElement).value)
@@ -405,13 +431,25 @@ function AgentEditView({
 
   /** i18n key map for built-in tool names */
   const toolI18nKey: Record<string, string> = {
-    exec: "Exec", process: "Process", read: "Read", write: "Write",
-    edit: "Edit", ls: "Ls", grep: "Grep", find: "Find",
-    apply_patch: "ApplyPatch", web_search: "WebSearch", web_fetch: "WebFetch",
-    save_memory: "SaveMemory", recall_memory: "RecallMemory",
-    update_memory: "UpdateMemory", delete_memory: "DeleteMemory",
-    manage_cron: "ManageCron", browser: "Browser",
-    send_notification: "SendNotification", subagent: "Subagent",
+    exec: "Exec",
+    process: "Process",
+    read: "Read",
+    write: "Write",
+    edit: "Edit",
+    ls: "Ls",
+    grep: "Grep",
+    find: "Find",
+    apply_patch: "ApplyPatch",
+    web_search: "WebSearch",
+    web_fetch: "WebFetch",
+    save_memory: "SaveMemory",
+    recall_memory: "RecallMemory",
+    update_memory: "UpdateMemory",
+    delete_memory: "DeleteMemory",
+    manage_cron: "ManageCron",
+    browser: "Browser",
+    send_notification: "SendNotification",
+    subagent: "Subagent",
   }
   const toolDisplayName = (name: string) => {
     const key = toolI18nKey[name]
@@ -429,8 +467,11 @@ function AgentEditView({
     const isNear = len > MAX_MD_CHARS * 0.8
     const isOver = len > MAX_MD_CHARS
     return (
-      <div className={`text-[11px] text-right mt-1 px-1 ${isOver ? "text-red-500" : isNear ? "text-amber-500" : "text-muted-foreground/40"}`}>
-        {len.toLocaleString()} / {MAX_MD_CHARS.toLocaleString()} {isOver ? t("settings.charLimitExceeded") : ""}
+      <div
+        className={`text-[11px] text-right mt-1 px-1 ${isOver ? "text-red-500" : isNear ? "text-amber-500" : "text-muted-foreground/40"}`}
+      >
+        {len.toLocaleString()} / {MAX_MD_CHARS.toLocaleString()}{" "}
+        {isOver ? t("settings.charLimitExceeded") : ""}
       </div>
     )
   }
@@ -520,7 +561,13 @@ function AgentEditView({
               onClick={handleAvatarPick}
             >
               {config.avatar ? (
-                <img src={config.avatar.startsWith("/") ? convertFileSrc(config.avatar) : config.avatar} className="w-full h-full object-cover" alt="" />
+                <img
+                  src={
+                    config.avatar.startsWith("/") ? convertFileSrc(config.avatar) : config.avatar
+                  }
+                  className="w-full h-full object-cover"
+                  alt=""
+                />
               ) : (
                 <Camera className="h-5 w-5 text-muted-foreground/40" />
               )}
@@ -528,7 +575,9 @@ function AgentEditView({
 
             <div className="flex-1 min-w-0">
               <h2 className="text-lg font-semibold text-foreground truncate">{config.name}</h2>
-              {config.description && <p className="text-xs text-muted-foreground truncate">{config.description}</p>}
+              {config.description && (
+                <p className="text-xs text-muted-foreground truncate">{config.description}</p>
+              )}
             </div>
           </div>
 
@@ -551,7 +600,7 @@ function AgentEditView({
                   "px-3 py-1.5 text-sm rounded-t-md transition-colors -mb-px",
                   activeTab === tab.id
                     ? "text-primary border-b-2 border-primary font-medium"
-                    : "text-muted-foreground hover:text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
                 )}
                 onClick={() => setActiveTab(tab.id)}
               >
@@ -565,7 +614,9 @@ function AgentEditView({
             <div className="space-y-4">
               {/* Name */}
               <div>
-                <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.agentName")}</div>
+                <div className="text-xs font-medium text-muted-foreground mb-2 px-1">
+                  {t("settings.agentName")}
+                </div>
                 <Input
                   className="bg-secondary/40 rounded-lg"
                   {...textInputProps(config.name, (v) => updateConfig({ name: v }))}
@@ -575,18 +626,24 @@ function AgentEditView({
 
               {/* Description */}
               <div>
-                <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.agentDescription")}</div>
+                <div className="text-xs font-medium text-muted-foreground mb-2 px-1">
+                  {t("settings.agentDescription")}
+                </div>
                 <Textarea
                   className="bg-secondary/40 rounded-lg resize-y leading-relaxed min-h-[50px]"
                   rows={2}
-                  {...textInputProps(config.description ?? "", (v) => updateConfig({ description: v || null }))}
+                  {...textInputProps(config.description ?? "", (v) =>
+                    updateConfig({ description: v || null }),
+                  )}
                   placeholder={t("settings.agentDescriptionPlaceholder")}
                 />
               </div>
 
               {/* Emoji */}
               <div>
-                <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.agentEmoji")}</div>
+                <div className="text-xs font-medium text-muted-foreground mb-2 px-1">
+                  {t("settings.agentEmoji")}
+                </div>
                 <Input
                   className="bg-secondary/40 rounded-lg"
                   {...textInputProps(config.emoji ?? "", (v) => updateConfig({ emoji: v || null }))}
@@ -598,11 +655,15 @@ function AgentEditView({
 
               {/* Role */}
               <div>
-                <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.agentRole")}</div>
+                <div className="text-xs font-medium text-muted-foreground mb-2 px-1">
+                  {t("settings.agentRole")}
+                </div>
                 <Textarea
                   className="bg-secondary/40 rounded-lg resize-y leading-relaxed min-h-[60px]"
                   rows={3}
-                  {...textInputProps(config.personality.role ?? "", (v) => updatePersonality({ role: v || null }))}
+                  {...textInputProps(config.personality.role ?? "", (v) =>
+                    updatePersonality({ role: v || null }),
+                  )}
                   placeholder={t("settings.agentRolePlaceholder")}
                 />
               </div>
@@ -611,8 +672,12 @@ function AgentEditView({
 
               {/* Identity supplement */}
               <div>
-                <div className="text-xs font-medium text-muted-foreground mb-1 px-1">{t("settings.agentSupplement")}</div>
-                <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">{t("settings.agentIdentitySupplementDesc")}</p>
+                <div className="text-xs font-medium text-muted-foreground mb-1 px-1">
+                  {t("settings.agentSupplement")}
+                </div>
+                <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">
+                  {t("settings.agentIdentitySupplementDesc")}
+                </p>
                 <Textarea
                   className="bg-secondary/40 rounded-lg resize-y leading-relaxed font-mono min-h-[120px]"
                   rows={8}
@@ -629,19 +694,27 @@ function AgentEditView({
             <div className="space-y-5">
               {/* Vibe */}
               <div>
-                <div className="text-xs font-medium text-muted-foreground mb-1 px-1">{t("settings.agentVibe")}</div>
-                <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">{t("settings.agentVibeDesc")}</p>
+                <div className="text-xs font-medium text-muted-foreground mb-1 px-1">
+                  {t("settings.agentVibe")}
+                </div>
+                <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">
+                  {t("settings.agentVibeDesc")}
+                </p>
                 <Textarea
                   className="bg-secondary/40 rounded-lg resize-y leading-relaxed min-h-[60px]"
                   rows={3}
-                  {...textInputProps(config.personality.vibe ?? "", (v) => updatePersonality({ vibe: v || null }))}
+                  {...textInputProps(config.personality.vibe ?? "", (v) =>
+                    updatePersonality({ vibe: v || null }),
+                  )}
                   placeholder={t("settings.agentVibePlaceholder")}
                 />
               </div>
 
               {/* Tone */}
               <div>
-                <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.agentTone")}</div>
+                <div className="text-xs font-medium text-muted-foreground mb-2 px-1">
+                  {t("settings.agentTone")}
+                </div>
                 <div className="flex flex-wrap gap-1.5 mb-2">
                   {TONE_PRESETS.map((preset) => (
                     <button
@@ -650,11 +723,13 @@ function AgentEditView({
                         "px-2.5 py-1.5 text-xs rounded-md transition-colors",
                         config.personality.tone === preset.value
                           ? "bg-primary/10 text-primary font-medium"
-                          : "bg-secondary/30 text-foreground hover:bg-secondary/60"
+                          : "bg-secondary/30 text-foreground hover:bg-secondary/60",
                       )}
-                      onClick={() => updatePersonality({
-                        tone: config.personality.tone === preset.value ? null : preset.value,
-                      })}
+                      onClick={() =>
+                        updatePersonality({
+                          tone: config.personality.tone === preset.value ? null : preset.value,
+                        })
+                      }
                     >
                       {t(preset.labelKey)}
                     </button>
@@ -663,15 +738,21 @@ function AgentEditView({
                 <Textarea
                   className="bg-secondary/40 rounded-lg resize-y leading-relaxed min-h-[60px]"
                   rows={3}
-                  {...textInputProps(config.personality.tone ?? "", (v) => updatePersonality({ tone: v || null }))}
+                  {...textInputProps(config.personality.tone ?? "", (v) =>
+                    updatePersonality({ tone: v || null }),
+                  )}
                   placeholder={t("settings.agentTonePlaceholder")}
                 />
               </div>
 
               {/* Traits (tag input) */}
               <div>
-                <div className="text-xs font-medium text-muted-foreground mb-1 px-1">{t("settings.agentTraits")}</div>
-                <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">{t("settings.agentTraitsDesc")}</p>
+                <div className="text-xs font-medium text-muted-foreground mb-1 px-1">
+                  {t("settings.agentTraits")}
+                </div>
+                <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">
+                  {t("settings.agentTraitsDesc")}
+                </p>
                 <div className="flex flex-wrap gap-1.5 mb-2">
                   {config.personality.traits.map((trait) => (
                     <span
@@ -681,9 +762,11 @@ function AgentEditView({
                       {trait}
                       <button
                         className="text-muted-foreground hover:text-destructive transition-colors"
-                        onClick={() => updatePersonality({
-                          traits: config.personality.traits.filter((t) => t !== trait),
-                        })}
+                        onClick={() =>
+                          updatePersonality({
+                            traits: config.personality.traits.filter((t) => t !== trait),
+                          })
+                        }
                       >
                         <X className="h-3 w-3" />
                       </button>
@@ -711,8 +794,12 @@ function AgentEditView({
 
               {/* Principles (tag input) */}
               <div>
-                <div className="text-xs font-medium text-muted-foreground mb-1 px-1">{t("settings.agentPrinciples")}</div>
-                <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">{t("settings.agentPrinciplesDesc")}</p>
+                <div className="text-xs font-medium text-muted-foreground mb-1 px-1">
+                  {t("settings.agentPrinciples")}
+                </div>
+                <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">
+                  {t("settings.agentPrinciplesDesc")}
+                </p>
                 <div className="space-y-1 mb-2">
                   {config.personality.principles.map((p, i) => (
                     <div
@@ -722,9 +809,11 @@ function AgentEditView({
                       <span className="flex-1">{p}</span>
                       <button
                         className="text-muted-foreground hover:text-destructive transition-colors shrink-0"
-                        onClick={() => updatePersonality({
-                          principles: config.personality.principles.filter((_, idx) => idx !== i),
-                        })}
+                        onClick={() =>
+                          updatePersonality({
+                            principles: config.personality.principles.filter((_, idx) => idx !== i),
+                          })
+                        }
                       >
                         <X className="h-3 w-3" />
                       </button>
@@ -753,36 +842,54 @@ function AgentEditView({
 
               {/* Boundaries */}
               <div>
-                <div className="text-xs font-medium text-muted-foreground mb-1 px-1">{t("settings.agentBoundaries")}</div>
-                <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">{t("settings.agentBoundariesDesc")}</p>
+                <div className="text-xs font-medium text-muted-foreground mb-1 px-1">
+                  {t("settings.agentBoundaries")}
+                </div>
+                <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">
+                  {t("settings.agentBoundariesDesc")}
+                </p>
                 <Textarea
                   className="bg-secondary/40 rounded-lg resize-y leading-relaxed min-h-[60px]"
                   rows={3}
-                  {...textInputProps(config.personality.boundaries ?? "", (v) => updatePersonality({ boundaries: v || null }))}
+                  {...textInputProps(config.personality.boundaries ?? "", (v) =>
+                    updatePersonality({ boundaries: v || null }),
+                  )}
                   placeholder={t("settings.agentBoundariesPlaceholder")}
                 />
               </div>
 
               {/* Quirks */}
               <div>
-                <div className="text-xs font-medium text-muted-foreground mb-1 px-1">{t("settings.agentQuirks")}</div>
-                <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">{t("settings.agentQuirksDesc")}</p>
+                <div className="text-xs font-medium text-muted-foreground mb-1 px-1">
+                  {t("settings.agentQuirks")}
+                </div>
+                <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">
+                  {t("settings.agentQuirksDesc")}
+                </p>
                 <Textarea
                   className="bg-secondary/40 rounded-lg resize-y leading-relaxed min-h-[60px]"
                   rows={3}
-                  {...textInputProps(config.personality.quirks ?? "", (v) => updatePersonality({ quirks: v || null }))}
+                  {...textInputProps(config.personality.quirks ?? "", (v) =>
+                    updatePersonality({ quirks: v || null }),
+                  )}
                   placeholder={t("settings.agentQuirksPlaceholder")}
                 />
               </div>
 
               {/* Communication Style */}
               <div>
-                <div className="text-xs font-medium text-muted-foreground mb-1 px-1">{t("settings.agentCommStyle")}</div>
-                <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">{t("settings.agentCommStyleDesc")}</p>
+                <div className="text-xs font-medium text-muted-foreground mb-1 px-1">
+                  {t("settings.agentCommStyle")}
+                </div>
+                <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">
+                  {t("settings.agentCommStyleDesc")}
+                </p>
                 <Textarea
                   className="bg-secondary/40 rounded-lg resize-y leading-relaxed min-h-[60px]"
                   rows={3}
-                  {...textInputProps(config.personality.communicationStyle ?? "", (v) => updatePersonality({ communicationStyle: v || null }))}
+                  {...textInputProps(config.personality.communicationStyle ?? "", (v) =>
+                    updatePersonality({ communicationStyle: v || null }),
+                  )}
                   placeholder={t("settings.agentCommStylePlaceholder")}
                 />
               </div>
@@ -791,8 +898,12 @@ function AgentEditView({
 
               {/* Personality supplement */}
               <div>
-                <div className="text-xs font-medium text-muted-foreground mb-1 px-1">{t("settings.agentSupplement")}</div>
-                <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">{t("settings.agentPersonaSupplementDesc")}</p>
+                <div className="text-xs font-medium text-muted-foreground mb-1 px-1">
+                  {t("settings.agentSupplement")}
+                </div>
+                <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">
+                  {t("settings.agentPersonaSupplementDesc")}
+                </p>
                 <Textarea
                   className="bg-secondary/40 rounded-lg resize-y leading-relaxed font-mono min-h-[120px]"
                   rows={8}
@@ -809,7 +920,9 @@ function AgentEditView({
             <div className="space-y-5">
               {/* Max Tool Rounds */}
               <div>
-                <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.agentMaxToolRounds")}</div>
+                <div className="text-xs font-medium text-muted-foreground mb-2 px-1">
+                  {t("settings.agentMaxToolRounds")}
+                </div>
                 <div className="flex items-center gap-3">
                   <Input
                     type="number"
@@ -821,7 +934,8 @@ function AgentEditView({
                     placeholder={t("settings.agentUnlimited")}
                     onChange={(e) => {
                       const v = parseInt(e.target.value, 10)
-                      if (v > 0) updateConfig({ behavior: { ...config.behavior, maxToolRounds: v } })
+                      if (v > 0)
+                        updateConfig({ behavior: { ...config.behavior, maxToolRounds: v } })
                     }}
                   />
                   <label className="flex items-center gap-1.5 text-xs text-muted-foreground whitespace-nowrap cursor-pointer select-none">
@@ -830,7 +944,12 @@ function AgentEditView({
                       className="rounded"
                       checked={config.behavior.maxToolRounds === 0}
                       onChange={(e) => {
-                        updateConfig({ behavior: { ...config.behavior, maxToolRounds: e.target.checked ? 0 : 10 } })
+                        updateConfig({
+                          behavior: {
+                            ...config.behavior,
+                            maxToolRounds: e.target.checked ? 0 : 10,
+                          },
+                        })
                       }}
                     />
                     {t("settings.agentUnlimited")}
@@ -840,17 +959,26 @@ function AgentEditView({
 
               {/* Require Approval */}
               <div>
-                <div className="text-xs font-medium text-muted-foreground mb-1 px-1">{t("settings.agentRequireApproval")}</div>
-                <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">{t("settings.agentRequireApprovalDesc")}</p>
+                <div className="text-xs font-medium text-muted-foreground mb-1 px-1">
+                  {t("settings.agentRequireApproval")}
+                </div>
+                <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">
+                  {t("settings.agentRequireApprovalDesc")}
+                </p>
                 {/* Mode selector */}
                 <div className="flex gap-1.5 mb-3">
-                  {([
-                    { mode: "all", label: t("settings.agentApprovalAll") },
-                    { mode: "none", label: t("settings.agentApprovalNone") },
-                    { mode: "custom", label: t("settings.agentApprovalCustom") },
-                  ] as const).map(({ mode, label }) => {
-                    const currentMode = config.behavior.requireApproval.includes("*") ? "all"
-                      : config.behavior.requireApproval.length === 0 ? "none" : "custom"
+                  {(
+                    [
+                      { mode: "all", label: t("settings.agentApprovalAll") },
+                      { mode: "none", label: t("settings.agentApprovalNone") },
+                      { mode: "custom", label: t("settings.agentApprovalCustom") },
+                    ] as const
+                  ).map(({ mode, label }) => {
+                    const currentMode = config.behavior.requireApproval.includes("*")
+                      ? "all"
+                      : config.behavior.requireApproval.length === 0
+                        ? "none"
+                        : "custom"
                     const isActive = currentMode === mode
                     return (
                       <button
@@ -859,15 +987,19 @@ function AgentEditView({
                           "px-3 py-1.5 text-xs rounded-md border transition-colors",
                           isActive
                             ? "bg-primary/10 border-primary/40 text-primary"
-                            : "bg-secondary/40 border-border/50 text-muted-foreground hover:border-border"
+                            : "bg-secondary/40 border-border/50 text-muted-foreground hover:border-border",
                         )}
                         onClick={() => {
                           if (mode === "all") {
-                            updateConfig({ behavior: { ...config.behavior, requireApproval: ["*"] } })
+                            updateConfig({
+                              behavior: { ...config.behavior, requireApproval: ["*"] },
+                            })
                           } else if (mode === "none") {
                             updateConfig({ behavior: { ...config.behavior, requireApproval: [] } })
                           } else {
-                            updateConfig({ behavior: { ...config.behavior, requireApproval: ["exec"] } })
+                            updateConfig({
+                              behavior: { ...config.behavior, requireApproval: ["exec"] },
+                            })
                           }
                         }}
                       >
@@ -877,36 +1009,46 @@ function AgentEditView({
                   })}
                 </div>
                 {/* Custom tool selection */}
-                {!config.behavior.requireApproval.includes("*") && config.behavior.requireApproval.length > 0 && (
-                  <div className="rounded-lg border border-border/50 overflow-hidden">
-                    {builtinTools.map((tool, idx) => {
-                      const isRequired = config.behavior.requireApproval.includes(tool.name)
-                      return (
-                        <div
-                          key={tool.name}
-                          className={cn(
-                            "flex items-center justify-between px-3 py-2 gap-3",
-                            idx > 0 && "border-t border-border/30"
-                          )}
-                        >
-                          <div className="min-w-0 flex-1">
-                            <div className="text-xs font-medium text-foreground">{toolDisplayName(tool.name)}</div>
-                            <div className="text-[11px] text-muted-foreground/60 line-clamp-1">{toolDisplayDesc(tool.name)}</div>
+                {!config.behavior.requireApproval.includes("*") &&
+                  config.behavior.requireApproval.length > 0 && (
+                    <div className="rounded-lg border border-border/50 overflow-hidden">
+                      {builtinTools.map((tool, idx) => {
+                        const isRequired = config.behavior.requireApproval.includes(tool.name)
+                        return (
+                          <div
+                            key={tool.name}
+                            className={cn(
+                              "flex items-center justify-between px-3 py-2 gap-3",
+                              idx > 0 && "border-t border-border/30",
+                            )}
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="text-xs font-medium text-foreground">
+                                {toolDisplayName(tool.name)}
+                              </div>
+                              <div className="text-[11px] text-muted-foreground/60 line-clamp-1">
+                                {toolDisplayDesc(tool.name)}
+                              </div>
+                            </div>
+                            <Switch
+                              checked={isRequired}
+                              onCheckedChange={(checked) => {
+                                const newList = checked
+                                  ? [...config.behavior.requireApproval, tool.name]
+                                  : config.behavior.requireApproval.filter((t) => t !== tool.name)
+                                updateConfig({
+                                  behavior: {
+                                    ...config.behavior,
+                                    requireApproval: newList.length > 0 ? newList : ["exec"],
+                                  },
+                                })
+                              }}
+                            />
                           </div>
-                          <Switch
-                            checked={isRequired}
-                            onCheckedChange={(checked) => {
-                              const newList = checked
-                                ? [...config.behavior.requireApproval, tool.name]
-                                : config.behavior.requireApproval.filter(t => t !== tool.name)
-                              updateConfig({ behavior: { ...config.behavior, requireApproval: newList.length > 0 ? newList : ["exec"] } })
-                            }}
-                          />
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
+                        )
+                      })}
+                    </div>
+                  )}
               </div>
 
               <div className="border-t border-border/50" />
@@ -915,11 +1057,15 @@ function AgentEditView({
               <div className="flex items-center justify-between px-1">
                 <div>
                   <div className="text-sm text-foreground">{t("settings.agentSandbox")}</div>
-                  <div className="text-xs text-muted-foreground">{t("settings.agentSandboxDesc")}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {t("settings.agentSandboxDesc")}
+                  </div>
                 </div>
                 <Switch
                   checked={config.behavior.sandbox}
-                  onCheckedChange={(v) => updateConfig({ behavior: { ...config.behavior, sandbox: v } })}
+                  onCheckedChange={(v) =>
+                    updateConfig({ behavior: { ...config.behavior, sandbox: v } })
+                  }
                 />
               </div>
 
@@ -927,8 +1073,12 @@ function AgentEditView({
 
               {/* Skills */}
               <div>
-                <div className="text-xs font-medium text-muted-foreground mb-1 px-1">{t("settings.agentSkills")}</div>
-                <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">{t("settings.agentSkillsDesc")}</p>
+                <div className="text-xs font-medium text-muted-foreground mb-1 px-1">
+                  {t("settings.agentSkills")}
+                </div>
+                <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">
+                  {t("settings.agentSkillsDesc")}
+                </p>
                 {availableSkills.length > 0 && (
                   <div className="rounded-lg border border-border/50 overflow-hidden mb-3">
                     {availableSkills.map((skill, idx) => {
@@ -938,18 +1088,22 @@ function AgentEditView({
                           key={skill.name}
                           className={cn(
                             "flex items-center justify-between px-3 py-2 gap-3",
-                            idx > 0 && "border-t border-border/30"
+                            idx > 0 && "border-t border-border/30",
                           )}
                         >
                           <div className="min-w-0 flex-1">
-                            <div className="text-xs font-medium text-foreground truncate">{skill.name}</div>
-                            <div className="text-[11px] text-muted-foreground/60 truncate">{skill.description}</div>
+                            <div className="text-xs font-medium text-foreground truncate">
+                              {skill.name}
+                            </div>
+                            <div className="text-[11px] text-muted-foreground/60 truncate">
+                              {skill.description}
+                            </div>
                           </div>
                           <Switch
                             checked={!isDenied}
                             onCheckedChange={(checked) => {
                               const newDeny = checked
-                                ? config.skills.deny.filter(n => n !== skill.name)
+                                ? config.skills.deny.filter((n) => n !== skill.name)
                                 : [...config.skills.deny, skill.name]
                               updateConfig({ skills: { ...config.skills, deny: newDeny } })
                             }}
@@ -962,12 +1116,18 @@ function AgentEditView({
                 {/* Skill env check */}
                 <div className="flex items-center justify-between px-1">
                   <div>
-                    <div className="text-sm text-foreground">{t("settings.agentSkillEnvCheck")}</div>
-                    <div className="text-xs text-muted-foreground">{t("settings.agentSkillEnvCheckDesc")}</div>
+                    <div className="text-sm text-foreground">
+                      {t("settings.agentSkillEnvCheck")}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {t("settings.agentSkillEnvCheckDesc")}
+                    </div>
                   </div>
                   <Switch
                     checked={config.behavior.skillEnvCheck ?? true}
-                    onCheckedChange={(v) => updateConfig({ behavior: { ...config.behavior, skillEnvCheck: v } })}
+                    onCheckedChange={(v) =>
+                      updateConfig({ behavior: { ...config.behavior, skillEnvCheck: v } })
+                    }
                   />
                 </div>
               </div>
@@ -976,8 +1136,12 @@ function AgentEditView({
 
               {/* Tool guidance */}
               <div>
-                <div className="text-xs font-medium text-muted-foreground mb-1 px-1">{t("settings.agentToolsGuide")}</div>
-                <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">{t("settings.agentToolsGuideDesc")}</p>
+                <div className="text-xs font-medium text-muted-foreground mb-1 px-1">
+                  {t("settings.agentToolsGuide")}
+                </div>
+                <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">
+                  {t("settings.agentToolsGuideDesc")}
+                </p>
                 <Textarea
                   className="bg-secondary/40 rounded-lg resize-y leading-relaxed font-mono min-h-[80px]"
                   rows={5}
@@ -990,9 +1154,7 @@ function AgentEditView({
           )}
 
           {/* ── Memory Tab ── */}
-          {activeTab === "memory" && (
-            <MemoryPanel agentId={agentId} compact />
-          )}
+          {activeTab === "memory" && <MemoryPanel agentId={agentId} compact />}
 
           {/* ── Sub-Agent Tab ── */}
           {activeTab === "subagent" && (
@@ -1010,7 +1172,9 @@ function AgentEditView({
               <div className="flex items-center justify-between px-1">
                 <div>
                   <div className="text-sm text-foreground">{t("settings.agentCustomPrompt")}</div>
-                  <div className="text-xs text-muted-foreground">{t("settings.agentCustomPromptDesc")}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {t("settings.agentCustomPromptDesc")}
+                  </div>
                 </div>
                 <Switch
                   checked={config.useCustomPrompt}
@@ -1024,13 +1188,19 @@ function AgentEditView({
               {config.useCustomPrompt && (
                 <>
                   <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2">
-                    <p className="text-xs text-amber-600 dark:text-amber-400">{t("settings.agentCustomPromptWarning")}</p>
+                    <p className="text-xs text-amber-600 dark:text-amber-400">
+                      {t("settings.agentCustomPromptWarning")}
+                    </p>
                   </div>
 
                   {/* Custom Identity */}
                   <div>
-                    <div className="text-xs font-medium text-muted-foreground mb-1 px-1">{t("settings.agentMd")}</div>
-                    <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">{t("settings.agentCustomIdentityDesc")}</p>
+                    <div className="text-xs font-medium text-muted-foreground mb-1 px-1">
+                      {t("settings.agentMd")}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">
+                      {t("settings.agentCustomIdentityDesc")}
+                    </p>
                     <Textarea
                       className="bg-secondary/40 rounded-lg resize-y leading-relaxed font-mono min-h-[160px]"
                       rows={10}
@@ -1042,8 +1212,12 @@ function AgentEditView({
 
                   {/* Custom Personality */}
                   <div>
-                    <div className="text-xs font-medium text-muted-foreground mb-1 px-1">{t("settings.agentPersona")}</div>
-                    <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">{t("settings.agentCustomPersonaDesc")}</p>
+                    <div className="text-xs font-medium text-muted-foreground mb-1 px-1">
+                      {t("settings.agentPersona")}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">
+                      {t("settings.agentCustomPersonaDesc")}
+                    </p>
                     <Textarea
                       className="bg-secondary/40 rounded-lg resize-y leading-relaxed font-mono min-h-[120px]"
                       rows={8}
@@ -1052,170 +1226,217 @@ function AgentEditView({
                     />
                     <CharCounter value={persona} />
                   </div>
-
                 </>
               )}
             </div>
           )}
 
           {/* ── Model Tab ── */}
-          {activeTab === "model" && (() => {
-            const isCustom = !!(config.model.primary)
-            const modelDisplayName = (ref: string) => {
-              const parts = ref.split("::")
-              if (parts.length < 2) return ref
-              const [pid, ...rest] = parts
-              const mid = rest.join("::")
-              const m = availableModels.find(m => m.providerId === pid && m.modelId === mid)
-              return m ? `${m.providerName} / ${m.modelName}` : ref
-            }
-            const fallbacks = config.model.fallbacks || []
-            const availableForFallback = availableModels.filter(
-              m => {
+          {activeTab === "model" &&
+            (() => {
+              const isCustom = !!config.model.primary
+              const modelDisplayName = (ref: string) => {
+                const parts = ref.split("::")
+                if (parts.length < 2) return ref
+                const [pid, ...rest] = parts
+                const mid = rest.join("::")
+                const m = availableModels.find((m) => m.providerId === pid && m.modelId === mid)
+                return m ? `${m.providerName} / ${m.modelName}` : ref
+              }
+              const fallbacks = config.model.fallbacks || []
+              const availableForFallback = availableModels.filter((m) => {
                 const ref = `${m.providerId}::${m.modelId}`
                 return ref !== config.model.primary && !fallbacks.includes(ref)
-              }
-            )
+              })
 
-            return (
-              <div className="space-y-5">
-                {/* Inherit / Custom toggle */}
-                <div className="flex items-center justify-between px-1">
-                  <div>
-                    <div className="text-sm text-foreground">{t("settings.agentModelCustom")}</div>
-                    <div className="text-xs text-muted-foreground">{t("settings.agentModelCustomDesc")}</div>
-                  </div>
-                  <Switch
-                    checked={isCustom}
-                    onCheckedChange={async (v) => {
-                      if (v) {
-                        // Inherit from global settings
-                        try {
-                          const [globalActive, globalFallbacks] = await Promise.all([
-                            invoke<ActiveModelRef | null>("get_active_model"),
-                            invoke<ActiveModelRef[]>("get_fallback_models"),
-                          ])
-                          const primary = globalActive
-                            ? `${globalActive.providerId}::${globalActive.modelId}`
-                            : (availableModels[0] ? `${availableModels[0].providerId}::${availableModels[0].modelId}` : null)
-                          const fallbacks = globalFallbacks.map(f => `${f.providerId}::${f.modelId}`)
-                          updateConfig({ model: { ...config.model, primary, fallbacks } })
-                        } catch {
-                          // Fallback: use first available model
-                          const first = availableModels[0]
-                          if (first) {
-                            updateConfig({ model: { ...config.model, primary: `${first.providerId}::${first.modelId}` } })
+              return (
+                <div className="space-y-5">
+                  {/* Inherit / Custom toggle */}
+                  <div className="flex items-center justify-between px-1">
+                    <div>
+                      <div className="text-sm text-foreground">
+                        {t("settings.agentModelCustom")}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {t("settings.agentModelCustomDesc")}
+                      </div>
+                    </div>
+                    <Switch
+                      checked={isCustom}
+                      onCheckedChange={async (v) => {
+                        if (v) {
+                          // Inherit from global settings
+                          try {
+                            const [globalActive, globalFallbacks] = await Promise.all([
+                              invoke<ActiveModelRef | null>("get_active_model"),
+                              invoke<ActiveModelRef[]>("get_fallback_models"),
+                            ])
+                            const primary = globalActive
+                              ? `${globalActive.providerId}::${globalActive.modelId}`
+                              : availableModels[0]
+                                ? `${availableModels[0].providerId}::${availableModels[0].modelId}`
+                                : null
+                            const fallbacks = globalFallbacks.map(
+                              (f) => `${f.providerId}::${f.modelId}`,
+                            )
+                            updateConfig({ model: { ...config.model, primary, fallbacks } })
+                          } catch {
+                            // Fallback: use first available model
+                            const first = availableModels[0]
+                            if (first) {
+                              updateConfig({
+                                model: {
+                                  ...config.model,
+                                  primary: `${first.providerId}::${first.modelId}`,
+                                },
+                              })
+                            }
                           }
+                        } else {
+                          updateConfig({ model: { primary: null, fallbacks: [] } })
                         }
-                      } else {
-                        updateConfig({ model: { primary: null, fallbacks: [] } })
-                      }
-                    }}
-                  />
-                </div>
-
-                {!isCustom && (
-                  <div className="rounded-lg border border-border/50 bg-secondary/20 px-3 py-2">
-                    <p className="text-xs text-muted-foreground">{t("settings.agentModelInheritHint")}</p>
+                      }}
+                    />
                   </div>
-                )}
 
-                {isCustom && (
-                  <>
-                    {/* Primary model selector */}
-                    <div>
-                      <div className="text-xs font-medium text-muted-foreground mb-1 px-1">{t("settings.agentModelPrimary")}</div>
-                      <ModelSelector
-                        value={config.model.primary || ""}
-                        onChange={(providerId, modelId) => updateConfig({ model: { ...config.model, primary: `${providerId}::${modelId}` } })}
-                        availableModels={availableModels}
-                        placeholder={t("settings.selectDefaultModel")}
-                      />
+                  {!isCustom && (
+                    <div className="rounded-lg border border-border/50 bg-secondary/20 px-3 py-2">
+                      <p className="text-xs text-muted-foreground">
+                        {t("settings.agentModelInheritHint")}
+                      </p>
                     </div>
+                  )}
 
-                    <div className="border-t border-border/50" />
-
-                    {/* Fallback models */}
-                    <div>
-                      <div className="text-xs font-medium text-muted-foreground mb-1 px-1">{t("settings.fallbackModels")}</div>
-                      <p className="text-[11px] text-muted-foreground/60 mb-3 px-1">{t("settings.fallbackModelsDesc")}</p>
-
-                      {fallbacks.length === 0 ? (
-                        <div className="text-center py-4 text-xs text-muted-foreground/50">{t("settings.noFallbackModels")}</div>
-                      ) : (
-                        <div className="space-y-1 mb-3">
-                          {fallbacks.map((ref, i) => (
-                            <div key={ref} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-secondary/40">
-                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium shrink-0">
-                                #{i + 1}
-                              </span>
-                              <span className="text-sm text-foreground flex-1 truncate">{modelDisplayName(ref)}</span>
-                              <div className="flex items-center gap-0.5 shrink-0">
-                                <button
-                                  className="p-0.5 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30"
-                                  onClick={() => {
-                                    if (i === 0) return
-                                    const newList = [...fallbacks]
-                                    ;[newList[i], newList[i - 1]] = [newList[i - 1], newList[i]]
-                                    updateConfig({ model: { ...config.model, fallbacks: newList } })
-                                  }}
-                                  disabled={i === 0}
-                                ><ArrowUp className="h-3 w-3" /></button>
-                                <button
-                                  className="p-0.5 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30"
-                                  onClick={() => {
-                                    if (i === fallbacks.length - 1) return
-                                    const newList = [...fallbacks]
-                                    ;[newList[i], newList[i + 1]] = [newList[i + 1], newList[i]]
-                                    updateConfig({ model: { ...config.model, fallbacks: newList } })
-                                  }}
-                                  disabled={i === fallbacks.length - 1}
-                                ><ArrowDown className="h-3 w-3" /></button>
-                                <button
-                                  className="p-0.5 text-muted-foreground hover:text-destructive transition-colors ml-1"
-                                  onClick={() => {
-                                    updateConfig({ model: { ...config.model, fallbacks: fallbacks.filter((_, j) => j !== i) } })
-                                  }}
-                                ><X className="h-3 w-3" /></button>
-                              </div>
-                            </div>
-                          ))}
+                  {isCustom && (
+                    <>
+                      {/* Primary model selector */}
+                      <div>
+                        <div className="text-xs font-medium text-muted-foreground mb-1 px-1">
+                          {t("settings.agentModelPrimary")}
                         </div>
-                      )}
-
-                      {/* Add fallback button / selector */}
-                      {!addingAgentFallback ? (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="gap-1.5 text-primary hover:text-primary/80 px-1"
-                          onClick={() => setAddingAgentFallback(true)}
-                        >
-                          <Plus className="h-3.5 w-3.5" />
-                          <span>{t("settings.addFallbackModel")}</span>
-                        </Button>
-                      ) : (
                         <ModelSelector
-                          defaultOpen={true}
-                          onOpenChange={(open) => {
-                            if (!open) setAddingAgentFallback(false)
-                          }}
-                          value=""
-                          onChange={(providerId, modelId) => {
-                            const ref = `${providerId}::${modelId}`
-                            updateConfig({ model: { ...config.model, fallbacks: [...fallbacks, ref] } })
-                            setAddingAgentFallback(false)
-                          }}
-                          availableModels={availableForFallback}
-                          placeholder={t("settings.selectFallbackModel")}
+                          value={config.model.primary || ""}
+                          onChange={(providerId, modelId) =>
+                            updateConfig({
+                              model: { ...config.model, primary: `${providerId}::${modelId}` },
+                            })
+                          }
+                          availableModels={availableModels}
+                          placeholder={t("settings.selectDefaultModel")}
                         />
-                      )}
-                    </div>
-                  </>
-                )}
-              </div>
-            )
-          })()}
+                      </div>
+
+                      <div className="border-t border-border/50" />
+
+                      {/* Fallback models */}
+                      <div>
+                        <div className="text-xs font-medium text-muted-foreground mb-1 px-1">
+                          {t("settings.fallbackModels")}
+                        </div>
+                        <p className="text-[11px] text-muted-foreground/60 mb-3 px-1">
+                          {t("settings.fallbackModelsDesc")}
+                        </p>
+
+                        {fallbacks.length === 0 ? (
+                          <div className="text-center py-4 text-xs text-muted-foreground/50">
+                            {t("settings.noFallbackModels")}
+                          </div>
+                        ) : (
+                          <div className="space-y-1 mb-3">
+                            {fallbacks.map((ref, i) => (
+                              <div
+                                key={ref}
+                                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-secondary/40"
+                              >
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium shrink-0">
+                                  #{i + 1}
+                                </span>
+                                <span className="text-sm text-foreground flex-1 truncate">
+                                  {modelDisplayName(ref)}
+                                </span>
+                                <div className="flex items-center gap-0.5 shrink-0">
+                                  <button
+                                    className="p-0.5 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30"
+                                    onClick={() => {
+                                      if (i === 0) return
+                                      const newList = [...fallbacks]
+                                      ;[newList[i], newList[i - 1]] = [newList[i - 1], newList[i]]
+                                      updateConfig({
+                                        model: { ...config.model, fallbacks: newList },
+                                      })
+                                    }}
+                                    disabled={i === 0}
+                                  >
+                                    <ArrowUp className="h-3 w-3" />
+                                  </button>
+                                  <button
+                                    className="p-0.5 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30"
+                                    onClick={() => {
+                                      if (i === fallbacks.length - 1) return
+                                      const newList = [...fallbacks]
+                                      ;[newList[i], newList[i + 1]] = [newList[i + 1], newList[i]]
+                                      updateConfig({
+                                        model: { ...config.model, fallbacks: newList },
+                                      })
+                                    }}
+                                    disabled={i === fallbacks.length - 1}
+                                  >
+                                    <ArrowDown className="h-3 w-3" />
+                                  </button>
+                                  <button
+                                    className="p-0.5 text-muted-foreground hover:text-destructive transition-colors ml-1"
+                                    onClick={() => {
+                                      updateConfig({
+                                        model: {
+                                          ...config.model,
+                                          fallbacks: fallbacks.filter((_, j) => j !== i),
+                                        },
+                                      })
+                                    }}
+                                  >
+                                    <X className="h-3 w-3" />
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Add fallback button / selector */}
+                        {!addingAgentFallback ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="gap-1.5 text-primary hover:text-primary/80 px-1"
+                            onClick={() => setAddingAgentFallback(true)}
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                            <span>{t("settings.addFallbackModel")}</span>
+                          </Button>
+                        ) : (
+                          <ModelSelector
+                            defaultOpen={true}
+                            onOpenChange={(open) => {
+                              if (!open) setAddingAgentFallback(false)
+                            }}
+                            value=""
+                            onChange={(providerId, modelId) => {
+                              const ref = `${providerId}::${modelId}`
+                              updateConfig({
+                                model: { ...config.model, fallbacks: [...fallbacks, ref] },
+                              })
+                              setAddingAgentFallback(false)
+                            }}
+                            availableModels={availableForFallback}
+                            placeholder={t("settings.selectFallbackModel")}
+                          />
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )
+            })()}
         </div>
       </div>
 
@@ -1235,18 +1456,20 @@ function AgentEditView({
           )}
         </div>
         <Button
-          className={cn(
-            saved && "bg-green-500/10 text-green-600 hover:bg-green-500/20"
-          )}
+          className={cn(saved && "bg-green-500/10 text-green-600 hover:bg-green-500/20")}
           onClick={handleSave}
           disabled={saving}
         >
-          {saving ? t("common.saving") : saved ? (
+          {saving ? (
+            t("common.saving")
+          ) : saved ? (
             <span className="flex items-center gap-1.5">
               <Check className="h-3.5 w-3.5" />
               {t("settings.agentSaved")}
             </span>
-          ) : t("common.save")}
+          ) : (
+            t("common.save")
+          )}
         </Button>
       </div>
     </div>

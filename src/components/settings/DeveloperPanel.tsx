@@ -92,9 +92,7 @@ export default function DeveloperPanel() {
     }
   }, [])
 
-  const confirmAction = confirmTarget
-    ? CLEAR_ACTIONS.find((a) => a.target === confirmTarget)
-    : null
+  const confirmAction = confirmTarget ? CLEAR_ACTIONS.find((a) => a.target === confirmTarget) : null
 
   return (
     <div className="flex-1 overflow-y-auto p-6">
@@ -103,12 +101,8 @@ export default function DeveloperPanel() {
         <div className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4">
           <AlertTriangle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
           <div className="space-y-1">
-            <p className="text-sm font-medium text-destructive">
-              {t("settings.devWarningTitle")}
-            </p>
-            <p className="text-sm text-muted-foreground">
-              {t("settings.devWarningDesc")}
-            </p>
+            <p className="text-sm font-medium text-destructive">{t("settings.devWarningTitle")}</p>
+            <p className="text-sm text-muted-foreground">{t("settings.devWarningDesc")}</p>
           </div>
         </div>
 
@@ -125,9 +119,7 @@ export default function DeveloperPanel() {
                 </span>
                 <div className="min-w-0">
                   <p className="text-sm font-medium">{t(action.labelKey)}</p>
-                  <p className="text-xs text-muted-foreground truncate">
-                    {t(action.descKey)}
-                  </p>
+                  <p className="text-xs text-muted-foreground truncate">{t(action.descKey)}</p>
                 </div>
               </div>
               <Button
@@ -154,12 +146,8 @@ export default function DeveloperPanel() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>
-              {confirmAction ? t(confirmAction.labelKey) : ""}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {t("settings.devConfirmDesc")}
-            </AlertDialogDescription>
+            <AlertDialogTitle>{confirmAction ? t(confirmAction.labelKey) : ""}</AlertDialogTitle>
+            <AlertDialogDescription>{t("settings.devConfirmDesc")}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>

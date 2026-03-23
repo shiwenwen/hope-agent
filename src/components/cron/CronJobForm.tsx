@@ -88,7 +88,15 @@ interface CronJobFormProps {
 
 type CronFrequency = "hourly" | "daily" | "weekly" | "monthly" | "custom"
 
-const WEEKDAY_KEYS = ["weekMon", "weekTue", "weekWed", "weekThu", "weekFri", "weekSat", "weekSun"] as const
+const WEEKDAY_KEYS = [
+  "weekMon",
+  "weekTue",
+  "weekWed",
+  "weekThu",
+  "weekFri",
+  "weekSat",
+  "weekSun",
+] as const
 const WEEKDAY_CRON = [1, 2, 3, 4, 5, 6, 0] // cron weekday values (Mon=1 .. Sun=0)
 
 /** Parse an existing cron expression into visual-builder state (best effort). */
@@ -99,7 +107,13 @@ function parseCronToVisual(expr: string): {
   weekdays: boolean[]
   monthDay: string
 } {
-  const defaults = { freq: "daily" as CronFrequency, hour: "09", minute: "00", weekdays: Array(7).fill(false) as boolean[], monthDay: "1" }
+  const defaults = {
+    freq: "daily" as CronFrequency,
+    hour: "09",
+    minute: "00",
+    weekdays: Array(7).fill(false) as boolean[],
+    monthDay: "1",
+  }
   if (!expr) return defaults
 
   // cron crate uses 7 fields: sec min hour day month weekday [year]
@@ -166,9 +180,7 @@ function buildCronFromVisual(
     case "daily":
       return `0 ${m} ${h} * * *`
     case "weekly": {
-      const selected = weekdays
-        .map((on, i) => (on ? WEEKDAY_CRON[i] : -1))
-        .filter((v) => v >= 0)
+      const selected = weekdays.map((on, i) => (on ? WEEKDAY_CRON[i] : -1)).filter((v) => v >= 0)
       if (selected.length === 0) return `0 ${m} ${h} * * *` // fallback daily
       return `0 ${m} ${h} * * ${selected.join(",")}`
     }
@@ -189,7 +201,7 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
   const [name, setName] = useState(job?.name ?? "")
   const [description, setDescription] = useState(job?.description ?? "")
   const [scheduleType, setScheduleType] = useState<"at" | "every" | "cron">(
-    job?.schedule.type ?? "cron"
+    job?.schedule.type ?? "cron",
   )
   const [timestamp, setTimestamp] = useState(() => {
     if (job?.schedule.type === "at" && job.schedule.timestamp) {
@@ -210,7 +222,10 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
 
   // Visual cron builder state
   const initVisual = useMemo(
-    () => parseCronToVisual(job?.schedule.type === "cron" ? job.schedule.expression ?? "" : "0 0 9 * * *"),
+    () =>
+      parseCronToVisual(
+        job?.schedule.type === "cron" ? (job.schedule.expression ?? "") : "0 0 9 * * *",
+      ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   )
@@ -220,12 +235,13 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
   const [cronWeekdays, setCronWeekdays] = useState<boolean[]>(initVisual.weekdays)
   const [cronMonthDay, setCronMonthDay] = useState(initVisual.monthDay)
   const [cronRawExpr, setCronRawExpr] = useState(
-    job?.schedule.type === "cron" ? job.schedule.expression ?? "0 0 9 * * *" : "0 0 9 * * *",
+    job?.schedule.type === "cron" ? (job.schedule.expression ?? "0 0 9 * * *") : "0 0 9 * * *",
   )
 
   // Sync visual → raw expression (for preview and saving)
   const cronExpression = useMemo(
-    () => buildCronFromVisual(cronFreq, cronHour, cronMinute, cronWeekdays, cronMonthDay, cronRawExpr),
+    () =>
+      buildCronFromVisual(cronFreq, cronHour, cronMinute, cronWeekdays, cronMonthDay, cronRawExpr),
     [cronFreq, cronHour, cronMinute, cronWeekdays, cronMonthDay, cronRawExpr],
   )
 
@@ -238,7 +254,9 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
   const [error, setError] = useState("")
 
   useEffect(() => {
-    invoke<AgentInfo[]>("list_agents").then(setAgents).catch(() => {})
+    invoke<AgentInfo[]>("list_agents")
+      .then(setAgents)
+      .catch(() => {})
   }, [])
 
   function toggleWeekday(idx: number) {
@@ -250,8 +268,14 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
   }
 
   async function handleSave() {
-    if (!name.trim()) { setError(t("cron.errorNameRequired")); return }
-    if (!message.trim()) { setError(t("cron.errorMessageRequired")); return }
+    if (!name.trim()) {
+      setError(t("cron.errorNameRequired"))
+      return
+    }
+    if (!message.trim()) {
+      setError(t("cron.errorMessageRequired"))
+      return
+    }
 
     setSaving(true)
     setError("")
@@ -296,7 +320,8 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
         return { type: "at", timestamp: new Date(timestamp).toISOString() }
       case "every": {
         const num = parseFloat(intervalValue) || 60
-        const multiplier = intervalUnit === "day" ? 86400000 : intervalUnit === "hour" ? 3600000 : 60000
+        const multiplier =
+          intervalUnit === "day" ? 86400000 : intervalUnit === "hour" ? 3600000 : 60000
         return { type: "every", intervalMs: Math.max(60000, num * multiplier) }
       }
       case "cron":
@@ -325,7 +350,9 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
         <div className="p-5 space-y-4">
           {/* Name */}
           <div>
-            <label className="text-xs font-medium text-muted-foreground mb-1 block">{t("cron.name")}</label>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">
+              {t("cron.name")}
+            </label>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -335,7 +362,9 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
 
           {/* Description */}
           <div>
-            <label className="text-xs font-medium text-muted-foreground mb-1 block">{t("cron.description")}</label>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">
+              {t("cron.description")}
+            </label>
             <Input
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -345,8 +374,13 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
 
           {/* Schedule Type */}
           <div>
-            <label className="text-xs font-medium text-muted-foreground mb-1 block">{t("cron.schedule")}</label>
-            <Select value={scheduleType} onValueChange={(v) => setScheduleType(v as "at" | "every" | "cron")}>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">
+              {t("cron.schedule")}
+            </label>
+            <Select
+              value={scheduleType}
+              onValueChange={(v) => setScheduleType(v as "at" | "every" | "cron")}
+            >
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -361,7 +395,9 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
           {/* Schedule Config — One-time */}
           {scheduleType === "at" && (
             <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1 block">{t("cron.dateTime")}</label>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                {t("cron.dateTime")}
+              </label>
               <Input
                 type="datetime-local"
                 value={timestamp}
@@ -374,7 +410,9 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
           {scheduleType === "every" && (
             <div className="flex gap-2">
               <div className="flex-1">
-                <label className="text-xs font-medium text-muted-foreground mb-1 block">{t("cron.interval")}</label>
+                <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                  {t("cron.interval")}
+                </label>
                 <Input
                   type="number"
                   min="1"
@@ -383,8 +421,13 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
                 />
               </div>
               <div className="w-28">
-                <label className="text-xs font-medium text-muted-foreground mb-1 block">{t("cron.unit")}</label>
-                <Select value={intervalUnit} onValueChange={(v) => setIntervalUnit(v as "min" | "hour" | "day")}>
+                <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                  {t("cron.unit")}
+                </label>
+                <Select
+                  value={intervalUnit}
+                  onValueChange={(v) => setIntervalUnit(v as "min" | "hour" | "day")}
+                >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -403,23 +446,27 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
             <div className="space-y-3">
               {/* Frequency pills */}
               <div>
-                <label className="text-xs font-medium text-muted-foreground mb-1.5 block">{t("cron.frequency")}</label>
+                <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
+                  {t("cron.frequency")}
+                </label>
                 <div className="flex flex-wrap gap-1.5">
-                  {(["hourly", "daily", "weekly", "monthly", "custom"] as CronFrequency[]).map((f) => (
-                    <button
-                      key={f}
-                      type="button"
-                      className={cn(
-                        "px-3 py-1 rounded-full text-xs font-medium transition-colors",
-                        cronFreq === f
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-secondary text-secondary-foreground hover:bg-secondary/80",
-                      )}
-                      onClick={() => setCronFreq(f)}
-                    >
-                      {t(`cron.freq_${f}`)}
-                    </button>
-                  ))}
+                  {(["hourly", "daily", "weekly", "monthly", "custom"] as CronFrequency[]).map(
+                    (f) => (
+                      <button
+                        key={f}
+                        type="button"
+                        className={cn(
+                          "px-3 py-1 rounded-full text-xs font-medium transition-colors",
+                          cronFreq === f
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-secondary text-secondary-foreground hover:bg-secondary/80",
+                        )}
+                        onClick={() => setCronFreq(f)}
+                      >
+                        {t(`cron.freq_${f}`)}
+                      </button>
+                    ),
+                  )}
                 </div>
               </div>
 
@@ -433,7 +480,9 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
                     </SelectTrigger>
                     <SelectContent>
                       {minuteOptions.map((m) => (
-                        <SelectItem key={m} value={m}>{m}</SelectItem>
+                        <SelectItem key={m} value={m}>
+                          {m}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -451,7 +500,9 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
                     </SelectTrigger>
                     <SelectContent>
                       {hourOptions.map((h) => (
-                        <SelectItem key={h} value={h}>{h}</SelectItem>
+                        <SelectItem key={h} value={h}>
+                          {h}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -462,7 +513,9 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
                     </SelectTrigger>
                     <SelectContent>
                       {minuteOptions.map((m) => (
-                        <SelectItem key={m} value={m}>{m}</SelectItem>
+                        <SelectItem key={m} value={m}>
+                          {m}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -497,7 +550,9 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
                       </SelectTrigger>
                       <SelectContent>
                         {hourOptions.map((h) => (
-                          <SelectItem key={h} value={h}>{h}</SelectItem>
+                          <SelectItem key={h} value={h}>
+                            {h}
+                          </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -508,7 +563,9 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
                       </SelectTrigger>
                       <SelectContent>
                         {minuteOptions.map((m) => (
-                          <SelectItem key={m} value={m}>{m}</SelectItem>
+                          <SelectItem key={m} value={m}>
+                            {m}
+                          </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -527,7 +584,10 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
                       </SelectTrigger>
                       <SelectContent>
                         {Array.from({ length: 31 }, (_, i) => String(i + 1)).map((d) => (
-                          <SelectItem key={d} value={d}>{d}{t("cron.daySuffix")}</SelectItem>
+                          <SelectItem key={d} value={d}>
+                            {d}
+                            {t("cron.daySuffix")}
+                          </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -540,7 +600,9 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
                       </SelectTrigger>
                       <SelectContent>
                         {hourOptions.map((h) => (
-                          <SelectItem key={h} value={h}>{h}</SelectItem>
+                          <SelectItem key={h} value={h}>
+                            {h}
+                          </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -551,7 +613,9 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
                       </SelectTrigger>
                       <SelectContent>
                         {minuteOptions.map((m) => (
-                          <SelectItem key={m} value={m}>{m}</SelectItem>
+                          <SelectItem key={m} value={m}>
+                            {m}
+                          </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -568,9 +632,7 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
                     placeholder="0 0 9 * * *"
                     className="font-mono text-sm"
                   />
-                  <p className="text-[10px] text-muted-foreground mt-1">
-                    {t("cron.cronHelp")}
-                  </p>
+                  <p className="text-[10px] text-muted-foreground mt-1">{t("cron.cronHelp")}</p>
                 </div>
               )}
 
@@ -596,7 +658,9 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
 
           {/* Message */}
           <div>
-            <label className="text-xs font-medium text-muted-foreground mb-1 block">{t("cron.message")}</label>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">
+              {t("cron.message")}
+            </label>
             <Textarea
               value={message}
               onChange={(e) => setMessage(e.target.value)}
@@ -607,7 +671,9 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
 
           {/* Agent */}
           <div>
-            <label className="text-xs font-medium text-muted-foreground mb-1 block">{t("cron.agent")}</label>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">
+              {t("cron.agent")}
+            </label>
             <Select value={agentId} onValueChange={setAgentId}>
               <SelectTrigger>
                 <SelectValue />
@@ -618,7 +684,11 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
                     <div className="flex items-center gap-2">
                       <div className="w-5 h-5 rounded-full bg-primary/15 flex items-center justify-center text-primary shrink-0 text-[10px] overflow-hidden">
                         {a.avatar ? (
-                          <img src={a.avatar.startsWith("/") ? convertFileSrc(a.avatar) : a.avatar} className="w-full h-full object-cover" alt="" />
+                          <img
+                            src={a.avatar.startsWith("/") ? convertFileSrc(a.avatar) : a.avatar}
+                            className="w-full h-full object-cover"
+                            alt=""
+                          />
                         ) : a.emoji ? (
                           <span>{a.emoji}</span>
                         ) : (
@@ -635,7 +705,9 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
 
           {/* Max Failures */}
           <div>
-            <label className="text-xs font-medium text-muted-foreground mb-1 block">{t("cron.maxFailures")}</label>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">
+              {t("cron.maxFailures")}
+            </label>
             <Input
               type="number"
               min="1"
@@ -648,21 +720,25 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
           {/* Notify on complete */}
           <div className="flex items-center justify-between">
             <div>
-              <label className="text-xs font-medium text-muted-foreground block">{t("notification.cronNotify")}</label>
-              <p className="text-xs text-muted-foreground/70 mt-0.5">{t("notification.cronNotifyDesc")}</p>
+              <label className="text-xs font-medium text-muted-foreground block">
+                {t("notification.cronNotify")}
+              </label>
+              <p className="text-xs text-muted-foreground/70 mt-0.5">
+                {t("notification.cronNotifyDesc")}
+              </p>
             </div>
             <Switch checked={notifyOnComplete} onCheckedChange={setNotifyOnComplete} />
           </div>
 
           {/* Error */}
-          {error && (
-            <p className="text-xs text-red-500">{error}</p>
-          )}
+          {error && <p className="text-xs text-red-500">{error}</p>}
         </div>
 
         {/* Footer */}
         <div className="flex justify-end gap-2 px-5 py-4 border-t border-border">
-          <Button variant="outline" size="sm" onClick={onCancel}>{t("common.cancel")}</Button>
+          <Button variant="outline" size="sm" onClick={onCancel}>
+            {t("common.cancel")}
+          </Button>
           <Button size="sm" onClick={handleSave} disabled={saving}>
             {saving ? t("common.saving") : isEditing ? t("common.save") : t("cron.create")}
           </Button>
@@ -689,12 +765,18 @@ function toLocalDatetimeString(isoString: string): string {
 // eslint-disable-next-line react-refresh/only-export-components
 export function statusColor(status: string): string {
   switch (status) {
-    case "active": return "bg-emerald-500"
-    case "paused": return "bg-amber-500"
-    case "disabled": return "bg-red-500"
-    case "completed": return "bg-gray-400"
-    case "missed": return "bg-orange-500"
-    default: return "bg-gray-400"
+    case "active":
+      return "bg-emerald-500"
+    case "paused":
+      return "bg-amber-500"
+    case "disabled":
+      return "bg-red-500"
+    case "completed":
+      return "bg-gray-400"
+    case "missed":
+      return "bg-orange-500"
+    default:
+      return "bg-gray-400"
   }
 }
 
@@ -706,8 +788,10 @@ export function formatSchedule(schedule: CronSchedule, t: (key: string) => strin
     case "every": {
       const ms = schedule.intervalMs ?? 0
       const secs = ms / 1000
-      if (secs < 3600) return `${t("cron.scheduleEvery")} ${Math.round(secs / 60)} ${t("cron.unitMinutes")}`
-      if (secs < 86400) return `${t("cron.scheduleEvery")} ${Math.round(secs / 3600)} ${t("cron.unitHours")}`
+      if (secs < 3600)
+        return `${t("cron.scheduleEvery")} ${Math.round(secs / 60)} ${t("cron.unitMinutes")}`
+      if (secs < 86400)
+        return `${t("cron.scheduleEvery")} ${Math.round(secs / 3600)} ${t("cron.unitHours")}`
       return `${t("cron.scheduleEvery")} ${Math.round(secs / 86400)} ${t("cron.unitDays")}`
     }
     case "cron":

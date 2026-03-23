@@ -99,8 +99,15 @@
 }
 
 @keyframes bounce-pulse {
-  0%, 100% { transform: translateY(0) scale(1); opacity: 0.3; }
-  50% { transform: translateY(-6px) scale(1.1); opacity: 1; }
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+    opacity: 0.3;
+  }
+  50% {
+    transform: translateY(-6px) scale(1.1);
+    opacity: 1;
+  }
 }
 
 @utility animate-bounce-pulse {
@@ -109,8 +116,14 @@
 
 /* Gentle fade + slide-up entrance for messages and panels */
 @keyframes fade-slide-in {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @utility animate-fade-slide-in {

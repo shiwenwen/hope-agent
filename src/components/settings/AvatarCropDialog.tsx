@@ -28,10 +28,7 @@ interface AvatarCropDialogProps {
  * Create a cropped image from a canvas.
  * Crops the image to a square region defined by `croppedAreaPixels`.
  */
-async function getCroppedBlob(
-  imageSrc: string,
-  croppedAreaPixels: Area,
-): Promise<Blob> {
+async function getCroppedBlob(imageSrc: string, croppedAreaPixels: Area): Promise<Blob> {
   const image = await createImage(imageSrc)
   const canvas = document.createElement("canvas")
   const ctx = canvas.getContext("2d")!
@@ -73,12 +70,7 @@ function createImage(url: string): Promise<HTMLImageElement> {
   })
 }
 
-export function AvatarCropDialog({
-  imageSrc,
-  onConfirm,
-  onCancel,
-  open,
-}: AvatarCropDialogProps) {
+export function AvatarCropDialog({ imageSrc, onConfirm, onCancel, open }: AvatarCropDialogProps) {
   const { t } = useTranslation()
   const [crop, setCrop] = useState({ x: 0, y: 0 })
   const [zoom, setZoom] = useState(1)
@@ -106,9 +98,7 @@ export function AvatarCropDialog({
     <AlertDialog open={open}>
       <AlertDialogContent className="max-w-md p-0 overflow-hidden">
         <AlertDialogHeader className="px-5 pt-5 pb-0">
-          <AlertDialogTitle className="text-base">
-            {t("settings.avatarCropTitle")}
-          </AlertDialogTitle>
+          <AlertDialogTitle className="text-base">{t("settings.avatarCropTitle")}</AlertDialogTitle>
         </AlertDialogHeader>
 
         {/* Crop area */}
@@ -128,9 +118,7 @@ export function AvatarCropDialog({
 
         {/* Zoom slider */}
         <div className="px-5 pb-2 flex items-center gap-3">
-          <span className="text-xs text-muted-foreground shrink-0">
-            {t("settings.avatarZoom")}
-          </span>
+          <span className="text-xs text-muted-foreground shrink-0">{t("settings.avatarZoom")}</span>
           <input
             type="range"
             min={1}
@@ -143,10 +131,7 @@ export function AvatarCropDialog({
         </div>
 
         <AlertDialogFooter className="px-5 pb-4">
-          <AlertDialogCancel
-            onClick={onCancel}
-            className="text-muted-foreground"
-          >
+          <AlertDialogCancel onClick={onCancel} className="text-muted-foreground">
             {t("common.cancel")}
           </AlertDialogCancel>
           <AlertDialogAction onClick={handleConfirm} disabled={processing}>

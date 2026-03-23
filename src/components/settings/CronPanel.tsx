@@ -5,16 +5,7 @@ import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { TooltipProvider, IconTip } from "@/components/ui/tooltip"
 import { Input } from "@/components/ui/input"
-import {
-  Plus,
-  Search,
-  Play,
-  Pause,
-  Trash2,
-  Zap,
-  Pencil,
-  ChevronRight,
-} from "lucide-react"
+import { Plus, Search, Play, Pause, Trash2, Zap, Pencil, ChevronRight } from "lucide-react"
 import CronJobForm from "@/components/cron/CronJobForm"
 import CronJobDetail from "@/components/cron/CronJobDetail"
 import type { CronJob } from "@/components/cron/CronJobForm"
@@ -41,12 +32,18 @@ export default function CronPanel() {
     }
   }, [])
 
-  useEffect(() => { fetchJobs() }, [fetchJobs])
+  useEffect(() => {
+    fetchJobs()
+  }, [fetchJobs])
 
   // Listen for cron:run_completed events
   useEffect(() => {
-    const unlisten = listen("cron:run_completed", () => { fetchJobs() })
-    return () => { unlisten.then((f) => f()) }
+    const unlisten = listen("cron:run_completed", () => {
+      fetchJobs()
+    })
+    return () => {
+      unlisten.then((f) => f())
+    }
   }, [fetchJobs])
 
   const filteredJobs = jobs.filter((job) => {
@@ -83,14 +80,21 @@ export default function CronPanel() {
         <CronJobDetail
           jobId={detailJobId}
           onBack={() => setDetailJobId(null)}
-          onEdit={(job) => { setEditingJob(job); setShowForm(true); setDetailJobId(null) }}
+          onEdit={(job) => {
+            setEditingJob(job)
+            setShowForm(true)
+            setDetailJobId(null)
+          }}
           onRefresh={fetchJobs}
         />
         {showForm && (
           <CronJobForm
             job={editingJob}
             onSave={handleFormClose}
-            onCancel={() => { setShowForm(false); setEditingJob(null) }}
+            onCancel={() => {
+              setShowForm(false)
+              setEditingJob(null)
+            }}
           />
         )}
       </>
@@ -121,7 +125,15 @@ export default function CronPanel() {
           <option value="disabled">{t("cron.disabled")}</option>
           <option value="completed">{t("cron.completed")}</option>
         </select>
-        <Button variant="outline" size="sm" className="h-8 text-xs gap-1" onClick={() => { setEditingJob(null); setShowForm(true) }}>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 text-xs gap-1"
+          onClick={() => {
+            setEditingJob(null)
+            setShowForm(true)
+          }}
+        >
           <Plus className="h-3.5 w-3.5" />
           {t("cron.newJob")}
         </Button>
@@ -145,33 +157,63 @@ export default function CronPanel() {
                 className="flex items-center gap-3 px-5 py-3 hover:bg-secondary/30 transition-colors cursor-pointer"
                 onClick={() => setDetailJobId(job.id)}
               >
-                <span className={`inline-block w-2 h-2 rounded-full shrink-0 ${statusColor(job.status)}`} />
+                <span
+                  className={`inline-block w-2 h-2 rounded-full shrink-0 ${statusColor(job.status)}`}
+                />
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium truncate">{job.name}</div>
                   <div className="text-xs text-muted-foreground truncate">
                     {formatSchedule(job.schedule, t)}
-                    {job.nextRunAt && ` · ${t("cron.nextRun")}: ${new Date(job.nextRunAt).toLocaleString()}`}
+                    {job.nextRunAt &&
+                      ` · ${t("cron.nextRun")}: ${new Date(job.nextRunAt).toLocaleString()}`}
                   </div>
                 </div>
                 <div className="flex gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
                   <TooltipProvider>
                     <IconTip label={t("cron.runNow")}>
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleRunNow(job)}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => handleRunNow(job)}
+                      >
                         <Zap className="h-3.5 w-3.5" />
                       </Button>
                     </IconTip>
                     <IconTip label={t("common.edit")}>
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditingJob(job); setShowForm(true) }}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => {
+                          setEditingJob(job)
+                          setShowForm(true)
+                        }}
+                      >
                         <Pencil className="h-3.5 w-3.5" />
                       </Button>
                     </IconTip>
                     <IconTip label={job.status === "active" ? t("cron.pause") : t("cron.resume")}>
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleToggle(job)}>
-                        {job.status === "active" ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => handleToggle(job)}
+                      >
+                        {job.status === "active" ? (
+                          <Pause className="h-3.5 w-3.5" />
+                        ) : (
+                          <Play className="h-3.5 w-3.5" />
+                        )}
                       </Button>
                     </IconTip>
                     <IconTip label={t("common.delete")}>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500 hover:text-red-600" onClick={() => handleDelete(job)}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-red-500 hover:text-red-600"
+                        onClick={() => handleDelete(job)}
+                      >
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </IconTip>
@@ -189,7 +231,10 @@ export default function CronPanel() {
         <CronJobForm
           job={editingJob}
           onSave={handleFormClose}
-          onCancel={() => { setShowForm(false); setEditingJob(null) }}
+          onCancel={() => {
+            setShowForm(false)
+            setEditingJob(null)
+          }}
         />
       )}
     </div>

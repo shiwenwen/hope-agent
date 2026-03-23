@@ -11,12 +11,8 @@ export default function AboutPanel() {
           <span className="text-3xl font-bold text-primary">OC</span>
         </div>
 
-        <h2 className="text-xl font-bold text-foreground mb-1">
-          OpenComputer
-        </h2>
-        <p className="text-xs text-muted-foreground mb-4">
-          {t("about.version")} 0.1.0
-        </p>
+        <h2 className="text-xl font-bold text-foreground mb-1">OpenComputer</h2>
+        <p className="text-xs text-muted-foreground mb-4">{t("about.version")} 0.1.0</p>
 
         <p className="text-sm text-muted-foreground leading-relaxed max-w-sm mb-6">
           {t("about.description")}

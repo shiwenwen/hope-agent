@@ -17,10 +17,12 @@ export default function SubagentPanel({ config, currentAgentId, onChange }: Suba
   const [agents, setAgents] = useState<AgentSummary[]>([])
 
   useEffect(() => {
-    invoke<AgentSummary[]>("list_agents").then((list) => {
-      // Exclude self from the list
-      setAgents(list.filter((a) => a.id !== currentAgentId))
-    }).catch(() => {})
+    invoke<AgentSummary[]>("list_agents")
+      .then((list) => {
+        // Exclude self from the list
+        setAgents(list.filter((a) => a.id !== currentAgentId))
+      })
+      .catch(() => {})
   }, [currentAgentId])
 
   const isAgentEnabled = (agentId: string) => {
@@ -41,9 +43,10 @@ export default function SubagentPanel({ config, currentAgentId, onChange }: Suba
     } else {
       // Enable: remove from denied, add to allowed if allowedAgents is non-empty
       const newDenied = config.deniedAgents.filter((id) => id !== agentId)
-      const newAllowed = config.allowedAgents.length > 0
-        ? [...config.allowedAgents.filter((id) => id !== agentId), agentId]
-        : []
+      const newAllowed =
+        config.allowedAgents.length > 0
+          ? [...config.allowedAgents.filter((id) => id !== agentId), agentId]
+          : []
       onChange({ ...config, deniedAgents: newDenied, allowedAgents: newAllowed })
     }
   }
@@ -67,7 +70,9 @@ export default function SubagentPanel({ config, currentAgentId, onChange }: Suba
           {agents.length > 0 && (
             <div className="space-y-2">
               <span className="text-sm">{t("settings.subagentAllowedAgents")}</span>
-              <p className="text-xs text-muted-foreground">{t("settings.subagentAllowedAgentsHint")}</p>
+              <p className="text-xs text-muted-foreground">
+                {t("settings.subagentAllowedAgentsHint")}
+              </p>
               <div className="space-y-1">
                 {agents.map((agent) => {
                   const enabled = isAgentEnabled(agent.id)
@@ -77,13 +82,19 @@ export default function SubagentPanel({ config, currentAgentId, onChange }: Suba
                       className="flex items-center gap-2 w-full px-3 py-2 rounded-lg border border-border hover:bg-secondary/60 transition-colors text-left"
                       onClick={() => toggleAgent(agent.id)}
                     >
-                      <div className={`flex items-center justify-center h-4 w-4 rounded border shrink-0 ${enabled ? "bg-primary border-primary" : "border-muted-foreground/40"}`}>
+                      <div
+                        className={`flex items-center justify-center h-4 w-4 rounded border shrink-0 ${enabled ? "bg-primary border-primary" : "border-muted-foreground/40"}`}
+                      >
                         {enabled && <Check className="h-3 w-3 text-primary-foreground" />}
                       </div>
                       <div className="flex items-center justify-center h-6 w-6 rounded-full bg-secondary overflow-hidden shrink-0">
                         {agent.avatar ? (
                           <img
-                            src={agent.avatar.startsWith("/") ? convertFileSrc(agent.avatar) : agent.avatar}
+                            src={
+                              agent.avatar.startsWith("/")
+                                ? convertFileSrc(agent.avatar)
+                                : agent.avatar
+                            }
                             className="w-full h-full object-cover"
                             alt=""
                           />
@@ -95,7 +106,9 @@ export default function SubagentPanel({ config, currentAgentId, onChange }: Suba
                       </div>
                       <span className="text-sm font-medium flex-1">{agent.name}</span>
                       {agent.description && (
-                        <span className="text-xs text-muted-foreground truncate max-w-[200px]">{agent.description}</span>
+                        <span className="text-xs text-muted-foreground truncate max-w-[200px]">
+                          {agent.description}
+                        </span>
                       )}
                     </button>
                   )
@@ -111,7 +124,12 @@ export default function SubagentPanel({ config, currentAgentId, onChange }: Suba
               <Input
                 type="number"
                 value={config.maxConcurrent}
-                onChange={(e) => onChange({ ...config, maxConcurrent: Math.max(1, Math.min(10, Number(e.target.value) || 5)) })}
+                onChange={(e) =>
+                  onChange({
+                    ...config,
+                    maxConcurrent: Math.max(1, Math.min(10, Number(e.target.value) || 5)),
+                  })
+                }
                 className="w-20 text-sm"
                 min={1}
                 max={10}
@@ -126,7 +144,12 @@ export default function SubagentPanel({ config, currentAgentId, onChange }: Suba
               <Input
                 type="number"
                 value={config.defaultTimeoutSecs}
-                onChange={(e) => onChange({ ...config, defaultTimeoutSecs: Math.max(30, Math.min(1800, Number(e.target.value) || 300)) })}
+                onChange={(e) =>
+                  onChange({
+                    ...config,
+                    defaultTimeoutSecs: Math.max(30, Math.min(1800, Number(e.target.value) || 300)),
+                  })
+                }
                 className="w-24 text-sm"
                 min={30}
                 max={1800}

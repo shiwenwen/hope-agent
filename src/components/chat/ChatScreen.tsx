@@ -1,32 +1,12 @@
-import {
-  useState,
-  useRef,
-  useEffect,
-  useCallback,
-  useLayoutEffect,
-  useMemo,
-} from "react";
-import { invoke, Channel, convertFileSrc } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { useTranslation } from "react-i18next";
-import { cn } from "@/lib/utils";
-import { TooltipProvider, IconTip } from "@/components/ui/tooltip";
-import { logger } from "@/lib/logger";
-import {
-  notify,
-  loadNotificationConfig,
-  isAgentNotifyEnabled,
-} from "@/lib/notifications";
-import {
-  Settings,
-  Copy,
-  Check,
-  Info,
-  BarChart3,
-  AlertCircle,
-  Pencil,
-  Network,
-} from "lucide-react";
+import { useState, useRef, useEffect, useCallback, useLayoutEffect, useMemo } from "react"
+import { invoke, Channel, convertFileSrc } from "@tauri-apps/api/core"
+import { listen, type UnlistenFn } from "@tauri-apps/api/event"
+import { useTranslation } from "react-i18next"
+import { cn } from "@/lib/utils"
+import { TooltipProvider, IconTip } from "@/components/ui/tooltip"
+import { logger } from "@/lib/logger"
+import { notify, loadNotificationConfig, isAgentNotifyEnabled } from "@/lib/notifications"
+import { Settings, Copy, Check, Info, BarChart3, AlertCircle, Pencil, Network } from "lucide-react"
 import type {
   Message,
   MessageUsage,
@@ -40,19 +20,17 @@ import type {
   FallbackEvent,
   SubagentEvent,
   ParentAgentStreamEvent,
-} from "@/types/chat";
-import type { AgentConfig } from "@/components/settings/types";
-import { getEffortOptionsForType } from "@/types/chat";
-import MarkdownRenderer from "@/components/common/MarkdownRenderer";
-import ApprovalDialog, {
-  type ApprovalRequest,
-} from "@/components/chat/ApprovalDialog";
-import ToolCallBlock from "@/components/chat/ToolCallBlock";
-import ThinkingBlock from "@/components/chat/ThinkingBlock";
-import ChatSidebar from "@/components/chat/ChatSidebar";
-import ChatInput from "@/components/chat/ChatInput";
-import FallbackDetailsPopover from "@/components/chat/FallbackDetailsPopover";
-import CrashRecoveryBanner from "@/components/common/CrashRecoveryBanner";
+} from "@/types/chat"
+import type { AgentConfig } from "@/components/settings/types"
+import { getEffortOptionsForType } from "@/types/chat"
+import MarkdownRenderer from "@/components/common/MarkdownRenderer"
+import ApprovalDialog, { type ApprovalRequest } from "@/components/chat/ApprovalDialog"
+import ToolCallBlock from "@/components/chat/ToolCallBlock"
+import ThinkingBlock from "@/components/chat/ThinkingBlock"
+import ChatSidebar from "@/components/chat/ChatSidebar"
+import ChatInput from "@/components/chat/ChatInput"
+import FallbackDetailsPopover from "@/components/chat/FallbackDetailsPopover"
+import CrashRecoveryBanner from "@/components/common/CrashRecoveryBanner"
 import {
   AlertDialog,
   AlertDialogContent,
@@ -62,28 +40,27 @@ import {
   AlertDialogFooter,
   AlertDialogCancel,
   AlertDialogAction,
-} from "@/components/ui/alert-dialog";
+} from "@/components/ui/alert-dialog"
 
 /** Inline banner that mimics the original blockquote style, with a clickable ⚠️ icon for details */
 function FallbackBanner({ event }: { event: FallbackEvent }) {
-  const [showPopover, setShowPopover] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const [showPopover, setShowPopover] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
 
   // Close popover on outside click
   useEffect(() => {
-    if (!showPopover) return;
+    if (!showPopover) return
     const handler = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) {
-        setShowPopover(false);
+        setShowPopover(false)
       }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [showPopover]);
+    }
+    document.addEventListener("mousedown", handler)
+    return () => document.removeEventListener("mousedown", handler)
+  }, [showPopover])
 
-  const from = event.from_model ? ` ← ${event.from_model}` : "";
-  const attempt =
-    event.attempt && event.total ? ` [${event.attempt}/${event.total}]` : "";
+  const from = event.from_model ? ` ← ${event.from_model}` : ""
+  const attempt = event.attempt && event.total ? ` [${event.attempt}/${event.total}]` : ""
 
   return (
     <div
@@ -102,79 +79,75 @@ function FallbackBanner({ event }: { event: FallbackEvent }) {
       </span>
       {` Fallback: ${event.model}${from}${attempt}`}
     </div>
-  );
+  )
 }
 
 /** Format token count: ≥10000 → "12.3k tokens", else "1,234 tokens" */
 function formatTokens(n: number): string {
-  if (n >= 10000) return `${(n / 1000).toFixed(1)}k tokens`;
-  return `${n.toLocaleString()} tokens`;
+  if (n >= 10000) return `${(n / 1000).toFixed(1)}k tokens`
+  return `${n.toLocaleString()} tokens`
 }
 
 interface ChatScreenProps {
-  onOpenAgentSettings?: (agentId: string) => void;
-  onCodexReauth?: () => void;
+  onOpenAgentSettings?: (agentId: string) => void
+  onCodexReauth?: () => void
   /** Navigate to a specific session (e.g. from cron run history) */
-  initialSessionId?: string;
+  initialSessionId?: string
   /** Called after the initial session navigation completes */
-  onSessionNavigated?: () => void;
+  onSessionNavigated?: () => void
   /** Called when total unread count changes across all sessions */
-  onUnreadCountChange?: (count: number) => void;
+  onUnreadCountChange?: (count: number) => void
 }
 
 /** Format message timestamp to HH:mm */
 function formatMessageTime(timestamp?: string): string {
-  if (!timestamp) return "";
+  if (!timestamp) return ""
   try {
-    const date = new Date(timestamp);
-    if (isNaN(date.getTime())) return "";
-    const now = new Date();
-    const isToday = date.toDateString() === now.toDateString();
-    const yesterday = new Date(now);
-    yesterday.setDate(yesterday.getDate() - 1);
-    const isYesterday = date.toDateString() === yesterday.toDateString();
-    const hours = date.getHours().toString().padStart(2, "0");
-    const minutes = date.getMinutes().toString().padStart(2, "0");
-    const time = `${hours}:${minutes}`;
-    if (isToday) return time;
-    if (isYesterday) return `昨天 ${time}`;
-    const month = date.getMonth() + 1;
-    const day = date.getDate();
-    if (date.getFullYear() === now.getFullYear())
-      return `${month}/${day} ${time}`;
-    return `${date.getFullYear()}/${month}/${day} ${time}`;
+    const date = new Date(timestamp)
+    if (isNaN(date.getTime())) return ""
+    const now = new Date()
+    const isToday = date.toDateString() === now.toDateString()
+    const yesterday = new Date(now)
+    yesterday.setDate(yesterday.getDate() - 1)
+    const isYesterday = date.toDateString() === yesterday.toDateString()
+    const hours = date.getHours().toString().padStart(2, "0")
+    const minutes = date.getMinutes().toString().padStart(2, "0")
+    const time = `${hours}:${minutes}`
+    if (isToday) return time
+    if (isYesterday) return `昨天 ${time}`
+    const month = date.getMonth() + 1
+    const day = date.getDate()
+    if (date.getFullYear() === now.getFullYear()) return `${month}/${day} ${time}`
+    return `${date.getFullYear()}/${month}/${day} ${time}`
   } catch {
-    return "";
+    return ""
   }
 }
 
 /** Parse DB SessionMessage[] into display Message[] */
-function parseSessionMessages(
-  msgs: SessionMessage[],
-  parentAgentId?: string | null,
-): Message[] {
-  const displayMessages: Message[] = [];
-  const pendingTools: ToolCall[] = [];
-  const pendingBlocks: ContentBlock[] = [];
-  let firstUserSeen = false;
+function parseSessionMessages(msgs: SessionMessage[], parentAgentId?: string | null): Message[] {
+  const displayMessages: Message[] = []
+  const pendingTools: ToolCall[] = []
+  const pendingBlocks: ContentBlock[] = []
+  let firstUserSeen = false
   for (const msg of msgs) {
     if (msg.role === "user") {
       // Detect sub-agent result messages via attachments_meta marker
-      let isSubagentResult = false;
-      let subagentResultAgentId: string | undefined;
+      let isSubagentResult = false
+      let subagentResultAgentId: string | undefined
       if (msg.attachmentsMeta) {
         try {
-          const meta = JSON.parse(msg.attachmentsMeta);
+          const meta = JSON.parse(msg.attachmentsMeta)
           if (meta?.subagent_result) {
-            isSubagentResult = true;
-            subagentResultAgentId = meta.subagent_result.agent_id;
+            isSubagentResult = true
+            subagentResultAgentId = meta.subagent_result.agent_id
           }
         } catch {
           /* ignore */
         }
       }
-      const isAgentMessage = parentAgentId && !firstUserSeen;
-      firstUserSeen = true;
+      const isAgentMessage = parentAgentId && !firstUserSeen
+      firstUserSeen = true
       displayMessages.push({
         role: "user",
         content: msg.content,
@@ -183,57 +156,56 @@ function parseSessionMessages(
         fromAgentId: isAgentMessage ? parentAgentId : undefined,
         isSubagentResult,
         subagentResultAgentId,
-      });
+      })
     } else if (msg.role === "tool" && msg.toolCallId) {
       const tool: ToolCall = {
         callId: msg.toolCallId,
         name: msg.toolName || "",
         arguments: msg.toolArguments || "",
         result: msg.toolResult || undefined,
-      };
+      }
       // Check if already exists in pendingTools (merge result)
-      const existing = pendingTools.find((c) => c.callId === msg.toolCallId);
+      const existing = pendingTools.find((c) => c.callId === msg.toolCallId)
       if (existing) {
-        if (msg.toolResult) existing.result = msg.toolResult;
-        if (msg.toolName && !existing.name) existing.name = msg.toolName;
-        if (msg.toolArguments && !existing.arguments)
-          existing.arguments = msg.toolArguments;
+        if (msg.toolResult) existing.result = msg.toolResult
+        if (msg.toolName && !existing.name) existing.name = msg.toolName
+        if (msg.toolArguments && !existing.arguments) existing.arguments = msg.toolArguments
         // Update matching block too
         const blockIdx = pendingBlocks.findIndex(
           (b) => b.type === "tool_call" && b.tool.callId === msg.toolCallId,
-        );
+        )
         if (blockIdx >= 0) {
           pendingBlocks[blockIdx] = {
             type: "tool_call",
             tool: { ...existing },
-          };
+          }
         }
       } else {
-        pendingTools.push(tool);
-        pendingBlocks.push({ type: "tool_call", tool });
+        pendingTools.push(tool)
+        pendingBlocks.push({ type: "tool_call", tool })
       }
     } else if (msg.role === "text_block") {
       // Intermediate text emitted before tool calls — preserve ordering
       if (msg.content) {
-        pendingBlocks.push({ type: "text", content: msg.content });
+        pendingBlocks.push({ type: "text", content: msg.content })
       }
     } else if (msg.role === "assistant") {
-      const toolCalls = pendingTools.length > 0 ? [...pendingTools] : undefined;
+      const toolCalls = pendingTools.length > 0 ? [...pendingTools] : undefined
       // Build contentBlocks: pending blocks (text_block + tool_call in order), then remaining text
-      const blocks: ContentBlock[] = [...pendingBlocks];
+      const blocks: ContentBlock[] = [...pendingBlocks]
       if (msg.content) {
-        blocks.push({ type: "text", content: msg.content });
+        blocks.push({ type: "text", content: msg.content })
       }
-      pendingTools.length = 0;
-      pendingBlocks.length = 0;
-      const hasUsage = msg.toolDurationMs || msg.tokensIn || msg.tokensOut;
+      pendingTools.length = 0
+      pendingBlocks.length = 0
+      const hasUsage = msg.toolDurationMs || msg.tokensIn || msg.tokensOut
       const usage = hasUsage
         ? {
             durationMs: msg.toolDurationMs || undefined,
             inputTokens: msg.tokensIn || undefined,
             outputTokens: msg.tokensOut || undefined,
           }
-        : undefined;
+        : undefined
       displayMessages.push({
         role: "assistant",
         content: msg.content,
@@ -243,17 +215,17 @@ function parseSessionMessages(
         usage,
         model: msg.model || undefined,
         dbId: msg.id,
-      });
+      })
     } else if (msg.role === "event") {
       displayMessages.push({
         role: "event",
         content: msg.content,
         timestamp: msg.timestamp,
         dbId: msg.id,
-      });
+      })
     }
   }
-  return displayMessages;
+  return displayMessages
 }
 
 export default function ChatScreen({
@@ -263,179 +235,173 @@ export default function ChatScreen({
   onSessionNavigated,
   onUnreadCountChange,
 }: ChatScreenProps) {
-  const { t } = useTranslation();
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const { t } = useTranslation()
+  const [messages, setMessages] = useState<Message[]>([])
+  const [input, setInput] = useState("")
+  const [loading, setLoading] = useState(false)
+  const bottomRef = useRef<HTMLDivElement>(null)
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
 
   // Pending message queue: when user sends while loading, message is queued here
-  const [pendingMessage, setPendingMessage] = useState<string | null>(null);
-  const pendingMessageRef = useRef<string | null>(null);
+  const [pendingMessage, setPendingMessage] = useState<string | null>(null)
+  const pendingMessageRef = useRef<string | null>(null)
   // Keep ref in sync
   useEffect(() => {
-    pendingMessageRef.current = pendingMessage;
-  }, [pendingMessage]);
+    pendingMessageRef.current = pendingMessage
+  }, [pendingMessage])
 
   // Auto-send pending messages setting (loaded from user config)
-  const autoSendPendingRef = useRef(true);
+  const autoSendPendingRef = useRef(true)
   useEffect(() => {
     invoke<{ autoSendPending?: boolean }>("get_user_config")
       .then((cfg) => {
-        autoSendPendingRef.current = cfg.autoSendPending !== false;
+        autoSendPendingRef.current = cfg.autoSendPending !== false
       })
-      .catch(() => {});
+      .catch(() => {})
     // Load notification config for desktop notification support
-    loadNotificationConfig().catch(() => {});
-  }, []);
+    loadNotificationConfig().catch(() => {})
+  }, [])
 
   // Auto-send flag: when set, triggers handleSend after input state is flushed
-  const autoSendRef = useRef(false);
+  const autoSendRef = useRef(false)
 
   // Per-session message cache & loading tracking
-  const sessionCacheRef = useRef<Map<string, Message[]>>(new Map());
-  const loadingSessionsRef = useRef<Set<string>>(new Set());
-  const [loadingSessionIds, setLoadingSessionIds] = useState<Set<string>>(
-    new Set(),
-  );
-  const currentSessionIdRef = useRef<string | null>(null);
+  const sessionCacheRef = useRef<Map<string, Message[]>>(new Map())
+  const loadingSessionsRef = useRef<Set<string>>(new Set())
+  const [loadingSessionIds, setLoadingSessionIds] = useState<Set<string>>(new Set())
+  const currentSessionIdRef = useRef<string | null>(null)
 
   // Pagination: track whether there are older messages and the oldest loaded DB id per session
-  const PAGE_SIZE = 30;
-  const hasMoreRef = useRef<Map<string, boolean>>(new Map());
-  const oldestDbIdRef = useRef<Map<string, number>>(new Map());
-  const [hasMore, setHasMore] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
+  const PAGE_SIZE = 30
+  const hasMoreRef = useRef<Map<string, boolean>>(new Map())
+  const oldestDbIdRef = useRef<Map<string, number>>(new Map())
+  const [hasMore, setHasMore] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
 
   // Keep ref in sync with state
   useEffect(() => {
-    currentSessionIdRef.current = currentSessionId;
-  }, [currentSessionId]);
+    currentSessionIdRef.current = currentSessionId
+  }, [currentSessionId])
 
   // Scroll to bottom when switching to a session (after React renders the new messages)
   useLayoutEffect(() => {
-    if (!currentSessionId) return;
-    const el = scrollContainerRef.current;
+    if (!currentSessionId) return
+    const el = scrollContainerRef.current
     if (el) {
-      el.scrollTop = el.scrollHeight;
+      el.scrollTop = el.scrollHeight
     }
-  }, [currentSessionId]);
+  }, [currentSessionId])
 
   // Session & Agent list state
-  const [sessions, setSessions] = useState<SessionMeta[]>([]);
-  const [agents, setAgents] = useState<AgentSummaryForSidebar[]>([]);
+  const [sessions, setSessions] = useState<SessionMeta[]>([])
+  const [agents, setAgents] = useState<AgentSummaryForSidebar[]>([])
 
   // Resizable panel
-  const [panelWidth, setPanelWidth] = useState(256);
+  const [panelWidth, setPanelWidth] = useState(256)
 
   // Current agent info
-  const [agentName, setAgentName] = useState("");
-  const [currentAgentId, setCurrentAgentId] = useState("default");
+  const [agentName, setAgentName] = useState("")
+  const [currentAgentId, setCurrentAgentId] = useState("default")
 
   // Model state
-  const [availableModels, setAvailableModels] = useState<AvailableModel[]>([]);
-  const [activeModel, setActiveModel] = useState<ActiveModel | null>(null);
-  const [reasoningEffort, setReasoningEffort] = useState("medium");
+  const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
+  const [activeModel, setActiveModel] = useState<ActiveModel | null>(null)
+  const [reasoningEffort, setReasoningEffort] = useState("medium")
   // Global default model (read-only, only changed in settings panel)
-  const globalActiveModelRef = useRef<ActiveModel | null>(null);
+  const globalActiveModelRef = useRef<ActiveModel | null>(null)
 
   // Command approval queue
-  const [approvalRequests, setApprovalRequests] = useState<ApprovalRequest[]>(
-    [],
-  );
+  const [approvalRequests, setApprovalRequests] = useState<ApprovalRequest[]>([])
 
   // Codex auth expired dialog
-  const [showCodexAuthExpired, setShowCodexAuthExpired] = useState(false);
+  const [showCodexAuthExpired, setShowCodexAuthExpired] = useState(false)
 
   // Attached files
-  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+  const [attachedFiles, setAttachedFiles] = useState<File[]>([])
 
   // Copied message feedback
-  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
-  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [hoveredMsgIndex, setHoveredMsgIndex] = useState<number | null>(null);
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null)
+  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [hoveredMsgIndex, setHoveredMsgIndex] = useState<number | null>(null)
   // Details popover state
-  const [detailsIndex, setDetailsIndex] = useState<number | null>(null);
+  const [detailsIndex, setDetailsIndex] = useState<number | null>(null)
   // Context menu state
   const [contextMenu, setContextMenu] = useState<{
-    x: number;
-    y: number;
-    index: number;
-  } | null>(null);
+    x: number
+    y: number
+    index: number
+  } | null>(null)
   // Edit message state
-  const [editingIndex, setEditingIndex] = useState<number | null>(null);
-  const [editContent, setEditContent] = useState("");
-  const editTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const [editingIndex, setEditingIndex] = useState<number | null>(null)
+  const [editContent, setEditContent] = useState("")
+  const editTextareaRef = useRef<HTMLTextAreaElement>(null)
   // Session status popover
-  const [showStatus, setShowStatus] = useState(false);
-  const [compacting, setCompacting] = useState(false);
-  const statusRef = useRef<HTMLDivElement>(null);
+  const [showStatus, setShowStatus] = useState(false)
+  const [compacting, setCompacting] = useState(false)
+  const statusRef = useRef<HTMLDivElement>(null)
 
   // Close status popover on outside click
   useEffect(() => {
-    if (!showStatus) return;
+    if (!showStatus) return
     const handler = (e: MouseEvent) => {
       if (statusRef.current && !statusRef.current.contains(e.target as Node)) {
-        setShowStatus(false);
+        setShowStatus(false)
       }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [showStatus]);
+    }
+    document.addEventListener("mousedown", handler)
+    return () => document.removeEventListener("mousedown", handler)
+  }, [showStatus])
 
   // Close context menu on outside click or scroll
   useEffect(() => {
-    if (!contextMenu) return;
-    const close = () => setContextMenu(null);
-    document.addEventListener("mousedown", close);
-    document.addEventListener("scroll", close, true);
+    if (!contextMenu) return
+    const close = () => setContextMenu(null)
+    document.addEventListener("mousedown", close)
+    document.addEventListener("scroll", close, true)
     return () => {
-      document.removeEventListener("mousedown", close);
-      document.removeEventListener("scroll", close, true);
-    };
-  }, [contextMenu]);
+      document.removeEventListener("mousedown", close)
+      document.removeEventListener("scroll", close, true)
+    }
+  }, [contextMenu])
 
   // Auto-focus textarea when entering edit mode
   useEffect(() => {
     if (editingIndex !== null) {
-      editTextareaRef.current?.focus();
+      editTextareaRef.current?.focus()
     }
-  }, [editingIndex]);
+  }, [editingIndex])
 
   function handleContextMenu(e: React.MouseEvent, index: number) {
-    const msg = messages[index];
-    if (msg.role !== "assistant" || !msg.content) return;
-    e.preventDefault();
-    setContextMenu({ x: e.clientX, y: e.clientY, index });
+    const msg = messages[index]
+    if (msg.role !== "assistant" || !msg.content) return
+    e.preventDefault()
+    setContextMenu({ x: e.clientX, y: e.clientY, index })
   }
 
   function handleStartEdit(index: number) {
-    const msg = messages[index];
-    setEditingIndex(index);
-    setEditContent(msg.content);
-    setContextMenu(null);
+    const msg = messages[index]
+    setEditingIndex(index)
+    setEditContent(msg.content)
+    setContextMenu(null)
   }
 
   async function handleSaveEdit(index: number) {
-    const msg = messages[index];
-    const trimmed = editContent.trim();
+    const msg = messages[index]
+    const trimmed = editContent.trim()
     if (!trimmed || trimmed === msg.content) {
-      setEditingIndex(null);
-      return;
+      setEditingIndex(null)
+      return
     }
     // Update local state
-    setMessages((prev) =>
-      prev.map((m, i) => (i === index ? { ...m, content: trimmed } : m)),
-    );
+    setMessages((prev) => prev.map((m, i) => (i === index ? { ...m, content: trimmed } : m)))
     // Also update session cache
     if (currentSessionId) {
-      const cached = sessionCacheRef.current.get(currentSessionId);
+      const cached = sessionCacheRef.current.get(currentSessionId)
       if (cached) {
         sessionCacheRef.current.set(
           currentSessionId,
           cached.map((m, i) => (i === index ? { ...m, content: trimmed } : m)),
-        );
+        )
       }
     }
     // Persist to DB
@@ -444,291 +410,255 @@ export default function ChatScreen({
         await invoke("update_message_content_cmd", {
           messageId: msg.dbId,
           content: trimmed,
-        });
+        })
       } catch (e) {
-        logger.error(
-          "chat",
-          "ChatScreen::handleSaveEdit",
-          "Failed to persist edit",
-          { error: e },
-        );
+        logger.error("chat", "ChatScreen::handleSaveEdit", "Failed to persist edit", { error: e })
       }
     }
-    setEditingIndex(null);
+    setEditingIndex(null)
   }
 
   function handleCopyMessage(content: string, index: number) {
     navigator.clipboard
       .writeText(content)
       .then(() => {
-        if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
-        setCopiedIndex(index);
-        copiedTimerRef.current = setTimeout(() => setCopiedIndex(null), 1500);
+        if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current)
+        setCopiedIndex(index)
+        copiedTimerRef.current = setTimeout(() => setCopiedIndex(null), 1500)
       })
-      .catch(() => {});
+      .catch(() => {})
   }
 
   /** Format duration in ms to human-readable string */
   function formatDuration(ms: number): string {
-    if (ms < 1000) return `${ms}ms`;
-    const seconds = ms / 1000;
-    if (seconds < 60) return `${seconds.toFixed(1)}s`;
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = Math.round(seconds % 60);
-    return `${minutes}m ${remainingSeconds}s`;
+    if (ms < 1000) return `${ms}ms`
+    const seconds = ms / 1000
+    if (seconds < 60) return `${seconds.toFixed(1)}s`
+    const minutes = Math.floor(seconds / 60)
+    const remainingSeconds = Math.round(seconds % 60)
+    return `${minutes}m ${remainingSeconds}s`
   }
 
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
 
   // --- Smooth auto-scroll during streaming ---
-  const isUserScrolledUpRef = useRef(false);
-  const rafIdRef = useRef<number | null>(null);
-  const prevScrollHeightRef = useRef(0);
+  const isUserScrolledUpRef = useRef(false)
+  const rafIdRef = useRef<number | null>(null)
+  const prevScrollHeightRef = useRef(0)
 
   // Delta 批量合并缓冲区：累积 text_delta / thinking_delta，每帧刷新一次
-  const deltaBufferRef = useRef({ text: "", thinking: "", sid: "" });
-  const deltaFlushRafRef = useRef<number | null>(null);
+  const deltaBufferRef = useRef({ text: "", thinking: "", sid: "" })
+  const deltaFlushRafRef = useRef<number | null>(null)
 
   // Detect user scrolling up to pause auto-scroll
   useEffect(() => {
-    const el = scrollContainerRef.current;
-    if (!el) return;
+    const el = scrollContainerRef.current
+    if (!el) return
     const handleScroll = () => {
-      const distanceFromBottom =
-        el.scrollHeight - el.scrollTop - el.clientHeight;
-      isUserScrolledUpRef.current = distanceFromBottom > 150;
-    };
-    el.addEventListener("scroll", handleScroll, { passive: true });
-    return () => el.removeEventListener("scroll", handleScroll);
-  }, []);
+      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+      isUserScrolledUpRef.current = distanceFromBottom > 150
+    }
+    el.addEventListener("scroll", handleScroll, { passive: true })
+    return () => el.removeEventListener("scroll", handleScroll)
+  }, [])
 
   // rAF loop: smoothly follow content growth during streaming
   useEffect(() => {
-    const el = scrollContainerRef.current;
-    if (!el) return;
+    const el = scrollContainerRef.current
+    if (!el) return
 
     if (loading) {
       // Reset scroll-up detection when new message starts
-      isUserScrolledUpRef.current = false;
-      prevScrollHeightRef.current = el.scrollHeight;
+      isUserScrolledUpRef.current = false
+      prevScrollHeightRef.current = el.scrollHeight
 
       const tick = () => {
         if (!isUserScrolledUpRef.current) {
           // Lerp toward bottom for silky-smooth scrolling instead of snapping
-          const target = el.scrollHeight - el.clientHeight;
-          const diff = target - el.scrollTop;
+          const target = el.scrollHeight - el.clientHeight
+          const diff = target - el.scrollTop
           if (diff > 1) {
             // Interpolate: cover 25% of remaining distance per frame (~60fps → ~4 frames to settle)
-            el.scrollTop += diff * 0.25;
+            el.scrollTop += diff * 0.25
           } else if (diff > 0) {
-            el.scrollTop = target;
+            el.scrollTop = target
           }
         }
-        rafIdRef.current = requestAnimationFrame(tick);
-      };
-      rafIdRef.current = requestAnimationFrame(tick);
+        rafIdRef.current = requestAnimationFrame(tick)
+      }
+      rafIdRef.current = requestAnimationFrame(tick)
 
       return () => {
         if (rafIdRef.current !== null) {
-          cancelAnimationFrame(rafIdRef.current);
-          rafIdRef.current = null;
+          cancelAnimationFrame(rafIdRef.current)
+          rafIdRef.current = null
         }
-      };
+      }
     } else {
       // Streaming ended — do a final smooth scroll to bottom
-      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" })
     }
-  }, [loading]);
+  }, [loading])
 
   // When user sends a new message, immediately scroll to bottom
   useLayoutEffect(() => {
-    const el = scrollContainerRef.current;
-    if (!el) return;
+    const el = scrollContainerRef.current
+    if (!el) return
     // Only trigger on user messages being added
-    const lastMsg = messages[messages.length - 1];
+    const lastMsg = messages[messages.length - 1]
     if (lastMsg?.role === "user") {
-      isUserScrolledUpRef.current = false;
-      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+      isUserScrolledUpRef.current = false
+      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" })
     }
-  }, [messages.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [messages.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Listen for command approval events
   useEffect(() => {
-    let unlisten: UnlistenFn | undefined;
+    let unlisten: UnlistenFn | undefined
     listen<string>("approval_required", (event) => {
       try {
-        const request: ApprovalRequest = JSON.parse(event.payload);
-        setApprovalRequests((prev) => [...prev, request]);
+        const request: ApprovalRequest = JSON.parse(event.payload)
+        setApprovalRequests((prev) => [...prev, request])
       } catch (e) {
-        logger.error(
-          "ui",
-          "ChatScreen::approval",
-          "Failed to parse approval request",
-          e,
-        );
+        logger.error("ui", "ChatScreen::approval", "Failed to parse approval request", e)
       }
     }).then((fn) => {
-      unlisten = fn;
-    });
+      unlisten = fn
+    })
     return () => {
-      unlisten?.();
-    };
-  }, []);
+      unlisten?.()
+    }
+  }, [])
 
   async function handleApprovalResponse(
     requestId: string,
     response: "allow_once" | "allow_always" | "deny",
   ) {
-    setApprovalRequests((prev) =>
-      prev.filter((r) => r.request_id !== requestId),
-    );
+    setApprovalRequests((prev) => prev.filter((r) => r.request_id !== requestId))
     try {
-      await invoke("respond_to_approval", { requestId, response });
+      await invoke("respond_to_approval", { requestId, response })
     } catch (e) {
-      logger.error(
-        "ui",
-        "ChatScreen::approval",
-        "Failed to respond to approval",
-        e,
-      );
+      logger.error("ui", "ChatScreen::approval", "Failed to respond to approval", e)
     }
   }
 
   // Fetch models and current settings on mount
   useEffect(() => {
-    (async () => {
+    ;(async () => {
       try {
         const [models, active, settings, agentConfig] = await Promise.all([
           invoke<AvailableModel[]>("get_available_models"),
           invoke<ActiveModel | null>("get_active_model"),
-          invoke<{ model: string; reasoning_effort: string }>(
-            "get_current_settings",
-          ),
+          invoke<{ model: string; reasoning_effort: string }>("get_current_settings"),
           invoke<{
-            name: string;
-            emoji?: string | null;
-            avatar?: string | null;
+            name: string
+            emoji?: string | null
+            avatar?: string | null
           }>("get_agent_config", { id: "default" }).catch(() => null),
-        ]);
-        setAvailableModels(models);
-        setActiveModel(active);
-        globalActiveModelRef.current = active;
-        setReasoningEffort(settings.reasoning_effort);
+        ])
+        setAvailableModels(models)
+        setActiveModel(active)
+        globalActiveModelRef.current = active
+        setReasoningEffort(settings.reasoning_effort)
         if (agentConfig) {
-          setAgentName(agentConfig.name);
+          setAgentName(agentConfig.name)
         }
       } catch (e) {
-        logger.error(
-          "ui",
-          "ChatScreen::loadSettings",
-          "Failed to load settings",
-          e,
-        );
+        logger.error("ui", "ChatScreen::loadSettings", "Failed to load settings", e)
       }
-    })();
-  }, []);
+    })()
+  }, [])
 
   // Load session list and agent list
   const reloadSessions = useCallback(async () => {
     try {
-      const list = await invoke<SessionMeta[]>("list_sessions_cmd", {});
-      setSessions(list);
+      const list = await invoke<SessionMeta[]>("list_sessions_cmd", {})
+      setSessions(list)
     } catch (e) {
-      logger.error(
-        "ui",
-        "ChatScreen::loadSessions",
-        "Failed to load sessions",
-        e,
-      );
+      logger.error("ui", "ChatScreen::loadSessions", "Failed to load sessions", e)
     }
-  }, []);
+  }, [])
 
   const reloadAgents = useCallback(async () => {
     try {
-      const list = await invoke<AgentSummaryForSidebar[]>("list_agents");
-      setAgents(list);
+      const list = await invoke<AgentSummaryForSidebar[]>("list_agents")
+      setAgents(list)
     } catch (e) {
-      logger.error("ui", "ChatScreen::loadAgents", "Failed to load agents", e);
+      logger.error("ui", "ChatScreen::loadAgents", "Failed to load agents", e)
     }
-  }, []);
+  }, [])
 
   useEffect(() => {
-    reloadSessions();
-    reloadAgents();
-  }, [reloadSessions, reloadAgents]);
+    reloadSessions()
+    reloadAgents()
+  }, [reloadSessions, reloadAgents])
 
   // Refresh agent list when agents are created/saved/deleted in settings panel
   useEffect(() => {
     const handler = () => {
-      reloadAgents();
-    };
-    window.addEventListener("agents-changed", handler);
-    return () => window.removeEventListener("agents-changed", handler);
-  }, [reloadAgents]);
+      reloadAgents()
+    }
+    window.addEventListener("agents-changed", handler)
+    return () => window.removeEventListener("agents-changed", handler)
+  }, [reloadAgents])
 
   // Listen for cron job completions to refresh unread counts + send notification
   useEffect(() => {
-    let unlisten: UnlistenFn | undefined;
+    let unlisten: UnlistenFn | undefined
     listen("cron:run_completed", (event) => {
-      reloadSessions();
+      reloadSessions()
       const payload = event.payload as {
-        job_id: string;
-        job_name: string;
-        status: string;
-        notify: boolean;
-      };
+        job_id: string
+        job_name: string
+        status: string
+        notify: boolean
+      }
       if (payload.notify && payload.job_name) {
         const title =
-          payload.status === "success"
-            ? t("notification.cronSuccess")
-            : t("notification.cronError");
-        notify(title, payload.job_name);
+          payload.status === "success" ? t("notification.cronSuccess") : t("notification.cronError")
+        notify(title, payload.job_name)
       }
     }).then((fn) => {
-      unlisten = fn;
-    });
+      unlisten = fn
+    })
     return () => {
-      unlisten?.();
-    };
-  }, [reloadSessions, t]);
+      unlisten?.()
+    }
+  }, [reloadSessions, t])
 
   // Listen for sub-agent events — manage loading state + refresh sidebar + push result to parent
   useEffect(() => {
-    let unlisten: UnlistenFn | undefined;
+    let unlisten: UnlistenFn | undefined
     listen("subagent_event", (event) => {
-      const payload = event.payload as SubagentEvent;
-      const childSid = payload.childSessionId;
+      const payload = event.payload as SubagentEvent
+      const childSid = payload.childSessionId
       if (childSid) {
         if (["spawning", "running"].includes(payload.status)) {
-          loadingSessionsRef.current.add(childSid);
-          setLoadingSessionIds(new Set(loadingSessionsRef.current));
+          loadingSessionsRef.current.add(childSid)
+          setLoadingSessionIds(new Set(loadingSessionsRef.current))
         } else {
-          loadingSessionsRef.current.delete(childSid);
-          setLoadingSessionIds(new Set(loadingSessionsRef.current));
+          loadingSessionsRef.current.delete(childSid)
+          setLoadingSessionIds(new Set(loadingSessionsRef.current))
         }
       }
-      if (
-        ["completed", "error", "timeout", "killed", "spawning"].includes(
-          payload.status,
-        )
-      ) {
-        reloadSessions();
+      if (["completed", "error", "timeout", "killed", "spawning"].includes(payload.status)) {
+        reloadSessions()
       }
     }).then((fn) => {
-      unlisten = fn;
-    });
+      unlisten = fn
+    })
     return () => {
-      unlisten?.();
-    };
-  }, [reloadSessions]);
+      unlisten?.()
+    }
+  }, [reloadSessions])
 
   // Listen for backend-driven parent agent streaming (sub-agent result injection)
   useEffect(() => {
-    let unlisten: UnlistenFn | undefined;
+    let unlisten: UnlistenFn | undefined
     listen<ParentAgentStreamEvent>("parent_agent_stream", (event) => {
-      const payload = event.payload;
-      const { eventType, parentSessionId, delta } = payload;
-      const isCurrentSession = currentSessionIdRef.current === parentSessionId;
+      const payload = event.payload
+      const { eventType, parentSessionId, delta } = payload
+      const isCurrentSession = currentSessionIdRef.current === parentSessionId
 
       if (eventType === "started") {
         if (isCurrentSession) {
@@ -741,35 +671,35 @@ export default function ChatScreen({
                 content: "",
                 timestamp: new Date().toISOString(),
               },
-            ];
-            sessionCacheRef.current.set(parentSessionId, next);
-            return next;
-          });
+            ]
+            sessionCacheRef.current.set(parentSessionId, next)
+            return next
+          })
         }
-        setLoading(true);
-        loadingSessionsRef.current.add(parentSessionId);
-        setLoadingSessionIds(new Set(loadingSessionsRef.current));
+        setLoading(true)
+        loadingSessionsRef.current.add(parentSessionId)
+        setLoadingSessionIds(new Set(loadingSessionsRef.current))
       } else if (eventType === "delta" && delta && isCurrentSession) {
         try {
-          const ev = JSON.parse(delta);
-          const sid = parentSessionId;
+          const ev = JSON.parse(delta)
+          const sid = parentSessionId
           if (ev.type === "text_delta" && ev.text) {
             setMessages((prev) => {
-              const updated = [...prev];
-              const last = updated[updated.length - 1];
+              const updated = [...prev]
+              const last = updated[updated.length - 1]
               if (last?.role === "assistant") {
                 updated[updated.length - 1] = {
                   ...last,
                   content: last.content + ev.text,
-                };
-                sessionCacheRef.current.set(sid, updated);
+                }
+                sessionCacheRef.current.set(sid, updated)
               }
-              return updated;
-            });
+              return updated
+            })
           } else if (ev.type === "tool_call") {
             setMessages((prev) => {
-              const updated = [...prev];
-              const last = updated[updated.length - 1];
+              const updated = [...prev]
+              const last = updated[updated.length - 1]
               if (last?.role === "assistant") {
                 const toolCalls = [
                   ...(last.toolCalls || []),
@@ -778,239 +708,215 @@ export default function ChatScreen({
                     name: ev.name,
                     arguments: ev.arguments || "",
                   },
-                ];
-                const blocks = [...(last.contentBlocks || [])];
-                if (last.content)
-                  blocks.push({ type: "text" as const, content: last.content });
+                ]
+                const blocks = [...(last.contentBlocks || [])]
+                if (last.content) blocks.push({ type: "text" as const, content: last.content })
                 blocks.push({
                   type: "tool_call" as const,
                   tool: toolCalls[toolCalls.length - 1],
-                });
+                })
                 updated[updated.length - 1] = {
                   ...last,
                   toolCalls,
                   contentBlocks: blocks,
-                };
-                sessionCacheRef.current.set(sid, updated);
+                }
+                sessionCacheRef.current.set(sid, updated)
               }
-              return updated;
-            });
+              return updated
+            })
           } else if (ev.type === "tool_result") {
             setMessages((prev) => {
-              const updated = [...prev];
-              const last = updated[updated.length - 1];
+              const updated = [...prev]
+              const last = updated[updated.length - 1]
               if (last?.role === "assistant" && last.toolCalls) {
                 const toolCalls = last.toolCalls.map((tc) =>
                   tc.callId === ev.call_id ? { ...tc, result: ev.result } : tc,
-                );
+                )
                 const blocks = (last.contentBlocks || []).map((b) =>
                   b.type === "tool_call" && b.tool?.callId === ev.call_id
                     ? { ...b, tool: { ...b.tool!, result: ev.result } }
                     : b,
-                );
+                )
                 updated[updated.length - 1] = {
                   ...last,
                   toolCalls,
                   contentBlocks: blocks,
-                };
-                sessionCacheRef.current.set(sid, updated);
+                }
+                sessionCacheRef.current.set(sid, updated)
               }
-              return updated;
-            });
+              return updated
+            })
           } else if (ev.type === "usage") {
             setMessages((prev) => {
-              const updated = [...prev];
-              const last = updated[updated.length - 1];
+              const updated = [...prev]
+              const last = updated[updated.length - 1]
               if (last?.role === "assistant") {
                 updated[updated.length - 1] = {
                   ...last,
                   usage: ev,
                   model: ev.model,
-                };
-                sessionCacheRef.current.set(sid, updated);
+                }
+                sessionCacheRef.current.set(sid, updated)
               }
-              return updated;
-            });
+              return updated
+            })
           }
         } catch {
           /* ignore parse errors */
         }
       } else if (eventType === "done" || eventType === "error") {
         if (eventType === "error") {
-          logger.error(
-            "subagent",
-            "inject",
-            "Backend parent agent injection failed",
-            payload.error,
-          );
+          logger.error("subagent", "inject", "Backend parent agent injection failed", payload.error)
         }
-        setLoading(false);
-        loadingSessionsRef.current.delete(parentSessionId);
-        setLoadingSessionIds(new Set(loadingSessionsRef.current));
-        reloadSessions();
+        setLoading(false)
+        loadingSessionsRef.current.delete(parentSessionId)
+        setLoadingSessionIds(new Set(loadingSessionsRef.current))
+        reloadSessions()
         // Reload messages from DB so subagent result message renders with correct type
         if (currentSessionIdRef.current === parentSessionId) {
-          invoke<[SessionMessage[], number]>(
-            "load_session_messages_latest_cmd",
-            {
-              sessionId: parentSessionId,
-              limit: PAGE_SIZE,
-            },
-          )
+          invoke<[SessionMessage[], number]>("load_session_messages_latest_cmd", {
+            sessionId: parentSessionId,
+            limit: PAGE_SIZE,
+          })
             .then(([msgs]) => {
-              const displayMessages = parseSessionMessages(msgs);
-              sessionCacheRef.current.set(parentSessionId, displayMessages);
-              setMessages(displayMessages);
+              const displayMessages = parseSessionMessages(msgs)
+              sessionCacheRef.current.set(parentSessionId, displayMessages)
+              setMessages(displayMessages)
             })
-            .catch(() => {});
+            .catch(() => {})
         } else {
           // Not current session — clear cache so next visit loads fresh from DB
-          sessionCacheRef.current.delete(parentSessionId);
+          sessionCacheRef.current.delete(parentSessionId)
         }
       }
     }).then((fn) => {
-      unlisten = fn;
-    });
+      unlisten = fn
+    })
     return () => {
-      unlisten?.();
-    };
-  }, [reloadSessions]);
+      unlisten?.()
+    }
+  }, [reloadSessions])
 
   // Listen for agent-initiated notification events
   useEffect(() => {
-    let unlisten: UnlistenFn | undefined;
+    let unlisten: UnlistenFn | undefined
     listen("agent:send_notification", (event) => {
-      const { title, body } = event.payload as { title: string; body: string };
-      notify(title || "OpenComputer", body);
+      const { title, body } = event.payload as { title: string; body: string }
+      notify(title || "OpenComputer", body)
     }).then((fn) => {
-      unlisten = fn;
-    });
+      unlisten = fn
+    })
     return () => {
-      unlisten?.();
-    };
-  }, []);
+      unlisten?.()
+    }
+  }, [])
 
   // Compute total unread count and notify parent
   const totalUnreadCount = useMemo(
-    () =>
-      sessions.reduce(
-        (sum, s) => sum + (s.id === currentSessionId ? 0 : s.unreadCount),
-        0,
-      ),
+    () => sessions.reduce((sum, s) => sum + (s.id === currentSessionId ? 0 : s.unreadCount), 0),
     [sessions, currentSessionId],
-  );
+  )
 
   useEffect(() => {
-    onUnreadCountChange?.(totalUnreadCount);
-  }, [totalUnreadCount, onUnreadCountChange]);
+    onUnreadCountChange?.(totalUnreadCount)
+  }, [totalUnreadCount, onUnreadCountChange])
 
   // Navigate to a specific session when initialSessionId changes (e.g. from cron run history)
   useEffect(() => {
-    if (!initialSessionId) return;
-    (async () => {
+    if (!initialSessionId) return
+    ;(async () => {
       // Ensure session list is fresh so handleSwitchSession can find it
-      await reloadSessions();
-      await handleSwitchSession(initialSessionId);
-      onSessionNavigated?.();
-    })();
+      await reloadSessions()
+      await handleSwitchSession(initialSessionId)
+      onSessionNavigated?.()
+    })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialSessionId]);
+  }, [initialSessionId])
 
   /** Update messages for a specific session. If it's the current session, also update state. */
-  function updateSessionMessages(
-    sessionId: string,
-    updater: (prev: Message[]) => Message[],
-  ) {
-    const prev = sessionCacheRef.current.get(sessionId) || [];
-    const next = updater(prev);
-    sessionCacheRef.current.set(sessionId, next);
+  function updateSessionMessages(sessionId: string, updater: (prev: Message[]) => Message[]) {
+    const prev = sessionCacheRef.current.get(sessionId) || []
+    const next = updater(prev)
+    sessionCacheRef.current.set(sessionId, next)
     if (currentSessionIdRef.current === sessionId) {
-      setMessages(next);
+      setMessages(next)
     }
   }
 
   // Switch to an existing session
   async function handleSwitchSession(sessionId: string) {
-    if (sessionId === currentSessionId) return;
+    if (sessionId === currentSessionId) return
 
     // Save current session's messages to cache
     if (currentSessionId) {
-      sessionCacheRef.current.set(currentSessionId, messages);
+      sessionCacheRef.current.set(currentSessionId, messages)
     }
 
     // If target session is in cache (e.g. still loading), restore from cache
-    const cached = sessionCacheRef.current.get(sessionId);
+    const cached = sessionCacheRef.current.get(sessionId)
     if (cached) {
-      setMessages(cached);
-      setHasMore(hasMoreRef.current.get(sessionId) ?? false);
-      setLoading(loadingSessionsRef.current.has(sessionId));
-      setCurrentSessionId(sessionId);
+      setMessages(cached)
+      setHasMore(hasMoreRef.current.get(sessionId) ?? false)
+      setLoading(loadingSessionsRef.current.has(sessionId))
+      setCurrentSessionId(sessionId)
     } else {
       // Load latest PAGE_SIZE messages from DB
       try {
         const [msgs, total] = await invoke<[SessionMessage[], number]>(
           "load_session_messages_latest_cmd",
           { sessionId, limit: PAGE_SIZE },
-        );
-        const sessionMeta = sessions.find((s) => s.id === sessionId);
+        )
+        const sessionMeta = sessions.find((s) => s.id === sessionId)
         const parentSession = sessionMeta?.parentSessionId
           ? sessions.find((s) => s.id === sessionMeta.parentSessionId)
-          : undefined;
-        const displayMessages = parseSessionMessages(
-          msgs,
-          parentSession?.agentId,
-        );
-        sessionCacheRef.current.set(sessionId, displayMessages);
-        const moreAvailable = msgs.length < total;
-        hasMoreRef.current.set(sessionId, moreAvailable);
+          : undefined
+        const displayMessages = parseSessionMessages(msgs, parentSession?.agentId)
+        sessionCacheRef.current.set(sessionId, displayMessages)
+        const moreAvailable = msgs.length < total
+        hasMoreRef.current.set(sessionId, moreAvailable)
         if (msgs.length > 0) {
-          oldestDbIdRef.current.set(sessionId, msgs[0].id);
+          oldestDbIdRef.current.set(sessionId, msgs[0].id)
         }
-        setMessages(displayMessages);
-        setHasMore(moreAvailable);
-        setLoading(loadingSessionsRef.current.has(sessionId));
-        setCurrentSessionId(sessionId);
+        setMessages(displayMessages)
+        setHasMore(moreAvailable)
+        setLoading(loadingSessionsRef.current.has(sessionId))
+        setCurrentSessionId(sessionId)
       } catch (e) {
-        logger.error(
-          "session",
-          "ChatScreen::switchSession",
-          "Failed to load session",
-          { sessionId, error: e },
-        );
-        return;
+        logger.error("session", "ChatScreen::switchSession", "Failed to load session", {
+          sessionId,
+          error: e,
+        })
+        return
       }
     }
 
-    const session = sessions.find((s) => s.id === sessionId);
+    const session = sessions.find((s) => s.id === sessionId)
     if (session) {
-      setCurrentAgentId(session.agentId);
-      const agent = agents.find((a) => a.id === session.agentId);
-      if (agent) setAgentName(agent.name);
+      setCurrentAgentId(session.agentId)
+      const agent = agents.find((a) => a.id === session.agentId)
+      if (agent) setAgentName(agent.name)
 
       // Restore the model used in this session (if still available)
       if (session.providerId && session.modelId) {
         const modelExists = availableModels.some(
-          (m) =>
-            m.providerId === session.providerId &&
-            m.modelId === session.modelId,
-        );
+          (m) => m.providerId === session.providerId && m.modelId === session.modelId,
+        )
         if (modelExists) {
-          handleModelChange(`${session.providerId}::${session.modelId}`);
+          handleModelChange(`${session.providerId}::${session.modelId}`)
         }
       } else {
         // Session has no model info, fallback to agent's configured model or global default
         try {
           const agentConfig = await invoke<AgentConfig>("get_agent_config", {
             id: session.agentId,
-          });
+          })
           if (agentConfig.model.primary) {
             const modelExists = availableModels.some(
-              (m) =>
-                `${m.providerId}::${m.modelId}` === agentConfig.model.primary,
-            );
+              (m) => `${m.providerId}::${m.modelId}` === agentConfig.model.primary,
+            )
             if (modelExists) {
-              applyModelForDisplay(agentConfig.model.primary);
-              return;
+              applyModelForDisplay(agentConfig.model.primary)
+              return
             }
           }
         } catch {
@@ -1018,122 +924,111 @@ export default function ChatScreen({
         }
         // No agent model or unavailable — restore global default
         if (globalActiveModelRef.current) {
-          setActiveModel(globalActiveModelRef.current);
+          setActiveModel(globalActiveModelRef.current)
         }
       }
     }
 
     // Mark session as read and refresh unread counts
-    invoke("mark_session_read_cmd", { sessionId }).catch(() => {});
-    reloadSessions();
+    invoke("mark_session_read_cmd", { sessionId }).catch(() => {})
+    reloadSessions()
   }
 
   // Load older messages when user scrolls to top
   const handleLoadMore = useCallback(async () => {
-    if (!currentSessionId || loadingMore || !hasMore) return;
-    const oldestId = oldestDbIdRef.current.get(currentSessionId);
-    if (oldestId === undefined) return;
+    if (!currentSessionId || loadingMore || !hasMore) return
+    const oldestId = oldestDbIdRef.current.get(currentSessionId)
+    if (oldestId === undefined) return
 
-    setLoadingMore(true);
+    setLoadingMore(true)
     try {
-      const olderMsgs = await invoke<SessionMessage[]>(
-        "load_session_messages_before_cmd",
-        {
-          sessionId: currentSessionId,
-          beforeId: oldestId,
-          limit: PAGE_SIZE,
-        },
-      );
+      const olderMsgs = await invoke<SessionMessage[]>("load_session_messages_before_cmd", {
+        sessionId: currentSessionId,
+        beforeId: oldestId,
+        limit: PAGE_SIZE,
+      })
       if (olderMsgs.length === 0) {
-        hasMoreRef.current.set(currentSessionId, false);
-        setHasMore(false);
-        return;
+        hasMoreRef.current.set(currentSessionId, false)
+        setHasMore(false)
+        return
       }
-      const sessionMeta = sessions.find((s) => s.id === currentSessionId);
+      const sessionMeta = sessions.find((s) => s.id === currentSessionId)
       const parentSession = sessionMeta?.parentSessionId
         ? sessions.find((s) => s.id === sessionMeta.parentSessionId)
-        : undefined;
-      const olderDisplay = parseSessionMessages(
-        olderMsgs,
-        parentSession?.agentId,
-      );
-      oldestDbIdRef.current.set(currentSessionId, olderMsgs[0].id);
+        : undefined
+      const olderDisplay = parseSessionMessages(olderMsgs, parentSession?.agentId)
+      oldestDbIdRef.current.set(currentSessionId, olderMsgs[0].id)
       if (olderMsgs.length < PAGE_SIZE) {
-        hasMoreRef.current.set(currentSessionId, false);
-        setHasMore(false);
+        hasMoreRef.current.set(currentSessionId, false)
+        setHasMore(false)
       }
 
       // Preserve scroll position: record scrollHeight before prepend
-      const el = scrollContainerRef.current;
-      const prevScrollHeight = el?.scrollHeight ?? 0;
+      const el = scrollContainerRef.current
+      const prevScrollHeight = el?.scrollHeight ?? 0
 
       setMessages((prev) => {
-        const merged = [...olderDisplay, ...prev];
-        sessionCacheRef.current.set(currentSessionId!, merged);
-        return merged;
-      });
+        const merged = [...olderDisplay, ...prev]
+        sessionCacheRef.current.set(currentSessionId!, merged)
+        return merged
+      })
 
       // After React renders, restore scroll position
       requestAnimationFrame(() => {
         if (el) {
-          el.scrollTop = el.scrollHeight - prevScrollHeight;
+          el.scrollTop = el.scrollHeight - prevScrollHeight
         }
-      });
+      })
     } catch (e) {
-      logger.error(
-        "session",
-        "ChatScreen::loadMore",
-        "Failed to load older messages",
-        { error: e },
-      );
+      logger.error("session", "ChatScreen::loadMore", "Failed to load older messages", { error: e })
     } finally {
-      setLoadingMore(false);
+      setLoadingMore(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentSessionId, loadingMore, hasMore]);
+  }, [currentSessionId, loadingMore, hasMore])
 
   // Scroll-to-top detection: load older messages
   useEffect(() => {
-    const el = scrollContainerRef.current;
-    if (!el) return;
+    const el = scrollContainerRef.current
+    if (!el) return
     const onScroll = () => {
       if (el.scrollTop < 50) {
-        handleLoadMore();
+        handleLoadMore()
       }
-    };
-    el.addEventListener("scroll", onScroll, { passive: true });
-    return () => el.removeEventListener("scroll", onScroll);
-  }, [handleLoadMore]);
+    }
+    el.addEventListener("scroll", onScroll, { passive: true })
+    return () => el.removeEventListener("scroll", onScroll)
+  }, [handleLoadMore])
 
   // Create a new chat with a specific agent
   async function handleNewChat(agentId: string) {
     // Save current session to cache
     if (currentSessionId) {
-      sessionCacheRef.current.set(currentSessionId, messages);
+      sessionCacheRef.current.set(currentSessionId, messages)
     }
 
-    const agent = agents.find((a) => a.id === agentId);
-    setMessages([]);
-    setCurrentSessionId(null);
-    setLoading(false);
-    setHasMore(false);
-    setCurrentAgentId(agentId);
+    const agent = agents.find((a) => a.id === agentId)
+    setMessages([])
+    setCurrentSessionId(null)
+    setLoading(false)
+    setHasMore(false)
+    setCurrentAgentId(agentId)
     if (agent) {
-      setAgentName(agent.name);
+      setAgentName(agent.name)
     }
 
     // Apply agent's configured model, or restore global default
     try {
       const agentConfig = await invoke<AgentConfig>("get_agent_config", {
         id: agentId,
-      });
+      })
       if (agentConfig.model.primary) {
         const modelExists = availableModels.some(
           (m) => `${m.providerId}::${m.modelId}` === agentConfig.model.primary,
-        );
+        )
         if (modelExists) {
-          applyModelForDisplay(agentConfig.model.primary);
-          return;
+          applyModelForDisplay(agentConfig.model.primary)
+          return
         }
       }
     } catch {
@@ -1141,176 +1036,157 @@ export default function ChatScreen({
     }
     // No agent model configured or unavailable — restore global default
     if (globalActiveModelRef.current) {
-      setActiveModel(globalActiveModelRef.current);
+      setActiveModel(globalActiveModelRef.current)
     }
   }
 
   // Delete a session
   async function handleDeleteSession(sessionId: string) {
     try {
-      await invoke("delete_session_cmd", { sessionId });
-      sessionCacheRef.current.delete(sessionId);
-      loadingSessionsRef.current.delete(sessionId);
-      hasMoreRef.current.delete(sessionId);
-      oldestDbIdRef.current.delete(sessionId);
-      setLoadingSessionIds(new Set(loadingSessionsRef.current));
+      await invoke("delete_session_cmd", { sessionId })
+      sessionCacheRef.current.delete(sessionId)
+      loadingSessionsRef.current.delete(sessionId)
+      hasMoreRef.current.delete(sessionId)
+      oldestDbIdRef.current.delete(sessionId)
+      setLoadingSessionIds(new Set(loadingSessionsRef.current))
       if (currentSessionId === sessionId) {
-        setMessages([]);
-        setCurrentSessionId(null);
-        setLoading(false);
-        setHasMore(false);
+        setMessages([])
+        setCurrentSessionId(null)
+        setLoading(false)
+        setHasMore(false)
       }
-      reloadSessions();
+      reloadSessions()
     } catch (err) {
-      logger.error(
-        "session",
-        "ChatScreen::deleteSession",
-        "Failed to delete session",
-        err,
-      );
+      logger.error("session", "ChatScreen::deleteSession", "Failed to delete session", err)
     }
   }
 
   // Update model display + reasoning effort without persisting to global settings.
   // Used when switching agents to reflect the agent's configured model.
   function applyModelForDisplay(key: string) {
-    const [providerId, modelId] = key.split("::");
-    if (!providerId || !modelId) return;
+    const [providerId, modelId] = key.split("::")
+    if (!providerId || !modelId) return
 
-    setActiveModel({ providerId, modelId });
+    setActiveModel({ providerId, modelId })
 
     const newModel = availableModels.find(
       (m) => m.providerId === providerId && m.modelId === modelId,
-    );
+    )
     if (newModel) {
-      const validOptions = getEffortOptionsForType(newModel.apiType, t);
-      const isValid = validOptions.some((opt) => opt.value === reasoningEffort);
+      const validOptions = getEffortOptionsForType(newModel.apiType, t)
+      const isValid = validOptions.some((opt) => opt.value === reasoningEffort)
       if (!isValid) {
-        const fallback = validOptions.some((o) => o.value === "medium")
-          ? "medium"
-          : "none";
-        setReasoningEffort(fallback);
+        const fallback = validOptions.some((o) => o.value === "medium") ? "medium" : "none"
+        setReasoningEffort(fallback)
       }
     }
   }
 
   async function handleModelChange(key: string) {
-    const [providerId, modelId] = key.split("::");
-    if (!providerId || !modelId) return;
+    const [providerId, modelId] = key.split("::")
+    if (!providerId || !modelId) return
 
-    setActiveModel({ providerId, modelId });
+    setActiveModel({ providerId, modelId })
     try {
-      await invoke("set_active_model", { providerId, modelId });
+      await invoke("set_active_model", { providerId, modelId })
     } catch (e) {
-      logger.error("ui", "ChatScreen::modelChange", "Failed to set model", e);
+      logger.error("ui", "ChatScreen::modelChange", "Failed to set model", e)
     }
 
     const newModel = availableModels.find(
       (m) => m.providerId === providerId && m.modelId === modelId,
-    );
+    )
     if (newModel) {
-      const validOptions = getEffortOptionsForType(newModel.apiType, t);
-      const isValid = validOptions.some((opt) => opt.value === reasoningEffort);
+      const validOptions = getEffortOptionsForType(newModel.apiType, t)
+      const isValid = validOptions.some((opt) => opt.value === reasoningEffort)
       if (!isValid) {
-        const fallback = validOptions.some((o) => o.value === "medium")
-          ? "medium"
-          : "none";
-        handleEffortChange(fallback);
+        const fallback = validOptions.some((o) => o.value === "medium") ? "medium" : "none"
+        handleEffortChange(fallback)
       }
     }
   }
 
   async function handleEffortChange(effort: string) {
-    setReasoningEffort(effort);
+    setReasoningEffort(effort)
     try {
-      await invoke("set_reasoning_effort", { effort });
+      await invoke("set_reasoning_effort", { effort })
     } catch (e) {
-      logger.error(
-        "ui",
-        "ChatScreen::effortChange",
-        "Failed to set reasoning effort",
-        e,
-      );
+      logger.error("ui", "ChatScreen::effortChange", "Failed to set reasoning effort", e)
     }
   }
 
   async function handleStop() {
     try {
-      await invoke("stop_chat");
+      await invoke("stop_chat")
     } catch (e) {
-      logger.error("ui", "ChatScreen::stop", "Failed to stop chat", e);
+      logger.error("ui", "ChatScreen::stop", "Failed to stop chat", e)
     }
   }
 
   async function handleSend() {
-    if (!input.trim()) return;
+    if (!input.trim()) return
 
     // If currently loading, queue the message as pending
     if (loading) {
-      setPendingMessage(input.trim());
-      setInput("");
-      return;
+      setPendingMessage(input.trim())
+      setInput("")
+      return
     }
 
-    const text = input.trim();
-    const filesToSend = [...attachedFiles];
-    setInput("");
-    setAttachedFiles([]);
-    const now = new Date().toISOString();
-    setMessages((prev) => [
-      ...prev,
-      { role: "user", content: text, timestamp: now },
-    ]);
-    setLoading(true);
+    const text = input.trim()
+    const filesToSend = [...attachedFiles]
+    setInput("")
+    setAttachedFiles([])
+    const now = new Date().toISOString()
+    setMessages((prev) => [...prev, { role: "user", content: text, timestamp: now }])
+    setLoading(true)
 
     // Process attached files: images → base64 data, non-images → save to disk via Rust
     const attachments: {
-      name: string;
-      mime_type: string;
-      data?: string;
-      file_path?: string;
-    }[] = [];
+      name: string
+      mime_type: string
+      data?: string
+      file_path?: string
+    }[] = []
     for (const file of filesToSend) {
       try {
-        const mimeType = file.type || "application/octet-stream";
-        const arrayBuffer = await file.arrayBuffer();
+        const mimeType = file.type || "application/octet-stream"
+        const arrayBuffer = await file.arrayBuffer()
 
         if (mimeType.startsWith("image/")) {
           // Images: encode as base64 and pass directly (needed for LLM API)
-          const bytes = new Uint8Array(arrayBuffer);
+          const bytes = new Uint8Array(arrayBuffer)
           // Use chunked approach to avoid stack overflow on large files
-          let binary = "";
-          const chunkSize = 8192;
+          let binary = ""
+          const chunkSize = 8192
           for (let i = 0; i < bytes.length; i += chunkSize) {
-            binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+            binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize))
           }
           attachments.push({
             name: file.name,
             mime_type: mimeType,
             data: btoa(binary),
-          });
+          })
         } else {
           // Non-image files: save to disk via Rust backend, pass file path
-          const bytes = Array.from(new Uint8Array(arrayBuffer));
+          const bytes = Array.from(new Uint8Array(arrayBuffer))
           const filePath = await invoke<string>("save_attachment", {
             sessionId: currentSessionId,
             fileName: file.name,
             mimeType,
             data: bytes,
-          });
+          })
           attachments.push({
             name: file.name,
             mime_type: mimeType,
             file_path: filePath,
-          });
+          })
         }
       } catch (err) {
-        logger.error(
-          "ui",
-          "ChatScreen::attachment",
-          "Failed to process attachment",
-          { fileName: file.name, error: err },
-        );
+        logger.error("ui", "ChatScreen::attachment", "Failed to process attachment", {
+          fileName: file.name,
+          error: err,
+        })
       }
     }
 
@@ -1318,217 +1194,205 @@ export default function ChatScreen({
     setMessages((prev) => [
       ...prev,
       { role: "assistant", content: "", timestamp: new Date().toISOString() },
-    ]);
+    ])
 
     // Capture the session ID for this request (may be null for new chats, will be set by session_created event)
-    let targetSessionId = currentSessionId;
+    let targetSessionId = currentSessionId
 
     try {
-      const onEvent = new Channel<string>();
+      const onEvent = new Channel<string>()
       onEvent.onmessage = (raw) => {
         try {
-          const event = JSON.parse(raw);
+          const event = JSON.parse(raw)
 
           // Handle session_created first — sets targetSessionId for the rest of this chat
           if (event.type === "session_created" && event.session_id) {
-            targetSessionId = event.session_id;
+            targetSessionId = event.session_id
             // Move cached messages from null to the new session ID
-            const current = sessionCacheRef.current.get("__pending__");
+            const current = sessionCacheRef.current.get("__pending__")
             if (current) {
-              sessionCacheRef.current.delete("__pending__");
-              sessionCacheRef.current.set(event.session_id, current);
+              sessionCacheRef.current.delete("__pending__")
+              sessionCacheRef.current.set(event.session_id, current)
             }
             // Transfer loading state to the new session ID
-            loadingSessionsRef.current.add(event.session_id);
-            setLoadingSessionIds(new Set(loadingSessionsRef.current));
-            setCurrentSessionId(event.session_id);
+            loadingSessionsRef.current.add(event.session_id)
+            setLoadingSessionIds(new Set(loadingSessionsRef.current))
+            setCurrentSessionId(event.session_id)
             // Immediately refresh session list so the new session appears in sidebar
-            reloadSessions();
-            return;
+            reloadSessions()
+            return
           }
 
-          const sid = targetSessionId || "__pending__";
+          const sid = targetSessionId || "__pending__"
 
           // text_delta 和 thinking_delta 累积到 buffer，rAF 批量刷新
           if (event.type === "text_delta" || event.type === "thinking_delta") {
             if (event.type === "text_delta") {
-              deltaBufferRef.current.text += event.content || "";
+              deltaBufferRef.current.text += event.content || ""
             } else {
-              deltaBufferRef.current.thinking += event.content || "";
+              deltaBufferRef.current.thinking += event.content || ""
             }
-            deltaBufferRef.current.sid = sid;
+            deltaBufferRef.current.sid = sid
             // 调度 rAF flush（如果还没调度的话）
             if (deltaFlushRafRef.current === null) {
               deltaFlushRafRef.current = requestAnimationFrame(() => {
-                deltaFlushRafRef.current = null;
-                const buf = deltaBufferRef.current;
-                const textChunk = buf.text;
-                const thinkingChunk = buf.thinking;
-                const flushSid = buf.sid;
-                buf.text = "";
-                buf.thinking = "";
-                if (!textChunk && !thinkingChunk) return;
+                deltaFlushRafRef.current = null
+                const buf = deltaBufferRef.current
+                const textChunk = buf.text
+                const thinkingChunk = buf.thinking
+                const flushSid = buf.sid
+                buf.text = ""
+                buf.thinking = ""
+                if (!textChunk && !thinkingChunk) return
                 updateSessionMessages(flushSid, (prev) => {
-                  const updated = [...prev];
-                  const last = updated[updated.length - 1];
-                  if (!last || last.role !== "assistant") return updated;
+                  const updated = [...prev]
+                  const last = updated[updated.length - 1]
+                  if (!last || last.role !== "assistant") return updated
                   // Build new contentBlocks
-                  const blocks: ContentBlock[] = [
-                    ...(last.contentBlocks || []),
-                  ];
+                  const blocks: ContentBlock[] = [...(last.contentBlocks || [])]
                   if (thinkingChunk) {
-                    const lastBlock = blocks[blocks.length - 1];
+                    const lastBlock = blocks[blocks.length - 1]
                     if (lastBlock && lastBlock.type === "thinking") {
                       blocks[blocks.length - 1] = {
                         type: "thinking",
                         content: lastBlock.content + thinkingChunk,
-                      };
+                      }
                     } else {
-                      blocks.push({ type: "thinking", content: thinkingChunk });
+                      blocks.push({ type: "thinking", content: thinkingChunk })
                     }
                   }
                   if (textChunk) {
-                    const lastBlock = blocks[blocks.length - 1];
+                    const lastBlock = blocks[blocks.length - 1]
                     if (lastBlock && lastBlock.type === "text") {
                       blocks[blocks.length - 1] = {
                         type: "text",
                         content: lastBlock.content + textChunk,
-                      };
+                      }
                     } else {
-                      blocks.push({ type: "text", content: textChunk });
+                      blocks.push({ type: "text", content: textChunk })
                     }
                   }
                   updated[updated.length - 1] = {
                     ...last,
                     contentBlocks: blocks,
                     ...(textChunk ? { content: last.content + textChunk } : {}),
-                    ...(thinkingChunk
-                      ? { thinking: (last.thinking || "") + thinkingChunk }
-                      : {}),
-                  };
-                  return updated;
-                });
-              });
+                    ...(thinkingChunk ? { thinking: (last.thinking || "") + thinkingChunk } : {}),
+                  }
+                  return updated
+                })
+              })
             }
-            return;
+            return
           }
 
           // Handle usage event — store on last assistant message (may receive multiple: tokens then duration)
           if (event.type === "usage") {
             updateSessionMessages(sid, (prev) => {
-              const updated = [...prev];
-              const last = updated[updated.length - 1];
-              if (!last || last.role !== "assistant") return updated;
-              const prevUsage = last.usage || {};
+              const updated = [...prev]
+              const last = updated[updated.length - 1]
+              if (!last || last.role !== "assistant") return updated
+              const prevUsage = last.usage || {}
               const usage: MessageUsage = {
                 ...prevUsage,
-                ...(event.duration_ms != null
-                  ? { durationMs: event.duration_ms }
-                  : {}),
-                ...(event.input_tokens != null
-                  ? { inputTokens: event.input_tokens }
-                  : {}),
-                ...(event.output_tokens != null
-                  ? { outputTokens: event.output_tokens }
-                  : {}),
+                ...(event.duration_ms != null ? { durationMs: event.duration_ms } : {}),
+                ...(event.input_tokens != null ? { inputTokens: event.input_tokens } : {}),
+                ...(event.output_tokens != null ? { outputTokens: event.output_tokens } : {}),
                 ...(event.cache_creation_input_tokens != null
                   ? {
-                      cacheCreationInputTokens:
-                        event.cache_creation_input_tokens,
+                      cacheCreationInputTokens: event.cache_creation_input_tokens,
                     }
                   : {}),
                 ...(event.cache_read_input_tokens != null
                   ? { cacheReadInputTokens: event.cache_read_input_tokens }
                   : {}),
-              };
-              const model = event.model ? String(event.model) : last.model;
-              updated[updated.length - 1] = { ...last, usage, model };
-              return updated;
-            });
-            return;
+              }
+              const model = event.model ? String(event.model) : last.model
+              updated[updated.length - 1] = { ...last, usage, model }
+              return updated
+            })
+            return
           }
 
           updateSessionMessages(sid, (prev) => {
-            const updated = [...prev];
-            const last = updated[updated.length - 1];
-            if (!last || last.role !== "assistant") return updated;
+            const updated = [...prev]
+            const last = updated[updated.length - 1]
+            if (!last || last.role !== "assistant") return updated
 
             switch (event.type) {
               case "tool_call": {
-                const calls = [...(last.toolCalls || [])];
+                const calls = [...(last.toolCalls || [])]
                 const newTool = {
                   callId: event.call_id,
                   name: event.name,
                   arguments: event.arguments,
-                };
-                calls.push(newTool);
-                const blocks: ContentBlock[] = [...(last.contentBlocks || [])];
-                blocks.push({ type: "tool_call", tool: { ...newTool } });
+                }
+                calls.push(newTool)
+                const blocks: ContentBlock[] = [...(last.contentBlocks || [])]
+                blocks.push({ type: "tool_call", tool: { ...newTool } })
                 updated[updated.length - 1] = {
                   ...last,
                   toolCalls: calls,
                   contentBlocks: blocks,
-                };
-                break;
+                }
+                break
               }
               case "tool_result": {
-                const calls = [...(last.toolCalls || [])];
-                const idx = calls.findIndex((c) => c.callId === event.call_id);
+                const calls = [...(last.toolCalls || [])]
+                const idx = calls.findIndex((c) => c.callId === event.call_id)
                 if (idx >= 0) {
-                  calls[idx] = { ...calls[idx], result: event.result };
+                  calls[idx] = { ...calls[idx], result: event.result }
                 }
                 // Also update the matching tool_call block in contentBlocks
-                const blocks: ContentBlock[] = [...(last.contentBlocks || [])];
+                const blocks: ContentBlock[] = [...(last.contentBlocks || [])]
                 const blockIdx = blocks.findIndex(
-                  (b) =>
-                    b.type === "tool_call" && b.tool.callId === event.call_id,
-                );
+                  (b) => b.type === "tool_call" && b.tool.callId === event.call_id,
+                )
                 if (blockIdx >= 0) {
                   const block = blocks[blockIdx] as {
-                    type: "tool_call";
-                    tool: ToolCall;
-                  };
+                    type: "tool_call"
+                    tool: ToolCall
+                  }
                   blocks[blockIdx] = {
                     type: "tool_call",
                     tool: { ...block.tool, result: event.result },
-                  };
+                  }
                 }
                 updated[updated.length - 1] = {
                   ...last,
                   toolCalls: calls,
                   contentBlocks: blocks,
-                };
-                break;
+                }
+                break
               }
               case "model_fallback": {
                 updated[updated.length - 1] = {
                   ...last,
                   fallbackEvent: event,
-                };
-                break;
+                }
+                break
               }
               case "codex_auth_expired": {
-                setShowCodexAuthExpired(true);
-                break;
+                setShowCodexAuthExpired(true)
+                break
               }
             }
-            return updated;
-          });
+            return updated
+          })
         } catch {
-          const sid = targetSessionId || "__pending__";
+          const sid = targetSessionId || "__pending__"
           updateSessionMessages(sid, (prev) => {
-            const updated = [...prev];
-            const last = updated[updated.length - 1];
+            const updated = [...prev]
+            const last = updated[updated.length - 1]
             if (last && last.role === "assistant") {
               updated[updated.length - 1] = {
                 ...last,
                 content: last.content + raw,
-              };
+              }
             }
-            return updated;
-          });
+            return updated
+          })
         }
-      };
+      }
 
       // Track loading state for this session
       // Use the up-to-date messages: old messages + new user message + empty assistant
@@ -1540,18 +1404,18 @@ export default function ChatScreen({
           content: "",
           timestamp: new Date().toISOString(),
         },
-      ];
+      ]
       if (targetSessionId) {
-        loadingSessionsRef.current.add(targetSessionId);
-        setLoadingSessionIds(new Set(loadingSessionsRef.current));
-        sessionCacheRef.current.set(targetSessionId, freshMessages);
+        loadingSessionsRef.current.add(targetSessionId)
+        setLoadingSessionIds(new Set(loadingSessionsRef.current))
+        sessionCacheRef.current.set(targetSessionId, freshMessages)
       } else {
-        sessionCacheRef.current.set("__pending__", freshMessages);
+        sessionCacheRef.current.set("__pending__", freshMessages)
       }
 
       const modelOverride = activeModel
         ? `${activeModel.providerId}::${activeModel.modelId}`
-        : undefined;
+        : undefined
       await invoke<string>("chat", {
         message: text,
         attachments,
@@ -1559,39 +1423,33 @@ export default function ChatScreen({
         modelOverride,
         agentId: currentAgentId,
         onEvent,
-      });
+      })
     } catch (e) {
-      const sid = targetSessionId || "__pending__";
+      const sid = targetSessionId || "__pending__"
       updateSessionMessages(sid, (prev) => {
-        const updated = [...prev];
-        const last = updated[updated.length - 1];
-        if (
-          last &&
-          last.role === "assistant" &&
-          last.content === "" &&
-          !last.toolCalls?.length
-        ) {
-          updated.pop();
+        const updated = [...prev]
+        const last = updated[updated.length - 1]
+        if (last && last.role === "assistant" && last.content === "" && !last.toolCalls?.length) {
+          updated.pop()
         }
-        updated.push({ role: "event", content: `${e}` });
-        return updated;
-      });
+        updated.push({ role: "event", content: `${e}` })
+        return updated
+      })
       // Notify on error for non-current sessions
       if (targetSessionId && currentSessionIdRef.current !== targetSessionId) {
-        const agent = agents.find((a) => a.id === currentAgentId);
+        const agent = agents.find((a) => a.id === currentAgentId)
         if (isAgentNotifyEnabled(agent?.notifyOnComplete)) {
           const sessionTitle =
-            sessions.find((s) => s.id === targetSessionId)?.title ||
-            t("notification.chatError");
-          notify(t("notification.chatError"), sessionTitle);
+            sessions.find((s) => s.id === targetSessionId)?.title || t("notification.chatError")
+          notify(t("notification.chatError"), sessionTitle)
         }
       }
     } finally {
-      const sid = targetSessionId || "__pending__";
+      const sid = targetSessionId || "__pending__"
       // Clean up empty assistant message if chat was stopped before any response arrived
       updateSessionMessages(sid, (prev) => {
-        const updated = [...prev];
-        const last = updated[updated.length - 1];
+        const updated = [...prev]
+        const last = updated[updated.length - 1]
         if (
           last &&
           last.role === "assistant" &&
@@ -1599,39 +1457,36 @@ export default function ChatScreen({
           !last.toolCalls?.length &&
           !last.contentBlocks?.length
         ) {
-          updated.pop();
+          updated.pop()
         }
-        return updated;
-      });
-      loadingSessionsRef.current.delete(sid);
-      setLoadingSessionIds(new Set(loadingSessionsRef.current));
+        return updated
+      })
+      loadingSessionsRef.current.delete(sid)
+      setLoadingSessionIds(new Set(loadingSessionsRef.current))
       if (currentSessionIdRef.current === sid) {
-        setLoading(false);
+        setLoading(false)
       }
       // Notify on completion for non-current sessions
       if (targetSessionId && currentSessionIdRef.current !== targetSessionId) {
-        const agent = agents.find((a) => a.id === currentAgentId);
+        const agent = agents.find((a) => a.id === currentAgentId)
         if (isAgentNotifyEnabled(agent?.notifyOnComplete)) {
-          const sessionTitle =
-            sessions.find((s) => s.id === targetSessionId)?.title || agentName;
-          notify(t("notification.chatCompleted"), sessionTitle);
+          const sessionTitle = sessions.find((s) => s.id === targetSessionId)?.title || agentName
+          notify(t("notification.chatCompleted"), sessionTitle)
         }
       }
       // Mark current session as read so unread count stays 0 for active session
       if (targetSessionId) {
-        invoke("mark_session_read_cmd", { sessionId: targetSessionId }).catch(
-          () => {},
-        );
+        invoke("mark_session_read_cmd", { sessionId: targetSessionId }).catch(() => {})
       }
-      reloadSessions();
+      reloadSessions()
 
       // Handle pending message after loading finishes
       if (pendingMessageRef.current) {
-        const pending = pendingMessageRef.current;
-        setPendingMessage(null);
-        setInput(pending);
+        const pending = pendingMessageRef.current
+        setPendingMessage(null)
+        setInput(pending)
         if (autoSendPendingRef.current) {
-          autoSendRef.current = true;
+          autoSendRef.current = true
         }
       }
     }
@@ -1640,10 +1495,10 @@ export default function ChatScreen({
   // Auto-send: fires after React flushes the input state + loading=false
   useEffect(() => {
     if (autoSendRef.current && input.trim() && !loading) {
-      autoSendRef.current = false;
-      handleSend();
+      autoSendRef.current = false
+      handleSend()
     }
-  }, [input, loading]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [input, loading]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <>
@@ -1663,30 +1518,22 @@ export default function ChatScreen({
       />
 
       {/* Command Approval Dialog */}
-      <ApprovalDialog
-        requests={approvalRequests}
-        onRespond={handleApprovalResponse}
-      />
+      <ApprovalDialog requests={approvalRequests} onRespond={handleApprovalResponse} />
 
       {/* Codex Auth Expired Dialog */}
-      <AlertDialog
-        open={showCodexAuthExpired}
-        onOpenChange={setShowCodexAuthExpired}
-      >
+      <AlertDialog open={showCodexAuthExpired} onOpenChange={setShowCodexAuthExpired}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t("codexAuth.expiredTitle")}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t("codexAuth.expiredDescription")}
-            </AlertDialogDescription>
+            <AlertDialogDescription>{t("codexAuth.expiredDescription")}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
             {onCodexReauth && (
               <AlertDialogAction
                 onClick={() => {
-                  setShowCodexAuthExpired(false);
-                  onCodexReauth();
+                  setShowCodexAuthExpired(false)
+                  onCodexReauth()
                 }}
               >
                 {t("codexAuth.reauth")}
@@ -1733,12 +1580,8 @@ export default function ChatScreen({
                   <div className="space-y-2 text-xs">
                     {/* App version */}
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-muted-foreground">
-                        🖥️ OpenComputer
-                      </span>
-                      <span className="font-medium text-foreground tabular-nums">
-                        v0.1.0
-                      </span>
+                      <span className="text-muted-foreground">🖥️ OpenComputer</span>
+                      <span className="font-medium text-foreground tabular-nums">v0.1.0</span>
                     </div>
                     <div className="border-t border-border" />
                     {/* Model + Auth */}
@@ -1749,13 +1592,12 @@ export default function ChatScreen({
                               x.providerId === activeModel.providerId &&
                               x.modelId === activeModel.modelId,
                           )
-                        : null;
+                        : null
                       const modelLabel = m
                         ? `${m.providerName}/${m.modelId}`
-                        : activeModel?.modelId || "—";
-                      const apiType = m?.apiType || "—";
-                      const authLabel =
-                        apiType === "codex" ? "oauth" : "api-key";
+                        : activeModel?.modelId || "—"
+                      const apiType = m?.apiType || "—"
+                      const authLabel = apiType === "codex" ? "oauth" : "api-key"
                       return (
                         <>
                           <div className="flex items-start gap-2">
@@ -1767,15 +1609,11 @@ export default function ChatScreen({
                             </span>
                           </div>
                           <div className="flex items-center justify-between gap-2">
-                            <span className="text-muted-foreground">
-                              🔑 {t("chat.statusAuth")}
-                            </span>
-                            <span className="font-medium text-foreground">
-                              {authLabel}
-                            </span>
+                            <span className="text-muted-foreground">🔑 {t("chat.statusAuth")}</span>
+                            <span className="font-medium text-foreground">{authLabel}</span>
                           </div>
                         </>
-                      );
+                      )
                     })()}
                     {/* Context window usage */}
                     {(() => {
@@ -1785,29 +1623,23 @@ export default function ChatScreen({
                               x.providerId === activeModel.providerId &&
                               x.modelId === activeModel.modelId,
                           )
-                        : null;
-                      if (!m) return null;
-                      const ctxK = Math.round(m.contextWindow / 1000);
+                        : null
+                      if (!m) return null
+                      const ctxK = Math.round(m.contextWindow / 1000)
                       // Find the latest assistant message with usage to show context consumption
                       const lastAssistantWithUsage = [...messages]
                         .reverse()
-                        .find(
-                          (msg) =>
-                            msg.role === "assistant" && msg.usage?.inputTokens,
-                        );
-                      const usedTokens =
-                        lastAssistantWithUsage?.usage?.inputTokens || 0;
-                      const usedK = Math.round(usedTokens / 1000);
+                        .find((msg) => msg.role === "assistant" && msg.usage?.inputTokens)
+                      const usedTokens = lastAssistantWithUsage?.usage?.inputTokens || 0
+                      const usedK = Math.round(usedTokens / 1000)
                       const pct =
-                        m.contextWindow > 0
-                          ? Math.round((usedTokens / m.contextWindow) * 100)
-                          : 0;
+                        m.contextWindow > 0 ? Math.round((usedTokens / m.contextWindow) * 100) : 0
                       const barColor =
                         pct < 50
                           ? "bg-green-500/70"
                           : pct < 80
                             ? "bg-yellow-500/70"
-                            : "bg-red-500/70";
+                            : "bg-red-500/70"
                       return (
                         <div className="space-y-1.5">
                           <div className="flex items-center justify-between gap-2">
@@ -1829,74 +1661,61 @@ export default function ChatScreen({
                               className="w-full mt-1 px-2 py-1 text-[11px] rounded-md border border-border/50 text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors disabled:opacity-50"
                               disabled={compacting || loading}
                               onClick={async () => {
-                                setCompacting(true);
+                                setCompacting(true)
                                 try {
                                   const result = await invoke<{
-                                    tierApplied: number;
-                                    tokensBefore: number;
-                                    tokensAfter: number;
-                                    messagesAffected: number;
+                                    tierApplied: number
+                                    tokensBefore: number
+                                    tokensAfter: number
+                                    messagesAffected: number
                                   }>("compact_context_now", {
                                     sessionId: currentSessionId,
-                                  });
+                                  })
                                   if (result.messagesAffected > 0) {
                                     // Reload messages to reflect compacted state
                                     // Just close the popover — user will see updated token count on next message
-                                    setShowStatus(false);
+                                    setShowStatus(false)
                                   }
                                 } catch (e) {
-                                  console.error("compact failed", e);
+                                  console.error("compact failed", e)
                                 } finally {
-                                  setCompacting(false);
+                                  setCompacting(false)
                                 }
                               }}
                             >
-                              {compacting
-                                ? t("chat.compacting")
-                                : t("chat.compactNow")}
+                              {compacting ? t("chat.compacting") : t("chat.compactNow")}
                             </button>
                           )}
                         </div>
-                      );
+                      )
                     })()}
                     {/* Cache info (Anthropic) */}
                     {(() => {
                       const lastAssistantWithUsage = [...messages]
                         .reverse()
-                        .find((msg) => msg.role === "assistant" && msg.usage);
-                      const u = lastAssistantWithUsage?.usage;
+                        .find((msg) => msg.role === "assistant" && msg.usage)
+                      const u = lastAssistantWithUsage?.usage
                       if (
                         !u ||
-                        (u.cacheCreationInputTokens == null &&
-                          u.cacheReadInputTokens == null)
+                        (u.cacheCreationInputTokens == null && u.cacheReadInputTokens == null)
                       )
-                        return null;
-                      const created = u.cacheCreationInputTokens || 0;
-                      const read = u.cacheReadInputTokens || 0;
+                        return null
+                      const created = u.cacheCreationInputTokens || 0
+                      const read = u.cacheReadInputTokens || 0
                       return (
                         <div className="flex items-center justify-between gap-2">
-                          <span className="text-muted-foreground">
-                            🗄️ {t("chat.statusCache")}
-                          </span>
+                          <span className="text-muted-foreground">🗄️ {t("chat.statusCache")}</span>
                           <span className="font-medium text-foreground tabular-nums">
-                            +
-                            {created > 1000
-                              ? `${(created / 1000).toFixed(1)}k`
-                              : created}
-                            {" / "}⚡
-                            {read > 1000
-                              ? `${(read / 1000).toFixed(1)}k`
-                              : read}
+                            +{created > 1000 ? `${(created / 1000).toFixed(1)}k` : created}
+                            {" / "}⚡{read > 1000 ? `${(read / 1000).toFixed(1)}k` : read}
                           </span>
                         </div>
-                      );
+                      )
                     })()}
                     <div className="border-t border-border" />
                     {/* Agent */}
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-muted-foreground">
-                        🤖 {t("chat.statusAgent")}
-                      </span>
+                      <span className="text-muted-foreground">🤖 {t("chat.statusAgent")}</span>
                       <span className="font-medium text-foreground">
                         {agentName || t("chat.mainAgent")}
                       </span>
@@ -1909,12 +1728,8 @@ export default function ChatScreen({
                       <span className="font-medium text-foreground text-right ml-auto truncate max-w-[160px]">
                         {currentSessionId
                           ? (() => {
-                              const sess = sessions.find(
-                                (s) => s.id === currentSessionId,
-                              );
-                              return (
-                                sess?.title || currentSessionId.slice(0, 8)
-                              );
+                              const sess = sessions.find((s) => s.id === currentSessionId)
+                              return sess?.title || currentSessionId.slice(0, 8)
                             })()
                           : t("chat.statusNewSession")}
                       </span>
@@ -1928,9 +1743,7 @@ export default function ChatScreen({
                         <div
                           className="flex items-center gap-1.5 ml-auto overflow-hidden text-muted-foreground/80 cursor-pointer hover:text-foreground transition-colors group"
                           title={currentSessionId}
-                          onClick={() =>
-                            navigator.clipboard.writeText(currentSessionId)
-                          }
+                          onClick={() => navigator.clipboard.writeText(currentSessionId)}
                         >
                           <span className="font-mono text-[11px] truncate select-all">
                             {currentSessionId}
@@ -1942,16 +1755,13 @@ export default function ChatScreen({
                     {/* Message count */}
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-muted-foreground">
-                        📊{" "}
-                        {t("chat.statusMessages", { count: messages.length })}
+                        📊 {t("chat.statusMessages", { count: messages.length })}
                       </span>
                     </div>
                     <div className="border-t border-border" />
                     {/* Runtime: Thinking */}
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-muted-foreground">
-                        ⚙️ {t("chat.statusThinking")}
-                      </span>
+                      <span className="text-muted-foreground">⚙️ {t("chat.statusThinking")}</span>
                       <span className="font-medium text-foreground">
                         {t(`effort.${reasoningEffort}`)}
                       </span>
@@ -1959,10 +1769,8 @@ export default function ChatScreen({
                     {/* Updated */}
                     {currentSessionId &&
                       (() => {
-                        const sess = sessions.find(
-                          (s) => s.id === currentSessionId,
-                        );
-                        if (!sess) return null;
+                        const sess = sessions.find((s) => s.id === currentSessionId)
+                        if (!sess) return null
                         return (
                           <div className="flex items-center justify-between gap-2">
                             <span className="text-muted-foreground">
@@ -1972,7 +1780,7 @@ export default function ChatScreen({
                               {formatMessageTime(sess.updatedAt)}
                             </span>
                           </div>
-                        );
+                        )
                       })()}
                   </div>
                 </div>
@@ -1996,10 +1804,7 @@ export default function ChatScreen({
         <CrashRecoveryBanner />
 
         {/* Messages */}
-        <div
-          ref={scrollContainerRef}
-          className="flex-1 overflow-y-auto px-4 py-6 space-y-4"
-        >
+        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
           {/* Load more indicator */}
           {hasMore && (
             <div className="flex justify-center py-2">
@@ -2020,15 +1825,13 @@ export default function ChatScreen({
           )}
           {messages.length === 0 && (
             <div className="flex items-center justify-center h-full animate-in fade-in-0 duration-300">
-              <p className="text-muted-foreground text-sm">
-                {t("chat.howCanIHelp")}
-              </p>
+              <p className="text-muted-foreground text-sm">{t("chat.howCanIHelp")}</p>
             </div>
           )}
           {messages.map((msg, i) => {
             const fromAgent = msg.fromAgentId
               ? agents.find((a) => a.id === msg.fromAgentId)
-              : undefined;
+              : undefined
             return (
               <div
                 key={i}
@@ -2050,8 +1853,7 @@ export default function ChatScreen({
                   <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-purple-500/8 border border-purple-500/20 text-xs text-purple-400/80 max-w-[80%]">
                     <Network className="w-3 h-3 shrink-0 text-purple-500" />
                     <span className="font-medium text-purple-500">
-                      {agents.find((a) => a.id === msg.subagentResultAgentId)
-                        ?.name ||
+                      {agents.find((a) => a.id === msg.subagentResultAgentId)?.name ||
                         msg.subagentResultAgentId ||
                         "Sub-agent"}
                     </span>
@@ -2066,8 +1868,8 @@ export default function ChatScreen({
                     )}
                     onMouseEnter={() => setHoveredMsgIndex(i)}
                     onMouseLeave={() => {
-                      setHoveredMsgIndex((prev) => (prev === i ? null : prev));
-                      setDetailsIndex((prev) => (prev === i ? null : prev));
+                      setHoveredMsgIndex((prev) => (prev === i ? null : prev))
+                      setDetailsIndex((prev) => (prev === i ? null : prev))
                     }}
                     onContextMenu={(e) => handleContextMenu(e, i)}
                   >
@@ -2128,13 +1930,10 @@ export default function ChatScreen({
                               onChange={(e) => setEditContent(e.target.value)}
                               onKeyDown={(e) => {
                                 if (e.key === "Escape") {
-                                  setEditingIndex(null);
+                                  setEditingIndex(null)
                                 }
-                                if (
-                                  e.key === "Enter" &&
-                                  (e.metaKey || e.ctrlKey)
-                                ) {
-                                  handleSaveEdit(i);
+                                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                                  handleSaveEdit(i)
                                 }
                               }}
                               className="w-full min-h-[80px] rounded-lg border border-border bg-background p-2 text-sm text-foreground resize-y focus:outline-none focus:ring-1 focus:ring-ring"
@@ -2162,8 +1961,7 @@ export default function ChatScreen({
                             .map((block, blockIdx) => {
                               if (block.type === "thinking") {
                                 // isStreaming only for the last block of the actively streaming message
-                                const isLast =
-                                  blockIdx === msg.contentBlocks!.length - 1;
+                                const isLast = blockIdx === msg.contentBlocks!.length - 1
                                 return (
                                   <ThinkingBlock
                                     key={blockIdx}
@@ -2175,15 +1973,10 @@ export default function ChatScreen({
                                       !msg.content.trim()
                                     }
                                   />
-                                );
+                                )
                               }
                               if (block.type === "tool_call") {
-                                return (
-                                  <ToolCallBlock
-                                    key={block.tool.callId}
-                                    tool={block.tool}
-                                  />
-                                );
+                                return <ToolCallBlock key={block.tool.callId} tool={block.tool} />
                               }
                               if (block.type === "text") {
                                 return (
@@ -2196,22 +1989,20 @@ export default function ChatScreen({
                                       blockIdx === msg.contentBlocks!.length - 1
                                     }
                                   />
-                                );
+                                )
                               }
-                              return null;
+                              return null
                             })
                             .concat(
                               // Show loading dots between tool rounds: last block is a completed tool_call
                               loading && i === messages.length - 1
                                 ? (() => {
                                     const lastBlock =
-                                      msg.contentBlocks![
-                                        msg.contentBlocks!.length - 1
-                                      ];
+                                      msg.contentBlocks![msg.contentBlocks!.length - 1]
                                     const waitingForNextRound =
                                       lastBlock.type === "tool_call" &&
-                                      lastBlock.tool.result !== undefined;
-                                    if (!waitingForNextRound) return null;
+                                      lastBlock.tool.result !== undefined
+                                    if (!waitingForNextRound) return null
                                     return (
                                       <div
                                         key="__loading__"
@@ -2221,7 +2012,7 @@ export default function ChatScreen({
                                         <span className="block w-1.5 h-1.5 rounded-full bg-foreground/50 animate-pulse [animation-delay:300ms]" />
                                         <span className="block w-1.5 h-1.5 rounded-full bg-foreground/50 animate-pulse [animation-delay:600ms]" />
                                       </div>
-                                    );
+                                    )
                                   })()
                                 : null,
                             )
@@ -2231,11 +2022,7 @@ export default function ChatScreen({
                             {msg.thinking && (
                               <ThinkingBlock
                                 content={msg.thinking}
-                                isStreaming={
-                                  loading &&
-                                  i === messages.length - 1 &&
-                                  !msg.content
-                                }
+                                isStreaming={loading && i === messages.length - 1 && !msg.content}
                               />
                             )}
                             {msg.toolCalls?.map((tool) => (
@@ -2244,9 +2031,7 @@ export default function ChatScreen({
                             {msg.content ? (
                               <MarkdownRenderer
                                 content={msg.content}
-                                isStreaming={
-                                  loading && i === messages.length - 1
-                                }
+                                isStreaming={loading && i === messages.length - 1}
                               />
                             ) : (
                               !msg.toolCalls?.length && (
@@ -2281,21 +2066,14 @@ export default function ChatScreen({
                           <div
                             className={cn(
                               "flex items-center gap-0.5 mt-0.5 h-6",
-                              msg.role === "user"
-                                ? "justify-end"
-                                : "justify-start",
-                              !(
-                                hoveredMsgIndex === i ||
-                                copiedIndex === i ||
-                                detailsIndex === i
-                              ) && "invisible",
+                              msg.role === "user" ? "justify-end" : "justify-start",
+                              !(hoveredMsgIndex === i || copiedIndex === i || detailsIndex === i) &&
+                                "invisible",
                             )}
                           >
                             <IconTip label={t("chat.copy")}>
                               <button
-                                onClick={() =>
-                                  handleCopyMessage(msg.content, i)
-                                }
+                                onClick={() => handleCopyMessage(msg.content, i)}
                                 className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors"
                               >
                                 {copiedIndex === i ? (
@@ -2305,103 +2083,89 @@ export default function ChatScreen({
                                 )}
                               </button>
                             </IconTip>
-                            {msg.role === "assistant" &&
-                              (msg.usage || msg.model) && (
-                                <div className="relative">
-                                  <IconTip label={t("chat.details")}>
-                                    <button
-                                      onClick={() =>
-                                        setDetailsIndex(
-                                          detailsIndex === i ? null : i,
-                                        )
-                                      }
-                                      className={cn(
-                                        "p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors",
-                                        detailsIndex === i &&
-                                          "text-foreground bg-muted/80",
+                            {msg.role === "assistant" && (msg.usage || msg.model) && (
+                              <div className="relative">
+                                <IconTip label={t("chat.details")}>
+                                  <button
+                                    onClick={() => setDetailsIndex(detailsIndex === i ? null : i)}
+                                    className={cn(
+                                      "p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors",
+                                      detailsIndex === i && "text-foreground bg-muted/80",
+                                    )}
+                                  >
+                                    <Info className="h-3.5 w-3.5" />
+                                  </button>
+                                </IconTip>
+                                {detailsIndex === i && (
+                                  <div className="absolute bottom-full mb-1 z-50 min-w-[180px] rounded-lg border border-border bg-popover p-2.5 shadow-lg left-0">
+                                    <div className="space-y-1.5 text-xs">
+                                      {msg.model && (
+                                        <div className="flex items-center justify-between gap-3">
+                                          <span className="text-muted-foreground">
+                                            {t("chat.statusModel")}
+                                          </span>
+                                          <span
+                                            className="font-medium text-foreground truncate max-w-[160px]"
+                                            title={msg.model}
+                                          >
+                                            {msg.model}
+                                          </span>
+                                        </div>
                                       )}
-                                    >
-                                      <Info className="h-3.5 w-3.5" />
-                                    </button>
-                                  </IconTip>
-                                  {detailsIndex === i && (
-                                    <div className="absolute bottom-full mb-1 z-50 min-w-[180px] rounded-lg border border-border bg-popover p-2.5 shadow-lg left-0">
-                                      <div className="space-y-1.5 text-xs">
-                                        {msg.model && (
-                                          <div className="flex items-center justify-between gap-3">
-                                            <span className="text-muted-foreground">
-                                              {t("chat.statusModel")}
-                                            </span>
-                                            <span
-                                              className="font-medium text-foreground truncate max-w-[160px]"
-                                              title={msg.model}
-                                            >
-                                              {msg.model}
-                                            </span>
-                                          </div>
-                                        )}
-                                        {msg.model &&
-                                          msg.usage?.inputTokens != null && (
+                                      {msg.model && msg.usage?.inputTokens != null && (
+                                        <div className="border-t border-border" />
+                                      )}
+                                      {msg.usage?.inputTokens != null && (
+                                        <div className="flex items-center justify-between gap-3">
+                                          <span className="text-muted-foreground">
+                                            {t("chat.inputTokens")}
+                                          </span>
+                                          <span className="font-medium text-foreground tabular-nums">
+                                            {formatTokens(msg.usage.inputTokens)}
+                                          </span>
+                                        </div>
+                                      )}
+                                      {msg.usage?.outputTokens != null && (
+                                        <div className="flex items-center justify-between gap-3">
+                                          <span className="text-muted-foreground">
+                                            {t("chat.outputTokens")}
+                                          </span>
+                                          <span className="font-medium text-foreground tabular-nums">
+                                            {formatTokens(msg.usage.outputTokens)}
+                                          </span>
+                                        </div>
+                                      )}
+                                      {msg.usage?.inputTokens != null &&
+                                        msg.usage?.outputTokens != null && (
+                                          <>
                                             <div className="border-t border-border" />
-                                          )}
-                                        {msg.usage?.inputTokens != null && (
-                                          <div className="flex items-center justify-between gap-3">
-                                            <span className="text-muted-foreground">
-                                              {t("chat.inputTokens")}
-                                            </span>
-                                            <span className="font-medium text-foreground tabular-nums">
-                                              {formatTokens(
-                                                msg.usage.inputTokens,
-                                              )}
-                                            </span>
-                                          </div>
+                                            <div className="flex items-center justify-between gap-3">
+                                              <span className="text-muted-foreground">
+                                                {t("chat.totalTokens")}
+                                              </span>
+                                              <span className="font-medium text-foreground tabular-nums">
+                                                {formatTokens(
+                                                  msg.usage.inputTokens + msg.usage.outputTokens,
+                                                )}
+                                              </span>
+                                            </div>
+                                          </>
                                         )}
-                                        {msg.usage?.outputTokens != null && (
-                                          <div className="flex items-center justify-between gap-3">
-                                            <span className="text-muted-foreground">
-                                              {t("chat.outputTokens")}
-                                            </span>
-                                            <span className="font-medium text-foreground tabular-nums">
-                                              {formatTokens(
-                                                msg.usage.outputTokens,
-                                              )}
-                                            </span>
-                                          </div>
-                                        )}
-                                        {msg.usage?.inputTokens != null &&
-                                          msg.usage?.outputTokens != null && (
-                                            <>
-                                              <div className="border-t border-border" />
-                                              <div className="flex items-center justify-between gap-3">
-                                                <span className="text-muted-foreground">
-                                                  {t("chat.totalTokens")}
-                                                </span>
-                                                <span className="font-medium text-foreground tabular-nums">
-                                                  {formatTokens(
-                                                    msg.usage.inputTokens +
-                                                      msg.usage.outputTokens,
-                                                  )}
-                                                </span>
-                                              </div>
-                                            </>
-                                          )}
-                                        {msg.usage?.durationMs != null && (
-                                          <div className="flex items-center justify-between gap-3">
-                                            <span className="text-muted-foreground">
-                                              {t("chat.duration")}
-                                            </span>
-                                            <span className="font-medium text-foreground tabular-nums">
-                                              {formatDuration(
-                                                msg.usage.durationMs,
-                                              )}
-                                            </span>
-                                          </div>
-                                        )}
-                                      </div>
+                                      {msg.usage?.durationMs != null && (
+                                        <div className="flex items-center justify-between gap-3">
+                                          <span className="text-muted-foreground">
+                                            {t("chat.duration")}
+                                          </span>
+                                          <span className="font-medium text-foreground tabular-nums">
+                                            {formatDuration(msg.usage.durationMs)}
+                                          </span>
+                                        </div>
+                                      )}
                                     </div>
-                                  )}
-                                </div>
-                              )}
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </div>
                         </TooltipProvider>
                       )}
@@ -2409,7 +2173,7 @@ export default function ChatScreen({
                   </div>
                 )}
               </div>
-            );
+            )
           })}
 
           <div ref={bottomRef} />
@@ -2427,31 +2191,27 @@ export default function ChatScreen({
           onModelChange={handleModelChange}
           onEffortChange={handleEffortChange}
           attachedFiles={attachedFiles}
-          onAttachFiles={(files) =>
-            setAttachedFiles((prev) => [...prev, ...files])
-          }
-          onRemoveFile={(index) =>
-            setAttachedFiles((prev) => prev.filter((_, i) => i !== index))
-          }
+          onAttachFiles={(files) => setAttachedFiles((prev) => [...prev, ...files])}
+          onRemoveFile={(index) => setAttachedFiles((prev) => prev.filter((_, i) => i !== index))}
           pendingMessage={pendingMessage}
           onCancelPending={() => {
-            setInput(pendingMessage || "");
-            setPendingMessage(null);
+            setInput(pendingMessage || "")
+            setPendingMessage(null)
           }}
           onStop={handleStop}
           compacting={compacting}
           onCompact={
             currentSessionId
               ? async () => {
-                  setCompacting(true);
+                  setCompacting(true)
                   try {
                     await invoke("compact_context_now", {
                       sessionId: currentSessionId,
-                    });
+                    })
                   } catch (e) {
-                    console.error("compact failed", e);
+                    console.error("compact failed", e)
                   } finally {
-                    setCompacting(false);
+                    setCompacting(false)
                   }
                 }
               : undefined
@@ -2476,11 +2236,8 @@ export default function ChatScreen({
           <button
             className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-foreground hover:bg-muted/80 transition-colors"
             onClick={() => {
-              handleCopyMessage(
-                messages[contextMenu.index].content,
-                contextMenu.index,
-              );
-              setContextMenu(null);
+              handleCopyMessage(messages[contextMenu.index].content, contextMenu.index)
+              setContextMenu(null)
             }}
           >
             <Copy className="h-3.5 w-3.5" />
@@ -2489,5 +2246,5 @@ export default function ChatScreen({
         </div>
       )}
     </>
-  );
+  )
 }

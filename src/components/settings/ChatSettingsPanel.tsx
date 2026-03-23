@@ -15,10 +15,12 @@ export default function ChatSettingsPanel() {
   const [loaded, setLoaded] = useState(false)
 
   useEffect(() => {
-    invoke<{ autoSendPending?: boolean }>("get_user_config").then((cfg) => {
-      setConfig({ autoSendPending: cfg.autoSendPending !== false })
-      setLoaded(true)
-    }).catch(console.error)
+    invoke<{ autoSendPending?: boolean }>("get_user_config")
+      .then((cfg) => {
+        setConfig({ autoSendPending: cfg.autoSendPending !== false })
+        setLoaded(true)
+      })
+      .catch(console.error)
   }, [])
 
   async function toggle(key: keyof ChatConfig) {
@@ -45,7 +47,10 @@ export default function ChatSettingsPanel() {
             <div className="text-sm font-medium">{t("settings.chatAutoSend")}</div>
             <div className="text-xs text-muted-foreground">{t("settings.chatAutoSendDesc")}</div>
           </div>
-          <Switch checked={config.autoSendPending} onCheckedChange={() => toggle("autoSendPending")} />
+          <Switch
+            checked={config.autoSendPending}
+            onCheckedChange={() => toggle("autoSendPending")}
+          />
         </div>
 
         {/* 上下文管理 */}

@@ -49,7 +49,9 @@ export default function CronCalendarView({ onNavigateToSession }: CronCalendarVi
     const unlisten = listen("cron:run_completed", () => {
       fetchEvents()
     })
-    return () => { unlisten.then((f) => f()) }
+    return () => {
+      unlisten.then((f) => f())
+    }
   }, [fetchEvents])
 
   function goToday() {
@@ -91,17 +93,20 @@ export default function CronCalendarView({ onNavigateToSession }: CronCalendarVi
   }
 
   // Selected day events
-  const selectedDayEvents = selectedDate
-    ? eventsByDay.get(selectedDate.getDate()) ?? []
-    : []
+  const selectedDayEvents = selectedDate ? (eventsByDay.get(selectedDate.getDate()) ?? []) : []
 
   const today = new Date()
   const isToday = (day: number) =>
     day === today.getDate() && month === today.getMonth() && year === today.getFullYear()
 
   const weekDays = [
-    t("cron.weekMon"), t("cron.weekTue"), t("cron.weekWed"),
-    t("cron.weekThu"), t("cron.weekFri"), t("cron.weekSat"), t("cron.weekSun"),
+    t("cron.weekMon"),
+    t("cron.weekTue"),
+    t("cron.weekWed"),
+    t("cron.weekThu"),
+    t("cron.weekFri"),
+    t("cron.weekSat"),
+    t("cron.weekSun"),
   ]
 
   function handleDayClick(day: number) {
@@ -141,7 +146,10 @@ export default function CronCalendarView({ onNavigateToSession }: CronCalendarVi
             job={editingJob}
             defaultDate={selectedDate}
             onSave={handleFormClose}
-            onCancel={() => { setShowForm(false); setEditingJob(null) }}
+            onCancel={() => {
+              setShowForm(false)
+              setEditingJob(null)
+            }}
           />
         )}
       </div>
@@ -151,7 +159,10 @@ export default function CronCalendarView({ onNavigateToSession }: CronCalendarVi
   return (
     <div className="flex flex-col flex-1 min-w-0 h-full bg-background">
       {/* Top Bar */}
-      <div className="flex items-center gap-3 px-5 py-3 border-b border-border shrink-0" data-tauri-drag-region>
+      <div
+        className="flex items-center gap-3 px-5 py-3 border-b border-border shrink-0"
+        data-tauri-drag-region
+      >
         <CalendarDays className="h-5 w-5 text-primary" />
         <h2 className="text-sm font-semibold flex-1">{t("cron.title")}</h2>
         <div className="flex items-center gap-1">
@@ -205,24 +216,31 @@ export default function CronCalendarView({ onNavigateToSession }: CronCalendarVi
               >
                 {day && (
                   <>
-                    <span className={`
+                    <span
+                      className={`
                       text-xs font-medium inline-flex items-center justify-center
                       ${isToday(day) ? "bg-primary text-primary-foreground rounded-full w-5 h-5" : "text-foreground"}
-                    `}>
+                    `}
+                    >
                       {day}
                     </span>
                     {/* Event dots */}
                     {eventsByDay.has(day) && (
                       <div className="flex gap-0.5 mt-1 flex-wrap">
-                        {eventsByDay.get(day)!.slice(0, 4).map((evt, j) => (
-                          <span
-                            key={j}
-                            className={`inline-block w-1.5 h-1.5 rounded-full ${statusColor(evt.status)}`}
-                            title={evt.jobName}
-                          />
-                        ))}
-                        {(eventsByDay.get(day)!.length > 4) && (
-                          <span className="text-[9px] text-muted-foreground">+{eventsByDay.get(day)!.length - 4}</span>
+                        {eventsByDay
+                          .get(day)!
+                          .slice(0, 4)
+                          .map((evt, j) => (
+                            <span
+                              key={j}
+                              className={`inline-block w-1.5 h-1.5 rounded-full ${statusColor(evt.status)}`}
+                              title={evt.jobName}
+                            />
+                          ))}
+                        {eventsByDay.get(day)!.length > 4 && (
+                          <span className="text-[9px] text-muted-foreground">
+                            +{eventsByDay.get(day)!.length - 4}
+                          </span>
                         )}
                       </div>
                     )}
@@ -238,7 +256,11 @@ export default function CronCalendarView({ onNavigateToSession }: CronCalendarVi
           <div className="w-72 border-l border-border flex flex-col bg-card shrink-0">
             <div className="px-4 py-3 border-b border-border shrink-0">
               <h3 className="text-sm font-medium">
-                {selectedDate.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
+                {selectedDate.toLocaleDateString(undefined, {
+                  weekday: "long",
+                  month: "long",
+                  day: "numeric",
+                })}
               </h3>
               <p className="text-xs text-muted-foreground mt-0.5">
                 {selectedDayEvents.length} {t("cron.tasks")}
@@ -246,11 +268,16 @@ export default function CronCalendarView({ onNavigateToSession }: CronCalendarVi
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto px-3 py-2">
               {selectedDayEvents.length === 0 ? (
-                <p className="text-xs text-muted-foreground py-6 text-center">{t("cron.noTasksThisDay")}</p>
+                <p className="text-xs text-muted-foreground py-6 text-center">
+                  {t("cron.noTasksThisDay")}
+                </p>
               ) : (
                 <div className="space-y-1.5">
                   {selectedDayEvents.map((evt, i) => {
-                    const time = new Date(evt.scheduledAt).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
+                    const time = new Date(evt.scheduledAt).toLocaleTimeString(undefined, {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })
                     const runStatus = evt.runLog?.status
                     return (
                       <button
@@ -259,14 +286,25 @@ export default function CronCalendarView({ onNavigateToSession }: CronCalendarVi
                         onClick={() => setDetailJobId(evt.jobId)}
                       >
                         <div className="flex items-center gap-2">
-                          <span className={`inline-block w-2 h-2 rounded-full shrink-0 ${statusColor(evt.status)}`} />
+                          <span
+                            className={`inline-block w-2 h-2 rounded-full shrink-0 ${statusColor(evt.status)}`}
+                          />
                           <span className="text-xs font-medium truncate">{evt.jobName}</span>
-                          <span className="text-[10px] text-muted-foreground ml-auto shrink-0">{time}</span>
+                          <span className="text-[10px] text-muted-foreground ml-auto shrink-0">
+                            {time}
+                          </span>
                         </div>
                         {runStatus && (
-                          <div className={`text-[10px] mt-1 ${runStatus === "success" ? "text-emerald-500" : "text-red-500"}`}>
-                            {runStatus === "success" ? "✓ " : "✕ "}{runStatus === "success" ? t("cron.runStatusSuccess") : t("cron.runStatusError")}
-                            {evt.runLog?.durationMs ? ` (${(evt.runLog.durationMs / 1000).toFixed(1)}s)` : ""}
+                          <div
+                            className={`text-[10px] mt-1 ${runStatus === "success" ? "text-emerald-500" : "text-red-500"}`}
+                          >
+                            {runStatus === "success" ? "✓ " : "✕ "}
+                            {runStatus === "success"
+                              ? t("cron.runStatusSuccess")
+                              : t("cron.runStatusError")}
+                            {evt.runLog?.durationMs
+                              ? ` (${(evt.runLog.durationMs / 1000).toFixed(1)}s)`
+                              : ""}
                           </div>
                         )}
                       </button>
@@ -294,7 +332,10 @@ export default function CronCalendarView({ onNavigateToSession }: CronCalendarVi
           job={editingJob}
           defaultDate={selectedDate}
           onSave={handleFormClose}
-          onCancel={() => { setShowForm(false); setEditingJob(null) }}
+          onCancel={() => {
+            setShowForm(false)
+            setEditingJob(null)
+          }}
         />
       )}
     </div>

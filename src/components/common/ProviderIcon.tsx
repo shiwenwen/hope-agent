@@ -27,41 +27,45 @@ import { Settings2 } from "lucide-react"
 
 // ── Types ──────────────────────────────────────────────────────────
 
-type IconComponent = React.ComponentType<{ size?: number | string; className?: string; style?: React.CSSProperties }>
+type IconComponent = React.ComponentType<{
+  size?: number | string
+  className?: string
+  style?: React.CSSProperties
+}>
 
 interface IconEntry {
   mono: IconComponent
-  color?: IconComponent        // .Color sub-component (brand original colors)
-  colorPrimary?: string        // fallback: tint Mono with this color
+  color?: IconComponent // .Color sub-component (brand original colors)
+  colorPrimary?: string // fallback: tint Mono with this color
 }
 
 // ── Provider Key → Icon 映射 ──────────────────────────────────────
 
 const ICON_MAP: Record<string, IconEntry> = {
-  anthropic:      { mono: Anthropic },
-  openai:         { mono: OpenAI },
-  "openai-chat":  { mono: OpenAI },
-  deepseek:       { mono: DeepSeek,       color: DeepSeek.Color,       colorPrimary: "#4D6BFE" },
-  "google-gemini":{ mono: Gemini,         color: Gemini.Color },
-  xai:            { mono: Grok },
-  mistral:        { mono: Mistral,        color: Mistral.Color },
-  openrouter:     { mono: OpenRouter,     colorPrimary: "#6566F1" },
-  groq:           { mono: Groq,           colorPrimary: "#F55036" },
-  moonshot:       { mono: Moonshot },
-  qwen:           { mono: Qwen,           color: Qwen.Color },
-  volcengine:     { mono: Doubao,         color: Doubao.Color },
-  zhipu:          { mono: Zhipu,          color: Zhipu.Color },
-  minimax:        { mono: Minimax,        color: Minimax.Color },
-  "kimi-coding":  { mono: Kimi,           color: Kimi.Color },
-  xiaomi:         { mono: XiaomiMiMo },
-  qianfan:        { mono: Baidu,          color: Baidu.Color },
-  modelstudio:    { mono: Bailian,        color: Bailian.Color },
-  nvidia:         { mono: Nvidia,         color: Nvidia.Color },
-  together:       { mono: Together,       color: Together.Color },
-  ollama:         { mono: Ollama },
-  vllm:           { mono: Vllm,           color: Vllm.Color },
-  "lm-studio":    { mono: LmStudio,      colorPrimary: "#4338CA" },
-  codex:          { mono: Codex,          color: Codex.Color },
+  anthropic: { mono: Anthropic },
+  openai: { mono: OpenAI },
+  "openai-chat": { mono: OpenAI },
+  deepseek: { mono: DeepSeek, color: DeepSeek.Color, colorPrimary: "#4D6BFE" },
+  "google-gemini": { mono: Gemini, color: Gemini.Color },
+  xai: { mono: Grok },
+  mistral: { mono: Mistral, color: Mistral.Color },
+  openrouter: { mono: OpenRouter, colorPrimary: "#6566F1" },
+  groq: { mono: Groq, colorPrimary: "#F55036" },
+  moonshot: { mono: Moonshot },
+  qwen: { mono: Qwen, color: Qwen.Color },
+  volcengine: { mono: Doubao, color: Doubao.Color },
+  zhipu: { mono: Zhipu, color: Zhipu.Color },
+  minimax: { mono: Minimax, color: Minimax.Color },
+  "kimi-coding": { mono: Kimi, color: Kimi.Color },
+  xiaomi: { mono: XiaomiMiMo },
+  qianfan: { mono: Baidu, color: Baidu.Color },
+  modelstudio: { mono: Bailian, color: Bailian.Color },
+  nvidia: { mono: Nvidia, color: Nvidia.Color },
+  together: { mono: Together, color: Together.Color },
+  ollama: { mono: Ollama },
+  vllm: { mono: Vllm, color: Vllm.Color },
+  "lm-studio": { mono: LmStudio, colorPrimary: "#4338CA" },
+  codex: { mono: Codex, color: Codex.Color },
 }
 
 // ── Name → Key 模糊匹配（用于已持久化的 Provider） ────────────────

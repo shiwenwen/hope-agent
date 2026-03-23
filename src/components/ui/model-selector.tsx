@@ -38,14 +38,14 @@ export function ModelSelector({
   disabled,
   defaultOpen,
   onOpenChange,
-  separator = "::"
+  separator = "::",
 }: ModelSelectorProps) {
   const { t } = useTranslation()
 
   // Find the selected model to display its name
   const [selectedProviderId, selectedModelId] = value ? value.split(separator) : ["", ""]
   const selectedModel = availableModels.find(
-    (m) => m.providerId === selectedProviderId && m.modelId === selectedModelId
+    (m) => m.providerId === selectedProviderId && m.modelId === selectedModelId,
   )
 
   // Group models by provider
@@ -60,12 +60,17 @@ export function ModelSelector({
 
   return (
     <DropdownMenu.Root defaultOpen={defaultOpen} onOpenChange={onOpenChange}>
-      <DropdownMenu.Trigger disabled={disabled} className={cn(
-        "flex h-9 w-full items-center justify-between whitespace-nowrap rounded-md border border-border bg-background px-3 py-2 text-sm shadow-sm ring-offset-background placeholder:text-muted-foreground hover:bg-secondary/50 focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
-        className
-      )}>
+      <DropdownMenu.Trigger
+        disabled={disabled}
+        className={cn(
+          "flex h-9 w-full items-center justify-between whitespace-nowrap rounded-md border border-border bg-background px-3 py-2 text-sm shadow-sm ring-offset-background placeholder:text-muted-foreground hover:bg-secondary/50 focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
+          className,
+        )}
+      >
         <span className={selectedModel ? "text-foreground" : "text-muted-foreground"}>
-          {selectedModel ? `${selectedModel.providerName} / ${selectedModel.modelName}` : placeholder || t("settings.selectDefaultModel", "Select model")}
+          {selectedModel
+            ? `${selectedModel.providerName} / ${selectedModel.modelName}`
+            : placeholder || t("settings.selectDefaultModel", "Select model")}
         </span>
         <ChevronDown className="h-4 w-4 opacity-50" />
       </DropdownMenu.Trigger>
@@ -88,7 +93,8 @@ export function ModelSelector({
                   alignOffset={-4}
                 >
                   {models.map((m) => {
-                    const isSelected = m.providerId === selectedProviderId && m.modelId === selectedModelId
+                    const isSelected =
+                      m.providerId === selectedProviderId && m.modelId === selectedModelId
                     return (
                       <DropdownMenu.Item
                         key={`${m.providerId}::${m.modelId}`}

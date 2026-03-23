@@ -76,7 +76,7 @@ export default function IconSidebar({
                   "rounded-xl h-8 w-8",
                   view === "chat"
                     ? "bg-primary/10 text-primary hover:bg-primary/20"
-                    : "text-muted-foreground hover:text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
                 )}
                 onClick={onOpenChat}
               >
@@ -99,7 +99,7 @@ export default function IconSidebar({
                 "rounded-xl h-8 w-8",
                 view === "agents"
                   ? "bg-primary/10 text-primary hover:bg-primary/20"
-                  : "text-muted-foreground hover:text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
               )}
               onClick={onOpenAgents}
             >
@@ -118,7 +118,7 @@ export default function IconSidebar({
                 "rounded-xl h-8 w-8",
                 view === "skills"
                   ? "bg-primary/10 text-primary hover:bg-primary/20"
-                  : "text-muted-foreground hover:text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
               )}
               onClick={onOpenSkills}
             >
@@ -137,7 +137,7 @@ export default function IconSidebar({
                 "rounded-xl h-8 w-8",
                 view === "calendar"
                   ? "bg-primary/10 text-primary hover:bg-primary/20"
-                  : "text-muted-foreground hover:text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
               )}
               onClick={onOpenCalendar}
             >
@@ -158,7 +158,7 @@ export default function IconSidebar({
                 "rounded-xl h-8 w-8",
                 view === "profile"
                   ? "bg-primary/10 text-primary hover:bg-primary/20"
-                  : "text-muted-foreground hover:text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
               )}
               onClick={onOpenProfile}
             >
@@ -203,9 +203,7 @@ export default function IconSidebar({
                   {/* Follow System option */}
                   <button
                     className={`flex items-center gap-2.5 w-full px-3 py-1.5 text-xs transition-colors hover:bg-secondary ${
-                      isFollowingSystem()
-                        ? "text-primary font-medium"
-                        : "text-foreground"
+                      isFollowingSystem() ? "text-primary font-medium" : "text-foreground"
                     }`}
                     onClick={() => {
                       setFollowSystemLanguage()
@@ -214,16 +212,16 @@ export default function IconSidebar({
                   >
                     <Monitor className="h-3.5 w-3.5 text-primary/70" />
                     <span>{t("language.system")}</span>
-                    {isFollowingSystem() && (
-                      <span className="ml-auto text-primary">●</span>
-                    )}
+                    {isFollowingSystem() && <span className="ml-auto text-primary">●</span>}
                   </button>
                   <div className="border-t border-border/50 my-0.5" />
                   {SUPPORTED_LANGUAGES.map((lang) => (
                     <button
                       key={lang.code}
                       className={`flex items-center gap-2.5 w-full px-3 py-1.5 text-xs transition-colors hover:bg-secondary ${
-                        !isFollowingSystem() && (i18n.language === lang.code || (i18n.language.startsWith(lang.code + "-") && lang.code !== "zh"))
+                        !isFollowingSystem() &&
+                        (i18n.language === lang.code ||
+                          (i18n.language.startsWith(lang.code + "-") && lang.code !== "zh"))
                           ? "text-primary font-medium"
                           : "text-foreground"
                       }`}
@@ -232,11 +230,15 @@ export default function IconSidebar({
                         setShowLangMenu(false)
                       }}
                     >
-                      <span className="text-[10px] font-bold w-5 text-primary/70">{lang.shortLabel}</span>
+                      <span className="text-[10px] font-bold w-5 text-primary/70">
+                        {lang.shortLabel}
+                      </span>
                       <span>{lang.label}</span>
-                      {!isFollowingSystem() && (i18n.language === lang.code || (i18n.language.startsWith(lang.code + "-") && lang.code !== "zh")) && (
-                        <span className="ml-auto text-primary">●</span>
-                      )}
+                      {!isFollowingSystem() &&
+                        (i18n.language === lang.code ||
+                          (i18n.language.startsWith(lang.code + "-") && lang.code !== "zh")) && (
+                          <span className="ml-auto text-primary">●</span>
+                        )}
                     </button>
                   ))}
                 </div>
@@ -252,7 +254,7 @@ export default function IconSidebar({
                 "rounded-xl h-8 w-8",
                 view === "settings"
                   ? "bg-primary/10 text-primary hover:bg-primary/20"
-                  : "text-muted-foreground hover:text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
               )}
               onClick={onOpenSettings}
             >

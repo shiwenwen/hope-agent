@@ -32,14 +32,9 @@ function SortableFallbackItem({
   displayName: string
   onRemove: () => void
 }) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id })
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id,
+  })
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -69,9 +64,7 @@ function SortableFallbackItem({
       </span>
 
       {/* Model name */}
-      <span className="flex-1 text-sm text-foreground truncate">
-        {displayName}
-      </span>
+      <span className="flex-1 text-sm text-foreground truncate">{displayName}</span>
 
       {/* Remove */}
       <button
@@ -114,7 +107,7 @@ export default function GlobalModelPanel() {
 
   const modelDisplayName = (ref: ActiveModelRef) => {
     const m = availableModels.find(
-      (m) => m.providerId === ref.providerId && m.modelId === ref.modelId
+      (m) => m.providerId === ref.providerId && m.modelId === ref.modelId,
     )
     return m ? `${m.providerName} / ${m.modelName}` : `${ref.providerId}::${ref.modelId}`
   }
@@ -133,7 +126,12 @@ export default function GlobalModelPanel() {
       await invoke("set_fallback_models", { models: newFallbacks })
       setFallbackModels(newFallbacks)
     } catch (e) {
-      logger.error("settings", "GlobalModelPanel::saveFallbacks", "Failed to save fallback models", e)
+      logger.error(
+        "settings",
+        "GlobalModelPanel::saveFallbacks",
+        "Failed to save fallback models",
+        e,
+      )
     }
   }
 
@@ -150,19 +148,13 @@ export default function GlobalModelPanel() {
     handleSaveFallbacks(newList)
   }
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-  )
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
   const handleFallbackDragEnd = (event: DragEndEvent) => {
     const { active, over } = event
     if (!over || active.id === over.id) return
-    const oldIndex = fallbackModels.findIndex(
-      (f) => `${f.providerId}::${f.modelId}` === active.id
-    )
-    const newIndex = fallbackModels.findIndex(
-      (f) => `${f.providerId}::${f.modelId}` === over.id
-    )
+    const oldIndex = fallbackModels.findIndex((f) => `${f.providerId}::${f.modelId}` === active.id)
+    const newIndex = fallbackModels.findIndex((f) => `${f.providerId}::${f.modelId}` === over.id)
     if (oldIndex === -1 || newIndex === -1) return
     const updated = arrayMove(fallbackModels, oldIndex, newIndex)
     handleSaveFallbacks(updated)
@@ -171,10 +163,8 @@ export default function GlobalModelPanel() {
   // Available for adding as fallback (not already in list, not the active model)
   const availableForFallback = availableModels.filter(
     (m) =>
-      !fallbackModels.some(
-        (f) => f.providerId === m.providerId && f.modelId === m.modelId
-      ) &&
-      !(activeModel?.providerId === m.providerId && activeModel?.modelId === m.modelId)
+      !fallbackModels.some((f) => f.providerId === m.providerId && f.modelId === m.modelId) &&
+      !(activeModel?.providerId === m.providerId && activeModel?.modelId === m.modelId),
   )
 
   if (loading) {
@@ -187,12 +177,8 @@ export default function GlobalModelPanel() {
 
   return (
     <div className="flex-1 overflow-y-auto p-6 max-w-4xl">
-      <h2 className="text-lg font-semibold text-foreground mb-1">
-        {t("settings.globalModel")}
-      </h2>
-      <p className="text-xs text-muted-foreground mb-5">
-        {t("settings.globalModelDesc")}
-      </p>
+      <h2 className="text-lg font-semibold text-foreground mb-1">{t("settings.globalModel")}</h2>
+      <p className="text-xs text-muted-foreground mb-5">{t("settings.globalModelDesc")}</p>
 
       {/* Default Model */}
       <div className="mb-6">
@@ -225,9 +211,7 @@ export default function GlobalModelPanel() {
         {fallbackModels.length === 0 ? (
           <div className="text-center py-6 bg-secondary/20 rounded-lg border border-border/30">
             <Layers className="h-8 w-8 text-muted-foreground/20 mx-auto mb-2" />
-            <p className="text-xs text-muted-foreground/60">
-              {t("settings.noFallbacks")}
-            </p>
+            <p className="text-xs text-muted-foreground/60">{t("settings.noFallbacks")}</p>
           </div>
         ) : (
           <DndContext
@@ -266,7 +250,6 @@ export default function GlobalModelPanel() {
             availableModels={availableForFallback}
             placeholder={t("settings.selectFallbackModel")}
           />
-
         ) : (
           <button
             className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 transition-colors px-1 py-1.5"

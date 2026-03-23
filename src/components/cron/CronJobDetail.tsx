@@ -26,7 +26,13 @@ interface CronJobDetailProps {
   onViewSession?: (sessionId: string) => void
 }
 
-export default function CronJobDetail({ jobId, onBack, onEdit, onRefresh, onViewSession }: CronJobDetailProps) {
+export default function CronJobDetail({
+  jobId,
+  onBack,
+  onEdit,
+  onRefresh,
+  onViewSession,
+}: CronJobDetailProps) {
   const { t } = useTranslation()
   const [job, setJob] = useState<CronJob | null>(null)
   const [logs, setLogs] = useState<CronRunLog[]>([])
@@ -47,8 +53,10 @@ export default function CronJobDetail({ jobId, onBack, onEdit, onRefresh, onView
     }
   }
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { fetchData() }, [jobId])
+  useEffect(() => {
+    fetchData()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobId])
 
   async function handleToggle() {
     if (!job) return
@@ -81,11 +89,7 @@ export default function CronJobDetail({ jobId, onBack, onEdit, onRefresh, onView
   }
 
   if (!job) {
-    return (
-      <div className="p-6 text-center text-muted-foreground">
-        {t("cron.jobNotFound")}
-      </div>
-    )
+    return <div className="p-6 text-center text-muted-foreground">{t("cron.jobNotFound")}</div>
   }
 
   return (
@@ -118,11 +122,20 @@ export default function CronJobDetail({ jobId, onBack, onEdit, onRefresh, onView
             </IconTip>
             <IconTip label={job.status === "active" ? t("cron.pause") : t("cron.resume")}>
               <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleToggle}>
-                {job.status === "active" ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                {job.status === "active" ? (
+                  <Pause className="h-3.5 w-3.5" />
+                ) : (
+                  <Play className="h-3.5 w-3.5" />
+                )}
               </Button>
             </IconTip>
             <IconTip label={t("common.delete")}>
-              <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500 hover:text-red-600" onClick={handleDelete}>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 text-red-500 hover:text-red-600"
+                onClick={handleDelete}
+              >
                 <Trash2 className="h-3.5 w-3.5" />
               </Button>
             </IconTip>
@@ -146,11 +159,15 @@ export default function CronJobDetail({ jobId, onBack, onEdit, onRefresh, onView
         </div>
         <div className="flex justify-between">
           <span className="text-muted-foreground">{t("cron.failures")}</span>
-          <span>{job.consecutiveFailures} / {job.maxFailures}</span>
+          <span>
+            {job.consecutiveFailures} / {job.maxFailures}
+          </span>
         </div>
         <div>
           <span className="text-muted-foreground">{t("cron.message")}</span>
-          <p className="mt-1 whitespace-pre-wrap break-words bg-secondary/30 rounded px-2 py-1.5">{job.payload.prompt}</p>
+          <p className="mt-1 whitespace-pre-wrap break-words bg-secondary/30 rounded px-2 py-1.5">
+            {job.payload.prompt}
+          </p>
         </div>
       </div>
 
@@ -174,7 +191,11 @@ export default function CronJobDetail({ jobId, onBack, onEdit, onRefresh, onView
                     ) : (
                       <XCircle className="h-3.5 w-3.5 text-red-500" />
                     )}
-                    <span className="font-medium">{log.status === "success" ? t("cron.runStatusSuccess") : t("cron.runStatusError")}</span>
+                    <span className="font-medium">
+                      {log.status === "success"
+                        ? t("cron.runStatusSuccess")
+                        : t("cron.runStatusError")}
+                    </span>
                   </div>
                   <div className="flex items-center gap-3">
                     <div className="flex items-center gap-1.5 text-muted-foreground">

@@ -134,8 +134,9 @@ export default function SettingsView({
   onProfileSaved?: () => void
 }) {
   const { t } = useTranslation()
-  const [activeSection, setActiveSection] =
-    useState<SettingsSection>(initialSection ?? "modelConfig")
+  const [activeSection, setActiveSection] = useState<SettingsSection>(
+    initialSection ?? "modelConfig",
+  )
   const [addingProvider, setAddingProvider] = useState(false)
   const [editingProvider, setEditingProvider] = useState<ProviderConfig | null>(null)
 
@@ -152,9 +153,7 @@ export default function SettingsView({
             className="gap-1.5 text-muted-foreground hover:text-foreground pb-1.5"
           >
             <ArrowLeft className="h-4 w-4" />
-            <span className="text-sm font-semibold text-foreground">
-              {t("settings.title")}
-            </span>
+            <span className="text-sm font-semibold text-foreground">{t("settings.title")}</span>
           </Button>
         </div>
 
@@ -167,16 +166,14 @@ export default function SettingsView({
                 "flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm transition-all duration-150",
                 activeSection === section.id
                   ? "bg-secondary text-foreground font-medium shadow-sm"
-                  : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
+                  : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
               )}
               onClick={() => setActiveSection(section.id)}
             >
               <span
                 className={cn(
                   "shrink-0",
-                  activeSection === section.id
-                    ? "text-primary"
-                    : "text-muted-foreground"
+                  activeSection === section.id ? "text-primary" : "text-muted-foreground",
                 )}
               >
                 {section.icon}
@@ -192,52 +189,51 @@ export default function SettingsView({
         {/* Content Header + drag region */}
         <div className="h-10 flex items-end px-6 shrink-0" data-tauri-drag-region>
           <span className="text-sm font-semibold text-foreground pb-1.5">
-            {t(
-              SECTIONS.find((s) => s.id === activeSection)?.labelKey ??
-                "settings.title"
-            )}
+            {t(SECTIONS.find((s) => s.id === activeSection)?.labelKey ?? "settings.title")}
           </span>
         </div>
 
         {/* Content Area */}
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-          <div key={activeSection} className="flex-1 flex flex-col min-h-0 overflow-hidden animate-in fade-in-0 duration-150">
-          {activeSection === "general" && <GeneralPanel />}
-          {activeSection === "modelConfig" && (
-            addingProvider ? (
-              <ProviderSetup
-                onComplete={() => setAddingProvider(false)}
-                onCodexAuth={onCodexAuth}
-                onCancel={() => setAddingProvider(false)}
-              />
-            ) : editingProvider ? (
-              <ProviderEditPage
-                provider={editingProvider}
-                onSave={() => setEditingProvider(null)}
-                onCancel={() => setEditingProvider(null)}
-                onCodexReauth={onCodexReauth}
-              />
-            ) : (
-              <ModelConfigPanel
-                onAddProvider={() => setAddingProvider(true)}
-                onEditProvider={(p) => setEditingProvider(p)}
-                onCodexReauth={onCodexReauth}
-              />
-            )
-          )}
-          {activeSection === "skills" && <SkillsPanel />}
-          {activeSection === "agents" && <AgentPanel initialAgentId={initialAgentId} />}
-          {activeSection === "profile" && <UserProfilePanel onSaved={onProfileSaved} />}
-          {activeSection === "memory" && <MemoryPanel />}
-          {activeSection === "cron" && <CronPanel />}
-          {activeSection === "notifications" && <NotificationPanel />}
-          {activeSection === "tools" && <ToolSettingsPanel />}
-          {activeSection === "permissions" && <PermissionsPanel />}
-          {activeSection === "chat" && <ChatSettingsPanel />}
-          {activeSection === "health" && <CrashHistoryPanel />}
-          {activeSection === "logs" && <LogPanel />}
-          {activeSection === "about" && <AboutPanel />}
-          {activeSection === "developer" && <DeveloperPanel />}
+          <div
+            key={activeSection}
+            className="flex-1 flex flex-col min-h-0 overflow-hidden animate-in fade-in-0 duration-150"
+          >
+            {activeSection === "general" && <GeneralPanel />}
+            {activeSection === "modelConfig" &&
+              (addingProvider ? (
+                <ProviderSetup
+                  onComplete={() => setAddingProvider(false)}
+                  onCodexAuth={onCodexAuth}
+                  onCancel={() => setAddingProvider(false)}
+                />
+              ) : editingProvider ? (
+                <ProviderEditPage
+                  provider={editingProvider}
+                  onSave={() => setEditingProvider(null)}
+                  onCancel={() => setEditingProvider(null)}
+                  onCodexReauth={onCodexReauth}
+                />
+              ) : (
+                <ModelConfigPanel
+                  onAddProvider={() => setAddingProvider(true)}
+                  onEditProvider={(p) => setEditingProvider(p)}
+                  onCodexReauth={onCodexReauth}
+                />
+              ))}
+            {activeSection === "skills" && <SkillsPanel />}
+            {activeSection === "agents" && <AgentPanel initialAgentId={initialAgentId} />}
+            {activeSection === "profile" && <UserProfilePanel onSaved={onProfileSaved} />}
+            {activeSection === "memory" && <MemoryPanel />}
+            {activeSection === "cron" && <CronPanel />}
+            {activeSection === "notifications" && <NotificationPanel />}
+            {activeSection === "tools" && <ToolSettingsPanel />}
+            {activeSection === "permissions" && <PermissionsPanel />}
+            {activeSection === "chat" && <ChatSettingsPanel />}
+            {activeSection === "health" && <CrashHistoryPanel />}
+            {activeSection === "logs" && <LogPanel />}
+            {activeSection === "about" && <AboutPanel />}
+            {activeSection === "developer" && <DeveloperPanel />}
           </div>
         </div>
       </div>

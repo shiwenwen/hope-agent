@@ -10,16 +10,10 @@ export interface ApprovalRequest {
 
 interface ApprovalDialogProps {
   requests: ApprovalRequest[]
-  onRespond: (
-    requestId: string,
-    response: "allow_once" | "allow_always" | "deny",
-  ) => void
+  onRespond: (requestId: string, response: "allow_once" | "allow_always" | "deny") => void
 }
 
-export default function ApprovalDialog({
-  requests,
-  onRespond,
-}: ApprovalDialogProps) {
+export default function ApprovalDialog({ requests, onRespond }: ApprovalDialogProps) {
   const { t } = useTranslation()
 
   if (requests.length === 0) return null
@@ -36,9 +30,7 @@ export default function ApprovalDialog({
             <ShieldAlert className="h-5 w-5" />
           </div>
           <div className="min-w-0 flex-1">
-            <h3 className="text-sm font-semibold text-foreground">
-              {t("approval.title")}
-            </h3>
+            <h3 className="text-sm font-semibold text-foreground">{t("approval.title")}</h3>
             {total > 1 && (
               <span className="text-xs text-muted-foreground">
                 {t("approval.queueIndicator", { current: 1, total })}
@@ -60,9 +52,7 @@ export default function ApprovalDialog({
 
         {/* Command */}
         <div className="mb-5">
-          <div className="text-xs text-muted-foreground mb-1">
-            {t("approval.command")}
-          </div>
+          <div className="text-xs text-muted-foreground mb-1">{t("approval.command")}</div>
           <pre className="text-sm text-foreground font-mono bg-secondary rounded-lg p-3 whitespace-pre-wrap break-all max-h-40 overflow-y-auto leading-relaxed">
             {current.command}
           </pre>
@@ -86,10 +76,7 @@ export default function ApprovalDialog({
           >
             {t("approval.allowOnce")}
           </Button>
-          <Button
-            size="sm"
-            onClick={() => onRespond(current.request_id, "allow_always")}
-          >
+          <Button size="sm" onClick={() => onRespond(current.request_id, "allow_always")}>
             {t("approval.allowAlways")}
           </Button>
         </div>

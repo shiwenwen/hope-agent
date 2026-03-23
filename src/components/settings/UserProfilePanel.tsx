@@ -6,7 +6,15 @@ import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
-import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { AvatarCropDialog } from "@/components/settings/AvatarCropDialog"
 import { Camera, Check, Monitor } from "lucide-react"
 
@@ -27,44 +35,54 @@ const GENDER_PRESETS = ["male", "female"]
 
 // Common timezones grouped by region, with i18n display names
 const TIMEZONE_OPTIONS: { groupKey: string; zones: { value: string; labelKey: string }[] }[] = [
-  { groupKey: "Asia", zones: [
-    { value: "Asia/Shanghai", labelKey: "tz.shanghai" },
-    { value: "Asia/Tokyo", labelKey: "tz.tokyo" },
-    { value: "Asia/Seoul", labelKey: "tz.seoul" },
-    { value: "Asia/Singapore", labelKey: "tz.singapore" },
-    { value: "Asia/Hong_Kong", labelKey: "tz.hongkong" },
-    { value: "Asia/Taipei", labelKey: "tz.taipei" },
-    { value: "Asia/Kolkata", labelKey: "tz.kolkata" },
-    { value: "Asia/Dubai", labelKey: "tz.dubai" },
-    { value: "Asia/Bangkok", labelKey: "tz.bangkok" },
-  ]},
-  { groupKey: "Americas", zones: [
-    { value: "America/New_York", labelKey: "tz.newyork" },
-    { value: "America/Chicago", labelKey: "tz.chicago" },
-    { value: "America/Denver", labelKey: "tz.denver" },
-    { value: "America/Los_Angeles", labelKey: "tz.losangeles" },
-    { value: "America/Toronto", labelKey: "tz.toronto" },
-    { value: "America/Sao_Paulo", labelKey: "tz.saopaulo" },
-    { value: "America/Mexico_City", labelKey: "tz.mexicocity" },
-  ]},
-  { groupKey: "Europe", zones: [
-    { value: "Europe/London", labelKey: "tz.london" },
-    { value: "Europe/Paris", labelKey: "tz.paris" },
-    { value: "Europe/Berlin", labelKey: "tz.berlin" },
-    { value: "Europe/Moscow", labelKey: "tz.moscow" },
-    { value: "Europe/Istanbul", labelKey: "tz.istanbul" },
-    { value: "Europe/Amsterdam", labelKey: "tz.amsterdam" },
-    { value: "Europe/Madrid", labelKey: "tz.madrid" },
-  ]},
-  { groupKey: "Pacific", zones: [
-    { value: "Pacific/Auckland", labelKey: "tz.auckland" },
-    { value: "Australia/Sydney", labelKey: "tz.sydney" },
-    { value: "Australia/Melbourne", labelKey: "tz.melbourne" },
-    { value: "Pacific/Honolulu", labelKey: "tz.honolulu" },
-  ]},
-  { groupKey: "Other", zones: [
-    { value: "UTC", labelKey: "tz.utc" },
-  ]},
+  {
+    groupKey: "Asia",
+    zones: [
+      { value: "Asia/Shanghai", labelKey: "tz.shanghai" },
+      { value: "Asia/Tokyo", labelKey: "tz.tokyo" },
+      { value: "Asia/Seoul", labelKey: "tz.seoul" },
+      { value: "Asia/Singapore", labelKey: "tz.singapore" },
+      { value: "Asia/Hong_Kong", labelKey: "tz.hongkong" },
+      { value: "Asia/Taipei", labelKey: "tz.taipei" },
+      { value: "Asia/Kolkata", labelKey: "tz.kolkata" },
+      { value: "Asia/Dubai", labelKey: "tz.dubai" },
+      { value: "Asia/Bangkok", labelKey: "tz.bangkok" },
+    ],
+  },
+  {
+    groupKey: "Americas",
+    zones: [
+      { value: "America/New_York", labelKey: "tz.newyork" },
+      { value: "America/Chicago", labelKey: "tz.chicago" },
+      { value: "America/Denver", labelKey: "tz.denver" },
+      { value: "America/Los_Angeles", labelKey: "tz.losangeles" },
+      { value: "America/Toronto", labelKey: "tz.toronto" },
+      { value: "America/Sao_Paulo", labelKey: "tz.saopaulo" },
+      { value: "America/Mexico_City", labelKey: "tz.mexicocity" },
+    ],
+  },
+  {
+    groupKey: "Europe",
+    zones: [
+      { value: "Europe/London", labelKey: "tz.london" },
+      { value: "Europe/Paris", labelKey: "tz.paris" },
+      { value: "Europe/Berlin", labelKey: "tz.berlin" },
+      { value: "Europe/Moscow", labelKey: "tz.moscow" },
+      { value: "Europe/Istanbul", labelKey: "tz.istanbul" },
+      { value: "Europe/Amsterdam", labelKey: "tz.amsterdam" },
+      { value: "Europe/Madrid", labelKey: "tz.madrid" },
+    ],
+  },
+  {
+    groupKey: "Pacific",
+    zones: [
+      { value: "Pacific/Auckland", labelKey: "tz.auckland" },
+      { value: "Australia/Sydney", labelKey: "tz.sydney" },
+      { value: "Australia/Melbourne", labelKey: "tz.melbourne" },
+      { value: "Pacific/Honolulu", labelKey: "tz.honolulu" },
+    ],
+  },
+  { groupKey: "Other", zones: [{ value: "UTC", labelKey: "tz.utc" }] },
 ]
 
 const LANGUAGE_OPTIONS = [
@@ -98,20 +116,24 @@ export default function UserProfilePanel({ onSaved }: { onSaved?: () => void } =
     Promise.all([
       invoke<UserConfig>("get_user_config"),
       invoke<string>("get_system_timezone").catch(() => "UTC"),
-    ]).then(([cfg, sysTz]) => {
-      if (!cfg.timezone) cfg.timezone = sysTz
-      if (!cfg.language) {
-        const matched = LANGUAGE_OPTIONS.find((l) => i18n.language.startsWith(l.code))
-        if (matched) cfg.language = matched.code
-      }
-      setConfig(cfg)
-      if (cfg.responseStyle && !PRESET_STYLES.includes(cfg.responseStyle)) {
-        setCustomStyle(true)
-      }
-      if (cfg.gender && !GENDER_PRESETS.includes(cfg.gender)) {
-        setCustomGender(true)
-      }
-    }).catch((e: unknown) => logger.error("settings", "UserProfilePanel::load", "Failed to load user config", e))
+    ])
+      .then(([cfg, sysTz]) => {
+        if (!cfg.timezone) cfg.timezone = sysTz
+        if (!cfg.language) {
+          const matched = LANGUAGE_OPTIONS.find((l) => i18n.language.startsWith(l.code))
+          if (matched) cfg.language = matched.code
+        }
+        setConfig(cfg)
+        if (cfg.responseStyle && !PRESET_STYLES.includes(cfg.responseStyle)) {
+          setCustomStyle(true)
+        }
+        if (cfg.gender && !GENDER_PRESETS.includes(cfg.gender)) {
+          setCustomGender(true)
+        }
+      })
+      .catch((e: unknown) =>
+        logger.error("settings", "UserProfilePanel::load", "Failed to load user config", e),
+      )
   }, [i18n.language])
 
   const handleSave = async () => {
@@ -139,7 +161,9 @@ export default function UserProfilePanel({ onSaved }: { onSaved?: () => void } =
       // During IME composing, keep raw value; on blur, normalize empty to null
       update({ [field]: e.target.value })
     },
-    onCompositionStart: () => { composingRef.current = true },
+    onCompositionStart: () => {
+      composingRef.current = true
+    },
     onCompositionEnd: (e: React.CompositionEvent<HTMLInputElement | HTMLTextAreaElement>) => {
       composingRef.current = false
       update({ [field]: (e.target as HTMLInputElement).value })
@@ -186,15 +210,10 @@ export default function UserProfilePanel({ onSaved }: { onSaved?: () => void } =
       {/* Scrollable content */}
       <div className="flex-1 overflow-y-auto p-6">
         <div className="max-w-4xl">
-          <h2 className="text-lg font-semibold text-foreground mb-1">
-            {t("settings.profile")}
-          </h2>
-          <p className="text-xs text-muted-foreground mb-5">
-            {t("settings.profileDesc")}
-          </p>
+          <h2 className="text-lg font-semibold text-foreground mb-1">{t("settings.profile")}</h2>
+          <p className="text-xs text-muted-foreground mb-5">{t("settings.profileDesc")}</p>
 
           <div className="space-y-5">
-
             {/* ── Avatar ── */}
             <div
               className="flex flex-col items-center gap-2 py-4 cursor-pointer"
@@ -202,12 +221,20 @@ export default function UserProfilePanel({ onSaved }: { onSaved?: () => void } =
             >
               <div className="w-16 h-16 rounded-full bg-secondary border border-border/50 flex items-center justify-center overflow-hidden hover:border-primary/30 transition-colors">
                 {config.avatar ? (
-                  <img src={config.avatar.startsWith("/") ? convertFileSrc(config.avatar) : config.avatar} className="w-full h-full object-cover" alt="" />
+                  <img
+                    src={
+                      config.avatar.startsWith("/") ? convertFileSrc(config.avatar) : config.avatar
+                    }
+                    className="w-full h-full object-cover"
+                    alt=""
+                  />
                 ) : (
                   <Camera className="h-5 w-5 text-muted-foreground/40" />
                 )}
               </div>
-              <span className="text-xs text-muted-foreground">{t("settings.profileAvatarChange")}</span>
+              <span className="text-xs text-muted-foreground">
+                {t("settings.profileAvatarChange")}
+              </span>
             </div>
 
             {/* Avatar crop dialog */}
@@ -222,7 +249,9 @@ export default function UserProfilePanel({ onSaved }: { onSaved?: () => void } =
 
             {/* ── Name ── */}
             <div>
-              <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.profileName")}</div>
+              <div className="text-xs font-medium text-muted-foreground mb-2 px-1">
+                {t("settings.profileName")}
+              </div>
               <Input
                 className="bg-secondary/40 rounded-lg"
                 {...textInputProps("name")}
@@ -232,7 +261,9 @@ export default function UserProfilePanel({ onSaved }: { onSaved?: () => void } =
 
             {/* ── Gender ── */}
             <div>
-              <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.profileGender")}</div>
+              <div className="text-xs font-medium text-muted-foreground mb-2 px-1">
+                {t("settings.profileGender")}
+              </div>
               <div className="space-y-0.5">
                 {GENDER_PRESETS.map((g) => (
                   <button
@@ -241,7 +272,7 @@ export default function UserProfilePanel({ onSaved }: { onSaved?: () => void } =
                       "flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm transition-colors",
                       !customGender && config.gender === g
                         ? "bg-primary/10 text-primary font-medium"
-                        : "bg-secondary/20 text-foreground hover:bg-secondary/60"
+                        : "bg-secondary/20 text-foreground hover:bg-secondary/60",
                     )}
                     onClick={() => {
                       setCustomGender(false)
@@ -261,7 +292,7 @@ export default function UserProfilePanel({ onSaved }: { onSaved?: () => void } =
                     "flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm transition-colors",
                     customGender
                       ? "bg-primary/10 text-primary font-medium"
-                      : "bg-secondary/20 text-foreground hover:bg-secondary/60"
+                      : "bg-secondary/20 text-foreground hover:bg-secondary/60",
                   )}
                   onClick={() => {
                     setCustomGender(true)
@@ -283,7 +314,9 @@ export default function UserProfilePanel({ onSaved }: { onSaved?: () => void } =
 
             {/* ── Birthday ── */}
             <div>
-              <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.profileBirthday")}</div>
+              <div className="text-xs font-medium text-muted-foreground mb-2 px-1">
+                {t("settings.profileBirthday")}
+              </div>
               <Input
                 type="date"
                 className="bg-secondary/40 rounded-lg"
@@ -292,34 +325,38 @@ export default function UserProfilePanel({ onSaved }: { onSaved?: () => void } =
                   update({ birthday: e.target.value || null })
                 }}
               />
-              {config.birthday && (() => {
-                const bd = new Date(config.birthday + "T00:00:00")
-                if (isNaN(bd.getTime())) return null
-                const today = new Date()
-                let age = today.getFullYear() - bd.getFullYear()
-                const hadBirthdayThisYear =
-                  today.getMonth() > bd.getMonth() ||
-                  (today.getMonth() === bd.getMonth() && today.getDate() >= bd.getDate())
-                if (!hadBirthdayThisYear) age -= 1
-                const isBirthday = today.getMonth() === bd.getMonth() && today.getDate() === bd.getDate()
-                return (
-                  <div className="mt-2 px-1 flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground">
-                      {t("settings.profileAgeDisplay", { age })}
-                    </span>
-                    {isBirthday && (
-                      <span className="text-xs font-medium text-amber-500 animate-pulse">
-                        🎂 {t("settings.profileBirthdaySurprise")}
+              {config.birthday &&
+                (() => {
+                  const bd = new Date(config.birthday + "T00:00:00")
+                  if (isNaN(bd.getTime())) return null
+                  const today = new Date()
+                  let age = today.getFullYear() - bd.getFullYear()
+                  const hadBirthdayThisYear =
+                    today.getMonth() > bd.getMonth() ||
+                    (today.getMonth() === bd.getMonth() && today.getDate() >= bd.getDate())
+                  if (!hadBirthdayThisYear) age -= 1
+                  const isBirthday =
+                    today.getMonth() === bd.getMonth() && today.getDate() === bd.getDate()
+                  return (
+                    <div className="mt-2 px-1 flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground">
+                        {t("settings.profileAgeDisplay", { age })}
                       </span>
-                    )}
-                  </div>
-                )
-              })()}
+                      {isBirthday && (
+                        <span className="text-xs font-medium text-amber-500 animate-pulse">
+                          🎂 {t("settings.profileBirthdaySurprise")}
+                        </span>
+                      )}
+                    </div>
+                  )
+                })()}
             </div>
 
             {/* ── Role ── */}
             <div>
-              <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.profileRole")}</div>
+              <div className="text-xs font-medium text-muted-foreground mb-2 px-1">
+                {t("settings.profileRole")}
+              </div>
               <Input
                 className="bg-secondary/40 rounded-lg"
                 {...textInputProps("role")}
@@ -329,7 +366,9 @@ export default function UserProfilePanel({ onSaved }: { onSaved?: () => void } =
 
             {/* ── AI Experience ── */}
             <div>
-              <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.profileAiExperience")}</div>
+              <div className="text-xs font-medium text-muted-foreground mb-2 px-1">
+                {t("settings.profileAiExperience")}
+              </div>
               <div className="space-y-0.5">
                 {(["expert", "intermediate", "beginner"] as const).map((level) => (
                   <button
@@ -338,9 +377,11 @@ export default function UserProfilePanel({ onSaved }: { onSaved?: () => void } =
                       "flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm transition-colors",
                       config.aiExperience === level
                         ? "bg-primary/10 text-primary font-medium"
-                        : "bg-secondary/20 text-foreground hover:bg-secondary/60"
+                        : "bg-secondary/20 text-foreground hover:bg-secondary/60",
                     )}
-                    onClick={() => update({ aiExperience: config.aiExperience === level ? null : level })}
+                    onClick={() =>
+                      update({ aiExperience: config.aiExperience === level ? null : level })
+                    }
                   >
                     <span className="flex-1 text-left">
                       {t(`settings.profileAiExp${level.charAt(0).toUpperCase() + level.slice(1)}`)}
@@ -357,14 +398,16 @@ export default function UserProfilePanel({ onSaved }: { onSaved?: () => void } =
 
             {/* ── Timezone ── */}
             <div>
-              <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.profileTimezone")}</div>
+              <div className="text-xs font-medium text-muted-foreground mb-2 px-1">
+                {t("settings.profileTimezone")}
+              </div>
               <div className="space-y-0.5">
                 <button
                   className={cn(
                     "flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm transition-colors",
                     !config.timezone
                       ? "bg-primary/10 text-primary font-medium"
-                      : "bg-secondary/20 text-foreground hover:bg-secondary/60"
+                      : "bg-secondary/20 text-foreground hover:bg-secondary/60",
                   )}
                   onClick={() => update({ timezone: null })}
                 >
@@ -373,7 +416,10 @@ export default function UserProfilePanel({ onSaved }: { onSaved?: () => void } =
                   {!config.timezone && <Check className="h-4 w-4 text-primary shrink-0" />}
                 </button>
               </div>
-              <Select value={config.timezone ?? ""} onValueChange={(v) => update({ timezone: v || null })}>
+              <Select
+                value={config.timezone ?? ""}
+                onValueChange={(v) => update({ timezone: v || null })}
+              >
                 <SelectTrigger className="mt-1 bg-secondary/20 text-sm hover:bg-secondary/60">
                   <SelectValue placeholder={t("settings.profileTimezoneSystem")} />
                 </SelectTrigger>
@@ -382,7 +428,9 @@ export default function UserProfilePanel({ onSaved }: { onSaved?: () => void } =
                     <SelectGroup key={group.groupKey}>
                       <SelectLabel>{group.groupKey}</SelectLabel>
                       {group.zones.map((tz) => (
-                        <SelectItem key={tz.value} value={tz.value}>{t(tz.labelKey)}</SelectItem>
+                        <SelectItem key={tz.value} value={tz.value}>
+                          {t(tz.labelKey)}
+                        </SelectItem>
                       ))}
                     </SelectGroup>
                   ))}
@@ -392,14 +440,16 @@ export default function UserProfilePanel({ onSaved }: { onSaved?: () => void } =
 
             {/* ── Language ── */}
             <div>
-              <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.profileLanguage")}</div>
+              <div className="text-xs font-medium text-muted-foreground mb-2 px-1">
+                {t("settings.profileLanguage")}
+              </div>
               <div className="space-y-0.5">
                 <button
                   className={cn(
                     "flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm transition-colors",
                     !config.language
                       ? "bg-primary/10 text-primary font-medium"
-                      : "bg-secondary/20 text-foreground hover:bg-secondary/60"
+                      : "bg-secondary/20 text-foreground hover:bg-secondary/60",
                   )}
                   onClick={() => update({ language: null })}
                 >
@@ -408,13 +458,18 @@ export default function UserProfilePanel({ onSaved }: { onSaved?: () => void } =
                   {!config.language && <Check className="h-4 w-4 text-primary shrink-0" />}
                 </button>
               </div>
-              <Select value={config.language ?? ""} onValueChange={(v) => update({ language: v || null })}>
+              <Select
+                value={config.language ?? ""}
+                onValueChange={(v) => update({ language: v || null })}
+              >
                 <SelectTrigger className="mt-1 bg-secondary/20 text-sm hover:bg-secondary/60">
                   <SelectValue placeholder={t("settings.profileLanguageSystem")} />
                 </SelectTrigger>
                 <SelectContent>
                   {LANGUAGE_OPTIONS.map((lang) => (
-                    <SelectItem key={lang.code} value={lang.code}>{lang.label}</SelectItem>
+                    <SelectItem key={lang.code} value={lang.code}>
+                      {lang.label}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -424,7 +479,9 @@ export default function UserProfilePanel({ onSaved }: { onSaved?: () => void } =
 
             {/* ── Response Style ── */}
             <div>
-              <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.profileResponseStyle")}</div>
+              <div className="text-xs font-medium text-muted-foreground mb-2 px-1">
+                {t("settings.profileResponseStyle")}
+              </div>
               <div className="space-y-0.5">
                 {PRESET_STYLES.map((style) => (
                   <button
@@ -433,7 +490,7 @@ export default function UserProfilePanel({ onSaved }: { onSaved?: () => void } =
                       "flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm transition-colors",
                       !customStyle && config.responseStyle === style
                         ? "bg-primary/10 text-primary font-medium"
-                        : "bg-secondary/20 text-foreground hover:bg-secondary/60"
+                        : "bg-secondary/20 text-foreground hover:bg-secondary/60",
                     )}
                     onClick={() => {
                       setCustomStyle(false)
@@ -453,7 +510,7 @@ export default function UserProfilePanel({ onSaved }: { onSaved?: () => void } =
                     "flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm transition-colors",
                     customStyle
                       ? "bg-primary/10 text-primary font-medium"
-                      : "bg-secondary/20 text-foreground hover:bg-secondary/60"
+                      : "bg-secondary/20 text-foreground hover:bg-secondary/60",
                   )}
                   onClick={() => {
                     setCustomStyle(true)
@@ -479,7 +536,9 @@ export default function UserProfilePanel({ onSaved }: { onSaved?: () => void } =
 
             {/* ── Custom Info ── */}
             <div>
-              <div className="text-xs font-medium text-muted-foreground mb-2 px-1">{t("settings.profileCustomInfo")}</div>
+              <div className="text-xs font-medium text-muted-foreground mb-2 px-1">
+                {t("settings.profileCustomInfo")}
+              </div>
               <Textarea
                 className="bg-secondary/40 rounded-lg resize-none leading-relaxed"
                 rows={5}
@@ -487,7 +546,6 @@ export default function UserProfilePanel({ onSaved }: { onSaved?: () => void } =
                 placeholder={t("settings.profileCustomInfoPlaceholder")}
               />
             </div>
-
           </div>
         </div>
       </div>
@@ -495,18 +553,20 @@ export default function UserProfilePanel({ onSaved }: { onSaved?: () => void } =
       {/* ── Save — fixed bottom-right ── */}
       <div className="shrink-0 flex justify-end px-6 py-3 border-t border-border/30">
         <Button
-          className={cn(
-            saved && "bg-green-500/10 text-green-600 hover:bg-green-500/20"
-          )}
+          className={cn(saved && "bg-green-500/10 text-green-600 hover:bg-green-500/20")}
           onClick={handleSave}
           disabled={saving}
         >
-          {saving ? t("common.saving") : saved ? (
+          {saving ? (
+            t("common.saving")
+          ) : saved ? (
             <span className="flex items-center gap-1.5">
               <Check className="h-3.5 w-3.5" />
               {t("settings.profileSaved")}
             </span>
-          ) : t("common.save")}
+          ) : (
+            t("common.save")
+          )}
         </Button>
       </div>
     </div>

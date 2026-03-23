@@ -33,7 +33,9 @@ export default function FallbackDetailsPopover({
         {event.from_model && (
           <div className="flex items-center justify-between gap-3">
             <span className="text-muted-foreground">{t("chat.fallbackFrom")}</span>
-            <span className="font-medium text-foreground truncate max-w-[140px]">{event.from_model}</span>
+            <span className="font-medium text-foreground truncate max-w-[140px]">
+              {event.from_model}
+            </span>
           </div>
         )}
         <div className="flex items-center justify-between gap-3">
@@ -43,12 +45,16 @@ export default function FallbackDetailsPopover({
         {reasonText && (
           <div className="flex items-center justify-between gap-3">
             <span className="text-muted-foreground">{t("chat.fallbackReason")}</span>
-            <span className={cn(
-              "font-medium",
-              event.reason === "rate_limit" || event.reason === "overloaded" || event.reason === "timeout"
-                ? "text-amber-600 dark:text-amber-400"
-                : "text-red-500 dark:text-red-400"
-            )}>
+            <span
+              className={cn(
+                "font-medium",
+                event.reason === "rate_limit" ||
+                  event.reason === "overloaded" ||
+                  event.reason === "timeout"
+                  ? "text-amber-600 dark:text-amber-400"
+                  : "text-red-500 dark:text-red-400",
+              )}
+            >
               {reasonText}
             </span>
           </div>
@@ -56,7 +62,9 @@ export default function FallbackDetailsPopover({
         {event.attempt != null && event.total != null && (
           <div className="flex items-center justify-between gap-3">
             <span className="text-muted-foreground">{t("chat.fallbackProgress")}</span>
-            <span className="font-medium text-foreground tabular-nums">{event.attempt} / {event.total}</span>
+            <span className="font-medium text-foreground tabular-nums">
+              {event.attempt} / {event.total}
+            </span>
           </div>
         )}
         {event.error && (

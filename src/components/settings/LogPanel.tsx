@@ -88,14 +88,17 @@ export default function LogPanel() {
   // Loading
   const [loading, setLoading] = useState(false)
 
-  const buildFilter = useCallback((): LogFilter => ({
-    levels: filterLevels.length > 0 ? filterLevels : null,
-    categories: filterCategories.length > 0 ? filterCategories : null,
-    keyword: keywordRef.current || null,
-    sessionId: null,
-    startTime: null,
-    endTime: null,
-  }), [filterLevels, filterCategories])
+  const buildFilter = useCallback(
+    (): LogFilter => ({
+      levels: filterLevels.length > 0 ? filterLevels : null,
+      categories: filterCategories.length > 0 ? filterCategories : null,
+      keyword: keywordRef.current || null,
+      sessionId: null,
+      startTime: null,
+      endTime: null,
+    }),
+    [filterLevels, filterCategories],
+  )
 
   const fetchLogs = useCallback(async () => {
     setLoading(true)
@@ -198,18 +201,14 @@ export default function LogPanel() {
 
   const toggleLevel = (level: string) => {
     setFilterLevels((prev) =>
-      prev.includes(level)
-        ? prev.filter((l) => l !== level)
-        : [...prev, level]
+      prev.includes(level) ? prev.filter((l) => l !== level) : [...prev, level],
     )
     setPage(1)
   }
 
   const toggleCategory = (cat: string) => {
     setFilterCategories((prev) =>
-      prev.includes(cat)
-        ? prev.filter((c) => c !== cat)
-        : [...prev, cat]
+      prev.includes(cat) ? prev.filter((c) => c !== cat) : [...prev, cat],
     )
     setPage(1)
   }
@@ -325,7 +324,7 @@ export default function LogPanel() {
                   key={level}
                   className={cn(
                     "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium",
-                    LEVEL_COLORS[level]
+                    LEVEL_COLORS[level],
                   )}
                 >
                   {level}: {count}
@@ -345,7 +344,7 @@ export default function LogPanel() {
                 "px-3 py-1 text-xs font-medium transition-colors",
                 viewMode === "structured"
                   ? "bg-primary text-primary-foreground"
-                  : "bg-secondary/30 text-muted-foreground hover:bg-secondary/50"
+                  : "bg-secondary/30 text-muted-foreground hover:bg-secondary/50",
               )}
             >
               {t("settings.logsStructured")}
@@ -356,7 +355,7 @@ export default function LogPanel() {
                 "px-3 py-1 text-xs font-medium transition-colors",
                 viewMode === "files"
                   ? "bg-primary text-primary-foreground"
-                  : "bg-secondary/30 text-muted-foreground hover:bg-secondary/50"
+                  : "bg-secondary/30 text-muted-foreground hover:bg-secondary/50",
               )}
             >
               {t("settings.logsFiles")}
@@ -378,7 +377,8 @@ export default function LogPanel() {
             size="sm"
             onClick={() => {
               if (viewMode === "structured") {
-                fetchLogs(); fetchStats()
+                fetchLogs()
+                fetchStats()
               } else {
                 fetchLogFiles()
                 if (selectedFile) fetchFileContent(selectedFile)
@@ -426,9 +426,7 @@ export default function LogPanel() {
             <AlertDialogContent>
               <AlertDialogHeader>
                 <AlertDialogTitle>{t("settings.logsClearConfirm")}</AlertDialogTitle>
-                <AlertDialogDescription>
-                  {t("settings.logsClearDesc")}
-                </AlertDialogDescription>
+                <AlertDialogDescription>{t("settings.logsClearDesc")}</AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
@@ -472,7 +470,9 @@ export default function LogPanel() {
                   className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm"
                 >
                   {LEVELS.map((l) => (
-                    <option key={l} value={l}>{l}</option>
+                    <option key={l} value={l}>
+                      {l}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -481,7 +481,9 @@ export default function LogPanel() {
                 <Input
                   type="number"
                   value={config.maxAgeDays}
-                  onChange={(e) => handleSaveConfig({ ...config, maxAgeDays: parseInt(e.target.value) || 30 })}
+                  onChange={(e) =>
+                    handleSaveConfig({ ...config, maxAgeDays: parseInt(e.target.value) || 30 })
+                  }
                   className="mt-1 h-8 text-sm"
                   min={1}
                   max={365}
@@ -492,18 +494,24 @@ export default function LogPanel() {
                 <Input
                   type="number"
                   value={config.maxSizeMb}
-                  onChange={(e) => handleSaveConfig({ ...config, maxSizeMb: parseInt(e.target.value) || 100 })}
+                  onChange={(e) =>
+                    handleSaveConfig({ ...config, maxSizeMb: parseInt(e.target.value) || 100 })
+                  }
                   className="mt-1 h-8 text-sm"
                   min={10}
                   max={1000}
                 />
               </div>
               <div>
-                <label className="text-xs text-muted-foreground">{t("settings.logsFileMaxSize")}</label>
+                <label className="text-xs text-muted-foreground">
+                  {t("settings.logsFileMaxSize")}
+                </label>
                 <Input
                   type="number"
                   value={config.fileMaxSizeMb}
-                  onChange={(e) => handleSaveConfig({ ...config, fileMaxSizeMb: parseInt(e.target.value) || 10 })}
+                  onChange={(e) =>
+                    handleSaveConfig({ ...config, fileMaxSizeMb: parseInt(e.target.value) || 10 })
+                  }
                   className="mt-1 h-8 text-sm"
                   min={1}
                   max={100}
@@ -525,7 +533,7 @@ export default function LogPanel() {
                   "px-2 py-0.5 rounded-full text-xs font-medium transition-colors",
                   filterLevels.includes(level)
                     ? LEVEL_COLORS[level]
-                    : "bg-secondary/40 text-muted-foreground hover:bg-secondary/60"
+                    : "bg-secondary/40 text-muted-foreground hover:bg-secondary/60",
                 )}
               >
                 {level}
@@ -541,7 +549,7 @@ export default function LogPanel() {
                   "px-2 py-0.5 rounded-full text-xs font-medium transition-colors",
                   filterCategories.includes(cat)
                     ? "bg-primary/10 text-primary"
-                    : "bg-secondary/40 text-muted-foreground hover:bg-secondary/60"
+                    : "bg-secondary/40 text-muted-foreground hover:bg-secondary/60",
                 )}
               >
                 {cat}
@@ -605,7 +613,7 @@ export default function LogPanel() {
                       <span
                         className={cn(
                           "shrink-0 w-[46px] text-center rounded px-1 py-0.5 font-medium",
-                          LEVEL_COLORS[log.level] || "bg-secondary text-foreground"
+                          LEVEL_COLORS[log.level] || "bg-secondary text-foreground",
                         )}
                       >
                         {log.level}
@@ -616,14 +624,12 @@ export default function LogPanel() {
                       <span className="shrink-0 w-[140px] text-muted-foreground truncate font-mono">
                         {log.source}
                       </span>
-                      <span className="flex-1 truncate text-foreground">
-                        {log.message}
-                      </span>
+                      <span className="flex-1 truncate text-foreground">{log.message}</span>
                       {log.details && (
                         <ChevronDown
                           className={cn(
                             "h-3 w-3 shrink-0 text-muted-foreground transition-transform",
-                            expandedId === log.id && "rotate-180"
+                            expandedId === log.id && "rotate-180",
                           )}
                         />
                       )}
@@ -640,9 +646,7 @@ export default function LogPanel() {
                           })()}
                         </pre>
                         {log.sessionId && (
-                          <p className="mt-1 text-muted-foreground/70">
-                            session: {log.sessionId}
-                          </p>
+                          <p className="mt-1 text-muted-foreground/70">session: {log.sessionId}</p>
                         )}
                       </div>
                     )}
@@ -701,7 +705,7 @@ export default function LogPanel() {
                     onClick={() => setSelectedFile(file.name)}
                     className={cn(
                       "w-full px-3 py-2 text-left text-xs hover:bg-secondary/40 transition-colors",
-                      selectedFile === file.name && "bg-secondary/60"
+                      selectedFile === file.name && "bg-secondary/60",
                     )}
                   >
                     <p className="font-medium truncate">{file.name}</p>

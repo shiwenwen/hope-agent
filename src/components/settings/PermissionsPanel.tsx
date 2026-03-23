@@ -210,9 +210,7 @@ export default function PermissionsPanel() {
     setRequesting(id)
     try {
       const result = await invoke<{ id: string; status: PermState }>("request_permission", { id })
-      setPermissions((prev) =>
-        prev ? { ...prev, [result.id]: result.status } : prev
-      )
+      setPermissions((prev) => (prev ? { ...prev, [result.id]: result.status } : prev))
     } catch (e) {
       logger.error("settings", "PermissionsPanel::request", `Failed to request ${id}`, e)
     } finally {
@@ -239,13 +237,9 @@ export default function PermissionsPanel() {
         ) : (
           <ShieldAlert className="h-5 w-5 text-amber-500" />
         )}
-        <h3 className="text-sm font-semibold text-foreground">
-          {t("settings.permTitle")}
-        </h3>
+        <h3 className="text-sm font-semibold text-foreground">{t("settings.permTitle")}</h3>
       </div>
-      <p className="text-xs text-muted-foreground mb-1">
-        {t("settings.permDesc")}
-      </p>
+      <p className="text-xs text-muted-foreground mb-1">{t("settings.permDesc")}</p>
       {permissions && (
         <p className="text-xs text-muted-foreground mb-6">
           {t("settings.permSummary", { granted: grantedCount, total: detectableCount })}
@@ -263,32 +257,26 @@ export default function PermissionsPanel() {
               key={item.id}
               className={cn(
                 "flex items-center gap-4 px-4 py-4 rounded-lg border transition-colors",
-                stateBorder(state)
+                stateBorder(state),
               )}
             >
               {/* Icon */}
-              <span className={cn("shrink-0", stateIconColor(state))}>
-                {item.icon}
-              </span>
+              <span className={cn("shrink-0", stateIconColor(state))}>{item.icon}</span>
 
               {/* Label & description */}
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-foreground">
-                    {t(item.labelKey)}
-                  </span>
+                  <span className="text-sm font-medium text-foreground">{t(item.labelKey)}</span>
                   <span
                     className={cn(
                       "text-[10px] font-medium px-1.5 py-0.5 rounded-full",
-                      stateBadgeClass(state)
+                      stateBadgeClass(state),
                     )}
                   >
                     {t(stateBadgeKey(state))}
                   </span>
                 </div>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  {t(item.descKey)}
-                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">{t(item.descKey)}</p>
               </div>
 
               {/* Action button — show for not_granted and unknown */}
@@ -309,9 +297,7 @@ export default function PermissionsPanel() {
                 </TooltipProvider>
               )}
 
-              {state === "granted" && (
-                <ShieldCheck className="h-4 w-4 text-green-500 shrink-0" />
-              )}
+              {state === "granted" && <ShieldCheck className="h-4 w-4 text-green-500 shrink-0" />}
             </div>
           )
         })}
@@ -329,9 +315,7 @@ export default function PermissionsPanel() {
           <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
           {t("settings.permRefresh")}
         </Button>
-        <span className="text-xs text-muted-foreground">
-          {t("settings.permRefreshHint")}
-        </span>
+        <span className="text-xs text-muted-foreground">{t("settings.permRefreshHint")}</span>
       </div>
     </div>
   )

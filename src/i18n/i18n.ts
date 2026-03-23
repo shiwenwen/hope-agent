@@ -77,10 +77,7 @@ export function isFollowingSystem(): boolean {
 export function setFollowSystemLanguage() {
   localStorage.removeItem(STORAGE_KEY)
   // Re-detect language from navigator
-  const detected =
-    navigator.language ||
-    (navigator.languages && navigator.languages[0]) ||
-    "en"
+  const detected = navigator.language || (navigator.languages && navigator.languages[0]) || "en"
   // Resolve to a supported language code
   const supported = SUPPORTED_LANGUAGES.map((l) => l.code)
   const exact = supported.find((c) => c === detected)

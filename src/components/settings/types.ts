@@ -1,4 +1,19 @@
-export type SettingsSection = "general" | "modelConfig" | "tools" | "skills" | "agents" | "memory" | "cron" | "notifications" | "permissions" | "profile" | "chat" | "logs" | "health" | "about" | "developer"
+export type SettingsSection =
+  | "general"
+  | "modelConfig"
+  | "tools"
+  | "skills"
+  | "agents"
+  | "memory"
+  | "cron"
+  | "notifications"
+  | "permissions"
+  | "profile"
+  | "chat"
+  | "logs"
+  | "health"
+  | "about"
+  | "developer"
 
 export interface SettingsSectionItem {
   id: SettingsSection
@@ -63,7 +78,12 @@ export interface AgentConfig {
   skills: { allow: string[]; deny: string[] }
   tools: { allow: string[]; deny: string[] }
   personality: PersonalityConfig
-  behavior: { maxToolRounds: number; requireApproval: string[]; sandbox: boolean; skillEnvCheck: boolean }
+  behavior: {
+    maxToolRounds: number
+    requireApproval: string[]
+    sandbox: boolean
+    skillEnvCheck: boolean
+  }
   useCustomPrompt: boolean
   notifyOnComplete?: boolean | null
   subagents: {

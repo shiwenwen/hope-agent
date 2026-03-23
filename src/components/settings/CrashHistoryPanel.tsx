@@ -163,9 +163,7 @@ export default function CrashHistoryPanel() {
           <label htmlFor="guardian-toggle" className="text-sm font-medium">
             {t("health.guardianEnabled")}
           </label>
-          <p className="text-xs text-muted-foreground">
-            {t("health.guardianEnabledDesc")}
-          </p>
+          <p className="text-xs text-muted-foreground">{t("health.guardianEnabledDesc")}</p>
         </div>
         <Switch
           id="guardian-toggle"
@@ -185,7 +183,12 @@ export default function CrashHistoryPanel() {
           </IconTip>
 
           <IconTip label={t("health.createBackupTooltip")}>
-            <Button variant="outline" size="sm" onClick={handleCreateBackup} disabled={backupLoading}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleCreateBackup}
+              disabled={backupLoading}
+            >
               <Download className="h-4 w-4 mr-1.5" />
               {t("health.createBackup")}
             </Button>
@@ -214,7 +217,9 @@ export default function CrashHistoryPanel() {
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-                <AlertDialogAction onClick={handleClearHistory}>{t("common.confirm")}</AlertDialogAction>
+                <AlertDialogAction onClick={handleClearHistory}>
+                  {t("common.confirm")}
+                </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
@@ -266,10 +271,13 @@ export default function CrashHistoryPanel() {
                           {entry.signal && ` (${entry.signal})`}
                         </span>
                         {entry.diagnosis_result && (
-                          <span className={cn(
-                            "text-xs px-1.5 py-0.5 rounded border",
-                            SEVERITY_COLORS[entry.diagnosis_result.severity] ?? SEVERITY_COLORS.unknown
-                          )}>
+                          <span
+                            className={cn(
+                              "text-xs px-1.5 py-0.5 rounded border",
+                              SEVERITY_COLORS[entry.diagnosis_result.severity] ??
+                                SEVERITY_COLORS.unknown,
+                            )}
+                          >
                             {entry.diagnosis_result.severity}
                           </span>
                         )}
@@ -290,25 +298,35 @@ export default function CrashHistoryPanel() {
                   {isExpanded && entry.diagnosis_result && (
                     <div className="px-4 pb-4 space-y-3 border-t">
                       <div className="pt-3">
-                        <div className="text-xs font-medium text-muted-foreground mb-1">{t("health.cause")}</div>
+                        <div className="text-xs font-medium text-muted-foreground mb-1">
+                          {t("health.cause")}
+                        </div>
                         <div className="text-sm">{entry.diagnosis_result.cause}</div>
                       </div>
                       {entry.diagnosis_result.recommendations.length > 0 && (
                         <div>
-                          <div className="text-xs font-medium text-muted-foreground mb-1">{t("health.recommendations")}</div>
+                          <div className="text-xs font-medium text-muted-foreground mb-1">
+                            {t("health.recommendations")}
+                          </div>
                           <ul className="list-disc list-inside space-y-0.5">
                             {entry.diagnosis_result.recommendations.map((rec, i) => (
-                              <li key={i} className="text-sm">{rec}</li>
+                              <li key={i} className="text-sm">
+                                {rec}
+                              </li>
                             ))}
                           </ul>
                         </div>
                       )}
                       {entry.diagnosis_result.auto_fix_applied.length > 0 && (
                         <div>
-                          <div className="text-xs font-medium text-muted-foreground mb-1">{t("health.autoFixes")}</div>
+                          <div className="text-xs font-medium text-muted-foreground mb-1">
+                            {t("health.autoFixes")}
+                          </div>
                           <ul className="list-disc list-inside space-y-0.5">
                             {entry.diagnosis_result.auto_fix_applied.map((fix, i) => (
-                              <li key={i} className="text-sm text-green-500">{fix}</li>
+                              <li key={i} className="text-sm text-green-500">
+                                {fix}
+                              </li>
                             ))}
                           </ul>
                         </div>
@@ -337,7 +355,10 @@ export default function CrashHistoryPanel() {
         ) : (
           <div className="space-y-2">
             {backups.map((backup) => (
-              <div key={backup.name} className="flex items-center gap-3 rounded-lg border bg-card px-4 py-3">
+              <div
+                key={backup.name}
+                className="flex items-center gap-3 rounded-lg border bg-card px-4 py-3"
+              >
                 <Archive className="h-4 w-4 shrink-0 text-muted-foreground" />
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium truncate">{backup.name}</div>
@@ -355,7 +376,9 @@ export default function CrashHistoryPanel() {
                   <AlertDialogContent>
                     <AlertDialogHeader>
                       <AlertDialogTitle>{t("health.restoreConfirmTitle")}</AlertDialogTitle>
-                      <AlertDialogDescription>{t("health.restoreConfirmDesc")}</AlertDialogDescription>
+                      <AlertDialogDescription>
+                        {t("health.restoreConfirmDesc")}
+                      </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                       <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>

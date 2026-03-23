@@ -4,10 +4,19 @@ import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { TooltipProvider, IconTip } from "@/components/ui/tooltip"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { SortableModelEditor, type ModelConfig } from "@/components/settings/ProviderSetup"
 import ProviderIcon from "@/components/common/ProviderIcon"
-import TestResultDisplay, { parseTestResult, type TestResult } from "@/components/settings/TestResultDisplay"
+import TestResultDisplay, {
+  parseTestResult,
+  type TestResult,
+} from "@/components/settings/TestResultDisplay"
 import {
   DndContext,
   closestCenter,
@@ -16,11 +25,7 @@ import {
   useSensors,
   type DragEndEvent,
 } from "@dnd-kit/core"
-import {
-  SortableContext,
-  verticalListSortingStrategy,
-  arrayMove,
-} from "@dnd-kit/sortable"
+import { SortableContext, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable"
 import {
   ArrowLeft,
   ArrowRight,
@@ -74,7 +79,9 @@ export default function ProviderEditPage({
   const [editApiKey, setEditApiKey] = useState(provider.apiKey)
   const [editApiType, setEditApiType] = useState<ApiType>(provider.apiType)
   const [editUserAgent, setEditUserAgent] = useState(provider.userAgent || "claude-code/0.1.0")
-  const [editThinkingStyle, setEditThinkingStyle] = useState<ThinkingStyleType>(provider.thinkingStyle || "openai")
+  const [editThinkingStyle, setEditThinkingStyle] = useState<ThinkingStyleType>(
+    provider.thinkingStyle || "openai",
+  )
   const [editModels, setEditModels] = useState<ModelConfig[]>([...provider.models])
   const [saving, setSaving] = useState(false)
   const [testResult, setTestResult] = useState<TestResult | null>(null)
@@ -273,7 +280,10 @@ export default function ProviderEditPage({
                   <Settings2 className="h-3 w-3" />
                   {t("provider.thinkingStyle")}
                 </label>
-                <Select value={editThinkingStyle} onValueChange={(v) => setEditThinkingStyle(v as ThinkingStyleType)}>
+                <Select
+                  value={editThinkingStyle}
+                  onValueChange={(v) => setEditThinkingStyle(v as ThinkingStyleType)}
+                >
                   <SelectTrigger className="bg-background text-xs font-medium">
                     <SelectValue />
                   </SelectTrigger>
@@ -308,9 +318,7 @@ export default function ProviderEditPage({
                 )}
               </Button>
 
-              {testResult && (
-                <TestResultDisplay result={testResult} />
-              )}
+              {testResult && <TestResultDisplay result={testResult} />}
             </>
           )}
         </div>
@@ -322,14 +330,14 @@ export default function ProviderEditPage({
             className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-secondary/30 transition-colors"
           >
             <div className="flex items-center gap-1.5">
-              <span className="text-sm font-semibold text-foreground">
-                {t("model.modelList")}
-              </span>
+              <span className="text-sm font-semibold text-foreground">{t("model.modelList")}</span>
               <span className="text-[10px] text-muted-foreground/60 bg-secondary/80 px-1.5 py-0.5 rounded-md">
                 {editModels.length}
               </span>
               {editModels.length > 1 && (
-                <span className="text-[10px] text-muted-foreground/50">{t("common.dragToSort")}</span>
+                <span className="text-[10px] text-muted-foreground/50">
+                  {t("common.dragToSort")}
+                </span>
               )}
             </div>
             <ArrowRight
@@ -371,23 +379,26 @@ export default function ProviderEditPage({
                         updated[i] = m
                         setEditModels(updated)
                       }}
-                      onRemove={() =>
-                        setEditModels(editModels.filter((_, j) => j !== i))
+                      onRemove={() => setEditModels(editModels.filter((_, j) => j !== i))}
+                      onTest={
+                        editBaseUrl.trim() && !isCodex
+                          ? (modelId) =>
+                              invoke<string>("test_model", {
+                                config: {
+                                  id: provider.id,
+                                  name: editName,
+                                  apiType: editApiType,
+                                  baseUrl: editBaseUrl,
+                                  apiKey: editApiKey,
+                                  userAgent: editUserAgent,
+                                  thinkingStyle: editThinkingStyle,
+                                  models: [],
+                                  enabled: true,
+                                },
+                                modelId,
+                              })
+                          : undefined
                       }
-                      onTest={editBaseUrl.trim() && !isCodex ? (modelId) => invoke<string>("test_model", {
-                        config: {
-                          id: provider.id,
-                          name: editName,
-                          apiType: editApiType,
-                          baseUrl: editBaseUrl,
-                          apiKey: editApiKey,
-                          userAgent: editUserAgent,
-                          thinkingStyle: editThinkingStyle,
-                          models: [],
-                          enabled: true,
-                        },
-                        modelId,
-                      }) : undefined}
                     />
                   ))}
                 </SortableContext>

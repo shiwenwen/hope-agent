@@ -14,9 +14,21 @@ interface SubagentBlockProps {
 }
 
 const statusConfig: Record<string, { icon: React.ReactNode; label: string; color: string }> = {
-  spawning: { icon: <Loader2 className="h-3 w-3 animate-spin" />, label: "Spawning", color: "text-blue-500" },
-  running: { icon: <Loader2 className="h-3 w-3 animate-spin" />, label: "Running", color: "text-blue-500" },
-  completed: { icon: <CheckCircle className="h-3 w-3" />, label: "Completed", color: "text-green-500" },
+  spawning: {
+    icon: <Loader2 className="h-3 w-3 animate-spin" />,
+    label: "Spawning",
+    color: "text-blue-500",
+  },
+  running: {
+    icon: <Loader2 className="h-3 w-3 animate-spin" />,
+    label: "Running",
+    color: "text-blue-500",
+  },
+  completed: {
+    icon: <CheckCircle className="h-3 w-3" />,
+    label: "Completed",
+    color: "text-green-500",
+  },
   error: { icon: <XCircle className="h-3 w-3" />, label: "Error", color: "text-red-500" },
   timeout: { icon: <Clock className="h-3 w-3" />, label: "Timeout", color: "text-orange-500" },
   killed: { icon: <Skull className="h-3 w-3" />, label: "Killed", color: "text-gray-500" },
@@ -31,13 +43,15 @@ export default function SubagentBlock({ runId, agentId, task, initialStatus }: S
 
   // Hydrate from DB on mount (handles re-mount after switching sessions)
   useEffect(() => {
-    invoke<SubagentRun | null>("get_subagent_run", { runId }).then((run) => {
-      if (!run) return
-      setStatus(run.status)
-      if (run.result) setResultFull(run.result)
-      if (run.error) setError(run.error)
-      if (run.durationMs) setDurationMs(run.durationMs)
-    }).catch(() => {})
+    invoke<SubagentRun | null>("get_subagent_run", { runId })
+      .then((run) => {
+        if (!run) return
+        setStatus(run.status)
+        if (run.result) setResultFull(run.result)
+        if (run.error) setError(run.error)
+        if (run.durationMs) setDurationMs(run.durationMs)
+      })
+      .catch(() => {})
   }, [runId])
 
   // Live updates via Tauri events
@@ -73,14 +87,18 @@ export default function SubagentBlock({ runId, agentId, task, initialStatus }: S
           <ChevronRight
             className={cn(
               "h-3 w-3 shrink-0 text-muted-foreground transition-transform duration-200",
-              expanded && "rotate-90"
+              expanded && "rotate-90",
             )}
           />
         )}
         <Users className="h-3 w-3 shrink-0 text-muted-foreground" />
         <span className="font-medium text-foreground">subagent</span>
-        <span className="text-muted-foreground truncate flex-1">{agentId}: {task}</span>
-        <span className={cn("flex items-center gap-1 transition-colors duration-200", config.color)}>
+        <span className="text-muted-foreground truncate flex-1">
+          {agentId}: {task}
+        </span>
+        <span
+          className={cn("flex items-center gap-1 transition-colors duration-200", config.color)}
+        >
           {config.icon}
           <span>{config.label}</span>
         </span>
@@ -91,7 +109,7 @@ export default function SubagentBlock({ runId, agentId, task, initialStatus }: S
       <div
         className={cn(
           "overflow-hidden transition-all duration-200 ease-out",
-          expanded && (resultFull || error) ? "max-h-96 opacity-100" : "max-h-0 opacity-0"
+          expanded && (resultFull || error) ? "max-h-96 opacity-100" : "max-h-0 opacity-0",
         )}
       >
         <div className="px-2.5 pb-2 pt-0.5 max-h-96 overflow-y-auto">

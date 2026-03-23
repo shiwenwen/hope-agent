@@ -33,7 +33,9 @@ export default function App() {
       fetchUserAvatar().then((avatar) => {
         if (!cancelled) setUserAvatar(avatar)
       })
-      return () => { cancelled = true }
+      return () => {
+        cancelled = true
+      }
     }
   }, [view])
 
@@ -106,10 +108,7 @@ export default function App() {
   if (view === "setup") {
     return (
       <div className="h-screen overflow-hidden">
-        <ProviderSetup
-          onComplete={() => setView("chat")}
-          onCodexAuth={handleCodexAuth}
-        />
+        <ProviderSetup onComplete={() => setView("chat")} onCodexAuth={handleCodexAuth} />
       </div>
     )
   }
@@ -117,12 +116,29 @@ export default function App() {
   return (
     <div className="flex h-screen overflow-hidden bg-background">
       <IconSidebar
-        view={view === "settings" ? "settings" : view === "skills" ? "skills" : view === "profile" ? "profile" : view === "agents" ? "agents" : view === "calendar" ? "calendar" : "chat"}
+        view={
+          view === "settings"
+            ? "settings"
+            : view === "skills"
+              ? "skills"
+              : view === "profile"
+                ? "profile"
+                : view === "agents"
+                  ? "agents"
+                  : view === "calendar"
+                    ? "calendar"
+                    : "chat"
+        }
         onOpenSettings={() => setView("settings")}
         onOpenChat={() => setView("chat")}
-        onOpenAgents={() => { setAgentIdForSettings(undefined); setView("agents") }}
+        onOpenAgents={() => {
+          setAgentIdForSettings(undefined)
+          setView("agents")
+        }}
         onOpenSkills={() => setView("skills")}
-        onOpenProfile={() => { setView("profile") }}
+        onOpenProfile={() => {
+          setView("profile")
+        }}
         onOpenCalendar={() => setView("calendar")}
         userAvatar={userAvatar}
         totalUnreadCount={totalUnreadCount}
@@ -153,7 +169,10 @@ export default function App() {
       )}
       {view === "agents" && (
         <SettingsView
-          onBack={() => { setView("chat"); setAgentIdForSettings(undefined) }}
+          onBack={() => {
+            setView("chat")
+            setAgentIdForSettings(undefined)
+          }}
           onCodexAuth={handleCodexAuth}
           onCodexReauth={handleCodexAuth}
           initialSection="agents"
@@ -161,10 +180,25 @@ export default function App() {
         />
       )}
       {view === "calendar" && (
-        <CronCalendarView onBack={() => setView("chat")} onNavigateToSession={(sessionId) => { setPendingSessionId(sessionId); setView("chat") }} />
+        <CronCalendarView
+          onBack={() => setView("chat")}
+          onNavigateToSession={(sessionId) => {
+            setPendingSessionId(sessionId)
+            setView("chat")
+          }}
+        />
       )}
       <div className={view === "chat" ? "flex-1 flex overflow-hidden" : "hidden"}>
-        <ChatScreen onOpenAgentSettings={(agentId) => { setAgentIdForSettings(agentId); setView("agents") }} onCodexReauth={handleCodexAuth} initialSessionId={pendingSessionId} onSessionNavigated={() => setPendingSessionId(undefined)} onUnreadCountChange={setTotalUnreadCount} />
+        <ChatScreen
+          onOpenAgentSettings={(agentId) => {
+            setAgentIdForSettings(agentId)
+            setView("agents")
+          }}
+          onCodexReauth={handleCodexAuth}
+          initialSessionId={pendingSessionId}
+          onSessionNavigated={() => setPendingSessionId(undefined)}
+          onUnreadCountChange={setTotalUnreadCount}
+        />
       </div>
     </div>
   )

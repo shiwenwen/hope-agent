@@ -246,14 +246,9 @@ function SortableProviderItem({
 }) {
   const { t } = useTranslation()
   const meta = PROVIDER_META[entry.id]
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: entry.id })
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: entry.id,
+  })
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -347,18 +342,14 @@ function SortableProviderItem({
                 placeholder={field.placeholder}
                 className="h-8 text-sm"
                 value={(entry[field.configKey] as string) ?? ""}
-                onChange={(e) =>
-                  onFieldChange(field.configKey, e.target.value || null)
-                }
+                onChange={(e) => onFieldChange(field.configKey, e.target.value || null)}
               />
             </div>
           ))}
 
           {/* SearXNG Docker section */}
           {entry.id === "searxng" && (
-            <SearxngDockerSection
-              onUrlSet={(url) => onFieldChange("baseUrl", url)}
-            />
+            <SearxngDockerSection onUrlSet={(url) => onFieldChange("baseUrl", url)} />
           )}
         </div>
       )}
@@ -368,11 +359,7 @@ function SortableProviderItem({
 
 // ── SearXNG Docker Section ──────────────────────────────────────
 
-function SearxngDockerSection({
-  onUrlSet,
-}: {
-  onUrlSet: (url: string) => void
-}) {
+function SearxngDockerSection({ onUrlSet }: { onUrlSet: (url: string) => void }) {
   const { t } = useTranslation()
   const [status, setStatus] = useState<SearxngDockerStatus | null>(null)
   const [checking, setChecking] = useState(true)
@@ -405,7 +392,9 @@ function SearxngDockerSection({
         const s = await invoke<SearxngDockerStatus>("searxng_docker_status")
         setStatus(s)
         if (s.healthOk) clearInterval(timer)
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }, 3000)
     return () => clearInterval(timer)
   }, [status?.containerRunning, status?.healthOk])
@@ -463,7 +452,7 @@ function SearxngDockerSection({
         setActionLoading(false)
       }
     },
-    [refreshStatus]
+    [refreshStatus],
   )
 
   if (checking && !status) {
@@ -483,9 +472,7 @@ function SearxngDockerSection({
     return (
       <div className="rounded-md border border-border/50 p-3 mt-1 space-y-2">
         <div className="text-xs font-medium">{t("settings.webSearchDockerTitle")}</div>
-        <p className="text-xs text-muted-foreground">
-          {t("settings.webSearchDockerNotInstalled")}
-        </p>
+        <p className="text-xs text-muted-foreground">{t("settings.webSearchDockerNotInstalled")}</p>
         <Button
           size="sm"
           variant="outline"
@@ -505,15 +492,8 @@ function SearxngDockerSection({
     return (
       <div className="rounded-md border border-border/50 p-3 mt-1 space-y-2">
         <div className="text-xs font-medium">{t("settings.webSearchDockerTitle")}</div>
-        <p className="text-xs text-muted-foreground">
-          {t("settings.webSearchDockerNotRunning")}
-        </p>
-        <Button
-          size="sm"
-          variant="outline"
-          className="h-7 text-xs"
-          onClick={refreshStatus}
-        >
+        <p className="text-xs text-muted-foreground">{t("settings.webSearchDockerNotRunning")}</p>
+        <Button size="sm" variant="outline" className="h-7 text-xs" onClick={refreshStatus}>
           <RefreshCw className="h-3 w-3 mr-1" />
           {t("settings.webSearchDockerRefresh")}
         </Button>
@@ -570,25 +550,63 @@ function SearxngDockerSection({
 
       <div className="flex items-center gap-2">
         {!status.containerExists && (
-          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={handleDeploy} disabled={deploying}>
-            {deploying ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Download className="h-3 w-3 mr-1" />}
-            {deploying ? t("settings.webSearchDockerDeploying") : t("settings.webSearchDockerDeploy")}
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs"
+            onClick={handleDeploy}
+            disabled={deploying}
+          >
+            {deploying ? (
+              <Loader2 className="h-3 w-3 animate-spin mr-1" />
+            ) : (
+              <Download className="h-3 w-3 mr-1" />
+            )}
+            {deploying
+              ? t("settings.webSearchDockerDeploying")
+              : t("settings.webSearchDockerDeploy")}
           </Button>
         )}
         {status.containerExists && !status.containerRunning && (
-          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => handleAction("start")} disabled={actionLoading}>
-            {actionLoading ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Play className="h-3 w-3 mr-1" />}
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs"
+            onClick={() => handleAction("start")}
+            disabled={actionLoading}
+          >
+            {actionLoading ? (
+              <Loader2 className="h-3 w-3 animate-spin mr-1" />
+            ) : (
+              <Play className="h-3 w-3 mr-1" />
+            )}
             {t("settings.webSearchDockerStart")}
           </Button>
         )}
         {status.containerExists && status.containerRunning && (
-          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => handleAction("stop")} disabled={actionLoading}>
-            {actionLoading ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Square className="h-3 w-3 mr-1" />}
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs"
+            onClick={() => handleAction("stop")}
+            disabled={actionLoading}
+          >
+            {actionLoading ? (
+              <Loader2 className="h-3 w-3 animate-spin mr-1" />
+            ) : (
+              <Square className="h-3 w-3 mr-1" />
+            )}
             {t("settings.webSearchDockerStop")}
           </Button>
         )}
         {status.containerExists && (
-          <Button size="sm" variant="ghost" className="h-7 text-xs text-destructive hover:text-destructive" onClick={() => handleAction("remove")} disabled={actionLoading || deploying}>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 text-xs text-destructive hover:text-destructive"
+            onClick={() => handleAction("remove")}
+            disabled={actionLoading || deploying}
+          >
             <Trash2 className="h-3 w-3 mr-1" />
             {t("settings.webSearchDockerRemove")}
           </Button>
@@ -609,9 +627,7 @@ export default function WebSearchPanel() {
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [advancedOpen, setAdvancedOpen] = useState(true)
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
-  )
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
   useEffect(() => {
     invoke<WebSearchConfig>("get_web_search_config")
@@ -619,9 +635,7 @@ export default function WebSearchPanel() {
         setConfig(cfg)
         setSavedJson(JSON.stringify(cfg))
       })
-      .catch((e) =>
-        logger.error("settings", "WebSearchPanel::load", "Failed to load config", e)
-      )
+      .catch((e) => logger.error("settings", "WebSearchPanel::load", "Failed to load config", e))
   }, [])
 
   const isDirty = config ? JSON.stringify(config) !== savedJson : false
@@ -649,26 +663,21 @@ export default function WebSearchPanel() {
       const newIndex = config.providers.findIndex((p) => p.id === over.id)
       if (oldIndex === -1 || newIndex === -1) return
       setConfig((prev) =>
-        prev ? { ...prev, providers: arrayMove(prev.providers, oldIndex, newIndex) } : prev
+        prev ? { ...prev, providers: arrayMove(prev.providers, oldIndex, newIndex) } : prev,
       )
     },
-    [config]
+    [config],
   )
 
-  const handleToggleEnabled = useCallback(
-    (id: string, enabled: boolean) => {
-      setConfig((prev) => {
-        if (!prev) return prev
-        return {
-          ...prev,
-          providers: prev.providers.map((p) =>
-            p.id === id ? { ...p, enabled } : p
-          ),
-        }
-      })
-    },
-    []
-  )
+  const handleToggleEnabled = useCallback((id: string, enabled: boolean) => {
+    setConfig((prev) => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        providers: prev.providers.map((p) => (p.id === id ? { ...p, enabled } : p)),
+      }
+    })
+  }, [])
 
   const handleFieldChange = useCallback(
     (id: string, key: "apiKey" | "apiKey2" | "baseUrl", value: string | null) => {
@@ -687,7 +696,7 @@ export default function WebSearchPanel() {
         return { ...prev, providers }
       })
     },
-    []
+    [],
   )
 
   if (!config) return null
@@ -695,16 +704,10 @@ export default function WebSearchPanel() {
   return (
     <div className="flex-1 overflow-y-auto p-6">
       <div className="space-y-4">
-        <p className="text-xs text-muted-foreground">
-          {t("settings.webSearchDesc")}
-        </p>
+        <p className="text-xs text-muted-foreground">{t("settings.webSearchDesc")}</p>
 
         {/* Drag-sortable provider list */}
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragEnd={handleDragEnd}
-        >
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <SortableContext
             items={config.providers.map((p) => p.id)}
             strategy={verticalListSortingStrategy}
@@ -757,11 +760,21 @@ export default function WebSearchPanel() {
                     value={config.defaultResultCount}
                     onChange={(e) =>
                       setConfig((prev) =>
-                        prev ? { ...prev, defaultResultCount: Math.max(1, Math.min(10, Number(e.target.value) || 5)) } : prev
+                        prev
+                          ? {
+                              ...prev,
+                              defaultResultCount: Math.max(
+                                1,
+                                Math.min(10, Number(e.target.value) || 5),
+                              ),
+                            }
+                          : prev,
                       )
                     }
                   />
-                  <p className="text-[10px] text-muted-foreground/60">{t("settings.webSearchDefaultCountDesc")}</p>
+                  <p className="text-[10px] text-muted-foreground/60">
+                    {t("settings.webSearchDefaultCountDesc")}
+                  </p>
                 </div>
 
                 {/* Timeout */}
@@ -777,11 +790,21 @@ export default function WebSearchPanel() {
                     value={config.timeoutSeconds}
                     onChange={(e) =>
                       setConfig((prev) =>
-                        prev ? { ...prev, timeoutSeconds: Math.max(5, Math.min(120, Number(e.target.value) || 30)) } : prev
+                        prev
+                          ? {
+                              ...prev,
+                              timeoutSeconds: Math.max(
+                                5,
+                                Math.min(120, Number(e.target.value) || 30),
+                              ),
+                            }
+                          : prev,
                       )
                     }
                   />
-                  <p className="text-[10px] text-muted-foreground/60">{t("settings.webSearchTimeoutDesc")}</p>
+                  <p className="text-[10px] text-muted-foreground/60">
+                    {t("settings.webSearchTimeoutDesc")}
+                  </p>
                 </div>
 
                 {/* Cache TTL */}
@@ -797,11 +820,21 @@ export default function WebSearchPanel() {
                     value={config.cacheTtlMinutes}
                     onChange={(e) =>
                       setConfig((prev) =>
-                        prev ? { ...prev, cacheTtlMinutes: Math.max(0, Math.min(60, Number(e.target.value) || 0)) } : prev
+                        prev
+                          ? {
+                              ...prev,
+                              cacheTtlMinutes: Math.max(
+                                0,
+                                Math.min(60, Number(e.target.value) || 0),
+                              ),
+                            }
+                          : prev,
                       )
                     }
                   />
-                  <p className="text-[10px] text-muted-foreground/60">{t("settings.webSearchCacheTtlDesc")}</p>
+                  <p className="text-[10px] text-muted-foreground/60">
+                    {t("settings.webSearchCacheTtlDesc")}
+                  </p>
                 </div>
               </div>
 
@@ -815,7 +848,7 @@ export default function WebSearchPanel() {
                     value={config.defaultCountry ?? "auto"}
                     onValueChange={(v) =>
                       setConfig((prev) =>
-                        prev ? { ...prev, defaultCountry: v === "auto" ? null : v } : prev
+                        prev ? { ...prev, defaultCountry: v === "auto" ? null : v } : prev,
                       )
                     }
                   >
@@ -852,7 +885,7 @@ export default function WebSearchPanel() {
                     value={config.defaultLanguage ?? "auto"}
                     onValueChange={(v) =>
                       setConfig((prev) =>
-                        prev ? { ...prev, defaultLanguage: v === "auto" ? null : v } : prev
+                        prev ? { ...prev, defaultLanguage: v === "auto" ? null : v } : prev,
                       )
                     }
                   >
@@ -861,7 +894,10 @@ export default function WebSearchPanel() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="auto">
-                        {t("settings.webSearchLanguageAuto")} ({SUPPORTED_LANGUAGES.find((l) => l.code === i18n.language)?.label ?? i18n.language})
+                        {t("settings.webSearchLanguageAuto")} (
+                        {SUPPORTED_LANGUAGES.find((l) => l.code === i18n.language)?.label ??
+                          i18n.language}
+                        )
                       </SelectItem>
                       {SUPPORTED_LANGUAGES.map((lang) => (
                         <SelectItem key={lang.code} value={lang.code.split("-")[0]}>
@@ -881,7 +917,7 @@ export default function WebSearchPanel() {
                     value={config.defaultFreshness ?? "none"}
                     onValueChange={(v) =>
                       setConfig((prev) =>
-                        prev ? { ...prev, defaultFreshness: v === "none" ? null : v } : prev
+                        prev ? { ...prev, defaultFreshness: v === "none" ? null : v } : prev,
                       )
                     }
                   >
@@ -904,19 +940,13 @@ export default function WebSearchPanel() {
 
         {/* Save button */}
         <div className="flex items-center gap-3 pt-2">
-          <Button
-            onClick={handleSave}
-            disabled={!isDirty || saving}
-            size="sm"
-          >
+          <Button onClick={handleSave} disabled={!isDirty || saving} size="sm">
             {saving ? (
               <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
             ) : justSaved ? (
               <Check className="h-4 w-4 mr-1.5" />
             ) : null}
-            {justSaved
-              ? t("settings.webSearchSaved")
-              : t("common.save")}
+            {justSaved ? t("settings.webSearchSaved") : t("common.save")}
           </Button>
         </div>
       </div>

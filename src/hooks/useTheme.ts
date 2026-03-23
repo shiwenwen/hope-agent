@@ -72,9 +72,7 @@ export function useTheme() {
 
   // Cycle through modes: auto → light → dark → auto
   const cycleTheme = useCallback(() => {
-    setTheme(
-      theme === "auto" ? "light" : theme === "light" ? "dark" : "auto"
-    )
+    setTheme(theme === "auto" ? "light" : theme === "light" ? "dark" : "auto")
   }, [theme, setTheme])
 
   return { theme, setTheme, cycleTheme }
