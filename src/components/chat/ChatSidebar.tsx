@@ -382,7 +382,7 @@ export default function ChatSidebar({
                       onClick={() => setSessionFilter(filter)}
                     >
                       {label}
-                      {count > 0 && !isActive && (
+                      {count > 0 && (
                         <span className="ml-0.5 text-[10px] text-muted-foreground/50">
                           {count > 99 ? "99+" : count}
                         </span>
