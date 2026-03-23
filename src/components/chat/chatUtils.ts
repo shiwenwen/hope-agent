@@ -47,6 +47,53 @@ export function formatDuration(ms: number): string {
   return `${minutes}m ${remainingSeconds}s`
 }
 
+/** Extract file paths modified by tool calls (write/edit/apply_patch) */
+export function extractModifiedFiles(blocks: ContentBlock[]): string[] {
+  const files = new Set<string>()
+  for (const block of blocks) {
+    if (block.type !== "tool_call") continue
+    const { name, arguments: args, result } = block.tool
+    if (!result) continue
+
+    if (
+      (name === "write" || name === "write_file") &&
+      result.startsWith("Successfully wrote")
+    ) {
+      try {
+        const parsed = JSON.parse(args)
+        const p = parsed.path || parsed.file_path
+        if (p) files.add(p)
+      } catch {
+        /* ignore */
+      }
+    } else if (
+      (name === "edit" || name === "patch_file") &&
+      result.startsWith("Successfully edited")
+    ) {
+      try {
+        const parsed = JSON.parse(args)
+        const p = parsed.path || parsed.file_path
+        if (p) files.add(p)
+      } catch {
+        /* ignore */
+      }
+    } else if (name === "apply_patch" && result.startsWith("Patch applied")) {
+      for (const line of result.split("\n")) {
+        const trimmed = line.trim()
+        if (trimmed.startsWith("Deleted:")) continue
+        const match = trimmed.match(/^(?:Added|Modified|Renamed):\s*(.+)$/)
+        if (!match) continue
+        for (const entry of match[1].split(", ")) {
+          const arrow = entry.indexOf(" -> ")
+          const filePath = arrow >= 0 ? entry.slice(arrow + 4).trim() : entry.trim()
+          if (filePath) files.add(filePath)
+        }
+      }
+    }
+  }
+  return Array.from(files)
+}
+
 /** Parse DB SessionMessage[] into display Message[] */
 export function parseSessionMessages(
   msgs: SessionMessage[],

@@ -1,14 +1,15 @@
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useMemo } from "react"
 import { convertFileSrc } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { TooltipProvider, IconTip } from "@/components/ui/tooltip"
 import { Copy, Check, Info, Network } from "lucide-react"
-import { formatTokens, formatDuration, formatMessageTime } from "./chatUtils"
+import { formatTokens, formatDuration, formatMessageTime, extractModifiedFiles } from "./chatUtils"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import ToolCallBlock from "@/components/chat/ToolCallBlock"
 import ThinkingBlock from "@/components/chat/ThinkingBlock"
 import FallbackBanner from "@/components/chat/FallbackBanner"
+import FileAttachments from "@/components/chat/FileAttachments"
 import type { Message, AgentSummaryForSidebar } from "@/types/chat"
 
 interface MessageBubbleProps {
@@ -59,6 +60,14 @@ export default function MessageBubble({
       editTextareaRef.current?.focus()
     }
   }, [editingIndex, index])
+
+  const modifiedFiles = useMemo(
+    () =>
+      msg.role === "assistant" && msg.contentBlocks
+        ? extractModifiedFiles(msg.contentBlocks)
+        : [],
+    [msg.role, msg.contentBlocks],
+  )
 
   const fromAgent = msg.fromAgentId ? agents.find((a) => a.id === msg.fromAgentId) : undefined
 
@@ -244,6 +253,7 @@ export default function MessageBubble({
             // User message content
             msg.content
           )}
+          {modifiedFiles.length > 0 && <FileAttachments files={modifiedFiles} />}
           {msg.timestamp && (
             <div
               className={cn(

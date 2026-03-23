@@ -30,6 +30,7 @@ interface ChatScreenProps {
   initialSessionId?: string
   onSessionNavigated?: () => void
   onUnreadCountChange?: (count: number) => void
+  sessionsRefreshTrigger?: number
 }
 
 export default function ChatScreen({
@@ -38,6 +39,7 @@ export default function ChatScreen({
   initialSessionId,
   onSessionNavigated,
   onUnreadCountChange,
+  sessionsRefreshTrigger,
 }: ChatScreenProps) {
   const { t } = useTranslation()
 
@@ -119,6 +121,13 @@ export default function ChatScreen({
     onSessionNavigated,
     onUnreadCountChange,
   })
+
+  // Reload sessions when external trigger changes (e.g. mark-all-read from IconSidebar)
+  useEffect(() => {
+    if (sessionsRefreshTrigger) {
+      session.reloadSessions()
+    }
+  }, [sessionsRefreshTrigger])
 
   // Fetch models and current settings on mount
   useEffect(() => {

@@ -1,8 +1,14 @@
 import { useState } from "react"
-import { convertFileSrc } from "@tauri-apps/api/core"
+import { convertFileSrc, invoke } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { TooltipProvider, IconTip } from "@/components/ui/tooltip"
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu"
 import { cn } from "@/lib/utils"
 import {
   MessageSquare,
@@ -16,6 +22,7 @@ import {
   SunMoon,
   Monitor,
   User,
+  CheckCheck,
 } from "lucide-react"
 import { useTheme } from "@/hooks/useTheme"
 import { SUPPORTED_LANGUAGES, isFollowingSystem, setFollowSystemLanguage } from "@/i18n/i18n"
@@ -30,6 +37,7 @@ interface IconSidebarProps {
   onOpenCalendar: () => void
   userAvatar?: string | null
   totalUnreadCount?: number
+  onMarkAllRead?: () => void
 }
 
 export default function IconSidebar({
@@ -42,6 +50,7 @@ export default function IconSidebar({
   onOpenCalendar,
   userAvatar,
   totalUnreadCount,
+  onMarkAllRead,
 }: IconSidebarProps) {
   const { t, i18n } = useTranslation()
   const { theme, cycleTheme } = useTheme()
@@ -67,6 +76,8 @@ export default function IconSidebar({
               </button>
             </IconTip>
           )}
+          <ContextMenu>
+            <ContextMenuTrigger asChild>
           <div className="relative">
             <IconTip label={t("chat.conversations")} side="right">
               <Button
@@ -87,6 +98,24 @@ export default function IconSidebar({
               <span className="absolute -top-0.5 -right-0.5 z-10 w-2.5 h-2.5 rounded-full bg-destructive border-2 border-background pointer-events-none animate-in zoom-in-0 duration-200" />
             )}
           </div>
+            </ContextMenuTrigger>
+            <ContextMenuContent>
+              <ContextMenuItem
+                onClick={async () => {
+                  try {
+                    await invoke("mark_all_sessions_read_cmd")
+                    onMarkAllRead?.()
+                  } catch (err) {
+                    console.error("Failed to mark all as read:", err)
+                  }
+                }}
+                disabled={!totalUnreadCount || totalUnreadCount === 0}
+              >
+                <CheckCheck className="h-4 w-4 mr-2" />
+                {t("chat.markAllRead")}
+              </ContextMenuItem>
+            </ContextMenuContent>
+          </ContextMenu>
         </div>
 
         {/* Agents entry */}

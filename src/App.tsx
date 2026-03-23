@@ -15,6 +15,7 @@ export default function App() {
   const [userAvatar, setUserAvatar] = useState<string | null>(null)
   const [pendingSessionId, setPendingSessionId] = useState<string | undefined>(undefined)
   const [totalUnreadCount, setTotalUnreadCount] = useState(0)
+  const [sessionsRefreshTrigger, setSessionsRefreshTrigger] = useState(0)
 
   // Load user avatar
   async function fetchUserAvatar() {
@@ -142,6 +143,7 @@ export default function App() {
         onOpenCalendar={() => setView("calendar")}
         userAvatar={userAvatar}
         totalUnreadCount={totalUnreadCount}
+        onMarkAllRead={() => setSessionsRefreshTrigger((n) => n + 1)}
       />
       {view === "settings" && (
         <SettingsView
@@ -198,6 +200,7 @@ export default function App() {
           initialSessionId={pendingSessionId}
           onSessionNavigated={() => setPendingSessionId(undefined)}
           onUnreadCountChange={setTotalUnreadCount}
+          sessionsRefreshTrigger={sessionsRefreshTrigger}
         />
       </div>
     </div>

@@ -578,6 +578,15 @@ impl SessionDB {
         Ok(())
     }
 
+    /// Mark all sessions as read.
+    pub fn mark_all_sessions_read(&self) -> Result<()> {
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        conn.execute_batch(
+            "UPDATE sessions SET last_read_message_id = (SELECT COALESCE(MAX(id), 0) FROM messages WHERE messages.session_id = sessions.id)"
+        )?;
+        Ok(())
+    }
+
     // ── Sub-Agent Run CRUD ──────────────────────────────────────
 
     /// Insert a new sub-agent run record.
