@@ -34,6 +34,7 @@
     "filterSessions": "会话",
     "filterCron": "定时任务",
     "filterSubagent": "委派任务",
+    "markAllRead": "全部已读",
     "howCanIHelp": "有什么可以帮你的？",
     "loadMore": "加载更早的消息",
     "loadingMore": "加载中...",
