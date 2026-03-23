@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
@@ -41,17 +41,18 @@ export default function WebFetchPanel() {
 
   const isDirty = JSON.stringify(config) !== savedSnapshot
 
-  const load = useCallback(async () => {
-    try {
-      const cfg = await invoke<WebFetchConfig>("get_web_fetch_config")
-      setConfig(cfg)
-      setSavedSnapshot(JSON.stringify(cfg))
-    } catch (e) {
+  useEffect(() => {
+    let cancelled = false
+    invoke<WebFetchConfig>("get_web_fetch_config").then(cfg => {
+      if (!cancelled) {
+        setConfig(cfg)
+        setSavedSnapshot(JSON.stringify(cfg))
+      }
+    }).catch(e => {
       logger.error("settings", `Failed to load web fetch config: ${e}`)
-    }
+    })
+    return () => { cancelled = true }
   }, [])
-
-  useEffect(() => { load() }, [load])
 
   const save = async () => {
     try {

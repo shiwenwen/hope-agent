@@ -3,7 +3,6 @@ import { useTranslation } from "react-i18next"
 import { invoke } from "@tauri-apps/api/core"
 import { Button } from "@/components/ui/button"
 import { AlertTriangle, ChevronDown, ChevronUp, X } from "lucide-react"
-import { cn } from "@/lib/utils"
 
 interface DiagnosisResult {
   cause: string

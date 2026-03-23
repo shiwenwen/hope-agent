@@ -26,6 +26,7 @@ export interface TestResult {
 }
 
 /** Parse test_provider response (JSON string) into structured TestResult */
+// eslint-disable-next-line react-refresh/only-export-components
 export function parseTestResult(raw: string, isError: boolean): TestResult {
   try {
     const data = JSON.parse(raw) as TestResultData

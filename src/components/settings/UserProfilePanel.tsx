@@ -3,13 +3,12 @@ import { invoke, convertFileSrc } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
-import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { AvatarCropDialog } from "@/components/settings/AvatarCropDialog"
-import { Camera, ArrowUp, ArrowDown, Check, Monitor } from "lucide-react"
+import { Camera, Check, Monitor } from "lucide-react"
 
 interface UserConfig {
   name?: string | null

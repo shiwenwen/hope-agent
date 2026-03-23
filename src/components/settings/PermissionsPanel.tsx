@@ -23,7 +23,6 @@ import {
   FolderOpen,
   ShieldCheck,
   ShieldAlert,
-  ShieldQuestion,
   RefreshCw,
   ExternalLink,
 } from "lucide-react"

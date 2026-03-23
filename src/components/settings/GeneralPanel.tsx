@@ -22,14 +22,6 @@ export default function GeneralPanel() {
   // ── Language state ──
   const [followSystem, setFollowSystem] = useState(isFollowingSystem)
 
-  const isCurrentLang = (code: string) => {
-    if (followSystem) return false
-    return (
-      i18n.language === code ||
-      (i18n.language.startsWith(code + "-") && code !== "zh")
-    )
-  }
-
   const handleFollowSystem = () => {
     setFollowSystemLanguage()
     setFollowSystem(true)

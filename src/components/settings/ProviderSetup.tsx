@@ -511,12 +511,12 @@ export function ModelEditor({
   onRemove: () => void
   onTest?: (modelId: string) => Promise<string>
   dragListeners?: Record<string, unknown>
-  dragAttributes?: any // DraggableAttributes from @dnd-kit
+  dragAttributes?: Record<string, unknown>
 }) {
   const { t } = useTranslation()
   const inputTypes = ["text", "image", "video"]
   const [testLoading, setTestLoading] = useState(false)
-  const [testResult, setTestResult] = useState<{ ok: boolean; data: any } | null>(null)
+  const [testResult, setTestResult] = useState<{ ok: boolean; data: Record<string, unknown> } | null>(null)
   const [logExpanded, setLogExpanded] = useState(false)
 
   function toggleInput(type: string) {

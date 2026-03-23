@@ -44,7 +44,9 @@ export default function MarkdownRenderer({
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
+  // eslint-disable-next-line react-hooks/refs -- intentional "latest value" refs read only in rAF callback
   targetRef.current = content.length;
+  // eslint-disable-next-line react-hooks/refs
   streamingRef.current = isStreaming;
 
   // Non-streaming (history): show full content immediately

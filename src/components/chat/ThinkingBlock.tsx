@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { ChevronRight, BrainCircuit } from "lucide-react"
@@ -12,20 +12,17 @@ interface ThinkingBlockProps {
 export default function ThinkingBlock({ content, isStreaming }: ThinkingBlockProps) {
   const { t } = useTranslation()
   const [isOpen, setIsOpen] = useState(false)
+  const [prevStreaming, setPrevStreaming] = useState(isStreaming)
 
   // Auto-expand while streaming, auto-collapse when done
-  useEffect(() => {
+  if (isStreaming !== prevStreaming) {
+    setPrevStreaming(isStreaming)
     if (isStreaming) {
       setIsOpen(true)
-    }
-  }, [isStreaming])
-
-  // Auto-collapse when streaming ends
-  useEffect(() => {
-    if (!isStreaming && content) {
+    } else if (content) {
       setIsOpen(false)
     }
-  }, [isStreaming]) // eslint-disable-line react-hooks/exhaustive-deps
+  }
 
   if (!content) return null
 

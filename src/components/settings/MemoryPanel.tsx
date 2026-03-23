@@ -21,7 +21,6 @@ import {
   Trash2,
   Search,
   Download,
-  Settings2,
   User,
   MessageSquareHeart,
   FolderKanban,

@@ -14,7 +14,7 @@ interface CronCalendarViewProps {
   onNavigateToSession?: (sessionId: string) => void
 }
 
-export default function CronCalendarView({ onBack, onNavigateToSession }: CronCalendarViewProps) {
+export default function CronCalendarView({ onNavigateToSession }: CronCalendarViewProps) {
   const { t } = useTranslation()
   const [currentDate, setCurrentDate] = useState(new Date())
   const [events, setEvents] = useState<CalendarEvent[]>([])
@@ -22,13 +22,11 @@ export default function CronCalendarView({ onBack, onNavigateToSession }: CronCa
   const [showForm, setShowForm] = useState(false)
   const [editingJob, setEditingJob] = useState<CronJob | null>(null)
   const [detailJobId, setDetailJobId] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
 
   const year = currentDate.getFullYear()
   const month = currentDate.getMonth()
 
   const fetchEvents = useCallback(async () => {
-    setLoading(true)
     try {
       const start = new Date(year, month, 1)
       const end = new Date(year, month + 1, 1)
@@ -39,13 +37,11 @@ export default function CronCalendarView({ onBack, onNavigateToSession }: CronCa
       setEvents(result)
     } catch {
       // ignore
-    } finally {
-      setLoading(false)
     }
   }, [year, month])
 
   useEffect(() => {
-    fetchEvents()
+    fetchEvents() // eslint-disable-line react-hooks/set-state-in-effect
   }, [fetchEvents])
 
   // Listen for cron:run_completed events

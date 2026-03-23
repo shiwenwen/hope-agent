@@ -106,7 +106,7 @@ function parseCronToVisual(expr: string): {
   const parts = expr.trim().split(/\s+/)
   if (parts.length < 6) return { ...defaults, freq: "custom" }
 
-  const [_sec, min, hour, day, _month, weekday] = parts
+  const [, min, hour, day, , weekday] = parts
 
   const h = hour === "*" ? "09" : hour.padStart(2, "0")
   const m = min === "*" ? "00" : min.padStart(2, "0")
@@ -686,6 +686,7 @@ function toLocalDatetimeString(isoString: string): string {
 
 // ── Shared Status Helpers ─────────────────────────────────────────
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function statusColor(status: string): string {
   switch (status) {
     case "active": return "bg-emerald-500"
@@ -697,6 +698,7 @@ export function statusColor(status: string): string {
   }
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function formatSchedule(schedule: CronSchedule, t: (key: string) => string): string {
   switch (schedule.type) {
     case "at":

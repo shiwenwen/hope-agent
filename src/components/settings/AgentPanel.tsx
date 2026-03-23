@@ -466,7 +466,7 @@ function AgentEditView({
       })
       setNeedsFillTemplate(false)
     }
-  }, [needsFillTemplate, config])
+  }, [needsFillTemplate, config]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleEnableCustomPrompt = async () => {
     // Pre-fill with templates from files if empty

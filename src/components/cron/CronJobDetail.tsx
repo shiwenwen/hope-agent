@@ -47,6 +47,7 @@ export default function CronJobDetail({ jobId, onBack, onEdit, onRefresh, onView
     }
   }
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { fetchData() }, [jobId])
 
   async function handleToggle() {
