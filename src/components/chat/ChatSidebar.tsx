@@ -368,7 +368,13 @@ export default function ChatSidebar({
                         )}
                       </div>
                       {!isActive && session.unreadCount > 0 && (
-                        <span className="absolute -top-1 -right-1.5 z-10 min-w-[16px] h-[16px] px-0.5 rounded-full bg-destructive text-destructive-foreground text-[9px] font-bold flex items-center justify-center border-2 border-background pointer-events-none leading-none">
+                        <span
+                          className="absolute -top-1 -right-1.5 z-10 min-w-[16px] h-[16px] px-0.5 rounded-full text-white text-[9px] font-bold flex items-center justify-center border border-background pointer-events-none leading-none"
+                          style={{
+                            background: "linear-gradient(135deg, #ff6b6b 0%, #ee3333 50%, #cc1111 100%)",
+                            boxShadow: "0 2px 6px rgba(220, 38, 38, 0.45), inset 0 1px 1px rgba(255, 255, 255, 0.25)",
+                          }}
+                        >
                           {session.unreadCount > 99 ? "99+" : session.unreadCount}
                         </span>
                       )}

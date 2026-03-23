@@ -26,6 +26,8 @@
   --color-accent-foreground: hsl(0 0% 9%);
   --color-border: hsl(0 0% 89%);
   --color-input: hsl(0 0% 89%);
+  --color-destructive: hsl(0 84% 60%);
+  --color-destructive-foreground: hsl(0 0% 100%);
   --color-ring: hsl(0 0% 45%);
   --radius: 0.5rem;
   --color-user-bubble: hsl(210 40% 93%);
@@ -49,6 +51,8 @@
   --color-accent-foreground: hsl(210 20% 90%);
   --color-border: hsl(220 13% 22%);
   --color-input: hsl(220 13% 22%);
+  --color-destructive: hsl(0 72% 51%);
+  --color-destructive-foreground: hsl(0 0% 100%);
   --color-ring: hsl(215 15% 50%);
   --color-user-bubble: hsl(215 20% 28%);
 }
