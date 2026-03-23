@@ -64,12 +64,26 @@ export default function ChatSidebar({
   const [deleteConfirmSessionId, setDeleteConfirmSessionId] = useState<string | null>(null)
   const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // Session type filter
+  type SessionFilterType = "all" | "session" | "cron" | "subagent"
+  const [sessionFilter, setSessionFilter] = useState<SessionFilterType>("session")
+
   // Agent filter state (single-select)
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
 
-  const filteredSessions = selectedAgentId === null
-    ? sessions
-    : sessions.filter(s => s.agentId === selectedAgentId)
+  const filteredSessions = (() => {
+    const list = selectedAgentId === null ? sessions : sessions.filter(s => s.agentId === selectedAgentId)
+    switch (sessionFilter) {
+      case "session":
+        return list.filter(s => !s.isCron && !s.parentSessionId)
+      case "cron":
+        return list.filter(s => s.isCron)
+      case "subagent":
+        return list.filter(s => !!s.parentSessionId)
+      default:
+        return list
+    }
+  })()
 
   const toggleAgentFilter = useCallback((agentId: string) => {
     setSelectedAgentId(prev => {
@@ -322,6 +336,45 @@ export default function ChatSidebar({
                 })}
               </div>
             </div>
+          </div>
+
+          {/* Session type filter tabs */}
+          <div className="flex items-center gap-0.5 px-3 py-1.5 border-b border-border/40">
+            {(["all", "session", "cron", "subagent"] as const).map((filter) => {
+              const label = {
+                all: t("chat.filterAll"),
+                session: t("chat.filterSessions"),
+                cron: t("chat.filterCron"),
+                subagent: t("chat.filterSubagent"),
+              }[filter]
+              const count = {
+                all: sessions.length,
+                session: sessions.filter(s => !s.isCron && !s.parentSessionId).length,
+                cron: sessions.filter(s => s.isCron).length,
+                subagent: sessions.filter(s => !!s.parentSessionId).length,
+              }[filter]
+              const isActive = sessionFilter === filter
+              return (
+                <button
+                  key={filter}
+                  className={cn(
+                    "relative px-2 py-1 text-[11px] rounded-md transition-colors whitespace-nowrap",
+                    isActive
+                      ? "text-foreground font-semibold"
+                      : "text-muted-foreground hover:text-foreground/70"
+                  )}
+                  onClick={() => setSessionFilter(filter)}
+                >
+                  {label}
+                  {count > 0 && !isActive && (
+                    <span className="ml-0.5 text-[10px] text-muted-foreground/50">{count}</span>
+                  )}
+                  {isActive && (
+                    <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-3/5 h-[2px] rounded-full bg-primary" />
+                  )}
+                </button>
+              )
+            })}
           </div>
 
           {/* Session list */}
