@@ -96,6 +96,19 @@ pub struct SpawnParams {
     pub model_override: Option<String>,
 }
 
+/// Event payload for streaming parent agent responses back to frontend.
+/// Emitted when a sub-agent completes and the backend auto-injects the result.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ParentAgentStreamEvent {
+    pub event_type: String,             // "started" | "delta" | "done" | "error"
+    pub parent_session_id: String,
+    pub run_id: String,
+    pub push_message: Option<String>,   // only for "started"
+    pub delta: Option<String>,          // raw JSON delta string, only for "delta"
+    pub error: Option<String>,          // only for "error"
+}
+
 /// Event payload emitted to the frontend via Tauri events.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -267,6 +280,7 @@ pub async fn spawn_subagent(
     let timeout_secs = params.timeout_secs.unwrap_or(DEFAULT_TIMEOUT_SECS);
     let model_override = params.model_override.clone();
     let parent_session_id = params.parent_session_id.clone();
+    let parent_agent_id = params.parent_agent_id.clone();
     let child_session_id_clone = child_session_id.clone();
 
     tokio::spawn(async move {
@@ -335,6 +349,12 @@ pub async fn spawn_subagent(
 
         // Emit completion event — guaranteed to fire
         let result_preview = result_text.as_ref().map(|r| truncate_str(r, 200));
+        // Clone values needed after the move into SubagentEvent
+        let status_for_inject = status.clone();
+        let agent_id_for_inject = agent_id.clone();
+        let result_text_for_inject = result_text.clone();
+        let error_text_for_inject = error_text.clone();
+        let parent_session_id_for_inject = parent_session_id.clone();
         emit_subagent_event(&SubagentEvent {
             event_type: status.as_str().to_string(),
             run_id: run_id_clone.clone(),
@@ -353,6 +373,33 @@ pub async fn spawn_subagent(
         registry.remove(&run_id_clone);
 
         app_info!("subagent", "spawn", "Sub-agent run {} finished in {}ms", run_id_clone, duration_ms);
+
+        // Backend-driven result injection: push result to parent agent without relying on frontend.
+        // Uses a dedicated OS thread + runtime to avoid the Send cycle:
+        // inject_and_run_parent → agent.chat() → action_spawn → spawn_subagent → tokio::spawn
+        if matches!(status_for_inject, SubagentStatus::Completed | SubagentStatus::Error | SubagentStatus::Timeout) {
+            let push_msg = build_subagent_push_message(
+                &run_id_clone, &agent_id_for_inject, &task, &status_for_inject, duration_ms,
+                result_text_for_inject.as_deref(), error_text_for_inject.as_deref(),
+            );
+            let db2 = db.clone();
+            let parent_sid2 = parent_session_id_for_inject;
+            let parent_agent_id2 = parent_agent_id.clone();
+            let child_agent_id2 = agent_id_for_inject.clone();
+            let run_id2 = run_id_clone.clone();
+            // Spawn on a separate OS thread so the future doesn't need to be Send
+            std::thread::spawn(move || {
+                match tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                {
+                    Ok(rt) => rt.block_on(inject_and_run_parent(
+                        parent_sid2, parent_agent_id2, child_agent_id2, run_id2, push_msg, db2,
+                    )),
+                    Err(e) => app_error!("subagent", "inject", "Failed to build runtime for injection: {}", e),
+                }
+            });
+        }
     });
 
     Ok(run_id)
@@ -526,5 +573,450 @@ fn emit_subagent_event(event: &SubagentEvent) {
     if let Some(handle) = crate::get_app_handle() {
         use tauri::Emitter;
         let _ = handle.emit("subagent_event", event);
+    }
+}
+
+/// Emit a parent agent stream event to the frontend.
+fn emit_parent_stream_event(event: &ParentAgentStreamEvent) {
+    if let Some(handle) = crate::get_app_handle() {
+        use tauri::Emitter;
+        let _ = handle.emit("parent_agent_stream", event);
+    }
+}
+
+/// Build the push message text injected into the parent session.
+fn build_subagent_push_message(
+    run_id: &str,
+    agent_id: &str,
+    task: &str,
+    status: &SubagentStatus,
+    duration_ms: u64,
+    result: Option<&str>,
+    error: Option<&str>,
+) -> String {
+    let duration = format!("{:.1}s", duration_ms as f64 / 1000.0);
+    let content = result.or(error).unwrap_or("(no output)");
+    format!(
+        "[Sub-Agent Completion — auto-delivered]\nRun ID: {}\nAgent: {}\nTask: {}\nStatus: {}\nDuration: {}\n<<<BEGIN_SUBAGENT_RESULT>>>\n{}\n<<<END_SUBAGENT_RESULT>>>",
+        run_id, agent_id, truncate_str(task, 50), status.as_str(), duration, content
+    )
+}
+
+// Global set tracking which parent sessions currently have an active backend injection.
+// Prevents concurrent double-injection for the same session.
+static INJECTING_SESSIONS: std::sync::LazyLock<Mutex<std::collections::HashSet<String>>> =
+    std::sync::LazyLock::new(|| Mutex::new(std::collections::HashSet::new()));
+
+/// Sessions currently in a user-initiated chat() call.
+/// Injection must wait until the session is idle.
+pub static ACTIVE_CHAT_SESSIONS: std::sync::LazyLock<Mutex<std::collections::HashSet<String>>> =
+    std::sync::LazyLock::new(|| Mutex::new(std::collections::HashSet::new()));
+
+/// Per-session cancel flags for active injections.
+/// When the user starts a new chat() on a session, the injection cancel flag is set.
+pub static INJECTION_CANCELS: std::sync::LazyLock<Mutex<HashMap<String, Arc<AtomicBool>>>> =
+    std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Run IDs whose results have been read by the parent agent via check/result tool actions.
+/// If a run_id is here, auto-injection is skipped.
+static FETCHED_RUN_IDS: std::sync::LazyLock<Mutex<std::collections::HashSet<String>>> =
+    std::sync::LazyLock::new(|| Mutex::new(std::collections::HashSet::new()));
+
+/// Notify signal: fired when a session becomes idle (ChatSessionGuard dropped).
+/// Injection waiters use this instead of polling.
+static SESSION_IDLE_NOTIFY: std::sync::LazyLock<tokio::sync::Notify> =
+    std::sync::LazyLock::new(|| tokio::sync::Notify::new());
+
+/// RAII guard: marks a session as active in user chat, cancels any running injection.
+/// Drop removes the session from the active set.
+pub struct ChatSessionGuard {
+    session_id: String,
+}
+
+impl ChatSessionGuard {
+    pub fn new(session_id: &str) -> Self {
+        if let Ok(mut set) = ACTIVE_CHAT_SESSIONS.lock() {
+            set.insert(session_id.to_string());
+        }
+        // Cancel any running injection for this session
+        if let Ok(map) = INJECTION_CANCELS.lock() {
+            if let Some(cancel) = map.get(session_id) {
+                cancel.store(true, Ordering::SeqCst);
+            }
+        }
+        Self { session_id: session_id.to_string() }
+    }
+}
+
+impl Drop for ChatSessionGuard {
+    fn drop(&mut self) {
+        if let Ok(mut set) = ACTIVE_CHAT_SESSIONS.lock() {
+            set.remove(&self.session_id);
+        }
+        // Wake up any injection waiters (replaces 2s polling)
+        SESSION_IDLE_NOTIFY.notify_waiters();
+        // Re-trigger any pending injections that were cancelled during this chat
+        flush_pending_injections(&self.session_id);
+    }
+}
+
+/// Mark a run_id as having its result already read by the parent agent.
+pub fn mark_run_fetched(run_id: &str) {
+    if let Ok(mut set) = FETCHED_RUN_IDS.lock() {
+        set.insert(run_id.to_string());
+    }
+}
+
+/// A deferred injection task that was cancelled and needs to be retried.
+#[derive(Clone)]
+struct PendingInjection {
+    parent_session_id: String,
+    parent_agent_id: String,
+    child_agent_id: String,
+    run_id: String,
+    push_message: String,
+    session_db: Arc<crate::session::SessionDB>,
+}
+
+/// Queue of injection tasks that were cancelled (user sent new message) and need retry.
+static PENDING_INJECTIONS: std::sync::LazyLock<Mutex<Vec<PendingInjection>>> =
+    std::sync::LazyLock::new(|| Mutex::new(Vec::new()));
+
+/// Drain and re-trigger pending injections for a session.
+/// Called from ChatSessionGuard::drop when a user chat completes.
+fn flush_pending_injections(session_id: &str) {
+    let tasks: Vec<PendingInjection> = {
+        let mut queue = match PENDING_INJECTIONS.lock() {
+            Ok(q) => q,
+            Err(p) => p.into_inner(),
+        };
+        let mut remaining = Vec::new();
+        let mut to_run = Vec::new();
+        for task in queue.drain(..) {
+            if task.parent_session_id == session_id {
+                to_run.push(task);
+            } else {
+                remaining.push(task);
+            }
+        }
+        *queue = remaining;
+        to_run
+    };
+
+    for task in tasks {
+        // Skip if already fetched, and clean up the entry
+        {
+            let mut set = FETCHED_RUN_IDS.lock().unwrap_or_else(|p| p.into_inner());
+            if set.remove(&task.run_id) {
+                continue;
+            }
+        }
+        let t = task.clone();
+        std::thread::spawn(move || {
+            match tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            {
+                Ok(rt) => rt.block_on(inject_and_run_parent(
+                    t.parent_session_id, t.parent_agent_id, t.child_agent_id,
+                    t.run_id, t.push_message, t.session_db,
+                )),
+                Err(e) => app_error!("subagent", "inject", "Failed to build runtime for retry: {}", e),
+            }
+        });
+        break; // Only re-trigger one at a time; next one queues on completion
+    }
+}
+
+/// Backend-driven result injection: wait for idle, then run the parent agent with the push message.
+/// Respects user chat priority: waits if busy, cancels if user sends a new message, skips if
+/// the agent already fetched the result via check/result tool actions.
+async fn inject_and_run_parent(
+    parent_session_id: String,
+    parent_agent_id: String,
+    child_agent_id: String,
+    run_id: String,
+    push_message: String,
+    session_db: Arc<crate::session::SessionDB>,
+) {
+    use crate::agent::AssistantAgent;
+    use crate::failover;
+    use crate::provider;
+
+    // 0. Skip if the parent agent already fetched this result via check/result tool
+    {
+        let mut set = FETCHED_RUN_IDS.lock().unwrap_or_else(|p| p.into_inner());
+        if set.contains(&run_id) {
+            app_info!("subagent", "inject", "Run {} already fetched by parent, skipping injection", &run_id);
+            set.remove(&run_id); // Clean up — no longer needed
+            return;
+        }
+    }
+
+    // Guard: if another injection is active for this session, queue for later
+    {
+        let mut guard = INJECTING_SESSIONS.lock().unwrap_or_else(|p| p.into_inner());
+        if guard.contains(&parent_session_id) {
+            app_info!("subagent", "inject",
+                "Session {} already has active injection, queuing for later", &parent_session_id);
+            if let Ok(mut queue) = PENDING_INJECTIONS.lock() {
+                queue.push(PendingInjection {
+                    parent_session_id, parent_agent_id, child_agent_id,
+                    run_id, push_message, session_db,
+                });
+            }
+            return;
+        }
+        guard.insert(parent_session_id.clone());
+    }
+    let _cleanup = CleanupGuard { session_id: parent_session_id.clone() };
+
+    // 1. Wait for parent session to become idle (event-driven with timeout fallback)
+    let max_wait = std::time::Duration::from_secs(120);
+    let fallback_interval = std::time::Duration::from_secs(5);
+    let start = std::time::Instant::now();
+    loop {
+        let is_busy = ACTIVE_CHAT_SESSIONS.lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .contains(&parent_session_id);
+        if !is_busy { break; }
+
+        if start.elapsed() > max_wait {
+            app_warn!("subagent", "inject",
+                "Timed out waiting for session {} to become idle, skipping", &parent_session_id);
+            return;
+        }
+        // Re-check if result was fetched while we were waiting
+        if FETCHED_RUN_IDS.lock().unwrap_or_else(|p| p.into_inner()).contains(&run_id) {
+            app_info!("subagent", "inject", "Run {} fetched while waiting, skipping", &run_id);
+            return;
+        }
+        // Wait for notify (instant wake) or fallback timeout (in case notify is missed)
+        tokio::select! {
+            _ = SESSION_IDLE_NOTIFY.notified() => {}
+            _ = tokio::time::sleep(fallback_interval) => {}
+        }
+    }
+
+    // Final check before proceeding
+    if FETCHED_RUN_IDS.lock().unwrap_or_else(|p| p.into_inner()).contains(&run_id) {
+        return;
+    }
+
+    // 2. Register cancel flag — user's chat() will set this to abort the injection
+    let cancel = Arc::new(AtomicBool::new(false));
+    if let Ok(mut map) = INJECTION_CANCELS.lock() {
+        map.insert(parent_session_id.clone(), cancel.clone());
+    }
+    // Ensure cancel flag is cleaned up on all exit paths
+    let cancel_cleanup_sid = parent_session_id.clone();
+    struct CancelCleanup { sid: String }
+    impl Drop for CancelCleanup {
+        fn drop(&mut self) {
+            if let Ok(mut map) = INJECTION_CANCELS.lock() { map.remove(&self.sid); }
+        }
+    }
+    let _cancel_cleanup = CancelCleanup { sid: cancel_cleanup_sid };
+
+    // 3. Emit "started" so frontend can show loading state
+    emit_parent_stream_event(&ParentAgentStreamEvent {
+        event_type: "started".into(),
+        parent_session_id: parent_session_id.clone(),
+        run_id: run_id.clone(),
+        push_message: Some(push_message.clone()),
+        delta: None,
+        error: None,
+    });
+
+    // 4. Build model chain
+    let store = provider::load_store().unwrap_or_default();
+    let agent_model_config = crate::agent_loader::load_agent(&parent_agent_id)
+        .map(|def| def.config.model)
+        .unwrap_or_default();
+    let (primary, fallbacks) = provider::resolve_model_chain(&agent_model_config, &store);
+    let mut model_chain = Vec::new();
+    if let Some(p) = primary { model_chain.push(p); }
+    for fb in fallbacks {
+        if !model_chain.iter().any(|m: &crate::provider::ActiveModel| m.provider_id == fb.provider_id && m.model_id == fb.model_id) {
+            model_chain.push(fb);
+        }
+    }
+
+    if model_chain.is_empty() {
+        app_error!("subagent", "inject", "No model configured for parent agent {}", &parent_agent_id);
+        emit_parent_stream_event(&ParentAgentStreamEvent {
+            event_type: "error".into(),
+            parent_session_id: parent_session_id.clone(),
+            run_id,
+            push_message: None,
+            delta: None,
+            error: Some("No model configured for parent agent".into()),
+        });
+        return;
+    }
+
+    const MAX_RETRIES: u32 = 2;
+    const RETRY_BASE_MS: u64 = 1000;
+    const RETRY_MAX_MS: u64 = 10_000;
+
+    let mut last_error = String::new();
+    let mut succeeded = false;
+
+    'outer: for model_ref in &model_chain {
+        let prov = match provider::find_provider(&store.providers, &model_ref.provider_id) {
+            Some(p) => p,
+            None => continue,
+        };
+        let model_label = format!("{}::{}", model_ref.provider_id, model_ref.model_id);
+        let mut retry_count = 0u32;
+
+        loop {
+            // Check cancel before each attempt
+            if cancel.load(Ordering::SeqCst) {
+                app_info!("subagent", "inject", "Injection cancelled before attempt for session {}", &parent_session_id);
+                break 'outer;
+            }
+
+            let mut agent = AssistantAgent::new_from_provider(prov, &model_ref.model_id);
+            agent.set_agent_id(&parent_agent_id);
+            agent.set_session_id(&parent_session_id);
+
+            // Restore parent conversation history from DB
+            if let Ok(Some(json_str)) = session_db.load_context(&parent_session_id) {
+                if let Ok(history) = serde_json::from_str::<Vec<serde_json::Value>>(&json_str) {
+                    if !history.is_empty() {
+                        agent.set_conversation_history(history);
+                    }
+                }
+            }
+
+            let cancel_for_chat = cancel.clone();
+            let parent_sid_for_cb = parent_session_id.clone();
+            let run_id_for_cb = run_id.clone();
+
+            match agent.chat(&push_message, &[], None, cancel_for_chat, move |delta| {
+                emit_parent_stream_event(&ParentAgentStreamEvent {
+                    event_type: "delta".into(),
+                    parent_session_id: parent_sid_for_cb.clone(),
+                    run_id: run_id_for_cb.clone(),
+                    push_message: None,
+                    delta: Some(delta.to_string()),
+                    error: None,
+                });
+            }).await {
+                Ok(response) => {
+                    // If cancelled during execution, don't write to DB — user's chat takes over
+                    if cancel.load(Ordering::SeqCst) {
+                        app_info!("subagent", "inject",
+                            "Injection cancelled during execution for session {}", &parent_session_id);
+                        break 'outer;
+                    }
+                    // 5. Success: write push message + assistant response to DB
+                    let mut user_msg = crate::session::NewMessage::user(&push_message);
+                    user_msg.attachments_meta = Some(serde_json::json!({
+                        "subagent_result": {
+                            "run_id": &run_id,
+                            "agent_id": &child_agent_id,
+                        }
+                    }).to_string());
+                    let _ = session_db.append_message(&parent_session_id, &user_msg);
+                    let _ = session_db.append_message(
+                        &parent_session_id,
+                        &crate::session::NewMessage::assistant(&response),
+                    );
+                    // Save updated conversation history
+                    let history = agent.get_conversation_history();
+                    if let Ok(json_str) = serde_json::to_string(&history) {
+                        let _ = session_db.save_context(&parent_session_id, &json_str);
+                    }
+                    app_info!("subagent", "inject",
+                        "Parent agent {} responded via model {}", &parent_agent_id, model_label);
+                    succeeded = true;
+                    break 'outer;
+                }
+                Err(e) => {
+                    if cancel.load(Ordering::SeqCst) {
+                        app_info!("subagent", "inject",
+                            "Injection cancelled (error path) for session {}", &parent_session_id);
+                        break 'outer;
+                    }
+                    last_error = e.to_string();
+                    let reason = failover::classify_error(&last_error);
+                    if reason.is_terminal() {
+                        app_error!("subagent", "inject",
+                            "Terminal error from {}: {}", model_label, last_error);
+                        break 'outer;
+                    }
+                    if reason.is_retryable() && retry_count < MAX_RETRIES {
+                        retry_count += 1;
+                        let delay = std::cmp::min(RETRY_BASE_MS * 2u64.pow(retry_count - 1), RETRY_MAX_MS);
+                        tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                        continue;
+                    }
+                    app_warn!("subagent", "inject",
+                        "Model {} failed ({:?}), trying next: {}", model_label, reason, last_error);
+                    break;
+                }
+            }
+        }
+    }
+
+    // 6. Emit final event
+    let was_cancelled = cancel.load(Ordering::SeqCst);
+    if was_cancelled {
+        // Re-queue for retry after the user's chat completes
+        if let Ok(mut queue) = PENDING_INJECTIONS.lock() {
+            queue.push(PendingInjection {
+                parent_session_id: parent_session_id.clone(),
+                parent_agent_id: parent_agent_id.clone(),
+                child_agent_id,
+                run_id: run_id.clone(),
+                push_message,
+                session_db,
+            });
+        }
+        app_info!("subagent", "inject",
+            "Injection for run {} cancelled, re-queued for next idle", &run_id);
+        emit_parent_stream_event(&ParentAgentStreamEvent {
+            event_type: "error".into(),
+            parent_session_id,
+            run_id,
+            push_message: None,
+            delta: None,
+            error: Some("Cancelled: user started new chat, will retry when idle".into()),
+        });
+    } else if succeeded {
+        emit_parent_stream_event(&ParentAgentStreamEvent {
+            event_type: "done".into(),
+            parent_session_id,
+            run_id,
+            push_message: None,
+            delta: None,
+            error: None,
+        });
+    } else {
+        emit_parent_stream_event(&ParentAgentStreamEvent {
+            event_type: "error".into(),
+            parent_session_id,
+            run_id,
+            push_message: None,
+            delta: None,
+            error: Some(format!("All models failed: {}", last_error)),
+        });
+    }
+}
+
+/// RAII guard that removes a session from INJECTING_SESSIONS when dropped.
+struct CleanupGuard {
+    session_id: String,
+}
+
+impl Drop for CleanupGuard {
+    fn drop(&mut self) {
+        if let Ok(mut guard) = INJECTING_SESSIONS.lock() {
+            guard.remove(&self.session_id);
+        }
+        // Re-trigger next pending injection for this session (serial execution)
+        flush_pending_injections(&self.session_id);
     }
 }

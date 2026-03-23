@@ -136,6 +136,8 @@ async fn action_check(args: &Value) -> Result<String> {
         if let Some(ref model) = run.model_used {
             response["model_used"] = serde_json::Value::String(model.clone());
         }
+        // Mark as fetched so auto-injection is skipped
+        crate::subagent::mark_run_fetched(run_id);
     }
 
     Ok(serde_json::to_string_pretty(&response)?)
@@ -182,6 +184,9 @@ async fn action_result(args: &Value) -> Result<String> {
             "message": "Sub-agent is still running. Use check to poll status."
         }))?);
     }
+
+    // Mark as fetched so auto-injection is skipped
+    crate::subagent::mark_run_fetched(run_id);
 
     Ok(serde_json::to_string_pretty(&serde_json::json!({
         "run_id": run.run_id,

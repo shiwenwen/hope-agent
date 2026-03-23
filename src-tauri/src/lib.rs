@@ -1315,6 +1315,7 @@ async fn chat(
     let cancel = state.chat_cancel.clone();
     cancel.store(false, Ordering::SeqCst); // Reset cancel flag
     let logger = state.logger.clone();
+    // NOTE: _chat_session_guard is set later after session_id is resolved
 
     // Resolve or create session — prefer explicit agent_id from frontend
     let current_agent_id = match agent_id {
@@ -1341,6 +1342,9 @@ async fn chat(
             meta.id
         }
     };
+
+    // Mark this session as active — cancels any running subagent injection and blocks new ones
+    let _chat_session_guard = crate::subagent::ChatSessionGuard::new(&sid);
 
     // Build attachments metadata from file paths (files already saved by save_attachment)
     let attachments_meta = if !attachments.is_empty() {

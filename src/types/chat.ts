@@ -31,6 +31,10 @@ export interface Message {
   fallbackEvent?: FallbackEvent
   /** If set, this user message was sent by a parent agent (not a human) */
   fromAgentId?: string
+  /** If true, this user message is a sub-agent result injected by the backend */
+  isSubagentResult?: boolean
+  /** The child agent ID that produced the sub-agent result */
+  subagentResultAgentId?: string
   /** Database row ID, used for deduplication during streaming append */
   dbId?: number
 }
@@ -137,6 +141,15 @@ export interface SubagentRun {
   startedAt: string
   finishedAt?: string
   durationMs?: number
+}
+
+export interface ParentAgentStreamEvent {
+  eventType: "started" | "delta" | "done" | "error"
+  parentSessionId: string
+  runId: string
+  pushMessage?: string  // only for "started"
+  delta?: string        // raw JSON delta string, only for "delta"
+  error?: string        // only for "error"
 }
 
 export interface SubagentConfig {
