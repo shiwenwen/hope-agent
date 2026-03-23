@@ -348,10 +348,10 @@ export default function ChatSidebar({
                 subagent: t("chat.filterSubagent"),
               }[filter]
               const count = {
-                all: sessions.length,
-                session: sessions.filter(s => !s.isCron && !s.parentSessionId).length,
-                cron: sessions.filter(s => s.isCron).length,
-                subagent: sessions.filter(s => !!s.parentSessionId).length,
+                all: sessions.reduce((sum, s) => sum + s.unreadCount, 0),
+                session: sessions.filter(s => !s.isCron && !s.parentSessionId).reduce((sum, s) => sum + s.unreadCount, 0),
+                cron: sessions.filter(s => s.isCron).reduce((sum, s) => sum + s.unreadCount, 0),
+                subagent: sessions.filter(s => !!s.parentSessionId).reduce((sum, s) => sum + s.unreadCount, 0),
               }[filter]
               const isActive = sessionFilter === filter
               return (
