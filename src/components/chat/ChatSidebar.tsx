@@ -362,9 +362,7 @@ export default function ChatSidebar({
                 const unreadSessions = filterSessions.filter(s => s.unreadCount > 0)
                 if (unreadSessions.length === 0) return
                 try {
-                  await Promise.all(
-                    unreadSessions.map(s => invoke("mark_session_read_cmd", { sessionId: s.id }))
-                  )
+                  await invoke("mark_session_read_batch_cmd", { sessionIds: unreadSessions.map(s => s.id) })
                   if (onMarkAllRead) onMarkAllRead()
                 } catch (err) {
                   console.error("Failed to mark sessions as read:", err)

@@ -563,6 +563,21 @@ impl SessionDB {
         Ok(())
     }
 
+    /// Mark all messages in multiple sessions as read.
+    pub fn mark_session_read_batch(&self, session_ids: &[String]) -> Result<()> {
+        if session_ids.is_empty() {
+            return Ok(());
+        }
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "UPDATE sessions SET last_read_message_id = (SELECT COALESCE(MAX(id), 0) FROM messages WHERE session_id = ?1) WHERE id = ?1"
+        )?;
+        for id in session_ids {
+            stmt.execute(params![id])?;
+        }
+        Ok(())
+    }
+
     // ── Sub-Agent Run CRUD ──────────────────────────────────────
 
     /// Insert a new sub-agent run record.

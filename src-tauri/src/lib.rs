@@ -1253,6 +1253,15 @@ async fn mark_session_read_cmd(
     state.session_db.mark_session_read(&session_id).map_err(|e| e.to_string())
 }
 
+/// Mark all messages in multiple sessions as read.
+#[tauri::command]
+async fn mark_session_read_batch_cmd(
+    session_ids: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    state.session_db.mark_session_read_batch(&session_ids).map_err(|e| e.to_string())
+}
+
 /// Save an attachment file to disk. Uses a temp directory when session_id is empty.
 /// Returns the absolute path to the saved file.
 #[tauri::command]

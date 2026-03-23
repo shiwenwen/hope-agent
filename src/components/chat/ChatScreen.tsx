@@ -744,6 +744,7 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
       await handleSwitchSession(initialSessionId)
       onSessionNavigated?.()
     })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialSessionId])
 
   /** Update messages for a specific session. If it's the current session, also update state. */
@@ -885,6 +886,7 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
     } finally {
       setLoadingMore(false)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentSessionId, loadingMore, hasMore])
 
   // Scroll-to-top detection: load older messages
@@ -1362,7 +1364,7 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
         onSwitchSession={handleSwitchSession}
         onNewChat={handleNewChat}
         onDeleteSession={handleDeleteSession}
-        onEditAgent={(id) => onNavigateToSettings?.("agents", id)}
+        onEditAgent={onOpenAgentSettings}
         onMarkAllRead={reloadSessions}
       />
 
