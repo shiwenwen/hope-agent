@@ -1534,6 +1534,22 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
                           : t("chat.statusNewSession")}
                       </span>
                     </div>
+                    {/* Session ID */}
+                    {currentSessionId && (
+                      <div className="flex items-center justify-between gap-2 overflow-hidden">
+                        <span className="text-muted-foreground shrink-0">🆔 {t("chat.statusSessionId")}</span>
+                        <div
+                          className="flex items-center gap-1.5 ml-auto overflow-hidden text-muted-foreground/80 cursor-pointer hover:text-foreground transition-colors group"
+                          title={currentSessionId}
+                          onClick={() => navigator.clipboard.writeText(currentSessionId)}
+                        >
+                          <span className="font-mono text-[11px] truncate select-all">
+                            {currentSessionId}
+                          </span>
+                          <Copy className="h-3.5 w-3.5 shrink-0 opacity-70 group-hover:opacity-100 transition-opacity" />
+                        </div>
+                      </div>
+                    )}
                     {/* Message count */}
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-muted-foreground">📊 {t("chat.statusMessages", { count: messages.length })}</span>

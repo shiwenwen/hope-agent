@@ -57,6 +57,7 @@
     "statusModel": "Model",
     "statusAgent": "Agent",
     "statusSession": "Session",
+    "statusSessionId": "Session ID",
     "statusThinking": "Thinking",
     "statusUpdated": "Updated",
     "statusMessages": "{{count}} messages",

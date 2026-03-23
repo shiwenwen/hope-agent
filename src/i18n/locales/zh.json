@@ -57,6 +57,7 @@
     "statusModel": "模型",
     "statusAgent": "Agent",
     "statusSession": "会话",
+    "statusSessionId": "会话 ID",
     "statusThinking": "思考模式",
     "statusUpdated": "更新时间",
     "statusMessages": "{{count}} 条消息",
