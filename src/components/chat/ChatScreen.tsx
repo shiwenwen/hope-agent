@@ -535,6 +535,13 @@ export default function ChatScreen({ onOpenAgentSettings, onCodexReauth, initial
     reloadAgents()
   }, [reloadSessions, reloadAgents])
 
+  // Refresh agent list when agents are created/saved/deleted in settings panel
+  useEffect(() => {
+    const handler = () => { reloadAgents() }
+    window.addEventListener("agents-changed", handler)
+    return () => window.removeEventListener("agents-changed", handler)
+  }, [reloadAgents])
+
   // Listen for cron job completions to refresh unread counts + send notification
   useEffect(() => {
     let unlisten: UnlistenFn | undefined

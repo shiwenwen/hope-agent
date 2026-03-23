@@ -190,6 +190,7 @@ function AgentCreateView({
         useCustomPrompt: false,
       }
       await invoke("save_agent_config_cmd", { id: trimmedId, config })
+      window.dispatchEvent(new Event("agents-changed"))
       onCreated(trimmedId)
     } catch (e) {
       setError(String(e))
@@ -324,6 +325,7 @@ function AgentEditView({
         invoke("save_agent_markdown", { id: agentId, file: "persona.md", content: persona }),
         invoke("save_agent_markdown", { id: agentId, file: "tools.md", content: toolsGuide }),
       ])
+      window.dispatchEvent(new Event("agents-changed"))
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
     } catch (e) {
@@ -338,6 +340,7 @@ function AgentEditView({
     if (!confirm(t("settings.agentDeleteConfirm"))) return
     try {
       await invoke("delete_agent", { id: agentId })
+      window.dispatchEvent(new Event("agents-changed"))
       onBack()
     } catch (e) {
       logger.error("settings", "AgentPanel::deleteAgent", "Failed to delete agent", e)
