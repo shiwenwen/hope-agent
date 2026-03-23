@@ -40,7 +40,6 @@
     "i18next-browser-languagedetector": "^8.2.1",
     "katex": "^0.16.38",
     "lucide-react": "^0.577.0",
-    "npx": "^10.2.2",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-easy-crop": "^5.5.6",
