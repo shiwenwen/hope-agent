@@ -1,4 +1,4 @@
-export type SettingsSection = "general" | "modelConfig" | "tools" | "skills" | "agents" | "memory" | "cron" | "notifications" | "permissions" | "profile" | "chat" | "logs" | "health" | "about"
+export type SettingsSection = "general" | "modelConfig" | "tools" | "skills" | "agents" | "memory" | "cron" | "notifications" | "permissions" | "profile" | "chat" | "logs" | "health" | "about" | "developer"
 
 export interface SettingsSectionItem {
   id: SettingsSection

@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   Bot,
   Brain,
+  Code,
   Info,
   MessageSquare,
   Puzzle,
@@ -36,6 +37,7 @@ import CronPanel from "@/components/settings/CronPanel"
 import PermissionsPanel from "@/components/settings/PermissionsPanel"
 import CrashHistoryPanel from "@/components/settings/CrashHistoryPanel"
 import NotificationPanel from "@/components/settings/NotificationPanel"
+import DeveloperPanel from "@/components/settings/DeveloperPanel"
 import type { SettingsSection, SettingsSectionItem } from "./types"
 
 const SECTIONS: SettingsSectionItem[] = [
@@ -108,6 +110,11 @@ const SECTIONS: SettingsSectionItem[] = [
     id: "about",
     icon: <Info className="h-4 w-4" />,
     labelKey: "settings.about",
+  },
+  {
+    id: "developer",
+    icon: <Code className="h-4 w-4" />,
+    labelKey: "settings.developer",
   },
 ]
 
@@ -230,6 +237,7 @@ export default function SettingsView({
           {activeSection === "health" && <CrashHistoryPanel />}
           {activeSection === "logs" && <LogPanel />}
           {activeSection === "about" && <AboutPanel />}
+          {activeSection === "developer" && <DeveloperPanel />}
           </div>
         </div>
       </div>

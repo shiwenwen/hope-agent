@@ -613,7 +613,22 @@
     "logsCopyPath": "复制路径",
     "logsNoFiles": "暂无日志文件",
     "logsSelectFile": "选择左侧文件查看内容",
-    "logsPagination": "第 {{page}} 页 / 共 {{totalPages}} 页（{{total}} 条）"
+    "logsPagination": "第 {{page}} 页 / 共 {{totalPages}} 页（{{total}} 条）",
+    "developer": "开发者模式",
+    "devWarningTitle": "危险操作区域",
+    "devWarningDesc": "以下操作将永久删除数据且无法恢复，执行后应用将自动重启。",
+    "devClearSessions": "清空会话",
+    "devClearSessionsDesc": "删除所有聊天记录和附件",
+    "devClearCron": "清空定时任务",
+    "devClearCronDesc": "删除所有定时任务和运行记录",
+    "devClearMemory": "清空记忆",
+    "devClearMemoryDesc": "删除所有记忆数据",
+    "devResetConfig": "恢复默认设置",
+    "devResetConfigDesc": "重置所有系统配置为默认值",
+    "devClearAll": "一键清除",
+    "devClearAllDesc": "清空所有数据并恢复默认设置",
+    "devClearButton": "清除",
+    "devConfirmDesc": "此操作不可恢复，执行后应用将自动重启以重新初始化。确定要继续吗？"
   },
   "tz": {
     "shanghai": "上海 (UTC+8)",

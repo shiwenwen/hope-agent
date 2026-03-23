@@ -613,7 +613,22 @@
     "logsCopyPath": "Copy path",
     "logsNoFiles": "No log files yet",
     "logsSelectFile": "Select a file on the left to view",
-    "logsPagination": "Page {{page}} / {{totalPages}} ({{total}} entries)"
+    "logsPagination": "Page {{page}} / {{totalPages}} ({{total}} entries)",
+    "developer": "Developer",
+    "devWarningTitle": "Danger Zone",
+    "devWarningDesc": "The following actions will permanently delete data and cannot be undone. The app will restart automatically after execution.",
+    "devClearSessions": "Clear Sessions",
+    "devClearSessionsDesc": "Delete all chat history and attachments",
+    "devClearCron": "Clear Cron Jobs",
+    "devClearCronDesc": "Delete all scheduled tasks and run logs",
+    "devClearMemory": "Clear Memory",
+    "devClearMemoryDesc": "Delete all memory data",
+    "devResetConfig": "Reset Config",
+    "devResetConfigDesc": "Reset all system settings to defaults",
+    "devClearAll": "Clear All",
+    "devClearAllDesc": "Clear all data and reset to defaults",
+    "devClearButton": "Clear",
+    "devConfirmDesc": "This action cannot be undone. The app will restart to reinitialize. Are you sure?"
   },
   "tz": {
     "shanghai": "Shanghai (UTC+8)",

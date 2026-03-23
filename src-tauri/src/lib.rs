@@ -5,6 +5,7 @@ mod agent_config;
 mod agent_loader;
 mod browser_state;
 mod cron;
+mod dev_tools;
 mod docker;
 mod memory;
 mod failover;
@@ -3197,6 +3198,12 @@ pub fn run() {
             create_backup_cmd,
             get_guardian_enabled,
             set_guardian_enabled,
+            // Developer tools
+            dev_tools::dev_clear_sessions,
+            dev_tools::dev_clear_cron,
+            dev_tools::dev_clear_memory,
+            dev_tools::dev_reset_config,
+            dev_tools::dev_clear_all,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
