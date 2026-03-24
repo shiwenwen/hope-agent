@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
-import { SUPPORTED_LANGUAGES, isFollowingSystem, setFollowSystemLanguage } from "@/i18n/i18n"
+import { SUPPORTED_LANGUAGES, isFollowingSystem, setFollowSystemLanguage, setLanguage } from "@/i18n/i18n"
 import { Monitor, Check } from "lucide-react"
 
 export default function LanguagePanel() {
@@ -19,7 +19,7 @@ export default function LanguagePanel() {
   }
 
   const handleSelectLanguage = (code: string) => {
-    i18n.changeLanguage(code)
+    setLanguage(code)
     setFollowSystem(false)
   }
 

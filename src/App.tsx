@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { logger } from "@/lib/logger"
+import { initLanguageFromConfig } from "@/i18n/i18n"
 import ProviderSetup from "@/components/settings/ProviderSetup"
 import SettingsView from "@/components/settings/SettingsView"
 import IconSidebar from "@/components/common/IconSidebar"
@@ -57,6 +58,8 @@ export default function App() {
   useEffect(() => {
     ;(async () => {
       try {
+        // Load language preference from backend config.json
+        await initLanguageFromConfig()
         const avatar = await fetchUserAvatar()
         setUserAvatar(avatar)
         const restored = await invoke<boolean>("try_restore_session")

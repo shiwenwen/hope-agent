@@ -3,20 +3,6 @@ import { invoke } from "@tauri-apps/api/core"
 
 export type ThemeMode = "auto" | "light" | "dark"
 
-const STORAGE_KEY = "theme-preference"
-
-function getStoredTheme(): ThemeMode {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY)
-    if (stored === "auto" || stored === "light" || stored === "dark") {
-      return stored
-    }
-  } catch {
-    // localStorage not available
-  }
-  return "auto"
-}
-
 function applyTheme(mode: ThemeMode) {
   const root = document.documentElement
   let isDark: boolean
@@ -41,27 +27,33 @@ function applyTheme(mode: ThemeMode) {
 }
 
 export function useTheme() {
-  const [theme, setThemeState] = useState<ThemeMode>(getStoredTheme)
+  const [theme, setThemeState] = useState<ThemeMode>("auto")
+
+  // Load theme from backend config.json on mount
+  useEffect(() => {
+    invoke<string>("get_theme")
+      .then((stored) => {
+        const mode = (stored === "light" || stored === "dark") ? stored : "auto"
+        setThemeState(mode)
+        applyTheme(mode)
+      })
+      .catch(() => {
+        applyTheme("auto")
+      })
+  }, [])
 
   const setTheme = useCallback((mode: ThemeMode) => {
     setThemeState(mode)
-    try {
-      localStorage.setItem(STORAGE_KEY, mode)
-    } catch {
-      // ignore
-    }
     applyTheme(mode)
+    // Persist to backend config.json
+    invoke("set_theme", { theme: mode }).catch(() => {})
   }, [])
 
-  // Apply theme on mount and listen for system changes when in "auto" mode
+  // Listen for system changes when in "auto" mode
   useEffect(() => {
-    applyTheme(theme)
-
     const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)")
     const handleChange = () => {
-      // Only react to system changes in auto mode
-      const current = getStoredTheme()
-      if (current === "auto") {
+      if (theme === "auto") {
         applyTheme("auto")
       }
     }

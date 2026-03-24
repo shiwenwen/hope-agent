@@ -256,10 +256,24 @@ pub struct ProviderStore {
     /// Notification configuration
     #[serde(default)]
     pub notification: NotificationConfig,
+    /// UI theme preference: "auto" | "light" | "dark"
+    #[serde(default = "default_theme")]
+    pub theme: String,
+    /// UI language preference: "auto" means follow system, otherwise a locale code like "zh", "en"
+    #[serde(default = "default_language")]
+    pub language: String,
 }
 
 fn default_skill_env_check() -> bool {
     true
+}
+
+fn default_theme() -> String {
+    "auto".to_string()
+}
+
+fn default_language() -> String {
+    "auto".to_string()
 }
 
 impl Default for ProviderStore {
@@ -279,6 +293,8 @@ impl Default for ProviderStore {
             skill_env: std::collections::HashMap::new(),
             compact: crate::context_compact::CompactConfig::default(),
             notification: NotificationConfig::default(),
+            theme: default_theme(),
+            language: default_language(),
         }
     }
 }

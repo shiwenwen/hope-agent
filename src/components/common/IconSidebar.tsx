@@ -25,7 +25,7 @@ import {
   CheckCheck,
 } from "lucide-react"
 import { useTheme } from "@/hooks/useTheme"
-import { SUPPORTED_LANGUAGES, isFollowingSystem, setFollowSystemLanguage } from "@/i18n/i18n"
+import { SUPPORTED_LANGUAGES, isFollowingSystem, setFollowSystemLanguage, setLanguage } from "@/i18n/i18n"
 
 interface IconSidebarProps {
   view: "chat" | "settings" | "skills" | "profile" | "agents" | "calendar"
@@ -255,7 +255,7 @@ export default function IconSidebar({
                           : "text-foreground"
                       }`}
                       onClick={() => {
-                        i18n.changeLanguage(lang.code)
+                        setLanguage(lang.code)
                         setShowLangMenu(false)
                       }}
                     >

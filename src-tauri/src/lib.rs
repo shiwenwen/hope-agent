@@ -423,6 +423,11 @@ pub fn run() {
             commands::config::save_notification_config,
             commands::config::compact_context_now,
             commands::memory::list_local_embedding_models,
+            // Theme & Language
+            commands::config::get_theme,
+            commands::config::set_theme,
+            commands::config::get_language,
+            commands::config::set_language,
             // User config
             commands::config::get_user_config,
             commands::config::save_user_config,

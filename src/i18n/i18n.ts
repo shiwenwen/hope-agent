@@ -1,6 +1,6 @@
 import i18n from "i18next"
 import { initReactI18next } from "react-i18next"
-import LanguageDetector from "i18next-browser-languagedetector"
+import { invoke } from "@tauri-apps/api/core"
 
 import zh from "./locales/zh.json"
 import zhTW from "./locales/zh-TW.json"
@@ -30,8 +30,24 @@ export const SUPPORTED_LANGUAGES = [
   { code: "ms", label: "Bahasa Melayu", shortLabel: "MY" },
 ] as const
 
+const supportedCodes = SUPPORTED_LANGUAGES.map((l) => l.code)
+
+/** Resolve a raw locale string to one of our supported language codes. */
+function resolveLanguage(raw: string): string {
+  const exact = supportedCodes.find((c) => c === raw)
+  if (exact) return exact
+  const prefix = supportedCodes.find((c) => raw.startsWith(c + "-"))
+  return prefix || "en"
+}
+
+/** Detect the system/browser language and resolve to a supported code. */
+function detectSystemLanguage(): string {
+  const detected = navigator.language || (navigator.languages && navigator.languages[0]) || "en"
+  return resolveLanguage(detected)
+}
+
+// Initialize i18next with system language as default (will be overridden by backend config)
 i18n
-  .use(LanguageDetector)
   .use(initReactI18next)
   .init({
     resources: {
@@ -48,44 +64,63 @@ i18n
       es: { translation: es },
       ms: { translation: ms },
     },
+    lng: detectSystemLanguage(),
     fallbackLng: "en",
     interpolation: {
       escapeValue: false,
     },
-    detection: {
-      order: ["localStorage", "navigator"],
-      caches: ["localStorage"],
-      lookupLocalStorage: "i18nextLng",
-    },
   })
 
-const STORAGE_KEY = "i18nextLng"
+// Internal state: tracks whether user selected "auto" (follow system)
+let _followingSystem = true
+
+/**
+ * Load saved language preference from backend config.json and apply it.
+ * Should be called once at app startup.
+ */
+export async function initLanguageFromConfig() {
+  try {
+    const saved = await invoke<string>("get_language")
+    if (saved && saved !== "auto") {
+      _followingSystem = false
+      const lang = resolveLanguage(saved)
+      i18n.changeLanguage(lang)
+    } else {
+      _followingSystem = true
+      i18n.changeLanguage(detectSystemLanguage())
+    }
+  } catch {
+    // Backend not ready yet, keep system default
+    _followingSystem = true
+  }
+}
 
 /**
  * Check whether the app is currently in "follow system" mode.
- * When the user explicitly picks a language, it's stored in localStorage.
- * If there's no stored preference, we're following the system.
  */
 export function isFollowingSystem(): boolean {
-  return !localStorage.getItem(STORAGE_KEY)
+  return _followingSystem
 }
 
 /**
  * Switch to "follow system" language mode.
- * Removes the stored preference and re-detects the browser/system language.
+ * Persists "auto" to backend config.json.
  */
 export function setFollowSystemLanguage() {
-  localStorage.removeItem(STORAGE_KEY)
-  // Re-detect language from navigator
-  const detected = navigator.language || (navigator.languages && navigator.languages[0]) || "en"
-  // Resolve to a supported language code
-  const supported = SUPPORTED_LANGUAGES.map((l) => l.code)
-  const exact = supported.find((c) => c === detected)
-  const prefix = supported.find((c) => detected.startsWith(c + "-"))
-  const lang = exact || prefix || "en"
+  _followingSystem = true
+  const lang = detectSystemLanguage()
   i18n.changeLanguage(lang)
-  // Remove again because changeLanguage will re-set it
-  localStorage.removeItem(STORAGE_KEY)
+  invoke("set_language", { language: "auto" }).catch(() => {})
+}
+
+/**
+ * Set a specific language.
+ * Persists the language code to backend config.json.
+ */
+export function setLanguage(code: string) {
+  _followingSystem = false
+  i18n.changeLanguage(code)
+  invoke("set_language", { language: code }).catch(() => {})
 }
 
 export default i18n

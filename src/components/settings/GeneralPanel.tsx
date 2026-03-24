@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { useTheme, type ThemeMode } from "@/hooks/useTheme"
-import { SUPPORTED_LANGUAGES, isFollowingSystem, setFollowSystemLanguage } from "@/i18n/i18n"
+import { SUPPORTED_LANGUAGES, isFollowingSystem, setFollowSystemLanguage, setLanguage } from "@/i18n/i18n"
 import { logger } from "@/lib/logger"
 import { Switch } from "@/components/ui/switch"
 import {
@@ -55,7 +55,7 @@ export default function GeneralPanel() {
   }
 
   const handleSelectLanguage = (code: string) => {
-    i18n.changeLanguage(code)
+    setLanguage(code)
     setFollowSystem(false)
   }
 

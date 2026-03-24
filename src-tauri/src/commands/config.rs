@@ -138,6 +138,34 @@ pub async fn compact_context_now(
     Ok(result)
 }
 
+// ── Theme & Language ─────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn get_theme() -> Result<String, String> {
+    let store = provider::load_store().map_err(|e| e.to_string())?;
+    Ok(store.theme)
+}
+
+#[tauri::command]
+pub async fn set_theme(theme: String) -> Result<(), String> {
+    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    store.theme = theme;
+    provider::save_store(&store).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_language() -> Result<String, String> {
+    let store = provider::load_store().map_err(|e| e.to_string())?;
+    Ok(store.language)
+}
+
+#[tauri::command]
+pub async fn set_language(language: String) -> Result<(), String> {
+    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    store.language = language;
+    provider::save_store(&store).map_err(|e| e.to_string())
+}
+
 // ── User Config Commands ─────────────────────────────────────────
 
 #[tauri::command]
