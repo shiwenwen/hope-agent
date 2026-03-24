@@ -72,16 +72,6 @@ const SECTIONS: SettingsSectionItem[] = [
     labelKey: "settings.memory",
   },
   {
-    id: "cron",
-    icon: <Clock className="h-4 w-4" />,
-    labelKey: "settings.cron",
-  },
-  {
-    id: "notifications",
-    icon: <Bell className="h-4 w-4" />,
-    labelKey: "settings.notifications",
-  },
-  {
     id: "chat",
     icon: <MessageSquare className="h-4 w-4" />,
     labelKey: "settings.chat",
@@ -90,6 +80,16 @@ const SECTIONS: SettingsSectionItem[] = [
     id: "tools",
     icon: <Wrench className="h-4 w-4" />,
     labelKey: "settings.tools",
+  },
+  {
+    id: "cron",
+    icon: <Clock className="h-4 w-4" />,
+    labelKey: "settings.cron",
+  },
+  {
+    id: "notifications",
+    icon: <Bell className="h-4 w-4" />,
+    labelKey: "settings.notifications",
   },
   {
     id: "permissions",
