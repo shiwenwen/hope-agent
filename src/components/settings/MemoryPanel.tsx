@@ -32,6 +32,7 @@ import {
   Zap,
   Wifi,
   Loader2,
+  Check,
   CheckSquare,
   Square,
 } from "lucide-react"
@@ -151,9 +152,32 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
   const [formTags, setFormTags] = useState("")
   const [formScope, setFormScope] = useState<"global" | "agent">(isAgentMode ? "agent" : "global")
 
-  // Auto-extract state (agent mode only)
-  const [autoExtract, setAutoExtract] = useState(false)
-  const [autoExtractLoaded, setAutoExtractLoaded] = useState(false)
+  // Auto-extract state — global config + per-agent override
+  const [globalExtract, setGlobalExtract] = useState({ autoExtract: false, extractMinTurns: 3, extractProviderId: null as string | null, extractModelId: null as string | null })
+  const [agentExtractOverride, setAgentExtractOverride] = useState<{ autoExtract: boolean | null; extractMinTurns: number | null; extractProviderId: string | null; extractModelId: string | null }>({ autoExtract: null, extractMinTurns: null, extractProviderId: null, extractModelId: null })
+  const [extractConfigLoaded, setExtractConfigLoaded] = useState(false)
+  const [availableProviders, setAvailableProviders] = useState<{ id: string; name: string; models: { id: string; name: string }[] }[]>([])
+
+  // Effective values (agent override → global fallback)
+  const effectiveAutoExtract = isAgentMode
+    ? (agentExtractOverride.autoExtract ?? globalExtract.autoExtract)
+    : globalExtract.autoExtract
+  const effectiveMinTurns = isAgentMode
+    ? (agentExtractOverride.extractMinTurns ?? globalExtract.extractMinTurns)
+    : globalExtract.extractMinTurns
+  const effectiveProviderId = isAgentMode
+    ? (agentExtractOverride.extractProviderId ?? globalExtract.extractProviderId)
+    : globalExtract.extractProviderId
+  const effectiveModelId = isAgentMode
+    ? (agentExtractOverride.extractModelId ?? globalExtract.extractModelId)
+    : globalExtract.extractModelId
+  // Whether agent has any overrides
+  const agentHasOverride = isAgentMode && (
+    agentExtractOverride.autoExtract !== null ||
+    agentExtractOverride.extractMinTurns !== null ||
+    agentExtractOverride.extractProviderId !== null ||
+    agentExtractOverride.extractModelId !== null
+  )
 
   // Multi-select state
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
@@ -173,6 +197,14 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
   const [embeddingDirty, setEmbeddingDirty] = useState(false)
   const [embeddingTestLoading, setEmbeddingTestLoading] = useState(false)
   const [embeddingTestResult, setEmbeddingTestResult] = useState<TestResult | null>(null)
+  const [embeddingSaved, setEmbeddingSaved] = useState(false)
+
+  // Dedup config state
+  const [dedupConfig, setDedupConfig] = useState({ thresholdHigh: 0.02, thresholdMerge: 0.012 })
+  const [dedupExpanded, setDedupExpanded] = useState(false)
+
+  // Stats state
+  const [stats, setStats] = useState<{ total: number; byType: Record<string, number>; withEmbedding: number } | null>(null)
 
   // ── Load agents for scope picker (standalone mode) ──
   useEffect(() => {
@@ -224,8 +256,12 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
         })
         setMemories(results)
       }
-      const count = await invoke<number>("memory_count", { scope })
+      const [count, statsData] = await Promise.all([
+        invoke<number>("memory_count", { scope }),
+        invoke<{ total: number; byType: Record<string, number>; withEmbedding: number }>("memory_stats", { scope }).catch(() => null),
+      ])
       setTotalCount(count)
+      if (statsData) setStats(statsData)
     } catch (e) {
       logger.error("settings", "MemoryPanel::load", "Failed to load memories", e)
     } finally {
@@ -237,28 +273,111 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
     loadMemories()
   }, [loadMemories])
 
-  // ── Load auto-extract config (agent mode only) ──
+  // ── Load extract config (global + agent override) ──
   useEffect(() => {
-    if (!isAgentMode || !agentId) return
-    invoke<{ memory?: { autoExtract?: boolean } }>("get_agent_config", { id: agentId })
-      .then((cfg) => {
-        setAutoExtract(cfg?.memory?.autoExtract ?? false)
-        setAutoExtractLoaded(true)
-      })
-      .catch(() => setAutoExtractLoaded(true))
+    async function loadExtractConfig() {
+      try {
+        // Always load global extract config
+        const global = await invoke<{ autoExtract: boolean; extractMinTurns: number; extractProviderId: string | null; extractModelId: string | null }>("get_extract_config")
+        setGlobalExtract(global)
+
+        // In agent mode, also load per-agent override
+        if (isAgentMode && agentId) {
+          const cfg = await invoke<{ memory?: { autoExtract?: boolean | null; extractMinTurns?: number | null; extractProviderId?: string | null; extractModelId?: string | null } }>("get_agent_config", { id: agentId })
+          setAgentExtractOverride({
+            autoExtract: cfg?.memory?.autoExtract ?? null,
+            extractMinTurns: cfg?.memory?.extractMinTurns ?? null,
+            extractProviderId: cfg?.memory?.extractProviderId ?? null,
+            extractModelId: cfg?.memory?.extractModelId ?? null,
+          })
+        }
+
+        // Load available providers for model picker
+        const providers = await invoke<{ id: string; name: string; models: { id: string; name: string }[]; enabled?: boolean }[]>("get_providers")
+        setAvailableProviders(
+          providers
+            .filter((p) => p.enabled !== false)
+            .map((p) => ({ id: p.id, name: p.name, models: p.models.map((m) => ({ id: m.id, name: m.name })) }))
+        )
+      } catch {
+        // ignore
+      } finally {
+        setExtractConfigLoaded(true)
+      }
+    }
+    loadExtractConfig()
   }, [isAgentMode, agentId])
 
-  async function toggleAutoExtract(enabled: boolean) {
+  // Save global extract config
+  async function saveGlobalExtract(updates: Partial<typeof globalExtract>) {
+    const updated = { ...globalExtract, ...updates }
+    setGlobalExtract(updated)
+    try {
+      await invoke("save_extract_config", { config: updated })
+    } catch (e) {
+      logger.error("settings", "MemoryPanel::saveGlobalExtract", "Failed", e)
+    }
+  }
+
+  // Save per-agent extract override
+  async function saveAgentExtract(updates: Partial<typeof agentExtractOverride>) {
     if (!agentId) return
-    setAutoExtract(enabled)
+    const updated = { ...agentExtractOverride, ...updates }
+    setAgentExtractOverride(updated)
     try {
       const cfg = await invoke<Record<string, unknown>>("get_agent_config", { id: agentId })
       const memory = (cfg?.memory ?? {}) as Record<string, unknown>
-      memory.autoExtract = enabled
+      Object.assign(memory, updates)
       cfg.memory = memory
       await invoke("save_agent_config_cmd", { id: agentId, config: cfg })
     } catch (e) {
-      logger.error("settings", "MemoryPanel::toggleAutoExtract", "Failed", e)
+      logger.error("settings", "MemoryPanel::saveAgentExtract", "Failed", e)
+    }
+  }
+
+  // Reset agent overrides to inherit global
+  async function resetAgentExtract() {
+    if (!agentId) return
+    setAgentExtractOverride({ autoExtract: null, extractMinTurns: null, extractProviderId: null, extractModelId: null })
+    try {
+      const cfg = await invoke<Record<string, unknown>>("get_agent_config", { id: agentId })
+      const memory = (cfg?.memory ?? {}) as Record<string, unknown>
+      delete memory.autoExtract
+      delete memory.extractMinTurns
+      delete memory.extractProviderId
+      delete memory.extractModelId
+      cfg.memory = memory
+      await invoke("save_agent_config_cmd", { id: agentId, config: cfg })
+    } catch (e) {
+      logger.error("settings", "MemoryPanel::resetAgentExtract", "Failed", e)
+    }
+  }
+
+  function handleToggleAutoExtract(enabled: boolean) {
+    if (isAgentMode) {
+      saveAgentExtract({ autoExtract: enabled })
+    } else {
+      saveGlobalExtract({ autoExtract: enabled })
+    }
+  }
+
+  function handleUpdateExtractModel(value: string) {
+    const updates = value === "__chat__"
+      ? { extractProviderId: null, extractModelId: null }
+      : { extractProviderId: value.split("::", 2)[0], extractModelId: value.split("::", 2)[1] }
+    if (isAgentMode) {
+      saveAgentExtract(updates)
+    } else {
+      saveGlobalExtract(updates)
+    }
+  }
+
+  function handleUpdateExtractMinTurns(val: number) {
+    const clamped = Math.max(1, Math.min(20, val))
+    if (isAgentMode) {
+      saveAgentExtract({ extractMinTurns: clamped })
+    } else {
+      saveGlobalExtract({ extractMinTurns: clamped })
     }
   }
 
@@ -266,14 +385,16 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
   useEffect(() => {
     async function loadEmbedding() {
       try {
-        const [config, presetList, models] = await Promise.all([
+        const [config, presetList, models, dedup] = await Promise.all([
           invoke<EmbeddingConfig>("get_embedding_config"),
           invoke<EmbeddingPreset[]>("get_embedding_presets"),
           invoke<LocalEmbeddingModel[]>("list_local_embedding_models"),
+          invoke<{ thresholdHigh: number; thresholdMerge: number }>("get_dedup_config"),
         ])
         setEmbeddingConfig(config)
         setPresets(presetList)
         setLocalModels(models)
+        setDedupConfig(dedup)
       } catch (e) {
         logger.error("settings", "MemoryPanel::loadEmbedding", "Failed to load embedding config", e)
       }
@@ -492,6 +613,8 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
     try {
       await invoke("save_embedding_config", { config: embeddingConfig })
       setEmbeddingDirty(false)
+      setEmbeddingSaved(true)
+      setTimeout(() => setEmbeddingSaved(false), 2000)
     } catch (e) {
       logger.error("settings", "MemoryPanel::saveEmbedding", "Failed to save", e)
     }
@@ -562,6 +685,7 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
                           ...embeddingConfig,
                           providerType: preset.providerType,
                           apiBaseUrl: preset.baseUrl,
+                          apiKey: null,
                           apiModel: preset.defaultModel,
                           apiDimensions: preset.defaultDimensions,
                         })
@@ -706,11 +830,21 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
 
               {/* Test & Save buttons */}
               <div className="flex items-center gap-2 mt-4">
-                {embeddingDirty && (
-                  <Button onClick={saveEmbeddingConfig} size="sm">
-                    {t("common.save")}
-                  </Button>
-                )}
+                <Button
+                  onClick={saveEmbeddingConfig}
+                  size="sm"
+                  disabled={!embeddingDirty && !embeddingSaved}
+                  className={cn(embeddingSaved && "bg-green-500/10 text-green-600 hover:bg-green-500/20 border-green-500/30")}
+                >
+                  {embeddingSaved ? (
+                    <>
+                      <Check className="h-4 w-4 mr-1" />
+                      {t("common.saved")}
+                    </>
+                  ) : (
+                    t("common.save")
+                  )}
+                </Button>
                 <Button
                   variant="secondary"
                   size="sm"
@@ -781,6 +915,60 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
                   </div>
                 </div>
               )}
+
+              {/* Dedup thresholds (advanced) */}
+              <div className="mt-6 pt-4 border-t border-border/50">
+                <button
+                  onClick={() => setDedupExpanded(!dedupExpanded)}
+                  className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", dedupExpanded && "rotate-90")} />
+                  {t("settings.memoryDedupAdvanced")}
+                </button>
+                {dedupExpanded && (
+                  <div className="mt-3 space-y-3">
+                    <p className="text-xs text-muted-foreground">{t("settings.memoryDedupAdvancedDesc")}</p>
+                    <div className="flex items-center gap-3">
+                      <label className="text-xs text-muted-foreground whitespace-nowrap min-w-[100px]">{t("settings.memoryDedupHigh")}</label>
+                      <Input
+                        type="number"
+                        step={0.001}
+                        min={0.005}
+                        max={0.1}
+                        value={dedupConfig.thresholdHigh}
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value)
+                          if (!isNaN(val)) {
+                            const updated = { ...dedupConfig, thresholdHigh: val }
+                            setDedupConfig(updated)
+                            invoke("save_dedup_config", { config: updated }).catch(() => {})
+                          }
+                        }}
+                        className="h-7 text-xs w-24"
+                      />
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <label className="text-xs text-muted-foreground whitespace-nowrap min-w-[100px]">{t("settings.memoryDedupMerge")}</label>
+                      <Input
+                        type="number"
+                        step={0.001}
+                        min={0.005}
+                        max={0.1}
+                        value={dedupConfig.thresholdMerge}
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value)
+                          if (!isNaN(val)) {
+                            const updated = { ...dedupConfig, thresholdMerge: val }
+                            setDedupConfig(updated)
+                            invoke("save_dedup_config", { config: updated }).catch(() => {})
+                          }
+                        }}
+                        className="h-7 text-xs w-24"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -1011,17 +1199,98 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
           </div>
           <p className="text-xs text-muted-foreground mb-4 shrink-0">{t("settings.memoryDesc")}</p>
 
-          {/* Auto-extract toggle (agent mode only) */}
-          {isAgentMode && autoExtractLoaded && (
-            <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-secondary/30 mb-4 shrink-0">
-              <div>
-                <div className="text-sm font-medium">{t("settings.memoryAutoExtract")}</div>
-                <div className="text-xs text-muted-foreground">{t("settings.memoryAutoExtractDesc")}</div>
+          {/* Auto-extract settings (global + per-agent override) */}
+          {extractConfigLoaded && (
+            <div className="rounded-lg bg-secondary/30 mb-4 shrink-0">
+              <div className="flex items-center justify-between px-3 py-2">
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium flex items-center gap-1.5">
+                    {t("settings.memoryAutoExtract")}
+                    {isAgentMode && (
+                      <span className="text-[10px] font-normal text-muted-foreground/70">
+                        {agentHasOverride ? t("settings.memoryOverridden") : t("settings.memoryInherited")}
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-xs text-muted-foreground">{t("settings.memoryAutoExtractDesc")}</div>
+                </div>
+                <Switch
+                  checked={effectiveAutoExtract}
+                  onCheckedChange={handleToggleAutoExtract}
+                />
               </div>
-              <Switch
-                checked={autoExtract}
-                onCheckedChange={toggleAutoExtract}
-              />
+              {effectiveAutoExtract && (
+                <div className="px-3 pb-3 space-y-2 border-t border-border/30 pt-2">
+                  {/* Extraction model selector */}
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-muted-foreground whitespace-nowrap min-w-[72px]">{t("settings.memoryExtractModel")}</label>
+                    <Select
+                      value={effectiveProviderId && effectiveModelId ? `${effectiveProviderId}::${effectiveModelId}` : "__chat__"}
+                      onValueChange={handleUpdateExtractModel}
+                    >
+                      <SelectTrigger className="h-7 text-xs flex-1">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__chat__">{t("settings.memoryUseChatModel")}</SelectItem>
+                        {availableProviders.map((prov) =>
+                          prov.models.map((m) => (
+                            <SelectItem key={`${prov.id}::${m.id}`} value={`${prov.id}::${m.id}`}>
+                              {prov.name} / {m.name}
+                            </SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {/* Min turns */}
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-muted-foreground whitespace-nowrap min-w-[72px]">{t("settings.memoryExtractMinTurns")}</label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={20}
+                      value={effectiveMinTurns}
+                      onChange={(e) => handleUpdateExtractMinTurns(parseInt(e.target.value) || 3)}
+                      className="h-7 text-xs w-20"
+                    />
+                  </div>
+                  {/* Reset to global (agent mode only) */}
+                  {isAgentMode && agentHasOverride && (
+                    <button
+                      onClick={resetAgentExtract}
+                      className="text-[11px] text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2"
+                    >
+                      {t("settings.memoryResetToGlobal")}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Stats bar */}
+          {stats && stats.total > 0 && (
+            <div className="flex items-center gap-3 text-xs text-muted-foreground mb-3 px-1 shrink-0 flex-wrap">
+              <span>{t("settings.memoryStatsTotal", { count: stats.total })}</span>
+              <span className="text-border">|</span>
+              {(["user", "feedback", "project", "reference"] as const).map((type) => {
+                const count = stats.byType[type] || 0
+                if (count === 0) return null
+                const Icon = MEMORY_TYPE_ICONS[type]
+                return (
+                  <span key={type} className="flex items-center gap-0.5">
+                    <Icon className="h-3 w-3" />
+                    {count}
+                  </span>
+                )
+              })}
+              {embeddingConfig.enabled && stats.total > 0 && (
+                <>
+                  <span className="text-border">|</span>
+                  <span>{t("settings.memoryStatsVec", { pct: Math.round((stats.withEmbedding / stats.total) * 100) })}</span>
+                </>
+              )}
             </div>
           )}
 

@@ -1,8 +1,8 @@
 # 记忆系统增强 — 设计文档 & 交接手册
 
-> 版本: 1.0
+> 版本: 1.1
 > 日期: 2026-03-24
-> 状态: Phase 1（MVP Gap 修复）已完成，Phase 2（GraphRAG）待调研
+> 状态: Phase 1（MVP Gap 修复）+ Phase 1.5（优化项）已完成，Phase 2（GraphRAG）待调研
 
 ---
 
@@ -24,6 +24,7 @@
 
 ### 1.3 实现路径
 - **短期（MVP）** ✅ 已完成 — QMD-like SQLite hybrid + GUI 基本管理
+- **短期（优化）** ✅ 已完成 — Prompt Summary 加权 + 提取模型可配 + Toast 通知 + 去重阈值可配 + 统计仪表板
 - **中期** ⬜ 未开始 — GraphRAG-rs 调研 + 集成
 - **长期** ⬜ 未开始 — Hindsight client 集成 + 高级可视化
 
@@ -218,6 +219,9 @@ User prefers dark mode
 | `memory_delete_batch` | ids: Vec<i64> | usize | 批量删除 |
 | `memory_import` | content, format, dedup | ImportResult | 导入记忆 |
 | `memory_reembed` | ids: Option<Vec<i64>> | usize | 重新生成 embedding |
+| `memory_stats` | scope: Option<MemoryScope> | MemoryStats | 记忆统计（Phase 1.5） |
+| `get_dedup_config` | 无 | DedupConfig | 获取去重阈值配置（Phase 1.5） |
+| `save_dedup_config` | config: DedupConfig | () | 保存去重阈值配置（Phase 1.5） |
 
 ---
 
@@ -234,14 +238,90 @@ User prefers dark mode
 | `import_entries` | `(&self, entries, dedup) -> ImportResult` | 无（required） |
 | `reembed_all` | `(&self) -> usize` | 无（required） |
 | `reembed_batch` | `(&self, ids) -> usize` | 无（required） |
+| `stats` | `(&self, scope?) -> MemoryStats` | 无（required，Phase 1.5） |
 
 > **注意**: 未来实现 GraphRAG 或 Hindsight 后端时，需要实现所有 required 方法。
 
 ---
 
-## 7. 待完成工作（Phase 2+）
+## 7. Phase 1.5：优化项（已完成）
 
-### 7.1 GraphRAG 调研（中期，未开始）
+### 7.0.1 Prompt Summary 优先级加权 ✅
+
+**问题**: `build_prompt_summary` 先拼接所有记忆再截断，可能在记忆内容中间截断。
+
+**改动**:
+- `memory.rs`: `build_prompt_summary` 改为逐条添加直到超出 budget 就停止，保持按类型分组 + `updated_at DESC` 排序
+
+### 7.0.2 提取模型可配 ✅
+
+**问题**: auto-extract 复用 chat 模型，可能很贵。
+
+**改动**:
+- `agent_config.rs`: `MemoryConfig` 新增 `extract_provider_id: Option<String>` / `extract_model_id: Option<String>`
+- `lib.rs`: 提取触发处优先使用配置模型，回退到 chat 模型
+- `MemoryPanel.tsx`: auto-extract 展开后显示模型选择器（provider/model 下拉）和最少轮数输入框
+
+### 7.0.3 memory_extracted Toast 通知 ✅
+
+**问题**: 后端已 emit `memory_extracted` 事件，前端未监听。
+
+**改动**:
+- `ChatScreen.tsx`: 监听 `memory_extracted` Tauri 事件，当前 session 命中时显示 Brain 图标 + 文案 banner，4 秒后自动消失
+
+### 7.0.4 去重阈值可配置 ✅
+
+**问题**: `DEDUP_THRESHOLD_HIGH`(0.02) 和 `DEDUP_THRESHOLD_MERGE`(0.012) 硬编码。
+
+**改动**:
+- `memory.rs`: 新增 `DedupConfig` struct + `load_dedup_config()` 函数
+- `provider.rs`: `ProviderStore` 新增 `dedup: DedupConfig` 字段（存储在 config.json）
+- `lib.rs`: 新增 `get_dedup_config` / `save_dedup_config` Tauri 命令
+- `tools/memory.rs` / `memory_extract.rs` / `memory.rs`（import_entries）: 改用 `load_dedup_config()` 替代硬编码常量
+- `MemoryPanel.tsx`: Embedding 设置视图底部可折叠"去重高级设置"区域，两个数字输入框
+
+### 7.0.5 记忆统计仪表板 ✅
+
+**问题**: 无法直观看到记忆的分布情况。
+
+**改动**:
+- `memory.rs`: 新增 `MemoryStats` struct + trait 方法 `stats()`，SQLite 实现用 GROUP BY 查询
+- `lib.rs`: 新增 `memory_stats` Tauri 命令
+- `MemoryPanel.tsx`: list 视图搜索栏上方显示紧凑统计行（总数 | 各类型图标+数量 | 向量覆盖率%）
+
+### 7.0.6 新增 i18n Keys（zh + en）
+
+| Key | 英文 | 中文 |
+|-----|------|------|
+| memoryExtractModel | Extraction Model | 提取模型 |
+| memoryUseChatModel | Use chat model | 使用聊天模型 |
+| memoryExtractedToast | Extracted {{count}} new memories... | 从对话中提取了 {{count}} 条新记忆 |
+| memoryDedupAdvanced | Dedup Advanced Settings | 去重高级设置 |
+| memoryDedupAdvancedDesc | Adjust RRF similarity thresholds... | 调整记忆去重检测的 RRF 相似度阈值... |
+| memoryDedupHigh | Duplicate Threshold | 重复阈值 |
+| memoryDedupMerge | Merge Threshold | 合并阈值 |
+| memoryStatsTotal | {{count}} total | 共 {{count}} 条 |
+| memoryStatsVec | Vector {{pct}}% | 向量 {{pct}}% |
+
+### 7.0.7 新增/修改文件汇总（Phase 1.5）
+
+| 文件 | 改动类型 | 涉及优化项 |
+|------|---------|-----------|
+| `src-tauri/src/memory.rs` | 修改：build_prompt_summary 优化 + DedupConfig + MemoryStats + stats() | A,D,E |
+| `src-tauri/src/agent_config.rs` | 修改：MemoryConfig 新增 extract_provider_id/extract_model_id | B |
+| `src-tauri/src/lib.rs` | 修改：提取模型优先读配置 + 3 个新 Tauri 命令 | B,D,E |
+| `src-tauri/src/provider.rs` | 修改：ProviderStore 新增 dedup 字段 | D |
+| `src-tauri/src/memory_extract.rs` | 修改：改用 load_dedup_config() | D |
+| `src-tauri/src/tools/memory.rs` | 修改：改用 load_dedup_config() | D |
+| `src/components/chat/ChatScreen.tsx` | 修改：监听 memory_extracted + toast banner | C |
+| `src/components/settings/MemoryPanel.tsx` | 修改：提取模型选择器 + 去重设置 + 统计行 | B,D,E |
+| `src/i18n/locales/zh.json` / `en.json` | 修改：新增 9 个 i18n keys | B,C,D,E |
+
+---
+
+## 8. 待完成工作（Phase 2+）
+
+### 8.1 GraphRAG 调研（中期，未开始）
 
 **调研内容**:
 - Rust 生态可用的 GraphRAG / LightRAG / 知识图谱 crate
@@ -260,38 +340,41 @@ User prefers dark mode
 
 **产出**: 技术可行性报告 + 推荐方案 + 预估工作量
 
-### 7.2 Hindsight 集成（长期，未开始）
+### 8.2 Hindsight 集成（长期，未开始）
 
 - 集成 `hindsight-client` Rust crate
 - 本地 daemon（嵌入式 Postgres + pgvector）
 - 四层结构：世界事实 + 经历 + 实体摘要 + 演化信念
 - GUI 可视化：信念演化时间线、纠错记录
 
-### 7.3 其他待优化项
+### 8.3 其他待优化项
 
-| 项目 | 优先级 | 说明 |
-|------|--------|------|
-| 提取模型可配 | 中 | 允许 auto-extract 使用比 chat 更便宜的模型 |
-| 前端 `memory_extracted` 事件监听 | 低 | 在 chat UI 显示 toast "提取了 N 条新记忆" |
-| 记忆统计/分析仪表板 | 低 | 图表展示记忆分布、增长趋势 |
-| 去重阈值可配置 | 低 | GUI 暴露 threshold 调节 |
-| Google Embedding 完整实现 | 低 | config 有 Google 类型但 API 未完全适配 |
-| 本地模型下载 UI | 低 | 目前只展示不支持在线下载 |
-| Prompt summary 优先级加权 | 中 | 当前按时间截断，应按相关度/重要性排序 |
+| 项目 | 优先级 | 状态 | 说明 |
+|------|--------|------|------|
+| ~~提取模型可配~~ | 中 | ✅ Phase 1.5 | MemoryConfig 新增 extractProviderId/extractModelId |
+| ~~前端 memory_extracted 事件监听~~ | 低 | ✅ Phase 1.5 | ChatScreen 监听 + toast banner |
+| ~~记忆统计/分析仪表板~~ | 低 | ✅ Phase 1.5 | memory_stats 命令 + 前端统计行 |
+| ~~去重阈值可配置~~ | 低 | ✅ Phase 1.5 | DedupConfig 存 config.json + GUI |
+| ~~Google Embedding 完整实现~~ | 低 | ✅ Phase 1 已完成 | call_google() 已完整实现 |
+| ~~Prompt summary 优先级加权~~ | 中 | ✅ Phase 1.5 | 逐条添加 + budget 控制 |
+| 本地模型下载 UI | 低 | ⬜ 未开始 | 目前只展示不支持在线下载，工作量较大 |
 
 ---
 
-## 8. 架构图
+## 9. 架构图
 
 ```
 ┌─────────────────────────────────────────────────────┐
 │                    Frontend (React)                  │
 │                                                     │
 │  MemoryPanel.tsx                                    │
-│  ├─ List View (multi-select, batch ops)             │
+│  ├─ List View (multi-select, batch ops, stats bar)  │
 │  ├─ Add/Edit View (dedup confirmation dialog)       │
-│  ├─ Embedding Config View (re-embed all)            │
-│  └─ Auto-extract toggle (agent mode)                │
+│  ├─ Embedding Config View (re-embed all, dedup cfg) │
+│  └─ Auto-extract (toggle + model picker + minTurns) │
+│                                                     │
+│  ChatScreen.tsx                                     │
+│  └─ memory_extracted toast banner (4s auto-dismiss) │
 │                                                     │
 │  invoke() ──────────────────────────────────┐       │
 └────────────────────────────────────────────┐│───────┘
@@ -303,6 +386,7 @@ User prefers dark mode
 │  memory_search / memory_list / memory_count         │
 │  memory_export / memory_find_similar                │
 │  memory_delete_batch / memory_import / memory_reembed│
+│  memory_stats / get_dedup_config / save_dedup_config│
 │  save_embedding_config / get_embedding_config       │
 │                                                     │
 └──────────────────────┬──────────────────────────────┘
@@ -311,7 +395,7 @@ User prefers dark mode
 │             MemoryBackend Trait                      │
 │                                                     │
 │  add / update / delete / get / list / search        │
-│  find_similar / add_with_dedup                      │
+│  find_similar / add_with_dedup / stats               │
 │  delete_batch / import_entries / reembed_all/batch   │
 │  set_embedder / clear_embedder / has_embedder       │
 │  build_prompt_summary / export_markdown             │
@@ -352,7 +436,7 @@ User prefers dark mode
 
 ---
 
-## 9. 测试检查清单
+## 10. 测试检查清单
 
 ### Fix 1: Embedder 自动初始化
 - [ ] 配置 embedding enabled → 重启 app → 搜索应包含向量结果
@@ -375,3 +459,26 @@ User prefers dark mode
 - [ ] 连续对话提到同样信息 → 不重复提取
 - [ ] 关闭 auto_extract → 不触发提取
 - [ ] 提取失败 → 不影响 chat 响应
+
+### Phase 1.5: Prompt Summary 优先级加权
+- [ ] 添加超过 budget 的记忆 → 系统提示词中不出现截断到半行的情况
+- [ ] 最近更新的记忆优先出现在系统提示词中
+
+### Phase 1.5: 提取模型可配
+- [ ] Agent 设置 → 开启 auto-extract → 选择便宜模型 → 对话后检查日志确认使用了配置模型
+- [ ] 不选模型（使用聊天模型）→ 对话后确认使用 chat 模型提取
+- [ ] 修改 extractMinTurns → 验证轮数少于设定值时不触发提取
+
+### Phase 1.5: memory_extracted Toast
+- [ ] 开启 auto-extract → 对话后 → 当前 session 看到 toast banner
+- [ ] banner 4 秒后自动消失
+- [ ] 点击 × 可手动关闭
+
+### Phase 1.5: 去重阈值可配置
+- [ ] 进入 Embedding 设置 → 展开"去重高级设置" → 修改阈值 → 添加相似记忆验证行为变化
+- [ ] 恢复默认值（0.02 / 0.012）→ 行为与修改前一致
+
+### Phase 1.5: 记忆统计仪表板
+- [ ] 打开 MemoryPanel → 有记忆时显示统计行（总数 + 类型分布 + 向量覆盖率）
+- [ ] 无记忆时不显示统计行
+- [ ] 添加/删除记忆后统计行自动更新

@@ -216,6 +216,7 @@ impl Default for BehaviorConfig {
 // ── Memory Config ───────────────────────────────────────────────
 
 /// Memory system configuration in agent.json.
+/// Extract-related fields are Option — None means "inherit from global config".
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MemoryConfig {
@@ -231,13 +232,21 @@ pub struct MemoryConfig {
     #[serde(default = "default_memory_budget")]
     pub prompt_budget: usize,
 
-    /// Whether to auto-extract memories from conversations
-    #[serde(default)]
-    pub auto_extract: bool,
+    /// Whether to auto-extract memories (None = inherit global)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_extract: Option<bool>,
 
-    /// Minimum conversation turns before triggering extraction
-    #[serde(default = "default_extract_min_turns")]
-    pub extract_min_turns: usize,
+    /// Minimum conversation turns before extraction (None = inherit global)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extract_min_turns: Option<usize>,
+
+    /// Provider ID for memory extraction (None = inherit global)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extract_provider_id: Option<String>,
+
+    /// Model ID for memory extraction (None = inherit global)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extract_model_id: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -248,18 +257,16 @@ fn default_memory_budget() -> usize {
     5000
 }
 
-fn default_extract_min_turns() -> usize {
-    3
-}
-
 impl Default for MemoryConfig {
     fn default() -> Self {
         Self {
             enabled: true,
             shared: true,
             prompt_budget: default_memory_budget(),
-            auto_extract: false,
-            extract_min_turns: default_extract_min_turns(),
+            auto_extract: None,
+            extract_min_turns: None,
+            extract_provider_id: None,
+            extract_model_id: None,
         }
     }
 }

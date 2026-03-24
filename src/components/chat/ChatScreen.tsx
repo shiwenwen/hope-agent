@@ -1,7 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from "react"
 import { invoke } from "@tauri-apps/api/core"
+import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
+import { Brain } from "lucide-react"
 import type { AvailableModel, ActiveModel } from "@/types/chat"
 import { getEffortOptionsForType } from "@/types/chat"
 import ApprovalDialog from "@/components/chat/ApprovalDialog"
@@ -185,6 +187,27 @@ export default function ChatScreen({
     currentSessionId: session.currentSessionId,
   })
 
+  // ── Memory extraction toast ────────────────────────────────
+  const [memoryToast, setMemoryToast] = useState<{ count: number } | null>(null)
+  const memoryToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    let unlisten: UnlistenFn | undefined
+    listen<{ count: number; sessionId: string }>("memory_extracted", (event) => {
+      const { count, sessionId } = event.payload
+      // Only show toast for the current session
+      if (sessionId === session.currentSessionId && count > 0) {
+        setMemoryToast({ count })
+        if (memoryToastTimer.current) clearTimeout(memoryToastTimer.current)
+        memoryToastTimer.current = setTimeout(() => setMemoryToast(null), 4000)
+      }
+    }).then((fn) => { unlisten = fn })
+    return () => {
+      unlisten?.()
+      if (memoryToastTimer.current) clearTimeout(memoryToastTimer.current)
+    }
+  }, [session.currentSessionId])
+
   // ── Scroll-to-top: load older messages ─────────────────────
   useEffect(() => {
     const el = scrollContainerRef.current
@@ -279,6 +302,17 @@ export default function ChatScreen({
           currentSessionId={session.currentSessionId}
           sessionCacheRef={session.sessionCacheRef}
         />
+
+        {/* Memory extraction toast */}
+        {memoryToast && (
+          <div className="flex items-center gap-2 mx-4 mb-2 px-3 py-1.5 rounded-lg bg-secondary/50 text-xs text-muted-foreground animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <Brain className="h-3.5 w-3.5 shrink-0" />
+            <span>{t("settings.memoryExtractedToast", { count: memoryToast.count })}</span>
+            <button onClick={() => setMemoryToast(null)} className="ml-auto text-muted-foreground/60 hover:text-muted-foreground">
+              ×
+            </button>
+          </div>
+        )}
 
         <ChatInput
           input={stream.input}

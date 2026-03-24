@@ -244,6 +244,12 @@ pub struct ProviderStore {
     /// Outer key: skill name, inner key: env var name, value: env var value.
     #[serde(default)]
     pub skill_env: std::collections::HashMap<String, std::collections::HashMap<String, String>>,
+    /// Global memory auto-extract configuration
+    #[serde(default)]
+    pub memory_extract: crate::memory::MemoryExtractConfig,
+    /// Memory deduplication thresholds
+    #[serde(default)]
+    pub dedup: crate::memory::DedupConfig,
     /// Context compaction configuration
     #[serde(default)]
     pub compact: crate::context_compact::CompactConfig,
@@ -266,6 +272,8 @@ impl Default for ProviderStore {
             disabled_skills: Vec::new(),
             skill_env_check: true,
             embedding: crate::memory::EmbeddingConfig::default(),
+            memory_extract: crate::memory::MemoryExtractConfig::default(),
+            dedup: crate::memory::DedupConfig::default(),
             web_search: crate::tools::web_search::WebSearchConfig::default(),
             web_fetch: crate::tools::web_fetch::WebFetchConfig::default(),
             skill_env: std::collections::HashMap::new(),

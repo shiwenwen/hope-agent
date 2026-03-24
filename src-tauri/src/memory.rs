@@ -117,11 +117,90 @@ pub struct MemorySearchQuery {
     pub limit: Option<usize>,
 }
 
+// ── Statistics ──────────────────────────────────────────────────
+
+/// Memory statistics for the dashboard.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryStats {
+    pub total: usize,
+    pub by_type: std::collections::HashMap<String, usize>,
+    pub with_embedding: usize,
+    pub oldest: Option<String>,
+    pub newest: Option<String>,
+}
+
+// ── Global Memory Extract Config ────────────────────────────────
+
+/// Global auto-extract configuration, stored in config.json `memoryExtract` field.
+/// Per-agent MemoryConfig can override these with Some(...) values.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryExtractConfig {
+    #[serde(default)]
+    pub auto_extract: bool,
+    #[serde(default = "default_extract_min_turns")]
+    pub extract_min_turns: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extract_provider_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extract_model_id: Option<String>,
+}
+
+fn default_extract_min_turns() -> usize { 3 }
+
+impl Default for MemoryExtractConfig {
+    fn default() -> Self {
+        Self {
+            auto_extract: false,
+            extract_min_turns: 3,
+            extract_provider_id: None,
+            extract_model_id: None,
+        }
+    }
+}
+
+/// Load global extract config from config.json.
+pub fn load_extract_config() -> MemoryExtractConfig {
+    crate::provider::load_store()
+        .map(|s| s.memory_extract)
+        .unwrap_or_default()
+}
+
 // ── Deduplication ───────────────────────────────────────────────
 
-/// Dedup thresholds (RRF scores)
+/// Default dedup thresholds (RRF scores)
 pub const DEDUP_THRESHOLD_HIGH: f32 = 0.02;   // Above this → duplicate, skip
 pub const DEDUP_THRESHOLD_MERGE: f32 = 0.012;  // Between merge..high → update existing
+
+/// Configurable dedup thresholds, stored in config.json `dedup` field.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DedupConfig {
+    #[serde(default = "default_dedup_high")]
+    pub threshold_high: f32,
+    #[serde(default = "default_dedup_merge")]
+    pub threshold_merge: f32,
+}
+
+fn default_dedup_high() -> f32 { DEDUP_THRESHOLD_HIGH }
+fn default_dedup_merge() -> f32 { DEDUP_THRESHOLD_MERGE }
+
+impl Default for DedupConfig {
+    fn default() -> Self {
+        Self {
+            threshold_high: DEDUP_THRESHOLD_HIGH,
+            threshold_merge: DEDUP_THRESHOLD_MERGE,
+        }
+    }
+}
+
+/// Load dedup thresholds from config.json, falling back to defaults.
+pub fn load_dedup_config() -> DedupConfig {
+    crate::provider::load_store()
+        .map(|s| s.dedup)
+        .unwrap_or_default()
+}
 
 /// Result of adding a memory with deduplication.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -182,6 +261,9 @@ pub trait MemoryBackend: Send + Sync {
 
     /// Export all memories as markdown
     fn export_markdown(&self, scope: Option<&MemoryScope>) -> Result<String>;
+
+    /// Get memory statistics
+    fn stats(&self, scope: Option<&MemoryScope>) -> Result<MemoryStats>;
 
     // ── Deduplication ──
 
@@ -744,6 +826,8 @@ impl MemoryBackend for SqliteMemoryBackend {
 
     fn build_prompt_summary(&self, agent_id: &str, shared: bool, budget: usize) -> Result<String> {
         // Load memories: agent-scoped + optionally global
+        // list() already returns results ordered by updated_at DESC,
+        // so recently updated memories are prioritized within each type.
         let mut all_memories = Vec::new();
 
         // Agent-scoped memories
@@ -761,11 +845,22 @@ impl MemoryBackend for SqliteMemoryBackend {
             return Ok(String::new());
         }
 
-        // Group by type
+        // Build result with per-entry budget tracking to avoid mid-line truncation.
+        // Group by type (User → Feedback → Project → Reference), each type's entries
+        // are already sorted by updated_at DESC from list().
         let type_order = [MemoryType::User, MemoryType::Feedback, MemoryType::Project, MemoryType::Reference];
-        let mut sections = Vec::new();
+        let header = "# Memory\n\n";
+        let truncated_marker = "\n\n[... truncated ...]";
+        let mut result = header.to_string();
+        let mut remaining = budget.saturating_sub(header.len() + truncated_marker.len());
+        let mut has_content = false;
+        let mut budget_exhausted = false;
 
         for mem_type in &type_order {
+            if budget_exhausted {
+                break;
+            }
+
             let entries: Vec<&MemoryEntry> = all_memories
                 .iter()
                 .filter(|m| &m.memory_type == mem_type)
@@ -775,28 +870,43 @@ impl MemoryBackend for SqliteMemoryBackend {
                 continue;
             }
 
-            let mut section = format!("## {}\n", mem_type.heading());
-            for entry in entries {
-                section.push_str(&format!("- {}\n", entry.content.lines().next().unwrap_or(&entry.content)));
+            let heading = format!("## {}\n", mem_type.heading());
+            if heading.len() > remaining {
+                budget_exhausted = true;
+                break;
             }
-            sections.push(section);
+
+            remaining -= heading.len();
+            result.push_str(&heading);
+            let mut section_has_entries = false;
+
+            for entry in entries {
+                let line = format!("- {}\n", entry.content.lines().next().unwrap_or(&entry.content));
+                if line.len() > remaining {
+                    budget_exhausted = true;
+                    break;
+                }
+                remaining -= line.len();
+                result.push_str(&line);
+                section_has_entries = true;
+            }
+
+            if section_has_entries {
+                has_content = true;
+                // Add separator between type sections
+                if remaining > 1 {
+                    result.push('\n');
+                    remaining = remaining.saturating_sub(1);
+                }
+            }
         }
 
-        if sections.is_empty() {
+        if !has_content {
             return Ok(String::new());
         }
 
-        let mut result = "# Memory\n\n".to_string();
-        result.push_str(&sections.join("\n"));
-
-        // Truncate to budget
-        if result.len() > budget {
-            result.truncate(budget.saturating_sub(20));
-            // Find last newline to avoid cutting mid-line
-            if let Some(pos) = result.rfind('\n') {
-                result.truncate(pos);
-            }
-            result.push_str("\n\n[... truncated ...]");
+        if budget_exhausted {
+            result.push_str(truncated_marker);
         }
 
         Ok(result)
@@ -841,6 +951,66 @@ impl MemoryBackend for SqliteMemoryBackend {
         }
 
         Ok(md)
+    }
+
+    fn stats(&self, scope: Option<&MemoryScope>) -> Result<MemoryStats> {
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let (scope_clause, scope_params) = scope_where(scope, None);
+
+        // Total count
+        let total: usize = conn.query_row(
+            &format!("SELECT COUNT(*) FROM memories WHERE {}", scope_clause),
+            rusqlite::params_from_iter(scope_params.iter()),
+            |row| row.get(0),
+        )?;
+
+        // Count by type
+        let mut by_type = std::collections::HashMap::new();
+        {
+            let (sc, sp) = scope_where(scope, None);
+            let mut stmt = conn.prepare(&format!(
+                "SELECT memory_type, COUNT(*) FROM memories WHERE {} GROUP BY memory_type", sc
+            ))?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(sp.iter()), |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, usize>(1)?))
+            })?;
+            for row in rows {
+                let (t, c) = row?;
+                by_type.insert(t, c);
+            }
+        }
+
+        // Count with embedding
+        let with_embedding: usize = {
+            let (sc, sp) = scope_where(scope, None);
+            conn.query_row(
+                &format!(
+                    "SELECT COUNT(*) FROM memories WHERE {} AND id IN (SELECT rowid FROM memory_vec)",
+                    sc
+                ),
+                rusqlite::params_from_iter(sp.iter()),
+                |row| row.get(0),
+            ).unwrap_or(0)
+        };
+
+        // Oldest and newest
+        let (oldest, newest) = {
+            let (sc, sp) = scope_where(scope, None);
+            let oldest: Option<String> = conn.query_row(
+                &format!("SELECT MIN(created_at) FROM memories WHERE {}", sc),
+                rusqlite::params_from_iter(sp.iter()),
+                |row| row.get(0),
+            ).ok().flatten();
+            let (sc2, sp2) = scope_where(scope, None);
+            let newest: Option<String> = conn.query_row(
+                &format!("SELECT MAX(created_at) FROM memories WHERE {}", sc2),
+                rusqlite::params_from_iter(sp2.iter()),
+                |row| row.get(0),
+            ).ok().flatten();
+            (oldest, newest)
+        };
+
+        Ok(MemoryStats { total, by_type, with_embedding, oldest, newest })
     }
 
     fn find_similar(
@@ -935,9 +1105,10 @@ impl MemoryBackend for SqliteMemoryBackend {
             errors: Vec::new(),
         };
 
+        let dedup_cfg = load_dedup_config();
         for entry in entries {
             if dedup {
-                match self.add_with_dedup(entry, DEDUP_THRESHOLD_HIGH, DEDUP_THRESHOLD_MERGE) {
+                match self.add_with_dedup(entry, dedup_cfg.threshold_high, dedup_cfg.threshold_merge) {
                     Ok(AddResult::Created { .. }) => result.created += 1,
                     Ok(AddResult::Duplicate { .. }) => result.skipped_duplicate += 1,
                     Ok(AddResult::Updated { .. }) => result.created += 1, // count merge as created

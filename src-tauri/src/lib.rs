@@ -2602,23 +2602,25 @@ async fn save_embedding_config(config: memory::EmbeddingConfig) -> Result<(), St
     store.embedding = config.clone();
     provider::save_store(&store).map_err(|e| e.to_string())?;
 
-    // Apply embedder immediately to the running backend
-    if let Some(backend) = get_memory_backend() {
-        if should_enable {
-            match memory::create_embedding_provider(&config) {
-                Ok(provider) => {
-                    backend.set_embedder(provider);
-                    app_info!("memory", "embedding", "Embedding provider applied after config save");
+    // Apply embedder in background to avoid blocking the command response
+    tokio::task::spawn_blocking(move || {
+        if let Some(backend) = get_memory_backend() {
+            if should_enable {
+                match memory::create_embedding_provider(&config) {
+                    Ok(provider) => {
+                        backend.set_embedder(provider);
+                        app_info!("memory", "embedding", "Embedding provider applied after config save");
+                    }
+                    Err(e) => {
+                        app_warn!("memory", "embedding", "Failed to apply embedding provider: {}", e);
+                    }
                 }
-                Err(e) => {
-                    app_warn!("memory", "embedding", "Failed to apply embedding provider: {}", e);
-                }
+            } else {
+                backend.clear_embedder();
+                app_info!("memory", "embedding", "Embedding provider cleared after config save");
             }
-        } else {
-            backend.clear_embedder();
-            app_info!("memory", "embedding", "Embedding provider cleared after config save");
         }
-    }
+    });
     Ok(())
 }
 

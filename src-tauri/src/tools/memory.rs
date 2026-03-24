@@ -1,7 +1,7 @@
 use anyhow::Result;
 use serde_json::Value;
 
-use crate::memory::{self, MemoryScope, MemoryType, NewMemory, MemorySearchQuery, AddResult, DEDUP_THRESHOLD_HIGH, DEDUP_THRESHOLD_MERGE};
+use crate::memory::{self, MemoryScope, MemoryType, NewMemory, MemorySearchQuery, AddResult};
 
 /// Tool: save_memory — persist information for future conversations.
 pub(crate) async fn tool_save_memory(args: &Value) -> Result<String> {
@@ -44,7 +44,8 @@ pub(crate) async fn tool_save_memory(args: &Value) -> Result<String> {
     let backend = crate::get_memory_backend()
         .ok_or_else(|| anyhow::anyhow!("Memory backend not initialized"))?;
 
-    match backend.add_with_dedup(entry, DEDUP_THRESHOLD_HIGH, DEDUP_THRESHOLD_MERGE)? {
+    let dedup = memory::load_dedup_config();
+    match backend.add_with_dedup(entry, dedup.threshold_high, dedup.threshold_merge)? {
         AddResult::Created { id } => {
             Ok(format!("Memory saved (id: {}, type: {}, scope: {})", id, memory_type, scope_str))
         }

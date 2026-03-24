@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **记忆系统优化（Phase 1.5）**：5 项优化增强
+  - **Prompt Summary 优先级加权**：`build_prompt_summary` 改为逐条添加直到超出 budget，避免在记忆内容中间截断，保持 `updated_at DESC` 排序优先展示最近更新的记忆
+  - **提取模型可配**：`MemoryConfig` 新增 `extractProviderId`/`extractModelId` 字段，auto-extract 可使用独立的便宜模型，前端 MemoryPanel 展示模型选择器和最少轮数配置
+  - **memory_extracted Toast 通知**：聊天界面监听 `memory_extracted` 事件，显示轻量 banner "从对话中提取了 N 条新记忆"，4 秒后自动消失
+  - **去重阈值可配置**：`DedupConfig` 存储在 `config.json` 的 `dedup` 字段，Embedding 设置页新增可折叠"去重高级设置"区域，支持调节重复/合并阈值
+  - **记忆统计仪表板**：新增 `memory_stats` 命令返回 `MemoryStats`（总数/按类型/向量覆盖率），MemoryPanel list 视图顶部显示统计行
 - **子 Agent 系统全面升级**：9 种操作 + Steer 干预 + 附件传递 + 标签 + 工具策略 + 批量操作
   - **Steer 运行中干预**：新增 `steer` action，通过 `SubagentMailbox` 消息邮箱模式在子 Agent tool loop 每轮注入消息，改变运行方向而无需 kill 重来
   - **文件附件传递**：spawn 时可传递 `files` 参数（支持 utf8/base64），自动转为 Attachment 传入子 Agent
