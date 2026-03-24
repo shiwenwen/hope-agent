@@ -230,6 +230,14 @@ pub struct MemoryConfig {
     /// Max chars for memory section in system prompt
     #[serde(default = "default_memory_budget")]
     pub prompt_budget: usize,
+
+    /// Whether to auto-extract memories from conversations
+    #[serde(default)]
+    pub auto_extract: bool,
+
+    /// Minimum conversation turns before triggering extraction
+    #[serde(default = "default_extract_min_turns")]
+    pub extract_min_turns: usize,
 }
 
 fn default_true() -> bool {
@@ -240,12 +248,18 @@ fn default_memory_budget() -> usize {
     5000
 }
 
+fn default_extract_min_turns() -> usize {
+    3
+}
+
 impl Default for MemoryConfig {
     fn default() -> Self {
         Self {
             enabled: true,
             shared: true,
             prompt_budget: default_memory_budget(),
+            auto_extract: false,
+            extract_min_turns: default_extract_min_turns(),
         }
     }
 }

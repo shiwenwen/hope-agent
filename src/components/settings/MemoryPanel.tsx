@@ -21,6 +21,7 @@ import {
   Trash2,
   Search,
   Download,
+  Upload,
   User,
   MessageSquareHeart,
   FolderKanban,
@@ -31,6 +32,8 @@ import {
   Zap,
   Wifi,
   Loader2,
+  CheckSquare,
+  Square,
 } from "lucide-react"
 import TestResultDisplay, { parseTestResult, type TestResult } from "./TestResultDisplay"
 
@@ -148,6 +151,18 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
   const [formTags, setFormTags] = useState("")
   const [formScope, setFormScope] = useState<"global" | "agent">(isAgentMode ? "agent" : "global")
 
+  // Auto-extract state (agent mode only)
+  const [autoExtract, setAutoExtract] = useState(false)
+  const [autoExtractLoaded, setAutoExtractLoaded] = useState(false)
+
+  // Multi-select state
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
+  const [batchLoading, setBatchLoading] = useState(false)
+
+  // Dedup confirmation state
+  const [dedupSimilar, setDedupSimilar] = useState<MemoryEntry[]>([])
+  const [dedupPendingEntry, setDedupPendingEntry] = useState<NewMemory | null>(null)
+
   // Embedding config state
   const [embeddingConfig, setEmbeddingConfig] = useState<EmbeddingConfig>({
     enabled: false,
@@ -222,6 +237,31 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
     loadMemories()
   }, [loadMemories])
 
+  // ── Load auto-extract config (agent mode only) ──
+  useEffect(() => {
+    if (!isAgentMode || !agentId) return
+    invoke<{ memory?: { autoExtract?: boolean } }>("get_agent_config", { id: agentId })
+      .then((cfg) => {
+        setAutoExtract(cfg?.memory?.autoExtract ?? false)
+        setAutoExtractLoaded(true)
+      })
+      .catch(() => setAutoExtractLoaded(true))
+  }, [isAgentMode, agentId])
+
+  async function toggleAutoExtract(enabled: boolean) {
+    if (!agentId) return
+    setAutoExtract(enabled)
+    try {
+      const cfg = await invoke<Record<string, unknown>>("get_agent_config", { id: agentId })
+      const memory = (cfg?.memory ?? {}) as Record<string, unknown>
+      memory.autoExtract = enabled
+      cfg.memory = memory
+      await invoke("save_agent_config_cmd", { id: agentId, config: cfg })
+    } catch (e) {
+      logger.error("settings", "MemoryPanel::toggleAutoExtract", "Failed", e)
+    }
+  }
+
   // ── Load embedding config ──
   useEffect(() => {
     async function loadEmbedding() {
@@ -242,26 +282,82 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
   }, [])
 
   // ── CRUD handlers ──
+  function buildNewMemoryEntry(): NewMemory {
+    const scopeAgentId = isAgentMode ? agentId! : (selectedAgentId ?? "default")
+    return {
+      memoryType: formType,
+      scope: formScope === "global" ? { kind: "global" } : { kind: "agent", id: scopeAgentId },
+      content: formContent.trim(),
+      tags: formTags
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean),
+      source: "user",
+    }
+  }
+
   async function handleAdd() {
     try {
-      const scopeAgentId = isAgentMode ? agentId! : (selectedAgentId ?? "default")
-      const entry: NewMemory = {
-        memoryType: formType,
-        scope: formScope === "global" ? { kind: "global" } : { kind: "agent", id: scopeAgentId },
-        content: formContent.trim(),
-        tags: formTags
-          .split(",")
-          .map((t) => t.trim())
-          .filter(Boolean),
-        source: "user",
+      const entry = buildNewMemoryEntry()
+
+      // Check for similar memories before adding
+      const similar = await invoke<MemoryEntry[]>("memory_find_similar", {
+        content: entry.content,
+        threshold: 0.008,
+        limit: 3,
+      })
+
+      if (similar.length > 0) {
+        setDedupSimilar(similar)
+        setDedupPendingEntry(entry)
+        return // Show confirmation dialog
       }
+
+      await doAddMemory(entry)
+    } catch (e) {
+      logger.error("settings", "MemoryPanel::add", "Failed to add memory", e)
+    }
+  }
+
+  async function doAddMemory(entry: NewMemory) {
+    try {
       await invoke("memory_add", { entry })
       setView("list")
       setFormContent("")
       setFormTags("")
+      setDedupSimilar([])
+      setDedupPendingEntry(null)
       loadMemories()
     } catch (e) {
       logger.error("settings", "MemoryPanel::add", "Failed to add memory", e)
+    }
+  }
+
+  function handleDedupConfirm() {
+    if (dedupPendingEntry) doAddMemory(dedupPendingEntry)
+  }
+
+  function handleDedupCancel() {
+    setDedupSimilar([])
+    setDedupPendingEntry(null)
+  }
+
+  async function handleDedupUpdate(existingId: number) {
+    if (!dedupPendingEntry) return
+    try {
+      const existing = dedupSimilar.find((m) => m.id === existingId)
+      if (!existing) return
+      const mergedContent = existing.content + "\n" + dedupPendingEntry.content
+      const mergedTags = [...new Set([...existing.tags, ...dedupPendingEntry.tags])]
+      await invoke("memory_update", { id: existingId, content: mergedContent, tags: mergedTags })
+      setView("list")
+      setFormContent("")
+      setFormTags("")
+      setDedupSimilar([])
+      setDedupPendingEntry(null)
+      loadMemories()
+    } catch (e) {
+      logger.error("settings", "MemoryPanel::dedupUpdate", "Failed to update existing memory", e)
     }
   }
 
@@ -301,6 +397,94 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
       await navigator.clipboard.writeText(md)
     } catch (e) {
       logger.error("settings", "MemoryPanel::export", "Failed to export", e)
+    }
+  }
+
+  // ── Batch & Import handlers ──
+
+  function toggleSelect(id: number) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function toggleSelectAll() {
+    if (selectedIds.size === memories.length) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(memories.map((m) => m.id)))
+    }
+  }
+
+  async function handleDeleteBatch() {
+    if (selectedIds.size === 0) return
+    setBatchLoading(true)
+    try {
+      await invoke("memory_delete_batch", { ids: [...selectedIds] })
+      setSelectedIds(new Set())
+      loadMemories()
+    } catch (e) {
+      logger.error("settings", "MemoryPanel::deleteBatch", "Failed to batch delete", e)
+    } finally {
+      setBatchLoading(false)
+    }
+  }
+
+  async function handleReembedBatch() {
+    if (selectedIds.size === 0) return
+    setBatchLoading(true)
+    try {
+      await invoke("memory_reembed", { ids: [...selectedIds] })
+      setSelectedIds(new Set())
+    } catch (e) {
+      logger.error("settings", "MemoryPanel::reembedBatch", "Failed to batch re-embed", e)
+    } finally {
+      setBatchLoading(false)
+    }
+  }
+
+  async function handleReembedAll() {
+    setBatchLoading(true)
+    try {
+      await invoke("memory_reembed", { ids: null })
+    } catch (e) {
+      logger.error("settings", "MemoryPanel::reembedAll", "Failed to re-embed all", e)
+    } finally {
+      setBatchLoading(false)
+    }
+  }
+
+  async function handleImport() {
+    try {
+      const input = document.createElement("input")
+      input.type = "file"
+      input.accept = ".json,.md,.markdown"
+      input.onchange = async () => {
+        const file = input.files?.[0]
+        if (!file) return
+        const text = await file.text()
+        const format = file.name.endsWith(".json") ? "json" : "markdown"
+        try {
+          const result = await invoke<{ created: number; skippedDuplicate: number; failed: number }>(
+            "memory_import",
+            { content: text, format, dedup: true },
+          )
+          logger.info(
+            "settings",
+            "MemoryPanel::import",
+            `Import done: ${result.created} created, ${result.skippedDuplicate} skipped, ${result.failed} failed`,
+          )
+          loadMemories()
+        } catch (e) {
+          logger.error("settings", "MemoryPanel::import", "Failed to import", e)
+        }
+      }
+      input.click()
+    } catch (e) {
+      logger.error("settings", "MemoryPanel::import", "Failed to open file picker", e)
     }
   }
 
@@ -570,6 +754,33 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
                   <TestResultDisplay result={embeddingTestResult} />
                 </div>
               )}
+
+              {/* Re-embed All */}
+              {embeddingConfig.enabled && totalCount > 0 && (
+                <div className="mt-6 pt-4 border-t border-border/50">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-sm font-medium">{t("settings.memoryReembedAll")}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {t("settings.memoryCount", { count: totalCount })}
+                      </div>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={batchLoading}
+                      onClick={handleReembedAll}
+                    >
+                      {batchLoading ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                      ) : (
+                        <Zap className="h-3.5 w-3.5 mr-1.5" />
+                      )}
+                      {t("settings.memoryReembedAll")}
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -702,6 +913,52 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
                 {t("common.cancel")}
               </Button>
             </div>
+
+            {/* Dedup confirmation dialog */}
+            {dedupSimilar.length > 0 && dedupPendingEntry && (
+              <div className="mt-4 rounded-lg border border-yellow-500/30 bg-yellow-500/5 p-4 space-y-3">
+                <p className="text-sm font-medium text-yellow-600 dark:text-yellow-400">
+                  {t("settings.memoryDuplicateFound")}
+                </p>
+                <div className="space-y-2">
+                  {dedupSimilar.map((mem) => {
+                    const Icon = MEMORY_TYPE_ICONS[mem.memoryType] || User
+                    return (
+                      <div
+                        key={mem.id}
+                        className="flex items-start gap-2 rounded-md border border-border/50 bg-background p-2.5"
+                      >
+                        <Icon className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs text-muted-foreground line-clamp-2">{mem.content}</p>
+                          {mem.relevanceScore != null && (
+                            <span className="text-[10px] text-muted-foreground/60">
+                              {t("settings.memorySimilarity")}: {(mem.relevanceScore * 100).toFixed(0)}%
+                            </span>
+                          )}
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="shrink-0 text-xs h-7"
+                          onClick={() => handleDedupUpdate(mem.id)}
+                        >
+                          {t("settings.memoryUpdateExisting")}
+                        </Button>
+                      </div>
+                    )
+                  })}
+                </div>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" onClick={handleDedupConfirm}>
+                    {t("settings.memoryAddAnyway")}
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={handleDedupCancel}>
+                    {t("common.cancel")}
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -717,6 +974,11 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
           <div className="flex items-center justify-between mb-1 shrink-0">
             <h2 className="text-lg font-semibold">{t("settings.memory")}</h2>
             <div className="flex items-center gap-2">
+              <IconTip label={t("settings.memoryImport")}>
+                <Button variant="ghost" size="sm" onClick={handleImport}>
+                  <Upload className="h-4 w-4" />
+                </Button>
+              </IconTip>
               <IconTip label={t("settings.memoryExport")}>
                 <Button variant="ghost" size="sm" onClick={handleExport}>
                   <FileDown className="h-4 w-4" />
@@ -748,6 +1010,20 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
             </div>
           </div>
           <p className="text-xs text-muted-foreground mb-4 shrink-0">{t("settings.memoryDesc")}</p>
+
+          {/* Auto-extract toggle (agent mode only) */}
+          {isAgentMode && autoExtractLoaded && (
+            <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-secondary/30 mb-4 shrink-0">
+              <div>
+                <div className="text-sm font-medium">{t("settings.memoryAutoExtract")}</div>
+                <div className="text-xs text-muted-foreground">{t("settings.memoryAutoExtractDesc")}</div>
+              </div>
+              <Switch
+                checked={autoExtract}
+                onCheckedChange={toggleAutoExtract}
+              />
+            </div>
+          )}
 
           {/* Search + Filter */}
           <div className="flex gap-2 mb-4 shrink-0">
@@ -833,14 +1109,52 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
             )}
           </div>
 
-          {/* Stats */}
-          <div className="text-xs text-muted-foreground mb-3 shrink-0">
-            {t("settings.memoryCount", { count: totalCount })}
-            {embeddingConfig.enabled && (
-              <span className="ml-2 text-primary">
-                <Zap className="h-3 w-3 inline -mt-0.5 mr-0.5" />
-                {t("settings.memoryVectorEnabled")}
-              </span>
+          {/* Stats + Batch actions */}
+          <div className="flex items-center justify-between text-xs text-muted-foreground mb-3 shrink-0">
+            <div className="flex items-center gap-2">
+              {memories.length > 0 && (
+                <button
+                  onClick={toggleSelectAll}
+                  className="p-0.5 hover:text-foreground transition-colors"
+                >
+                  {selectedIds.size === memories.length ? (
+                    <CheckSquare className="h-3.5 w-3.5" />
+                  ) : (
+                    <Square className="h-3.5 w-3.5" />
+                  )}
+                </button>
+              )}
+              <span>{t("settings.memoryCount", { count: totalCount })}</span>
+              {embeddingConfig.enabled && (
+                <span className="text-primary">
+                  <Zap className="h-3 w-3 inline -mt-0.5 mr-0.5" />
+                  {t("settings.memoryVectorEnabled")}
+                </span>
+              )}
+            </div>
+            {selectedIds.size > 0 && (
+              <div className="flex items-center gap-1.5">
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  className="h-6 text-xs px-2"
+                  disabled={batchLoading}
+                  onClick={handleDeleteBatch}
+                >
+                  {t("settings.memoryDeleteBatch", { count: selectedIds.size })}
+                </Button>
+                {embeddingConfig.enabled && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-6 text-xs px-2"
+                    disabled={batchLoading}
+                    onClick={handleReembedBatch}
+                  >
+                    {t("settings.memoryReembed", { count: selectedIds.size })}
+                  </Button>
+                )}
+              </div>
             )}
           </div>
 
@@ -857,6 +1171,7 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
             ) : (
               memories.map((mem) => {
                 const Icon = MEMORY_TYPE_ICONS[mem.memoryType] || User
+                const isSelected = selectedIds.has(mem.id)
                 const scopeLabel =
                   mem.scope.kind === "global"
                     ? "Global"
@@ -864,9 +1179,25 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
                 return (
                   <div
                     key={mem.id}
-                    className="group flex items-start gap-3 px-3 py-2.5 rounded-lg hover:bg-secondary/40 cursor-pointer transition-colors"
+                    className={cn(
+                      "group flex items-start gap-3 px-3 py-2.5 rounded-lg hover:bg-secondary/40 cursor-pointer transition-colors",
+                      isSelected && "bg-primary/5 border border-primary/20",
+                    )}
                     onClick={() => startEdit(mem)}
                   >
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        toggleSelect(mem.id)
+                      }}
+                      className="mt-0.5 shrink-0 p-0 text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      {isSelected ? (
+                        <CheckSquare className="h-4 w-4 text-primary" />
+                      ) : (
+                        <Square className="h-4 w-4 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      )}
+                    </button>
                     <Icon className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
                     <div className="flex-1 min-w-0">
                       <div className="text-sm line-clamp-2">{mem.content}</div>
