@@ -3,6 +3,7 @@ import { invoke, convertFileSrc } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
+import { INTERNAL_TOOLS, TOOL_I18N_KEY } from "@/types/tools"
 import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -432,44 +433,12 @@ function AgentEditView({ agentId, onBack }: { agentId: string; onBack: () => voi
     },
   })
 
-  /** Internal capability tools that should never require approval */
-  const internalTools = new Set([
-    "save_memory",
-    "recall_memory",
-    "update_memory",
-    "delete_memory",
-    "manage_cron",
-    "send_notification",
-  ])
-
-  /** i18n key map for built-in tool names */
-  const toolI18nKey: Record<string, string> = {
-    exec: "Exec",
-    process: "Process",
-    read: "Read",
-    write: "Write",
-    edit: "Edit",
-    ls: "Ls",
-    grep: "Grep",
-    find: "Find",
-    apply_patch: "ApplyPatch",
-    web_search: "WebSearch",
-    web_fetch: "WebFetch",
-    save_memory: "SaveMemory",
-    recall_memory: "RecallMemory",
-    update_memory: "UpdateMemory",
-    delete_memory: "DeleteMemory",
-    manage_cron: "ManageCron",
-    browser: "Browser",
-    send_notification: "SendNotification",
-    subagent: "Subagent",
-  }
   const toolDisplayName = (name: string) => {
-    const key = toolI18nKey[name]
+    const key = TOOL_I18N_KEY[name]
     return key ? t(`settings.tool${key}Name`) : name
   }
   const toolDisplayDesc = (name: string) => {
-    const key = toolI18nKey[name]
+    const key = TOOL_I18N_KEY[name]
     return key ? t(`settings.tool${key}Desc`) : ""
   }
 
@@ -1025,7 +994,7 @@ function AgentEditView({ agentId, onBack }: { agentId: string; onBack: () => voi
                 {!config.behavior.requireApproval.includes("*") &&
                   config.behavior.requireApproval.length > 0 && (
                     <div className="rounded-lg border border-border/50 overflow-hidden">
-                      {builtinTools.filter((t) => !internalTools.has(t.name)).map((tool, idx) => {
+                      {builtinTools.filter((t) => !INTERNAL_TOOLS.has(t.name)).map((tool, idx) => {
                         const isRequired = config.behavior.requireApproval.includes(tool.name)
                         return (
                           <div

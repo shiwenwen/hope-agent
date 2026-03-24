@@ -222,11 +222,12 @@ pub struct CompactConfig {
 }
 
 fn default_tools_deny_prune() -> Vec<String> {
+    use crate::tools::{TOOL_WEB_SEARCH, TOOL_WEB_FETCH, TOOL_SAVE_MEMORY, TOOL_RECALL_MEMORY};
     vec![
-        "web_search".into(),
-        "web_fetch".into(),
-        "save_memory".into(),
-        "recall_memory".into(),
+        TOOL_WEB_SEARCH.into(),
+        TOOL_WEB_FETCH.into(),
+        TOOL_SAVE_MEMORY.into(),
+        TOOL_RECALL_MEMORY.into(),
     ]
 }
 

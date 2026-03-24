@@ -23,6 +23,28 @@ mod write;
 
 pub use approval::{ApprovalResponse, submit_approval_response};
 
+// ── Tool Name Constants ──────────────────────────────────────────
+
+pub const TOOL_EXEC: &str = "exec";
+pub const TOOL_PROCESS: &str = "process";
+pub const TOOL_READ: &str = "read";
+pub const TOOL_WRITE: &str = "write";
+pub const TOOL_EDIT: &str = "edit";
+pub const TOOL_LS: &str = "ls";
+pub const TOOL_GREP: &str = "grep";
+pub const TOOL_FIND: &str = "find";
+pub const TOOL_APPLY_PATCH: &str = "apply_patch";
+pub const TOOL_WEB_SEARCH: &str = "web_search";
+pub const TOOL_WEB_FETCH: &str = "web_fetch";
+pub const TOOL_SAVE_MEMORY: &str = "save_memory";
+pub const TOOL_RECALL_MEMORY: &str = "recall_memory";
+pub const TOOL_UPDATE_MEMORY: &str = "update_memory";
+pub const TOOL_DELETE_MEMORY: &str = "delete_memory";
+pub const TOOL_MANAGE_CRON: &str = "manage_cron";
+pub const TOOL_BROWSER: &str = "browser";
+pub const TOOL_SEND_NOTIFICATION: &str = "send_notification";
+pub const TOOL_SUBAGENT: &str = "subagent";
+
 // ── Shared Helpers ────────────────────────────────────────────────
 
 /// Extract a string value from a Value that might be a plain string, `{type:"text", text:"..."}`,
@@ -111,7 +133,7 @@ impl ToolDefinition {
 pub fn get_available_tools() -> Vec<ToolDefinition> {
     vec![
         ToolDefinition {
-            name: "exec".into(),
+            name: TOOL_EXEC.into(),
             description: "Execute a shell command. Returns stdout/stderr. Supports background execution with yield_ms/background params.".into(),
             parameters: json!({
                 "type": "object",
@@ -155,7 +177,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             }),
         },
         ToolDefinition {
-            name: "process".into(),
+            name: TOOL_PROCESS.into(),
             description: "Manage running exec sessions: list, poll, log, write, kill, clear, remove.".into(),
             parameters: json!({
                 "type": "object",
@@ -191,7 +213,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             }),
         },
         ToolDefinition {
-            name: "read".into(),
+            name: TOOL_READ.into(),
             description: "Read the contents of a file at the specified path. Supports text files with line-based pagination (offset/limit) and image files (auto-detected, returned as base64). For large files, use offset and limit to read specific sections.".into(),
             parameters: json!({
                 "type": "object",
@@ -214,7 +236,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             }),
         },
         ToolDefinition {
-            name: "write".into(),
+            name: TOOL_WRITE.into(),
             description: "Write content to a file at the specified path. Creates parent directories if needed. Accepts 'file_path' as alias for 'path'.".into(),
             parameters: json!({
                 "type": "object",
@@ -233,7 +255,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             }),
         },
         ToolDefinition {
-            name: "edit".into(),
+            name: TOOL_EDIT.into(),
             description: "Edit a file by replacing specific text. More precise than write for making targeted changes. The old_text must match exactly once (including whitespace and indentation). Accepts aliases: 'file_path' for 'path', 'oldText'/'old_string' for 'old_text', 'newText'/'new_string' for 'new_text'.".into(),
             parameters: json!({
                 "type": "object",
@@ -256,7 +278,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             }),
         },
         ToolDefinition {
-            name: "ls".into(),
+            name: TOOL_LS.into(),
             description: "List files and directories in the specified path. Returns sorted names with type indicators (/ for directories, @ for symlinks). Supports ~ expansion and entry limit.".into(),
             parameters: json!({
                 "type": "object",
@@ -275,7 +297,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             }),
         },
         ToolDefinition {
-            name: "grep".into(),
+            name: TOOL_GREP.into(),
             description: "Search file contents using regex or literal patterns. Respects .gitignore. Returns matching lines with file paths and line numbers.".into(),
             parameters: json!({
                 "type": "object",
@@ -314,7 +336,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             }),
         },
         ToolDefinition {
-            name: "find".into(),
+            name: TOOL_FIND.into(),
             description: "Find files by glob pattern. Respects .gitignore. Returns matching file paths relative to the search directory.".into(),
             parameters: json!({
                 "type": "object",
@@ -337,7 +359,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             }),
         },
         ToolDefinition {
-            name: "apply_patch".into(),
+            name: TOOL_APPLY_PATCH.into(),
             description: "Apply a patch to create, modify, move, or delete files. Use the *** Begin Patch / *** End Patch format with Add File, Update File, Delete File, and Move to markers.".into(),
             parameters: json!({
                 "type": "object",
@@ -352,7 +374,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             }),
         },
         ToolDefinition {
-            name: "web_search".into(),
+            name: TOOL_WEB_SEARCH.into(),
             description: "Search the web for information. Returns relevant results with titles, URLs, and snippets. Use this when the user asks about current events, recent information, or anything that requires up-to-date knowledge.".into(),
             parameters: json!({
                 "type": "object",
@@ -384,7 +406,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             }),
         },
         ToolDefinition {
-            name: "web_fetch".into(),
+            name: TOOL_WEB_FETCH.into(),
             description: "Fetch and extract readable content from a URL using Mozilla Readability. Supports markdown and plain text output modes. Returns structured JSON with page content, metadata, and extraction info. Use this to read web pages, documentation, articles, or API responses.".into(),
             parameters: json!({
                 "type": "object",
@@ -408,7 +430,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             }),
         },
         ToolDefinition {
-            name: "save_memory".into(),
+            name: TOOL_SAVE_MEMORY.into(),
             description: "Save information to persistent memory for future conversations. Use this when the user shares personal info, preferences, corrections to your behavior, project context, or reference materials. Memories persist across conversations and help you provide better, personalized assistance.".into(),
             parameters: json!({
                 "type": "object",
@@ -438,7 +460,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             }),
         },
         ToolDefinition {
-            name: "recall_memory".into(),
+            name: TOOL_RECALL_MEMORY.into(),
             description: "Search persistent memories by keyword or semantic query. Use this to recall previously stored information about the user, their preferences, project context, or reference materials.".into(),
             parameters: json!({
                 "type": "object",
@@ -462,7 +484,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             }),
         },
         ToolDefinition {
-            name: "update_memory".into(),
+            name: TOOL_UPDATE_MEMORY.into(),
             description: "Update an existing memory's content and tags by its ID. Use recall_memory first to find the memory ID. Use when a memory needs correction or its information has changed.".into(),
             parameters: json!({
                 "type": "object",
@@ -486,7 +508,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             }),
         },
         ToolDefinition {
-            name: "delete_memory".into(),
+            name: TOOL_DELETE_MEMORY.into(),
             description: "Delete a memory by its ID. Use recall_memory first to find the memory ID, then use this tool to remove it. Use when the user asks to forget something or when a memory is outdated/incorrect.".into(),
             parameters: json!({
                 "type": "object",
@@ -502,7 +524,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         },
         // ── Cron / Scheduled Tasks ──────────────────────────────
         ToolDefinition {
-            name: "manage_cron".into(),
+            name: TOOL_MANAGE_CRON.into(),
             description: "Create, list, update, delete, and trigger scheduled tasks (cron jobs). Jobs run an agent turn with the given prompt on a schedule (isolated session, no prior history). Supports one-time (at), recurring (every), and cron expression schedules.".into(),
             parameters: json!({
                 "type": "object",
@@ -560,7 +582,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         },
         // ── Browser Control ──────────────────────────────────────
         ToolDefinition {
-            name: "browser".into(),
+            name: TOOL_BROWSER.into(),
             description: "Control a Chrome browser via DevTools Protocol. Supports navigation, element interaction (click/fill/hover/drag), screenshots, accessibility snapshots, JavaScript execution, tab management, profile isolation, and PDF export. Chrome must be running with --remote-debugging-port=9222, or use action='launch' to start a managed instance. Use 'take_snapshot' to get element refs, then use those refs for click/fill/hover actions. Use 'list_profiles' to see available profiles and 'save_pdf' to export pages as PDF.".into(),
             parameters: json!({
                 "type": "object",
@@ -702,7 +724,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
 /// Returns the subagent tool definition (conditionally injected when enabled).
 pub fn get_subagent_tool() -> ToolDefinition {
     ToolDefinition {
-        name: "subagent".into(),
+        name: TOOL_SUBAGENT.into(),
         description: "Spawn and manage sub-agents to delegate tasks. Sub-agents run asynchronously — their results are automatically pushed to you when complete. Use steer to redirect a running sub-agent. Use check(wait=true) as fallback if you need to actively wait for a result.".into(),
         parameters: json!({
             "type": "object",
@@ -800,7 +822,7 @@ pub fn get_tools_for_provider(provider: ToolProvider) -> Vec<Value> {
 /// Returns the notification tool definition (conditionally injected).
 pub fn get_notification_tool() -> ToolDefinition {
     ToolDefinition {
-        name: "send_notification".into(),
+        name: TOOL_SEND_NOTIFICATION.into(),
         description: "Send a native desktop notification to the user. Use this to proactively alert the user about important events, task completions, or findings that need their attention.".into(),
         parameters: json!({
             "type": "object",
@@ -836,6 +858,9 @@ pub struct ToolExecContext {
     pub agent_id: Option<String>,
     /// Sub-agent nesting depth (0 = top-level)
     pub subagent_depth: u32,
+    /// Tool names that require user approval before execution.
+    /// `["*"]` means all tools require approval.
+    pub require_approval: Vec<String>,
 }
 
 impl Default for ToolExecContext {
@@ -846,6 +871,7 @@ impl Default for ToolExecContext {
             session_id: None,
             agent_id: None,
             subagent_depth: 0,
+            require_approval: Vec::new(),
         }
     }
 }
@@ -864,6 +890,34 @@ pub async fn execute_tool(name: &str, args: &Value) -> anyhow::Result<String> {
     execute_tool_with_context(name, args, &ToolExecContext::default()).await
 }
 
+/// Internal capability tools that never require user approval.
+/// These are autonomous agent abilities (memory, cron, notification) rather than
+/// system-interacting tools (exec, write, edit, etc.)
+const INTERNAL_TOOLS: &[&str] = &[
+    TOOL_SAVE_MEMORY,
+    TOOL_RECALL_MEMORY,
+    TOOL_UPDATE_MEMORY,
+    TOOL_DELETE_MEMORY,
+    TOOL_MANAGE_CRON,
+    TOOL_SEND_NOTIFICATION,
+];
+
+/// Check if a tool requires approval based on the context's require_approval list.
+fn tool_needs_approval(name: &str, ctx: &ToolExecContext) -> bool {
+    // Internal capability tools never need approval
+    if INTERNAL_TOOLS.contains(&name) {
+        return false;
+    }
+    if ctx.require_approval.is_empty() {
+        return false;
+    }
+    // "*" means all (non-internal) tools require approval
+    if ctx.require_approval.iter().any(|t| t == "*") {
+        return true;
+    }
+    ctx.require_approval.iter().any(|t| t == name)
+}
+
 /// Execute a tool with additional context (model info, etc.)
 pub async fn execute_tool_with_context(
     name: &str,
@@ -871,6 +925,40 @@ pub async fn execute_tool_with_context(
     ctx: &ToolExecContext,
 ) -> anyhow::Result<String> {
     let start = std::time::Instant::now();
+
+    // ── Tool-level approval gate ─────────────────────────────────
+    // Check if this tool requires user approval before execution.
+    // Note: exec tool has its own command-level approval inside tool_exec;
+    // this is the tool-level gate that applies to ALL approvable tools.
+    if tool_needs_approval(name, ctx) && name != TOOL_EXEC {
+        // Build a human-readable description for the approval dialog
+        let desc = format!("tool: {} {}", name, {
+            let s = args.to_string();
+            if s.len() > 200 { format!("{}...", crate::truncate_utf8(&s, 200)) } else { s }
+        });
+        let cwd = ctx.home_dir.as_deref().unwrap_or(".");
+        match approval::check_and_request_approval(&desc, cwd).await {
+            Ok(approval::ApprovalResponse::AllowOnce) => {
+                app_info!("tool", "approval", "Tool '{}' approved (once)", name);
+            }
+            Ok(approval::ApprovalResponse::AllowAlways) => {
+                app_info!("tool", "approval", "Tool '{}' approved (always)", name);
+                approval::add_to_allowlist(&desc).await;
+            }
+            Ok(approval::ApprovalResponse::Deny) => {
+                return Err(anyhow::anyhow!(
+                    "Tool '{}' execution denied by user",
+                    name
+                ));
+            }
+            Err(e) => {
+                app_warn!("tool", "approval",
+                    "Tool approval check failed for '{}' ({}), proceeding",
+                    name, e
+                );
+            }
+        }
+    }
 
     // Log tool execution start
     if let Some(logger) = crate::get_logger() {
@@ -885,25 +973,25 @@ pub async fn execute_tool_with_context(
     }
 
     let result = match name {
-        "exec" => exec::tool_exec(args, ctx).await,
-        "process" => process::tool_process(args).await,
-        "read" | "read_file" => read::tool_read_file(args, ctx).await,
-        "write" | "write_file" => write::tool_write_file(args).await,
-        "edit" | "patch_file" => edit::tool_edit(args).await,
-        "ls" | "list_dir" => ls::tool_ls(args, ctx).await,
-        "grep" => grep::tool_grep(args, ctx).await,
-        "find" => find::tool_find(args, ctx).await,
-        "apply_patch" => apply_patch::tool_apply_patch(args).await,
-        "web_search" => web_search::tool_web_search(args).await,
-        "web_fetch" => web_fetch::tool_web_fetch(args).await,
-        "save_memory" => memory::tool_save_memory(args).await,
-        "recall_memory" => memory::tool_recall_memory(args).await,
-        "update_memory" => memory::tool_update_memory(args).await,
-        "delete_memory" => memory::tool_delete_memory(args).await,
-        "manage_cron" => cron::tool_manage_cron(args).await,
-        "browser" => browser::tool_browser(args).await,
-        "send_notification" => notification::tool_send_notification(args, ctx).await,
-        "subagent" => subagent::tool_subagent(args, ctx).await,
+        TOOL_EXEC => exec::tool_exec(args, ctx).await,
+        TOOL_PROCESS => process::tool_process(args).await,
+        TOOL_READ | "read_file" => read::tool_read_file(args, ctx).await,
+        TOOL_WRITE | "write_file" => write::tool_write_file(args).await,
+        TOOL_EDIT | "patch_file" => edit::tool_edit(args).await,
+        TOOL_LS | "list_dir" => ls::tool_ls(args, ctx).await,
+        TOOL_GREP => grep::tool_grep(args, ctx).await,
+        TOOL_FIND => find::tool_find(args, ctx).await,
+        TOOL_APPLY_PATCH => apply_patch::tool_apply_patch(args).await,
+        TOOL_WEB_SEARCH => web_search::tool_web_search(args).await,
+        TOOL_WEB_FETCH => web_fetch::tool_web_fetch(args).await,
+        TOOL_SAVE_MEMORY => memory::tool_save_memory(args).await,
+        TOOL_RECALL_MEMORY => memory::tool_recall_memory(args).await,
+        TOOL_UPDATE_MEMORY => memory::tool_update_memory(args).await,
+        TOOL_DELETE_MEMORY => memory::tool_delete_memory(args).await,
+        TOOL_MANAGE_CRON => cron::tool_manage_cron(args).await,
+        TOOL_BROWSER => browser::tool_browser(args).await,
+        TOOL_SEND_NOTIFICATION => notification::tool_send_notification(args, ctx).await,
+        TOOL_SUBAGENT => subagent::tool_subagent(args, ctx).await,
         _ => Err(anyhow::anyhow!("Unknown tool: {}", name)),
     };
 

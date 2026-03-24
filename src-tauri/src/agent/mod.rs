@@ -190,12 +190,16 @@ impl AssistantAgent {
 
     /// Build a ToolExecContext with agent home directory and context window.
     pub(crate) fn tool_context(&self) -> tools::ToolExecContext {
+        let require_approval = crate::agent_loader::load_agent(&self.agent_id)
+            .map(|def| def.config.behavior.require_approval.clone())
+            .unwrap_or_default();
         tools::ToolExecContext {
             context_window_tokens: Some(self.context_window),
             home_dir: self.agent_home(),
             session_id: self.session_id.clone(),
             agent_id: Some(self.agent_id.clone()),
             subagent_depth: self.subagent_depth,
+            require_approval,
         }
     }
 

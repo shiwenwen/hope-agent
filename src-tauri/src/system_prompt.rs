@@ -252,11 +252,12 @@ fn build_tools_section(filter: &FilterConfig) -> String {
         return TOOLS_DESCRIPTION.to_string();
     }
 
+    use crate::tools::*;
     // All tool names in the system
     let all_tools = [
-        "exec", "process", "read", "write", "edit",
-        "ls", "grep", "find", "apply_patch", "web_search", "web_fetch",
-        "save_memory", "recall_memory", "subagent",
+        TOOL_EXEC, TOOL_PROCESS, TOOL_READ, TOOL_WRITE, TOOL_EDIT,
+        TOOL_LS, TOOL_GREP, TOOL_FIND, TOOL_APPLY_PATCH, TOOL_WEB_SEARCH, TOOL_WEB_FETCH,
+        TOOL_SAVE_MEMORY, TOOL_RECALL_MEMORY, TOOL_SUBAGENT,
     ];
 
     let active: Vec<&&str> = all_tools.iter().filter(|t| filter.is_allowed(t)).collect();
