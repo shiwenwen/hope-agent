@@ -38,6 +38,8 @@
     "filterSubagent": "委派任务",
     "markAllRead": "全部已读",
     "markAsRead": "标记已读",
+    "renameSession": "重命名",
+    "renameSessionPlaceholder": "输入新标题...",
     "howCanIHelp": "有什么可以帮你的？",
     "loadMore": "加载更早的消息",
     "loadingMore": "加载中...",

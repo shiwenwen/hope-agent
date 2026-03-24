@@ -124,6 +124,16 @@ export default function ChatScreen({
     onUnreadCountChange,
   })
 
+  // Rename session handler
+  const handleRenameSession = useCallback(async (sessionId: string, title: string) => {
+    try {
+      await invoke("rename_session_cmd", { sessionId, title })
+      session.reloadSessions()
+    } catch (err) {
+      console.error("Failed to rename session:", err)
+    }
+  }, [session.reloadSessions])
+
   // Reload sessions when external trigger changes (e.g. mark-all-read from IconSidebar)
   useEffect(() => {
     if (sessionsRefreshTrigger) {
@@ -236,6 +246,7 @@ export default function ChatScreen({
         onDeleteSession={session.handleDeleteSession}
         onEditAgent={onOpenAgentSettings}
         onMarkAllRead={session.reloadSessions}
+        onRenameSession={handleRenameSession}
       />
 
       {/* Command Approval Dialog */}
@@ -285,6 +296,7 @@ export default function ChatScreen({
           compacting={compacting}
           setCompacting={setCompacting}
           onOpenAgentSettings={onOpenAgentSettings}
+          onRenameSession={handleRenameSession}
         />
 
         <CrashRecoveryBanner />

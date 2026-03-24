@@ -1,9 +1,9 @@
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useCallback } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { TooltipProvider, IconTip } from "@/components/ui/tooltip"
-import { Settings, Copy, BarChart3 } from "lucide-react"
+import { Settings, Copy, BarChart3, Pencil } from "lucide-react"
 import { formatMessageTime } from "./chatUtils"
 import type { Message, AvailableModel, ActiveModel, SessionMeta } from "@/types/chat"
 
@@ -20,6 +20,7 @@ interface ChatTitleBarProps {
   compacting: boolean
   setCompacting: (v: boolean) => void
   onOpenAgentSettings?: (agentId: string) => void
+  onRenameSession?: (sessionId: string, title: string) => void
 }
 
 export default function ChatTitleBar({
@@ -34,11 +35,40 @@ export default function ChatTitleBar({
   loading,
   compacting,
   setCompacting,
+  onRenameSession,
   onOpenAgentSettings,
 }: ChatTitleBarProps) {
   const { t } = useTranslation()
   const [showStatus, setShowStatus] = useState(false)
   const statusRef = useRef<HTMLDivElement>(null)
+
+  // Inline title editing
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [titleValue, setTitleValue] = useState("")
+  const titleInputRef = useRef<HTMLInputElement>(null)
+
+  const currentSession = currentSessionId ? sessions.find((s) => s.id === currentSessionId) : null
+  const sessionTitle = currentSession?.title || ""
+
+  const startEditTitle = useCallback(() => {
+    setTitleValue(sessionTitle || t("chat.newChat") || "")
+    setEditingTitle(true)
+    setTimeout(() => {
+      titleInputRef.current?.focus()
+      titleInputRef.current?.select()
+    }, 0)
+  }, [sessionTitle, t])
+
+  const commitTitle = useCallback(() => {
+    if (currentSessionId && titleValue.trim() && onRenameSession) {
+      onRenameSession(currentSessionId, titleValue.trim())
+    }
+    setEditingTitle(false)
+  }, [currentSessionId, titleValue, onRenameSession])
+
+  const cancelEditTitle = useCallback(() => {
+    setEditingTitle(false)
+  }, [])
 
   // Close status popover on outside click
   useEffect(() => {
@@ -63,9 +93,47 @@ export default function ChatTitleBar({
       className="h-10 flex items-end justify-between px-4 bg-background shrink-0"
       data-tauri-drag-region
     >
-      <span className="text-sm font-medium text-foreground shrink-0 pb-1.5">
-        {agentName || t("chat.mainAgent")}
-      </span>
+      <div className="flex items-end gap-2 min-w-0 pb-1.5">
+        <span className="text-sm font-medium text-foreground shrink-0">
+          {agentName || t("chat.mainAgent")}
+        </span>
+        {currentSessionId && (
+          <>
+            <span className="text-muted-foreground/40 text-sm shrink-0">/</span>
+            {editingTitle ? (
+              <div className="flex items-center gap-1 min-w-0">
+                <input
+                  ref={titleInputRef}
+                  className="text-sm text-foreground/80 bg-transparent border-b border-primary outline-none min-w-[80px] max-w-[300px] py-0"
+                  value={titleValue}
+                  onChange={(e) => setTitleValue(e.target.value)}
+                  onBlur={commitTitle}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault()
+                      commitTitle()
+                    } else if (e.key === "Escape") {
+                      e.preventDefault()
+                      cancelEditTitle()
+                    }
+                  }}
+                  placeholder={t("chat.renameSessionPlaceholder")}
+                />
+              </div>
+            ) : (
+              <button
+                className="group flex items-center gap-1 min-w-0 text-sm text-foreground/60 hover:text-foreground transition-colors truncate"
+                onClick={startEditTitle}
+              >
+                <span className="truncate max-w-[300px]">
+                  {sessionTitle || t("chat.newChat")}
+                </span>
+                <Pencil className="h-3 w-3 shrink-0 opacity-0 group-hover:opacity-60 transition-opacity" />
+              </button>
+            )}
+          </>
+        )}
+      </div>
       <div className="flex items-end gap-1">
         <TooltipProvider>
           {/* Session Status Button */}

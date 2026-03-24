@@ -38,6 +38,8 @@
     "filterSubagent": "Delegated",
     "markAllRead": "Mark all as read",
     "markAsRead": "Mark as read",
+    "renameSession": "Rename",
+    "renameSessionPlaceholder": "Enter new title...",
     "howCanIHelp": "How can I help you today?",
     "loadMore": "Load earlier messages",
     "loadingMore": "Loading...",

@@ -46,6 +46,7 @@ interface ChatSidebarProps {
   onDeleteSession: (sessionId: string) => void
   onEditAgent?: (agentId: string) => void
   onMarkAllRead?: () => void
+  onRenameSession?: (sessionId: string, title: string) => void
 }
 
 export default function ChatSidebar({
@@ -60,6 +61,7 @@ export default function ChatSidebar({
   onDeleteSession,
   onEditAgent,
   onMarkAllRead,
+  onRenameSession,
 }: ChatSidebarProps) {
   const { t } = useTranslation()
   const [agentsExpanded, setAgentsExpanded] = useState(true)
@@ -67,6 +69,31 @@ export default function ChatSidebar({
   const newChatMenuRef = useRef<HTMLDivElement>(null)
   const [deleteConfirmSessionId, setDeleteConfirmSessionId] = useState<string | null>(null)
   const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Inline rename state
+  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState("")
+  const renameInputRef = useRef<HTMLInputElement>(null)
+
+  const startRename = useCallback((sessionId: string, currentTitle: string) => {
+    setRenamingSessionId(sessionId)
+    setRenameValue(currentTitle)
+    // Focus input after render
+    setTimeout(() => renameInputRef.current?.focus(), 0)
+  }, [])
+
+  const commitRename = useCallback(() => {
+    if (renamingSessionId && renameValue.trim() && onRenameSession) {
+      onRenameSession(renamingSessionId, renameValue.trim())
+    }
+    setRenamingSessionId(null)
+    setRenameValue("")
+  }, [renamingSessionId, renameValue, onRenameSession])
+
+  const cancelRename = useCallback(() => {
+    setRenamingSessionId(null)
+    setRenameValue("")
+  }, [])
 
   // Session type filter
   type SessionFilterType = "all" | "session" | "cron" | "subagent"
@@ -553,9 +580,30 @@ export default function ChatSidebar({
                                 </IconTip>
                               )
                             })()}
-                          <span className="truncate">
-                            {session.title || t("chat.newChat") || "New Chat"}
-                          </span>
+                          {renamingSessionId === session.id ? (
+                            <input
+                              ref={renameInputRef}
+                              className="flex-1 min-w-0 bg-transparent border-b border-primary text-[13px] font-medium text-foreground outline-none py-0"
+                              value={renameValue}
+                              onChange={(e) => setRenameValue(e.target.value)}
+                              onBlur={commitRename}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault()
+                                  commitRename()
+                                } else if (e.key === "Escape") {
+                                  e.preventDefault()
+                                  cancelRename()
+                                }
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                              placeholder={t("chat.renameSessionPlaceholder")}
+                            />
+                          ) : (
+                            <span className="truncate">
+                              {session.title || t("chat.newChat") || "New Chat"}
+                            </span>
+                          )}
                         </div>
                         <div className="text-[11px] text-muted-foreground truncate">
                           {agent?.name || session.agentId}
@@ -582,6 +630,12 @@ export default function ChatSidebar({
                     </div>
                       </ContextMenuTrigger>
                       <ContextMenuContent>
+                        <ContextMenuItem
+                          onClick={() => startRename(session.id, session.title || t("chat.newChat") || "New Chat")}
+                        >
+                          <Pencil className="h-4 w-4 mr-2" />
+                          {t("chat.renameSession")}
+                        </ContextMenuItem>
                         <ContextMenuItem
                           onClick={handleMarkAsRead}
                           disabled={session.unreadCount === 0}
