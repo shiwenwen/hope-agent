@@ -30,6 +30,7 @@ import {
   Timer,
   Pencil,
   Network,
+  CheckCheck,
 } from "lucide-react"
 import type { SessionMeta, AgentSummaryForSidebar } from "@/types/chat"
 
@@ -457,9 +458,21 @@ export default function ChatSidebar({
                   const agent = getAgentInfo(session.agentId)
                   const isActive = session.id === currentSessionId
                   const isLoading = loadingSessionIds.has(session.id)
+                  const handleMarkAsRead = async () => {
+                    if (session.unreadCount === 0) return
+                    try {
+                      await invoke("mark_session_read_cmd", {
+                        sessionId: session.id,
+                      })
+                      if (onMarkAllRead) onMarkAllRead()
+                    } catch (err) {
+                      console.error("Failed to mark session as read:", err)
+                    }
+                  }
                   return (
+                    <ContextMenu key={session.id}>
+                      <ContextMenuTrigger asChild>
                     <div
-                      key={session.id}
                       role="button"
                       tabIndex={0}
                       className={cn(
@@ -567,6 +580,17 @@ export default function ChatSidebar({
                         </button>
                       </IconTip>
                     </div>
+                      </ContextMenuTrigger>
+                      <ContextMenuContent>
+                        <ContextMenuItem
+                          onClick={handleMarkAsRead}
+                          disabled={session.unreadCount === 0}
+                        >
+                          <CheckCheck className="h-4 w-4 mr-2" />
+                          {t("chat.markAsRead")}
+                        </ContextMenuItem>
+                      </ContextMenuContent>
+                    </ContextMenu>
                   )
                 })
               )}

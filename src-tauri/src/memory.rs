@@ -117,6 +117,34 @@ pub struct MemorySearchQuery {
     pub limit: Option<usize>,
 }
 
+// ── Deduplication ───────────────────────────────────────────────
+
+/// Dedup thresholds (RRF scores)
+pub const DEDUP_THRESHOLD_HIGH: f32 = 0.02;   // Above this → duplicate, skip
+pub const DEDUP_THRESHOLD_MERGE: f32 = 0.012;  // Between merge..high → update existing
+
+/// Result of adding a memory with deduplication.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub enum AddResult {
+    /// New memory created
+    Created { id: i64 },
+    /// Skipped — too similar to existing entry
+    Duplicate { existing_id: i64, score: f32 },
+    /// Updated existing entry with new content
+    Updated { id: i64 },
+}
+
+/// Result of a batch import operation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportResult {
+    pub created: usize,
+    pub skipped_duplicate: usize,
+    pub failed: usize,
+    pub errors: Vec<String>,
+}
+
 // ── MemoryBackend Trait ─────────────────────────────────────────
 
 /// Pluggable memory backend trait.
@@ -154,6 +182,49 @@ pub trait MemoryBackend: Send + Sync {
 
     /// Export all memories as markdown
     fn export_markdown(&self, scope: Option<&MemoryScope>) -> Result<String>;
+
+    // ── Deduplication ──
+
+    /// Find memories similar to the given content (for dedup checks).
+    /// Returns entries above the threshold score, sorted by relevance descending.
+    fn find_similar(
+        &self,
+        content: &str,
+        memory_type: Option<&MemoryType>,
+        scope: Option<&MemoryScope>,
+        threshold: f32,
+        limit: usize,
+    ) -> Result<Vec<MemoryEntry>>;
+
+    /// Add a memory with deduplication: skips if very similar, updates if moderately similar.
+    fn add_with_dedup(&self, entry: NewMemory, threshold_high: f32, threshold_merge: f32) -> Result<AddResult>;
+
+    // ── Batch operations ──
+
+    /// Delete multiple memories by ID. Returns the number deleted.
+    fn delete_batch(&self, ids: &[i64]) -> Result<usize>;
+
+    /// Import multiple memories with optional deduplication.
+    fn import_entries(&self, entries: Vec<NewMemory>, dedup: bool) -> Result<ImportResult>;
+
+    /// Regenerate embeddings for all memories (or those missing embeddings).
+    fn reembed_all(&self) -> Result<usize>;
+
+    /// Regenerate embeddings for specific memories.
+    fn reembed_batch(&self, ids: &[i64]) -> Result<usize>;
+
+    // ── Embedder management (default no-op for backends without vector support) ──
+
+    /// Set the embedding provider for vector search.
+    fn set_embedder(&self, _provider: Arc<dyn EmbeddingProvider>) {}
+
+    /// Remove the embedding provider.
+    fn clear_embedder(&self) {}
+
+    /// Check if an embedder is configured.
+    fn has_embedder(&self) -> bool {
+        false
+    }
 }
 
 // ── EmbeddingProvider Trait ───────────────────────────────────────
@@ -262,32 +333,43 @@ impl SqliteMemoryBackend {
         Ok(())
     }
 
-    /// Set the embedding provider for vector search.
-    pub fn set_embedder(&self, provider: Arc<dyn EmbeddingProvider>) {
-        let dims = provider.dimensions();
-        self.embedding_dims.store(dims, std::sync::atomic::Ordering::Relaxed);
-        // Ensure vec table exists
-        if let Ok(conn) = self.conn.lock() {
-            let _ = self.ensure_vec_table(&conn, dims);
-        }
-        *self.embedder.write().unwrap() = Some(provider);
-    }
-
-    /// Remove the embedding provider.
-    pub fn clear_embedder(&self) {
-        *self.embedder.write().unwrap() = None;
-        self.embedding_dims.store(0, std::sync::atomic::Ordering::Relaxed);
-    }
-
-    /// Check if an embedder is configured.
-    pub fn has_embedder(&self) -> bool {
-        self.embedder.read().unwrap().is_some()
-    }
-
     /// Generate embedding for text using the configured provider.
     fn generate_embedding(&self, text: &str) -> Option<Vec<f32>> {
         let guard = self.embedder.read().unwrap();
         guard.as_ref().and_then(|e| e.embed(text).ok())
+    }
+
+    /// Re-generate embeddings for a set of entries and update the DB.
+    fn reembed_entries(&self, entries: &[MemoryEntry]) -> Result<usize> {
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let dims = self.embedding_dims.load(std::sync::atomic::Ordering::Relaxed);
+        if dims == 0 {
+            return Err(anyhow::anyhow!("No embedding provider configured"));
+        }
+        let _ = self.ensure_vec_table(&conn, dims);
+
+        let mut count = 0usize;
+        for entry in entries {
+            if let Some(emb) = self.generate_embedding(&entry.content) {
+                let emb_bytes: Vec<u8> = emb.iter().flat_map(|f| f.to_le_bytes()).collect();
+                // Update embedding blob in memories table
+                conn.execute(
+                    "UPDATE memories SET embedding = ?1 WHERE id = ?2",
+                    params![emb_bytes, entry.id],
+                )?;
+                // Upsert into vec0 table
+                let _ = conn.execute(
+                    "DELETE FROM memories_vec WHERE rowid = ?1",
+                    params![entry.id],
+                );
+                let _ = conn.execute(
+                    "INSERT INTO memories_vec(rowid, embedding) VALUES (?1, ?2)",
+                    params![entry.id, emb_bytes],
+                );
+                count += 1;
+            }
+        }
+        Ok(count)
     }
 }
 
@@ -760,6 +842,156 @@ impl MemoryBackend for SqliteMemoryBackend {
 
         Ok(md)
     }
+
+    fn find_similar(
+        &self,
+        content: &str,
+        memory_type: Option<&MemoryType>,
+        scope: Option<&MemoryScope>,
+        threshold: f32,
+        limit: usize,
+    ) -> Result<Vec<MemoryEntry>> {
+        // Reuse search() to get candidates via FTS5 + vector hybrid
+        let types = memory_type.map(|t| vec![t.clone()]);
+        let query = MemorySearchQuery {
+            query: content.to_string(),
+            types,
+            scope: scope.cloned(),
+            agent_id: None,
+            limit: Some(limit * 3), // fetch extra to filter by threshold
+        };
+        let results = self.search(&query)?;
+
+        // Filter by threshold
+        Ok(results
+            .into_iter()
+            .filter(|e| e.relevance_score.unwrap_or(0.0) >= threshold)
+            .take(limit)
+            .collect())
+    }
+
+    fn add_with_dedup(&self, entry: NewMemory, threshold_high: f32, threshold_merge: f32) -> Result<AddResult> {
+        // Find similar entries of the same type and scope
+        let similar = self.find_similar(
+            &entry.content,
+            Some(&entry.memory_type),
+            Some(&entry.scope),
+            threshold_merge,
+            5,
+        )?;
+
+        if let Some(best) = similar.first() {
+            let score = best.relevance_score.unwrap_or(0.0);
+            if score >= threshold_high {
+                // Very similar — treat as duplicate, skip
+                return Ok(AddResult::Duplicate {
+                    existing_id: best.id,
+                    score,
+                });
+            }
+            // Moderately similar — update existing entry by appending new content
+            let merged_content = format!("{}\n{}", best.content, entry.content);
+            let mut merged_tags = best.tags.clone();
+            for tag in &entry.tags {
+                if !merged_tags.contains(tag) {
+                    merged_tags.push(tag.clone());
+                }
+            }
+            self.update(best.id, &merged_content, &merged_tags)?;
+            return Ok(AddResult::Updated { id: best.id });
+        }
+
+        // No similar entries — create new
+        let id = self.add(entry)?;
+        Ok(AddResult::Created { id })
+    }
+
+    fn delete_batch(&self, ids: &[i64]) -> Result<usize> {
+        if ids.is_empty() {
+            return Ok(0);
+        }
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let placeholders: Vec<String> = ids.iter().map(|_| "?".to_string()).collect();
+        let sql = format!("DELETE FROM memories WHERE id IN ({})", placeholders.join(","));
+        let params: Vec<Box<dyn rusqlite::types::ToSql>> = ids.iter().map(|id| Box::new(*id) as Box<dyn rusqlite::types::ToSql>).collect();
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        let deleted = conn.execute(&sql, param_refs.as_slice())?;
+
+        // Also clean vec0 table
+        let dims = self.embedding_dims.load(std::sync::atomic::Ordering::Relaxed);
+        if dims > 0 {
+            let vec_sql = format!("DELETE FROM memories_vec WHERE rowid IN ({})", placeholders.join(","));
+            let _ = conn.execute(&vec_sql, param_refs.as_slice());
+        }
+
+        Ok(deleted)
+    }
+
+    fn import_entries(&self, entries: Vec<NewMemory>, dedup: bool) -> Result<ImportResult> {
+        let mut result = ImportResult {
+            created: 0,
+            skipped_duplicate: 0,
+            failed: 0,
+            errors: Vec::new(),
+        };
+
+        for entry in entries {
+            if dedup {
+                match self.add_with_dedup(entry, DEDUP_THRESHOLD_HIGH, DEDUP_THRESHOLD_MERGE) {
+                    Ok(AddResult::Created { .. }) => result.created += 1,
+                    Ok(AddResult::Duplicate { .. }) => result.skipped_duplicate += 1,
+                    Ok(AddResult::Updated { .. }) => result.created += 1, // count merge as created
+                    Err(e) => {
+                        result.failed += 1;
+                        result.errors.push(e.to_string());
+                    }
+                }
+            } else {
+                match self.add(entry) {
+                    Ok(_) => result.created += 1,
+                    Err(e) => {
+                        result.failed += 1;
+                        result.errors.push(e.to_string());
+                    }
+                }
+            }
+        }
+
+        Ok(result)
+    }
+
+    fn reembed_all(&self) -> Result<usize> {
+        let entries = self.list(None, None, 100000, 0)?;
+        self.reembed_entries(&entries)
+    }
+
+    fn reembed_batch(&self, ids: &[i64]) -> Result<usize> {
+        let mut entries = Vec::new();
+        for id in ids {
+            if let Some(entry) = self.get(*id)? {
+                entries.push(entry);
+            }
+        }
+        self.reembed_entries(&entries)
+    }
+
+    fn set_embedder(&self, provider: Arc<dyn EmbeddingProvider>) {
+        let dims = provider.dimensions();
+        self.embedding_dims.store(dims, std::sync::atomic::Ordering::Relaxed);
+        if let Ok(conn) = self.conn.lock() {
+            let _ = self.ensure_vec_table(&conn, dims);
+        }
+        *self.embedder.write().unwrap() = Some(provider);
+    }
+
+    fn clear_embedder(&self) {
+        *self.embedder.write().unwrap() = None;
+        self.embedding_dims.store(0, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    fn has_embedder(&self) -> bool {
+        self.embedder.read().unwrap().is_some()
+    }
 }
 
 // ── Helpers ─────────────────────────────────────────────────────
@@ -1198,3 +1430,138 @@ pub fn open_default() -> Result<SqliteMemoryBackend> {
 
 // rusqlite optional extension trait
 use rusqlite::OptionalExtension;
+
+// ── Import Parsers ──────────────────────────────────────────────
+
+/// Parse JSON import format: array of { content, type?, scope?, tags? }
+pub fn parse_import_json(json_str: &str) -> Result<Vec<NewMemory>> {
+    let items: Vec<serde_json::Value> = serde_json::from_str(json_str)
+        .with_context(|| "Invalid JSON: expected an array of memory objects")?;
+
+    let mut entries = Vec::new();
+    for item in items {
+        let content = item.get("content")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("Each memory must have a 'content' field"))?;
+
+        let memory_type = item.get("type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("user");
+
+        let scope_str = item.get("scope")
+            .and_then(|v| v.as_str())
+            .unwrap_or("global");
+
+        let agent_id = item.get("agentId")
+            .and_then(|v| v.as_str())
+            .unwrap_or("default");
+
+        let tags: Vec<String> = item.get("tags")
+            .and_then(|v| v.as_array())
+            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .unwrap_or_default();
+
+        let scope = if scope_str == "agent" {
+            MemoryScope::Agent { id: agent_id.to_string() }
+        } else {
+            MemoryScope::Global
+        };
+
+        entries.push(NewMemory {
+            memory_type: MemoryType::from_str(memory_type),
+            scope,
+            content: content.to_string(),
+            tags,
+            source: "import".to_string(),
+            source_session_id: None,
+        });
+    }
+    Ok(entries)
+}
+
+/// Parse Markdown import format:
+/// ## About the User / Preferences & Feedback / Project Context / References
+/// ### Entry title
+/// Tags: tag1, tag2
+/// Scope: global | Source: user | Updated: ...
+///
+/// Content here...
+///
+/// ---
+pub fn parse_import_markdown(md_str: &str) -> Result<Vec<NewMemory>> {
+    let mut entries = Vec::new();
+    let mut current_type = MemoryType::User;
+    let mut current_content = String::new();
+    let mut current_tags: Vec<String> = Vec::new();
+    let mut in_entry = false;
+
+    for line in md_str.lines() {
+        let trimmed = line.trim();
+
+        // Type heading
+        if trimmed.starts_with("## ") {
+            // Flush previous entry
+            if in_entry && !current_content.trim().is_empty() {
+                entries.push(NewMemory {
+                    memory_type: current_type.clone(),
+                    scope: MemoryScope::Global,
+                    content: current_content.trim().to_string(),
+                    tags: std::mem::take(&mut current_tags),
+                    source: "import".to_string(),
+                    source_session_id: None,
+                });
+                current_content.clear();
+                in_entry = false;
+            }
+
+            let heading = trimmed.trim_start_matches("## ").trim();
+            current_type = match heading {
+                "Preferences & Feedback" => MemoryType::Feedback,
+                "Project Context" => MemoryType::Project,
+                "References" => MemoryType::Reference,
+                _ => MemoryType::User,
+            };
+        } else if trimmed.starts_with("### ") {
+            // Flush previous entry
+            if in_entry && !current_content.trim().is_empty() {
+                entries.push(NewMemory {
+                    memory_type: current_type.clone(),
+                    scope: MemoryScope::Global,
+                    content: current_content.trim().to_string(),
+                    tags: std::mem::take(&mut current_tags),
+                    source: "import".to_string(),
+                    source_session_id: None,
+                });
+                current_content.clear();
+            }
+            in_entry = true;
+        } else if trimmed.starts_with("Tags:") {
+            current_tags = trimmed.trim_start_matches("Tags:")
+                .split(',')
+                .map(|t| t.trim().to_string())
+                .filter(|t| !t.is_empty())
+                .collect();
+        } else if trimmed.starts_with("Scope:") || trimmed == "---" {
+            // Skip metadata lines and separators
+        } else if in_entry {
+            if !current_content.is_empty() || !trimmed.is_empty() {
+                current_content.push_str(line);
+                current_content.push('\n');
+            }
+        }
+    }
+
+    // Flush last entry
+    if in_entry && !current_content.trim().is_empty() {
+        entries.push(NewMemory {
+            memory_type: current_type,
+            scope: MemoryScope::Global,
+            content: current_content.trim().to_string(),
+            tags: current_tags,
+            source: "import".to_string(),
+            source_session_id: None,
+        });
+    }
+
+    Ok(entries)
+}

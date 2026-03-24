@@ -84,6 +84,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **浏览器 Profile 隔离**：`browser` 工具 `launch` action 新增 `profile` 参数，支持多配置档隔离（独立 cookies/存储/登录状态）。新增 `list_profiles` action 列出已有配置档。Profile 数据存储在 `~/.opencomputer/browser-profiles/{name}/`
 - **浏览器 PDF 导出**：`browser` 工具新增 `save_pdf` action，将当前页面导出为 PDF 文件。支持 `paper_format`（a3/a4/a5/letter/legal/tabloid）、`landscape`、`print_background` 参数，默认输出到 `~/.opencomputer/share/`
 - **记忆 Embedding Provider 测试功能**：向量搜索设置新增"测试 Embedding"按钮，支持 OpenAI 兼容 API、Google Gemini、本地 ONNX 模型三种类型的连接测试，复用 `TestResultDisplay` 组件展示测试结果（状态码、延迟、返回维度）
+- **记忆系统增强 — Embedder 自动初始化**：应用启动时若 embedding 已配置并启用，自动初始化 embedder，无需用户手动触发。`save_embedding_config` 保存后立即 apply 到运行中的后端
+- **记忆系统增强 — 去重检测**：新增 `find_similar` / `add_with_dedup` trait 方法，Agent 保存记忆时自动检测相似条目（RRF 混合评分），高相似度跳过、中等相似度合并。前端手动添加时弹出确认对话框。新增 `memory_find_similar` Tauri 命令
+- **记忆系统增强 — 导入 + 批量操作**：
+  - 支持从 JSON / Markdown 文件导入记忆（含可选去重），新增 `parse_import_json` / `parse_import_markdown` 解析函数
+  - 列表多选模式（checkbox），批量删除、批量重新生成 Embedding
+  - Embedding 设置页新增"重新生成全部向量"按钮
+  - 新增 `memory_delete_batch` / `memory_import` / `memory_reembed` Tauri 命令
+- **记忆系统增强 — 自动记忆提取**：对话完成后异步提取值得记住的信息（用户事实、偏好、项目上下文），通过 `tokio::spawn` 后台执行不阻塞交互
+  - 新增 `memory_extract.rs` 模块：提取 prompt、JSON 解析、事件通知
+  - Per-Agent 配置：`autoExtract`（默认关闭）、`extractMinTurns`（最少轮数）
+  - 复用当前 Provider 做 LLM 调用，结合去重系统避免重复提取
+  - 前端：Agent Memory 设置区新增"自动提取记忆"开关
 
 ### Refactored
 - **`tools/web.rs` 拆分为独立模块**：`web_search.rs`（搜索 Provider 配置 + 8 个搜索引擎实现 + 搜索缓存）和 `web_fetch.rs`（网页抓取配置 + SSRF 防护 + Readability 提取 + 抓取缓存），职责分离更清晰

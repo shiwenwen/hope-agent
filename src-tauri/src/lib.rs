@@ -8,6 +8,7 @@ mod cron;
 mod dev_tools;
 mod docker;
 mod memory;
+mod memory_extract;
 mod failover;
 mod file_extract;
 mod oauth;
@@ -1262,6 +1263,13 @@ async fn mark_session_read_batch_cmd(
     state.session_db.mark_session_read_batch(&session_ids).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+async fn mark_all_sessions_read_cmd(
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    state.session_db.mark_all_sessions_read().map_err(|e| e.to_string())
+}
+
 /// Save an attachment file to disk. Uses a temp directory when session_id is empty.
 /// Returns the absolute path to the saved file.
 #[tauri::command]
@@ -1721,6 +1729,40 @@ async fn chat(
                             "tokens_out": assistant_msg.tokens_out,
                         }).to_string()),
                         Some(sid.clone()), Some(current_agent_id.clone()));
+                    // Spawn async memory extraction if enabled
+                    {
+                        let agent_def = crate::agent_loader::load_agent(&current_agent_id);
+                        let auto_extract = agent_def.as_ref()
+                            .map(|d| d.config.memory.auto_extract)
+                            .unwrap_or(false);
+                        let min_turns = agent_def.as_ref()
+                            .map(|d| d.config.memory.extract_min_turns)
+                            .unwrap_or(3);
+                        let history = agent.get_conversation_history();
+
+                        if auto_extract && history.len() >= min_turns * 2 {
+                            // Clone what we need for the spawned task
+                            let extract_agent_id = current_agent_id.clone();
+                            let extract_session_id = sid.clone();
+                            let extract_provider_id = model_ref.provider_id.clone();
+                            let extract_model_id = model_ref.model_id.clone();
+
+                            tokio::spawn(async move {
+                                // Load provider config for extraction
+                                let store = provider::load_store().unwrap_or_default();
+                                if let Some(prov) = provider::find_provider(&store.providers, &extract_provider_id) {
+                                    memory_extract::run_extraction(
+                                        &history,
+                                        &extract_agent_id,
+                                        &extract_session_id,
+                                        prov,
+                                        &extract_model_id,
+                                    ).await;
+                                }
+                            });
+                        }
+                    }
+
                     // Update the active agent instance for conversation continuity
                     *state.agent.lock().await = Some(agent);
                     return Ok(result);
@@ -2250,6 +2292,44 @@ async fn memory_export(scope: Option<memory::MemoryScope>) -> Result<String, Str
 }
 
 #[tauri::command]
+async fn memory_find_similar(
+    content: String,
+    threshold: Option<f32>,
+    limit: Option<usize>,
+) -> Result<Vec<memory::MemoryEntry>, String> {
+    let backend = get_memory_backend().ok_or("Memory backend not initialized")?;
+    let threshold = threshold.unwrap_or(memory::DEDUP_THRESHOLD_MERGE);
+    let limit = limit.unwrap_or(5);
+    backend.find_similar(&content, None, None, threshold, limit).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn memory_delete_batch(ids: Vec<i64>) -> Result<usize, String> {
+    let backend = get_memory_backend().ok_or("Memory backend not initialized")?;
+    backend.delete_batch(&ids).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn memory_import(content: String, format: String, dedup: bool) -> Result<memory::ImportResult, String> {
+    let entries = match format.as_str() {
+        "json" => memory::parse_import_json(&content).map_err(|e| e.to_string())?,
+        "markdown" | "md" => memory::parse_import_markdown(&content).map_err(|e| e.to_string())?,
+        _ => return Err(format!("Unsupported format: {}", format)),
+    };
+    let backend = get_memory_backend().ok_or("Memory backend not initialized")?;
+    backend.import_entries(entries, dedup).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn memory_reembed(ids: Option<Vec<i64>>) -> Result<usize, String> {
+    let backend = get_memory_backend().ok_or("Memory backend not initialized")?;
+    match ids {
+        Some(ids) => backend.reembed_batch(&ids).map_err(|e| e.to_string()),
+        None => backend.reembed_all().map_err(|e| e.to_string()),
+    }
+}
+
+#[tauri::command]
 async fn get_web_search_config() -> Result<tools::web_search::WebSearchConfig, String> {
     let store = provider::load_store().map_err(|e| e.to_string())?;
     let mut config = store.web_search;
@@ -2435,8 +2515,28 @@ async fn get_embedding_config() -> Result<memory::EmbeddingConfig, String> {
 #[tauri::command]
 async fn save_embedding_config(config: memory::EmbeddingConfig) -> Result<(), String> {
     let mut store = provider::load_store().map_err(|e| e.to_string())?;
-    store.embedding = config;
-    provider::save_store(&store).map_err(|e| e.to_string())
+    let should_enable = config.enabled;
+    store.embedding = config.clone();
+    provider::save_store(&store).map_err(|e| e.to_string())?;
+
+    // Apply embedder immediately to the running backend
+    if let Some(backend) = get_memory_backend() {
+        if should_enable {
+            match memory::create_embedding_provider(&config) {
+                Ok(provider) => {
+                    backend.set_embedder(provider);
+                    app_info!("memory", "embedding", "Embedding provider applied after config save");
+                }
+                Err(e) => {
+                    app_warn!("memory", "embedding", "Failed to apply embedding provider: {}", e);
+                }
+            }
+        } else {
+            backend.clear_embedder();
+            app_info!("memory", "embedding", "Embedding provider cleared after config save");
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -3032,6 +3132,24 @@ pub fn run() {
             );
             let _ = MEMORY_BACKEND.set(memory_backend);
 
+            // Auto-initialize embedder if enabled in config
+            if let Some(backend) = MEMORY_BACKEND.get() {
+                match provider::load_store() {
+                    Ok(store) if store.embedding.enabled => {
+                        match memory::create_embedding_provider(&store.embedding) {
+                            Ok(emb_provider) => {
+                                backend.set_embedder(emb_provider);
+                                logger.log("info", "memory", "embedding", "Embedding provider auto-initialized on startup", None, None, None);
+                            }
+                            Err(e) => {
+                                logger.log("warn", "memory", "embedding", &format!("Failed to auto-initialize embedding provider: {}", e), None, None, None);
+                            }
+                        }
+                    }
+                    _ => {} // Embedding not enabled or config load failed — skip silently
+                }
+            }
+
             // Initialize the CronDB (scheduler started in .setup() where tokio runtime is available)
             let cron_db_path = paths::cron_db_path().expect("Failed to resolve cron database path");
             let cron_db = Arc::new(
@@ -3133,6 +3251,10 @@ pub fn run() {
             memory_search,
             memory_count,
             memory_export,
+            memory_find_similar,
+            memory_delete_batch,
+            memory_import,
+            memory_reembed,
             get_web_search_config,
             save_web_search_config,
             get_web_fetch_config,
@@ -3173,6 +3295,8 @@ pub fn run() {
             delete_session_cmd,
             rename_session_cmd,
             mark_session_read_cmd,
+            mark_session_read_batch_cmd,
+            mark_all_sessions_read_cmd,
             // Window theme
             set_window_theme,
             // Logging

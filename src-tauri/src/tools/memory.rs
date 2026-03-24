@@ -1,7 +1,7 @@
 use anyhow::Result;
 use serde_json::Value;
 
-use crate::memory::{self, MemoryScope, MemoryType, NewMemory, MemorySearchQuery};
+use crate::memory::{self, MemoryScope, MemoryType, NewMemory, MemorySearchQuery, AddResult, DEDUP_THRESHOLD_HIGH, DEDUP_THRESHOLD_MERGE};
 
 /// Tool: save_memory — persist information for future conversations.
 pub(crate) async fn tool_save_memory(args: &Value) -> Result<String> {
@@ -44,9 +44,17 @@ pub(crate) async fn tool_save_memory(args: &Value) -> Result<String> {
     let backend = crate::get_memory_backend()
         .ok_or_else(|| anyhow::anyhow!("Memory backend not initialized"))?;
 
-    let id = backend.add(entry)?;
-
-    Ok(format!("Memory saved (id: {}, type: {}, scope: {})", id, memory_type, scope_str))
+    match backend.add_with_dedup(entry, DEDUP_THRESHOLD_HIGH, DEDUP_THRESHOLD_MERGE)? {
+        AddResult::Created { id } => {
+            Ok(format!("Memory saved (id: {}, type: {}, scope: {})", id, memory_type, scope_str))
+        }
+        AddResult::Duplicate { existing_id, score } => {
+            Ok(format!("Similar memory already exists (id: {}, similarity: {:.1}%). Not saved.", existing_id, score * 100.0))
+        }
+        AddResult::Updated { id } => {
+            Ok(format!("Merged with existing memory (id: {}, type: {}, scope: {})", id, memory_type, scope_str))
+        }
+    }
 }
 
 /// Tool: recall_memory — search persistent memories by keyword or semantic query.
