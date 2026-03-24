@@ -743,6 +743,9 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
                       }}
                       placeholder="https://api.openai.com"
                       className="text-sm"
+                      autoCapitalize="off"
+                      autoCorrect="off"
+                      spellCheck={false}
                     />
                   </div>
                   <div>
@@ -756,6 +759,9 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
                       }}
                       placeholder="sk-..."
                       className="text-sm"
+                      autoCapitalize="off"
+                      autoCorrect="off"
+                      spellCheck={false}
                     />
                   </div>
                   <div className="flex gap-3">
@@ -771,6 +777,9 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
                         }}
                         placeholder="text-embedding-3-small"
                         className="text-sm"
+                        autoCapitalize="off"
+                        autoCorrect="off"
+                        spellCheck={false}
                       />
                     </div>
                     <div className="w-28">
