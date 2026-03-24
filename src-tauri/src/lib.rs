@@ -2186,6 +2186,44 @@ async fn open_directory(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn reveal_in_folder(path: String) -> Result<(), String> {
+    let resolved = if path.starts_with("~/") {
+        if let Some(home) = dirs::home_dir() {
+            home.join(&path[2..]).to_string_lossy().to_string()
+        } else {
+            path
+        }
+    } else {
+        path
+    };
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg("-R")
+            .arg(&resolved)
+            .spawn()
+            .map_err(|e| format!("Failed to reveal in Finder: {}", e))?;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(format!("/select,{}", &resolved))
+            .spawn()
+            .map_err(|e| format!("Failed to reveal in Explorer: {}", e))?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        // Fallback: open parent directory
+        let parent = std::path::Path::new(&resolved)
+            .parent()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or(resolved);
+        open::that(&parent).map_err(|e| format!("Failed to open folder: {}", e))?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 async fn open_url(url: String) -> Result<(), String> {
     open::that(&url).map_err(|e| format!("Failed to open URL: {}", e))
 }
@@ -3233,6 +3271,7 @@ pub fn run() {
             remove_skill_env_var,
             get_skills_env_status,
             open_directory,
+            reveal_in_folder,
             open_url,
             // Agent management
             list_agents,

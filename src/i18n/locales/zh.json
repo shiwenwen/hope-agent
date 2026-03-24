@@ -54,6 +54,7 @@
     "duration": "耗时",
     "modifiedFiles": "修改的文件",
     "openFile": "点击打开文件",
+    "revealInFolder": "打开所在文件夹",
     "inputTokens": "输入",
     "outputTokens": "输出",
     "totalTokens": "总计",

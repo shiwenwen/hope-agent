@@ -1,7 +1,7 @@
 import React, { useCallback } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
-import { FileText } from "lucide-react"
+import { FileText, FolderOpen } from "lucide-react"
 import { TooltipProvider, IconTip } from "@/components/ui/tooltip"
 import { logger } from "@/lib/logger"
 
@@ -21,6 +21,14 @@ function FileAttachments({ files }: { files: string[] }) {
     }
   }, [])
 
+  const handleRevealInFolder = useCallback(async (path: string) => {
+    try {
+      await invoke("reveal_in_folder", { path })
+    } catch (e) {
+      logger.error("chat", "FileAttachments::reveal", "Failed to reveal in folder", e)
+    }
+  }, [])
+
   if (files.length === 0) return null
 
   return (
@@ -31,15 +39,25 @@ function FileAttachments({ files }: { files: string[] }) {
       <TooltipProvider>
         <div className="flex flex-wrap gap-1.5">
           {files.map((file) => (
-            <IconTip key={file} label={file}>
-              <button
-                onClick={() => handleOpen(file)}
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-muted/50 hover:bg-muted text-xs text-foreground/70 hover:text-foreground transition-colors max-w-[200px]"
-              >
-                <FileText className="h-3 w-3 shrink-0 text-muted-foreground" />
-                <span className="truncate">{basename(file)}</span>
-              </button>
-            </IconTip>
+            <span key={file} className="inline-flex items-center gap-0.5">
+              <IconTip label={t("chat.openFile")}>
+                <button
+                  onClick={() => handleOpen(file)}
+                  className="inline-flex items-center gap-1 pl-2 pr-1.5 py-0.5 rounded-l-md bg-muted/50 hover:bg-muted text-xs text-foreground/70 hover:text-foreground transition-colors max-w-[200px]"
+                >
+                  <FileText className="h-3 w-3 shrink-0 text-muted-foreground" />
+                  <span className="truncate">{basename(file)}</span>
+                </button>
+              </IconTip>
+              <IconTip label={t("chat.revealInFolder")}>
+                <button
+                  onClick={() => handleRevealInFolder(file)}
+                  className="inline-flex items-center px-1 py-0.5 rounded-r-md bg-muted/50 hover:bg-muted text-foreground/70 hover:text-foreground transition-colors"
+                >
+                  <FolderOpen className="h-3 w-3 text-muted-foreground" />
+                </button>
+              </IconTip>
+            </span>
           ))}
         </div>
       </TooltipProvider>
