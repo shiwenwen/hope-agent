@@ -25,7 +25,8 @@ pub use approval::{ApprovalResponse, submit_approval_response};
 
 // ── Shared Helpers ────────────────────────────────────────────────
 
-/// Extract a string value from a Value that might be a plain string or `{type:"text", text:"..."}`.
+/// Extract a string value from a Value that might be a plain string, `{type:"text", text:"..."}`,
+/// or an array of such objects (e.g. `[{type:"text", text:"..."}]`).
 pub(crate) fn extract_string_param(val: &Value) -> Option<&str> {
     // Plain string
     if let Some(s) = val.as_str() {
@@ -35,6 +36,12 @@ pub(crate) fn extract_string_param(val: &Value) -> Option<&str> {
     if let Some(obj) = val.as_object() {
         if obj.get("type").and_then(|v| v.as_str()) == Some("text") {
             return obj.get("text").and_then(|v| v.as_str());
+        }
+    }
+    // Array of structured content: [{type: "text", text: "..."}]
+    if let Some(arr) = val.as_array() {
+        if let Some(first) = arr.first() {
+            return extract_string_param(first);
         }
     }
     None

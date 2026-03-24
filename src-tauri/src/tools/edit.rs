@@ -1,15 +1,16 @@
 use anyhow::Result;
 use serde_json::Value;
 
-use super::extract_string_param;
+use super::{expand_tilde, extract_string_param};
 
 pub(crate) async fn tool_edit(args: &Value) -> Result<String> {
     // Accept path aliases: path, file_path
-    let path = args
+    let raw_path = args
         .get("path")
         .or_else(|| args.get("file_path"))
         .and_then(|v| extract_string_param(v))
         .ok_or_else(|| anyhow::anyhow!("Missing 'path' parameter"))?;
+    let path = expand_tilde(raw_path);
 
     // Accept old_text aliases: old_text, oldText, old_string
     let old_text = args
@@ -29,7 +30,7 @@ pub(crate) async fn tool_edit(args: &Value) -> Result<String> {
 
     app_info!("tool", "edit", "Editing file: {}", path);
 
-    let content = tokio::fs::read_to_string(path)
+    let content = tokio::fs::read_to_string(&path)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to read file '{}': {}", path, e))?;
 
@@ -63,13 +64,13 @@ pub(crate) async fn tool_edit(args: &Value) -> Result<String> {
 
     let new_content = content.replacen(old_text, new_text, 1);
 
-    let write_result = tokio::fs::write(path, &new_content).await;
+    let write_result = tokio::fs::write(&path, &new_content).await;
 
     if let Err(ref e) = write_result {
         // Post-write recovery: if write returned an error but the file on disk actually
         // contains the correct content, treat as success. This handles edge cases where
         // data was flushed but the OS reported an error (e.g. network mounts, interrupted fsync).
-        if let Ok(on_disk) = tokio::fs::read_to_string(path).await {
+        if let Ok(on_disk) = tokio::fs::read_to_string(&path).await {
             let has_new = new_text.is_empty() || on_disk.contains(new_text);
             let still_has_old = !old_text.is_empty() && on_disk.contains(old_text);
             if has_new && !still_has_old {
