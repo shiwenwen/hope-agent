@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **子 Agent 系统全面升级**：9 种操作 + Steer 干预 + 附件传递 + 标签 + 工具策略 + 批量操作
+  - **Steer 运行中干预**：新增 `steer` action，通过 `SubagentMailbox` 消息邮箱模式在子 Agent tool loop 每轮注入消息，改变运行方向而无需 kill 重来
+  - **文件附件传递**：spawn 时可传递 `files` 参数（支持 utf8/base64），自动转为 Attachment 传入子 Agent
+  - **Label 标签系统**：每个 run 可附带 `label` 便于追踪、定位和按标签操作
+  - **深度分层工具策略**：`SubagentConfig.deniedTools` 可限制子 Agent 可用工具集，支持 orchestrator vs leaf worker 差异化
+  - **批量操作**：`batch_spawn` 一次 spawn 最多 10 个任务，`wait_all` 等待多个 run 完成
+  - **Token 统计**：记录 `input_tokens`/`output_tokens` 到 DB，前端 SubagentBlock 展示统计
+  - **可配置最大嵌套深度**：`maxSpawnDepth`（1-5，默认 3），per-Agent 配置
+  - **可配置结果注入超时**：`announceTimeoutSecs`（10-600，默认 120）
+  - 系统提示词 Section ⑩ 更新：含 steer/files/label/batch 用法说明
+  - 前端 SubagentBlock 增强：显示 label、model、token 统计、附件角标
+  - 前端 SubagentPanel 增强：新增 maxSpawnDepth 和 announceTimeout 配置
+
 ### Changed
 - **重构 `agent.rs` 为模块目录**：将 2940 行的 `agent.rs` 拆分为 `agent/` 模块目录，提升可维护性
   - `agent/mod.rs`：模块声明 + 公共 API 重导出 + 构造器/setter/chat 分发器

@@ -28,6 +28,13 @@ impl AssistantAgent {
         if self.subagent_tool_enabled() {
             tool_schemas.push(tools::get_subagent_tool().to_provider_schema(ToolProvider::OpenAI));
         }
+        // Filter out denied tools (depth-based tool policy)
+        if !self.denied_tools.is_empty() {
+            tool_schemas.retain(|t| {
+                let name = t.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                !self.denied_tools.contains(&name.to_string())
+            });
+        }
 
         let mut messages = self.conversation_history.lock().unwrap().clone();
         let user_content = build_user_content_openai_chat(message, attachments);
@@ -49,6 +56,13 @@ impl AssistantAgent {
         for round in 0..max_rounds {
             if cancel.load(Ordering::SeqCst) { break; }
             round_count = round + 1;
+
+            // Drain steer mailbox: inject any pending steer messages as user messages
+            if let Some(ref rid) = self.steer_run_id {
+                for msg in crate::subagent::SUBAGENT_MAILBOX.drain(rid) {
+                    Self::push_user_message(&mut messages, serde_json::json!(format!("[Steer from parent agent]: {}", msg)));
+                }
+            }
 
             // Build messages array: system + conversation
             let mut api_messages = vec![json!({ "role": "system", "content": &system_prompt })];

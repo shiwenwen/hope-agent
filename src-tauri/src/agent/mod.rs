@@ -46,6 +46,8 @@ impl AssistantAgent {
             notification_enabled: false,
             session_id: None,
             subagent_depth: 0,
+            steer_run_id: None,
+            denied_tools: Vec::new(),
         }
     }
 
@@ -68,6 +70,8 @@ impl AssistantAgent {
             notification_enabled: false,
             session_id: None,
             subagent_depth: 0,
+            steer_run_id: None,
+            denied_tools: Vec::new(),
         }
     }
 
@@ -114,6 +118,8 @@ impl AssistantAgent {
             notification_enabled: false,
             session_id: None,
             subagent_depth: 0,
+            steer_run_id: None,
+            denied_tools: Vec::new(),
         }
     }
 
@@ -142,6 +148,16 @@ impl AssistantAgent {
         self.subagent_depth = depth;
     }
 
+    /// Set the run ID for steer mailbox (only used when running as a sub-agent).
+    pub fn set_steer_run_id(&mut self, run_id: String) {
+        self.steer_run_id = Some(run_id);
+    }
+
+    /// Set tools that are denied for this agent (depth-based tool policy).
+    pub fn set_denied_tools(&mut self, tools: Vec<String>) {
+        self.denied_tools = tools;
+    }
+
     /// Build the full system prompt, including any extra context.
     pub(crate) fn build_full_system_prompt(&self, model: &str, provider: &str) -> String {
         let mut prompt = config::build_system_prompt(&self.agent_id, model, provider);
@@ -157,7 +173,7 @@ impl AssistantAgent {
 
     /// Whether the subagent tool should be available for this agent.
     pub(crate) fn subagent_tool_enabled(&self) -> bool {
-        if self.subagent_depth >= crate::subagent::MAX_DEPTH {
+        if self.subagent_depth >= crate::subagent::max_depth_for_agent(&self.agent_id) {
             return false;
         }
         crate::agent_loader::load_agent(&self.agent_id)

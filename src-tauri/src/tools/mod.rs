@@ -696,14 +696,14 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
 pub fn get_subagent_tool() -> ToolDefinition {
     ToolDefinition {
         name: "subagent".into(),
-        description: "Spawn and manage sub-agents to delegate tasks. Sub-agents run asynchronously — their results are automatically pushed to you when complete. Use check(wait=true) as fallback if you need to actively wait for a result.".into(),
+        description: "Spawn and manage sub-agents to delegate tasks. Sub-agents run asynchronously — their results are automatically pushed to you when complete. Use steer to redirect a running sub-agent. Use check(wait=true) as fallback if you need to actively wait for a result.".into(),
         parameters: json!({
             "type": "object",
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["spawn", "check", "list", "result", "kill", "kill_all"],
-                    "description": "Action: spawn (delegate task), check (poll/wait for status), list (all runs), result (full output), kill (terminate one), kill_all (terminate all)"
+                    "enum": ["spawn", "check", "list", "result", "kill", "kill_all", "steer", "batch_spawn", "wait_all"],
+                    "description": "Action: spawn (delegate task), check (poll/wait), list (all runs), result (full output), kill (terminate one), kill_all (terminate all), steer (redirect running sub-agent), batch_spawn (spawn multiple), wait_all (wait for multiple)"
                 },
                 "task": {
                     "type": "string",
@@ -715,7 +715,7 @@ pub fn get_subagent_tool() -> ToolDefinition {
                 },
                 "run_id": {
                     "type": "string",
-                    "description": "Run ID (for check/result/kill)"
+                    "description": "Run ID (for check/result/kill/steer)"
                 },
                 "timeout_secs": {
                     "type": "integer",
@@ -732,6 +732,48 @@ pub fn get_subagent_tool() -> ToolDefinition {
                 "model": {
                     "type": "string",
                     "description": "Model override: 'provider_id/model_id'"
+                },
+                "message": {
+                    "type": "string",
+                    "description": "For steer: message to inject into the running sub-agent to redirect its behavior"
+                },
+                "label": {
+                    "type": "string",
+                    "description": "For spawn: display label for tracking this run (also usable in kill to target by label)"
+                },
+                "tasks": {
+                    "type": "array",
+                    "description": "For batch_spawn: array of task objects [{task, agent_id?, label?, timeout_secs?, model?}]",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "task": { "type": "string" },
+                            "agent_id": { "type": "string" },
+                            "label": { "type": "string" },
+                            "timeout_secs": { "type": "integer" },
+                            "model": { "type": "string" }
+                        },
+                        "required": ["task"]
+                    }
+                },
+                "run_ids": {
+                    "type": "array",
+                    "description": "For wait_all: array of run IDs to wait for",
+                    "items": { "type": "string" }
+                },
+                "files": {
+                    "type": "array",
+                    "description": "For spawn: file attachments to pass to the sub-agent",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": { "type": "string", "description": "File name" },
+                            "content": { "type": "string", "description": "File content (UTF-8 text or base64 encoded)" },
+                            "mime_type": { "type": "string", "description": "MIME type (default: text/plain)" },
+                            "encoding": { "type": "string", "enum": ["utf8", "base64"], "description": "Content encoding (default: utf8)" }
+                        },
+                        "required": ["name", "content"]
+                    }
                 }
             },
             "required": ["action"],

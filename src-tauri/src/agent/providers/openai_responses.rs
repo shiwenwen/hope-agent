@@ -28,6 +28,13 @@ impl AssistantAgent {
         if self.subagent_tool_enabled() {
             tool_schemas.push(tools::get_subagent_tool().to_provider_schema(ToolProvider::OpenAI));
         }
+        // Filter out denied tools (depth-based tool policy)
+        if !self.denied_tools.is_empty() {
+            tool_schemas.retain(|t| {
+                let name = t.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                !self.denied_tools.contains(&name.to_string())
+            });
+        }
 
         let reasoning = reasoning_effort
             .and_then(|e| clamp_reasoning_effort(model, e))
@@ -51,6 +58,13 @@ impl AssistantAgent {
         for round in 0..max_rounds {
             if cancel.load(Ordering::SeqCst) { break; }
             round_count = round + 1;
+
+            // Drain steer mailbox: inject any pending steer messages as user messages
+            if let Some(ref rid) = self.steer_run_id {
+                for msg in crate::subagent::SUBAGENT_MAILBOX.drain(rid) {
+                    Self::push_user_message(&mut input, serde_json::json!(format!("[Steer from parent agent]: {}", msg)));
+                }
+            }
 
             let request = ResponsesRequest {
                 model: model.to_string(),

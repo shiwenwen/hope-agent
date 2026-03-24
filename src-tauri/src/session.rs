@@ -171,10 +171,15 @@ impl SessionDB {
                 model_used TEXT,
                 started_at TEXT NOT NULL,
                 finished_at TEXT,
-                duration_ms INTEGER
+                duration_ms INTEGER,
+                label TEXT,
+                attachment_count INTEGER DEFAULT 0,
+                input_tokens INTEGER,
+                output_tokens INTEGER
             );
             CREATE INDEX IF NOT EXISTS idx_subagent_parent ON subagent_runs(parent_session_id, started_at DESC);
-            CREATE INDEX IF NOT EXISTS idx_subagent_status ON subagent_runs(status);"
+            CREATE INDEX IF NOT EXISTS idx_subagent_status ON subagent_runs(status);
+            CREATE INDEX IF NOT EXISTS idx_subagent_label ON subagent_runs(label);"
         )?;
 
         // Migration: add is_cron column if missing
@@ -585,13 +590,15 @@ impl SessionDB {
         let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         conn.execute(
             "INSERT INTO subagent_runs (run_id, parent_session_id, parent_agent_id, child_agent_id,
-                child_session_id, task, status, result, error, depth, model_used, started_at, finished_at, duration_ms)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+                child_session_id, task, status, result, error, depth, model_used, started_at, finished_at, duration_ms,
+                label, attachment_count, input_tokens, output_tokens)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
             params![
                 run.run_id, run.parent_session_id, run.parent_agent_id,
                 run.child_agent_id, run.child_session_id, run.task,
                 run.status.as_str(), run.result, run.error, run.depth,
                 run.model_used, run.started_at, run.finished_at, run.duration_ms.map(|d| d as i64),
+                run.label, run.attachment_count, run.input_tokens.map(|v| v as i64), run.output_tokens.map(|v| v as i64),
             ],
         )?;
         Ok(())
@@ -632,7 +639,8 @@ impl SessionDB {
         let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let mut stmt = conn.prepare(
             "SELECT run_id, parent_session_id, parent_agent_id, child_agent_id, child_session_id,
-                    task, status, result, error, depth, model_used, started_at, finished_at, duration_ms
+                    task, status, result, error, depth, model_used, started_at, finished_at, duration_ms,
+                    label, attachment_count, input_tokens, output_tokens
              FROM subagent_runs WHERE run_id = ?1"
         )?;
         let mut rows = stmt.query_map(params![run_id], Self::row_to_subagent_run)?;
@@ -648,7 +656,8 @@ impl SessionDB {
         let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let mut stmt = conn.prepare(
             "SELECT run_id, parent_session_id, parent_agent_id, child_agent_id, child_session_id,
-                    task, status, result, error, depth, model_used, started_at, finished_at, duration_ms
+                    task, status, result, error, depth, model_used, started_at, finished_at, duration_ms,
+                    label, attachment_count, input_tokens, output_tokens
              FROM subagent_runs WHERE parent_session_id = ?1 ORDER BY started_at DESC"
         )?;
         let rows = stmt.query_map(params![parent_session_id], Self::row_to_subagent_run)?;
@@ -664,7 +673,8 @@ impl SessionDB {
         let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let mut stmt = conn.prepare(
             "SELECT run_id, parent_session_id, parent_agent_id, child_agent_id, child_session_id,
-                    task, status, result, error, depth, model_used, started_at, finished_at, duration_ms
+                    task, status, result, error, depth, model_used, started_at, finished_at, duration_ms,
+                    label, attachment_count, input_tokens, output_tokens
              FROM subagent_runs
              WHERE parent_session_id = ?1 AND status IN ('spawning', 'running')
              ORDER BY started_at DESC"
@@ -703,6 +713,8 @@ impl SessionDB {
     fn row_to_subagent_run(row: &rusqlite::Row) -> rusqlite::Result<crate::subagent::SubagentRun> {
         use crate::subagent::SubagentStatus;
         let duration_val: Option<i64> = row.get(13)?;
+        let input_tokens_val: Option<i64> = row.get(16)?;
+        let output_tokens_val: Option<i64> = row.get(17)?;
         Ok(crate::subagent::SubagentRun {
             run_id: row.get(0)?,
             parent_session_id: row.get(1)?,
@@ -718,6 +730,10 @@ impl SessionDB {
             started_at: row.get(11)?,
             finished_at: row.get(12)?,
             duration_ms: duration_val.map(|v| v as u64),
+            label: row.get(14)?,
+            attachment_count: row.get::<_, u32>(15).unwrap_or(0),
+            input_tokens: input_tokens_val.map(|v| v as u64),
+            output_tokens: output_tokens_val.map(|v| v as u64),
         })
     }
 }

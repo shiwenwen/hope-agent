@@ -113,7 +113,7 @@ export interface AgentSummaryForSidebar {
 // ── Sub-Agent Types ─────────────────────────────────────────────
 
 export interface SubagentEvent {
-  eventType: "spawned" | "running" | "completed" | "error" | "killed" | "timeout"
+  eventType: "spawned" | "running" | "completed" | "error" | "killed" | "timeout" | "steered"
   runId: string
   parentSessionId: string
   childAgentId: string
@@ -124,6 +124,9 @@ export interface SubagentEvent {
   resultFull?: string
   error?: string
   durationMs?: number
+  label?: string
+  inputTokens?: number
+  outputTokens?: number
 }
 
 export interface SubagentRun {
@@ -141,6 +144,10 @@ export interface SubagentRun {
   startedAt: string
   finishedAt?: string
   durationMs?: number
+  label?: string
+  attachmentCount?: number
+  inputTokens?: number
+  outputTokens?: number
 }
 
 export interface ParentAgentStreamEvent {
@@ -159,6 +166,10 @@ export interface SubagentConfig {
   maxConcurrent: number
   defaultTimeoutSecs: number
   model?: string
+  deniedTools: string[]
+  maxSpawnDepth?: number
+  archiveAfterMinutes?: number
+  announceTimeoutSecs?: number
 }
 
 export function getEffortOptionsForType(apiType: string | undefined, t: (key: string) => string) {

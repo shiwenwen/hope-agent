@@ -117,6 +117,26 @@ export default function SubagentPanel({ config, currentAgentId, onChange }: Suba
             </div>
           )}
 
+          {/* Max spawn depth */}
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-sm">{t("settings.subagentMaxDepth")}</span>
+              <Input
+                type="number"
+                value={config.maxSpawnDepth ?? 3}
+                onChange={(e) =>
+                  onChange({
+                    ...config,
+                    maxSpawnDepth: Math.max(1, Math.min(5, Number(e.target.value) || 3)),
+                  })
+                }
+                className="w-20 text-sm"
+                min={1}
+                max={5}
+              />
+            </div>
+          </div>
+
           {/* Max concurrent */}
           <div className="space-y-1">
             <div className="flex items-center justify-between">
@@ -153,6 +173,29 @@ export default function SubagentPanel({ config, currentAgentId, onChange }: Suba
                 className="w-24 text-sm"
                 min={30}
                 max={1800}
+              />
+              <span className="text-xs text-muted-foreground">
+                {t("settings.subagentTimeoutUnit")}
+              </span>
+            </div>
+          </div>
+
+          {/* Announce timeout */}
+          <div className="space-y-1">
+            <span className="text-sm">{t("settings.subagentAnnounceTimeout")}</span>
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                value={config.announceTimeoutSecs ?? 120}
+                onChange={(e) =>
+                  onChange({
+                    ...config,
+                    announceTimeoutSecs: Math.max(10, Math.min(600, Number(e.target.value) || 120)),
+                  })
+                }
+                className="w-24 text-sm"
+                min={10}
+                max={600}
               />
               <span className="text-xs text-muted-foreground">
                 {t("settings.subagentTimeoutUnit")}

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react"
-import { ChevronRight, Users, CheckCircle, XCircle, Clock, Loader2, Skull } from "lucide-react"
+import { ChevronRight, Users, CheckCircle, XCircle, Clock, Loader2, Skull, Paperclip } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { invoke } from "@tauri-apps/api/core"
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
@@ -40,6 +40,11 @@ export default function SubagentBlock({ runId, agentId, task, initialStatus }: S
   const [resultFull, setResultFull] = useState<string | undefined>()
   const [error, setError] = useState<string | undefined>()
   const [durationMs, setDurationMs] = useState<number | undefined>()
+  const [label, setLabel] = useState<string | undefined>()
+  const [modelUsed, setModelUsed] = useState<string | undefined>()
+  const [inputTokens, setInputTokens] = useState<number | undefined>()
+  const [outputTokens, setOutputTokens] = useState<number | undefined>()
+  const [attachmentCount, setAttachmentCount] = useState(0)
 
   // Hydrate from DB on mount (handles re-mount after switching sessions)
   useEffect(() => {
@@ -50,6 +55,11 @@ export default function SubagentBlock({ runId, agentId, task, initialStatus }: S
         if (run.result) setResultFull(run.result)
         if (run.error) setError(run.error)
         if (run.durationMs) setDurationMs(run.durationMs)
+        if (run.label) setLabel(run.label)
+        if (run.modelUsed) setModelUsed(run.modelUsed)
+        if (run.inputTokens) setInputTokens(run.inputTokens)
+        if (run.outputTokens) setOutputTokens(run.outputTokens)
+        if (run.attachmentCount) setAttachmentCount(run.attachmentCount)
       })
       .catch(() => {})
   }, [runId])
@@ -64,6 +74,9 @@ export default function SubagentBlock({ runId, agentId, task, initialStatus }: S
       if (payload.resultFull) setResultFull(payload.resultFull)
       if (payload.error) setError(payload.error)
       if (payload.durationMs) setDurationMs(payload.durationMs)
+      if (payload.label) setLabel(payload.label)
+      if (payload.inputTokens) setInputTokens(payload.inputTokens)
+      if (payload.outputTokens) setOutputTokens(payload.outputTokens)
     }).then((fn) => {
       unlisten = fn
     })
@@ -74,6 +87,7 @@ export default function SubagentBlock({ runId, agentId, task, initialStatus }: S
 
   const isTerminal = ["completed", "error", "timeout", "killed"].includes(status)
   const config = statusConfig[status] || statusConfig.error
+  const displayName = label || agentId
 
   return (
     <div className="my-1.5 rounded-lg border border-border bg-secondary/50 text-xs">
@@ -93,8 +107,14 @@ export default function SubagentBlock({ runId, agentId, task, initialStatus }: S
         )}
         <Users className="h-3 w-3 shrink-0 text-muted-foreground" />
         <span className="font-medium text-foreground">subagent</span>
+        {attachmentCount > 0 && (
+          <span className="flex items-center gap-0.5 text-muted-foreground">
+            <Paperclip className="h-2.5 w-2.5" />
+            {attachmentCount}
+          </span>
+        )}
         <span className="text-muted-foreground truncate flex-1">
-          {agentId}: {task}
+          {displayName}: {task}
         </span>
         <span
           className={cn("flex items-center gap-1 transition-colors duration-200", config.color)}
@@ -106,6 +126,15 @@ export default function SubagentBlock({ runId, agentId, task, initialStatus }: S
           <span className="text-muted-foreground">{(durationMs / 1000).toFixed(1)}s</span>
         )}
       </button>
+      {/* Stats bar for terminal states */}
+      {isTerminal && (modelUsed || inputTokens !== undefined) && (
+        <div className="flex items-center gap-2 px-2.5 pb-1 text-[10px] text-muted-foreground">
+          {modelUsed && <span>{modelUsed}</span>}
+          {inputTokens !== undefined && outputTokens !== undefined && (
+            <span>{inputTokens.toLocaleString()}↑ {outputTokens.toLocaleString()}↓</span>
+          )}
+        </div>
+      )}
       <div
         className={cn(
           "overflow-hidden transition-all duration-200 ease-out",

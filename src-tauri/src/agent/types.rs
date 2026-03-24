@@ -72,6 +72,10 @@ pub struct AssistantAgent {
     pub(super) session_id: Option<String>,
     /// Sub-agent nesting depth (0 = top-level)
     pub(super) subagent_depth: u32,
+    /// Run ID for steer mailbox (set only when running as a sub-agent)
+    pub(super) steer_run_id: Option<String>,
+    /// Tools denied for this agent (used for depth-based tool policy)
+    pub(super) denied_tools: Vec<String>,
 }
 
 /// Stateful filter that strips `<think>...</think>` tags from streaming content.

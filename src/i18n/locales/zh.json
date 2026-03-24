@@ -565,6 +565,8 @@
     "subagentMaxConcurrent": "最大并发子 Agent 数",
     "subagentTimeout": "默认超时",
     "subagentTimeoutUnit": "秒",
+    "subagentMaxDepth": "最大嵌套深度",
+    "subagentAnnounceTimeout": "结果注入等待超时",
     "agentNoAgents": "还没有自定义 Agent",
     "agentNoAgentsHint": "创建一个新的 Agent 来自定义 AI 的行为",
     "charLimitExceeded": "超出上限，多余内容将被截断",

@@ -565,6 +565,8 @@
     "subagentMaxConcurrent": "Max concurrent sub-agents",
     "subagentTimeout": "Default timeout",
     "subagentTimeoutUnit": "seconds",
+    "subagentMaxDepth": "Max nesting depth",
+    "subagentAnnounceTimeout": "Result injection wait timeout",
     "agentNoAgents": "No custom Agents yet",
     "agentNoAgentsHint": "Create a new Agent to customize AI behavior",
     "charLimitExceeded": "Exceeded limit, excess content will be truncated",

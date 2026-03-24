@@ -6,7 +6,7 @@ use super::ToolExecContext;
 use crate::subagent::{self, SpawnParams, SubagentStatus};
 
 /// Tool handler for the `subagent` tool.
-/// Actions: spawn, check, list, result, kill, kill_all
+/// Actions: spawn, check, list, result, kill, kill_all, steer
 pub(crate) async fn tool_subagent(args: &Value, ctx: &ToolExecContext) -> Result<String> {
     let action = args.get("action")
         .and_then(|v| v.as_str())
@@ -19,8 +19,11 @@ pub(crate) async fn tool_subagent(args: &Value, ctx: &ToolExecContext) -> Result
         "result" => action_result(args).await,
         "kill" => action_kill(args).await,
         "kill_all" => action_kill_all(ctx).await,
+        "steer" => action_steer(args).await,
+        "batch_spawn" => action_batch_spawn(args, ctx).await,
+        "wait_all" => action_wait_all(args).await,
         _ => Err(anyhow::anyhow!(
-            "Unknown subagent action '{}'. Valid actions: spawn, check, list, result, kill, kill_all",
+            "Unknown subagent action '{}'. Valid actions: spawn, check, list, result, kill, kill_all, steer, batch_spawn, wait_all",
             action
         )),
     }
@@ -60,6 +63,46 @@ async fn action_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
         }
     }
 
+    let label = args.get("label")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    // Parse file attachments
+    let attachments = if let Some(files) = args.get("files").and_then(|v| v.as_array()) {
+        files.iter().filter_map(|f| {
+            let name = f.get("name").and_then(|v| v.as_str())?;
+            let content = f.get("content").and_then(|v| v.as_str())?;
+            let mime_type = f.get("mime_type").and_then(|v| v.as_str()).unwrap_or("text/plain");
+            let encoding = f.get("encoding").and_then(|v| v.as_str()).unwrap_or("utf8");
+
+            if encoding == "base64" {
+                Some(crate::agent::Attachment {
+                    name: name.to_string(),
+                    mime_type: mime_type.to_string(),
+                    data: Some(content.to_string()),
+                    file_path: None,
+                })
+            } else {
+                // UTF-8 text: write to temp file so agent can read it
+                let tmp_dir = std::env::temp_dir().join("opencomputer_subagent_files");
+                let _ = std::fs::create_dir_all(&tmp_dir);
+                let tmp_path = tmp_dir.join(format!("{}_{}", uuid::Uuid::new_v4(), name));
+                if std::fs::write(&tmp_path, content).is_ok() {
+                    Some(crate::agent::Attachment {
+                        name: name.to_string(),
+                        mime_type: mime_type.to_string(),
+                        data: None,
+                        file_path: Some(tmp_path.to_string_lossy().to_string()),
+                    })
+                } else {
+                    None
+                }
+            }
+        }).collect()
+    } else {
+        Vec::new()
+    };
+
     let session_db = get_session_db()?;
     let cancel_registry = get_cancel_registry()?;
 
@@ -71,6 +114,8 @@ async fn action_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
         depth: ctx.subagent_depth + 1,
         timeout_secs,
         model_override,
+        label,
+        attachments,
     };
 
     let run_id = subagent::spawn_subagent(params, session_db, cancel_registry).await?;
@@ -151,7 +196,7 @@ async fn action_list(ctx: &ToolExecContext) -> Result<String> {
     let runs = session_db.list_subagent_runs(parent_session_id)?;
 
     let items: Vec<serde_json::Value> = runs.iter().map(|r| {
-        serde_json::json!({
+        let mut item = serde_json::json!({
             "run_id": r.run_id,
             "child_agent_id": r.child_agent_id,
             "task": truncate(&r.task, 80),
@@ -159,7 +204,11 @@ async fn action_list(ctx: &ToolExecContext) -> Result<String> {
             "depth": r.depth,
             "started_at": r.started_at,
             "duration_ms": r.duration_ms,
-        })
+        });
+        if let Some(ref label) = r.label {
+            item["label"] = serde_json::Value::String(label.clone());
+        }
+        item
     }).collect();
 
     Ok(serde_json::to_string_pretty(&serde_json::json!({
@@ -236,6 +285,166 @@ async fn action_kill_all(ctx: &ToolExecContext) -> Result<String> {
     let count = cancel_registry.cancel_all_for_session(parent_session_id, &session_db);
 
     Ok(format!("Kill signal sent to {} active sub-agent(s)", count))
+}
+
+async fn action_batch_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
+    let tasks = args.get("tasks")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| anyhow::anyhow!("'tasks' array is required for batch_spawn action"))?;
+
+    if tasks.is_empty() {
+        return Err(anyhow::anyhow!("'tasks' array cannot be empty"));
+    }
+    if tasks.len() > 10 {
+        return Err(anyhow::anyhow!("batch_spawn supports at most 10 tasks at once"));
+    }
+
+    let parent_session_id = ctx.session_id.as_deref()
+        .ok_or_else(|| anyhow::anyhow!("No session context — cannot spawn sub-agents outside a chat session"))?;
+    let parent_agent_id = ctx.agent_id.as_deref().unwrap_or("default");
+
+    let session_db = get_session_db()?;
+    let cancel_registry = get_cancel_registry()?;
+
+    let mut results = Vec::new();
+    for task_def in tasks {
+        let task = task_def.get("task")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("Each task in batch_spawn must have a 'task' field"))?;
+        let agent_id = task_def.get("agent_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("default")
+            .to_string();
+        let label = task_def.get("label")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let timeout_secs = task_def.get("timeout_secs")
+            .and_then(|v| v.as_u64())
+            .map(|t| t.min(1800));
+        let model_override = task_def.get("model")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let params = SpawnParams {
+            task: task.to_string(),
+            agent_id,
+            parent_session_id: parent_session_id.to_string(),
+            parent_agent_id: parent_agent_id.to_string(),
+            depth: ctx.subagent_depth + 1,
+            timeout_secs,
+            model_override,
+            label,
+            attachments: Vec::new(),
+        };
+
+        match subagent::spawn_subagent(params, session_db.clone(), cancel_registry.clone()).await {
+            Ok(run_id) => results.push(serde_json::json!({"status": "spawned", "run_id": run_id})),
+            Err(e) => results.push(serde_json::json!({"status": "error", "error": e.to_string()})),
+        }
+    }
+
+    Ok(serde_json::to_string_pretty(&serde_json::json!({
+        "status": "batch_spawned",
+        "total": results.len(),
+        "runs": results,
+    }))?)
+}
+
+async fn action_wait_all(args: &Value) -> Result<String> {
+    let run_ids = args.get("run_ids")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| anyhow::anyhow!("'run_ids' array is required for wait_all action"))?;
+
+    let wait_timeout = args.get("wait_timeout")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(120)
+        .min(600);
+
+    let session_db = get_session_db()?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(wait_timeout);
+
+    let ids: Vec<String> = run_ids.iter()
+        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+        .collect();
+
+    // Poll until all terminal or timeout
+    loop {
+        let mut all_terminal = true;
+        let mut results = Vec::new();
+        for id in &ids {
+            if let Ok(Some(run)) = session_db.get_subagent_run(id) {
+                if !run.status.is_terminal() {
+                    all_terminal = false;
+                }
+                let mut item = serde_json::json!({
+                    "run_id": run.run_id,
+                    "status": run.status.as_str(),
+                });
+                if run.status.is_terminal() {
+                    if let Some(ref result) = run.result {
+                        item["result_preview"] = serde_json::Value::String(truncate(result, 200));
+                    }
+                    if let Some(ref error) = run.error {
+                        item["error"] = serde_json::Value::String(error.clone());
+                    }
+                    if let Some(ms) = run.duration_ms {
+                        item["duration_ms"] = serde_json::Value::Number(ms.into());
+                    }
+                    // Mark as fetched
+                    crate::subagent::mark_run_fetched(id);
+                }
+                results.push(item);
+            } else {
+                results.push(serde_json::json!({"run_id": id, "status": "not_found"}));
+            }
+        }
+
+        if all_terminal || std::time::Instant::now() >= deadline {
+            return Ok(serde_json::to_string_pretty(&serde_json::json!({
+                "all_completed": all_terminal,
+                "runs": results,
+            }))?);
+        }
+
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    }
+}
+
+async fn action_steer(args: &Value) -> Result<String> {
+    let run_id = args.get("run_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("'run_id' is required for steer action"))?;
+
+    let message = args.get("message")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("'message' is required for steer action"))?;
+
+    // Verify the run exists and is still active
+    let session_db = get_session_db()?;
+    let run = session_db.get_subagent_run(run_id)?
+        .ok_or_else(|| anyhow::anyhow!("Sub-agent run '{}' not found", run_id))?;
+
+    if run.status.is_terminal() {
+        return Err(anyhow::anyhow!(
+            "Cannot steer sub-agent run '{}': already in terminal state '{}'",
+            run_id, run.status.as_str()
+        ));
+    }
+
+    // Push the steer message to the mailbox
+    let delivered = crate::subagent::SUBAGENT_MAILBOX.push(run_id, message.to_string());
+    if !delivered {
+        return Err(anyhow::anyhow!(
+            "Sub-agent run '{}' mailbox not found (may have just completed)",
+            run_id
+        ));
+    }
+
+    Ok(serde_json::to_string_pretty(&serde_json::json!({
+        "status": "steered",
+        "run_id": run_id,
+        "message": "Steer message delivered. The sub-agent will process it in the next tool loop round."
+    }))?)
 }
 
 // ── Helpers ─────────────────────────────────────────────────────

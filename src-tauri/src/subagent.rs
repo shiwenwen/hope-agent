@@ -8,8 +8,24 @@ use crate::session::SessionDB;
 
 // ── Constants ────────────────────────────────────────────────────
 
-/// Maximum nesting depth for sub-agents (desktop app — keep shallow)
-pub const MAX_DEPTH: u32 = 3;
+/// Default maximum nesting depth for sub-agents
+const DEFAULT_MAX_DEPTH: u32 = 3;
+
+/// Get the effective max depth, checking global config.
+pub fn max_depth() -> u32 {
+    // In the future, this could read from a global config.
+    // For now, individual agent configs can override via max_spawn_depth.
+    DEFAULT_MAX_DEPTH
+}
+
+/// Get the effective max depth for a specific agent.
+pub fn max_depth_for_agent(agent_id: &str) -> u32 {
+    crate::agent_loader::load_agent(agent_id)
+        .ok()
+        .and_then(|def| def.config.subagents.max_spawn_depth)
+        .map(|d| d.clamp(1, 5))
+        .unwrap_or(DEFAULT_MAX_DEPTH)
+}
 
 /// Default timeout for sub-agent execution (seconds)
 pub const DEFAULT_TIMEOUT_SECS: u64 = 300;
@@ -82,6 +98,14 @@ pub struct SubagentRun {
     pub started_at: String,
     pub finished_at: Option<String>,
     pub duration_ms: Option<u64>,
+    /// Optional display label for tracking
+    pub label: Option<String>,
+    /// Number of file attachments passed to the sub-agent
+    pub attachment_count: u32,
+    /// Input token usage (if available)
+    pub input_tokens: Option<u64>,
+    /// Output token usage (if available)
+    pub output_tokens: Option<u64>,
 }
 
 /// Parameters for spawning a sub-agent.
@@ -94,6 +118,10 @@ pub struct SpawnParams {
     pub depth: u32,
     pub timeout_secs: Option<u64>,
     pub model_override: Option<String>,
+    /// Optional display label for tracking
+    pub label: Option<String>,
+    /// File attachments to pass to the sub-agent
+    pub attachments: Vec<crate::agent::Attachment>,
 }
 
 /// Event payload for streaming parent agent responses back to frontend.
@@ -123,11 +151,73 @@ pub struct SubagentEvent {
     pub result_preview: Option<String>,
     pub error: Option<String>,
     pub duration_ms: Option<u64>,
+    /// Optional display label
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// Input tokens used (available on terminal events)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_tokens: Option<u64>,
+    /// Output tokens used (available on terminal events)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_tokens: Option<u64>,
     /// Full result text — included only in terminal events for push delivery.
     /// Frontend uses this to auto-inject the result into the parent agent's conversation.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result_full: Option<String>,
 }
+
+// ── Steer Mailbox ───────────────────────────────────────────────
+
+/// Per-run message queue for steering running sub-agents.
+/// Parent agents push steer messages; the child agent's tool loop drains them each round.
+pub struct SubagentMailbox {
+    messages: Mutex<HashMap<String, Vec<String>>>,
+}
+
+impl SubagentMailbox {
+    pub fn new() -> Self {
+        Self { messages: Mutex::new(HashMap::new()) }
+    }
+
+    /// Push a steer message for the given run. Returns Err if run_id not registered.
+    pub fn push(&self, run_id: &str, msg: String) -> bool {
+        if let Ok(mut map) = self.messages.lock() {
+            if let Some(queue) = map.get_mut(run_id) {
+                queue.push(msg);
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Drain all pending steer messages for a run (called by the child agent's tool loop).
+    pub fn drain(&self, run_id: &str) -> Vec<String> {
+        if let Ok(mut map) = self.messages.lock() {
+            if let Some(queue) = map.get_mut(run_id) {
+                return std::mem::take(queue);
+            }
+        }
+        Vec::new()
+    }
+
+    /// Register a run_id slot (called at spawn time).
+    pub fn register(&self, run_id: &str) {
+        if let Ok(mut map) = self.messages.lock() {
+            map.insert(run_id.to_string(), Vec::new());
+        }
+    }
+
+    /// Remove a run_id slot (called when run terminates).
+    pub fn remove(&self, run_id: &str) {
+        if let Ok(mut map) = self.messages.lock() {
+            map.remove(run_id);
+        }
+    }
+}
+
+/// Global steer mailbox — accessible from tools and agent providers.
+pub static SUBAGENT_MAILBOX: std::sync::LazyLock<SubagentMailbox> =
+    std::sync::LazyLock::new(SubagentMailbox::new);
 
 // ── Cancel Registry ─────────────────────────────────────────────
 
@@ -200,11 +290,12 @@ pub async fn spawn_subagent(
     session_db: Arc<SessionDB>,
     cancel_registry: Arc<SubagentCancelRegistry>,
 ) -> Result<String> {
-    // 1. Validate depth
-    if params.depth > MAX_DEPTH {
+    // 1. Validate depth (use parent agent's configured max)
+    let effective_max_depth = max_depth_for_agent(&params.parent_agent_id);
+    if params.depth > effective_max_depth {
         return Err(anyhow::anyhow!(
             "Sub-agent depth limit reached ({}/{}). Cannot spawn further sub-agents.",
-            params.depth, MAX_DEPTH
+            params.depth, effective_max_depth
         ));
     }
 
@@ -234,6 +325,7 @@ pub async fn spawn_subagent(
 
     // 5. Insert run record
     let now = chrono::Utc::now().to_rfc3339();
+    let attachment_count = params.attachments.len() as u32;
     let run = SubagentRun {
         run_id: run_id.clone(),
         parent_session_id: params.parent_session_id.clone(),
@@ -249,11 +341,16 @@ pub async fn spawn_subagent(
         started_at: now,
         finished_at: None,
         duration_ms: None,
+        label: params.label.clone(),
+        attachment_count,
+        input_tokens: None,
+        output_tokens: None,
     };
     session_db.insert_subagent_run(&run)?;
 
-    // 6. Register cancel flag
+    // 6. Register cancel flag and steer mailbox slot
     let cancel_flag = cancel_registry.register(&run_id);
+    SUBAGENT_MAILBOX.register(&run_id);
 
     // 7. Emit spawned event
     emit_subagent_event(&SubagentEvent {
@@ -267,6 +364,9 @@ pub async fn spawn_subagent(
         result_preview: None,
         error: None,
         duration_ms: None,
+        label: params.label.clone(),
+        input_tokens: None,
+        output_tokens: None,
         result_full: None,
     });
 
@@ -282,6 +382,8 @@ pub async fn spawn_subagent(
     let parent_session_id = params.parent_session_id.clone();
     let parent_agent_id = params.parent_agent_id.clone();
     let child_session_id_clone = child_session_id.clone();
+    let label = params.label.clone();
+    let attachments = params.attachments.clone();
 
     tokio::spawn(async move {
         let start = std::time::Instant::now();
@@ -298,10 +400,12 @@ pub async fn spawn_subagent(
         let model_override_exec = model_override.clone();
         let cancel_exec = cancel_flag.clone();
 
+        let run_id_exec = run_id_clone.clone();
+        let attachments_exec = attachments.clone();
         let exec_result = std::panic::AssertUnwindSafe(
             tokio::time::timeout(
                 std::time::Duration::from_secs(timeout_secs),
-                execute_subagent(agent_id_exec, task_exec, depth, model_override_exec, cancel_exec),
+                execute_subagent(agent_id_exec, task_exec, depth, model_override_exec, cancel_exec, run_id_exec, attachments_exec),
             )
         );
         let result = futures_util::FutureExt::catch_unwind(exec_result).await;
@@ -366,11 +470,15 @@ pub async fn spawn_subagent(
             result_preview,
             error: error_text.clone(),
             duration_ms: Some(duration_ms),
+            label: label.clone(),
+            input_tokens: None,  // TODO: extract from agent usage when available
+            output_tokens: None,
             result_full: result_text,
         });
 
-        // Cleanup cancel flag
+        // Cleanup cancel flag and steer mailbox
         registry.remove(&run_id_clone);
+        SUBAGENT_MAILBOX.remove(&run_id_clone);
 
         app_info!("subagent", "spawn", "Sub-agent run {} finished in {}ms", run_id_clone, duration_ms);
 
@@ -413,6 +521,8 @@ fn execute_subagent(
     depth: u32,
     model_override: Option<String>,
     cancel: Arc<AtomicBool>,
+    run_id: String,
+    attachments: Vec<crate::agent::Attachment>,
 ) -> impl std::future::Future<Output = Result<(String, Option<String>)>> + Send {
     async move {
     use crate::agent::AssistantAgent;
@@ -460,10 +570,11 @@ fn execute_subagent(
     }
 
     // Build extra system context for sub-agent
-    let depth_info = if depth >= MAX_DEPTH {
-        format!("- You are at maximum nesting depth ({}/{}) and CANNOT spawn further sub-agents.", depth, MAX_DEPTH)
+    let effective_max = max_depth_for_agent(&agent_id);
+    let depth_info = if depth >= effective_max {
+        format!("- You are at maximum nesting depth ({}/{}) and CANNOT spawn further sub-agents.", depth, effective_max)
     } else {
-        format!("- Current nesting depth: {}/{}. You can delegate to sub-agents if needed.", depth, MAX_DEPTH)
+        format!("- Current nesting depth: {}/{}. You can delegate to sub-agents if needed.", depth, effective_max)
     };
 
     let extra_context = format!(
@@ -497,9 +608,16 @@ fn execute_subagent(
             agent.set_agent_id(&agent_id);
             agent.set_extra_system_context(extra_context.clone());
             agent.set_subagent_depth(depth);
+            agent.set_steer_run_id(run_id.clone());
+            // Apply denied_tools from parent agent's subagent config
+            if let Ok(parent_def) = crate::agent_loader::load_agent(&agent_id) {
+                if !parent_def.config.subagents.denied_tools.is_empty() {
+                    agent.set_denied_tools(parent_def.config.subagents.denied_tools.clone());
+                }
+            }
 
             let cancel_clone = cancel.clone();
-            match agent.chat(&task, &[], None, cancel_clone, |_delta| {}).await {
+            match agent.chat(&task, &attachments, None, cancel_clone, |_delta| {}).await {
                 Ok(response) => {
                     return Ok((response, Some(model_label)));
                 }
@@ -772,7 +890,12 @@ async fn inject_and_run_parent(
     let _cleanup = CleanupGuard { session_id: parent_session_id.clone() };
 
     // 1. Wait for parent session to become idle (event-driven with timeout fallback)
-    let max_wait = std::time::Duration::from_secs(120);
+    let announce_timeout = crate::agent_loader::load_agent(&parent_agent_id)
+        .ok()
+        .and_then(|def| def.config.subagents.announce_timeout_secs)
+        .unwrap_or(120)
+        .clamp(10, 600);
+    let max_wait = std::time::Duration::from_secs(announce_timeout);
     let fallback_interval = std::time::Duration::from_secs(5);
     let start = std::time::Instant::now();
     loop {

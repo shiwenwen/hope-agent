@@ -427,7 +427,8 @@ fn current_date() -> String {
 /// Build sub-agent delegation section.
 /// Only included when `SubagentConfig.enabled == true` and `depth < MAX_DEPTH`.
 fn build_subagent_section(config: &crate::agent_config::SubagentConfig, current_agent_id: &str, depth: u32) -> String {
-    if depth >= crate::subagent::MAX_DEPTH {
+    let effective_max = config.max_spawn_depth.map(|d| d.clamp(1, 5)).unwrap_or(crate::subagent::max_depth());
+    if depth >= effective_max {
         return String::new();
     }
 
@@ -461,13 +462,21 @@ fn build_subagent_section(config: &crate::agent_config::SubagentConfig, current_
     lines.push("3. When the sub-agent completes, its result is **automatically pushed** to you as a new message".to_string());
     lines.push("4. If you need to actively wait: `subagent(action=\"check\", run_id=\"...\", wait=true)` blocks until done (fallback)".to_string());
     lines.push(String::new());
+    lines.push("## Steer a running sub-agent".to_string());
+    lines.push("- `subagent(action=\"steer\", run_id=\"...\", message=\"...\")` — inject a message to redirect a running sub-agent without killing it".to_string());
+    lines.push(String::new());
     lines.push("## Other actions".to_string());
     lines.push("- `subagent(action=\"check\", run_id=\"...\")` — quick status check (non-blocking)".to_string());
     lines.push("- `subagent(action=\"list\")` — list all sub-agent runs".to_string());
     lines.push("- `subagent(action=\"kill\", run_id=\"...\")` — terminate a sub-agent".to_string());
     lines.push(String::new());
+    lines.push("## Spawn options".to_string());
+    lines.push("- `label`: display label for tracking (e.g., `label=\"research\"`)".to_string());
+    lines.push("- `files`: file attachments `[{name, content, mime_type?, encoding?}]`".to_string());
+    lines.push("- `model`: model override `\"provider_id/model_id\"`".to_string());
+    lines.push(String::new());
     lines.push("Sub-agents run in isolated sessions with their own tools and context.".to_string());
-    lines.push(format!("Current depth: {}/{}", depth, crate::subagent::MAX_DEPTH));
+    lines.push(format!("Current depth: {}/{}", depth, effective_max));
 
     lines.join("\n")
 }

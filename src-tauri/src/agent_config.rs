@@ -279,6 +279,22 @@ pub struct SubagentConfig {
     /// Model override for sub-agents (e.g., use a cheaper model for delegation)
     #[serde(default)]
     pub model: Option<String>,
+
+    /// Tools denied for sub-agents spawned by this agent (e.g., ["browser", "exec"])
+    #[serde(default)]
+    pub denied_tools: Vec<String>,
+
+    /// Max nesting depth override (1-5, default 3)
+    #[serde(default)]
+    pub max_spawn_depth: Option<u32>,
+
+    /// Auto-archive completed runs after N minutes (None = no auto-archive)
+    #[serde(default)]
+    pub archive_after_minutes: Option<u64>,
+
+    /// Max seconds to wait for parent session to become idle before injection (default 120)
+    #[serde(default)]
+    pub announce_timeout_secs: Option<u64>,
 }
 
 fn default_max_concurrent() -> u32 {
@@ -298,6 +314,10 @@ impl Default for SubagentConfig {
             max_concurrent: default_max_concurrent(),
             default_timeout_secs: default_subagent_timeout(),
             model: None,
+            denied_tools: Vec::new(),
+            max_spawn_depth: None,
+            archive_after_minutes: None,
+            announce_timeout_secs: None,
         }
     }
 }
