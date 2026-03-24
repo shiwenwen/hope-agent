@@ -1,7 +1,7 @@
 use anyhow::Result;
 use serde_json::Value;
 
-use super::extract_string_param;
+use super::{expand_tilde, extract_string_param};
 
 // ── Image Detection & Resize ──────────────────────────────────────
 
@@ -208,11 +208,12 @@ pub(crate) async fn tool_read_file(
     ctx: &super::ToolExecContext,
 ) -> Result<String> {
     // Accept both "path" and "file_path", with structured content support
-    let path = args
+    let raw_path = args
         .get("path")
         .or_else(|| args.get("file_path"))
         .and_then(|v| extract_string_param(v))
         .ok_or_else(|| anyhow::anyhow!("Missing 'path' parameter"))?;
+    let path = expand_tilde(raw_path);
 
     let offset = args
         .get("offset")
@@ -233,7 +234,7 @@ pub(crate) async fn tool_read_file(
     );
 
     // Read raw bytes first to detect file type
-    let data = tokio::fs::read(path)
+    let data = tokio::fs::read(&path)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to read file '{}': {}", path, e))?;
 

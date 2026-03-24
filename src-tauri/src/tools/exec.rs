@@ -72,7 +72,7 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Missing 'command' parameter"))?;
 
-    let cwd = args.get("cwd").and_then(|v| v.as_str());
+    let cwd = args.get("cwd").and_then(|v| v.as_str()).map(super::expand_tilde);
 
     let timeout_secs = args
         .get("timeout")
@@ -125,7 +125,7 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
     cmd.arg("-c").arg(command);
 
     // Set working directory: explicit cwd > agent home > user home
-    if let Some(dir) = cwd {
+    if let Some(ref dir) = cwd {
         cmd.current_dir(dir);
     } else if let Some(ref agent_home) = ctx.home_dir {
         cmd.current_dir(agent_home);
@@ -150,7 +150,7 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
     // Create a session for tracking
     let session_id = create_session_id();
     let session_cwd = cwd
-        .map(|s| s.to_string())
+        .clone()
         .or_else(|| ctx.home_dir.clone())
         .unwrap_or_else(|| {
             dirs::home_dir()
@@ -341,7 +341,7 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
     // ── PTY execution path ──────────────────────────────────────
     if use_pty {
         app_info!("tool", "exec", "Using PTY mode for command: {}", command);
-        match exec_via_pty(command, cwd, args, timeout_secs, max_output, &session_id, ctx).await {
+        match exec_via_pty(command, cwd.as_deref(), args, timeout_secs, max_output, &session_id, ctx).await {
             Ok(result) => return Ok(result),
             Err(e) => {
                 app_warn!("tool", "exec", "PTY execution failed ({}), falling back to normal mode", e);
