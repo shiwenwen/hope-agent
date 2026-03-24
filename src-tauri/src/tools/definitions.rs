@@ -1,0 +1,760 @@
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
+
+use super::{
+    ToolProvider,
+    TOOL_EXEC, TOOL_PROCESS, TOOL_READ, TOOL_WRITE, TOOL_EDIT, TOOL_LS,
+    TOOL_GREP, TOOL_FIND, TOOL_APPLY_PATCH, TOOL_WEB_SEARCH, TOOL_WEB_FETCH,
+    TOOL_SAVE_MEMORY, TOOL_RECALL_MEMORY, TOOL_UPDATE_MEMORY, TOOL_DELETE_MEMORY,
+    TOOL_MANAGE_CRON, TOOL_BROWSER, TOOL_SEND_NOTIFICATION, TOOL_SUBAGENT,
+};
+
+// ── Tool Definition (provider-agnostic) ───────────────────────────
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ToolDefinition {
+    pub name: String,
+    pub description: String,
+    /// JSON Schema for the tool parameters
+    pub parameters: Value,
+}
+
+impl ToolDefinition {
+    pub fn to_anthropic_schema(&self) -> Value {
+        json!({
+            "name": self.name,
+            "description": self.description,
+            "input_schema": self.parameters,
+        })
+    }
+
+    pub fn to_openai_schema(&self) -> Value {
+        json!({
+            "type": "function",
+            "name": self.name,
+            "description": self.description,
+            "parameters": self.parameters,
+        })
+    }
+
+    pub fn to_provider_schema(&self, provider: ToolProvider) -> Value {
+        match provider {
+            ToolProvider::Anthropic => self.to_anthropic_schema(),
+            ToolProvider::OpenAI => self.to_openai_schema(),
+        }
+    }
+}
+
+// ── Tool Catalog ──────────────────────────────────────────────────
+
+pub fn get_available_tools() -> Vec<ToolDefinition> {
+    vec![
+        ToolDefinition {
+            name: TOOL_EXEC.into(),
+            description: "Execute a shell command. Returns stdout/stderr. Supports background execution with yield_ms/background params.".into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "The shell command to execute"
+                    },
+                    "cwd": {
+                        "type": "string",
+                        "description": "Working directory for the command. Defaults to user home directory."
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "description": "Timeout in seconds (max 7200). Defaults to 1800 (30 min)."
+                    },
+                    "env": {
+                        "type": "object",
+                        "description": "Environment variables to set (key-value pairs)",
+                        "additionalProperties": { "type": "string" }
+                    },
+                    "background": {
+                        "type": "boolean",
+                        "description": "Run in background immediately, return session ID"
+                    },
+                    "yield_ms": {
+                        "type": "integer",
+                        "description": "Milliseconds to wait before backgrounding (default 10000). If command finishes before this, returns result directly."
+                    },
+                    "pty": {
+                        "type": "boolean",
+                        "description": "Run in a pseudo-terminal (PTY) for TTY-required commands (interactive CLIs, coding agents). Falls back to normal mode if PTY unavailable."
+                    },
+                    "sandbox": {
+                        "type": "boolean",
+                        "description": "Run command in a Docker sandbox container for isolation. Requires Docker to be installed and running. The working directory is mounted into the container."
+                    }
+                },
+                "required": ["command"],
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: TOOL_PROCESS.into(),
+            description: "Manage running exec sessions: list, poll, log, write, kill, clear, remove.".into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "description": "Action: list, poll, log, write, kill, clear, remove",
+                        "enum": ["list", "poll", "log", "write", "kill", "clear", "remove"]
+                    },
+                    "session_id": {
+                        "type": "string",
+                        "description": "Session ID (required for all actions except list)"
+                    },
+                    "data": {
+                        "type": "string",
+                        "description": "Data to write to stdin (for write action)"
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "description": "For poll: wait up to this many milliseconds before returning"
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "description": "For log: line offset"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "For log: max lines to return"
+                    }
+                },
+                "required": ["action"],
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: TOOL_READ.into(),
+            description: "Read the contents of a file at the specified path. Supports text files with line-based pagination (offset/limit) and image files (auto-detected, returned as base64). For large files, use offset and limit to read specific sections.".into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Absolute or relative file path to read (also accepts 'file_path')"
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "description": "Line number to start reading from (1-based). Defaults to 1"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of lines to read. If omitted, reads up to the internal max size"
+                    }
+                },
+                "required": ["path"],
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: TOOL_WRITE.into(),
+            description: "Write content to a file at the specified path. Creates parent directories if needed. Accepts 'file_path' as alias for 'path'.".into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Absolute or relative file path to write (also accepts 'file_path')"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "The content to write to the file"
+                    }
+                },
+                "required": ["path", "content"],
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: TOOL_EDIT.into(),
+            description: "Edit a file by replacing specific text. More precise than write for making targeted changes. The old_text must match exactly once (including whitespace and indentation). Accepts aliases: 'file_path' for 'path', 'oldText'/'old_string' for 'old_text', 'newText'/'new_string' for 'new_text'.".into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "File path to edit (also accepts 'file_path')"
+                    },
+                    "old_text": {
+                        "type": "string",
+                        "description": "Exact text to find and replace (also accepts 'oldText' or 'old_string')"
+                    },
+                    "new_text": {
+                        "type": "string",
+                        "description": "Replacement text (also accepts 'newText' or 'new_string'). Can be empty to delete text."
+                    }
+                },
+                "required": ["path", "old_text", "new_text"],
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: TOOL_LS.into(),
+            description: "List files and directories in the specified path. Returns sorted names with type indicators (/ for directories, @ for symlinks). Supports ~ expansion and entry limit.".into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Directory path to list (also accepts 'file_path'). Defaults to current directory. Supports ~ for home directory."
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of entries to return. Defaults to 500."
+                    }
+                },
+                "required": [],
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: TOOL_GREP.into(),
+            description: "Search file contents using regex or literal patterns. Respects .gitignore. Returns matching lines with file paths and line numbers.".into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "pattern": {
+                        "type": "string",
+                        "description": "Search pattern (regex by default, or literal if literal=true)"
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Directory or file to search in (default: current directory). Supports ~ expansion."
+                    },
+                    "glob": {
+                        "type": "string",
+                        "description": "Filter files by glob pattern, e.g. '*.ts' or '**/*.rs'"
+                    },
+                    "ignore_case": {
+                        "type": "boolean",
+                        "description": "Case-insensitive search (default: false)"
+                    },
+                    "literal": {
+                        "type": "boolean",
+                        "description": "Treat pattern as literal string instead of regex (default: false)"
+                    },
+                    "context": {
+                        "type": "integer",
+                        "description": "Number of lines to show before and after each match (default: 0)"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of matches to return (default: 100)"
+                    }
+                },
+                "required": ["pattern"],
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: TOOL_FIND.into(),
+            description: "Find files by glob pattern. Respects .gitignore. Returns matching file paths relative to the search directory.".into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "pattern": {
+                        "type": "string",
+                        "description": "Glob pattern to match files, e.g. '*.ts', '**/*.json', 'src/**/*.spec.ts'"
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Directory to search in (default: current directory). Supports ~ expansion."
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of results (default: 1000)"
+                    }
+                },
+                "required": ["pattern"],
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: TOOL_APPLY_PATCH.into(),
+            description: "Apply a patch to create, modify, move, or delete files. Use the *** Begin Patch / *** End Patch format with Add File, Update File, Delete File, and Move to markers.".into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "input": {
+                        "type": "string",
+                        "description": "Patch content using *** Begin Patch / *** End Patch format. Supported hunks: '*** Add File: <path>' (lines prefixed with +), '*** Update File: <path>' (@@ context marker, - for old lines, + for new lines), '*** Delete File: <path>', '*** Move to: <path>' (within Update hunk)."
+                    }
+                },
+                "required": ["input"],
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: TOOL_WEB_SEARCH.into(),
+            description: "Search the web for information. Returns relevant results with titles, URLs, and snippets. Use this when the user asks about current events, recent information, or anything that requires up-to-date knowledge.".into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query string"
+                    },
+                    "count": {
+                        "type": "integer",
+                        "description": "Number of results to return (1-10, default from settings)"
+                    },
+                    "country": {
+                        "type": "string",
+                        "description": "ISO 3166-1 alpha-2 country code (e.g. 'US', 'CN'). Limits results to this country. Supported by: Brave, Google, Tavily."
+                    },
+                    "language": {
+                        "type": "string",
+                        "description": "ISO 639-1 language code (e.g. 'en', 'zh'). Prefer results in this language. Supported by: Brave, SearXNG, Google."
+                    },
+                    "freshness": {
+                        "type": "string",
+                        "enum": ["day", "week", "month", "year"],
+                        "description": "Time filter: only return results from the specified period. Supported by: Brave, SearXNG, Perplexity, Google, Tavily."
+                    }
+                },
+                "required": ["query"],
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: TOOL_WEB_FETCH.into(),
+            description: "Fetch and extract readable content from a URL using Mozilla Readability. Supports markdown and plain text output modes. Returns structured JSON with page content, metadata, and extraction info. Use this to read web pages, documentation, articles, or API responses.".into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "HTTP or HTTPS URL to fetch"
+                    },
+                    "max_chars": {
+                        "type": "integer",
+                        "description": "Maximum content characters to return (default from config, capped by server limit)"
+                    },
+                    "extract_mode": {
+                        "type": "string",
+                        "enum": ["markdown", "text"],
+                        "description": "Content extraction mode: 'markdown' (default) preserves formatting with links/headings/lists, 'text' returns plain text"
+                    }
+                },
+                "required": ["url"],
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: TOOL_SAVE_MEMORY.into(),
+            description: "Save information to persistent memory for future conversations. Use this when the user shares personal info, preferences, corrections to your behavior, project context, or reference materials. Memories persist across conversations and help you provide better, personalized assistance.".into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "content": {
+                        "type": "string",
+                        "description": "The information to remember. Be concise but complete."
+                    },
+                    "type": {
+                        "type": "string",
+                        "enum": ["user", "feedback", "project", "reference"],
+                        "description": "Memory type: user (about the user), feedback (behavior preferences), project (project context), reference (external resources)"
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Optional tags for categorization"
+                    },
+                    "scope": {
+                        "type": "string",
+                        "enum": ["global", "agent"],
+                        "description": "Scope: global (shared across agents) or agent (private to current agent). Default: global"
+                    }
+                },
+                "required": ["content", "type"],
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: TOOL_RECALL_MEMORY.into(),
+            description: "Search persistent memories by keyword or semantic query. Use this to recall previously stored information about the user, their preferences, project context, or reference materials.".into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query (keyword or natural language)"
+                    },
+                    "type": {
+                        "type": "string",
+                        "enum": ["user", "feedback", "project", "reference"],
+                        "description": "Filter by memory type (optional)"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max results (default 10)"
+                    }
+                },
+                "required": ["query"],
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: TOOL_UPDATE_MEMORY.into(),
+            description: "Update an existing memory's content and tags by its ID. Use recall_memory first to find the memory ID. Use when a memory needs correction or its information has changed.".into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "description": "The memory ID to update (obtained from recall_memory results)"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "The new content to replace the existing memory"
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "New tags (replaces existing tags). Omit to clear tags."
+                    }
+                },
+                "required": ["id", "content"],
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: TOOL_DELETE_MEMORY.into(),
+            description: "Delete a memory by its ID. Use recall_memory first to find the memory ID, then use this tool to remove it. Use when the user asks to forget something or when a memory is outdated/incorrect.".into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "description": "The memory ID to delete (obtained from recall_memory results)"
+                    }
+                },
+                "required": ["id"],
+                "additionalProperties": false
+            }),
+        },
+        // ── Cron / Scheduled Tasks ──────────────────────────────
+        ToolDefinition {
+            name: TOOL_MANAGE_CRON.into(),
+            description: "Create, list, update, delete, and trigger scheduled tasks (cron jobs). Jobs run an agent turn with the given prompt on a schedule (isolated session, no prior history). Supports one-time (at), recurring (every), and cron expression schedules.".into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["create", "list", "get", "delete", "pause", "resume", "run_now"],
+                        "description": "Action to perform"
+                    },
+                    "id": {
+                        "type": "string",
+                        "description": "Job ID (required for get/delete/pause/resume/run_now)"
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Job name (for create)"
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Job description (for create)"
+                    },
+                    "schedule_type": {
+                        "type": "string",
+                        "enum": ["at", "every", "cron"],
+                        "description": "Schedule type (for create)"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "description": "ISO8601 timestamp for 'at' schedule"
+                    },
+                    "interval_ms": {
+                        "type": "integer",
+                        "description": "Interval in milliseconds for 'every' schedule (min 60000)"
+                    },
+                    "cron_expression": {
+                        "type": "string",
+                        "description": "Cron expression for 'cron' schedule (e.g. '0 0 9 * * 1-5 *' = weekdays 9am)"
+                    },
+                    "timezone": {
+                        "type": "string",
+                        "description": "Timezone for cron schedule (default UTC)"
+                    },
+                    "prompt": {
+                        "type": "string",
+                        "description": "The text prompt that the agent will execute when the job triggers. This runs as an isolated agent turn with no prior conversation history."
+                    },
+                    "agent_id": {
+                        "type": "string",
+                        "description": "Target agent ID (default: current agent)"
+                    }
+                },
+                "required": ["action"],
+                "additionalProperties": false
+            }),
+        },
+        // ── Browser Control ──────────────────────────────────────
+        ToolDefinition {
+            name: TOOL_BROWSER.into(),
+            description: "Control a Chrome browser via DevTools Protocol. Supports navigation, element interaction (click/fill/hover/drag), screenshots, accessibility snapshots, JavaScript execution, tab management, profile isolation, and PDF export. Chrome must be running with --remote-debugging-port=9222, or use action='launch' to start a managed instance. Use 'take_snapshot' to get element refs, then use those refs for click/fill/hover actions. Use 'list_profiles' to see available profiles and 'save_pdf' to export pages as PDF.".into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": [
+                            "connect", "launch", "disconnect",
+                            "list_pages", "new_page", "select_page", "close_page",
+                            "navigate", "go_back", "go_forward",
+                            "take_snapshot", "take_screenshot",
+                            "click", "fill", "fill_form", "hover", "drag",
+                            "press_key", "upload_file",
+                            "evaluate", "wait_for",
+                            "handle_dialog", "resize", "scroll",
+                            "list_profiles", "save_pdf"
+                        ],
+                        "description": "Browser action to perform"
+                    },
+                    "url": {
+                        "type": "string",
+                        "description": "URL for navigate/new_page/connect"
+                    },
+                    "ref": {
+                        "type": "integer",
+                        "description": "Element ref ID from take_snapshot for click/fill/hover/drag"
+                    },
+                    "value": {
+                        "type": "string",
+                        "description": "Value for fill action"
+                    },
+                    "expression": {
+                        "type": "string",
+                        "description": "JavaScript expression for evaluate action"
+                    },
+                    "text": {
+                        "type": "string",
+                        "description": "Text to wait for (wait_for action)"
+                    },
+                    "key": {
+                        "type": "string",
+                        "description": "Key name for press_key (e.g. 'Enter', 'Tab', 'Escape', 'ArrowDown')"
+                    },
+                    "page_id": {
+                        "type": "string",
+                        "description": "Page/tab target ID for select_page/close_page"
+                    },
+                    "fields": {
+                        "type": "object",
+                        "description": "For fill_form: map of ref IDs to values (e.g. {\"3\": \"hello\", \"5\": \"world\"})",
+                        "additionalProperties": { "type": "string" }
+                    },
+                    "format": {
+                        "type": "string",
+                        "enum": ["png", "jpeg"],
+                        "description": "Screenshot format (default: png)"
+                    },
+                    "full_page": {
+                        "type": "boolean",
+                        "description": "Capture full page screenshot (default: false)"
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "description": "Timeout in ms for navigate/wait_for (default: 30000)"
+                    },
+                    "width": {
+                        "type": "integer",
+                        "description": "Viewport width for resize action"
+                    },
+                    "height": {
+                        "type": "integer",
+                        "description": "Viewport height for resize action"
+                    },
+                    "double_click": {
+                        "type": "boolean",
+                        "description": "Double-click for click action"
+                    },
+                    "accept": {
+                        "type": "boolean",
+                        "description": "Accept (true) or dismiss (false) dialog"
+                    },
+                    "dialog_text": {
+                        "type": "string",
+                        "description": "Text to enter in prompt dialog"
+                    },
+                    "target_ref": {
+                        "type": "integer",
+                        "description": "Target element ref for drag action"
+                    },
+                    "file_path": {
+                        "type": "string",
+                        "description": "File path for upload_file action"
+                    },
+                    "executable_path": {
+                        "type": "string",
+                        "description": "Chrome executable path for launch action"
+                    },
+                    "headless": {
+                        "type": "boolean",
+                        "description": "Launch in headless mode (default: false)"
+                    },
+                    "profile": {
+                        "type": "string",
+                        "description": "Browser profile name for launch action. Each profile has isolated cookies, storage, and login state. Use 'list_profiles' to see existing profiles."
+                    },
+                    "output_path": {
+                        "type": "string",
+                        "description": "File path for save_pdf output. Defaults to ~/.opencomputer/share/page_<timestamp>.pdf"
+                    },
+                    "paper_format": {
+                        "type": "string",
+                        "enum": ["a3", "a4", "a5", "letter", "legal", "tabloid"],
+                        "description": "Paper format for save_pdf (default: letter)"
+                    },
+                    "landscape": {
+                        "type": "boolean",
+                        "description": "Use landscape orientation for save_pdf (default: false)"
+                    },
+                    "print_background": {
+                        "type": "boolean",
+                        "description": "Include background graphics in save_pdf (default: false)"
+                    },
+                    "direction": {
+                        "type": "string",
+                        "enum": ["up", "down", "left", "right"],
+                        "description": "Scroll direction (default: down)"
+                    },
+                    "amount": {
+                        "type": "integer",
+                        "description": "Scroll amount in pixels (default: 500)"
+                    }
+                },
+                "required": ["action"]
+            }),
+        },
+    ]
+}
+
+/// Returns the subagent tool definition (conditionally injected when enabled).
+pub fn get_subagent_tool() -> ToolDefinition {
+    ToolDefinition {
+        name: TOOL_SUBAGENT.into(),
+        description: "Spawn and manage sub-agents to delegate tasks. Sub-agents run asynchronously — their results are automatically pushed to you when complete. Use steer to redirect a running sub-agent. Use check(wait=true) as fallback if you need to actively wait for a result.".into(),
+        parameters: json!({
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["spawn", "check", "list", "result", "kill", "kill_all", "steer", "batch_spawn", "wait_all"],
+                    "description": "Action: spawn (delegate task), check (poll/wait), list (all runs), result (full output), kill (terminate one), kill_all (terminate all), steer (redirect running sub-agent), batch_spawn (spawn multiple), wait_all (wait for multiple)"
+                },
+                "task": {
+                    "type": "string",
+                    "description": "Task description for the sub-agent (required for spawn)"
+                },
+                "agent_id": {
+                    "type": "string",
+                    "description": "Agent to delegate to (default: 'default')"
+                },
+                "run_id": {
+                    "type": "string",
+                    "description": "Run ID (for check/result/kill/steer)"
+                },
+                "timeout_secs": {
+                    "type": "integer",
+                    "description": "Timeout in seconds for spawn (default 300, max 1800)"
+                },
+                "wait": {
+                    "type": "boolean",
+                    "description": "For check: block until sub-agent completes (default false). Use as fallback if push notification was missed."
+                },
+                "wait_timeout": {
+                    "type": "integer",
+                    "description": "For check with wait=true: max seconds to wait (default 60, max 300)"
+                },
+                "model": {
+                    "type": "string",
+                    "description": "Model override: 'provider_id/model_id'"
+                },
+                "message": {
+                    "type": "string",
+                    "description": "For steer: message to inject into the running sub-agent to redirect its behavior"
+                },
+                "label": {
+                    "type": "string",
+                    "description": "For spawn: display label for tracking this run (also usable in kill to target by label)"
+                },
+                "tasks": {
+                    "type": "array",
+                    "description": "For batch_spawn: array of task objects [{task, agent_id?, label?, timeout_secs?, model?}]",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "task": { "type": "string" },
+                            "agent_id": { "type": "string" },
+                            "label": { "type": "string" },
+                            "timeout_secs": { "type": "integer" },
+                            "model": { "type": "string" }
+                        },
+                        "required": ["task"]
+                    }
+                },
+                "run_ids": {
+                    "type": "array",
+                    "description": "For wait_all: array of run IDs to wait for",
+                    "items": { "type": "string" }
+                },
+                "files": {
+                    "type": "array",
+                    "description": "For spawn: file attachments to pass to the sub-agent",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": { "type": "string", "description": "File name" },
+                            "content": { "type": "string", "description": "File content (UTF-8 text or base64 encoded)" },
+                            "mime_type": { "type": "string", "description": "MIME type (default: text/plain)" },
+                            "encoding": { "type": "string", "enum": ["utf8", "base64"], "description": "Content encoding (default: utf8)" }
+                        },
+                        "required": ["name", "content"]
+                    }
+                }
+            },
+            "required": ["action"],
+            "additionalProperties": false
+        }),
+    }
+}
+
+/// Returns all tool schemas formatted for the given provider
+pub fn get_tools_for_provider(provider: ToolProvider) -> Vec<serde_json::Value> {
+    get_available_tools()
+        .iter()
+        .map(|t| t.to_provider_schema(provider))
+        .collect()
+}
+
+/// Returns the notification tool definition (conditionally injected).
+pub fn get_notification_tool() -> ToolDefinition {
+    ToolDefinition {
+        name: TOOL_SEND_NOTIFICATION.into(),
+        description: "Send a native desktop notification to the user. Use this to proactively alert the user about important events, task completions, or findings that need their attention.".into(),
+        parameters: json!({
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Notification title (short, descriptive)"
+                },
+                "body": {
+                    "type": "string",
+                    "description": "Notification body text with details"
+                }
+            },
+            "required": ["body"],
+            "additionalProperties": false
+        }),
+    }
+}

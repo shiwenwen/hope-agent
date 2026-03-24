@@ -1,0 +1,435 @@
+import { useState, useEffect, useRef } from "react"
+import { invoke, convertFileSrc } from "@tauri-apps/api/core"
+import { useTranslation } from "react-i18next"
+import { cn } from "@/lib/utils"
+import { logger } from "@/lib/logger"
+import { Button } from "@/components/ui/button"
+import { AvatarCropDialog } from "@/components/settings/AvatarCropDialog"
+import {
+  ArrowLeft,
+  Camera,
+  Check,
+  Loader2,
+  Trash2,
+} from "lucide-react"
+import type { AgentConfig, PersonalityConfig, AvailableModel, SkillSummary, AgentTab } from "./types"
+import { DEFAULT_PERSONALITY, TABS } from "./types"
+import IdentityTab from "./tabs/IdentityTab"
+import PersonalityTab from "./tabs/PersonalityTab"
+import BehaviorTab from "./tabs/BehaviorTab"
+import ModelTab from "./tabs/ModelTab"
+import MemoryTab from "./tabs/MemoryTab"
+import SubagentTab from "./tabs/SubagentTab"
+import CustomTab from "./tabs/CustomTab"
+
+interface AgentEditViewProps {
+  agentId: string
+  onBack: () => void
+}
+
+export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
+  const { t, i18n } = useTranslation()
+  const [config, setConfig] = useState<AgentConfig | null>(null)
+  const [agentMd, setAgentMd] = useState("")
+  const [persona, setPersona] = useState("")
+  const [toolsGuide, setToolsGuide] = useState("")
+  const [activeTab, setActiveTab] = useState<AgentTab>("identity")
+  const [saving, setSaving] = useState(false)
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
+  const [availableSkills, setAvailableSkills] = useState<SkillSummary[]>([])
+  const [builtinTools, setBuiltinTools] = useState<{ name: string; description: string }[]>([])
+  const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
+  const [needsFillTemplate, setNeedsFillTemplate] = useState(false)
+  const composingRef = useRef(false)
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const [cfg, md, per, tg, skills, tools, models] = await Promise.all([
+          invoke<AgentConfig>("get_agent_config", { id: agentId }),
+          invoke<string | null>("get_agent_markdown", { id: agentId, file: "agent.md" }),
+          invoke<string | null>("get_agent_markdown", { id: agentId, file: "persona.md" }),
+          invoke<string | null>("get_agent_markdown", { id: agentId, file: "tools.md" }),
+          invoke<SkillSummary[]>("get_skills"),
+          invoke<{ name: string; description: string }[]>("list_builtin_tools"),
+          invoke<AvailableModel[]>("get_available_models"),
+        ])
+        setAvailableModels(models)
+        setAvailableSkills(skills.filter((s) => s.enabled))
+        setBuiltinTools(tools)
+        // Ensure personality exists (for agents created before this field was added)
+        if (!cfg.personality) {
+          cfg.personality = { ...DEFAULT_PERSONALITY }
+        }
+        // Ensure subagents config exists
+        if (!cfg.subagents) {
+          cfg.subagents = {
+            enabled: true,
+            allowedAgents: [],
+            deniedAgents: [],
+            maxConcurrent: 5,
+            defaultTimeoutSecs: 300,
+            model: null,
+          }
+        }
+        setConfig(cfg)
+        setAgentMd(md ?? "")
+        setPersona(per ?? "")
+        setToolsGuide(tg ?? "")
+        // Flag: file never created -> fill with template; empty string means user cleared it intentionally
+        if (md === null || md === undefined) setNeedsFillTemplate(true)
+      } catch (e) {
+        logger.error("settings", "AgentPanel::loadAgent", "Failed to load agent", e)
+      }
+    }
+    load()
+  }, [agentId])
+
+  const handleSave = async () => {
+    if (!config) return
+    setSaving(true)
+    try {
+      await invoke("save_agent_config_cmd", { id: agentId, config })
+      await Promise.all([
+        invoke("save_agent_markdown", { id: agentId, file: "agent.md", content: agentMd }),
+        invoke("save_agent_markdown", { id: agentId, file: "persona.md", content: persona }),
+        invoke("save_agent_markdown", { id: agentId, file: "tools.md", content: toolsGuide }),
+      ])
+      window.dispatchEvent(new Event("agents-changed"))
+      setSaveStatus("saved")
+      setTimeout(() => setSaveStatus("idle"), 2000)
+    } catch (e) {
+      logger.error("settings", "AgentPanel::saveAgent", "Failed to save agent", e)
+      setSaveStatus("failed")
+      setTimeout(() => setSaveStatus("idle"), 2000)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (agentId === "default") return
+    if (!confirm(t("settings.agentDeleteConfirm"))) return
+    try {
+      await invoke("delete_agent", { id: agentId })
+      window.dispatchEvent(new Event("agents-changed"))
+      onBack()
+    } catch (e) {
+      logger.error("settings", "AgentPanel::deleteAgent", "Failed to delete agent", e)
+    }
+  }
+
+  const [agentCropSrc, setAgentCropSrc] = useState<string | null>(null)
+
+  const handleAvatarPick = async () => {
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog")
+      const selected = await open({
+        filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "gif", "webp", "svg"] }],
+        multiple: false,
+      })
+      if (selected) {
+        setAgentCropSrc(convertFileSrc(selected as string))
+      }
+    } catch (e) {
+      logger.error("settings", "AgentPanel::pickAvatar", "Failed to pick avatar", e)
+    }
+  }
+
+  const handleAgentCropConfirm = async (blob: Blob) => {
+    setAgentCropSrc(null)
+    try {
+      const buf = await blob.arrayBuffer()
+      const bytes = new Uint8Array(buf)
+      let binary = ""
+      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
+      const base64 = window.btoa(binary)
+      const fileName = `agent_${agentId}_${Date.now()}.png`
+      const savedPath = await invoke<string>("save_avatar", { imageData: base64, fileName })
+      updateConfig({ avatar: savedPath })
+    } catch (e) {
+      logger.error("settings", "AgentPanel::saveAvatar", "Failed to save avatar", e)
+    }
+  }
+
+  const updateConfig = (patch: Partial<AgentConfig>) => {
+    setConfig((prev) => (prev ? { ...prev, ...patch } : prev))
+  }
+
+  const updatePersonality = (patch: Partial<PersonalityConfig>) => {
+    setConfig((prev) =>
+      prev
+        ? {
+            ...prev,
+            personality: { ...prev.personality, ...patch },
+          }
+        : prev,
+    )
+  }
+
+  const textInputProps = (getter: string, setter: (v: string) => void) => ({
+    value: getter,
+    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      setter(e.target.value)
+    },
+    onCompositionStart: () => {
+      composingRef.current = true
+    },
+    onCompositionEnd: (e: React.CompositionEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      composingRef.current = false
+      setter((e.target as HTMLInputElement).value)
+    },
+  })
+
+  /** Character counter for markdown textareas */
+  const MAX_MD_CHARS = 20000
+  const CharCounter = ({ value }: { value: string }) => {
+    const len = value.length
+    const isNear = len > MAX_MD_CHARS * 0.8
+    const isOver = len > MAX_MD_CHARS
+    return (
+      <div
+        className={`text-[11px] text-right mt-1 px-1 ${isOver ? "text-red-500" : isNear ? "text-amber-500" : "text-muted-foreground/40"}`}
+      >
+        {len.toLocaleString()} / {MAX_MD_CHARS.toLocaleString()}{" "}
+        {isOver ? t("settings.charLimitExceeded") : ""}
+      </div>
+    )
+  }
+
+  /** Fetch a template file from backend by name and current locale */
+  const fetchTemplate = async (name: "agent" | "persona") => {
+    const lang = i18n.language
+    let locale = "en"
+    if (lang.startsWith("zh-TW") || lang.startsWith("zh-HK")) locale = "zh-TW"
+    else if (lang.startsWith("zh")) locale = "zh"
+    else if (lang.startsWith("ja")) locale = "ja"
+    else if (lang.startsWith("ko")) locale = "ko"
+    else if (lang.startsWith("es")) locale = "es"
+    else if (lang.startsWith("pt")) locale = "pt"
+    else if (lang.startsWith("ru")) locale = "ru"
+    else if (lang.startsWith("ar")) locale = "ar"
+    else if (lang.startsWith("tr")) locale = "tr"
+    else if (lang.startsWith("vi")) locale = "vi"
+    else if (lang.startsWith("ms")) locale = "ms"
+    try {
+      return await invoke<string>("get_agent_template", { name, locale })
+    } catch {
+      return ""
+    }
+  }
+
+  // Fill empty agent.md with locale template after config loads
+  useEffect(() => {
+    if (needsFillTemplate && config) {
+      fetchTemplate("agent").then((tpl) => {
+        if (tpl) setAgentMd(tpl)
+      })
+      setNeedsFillTemplate(false)
+    }
+  }, [needsFillTemplate, config]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleEnableCustomPrompt = async () => {
+    // Pre-fill with templates from files if empty
+    if (!agentMd.trim()) {
+      const tpl = await fetchTemplate("agent")
+      if (tpl) setAgentMd(tpl)
+    }
+    if (!persona.trim()) {
+      const tpl = await fetchTemplate("persona")
+      if (tpl) setPersona(tpl)
+    }
+    updateConfig({ useCustomPrompt: true })
+  }
+
+  if (!config) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <div className="animate-spin h-5 w-5 border-2 border-foreground border-t-transparent rounded-full" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+      <div className="flex-1 overflow-y-auto p-6">
+        <div className="max-w-4xl">
+          {/* Back button */}
+          <button
+            onClick={onBack}
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-4"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            <span>{t("settings.agents")}</span>
+          </button>
+
+          {/* Header: Avatar + Name */}
+          <div className="flex items-center gap-4 mb-5">
+            {/* Avatar */}
+            <div
+              className="w-14 h-14 rounded-full bg-secondary border border-border/50 flex items-center justify-center overflow-hidden hover:border-primary/30 transition-colors cursor-pointer shrink-0"
+              onClick={handleAvatarPick}
+            >
+              {config.avatar ? (
+                <img
+                  src={
+                    config.avatar.startsWith("/") ? convertFileSrc(config.avatar) : config.avatar
+                  }
+                  className="w-full h-full object-cover"
+                  alt=""
+                />
+              ) : (
+                <Camera className="h-5 w-5 text-muted-foreground/40" />
+              )}
+            </div>
+
+            <div className="flex-1 min-w-0">
+              <h2 className="text-lg font-semibold text-foreground truncate">{config.name}</h2>
+              {config.description && (
+                <p className="text-xs text-muted-foreground truncate">{config.description}</p>
+              )}
+            </div>
+          </div>
+
+          {/* Agent avatar crop dialog */}
+          {agentCropSrc && (
+            <AvatarCropDialog
+              open={!!agentCropSrc}
+              imageSrc={agentCropSrc}
+              onConfirm={handleAgentCropConfirm}
+              onCancel={() => setAgentCropSrc(null)}
+            />
+          )}
+
+          {/* Tabs */}
+          <div className="flex gap-1 mb-5 border-b border-border pb-px">
+            {TABS.map((tab) => (
+              <button
+                key={tab.id}
+                className={cn(
+                  "px-3 py-1.5 text-sm rounded-t-md transition-colors -mb-px",
+                  activeTab === tab.id
+                    ? "text-primary border-b-2 border-primary font-medium"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                onClick={() => setActiveTab(tab.id)}
+              >
+                {t(tab.labelKey)}
+              </button>
+            ))}
+          </div>
+
+          {/* Tab content */}
+          {activeTab === "identity" && (
+            <IdentityTab
+              config={config}
+              agentMd={agentMd}
+              updateConfig={updateConfig}
+              updatePersonality={updatePersonality}
+              setAgentMd={setAgentMd}
+              textInputProps={textInputProps}
+              CharCounter={CharCounter}
+            />
+          )}
+
+          {activeTab === "personality" && (
+            <PersonalityTab
+              config={config}
+              persona={persona}
+              updatePersonality={updatePersonality}
+              setPersona={setPersona}
+              textInputProps={textInputProps}
+              CharCounter={CharCounter}
+            />
+          )}
+
+          {activeTab === "behavior" && (
+            <BehaviorTab
+              config={config}
+              builtinTools={builtinTools}
+              availableSkills={availableSkills}
+              toolsGuide={toolsGuide}
+              updateConfig={updateConfig}
+              setToolsGuide={setToolsGuide}
+              textInputProps={textInputProps}
+              CharCounter={CharCounter}
+            />
+          )}
+
+          {activeTab === "model" && (
+            <ModelTab
+              config={config}
+              availableModels={availableModels}
+              updateConfig={updateConfig}
+            />
+          )}
+
+          {activeTab === "memory" && <MemoryTab agentId={agentId} />}
+
+          {activeTab === "subagent" && (
+            <SubagentTab
+              config={config}
+              agentId={agentId}
+              updateConfig={updateConfig}
+            />
+          )}
+
+          {activeTab === "custom" && (
+            <CustomTab
+              config={config}
+              agentMd={agentMd}
+              persona={persona}
+              updateConfig={updateConfig}
+              handleEnableCustomPrompt={handleEnableCustomPrompt}
+              textInputProps={textInputProps}
+              setAgentMd={setAgentMd}
+              setPersona={setPersona}
+              CharCounter={CharCounter}
+            />
+          )}
+        </div>
+      </div>
+
+      {/* Bottom bar: delete + save */}
+      <div className="shrink-0 flex items-center justify-between px-6 py-3 border-t border-border/30">
+        <div>
+          {agentId !== "default" && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1.5 text-muted-foreground hover:text-destructive"
+              onClick={handleDelete}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              <span>{t("common.delete")}</span>
+            </Button>
+          )}
+        </div>
+        <Button
+          className={cn(
+            saveStatus === "saved" && "bg-green-500/10 text-green-600 hover:bg-green-500/20",
+            saveStatus === "failed" && "bg-destructive/10 text-destructive hover:bg-destructive/20",
+          )}
+          onClick={handleSave}
+          disabled={saving}
+        >
+          {saving ? (
+            <span className="flex items-center gap-1.5">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              {t("common.saving")}
+            </span>
+          ) : saveStatus === "saved" ? (
+            <span className="flex items-center gap-1.5">
+              <Check className="h-3.5 w-3.5" />
+              {t("common.saved")}
+            </span>
+          ) : saveStatus === "failed" ? (
+            t("common.saveFailed")
+          ) : (
+            t("common.save")
+          )}
+        </Button>
+      </div>
+    </div>
+  )
+}
