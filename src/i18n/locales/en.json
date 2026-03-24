@@ -51,6 +51,8 @@
     "copy": "Copy",
     "details": "Details",
     "duration": "Duration",
+    "modifiedFiles": "Modified files",
+    "openFile": "Click to open file",
     "inputTokens": "Input",
     "outputTokens": "Output",
     "totalTokens": "Total",
