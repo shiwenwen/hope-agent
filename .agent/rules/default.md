@@ -33,6 +33,7 @@ src-tauri/src/          后端（Rust）
   lib.rs                Tauri 命令注册 & AppState
   agent.rs              AssistantAgent（多 Provider 封装 + Tool Loop）
   tools/                统一 Tool 定义 & 执行（按工具拆分为子模块，27 个内置工具）
+  slash_commands/       斜杠命令系统（命令注册表 + 解析器 + handlers 分发 + channel-agnostic 结果）
   provider.rs           Provider 数据模型 & 持久化
   session.rs            会话持久化（SQLite）
   paths.rs              统一路径管理（~/.opencomputer/）
@@ -77,6 +78,7 @@ src-tauri/src/          后端（Rust）
 - **上下文压缩系统**：`context_compact.rs` 实现 4 层渐进式上下文压缩。Tier 1 工具结果截断（head+tail，结构感知边界切割）→ Tier 2 上下文裁剪（软裁剪 + 硬替换，age×size 优先级评分）→ Tier 3 LLM 摘要（分块摘要 + 合并 + 3 级 fallback）→ Tier 4 溢出恢复（ContextOverflow 触发紧急压缩 + 自动重试）。Token 估算校准器利用 API 返回的实际 token 数做 EMA 滑动平均。15 个可配置参数存储在 `config.json` 的 `compact` 字段，设置面板 `ContextCompactPanel` 管理
 - **系统消息通知**：`tauri-plugin-notification` 实现 macOS 原生桌面通知。三级粒度控制：全局开关（`config.json` 的 `notification` 字段，默认开启）→ 按 Agent 覆盖（`agent.json` 的 `notifyOnComplete`，None/true/false）→ 按定时任务开关（`cron_jobs.notify_on_complete` 列）。通知触发场景：非当前会话模型完成/异常、定时任务成功/失败。Agent 可调用 `send_notification` 工具（`tools/notification.rs`），仅在通知开启时条件注入到工具列表。前端 `src/lib/notifications.ts` 统一管理权限检查和通知发送。设置面板 `NotificationPanel` 管理
 - **子 Agent 系统**：`subagent.rs` 实现 Agent 间任务委派。`subagent` 工具支持 spawn/check/list/result/kill/kill_all/steer/batch_spawn/wait_all 九种操作。非阻塞异步 spawn（`tokio::spawn`），子 Agent 在隔离 session 中运行，复用 cron 的 `build_and_run_agent` 模式（load agent → resolve model chain → failover retry）。可配置最大嵌套深度（1-5，默认 3），每个父 session 最多 5 个并发。**Steer 运行中干预**：`SubagentMailbox` 消息邮箱模式，父 Agent 可在子 Agent tool loop 每轮注入消息改变方向。**文件附件传递**：spawn 时可传递 files（utf8/base64），自动转为 Attachment 传入子 Agent。**标签系统**：每个 run 可附带 label 便于追踪定位。**深度分层工具策略**：`SubagentConfig.deniedTools` 可限制子 Agent 可用工具集。**批量操作**：batch_spawn 一次 spawn 多个任务，wait_all 等待多个 run 完成。**Token 统计**：记录 input_tokens/output_tokens 到 DB。`SubagentCancelRegistry`（`AtomicBool`）管理运行时取消。SQLite `subagent_runs` 表持久化运行记录（含 label/attachment_count/input_tokens/output_tokens）。Tauri 全局事件 `subagent_event` 实时通知前端。`SubagentConfig` per-Agent 配置（enabled/allowedAgents/deniedAgents/maxConcurrent/defaultTimeoutSecs/model/deniedTools/maxSpawnDepth/archiveAfterMinutes/announceTimeoutSecs）。系统提示词 section ⑩ 条件注入委派说明（含 steer/files/label/batch 用法）。前端 `SubagentBlock.tsx`（聊天内嵌状态，含 label/model/token 统计展示）+ `SubagentPanel.tsx`（Agent 设置面板，含深度/超时/工具策略配置）
+- **斜杠命令系统**：`slash_commands/` 模块实现 channel-agnostic 命令系统，16 个内置命令分 5 类（Session/Model/Memory/Agent/Utility）。后端 `registry.rs` 声明式命令注册表，`parser.rs` 文本解析，`handlers/` 按类别拆分，dispatch 模式分发执行。3 个 Tauri 命令（`list_slash_commands` / `execute_slash_command` / `is_slash_command`），返回 `CommandResult`（content + `CommandAction` 枚举）。前端 `SlashCommandMenu.tsx` 弹出菜单 + `useSlashCommands.ts` hook + `ChatInput.tsx` "/" 按钮和键盘拦截
 - **自愈式自动重启**：`main.rs` 实现 Guardian Process 架构，同一二进制通过 `OPENCOMPUTER_CHILD` 环境变量区分 Guardian/Child 模式。Guardian 监控子进程退出码，捕获所有崩溃类型（panic/segfault/OOM/abort），指数退避重启。连续崩溃 5 次触发 `backup.rs` 配置备份 + `self_diagnosis.rs` LLM 自诊断（多 Provider Failover + 基础分析降级），保守自动修复（仅 config/logs.db 损坏）。崩溃记录持久化到 `crash_journal.json`（JSON 格式，最近 50 条）。信号转发确保 Force Quit 不误判。退出码：0=正常、42=请求重启、其他=崩溃。设置面板 `CrashHistoryPanel` 管理崩溃历史和备份
 
 ## 编码规范

@@ -963,5 +963,34 @@
       "name": "LM Studio",
       "description": "桌面端本地模型推理"
     }
+  },
+  "slashCommands": {
+    "title": "命令",
+    "new": { "description": "开始新对话" },
+    "clear": { "description": "清空当前对话" },
+    "compact": { "description": "压缩上下文" },
+    "stop": { "description": "停止当前回复" },
+    "rename": { "description": "重命名对话" },
+    "model": { "description": "切换模型" },
+    "think": { "description": "设置思考强度" },
+    "remember": { "description": "保存记忆" },
+    "forget": { "description": "删除记忆" },
+    "memories": { "description": "列出记忆" },
+    "agent": { "description": "切换 Agent" },
+    "agents": { "description": "列出可用 Agent" },
+    "help": { "description": "显示所有命令" },
+    "status": { "description": "显示会话状态" },
+    "export": { "description": "导出为 Markdown" },
+    "usage": { "description": "Token 用量" },
+    "search": { "description": "搜索网络" },
+    "categories": {
+      "session": "会话",
+      "model": "模型",
+      "memory": "记忆",
+      "agent": "Agent",
+      "utility": "工具"
+    },
+    "noResults": "没有匹配的命令",
+    "buttonTip": "斜杠命令"
   }
 }

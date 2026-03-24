@@ -1,0 +1,86 @@
+use serde::{Deserialize, Serialize};
+
+/// Category of a slash command, used for grouping in UI.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum CommandCategory {
+    Session,
+    Model,
+    Memory,
+    Agent,
+    Utility,
+}
+
+/// A slash command definition (sent to frontend for menu rendering).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SlashCommandDef {
+    /// Command name without the "/" prefix, e.g. "new"
+    pub name: String,
+    /// Category for grouping
+    pub category: CommandCategory,
+    /// i18n key for the description, e.g. "slashCommands.new.description"
+    pub description_key: String,
+    /// Whether this command accepts arguments
+    pub has_args: bool,
+    /// Placeholder text for args, e.g. "<title>"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub arg_placeholder: Option<String>,
+    /// Fixed argument choices for hints (e.g. ["off","low","medium","high"])
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub arg_options: Option<Vec<String>>,
+}
+
+/// Channel-agnostic result of executing a slash command.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommandResult {
+    /// Text to display to the user (Markdown format).
+    pub content: String,
+    /// Side-effect action that the channel/frontend should perform.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action: Option<CommandAction>,
+}
+
+/// Side-effect actions returned by command execution.
+/// Each channel (desktop UI, Telegram, Discord, etc.) handles these
+/// appropriately for its context.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum CommandAction {
+    /// A new session was created.
+    NewSession {
+        session_id: String,
+    },
+    /// Model was switched.
+    SwitchModel {
+        provider_id: String,
+        model_id: String,
+    },
+    /// Reasoning effort was changed.
+    SetEffort {
+        effort: String,
+    },
+    /// Agent was switched (new session created).
+    SwitchAgent {
+        agent_id: String,
+        session_id: String,
+    },
+    /// Stop the current streaming response.
+    StopStream,
+    /// Trigger context compaction (frontend should call compact_context_now).
+    Compact,
+    /// Session messages were cleared.
+    SessionCleared,
+    /// Do not intercept — pass message through to LLM as a normal user message.
+    PassThrough {
+        message: String,
+    },
+    /// Export: content is the file data, filename is the suggested name.
+    ExportFile {
+        content: String,
+        filename: String,
+    },
+    /// No side-effect, just display the `content` field.
+    DisplayOnly,
+}

@@ -25,6 +25,7 @@ mod permissions;
 mod tools;
 mod user_config;
 mod context_compact;
+mod slash_commands;
 pub mod crash_journal;
 pub mod backup;
 pub mod self_diagnosis;
@@ -379,6 +380,7 @@ pub fn run() {
             commands::misc::open_directory,
             commands::misc::reveal_in_folder,
             commands::misc::open_url,
+            commands::misc::write_export_file,
             // Agent management
             commands::agent_mgmt::list_agents,
             commands::agent_mgmt::get_agent_config,
@@ -490,6 +492,10 @@ pub fn run() {
             commands::crash::create_backup_cmd,
             commands::crash::get_guardian_enabled,
             commands::crash::set_guardian_enabled,
+            // Slash commands
+            slash_commands::list_slash_commands,
+            slash_commands::execute_slash_command,
+            slash_commands::is_slash_command,
             // Developer tools
             dev_tools::dev_clear_sessions,
             dev_tools::dev_clear_cron,

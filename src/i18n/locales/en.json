@@ -963,5 +963,34 @@
       "name": "LM Studio",
       "description": "Desktop local model inference"
     }
+  },
+  "slashCommands": {
+    "title": "Commands",
+    "new": { "description": "Start a new chat" },
+    "clear": { "description": "Clear conversation" },
+    "compact": { "description": "Compress context" },
+    "stop": { "description": "Stop current reply" },
+    "rename": { "description": "Rename session" },
+    "model": { "description": "Switch model" },
+    "think": { "description": "Set thinking effort" },
+    "remember": { "description": "Save a memory" },
+    "forget": { "description": "Delete a memory" },
+    "memories": { "description": "List memories" },
+    "agent": { "description": "Switch agent" },
+    "agents": { "description": "List agents" },
+    "help": { "description": "Show all commands" },
+    "status": { "description": "Session status" },
+    "export": { "description": "Export as Markdown" },
+    "usage": { "description": "Token usage" },
+    "search": { "description": "Search the web" },
+    "categories": {
+      "session": "Session",
+      "model": "Model",
+      "memory": "Memory",
+      "agent": "Agent",
+      "utility": "Utility"
+    },
+    "noResults": "No matching commands",
+    "buttonTip": "Slash Commands"
   }
 }

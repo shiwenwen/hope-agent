@@ -10,9 +10,12 @@ import {
   IconTip,
 } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
-import { Send, Square, Brain, ChevronRight, ImagePlus, Zap, Paperclip, X } from "lucide-react"
+import { Send, Square, Brain, ChevronRight, ImagePlus, Zap, Paperclip, X, Slash } from "lucide-react"
 import type { AvailableModel, ActiveModel } from "@/types/chat"
 import { getEffortOptionsForType } from "@/types/chat"
+import { useSlashCommands, type SlashCommandActions } from "./slash-commands/useSlashCommands"
+import SlashCommandMenu from "./slash-commands/SlashCommandMenu"
+import type { CommandResult } from "./slash-commands/types"
 
 interface ChatInputProps {
   input: string
@@ -32,6 +35,10 @@ interface ChatInputProps {
   onStop?: () => void
   onCompact?: () => void
   compacting?: boolean
+  // Slash command support
+  currentSessionId?: string | null
+  currentAgentId?: string
+  onCommandAction?: (result: CommandResult) => void
 }
 
 export default function ChatInput({
@@ -52,11 +59,22 @@ export default function ChatInput({
   onStop,
   onCompact,
   compacting,
+  currentSessionId,
+  currentAgentId = "default",
+  onCommandAction,
 }: ChatInputProps) {
   const { t } = useTranslation()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Slash commands
+  const slashActions: SlashCommandActions = {
+    onCommandAction: onCommandAction ?? (() => {}),
+    sessionId: currentSessionId ?? null,
+    agentId: currentAgentId,
+  }
+  const slash = useSlashCommands(input, onInputChange, slashActions)
 
   // Model selector popup state
   const [showModelMenu, setShowModelMenu] = useState(false)
@@ -115,6 +133,8 @@ export default function ChatInput({
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.nativeEvent.isComposing || e.keyCode === 229) return
+    // Let slash command menu handle keys first
+    if (slash.handleKeyDown(e)) return
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault()
       onSend()
@@ -128,7 +148,15 @@ export default function ChatInput({
   return (
     <TooltipProvider>
       <div className="px-3 pb-3 pt-2">
-        <div className="rounded-2xl border border-border bg-card">
+        <div className="relative rounded-2xl border border-border bg-card">
+          {/* Slash Command Menu */}
+          {slash.isOpen && (
+            <SlashCommandMenu
+              commands={slash.filteredCommands}
+              selectedIndex={slash.selectedIndex}
+              onSelect={slash.executeCommand}
+            />
+          )}
           {/* Attached files preview */}
           {attachedFiles.length > 0 && (
             <div className="flex gap-2 px-3 pt-3 pb-1 flex-wrap">
@@ -227,6 +255,18 @@ export default function ChatInput({
               className="hidden"
               onChange={handleFileSelect}
             />
+
+            {/* Slash Command Button */}
+            <IconTip label={t("slashCommands.buttonTip")}>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground"
+                onClick={() => slash.setOpen(!slash.isOpen)}
+              >
+                <Slash className="h-3.5 w-3.5" />
+              </Button>
+            </IconTip>
 
             {/* Model Selector */}
             {availableModels.length > 0 && (

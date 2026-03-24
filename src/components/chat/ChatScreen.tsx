@@ -1,11 +1,13 @@
 import { useState, useRef, useEffect, useCallback } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
+import { save } from "@tauri-apps/plugin-dialog"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { Brain } from "lucide-react"
-import type { AvailableModel, ActiveModel } from "@/types/chat"
+import type { AvailableModel, ActiveModel, Message } from "@/types/chat"
 import { getEffortOptionsForType } from "@/types/chat"
+import type { CommandResult } from "./slash-commands/types"
 import ApprovalDialog from "@/components/chat/ApprovalDialog"
 import ChatSidebar from "@/components/chat/ChatSidebar"
 import ChatInput from "@/components/chat/ChatInput"
@@ -231,6 +233,87 @@ export default function ChatScreen({
     return () => el.removeEventListener("scroll", onScroll)
   }, [session.handleLoadMore]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Slash Command Action Handler ──────────────────────────────
+  const handleCommandAction = useCallback(
+    async (result: CommandResult) => {
+      const action = result.action
+
+      // Show command output as an event message (if content is not empty)
+      if (result.content) {
+        const eventMsg: Message = {
+          role: "event",
+          content: result.content,
+          timestamp: new Date().toISOString(),
+        }
+        session.setMessages((prev) => [...prev, eventMsg])
+      }
+
+      if (!action) return
+
+      switch (action.type) {
+        case "newSession":
+          session.handleSwitchSession(action.sessionId)
+          break
+        case "switchModel":
+          handleModelChange(`${action.providerId}::${action.modelId}`)
+          break
+        case "setEffort":
+          handleEffortChange(action.effort)
+          break
+        case "switchAgent":
+          session.handleSwitchSession(action.sessionId)
+          break
+        case "stopStream":
+          stream.handleStop()
+          break
+        case "compact":
+          if (session.currentSessionId) {
+            setCompacting(true)
+            try {
+              await invoke("compact_context_now", {
+                sessionId: session.currentSessionId,
+              })
+            } catch (e) {
+              logger.error("ui", "ChatScreen::slashCompact", "Compact failed", e)
+            } finally {
+              setCompacting(false)
+            }
+          }
+          break
+        case "sessionCleared":
+          session.setMessages([])
+          session.reloadSessions()
+          break
+        case "passThrough":
+          // Send the message to the LLM as a normal user message
+          stream.setInput(action.message)
+          // Use a small delay so React can update the input before sending
+          setTimeout(() => stream.handleSend(), 50)
+          break
+        case "exportFile":
+          try {
+            const filePath = await save({
+              defaultPath: action.filename,
+              filters: [{ name: "Markdown", extensions: ["md"] }],
+            })
+            if (filePath) {
+              await invoke("write_export_file", {
+                path: filePath,
+                content: action.content,
+              })
+            }
+          } catch (e) {
+            logger.error("ui", "ChatScreen::slashExport", "Export failed", e)
+          }
+          break
+        case "displayOnly":
+          // Already handled above by adding event message
+          break
+      }
+    },
+    [session, stream, handleModelChange, handleEffortChange, compacting], // eslint-disable-line react-hooks/exhaustive-deps
+  )
+
   return (
     <>
       {/* Sidebar */}
@@ -364,6 +447,9 @@ export default function ChatScreen({
                 }
               : undefined
           }
+          currentSessionId={session.currentSessionId}
+          currentAgentId={session.currentAgentId}
+          onCommandAction={handleCommandAction}
         />
       </div>
     </>

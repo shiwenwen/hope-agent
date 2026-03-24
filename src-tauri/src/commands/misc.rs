@@ -58,6 +58,12 @@ pub async fn open_url(url: String) -> Result<(), String> {
     open::that(&url).map_err(|e| format!("Failed to open URL: {}", e))
 }
 
+/// Write exported content to a file (used by slash command /export).
+#[tauri::command]
+pub async fn write_export_file(path: String, content: String) -> Result<(), String> {
+    std::fs::write(&path, content).map_err(|e| format!("Failed to write export file: {}", e))
+}
+
 #[tauri::command]
 pub async fn set_window_theme(
     is_dark: bool,

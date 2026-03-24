@@ -1,0 +1,158 @@
+use super::types::{CommandCategory, SlashCommandDef};
+
+/// Returns all available slash command definitions.
+pub fn all_commands() -> Vec<SlashCommandDef> {
+    vec![
+        // ── Session ──
+        SlashCommandDef {
+            name: "new".into(),
+            category: CommandCategory::Session,
+            description_key: "slashCommands.new.description".into(),
+            has_args: false,
+            arg_placeholder: None,
+            arg_options: None,
+        },
+        SlashCommandDef {
+            name: "clear".into(),
+            category: CommandCategory::Session,
+            description_key: "slashCommands.clear.description".into(),
+            has_args: false,
+            arg_placeholder: None,
+            arg_options: None,
+        },
+        SlashCommandDef {
+            name: "compact".into(),
+            category: CommandCategory::Session,
+            description_key: "slashCommands.compact.description".into(),
+            has_args: false,
+            arg_placeholder: None,
+            arg_options: None,
+        },
+        SlashCommandDef {
+            name: "stop".into(),
+            category: CommandCategory::Session,
+            description_key: "slashCommands.stop.description".into(),
+            has_args: false,
+            arg_placeholder: None,
+            arg_options: None,
+        },
+        SlashCommandDef {
+            name: "rename".into(),
+            category: CommandCategory::Session,
+            description_key: "slashCommands.rename.description".into(),
+            has_args: true,
+            arg_placeholder: Some("<title>".into()),
+            arg_options: None,
+        },
+        // ── Model ──
+        SlashCommandDef {
+            name: "model".into(),
+            category: CommandCategory::Model,
+            description_key: "slashCommands.model.description".into(),
+            has_args: true,
+            arg_placeholder: Some("[name]".into()),
+            arg_options: None,
+        },
+        SlashCommandDef {
+            name: "think".into(),
+            category: CommandCategory::Model,
+            description_key: "slashCommands.think.description".into(),
+            has_args: true,
+            arg_placeholder: Some("<level>".into()),
+            arg_options: Some(vec![
+                "off".into(),
+                "low".into(),
+                "medium".into(),
+                "high".into(),
+            ]),
+        },
+        // ── Memory ──
+        SlashCommandDef {
+            name: "remember".into(),
+            category: CommandCategory::Memory,
+            description_key: "slashCommands.remember.description".into(),
+            has_args: true,
+            arg_placeholder: Some("<text>".into()),
+            arg_options: None,
+        },
+        SlashCommandDef {
+            name: "forget".into(),
+            category: CommandCategory::Memory,
+            description_key: "slashCommands.forget.description".into(),
+            has_args: true,
+            arg_placeholder: Some("<query>".into()),
+            arg_options: None,
+        },
+        SlashCommandDef {
+            name: "memories".into(),
+            category: CommandCategory::Memory,
+            description_key: "slashCommands.memories.description".into(),
+            has_args: false,
+            arg_placeholder: None,
+            arg_options: None,
+        },
+        // ── Agent ──
+        SlashCommandDef {
+            name: "agent".into(),
+            category: CommandCategory::Agent,
+            description_key: "slashCommands.agent.description".into(),
+            has_args: true,
+            arg_placeholder: Some("<name>".into()),
+            arg_options: None,
+        },
+        SlashCommandDef {
+            name: "agents".into(),
+            category: CommandCategory::Agent,
+            description_key: "slashCommands.agents.description".into(),
+            has_args: false,
+            arg_placeholder: None,
+            arg_options: None,
+        },
+        // ── Utility ──
+        SlashCommandDef {
+            name: "help".into(),
+            category: CommandCategory::Utility,
+            description_key: "slashCommands.help.description".into(),
+            has_args: false,
+            arg_placeholder: None,
+            arg_options: None,
+        },
+        SlashCommandDef {
+            name: "status".into(),
+            category: CommandCategory::Utility,
+            description_key: "slashCommands.status.description".into(),
+            has_args: false,
+            arg_placeholder: None,
+            arg_options: None,
+        },
+        SlashCommandDef {
+            name: "export".into(),
+            category: CommandCategory::Utility,
+            description_key: "slashCommands.export.description".into(),
+            has_args: false,
+            arg_placeholder: None,
+            arg_options: None,
+        },
+        SlashCommandDef {
+            name: "usage".into(),
+            category: CommandCategory::Utility,
+            description_key: "slashCommands.usage.description".into(),
+            has_args: false,
+            arg_placeholder: None,
+            arg_options: None,
+        },
+        SlashCommandDef {
+            name: "search".into(),
+            category: CommandCategory::Utility,
+            description_key: "slashCommands.search.description".into(),
+            has_args: true,
+            arg_placeholder: Some("<query>".into()),
+            arg_options: None,
+        },
+    ]
+}
+
+/// Check if a command name is valid.
+pub fn is_valid_command(name: &str) -> bool {
+    all_commands().iter().any(|c| c.name == name)
+}

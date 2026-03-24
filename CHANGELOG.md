@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **斜杠命令系统（Slash Commands）**：输入框键入 `/` 自动展开命令菜单，支持 16 个内置命令
+  - **架构**：命令解析和执行在 Rust 后端实现（`slash_commands/` 模块），channel-agnostic 设计，未来可复用于 Telegram/Discord/Slack 等渠道
+  - **5 个命令类别**：会话（`/new` `/clear` `/compact` `/stop` `/rename`）、模型（`/model` `/think`）、记忆（`/remember` `/forget` `/memories`）、Agent（`/agent` `/agents`）、工具（`/help` `/status` `/export` `/usage` `/search`）
+  - **后端**：3 个 Tauri 命令（`list_slash_commands` / `execute_slash_command` / `is_slash_command`），返回 `CommandResult`（content + CommandAction 枚举），各 channel 按 action 类型执行副作用
+  - **前端**：弹出菜单 UI（按分类分组、键盘 ↑↓ 导航、模糊过滤）、`/` 按钮触发、集成到 ChatInput 键盘事件拦截
+  - **i18n**：中/英双语命令描述和分类标签
 - **P1 工具能力增强**：新增 8 个内置工具（工具总数 19 → 27）
   - `memory_get`：按 ID 精确读取记忆完整内容和元数据
   - `agents_list`：列出所有可用 Agent 及其配置信息
