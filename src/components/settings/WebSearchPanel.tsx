@@ -44,6 +44,7 @@ import {
   Square,
   Trash2,
 } from "lucide-react"
+import { cn } from "@/lib/utils"
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -623,7 +624,7 @@ export default function WebSearchPanel() {
   const [config, setConfig] = useState<WebSearchConfig | null>(null)
   const [savedJson, setSavedJson] = useState("")
   const [saving, setSaving] = useState(false)
-  const [justSaved, setJustSaved] = useState(false)
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [advancedOpen, setAdvancedOpen] = useState(true)
 
@@ -646,10 +647,12 @@ export default function WebSearchPanel() {
     try {
       await invoke("save_web_search_config", { config })
       setSavedJson(JSON.stringify(config))
-      setJustSaved(true)
-      setTimeout(() => setJustSaved(false), 2000)
+      setSaveStatus("saved")
+      setTimeout(() => setSaveStatus("idle"), 2000)
     } catch (e) {
       logger.error("settings", "WebSearchPanel::save", "Failed to save config", e)
+      setSaveStatus("failed")
+      setTimeout(() => setSaveStatus("idle"), 2000)
     } finally {
       setSaving(false)
     }
@@ -940,13 +943,30 @@ export default function WebSearchPanel() {
 
         {/* Save button */}
         <div className="flex items-center gap-3 pt-2">
-          <Button onClick={handleSave} disabled={!isDirty || saving} size="sm">
+          <Button
+            onClick={handleSave}
+            disabled={(!isDirty && saveStatus === "idle") || saving}
+            size="sm"
+            className={cn(
+              saveStatus === "saved" && "bg-green-500/10 text-green-600 hover:bg-green-500/20",
+              saveStatus === "failed" && "bg-destructive/10 text-destructive hover:bg-destructive/20",
+            )}
+          >
             {saving ? (
-              <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
-            ) : justSaved ? (
-              <Check className="h-4 w-4 mr-1.5" />
-            ) : null}
-            {justSaved ? t("settings.webSearchSaved") : t("common.save")}
+              <span className="flex items-center gap-1.5">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                {t("common.saving")}
+              </span>
+            ) : saveStatus === "saved" ? (
+              <span className="flex items-center gap-1.5">
+                <Check className="h-3.5 w-3.5" />
+                {t("common.saved")}
+              </span>
+            ) : saveStatus === "failed" ? (
+              t("common.saveFailed")
+            ) : (
+              t("common.save")
+            )}
           </Button>
         </div>
       </div>

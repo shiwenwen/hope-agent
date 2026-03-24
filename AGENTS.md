@@ -105,6 +105,7 @@ src-tauri/src/          后端（Rust）
 - **i18n 功能实现时只需实现中文（zh）和英文（en）**，其余语言通过单独的任务进行补齐，`scripts/sync-i18n.mjs` 统一补齐（翻译数据在 `scripts/i18n-translations.json`）
 - 避免不必要的重渲染（`React.memo`、`useMemo`、`useCallback`）
 - **Tooltip 必须使用 `@/components/ui/tooltip`**，禁止用 HTML 原生 `title` 属性（延迟过长，体验不一致）。优先使用 `<IconTip label={...}>` 简洁包裹，`TooltipProvider` 已内置默认延迟参数，无需手动传递
+- **保存按钮统一三态交互**：所有设置面板的保存按钮必须实现三个状态——① 点击后 `saving`：显示 `Loader2` 旋转动画 + `t("common.saving")`，按钮 disabled；② 成功 `saved`：按钮变绿色（`bg-green-500/10 text-green-600`）+ `Check` 图标 + `t("common.saved")`，2 秒后恢复；③ 失败 `failed`：按钮变红色（`bg-destructive/10 text-destructive`）+ `t("common.saveFailed")`，2 秒后恢复。使用 `saveStatus: "idle" | "saved" | "failed"` + `saving: boolean` 两个状态变量管理
 
 ### 后端（Rust）
 - 新功能放单独模块文件，在 `lib.rs` 注册命令

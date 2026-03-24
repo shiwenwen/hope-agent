@@ -197,7 +197,8 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
   const [embeddingDirty, setEmbeddingDirty] = useState(false)
   const [embeddingTestLoading, setEmbeddingTestLoading] = useState(false)
   const [embeddingTestResult, setEmbeddingTestResult] = useState<TestResult | null>(null)
-  const [embeddingSaved, setEmbeddingSaved] = useState(false)
+  const [embeddingSaving, setEmbeddingSaving] = useState(false)
+  const [embeddingSaveStatus, setEmbeddingSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
 
   // Dedup config state
   const [dedupConfig, setDedupConfig] = useState({ thresholdHigh: 0.02, thresholdMerge: 0.012 })
@@ -610,13 +611,18 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
   }
 
   async function saveEmbeddingConfig() {
+    setEmbeddingSaving(true)
     try {
       await invoke("save_embedding_config", { config: embeddingConfig })
       setEmbeddingDirty(false)
-      setEmbeddingSaved(true)
-      setTimeout(() => setEmbeddingSaved(false), 2000)
+      setEmbeddingSaveStatus("saved")
+      setTimeout(() => setEmbeddingSaveStatus("idle"), 2000)
     } catch (e) {
       logger.error("settings", "MemoryPanel::saveEmbedding", "Failed to save", e)
+      setEmbeddingSaveStatus("failed")
+      setTimeout(() => setEmbeddingSaveStatus("idle"), 2000)
+    } finally {
+      setEmbeddingSaving(false)
     }
   }
 
@@ -833,14 +839,24 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
                 <Button
                   onClick={saveEmbeddingConfig}
                   size="sm"
-                  disabled={!embeddingDirty && !embeddingSaved}
-                  className={cn(embeddingSaved && "bg-green-500/10 text-green-600 hover:bg-green-500/20 border-green-500/30")}
+                  disabled={(!embeddingDirty && embeddingSaveStatus === "idle") || embeddingSaving}
+                  className={cn(
+                    embeddingSaveStatus === "saved" && "bg-green-500/10 text-green-600 hover:bg-green-500/20",
+                    embeddingSaveStatus === "failed" && "bg-destructive/10 text-destructive hover:bg-destructive/20",
+                  )}
                 >
-                  {embeddingSaved ? (
-                    <>
-                      <Check className="h-4 w-4 mr-1" />
+                  {embeddingSaving ? (
+                    <span className="flex items-center gap-1.5">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      {t("common.saving")}
+                    </span>
+                  ) : embeddingSaveStatus === "saved" ? (
+                    <span className="flex items-center gap-1.5">
+                      <Check className="h-3.5 w-3.5" />
                       {t("common.saved")}
-                    </>
+                    </span>
+                  ) : embeddingSaveStatus === "failed" ? (
+                    t("common.saveFailed")
                   ) : (
                     t("common.save")
                   )}

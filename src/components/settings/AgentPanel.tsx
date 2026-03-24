@@ -19,6 +19,7 @@ import {
   Camera,
   Check,
   ChevronRight,
+  Loader2,
   Plus,
   Trash2,
   X,
@@ -282,7 +283,7 @@ function AgentEditView({ agentId, onBack }: { agentId: string; onBack: () => voi
   const [toolsGuide, setToolsGuide] = useState("")
   const [activeTab, setActiveTab] = useState<AgentTab>("identity")
   const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
   const [availableSkills, setAvailableSkills] = useState<SkillSummary[]>([])
   const [builtinTools, setBuiltinTools] = useState<{ name: string; description: string }[]>([])
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
@@ -346,10 +347,12 @@ function AgentEditView({ agentId, onBack }: { agentId: string; onBack: () => voi
         invoke("save_agent_markdown", { id: agentId, file: "tools.md", content: toolsGuide }),
       ])
       window.dispatchEvent(new Event("agents-changed"))
-      setSaved(true)
-      setTimeout(() => setSaved(false), 2000)
+      setSaveStatus("saved")
+      setTimeout(() => setSaveStatus("idle"), 2000)
     } catch (e) {
       logger.error("settings", "AgentPanel::saveAgent", "Failed to save agent", e)
+      setSaveStatus("failed")
+      setTimeout(() => setSaveStatus("idle"), 2000)
     } finally {
       setSaving(false)
     }
@@ -428,6 +431,16 @@ function AgentEditView({ agentId, onBack }: { agentId: string; onBack: () => voi
       setter((e.target as HTMLInputElement).value)
     },
   })
+
+  /** Internal capability tools that should never require approval */
+  const internalTools = new Set([
+    "save_memory",
+    "recall_memory",
+    "update_memory",
+    "delete_memory",
+    "manage_cron",
+    "send_notification",
+  ])
 
   /** i18n key map for built-in tool names */
   const toolI18nKey: Record<string, string> = {
@@ -1012,7 +1025,7 @@ function AgentEditView({ agentId, onBack }: { agentId: string; onBack: () => voi
                 {!config.behavior.requireApproval.includes("*") &&
                   config.behavior.requireApproval.length > 0 && (
                     <div className="rounded-lg border border-border/50 overflow-hidden">
-                      {builtinTools.map((tool, idx) => {
+                      {builtinTools.filter((t) => !internalTools.has(t.name)).map((tool, idx) => {
                         const isRequired = config.behavior.requireApproval.includes(tool.name)
                         return (
                           <div
@@ -1456,17 +1469,25 @@ function AgentEditView({ agentId, onBack }: { agentId: string; onBack: () => voi
           )}
         </div>
         <Button
-          className={cn(saved && "bg-green-500/10 text-green-600 hover:bg-green-500/20")}
+          className={cn(
+            saveStatus === "saved" && "bg-green-500/10 text-green-600 hover:bg-green-500/20",
+            saveStatus === "failed" && "bg-destructive/10 text-destructive hover:bg-destructive/20",
+          )}
           onClick={handleSave}
           disabled={saving}
         >
           {saving ? (
-            t("common.saving")
-          ) : saved ? (
+            <span className="flex items-center gap-1.5">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              {t("common.saving")}
+            </span>
+          ) : saveStatus === "saved" ? (
             <span className="flex items-center gap-1.5">
               <Check className="h-3.5 w-3.5" />
-              {t("settings.agentSaved")}
+              {t("common.saved")}
             </span>
+          ) : saveStatus === "failed" ? (
+            t("common.saveFailed")
           ) : (
             t("common.save")
           )}

@@ -5,7 +5,8 @@ import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
-import { Check } from "lucide-react"
+import { cn } from "@/lib/utils"
+import { Check, Loader2 } from "lucide-react"
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -38,7 +39,8 @@ export default function WebFetchPanel() {
   const { t } = useTranslation()
   const [config, setConfig] = useState<WebFetchConfig>(DEFAULT_CONFIG)
   const [savedSnapshot, setSavedSnapshot] = useState<string>("")
-  const [saved, setSaved] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
 
   const isDirty = JSON.stringify(config) !== savedSnapshot
 
@@ -60,13 +62,18 @@ export default function WebFetchPanel() {
   }, [])
 
   const save = async () => {
+    setSaving(true)
     try {
       await invoke("save_web_fetch_config", { config })
       setSavedSnapshot(JSON.stringify(config))
-      setSaved(true)
-      setTimeout(() => setSaved(false), 2000)
+      setSaveStatus("saved")
+      setTimeout(() => setSaveStatus("idle"), 2000)
     } catch (e) {
       logger.error("settings", `Failed to save web fetch config: ${e}`)
+      setSaveStatus("failed")
+      setTimeout(() => setSaveStatus("idle"), 2000)
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -221,12 +228,26 @@ export default function WebFetchPanel() {
 
         {/* Save button */}
         <div className="flex items-center gap-2 pt-2">
-          <Button onClick={save} disabled={!isDirty}>
-            {saved ? (
-              <>
-                <Check className="h-4 w-4 mr-1" />
-                {t("settings.webFetchSaved")}
-              </>
+          <Button
+            onClick={save}
+            disabled={(!isDirty && saveStatus === "idle") || saving}
+            className={cn(
+              saveStatus === "saved" && "bg-green-500/10 text-green-600 hover:bg-green-500/20",
+              saveStatus === "failed" && "bg-destructive/10 text-destructive hover:bg-destructive/20",
+            )}
+          >
+            {saving ? (
+              <span className="flex items-center gap-1.5">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                {t("common.saving")}
+              </span>
+            ) : saveStatus === "saved" ? (
+              <span className="flex items-center gap-1.5">
+                <Check className="h-3.5 w-3.5" />
+                {t("common.saved")}
+              </span>
+            ) : saveStatus === "failed" ? (
+              t("common.saveFailed")
             ) : (
               t("common.save")
             )}

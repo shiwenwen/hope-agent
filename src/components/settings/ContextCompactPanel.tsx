@@ -11,7 +11,8 @@ import {
   TooltipTrigger,
   IconTip,
 } from "@/components/ui/tooltip"
-import { ChevronDown, ChevronRight, Loader2, Info } from "lucide-react"
+import { ChevronDown, ChevronRight, Loader2, Check, Info } from "lucide-react"
+import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
 
 interface CompactConfig {
@@ -114,7 +115,7 @@ export default function ContextCompactPanel() {
   const [config, setConfig] = useState<CompactConfig | null>(null)
   const [savedJson, setSavedJson] = useState("")
   const [saving, setSaving] = useState(false)
-  const [justSaved, setJustSaved] = useState(false)
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
   const [pruningOpen, setPruningOpen] = useState(true)
   const [summaryOpen, setSummaryOpen] = useState(true)
   const [advancedOpen, setAdvancedOpen] = useState(false)
@@ -142,10 +143,12 @@ export default function ContextCompactPanel() {
     try {
       await invoke("save_compact_config", { config })
       setSavedJson(JSON.stringify(config))
-      setJustSaved(true)
-      setTimeout(() => setJustSaved(false), 2000)
+      setSaveStatus("saved")
+      setTimeout(() => setSaveStatus("idle"), 2000)
     } catch (e) {
       logger.error("settings", "ContextCompactPanel::save", "Failed to save compact config", e)
+      setSaveStatus("failed")
+      setTimeout(() => setSaveStatus("idle"), 2000)
     } finally {
       setSaving(false)
     }
@@ -420,13 +423,32 @@ export default function ContextCompactPanel() {
 
         {/* Save button */}
         <div className="flex items-center gap-2 pt-2">
-          <Button variant="default" size="sm" onClick={handleSave} disabled={!isDirty || saving}>
-            {saving && <Loader2 className="h-3 w-3 animate-spin mr-1" />}
-            {t("common.save")}
+          <Button
+            variant="default"
+            size="sm"
+            onClick={handleSave}
+            disabled={(!isDirty && saveStatus === "idle") || saving}
+            className={cn(
+              saveStatus === "saved" && "bg-green-500/10 text-green-600 hover:bg-green-500/20",
+              saveStatus === "failed" && "bg-destructive/10 text-destructive hover:bg-destructive/20",
+            )}
+          >
+            {saving ? (
+              <span className="flex items-center gap-1.5">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                {t("common.saving")}
+              </span>
+            ) : saveStatus === "saved" ? (
+              <span className="flex items-center gap-1.5">
+                <Check className="h-3.5 w-3.5" />
+                {t("common.saved")}
+              </span>
+            ) : saveStatus === "failed" ? (
+              t("common.saveFailed")
+            ) : (
+              t("common.save")
+            )}
           </Button>
-          {justSaved && (
-            <span className="text-xs text-green-600">{t("settings.contextCompactSaved")}</span>
-          )}
         </div>
       </div>
     </TooltipProvider>

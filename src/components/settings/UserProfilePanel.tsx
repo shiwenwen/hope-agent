@@ -16,7 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { AvatarCropDialog } from "@/components/settings/AvatarCropDialog"
-import { Camera, Check, Monitor } from "lucide-react"
+import { Camera, Check, Loader2, Monitor } from "lucide-react"
 
 interface UserConfig {
   name?: string | null
@@ -106,7 +106,7 @@ export default function UserProfilePanel({ onSaved }: { onSaved?: () => void } =
   const { t, i18n } = useTranslation()
   const [config, setConfig] = useState<UserConfig>({})
   const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
   const [customStyle, setCustomStyle] = useState(false)
   const [customGender, setCustomGender] = useState(false)
   const composingRef = useRef(false)
@@ -140,11 +140,13 @@ export default function UserProfilePanel({ onSaved }: { onSaved?: () => void } =
     setSaving(true)
     try {
       await invoke("save_user_config", { config })
-      setSaved(true)
+      setSaveStatus("saved")
       onSaved?.()
-      setTimeout(() => setSaved(false), 2000)
+      setTimeout(() => setSaveStatus("idle"), 2000)
     } catch (e) {
       logger.error("settings", "UserProfilePanel::save", "Failed to save user config", e)
+      setSaveStatus("failed")
+      setTimeout(() => setSaveStatus("idle"), 2000)
     } finally {
       setSaving(false)
     }
@@ -553,17 +555,25 @@ export default function UserProfilePanel({ onSaved }: { onSaved?: () => void } =
       {/* ── Save — fixed bottom-right ── */}
       <div className="shrink-0 flex justify-end px-6 py-3 border-t border-border/30">
         <Button
-          className={cn(saved && "bg-green-500/10 text-green-600 hover:bg-green-500/20")}
+          className={cn(
+            saveStatus === "saved" && "bg-green-500/10 text-green-600 hover:bg-green-500/20",
+            saveStatus === "failed" && "bg-destructive/10 text-destructive hover:bg-destructive/20",
+          )}
           onClick={handleSave}
           disabled={saving}
         >
           {saving ? (
-            t("common.saving")
-          ) : saved ? (
+            <span className="flex items-center gap-1.5">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              {t("common.saving")}
+            </span>
+          ) : saveStatus === "saved" ? (
             <span className="flex items-center gap-1.5">
               <Check className="h-3.5 w-3.5" />
-              {t("settings.profileSaved")}
+              {t("common.saved")}
             </span>
+          ) : saveStatus === "failed" ? (
+            t("common.saveFailed")
           ) : (
             t("common.save")
           )}
