@@ -2,16 +2,9 @@ use anyhow::Result;
 use serde_json::json;
 
 use super::config::{build_api_url, ANTHROPIC_API_VERSION};
-use super::types::{AssistantAgent, ChatUsage, LlmProvider};
+use super::types::{AssistantAgent, LlmProvider};
 
 impl AssistantAgent {
-    /// Update the token estimate calibrator with actual API usage.
-    pub fn update_token_calibration(&self, estimated: u32, actual: u32) {
-        if let Ok(mut calibrator) = self.token_calibrator.lock() {
-            calibrator.update(estimated, actual);
-        }
-    }
-
     /// Replace the conversation history (used to restore context from DB).
     pub fn set_conversation_history(&self, history: Vec<serde_json::Value>) {
         *self.conversation_history.lock().unwrap() = history;

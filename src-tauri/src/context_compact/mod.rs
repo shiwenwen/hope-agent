@@ -88,13 +88,11 @@ PRIORITIZE recent context over older history."#;
 // ── Re-exports ──
 
 pub use config::CompactConfig;
-pub use types::{CompactResult, CompactDetails, TokenEstimateCalibrator, PruneResult, SummarizationSplit};
-pub use estimation::{estimate_tokens, estimate_message_chars, estimate_request_tokens};
+pub use types::{CompactResult, TokenEstimateCalibrator};
+pub use estimation::estimate_request_tokens;
 pub use truncation::truncate_tool_results;
-pub use pruning::prune_old_context;
 pub(crate) use summarization::SUMMARIZATION_SYSTEM_PROMPT;
 pub use summarization::{
     split_for_summarization, build_summarization_prompt, apply_summary,
-    is_oversized_for_summary, compute_adaptive_chunk_ratio, split_messages_by_token_share,
 };
 pub use compact::{compact_if_needed, emergency_compact};

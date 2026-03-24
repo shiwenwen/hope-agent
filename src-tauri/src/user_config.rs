@@ -57,6 +57,7 @@ pub struct UserConfig {
     pub auto_send_pending: bool,
 }
 
+#[allow(dead_code)]
 fn default_true() -> bool { true }
 
 // ── Persistence ──────────────────────────────────────────────────

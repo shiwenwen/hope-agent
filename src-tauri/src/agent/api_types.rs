@@ -23,7 +23,7 @@ pub(super) struct ResponsesRequest {
 
 /// Tracks a function_call being accumulated from SSE events
 #[derive(Debug, Clone)]
-pub(super) struct FunctionCallItem {
+pub(crate) struct FunctionCallItem {
     pub call_id: String,
     pub name: String,
     pub arguments: String,
@@ -80,6 +80,7 @@ pub(super) struct SseUsage {
     pub input_tokens_details: Option<SseTokenDetails>,
     // OpenAI Chat Completions: prompt_tokens_details.cached_tokens
     #[serde(default)]
+    #[allow(dead_code)]
     pub prompt_tokens_details: Option<SseTokenDetails>,
 }
 

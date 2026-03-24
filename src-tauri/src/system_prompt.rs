@@ -483,6 +483,7 @@ fn build_subagent_section(config: &crate::agent_config::SubagentConfig, current_
 }
 
 /// Build sub-agent section with explicit depth (called from subagent execution context).
+#[allow(dead_code)]
 pub fn build_subagent_section_with_depth(config: &crate::agent_config::SubagentConfig, current_agent_id: &str, depth: u32) -> String {
     build_subagent_section(config, current_agent_id, depth)
 }

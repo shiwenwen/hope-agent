@@ -28,6 +28,7 @@ pub struct ExtractedImage {
     /// MIME type (e.g., "image/png").
     pub mime_type: String,
     /// Human-readable label (e.g., "Page 1", "Slide 3").
+    #[allow(dead_code)]
     pub label: String,
 }
 

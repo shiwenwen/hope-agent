@@ -65,6 +65,7 @@ pub struct AssistantAgent {
     /// Context compaction configuration
     pub(super) compact_config: crate::context_compact::CompactConfig,
     /// Token estimate calibrator (updated with actual API usage)
+    #[allow(dead_code)]
     pub(super) token_calibrator: std::sync::Mutex<crate::context_compact::TokenEstimateCalibrator>,
     /// Whether this agent can use the send_notification tool
     pub(super) notification_enabled: bool,

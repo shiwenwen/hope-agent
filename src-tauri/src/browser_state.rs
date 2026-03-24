@@ -16,10 +16,13 @@ pub struct ElementRef {
     /// Unique CSS selector for re-finding the element
     pub selector: String,
     /// Bounding box center X
+    #[allow(dead_code)]
     pub center_x: f64,
     /// Bounding box center Y
+    #[allow(dead_code)]
     pub center_y: f64,
     /// Extra attributes (href, value, placeholder, etc.)
+    #[allow(dead_code)]
     pub attrs: HashMap<String, String>,
 }
 

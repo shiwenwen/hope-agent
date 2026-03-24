@@ -23,8 +23,8 @@ mod write;
 // ── Public Re-exports ─────────────────────────────────────────────
 
 pub use approval::{ApprovalResponse, submit_approval_response};
-pub use definitions::{ToolDefinition, get_available_tools, get_subagent_tool, get_notification_tool, get_tools_for_provider};
-pub use execution::{ToolExecContext, execute_tool, execute_tool_with_context};
+pub use definitions::{get_available_tools, get_subagent_tool, get_notification_tool, get_tools_for_provider};
+pub use execution::{ToolExecContext, execute_tool_with_context};
 
 // ── Tool Name Constants ──────────────────────────────────────────
 

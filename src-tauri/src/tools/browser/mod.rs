@@ -1,7 +1,8 @@
 use anyhow::Result;
 use serde_json::Value;
 
-use crate::browser_state::{self, get_browser_state};
+use crate::browser_state;
+
 
 mod connection;
 mod navigation;

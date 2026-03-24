@@ -11,7 +11,7 @@ pub mod helpers;
 
 pub use types::*;
 pub use traits::*;
-pub use sqlite::{SqliteMemoryBackend, open_default};
+pub use sqlite::SqliteMemoryBackend;
 pub use embedding::*;
 pub use import::*;
 pub use helpers::{load_dedup_config, load_extract_config};

@@ -54,6 +54,7 @@ impl ToolExecContext {
 // ── Tool Execution (provider-agnostic) ────────────────────────────
 
 /// Execute a tool by name with the given JSON arguments.
+#[allow(dead_code)]
 pub async fn execute_tool(name: &str, args: &Value) -> anyhow::Result<String> {
     execute_tool_with_context(name, args, &ToolExecContext::default()).await
 }

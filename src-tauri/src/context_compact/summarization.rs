@@ -172,12 +172,14 @@ pub fn apply_summary(
 }
 
 /// Check if a single message is too large to safely include in a summarization call.
+#[allow(dead_code)]
 pub fn is_oversized_for_summary(msg: &Value, context_window: u32) -> bool {
     let tokens = estimate_tokens(msg) as f64 * SAFETY_MARGIN;
     tokens > context_window as f64 * 0.5
 }
 
 /// Compute adaptive chunk ratio based on average message size.
+#[allow(dead_code)]
 pub fn compute_adaptive_chunk_ratio(messages: &[Value], context_window: u32) -> f64 {
     if messages.is_empty() || context_window == 0 {
         return BASE_CHUNK_RATIO;
@@ -197,6 +199,7 @@ pub fn compute_adaptive_chunk_ratio(messages: &[Value], context_window: u32) -> 
 }
 
 /// Split messages into chunks by token share.
+#[allow(dead_code)]
 pub fn split_messages_by_token_share(
     messages: &[Value],
     parts: usize,

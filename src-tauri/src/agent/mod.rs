@@ -8,11 +8,11 @@ mod providers;
 mod types;
 
 // Re-export public API
-pub use config::{build_api_url, clamp_reasoning_effort, get_codex_models, USER_AGENT};
-pub use types::{Attachment, AssistantAgent, ChatUsage, CodexModel, LlmProvider};
+pub use config::{build_api_url, get_codex_models, USER_AGENT};
+pub use types::{Attachment, AssistantAgent, CodexModel, LlmProvider};
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 
 use anyhow::Result;
 use serde_json::json;
@@ -201,11 +201,6 @@ impl AssistantAgent {
             subagent_depth: self.subagent_depth,
             require_approval,
         }
-    }
-
-    /// Set the context window size (called from lib.rs after agent construction).
-    pub fn set_context_window(&mut self, cw: u32) {
-        self.context_window = cw;
     }
 
     /// Get the context window size.
