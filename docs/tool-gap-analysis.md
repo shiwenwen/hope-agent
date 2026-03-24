@@ -80,18 +80,18 @@
 | ~~`browser.profiles`~~ | ~~浏览器多配置档~~ | ✅ `browser` 的 `list_profiles` action + `launch` 的 `profile` 参数 |
 | ~~`browser.pdf`~~ | ~~页面导出 PDF~~ | ✅ `browser` 的 `save_pdf` action |
 
-### 优先级 P1 — 重要增强
+### ~~优先级 P1 — 重要增强~~（已完成）
 
-| 工具 | 说明 | 补齐建议 |
-|------|------|----------|
-| `sessions_send` | 向其他会话发送消息 | 跨会话通信，OC 的 subagent 仅支持 steer 干预运行中的子 Agent，不支持向任意会话发消息 |
-| `sessions_list` | 列出所有会话及元数据 | 会话管理基础设施，可结合前端侧边栏会话列表暴露给 Agent |
-| `sessions_history` | 获取会话聊天历史（分页） | 跨会话上下文引用，Agent 无法读取其他会话的历史 |
-| `session_status` | 查询会话状态和模型配置 | 任务状态监控，当前 subagent 的 `check` 仅查子 Agent 状态 |
-| `agents_list` | 列出可用 Agent | 多 Agent 场景下动态选择合适的 Agent 委派任务 |
-| `image` | 图片理解 / 视觉分析 | 多模态能力，OC 的 `read` 已支持图片 base64 但未暴露为独立视觉分析工具；OpenClaw 支持 sandbox 隔离 + agentDir 存储 |
-| `memory_get` | 记忆文件分页读取（行级精确定位） | `recall_memory` 已覆盖搜索场景，但缺少 memory_search → memory_get 的两步精确读取流程 |
-| `pdf` | PDF 文档提取分析 | 文档处理工具（非浏览器导出 PDF），OpenClaw 支持 sandbox + agentDir 存储 |
+| 工具 | 说明 | OpenComputer 对应实现 |
+|------|------|----------------------|
+| ~~`sessions_send`~~ | ~~向其他会话发送消息~~ | ✅ `sessions_send` 工具（同步等待 + 异步投递） |
+| ~~`sessions_list`~~ | ~~列出所有会话及元数据~~ | ✅ `sessions_list` 工具（支持 agent_id 过滤、cron 过滤） |
+| ~~`sessions_history`~~ | ~~获取会话聊天历史（分页）~~ | ✅ `sessions_history` 工具（分页游标、工具过滤、80KB 上限） |
+| ~~`session_status`~~ | ~~查询会话状态和模型配置~~ | ✅ `session_status` 工具 |
+| ~~`agents_list`~~ | ~~列出可用 Agent~~ | ✅ `agents_list` 工具 |
+| ~~`image`~~ | ~~图片理解 / 视觉分析~~ | ✅ `image` 工具（复用 read.rs 图像检测 + 缩放，支持 prompt 参数） |
+| ~~`memory_get`~~ | ~~记忆精确读取~~ | ✅ `memory_get` 工具（按 ID 读取完整内容和元数据） |
+| ~~`pdf`~~ | ~~PDF 文档提取分析~~ | ✅ `pdf` 工具（pdf-extract 文本提取 + 页码范围过滤） |
 
 ### 优先级 P2 — 扩展能力
 
@@ -108,23 +108,23 @@
 
 | 分类 | OpenComputer | OpenClaw |
 |------|-------------|----------|
-| 总工具数 | **19** | **~28** + 插件 |
+| 总工具数 | **27** | **~28** + 插件 |
 | 文件系统（read/write/edit/ls/grep/find） | 6 | 6（pi-coding-agent） |
 | 执行（exec/process） | 2 | 2（bash-tools） |
 | 补丁（apply_patch） | 1 | 1（条件启用） |
 | Web（search/fetch） | 2 | 2 |
-| 记忆 | 4（recall/save/update/delete） | 2（search/get） |
+| 记忆 | 5（recall/save/update/delete/get） | 2（search/get） |
 | 定时任务 | 1 | 1 |
 | 浏览器 | 1 | 1 |
-| 子 Agent / 会话 | 1（9 种 action） | 6（spawn/yield/send/list/history/status + subagents） |
+| 子 Agent / 会话 | 5（subagent + sessions_list/history/send/status） | 6（spawn/yield/send/list/history/status + subagents） |
 | 通知 / 消息 | 1（桌面通知） | 1（多渠道消息） |
-| Agent 管理 | 0 | 1（agents_list） |
-| 多模态 / 媒体 | 0 | 4（image/image_generate/tts/pdf） |
+| Agent 管理 | 1（agents_list） | 1（agents_list） |
+| 多模态 / 媒体 | 2（image/pdf） | 4（image/image_generate/tts/pdf） |
 | 平台特有 | 0 | 3（nodes/gateway/canvas） |
 
 ## 补齐路线建议
 
-1. **Phase 1**：会话管理能力（sessions_list/history/send/status + agents_list）— subagent 已覆盖 spawn/管理，但跨会话通信和状态查询仍缺失
-2. **Phase 2**：多模态工具（image 视觉分析 + pdf 文档提取）— 利用已有的多模态 API 能力
+1. ~~**Phase 1**：会话管理能力（sessions_list/history/send/status + agents_list）~~ ✅ 已完成
+2. ~~**Phase 2**：多模态工具（image 视觉分析 + pdf 文档提取）~~ ✅ 已完成
 3. **Phase 3**：消息通道（message）+ 图片生成（image_generate）— 扩展输出形式
 4. **Phase 4**：语音（tts）+ UI 交互（canvas）— 增强用户体验

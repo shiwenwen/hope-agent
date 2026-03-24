@@ -50,7 +50,7 @@ const IMAGE_MAX_BYTES: usize = 5 * 1024 * 1024; // 5 MB
 
 /// Resize an image buffer if it exceeds dimension or byte limits.
 /// Returns (base64_data, mime_type).
-fn resize_image_if_needed(data: &[u8], original_mime: &str) -> Result<(String, &'static str)> {
+pub(crate) fn resize_image_if_needed(data: &[u8], original_mime: &str) -> Result<(String, &'static str)> {
     use image::ImageReader;
     use std::io::Cursor;
 

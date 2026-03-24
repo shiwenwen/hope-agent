@@ -16,6 +16,12 @@ import {
   Bell,
   Network,
   Cpu,
+  MessageSquare,
+  List,
+  History,
+  Activity,
+  Users,
+  Image,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { ToolCall } from "@/types/chat"
@@ -42,6 +48,14 @@ const TOOL_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
   browser: Monitor,
   send_notification: Bell,
   subagent: Network,
+  memory_get: Brain,
+  agents_list: Users,
+  sessions_list: List,
+  session_status: Activity,
+  sessions_history: History,
+  sessions_send: MessageSquare,
+  image: Image,
+  pdf: FileText,
 }
 
 /** Extract a short, human-friendly summary of tool arguments */
@@ -86,6 +100,21 @@ function getDisplayArgs(name: string, args: string): string {
         return parsed.title || args
       case "subagent":
         return `${parsed.action}${parsed.run_id ? ` ${parsed.run_id}` : ""}`
+      case "memory_get":
+        return `id: ${parsed.id}`
+      case "agents_list":
+        return ""
+      case "sessions_list":
+        return parsed.agent_id ? `agent: ${parsed.agent_id}` : "all"
+      case "session_status":
+      case "sessions_history":
+        return parsed.session_id || args
+      case "sessions_send":
+        return parsed.session_id || args
+      case "image":
+        return parsed.path || args
+      case "pdf":
+        return parsed.path || args
       default:
         return args
     }

@@ -32,7 +32,7 @@ src/                    前端（React + TypeScript）
 src-tauri/src/          后端（Rust）
   lib.rs                Tauri 命令注册 & AppState
   agent.rs              AssistantAgent（多 Provider 封装 + Tool Loop）
-  tools/                统一 Tool 定义 & 执行（按工具拆分为子模块）
+  tools/                统一 Tool 定义 & 执行（按工具拆分为子模块，27 个内置工具）
   provider.rs           Provider 数据模型 & 持久化
   session.rs            会话持久化（SQLite）
   paths.rs              统一路径管理（~/.opencomputer/）

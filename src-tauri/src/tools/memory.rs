@@ -186,3 +186,43 @@ pub(crate) async fn tool_delete_memory(args: &Value) -> Result<String> {
 
     Ok(result)
 }
+
+/// Tool: memory_get — retrieve a specific memory entry by ID with full content and metadata.
+pub(crate) async fn tool_memory_get(args: &Value) -> Result<String> {
+    let id = args.get("id")
+        .and_then(|v| v.as_i64())
+        .ok_or_else(|| anyhow::anyhow!("Missing 'id' parameter (integer)"))?;
+
+    let result = tokio::task::spawn_blocking(move || -> Result<String> {
+        let backend = crate::get_memory_backend()
+            .ok_or_else(|| anyhow::anyhow!("Memory backend not initialized"))?;
+
+        match backend.get(id)? {
+            Some(mem) => {
+                let scope_label = match &mem.scope {
+                    MemoryScope::Global => "global".to_string(),
+                    MemoryScope::Agent { id } => format!("agent:{}", id),
+                };
+                let tags_str = if mem.tags.is_empty() {
+                    String::new()
+                } else {
+                    format!(" tags: [{}]", mem.tags.join(", "))
+                };
+                Ok(format!(
+                    "Memory #{} [{}|{}]{}\nSource: {} | Created: {} | Updated: {}\n\n{}",
+                    mem.id,
+                    mem.memory_type.as_str(),
+                    scope_label,
+                    tags_str,
+                    mem.source,
+                    mem.created_at,
+                    mem.updated_at,
+                    mem.content,
+                ))
+            }
+            None => Ok(format!("Memory with id {} not found.", id)),
+        }
+    }).await??;
+
+    Ok(result)
+}

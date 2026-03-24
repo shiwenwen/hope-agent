@@ -178,7 +178,15 @@
     "delete_memory": "删除记忆",
     "manage_cron": "定时任务",
     "browser": "浏览器",
-    "send_notification": "发送通知"
+    "send_notification": "发送通知",
+    "memory_get": "读取记忆",
+    "agents_list": "Agent 列表",
+    "sessions_list": "会话列表",
+    "session_status": "会话状态",
+    "sessions_history": "会话历史",
+    "sessions_send": "发送至会话",
+    "image": "图像分析",
+    "pdf": "读取 PDF"
   },
   "toolGroup": {
     "browse": "已浏览 {{count}} 个文件",

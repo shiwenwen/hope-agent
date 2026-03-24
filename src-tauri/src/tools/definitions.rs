@@ -7,6 +7,8 @@ use super::{
     TOOL_GREP, TOOL_FIND, TOOL_APPLY_PATCH, TOOL_WEB_SEARCH, TOOL_WEB_FETCH,
     TOOL_SAVE_MEMORY, TOOL_RECALL_MEMORY, TOOL_UPDATE_MEMORY, TOOL_DELETE_MEMORY,
     TOOL_MANAGE_CRON, TOOL_BROWSER, TOOL_SEND_NOTIFICATION, TOOL_SUBAGENT,
+    TOOL_MEMORY_GET, TOOL_AGENTS_LIST, TOOL_SESSIONS_LIST, TOOL_SESSION_STATUS,
+    TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_SEND, TOOL_IMAGE, TOOL_PDF,
 };
 
 // ── Tool Definition (provider-agnostic) ───────────────────────────
@@ -633,6 +635,173 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     }
                 },
                 "required": ["action"]
+            }),
+        },
+        // ── Memory Get ──────────────────────────────────────────
+        ToolDefinition {
+            name: TOOL_MEMORY_GET.into(),
+            description: "Retrieve a specific memory entry by its ID with full content and metadata. Use after recall_memory to get complete details of a specific memory.".into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "description": "Memory entry ID to retrieve (obtained from recall_memory results)"
+                    }
+                },
+                "required": ["id"],
+                "additionalProperties": false
+            }),
+        },
+        // ── Agents List ─────────────────────────────────────────
+        ToolDefinition {
+            name: TOOL_AGENTS_LIST.into(),
+            description: "List all available agents with their descriptions and capabilities. Useful for choosing which agent to delegate tasks to via subagent.".into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": false
+            }),
+        },
+        // ── Sessions List ───────────────────────────────────────
+        ToolDefinition {
+            name: TOOL_SESSIONS_LIST.into(),
+            description: "List all chat sessions with metadata (title, agent, model, message count). Use to discover existing sessions for cross-session communication.".into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "agent_id": {
+                        "type": "string",
+                        "description": "Filter by agent ID (optional)"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max sessions to return (default 20, max 100)"
+                    },
+                    "include_cron": {
+                        "type": "boolean",
+                        "description": "Include cron-triggered sessions (default false)"
+                    }
+                },
+                "required": [],
+                "additionalProperties": false
+            }),
+        },
+        // ── Session Status ──────────────────────────────────────
+        ToolDefinition {
+            name: TOOL_SESSION_STATUS.into(),
+            description: "Query detailed status of a specific session including agent, model, message count, and timestamps.".into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "description": "Session ID to query"
+                    }
+                },
+                "required": ["session_id"],
+                "additionalProperties": false
+            }),
+        },
+        // ── Sessions History ────────────────────────────────────
+        ToolDefinition {
+            name: TOOL_SESSIONS_HISTORY.into(),
+            description: "Get paginated chat history from a specific session. Use to read conversation context from other sessions. Tool call details are excluded by default to reduce noise.".into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "description": "Target session ID"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max messages to return (default 50, max 200)"
+                    },
+                    "before_id": {
+                        "type": "integer",
+                        "description": "Pagination cursor: load messages before this message ID"
+                    },
+                    "include_tools": {
+                        "type": "boolean",
+                        "description": "Include tool call/result details (default false)"
+                    }
+                },
+                "required": ["session_id"],
+                "additionalProperties": false
+            }),
+        },
+        // ── Sessions Send ───────────────────────────────────────
+        ToolDefinition {
+            name: TOOL_SESSIONS_SEND.into(),
+            description: "Send a message to another session for cross-session communication. The message is delivered as a user message. With wait=true, blocks until the target agent responds (up to timeout_secs).".into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "description": "Target session ID"
+                    },
+                    "message": {
+                        "type": "string",
+                        "description": "Message content to send"
+                    },
+                    "wait": {
+                        "type": "boolean",
+                        "description": "Wait for agent reply (default false)"
+                    },
+                    "timeout_secs": {
+                        "type": "integer",
+                        "description": "Max seconds to wait for reply (default 60, max 300). Only applies when wait=true."
+                    }
+                },
+                "required": ["session_id", "message"],
+                "additionalProperties": false
+            }),
+        },
+        // ── Image Analysis ──────────────────────────────────────
+        ToolDefinition {
+            name: TOOL_IMAGE.into(),
+            description: "Analyze an image file. Reads the image at the given path and returns it as base64-encoded data for visual analysis. Supports PNG, JPEG, GIF, WebP, BMP, TIFF. Oversized images are auto-resized. Use 'prompt' to specify what to analyze.".into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Image file path (supports ~ expansion)"
+                    },
+                    "prompt": {
+                        "type": "string",
+                        "description": "What to analyze or describe about the image (optional)"
+                    }
+                },
+                "required": ["path"],
+                "additionalProperties": false
+            }),
+        },
+        // ── PDF Extraction ──────────────────────────────────────
+        ToolDefinition {
+            name: TOOL_PDF.into(),
+            description: "Extract text content from a PDF document. Supports page-range filtering and character limit. Use for reading documents, reports, and papers. Returns extracted text organized by page.".into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "PDF file path (supports ~ expansion)"
+                    },
+                    "pages": {
+                        "type": "string",
+                        "description": "Page range: '1-5', '3', '1-3,7,10-12'. Default: all pages."
+                    },
+                    "max_chars": {
+                        "type": "integer",
+                        "description": "Max output characters (default 50000)"
+                    }
+                },
+                "required": ["path"],
+                "additionalProperties": false
             }),
         },
     ]

@@ -39,6 +39,21 @@ Use to recall user preferences, project context, or previously stored informatio
 Params: query (required), type (optional filter), limit (default 10). \
 - subagent: Spawn and manage sub-agents to delegate tasks to other agents. \
 Actions: spawn (start sub-agent with task), check (poll status), list, result, kill, kill_all. \
+- memory_get: Retrieve a specific memory entry by ID with full content and metadata. \
+Use after recall_memory to get the complete details of a specific memory. \
+- agents_list: List all available agents with their descriptions and capabilities. \
+Useful for choosing which agent to delegate tasks to via subagent. \
+- sessions_list: List all chat sessions with metadata (title, agent, model, message count). \
+Use to discover existing sessions for cross-session communication. \
+- session_status: Query detailed status of a specific session. \
+- sessions_history: Get paginated chat history from a specific session. \
+Params: session_id (required), limit (default 50), before_id (pagination cursor), include_tools (default false). \
+- sessions_send: Send a message to another session for cross-session communication. \
+Params: session_id, message (required), wait (default false), timeout_secs (default 60). \
+- image: Analyze an image file. Returns base64-encoded image data for visual analysis. \
+Supports PNG, JPEG, GIF, WebP, BMP, TIFF. Use prompt param to specify what to analyze. \
+- pdf: Extract text content from PDF documents with page-level pagination. \
+Params: path (required), pages (e.g. '1-5'), max_chars (default 50000). \
 \
 For long-running commands (builds, installs), consider using background=true and then \
 process(action='poll') to check progress.";
@@ -258,6 +273,8 @@ fn build_tools_section(filter: &FilterConfig) -> String {
         TOOL_EXEC, TOOL_PROCESS, TOOL_READ, TOOL_WRITE, TOOL_EDIT,
         TOOL_LS, TOOL_GREP, TOOL_FIND, TOOL_APPLY_PATCH, TOOL_WEB_SEARCH, TOOL_WEB_FETCH,
         TOOL_SAVE_MEMORY, TOOL_RECALL_MEMORY, TOOL_SUBAGENT,
+        TOOL_MEMORY_GET, TOOL_AGENTS_LIST, TOOL_SESSIONS_LIST, TOOL_SESSION_STATUS,
+        TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_SEND, TOOL_IMAGE, TOOL_PDF,
     ];
 
     let active: Vec<&&str> = all_tools.iter().filter(|t| filter.is_allowed(t)).collect();

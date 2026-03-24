@@ -178,7 +178,15 @@
     "delete_memory": "Delete Memory",
     "manage_cron": "Cron Jobs",
     "browser": "Browser",
-    "send_notification": "Send Notification"
+    "send_notification": "Send Notification",
+    "memory_get": "Get Memory",
+    "agents_list": "List Agents",
+    "sessions_list": "List Sessions",
+    "session_status": "Session Status",
+    "sessions_history": "Session History",
+    "sessions_send": "Send to Session",
+    "image": "Analyze Image",
+    "pdf": "Read PDF"
   },
   "toolGroup": {
     "browse": "Browsed {{count}} files",

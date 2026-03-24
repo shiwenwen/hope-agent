@@ -41,7 +41,7 @@ src-tauri/src/          后端（Rust）
       openai_chat.rs    OpenAI Chat Completions API + SSE 解析
       openai_responses.rs  OpenAI Responses API
       codex.rs          Codex OAuth API + 重试逻辑
-  tools/                统一 Tool 定义 & 执行（按工具拆分为子模块）
+  tools/                统一 Tool 定义 & 执行（按工具拆分为子模块，27 个内置工具）
   provider.rs           Provider 数据模型 & 持久化
   session.rs            会话持久化（SQLite）
   paths.rs              统一路径管理（~/.opencomputer/）

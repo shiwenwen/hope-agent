@@ -30,6 +30,9 @@ const CATEGORY_MAP: Record<string, ToolCategory> = {
   recall_memory: "memory",
   update_memory: "memory",
   delete_memory: "memory",
+  memory_get: "memory",
+  image: "browse",
+  pdf: "browse",
 }
 
 export function getToolCategory(name: string): ToolCategory {

@@ -1,5 +1,6 @@
 use serde_json::Value;
 
+mod agents;
 mod approval;
 mod apply_patch;
 pub(crate) mod browser;
@@ -10,11 +11,14 @@ mod exec;
 mod execution;
 mod find;
 mod grep;
+mod image;
 mod ls;
 mod memory;
 mod notification;
+mod pdf;
 mod process;
-mod read;
+pub(crate) mod read;
+mod sessions;
 pub(crate) mod subagent;
 pub(crate) mod web_fetch;
 pub(crate) mod web_search;
@@ -47,6 +51,14 @@ pub const TOOL_MANAGE_CRON: &str = "manage_cron";
 pub const TOOL_BROWSER: &str = "browser";
 pub const TOOL_SEND_NOTIFICATION: &str = "send_notification";
 pub const TOOL_SUBAGENT: &str = "subagent";
+pub const TOOL_MEMORY_GET: &str = "memory_get";
+pub const TOOL_AGENTS_LIST: &str = "agents_list";
+pub const TOOL_SESSIONS_LIST: &str = "sessions_list";
+pub const TOOL_SESSION_STATUS: &str = "session_status";
+pub const TOOL_SESSIONS_HISTORY: &str = "sessions_history";
+pub const TOOL_SESSIONS_SEND: &str = "sessions_send";
+pub const TOOL_IMAGE: &str = "image";
+pub const TOOL_PDF: &str = "pdf";
 
 // ── Shared Helpers ────────────────────────────────────────────────
 

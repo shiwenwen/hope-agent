@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **P1 工具能力增强**：新增 8 个内置工具（工具总数 19 → 27）
+  - `memory_get`：按 ID 精确读取记忆完整内容和元数据
+  - `agents_list`：列出所有可用 Agent 及其配置信息
+  - `sessions_list`：列出所有会话元数据（标题、Agent、模型、消息数）
+  - `session_status`：查询单个会话的详细状态
+  - `sessions_history`：分页读取会话聊天历史（支持分页游标、工具消息过滤、80KB 输出上限）
+  - `sessions_send`：跨会话消息发送（支持同步等待和异步投递两种模式）
+  - `image`：独立图像分析工具（支持 prompt 参数指定分析内容，复用 read.rs 的图像检测和缩放逻辑）
+  - `pdf`：PDF 文档文本提取（支持页码范围过滤、字符数上限、按页分隔输出）
+  - 前端：8 个新工具图标 + i18n（中/英）+ 参数摘要显示 + 工具分组归类
+  - 系统提示词：Section ⑥ 新增 8 个工具描述
+  - 内部工具（无需审批）：memory_get、agents_list、sessions_list、session_status、sessions_history
 - **记忆系统优化（Phase 1.5）**：5 项优化增强
   - **Prompt Summary 优先级加权**：`build_prompt_summary` 改为逐条添加直到超出 budget，避免在记忆内容中间截断，保持 `updated_at DESC` 排序优先展示最近更新的记忆
   - **提取模型可配**：`MemoryConfig` 新增 `extractProviderId`/`extractModelId` 字段，auto-extract 可使用独立的便宜模型，前端 MemoryPanel 展示模型选择器和最少轮数配置

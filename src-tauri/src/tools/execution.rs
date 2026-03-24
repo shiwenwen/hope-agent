@@ -6,9 +6,12 @@ use super::{
     TOOL_GREP, TOOL_FIND, TOOL_APPLY_PATCH, TOOL_WEB_SEARCH, TOOL_WEB_FETCH,
     TOOL_SAVE_MEMORY, TOOL_RECALL_MEMORY, TOOL_UPDATE_MEMORY, TOOL_DELETE_MEMORY,
     TOOL_MANAGE_CRON, TOOL_BROWSER, TOOL_SEND_NOTIFICATION, TOOL_SUBAGENT,
+    TOOL_MEMORY_GET, TOOL_AGENTS_LIST, TOOL_SESSIONS_LIST, TOOL_SESSION_STATUS,
+    TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_SEND, TOOL_IMAGE, TOOL_PDF,
 };
 use super::{exec, process, read, write, edit, ls, grep, find, apply_patch};
 use super::{web_search, web_fetch, memory, cron, browser, notification, subagent};
+use super::{agents, sessions, image, pdf};
 
 // ── Tool Execution Context ────────────────────────────────────────
 
@@ -67,8 +70,13 @@ const INTERNAL_TOOLS: &[&str] = &[
     TOOL_RECALL_MEMORY,
     TOOL_UPDATE_MEMORY,
     TOOL_DELETE_MEMORY,
+    TOOL_MEMORY_GET,
     TOOL_MANAGE_CRON,
     TOOL_SEND_NOTIFICATION,
+    TOOL_AGENTS_LIST,
+    TOOL_SESSIONS_LIST,
+    TOOL_SESSION_STATUS,
+    TOOL_SESSIONS_HISTORY,
 ];
 
 /// Check if a tool requires approval based on the context's require_approval list.
@@ -161,6 +169,14 @@ pub async fn execute_tool_with_context(
         TOOL_BROWSER => browser::tool_browser(args).await,
         TOOL_SEND_NOTIFICATION => notification::tool_send_notification(args, ctx).await,
         TOOL_SUBAGENT => subagent::tool_subagent(args, ctx).await,
+        TOOL_MEMORY_GET => memory::tool_memory_get(args).await,
+        TOOL_AGENTS_LIST => agents::tool_agents_list(args).await,
+        TOOL_SESSIONS_LIST => sessions::tool_sessions_list(args).await,
+        TOOL_SESSION_STATUS => sessions::tool_session_status(args).await,
+        TOOL_SESSIONS_HISTORY => sessions::tool_sessions_history(args).await,
+        TOOL_SESSIONS_SEND => Box::pin(sessions::tool_sessions_send(args, ctx)).await,
+        TOOL_IMAGE => image::tool_image(args).await,
+        TOOL_PDF => pdf::tool_pdf(args).await,
         _ => Err(anyhow::anyhow!("Unknown tool: {}", name)),
     };
 
