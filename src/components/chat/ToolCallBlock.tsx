@@ -1,10 +1,101 @@
 import { useState, useMemo } from "react"
-import { ChevronRight, Terminal } from "lucide-react"
+import { useTranslation } from "react-i18next"
+import {
+  ChevronRight,
+  Terminal,
+  FileText,
+  FilePen,
+  FolderOpen,
+  Search,
+  FileSearch,
+  FileCode,
+  Globe,
+  Brain,
+  Clock,
+  Monitor,
+  Bell,
+  Network,
+  Cpu,
+} from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { ToolCall } from "@/types/chat"
 import SubagentBlock from "@/components/chat/SubagentBlock"
 
+/** Map tool name → Lucide icon component */
+const TOOL_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+  read: FileText,
+  write: FilePen,
+  edit: FilePen,
+  ls: FolderOpen,
+  exec: Terminal,
+  process: Cpu,
+  grep: Search,
+  find: FileSearch,
+  apply_patch: FileCode,
+  web_search: Globe,
+  web_fetch: Globe,
+  save_memory: Brain,
+  recall_memory: Brain,
+  update_memory: Brain,
+  delete_memory: Brain,
+  manage_cron: Clock,
+  browser: Monitor,
+  send_notification: Bell,
+  subagent: Network,
+}
+
+/** Extract a short, human-friendly summary of tool arguments */
+function getDisplayArgs(name: string, args: string): string {
+  try {
+    const parsed = JSON.parse(args)
+    switch (name) {
+      case "exec":
+        return parsed.command || args
+      case "read":
+      case "ls":
+        return parsed.path || "."
+      case "write":
+      case "edit":
+        return parsed.path || args
+      case "find":
+        return parsed.pattern
+          ? `${parsed.path || "."} → ${parsed.pattern}`
+          : parsed.path || args
+      case "grep":
+        return parsed.pattern
+          ? `"${parsed.pattern}"${parsed.path ? ` in ${parsed.path}` : ""}`
+          : args
+      case "apply_patch":
+        return parsed.path || args
+      case "web_search":
+        return parsed.query || args
+      case "web_fetch":
+        return parsed.url || args
+      case "save_memory":
+      case "update_memory":
+        return parsed.title || parsed.key || args
+      case "recall_memory":
+        return parsed.query || args
+      case "delete_memory":
+        return parsed.id || parsed.key || args
+      case "manage_cron":
+        return parsed.action || args
+      case "browser":
+        return parsed.action || args
+      case "send_notification":
+        return parsed.title || args
+      case "subagent":
+        return `${parsed.action}${parsed.run_id ? ` ${parsed.run_id}` : ""}`
+      default:
+        return args
+    }
+  } catch {
+    return args
+  }
+}
+
 export default function ToolCallBlock({ tool }: { tool: ToolCall }) {
+  const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
   const isRunning = tool.result === undefined
 
@@ -14,7 +105,6 @@ export default function ToolCallBlock({ tool }: { tool: ToolCall }) {
     try {
       const args = JSON.parse(tool.arguments)
       if (args.action !== "spawn") return null
-      // Extract run_id from tool result
       let runId: string | undefined
       if (tool.result) {
         try {
@@ -40,48 +130,40 @@ export default function ToolCallBlock({ tool }: { tool: ToolCall }) {
     )
   }
 
-  const displayArgs = (() => {
-    try {
-      const parsed = JSON.parse(tool.arguments)
-      if (tool.name === "exec") return parsed.command
-      if (tool.name === "read_file" || tool.name === "list_dir") return parsed.path || "."
-      if (tool.name === "write_file") return parsed.path
-      if (tool.name === "subagent")
-        return `${parsed.action}${parsed.run_id ? ` ${parsed.run_id}` : ""}`
-      return tool.arguments
-    } catch {
-      return tool.arguments
-    }
-  })()
+  const Icon = TOOL_ICONS[tool.name] || Terminal
+  const toolLabel = t(`tools.${tool.name}`, tool.name)
+  const displayArgs = getDisplayArgs(tool.name, tool.arguments)
 
   return (
-    <div className="my-1.5 rounded-lg border border-border bg-secondary/50 text-xs">
+    <div className="my-1 text-xs">
       <button
-        className="flex items-center gap-1.5 w-full px-2.5 py-1.5 text-left hover:bg-secondary/80 rounded-lg transition-colors"
+        className="flex items-center gap-1.5 w-full px-1 py-1 text-left hover:bg-secondary/60 rounded-md transition-colors group"
         onClick={() => !isRunning && setExpanded(!expanded)}
       >
         {isRunning ? (
-          <span className="animate-spin h-3 w-3 border border-current border-t-transparent rounded-full shrink-0" />
+          <span className="animate-spin h-3.5 w-3.5 border-[1.5px] border-current border-t-transparent rounded-full shrink-0 text-muted-foreground" />
         ) : (
           <ChevronRight
             className={cn(
-              "h-3 w-3 shrink-0 text-muted-foreground transition-transform duration-200",
+              "h-3.5 w-3.5 shrink-0 text-muted-foreground/60 transition-transform duration-200",
               expanded && "rotate-90",
             )}
           />
         )}
-        <Terminal className="h-3 w-3 shrink-0 text-muted-foreground" />
-        <span className="font-medium text-foreground">{tool.name}</span>
-        <span className="text-muted-foreground truncate">{displayArgs}</span>
+        <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <span className="text-muted-foreground font-medium">{toolLabel}</span>
+        <span className="text-muted-foreground/60 truncate font-mono text-[11px]">
+          {displayArgs}
+        </span>
       </button>
       <div
         className={cn(
           "overflow-hidden transition-all duration-200 ease-out",
-          expanded && tool.result ? "max-h-[300px] opacity-100" : "max-h-0 opacity-0",
+          expanded && tool.result ? "max-h-[400px] opacity-100" : "max-h-0 opacity-0",
         )}
       >
-        <div className="px-2.5 pb-2 pt-0.5">
-          <pre className="whitespace-pre-wrap text-muted-foreground bg-background rounded p-2 max-h-48 overflow-y-auto text-[11px] leading-relaxed">
+        <div className="ml-5 mt-0.5 mb-1">
+          <pre className="whitespace-pre-wrap text-muted-foreground/80 bg-secondary/40 rounded-md p-2.5 max-h-64 overflow-y-auto text-[11px] leading-relaxed border border-border/50">
             {tool.result}
           </pre>
         </div>

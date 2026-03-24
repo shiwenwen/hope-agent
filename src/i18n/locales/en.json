@@ -180,6 +180,14 @@
     "browser": "Browser",
     "send_notification": "Send Notification"
   },
+  "toolGroup": {
+    "browse": "Browsed {{count}} files",
+    "edit": "Edited {{count}} files",
+    "search": "Searched {{count}} times",
+    "web": "Web searched {{count}} times",
+    "memory": "Memory operations: {{count}}",
+    "other": "Tool calls: {{count}}"
+  },
   "settings": {
     "title": "Settings",
     "general": "General",

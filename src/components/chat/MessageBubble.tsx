@@ -7,6 +7,8 @@ import { Copy, Check, Info, Network } from "lucide-react"
 import { formatTokens, formatDuration, formatMessageTime, extractModifiedFiles } from "./chatUtils"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import ToolCallBlock from "@/components/chat/ToolCallBlock"
+import ToolCallGroup, { getToolCategory } from "@/components/chat/ToolCallGroup"
+import type { ContentBlock } from "@/types/chat"
 import ThinkingBlock from "@/components/chat/ThinkingBlock"
 import FallbackBanner from "@/components/chat/FallbackBanner"
 import FileAttachments from "@/components/chat/FileAttachments"
@@ -176,55 +178,89 @@ export default function MessageBubble({
               </div>
             </div>
           ) : msg.role === "assistant" && msg.contentBlocks && msg.contentBlocks.length > 0 ? (
-            // Render content blocks in order (thinking → tool → text)
-            msg.contentBlocks
-              .map((block, blockIdx) => {
+            // Render content blocks with consecutive same-category tool calls grouped
+            (() => {
+              const blocks = msg.contentBlocks!
+              const elements: React.ReactNode[] = []
+
+              let i = 0
+              while (i < blocks.length) {
+                const block = blocks[i]
+
                 if (block.type === "thinking") {
-                  const isLastBlock = blockIdx === msg.contentBlocks!.length - 1
-                  return (
+                  const isLastBlock = i === blocks.length - 1
+                  elements.push(
                     <ThinkingBlock
-                      key={blockIdx}
+                      key={i}
                       content={block.content}
-                      isStreaming={
-                        loading && isLast && isLastBlock && !msg.content.trim()
-                      }
-                    />
+                      isStreaming={loading && isLast && isLastBlock && !msg.content.trim()}
+                    />,
                   )
-                }
-                if (block.type === "tool_call") {
-                  return <ToolCallBlock key={block.tool.callId} tool={block.tool} />
-                }
-                if (block.type === "text") {
-                  return (
+                  i++
+                } else if (block.type === "text") {
+                  elements.push(
                     <MarkdownRenderer
-                      key={blockIdx}
+                      key={i}
                       content={block.content}
-                      isStreaming={
-                        loading && isLast && blockIdx === msg.contentBlocks!.length - 1
-                      }
-                    />
+                      isStreaming={loading && isLast && i === blocks.length - 1}
+                    />,
+                  )
+                  i++
+                } else if (block.type === "tool_call") {
+                  // Collect consecutive tool_call blocks of same category
+                  const cat = getToolCategory(block.tool.name)
+                  const group: ContentBlock[] = [block]
+                  let j = i + 1
+                  while (
+                    j < blocks.length &&
+                    blocks[j].type === "tool_call" &&
+                    getToolCategory((blocks[j] as { type: "tool_call"; tool: { name: string } }).tool.name) === cat
+                  ) {
+                    group.push(blocks[j])
+                    j++
+                  }
+
+                  if (group.length >= 2 && cat !== "other") {
+                    // Render as a group
+                    const tools = group.map(
+                      (b) => (b as { type: "tool_call"; tool: typeof block.tool }).tool,
+                    )
+                    elements.push(
+                      <ToolCallGroup
+                        key={`grp-${tools[0].callId}`}
+                        category={cat}
+                        tools={tools}
+                      />,
+                    )
+                  } else {
+                    // Render individually
+                    for (const b of group) {
+                      const tc = (b as { type: "tool_call"; tool: typeof block.tool }).tool
+                      elements.push(<ToolCallBlock key={tc.callId} tool={tc} />)
+                    }
+                  }
+                  i = j
+                } else {
+                  i++
+                }
+              }
+
+              // Loading dots between tool rounds
+              if (loading && isLast) {
+                const lastBlock = blocks[blocks.length - 1]
+                if (lastBlock.type === "tool_call" && lastBlock.tool.result !== undefined) {
+                  elements.push(
+                    <div key="__loading__" className="flex items-center gap-1 py-1 px-2">
+                      <span className="block w-1.5 h-1.5 rounded-full bg-foreground/50 animate-pulse" />
+                      <span className="block w-1.5 h-1.5 rounded-full bg-foreground/50 animate-pulse [animation-delay:300ms]" />
+                      <span className="block w-1.5 h-1.5 rounded-full bg-foreground/50 animate-pulse [animation-delay:600ms]" />
+                    </div>,
                   )
                 }
-                return null
-              })
-              .concat(
-                // Show loading dots between tool rounds
-                loading && isLast
-                  ? (() => {
-                      const lastBlock = msg.contentBlocks![msg.contentBlocks!.length - 1]
-                      const waitingForNextRound =
-                        lastBlock.type === "tool_call" && lastBlock.tool.result !== undefined
-                      if (!waitingForNextRound) return null
-                      return (
-                        <div key="__loading__" className="flex items-center gap-1 py-1 px-2">
-                          <span className="block w-1.5 h-1.5 rounded-full bg-foreground/50 animate-pulse" />
-                          <span className="block w-1.5 h-1.5 rounded-full bg-foreground/50 animate-pulse [animation-delay:300ms]" />
-                          <span className="block w-1.5 h-1.5 rounded-full bg-foreground/50 animate-pulse [animation-delay:600ms]" />
-                        </div>
-                      )
-                    })()
-                  : null,
-              )
+              }
+
+              return elements
+            })()
           ) : msg.role === "assistant" ? (
             // Legacy fallback path for old messages without contentBlocks
             <>

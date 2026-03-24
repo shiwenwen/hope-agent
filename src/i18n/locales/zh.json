@@ -180,6 +180,14 @@
     "browser": "浏览器",
     "send_notification": "发送通知"
   },
+  "toolGroup": {
+    "browse": "已浏览 {{count}} 个文件",
+    "edit": "已编辑 {{count}} 个文件",
+    "search": "已搜索 {{count}} 次",
+    "web": "已搜索网页 {{count}} 次",
+    "memory": "记忆操作 {{count}} 次",
+    "other": "工具调用 {{count}} 次"
+  },
   "settings": {
     "title": "设置",
     "general": "通用",
