@@ -48,16 +48,6 @@ impl FailoverReason {
     }
 }
 
-/// Attempt record for a single model in the fallback chain.
-#[derive(Debug, Clone, Serialize)]
-pub struct FallbackAttempt {
-    pub provider: String,
-    pub model: String,
-    pub error: String,
-    pub reason: FailoverReason,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub status: Option<u16>,
-}
 
 // ── Error Classification ──────────────────────────────────────────
 
