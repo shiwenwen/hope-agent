@@ -618,7 +618,7 @@ fn execute_subagent(
 
             let cancel_clone = cancel.clone();
             match agent.chat(&task, &attachments, None, cancel_clone, |_delta| {}).await {
-                Ok(response) => {
+                Ok((response, _thinking)) => {
                     return Ok((response, Some(model_label)));
                 }
                 Err(e) => {
@@ -1027,7 +1027,7 @@ async fn inject_and_run_parent(
                     error: None,
                 });
             }).await {
-                Ok(response) => {
+                Ok((response, _thinking)) => {
                     // If cancelled during execution, don't write to DB — user's chat takes over
                     if cancel.load(Ordering::SeqCst) {
                         app_info!("subagent", "inject",

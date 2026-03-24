@@ -17,7 +17,7 @@ use super::super::types::{AssistantAgent, ChatUsage};
 impl AssistantAgent {
     // ── Anthropic Messages API with Tool Loop ─────────────────────
 
-    pub(crate) async fn chat_anthropic(&self, api_key: &str, base_url: &str, model: &str, message: &str, attachments: &[super::super::types::Attachment], reasoning_effort: Option<&str>, cancel: &Arc<AtomicBool>, on_delta: &(impl Fn(&str) + Send)) -> Result<String> {
+    pub(crate) async fn chat_anthropic(&self, api_key: &str, base_url: &str, model: &str, message: &str, attachments: &[super::super::types::Attachment], reasoning_effort: Option<&str>, cancel: &Arc<AtomicBool>, on_delta: &(impl Fn(&str) + Send)) -> Result<(String, Option<String>)> {
         let client = reqwest::Client::builder()
             .user_agent(&self.user_agent)
             .build()
@@ -43,6 +43,7 @@ impl AssistantAgent {
         Self::push_user_message(&mut messages, user_content);
 
         let mut collected_text = String::new();
+        let mut collected_thinking = String::new();
         let mut total_usage = ChatUsage::default();
 
         let api_url = build_api_url(base_url, "/v1/messages");
@@ -160,8 +161,9 @@ impl AssistantAgent {
             }
 
             // Parse SSE stream
-            let (text, tool_calls, stop_reason, round_usage) = self.parse_anthropic_sse(resp, cancel, on_delta).await?;
+            let (text, tool_calls, stop_reason, round_usage, thinking) = self.parse_anthropic_sse(resp, cancel, on_delta).await?;
             collected_text.push_str(&text);
+            collected_thinking.push_str(&thinking);
             total_usage.input_tokens += round_usage.input_tokens;
             total_usage.output_tokens += round_usage.output_tokens;
             total_usage.cache_creation_input_tokens += round_usage.cache_creation_input_tokens;
@@ -263,19 +265,21 @@ impl AssistantAgent {
                 None, None);
         }
 
-        Ok(collected_text)
+        let thinking_result = if collected_thinking.is_empty() { None } else { Some(collected_thinking) };
+        Ok((collected_text, thinking_result))
     }
 
-    /// Parse Anthropic SSE stream. Returns (collected_text, tool_calls, stop_reason, usage)
+    /// Parse Anthropic SSE stream. Returns (collected_text, tool_calls, stop_reason, usage, thinking)
     async fn parse_anthropic_sse(
         &self,
         resp: reqwest::Response,
         cancel: &Arc<AtomicBool>,
         on_delta: &(impl Fn(&str) + Send),
-    ) -> Result<(String, Vec<FunctionCallItem>, Option<String>, ChatUsage)> {
+    ) -> Result<(String, Vec<FunctionCallItem>, Option<String>, ChatUsage, String)> {
         use futures_util::StreamExt;
 
         let mut collected_text = String::new();
+        let mut collected_thinking = String::new();
         let mut tool_calls: Vec<FunctionCallItem> = Vec::new();
         // Track current content blocks by index
         let mut current_tool: Option<(usize, FunctionCallItem)> = None;
@@ -345,6 +349,7 @@ impl AssistantAgent {
                                     Some("thinking_delta") => {
                                         if let Some(text) = &delta.text {
                                             emit_thinking_delta(on_delta, text);
+                                            collected_thinking.push_str(text);
                                         }
                                     }
                                     Some("text_delta") => {
@@ -435,6 +440,6 @@ impl AssistantAgent {
                 None, None);
         }
 
-        Ok((collected_text, tool_calls, stop_reason, usage))
+        Ok((collected_text, tool_calls, stop_reason, usage, collected_thinking))
     }
 }

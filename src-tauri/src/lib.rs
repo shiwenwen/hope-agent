@@ -1519,7 +1519,7 @@ async fn chat(
                 // Shared state to capture token usage and model from on_delta callback
                 let captured_usage: Arc<std::sync::Mutex<(Option<i64>, Option<i64>, Option<String>)>> = Arc::new(std::sync::Mutex::new((None, None, None)));
                 let captured_usage_clone = captured_usage.clone();
-                let result = match agent.chat(&message, &attachments, effort_ref, cancel_clone, move |delta| {
+                let (result, thinking) = match agent.chat(&message, &attachments, effort_ref, cancel_clone, move |delta| {
                     // Intercept usage events to capture token counts and model
                     if let Ok(event) = serde_json::from_str::<serde_json::Value>(delta) {
                         if event.get("type").and_then(|t| t.as_str()) == Some("usage") {
@@ -1539,7 +1539,7 @@ async fn chat(
                     persist_tool_event(&db_for_cb, &sid_for_cb, delta);
                     let _ = on_event_clone.send(delta.to_string());
                 }).await {
-                    Ok(r) => r,
+                    Ok((text, thinking)) => (text, thinking),
                     Err(e) => {
                         let err = e.to_string();
                         let _ = db.append_message(&sid, &session::NewMessage::event(&err));
@@ -1552,6 +1552,7 @@ async fn chat(
                 // Save assistant reply with duration and tokens
                 let mut assistant_msg = session::NewMessage::assistant(&result);
                 assistant_msg.tool_duration_ms = Some(duration_ms as i64);
+                assistant_msg.thinking = thinking;
                 if let Ok(usage) = captured_usage.lock() {
                     assistant_msg.tokens_in = usage.0;
                     assistant_msg.tokens_out = usage.1;
@@ -1701,13 +1702,14 @@ async fn chat(
                 persist_tool_event(&db_for_cb, &sid_for_cb, delta);
                 let _ = on_event_clone.send(delta.to_string());
             }).await {
-                Ok(result) => {
+                Ok((result, thinking)) => {
                     let duration_ms = chat_start.elapsed().as_millis() as u64;
                     // Emit usage event with duration
                     emit_usage_event(&on_event, duration_ms);
                     // Save assistant reply to DB with duration and tokens
                     let mut assistant_msg = session::NewMessage::assistant(&result);
                     assistant_msg.tool_duration_ms = Some(duration_ms as i64);
+                    assistant_msg.thinking = thinking;
                     if let Ok(usage) = captured_usage.lock() {
                         assistant_msg.tokens_in = usage.0;
                         assistant_msg.tokens_out = usage.1;
@@ -1730,22 +1732,32 @@ async fn chat(
                         }).to_string()),
                         Some(sid.clone()), Some(current_agent_id.clone()));
                     // Spawn async memory extraction if enabled
+                    // Resolve effective config: agent override → global fallback
                     {
+                        let global_extract = memory::load_extract_config();
                         let agent_def = crate::agent_loader::load_agent(&current_agent_id);
-                        let auto_extract = agent_def.as_ref()
-                            .map(|d| d.config.memory.auto_extract)
-                            .unwrap_or(false);
-                        let min_turns = agent_def.as_ref()
-                            .map(|d| d.config.memory.extract_min_turns)
-                            .unwrap_or(3);
+                        let agent_mem = agent_def.as_ref().ok().map(|d| &d.config.memory);
+
+                        let auto_extract = agent_mem
+                            .and_then(|m| m.auto_extract)
+                            .unwrap_or(global_extract.auto_extract);
+                        let min_turns = agent_mem
+                            .and_then(|m| m.extract_min_turns)
+                            .unwrap_or(global_extract.extract_min_turns);
                         let history = agent.get_conversation_history();
 
                         if auto_extract && history.len() >= min_turns * 2 {
-                            // Clone what we need for the spawned task
+                            // Resolve extraction model: agent override → global → chat model
                             let extract_agent_id = current_agent_id.clone();
                             let extract_session_id = sid.clone();
-                            let extract_provider_id = model_ref.provider_id.clone();
-                            let extract_model_id = model_ref.model_id.clone();
+                            let extract_provider_id = agent_mem
+                                .and_then(|m| m.extract_provider_id.clone())
+                                .or_else(|| global_extract.extract_provider_id.clone())
+                                .unwrap_or_else(|| model_ref.provider_id.clone());
+                            let extract_model_id = agent_mem
+                                .and_then(|m| m.extract_model_id.clone())
+                                .or_else(|| global_extract.extract_model_id.clone())
+                                .unwrap_or_else(|| model_ref.model_id.clone());
 
                             tokio::spawn(async move {
                                 // Load provider config for extraction
@@ -2336,7 +2348,8 @@ async fn memory_find_similar(
     limit: Option<usize>,
 ) -> Result<Vec<memory::MemoryEntry>, String> {
     let backend = get_memory_backend().ok_or("Memory backend not initialized")?;
-    let threshold = threshold.unwrap_or(memory::DEDUP_THRESHOLD_MERGE);
+    let dedup_cfg = memory::load_dedup_config();
+    let threshold = threshold.unwrap_or(dedup_cfg.threshold_merge);
     let limit = limit.unwrap_or(5);
     backend.find_similar(&content, None, None, threshold, limit).map_err(|e| e.to_string())
 }
@@ -2542,6 +2555,38 @@ async fn searxng_docker_remove() -> Result<(), String> {
         let _ = provider::save_store(&store);
     }
     Ok(())
+}
+
+#[tauri::command]
+async fn get_extract_config() -> Result<memory::MemoryExtractConfig, String> {
+    let store = provider::load_store().map_err(|e| e.to_string())?;
+    Ok(store.memory_extract)
+}
+
+#[tauri::command]
+async fn save_extract_config(config: memory::MemoryExtractConfig) -> Result<(), String> {
+    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    store.memory_extract = config;
+    provider::save_store(&store).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn memory_stats(scope: Option<memory::MemoryScope>) -> Result<memory::MemoryStats, String> {
+    let backend = get_memory_backend().ok_or("Memory backend not initialized")?;
+    backend.stats(scope.as_ref()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_dedup_config() -> Result<memory::DedupConfig, String> {
+    let store = provider::load_store().map_err(|e| e.to_string())?;
+    Ok(store.dedup)
+}
+
+#[tauri::command]
+async fn save_dedup_config(config: memory::DedupConfig) -> Result<(), String> {
+    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    store.dedup = config;
+    provider::save_store(&store).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -3303,6 +3348,11 @@ pub fn run() {
             searxng_docker_start,
             searxng_docker_stop,
             searxng_docker_remove,
+            memory_stats,
+            get_extract_config,
+            save_extract_config,
+            get_dedup_config,
+            save_dedup_config,
             get_embedding_config,
             save_embedding_config,
             get_embedding_presets,

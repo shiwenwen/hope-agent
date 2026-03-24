@@ -12,7 +12,6 @@ use serde_json::Value;
 use crate::agent::AssistantAgent;
 use crate::memory::{
     AddResult, MemoryScope, MemoryType, NewMemory,
-    DEDUP_THRESHOLD_HIGH, DEDUP_THRESHOLD_MERGE,
 };
 
 // ── Extraction Prompt ───────────────────────────────────────────
@@ -109,7 +108,7 @@ async fn do_extraction(
     );
 
     let cancel = Arc::new(AtomicBool::new(false));
-    let response = agent.chat(&prompt, &[], None, cancel, |_| {}).await?;
+    let (response, _thinking) = agent.chat(&prompt, &[], None, cancel, |_| {}).await?;
 
     // Parse JSON response
     let extracted = parse_extraction_response(&response)?;
@@ -132,7 +131,8 @@ async fn do_extraction(
             source_session_id: Some(session_id.to_string()),
         };
 
-        match backend.add_with_dedup(entry, DEDUP_THRESHOLD_HIGH, DEDUP_THRESHOLD_MERGE) {
+        let dedup = crate::memory::load_dedup_config();
+        match backend.add_with_dedup(entry, dedup.threshold_high, dedup.threshold_merge) {
             Ok(AddResult::Created { .. }) => saved_count += 1,
             Ok(AddResult::Updated { .. }) => saved_count += 1,
             Ok(AddResult::Duplicate { .. }) => {}

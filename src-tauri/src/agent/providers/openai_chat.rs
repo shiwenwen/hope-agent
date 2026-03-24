@@ -16,7 +16,7 @@ use super::super::types::{AssistantAgent, Attachment, ChatUsage, ThinkTagFilter}
 impl AssistantAgent {
     // ── OpenAI Chat Completions API with Tool Loop ───────────────
 
-    pub(crate) async fn chat_openai_chat(&self, api_key: &str, base_url: &str, model: &str, message: &str, attachments: &[Attachment], reasoning_effort: Option<&str>, cancel: &Arc<AtomicBool>, on_delta: &(impl Fn(&str) + Send)) -> Result<String> {
+    pub(crate) async fn chat_openai_chat(&self, api_key: &str, base_url: &str, model: &str, message: &str, attachments: &[Attachment], reasoning_effort: Option<&str>, cancel: &Arc<AtomicBool>, on_delta: &(impl Fn(&str) + Send)) -> Result<(String, Option<String>)> {
         let client = reqwest::Client::builder()
             .user_agent(&self.user_agent)
             .build()
@@ -42,6 +42,7 @@ impl AssistantAgent {
 
         let api_url = build_api_url(base_url, "/v1/chat/completions");
         let mut collected_text = String::new();
+        let mut collected_thinking = String::new();
         let mut total_usage = ChatUsage::default();
         let system_prompt = self.build_full_system_prompt(model, "OpenAIChat");
 
@@ -148,8 +149,9 @@ impl AssistantAgent {
             }
 
             // Parse SSE stream for Chat Completions format
-            let (text, tool_calls, round_usage) = self.parse_chat_completions_sse(resp, reasoning_effort, cancel, on_delta).await?;
+            let (text, tool_calls, round_usage, thinking) = self.parse_chat_completions_sse(resp, reasoning_effort, cancel, on_delta).await?;
             collected_text.push_str(&text);
+            collected_thinking.push_str(&thinking);
             total_usage.input_tokens += round_usage.input_tokens;
             total_usage.output_tokens += round_usage.output_tokens;
             total_usage.cache_creation_input_tokens += round_usage.cache_creation_input_tokens;
@@ -249,7 +251,8 @@ impl AssistantAgent {
                 None, None);
         }
 
-        Ok(collected_text)
+        let thinking_result = if collected_thinking.is_empty() { None } else { Some(collected_thinking) };
+        Ok((collected_text, thinking_result))
     }
 
     /// Parse OpenAI Chat Completions SSE stream
@@ -259,10 +262,11 @@ impl AssistantAgent {
         reasoning_effort: Option<&str>,
         cancel: &Arc<AtomicBool>,
         on_delta: &(impl Fn(&str) + Send),
-    ) -> Result<(String, Vec<FunctionCallItem>, ChatUsage)> {
+    ) -> Result<(String, Vec<FunctionCallItem>, ChatUsage, String)> {
         use futures_util::StreamExt;
 
         let mut collected_text = String::new();
+        let mut collected_thinking = String::new();
         let mut tool_calls: Vec<FunctionCallItem> = Vec::new();
         // Track tool calls by index
         let mut pending_calls: std::collections::HashMap<usize, FunctionCallItem> = std::collections::HashMap::new();
@@ -327,6 +331,7 @@ impl AssistantAgent {
                                 if let Some(reasoning) = delta.get("reasoning_content").and_then(|c| c.as_str()) {
                                     if !reasoning.is_empty() {
                                         emit_thinking_delta(on_delta, reasoning);
+                                        collected_thinking.push_str(reasoning);
                                     }
                                 }
 
@@ -338,6 +343,7 @@ impl AssistantAgent {
                                     // when disabled ("none"), discard it entirely
                                     if !think_part.is_empty() && reasoning_effort != Some("none") {
                                         emit_thinking_delta(on_delta, &think_part);
+                                        collected_thinking.push_str(&think_part);
                                     }
                                     if !text_part.is_empty() {
                                         emit_text_delta(on_delta, &text_part);
@@ -409,6 +415,6 @@ impl AssistantAgent {
                 None, None);
         }
 
-        Ok((collected_text, tool_calls, usage))
+        Ok((collected_text, tool_calls, usage, collected_thinking))
     }
 }

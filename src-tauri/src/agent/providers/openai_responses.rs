@@ -16,7 +16,7 @@ use super::super::types::{AssistantAgent, Attachment, ChatUsage};
 impl AssistantAgent {
     // ── OpenAI Responses API (custom base_url) ────────────────────
 
-    pub(crate) async fn chat_openai_responses(&self, api_key: &str, base_url: &str, model: &str, message: &str, attachments: &[Attachment], reasoning_effort: Option<&str>, cancel: &Arc<AtomicBool>, on_delta: &(impl Fn(&str) + Send)) -> Result<String> {
+    pub(crate) async fn chat_openai_responses(&self, api_key: &str, base_url: &str, model: &str, message: &str, attachments: &[Attachment], reasoning_effort: Option<&str>, cancel: &Arc<AtomicBool>, on_delta: &(impl Fn(&str) + Send)) -> Result<(String, Option<String>)> {
         let client = reqwest::Client::builder()
             .user_agent(&self.user_agent)
             .build()
@@ -46,6 +46,7 @@ impl AssistantAgent {
 
         let api_url = build_api_url(base_url, "/v1/responses");
         let mut collected_text = String::new();
+        let mut collected_thinking = String::new();
         let mut total_usage = ChatUsage::default();
         let system_prompt = self.build_full_system_prompt(model, "OpenAIResponses");
 
@@ -140,8 +141,9 @@ impl AssistantAgent {
                 return Err(anyhow::anyhow!("OpenAI Responses API error ({}): {}", status, error_text));
             }
 
-            let (text, tool_calls, round_usage) = self.parse_openai_sse(resp, cancel, on_delta).await?;
+            let (text, tool_calls, round_usage, thinking) = self.parse_openai_sse(resp, cancel, on_delta).await?;
             collected_text.push_str(&text);
+            collected_thinking.push_str(&thinking);
             total_usage.input_tokens += round_usage.input_tokens;
             total_usage.output_tokens += round_usage.output_tokens;
             total_usage.cache_creation_input_tokens += round_usage.cache_creation_input_tokens;
@@ -228,20 +230,22 @@ impl AssistantAgent {
                 None, None);
         }
 
-        Ok(collected_text)
+        let thinking_result = if collected_thinking.is_empty() { None } else { Some(collected_thinking) };
+        Ok((collected_text, thinking_result))
     }
 
-    /// Parse OpenAI SSE stream. Returns (collected_text, tool_calls, usage)
+    /// Parse OpenAI SSE stream. Returns (collected_text, tool_calls, usage, thinking)
     /// Shared by both OpenAI Responses API and Codex providers.
     pub(crate) async fn parse_openai_sse(
         &self,
         resp: reqwest::Response,
         cancel: &Arc<AtomicBool>,
         on_delta: &(impl Fn(&str) + Send),
-    ) -> Result<(String, Vec<FunctionCallItem>, ChatUsage)> {
+    ) -> Result<(String, Vec<FunctionCallItem>, ChatUsage, String)> {
         use futures_util::StreamExt;
 
         let mut collected_text = String::new();
+        let mut collected_thinking = String::new();
         let mut tool_calls: Vec<FunctionCallItem> = Vec::new();
         let mut pending_calls: std::collections::HashMap<String, FunctionCallItem> = std::collections::HashMap::new();
         let mut usage = ChatUsage::default();
@@ -283,6 +287,7 @@ impl AssistantAgent {
                         "response.reasoning_summary_text.delta" => {
                             if let Some(delta) = &event.delta {
                                 emit_thinking_delta(on_delta, delta);
+                                collected_thinking.push_str(delta);
                             }
                         }
 
@@ -463,6 +468,6 @@ impl AssistantAgent {
                 None, None);
         }
 
-        Ok((collected_text, tool_calls, usage))
+        Ok((collected_text, tool_calls, usage, collected_thinking))
     }
 }

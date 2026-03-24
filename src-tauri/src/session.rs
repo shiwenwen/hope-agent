@@ -91,6 +91,8 @@ pub struct SessionMessage {
     pub tool_duration_ms: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_error: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<String>,
 }
 
 // ── Database Manager ─────────────────────────────────────────────
@@ -189,6 +191,16 @@ impl SessionDB {
         if !has_is_cron {
             conn.execute_batch(
                 "ALTER TABLE sessions ADD COLUMN is_cron INTEGER NOT NULL DEFAULT 0;",
+            )?;
+        }
+
+        // Migration: add thinking column to messages if missing
+        let has_thinking = conn
+            .prepare("SELECT thinking FROM messages LIMIT 1")
+            .is_ok();
+        if !has_thinking {
+            conn.execute_batch(
+                "ALTER TABLE messages ADD COLUMN thinking TEXT;",
             )?;
         }
 
@@ -310,7 +322,7 @@ impl SessionDB {
             "SELECT id, session_id, role, content, timestamp,
                     attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                     tool_call_id, tool_name, tool_arguments, tool_result,
-                    tool_duration_ms, is_error
+                    tool_duration_ms, is_error, thinking
              FROM messages
              WHERE session_id = ?1
              ORDER BY id ASC"
@@ -342,7 +354,7 @@ impl SessionDB {
             "SELECT id, session_id, role, content, timestamp,
                     attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                     tool_call_id, tool_name, tool_arguments, tool_result,
-                    tool_duration_ms, is_error
+                    tool_duration_ms, is_error, thinking
              FROM messages
              WHERE session_id = ?1
              ORDER BY id DESC
@@ -371,7 +383,7 @@ impl SessionDB {
             "SELECT id, session_id, role, content, timestamp,
                     attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                     tool_call_id, tool_name, tool_arguments, tool_result,
-                    tool_duration_ms, is_error
+                    tool_duration_ms, is_error, thinking
              FROM messages
              WHERE session_id = ?1 AND id < ?2
              ORDER BY id DESC
@@ -409,6 +421,7 @@ impl SessionDB {
             tool_result: row.get(13)?,
             tool_duration_ms: row.get(14)?,
             is_error: is_error_val.map(|v| v != 0),
+            thinking: row.get(16)?,
         })
     }
 
@@ -422,8 +435,8 @@ impl SessionDB {
             "INSERT INTO messages (session_id, role, content, timestamp,
                 attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                 tool_call_id, tool_name, tool_arguments, tool_result,
-                tool_duration_ms, is_error)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+                tool_duration_ms, is_error, thinking)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
             params![
                 session_id,
                 msg.role.as_str(),
@@ -440,6 +453,7 @@ impl SessionDB {
                 msg.tool_result,
                 msg.tool_duration_ms,
                 msg.is_error.map(|b| if b { 1i64 } else { 0i64 }),
+                msg.thinking,
             ],
         )?;
 
@@ -766,6 +780,7 @@ pub struct NewMessage {
     pub tool_result: Option<String>,
     pub tool_duration_ms: Option<i64>,
     pub is_error: Option<bool>,
+    pub thinking: Option<String>,
 }
 
 impl NewMessage {
@@ -786,6 +801,7 @@ impl NewMessage {
             tool_result: None,
             tool_duration_ms: None,
             is_error: None,
+            thinking: None,
         }
     }
 
@@ -806,6 +822,7 @@ impl NewMessage {
             tool_result: None,
             tool_duration_ms: None,
             is_error: None,
+            thinking: None,
         }
     }
 
@@ -826,6 +843,7 @@ impl NewMessage {
             tool_result: Some(result.to_string()),
             tool_duration_ms: duration_ms,
             is_error: Some(is_error),
+            thinking: None,
         }
     }
 
@@ -846,6 +864,7 @@ impl NewMessage {
             tool_result: None,
             tool_duration_ms: None,
             is_error: None,
+            thinking: None,
         }
     }
 
@@ -866,6 +885,7 @@ impl NewMessage {
             tool_result: None,
             tool_duration_ms: None,
             is_error: None,
+            thinking: None,
         }
     }
 }

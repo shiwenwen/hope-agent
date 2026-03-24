@@ -11,7 +11,7 @@ interface ThinkingBlockProps {
 
 export default function ThinkingBlock({ content, isStreaming }: ThinkingBlockProps) {
   const { t } = useTranslation()
-  const [isOpen, setIsOpen] = useState(false)
+  const [isOpen, setIsOpen] = useState(!!isStreaming)
   const [prevStreaming, setPrevStreaming] = useState(isStreaming)
 
   // Auto-expand while streaming, auto-collapse when done

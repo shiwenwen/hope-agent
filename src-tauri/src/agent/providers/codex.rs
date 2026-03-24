@@ -15,7 +15,7 @@ use super::super::types::{AssistantAgent, Attachment, ChatUsage};
 impl AssistantAgent {
     // ── OpenAI Codex Responses API with Tool Loop ─────────────────
 
-    pub(crate) async fn chat_openai(&self, access_token: &str, account_id: &str, model: &str, message: &str, attachments: &[Attachment], reasoning_effort: Option<&str>, cancel: &Arc<AtomicBool>, on_delta: &(impl Fn(&str) + Send)) -> Result<String> {
+    pub(crate) async fn chat_openai(&self, access_token: &str, account_id: &str, model: &str, message: &str, attachments: &[Attachment], reasoning_effort: Option<&str>, cancel: &Arc<AtomicBool>, on_delta: &(impl Fn(&str) + Send)) -> Result<(String, Option<String>)> {
         let client = reqwest::Client::new();
         let mut tool_schemas = tools::get_tools_for_provider(ToolProvider::OpenAI);
         if self.notification_enabled {
@@ -50,6 +50,7 @@ impl AssistantAgent {
         );
 
         let mut collected_text = String::new();
+        let mut collected_thinking = String::new();
         let mut total_usage = ChatUsage::default();
         let system_prompt = self.build_full_system_prompt(model, "Codex");
 
@@ -189,8 +190,9 @@ impl AssistantAgent {
             })?;
 
             // Parse SSE stream
-            let (text, tool_calls, round_usage) = self.parse_openai_sse(resp, cancel, on_delta).await?;
+            let (text, tool_calls, round_usage, thinking) = self.parse_openai_sse(resp, cancel, on_delta).await?;
             collected_text.push_str(&text);
+            collected_thinking.push_str(&thinking);
             total_usage.input_tokens += round_usage.input_tokens;
             total_usage.output_tokens += round_usage.output_tokens;
             total_usage.cache_creation_input_tokens += round_usage.cache_creation_input_tokens;
@@ -284,6 +286,7 @@ impl AssistantAgent {
                 None, None);
         }
 
-        Ok(collected_text)
+        let thinking_result = if collected_thinking.is_empty() { None } else { Some(collected_thinking) };
+        Ok((collected_text, thinking_result))
     }
 }

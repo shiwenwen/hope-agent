@@ -1025,7 +1025,7 @@ async fn build_and_run_agent(
 
             let cancel = Arc::new(AtomicBool::new(false));
             match agent.chat(message, &[], None, cancel, |_delta| {}).await {
-                Ok(response) => {
+                Ok((response, _thinking)) => {
                     if idx > 0 {
                         app_info!("cron", "failover", "Fallback model {} succeeded", model_label);
                     }

@@ -214,7 +214,7 @@ impl AssistantAgent {
         self.compact_config = config;
     }
 
-    pub async fn chat(&self, message: &str, attachments: &[Attachment], reasoning_effort: Option<&str>, cancel: Arc<AtomicBool>, on_delta: impl Fn(&str) + Send + 'static) -> Result<String> {
+    pub async fn chat(&self, message: &str, attachments: &[Attachment], reasoning_effort: Option<&str>, cancel: Arc<AtomicBool>, on_delta: impl Fn(&str) + Send + 'static) -> Result<(String, Option<String>)> {
         // Log agent chat dispatch
         if let Some(logger) = crate::get_logger() {
             let (provider_type, model_name) = match &self.provider {
