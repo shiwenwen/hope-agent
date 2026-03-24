@@ -41,28 +41,37 @@ pub(crate) async fn tool_save_memory(args: &Value) -> Result<String> {
         source_session_id: None,
     };
 
-    let backend = crate::get_memory_backend()
-        .ok_or_else(|| anyhow::anyhow!("Memory backend not initialized"))?;
+    // Run blocking backend operations (embedding API + SQLite) on a blocking thread
+    // to avoid blocking the tokio runtime.
+    let memory_type = memory_type.to_string();
+    let scope_str = scope_str.to_string();
+    let result = tokio::task::spawn_blocking(move || -> Result<String> {
+        let backend = crate::get_memory_backend()
+            .ok_or_else(|| anyhow::anyhow!("Memory backend not initialized"))?;
 
-    let dedup = memory::load_dedup_config();
-    match backend.add_with_dedup(entry, dedup.threshold_high, dedup.threshold_merge)? {
-        AddResult::Created { id } => {
-            Ok(format!("Memory saved (id: {}, type: {}, scope: {})", id, memory_type, scope_str))
+        let dedup = memory::load_dedup_config();
+        match backend.add_with_dedup(entry, dedup.threshold_high, dedup.threshold_merge)? {
+            AddResult::Created { id } => {
+                Ok(format!("Memory saved (id: {}, type: {}, scope: {})", id, memory_type, scope_str))
+            }
+            AddResult::Duplicate { existing_id, score } => {
+                Ok(format!("Similar memory already exists (id: {}, similarity: {:.1}%). Not saved.", existing_id, score * 100.0))
+            }
+            AddResult::Updated { id } => {
+                Ok(format!("Merged with existing memory (id: {}, type: {}, scope: {})", id, memory_type, scope_str))
+            }
         }
-        AddResult::Duplicate { existing_id, score } => {
-            Ok(format!("Similar memory already exists (id: {}, similarity: {:.1}%). Not saved.", existing_id, score * 100.0))
-        }
-        AddResult::Updated { id } => {
-            Ok(format!("Merged with existing memory (id: {}, type: {}, scope: {})", id, memory_type, scope_str))
-        }
-    }
+    }).await??;
+
+    Ok(result)
 }
 
 /// Tool: recall_memory — search persistent memories by keyword or semantic query.
 pub(crate) async fn tool_recall_memory(args: &Value) -> Result<String> {
     let query_text = args.get("query")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing 'query' parameter"))?;
+        .ok_or_else(|| anyhow::anyhow!("Missing 'query' parameter"))?
+        .to_string();
 
     let limit = args.get("limit")
         .and_then(|v| v.as_u64())
@@ -76,42 +85,48 @@ pub(crate) async fn tool_recall_memory(args: &Value) -> Result<String> {
         .and_then(|v| v.as_str())
         .map(String::from);
 
-    let backend = crate::get_memory_backend()
-        .ok_or_else(|| anyhow::anyhow!("Memory backend not initialized"))?;
+    // Run blocking backend operations (embedding API + SQLite) on a blocking thread
+    // to avoid blocking the tokio runtime.
+    let result = tokio::task::spawn_blocking(move || -> Result<String> {
+        let backend = crate::get_memory_backend()
+            .ok_or_else(|| anyhow::anyhow!("Memory backend not initialized"))?;
 
-    let query = MemorySearchQuery {
-        query: query_text.to_string(),
-        types: type_filter,
-        scope: None,
-        agent_id,
-        limit: Some(limit),
-    };
-
-    let results = backend.search(&query)?;
-
-    if results.is_empty() {
-        return Ok("No memories found matching the query.".to_string());
-    }
-
-    let mut output = format!("Found {} memories:\n\n", results.len());
-    for (i, mem) in results.iter().enumerate() {
-        let scope_label = match &mem.scope {
-            MemoryScope::Global => "global".to_string(),
-            MemoryScope::Agent { id } => format!("agent:{}", id),
+        let query = MemorySearchQuery {
+            query: query_text,
+            types: type_filter,
+            scope: None,
+            agent_id,
+            limit: Some(limit),
         };
-        let tags_str = if mem.tags.is_empty() { String::new() } else { format!(" [{}]", mem.tags.join(", ")) };
-        output.push_str(&format!(
-            "{}. (id: {}) [{}|{}]{}\n{}\n\n",
-            i + 1,
-            mem.id,
-            mem.memory_type.as_str(),
-            scope_label,
-            tags_str,
-            mem.content,
-        ));
-    }
 
-    Ok(output)
+        let results = backend.search(&query)?;
+
+        if results.is_empty() {
+            return Ok("No memories found matching the query.".to_string());
+        }
+
+        let mut output = format!("Found {} memories:\n\n", results.len());
+        for (i, mem) in results.iter().enumerate() {
+            let scope_label = match &mem.scope {
+                MemoryScope::Global => "global".to_string(),
+                MemoryScope::Agent { id } => format!("agent:{}", id),
+            };
+            let tags_str = if mem.tags.is_empty() { String::new() } else { format!(" [{}]", mem.tags.join(", ")) };
+            output.push_str(&format!(
+                "{}. (id: {}) [{}|{}]{}\n{}\n\n",
+                i + 1,
+                mem.id,
+                mem.memory_type.as_str(),
+                scope_label,
+                tags_str,
+                mem.content,
+            ));
+        }
+
+        Ok(output)
+    }).await??;
+
+    Ok(result)
 }
 
 /// Tool: update_memory — update an existing memory's content and/or tags.
@@ -122,24 +137,30 @@ pub(crate) async fn tool_update_memory(args: &Value) -> Result<String> {
 
     let content = args.get("content")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing 'content' parameter"))?;
+        .ok_or_else(|| anyhow::anyhow!("Missing 'content' parameter"))?
+        .to_string();
 
     let tags: Vec<String> = args.get("tags")
         .and_then(|v| v.as_array())
         .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
         .unwrap_or_default();
 
-    let backend = crate::get_memory_backend()
-        .ok_or_else(|| anyhow::anyhow!("Memory backend not initialized"))?;
+    // Run blocking backend operations on a blocking thread.
+    let result = tokio::task::spawn_blocking(move || -> Result<String> {
+        let backend = crate::get_memory_backend()
+            .ok_or_else(|| anyhow::anyhow!("Memory backend not initialized"))?;
 
-    let existing = backend.get(id)?;
-    if existing.is_none() {
-        return Ok(format!("Memory with id {} not found.", id));
-    }
+        let existing = backend.get(id)?;
+        if existing.is_none() {
+            return Ok(format!("Memory with id {} not found.", id));
+        }
 
-    backend.update(id, content, &tags)?;
+        backend.update(id, &content, &tags)?;
 
-    Ok(format!("Memory updated (id: {}).", id))
+        Ok(format!("Memory updated (id: {}).", id))
+    }).await??;
+
+    Ok(result)
 }
 
 /// Tool: delete_memory — remove a memory by its ID.
@@ -148,16 +169,20 @@ pub(crate) async fn tool_delete_memory(args: &Value) -> Result<String> {
         .and_then(|v| v.as_i64())
         .ok_or_else(|| anyhow::anyhow!("Missing 'id' parameter (integer)"))?;
 
-    let backend = crate::get_memory_backend()
-        .ok_or_else(|| anyhow::anyhow!("Memory backend not initialized"))?;
+    // Run blocking backend operations on a blocking thread.
+    let result = tokio::task::spawn_blocking(move || -> Result<String> {
+        let backend = crate::get_memory_backend()
+            .ok_or_else(|| anyhow::anyhow!("Memory backend not initialized"))?;
 
-    // Check if memory exists before deleting
-    let existing = backend.get(id)?;
-    if existing.is_none() {
-        return Ok(format!("Memory with id {} not found.", id));
-    }
+        let existing = backend.get(id)?;
+        if existing.is_none() {
+            return Ok(format!("Memory with id {} not found.", id));
+        }
 
-    backend.delete(id)?;
+        backend.delete(id)?;
 
-    Ok(format!("Memory deleted (id: {}).", id))
+        Ok(format!("Memory deleted (id: {}).", id))
+    }).await??;
+
+    Ok(result)
 }
