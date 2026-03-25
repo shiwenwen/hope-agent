@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
@@ -13,9 +13,14 @@ import {
   SelectItem,
 } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
-import { Check, Loader2, CircleCheck, CircleX } from "lucide-react"
+import { Check, Loader2, CircleCheck, CircleX, ExternalLink, RefreshCw } from "lucide-react"
 
 // ── Types ────────────────────────────────────────────────────────
+
+interface DockerStatus {
+  installed: boolean
+  running: boolean
+}
 
 interface SandboxConfig {
   image: string
@@ -47,9 +52,19 @@ export default function SandboxPanel() {
   const [savedSnapshot, setSavedSnapshot] = useState<string>("")
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
-  const [dockerAvailable, setDockerAvailable] = useState<boolean | null>(null)
+  const [dockerStatus, setDockerStatus] = useState<DockerStatus | null>(null)
 
   const isDirty = JSON.stringify(config) !== savedSnapshot
+  const dockerAvailable = dockerStatus?.installed && dockerStatus?.running
+
+  const refreshDockerStatus = useCallback(async () => {
+    try {
+      const s = await invoke<DockerStatus>("check_sandbox_available")
+      setDockerStatus(s)
+    } catch {
+      setDockerStatus({ installed: false, running: false })
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -64,12 +79,12 @@ export default function SandboxPanel() {
         logger.error("settings", `Failed to load sandbox config: ${e}`)
       })
 
-    invoke<boolean>("check_sandbox_available")
-      .then((available) => {
-        if (!cancelled) setDockerAvailable(available)
+    invoke<DockerStatus>("check_sandbox_available")
+      .then((s) => {
+        if (!cancelled) setDockerStatus(s)
       })
       .catch(() => {
-        if (!cancelled) setDockerAvailable(false)
+        if (!cancelled) setDockerStatus({ installed: false, running: false })
       })
 
     return () => {
@@ -107,7 +122,7 @@ export default function SandboxPanel() {
         <div className="flex items-center justify-between">
           <p className="text-xs text-muted-foreground">{t("settings.sandboxDesc")}</p>
           <div className="flex items-center gap-1.5 shrink-0">
-            {dockerAvailable === null ? (
+            {dockerStatus === null ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
             ) : dockerAvailable ? (
               <CircleCheck className="h-3.5 w-3.5 text-green-500" />
@@ -115,7 +130,7 @@ export default function SandboxPanel() {
               <CircleX className="h-3.5 w-3.5 text-destructive" />
             )}
             <span className="text-xs text-muted-foreground">
-              {dockerAvailable === null
+              {dockerStatus === null
                 ? t("settings.sandboxDockerChecking")
                 : dockerAvailable
                   ? t("settings.sandboxDockerAvailable")
@@ -123,6 +138,47 @@ export default function SandboxPanel() {
             </span>
           </div>
         </div>
+
+        {/* Docker not available hint */}
+        {dockerStatus && !dockerAvailable && (
+          <div className="rounded-md border border-border/50 p-3 space-y-2">
+            {!dockerStatus.installed ? (
+              <>
+                <p className="text-xs text-muted-foreground">
+                  {t("settings.sandboxDockerNotInstalled")}
+                </p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs"
+                  onClick={() =>
+                    invoke("open_url", {
+                      url: "https://www.docker.com/products/docker-desktop/",
+                    })
+                  }
+                >
+                  <ExternalLink className="h-3 w-3 mr-1" />
+                  {t("settings.sandboxDockerInstall")}
+                </Button>
+              </>
+            ) : (
+              <>
+                <p className="text-xs text-muted-foreground">
+                  {t("settings.sandboxDockerNotRunning")}
+                </p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs"
+                  onClick={refreshDockerStatus}
+                >
+                  <RefreshCw className="h-3 w-3 mr-1" />
+                  {t("settings.sandboxDockerRefresh")}
+                </Button>
+              </>
+            )}
+          </div>
+        )}
 
         {/* Container Image */}
         <div className="space-y-4">
@@ -252,9 +308,9 @@ export default function SandboxPanel() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">none</SelectItem>
-                  <SelectItem value="bridge">bridge</SelectItem>
-                  <SelectItem value="host">host</SelectItem>
+                  <SelectItem value="none">{t("settings.sandboxNetworkNone")}</SelectItem>
+                  <SelectItem value="bridge">{t("settings.sandboxNetworkBridge")}</SelectItem>
+                  <SelectItem value="host">{t("settings.sandboxNetworkHost")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>

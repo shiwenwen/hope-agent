@@ -8,6 +8,7 @@ use bollard::Docker;
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use tokio::process::Command;
 
 const DEFAULT_SANDBOX_IMAGE: &str = "debian:bookworm-slim";
 
@@ -572,7 +573,37 @@ pub async fn set_sandbox_config(config: SandboxConfig) -> Result<(), String> {
     save_sandbox_config(&config).map_err(|e| e.to_string())
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DockerStatus {
+    pub installed: bool,
+    pub running: bool,
+}
+
 #[tauri::command]
-pub async fn check_sandbox_available() -> bool {
-    check_docker_available().await
+pub async fn check_sandbox_available() -> DockerStatus {
+    // Check if docker CLI exists
+    let cli_installed = Command::new("docker")
+        .args(["--version"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .await
+        .map(|s| s.success())
+        .unwrap_or(false);
+
+    if !cli_installed {
+        return DockerStatus {
+            installed: false,
+            running: false,
+        };
+    }
+
+    // Check if daemon is running
+    let daemon_running = check_docker_available().await;
+
+    DockerStatus {
+        installed: true,
+        running: daemon_running,
+    }
 }
