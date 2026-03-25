@@ -637,3 +637,17 @@ pub async fn delete_canvas_project(project_id: String) -> Result<(), String> {
     let db = get_canvas_db().map_err(|e| e.to_string())?;
     project::delete_project(&db, &project_id).map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub async fn show_canvas_panel(project_id: String) -> Result<(), String> {
+    let db = get_canvas_db().map_err(|e| e.to_string())?;
+    let project = db
+        .get_project(&project_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Canvas project '{}' not found", project_id))?;
+    emit_canvas_event(
+        "canvas_show",
+        &build_show_payload(&project.id, &project.title, &project.content_type),
+    );
+    Ok(())
+}

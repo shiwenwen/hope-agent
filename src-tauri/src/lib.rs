@@ -1,5 +1,6 @@
 #[macro_use]
 mod logging;
+pub mod acp;
 mod agent;
 mod agent_config;
 mod agent_loader;
@@ -18,7 +19,7 @@ pub mod paths;
 mod process_registry;
 pub mod provider;
 mod sandbox;
-mod session;
+pub mod session;
 mod skills;
 mod subagent;
 mod system_prompt;
@@ -521,6 +522,7 @@ pub fn run() {
             tools::canvas::list_canvas_projects,
             tools::canvas::get_canvas_project,
             tools::canvas::delete_canvas_project,
+            tools::canvas::show_canvas_panel,
             // Dashboard analytics
             commands::dashboard::dashboard_overview,
             commands::dashboard::dashboard_token_usage,

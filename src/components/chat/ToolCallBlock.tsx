@@ -1,6 +1,6 @@
-import { useState, useMemo } from "react"
+import { useState, useMemo, useCallback } from "react"
 import { useTranslation } from "react-i18next"
-import { convertFileSrc } from "@tauri-apps/api/core"
+import { invoke, convertFileSrc } from "@tauri-apps/api/core"
 import {
   ChevronRight,
   Terminal,
@@ -26,6 +26,7 @@ import {
   ImagePlus,
   PanelRight,
   Info,
+  ExternalLink,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { ToolCall } from "@/types/chat"
@@ -191,6 +192,40 @@ export default function ToolCallBlock({ tool }: { tool: ToolCall }) {
   const toolLabel = t(`tools.${tool.name}`, tool.name)
   const displayArgs = getDisplayArgs(tool.name, tool.arguments)
 
+  // Canvas reopen logic
+  const canvasInfo = useMemo(() => {
+    if (tool.name !== "canvas") return null
+    try {
+      const args = JSON.parse(tool.arguments)
+      const action = args.action
+      if (!["create", "update", "show", "restore"].includes(action)) return null
+      let projectId: string | null = null
+      let title = args.title || ""
+      const contentType = args.content_type || ""
+      // For create, project_id and title may be in the result
+      if (action === "create" && tool.result) {
+        try {
+          const res = JSON.parse(tool.result)
+          projectId = res.project_id || null
+          if (res.title) title = res.title
+        } catch { /* ignore */ }
+      } else {
+        projectId = args.project_id || null
+      }
+      if (!projectId) return null
+      return { projectId, title, contentType }
+    } catch { return null }
+  }, [tool.name, tool.arguments, tool.result])
+
+  const handleOpenCanvas = useCallback(async () => {
+    if (!canvasInfo) return
+    try {
+      await invoke("show_canvas_panel", { projectId: canvasInfo.projectId })
+    } catch {
+      // Project may have been deleted
+    }
+  }, [canvasInfo])
+
   return (
     <div className="my-1 text-xs">
       <button
@@ -212,6 +247,7 @@ export default function ToolCallBlock({ tool }: { tool: ToolCall }) {
         <span className="text-muted-foreground/60 truncate font-mono text-[11px]">
           {displayArgs}
         </span>
+
         <IconTip label={t("tools.rawCall", "查看原始调用")}>
           <span
             role="button"
@@ -243,6 +279,29 @@ export default function ToolCallBlock({ tool }: { tool: ToolCall }) {
               />
             </button>
           ))}
+        </div>
+      )}
+      {/* Canvas preview card */}
+      {canvasInfo && !isRunning && (
+        <div className="ml-5 mt-1.5 mb-1">
+          <button
+            type="button"
+            onClick={handleOpenCanvas}
+            className="flex items-center gap-2.5 px-3 py-2 rounded-lg border border-border/50 hover:border-primary/40 bg-secondary/30 hover:bg-secondary/50 transition-colors cursor-pointer group/canvas"
+          >
+            <PanelRight className="h-4 w-4 shrink-0 text-primary/70" />
+            <div className="flex flex-col items-start gap-0.5 min-w-0">
+              <span className="text-xs font-medium text-foreground truncate max-w-[200px]">
+                {canvasInfo.title || "Canvas"}
+              </span>
+              {canvasInfo.contentType && (
+                <span className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">
+                  {canvasInfo.contentType}
+                </span>
+              )}
+            </div>
+            <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground/40 group-hover/canvas:text-primary/60 transition-colors ml-auto" />
+          </button>
         </div>
       )}
       {/* Raw tool call */}

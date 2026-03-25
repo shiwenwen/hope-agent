@@ -1095,7 +1095,8 @@
     "close": "Close",
     "snapshot": "Snapshot",
     "export": "Export",
-    "versions": "Version History"
+    "versions": "Version History",
+    "openPreview": "Open Preview"
   },
   "dashboard": {
     "title": "Dashboard",

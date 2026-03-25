@@ -1095,7 +1095,8 @@
     "close": "关闭",
     "snapshot": "截图",
     "export": "导出",
-    "versions": "版本历史"
+    "versions": "版本历史",
+    "openPreview": "打开预览"
   },
   "dashboard": {
     "title": "数据大盘",
