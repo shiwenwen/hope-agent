@@ -27,7 +27,7 @@ interface ImageGenConfig {
 
 const DEFAULT_CONFIG: ImageGenConfig = {
   providers: [
-    { id: "open-ai", enabled: false, apiKey: null, baseUrl: null, model: null },
+    { id: "openai", enabled: false, apiKey: null, baseUrl: null, model: null },
     { id: "google", enabled: false, apiKey: null, baseUrl: null, model: null },
     { id: "fal", enabled: false, apiKey: null, baseUrl: null, model: null },
   ],
@@ -36,9 +36,9 @@ const DEFAULT_CONFIG: ImageGenConfig = {
 }
 
 const PROVIDER_LABELS: Record<string, string> = {
-  "open-ai": "imageGenProviderOpenAI",
-  "google": "imageGenProviderGoogle",
-  "fal": "imageGenProviderFal",
+  "openai": "OpenAI",
+  "google": "Google",
+  "fal": "Fal",
 }
 
 const SIZE_OPTIONS = ["1024x1024", "1024x1536", "1536x1024"]
@@ -131,7 +131,7 @@ export default function ImageGeneratePanel() {
                 {/* Provider header with toggle */}
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium">
-                    {t(`settings.${PROVIDER_LABELS[provider.id] ?? provider.id}`)}
+                    {PROVIDER_LABELS[provider.id] ?? provider.id}
                   </span>
                   <Switch
                     checked={provider.enabled}
@@ -164,7 +164,7 @@ export default function ImageGeneratePanel() {
                         <Input
                           value={provider.baseUrl ?? ""}
                           placeholder={
-                            provider.id === "open-ai"
+                            provider.id === "openai"
                               ? "https://api.openai.com"
                               : provider.id === "google"
                                 ? "https://generativelanguage.googleapis.com"
@@ -185,7 +185,7 @@ export default function ImageGeneratePanel() {
                         <Input
                           value={provider.model ?? ""}
                           placeholder={
-                            provider.id === "open-ai"
+                            provider.id === "openai"
                               ? "gpt-image-1"
                               : provider.id === "google"
                                 ? "gemini-2.0-flash-preview-image-generation"
