@@ -15,11 +15,11 @@ import {
 import {
   Cpu,
   MemoryStick,
-  Network,
   HardDrive,
   Monitor,
   Server,
   Clock,
+  Hash,
   ArrowDownToLine,
   ArrowUpFromLine,
 } from "lucide-react"
@@ -81,25 +81,16 @@ function MetricCard({
   )
 }
 
-const MEM_USED_COLOR = "hsl(var(--chart-1))"
-const MEM_AVAILABLE_COLOR = "hsl(var(--chart-2))"
-const SWAP_USED_COLOR = "hsl(var(--chart-3))"
-const SWAP_FREE_COLOR = "hsl(var(--chart-4))"
+const MEM_RSS_COLOR = "hsl(var(--chart-1))"
+const MEM_FREE_COLOR = "hsl(var(--chart-2))"
 
-const CPU_COLORS = [
-  "hsl(var(--chart-1))",
-  "hsl(var(--chart-2))",
-  "hsl(var(--chart-3))",
-  "hsl(var(--chart-4))",
-  "hsl(var(--chart-5))",
-  "#10b981",
-  "#6366f1",
-  "#f59e0b",
-  "#ec4899",
-  "#8b5cf6",
-  "#14b8a6",
-  "#f97316",
-]
+/** Get CPU usage color based on percentage */
+function getCpuColor(percent: number): string {
+  if (percent < 30) return "#10b981" // green
+  if (percent < 60) return "#f59e0b" // amber
+  if (percent < 80) return "#f97316" // orange
+  return "#ef4444" // red
+}
 
 const SystemMetricsSection = React.memo(function SystemMetricsSection({
   data,
@@ -109,71 +100,96 @@ const SystemMetricsSection = React.memo(function SystemMetricsSection({
 
   const cpuBarData = useMemo(() => {
     if (!data) return []
-    return data.cpuCores.map((core, i) => ({
-      name: `${i}`,
-      usage: Math.round(core.usagePercent * 10) / 10,
-    }))
+    // Normalize: process CPU can exceed 100% on multi-core
+    const normalizedCpu = Math.min(data.processCpuPercent, data.cpuCount * 100)
+    return [
+      {
+        name: "OpenComputer",
+        usage: Math.round(normalizedCpu * 10) / 10,
+        fill: getCpuColor(normalizedCpu / data.cpuCount),
+      },
+    ]
   }, [data])
 
   const memPieData = useMemo(() => {
     if (!data) return []
     return [
       {
-        name: t("dashboard.system.memUsed"),
-        value: data.memory.usedBytes,
-        color: MEM_USED_COLOR,
+        name: t("dashboard.system.processRss"),
+        value: data.memory.rssBytes,
+        color: MEM_RSS_COLOR,
       },
       {
-        name: t("dashboard.system.memAvailable"),
-        value: data.memory.availableBytes,
-        color: MEM_AVAILABLE_COLOR,
+        name: t("dashboard.system.systemFree"),
+        value: Math.max(0, data.memory.systemTotalBytes - data.memory.rssBytes),
+        color: MEM_FREE_COLOR,
       },
     ]
   }, [data, t])
 
-  const swapPieData = useMemo(() => {
-    if (!data || data.memory.swapTotalBytes === 0) return []
+  const diskBarData = useMemo(() => {
+    if (!data) return []
     return [
       {
-        name: t("dashboard.system.swapUsed"),
-        value: data.memory.swapUsedBytes,
-        color: SWAP_USED_COLOR,
+        name: t("dashboard.system.diskRead"),
+        value: data.diskIo.readBytes,
+        fill: "hsl(var(--chart-2))",
       },
       {
-        name: t("dashboard.system.swapFree"),
-        value: data.memory.swapTotalBytes - data.memory.swapUsedBytes,
-        color: SWAP_FREE_COLOR,
+        name: t("dashboard.system.diskWrite"),
+        value: data.diskIo.writtenBytes,
+        fill: "hsl(var(--chart-1))",
       },
     ]
   }, [data, t])
-
-  const networkBarData = useMemo(() => {
-    if (!data) return []
-    return data.networks.slice(0, 10).map((iface) => ({
-      name: iface.name.length > 12 ? iface.name.slice(0, 12) + "..." : iface.name,
-      fullName: iface.name,
-      received: iface.receivedBytes,
-      transmitted: iface.transmittedBytes,
-    }))
-  }, [data])
 
   if (loading && !data) {
     return (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-4">
-        <SectionSkeleton height={360} />
-        <SectionSkeleton height={360} />
-        <SectionSkeleton height={360} />
-        <SectionSkeleton height={360} />
+        <SectionSkeleton height={300} />
+        <SectionSkeleton height={300} />
       </div>
     )
   }
 
   if (!data) return null
 
+  const normalizedCpu = Math.min(data.processCpuPercent, data.cpuCount * 100)
+
   return (
     <div className="space-y-6 mt-4">
-      {/* System info cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      {/* Process & system info cards */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        <MetricCard
+          icon={Hash}
+          label={t("dashboard.system.pid")}
+          value={`PID ${data.pid}`}
+          colorClass="text-violet-500"
+          bgClass="bg-violet-500/10"
+        />
+        <MetricCard
+          icon={Clock}
+          label={t("dashboard.system.processUptime")}
+          value={formatUptime(data.processUptimeSecs)}
+          colorClass="text-green-500"
+          bgClass="bg-green-500/10"
+        />
+        <MetricCard
+          icon={Cpu}
+          label={t("dashboard.system.cpuUsage")}
+          value={`${normalizedCpu.toFixed(1)}%`}
+          subValue={`${data.cpuCount} ${t("dashboard.system.cores")}`}
+          colorClass="text-amber-500"
+          bgClass="bg-amber-500/10"
+        />
+        <MetricCard
+          icon={MemoryStick}
+          label={t("dashboard.system.memRss")}
+          value={formatBytes(data.memory.rssBytes)}
+          subValue={`${data.memory.rssPercent.toFixed(2)}% ${t("dashboard.system.ofSystem")}`}
+          colorClass="text-purple-500"
+          bgClass="bg-purple-500/10"
+        />
         <MetricCard
           icon={Monitor}
           label={t("dashboard.system.osName")}
@@ -185,78 +201,47 @@ const SystemMetricsSection = React.memo(function SystemMetricsSection({
           icon={Server}
           label={t("dashboard.system.hostName")}
           value={data.hostName}
+          subValue={`${t("dashboard.system.systemUptime")}: ${formatUptime(data.systemUptimeSecs)}`}
           colorClass="text-indigo-500"
           bgClass="bg-indigo-500/10"
-        />
-        <MetricCard
-          icon={Clock}
-          label={t("dashboard.system.uptime")}
-          value={formatUptime(data.uptimeSecs)}
-          colorClass="text-green-500"
-          bgClass="bg-green-500/10"
-        />
-        <MetricCard
-          icon={Cpu}
-          label={t("dashboard.system.cpuCores")}
-          value={`${data.cpuCount} ${t("dashboard.system.cores")}`}
-          subValue={`${data.cpuGlobalUsage.toFixed(1)}% ${t("dashboard.system.usage")}`}
-          colorClass="text-amber-500"
-          bgClass="bg-amber-500/10"
         />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* CPU Usage per Core */}
-        <div className="bg-card border rounded-xl p-4 space-y-3">
+        {/* CPU Usage */}
+        <div className="bg-card border rounded-xl p-4 space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-medium flex items-center gap-2">
               <Cpu className="h-4 w-4 text-amber-500" />
               {t("dashboard.system.cpuUsage")}
             </h3>
-            <span className="text-sm font-semibold text-amber-500">
-              {data.cpuGlobalUsage.toFixed(1)}%
+            <span className="text-sm font-semibold" style={{ color: getCpuColor(normalizedCpu / data.cpuCount) }}>
+              {normalizedCpu.toFixed(1)}%
             </span>
           </div>
-          <ResponsiveContainer width="100%" height={240}>
-            <BarChart data={cpuBarData} margin={{ left: -10 }}>
-              <CartesianGrid
-                strokeDasharray="3 3"
-                stroke="hsl(var(--border))"
-                vertical={false}
-              />
-              <XAxis
-                dataKey="name"
-                tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
-                axisLine={false}
-                tickLine={false}
-              />
-              <YAxis
-                domain={[0, 100]}
-                tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
-                axisLine={false}
-                tickLine={false}
-                tickFormatter={(v) => `${v}%`}
-              />
-              <RechartsTooltip
-                contentStyle={{
-                  backgroundColor: "hsl(var(--popover))",
-                  border: "1px solid hsl(var(--border))",
-                  borderRadius: "8px",
-                  fontSize: "12px",
+
+          {/* Visual gauge bar */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>0%</span>
+              <span>{data.cpuCount * 100}% ({data.cpuCount} {t("dashboard.system.cores")})</span>
+            </div>
+            <div className="h-6 bg-muted rounded-full overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all duration-500"
+                style={{
+                  width: `${Math.min((normalizedCpu / (data.cpuCount * 100)) * 100, 100)}%`,
+                  backgroundColor: getCpuColor(normalizedCpu / data.cpuCount),
                 }}
-                formatter={(value: number) => [`${value}%`, t("dashboard.system.usage")]}
-                labelFormatter={(label) => `Core ${label}`}
               />
-              <Bar dataKey="usage" radius={[3, 3, 0, 0]}>
-                {cpuBarData.map((_, i) => (
-                  <Cell
-                    key={i}
-                    fill={CPU_COLORS[i % CPU_COLORS.length]}
-                  />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+            </div>
+            <p className="text-xs text-muted-foreground text-center">
+              {t("dashboard.system.cpuDesc", {
+                percent: normalizedCpu.toFixed(1),
+                cores: data.cpuCount,
+              })}
+            </p>
+          </div>
         </div>
 
         {/* Memory Usage */}
@@ -267,38 +252,38 @@ const SystemMetricsSection = React.memo(function SystemMetricsSection({
               {t("dashboard.system.memoryUsage")}
             </h3>
             <span className="text-sm font-semibold text-purple-500">
-              {data.memory.usagePercent.toFixed(1)}%
+              {formatBytes(data.memory.rssBytes)}
             </span>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <MetricCard
-              icon={HardDrive}
-              label={t("dashboard.system.memTotal")}
-              value={formatBytes(data.memory.totalBytes)}
-              colorClass="text-blue-500"
-              bgClass="bg-blue-500/10"
-            />
-            <MetricCard
-              icon={HardDrive}
-              label={t("dashboard.system.memUsed")}
-              value={formatBytes(data.memory.usedBytes)}
+              icon={MemoryStick}
+              label={t("dashboard.system.processRss")}
+              value={formatBytes(data.memory.rssBytes)}
               colorClass="text-red-500"
               bgClass="bg-red-500/10"
             />
+            <MetricCard
+              icon={HardDrive}
+              label={t("dashboard.system.virtualMem")}
+              value={formatBytes(data.memory.virtualBytes)}
+              colorClass="text-orange-500"
+              bgClass="bg-orange-500/10"
+            />
           </div>
 
-          {/* Memory pie */}
-          <div className="flex items-center justify-center gap-6">
+          {/* Memory donut: RSS vs system total */}
+          <div className="flex items-center justify-center">
             <div className="relative">
-              <ResponsiveContainer width={150} height={150}>
+              <ResponsiveContainer width={180} height={180}>
                 <PieChart>
                   <Pie
                     data={memPieData}
                     cx="50%"
                     cy="50%"
-                    innerRadius={45}
-                    outerRadius={65}
+                    innerRadius={55}
+                    outerRadius={80}
                     dataKey="value"
                     startAngle={90}
                     endAngle={-270}
@@ -321,205 +306,88 @@ const SystemMetricsSection = React.memo(function SystemMetricsSection({
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                 <div className="text-center">
                   <div className="text-sm font-bold">
-                    {data.memory.usagePercent.toFixed(1)}%
+                    {data.memory.rssPercent.toFixed(2)}%
                   </div>
-                  <div className="text-[9px] text-muted-foreground">RAM</div>
+                  <div className="text-[9px] text-muted-foreground">
+                    {t("dashboard.system.ofSystem")}
+                  </div>
                 </div>
               </div>
             </div>
-
-            {swapPieData.length > 0 && (
-              <div className="relative">
-                <ResponsiveContainer width={150} height={150}>
-                  <PieChart>
-                    <Pie
-                      data={swapPieData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={45}
-                      outerRadius={65}
-                      dataKey="value"
-                      startAngle={90}
-                      endAngle={-270}
-                    >
-                      {swapPieData.map((entry, i) => (
-                        <Cell key={i} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <RechartsTooltip
-                      contentStyle={{
-                        backgroundColor: "hsl(var(--popover))",
-                        border: "1px solid hsl(var(--border))",
-                        borderRadius: "8px",
-                        fontSize: "12px",
-                      }}
-                      formatter={(value: number) => [formatBytes(value)]}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <div className="text-center">
-                    <div className="text-sm font-bold">
-                      {data.memory.swapUsagePercent.toFixed(1)}%
-                    </div>
-                    <div className="text-[9px] text-muted-foreground">Swap</div>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
 
-          {/* Legend */}
           <div className="flex justify-center gap-4 text-[11px] text-muted-foreground">
             <div className="flex items-center gap-1">
-              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: MEM_USED_COLOR }} />
-              {t("dashboard.system.memUsed")}
+              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: MEM_RSS_COLOR }} />
+              {t("dashboard.system.processRss")}
             </div>
             <div className="flex items-center gap-1">
-              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: MEM_AVAILABLE_COLOR }} />
-              {t("dashboard.system.memAvailable")}
+              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: MEM_FREE_COLOR }} />
+              {t("dashboard.system.systemFree")}
             </div>
-            {swapPieData.length > 0 && (
-              <>
-                <div className="flex items-center gap-1">
-                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: SWAP_USED_COLOR }} />
-                  {t("dashboard.system.swapUsed")}
-                </div>
-                <div className="flex items-center gap-1">
-                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: SWAP_FREE_COLOR }} />
-                  {t("dashboard.system.swapFree")}
-                </div>
-              </>
-            )}
           </div>
+          <p className="text-xs text-muted-foreground text-center">
+            {t("dashboard.system.memTotal")}: {formatBytes(data.memory.systemTotalBytes)}
+          </p>
         </div>
 
-        {/* Network Traffic */}
+        {/* Disk I/O */}
         <div className="bg-card border rounded-xl p-4 space-y-3 lg:col-span-2">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-medium flex items-center gap-2">
-              <Network className="h-4 w-4 text-cyan-500" />
-              {t("dashboard.system.networkTraffic")}
+              <HardDrive className="h-4 w-4 text-cyan-500" />
+              {t("dashboard.system.diskIO")}
             </h3>
             <div className="flex items-center gap-4 text-xs text-muted-foreground">
               <span className="flex items-center gap-1">
                 <ArrowDownToLine className="h-3 w-3 text-green-500" />
-                {formatBytes(data.totalReceivedBytes)}
+                {t("dashboard.system.diskRead")}: {formatBytes(data.diskIo.readBytes)}
               </span>
               <span className="flex items-center gap-1">
                 <ArrowUpFromLine className="h-3 w-3 text-blue-500" />
-                {formatBytes(data.totalTransmittedBytes)}
+                {t("dashboard.system.diskWrite")}: {formatBytes(data.diskIo.writtenBytes)}
               </span>
             </div>
           </div>
 
-          {networkBarData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={280}>
-              <BarChart
-                data={networkBarData}
-                layout="vertical"
-                margin={{ left: 10, right: 20 }}
-              >
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  stroke="hsl(var(--border))"
-                  horizontal={false}
-                />
-                <XAxis
-                  type="number"
-                  tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
-                  axisLine={false}
-                  tickLine={false}
-                  tickFormatter={(v) => formatBytes(v)}
-                />
-                <YAxis
-                  type="category"
-                  dataKey="name"
-                  width={100}
-                  tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <RechartsTooltip
-                  contentStyle={{
-                    backgroundColor: "hsl(var(--popover))",
-                    border: "1px solid hsl(var(--border))",
-                    borderRadius: "8px",
-                    fontSize: "12px",
-                  }}
-                  formatter={(value: number, name: string) => [
-                    formatBytes(value),
-                    name === "received"
-                      ? t("dashboard.system.received")
-                      : t("dashboard.system.transmitted"),
-                  ]}
-                  labelFormatter={(_label, payload) =>
-                    payload?.[0]?.payload?.fullName ?? _label
-                  }
-                />
-                <Bar
-                  dataKey="received"
-                  fill="hsl(var(--chart-2))"
-                  name={t("dashboard.system.received")}
-                  radius={[0, 3, 3, 0]}
-                  barSize={14}
-                />
-                <Bar
-                  dataKey="transmitted"
-                  fill="hsl(var(--chart-1))"
-                  name={t("dashboard.system.transmitted")}
-                  radius={[0, 3, 3, 0]}
-                  barSize={14}
-                />
-              </BarChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="flex items-center justify-center h-40 text-sm text-muted-foreground">
-              {t("dashboard.system.noNetworkData")}
-            </div>
-          )}
-
-          {/* Network interface table */}
-          {data.networks.length > 0 && (
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b text-muted-foreground">
-                    <th className="text-left py-2 px-2 font-medium">
-                      {t("dashboard.system.interface")}
-                    </th>
-                    <th className="text-right py-2 px-2 font-medium">
-                      {t("dashboard.system.received")}
-                    </th>
-                    <th className="text-right py-2 px-2 font-medium">
-                      {t("dashboard.system.transmitted")}
-                    </th>
-                    <th className="text-right py-2 px-2 font-medium">
-                      {t("dashboard.system.total")}
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.networks.slice(0, 10).map((iface) => (
-                    <tr key={iface.name} className="border-b border-border/50">
-                      <td className="py-1.5 px-2 font-medium truncate max-w-[200px]">
-                        {iface.name}
-                      </td>
-                      <td className="py-1.5 px-2 text-right text-green-600">
-                        {formatBytes(iface.receivedBytes)}
-                      </td>
-                      <td className="py-1.5 px-2 text-right text-blue-600">
-                        {formatBytes(iface.transmittedBytes)}
-                      </td>
-                      <td className="py-1.5 px-2 text-right">
-                        {formatBytes(iface.receivedBytes + iface.transmittedBytes)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <ResponsiveContainer width="100%" height={120}>
+            <BarChart data={diskBarData} layout="vertical" margin={{ left: 10, right: 20 }}>
+              <CartesianGrid
+                strokeDasharray="3 3"
+                stroke="hsl(var(--border))"
+                horizontal={false}
+              />
+              <XAxis
+                type="number"
+                tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+                axisLine={false}
+                tickLine={false}
+                tickFormatter={(v) => formatBytes(v)}
+              />
+              <YAxis
+                type="category"
+                dataKey="name"
+                width={60}
+                tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <RechartsTooltip
+                contentStyle={{
+                  backgroundColor: "hsl(var(--popover))",
+                  border: "1px solid hsl(var(--border))",
+                  borderRadius: "8px",
+                  fontSize: "12px",
+                }}
+                formatter={(value: number) => [formatBytes(value)]}
+              />
+              <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={20}>
+                {diskBarData.map((entry, i) => (
+                  <Cell key={i} fill={entry.fill} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
         </div>
       </div>
     </div>

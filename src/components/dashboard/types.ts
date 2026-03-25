@@ -106,38 +106,28 @@ export interface DashboardTaskData {
   subagent: SubagentStats
 }
 
-export interface CpuInfo {
-  name: string
-  usagePercent: number
+export interface ProcessMemoryInfo {
+  rssBytes: number
+  virtualBytes: number
+  systemTotalBytes: number
+  rssPercent: number
 }
 
-export interface MemoryInfo {
-  totalBytes: number
-  usedBytes: number
-  availableBytes: number
-  usagePercent: number
-  swapTotalBytes: number
-  swapUsedBytes: number
-  swapUsagePercent: number
-}
-
-export interface NetworkInterfaceInfo {
-  name: string
-  receivedBytes: number
-  transmittedBytes: number
+export interface ProcessDiskIO {
+  readBytes: number
+  writtenBytes: number
 }
 
 export interface SystemMetrics {
-  cpuGlobalUsage: number
-  cpuCores: CpuInfo[]
+  processCpuPercent: number
   cpuCount: number
-  memory: MemoryInfo
-  networks: NetworkInterfaceInfo[]
-  totalReceivedBytes: number
-  totalTransmittedBytes: number
+  memory: ProcessMemoryInfo
+  diskIo: ProcessDiskIO
+  processUptimeSecs: number
+  pid: number
   osName: string
   hostName: string
-  uptimeSecs: number
+  systemUptimeSecs: number
 }
 
 export type Granularity = "day" | "week" | "month"

@@ -6,7 +6,7 @@
 
 use anyhow::Result;
 use std::sync::Arc;
-use sysinfo::{Networks, System};
+use sysinfo::{Pid, ProcessesToUpdate, System};
 
 use crate::cron::CronDB;
 use crate::logging::LogDB;
@@ -152,48 +152,51 @@ pub struct DashboardTaskData {
     pub subagent: SubagentStats,
 }
 
-// ── System Metrics Types ────────────────────────────────────────
+// ── System Metrics Types (Process-level) ────────────────────────
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct CpuInfo {
-    pub name: String,
-    pub usage_percent: f32,
+pub struct ProcessMemoryInfo {
+    /// Process RSS (resident set size) in bytes
+    pub rss_bytes: u64,
+    /// Process virtual memory in bytes
+    pub virtual_bytes: u64,
+    /// System total memory in bytes (for context)
+    pub system_total_bytes: u64,
+    /// RSS as percentage of system total memory
+    pub rss_percent: f64,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct MemoryInfo {
-    pub total_bytes: u64,
-    pub used_bytes: u64,
-    pub available_bytes: u64,
-    pub usage_percent: f64,
-    pub swap_total_bytes: u64,
-    pub swap_used_bytes: u64,
-    pub swap_usage_percent: f64,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct NetworkInterfaceInfo {
-    pub name: String,
-    pub received_bytes: u64,
-    pub transmitted_bytes: u64,
+pub struct ProcessDiskIO {
+    /// Total bytes read by process
+    pub read_bytes: u64,
+    /// Total bytes written by process
+    pub written_bytes: u64,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SystemMetrics {
-    pub cpu_global_usage: f32,
-    pub cpu_cores: Vec<CpuInfo>,
+    /// Process CPU usage (percentage, can exceed 100% on multi-core)
+    pub process_cpu_percent: f32,
+    /// Number of CPU cores (for context)
     pub cpu_count: usize,
-    pub memory: MemoryInfo,
-    pub networks: Vec<NetworkInterfaceInfo>,
-    pub total_received_bytes: u64,
-    pub total_transmitted_bytes: u64,
+    /// Process memory info
+    pub memory: ProcessMemoryInfo,
+    /// Process disk I/O
+    pub disk_io: ProcessDiskIO,
+    /// Process uptime in seconds
+    pub process_uptime_secs: u64,
+    /// Process ID
+    pub pid: u32,
+    /// OS name
     pub os_name: String,
+    /// Host name
     pub host_name: String,
-    pub uptime_secs: u64,
+    /// System uptime in seconds
+    pub system_uptime_secs: u64,
 }
 
 // ── Cost Estimation ─────────────────────────────────────────────
@@ -794,92 +797,72 @@ pub fn query_tasks(
     Ok(DashboardTaskData { cron, subagent })
 }
 
-/// System metrics: CPU, memory, network usage (real-time snapshot).
+/// System metrics: OpenComputer process CPU, memory, disk I/O (real-time snapshot).
 pub fn query_system_metrics() -> Result<SystemMetrics> {
+    let current_pid = sysinfo::get_current_pid()
+        .map_err(|e| anyhow::anyhow!("Failed to get current PID: {}", e))?;
+
     let mut sys = System::new();
-    sys.refresh_cpu_usage();
-    // Brief sleep to allow CPU usage measurement to stabilize
+    // First refresh to initialize CPU measurement baseline
+    sys.refresh_processes_specifics(
+        ProcessesToUpdate::Some(&[current_pid]),
+        true,
+        sysinfo::ProcessRefreshKind::everything(),
+    );
+    // Brief sleep to allow CPU usage delta measurement
     std::thread::sleep(std::time::Duration::from_millis(200));
-    sys.refresh_cpu_usage();
+    // Second refresh to get actual CPU usage
+    sys.refresh_processes_specifics(
+        ProcessesToUpdate::Some(&[current_pid]),
+        true,
+        sysinfo::ProcessRefreshKind::everything(),
+    );
+    sys.refresh_cpu_list(sysinfo::CpuRefreshKind::default());
     sys.refresh_memory();
 
-    let cpu_cores: Vec<CpuInfo> = sys
-        .cpus()
-        .iter()
-        .map(|cpu| CpuInfo {
-            name: cpu.name().to_string(),
-            usage_percent: cpu.cpu_usage(),
-        })
-        .collect();
-
-    let cpu_global_usage = sys.global_cpu_usage();
     let cpu_count = sys.cpus().len();
 
-    let total_mem = sys.total_memory();
-    let used_mem = sys.used_memory();
-    let available_mem = sys.available_memory();
-    let mem_usage = if total_mem > 0 {
-        (used_mem as f64 / total_mem as f64) * 100.0
+    let process = sys.process(current_pid)
+        .ok_or_else(|| anyhow::anyhow!("Current process not found"))?;
+
+    let process_cpu = process.cpu_usage();
+    let rss = process.memory();
+    let virtual_mem = process.virtual_memory();
+    let disk_usage = process.disk_usage();
+    let run_time = process.run_time();
+
+    let system_total_mem = sys.total_memory();
+    let rss_percent = if system_total_mem > 0 {
+        (rss as f64 / system_total_mem as f64) * 100.0
     } else {
         0.0
     };
 
-    let swap_total = sys.total_swap();
-    let swap_used = sys.used_swap();
-    let swap_usage = if swap_total > 0 {
-        (swap_used as f64 / swap_total as f64) * 100.0
-    } else {
-        0.0
+    let memory = ProcessMemoryInfo {
+        rss_bytes: rss,
+        virtual_bytes: virtual_mem,
+        system_total_bytes: system_total_mem,
+        rss_percent,
     };
 
-    let memory = MemoryInfo {
-        total_bytes: total_mem,
-        used_bytes: used_mem,
-        available_bytes: available_mem,
-        usage_percent: mem_usage,
-        swap_total_bytes: swap_total,
-        swap_used_bytes: swap_used,
-        swap_usage_percent: swap_usage,
+    let disk_io = ProcessDiskIO {
+        read_bytes: disk_usage.total_read_bytes,
+        written_bytes: disk_usage.total_written_bytes,
     };
-
-    let networks = Networks::new_with_refreshed_list();
-    let mut net_list: Vec<NetworkInterfaceInfo> = Vec::new();
-    let mut total_rx: u64 = 0;
-    let mut total_tx: u64 = 0;
-    for (name, data) in &networks {
-        let rx = data.total_received();
-        let tx = data.total_transmitted();
-        // Skip interfaces with zero traffic
-        if rx == 0 && tx == 0 {
-            continue;
-        }
-        total_rx += rx;
-        total_tx += tx;
-        net_list.push(NetworkInterfaceInfo {
-            name: name.to_string(),
-            received_bytes: rx,
-            transmitted_bytes: tx,
-        });
-    }
-    // Sort by total traffic descending
-    net_list.sort_by(|a, b| {
-        (b.received_bytes + b.transmitted_bytes).cmp(&(a.received_bytes + a.transmitted_bytes))
-    });
 
     let os_name = System::name().unwrap_or_else(|| "Unknown".to_string());
     let host_name = System::host_name().unwrap_or_else(|| "Unknown".to_string());
-    let uptime_secs = System::uptime();
+    let system_uptime_secs = System::uptime();
 
     Ok(SystemMetrics {
-        cpu_global_usage,
-        cpu_cores,
+        process_cpu_percent: process_cpu,
         cpu_count,
         memory,
-        networks: net_list,
-        total_received_bytes: total_rx,
-        total_transmitted_bytes: total_tx,
+        disk_io,
+        process_uptime_secs: run_time,
+        pid: current_pid.as_u32(),
         os_name,
         host_name,
-        uptime_secs,
+        system_uptime_secs,
     })
 }
