@@ -7,7 +7,8 @@ import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
-import { Check, Loader2, Info } from "lucide-react"
+import { Check, Loader2, Info, Wifi } from "lucide-react"
+import TestResultDisplay, { parseTestResult, type TestResult } from "./TestResultDisplay"
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -44,6 +45,8 @@ export default function ImageGeneratePanel() {
   const [savedSnapshot, setSavedSnapshot] = useState<string>("")
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
+  const [testLoading, setTestLoading] = useState<Record<string, boolean>>({})
+  const [testResults, setTestResults] = useState<Record<string, TestResult>>({})
 
   const isDirty = JSON.stringify(config) !== savedSnapshot
 
@@ -86,6 +89,27 @@ export default function ImageGeneratePanel() {
       providers[index] = { ...providers[index], ...updates }
       return { ...prev, providers }
     })
+  }
+
+  const handleTest = async (provider: ImageGenProviderEntry) => {
+    setTestLoading((prev) => ({ ...prev, [provider.id]: true }))
+    setTestResults((prev) => {
+      const next = { ...prev }
+      delete next[provider.id]
+      return next
+    })
+    try {
+      const msg = await invoke<string>("test_image_generate", {
+        providerId: provider.id,
+        apiKey: provider.apiKey ?? "",
+        baseUrl: provider.baseUrl,
+      })
+      setTestResults((prev) => ({ ...prev, [provider.id]: parseTestResult(msg, false) }))
+    } catch (e) {
+      setTestResults((prev) => ({ ...prev, [provider.id]: parseTestResult(String(e), true) }))
+    } finally {
+      setTestLoading((prev) => ({ ...prev, [provider.id]: false }))
+    }
   }
 
   const hasAnyConfigured = config.providers.some(
@@ -194,6 +218,33 @@ export default function ImageGeneratePanel() {
                         />
                       </div>
                     </div>
+
+                    {/* Test button */}
+                    <div className="flex items-center gap-2 pt-1">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        disabled={testLoading[provider.id] || !provider.apiKey?.trim()}
+                        onClick={() => handleTest(provider)}
+                      >
+                        {testLoading[provider.id] ? (
+                          <span className="flex items-center gap-2">
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            {t("common.testing")}
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-2">
+                            <Wifi className="h-3.5 w-3.5" />
+                            {t("common.test")}
+                          </span>
+                        )}
+                      </Button>
+                    </div>
+
+                    {/* Test result */}
+                    {testResults[provider.id] && (
+                      <TestResultDisplay result={testResults[provider.id]} />
+                    )}
                   </div>
                 )}
               </div>

@@ -10,6 +10,7 @@
     "confirm": "Confirm",
     "saving": "Saving...",
     "testing": "Testing...",
+    "test": "Test Connection",
     "nextStep": "Next",
     "loginTimeout": "Login timed out, please try again",
     "dragToSort": "Drag to reorder",

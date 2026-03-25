@@ -339,6 +339,7 @@ pub fn run() {
             commands::provider::test_provider,
             commands::provider::test_model,
             commands::provider::test_embedding,
+            commands::provider::test_image_generate,
             commands::provider::get_available_models,
             commands::provider::get_active_model,
             commands::provider::set_active_model,

@@ -579,6 +579,116 @@ pub async fn test_embedding(
     }
 }
 
+// ── Image Generation Provider Test ──────────────────────────────
+
+#[tauri::command]
+pub async fn test_image_generate(
+    provider_id: String,
+    api_key: String,
+    base_url: Option<String>,
+) -> Result<String, String> {
+    use std::time::{Duration, Instant};
+
+    let start = Instant::now();
+    let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(15))
+        .timeout(Duration::from_secs(15))
+        .build()
+        .map_err(|e| serde_json::to_string(&serde_json::json!({
+            "success": false, "message": format!("Client error: {}", e),
+        })).unwrap_or_default())?;
+
+    let (url, auth_header, auth_value) = match provider_id.as_str() {
+        "OpenAI" => {
+            let base = base_url.as_deref()
+                .filter(|s| !s.is_empty())
+                .unwrap_or("https://api.openai.com")
+                .trim_end_matches('/');
+            (
+                format!("{}/v1/models", base),
+                "Authorization",
+                format!("Bearer {}", api_key),
+            )
+        }
+        "Google" => {
+            let base = base_url.as_deref()
+                .filter(|s| !s.is_empty())
+                .unwrap_or("https://generativelanguage.googleapis.com")
+                .trim_end_matches('/');
+            (
+                format!("{}/v1beta/models?key={}", base, api_key),
+                "",
+                String::new(),
+            )
+        }
+        "Fal" => {
+            let base = base_url.as_deref()
+                .filter(|s| !s.is_empty())
+                .unwrap_or("https://fal.run")
+                .trim_end_matches('/');
+            // Fal doesn't have a lightweight list endpoint; check queue status
+            (
+                format!("{}/fal-ai/flux/dev", base),
+                "Authorization",
+                format!("Key {}", api_key),
+            )
+        }
+        _ => {
+            return Err(serde_json::to_string(&serde_json::json!({
+                "success": false,
+                "message": format!("Unknown provider: {}", provider_id),
+            })).unwrap_or_default());
+        }
+    };
+
+    let mut req = client.get(&url);
+    if !auth_header.is_empty() {
+        req = req.header(auth_header, &auth_value);
+    }
+
+    match req.send().await {
+        Ok(resp) => {
+            let status = resp.status().as_u16();
+            let latency = start.elapsed().as_millis() as u64;
+            // For Fal, a 405 (Method Not Allowed on GET) or 422 still means connectivity is fine
+            let ok = status < 400 || (provider_id == "Fal" && (status == 405 || status == 422));
+            let msg = if ok {
+                format!("{} 连接成功", provider_id)
+            } else if status == 401 || status == 403 {
+                format!("{} 认证失败，请检查 API Key", provider_id)
+            } else {
+                format!("{} 请求失败 ({})", provider_id, status)
+            };
+
+            Ok(serde_json::to_string(&serde_json::json!({
+                "success": ok,
+                "message": msg,
+                "url": url.replace(&api_key, "***"),
+                "status": status,
+                "latencyMs": latency,
+                "auth": if auth_header.is_empty() { "Query Parameter" } else { auth_header },
+            })).unwrap_or_default())
+        }
+        Err(e) => {
+            let latency = start.elapsed().as_millis() as u64;
+            let msg = if e.is_timeout() {
+                format!("{} 连接超时，请检查网络或代理设置", provider_id)
+            } else if e.is_connect() {
+                format!("{} 无法连接，请检查网络或 Base URL", provider_id)
+            } else {
+                format!("{} 连接失败: {}", provider_id, e)
+            };
+
+            Err(serde_json::to_string(&serde_json::json!({
+                "success": false,
+                "message": msg,
+                "url": url.replace(&api_key, "***"),
+                "latencyMs": latency,
+            })).unwrap_or_default())
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn get_available_models(
     state: State<'_, AppState>,

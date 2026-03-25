@@ -10,6 +10,7 @@
     "confirm": "确认",
     "saving": "保存中...",
     "testing": "测试中...",
+    "test": "测试连接",
     "nextStep": "下一步",
     "loginTimeout": "登录超时，请重试",
     "dragToSort": "拖拽可排序",
