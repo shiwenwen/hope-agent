@@ -58,6 +58,15 @@ export function useSlashCommands(
   }, [input])
 
   const filteredCommands = useCallback(() => {
+    // Button-triggered: show all commands (no input filter)
+    if (forceOpen && !input.startsWith("/")) {
+      return commands.toSorted((a, b) => {
+        const ai = CATEGORY_ORDER.indexOf(a.category)
+        const bi = CATEGORY_ORDER.indexOf(b.category)
+        return ai - bi
+      })
+    }
+
     const filter = getFilterText()
     if (filter === "" && !input.startsWith("/")) return []
 
@@ -79,7 +88,7 @@ export function useSlashCommands(
       }
       return 0
     })
-  }, [commands, getFilterText, input])()
+  }, [commands, getFilterText, input, forceOpen])()
 
   // Determine if menu should be open
   const shouldBeOpen =
@@ -93,17 +102,11 @@ export function useSlashCommands(
     }
   }, [shouldBeOpen])
 
-  // Close forceOpen when input changes away from "/"
-  useEffect(() => {
-    if (forceOpen && !input.startsWith("/")) {
-      setForceOpen(false)
-    }
-  }, [input, forceOpen])
-
   const executeCommandInner = useCallback(
     async (cmd: SlashCommandDef) => {
-      // Build command text
-      const spaceIdx = input.indexOf(" ")
+      // Build command text — when triggered by button (forceOpen, no "/" in input), no args from input
+      const hasSlashInput = input.startsWith("/")
+      const spaceIdx = hasSlashInput ? input.indexOf(" ") : -1
       const args = spaceIdx > 0 ? input.slice(spaceIdx + 1) : ""
       const commandText = `/${cmd.name}${args ? " " + args : ""}`
 
@@ -183,28 +186,30 @@ export function useSlashCommands(
         case "Escape":
           e.preventDefault()
           setIsOpen(false)
+          // Only clear input if it was typed (starts with "/"), not button-triggered
+          if (!forceOpen && input.startsWith("/")) {
+            setInput("")
+          }
           setForceOpen(false)
-          setInput("")
           return true
 
         default:
           return false
       }
     },
-    [isOpen, filteredCommands, selectedIndex, executeCommand, setInput],
+    [isOpen, filteredCommands, selectedIndex, executeCommand, setInput, forceOpen, input],
   )
 
   const setOpen = useCallback(
     (open: boolean) => {
       if (open) {
-        setInput("/")
         setForceOpen(true)
       } else {
         setForceOpen(false)
         setIsOpen(false)
       }
     },
-    [setInput],
+    [],
   )
 
   return {
