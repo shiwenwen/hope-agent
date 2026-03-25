@@ -60,6 +60,21 @@ pub async fn save_notification_config(config: provider::NotificationConfig) -> R
     provider::save_store(&store).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub async fn get_image_generate_config() -> Result<tools::image_generate::ImageGenConfig, String> {
+    let store = provider::load_store().map_err(|e| e.to_string())?;
+    let mut config = store.image_generate;
+    tools::image_generate::backfill_providers(&mut config);
+    Ok(config)
+}
+
+#[tauri::command]
+pub async fn save_image_generate_config(config: tools::image_generate::ImageGenConfig) -> Result<(), String> {
+    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    store.image_generate = config;
+    provider::save_store(&store).map_err(|e| e.to_string())
+}
+
 /// Manually trigger context compaction on the current session.
 /// Returns the compaction result for frontend display.
 #[tauri::command]

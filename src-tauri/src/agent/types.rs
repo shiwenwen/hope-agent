@@ -69,6 +69,8 @@ pub struct AssistantAgent {
     pub(super) token_calibrator: std::sync::Mutex<crate::context_compact::TokenEstimateCalibrator>,
     /// Whether this agent can use the send_notification tool
     pub(super) notification_enabled: bool,
+    /// Whether this agent can use the image_generate tool
+    pub(super) image_generate_enabled: bool,
     /// Current session ID (for sub-agent context)
     pub(super) session_id: Option<String>,
     /// Sub-agent nesting depth (0 = top-level)

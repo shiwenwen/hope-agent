@@ -22,6 +22,7 @@ import {
   Activity,
   Users,
   Image,
+  ImagePlus,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { ToolCall } from "@/types/chat"
@@ -55,6 +56,7 @@ const TOOL_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
   sessions_history: History,
   sessions_send: MessageSquare,
   image: Image,
+  image_generate: ImagePlus,
   pdf: FileText,
 }
 
@@ -113,6 +115,12 @@ function getDisplayArgs(name: string, args: string): string {
         return parsed.session_id || args
       case "image":
         return parsed.path || args
+      case "image_generate":
+        return parsed.prompt
+          ? parsed.prompt.length > 60
+            ? `${parsed.prompt.slice(0, 60)}...`
+            : parsed.prompt
+          : args
       case "pdf":
         return parsed.path || args
       default:

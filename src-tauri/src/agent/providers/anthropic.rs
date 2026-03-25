@@ -26,6 +26,9 @@ impl AssistantAgent {
         if self.notification_enabled {
             tool_schemas.push(tools::get_notification_tool().to_provider_schema(ToolProvider::Anthropic));
         }
+        if self.image_generate_enabled {
+            tool_schemas.push(tools::get_image_generate_tool().to_provider_schema(ToolProvider::Anthropic));
+        }
         if self.subagent_tool_enabled() {
             tool_schemas.push(tools::get_subagent_tool().to_provider_schema(ToolProvider::Anthropic));
         }

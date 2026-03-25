@@ -132,6 +132,13 @@ pub fn browser_profile_dir(profile_name: &str) -> Result<PathBuf> {
     Ok(browser_profiles_dir()?.join(profile_name))
 }
 
+// ── Generated Images ────────────────────────────────────────────────
+
+/// Generated images directory: ~/.opencomputer/generated-images/
+pub fn generated_images_dir() -> Result<PathBuf> {
+    Ok(root_dir()?.join("generated-images"))
+}
+
 // ── Crash Journal ──────────────────────────────────────────────────
 
 /// Crash journal file path: ~/.opencomputer/crash_journal.json
@@ -162,6 +169,7 @@ pub fn ensure_dirs() -> Result<()> {
         models_cache_dir()?,
         browser_profiles_dir()?,
         backups_dir()?,
+        generated_images_dir()?,
     ];
     for dir in &dirs_to_create {
         std::fs::create_dir_all(dir)?;

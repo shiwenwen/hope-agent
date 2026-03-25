@@ -8,7 +8,7 @@ use super::{
     TOOL_SAVE_MEMORY, TOOL_RECALL_MEMORY, TOOL_UPDATE_MEMORY, TOOL_DELETE_MEMORY,
     TOOL_MANAGE_CRON, TOOL_BROWSER, TOOL_SEND_NOTIFICATION, TOOL_SUBAGENT,
     TOOL_MEMORY_GET, TOOL_AGENTS_LIST, TOOL_SESSIONS_LIST, TOOL_SESSION_STATUS,
-    TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_SEND, TOOL_IMAGE, TOOL_PDF,
+    TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_SEND, TOOL_IMAGE, TOOL_IMAGE_GENERATE, TOOL_PDF,
 };
 
 // ── Tool Definition (provider-agnostic) ───────────────────────────
@@ -903,6 +903,39 @@ pub fn get_tools_for_provider(provider: ToolProvider) -> Vec<serde_json::Value> 
         .iter()
         .map(|t| t.to_provider_schema(provider))
         .collect()
+}
+
+/// Returns the image_generate tool definition (conditionally injected).
+pub fn get_image_generate_tool() -> ToolDefinition {
+    ToolDefinition {
+        name: TOOL_IMAGE_GENERATE.into(),
+        description: "Generate images from text descriptions using AI image generation models (OpenAI/DALL-E, Google/Gemini, Fal/Flux). Generated images are saved to disk and returned for visual inspection.".into(),
+        parameters: json!({
+            "type": "object",
+            "properties": {
+                "prompt": {
+                    "type": "string",
+                    "description": "Text description of the image to generate"
+                },
+                "size": {
+                    "type": "string",
+                    "description": "Image dimensions (e.g. '1024x1024', '1024x1536', '1536x1024'). Default: 1024x1024"
+                },
+                "n": {
+                    "type": "integer",
+                    "description": "Number of images to generate (1-4, default 1)",
+                    "minimum": 1,
+                    "maximum": 4
+                },
+                "provider": {
+                    "type": "string",
+                    "description": "Force a specific provider: 'openai', 'google', or 'fal'. Default: first configured provider."
+                }
+            },
+            "required": ["prompt"],
+            "additionalProperties": false
+        }),
+    }
 }
 
 /// Returns the notification tool definition (conditionally injected).

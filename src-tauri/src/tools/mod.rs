@@ -12,6 +12,7 @@ mod execution;
 mod find;
 mod grep;
 mod image;
+pub(crate) mod image_generate;
 mod ls;
 mod memory;
 mod notification;
@@ -27,7 +28,7 @@ mod write;
 // ── Public Re-exports ─────────────────────────────────────────────
 
 pub use approval::{ApprovalResponse, submit_approval_response};
-pub use definitions::{get_available_tools, get_subagent_tool, get_notification_tool, get_tools_for_provider};
+pub use definitions::{get_available_tools, get_subagent_tool, get_notification_tool, get_image_generate_tool, get_tools_for_provider};
 pub use execution::{ToolExecContext, execute_tool_with_context};
 
 // ── Tool Name Constants ──────────────────────────────────────────
@@ -58,6 +59,7 @@ pub const TOOL_SESSION_STATUS: &str = "session_status";
 pub const TOOL_SESSIONS_HISTORY: &str = "sessions_history";
 pub const TOOL_SESSIONS_SEND: &str = "sessions_send";
 pub const TOOL_IMAGE: &str = "image";
+pub const TOOL_IMAGE_GENERATE: &str = "image_generate";
 pub const TOOL_PDF: &str = "pdf";
 
 // ── Shared Helpers ────────────────────────────────────────────────

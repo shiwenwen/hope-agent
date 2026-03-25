@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import WebSearchPanel from "@/components/settings/WebSearchPanel"
 import WebFetchPanel from "@/components/settings/WebFetchPanel"
+import ImageGeneratePanel from "@/components/settings/ImageGeneratePanel"
 
 export default function ToolSettingsPanel() {
   const { t } = useTranslation()
@@ -12,6 +13,7 @@ export default function ToolSettingsPanel() {
         <TabsList className="w-fit">
           <TabsTrigger value="webSearch">{t("settings.webSearch")}</TabsTrigger>
           <TabsTrigger value="webFetch">{t("settings.webFetch")}</TabsTrigger>
+          <TabsTrigger value="imageGenerate">{t("settings.imageGenerate")}</TabsTrigger>
         </TabsList>
       </div>
       <TabsContent value="webSearch" className="flex-1 min-h-0 overflow-hidden mt-0 flex flex-col">
@@ -19,6 +21,9 @@ export default function ToolSettingsPanel() {
       </TabsContent>
       <TabsContent value="webFetch" className="flex-1 min-h-0 overflow-hidden mt-0 flex flex-col">
         <WebFetchPanel />
+      </TabsContent>
+      <TabsContent value="imageGenerate" className="flex-1 min-h-0 overflow-hidden mt-0 flex flex-col">
+        <ImageGeneratePanel />
       </TabsContent>
     </Tabs>
   )

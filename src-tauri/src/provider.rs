@@ -256,6 +256,9 @@ pub struct ProviderStore {
     /// Notification configuration
     #[serde(default)]
     pub notification: NotificationConfig,
+    /// Image generation configuration
+    #[serde(default)]
+    pub image_generate: crate::tools::image_generate::ImageGenConfig,
     /// UI theme preference: "auto" | "light" | "dark"
     #[serde(default = "default_theme")]
     pub theme: String,
@@ -293,6 +296,7 @@ impl Default for ProviderStore {
             skill_env: std::collections::HashMap::new(),
             compact: crate::context_compact::CompactConfig::default(),
             notification: NotificationConfig::default(),
+            image_generate: crate::tools::image_generate::ImageGenConfig::default(),
             theme: default_theme(),
             language: default_language(),
         }

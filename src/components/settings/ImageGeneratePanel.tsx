@@ -1,0 +1,279 @@
+import { useState, useEffect } from "react"
+import { invoke } from "@tauri-apps/api/core"
+import { useTranslation } from "react-i18next"
+import { logger } from "@/lib/logger"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Switch } from "@/components/ui/switch"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { cn } from "@/lib/utils"
+import { Check, Loader2, Info } from "lucide-react"
+
+// ── Types ────────────────────────────────────────────────────────
+
+interface ImageGenProviderEntry {
+  id: string
+  enabled: boolean
+  apiKey: string | null
+  baseUrl: string | null
+  model: string | null
+}
+
+interface ImageGenConfig {
+  providers: ImageGenProviderEntry[]
+  timeoutSeconds: number
+  defaultSize: string
+}
+
+const DEFAULT_CONFIG: ImageGenConfig = {
+  providers: [
+    { id: "open-ai", enabled: false, apiKey: null, baseUrl: null, model: null },
+    { id: "google", enabled: false, apiKey: null, baseUrl: null, model: null },
+    { id: "fal", enabled: false, apiKey: null, baseUrl: null, model: null },
+  ],
+  timeoutSeconds: 60,
+  defaultSize: "1024x1024",
+}
+
+const PROVIDER_LABELS: Record<string, string> = {
+  "open-ai": "imageGenProviderOpenAI",
+  "google": "imageGenProviderGoogle",
+  "fal": "imageGenProviderFal",
+}
+
+const SIZE_OPTIONS = ["1024x1024", "1024x1536", "1536x1024"]
+
+export default function ImageGeneratePanel() {
+  const { t } = useTranslation()
+  const [config, setConfig] = useState<ImageGenConfig>(DEFAULT_CONFIG)
+  const [savedSnapshot, setSavedSnapshot] = useState<string>("")
+  const [saving, setSaving] = useState(false)
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
+
+  const isDirty = JSON.stringify(config) !== savedSnapshot
+
+  useEffect(() => {
+    let cancelled = false
+    invoke<ImageGenConfig>("get_image_generate_config")
+      .then((cfg) => {
+        if (!cancelled) {
+          setConfig(cfg)
+          setSavedSnapshot(JSON.stringify(cfg))
+        }
+      })
+      .catch((e) => {
+        logger.error("settings", `Failed to load image generate config: ${e}`)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      await invoke("save_image_generate_config", { config })
+      setSavedSnapshot(JSON.stringify(config))
+      setSaveStatus("saved")
+      setTimeout(() => setSaveStatus("idle"), 2000)
+    } catch (e) {
+      logger.error("settings", `Failed to save image generate config: ${e}`)
+      setSaveStatus("failed")
+      setTimeout(() => setSaveStatus("idle"), 2000)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const updateProvider = (index: number, updates: Partial<ImageGenProviderEntry>) => {
+    setConfig((prev) => {
+      const providers = [...prev.providers]
+      providers[index] = { ...providers[index], ...updates }
+      return { ...prev, providers }
+    })
+  }
+
+  const hasAnyConfigured = config.providers.some(
+    (p) => p.enabled && p.apiKey && p.apiKey.trim().length > 0
+  )
+
+  return (
+    <div className="flex-1 overflow-y-auto p-6">
+      <div className="space-y-6">
+        {/* Header */}
+        <div>
+          <p className="text-xs text-muted-foreground">{t("settings.imageGenerateDesc")}</p>
+        </div>
+
+        {/* Info banner when no provider is configured */}
+        {!hasAnyConfigured && (
+          <div className="flex items-start gap-2 rounded-md bg-muted/50 p-3">
+            <Info className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
+            <p className="text-xs text-muted-foreground">{t("settings.imageGenNoProvider")}</p>
+          </div>
+        )}
+
+        {/* Providers */}
+        <div className="space-y-4">
+          <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+            {t("settings.imageGenProviders")}
+          </h3>
+
+          <div className="space-y-4">
+            {config.providers.map((provider, index) => (
+              <div
+                key={provider.id}
+                className={cn(
+                  "rounded-lg border p-4 space-y-3 transition-colors",
+                  provider.enabled ? "border-primary/30 bg-primary/5" : "border-border"
+                )}
+              >
+                {/* Provider header with toggle */}
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">
+                    {t(`settings.${PROVIDER_LABELS[provider.id] ?? provider.id}`)}
+                  </span>
+                  <Switch
+                    checked={provider.enabled}
+                    onCheckedChange={(v) => updateProvider(index, { enabled: v })}
+                  />
+                </div>
+
+                {/* Provider details (shown when enabled) */}
+                {provider.enabled && (
+                  <div className="space-y-3 pt-1">
+                    <div className="space-y-1.5">
+                      <span className="text-xs text-muted-foreground">{t("settings.imageGenApiKey")}</span>
+                      <Input
+                        type="password"
+                        value={provider.apiKey ?? ""}
+                        placeholder="sk-..."
+                        onChange={(e) =>
+                          updateProvider(index, {
+                            apiKey: e.target.value || null,
+                          })
+                        }
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <span className="text-xs text-muted-foreground">
+                          {t("settings.imageGenBaseUrl")}
+                        </span>
+                        <Input
+                          value={provider.baseUrl ?? ""}
+                          placeholder={
+                            provider.id === "open-ai"
+                              ? "https://api.openai.com"
+                              : provider.id === "google"
+                                ? "https://generativelanguage.googleapis.com"
+                                : "https://fal.run"
+                          }
+                          onChange={(e) =>
+                            updateProvider(index, {
+                              baseUrl: e.target.value || null,
+                            })
+                          }
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <span className="text-xs text-muted-foreground">
+                          {t("settings.imageGenModel")}
+                        </span>
+                        <Input
+                          value={provider.model ?? ""}
+                          placeholder={
+                            provider.id === "open-ai"
+                              ? "gpt-image-1"
+                              : provider.id === "google"
+                                ? "gemini-2.0-flash-preview-image-generation"
+                                : "fal-ai/flux/dev"
+                          }
+                          onChange={(e) =>
+                            updateProvider(index, {
+                              model: e.target.value || null,
+                            })
+                          }
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* General settings */}
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <span className="text-sm font-medium">{t("settings.imageGenDefaultSize")}</span>
+              <Select
+                value={config.defaultSize}
+                onValueChange={(v) => setConfig((prev) => ({ ...prev, defaultSize: v }))}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SIZE_OPTIONS.map((size) => (
+                    <SelectItem key={size} value={size}>
+                      {size}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <span className="text-sm font-medium">{t("settings.imageGenTimeout")}</span>
+              <Input
+                type="number"
+                min={10}
+                max={300}
+                value={config.timeoutSeconds}
+                onChange={(e) => {
+                  const num = parseInt(e.target.value, 10)
+                  if (!isNaN(num) && num >= 10) {
+                    setConfig((prev) => ({ ...prev, timeoutSeconds: num }))
+                  }
+                }}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Save button */}
+        <div className="flex items-center gap-2 pt-2">
+          <Button
+            onClick={save}
+            disabled={(!isDirty && saveStatus === "idle") || saving}
+            className={cn(
+              saveStatus === "saved" && "bg-green-500/10 text-green-600 hover:bg-green-500/20",
+              saveStatus === "failed" && "bg-destructive/10 text-destructive hover:bg-destructive/20",
+            )}
+          >
+            {saving ? (
+              <span className="flex items-center gap-1.5">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                {t("common.saving")}
+              </span>
+            ) : saveStatus === "saved" ? (
+              <span className="flex items-center gap-1.5">
+                <Check className="h-3.5 w-3.5" />
+                {t("common.saved")}
+              </span>
+            ) : saveStatus === "failed" ? (
+              t("common.saveFailed")
+            ) : (
+              t("common.save")
+            )}
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
