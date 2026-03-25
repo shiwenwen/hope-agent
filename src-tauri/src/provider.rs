@@ -193,6 +193,103 @@ pub struct ActiveModel {
 
 // ── Serializable Store ────────────────────────────────────────────
 
+// ── Proxy Config ────────────────────────────────────────────────
+
+/// Proxy mode for all HTTP requests in the application
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ProxyMode {
+    /// Use system proxy (environment variables HTTP_PROXY/HTTPS_PROXY/ALL_PROXY)
+    System,
+    /// No proxy – direct connection
+    None,
+    /// Custom proxy URL
+    Custom,
+}
+
+impl Default for ProxyMode {
+    fn default() -> Self {
+        Self::System
+    }
+}
+
+/// Global proxy configuration for all outgoing HTTP requests
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyConfig {
+    /// Proxy mode: "system" (default), "none", or "custom"
+    #[serde(default)]
+    pub mode: ProxyMode,
+    /// Custom proxy URL (only used when mode is "custom"), e.g. "http://127.0.0.1:7890"
+    #[serde(default)]
+    pub url: Option<String>,
+}
+
+impl Default for ProxyConfig {
+    fn default() -> Self {
+        Self {
+            mode: ProxyMode::default(),
+            url: None,
+        }
+    }
+}
+
+/// Load global proxy config once.
+fn load_proxy_config() -> ProxyConfig {
+    load_store()
+        .map(|s| s.proxy)
+        .unwrap_or_default()
+}
+
+/// Apply proxy settings to a reqwest async ClientBuilder based on global config.
+pub fn apply_proxy(builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
+    apply_proxy_from_config(builder, &load_proxy_config())
+}
+
+/// Apply proxy settings from a specific ProxyConfig (async builder).
+pub fn apply_proxy_from_config(
+    mut builder: reqwest::ClientBuilder,
+    config: &ProxyConfig,
+) -> reqwest::ClientBuilder {
+    match config.mode {
+        ProxyMode::System => {
+            // reqwest default: reads HTTP_PROXY / HTTPS_PROXY / ALL_PROXY env vars
+        }
+        ProxyMode::None => {
+            builder = builder.no_proxy();
+        }
+        ProxyMode::Custom => {
+            if let Some(ref url) = config.url {
+                if !url.is_empty() {
+                    if let Ok(proxy) = reqwest::Proxy::all(url) {
+                        builder = builder.proxy(proxy);
+                    }
+                }
+            }
+        }
+    }
+    builder
+}
+
+/// Apply proxy settings to a reqwest blocking ClientBuilder based on global config.
+pub fn apply_proxy_blocking(builder: reqwest::blocking::ClientBuilder) -> reqwest::blocking::ClientBuilder {
+    let config = load_proxy_config();
+    match config.mode {
+        ProxyMode::System => builder,
+        ProxyMode::None => builder.no_proxy(),
+        ProxyMode::Custom => {
+            if let Some(ref url) = config.url {
+                if !url.is_empty() {
+                    if let Ok(proxy) = reqwest::Proxy::all(url) {
+                        return builder.proxy(proxy);
+                    }
+                }
+            }
+            builder
+        }
+    }
+}
+
 // ── Notification Config ─────────────────────────────────────────
 
 /// Global notification configuration
@@ -273,6 +370,9 @@ pub struct ProviderStore {
     /// UI language preference: "auto" means follow system, otherwise a locale code like "zh", "en"
     #[serde(default = "default_language")]
     pub language: String,
+    /// Global proxy configuration for all outgoing HTTP requests
+    #[serde(default)]
+    pub proxy: ProxyConfig,
 }
 
 fn default_skill_env_check() -> bool {
@@ -313,6 +413,7 @@ impl Default for ProviderStore {
             tool_timeout: default_tool_timeout(),
             theme: default_theme(),
             language: default_language(),
+            proxy: ProxyConfig::default(),
         }
     }
 }

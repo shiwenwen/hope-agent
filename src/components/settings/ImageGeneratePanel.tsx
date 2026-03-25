@@ -18,6 +18,7 @@ interface ImageGenProviderEntry {
   apiKey: string | null
   baseUrl: string | null
   model: string | null
+  thinkingLevel: string | null
 }
 
 interface ImageGenConfig {
@@ -28,9 +29,9 @@ interface ImageGenConfig {
 
 const DEFAULT_CONFIG: ImageGenConfig = {
   providers: [
-    { id: "OpenAI", enabled: false, apiKey: null, baseUrl: null, model: null },
-    { id: "Google", enabled: false, apiKey: null, baseUrl: null, model: null },
-    { id: "Fal", enabled: false, apiKey: null, baseUrl: null, model: null },
+    { id: "OpenAI", enabled: false, apiKey: null, baseUrl: null, model: null, thinkingLevel: null },
+    { id: "Google", enabled: false, apiKey: null, baseUrl: null, model: null, thinkingLevel: null },
+    { id: "Fal", enabled: false, apiKey: null, baseUrl: null, model: null, thinkingLevel: null },
   ],
   timeoutSeconds: 60,
   defaultSize: "1024x1024",
@@ -291,6 +292,29 @@ export default function ImageGeneratePanel() {
                         )}
                       </div>
                     </div>
+
+                    {/* Google-specific: Thinking Level */}
+                    {provider.id === "Google" && (
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1.5">
+                          <span className="text-xs text-muted-foreground">
+                            {t("settings.imageGenThinkingLevel")}
+                          </span>
+                          <Select
+                            value={provider.thinkingLevel || "MINIMAL"}
+                            onValueChange={(v) => updateProvider(index, { thinkingLevel: v })}
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="MINIMAL">Minimal</SelectItem>
+                              <SelectItem value="HIGH">High</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                    )}
 
                     {/* Test button */}
                     <div className="flex items-center gap-2 pt-1">

@@ -70,10 +70,11 @@ pub(super) async fn generate(
             None, None);
     }
 
-    let client = Client::builder()
-        .connect_timeout(std::time::Duration::from_secs(30))
-        .timeout(std::time::Duration::from_secs(timeout_secs))
-        .build()?;
+    let client = crate::provider::apply_proxy(
+        Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(30))
+            .timeout(std::time::Duration::from_secs(timeout_secs))
+    ).build()?;
     let request_start = std::time::Instant::now();
     let resp = client
         .post(&url)

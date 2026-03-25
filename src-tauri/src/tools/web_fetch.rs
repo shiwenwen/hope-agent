@@ -363,10 +363,12 @@ pub(crate) async fn tool_web_fetch(args: &Value) -> Result<String> {
     }
 
     // Build HTTP client with config
-    let client = reqwest::Client::builder()
-        .user_agent(&config.user_agent)
-        .timeout(std::time::Duration::from_secs(config.timeout_seconds))
-        .redirect(reqwest::redirect::Policy::limited(config.max_redirects))
+    let client = crate::provider::apply_proxy(
+        reqwest::Client::builder()
+            .user_agent(&config.user_agent)
+            .timeout(std::time::Duration::from_secs(config.timeout_seconds))
+            .redirect(reqwest::redirect::Policy::limited(config.max_redirects))
+    )
         .build()
         .map_err(|e| anyhow::anyhow!("Failed to create HTTP client: {}", e))?;
 

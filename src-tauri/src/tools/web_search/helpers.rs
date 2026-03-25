@@ -3,9 +3,11 @@ use anyhow::Result;
 pub(super) const DEFAULT_WEB_FETCH_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 
 pub(super) fn build_search_client(timeout_secs: u64) -> Result<reqwest::Client> {
-    reqwest::Client::builder()
-        .user_agent(DEFAULT_WEB_FETCH_USER_AGENT)
-        .timeout(std::time::Duration::from_secs(timeout_secs))
+    crate::provider::apply_proxy(
+        reqwest::Client::builder()
+            .user_agent(DEFAULT_WEB_FETCH_USER_AGENT)
+            .timeout(std::time::Duration::from_secs(timeout_secs))
+    )
         .build()
         .map_err(|e| anyhow::anyhow!("Failed to create HTTP client: {}", e))
 }

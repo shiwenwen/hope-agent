@@ -153,6 +153,45 @@ pub async fn compact_context_now(
     Ok(result)
 }
 
+// ── Proxy ────────────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn get_proxy_config() -> Result<provider::ProxyConfig, String> {
+    let store = provider::load_store().map_err(|e| e.to_string())?;
+    Ok(store.proxy)
+}
+
+#[tauri::command]
+pub async fn save_proxy_config(config: provider::ProxyConfig) -> Result<(), String> {
+    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    store.proxy = config;
+    provider::save_store(&store).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn test_proxy(config: provider::ProxyConfig) -> Result<String, String> {
+    let mut builder = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(15));
+    builder = provider::apply_proxy_from_config(builder, &config);
+    let client = builder.build().map_err(|e| format!("Failed to build client: {}", e))?;
+
+    let start = std::time::Instant::now();
+    let resp = client
+        .get("https://httpbin.org/ip")
+        .send()
+        .await
+        .map_err(|e| format!("Connection failed: {}", e))?;
+
+    let elapsed = start.elapsed().as_millis();
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(format!("HTTP {}", status));
+    }
+    let body = resp.text().await.unwrap_or_default();
+    Ok(format!("OK ({}ms)\n{}", elapsed, body))
+}
+
 // ── Theme & Language ─────────────────────────────────────────────
 
 #[tauri::command]

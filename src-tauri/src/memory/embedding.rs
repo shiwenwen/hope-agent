@@ -212,9 +212,11 @@ impl ApiEmbeddingProvider {
         let model = config.api_model.as_deref().unwrap_or("text-embedding-3-small").to_string();
         let dimensions = config.api_dimensions.unwrap_or(1536);
 
-        let client = reqwest::blocking::Client::builder()
-            .connect_timeout(std::time::Duration::from_secs(10))
-            .timeout(std::time::Duration::from_secs(30))
+        let client = crate::provider::apply_proxy_blocking(
+            reqwest::blocking::Client::builder()
+                .connect_timeout(std::time::Duration::from_secs(10))
+                .timeout(std::time::Duration::from_secs(30))
+        )
             .build()
             .context("Failed to build embedding HTTP client")?;
 

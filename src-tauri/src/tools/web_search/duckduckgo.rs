@@ -42,10 +42,12 @@ fn build_ddg_client() -> Result<reqwest::Client> {
     headers.insert("Sec-Fetch-Mode", HeaderValue::from_static("navigate"));
     headers.insert("Sec-Fetch-Site", HeaderValue::from_static("same-origin"));
 
-    reqwest::Client::builder()
-        .user_agent(DEFAULT_WEB_FETCH_USER_AGENT)
-        .default_headers(headers)
-        .timeout(std::time::Duration::from_secs(DEFAULT_WEB_SEARCH_TIMEOUT_SECS))
+    crate::provider::apply_proxy(
+        reqwest::Client::builder()
+            .user_agent(DEFAULT_WEB_FETCH_USER_AGENT)
+            .default_headers(headers)
+            .timeout(std::time::Duration::from_secs(DEFAULT_WEB_SEARCH_TIMEOUT_SECS))
+    )
         .build()
         .map_err(|e| anyhow::anyhow!("Failed to create DDG HTTP client: {}", e))
 }

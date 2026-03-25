@@ -142,8 +142,9 @@ impl AssistantAgent {
     async fn summarize_with_model(&self, prompt: &str) -> Result<String> {
         use crate::context_compact::SUMMARIZATION_SYSTEM_PROMPT;
 
-        let client = reqwest::Client::builder()
-            .user_agent(&self.user_agent)
+        let client = crate::provider::apply_proxy(
+            reqwest::Client::builder().user_agent(&self.user_agent)
+        )
             .build()
             .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
 

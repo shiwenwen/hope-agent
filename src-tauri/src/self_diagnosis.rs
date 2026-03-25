@@ -185,8 +185,10 @@ fn call_llm(provider: &ProviderConfig, prompt: &str) -> Result<DiagnosisResult, 
         })
         .ok_or_else(|| "No models available".to_string())?;
 
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
+    let client = crate::provider::apply_proxy_blocking(
+        reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
+    )
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 

@@ -407,8 +407,10 @@ async fn health_check(port: u16, max_attempts: u32, interval_secs: u64) -> bool 
         "http://127.0.0.1:{}/search?q=test&format=json",
         port
     );
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
+    let client = crate::provider::apply_proxy(
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+    )
         .build()
         .unwrap_or_default();
 

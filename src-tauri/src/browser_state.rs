@@ -273,8 +273,10 @@ pub async fn ensure_connected() -> anyhow::Result<()> {
 async fn discover_ws_url(base_url: &str) -> anyhow::Result<String> {
     let version_url = format!("{}/json/version", base_url.trim_end_matches('/'));
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
+    let client = crate::provider::apply_proxy(
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+    )
         .build()?;
 
     let resp = client.get(&version_url).send().await

@@ -46,6 +46,9 @@ pub struct ImageGenProviderEntry {
     pub base_url: Option<String>,
     #[serde(default)]
     pub model: Option<String>,
+    /// Google-specific: thinking level ("MINIMAL" or "HIGH"), default "MINIMAL"
+    #[serde(default)]
+    pub thinking_level: Option<String>,
 }
 
 /// Persistent image generation configuration, stored in config.json
@@ -71,6 +74,7 @@ fn default_providers() -> Vec<ImageGenProviderEntry> {
             api_key: None,
             base_url: None,
             model: None,
+            thinking_level: None,
         },
         ImageGenProviderEntry {
             id: ImageGenProvider::Google,
@@ -78,6 +82,7 @@ fn default_providers() -> Vec<ImageGenProviderEntry> {
             api_key: None,
             base_url: None,
             model: None,
+            thinking_level: None,
         },
         ImageGenProviderEntry {
             id: ImageGenProvider::Fal,
@@ -85,6 +90,7 @@ fn default_providers() -> Vec<ImageGenProviderEntry> {
             api_key: None,
             base_url: None,
             model: None,
+            thinking_level: None,
         },
     ]
 }
@@ -122,6 +128,7 @@ pub fn backfill_providers(config: &mut ImageGenConfig) {
                 api_key: None,
                 base_url: None,
                 model: None,
+                thinking_level: None,
             });
         }
     }
@@ -233,7 +240,8 @@ pub(crate) async fn tool_image_generate(args: &Value) -> Result<String> {
             openai::generate(api_key, base_url, model, prompt, size, n, timeout).await?
         }
         ImageGenProvider::Google => {
-            google::generate(api_key, base_url, model, prompt, timeout).await?
+            let thinking_level = entry.thinking_level.as_deref();
+            google::generate(api_key, base_url, model, prompt, thinking_level, timeout).await?
         }
         ImageGenProvider::Fal => {
             fal::generate(api_key, base_url, model, prompt, size, n, timeout).await?

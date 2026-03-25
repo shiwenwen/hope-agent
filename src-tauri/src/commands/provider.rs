@@ -115,9 +115,11 @@ pub async fn test_provider(
 ) -> Result<String, String> {
     use std::time::{Duration, Instant};
 
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
-        .user_agent(&config.user_agent)
+    let client = crate::provider::apply_proxy(
+        reqwest::Client::builder()
+            .timeout(Duration::from_secs(10))
+            .user_agent(&config.user_agent)
+    )
         .build()
         .map_err(|e| format!("Client error: {}", e))?;
 
@@ -260,9 +262,11 @@ pub async fn test_model(
 ) -> Result<String, String> {
     use std::time::{Duration, Instant};
 
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(15))
-        .user_agent(&config.user_agent)
+    let client = crate::provider::apply_proxy(
+        reqwest::Client::builder()
+            .timeout(Duration::from_secs(15))
+            .user_agent(&config.user_agent)
+    )
         .build()
         .map_err(|e| format!("Client error: {}", e))?;
 
@@ -445,8 +449,10 @@ pub async fn test_embedding(
                 if dims > 0 { body["outputDimensionality"] = serde_json::json!(dims); }
             }
 
-            let client = reqwest::Client::builder()
-                .timeout(Duration::from_secs(15))
+            let client = crate::provider::apply_proxy(
+                reqwest::Client::builder()
+                    .timeout(Duration::from_secs(15))
+            )
                 .build()
                 .map_err(|e| serde_json::to_string(&serde_json::json!({
                     "success": false, "message": format!("Client error: {}", e),
@@ -512,8 +518,10 @@ pub async fn test_embedding(
                 if dims > 0 { body["dimensions"] = serde_json::json!(dims); }
             }
 
-            let client = reqwest::Client::builder()
-                .timeout(Duration::from_secs(15))
+            let client = crate::provider::apply_proxy(
+                reqwest::Client::builder()
+                    .timeout(Duration::from_secs(15))
+            )
                 .build()
                 .map_err(|e| serde_json::to_string(&serde_json::json!({
                     "success": false, "message": format!("Client error: {}", e),
@@ -590,9 +598,11 @@ pub async fn test_image_generate(
     use std::time::{Duration, Instant};
 
     let start = Instant::now();
-    let client = reqwest::Client::builder()
-        .connect_timeout(Duration::from_secs(15))
-        .timeout(Duration::from_secs(15))
+    let client = crate::provider::apply_proxy(
+        reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(15))
+            .timeout(Duration::from_secs(15))
+    )
         .build()
         .map_err(|e| serde_json::to_string(&serde_json::json!({
             "success": false, "message": format!("Client error: {}", e),

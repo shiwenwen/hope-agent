@@ -17,8 +17,9 @@ impl AssistantAgent {
     // ── OpenAI Chat Completions API with Tool Loop ───────────────
 
     pub(crate) async fn chat_openai_chat(&self, api_key: &str, base_url: &str, model: &str, message: &str, attachments: &[Attachment], reasoning_effort: Option<&str>, cancel: &Arc<AtomicBool>, on_delta: &(impl Fn(&str) + Send)) -> Result<(String, Option<String>)> {
-        let client = reqwest::Client::builder()
-            .user_agent(&self.user_agent)
+        let client = crate::provider::apply_proxy(
+            reqwest::Client::builder().user_agent(&self.user_agent)
+        )
             .build()
             .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
         let mut tool_schemas = tools::get_tools_for_provider(ToolProvider::OpenAI);
