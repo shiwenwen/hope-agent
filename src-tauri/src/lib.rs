@@ -380,6 +380,8 @@ pub fn run() {
             commands::skills::set_skill_env_var,
             commands::skills::remove_skill_env_var,
             commands::skills::get_skills_env_status,
+            commands::skills::get_skills_status,
+            commands::skills::install_skill_dependency,
             commands::misc::open_directory,
             commands::misc::reveal_in_folder,
             commands::misc::open_url,

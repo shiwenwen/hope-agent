@@ -30,8 +30,22 @@ interface SkillFileInfo {
 
 interface SkillRequires {
   bins: string[]
+  any_bins?: string[]
   env: string[]
   os: string[]
+  config?: string[]
+  always?: boolean
+  primary_env?: string
+}
+
+interface SkillInstallSpec {
+  kind: string
+  formula?: string
+  package?: string
+  go_module?: string
+  bins?: string[]
+  label?: string
+  os?: string[]
 }
 
 interface SkillDetail {
@@ -44,12 +58,82 @@ interface SkillDetail {
   enabled: boolean
   files: SkillFileInfo[]
   requires: SkillRequires
+  skill_key?: string
+  user_invocable?: boolean
+  disable_model_invocation?: boolean
+  command_dispatch?: string
+  command_tool?: string
+  install?: SkillInstallSpec[]
 }
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function InstallSpecRow({
+  spec,
+  skillName,
+  specIndex,
+}: {
+  spec: SkillInstallSpec
+  skillName: string
+  specIndex: number
+}) {
+  const { t } = useTranslation()
+  const [installing, setInstalling] = useState(false)
+  const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null)
+
+  const label =
+    spec.label || `${spec.kind}: ${spec.formula || spec.package || spec.go_module || "?"}`
+
+  async function handleInstall() {
+    setInstalling(true)
+    setResult(null)
+    try {
+      const output = await invoke<string>("install_skill_dependency", {
+        skillName,
+        specIndex,
+      })
+      setResult({ ok: true, message: output })
+    } catch (e) {
+      setResult({ ok: false, message: String(e) })
+    } finally {
+      setInstalling(false)
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-[10px] px-1.5 py-0.5 rounded bg-secondary text-muted-foreground font-mono">
+        {spec.kind}
+      </span>
+      <span className="text-xs text-foreground/80 flex-1 truncate">{label}</span>
+      <button
+        className={cn(
+          "text-[10px] px-2 py-0.5 rounded transition-colors font-medium",
+          installing
+            ? "bg-muted text-muted-foreground cursor-wait"
+            : result?.ok
+              ? "bg-green-500/10 text-green-600"
+              : result && !result.ok
+                ? "bg-destructive/10 text-destructive"
+                : "bg-primary/10 text-primary hover:bg-primary/20",
+        )}
+        onClick={handleInstall}
+        disabled={installing}
+      >
+        {installing
+          ? t("settings.skillInstalling")
+          : result?.ok
+            ? t("settings.skillInstallSuccess")
+            : result && !result.ok
+              ? t("settings.skillInstallFailed")
+              : t("settings.skillInstall")}
+      </button>
+    </div>
+  )
 }
 
 export default function SkillsPanel() {
@@ -324,6 +408,67 @@ export default function SkillsPanel() {
               </div>
             )}
 
+            {/* Advanced Info: anyBins, always, invocation policy, command dispatch, install */}
+            {(selectedSkill.requires?.any_bins?.length ||
+              selectedSkill.requires?.always ||
+              selectedSkill.user_invocable !== undefined ||
+              selectedSkill.disable_model_invocation !== undefined ||
+              selectedSkill.command_dispatch ||
+              (selectedSkill.install && selectedSkill.install.length > 0)) && (
+              <div className="mb-4">
+                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                  {t("settings.skillInvocationPolicy")}
+                </h3>
+                <div className="flex flex-wrap gap-2">
+                  {selectedSkill.requires?.always && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-500/10 text-green-600 font-medium">
+                      {t("settings.skillAlways")}
+                    </span>
+                  )}
+                  {selectedSkill.requires?.any_bins && selectedSkill.requires.any_bins.length > 0 && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 font-medium">
+                      {t("settings.skillAnyBins")}: {selectedSkill.requires.any_bins.join(" | ")}
+                    </span>
+                  )}
+                  {selectedSkill.user_invocable === false && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-orange-500/10 text-orange-600 font-medium">
+                      {t("settings.skillUserInvocable")}: ✗
+                    </span>
+                  )}
+                  {selectedSkill.disable_model_invocation === true && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-orange-500/10 text-orange-600 font-medium">
+                      {t("settings.skillModelInvocable")}: ✗
+                    </span>
+                  )}
+                  {selectedSkill.command_dispatch && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-600 font-medium">
+                      {t("settings.skillCommandDispatch")}: {selectedSkill.command_dispatch}
+                      {selectedSkill.command_tool ? ` → ${selectedSkill.command_tool}` : ""}
+                    </span>
+                  )}
+                </div>
+
+                {/* Install specs */}
+                {selectedSkill.install && selectedSkill.install.length > 0 && (
+                  <div className="mt-3">
+                    <h4 className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5">
+                      {t("settings.skillInstall")}
+                    </h4>
+                    <div className="space-y-1.5">
+                      {selectedSkill.install.map((spec, idx) => (
+                        <InstallSpecRow
+                          key={idx}
+                          spec={spec}
+                          skillName={selectedSkill.name}
+                          specIndex={idx}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Files in skill directory */}
             {selectedSkill.files.length > 0 && (
               <div className="mb-4">
@@ -518,6 +663,24 @@ export default function SkillsPanel() {
                     </div>
                     <div className="text-xs text-muted-foreground truncate">
                       {skill.description}
+                    </div>
+                    {/* Status badges */}
+                    <div className="flex items-center gap-1 mt-0.5">
+                      {skill.always && (
+                        <span className="text-[9px] px-1 py-0 rounded bg-green-500/10 text-green-600 font-medium">
+                          {t("settings.skillAlways")}
+                        </span>
+                      )}
+                      {skill.has_install && (
+                        <span className="text-[9px] px-1 py-0 rounded bg-blue-500/10 text-blue-600 font-medium">
+                          {t("settings.skillInstall")}
+                        </span>
+                      )}
+                      {skill.disable_model_invocation && (
+                        <span className="text-[9px] px-1 py-0 rounded bg-orange-500/10 text-orange-600 font-medium">
+                          {t("settings.skillModelInvocable")}: ✗
+                        </span>
+                      )}
                     </div>
                   </button>
 

@@ -9,6 +9,7 @@ pub enum CommandCategory {
     Memory,
     Agent,
     Utility,
+    Skill,
 }
 
 /// A slash command definition (sent to frontend for menu rendering).
@@ -29,6 +30,10 @@ pub struct SlashCommandDef {
     /// Fixed argument choices for hints (e.g. ["off","low","medium","high"])
     #[serde(skip_serializing_if = "Option::is_none")]
     pub arg_options: Option<Vec<String>>,
+    /// Raw description string for skill commands (no i18n key).
+    /// When set, frontend should display this directly instead of looking up description_key.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description_raw: Option<String>,
 }
 
 /// Channel-agnostic result of executing a slash command.

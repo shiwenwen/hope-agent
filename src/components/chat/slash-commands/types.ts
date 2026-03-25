@@ -1,5 +1,5 @@
 /** Matches Rust CommandCategory enum */
-export type CommandCategory = "session" | "model" | "memory" | "agent" | "utility"
+export type CommandCategory = "session" | "model" | "memory" | "agent" | "utility" | "skill"
 
 /** Slash command definition from backend */
 export interface SlashCommandDef {
@@ -9,6 +9,8 @@ export interface SlashCommandDef {
   hasArgs: boolean
   argPlaceholder?: string
   argOptions?: string[]
+  /** Raw description for skill commands (no i18n key). */
+  descriptionRaw?: string
 }
 
 /** Matches Rust CommandAction enum (tagged union via "type" field) */
@@ -37,4 +39,5 @@ export const CATEGORY_ORDER: CommandCategory[] = [
   "memory",
   "agent",
   "utility",
+  "skill",
 ]

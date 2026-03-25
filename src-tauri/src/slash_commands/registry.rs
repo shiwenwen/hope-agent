@@ -11,6 +11,7 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
             has_args: false,
             arg_placeholder: None,
             arg_options: None,
+            description_raw: None,
         },
         SlashCommandDef {
             name: "clear".into(),
@@ -19,6 +20,7 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
             has_args: false,
             arg_placeholder: None,
             arg_options: None,
+            description_raw: None,
         },
         SlashCommandDef {
             name: "compact".into(),
@@ -27,6 +29,7 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
             has_args: false,
             arg_placeholder: None,
             arg_options: None,
+            description_raw: None,
         },
         SlashCommandDef {
             name: "stop".into(),
@@ -35,6 +38,7 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
             has_args: false,
             arg_placeholder: None,
             arg_options: None,
+            description_raw: None,
         },
         SlashCommandDef {
             name: "rename".into(),
@@ -43,6 +47,7 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
             has_args: true,
             arg_placeholder: Some("<title>".into()),
             arg_options: None,
+            description_raw: None,
         },
         // ── Model ──
         SlashCommandDef {
@@ -52,6 +57,7 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
             has_args: true,
             arg_placeholder: Some("[name]".into()),
             arg_options: None,
+            description_raw: None,
         },
         SlashCommandDef {
             name: "think".into(),
@@ -65,6 +71,7 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
                 "medium".into(),
                 "high".into(),
             ]),
+            description_raw: None,
         },
         // ── Memory ──
         SlashCommandDef {
@@ -74,6 +81,7 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
             has_args: true,
             arg_placeholder: Some("<text>".into()),
             arg_options: None,
+            description_raw: None,
         },
         SlashCommandDef {
             name: "forget".into(),
@@ -82,6 +90,7 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
             has_args: true,
             arg_placeholder: Some("<query>".into()),
             arg_options: None,
+            description_raw: None,
         },
         SlashCommandDef {
             name: "memories".into(),
@@ -90,6 +99,7 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
             has_args: false,
             arg_placeholder: None,
             arg_options: None,
+            description_raw: None,
         },
         // ── Agent ──
         SlashCommandDef {
@@ -99,6 +109,7 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
             has_args: true,
             arg_placeholder: Some("<name>".into()),
             arg_options: None,
+            description_raw: None,
         },
         SlashCommandDef {
             name: "agents".into(),
@@ -107,6 +118,7 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
             has_args: false,
             arg_placeholder: None,
             arg_options: None,
+            description_raw: None,
         },
         // ── Utility ──
         SlashCommandDef {
@@ -116,6 +128,7 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
             has_args: false,
             arg_placeholder: None,
             arg_options: None,
+            description_raw: None,
         },
         SlashCommandDef {
             name: "status".into(),
@@ -124,6 +137,7 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
             has_args: false,
             arg_placeholder: None,
             arg_options: None,
+            description_raw: None,
         },
         SlashCommandDef {
             name: "export".into(),
@@ -132,6 +146,7 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
             has_args: false,
             arg_placeholder: None,
             arg_options: None,
+            description_raw: None,
         },
         SlashCommandDef {
             name: "usage".into(),
@@ -140,6 +155,7 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
             has_args: false,
             arg_placeholder: None,
             arg_options: None,
+            description_raw: None,
         },
         SlashCommandDef {
             name: "search".into(),
@@ -148,6 +164,7 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
             has_args: true,
             arg_placeholder: Some("<query>".into()),
             arg_options: None,
+            description_raw: None,
         },
     ]
 }

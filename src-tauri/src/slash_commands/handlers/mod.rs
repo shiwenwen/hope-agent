@@ -65,6 +65,70 @@ pub async fn dispatch(
         "usage" => utility::handle_usage(&state.session_db, session_id),
         "search" => utility::handle_search(args),
 
-        _ => Err(format!("Unknown command: /{}", command)),
+        _ => {
+            // Check if it matches a user-invocable skill command
+            if let Some(result) = handle_skill_command(state, command, args).await {
+                result
+            } else {
+                Err(format!("Unknown command: /{}", command))
+            }
+        }
     }
+}
+
+/// Try to handle a command as a skill slash command.
+/// Returns None if no matching skill found.
+async fn handle_skill_command(
+    state: &AppState,
+    command: &str,
+    args: &str,
+) -> Option<Result<CommandResult, String>> {
+    let store = state.provider_store.lock().await;
+    let skills = crate::skills::get_invocable_skills(
+        &store.extra_skills_dirs,
+        &store.disabled_skills,
+    );
+    drop(store);
+
+    // Find a skill whose normalized name matches the command
+    let matched = skills.into_iter().find(|s| {
+        crate::skills::normalize_skill_command_name(&s.name) == command
+    })?;
+
+    // If skill has command_dispatch == "tool" with a command_tool, dispatch to that tool
+    if matched.command_dispatch.as_deref() == Some("tool") {
+        if let Some(tool_name) = &matched.command_tool {
+            let message = if args.is_empty() {
+                format!("Use the {} tool for skill '{}'.", tool_name, matched.name)
+            } else {
+                format!("Use the {} tool for skill '{}' with: {}", tool_name, matched.name, args)
+            };
+            return Some(Ok(CommandResult {
+                content: format!("Dispatching to tool `{}`...", tool_name),
+                action: Some(crate::slash_commands::types::CommandAction::PassThrough {
+                    message,
+                }),
+            }));
+        }
+    }
+
+    // Default: pass through to LLM with skill context
+    let message = if args.is_empty() {
+        format!(
+            "Use the skill '{}'. Read the skill file at {} for instructions.",
+            matched.name, matched.file_path
+        )
+    } else {
+        format!(
+            "Use the skill '{}' to: {}. Read the skill file at {} for instructions.",
+            matched.name, args, matched.file_path
+        )
+    };
+
+    Some(Ok(CommandResult {
+        content: format!("Invoking skill **{}**...", matched.name),
+        action: Some(crate::slash_commands::types::CommandAction::PassThrough {
+            message,
+        }),
+    }))
 }

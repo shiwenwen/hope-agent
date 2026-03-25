@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **技能系统全面升级**：追平并超越 OpenClaw 的 skill 系统能力
+  - **懒加载 Prompt 注入**：系统提示词仅注入技能目录（名称+描述+路径），LLM 按需 read SKILL.md 全文，大幅节省 token
+  - **三层预算降级**：Full（名称+描述+路径）→ Compact（名称+路径）→ 二分搜索截断，确保技能数量增长不会溢出 prompt
+  - **路径压缩**：home 目录替换为 `~`，每个技能节省 ~5-6 tokens
+  - **Requirements 增强**：新增 anyBins（OR 逻辑）、always（跳过所有检查）、config（配置路径检查）、primaryEnv（apiKey 满足主环境变量）
+  - **调用策略**：`user-invocable` 控制是否注册为斜杠命令，`disable-model-invocation` 控制是否注入 prompt
+  - **Skill 与斜杠命令统一**：user-invocable 的技能自动注册为 `/skillname` 斜杠命令（Skill 分类），支持 `command-dispatch: tool` 绑定工具直接调用
+  - **安装引导**：SKILL.md `install:` 块支持 brew/node/go/uv/download 五种安装方式，设置面板一键安装 + 二进制验证
+  - **健康检查**：`get_skills_status` 命令返回结构化诊断（eligible/disabled/blocked/missing_bins/missing_env），前端状态徽章
+  - **嵌套目录检测**：自动发现 `dir/skills/*/SKILL.md` 嵌套结构
+  - **Skill 缓存**：AtomicU64 版本号 + 30 秒 TTL，配置变更自动失效
+  - **可配置预算限制**：`SkillPromptBudget`（max_count/max_chars/max_file_bytes/max_candidates_per_root）
+  - **Bundled Allowlist**：`skill_allow_bundled` 限制可用的 bundled 技能集
+
 ### Changed
 - **API 请求/响应全链路日志增强**：大幅提升所有外部 API 调用的 debug 级别日志详细度，覆盖 Agent Provider、Embedding、图片生成三大模块
   - **Agent Provider（4 个）**：原始请求体（脱敏+截断 32KB）、响应头（rate limit/model version/request-id/retry-after）、工具执行全链路（参数/结果/耗时/错误标记）

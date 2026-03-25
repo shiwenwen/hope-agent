@@ -373,6 +373,12 @@ pub struct ProviderStore {
     /// Global proxy configuration for all outgoing HTTP requests
     #[serde(default)]
     pub proxy: ProxyConfig,
+    /// Configurable limits for skill prompt generation
+    #[serde(default)]
+    pub skill_prompt_budget: crate::skills::SkillPromptBudget,
+    /// Bundled skills allowlist (empty = all allowed)
+    #[serde(default)]
+    pub skill_allow_bundled: Vec<String>,
 }
 
 fn default_skill_env_check() -> bool {
@@ -414,6 +420,8 @@ impl Default for ProviderStore {
             theme: default_theme(),
             language: default_language(),
             proxy: ProxyConfig::default(),
+            skill_prompt_budget: crate::skills::SkillPromptBudget::default(),
+            skill_allow_bundled: Vec::new(),
         }
     }
 }

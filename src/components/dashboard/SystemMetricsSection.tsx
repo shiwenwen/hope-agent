@@ -81,8 +81,8 @@ function MetricCard({
   )
 }
 
-const MEM_RSS_COLOR = "hsl(var(--chart-1))"
-const MEM_FREE_COLOR = "hsl(var(--chart-2))"
+const MEM_RSS_COLOR = "#ef4444" // red-500
+const MEM_FREE_COLOR = "#3b82f6" // blue-500
 
 /** Get CPU usage color based on percentage */
 function getCpuColor(percent: number): string {
@@ -133,12 +133,12 @@ const SystemMetricsSection = React.memo(function SystemMetricsSection({
       {
         name: t("dashboard.system.diskRead"),
         value: data.diskIo.readBytes,
-        fill: "hsl(var(--chart-2))",
+        fill: "#3b82f6",
       },
       {
         name: t("dashboard.system.diskWrite"),
         value: data.diskIo.writtenBytes,
-        fill: "hsl(var(--chart-1))",
+        fill: "#ef4444",
       },
     ]
   }, [data, t])
@@ -298,6 +298,7 @@ const SystemMetricsSection = React.memo(function SystemMetricsSection({
                       border: "1px solid hsl(var(--border))",
                       borderRadius: "8px",
                       fontSize: "12px",
+                      color: "hsl(var(--popover-foreground))",
                     }}
                     formatter={(value: number) => [formatBytes(value)]}
                   />

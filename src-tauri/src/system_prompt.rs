@@ -245,8 +245,18 @@ pub fn build(definition: &AgentDefinition, model: Option<&str>, provider: Option
 /// This preserves backward compatibility during the transition.
 pub fn build_legacy(model: Option<&str>, provider: Option<&str>) -> String {
     let store = crate::provider::load_store().unwrap_or_default();
-    let available_skills = skills::load_all_skills_with_extra(&store.extra_skills_dirs);
-    let skills_section = skills::build_skills_prompt(&available_skills, &store.disabled_skills, store.skill_env_check, &store.skill_env);
+    let available_skills = skills::load_all_skills_with_budget(
+        &store.extra_skills_dirs,
+        &store.skill_prompt_budget,
+    );
+    let skills_section = skills::build_skills_prompt(
+        &available_skills,
+        &store.disabled_skills,
+        store.skill_env_check,
+        &store.skill_env,
+        &store.skill_prompt_budget,
+        &store.skill_allow_bundled,
+    );
 
     let mut sections = Vec::new();
 
@@ -317,7 +327,10 @@ fn build_tools_section(filter: &FilterConfig) -> String {
 /// Build skills section, filtered by agent config.
 fn build_skills_section(filter: &FilterConfig, env_check: bool) -> String {
     let store = crate::provider::load_store().unwrap_or_default();
-    let all_skills = skills::load_all_skills_with_extra(&store.extra_skills_dirs);
+    let all_skills = skills::load_all_skills_with_budget(
+        &store.extra_skills_dirs,
+        &store.skill_prompt_budget,
+    );
 
     // Start with globally disabled skills
     let disabled = store.disabled_skills.clone();
@@ -328,7 +341,14 @@ fn build_skills_section(filter: &FilterConfig, env_check: bool) -> String {
         .filter(|s| filter.is_allowed(&s.name))
         .collect();
 
-    skills::build_skills_prompt(&filtered, &disabled, env_check, &store.skill_env)
+    skills::build_skills_prompt(
+        &filtered,
+        &disabled,
+        env_check,
+        &store.skill_env,
+        &store.skill_prompt_budget,
+        &store.skill_allow_bundled,
+    )
 }
 
 /// Build personality section from structured config.

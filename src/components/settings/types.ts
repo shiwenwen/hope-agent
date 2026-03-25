@@ -46,6 +46,36 @@ export interface SkillSummary {
   base_dir: string
   enabled: boolean
   requires_env: string[]
+  skill_key?: string
+  user_invocable?: boolean
+  disable_model_invocation?: boolean
+  has_install?: boolean
+  any_bins?: string[]
+  always?: boolean
+}
+
+export interface SkillInstallSpec {
+  kind: string
+  formula?: string
+  package?: string
+  go_module?: string
+  bins?: string[]
+  label?: string
+  os?: string[]
+}
+
+export interface SkillStatusEntry {
+  name: string
+  source: string
+  eligible: boolean
+  disabled: boolean
+  blocked_by_allowlist: boolean
+  missing_bins?: string[]
+  missing_any_bins?: string[]
+  missing_env?: string[]
+  missing_config?: string[]
+  has_install: boolean
+  always: boolean
 }
 
 export interface AgentSummary {

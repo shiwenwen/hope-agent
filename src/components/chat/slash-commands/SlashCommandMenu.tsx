@@ -16,6 +16,7 @@ const CATEGORY_I18N_KEYS: Record<CommandCategory, string> = {
   memory: "slashCommands.categories.memory",
   agent: "slashCommands.categories.agent",
   utility: "slashCommands.categories.utility",
+  skill: "slashCommands.categories.skill",
 }
 
 export default function SlashCommandMenu({
@@ -79,7 +80,7 @@ export default function SlashCommandMenu({
                     /{cmd.name}
                   </span>
                   <span className="text-[12px] text-muted-foreground truncate">
-                    {t(cmd.descriptionKey)}
+                    {cmd.descriptionRaw || t(cmd.descriptionKey)}
                   </span>
                   {cmd.argPlaceholder && (
                     <span className="text-[11px] text-muted-foreground/50 ml-auto shrink-0">

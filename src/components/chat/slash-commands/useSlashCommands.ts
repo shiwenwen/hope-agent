@@ -44,10 +44,21 @@ export function useSlashCommands(
   const actionsRef = useRef(actions)
   actionsRef.current = actions
 
-  // Load commands once from backend
-  useEffect(() => {
+  // Load commands from backend (refresh when menu opens to pick up skill changes)
+  const loadCommands = useCallback(() => {
     invoke<SlashCommandDef[]>("list_slash_commands").then(setCommands).catch(() => {})
   }, [])
+
+  useEffect(() => {
+    loadCommands()
+  }, [loadCommands])
+
+  // Reload when menu is opened to catch skill changes
+  useEffect(() => {
+    if (forceOpen) {
+      loadCommands()
+    }
+  }, [forceOpen, loadCommands])
 
   // Filter commands based on input
   const getFilterText = useCallback(() => {
