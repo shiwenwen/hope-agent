@@ -90,7 +90,7 @@
     "reasonModelNotFound": "Model not found",
     "reasonContextOverflow": "Context overflow",
     "reasonUnknown": "Unknown error",
-    "thinking": "Thinking..."
+    "thinking": "Running..."
   },
   "effort": {
     "none": "Off",

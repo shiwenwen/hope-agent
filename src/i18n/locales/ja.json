@@ -71,7 +71,7 @@
     "reasonModelNotFound": "モデルが見つかりません",
     "reasonContextOverflow": "コンテキスト超過",
     "reasonUnknown": "不明なエラー",
-    "thinking": "思考中..."
+    "thinking": "実行中..."
   },
   "effort": {
     "none": "オフ",

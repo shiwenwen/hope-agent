@@ -610,7 +610,7 @@ export default function ChatSidebar({
                           <span className="mx-1">·</span>
                           {isLoading ? (
                             <span className="text-primary animate-pulse">
-                              {t("chat.thinking") || "思考中..."}
+                              {t("chat.thinking") || "执行中..."}
                             </span>
                           ) : (
                             formatRelativeTime(session.updatedAt)

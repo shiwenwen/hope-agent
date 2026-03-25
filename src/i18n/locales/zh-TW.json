@@ -71,7 +71,7 @@
     "reasonModelNotFound": "模型不存在",
     "reasonContextOverflow": "上下文超限",
     "reasonUnknown": "未知錯誤",
-    "thinking": "思考中..."
+    "thinking": "執行中..."
   },
   "effort": {
     "none": "關閉",
