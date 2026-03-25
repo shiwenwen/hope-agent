@@ -17,6 +17,7 @@ import {
   Languages,
   Puzzle,
   CalendarDays,
+  BarChart3,
   Sun,
   Moon,
   SunMoon,
@@ -28,13 +29,14 @@ import { useTheme } from "@/hooks/useTheme"
 import { SUPPORTED_LANGUAGES, isFollowingSystem, setFollowSystemLanguage, setLanguage } from "@/i18n/i18n"
 
 interface IconSidebarProps {
-  view: "chat" | "settings" | "skills" | "profile" | "agents" | "calendar"
+  view: "chat" | "settings" | "skills" | "profile" | "agents" | "calendar" | "dashboard"
   onOpenSettings: () => void
   onOpenChat: () => void
   onOpenAgents: () => void
   onOpenSkills: () => void
   onOpenProfile: () => void
   onOpenCalendar: () => void
+  onOpenDashboard: () => void
   userAvatar?: string | null
   totalUnreadCount?: number
   onMarkAllRead?: () => void
@@ -48,6 +50,7 @@ export default function IconSidebar({
   onOpenSkills,
   onOpenProfile,
   onOpenCalendar,
+  onOpenDashboard,
   userAvatar,
   totalUnreadCount,
   onMarkAllRead,
@@ -170,6 +173,25 @@ export default function IconSidebar({
               onClick={onOpenCalendar}
             >
               <CalendarDays className="h-4 w-4" />
+            </Button>
+          </IconTip>
+        </div>
+
+        {/* Dashboard / Analytics entry */}
+        <div className="w-full flex justify-center mt-1">
+          <IconTip label={t("dashboard.title")} side="right">
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn(
+                "rounded-xl h-8 w-8",
+                view === "dashboard"
+                  ? "bg-primary/10 text-primary hover:bg-primary/20"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              onClick={onOpenDashboard}
+            >
+              <BarChart3 className="h-4 w-4" />
             </Button>
           </IconTip>
         </div>

@@ -12,7 +12,7 @@ use super::types::*;
 
 /// SQLite-based persistence for cron jobs and run logs.
 pub struct CronDB {
-    conn: Mutex<Connection>,
+    pub(crate) conn: Mutex<Connection>,
 }
 
 impl CronDB {

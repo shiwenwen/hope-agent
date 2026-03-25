@@ -8,10 +8,11 @@ import SettingsView from "@/components/settings/SettingsView"
 import IconSidebar from "@/components/common/IconSidebar"
 import ChatScreen from "@/components/chat/ChatScreen"
 import CronCalendarView from "@/components/cron/CronCalendarView"
+import DashboardView from "@/components/dashboard/DashboardView"
 
 export default function App() {
   const [view, setView] = useState<
-    "loading" | "setup" | "chat" | "settings" | "skills" | "profile" | "agents" | "calendar"
+    "loading" | "setup" | "chat" | "settings" | "skills" | "profile" | "agents" | "calendar" | "dashboard"
   >("loading")
   const [agentIdForSettings, setAgentIdForSettings] = useState<string | undefined>(undefined)
   const [userAvatar, setUserAvatar] = useState<string | null>(null)
@@ -135,7 +136,9 @@ export default function App() {
                   ? "agents"
                   : view === "calendar"
                     ? "calendar"
-                    : "chat"
+                    : view === "dashboard"
+                      ? "dashboard"
+                      : "chat"
         }
         onOpenSettings={() => setView("settings")}
         onOpenChat={() => setView("chat")}
@@ -148,6 +151,7 @@ export default function App() {
           setView("profile")
         }}
         onOpenCalendar={() => setView("calendar")}
+        onOpenDashboard={() => setView("dashboard")}
         userAvatar={userAvatar}
         totalUnreadCount={totalUnreadCount}
         onMarkAllRead={() => setSessionsRefreshTrigger((n) => n + 1)}
@@ -196,6 +200,9 @@ export default function App() {
             setView("chat")
           }}
         />
+      )}
+      {view === "dashboard" && (
+        <DashboardView onBack={() => setView("chat")} />
       )}
       <div className={view === "chat" ? "flex-1 flex overflow-hidden" : "hidden"}>
         <ChatScreen

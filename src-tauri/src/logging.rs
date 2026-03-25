@@ -102,7 +102,7 @@ fn should_log(entry_level: &str, config_level: &str) -> bool {
 // ── Database Manager ─────────────────────────────────────────────
 
 pub struct LogDB {
-    conn: Mutex<Connection>,
+    pub(crate) conn: Mutex<Connection>,
 }
 
 impl LogDB {

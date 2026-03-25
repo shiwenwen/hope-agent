@@ -26,6 +26,7 @@ mod permissions;
 mod tools;
 mod user_config;
 mod context_compact;
+mod dashboard;
 mod slash_commands;
 pub mod crash_journal;
 pub mod backup;
@@ -512,6 +513,13 @@ pub fn run() {
             tools::canvas::list_canvas_projects,
             tools::canvas::get_canvas_project,
             tools::canvas::delete_canvas_project,
+            // Dashboard analytics
+            commands::dashboard::dashboard_overview,
+            commands::dashboard::dashboard_token_usage,
+            commands::dashboard::dashboard_tool_usage,
+            commands::dashboard::dashboard_sessions,
+            commands::dashboard::dashboard_errors,
+            commands::dashboard::dashboard_tasks,
             // Developer tools
             dev_tools::dev_clear_sessions,
             dev_tools::dev_clear_cron,

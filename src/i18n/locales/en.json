@@ -1057,5 +1057,103 @@
     "snapshot": "Snapshot",
     "export": "Export",
     "versions": "Version History"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "tabs": {
+      "tokens": "Token Usage",
+      "tools": "Tool Usage",
+      "sessions": "Sessions",
+      "errors": "Errors",
+      "tasks": "Tasks"
+    },
+    "granularity": {
+      "day": "Day",
+      "week": "Week",
+      "month": "Month"
+    },
+    "timeRange": {
+      "today": "Today",
+      "7d": "7 Days",
+      "30d": "30 Days",
+      "90d": "90 Days",
+      "all": "All Time",
+      "custom": "Custom"
+    },
+    "filter": {
+      "agent": "Agent",
+      "provider": "Provider",
+      "model": "Model",
+      "allAgents": "All Agents",
+      "allProviders": "All Providers",
+      "allModels": "All Models",
+      "clearFilters": "Clear Filters"
+    },
+    "overview": {
+      "totalSessions": "Total Sessions",
+      "totalMessages": "Total Messages",
+      "totalTokens": "Total Tokens",
+      "estimatedCost": "Est. Cost",
+      "toolCalls": "Tool Calls",
+      "errors": "Errors",
+      "activeAgents": "Active Agents",
+      "cronJobs": "Cron Jobs"
+    },
+    "tokens": {
+      "trend": "Token Usage Trend",
+      "inputTokens": "Input Tokens",
+      "outputTokens": "Output Tokens",
+      "modelDistribution": "Distribution by Model",
+      "costBreakdown": "Cost Breakdown",
+      "model": "Model",
+      "provider": "Provider",
+      "input": "Input",
+      "output": "Output",
+      "cost": "Cost",
+      "total": "Total",
+      "other": "Other"
+    },
+    "tools": {
+      "frequency": "Call Frequency",
+      "duration": "Avg Duration",
+      "details": "Tool Details",
+      "toolName": "Tool Name",
+      "calls": "Calls",
+      "errorCount": "Errors",
+      "errorRate": "Error Rate",
+      "avgMs": "Avg (ms)",
+      "totalMs": "Total (ms)"
+    },
+    "sessions": {
+      "trend": "Session Trend",
+      "agentDistribution": "Distribution by Agent",
+      "agentRanking": "Agent Ranking",
+      "agent": "Agent",
+      "sessionCount": "Sessions",
+      "messageCount": "Messages",
+      "tokenCount": "Tokens"
+    },
+    "errors": {
+      "trend": "Error Trend",
+      "categoryDistribution": "Distribution by Category",
+      "totalErrors": "Total Errors",
+      "totalWarnings": "Total Warnings"
+    },
+    "tasks": {
+      "cronStats": "Scheduled Tasks",
+      "subagentStats": "Sub-Agent Tasks",
+      "totalJobs": "Total Jobs",
+      "activeJobs": "Active",
+      "totalRuns": "Total Runs",
+      "successRuns": "Succeeded",
+      "failedRuns": "Failed",
+      "successRate": "Success Rate",
+      "avgDuration": "Avg Duration",
+      "completed": "Completed",
+      "killed": "Killed",
+      "tokensUsed": "Tokens Used"
+    },
+    "noData": "No data available",
+    "loading": "Loading..."
   }
 }
