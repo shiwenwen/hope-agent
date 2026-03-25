@@ -57,7 +57,7 @@ pub fn handle_forget(
 
     let entry = &results[0];
     let preview = if entry.content.len() > 80 {
-        format!("{}...", &entry.content[..77])
+        format!("{}...", crate::truncate_utf8(&entry.content, 77))
     } else {
         entry.content.clone()
     };
@@ -86,7 +86,7 @@ pub fn handle_memories(backend: &Arc<dyn MemoryBackend>) -> Result<CommandResult
     for e in &entries {
         let type_tag = format!("{:?}", e.memory_type).to_lowercase();
         let preview = if e.content.len() > 60 {
-            format!("{}...", &e.content[..57])
+            format!("{}...", crate::truncate_utf8(&e.content, 57))
         } else {
             e.content.clone()
         };

@@ -262,6 +262,11 @@ pub struct ProviderStore {
     /// Canvas tool configuration
     #[serde(default)]
     pub canvas: crate::tools::canvas::CanvasConfig,
+    /// Global hard timeout (seconds) for a single tool execution.
+    /// Safety net for when inner tool timeouts don't fire (network issues, etc.).
+    /// Default 300 (5 min). Set to 0 to disable.
+    #[serde(default = "default_tool_timeout")]
+    pub tool_timeout: u64,
     /// UI theme preference: "auto" | "light" | "dark"
     #[serde(default = "default_theme")]
     pub theme: String,
@@ -272,6 +277,10 @@ pub struct ProviderStore {
 
 fn default_skill_env_check() -> bool {
     true
+}
+
+fn default_tool_timeout() -> u64 {
+    300
 }
 
 fn default_theme() -> String {
@@ -301,6 +310,7 @@ impl Default for ProviderStore {
             notification: NotificationConfig::default(),
             image_generate: crate::tools::image_generate::ImageGenConfig::default(),
             canvas: crate::tools::canvas::CanvasConfig::default(),
+            tool_timeout: default_tool_timeout(),
             theme: default_theme(),
             language: default_language(),
         }

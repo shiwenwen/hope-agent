@@ -117,7 +117,7 @@ pub(super) async fn generate(
                 None, None);
         }
         let preview = if body.len() > 300 {
-            format!("{}...", &body[..300])
+            format!("{}...", crate::truncate_utf8(&body, 300))
         } else {
             body
         };

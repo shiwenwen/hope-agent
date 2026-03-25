@@ -1,4 +1,6 @@
 use serde_json::Value;
+use std::time::Duration;
+use tokio::time::timeout;
 
 use super::{
     approval,
@@ -13,6 +15,25 @@ use super::{
 use super::{exec, process, read, write, edit, ls, grep, find, apply_patch};
 use super::{web_search, web_fetch, memory, cron, browser, notification, subagent};
 use super::{agents, sessions, image, image_generate, pdf, canvas};
+
+/// Default hard timeout (seconds) for a single tool execution.
+/// Acts as a safety net when the inner tool timeout (e.g. reqwest) does not fire
+/// in degraded network conditions (stuck TCP, unresponsive proxy, etc.).
+/// Configurable via `config.json` → `toolTimeout` (seconds). 0 = disabled.
+const DEFAULT_TOOL_TIMEOUT_SECS: u64 = 300; // 5 minutes
+
+/// Load the user-configured tool timeout from config.json, falling back to the
+/// compile-time default. Returns `None` when the user explicitly set 0 (disabled).
+fn tool_timeout() -> Option<Duration> {
+    let secs = crate::provider::load_store()
+        .map(|s| s.tool_timeout)
+        .unwrap_or(DEFAULT_TOOL_TIMEOUT_SECS);
+    if secs == 0 {
+        None
+    } else {
+        Some(Duration::from_secs(secs))
+    }
+}
 
 // ── Tool Execution Context ────────────────────────────────────────
 
@@ -136,37 +157,62 @@ pub async fn execute_tool_with_context(
             None, None);
     }
 
-    let result = match name {
-        TOOL_EXEC => exec::tool_exec(args, ctx).await,
-        TOOL_PROCESS => process::tool_process(args).await,
-        TOOL_READ | "read_file" => read::tool_read_file(args, ctx).await,
-        TOOL_WRITE | "write_file" => write::tool_write_file(args).await,
-        TOOL_EDIT | "patch_file" => edit::tool_edit(args).await,
-        TOOL_LS | "list_dir" => ls::tool_ls(args, ctx).await,
-        TOOL_GREP => grep::tool_grep(args, ctx).await,
-        TOOL_FIND => find::tool_find(args, ctx).await,
-        TOOL_APPLY_PATCH => apply_patch::tool_apply_patch(args).await,
-        TOOL_WEB_SEARCH => web_search::tool_web_search(args).await,
-        TOOL_WEB_FETCH => web_fetch::tool_web_fetch(args).await,
-        TOOL_SAVE_MEMORY => memory::tool_save_memory(args).await,
-        TOOL_RECALL_MEMORY => memory::tool_recall_memory(args).await,
-        TOOL_UPDATE_MEMORY => memory::tool_update_memory(args).await,
-        TOOL_DELETE_MEMORY => memory::tool_delete_memory(args).await,
-        TOOL_MANAGE_CRON => cron::tool_manage_cron(args).await,
-        TOOL_BROWSER => browser::tool_browser(args).await,
-        TOOL_SEND_NOTIFICATION => notification::tool_send_notification(args, ctx).await,
-        TOOL_SUBAGENT => subagent::tool_subagent(args, ctx).await,
-        TOOL_MEMORY_GET => memory::tool_memory_get(args).await,
-        TOOL_AGENTS_LIST => agents::tool_agents_list(args).await,
-        TOOL_SESSIONS_LIST => sessions::tool_sessions_list(args).await,
-        TOOL_SESSION_STATUS => sessions::tool_session_status(args).await,
-        TOOL_SESSIONS_HISTORY => sessions::tool_sessions_history(args).await,
-        TOOL_SESSIONS_SEND => Box::pin(sessions::tool_sessions_send(args, ctx)).await,
-        TOOL_IMAGE => image::tool_image(args).await,
-        TOOL_IMAGE_GENERATE => image_generate::tool_image_generate(args).await,
-        TOOL_PDF => pdf::tool_pdf(args).await,
-        TOOL_CANVAS => canvas::tool_canvas(args, ctx).await,
-        _ => Err(anyhow::anyhow!("Unknown tool: {}", name)),
+    let dispatch = async {
+        match name {
+            TOOL_EXEC => exec::tool_exec(args, ctx).await,
+            TOOL_PROCESS => process::tool_process(args).await,
+            TOOL_READ | "read_file" => read::tool_read_file(args, ctx).await,
+            TOOL_WRITE | "write_file" => write::tool_write_file(args).await,
+            TOOL_EDIT | "patch_file" => edit::tool_edit(args).await,
+            TOOL_LS | "list_dir" => ls::tool_ls(args, ctx).await,
+            TOOL_GREP => grep::tool_grep(args, ctx).await,
+            TOOL_FIND => find::tool_find(args, ctx).await,
+            TOOL_APPLY_PATCH => apply_patch::tool_apply_patch(args).await,
+            TOOL_WEB_SEARCH => web_search::tool_web_search(args).await,
+            TOOL_WEB_FETCH => web_fetch::tool_web_fetch(args).await,
+            TOOL_SAVE_MEMORY => memory::tool_save_memory(args).await,
+            TOOL_RECALL_MEMORY => memory::tool_recall_memory(args).await,
+            TOOL_UPDATE_MEMORY => memory::tool_update_memory(args).await,
+            TOOL_DELETE_MEMORY => memory::tool_delete_memory(args).await,
+            TOOL_MANAGE_CRON => cron::tool_manage_cron(args).await,
+            TOOL_BROWSER => browser::tool_browser(args).await,
+            TOOL_SEND_NOTIFICATION => notification::tool_send_notification(args, ctx).await,
+            TOOL_SUBAGENT => subagent::tool_subagent(args, ctx).await,
+            TOOL_MEMORY_GET => memory::tool_memory_get(args).await,
+            TOOL_AGENTS_LIST => agents::tool_agents_list(args).await,
+            TOOL_SESSIONS_LIST => sessions::tool_sessions_list(args).await,
+            TOOL_SESSION_STATUS => sessions::tool_session_status(args).await,
+            TOOL_SESSIONS_HISTORY => sessions::tool_sessions_history(args).await,
+            TOOL_SESSIONS_SEND => Box::pin(sessions::tool_sessions_send(args, ctx)).await,
+            TOOL_IMAGE => image::tool_image(args).await,
+            TOOL_IMAGE_GENERATE => image_generate::tool_image_generate(args).await,
+            TOOL_PDF => pdf::tool_pdf(args).await,
+            TOOL_CANVAS => canvas::tool_canvas(args, ctx).await,
+            _ => Err(anyhow::anyhow!("Unknown tool: {}", name)),
+        }
+    };
+
+    let result = if let Some(hard_timeout) = tool_timeout() {
+        match timeout(hard_timeout, dispatch).await {
+            Ok(inner) => inner,
+            Err(_elapsed) => {
+                app_error!(
+                    "tool", "execution",
+                    "Tool '{}' timed out after {}s — forcefully cancelled",
+                    name, hard_timeout.as_secs()
+                );
+                Err(anyhow::anyhow!(
+                    "Tool '{}' execution timed out after {}s. The operation was cancelled. \
+                     This may be caused by network issues, an unresponsive API, or a slow provider. \
+                     Please check your network connection and provider configuration, \
+                     or increase toolTimeout in Settings > System.",
+                    name, hard_timeout.as_secs()
+                ))
+            }
+        }
+    } else {
+        // timeout disabled (toolTimeout = 0)
+        dispatch.await
     };
 
     let duration_ms = start.elapsed().as_millis() as u64;

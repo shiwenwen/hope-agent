@@ -220,7 +220,7 @@ pub(crate) async fn tool_image_generate(args: &Value) -> Result<String> {
         "Image generate [{}]: prompt='{}', size={}, n={}",
         entry.id,
         if prompt.len() > 80 {
-            format!("{}...", &prompt[..80])
+            format!("{}...", crate::truncate_utf8(prompt, 80))
         } else {
             prompt.to_string()
         },

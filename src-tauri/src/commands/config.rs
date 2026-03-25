@@ -250,3 +250,16 @@ pub async fn get_system_timezone() -> Result<String, String> {
     }
     Ok("UTC".to_string())
 }
+
+#[tauri::command]
+pub async fn get_tool_timeout() -> Result<u64, String> {
+    let store = provider::load_store().map_err(|e| e.to_string())?;
+    Ok(store.tool_timeout)
+}
+
+#[tauri::command]
+pub async fn set_tool_timeout(seconds: u64) -> Result<(), String> {
+    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    store.tool_timeout = seconds;
+    provider::save_store(&store).map_err(|e| e.to_string())
+}

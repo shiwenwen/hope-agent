@@ -79,7 +79,7 @@ async fn do_extraction(
             let content = extract_text_content(msg)?;
             // Truncate very long messages
             let truncated = if content.len() > 500 {
-                format!("{}...", &content[..500])
+                format!("{}...", crate::truncate_utf8(&content, 500))
             } else {
                 content
             };

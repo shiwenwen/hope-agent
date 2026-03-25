@@ -440,6 +440,9 @@ pub fn run() {
             commands::config::save_user_config,
             commands::config::save_avatar,
             commands::config::get_system_timezone,
+            // Tool timeout
+            commands::config::get_tool_timeout,
+            commands::config::set_tool_timeout,
             // Autostart
             commands::config::get_autostart_enabled,
             commands::config::set_autostart_enabled,
