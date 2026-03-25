@@ -71,6 +71,8 @@ pub struct AssistantAgent {
     pub(super) notification_enabled: bool,
     /// Whether this agent can use the image_generate tool
     pub(super) image_generate_enabled: bool,
+    /// Whether this agent can use the canvas tool
+    pub(super) canvas_enabled: bool,
     /// Current session ID (for sub-agent context)
     pub(super) session_id: Option<String>,
     /// Sub-agent nesting depth (0 = top-level)

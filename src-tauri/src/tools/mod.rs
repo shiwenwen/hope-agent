@@ -4,6 +4,7 @@ mod agents;
 mod approval;
 mod apply_patch;
 pub(crate) mod browser;
+pub(crate) mod canvas;
 mod cron;
 mod definitions;
 mod edit;
@@ -28,7 +29,7 @@ mod write;
 // ── Public Re-exports ─────────────────────────────────────────────
 
 pub use approval::{ApprovalResponse, submit_approval_response};
-pub use definitions::{get_available_tools, get_subagent_tool, get_notification_tool, get_image_generate_tool, get_tools_for_provider, is_internal_tool};
+pub use definitions::{get_available_tools, get_subagent_tool, get_notification_tool, get_image_generate_tool, get_canvas_tool, get_tools_for_provider, is_internal_tool};
 pub use execution::{ToolExecContext, execute_tool_with_context};
 
 // ── Tool Name Constants ──────────────────────────────────────────
@@ -61,6 +62,7 @@ pub const TOOL_SESSIONS_SEND: &str = "sessions_send";
 pub const TOOL_IMAGE: &str = "image";
 pub const TOOL_IMAGE_GENERATE: &str = "image_generate";
 pub const TOOL_PDF: &str = "pdf";
+pub const TOOL_CANVAS: &str = "canvas";
 
 // ── Shared Helpers ────────────────────────────────────────────────
 

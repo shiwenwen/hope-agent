@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **画布工具（canvas）**：新增第 29 个内置工具，支持交互式可视化内容创作
+  - **7 种内容类型**：HTML/CSS/JS（Web 应用、游戏、动画）、Markdown（富文档）、Code（语法高亮）、SVG（矢量图形）、Mermaid（图表）、Chart（Chart.js 数据可视化）、Slides（演示文稿）
+  - **11 个操作**：create/update/show/hide/snapshot/eval_js/list/delete/versions/restore/export
+  - **实时预览**：右侧 CanvasPanel 面板（iframe 沙箱渲染），通过 Tauri asset protocol 加载，零网络依赖
+  - **视觉反馈循环**：html2canvas 截图 → base64 → IMAGE_BASE64_PREFIX 回传 LLM，实现 AI 视觉验证与迭代
+  - **JavaScript 执行**：eval_js 操作通过 postMessage 双向通信在 canvas iframe 中执行代码
+  - **版本历史**：每次 update 自动创建版本快照，支持查看历史和恢复到指定版本（SQLite 持久化）
+  - **文档协作**：类似 Gemini 的 AI 文档创建/编辑/预览体验
+  - **条件注入**：全局开关控制，配置存储在 config.json 的 `canvas` 字段
+  - **设置面板**：新增 Canvas 设置页面（启用开关、自动显示、默认类型、项目/版本上限）
+  - **存储**：项目文件在 `~/.opencomputer/canvas/projects/{id}/`，元数据在 `~/.opencomputer/canvas/canvas.db`
 - **图片生成工具（image_generate）**：新增第 28 个内置工具，支持 3 个 AI 图片生成 Provider
   - **OpenAI**：DALL-E / gpt-image-1，通过 `/v1/images/generations` API 生成，支持 b64_json 返回
   - **Google**：Gemini 图片生成（`gemini-2.0-flash-preview-image-generation`），通过 `generateContent` API 的 `responseModalities: ["IMAGE"]` 模式

@@ -14,6 +14,7 @@ import ChatInput from "@/components/chat/ChatInput"
 import ChatTitleBar from "@/components/chat/ChatTitleBar"
 import MessageList from "@/components/chat/MessageList"
 import CrashRecoveryBanner from "@/components/common/CrashRecoveryBanner"
+import CanvasPanel from "@/components/chat/CanvasPanel"
 import {
   AlertDialog,
   AlertDialogContent,
@@ -452,6 +453,9 @@ export default function ChatScreen({
           onCommandAction={handleCommandAction}
         />
       </div>
+
+      {/* Canvas Preview Panel */}
+      <CanvasPanel />
     </>
   )
 }

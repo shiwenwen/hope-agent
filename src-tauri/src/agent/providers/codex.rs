@@ -24,6 +24,9 @@ impl AssistantAgent {
         if self.image_generate_enabled {
             tool_schemas.push(tools::get_image_generate_tool().to_provider_schema(ToolProvider::OpenAI));
         }
+        if self.canvas_enabled {
+            tool_schemas.push(tools::get_canvas_tool().to_provider_schema(ToolProvider::OpenAI));
+        }
         if self.subagent_tool_enabled() {
             tool_schemas.push(tools::get_subagent_tool().to_provider_schema(ToolProvider::OpenAI));
         }

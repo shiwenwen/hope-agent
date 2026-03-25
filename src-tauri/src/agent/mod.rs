@@ -45,6 +45,7 @@ impl AssistantAgent {
             token_calibrator: std::sync::Mutex::new(crate::context_compact::TokenEstimateCalibrator::new()),
             notification_enabled: false,
             image_generate_enabled: false,
+            canvas_enabled: false,
             session_id: None,
             subagent_depth: 0,
             steer_run_id: None,
@@ -70,6 +71,7 @@ impl AssistantAgent {
             token_calibrator: std::sync::Mutex::new(crate::context_compact::TokenEstimateCalibrator::new()),
             notification_enabled: false,
             image_generate_enabled: false,
+            canvas_enabled: false,
             session_id: None,
             subagent_depth: 0,
             steer_run_id: None,
@@ -119,6 +121,7 @@ impl AssistantAgent {
             token_calibrator: std::sync::Mutex::new(crate::context_compact::TokenEstimateCalibrator::new()),
             notification_enabled: false,
             image_generate_enabled: false,
+            canvas_enabled: false,
             session_id: None,
             subagent_depth: 0,
             steer_run_id: None,
@@ -144,6 +147,11 @@ impl AssistantAgent {
     /// Enable or disable the image_generate tool for this agent.
     pub fn set_image_generate_enabled(&mut self, enabled: bool) {
         self.image_generate_enabled = enabled;
+    }
+
+    /// Enable or disable the canvas tool for this agent.
+    pub fn set_canvas_enabled(&mut self, enabled: bool) {
+        self.canvas_enabled = enabled;
     }
 
     /// Set the current session ID (for sub-agent context propagation).
@@ -174,6 +182,9 @@ impl AssistantAgent {
         }
         if self.image_generate_enabled {
             prompt.push_str("\n\n- **image_generate**: Generate images from text descriptions using AI image generation models (OpenAI/DALL-E, Google/Gemini, Fal/Flux). Parameters: prompt (required), size (optional, default 1024x1024), n (optional, 1-4), provider (optional). Generated images are saved to disk.");
+        }
+        if self.canvas_enabled {
+            prompt.push_str("\n\n# Canvas\n\nYou have a `canvas` tool for creating interactive visual content rendered in a preview panel visible to the user.\n\n## Content Types\n- **html**: Full HTML/CSS/JS — web apps, games, animations, interactive demos\n- **markdown**: Rich documents with live preview\n- **code**: Syntax-highlighted code with line numbers\n- **svg**: Scalable vector graphics\n- **mermaid**: Diagrams (flowchart, sequence, class, gantt, etc.)\n- **chart**: Data visualizations (Chart.js JSON config in `content` field)\n- **slides**: Presentation slides (HTML `<section>` tags, arrow key navigation)\n\n## Workflow\n1. `canvas(action=\"create\", content_type=\"html\", title=\"...\", html=\"...\", css=\"...\", js=\"...\")` — create project\n2. Content appears in the user's preview panel immediately\n3. `canvas(action=\"snapshot\", project_id=\"...\")` — capture screenshot to verify visual output\n4. `canvas(action=\"update\", project_id=\"...\", html=\"...\")` — iterate based on screenshot feedback\n5. `canvas(action=\"export\", project_id=\"...\", format=\"html\")` — export when done\n\n## Best Practices\n- Always use snapshot after create/update to verify the visual result\n- For complex UIs, build incrementally — skeleton first, then add features\n- Use semantic HTML and responsive CSS\n- For charts, use Chart.js config JSON format in the `content` field\n- For slides, use `<section>` tags to separate slides");
         }
         if let Some(extra) = &self.extra_system_context {
             prompt.push_str("\n\n");

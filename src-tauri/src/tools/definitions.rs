@@ -11,6 +11,7 @@ use super::{
     TOOL_MANAGE_CRON, TOOL_BROWSER, TOOL_SEND_NOTIFICATION, TOOL_SUBAGENT,
     TOOL_MEMORY_GET, TOOL_AGENTS_LIST, TOOL_SESSIONS_LIST, TOOL_SESSION_STATUS,
     TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_SEND, TOOL_IMAGE, TOOL_IMAGE_GENERATE, TOOL_PDF,
+    TOOL_CANVAS,
 };
 
 // ── Tool Definition (provider-agnostic) ───────────────────────────
@@ -949,7 +950,7 @@ static INTERNAL_TOOL_NAMES: LazyLock<HashSet<String>> = LazyLock::new(|| {
         .map(|t| t.name)
         .collect();
     // Include conditionally-injected tools
-    for t in [get_notification_tool(), get_subagent_tool(), get_image_generate_tool()] {
+    for t in [get_notification_tool(), get_subagent_tool(), get_image_generate_tool(), get_canvas_tool()] {
         if t.internal {
             set.insert(t.name);
         }
@@ -1023,6 +1024,73 @@ pub fn get_notification_tool() -> ToolDefinition {
                 }
             },
             "required": ["body"],
+            "additionalProperties": false
+        }),
+    }
+}
+
+/// Returns the canvas tool definition (conditionally injected when enabled).
+pub fn get_canvas_tool() -> ToolDefinition {
+    ToolDefinition {
+        name: TOOL_CANVAS.into(),
+        description: "Create and manage interactive canvas projects — HTML/CSS/JS live preview, documents (Markdown/code), data visualizations (Chart.js), diagrams (Mermaid), presentations (slides), and SVG graphics. Canvas content is rendered in a sandboxed preview panel visible to the user. Use snapshot to capture the current visual state for analysis.".into(),
+        internal: false,
+        parameters: json!({
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["create", "update", "show", "hide", "snapshot", "eval_js", "list", "delete", "versions", "restore", "export"],
+                    "description": "Canvas operation to perform"
+                },
+                "project_id": {
+                    "type": "string",
+                    "description": "Canvas project ID (returned by create, required for most actions)"
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Project title (for create/update)"
+                },
+                "content_type": {
+                    "type": "string",
+                    "enum": ["html", "markdown", "code", "svg", "mermaid", "chart", "slides"],
+                    "description": "Content type (default: html). Determines rendering mode."
+                },
+                "html": {
+                    "type": "string",
+                    "description": "HTML content (for html/slides content_type)"
+                },
+                "css": {
+                    "type": "string",
+                    "description": "CSS styles"
+                },
+                "js": {
+                    "type": "string",
+                    "description": "JavaScript code (for html content_type or eval_js action)"
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Text content (for markdown/code/svg/mermaid/chart content_type)"
+                },
+                "language": {
+                    "type": "string",
+                    "description": "Programming language (for code content_type, e.g. 'python', 'rust')"
+                },
+                "version_id": {
+                    "type": "integer",
+                    "description": "Version number (for restore action)"
+                },
+                "version_message": {
+                    "type": "string",
+                    "description": "Optional commit message for this version (for update)"
+                },
+                "format": {
+                    "type": "string",
+                    "enum": ["html", "markdown", "png"],
+                    "description": "Export format (for export action)"
+                }
+            },
+            "required": ["action"],
             "additionalProperties": false
         }),
     }

@@ -189,7 +189,8 @@
     "sessions_send": "Send to Session",
     "image": "Analyze Image",
     "image_generate": "Generate Image",
-    "pdf": "Read PDF"
+    "pdf": "Read PDF",
+    "canvas": "Canvas"
   },
   "toolGroup": {
     "browse": "Browsed {{count}} files",
@@ -301,6 +302,10 @@
     "sandboxDockerChecking": "Checking...",
     "sandboxDockerAvailable": "Docker available",
     "sandboxDockerUnavailable": "Docker unavailable",
+    "sandboxDockerNotInstalled": "Docker not detected, please install Docker Desktop first",
+    "sandboxDockerNotRunning": "Docker is installed but not running, please start Docker Desktop",
+    "sandboxDockerInstall": "Get Docker Desktop",
+    "sandboxDockerRefresh": "Re-detect",
     "sandboxSectionContainer": "Container",
     "sandboxImage": "Image",
     "sandboxImageDesc": "Docker image used for sandbox containers",
@@ -317,7 +322,10 @@
     "sandboxNoNewPrivileges": "No New Privileges",
     "sandboxNoNewPrivilegesDesc": "Prevent child processes from gaining additional privileges",
     "sandboxNetworkMode": "Network Mode",
-    "sandboxNetworkModeDesc": "none = no network, bridge = bridged, host = host network",
+    "sandboxNetworkModeDesc": "Network access mode for the container",
+    "sandboxNetworkNone": "No Network",
+    "sandboxNetworkBridge": "Bridge",
+    "sandboxNetworkHost": "Host",
     "webSearch": "Web Search",
     "webSearchDesc": "Drag to reorder search providers. The first enabled provider will be used. Providers requiring an API key must have credentials configured before enabling.",
     "webSearchProviderDDG": "DuckDuckGo",
@@ -407,6 +415,17 @@
     "imageGenDefaultSize": "Default Size",
     "imageGenTimeout": "Timeout (seconds)",
     "imageGenNoProvider": "No provider configured. Enable one and enter an API Key to let Agent generate images.",
+    "canvas": "Canvas",
+    "canvasDesc": "Interactive canvas tool: AI can create and manage HTML/Markdown/charts/slides and other visual content, rendered live in a preview panel.",
+    "canvasEnabled": "Enable Canvas Tool",
+    "canvasAutoShow": "Auto-show Preview",
+    "canvasAutoShowDesc": "Automatically open the preview panel when canvas is created or updated",
+    "canvasDefaultType": "Default Content Type",
+    "canvasMaxProjects": "Max Projects",
+    "canvasMaxVersions": "Max Versions per Project",
+    "canvasPanelWidth": "Panel Width (px)",
+    "canvasClearAll": "Clear All Canvas Data",
+    "canvasClearAllConfirm": "Are you sure you want to delete all canvas projects? This cannot be undone.",
     "permissions": "Permissions",
     "permTitle": "System Permissions",
     "permDesc": "OpenComputer needs the following system permissions to control your computer. Please grant them in System Settings.",
@@ -1027,5 +1046,14 @@
     },
     "noResults": "No matching commands",
     "buttonTip": "Quick Commands"
+  },
+  "canvas": {
+    "refresh": "Refresh",
+    "maximize": "Maximize",
+    "minimize": "Minimize",
+    "close": "Close",
+    "snapshot": "Snapshot",
+    "export": "Export",
+    "versions": "Version History"
   }
 }

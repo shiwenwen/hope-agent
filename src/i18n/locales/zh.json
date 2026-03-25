@@ -189,7 +189,8 @@
     "sessions_send": "发送至会话",
     "image": "图像分析",
     "image_generate": "生成图片",
-    "pdf": "读取 PDF"
+    "pdf": "读取 PDF",
+    "canvas": "画布"
   },
   "toolGroup": {
     "browse": "已浏览 {{count}} 个文件",
@@ -301,6 +302,10 @@
     "sandboxDockerChecking": "检测中...",
     "sandboxDockerAvailable": "Docker 可用",
     "sandboxDockerUnavailable": "Docker 不可用",
+    "sandboxDockerNotInstalled": "未检测到 Docker，请先安装 Docker Desktop",
+    "sandboxDockerNotRunning": "Docker 已安装但未启动，请先启动 Docker Desktop",
+    "sandboxDockerInstall": "获取 Docker Desktop",
+    "sandboxDockerRefresh": "重新检测",
     "sandboxSectionContainer": "容器",
     "sandboxImage": "镜像",
     "sandboxImageDesc": "沙箱容器使用的 Docker 镜像",
@@ -317,7 +322,10 @@
     "sandboxNoNewPrivileges": "禁止新权限",
     "sandboxNoNewPrivilegesDesc": "防止子进程获取额外权限",
     "sandboxNetworkMode": "网络模式",
-    "sandboxNetworkModeDesc": "none = 无网络，bridge = 桥接，host = 主机网络",
+    "sandboxNetworkModeDesc": "容器的网络访问方式",
+    "sandboxNetworkNone": "无网络",
+    "sandboxNetworkBridge": "桥接",
+    "sandboxNetworkHost": "主机网络",
     "webSearch": "网页搜索",
     "webSearchDesc": "拖拽调整搜索引擎优先级，开启的第一个引擎将被优先使用。需要 API Key 的引擎必须填写密钥后才能开启。",
     "webSearchProviderDDG": "DuckDuckGo",
@@ -407,6 +415,17 @@
     "imageGenDefaultSize": "默认尺寸",
     "imageGenTimeout": "超时（秒）",
     "imageGenNoProvider": "未配置任何服务商。启用并填写 API Key 后，Agent 即可生成图片。",
+    "canvas": "画布",
+    "canvasDesc": "交互式画布工具：AI 可创建和管理 HTML/Markdown/图表/幻灯片等可视化内容，在预览面板中实时展示。",
+    "canvasEnabled": "启用画布工具",
+    "canvasAutoShow": "自动显示预览",
+    "canvasAutoShowDesc": "创建或更新画布时自动打开预览面板",
+    "canvasDefaultType": "默认内容类型",
+    "canvasMaxProjects": "最大项目数",
+    "canvasMaxVersions": "每项目最大版本数",
+    "canvasPanelWidth": "面板宽度（像素）",
+    "canvasClearAll": "清除所有画布数据",
+    "canvasClearAllConfirm": "确定要删除所有画布项目吗？此操作不可撤销。",
     "permissions": "系统权限",
     "permTitle": "系统权限",
     "permDesc": "OpenComputer 需要以下系统权限来控制电脑。请在系统设置中授权。",
@@ -1027,5 +1046,14 @@
     },
     "noResults": "没有匹配的命令",
     "buttonTip": "快捷指令"
+  },
+  "canvas": {
+    "refresh": "刷新",
+    "maximize": "最大化",
+    "minimize": "还原",
+    "close": "关闭",
+    "snapshot": "截图",
+    "export": "导出",
+    "versions": "版本历史"
   }
 }

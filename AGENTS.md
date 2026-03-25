@@ -41,7 +41,8 @@ src-tauri/src/          后端（Rust）
       openai_chat.rs    OpenAI Chat Completions API + SSE 解析
       openai_responses.rs  OpenAI Responses API
       codex.rs          Codex OAuth API + 重试逻辑
-  tools/                统一 Tool 定义 & 执行（按工具拆分为子模块，28 个内置工具）
+  tools/                统一 Tool 定义 & 执行（按工具拆分为子模块，29 个内置工具）
+    canvas/             画布工具（HTML/Markdown/Code/SVG/Mermaid/Chart/Slides 7 种类型，iframe 预览 + 截图反馈 + 版本历史）
     image_generate/     图片生成工具（OpenAI/Google/Fal 三 Provider，条件注入）
   slash_commands/       斜杠命令系统（命令注册表 + 解析器 + handlers 分发 + channel-agnostic 结果）
   provider.rs           Provider 数据模型 & 持久化
@@ -85,6 +86,7 @@ src-tauri/src/          后端（Rust）
 - **记忆系统**：`memory.rs` 实现 `MemoryBackend` trait 可插拔架构，MVP 使用 SQLite + FTS5 全文搜索 + sqlite-vec 向量混合检索（RRF 融合评分）。4 种记忆类型（user/feedback/project/reference），2 种作用域（global/agent）。记忆自动注入系统提示词 section ⑧（`build_prompt_summary` 按 `updated_at DESC` 排序，逐条添加直到超出 budget，避免截断）。Embedding 配置支持 API 模式（5 个预设）和本地 ONNX 模型（4 个预设），存储在 `config.json`。启动时自动初始化 embedder。去重检测（`find_similar` + `add_with_dedup`）防止重复记忆，阈值可配置（`DedupConfig` 存储在 `config.json` 的 `dedup` 字段）。批量操作（`delete_batch` / `import_entries` / `reembed_all`）。JSON/Markdown 导入解析。`memory_extract.rs` 实现对话后自动记忆提取：异步 LLM 调用 + JSON 解析 + 去重保存 + Tauri 事件通知 + 前端 Toast。Per-Agent 配置 `autoExtract` / `extractMinTurns` / `extractProviderId` / `extractModelId`（可选独立提取模型）。`memory_stats` 命令返回 `MemoryStats`（总数/按类型分布/向量覆盖率），前端 MemoryPanel 展示统计行
 - **定时任务系统**：`cron.rs` 实现完整定时任务调度。3 种调度类型（At 一次性 / Every 固定间隔 / Cron 表达式），tokio 后台轮询执行，隔离 session + 模型链降级。指数退避重试 + 自动禁用。日历视图页面（侧边栏入口）+ 设置面板列表管理。Agent 工具 `manage_cron` 支持 AI 直接管理定时任务
 - **Web 搜索多 Provider**：`tools/web_search.rs` 支持 8 个搜索引擎（DuckDuckGo / SearXNG / Brave / Perplexity / Google / Grok / Kimi / Tavily），enum 派发 + 自动检测。配置存储在 `config.json` 的 `webSearch` 字段，设置面板 `WebSearchPanel` 管理。SearXNG 支持 Docker 一键部署（`docker.rs`：镜像拉取 → 容器启动 → 配置注入 → 健康检查）
+- **画布工具**：`tools/canvas/` 实现交互式可视化内容创作工具。统一 `canvas` 工具，11 个 action（create/update/show/hide/snapshot/eval_js/list/delete/versions/restore/export），7 种内容类型（html/markdown/code/svg/mermaid/chart/slides）。前端 `CanvasPanel.tsx` 以 iframe 沙箱渲染，嵌入 ChatScreen 右侧。截图通过 html2canvas + postMessage 实现视觉反馈循环。版本历史 SQLite 持久化（`canvas_db.rs`）。配置存储在 `config.json` 的 `canvas` 字段，设置面板 `CanvasSettingsPanel` 管理
 - **图片生成**：`tools/image_generate/` 实现 AI 图片生成工具。3 个 Provider（OpenAI DALL-E/gpt-image-1、Google Gemini、Fal Flux），enum 派发 + 条件注入（仅在有配置 API key 的 provider 时注入）。配置存储在 `config.json` 的 `imageGenerate` 字段，设置面板 `ImageGeneratePanel` 管理。生成的图片保存到 `~/.opencomputer/generated-images/`，通过 `IMAGE_BASE64_PREFIX` 机制返回给 LLM 实现视觉反馈
 - **Web Fetch 网页抓取**：`tools/web_fetch.rs` 的 `tool_web_fetch` 使用 Mozilla Readability（`readability` crate）提取正文 + `htmd` crate 转 Markdown，支持 markdown/text 双模式。内存缓存（15 分钟 TTL / 100 条上限）、SSRF 防护（DNS 解析 + 私有 IP 拦截）、流式字节限制读取（默认 2MB）、结构化 JSON 响应。配置存储在 `config.json` 的 `webFetch` 字段，设置面板 `WebFetchPanel` 管理
 - **上下文压缩系统**：`context_compact.rs` 实现 4 层渐进式上下文压缩。Tier 1 工具结果截断（head+tail，结构感知边界切割）→ Tier 2 上下文裁剪（软裁剪 + 硬替换，age×size 优先级评分）→ Tier 3 LLM 摘要（分块摘要 + 合并 + 3 级 fallback）→ Tier 4 溢出恢复（ContextOverflow 触发紧急压缩 + 自动重试）。Token 估算校准器利用 API 返回的实际 token 数做 EMA 滑动平均。15 个可配置参数存储在 `config.json` 的 `compact` 字段，设置面板 `ContextCompactPanel` 管理

@@ -259,6 +259,9 @@ pub struct ProviderStore {
     /// Image generation configuration
     #[serde(default)]
     pub image_generate: crate::tools::image_generate::ImageGenConfig,
+    /// Canvas tool configuration
+    #[serde(default)]
+    pub canvas: crate::tools::canvas::CanvasConfig,
     /// UI theme preference: "auto" | "light" | "dark"
     #[serde(default = "default_theme")]
     pub theme: String,
@@ -297,6 +300,7 @@ impl Default for ProviderStore {
             compact: crate::context_compact::CompactConfig::default(),
             notification: NotificationConfig::default(),
             image_generate: crate::tools::image_generate::ImageGenConfig::default(),
+            canvas: crate::tools::canvas::CanvasConfig::default(),
             theme: default_theme(),
             language: default_language(),
         }

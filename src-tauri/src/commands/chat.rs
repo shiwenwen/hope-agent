@@ -248,6 +248,11 @@ pub async fn chat(
         crate::tools::image_generate::has_configured_provider_from_config(&store.image_generate)
     };
 
+    let canvas_enabled = {
+        let store = state.provider_store.lock().await;
+        store.canvas.enabled
+    };
+
     let (primary, fallbacks) = {
         let store = state.provider_store.lock().await;
         // If user explicitly selected a model in the input box, use it as primary
@@ -385,6 +390,7 @@ pub async fn chat(
         agent.set_session_id(&sid);
         agent.set_notification_enabled(notification_enabled);
         agent.set_image_generate_enabled(image_generate_enabled);
+        agent.set_canvas_enabled(canvas_enabled);
 
         // Restore conversation history from DB for this session
         restore_agent_context(&db, &sid, &agent);

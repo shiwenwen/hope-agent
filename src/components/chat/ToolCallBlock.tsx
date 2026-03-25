@@ -23,6 +23,7 @@ import {
   Users,
   Image,
   ImagePlus,
+  PanelRight,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { ToolCall } from "@/types/chat"
@@ -58,6 +59,7 @@ const TOOL_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
   image: Image,
   image_generate: ImagePlus,
   pdf: FileText,
+  canvas: PanelRight,
 }
 
 /** Extract a short, human-friendly summary of tool arguments */
@@ -123,6 +125,8 @@ function getDisplayArgs(name: string, args: string): string {
           : args
       case "pdf":
         return parsed.path || args
+      case "canvas":
+        return `${parsed.action || ""}${parsed.title ? ` "${parsed.title}"` : ""}${parsed.project_id ? ` (${parsed.project_id.slice(0, 8)})` : ""}`
       default:
         return args
     }

@@ -4,6 +4,7 @@ mod agent;
 mod agent_config;
 mod agent_loader;
 mod browser_state;
+mod canvas_db;
 mod commands;
 mod cron;
 mod dev_tools;
@@ -502,6 +503,14 @@ pub fn run() {
             slash_commands::list_slash_commands,
             slash_commands::execute_slash_command,
             slash_commands::is_slash_command,
+            // Canvas
+            tools::canvas::canvas_submit_snapshot,
+            tools::canvas::canvas_submit_eval_result,
+            tools::canvas::get_canvas_config,
+            tools::canvas::save_canvas_config,
+            tools::canvas::list_canvas_projects,
+            tools::canvas::get_canvas_project,
+            tools::canvas::delete_canvas_project,
             // Developer tools
             dev_tools::dev_clear_sessions,
             dev_tools::dev_clear_cron,

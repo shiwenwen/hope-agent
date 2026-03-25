@@ -8,10 +8,11 @@ use super::{
     TOOL_MANAGE_CRON, TOOL_BROWSER, TOOL_SEND_NOTIFICATION, TOOL_SUBAGENT,
     TOOL_MEMORY_GET, TOOL_AGENTS_LIST, TOOL_SESSIONS_LIST, TOOL_SESSION_STATUS,
     TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_SEND, TOOL_IMAGE, TOOL_IMAGE_GENERATE, TOOL_PDF,
+    TOOL_CANVAS,
 };
 use super::{exec, process, read, write, edit, ls, grep, find, apply_patch};
 use super::{web_search, web_fetch, memory, cron, browser, notification, subagent};
-use super::{agents, sessions, image, image_generate, pdf};
+use super::{agents, sessions, image, image_generate, pdf, canvas};
 
 // ── Tool Execution Context ────────────────────────────────────────
 
@@ -164,6 +165,7 @@ pub async fn execute_tool_with_context(
         TOOL_IMAGE => image::tool_image(args).await,
         TOOL_IMAGE_GENERATE => image_generate::tool_image_generate(args).await,
         TOOL_PDF => pdf::tool_pdf(args).await,
+        TOOL_CANVAS => canvas::tool_canvas(args, ctx).await,
         _ => Err(anyhow::anyhow!("Unknown tool: {}", name)),
     };
 
