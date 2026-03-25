@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core"
 import { listen } from "@tauri-apps/api/event"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
-import { TooltipProvider, IconTip } from "@/components/ui/tooltip"
+import { IconTip } from "@/components/ui/tooltip"
 import { Input } from "@/components/ui/input"
 import { Plus, Search, Play, Pause, Trash2, Zap, Pencil, ChevronRight } from "lucide-react"
 import CronJobForm from "@/components/cron/CronJobForm"
@@ -169,8 +169,7 @@ export default function CronPanel() {
                   </div>
                 </div>
                 <div className="flex gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
-                  <TooltipProvider>
-                    <IconTip label={t("cron.runNow")}>
+                  <IconTip label={t("cron.runNow")}>
                       <Button
                         variant="ghost"
                         size="icon"
@@ -217,7 +216,6 @@ export default function CronPanel() {
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </IconTip>
-                  </TooltipProvider>
                 </div>
                 <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
               </div>

@@ -2,7 +2,7 @@ import React, { useCallback } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { FileText, FolderOpen } from "lucide-react"
-import { TooltipProvider, IconTip } from "@/components/ui/tooltip"
+import { IconTip } from "@/components/ui/tooltip"
 import { logger } from "@/lib/logger"
 
 function basename(filePath: string): string {
@@ -36,8 +36,7 @@ function FileAttachments({ files }: { files: string[] }) {
       <div className="text-[10px] text-muted-foreground/60 mb-1">
         {t("chat.modifiedFiles")}
       </div>
-      <TooltipProvider>
-        <div className="flex flex-wrap gap-1.5">
+      <div className="flex flex-wrap gap-1.5">
           {files.map((file) => (
             <span key={file} className="inline-flex items-center gap-0.5">
               <IconTip label={t("chat.openFile")}>
@@ -60,7 +59,6 @@ function FileAttachments({ files }: { files: string[] }) {
             </span>
           ))}
         </div>
-      </TooltipProvider>
     </div>
   )
 }

@@ -2,7 +2,7 @@ import { useState } from "react"
 import { convertFileSrc, invoke } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
-import { TooltipProvider, IconTip } from "@/components/ui/tooltip"
+import { IconTip } from "@/components/ui/tooltip"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -57,8 +57,7 @@ export default function IconSidebar({
   const [showLangMenu, setShowLangMenu] = useState(false)
 
   return (
-    <TooltipProvider>
-      <div className="w-[72px] shrink-0 border-r border-border bg-secondary/30 flex flex-col items-center">
+    <div className="w-[72px] shrink-0 border-r border-border bg-secondary/30 flex flex-col items-center">
         {/* Drag region for window movement — covers traffic light area */}
         <div className="w-full pt-10 flex flex-col items-center gap-2" data-tauri-drag-region>
           {/* User avatar (if set) */}
@@ -292,6 +291,5 @@ export default function IconSidebar({
           </IconTip>
         </div>
       </div>
-    </TooltipProvider>
   )
 }

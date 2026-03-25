@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { TooltipProvider, IconTip } from "@/components/ui/tooltip"
+import { IconTip } from "@/components/ui/tooltip"
 import {
   Select,
   SelectContent,
@@ -172,8 +172,7 @@ export default function ProviderEditPage({
         </span>
         <div className="w-12 flex justify-end">
           {isCodex && onCodexReauth && (
-            <TooltipProvider>
-              <IconTip label={t("provider.relogin")}>
+            <IconTip label={t("provider.relogin")}>
                 <Button
                   variant="ghost"
                   size="icon"
@@ -186,7 +185,6 @@ export default function ProviderEditPage({
                   <RefreshCw className="h-3.5 w-3.5" />
                 </Button>
               </IconTip>
-            </TooltipProvider>
           )}
         </div>
       </div>

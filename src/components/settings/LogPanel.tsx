@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { invoke } from "@tauri-apps/api/core"
 import { cn } from "@/lib/utils"
-import { TooltipProvider, IconTip } from "@/components/ui/tooltip"
+import { IconTip } from "@/components/ui/tooltip"
 import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -292,8 +292,7 @@ export default function LogPanel() {
             <code className="text-xs text-muted-foreground font-mono truncate flex-1">
               {currentLogPath}
             </code>
-            <TooltipProvider>
-              <IconTip label={t("settings.logsCopyPath")}>
+            <IconTip label={t("settings.logsCopyPath")}>
                 <button
                   onClick={handleCopyPath}
                   className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
@@ -301,7 +300,6 @@ export default function LogPanel() {
                   <Copy className="h-3.5 w-3.5" />
                 </button>
               </IconTip>
-            </TooltipProvider>
           </div>
         )}
 

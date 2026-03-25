@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { logger } from "@/lib/logger"
 import { initLanguageFromConfig } from "@/i18n/i18n"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import ProviderSetup from "@/components/settings/ProviderSetup"
 import SettingsView from "@/components/settings/SettingsView"
 import IconSidebar from "@/components/common/IconSidebar"
@@ -111,13 +112,16 @@ export default function App() {
 
   if (view === "setup") {
     return (
-      <div className="h-screen overflow-hidden">
-        <ProviderSetup onComplete={() => setView("chat")} onCodexAuth={handleCodexAuth} />
-      </div>
+      <TooltipProvider>
+        <div className="h-screen overflow-hidden">
+          <ProviderSetup onComplete={() => setView("chat")} onCodexAuth={handleCodexAuth} />
+        </div>
+      </TooltipProvider>
     )
   }
 
   return (
+    <TooltipProvider>
     <div className="flex h-screen overflow-hidden bg-background">
       <IconSidebar
         view={
@@ -207,5 +211,6 @@ export default function App() {
         />
       </div>
     </div>
+    </TooltipProvider>
   )
 }

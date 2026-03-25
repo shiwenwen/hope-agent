@@ -13,7 +13,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { cn } from "@/lib/utils"
-import { TooltipProvider, IconTip } from "@/components/ui/tooltip"
+import { IconTip } from "@/components/ui/tooltip"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -215,8 +215,7 @@ export default function ChatSidebar({
 
   return (
     <>
-      <TooltipProvider>
-        <div
+      <div
           style={{ width: panelWidth }}
           className="shrink-0 border-r border-border bg-background flex flex-col"
         >
@@ -673,7 +672,6 @@ export default function ChatSidebar({
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-      </TooltipProvider>
       {/* Drag Handle */}
       <div
         className="w-1 shrink-0 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors"

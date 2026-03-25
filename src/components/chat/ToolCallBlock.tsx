@@ -24,9 +24,11 @@ import {
   Image,
   ImagePlus,
   PanelRight,
+  Info,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { ToolCall } from "@/types/chat"
+import { IconTip } from "@/components/ui/tooltip"
 import SubagentBlock from "@/components/chat/SubagentBlock"
 
 /** Map tool name → Lucide icon component */
@@ -135,9 +137,20 @@ function getDisplayArgs(name: string, args: string): string {
   }
 }
 
+/** Format the raw tool call as `name(args)` for display */
+function formatRawCall(tool: ToolCall): string {
+  try {
+    const pretty = JSON.stringify(JSON.parse(tool.arguments), null, 2)
+    return `${tool.name}(${pretty})`
+  } catch {
+    return `${tool.name}(${tool.arguments})`
+  }
+}
+
 export default function ToolCallBlock({ tool }: { tool: ToolCall }) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
+  const [showRaw, setShowRaw] = useState(false)
   const isRunning = tool.result === undefined
 
   // Detect subagent spawn — render SubagentBlock instead
@@ -196,7 +209,32 @@ export default function ToolCallBlock({ tool }: { tool: ToolCall }) {
         <span className="text-muted-foreground/60 truncate font-mono text-[11px]">
           {displayArgs}
         </span>
+        <IconTip label={t("tools.rawCall", "查看原始调用")}>
+          <span
+            role="button"
+            className="ml-auto shrink-0 p-0.5 rounded hover:bg-secondary text-muted-foreground/40 hover:text-muted-foreground/80 transition-colors opacity-0 group-hover:opacity-100"
+            onClick={(e) => {
+              e.stopPropagation()
+              setShowRaw(!showRaw)
+            }}
+          >
+            <Info className="h-3 w-3" />
+          </span>
+        </IconTip>
       </button>
+      {/* Raw tool call */}
+      <div
+        className={cn(
+          "overflow-hidden transition-all duration-200 ease-out",
+          showRaw ? "max-h-[400px] opacity-100" : "max-h-0 opacity-0",
+        )}
+      >
+        <div className="ml-5 mt-0.5 mb-1">
+          <pre className="whitespace-pre-wrap text-muted-foreground/70 bg-muted/50 rounded-md p-2.5 max-h-64 overflow-y-auto text-[11px] leading-relaxed border border-border/30 font-mono select-all">
+            {formatRawCall(tool)}
+          </pre>
+        </div>
+      </div>
       <div
         className={cn(
           "overflow-hidden transition-all duration-200 ease-out",

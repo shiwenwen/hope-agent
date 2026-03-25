@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useMemo } from "react"
 import { convertFileSrc } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
-import { TooltipProvider, IconTip } from "@/components/ui/tooltip"
+import { IconTip } from "@/components/ui/tooltip"
 import { Copy, Check, Info, Network } from "lucide-react"
 import { formatTokens, formatDuration, formatMessageTime, extractModifiedFiles } from "./chatUtils"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
@@ -303,8 +303,7 @@ export default function MessageBubble({
         </div>
         {/* Hover toolbar */}
         {msg.content && (
-          <TooltipProvider>
-            <div
+          <div
               className={cn(
                 "flex items-center gap-0.5 mt-0.5 h-6",
                 msg.role === "user" ? "justify-end" : "justify-start",
@@ -395,7 +394,6 @@ export default function MessageBubble({
                 </div>
               )}
             </div>
-          </TooltipProvider>
         )}
       </div>
     </div>

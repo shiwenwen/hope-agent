@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
-import { TooltipProvider, IconTip } from "@/components/ui/tooltip"
+import { IconTip } from "@/components/ui/tooltip"
 import {
   Hand,
   Monitor,
@@ -281,8 +281,7 @@ export default function PermissionsPanel() {
 
               {/* Action button — show for not_granted and unknown */}
               {state !== "granted" && !loading && (
-                <TooltipProvider>
-                  <IconTip label={t("settings.permGrantTooltip")}>
+                <IconTip label={t("settings.permGrantTooltip")}>
                     <Button
                       variant="outline"
                       size="sm"
@@ -294,7 +293,6 @@ export default function PermissionsPanel() {
                       {state === "unknown" ? t("settings.permCheck") : t("settings.permGrant")}
                     </Button>
                   </IconTip>
-                </TooltipProvider>
               )}
 
               {state === "granted" && <ShieldCheck className="h-4 w-4 text-green-500 shrink-0" />}

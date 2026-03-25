@@ -191,7 +191,8 @@
     "image": "Analyze Image",
     "image_generate": "Generate Image",
     "pdf": "Read PDF",
-    "canvas": "Canvas"
+    "canvas": "Canvas",
+    "rawCall": "View raw call"
   },
   "toolGroup": {
     "browse": "Browsed {{count}} files",

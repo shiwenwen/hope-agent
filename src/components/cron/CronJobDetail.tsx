@@ -2,7 +2,7 @@ import { useState, useEffect } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
-import { TooltipProvider, IconTip } from "@/components/ui/tooltip"
+import { IconTip } from "@/components/ui/tooltip"
 import {
   ArrowLeft,
   Play,
@@ -109,8 +109,7 @@ export default function CronJobDetail({
           )}
         </div>
         <div className="flex gap-1">
-          <TooltipProvider>
-            <IconTip label={t("cron.runNow")}>
+          <IconTip label={t("cron.runNow")}>
               <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleRunNow}>
                 <Zap className="h-3.5 w-3.5" />
               </Button>
@@ -139,7 +138,6 @@ export default function CronJobDetail({
                 <Trash2 className="h-3.5 w-3.5" />
               </Button>
             </IconTip>
-          </TooltipProvider>
         </div>
       </div>
 

@@ -9,9 +9,11 @@ import {
   Globe,
   Brain,
   Terminal,
+  Info,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { ToolCall } from "@/types/chat"
+import { IconTip } from "@/components/ui/tooltip"
 
 /** Grouping categories */
 export type ToolCategory = "browse" | "edit" | "search" | "web" | "memory" | "other"
@@ -77,10 +79,21 @@ function getResultPreview(result: string | undefined, maxLen = 80): string | nul
   return firstLine.length > maxLen ? firstLine.slice(0, maxLen) + "…" : firstLine
 }
 
+/** Format the raw tool call as `name(args)` for display */
+function formatRawCall(tool: ToolCall): string {
+  try {
+    const pretty = JSON.stringify(JSON.parse(tool.arguments), null, 2)
+    return `${tool.name}(${pretty})`
+  } catch {
+    return `${tool.name}(${tool.arguments})`
+  }
+}
+
 /** Single item inside a group — shows label + expandable result */
 function GroupItem({ tool }: { tool: ToolCall }) {
   const { t } = useTranslation()
   const [showResult, setShowResult] = useState(false)
+  const [showRaw, setShowRaw] = useState(false)
   const isRunning = tool.result === undefined
   const fullTarget = getFullTarget(tool)
   const toolLabel = t(`tools.${tool.name}`, tool.name)
@@ -89,7 +102,7 @@ function GroupItem({ tool }: { tool: ToolCall }) {
   return (
     <div className="text-[11px]">
       <button
-        className="flex items-center gap-1.5 w-full px-1.5 py-0.5 text-left hover:bg-secondary/60 rounded transition-colors"
+        className="flex items-center gap-1.5 w-full px-1.5 py-0.5 text-left hover:bg-secondary/60 rounded transition-colors group/item"
         onClick={() => !isRunning && tool.result && setShowResult(!showResult)}
       >
         {isRunning ? (
@@ -110,7 +123,32 @@ function GroupItem({ tool }: { tool: ToolCall }) {
             {preview}
           </span>
         )}
+        <IconTip label={t("tools.rawCall", "查看原始调用")}>
+          <span
+            role="button"
+            className="ml-auto shrink-0 p-0.5 rounded hover:bg-secondary text-muted-foreground/40 hover:text-muted-foreground/80 transition-colors opacity-0 group-hover/item:opacity-100"
+            onClick={(e) => {
+              e.stopPropagation()
+              setShowRaw(!showRaw)
+            }}
+          >
+            <Info className="h-3 w-3" />
+          </span>
+        </IconTip>
       </button>
+      {/* Raw tool call */}
+      <div
+        className={cn(
+          "overflow-hidden transition-all duration-200 ease-out",
+          showRaw ? "max-h-[400px] opacity-100" : "max-h-0 opacity-0",
+        )}
+      >
+        <div className="ml-4 mt-0.5 mb-1">
+          <pre className="whitespace-pre-wrap text-muted-foreground/70 bg-muted/50 rounded-md p-2 max-h-56 overflow-y-auto text-[11px] leading-relaxed border border-border/30 font-mono select-all">
+            {formatRawCall(tool)}
+          </pre>
+        </div>
+      </div>
       {/* Full result */}
       <div
         className={cn(

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
-import { TooltipProvider, IconTip } from "@/components/ui/tooltip"
+import { IconTip } from "@/components/ui/tooltip"
 import { logger } from "@/lib/logger"
 import { Switch } from "@/components/ui/switch"
 import { Input } from "@/components/ui/input"
@@ -203,8 +203,7 @@ export default function SkillsPanel() {
     return (
       <div className="flex-1 flex flex-col min-h-0 overflow-y-auto p-6">
         <div className="max-w-4xl">
-          <TooltipProvider>
-            <button
+          <button
               onClick={() => setSelectedSkill(null)}
               className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-4"
             >
@@ -366,7 +365,6 @@ export default function SkillsPanel() {
                 {selectedSkill.content}
               </pre>
             </div>
-          </TooltipProvider>
         </div>
       </div>
     )
@@ -375,7 +373,6 @@ export default function SkillsPanel() {
   // ── Skills List View ───────────────────────────────────────────
   return (
     <div className="flex-1 min-h-0 overflow-y-auto p-6">
-      <TooltipProvider>
         <h2 className="text-lg font-semibold text-foreground mb-1">{t("settings.skills")}</h2>
         <p className="text-xs text-muted-foreground mb-4">{t("settings.skillsDesc")}</p>
 
@@ -570,7 +567,6 @@ export default function SkillsPanel() {
             })}
           </div>
         )}
-      </TooltipProvider>
     </div>
   )
 }

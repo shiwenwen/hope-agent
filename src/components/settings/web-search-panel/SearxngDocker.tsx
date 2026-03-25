@@ -3,7 +3,7 @@ import { invoke, Channel } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
-import { TooltipProvider, IconTip } from "@/components/ui/tooltip"
+import { IconTip } from "@/components/ui/tooltip"
 import {
   Circle,
   Download,
@@ -181,8 +181,7 @@ export function SearxngDockerSection({ onUrlSet }: { onUrlSet: (url: string) => 
               : t("settings.webSearchDockerStopped")}
           </span>
           {status.port && status.containerRunning && (
-            <TooltipProvider>
-              <IconTip label={t("settings.webSearchDockerFillUrl")}>
+            <IconTip label={t("settings.webSearchDockerFillUrl")}>
                 <button
                   type="button"
                   className="text-muted-foreground hover:text-primary underline decoration-dotted underline-offset-2 transition-colors"
@@ -191,7 +190,6 @@ export function SearxngDockerSection({ onUrlSet }: { onUrlSet: (url: string) => 
                   localhost:{status.port}
                 </button>
               </IconTip>
-            </TooltipProvider>
           )}
         </div>
       )}

@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
-import { TooltipProvider, IconTip } from "@/components/ui/tooltip"
+import { IconTip } from "@/components/ui/tooltip"
 import { Settings, Copy, BarChart3, Pencil } from "lucide-react"
 import { formatMessageTime } from "./chatUtils"
 import type { Message, AvailableModel, ActiveModel, SessionMeta } from "@/types/chat"
@@ -135,7 +135,6 @@ export default function ChatTitleBar({
         )}
       </div>
       <div className="flex items-end gap-1">
-        <TooltipProvider>
           {/* Session Status Button */}
           <div className="relative" ref={statusRef}>
             <IconTip label={t("chat.sessionStatus")}>
@@ -356,7 +355,6 @@ export default function ChatTitleBar({
               </button>
             </IconTip>
           )}
-        </TooltipProvider>
       </div>
     </div>
   )

@@ -191,7 +191,8 @@
     "image": "图像分析",
     "image_generate": "生成图片",
     "pdf": "读取 PDF",
-    "canvas": "画布"
+    "canvas": "画布",
+    "rawCall": "查看原始调用"
   },
   "toolGroup": {
     "browse": "已浏览 {{count}} 个文件",

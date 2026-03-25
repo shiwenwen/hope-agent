@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button"
 import {
   Tooltip,
   TooltipContent,
-  TooltipProvider,
   TooltipTrigger,
   IconTip,
 } from "@/components/ui/tooltip"
@@ -167,8 +166,7 @@ export default function ContextCompactPanel() {
   }
 
   return (
-    <TooltipProvider>
-      <div className="space-y-4">
+    <div className="space-y-4">
         <div className="border-t border-border/30 pt-4 mt-2">
           <h3 className="text-sm font-medium mb-1">{t("settings.contextCompact")}</h3>
           <p className="text-xs text-muted-foreground">{t("settings.contextCompactDesc")}</p>
@@ -451,6 +449,5 @@ export default function ContextCompactPanel() {
           </Button>
         </div>
       </div>
-    </TooltipProvider>
   )
 }

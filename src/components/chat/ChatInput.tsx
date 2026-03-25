@@ -5,7 +5,6 @@ import { Textarea } from "@/components/ui/textarea"
 import {
   Tooltip,
   TooltipContent,
-  TooltipProvider,
   TooltipTrigger,
   IconTip,
 } from "@/components/ui/tooltip"
@@ -146,8 +145,7 @@ export default function ChatInput({
   )
 
   return (
-    <TooltipProvider>
-      <div className="px-3 pb-3 pt-2">
+    <div className="px-3 pb-3 pt-2">
         <div className="relative rounded-2xl border border-border bg-card">
           {/* Slash Command Menu */}
           {slash.isOpen && (
@@ -444,6 +442,5 @@ export default function ChatInput({
           </div>
         </div>
       </div>
-    </TooltipProvider>
   )
 }

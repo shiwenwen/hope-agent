@@ -14,7 +14,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
-import { TooltipProvider, IconTip } from "@/components/ui/tooltip"
+import { IconTip } from "@/components/ui/tooltip"
 import {
   Archive,
   ChevronDown,
@@ -174,8 +174,7 @@ export default function CrashHistoryPanel() {
 
       {/* Header Actions */}
       <div className="flex items-center gap-2 flex-wrap">
-        <TooltipProvider>
-          <IconTip label={t("health.refreshTooltip")}>
+        <IconTip label={t("health.refreshTooltip")}>
             <Button variant="outline" size="sm" onClick={loadData} disabled={loading}>
               <RefreshCw className={cn("h-4 w-4 mr-1.5", loading && "animate-spin")} />
               {t("health.refresh")}
@@ -200,7 +199,6 @@ export default function CrashHistoryPanel() {
               {t("health.restart")}
             </Button>
           </IconTip>
-        </TooltipProvider>
 
         {crashes.length > 0 && (
           <AlertDialog>
