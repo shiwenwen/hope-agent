@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **ACP 协议支持（Agent Client Protocol）**：原生 Rust 实现 ACP 服务器，IDE（Zed/VS Code 等）可通过 stdio + NDJSON 直接连接 OpenComputer Agent
+  - 通过 `opencomputer acp` 子命令启动 ACP 服务器（支持 `--verbose`/`--agent-id`/`--help` 参数）
+  - 完整的 JSON-RPC 2.0 协议实现（NDJSON stdio 传输层）
+  - 会话管理：`session/new`、`session/load`（完整历史重放）、`session/list`、`session/close`
+  - Prompt 执行：流式事件映射（text_delta→agent_message_chunk、thinking_delta→agent_thought_chunk、tool_call/tool_result→tool_call/tool_call_update）
+  - 多 Agent 模式切换（`session/setMode`）+ 动态配置选项（`session/setConfigOption`）
+  - 完整 failover 支持：复用现有模型链降级策略（RateLimit 重试 + 多模型降级）
+  - 会话持久化：共享 SessionDB，ACP 会话与桌面端会话数据互通
+  - 新增 `src-tauri/src/acp/` 模块目录（7 个文件：`mod.rs`/`types.rs`/`protocol.rs`/`event_mapper.rs`/`session.rs`/`agent.rs`/`server.rs`）
 - **技能系统全面升级**：追平并超越 OpenClaw 的 skill 系统能力
   - **懒加载 Prompt 注入**：系统提示词仅注入技能目录（名称+描述+路径），LLM 按需 read SKILL.md 全文，大幅节省 token
   - **三层预算降级**：Full（名称+描述+路径）→ Compact（名称+路径）→ 二分搜索截断，确保技能数量增长不会溢出 prompt

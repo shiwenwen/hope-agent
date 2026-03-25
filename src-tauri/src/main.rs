@@ -22,6 +22,14 @@ const CRASH_WINDOW_SECS: u64 = 600; // 10 minutes
 const BACKOFF_DELAYS: [u64; 5] = [1, 3, 9, 15, 30];
 
 fn main() {
+    let args: Vec<String> = env::args().collect();
+
+    // ACP subcommand: `opencomputer acp` — runs the ACP stdio server
+    if args.len() >= 2 && args[1] == "acp" {
+        run_acp_server(&args[2..]);
+        return;
+    }
+
     if env::var("OPENCOMPUTER_CHILD").is_ok() {
         run_child();
     } else if cfg!(debug_assertions) {
@@ -298,5 +306,73 @@ fn run_child() {
                 eprintln!("[Child] Restarting after panic...");
             }
         }
+    }
+}
+
+// ── ACP Server Mode ────────────────────────────────────────────────
+
+fn run_acp_server(args: &[String]) {
+    let mut verbose = false;
+    let mut agent_id = "default".to_string();
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--verbose" | "-v" => verbose = true,
+            "--agent-id" | "-a" => {
+                i += 1;
+                if i < args.len() {
+                    agent_id = args[i].clone();
+                }
+            }
+            "--version" => {
+                println!("opencomputer-acp {}", env!("CARGO_PKG_VERSION"));
+                return;
+            }
+            "--help" | "-h" => {
+                println!("OpenComputer ACP Server");
+                println!();
+                println!("Usage: opencomputer acp [OPTIONS]");
+                println!();
+                println!("Options:");
+                println!("  --verbose, -v        Enable verbose logging to stderr");
+                println!("  --agent-id, -a ID    Use specific agent (default: \"default\")");
+                println!("  --version            Print version and exit");
+                println!("  --help, -h           Print help and exit");
+                return;
+            }
+            _ => {
+                eprintln!("[acp] Unknown argument: {}", args[i]);
+            }
+        }
+        i += 1;
+    }
+
+    if verbose {
+        eprintln!("[acp] Starting OpenComputer ACP server v{}", env!("CARGO_PKG_VERSION"));
+        eprintln!("[acp] Agent ID: {}", agent_id);
+        eprintln!("[acp] Protocol: NDJSON over stdio");
+    }
+
+    // Initialize SessionDB
+    let db_path = match app_lib::session::db_path() {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("[acp] Fatal: failed to resolve database path: {}", e);
+            std::process::exit(1);
+        }
+    };
+    let session_db = match app_lib::session::SessionDB::open(&db_path) {
+        Ok(db) => Arc::new(db),
+        Err(e) => {
+            eprintln!("[acp] Fatal: failed to open session database: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    // Run the ACP server (blocks on stdin)
+    if let Err(e) = app_lib::acp::server::start(session_db, agent_id, verbose) {
+        eprintln!("[acp] Server error: {}", e);
+        std::process::exit(1);
     }
 }

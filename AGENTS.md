@@ -64,6 +64,13 @@ src-tauri/src/          后端（Rust）
   crash_journal.rs      崩溃日志（JSON 持久化 + 信号映射 + 诊断结果记录）
   backup.rs             配置备份（创建/恢复/轮转 + 增量文件备份）
   self_diagnosis.rs     自诊断系统（多 Provider Failover LLM 调用 + 基础分析降级 + 保守自动修复）
+  acp/                  ACP 协议服务器（Agent Client Protocol，stdio + NDJSON + JSON-RPC 2.0，IDE 直连）
+    types.rs            ACP 协议类型（JSON-RPC 基础 + 会话/Prompt/事件全量 DTO）
+    protocol.rs         NDJSON 传输层（stdio 读写 + 序列化）
+    event_mapper.rs     Agent 事件 → ACP 通知映射
+    session.rs          ACP 会话存储（LRU 淘汰 + SessionDB 关联）
+    agent.rs            ACP Agent 核心（JSON-RPC 分发 + failover + 历史重放）
+    server.rs           ACP 服务器入口
 ```
 
 ## 技术栈
@@ -99,6 +106,7 @@ src-tauri/src/          后端（Rust）
 - **技能系统**：`skills.rs` 实现完整技能发现与管理系统。SKILL.md frontmatter 格式定义技能（name/description/requires/install/invocation policy）。三层目录发现（extra dirs → managed `~/.opencomputer/skills/` → project `.opencomputer/skills/`），支持嵌套 skills/ 子目录自动检测。**懒加载 Prompt 注入**：系统提示词仅注入目录（`- name: description (read: ~/path/SKILL.md)`），LLM 按需 read 全文。**三层预算降级**：Full（名称+描述+路径）→ Compact（名称+路径）→ 二分截断，`SkillPromptBudget` 可配置（max_count/max_chars/max_file_bytes/max_candidates_per_root）。**Requirements 增强**：bins（AND）+ anyBins（OR）+ env + os + config 路径 + always 标记 + primaryEnv。**调用策略**：`user-invocable`（默认 true）控制是否注册为斜杠命令，`disable-model-invocation`（默认 false）控制是否注入 prompt。**安装引导**：`install:` 块支持 brew/node/go/uv/download 五种方式，前端一键安装 + 二进制验证。**健康检查**：`check_all_skills_status()` 返回 `SkillStatusEntry`（eligible/disabled/blocked/missing_*），前端状态徽章。**缓存**：`AtomicU64` 版本号 + 30 秒 TTL，配置变更自动 `bump_skill_version()`。**Bundled Allowlist**：`skill_allow_bundled` 限制 bundled 技能可用集。14 个 Tauri 命令（含 `get_skills_status` / `install_skill_dependency`）。前端 `SkillsPanel.tsx` 管理（列表+详情+安装+健康状态）
 - **斜杠命令系统**：`slash_commands/` 模块实现 channel-agnostic 命令系统，16 个内置命令分 6 类（Session/Model/Memory/Agent/Utility/Skill）。后端 `registry.rs` 声明式命令注册表，`parser.rs` 文本解析（`/command args` 格式），`handlers/` 按类别拆分（session.rs/model.rs/memory.rs/agent.rs/utility.rs），dispatch 模式分发执行。**Skill 命令动态注册**：`user-invocable` 的技能自动注册为 Skill 分类的斜杠命令，名称规范化（小写+去重+32 字符截断）。支持 `command-dispatch: tool` + `command-tool` 绑定特定工具直接调用。3 个 Tauri 命令（`list_slash_commands` / `execute_slash_command` / `is_slash_command`），返回 `CommandResult`（content 文本 + `CommandAction` 枚举），各 channel（桌面端/Telegram/Discord 等）根据 action 类型执行对应副作用。前端 `SlashCommandMenu.tsx` 弹出菜单（按分类分组、键盘导航、模糊过滤，支持 `descriptionRaw` 直接展示技能描述），`useSlashCommands.ts` hook 管理输入检测和执行，`ChatInput.tsx` 集成 "/" 按钮和键盘拦截。模型切换支持模糊匹配（exact → prefix → contains），Agent 切换自动创建新 session。`/export` 导出为 Markdown（后端生成内容 + 前端 save dialog + `write_export_file`），`/search` 作为 PassThrough 注入给 LLM
 - **Docker 沙箱系统**：`sandbox.rs` 实现安全加固的 Docker 容器沙箱执行。`exec` 工具 `sandbox=true` 参数或 Agent `behavior.sandbox` 配置触发。默认镜像 `debian:bookworm-slim`。安全加固：只读根文件系统（`--read-only`）+ capability 全部移除（`--cap-drop ALL`）+ 禁止新权限（`--no-new-privileges`）+ 网络隔离（`--network none`）+ 进程数限制（`--pids-limit 256`）+ tmpfs 可写临时目录。环境变量过滤：`sanitize_env()` 拦截 20+ 种敏感变量模式（API_KEY/TOKEN/SECRET/PASSWORD 等），白名单放行 PATH/HOME/LANG 等。挂载路径校验：`validate_bind_mount()` 禁止挂载 `/etc`、`/proc`、`/sys`、`/dev`、`/root`、Docker socket 等系统路径，canonicalize 防 symlink 逃逸。`SandboxConfig` 持久化在 `~/.opencomputer/sandbox.json`（8 个可配置参数）。系统提示词 Section ⑪ 条件注入沙箱说明。设置面板 `SandboxPanel` 管理（Docker 可用性检测 + 镜像/资源/安全配置）。3 个 Tauri 命令（`get_sandbox_config` / `set_sandbox_config` / `check_sandbox_available`）
+- **ACP 协议支持**：`acp/` 模块实现原生 Agent Client Protocol 服务器，IDE（Zed/VS Code 等）通过 stdio + NDJSON（JSON-RPC 2.0）直连 OpenComputer Agent。`opencomputer acp` 子命令启动（`--verbose`/`--agent-id`）。完整会话生命周期（new/load/list/close）+ prompt 执行（流式事件映射）+ 历史重放（loadSession 从 SessionDB 重建完整对话）+ 多 Agent 模式切换 + failover 降级。共享 SessionDB 实现桌面端与 IDE 会话互通
 - **自愈式自动重启**：`main.rs` 实现 Guardian Process 架构，同一二进制通过 `OPENCOMPUTER_CHILD` 环境变量区分 Guardian/Child 模式。Guardian 监控子进程退出码，捕获所有崩溃类型（panic/segfault/OOM/abort），指数退避重启。连续崩溃 5 次触发 `backup.rs` 配置备份 + `self_diagnosis.rs` LLM 自诊断（多 Provider Failover + 基础分析降级），保守自动修复（仅 config/logs.db 损坏）。崩溃记录持久化到 `crash_journal.json`（JSON 格式，最近 50 条）。信号转发确保 Force Quit 不误判。退出码：0=正常、42=请求重启、其他=崩溃。设置面板 `CrashHistoryPanel` 管理崩溃历史和备份
 
 ## 编码规范
