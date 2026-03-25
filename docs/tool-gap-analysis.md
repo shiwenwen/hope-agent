@@ -100,7 +100,7 @@
 | `message` | 多渠道消息发送（Slack/Discord/Telegram/WhatsApp 等） | 需要先设计通道抽象层，OC 的 `send_notification` 仅覆盖桌面通知；OpenClaw 支持 auto-threading、reply-to 模式、group 路由 |
 | ~~`image_generate`~~ | ~~图片生成（DALL-E 等）~~ | ✅ `image_generate` 工具（OpenAI/Google/Fal 三 Provider，条件注入，图片保存到 `~/.opencomputer/generated-images/`） |
 | `tts` | 文本转语音 | 语音输出能力，OpenClaw 按 channel provider 条件启用 |
-| `canvas` | UI Canvas 控制 | 前端交互增强，动态渲染展示 |
+| ~~`canvas`~~ | ~~UI Canvas 控制~~ | ✅ `canvas` 工具（11 个 action：create/update/show/hide/snapshot/eval_js/list/delete/versions/restore/export，7 种内容类型，iframe 沙箱渲染 + 截图反馈 + 版本历史） |
 | `nodes` | 设备控制（摄像头/截屏/定位/通知/invoke） | IoT/设备集成，OpenClaw 支持 node 远程路由 + media invoke |
 | `gateway` | 网关配置管理（restart/config） | 平台运维能力，owner-only 权限控制 |
 
@@ -108,7 +108,7 @@
 
 | 分类 | OpenComputer | OpenClaw |
 |------|-------------|----------|
-| 总工具数 | **28** | **~28** + 插件 |
+| 总工具数 | **29** | **~28** + 插件 |
 | 文件系统（read/write/edit/ls/grep/find） | 6 | 6（pi-coding-agent） |
 | 执行（exec/process） | 2 | 2（bash-tools） |
 | 补丁（apply_patch） | 1 | 1（条件启用） |
@@ -120,11 +120,12 @@
 | 通知 / 消息 | 1（桌面通知） | 1（多渠道消息） |
 | Agent 管理 | 1（agents_list） | 1（agents_list） |
 | 多模态 / 媒体 | 3（image/image_generate/pdf） | 4（image/image_generate/tts/pdf） |
-| 平台特有 | 0 | 3（nodes/gateway/canvas） |
+| 画布 / Canvas | 1（canvas） | 1（canvas） |
+| 平台特有 | 0 | 2（nodes/gateway） |
 
 ## 补齐路线建议
 
 1. ~~**Phase 1**：会话管理能力（sessions_list/history/send/status + agents_list）~~ ✅ 已完成
 2. ~~**Phase 2**：多模态工具（image 视觉分析 + pdf 文档提取）~~ ✅ 已完成
 3. **Phase 3**：消息通道（message）+ ~~图片生成（image_generate）~~ ✅ — 扩展输出形式
-4. **Phase 4**：语音（tts）+ UI 交互（canvas）— 增强用户体验
+4. **Phase 4**：语音（tts）+ ~~UI 交互（canvas）~~ ✅ — 增强用户体验
