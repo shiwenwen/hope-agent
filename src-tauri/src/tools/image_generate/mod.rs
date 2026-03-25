@@ -17,13 +17,10 @@ mod fal;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ImageGenProvider {
     /// OpenAI DALL-E / gpt-image-1
-    #[serde(rename = "openai")]
     OpenAI,
     /// Google Gemini image generation
-    #[serde(rename = "google")]
     Google,
     /// Fal (Flux) image generation
-    #[serde(rename = "fal")]
     Fal,
 }
 

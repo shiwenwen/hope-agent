@@ -27,19 +27,14 @@ interface ImageGenConfig {
 
 const DEFAULT_CONFIG: ImageGenConfig = {
   providers: [
-    { id: "openai", enabled: false, apiKey: null, baseUrl: null, model: null },
-    { id: "google", enabled: false, apiKey: null, baseUrl: null, model: null },
-    { id: "fal", enabled: false, apiKey: null, baseUrl: null, model: null },
+    { id: "OpenAI", enabled: false, apiKey: null, baseUrl: null, model: null },
+    { id: "Google", enabled: false, apiKey: null, baseUrl: null, model: null },
+    { id: "Fal", enabled: false, apiKey: null, baseUrl: null, model: null },
   ],
   timeoutSeconds: 60,
   defaultSize: "1024x1024",
 }
 
-const PROVIDER_LABELS: Record<string, string> = {
-  "openai": "OpenAI",
-  "google": "Google",
-  "fal": "Fal",
-}
 
 const SIZE_OPTIONS = ["1024x1024", "1024x1536", "1536x1024"]
 
@@ -131,7 +126,7 @@ export default function ImageGeneratePanel() {
                 {/* Provider header with toggle */}
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium">
-                    {PROVIDER_LABELS[provider.id] ?? provider.id}
+                    {provider.id}
                   </span>
                   <Switch
                     checked={provider.enabled}
@@ -164,9 +159,9 @@ export default function ImageGeneratePanel() {
                         <Input
                           value={provider.baseUrl ?? ""}
                           placeholder={
-                            provider.id === "openai"
+                            provider.id === "OpenAI"
                               ? "https://api.openai.com"
-                              : provider.id === "google"
+                              : provider.id === "Google"
                                 ? "https://generativelanguage.googleapis.com"
                                 : "https://fal.run"
                           }
@@ -185,9 +180,9 @@ export default function ImageGeneratePanel() {
                         <Input
                           value={provider.model ?? ""}
                           placeholder={
-                            provider.id === "openai"
+                            provider.id === "OpenAI"
                               ? "gpt-image-1"
-                              : provider.id === "google"
+                              : provider.id === "Google"
                                 ? "gemini-2.0-flash-preview-image-generation"
                                 : "fal-ai/flux/dev"
                           }
