@@ -47,12 +47,38 @@ pub(super) async fn generate(
     let url = format!("{}/{}", base, model);
     let (w, h) = parse_size(size);
 
-    let client = Client::new();
+    // Log image generation request
+    if let Some(logger) = crate::get_logger() {
+        let prompt_preview = if prompt.len() > 500 {
+            format!("{}...", crate::truncate_utf8(prompt, 500))
+        } else {
+            prompt.to_string()
+        };
+        logger.log("debug", "tool", "image_generate::fal::request",
+            &format!("Fal image gen request: model={}, size={}x{}, n={}, url={}", model, w, h, n, url),
+            Some(serde_json::json!({
+                "api_url": &url,
+                "model": model,
+                "prompt_preview": prompt_preview,
+                "prompt_length": prompt.len(),
+                "size": size,
+                "width": w,
+                "height": h,
+                "n": n,
+                "timeout_secs": timeout_secs,
+            }).to_string()),
+            None, None);
+    }
+
+    let client = Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(30))
+        .timeout(std::time::Duration::from_secs(timeout_secs))
+        .build()?;
+    let request_start = std::time::Instant::now();
     let resp = client
         .post(&url)
         .header("Authorization", format!("Key {}", api_key))
         .header("Content-Type", "application/json")
-        .timeout(std::time::Duration::from_secs(timeout_secs))
         .json(&serde_json::json!({
             "prompt": prompt,
             "num_images": n,
@@ -62,9 +88,34 @@ pub(super) async fn generate(
         .send()
         .await?;
 
-    if !resp.status().is_success() {
-        let status = resp.status();
+    let status = resp.status();
+    let ttfb_ms = request_start.elapsed().as_millis() as u64;
+
+    // Log response status
+    if let Some(logger) = crate::get_logger() {
+        logger.log(
+            if status.is_success() { "debug" } else { "error" },
+            "tool", "image_generate::fal::response",
+            &format!("Fal image gen response: status={}, ttfb={}ms", status.as_u16(), ttfb_ms),
+            Some(serde_json::json!({
+                "status": status.as_u16(),
+                "ttfb_ms": ttfb_ms,
+            }).to_string()),
+            None, None);
+    }
+
+    if !status.is_success() {
         let body = resp.text().await.unwrap_or_default();
+        if let Some(logger) = crate::get_logger() {
+            logger.log("error", "tool", "image_generate::fal::error",
+                &format!("Fal image gen error ({}): {}",
+                    status.as_u16(), crate::truncate_utf8(&body, 500)),
+                Some(serde_json::json!({
+                    "status": status.as_u16(),
+                    "error_body": &body,
+                }).to_string()),
+                None, None);
+        }
         let preview = if body.len() > 300 {
             format!("{}...", &body[..300])
         } else {

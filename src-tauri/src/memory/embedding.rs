@@ -241,6 +241,29 @@ impl ApiEmbeddingProvider {
             body["dimensions"] = serde_json::json!(self.dimensions);
         }
 
+        // Log embedding API request
+        if let Some(logger) = crate::get_logger() {
+            let body_str = serde_json::to_string(&body).unwrap_or_default();
+            let body_size = body_str.len();
+            let body_preview = if body_size > 4096 {
+                format!("{}...(truncated, total {}B)", crate::truncate_utf8(&body_str, 4096), body_size)
+            } else {
+                body_str
+            };
+            logger.log("debug", "memory", "embedding::openai_compatible::request",
+                &format!("Embedding API request: {} texts, model={}, url={}, body {}B", texts.len(), self.model, url, body_size),
+                Some(serde_json::json!({
+                    "api_url": &url,
+                    "model": &self.model,
+                    "text_count": texts.len(),
+                    "dimensions": self.dimensions,
+                    "body_size_bytes": body_size,
+                    "request_body": body_preview,
+                }).to_string()),
+                None, None);
+        }
+
+        let request_start = std::time::Instant::now();
         let resp = self.client
             .post(&url)
             .header("Authorization", format!("Bearer {}", self.api_key))
@@ -250,7 +273,27 @@ impl ApiEmbeddingProvider {
             .context("Failed to call embedding API")?;
 
         let status = resp.status();
+        let ttfb_ms = request_start.elapsed().as_millis() as u64;
         let resp_text = resp.text()?;
+
+        // Log embedding API response
+        if let Some(logger) = crate::get_logger() {
+            let resp_preview = if resp_text.len() > 2048 {
+                format!("{}...(truncated, total {}B)", crate::truncate_utf8(&resp_text, 2048), resp_text.len())
+            } else {
+                resp_text.clone()
+            };
+            let level = if status.is_success() { "debug" } else { "error" };
+            logger.log(level, "memory", "embedding::openai_compatible::response",
+                &format!("Embedding API response: status={}, ttfb={}ms, body {}B", status.as_u16(), ttfb_ms, resp_text.len()),
+                Some(serde_json::json!({
+                    "status": status.as_u16(),
+                    "ttfb_ms": ttfb_ms,
+                    "response_size_bytes": resp_text.len(),
+                    "response_body": resp_preview,
+                }).to_string()),
+                None, None);
+        }
 
         if !status.is_success() {
             anyhow::bail!("Embedding API error {}: {}", status, resp_text);
@@ -275,7 +318,7 @@ impl ApiEmbeddingProvider {
 
     fn call_google(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
         let mut results = Vec::new();
-        for text in texts {
+        for (idx, text) in texts.iter().enumerate() {
             let url = format!(
                 "{}/v1beta/models/{}:embedContent?key={}",
                 self.base_url.trim_end_matches('/'),
@@ -293,6 +336,34 @@ impl ApiEmbeddingProvider {
                 body["outputDimensionality"] = serde_json::json!(self.dimensions);
             }
 
+            // Log Google embedding API request
+            if let Some(logger) = crate::get_logger() {
+                let text_preview = if text.len() > 200 {
+                    format!("{}...", crate::truncate_utf8(text, 200))
+                } else {
+                    text.clone()
+                };
+                // Redact API key from URL for logging
+                let safe_url = format!(
+                    "{}/v1beta/models/{}:embedContent?key=[REDACTED]",
+                    self.base_url.trim_end_matches('/'),
+                    self.model,
+                );
+                logger.log("debug", "memory", "embedding::google::request",
+                    &format!("Google Embedding API request [{}/{}]: model={}, text_len={}", idx + 1, texts.len(), self.model, text.len()),
+                    Some(serde_json::json!({
+                        "api_url": safe_url,
+                        "model": &self.model,
+                        "text_index": idx,
+                        "text_count": texts.len(),
+                        "text_length": text.len(),
+                        "text_preview": text_preview,
+                        "dimensions": self.dimensions,
+                    }).to_string()),
+                    None, None);
+            }
+
+            let request_start = std::time::Instant::now();
             let resp = self.client
                 .post(&url)
                 .header("Content-Type", "application/json")
@@ -301,7 +372,28 @@ impl ApiEmbeddingProvider {
                 .context("Failed to call Google embedding API")?;
 
             let status = resp.status();
+            let ttfb_ms = request_start.elapsed().as_millis() as u64;
             let resp_text = resp.text()?;
+
+            // Log Google embedding API response
+            if let Some(logger) = crate::get_logger() {
+                let resp_preview = if resp_text.len() > 2048 {
+                    format!("{}...(truncated, total {}B)", crate::truncate_utf8(&resp_text, 2048), resp_text.len())
+                } else {
+                    resp_text.clone()
+                };
+                let level = if status.is_success() { "debug" } else { "error" };
+                logger.log(level, "memory", "embedding::google::response",
+                    &format!("Google Embedding API response [{}/{}]: status={}, ttfb={}ms, body {}B", idx + 1, texts.len(), status.as_u16(), ttfb_ms, resp_text.len()),
+                    Some(serde_json::json!({
+                        "status": status.as_u16(),
+                        "ttfb_ms": ttfb_ms,
+                        "text_index": idx,
+                        "response_size_bytes": resp_text.len(),
+                        "response_body": resp_preview,
+                    }).to_string()),
+                    None, None);
+            }
 
             if !status.is_success() {
                 anyhow::bail!("Google Embedding API error {}: {}", status, resp_text);

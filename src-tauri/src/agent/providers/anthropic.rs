@@ -103,9 +103,17 @@ impl AssistantAgent {
                 body["thinking"] = think_config.clone();
             }
 
-            // Log API request details
+            // Log API request details (including raw body for debugging)
+            let body_str = serde_json::to_string(&body).unwrap_or_default();
             if let Some(logger) = crate::get_logger() {
-                let body_size = serde_json::to_string(&body).map(|s| s.len()).unwrap_or(0);
+                let body_size = body_str.len();
+                // Truncate body to 32KB and redact sensitive values
+                let raw_body = if body_size > 32768 {
+                    format!("{}...(truncated, total {}B)", crate::truncate_utf8(&body_str, 32768), body_size)
+                } else {
+                    body_str.clone()
+                };
+                let raw_body = crate::logging::redact_sensitive(&raw_body);
                 logger.log("debug", "agent", "agent::chat_anthropic::request",
                     &format!("Anthropic API request round {}: {} messages, {} tools, body {}B",
                         round, messages.len(), tool_schemas.len(), body_size),
@@ -117,6 +125,7 @@ impl AssistantAgent {
                         "tool_count": tool_schemas.len(),
                         "body_size_bytes": body_size,
                         "thinking_enabled": thinking.is_some(),
+                        "request_body": raw_body,
                     }).to_string()),
                     None, None);
             }
@@ -132,15 +141,28 @@ impl AssistantAgent {
                 .await
                 .map_err(|e| anyhow::anyhow!("Anthropic API request failed: {}", e))?;
 
-            // Log API response status
+            // Log API response status with headers
             if let Some(logger) = crate::get_logger() {
                 let status = resp.status().as_u16();
-                let request_id = resp.headers().get("x-request-id")
-                    .or_else(|| resp.headers().get("request-id"))
+                let headers = resp.headers();
+                let request_id = headers.get("x-request-id")
+                    .or_else(|| headers.get("request-id"))
                     .and_then(|v| v.to_str().ok())
                     .unwrap_or("-")
                     .to_string();
                 let ttfb_ms = request_start.elapsed().as_millis() as u64;
+                // Collect useful response headers for debugging
+                let response_headers = json!({
+                    "x-request-id": request_id,
+                    "x-ratelimit-limit-requests": headers.get("x-ratelimit-limit-requests").and_then(|v| v.to_str().ok()),
+                    "x-ratelimit-limit-tokens": headers.get("x-ratelimit-limit-tokens").and_then(|v| v.to_str().ok()),
+                    "x-ratelimit-remaining-requests": headers.get("x-ratelimit-remaining-requests").and_then(|v| v.to_str().ok()),
+                    "x-ratelimit-remaining-tokens": headers.get("x-ratelimit-remaining-tokens").and_then(|v| v.to_str().ok()),
+                    "x-ratelimit-reset-requests": headers.get("x-ratelimit-reset-requests").and_then(|v| v.to_str().ok()),
+                    "x-ratelimit-reset-tokens": headers.get("x-ratelimit-reset-tokens").and_then(|v| v.to_str().ok()),
+                    "anthropic-model-id": headers.get("anthropic-model-id").and_then(|v| v.to_str().ok()),
+                    "retry-after": headers.get("retry-after").and_then(|v| v.to_str().ok()),
+                });
                 logger.log("debug", "agent", "agent::chat_anthropic::response",
                     &format!("Anthropic API response: status={}, request_id={}, ttfb={}ms", status, request_id, ttfb_ms),
                     Some(json!({
@@ -148,6 +170,7 @@ impl AssistantAgent {
                         "request_id": request_id,
                         "ttfb_ms": ttfb_ms,
                         "round": round,
+                        "response_headers": response_headers,
                     }).to_string()),
                     None, None);
             }
@@ -216,10 +239,53 @@ impl AssistantAgent {
 
                 emit_tool_call(on_delta, &tc.call_id, &tc.name, &tc.arguments);
 
+                // Log tool execution input
+                if let Some(logger) = crate::get_logger() {
+                    let args_str = tc.arguments.as_str();
+                    let args_preview = if args_str.len() > 2048 {
+                        format!("{}...(truncated, total {}B)", crate::truncate_utf8(args_str, 2048), args_str.len())
+                    } else {
+                        args_str.to_string()
+                    };
+                    logger.log("debug", "agent", "agent::tool_exec::input",
+                        &format!("Tool exec [{}] id={}", tc.name, tc.call_id),
+                        Some(json!({
+                            "tool_name": tc.name,
+                            "call_id": tc.call_id,
+                            "arguments": args_preview,
+                            "round": round,
+                        }).to_string()),
+                        None, None);
+                }
+
+                let tool_start = std::time::Instant::now();
                 let result = match tools::execute_tool_with_context(&tc.name, &args, &self.tool_context()).await {
                     Ok(r) => r,
                     Err(e) => format!("Tool error: {}", e),
                 };
+                let tool_elapsed_ms = tool_start.elapsed().as_millis() as u64;
+
+                // Log tool execution output
+                if let Some(logger) = crate::get_logger() {
+                    let result_preview = if result.len() > 2048 {
+                        format!("{}...(truncated, total {}B)", crate::truncate_utf8(&result, 2048), result.len())
+                    } else {
+                        result.clone()
+                    };
+                    let is_error = result.starts_with("Tool error:");
+                    logger.log(if is_error { "warn" } else { "debug" }, "agent", "agent::tool_exec::output",
+                        &format!("Tool result [{}] {}B, {}ms{}", tc.name, result.len(), tool_elapsed_ms, if is_error { " (ERROR)" } else { "" }),
+                        Some(json!({
+                            "tool_name": tc.name,
+                            "call_id": tc.call_id,
+                            "result_size_bytes": result.len(),
+                            "elapsed_ms": tool_elapsed_ms,
+                            "is_error": is_error,
+                            "result_preview": result_preview,
+                            "round": round,
+                        }).to_string()),
+                        None, None);
+                }
 
                 emit_tool_result(on_delta, &tc.call_id, &result);
 

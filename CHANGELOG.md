@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **API 请求/响应全链路日志增强**：大幅提升所有外部 API 调用的 debug 级别日志详细度，覆盖 Agent Provider、Embedding、图片生成三大模块
+  - **Agent Provider（4 个）**：原始请求体（脱敏+截断 32KB）、响应头（rate limit/model version/request-id/retry-after）、工具执行全链路（参数/结果/耗时/错误标记）
+  - **Embedding API（OpenAI/Google）**：请求参数（model/text_count/dimensions/body）、响应状态（status/ttfb/body 摘要）、Google 逐条请求日志
+  - **图片生成 API（OpenAI/Google/Fal）**：请求参数（model/prompt 预览/size/n）、响应状态（status/ttfb/request-id）、错误响应体完整记录
+
 ### Added
 - **画布工具（canvas）**：新增第 29 个内置工具，支持交互式可视化内容创作
   - **7 种内容类型**：HTML/CSS/JS（Web 应用、游戏、动画）、Markdown（富文档）、Code（语法高亮）、SVG（矢量图形）、Mermaid（图表）、Chart（Chart.js 数据可视化）、Slides（演示文稿）

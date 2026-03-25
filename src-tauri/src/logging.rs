@@ -767,7 +767,6 @@ pub fn current_log_file_path() -> Result<String> {
 // ── Sensitive Data Redaction ─────────────────────────────────────
 
 /// Redact potentially sensitive values from a JSON string for logging.
-#[allow(dead_code)]
 pub fn redact_sensitive(input: &str) -> String {
     let sensitive_keys = [
         "api_key", "apiKey", "api-key",
