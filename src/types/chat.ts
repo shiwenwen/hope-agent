@@ -100,6 +100,7 @@ export interface SessionMessage {
   toolResult?: string | null
   toolDurationMs?: number | null
   isError?: boolean | null
+  thinking?: string | null
 }
 
 export interface AgentSummaryForSidebar {

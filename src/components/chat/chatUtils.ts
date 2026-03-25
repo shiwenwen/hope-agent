@@ -190,11 +190,16 @@ export function parseSessionMessages(
             outputTokens: msg.tokensOut || undefined,
           }
         : undefined
+      // Prepend thinking block if present (from DB history)
+      if (msg.thinking) {
+        blocks.unshift({ type: "thinking", content: msg.thinking })
+      }
       displayMessages.push({
         role: "assistant",
         content: msg.content,
         contentBlocks: blocks.length > 0 ? blocks : undefined,
         toolCalls,
+        thinking: msg.thinking || undefined,
         timestamp: msg.timestamp,
         usage,
         model: msg.model || undefined,
