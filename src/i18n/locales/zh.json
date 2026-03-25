@@ -1096,7 +1096,10 @@
     "snapshot": "截图",
     "export": "导出",
     "versions": "版本历史",
-    "openPreview": "打开预览"
+    "openPreview": "打开预览",
+    "popOut": "独立窗口",
+    "popOutActive": "已在独立窗口中打开",
+    "reattach": "收回到面板"
   },
   "dashboard": {
     "title": "数据大盘",

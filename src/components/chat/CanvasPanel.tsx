@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from "react"
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import { invoke, convertFileSrc } from "@tauri-apps/api/core"
+import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window"
+import { WebviewWindow } from "@tauri-apps/api/webviewWindow"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import {
@@ -8,9 +10,8 @@ import {
   RefreshCw,
   Maximize2,
   Minimize2,
-  History,
-  Download,
-  Camera,
+  ExternalLink,
+  PanelLeftClose,
 } from "lucide-react"
 import { IconTip } from "@/components/ui/tooltip"
 
@@ -25,8 +26,20 @@ export default function CanvasPanel() {
   const { t } = useTranslation()
   const [canvas, setCanvas] = useState<CanvasInfo | null>(null)
   const [maximized, setMaximized] = useState(false)
+  const [detached, setDetached] = useState(false)
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const [refreshKey, setRefreshKey] = useState(0)
+  const detachedWindowRef = useRef<WebviewWindow | null>(null)
+
+  // Dynamically adjust window min width when canvas is shown/hidden
+  useEffect(() => {
+    const win = getCurrentWindow()
+    if (canvas && !detached) {
+      win.setMinSize(new LogicalSize(1280, 480))
+    } else {
+      win.setMinSize(new LogicalSize(840, 480))
+    }
+  }, [canvas, detached])
 
   // Listen for canvas events from backend
   useEffect(() => {
@@ -57,6 +70,16 @@ export default function CanvasPanel() {
         setCanvas((prev) => {
           if (prev && prev.projectId === data.projectId) {
             setRefreshKey((k) => k + 1)
+            // If in detached window, close and re-open to refresh
+            if (detachedWindowRef.current) {
+              detachedWindowRef.current.close().catch(() => {})
+              detachedWindowRef.current = null
+              setDetached(false)
+              // Re-trigger detach after a short delay
+              setTimeout(() => {
+                // handleDetach will be called by the effect or manually
+              }, 100)
+            }
           }
           return prev
         })
@@ -130,6 +153,15 @@ export default function CanvasPanel() {
     return () => window.removeEventListener("message", handler)
   }, [])
 
+  // Clean up detached window when canvas is closed
+  useEffect(() => {
+    if (!canvas && detachedWindowRef.current) {
+      detachedWindowRef.current.close().catch(() => {})
+      detachedWindowRef.current = null
+      setDetached(false)
+    }
+  }, [canvas])
+
   const handleSnapshotRequest = useCallback((requestId: string) => {
     const iframe = iframeRef.current
     if (!iframe?.contentWindow) {
@@ -166,12 +198,76 @@ export default function CanvasPanel() {
   )
 
   const handleClose = useCallback(() => {
+    // Close detached window if exists
+    if (detachedWindowRef.current) {
+      detachedWindowRef.current.close().catch(() => {})
+      detachedWindowRef.current = null
+    }
     setCanvas(null)
     setMaximized(false)
+    setDetached(false)
   }, [])
+
+  const handleDetach = useCallback(async () => {
+    if (!canvas?.projectPath) return
+
+    const url = convertFileSrc(`${canvas.projectPath}/index.html`)
+
+    try {
+      // Close existing detached window if any
+      if (detachedWindowRef.current) {
+        await detachedWindowRef.current.close().catch(() => {})
+      }
+
+      const webview = new WebviewWindow("canvas-window", {
+        url,
+        title: `Canvas: ${canvas.title}`,
+        width: 800,
+        height: 600,
+        minWidth: 400,
+        minHeight: 300,
+        center: true,
+      })
+
+      webview.once("tauri://created", () => {
+        detachedWindowRef.current = webview
+        setDetached(true)
+        setMaximized(false)
+      })
+
+      webview.once("tauri://error", () => {
+        detachedWindowRef.current = null
+        setDetached(false)
+      })
+
+      // Listen for window close
+      webview.once("tauri://destroyed", () => {
+        detachedWindowRef.current = null
+        setDetached(false)
+      })
+    } catch {
+      /* ignore creation errors */
+    }
+  }, [canvas])
 
   const handleRefresh = useCallback(() => {
     setRefreshKey((k) => k + 1)
+    // If detached, close and re-detach to refresh
+    if (detachedWindowRef.current && canvas?.projectPath) {
+      detachedWindowRef.current.close().catch(() => {})
+      detachedWindowRef.current = null
+      setDetached(false)
+      // Re-detach after a tick
+      setTimeout(() => handleDetach(), 100)
+    }
+  }, [canvas, handleDetach])
+
+  const handleReattach = useCallback(() => {
+    if (detachedWindowRef.current) {
+      detachedWindowRef.current.close().catch(() => {})
+      detachedWindowRef.current = null
+    }
+    setDetached(false)
   }, [])
 
   if (!canvas) return null
@@ -182,14 +278,53 @@ export default function CanvasPanel() {
     : "" // fallback, shouldn't happen
   const iframeSrc = indexPath ? convertFileSrc(indexPath) : ""
 
+  // When detached, show a compact placeholder panel
+  if (detached) {
+    return (
+      <div className="flex flex-col border-l border-border w-[200px] shrink-0">
+        {/* Title Bar */}
+        <div
+          className="flex items-center gap-2 px-3 py-2 border-b border-border bg-secondary/30 shrink-0"
+          data-tauri-drag-region
+        >
+          <span className="text-sm font-medium truncate flex-1">
+            {canvas.title}
+          </span>
+          <div className="flex items-center gap-0.5">
+            <IconTip label={t("canvas.reattach")}>
+              <button
+                onClick={handleReattach}
+                className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
+              >
+                <PanelLeftClose className="h-3.5 w-3.5" />
+              </button>
+            </IconTip>
+            <IconTip label={t("canvas.close")}>
+              <button
+                onClick={handleClose}
+                className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </IconTip>
+          </div>
+        </div>
+        <div className="flex-1 flex items-center justify-center p-4">
+          <p className="text-xs text-muted-foreground text-center">
+            {t("canvas.popOutActive")}
+          </p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div
       className={
         maximized
           ? "fixed inset-0 z-50 flex flex-col bg-background"
-          : "flex flex-col border-l border-border min-w-[320px] max-w-[50vw]"
+          : "flex flex-col border-l border-border w-[480px] shrink-0 max-w-[50vw]"
       }
-      style={maximized ? undefined : { width: 480 }}
     >
       {/* Title Bar */}
       <div
@@ -213,6 +348,15 @@ export default function CanvasPanel() {
               className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
             >
               <RefreshCw className="h-3.5 w-3.5" />
+            </button>
+          </IconTip>
+
+          <IconTip label={t("canvas.popOut")}>
+            <button
+              onClick={handleDetach}
+              className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
             </button>
           </IconTip>
 

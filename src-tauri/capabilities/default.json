@@ -3,12 +3,17 @@
   "identifier": "default",
   "description": "enables the default permissions",
   "windows": [
-    "main"
+    "main",
+    "canvas-window"
   ],
   "permissions": [
     "core:default",
     "core:event:default",
+    "core:window:allow-create",
+    "core:window:allow-close",
+    "core:window:allow-set-min-size",
     "core:window:allow-start-dragging",
+    "core:webview:allow-create-webview-window",
     "dialog:default",
     "autostart:allow-enable",
     "autostart:allow-disable",

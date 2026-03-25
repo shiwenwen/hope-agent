@@ -1096,7 +1096,10 @@
     "snapshot": "Snapshot",
     "export": "Export",
     "versions": "Version History",
-    "openPreview": "Open Preview"
+    "openPreview": "Open Preview",
+    "popOut": "Pop Out",
+    "popOutActive": "Opened in separate window",
+    "reattach": "Back to Panel"
   },
   "dashboard": {
     "title": "Dashboard",
