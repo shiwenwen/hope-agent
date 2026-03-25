@@ -469,7 +469,7 @@ pub fn query_tool_usage(
          FROM messages m
          JOIN sessions s ON s.id = m.session_id
          {}
-           AND m.tool_name IS NOT NULL
+           AND m.tool_name IS NOT NULL AND m.tool_name != ''
          GROUP BY m.tool_name
          ORDER BY call_count DESC",
         f.where_sql

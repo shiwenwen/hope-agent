@@ -378,6 +378,18 @@ impl SessionDB {
         Ok(msg_id)
     }
 
+    /// Update an existing tool_call message with result, duration, and is_error.
+    /// Matches by session_id + tool_call_id to find the original tool_call record.
+    pub fn update_tool_result(&self, session_id: &str, call_id: &str, result: &str, duration_ms: Option<i64>, is_error: bool) -> Result<()> {
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        conn.execute(
+            "UPDATE messages SET tool_result = ?1, tool_duration_ms = ?2, is_error = ?3
+             WHERE session_id = ?4 AND tool_call_id = ?5",
+            params![result, duration_ms, if is_error { 1i64 } else { 0i64 }, session_id, call_id],
+        )?;
+        Ok(())
+    }
+
     /// Update session title.
     pub fn update_session_title(&self, session_id: &str, title: &str) -> Result<()> {
         let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;

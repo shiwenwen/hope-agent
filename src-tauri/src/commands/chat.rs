@@ -728,17 +728,10 @@ fn persist_tool_event(db: &Arc<SessionDB>, session_id: &str, delta: &str) {
             Some("tool_result") => {
                 let call_id = event.get("call_id").and_then(|v| v.as_str()).unwrap_or("");
                 let result = event.get("result").and_then(|v| v.as_str()).unwrap_or("");
-                // We need the tool name, but tool_result events may not have it.
-                // Use call_id as fallback for now.
-                let tool_msg = session::NewMessage::tool(
-                    call_id,
-                    "", // name filled from tool_call event
-                    "",
-                    result,
-                    None,
-                    false,
-                );
-                let _ = db.append_message(session_id, &tool_msg);
+                let duration_ms = event.get("duration_ms").and_then(|v| v.as_i64());
+                let is_error = event.get("is_error").and_then(|v| v.as_bool()).unwrap_or(false);
+                // Update the existing tool_call record with result/duration/is_error
+                let _ = db.update_tool_result(session_id, call_id, result, duration_ms, is_error);
             }
             Some("tool_call") => {
                 let call_id = event.get("call_id").and_then(|v| v.as_str()).unwrap_or("");

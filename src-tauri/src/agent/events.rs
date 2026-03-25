@@ -24,11 +24,14 @@ pub(super) fn emit_tool_call(on_delta: &(impl Fn(&str) + Send), call_id: &str, n
     }));
 }
 
-pub(super) fn emit_tool_result(on_delta: &(impl Fn(&str) + Send), call_id: &str, result: &str) {
+pub(super) fn emit_tool_result(on_delta: &(impl Fn(&str) + Send), call_id: &str, name: &str, result: &str, duration_ms: u64, is_error: bool) {
     emit_event(on_delta, &json!({
         "type": "tool_result",
         "call_id": call_id,
+        "name": name,
         "result": result,
+        "duration_ms": duration_ms,
+        "is_error": is_error,
     }));
 }
 

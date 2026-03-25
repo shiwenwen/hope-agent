@@ -287,7 +287,8 @@ impl AssistantAgent {
                         None, None);
                 }
 
-                emit_tool_result(on_delta, &tc.call_id, &result);
+                let is_tool_error = result.starts_with("Tool error:");
+                emit_tool_result(on_delta, &tc.call_id, &tc.name, &result, tool_elapsed_ms, is_tool_error);
 
                 tool_results.push(json!({
                     "type": "tool_result",
