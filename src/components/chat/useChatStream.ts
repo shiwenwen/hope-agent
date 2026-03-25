@@ -213,12 +213,13 @@ export function useChatStream({
               const updated = [...prev]
               const last = updated[updated.length - 1]
               if (last?.role === "assistant" && last.toolCalls) {
+                const mediaUrls: string[] | undefined = ev.media_urls?.length ? ev.media_urls : undefined
                 const toolCalls = last.toolCalls.map((tc) =>
-                  tc.callId === ev.call_id ? { ...tc, result: ev.result } : tc,
+                  tc.callId === ev.call_id ? { ...tc, result: ev.result, ...(mediaUrls && { mediaUrls }) } : tc,
                 )
                 const blocks = (last.contentBlocks || []).map((b) =>
                   b.type === "tool_call" && b.tool?.callId === ev.call_id
-                    ? { ...b, tool: { ...b.tool!, result: ev.result } }
+                    ? { ...b, tool: { ...b.tool!, result: ev.result, ...(mediaUrls && { mediaUrls }) } }
                     : b,
                 )
                 updated[updated.length - 1] = {
@@ -504,10 +505,11 @@ export function useChatStream({
                 break
               }
               case "tool_result": {
+                const mediaUrls: string[] | undefined = event.media_urls?.length ? event.media_urls : undefined
                 const calls = [...(last.toolCalls || [])]
                 const idx = calls.findIndex((c) => c.callId === event.call_id)
                 if (idx >= 0) {
-                  calls[idx] = { ...calls[idx], result: event.result }
+                  calls[idx] = { ...calls[idx], result: event.result, ...(mediaUrls && { mediaUrls }) }
                 }
                 const blocks: ContentBlock[] = [...(last.contentBlocks || [])]
                 const blockIdx = blocks.findIndex(
@@ -516,11 +518,11 @@ export function useChatStream({
                 if (blockIdx >= 0) {
                   const block = blocks[blockIdx] as {
                     type: "tool_call"
-                    tool: { callId: string; name: string; arguments: string; result?: string }
+                    tool: { callId: string; name: string; arguments: string; result?: string; mediaUrls?: string[] }
                   }
                   blocks[blockIdx] = {
                     type: "tool_call",
-                    tool: { ...block.tool, result: event.result },
+                    tool: { ...block.tool, result: event.result, ...(mediaUrls && { mediaUrls }) },
                   }
                 }
                 updated[updated.length - 1] = {

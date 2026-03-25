@@ -1,6 +1,7 @@
 use anyhow::Result;
 use serde_json::Value;
 
+use super::browser::IMAGE_BASE64_PREFIX;
 use super::expand_tilde;
 use super::read::{detect_image_mime, resize_image_if_needed};
 
@@ -31,17 +32,20 @@ pub(crate) async fn tool_image(args: &Value) -> Result<String> {
 
     let (b64, final_mime) = resize_image_if_needed(&data, mime)?;
 
-    let mut output = String::new();
+    let mut description = String::new();
     if !prompt.is_empty() {
-        output.push_str(&format!("Image analysis prompt: {}\n\n", prompt));
+        description.push_str(&format!("Image analysis prompt: {}\n\n", prompt));
     }
-    output.push_str(&format!(
-        "Read image file [{}] ({} bytes, {})\nbase64:{}",
+    description.push_str(&format!(
+        "Read image file [{}] ({} bytes, {})",
         final_mime,
         data.len(),
         path,
-        b64,
     ));
 
-    Ok(output)
+    // Use IMAGE_BASE64_PREFIX so the model can actually see the image via vision
+    Ok(format!(
+        "{}{}__{}__\n{}",
+        IMAGE_BASE64_PREFIX, final_mime, b64, description,
+    ))
 }

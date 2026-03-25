@@ -3,6 +3,7 @@ export interface ToolCall {
   name: string
   arguments: string
   result?: string
+  mediaUrls?: string[]
 }
 
 export interface MessageUsage {

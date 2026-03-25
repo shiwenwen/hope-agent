@@ -1,11 +1,9 @@
 use anyhow::Result;
-use base64::Engine;
 use chrono::Local;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::provider;
-use crate::tools::browser::IMAGE_BASE64_PREFIX;
 
 mod openai;
 mod google;
@@ -275,11 +273,7 @@ pub(crate) async fn tool_image_generate(args: &Value) -> Result<String> {
         }
     }
 
-    // Build result string
-    // First image: use IMAGE_BASE64_PREFIX so the LLM can see it
-    let first = &images[0];
-    let b64 = base64::engine::general_purpose::STANDARD.encode(&first.data);
-
+    // Build result string with __MEDIA_URLS__ prefix for frontend image display
     let mut text_parts = Vec::new();
     text_parts.push(format!(
         "Generated {} image{} with {}/{}.",
@@ -292,15 +286,15 @@ pub(crate) async fn tool_image_generate(args: &Value) -> Result<String> {
     for path in &saved_paths {
         text_parts.push(format!("Saved to: {}", path));
     }
-    if let Some(ref rp) = first.revised_prompt {
+    if let Some(ref rp) = images[0].revised_prompt {
         text_parts.push(format!("Revised prompt: {}", rp));
     }
 
+    // Embed media URLs so the event system can extract them for frontend display
+    let media_urls_json = serde_json::to_string(&saved_paths).unwrap_or_default();
     let result = format!(
-        "{}{}__{}\n{}",
-        IMAGE_BASE64_PREFIX,
-        first.mime,
-        b64,
+        "__MEDIA_URLS__{}\n{}",
+        media_urls_json,
         text_parts.join("\n")
     );
 

@@ -24,15 +24,36 @@ pub(super) fn emit_tool_call(on_delta: &(impl Fn(&str) + Send), call_id: &str, n
     }));
 }
 
-pub(super) fn emit_tool_result(on_delta: &(impl Fn(&str) + Send), call_id: &str, name: &str, result: &str, duration_ms: u64, is_error: bool) {
-    emit_event(on_delta, &json!({
+/// Media URL prefix used by tools (e.g. image_generate) to embed file paths in results.
+const MEDIA_URLS_PREFIX: &str = "__MEDIA_URLS__";
+
+/// Extract media URLs from a tool result string.
+/// Returns (clean_result, media_urls).
+/// If the result starts with `__MEDIA_URLS__[...]`, the JSON array is parsed and removed.
+pub(super) fn extract_media_urls(result: &str) -> (String, Vec<String>) {
+    if let Some(rest) = result.strip_prefix(MEDIA_URLS_PREFIX) {
+        if let Some((json_line, text)) = rest.split_once('\n') {
+            if let Ok(urls) = serde_json::from_str::<Vec<String>>(json_line) {
+                return (text.to_string(), urls);
+            }
+        }
+    }
+    (result.to_string(), Vec::new())
+}
+
+pub(super) fn emit_tool_result(on_delta: &(impl Fn(&str) + Send), call_id: &str, name: &str, result: &str, duration_ms: u64, is_error: bool, media_urls: &[String]) {
+    let mut event = json!({
         "type": "tool_result",
         "call_id": call_id,
         "name": name,
         "result": result,
         "duration_ms": duration_ms,
         "is_error": is_error,
-    }));
+    });
+    if !media_urls.is_empty() {
+        event["media_urls"] = json!(media_urls);
+    }
+    emit_event(on_delta, &event);
 }
 
 /// Build tool result content, detecting image base64 markers for multimodal responses.

@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react"
 import { useTranslation } from "react-i18next"
+import { convertFileSrc } from "@tauri-apps/api/core"
 import {
   ChevronRight,
   Terminal,
@@ -222,6 +223,27 @@ export default function ToolCallBlock({ tool }: { tool: ToolCall }) {
           </span>
         </IconTip>
       </button>
+      {/* Media images (e.g. from image_generate) */}
+      {tool.mediaUrls && tool.mediaUrls.length > 0 && (
+        <div className="ml-5 mt-1.5 mb-1 flex flex-wrap gap-2">
+          {tool.mediaUrls.map((url, i) => (
+            <a
+              key={i}
+              href={convertFileSrc(url)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block rounded-lg overflow-hidden border border-border/50 hover:border-primary/40 transition-colors"
+            >
+              <img
+                src={convertFileSrc(url)}
+                alt={`Generated image ${i + 1}`}
+                className="max-w-72 max-h-72 object-contain bg-secondary/30"
+                loading="lazy"
+              />
+            </a>
+          ))}
+        </div>
+      )}
       {/* Raw tool call */}
       <div
         className={cn(

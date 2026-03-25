@@ -131,11 +131,22 @@ export function parseSessionMessages(
         subagentResultAgentId,
       })
     } else if (msg.role === "tool" && msg.toolCallId) {
+      // Extract mediaUrls from image_generate tool results (for DB-loaded history)
+      let mediaUrls: string[] | undefined
+      if (msg.toolName === "image_generate" && msg.toolResult) {
+        const paths = msg.toolResult
+          .split("\n")
+          .filter((l) => l.startsWith("Saved to: "))
+          .map((l) => l.slice("Saved to: ".length).trim())
+          .filter(Boolean)
+        if (paths.length > 0) mediaUrls = paths
+      }
       const tool: ToolCall = {
         callId: msg.toolCallId,
         name: msg.toolName || "",
         arguments: msg.toolArguments || "",
         result: msg.toolResult || undefined,
+        mediaUrls,
       }
       // Check if already exists in pendingTools (merge result)
       const existing = pendingTools.find((c) => c.callId === msg.toolCallId)

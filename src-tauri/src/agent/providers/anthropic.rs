@@ -10,7 +10,7 @@ use super::super::config::{build_api_url, get_max_tool_rounds, map_think_anthrop
 use super::super::content::build_user_content_anthropic;
 use super::super::events::{
     build_anthropic_tool_result_content, emit_text_delta, emit_thinking_delta,
-    emit_tool_call, emit_tool_result, emit_usage,
+    emit_tool_call, emit_tool_result, emit_usage, extract_media_urls,
 };
 use super::super::types::{AssistantAgent, ChatUsage};
 
@@ -289,12 +289,13 @@ impl AssistantAgent {
                 }
 
                 let is_tool_error = result.starts_with("Tool error:");
-                emit_tool_result(on_delta, &tc.call_id, &tc.name, &result, tool_elapsed_ms, is_tool_error);
+                let (clean_result, media_urls) = extract_media_urls(&result);
+                emit_tool_result(on_delta, &tc.call_id, &tc.name, &clean_result, tool_elapsed_ms, is_tool_error, &media_urls);
 
                 tool_results.push(json!({
                     "type": "tool_result",
                     "tool_use_id": tc.call_id,
-                    "content": build_anthropic_tool_result_content(&result),
+                    "content": build_anthropic_tool_result_content(&clean_result),
                 }));
             }
             messages.push(json!({ "role": "user", "content": tool_results }));
