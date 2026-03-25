@@ -156,7 +156,7 @@ export default function ProviderEditPage({
   return (
     <div className="flex flex-col h-full bg-background">
       {/* Header */}
-      <div className="h-11 flex items-center px-4 border-b border-border shrink-0">
+      <div className="h-11 flex items-center px-4 border-b border-border shrink-0" data-tauri-drag-region>
         <Button
           variant="ghost"
           size="sm"

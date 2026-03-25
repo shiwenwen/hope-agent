@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react"
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import { invoke, convertFileSrc } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
+import { cn } from "@/lib/utils"
 import {
   X,
   RefreshCw,
@@ -191,7 +192,13 @@ export default function CanvasPanel() {
       style={maximized ? undefined : { width: 480 }}
     >
       {/* Title Bar */}
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-secondary/30 shrink-0">
+      <div
+        className={cn(
+          "flex items-center gap-2 px-3 py-2 border-b border-border bg-secondary/30 shrink-0",
+          maximized && "pt-8"
+        )}
+        data-tauri-drag-region
+      >
         <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
           {canvas.contentType}
         </span>
