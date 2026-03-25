@@ -337,11 +337,11 @@ export default function MessageBubble({
                     </button>
                   </IconTip>
                   {detailsIndex === index && (
-                    <div className="absolute bottom-full mb-1 z-50 min-w-[180px] rounded-lg border border-border bg-popover p-2.5 shadow-lg left-0">
+                    <div className="absolute bottom-full mb-1 z-50 min-w-[220px] rounded-lg border border-border bg-popover p-2.5 shadow-lg left-0">
                       <div className="space-y-1.5 text-xs">
                         {msg.model && (
                           <div className="flex items-center justify-between gap-3">
-                            <span className="text-muted-foreground">{t("chat.statusModel")}</span>
+                            <span className="text-muted-foreground whitespace-nowrap shrink-0">{t("chat.statusModel")}</span>
                             <span
                               className="font-medium text-foreground truncate max-w-[160px]"
                               title={msg.model}
@@ -355,7 +355,7 @@ export default function MessageBubble({
                         )}
                         {msg.usage?.inputTokens != null && (
                           <div className="flex items-center justify-between gap-3">
-                            <span className="text-muted-foreground">{t("chat.inputTokens")}</span>
+                            <span className="text-muted-foreground whitespace-nowrap shrink-0">{t("chat.inputTokens")}</span>
                             <span className="font-medium text-foreground tabular-nums">
                               {formatTokens(msg.usage.inputTokens)}
                             </span>
@@ -363,7 +363,7 @@ export default function MessageBubble({
                         )}
                         {msg.usage?.outputTokens != null && (
                           <div className="flex items-center justify-between gap-3">
-                            <span className="text-muted-foreground">{t("chat.outputTokens")}</span>
+                            <span className="text-muted-foreground whitespace-nowrap shrink-0">{t("chat.outputTokens")}</span>
                             <span className="font-medium text-foreground tabular-nums">
                               {formatTokens(msg.usage.outputTokens)}
                             </span>
@@ -373,7 +373,7 @@ export default function MessageBubble({
                           <>
                             <div className="border-t border-border" />
                             <div className="flex items-center justify-between gap-3">
-                              <span className="text-muted-foreground">{t("chat.totalTokens")}</span>
+                              <span className="text-muted-foreground whitespace-nowrap shrink-0">{t("chat.totalTokens")}</span>
                               <span className="font-medium text-foreground tabular-nums">
                                 {formatTokens(msg.usage.inputTokens + msg.usage.outputTokens)}
                               </span>
@@ -382,7 +382,7 @@ export default function MessageBubble({
                         )}
                         {msg.usage?.durationMs != null && (
                           <div className="flex items-center justify-between gap-3">
-                            <span className="text-muted-foreground">{t("chat.duration")}</span>
+                            <span className="text-muted-foreground whitespace-nowrap shrink-0">{t("chat.duration")}</span>
                             <span className="font-medium text-foreground tabular-nums">
                               {formatDuration(msg.usage.durationMs)}
                             </span>
