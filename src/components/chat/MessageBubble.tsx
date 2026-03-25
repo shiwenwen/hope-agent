@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from "react"
+import { useState, useMemo } from "react"
 import { convertFileSrc } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
@@ -27,12 +27,6 @@ interface MessageBubbleProps {
   // Copy
   copiedIndex: number | null
   onCopy: (content: string, index: number) => void
-  // Edit
-  editingIndex: number | null
-  editContent: string
-  onEditContentChange: (content: string) => void
-  onSaveEdit: (index: number) => void
-  onCancelEdit: () => void
 }
 
 export default function MessageBubble({
@@ -46,22 +40,9 @@ export default function MessageBubble({
   onContextMenu,
   copiedIndex,
   onCopy,
-  editingIndex,
-  editContent,
-  onEditContentChange,
-  onSaveEdit,
-  onCancelEdit,
 }: MessageBubbleProps) {
   const { t } = useTranslation()
   const [detailsIndex, setDetailsIndex] = useState<number | null>(null)
-  const editTextareaRef = useRef<HTMLTextAreaElement>(null)
-
-  // Auto-focus textarea when entering edit mode
-  useEffect(() => {
-    if (editingIndex === index) {
-      editTextareaRef.current?.focus()
-    }
-  }, [editingIndex, index])
 
   const modifiedFiles = useMemo(
     () =>
@@ -149,35 +130,7 @@ export default function MessageBubble({
             msg.role === "assistant" && loading && isLast && "streaming-bubble",
           )}
         >
-          {msg.role === "assistant" && editingIndex === index ? (
-            // Edit mode
-            <div className="space-y-2">
-              <textarea
-                ref={editTextareaRef}
-                value={editContent}
-                onChange={(e) => onEditContentChange(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") onCancelEdit()
-                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) onSaveEdit(index)
-                }}
-                className="w-full min-h-[80px] rounded-lg border border-border bg-background p-2 text-sm text-foreground resize-y focus:outline-none focus:ring-1 focus:ring-ring"
-              />
-              <div className="flex items-center justify-end gap-2">
-                <button
-                  onClick={onCancelEdit}
-                  className="px-2.5 py-1 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors"
-                >
-                  {t("common.cancel")}
-                </button>
-                <button
-                  onClick={() => onSaveEdit(index)}
-                  className="px-2.5 py-1 rounded-md text-xs bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-                >
-                  {t("common.save")}
-                </button>
-              </div>
-            </div>
-          ) : msg.role === "assistant" && msg.contentBlocks && msg.contentBlocks.length > 0 ? (
+          {msg.role === "assistant" && msg.contentBlocks && msg.contentBlocks.length > 0 ? (
             // Render content blocks with consecutive same-category tool calls grouped
             (() => {
               const blocks = msg.contentBlocks!

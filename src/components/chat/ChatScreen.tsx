@@ -387,7 +387,6 @@ export default function ChatScreen({
 
         <MessageList
           messages={session.messages}
-          setMessages={session.setMessages}
           loading={session.loading}
           agents={session.agents}
           hasMore={session.hasMore}
@@ -395,8 +394,6 @@ export default function ChatScreen({
           onLoadMore={session.handleLoadMore}
           scrollContainerRef={scrollContainerRef}
           bottomRef={bottomRef}
-          currentSessionId={session.currentSessionId}
-          sessionCacheRef={session.sessionCacheRef}
         />
 
         {/* Memory extraction toast */}

@@ -1,15 +1,12 @@
-import { useState, useRef, useCallback, useEffect } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { useState, useRef, useEffect } from "react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
-import { logger } from "@/lib/logger"
 import MessageBubble from "./MessageBubble"
 import MessageContextMenu from "./MessageContextMenu"
 import type { Message, AgentSummaryForSidebar } from "@/types/chat"
 
 interface MessageListProps {
   messages: Message[]
-  setMessages: React.Dispatch<React.SetStateAction<Message[]>>
   loading: boolean
   agents: AgentSummaryForSidebar[]
   hasMore: boolean
@@ -17,13 +14,10 @@ interface MessageListProps {
   onLoadMore: () => void
   scrollContainerRef: React.RefObject<HTMLDivElement | null>
   bottomRef: React.RefObject<HTMLDivElement | null>
-  currentSessionId: string | null
-  sessionCacheRef: React.MutableRefObject<Map<string, Message[]>>
 }
 
 export default function MessageList({
   messages,
-  setMessages,
   loading,
   agents,
   hasMore,
@@ -31,15 +25,11 @@ export default function MessageList({
   onLoadMore,
   scrollContainerRef,
   bottomRef,
-  currentSessionId,
-  sessionCacheRef,
 }: MessageListProps) {
   const { t } = useTranslation()
   const [hoveredMsgIndex, setHoveredMsgIndex] = useState<number | null>(null)
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null)
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [editingIndex, setEditingIndex] = useState<number | null>(null)
-  const [editContent, setEditContent] = useState("")
   const [contextMenu, setContextMenu] = useState<{
     x: number
     y: number
@@ -76,45 +66,6 @@ export default function MessageList({
       .catch(() => {})
   }
 
-  const handleStartEdit = useCallback(
-    (index: number) => {
-      const msg = messages[index]
-      setEditingIndex(index)
-      setEditContent(msg.content)
-      setContextMenu(null)
-    },
-    [messages],
-  )
-
-  async function handleSaveEdit(index: number) {
-    const msg = messages[index]
-    const trimmed = editContent.trim()
-    if (!trimmed || trimmed === msg.content) {
-      setEditingIndex(null)
-      return
-    }
-    setMessages((prev) => prev.map((m, i) => (i === index ? { ...m, content: trimmed } : m)))
-    if (currentSessionId) {
-      const cached = sessionCacheRef.current.get(currentSessionId)
-      if (cached) {
-        sessionCacheRef.current.set(
-          currentSessionId,
-          cached.map((m, i) => (i === index ? { ...m, content: trimmed } : m)),
-        )
-      }
-    }
-    if (msg.dbId) {
-      try {
-        await invoke("update_message_content_cmd", {
-          messageId: msg.dbId,
-          content: trimmed,
-        })
-      } catch (e) {
-        logger.error("chat", "MessageList::handleSaveEdit", "Failed to persist edit", { error: e })
-      }
-    }
-    setEditingIndex(null)
-  }
 
   return (
     <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
@@ -165,11 +116,6 @@ export default function MessageList({
             onContextMenu={handleContextMenu}
             copiedIndex={copiedIndex}
             onCopy={handleCopyMessage}
-            editingIndex={editingIndex}
-            editContent={editContent}
-            onEditContentChange={setEditContent}
-            onSaveEdit={handleSaveEdit}
-            onCancelEdit={() => setEditingIndex(null)}
           />
         </div>
       ))}
@@ -179,7 +125,6 @@ export default function MessageList({
       {contextMenu && (
         <MessageContextMenu
           contextMenu={contextMenu}
-          onStartEdit={handleStartEdit}
           onCopy={(index) => {
             const msg = messages[index]
             if (msg?.content) handleCopyMessage(msg.content, index)
