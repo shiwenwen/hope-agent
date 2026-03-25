@@ -41,6 +41,8 @@ const ToolUsageSection = React.memo(function ToolUsageSection({
   const [sortKey, setSortKey] = useState<SortKey>("callCount")
   const [sortDir, setSortDir] = useState<SortDir>("desc")
 
+  const getToolLabel = useCallback((name: string) => t(`tools.${name}`, name), [t])
+
   const frequencyData = useMemo(() => {
     if (!data) return []
     return [...data]
@@ -135,6 +137,7 @@ const ToolUsageSection = React.memo(function ToolUsageSection({
                 tick={{ fontSize: 11 }}
                 width={80}
                 className="fill-muted-foreground"
+                tickFormatter={getToolLabel}
               />
               <RechartsTooltip
                 contentStyle={{
@@ -143,6 +146,7 @@ const ToolUsageSection = React.memo(function ToolUsageSection({
                   borderRadius: "8px",
                   fontSize: "12px",
                 }}
+                labelFormatter={getToolLabel}
                 formatter={(value: number, name: string) => [
                   formatNumber(value),
                   name === "callCount"
@@ -181,6 +185,7 @@ const ToolUsageSection = React.memo(function ToolUsageSection({
                   tick={{ fontSize: 11 }}
                   width={80}
                   className="fill-muted-foreground"
+                  tickFormatter={getToolLabel}
                 />
                 <RechartsTooltip
                   contentStyle={{
@@ -189,6 +194,7 @@ const ToolUsageSection = React.memo(function ToolUsageSection({
                     borderRadius: "8px",
                     fontSize: "12px",
                   }}
+                  labelFormatter={getToolLabel}
                   formatter={(value: number) => [
                     formatDuration(value),
                     t("dashboard.tool.avgDuration"),
@@ -273,7 +279,7 @@ const ToolUsageSection = React.memo(function ToolUsageSection({
                   key={tool.toolName}
                   className="grid grid-cols-6 gap-2 text-xs py-2 border-b border-border/50 hover:bg-muted/50"
                 >
-                  <div className="truncate font-medium">{tool.toolName}</div>
+                  <div className="truncate font-medium">{getToolLabel(tool.toolName)}</div>
                   <div className="text-right">{formatNumber(tool.callCount)}</div>
                   <div
                     className={cn(
