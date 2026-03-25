@@ -1072,7 +1072,7 @@
       "week": "Week",
       "month": "Month"
     },
-    "timeRange": {
+    "range": {
       "today": "Today",
       "7d": "7 Days",
       "30d": "30 Days",
@@ -1087,7 +1087,8 @@
       "allAgents": "All Agents",
       "allProviders": "All Providers",
       "allModels": "All Models",
-      "clearFilters": "Clear Filters"
+      "apply": "Apply",
+      "clear": "Clear Filters"
     },
     "overview": {
       "totalSessions": "Total Sessions",
@@ -1099,59 +1100,67 @@
       "activeAgents": "Active Agents",
       "cronJobs": "Cron Jobs"
     },
-    "tokens": {
+    "token": {
       "trend": "Token Usage Trend",
-      "inputTokens": "Input Tokens",
-      "outputTokens": "Output Tokens",
-      "modelDistribution": "Distribution by Model",
-      "costBreakdown": "Cost Breakdown",
-      "model": "Model",
-      "provider": "Provider",
       "input": "Input",
       "output": "Output",
+      "byModel": "Distribution by Model",
+      "costTable": "Cost Breakdown",
+      "model": "Model",
+      "provider": "Provider",
       "cost": "Cost",
       "total": "Total",
       "other": "Other"
     },
-    "tools": {
+    "tool": {
       "frequency": "Call Frequency",
-      "duration": "Avg Duration",
+      "avgDuration": "Avg Duration",
       "details": "Tool Details",
-      "toolName": "Tool Name",
+      "name": "Tool Name",
       "calls": "Calls",
-      "errorCount": "Errors",
+      "errors": "Errors",
       "errorRate": "Error Rate",
       "avgMs": "Avg (ms)",
-      "totalMs": "Total (ms)"
+      "totalMs": "Total (ms)",
+      "expand": "Show All",
+      "collapse": "Collapse"
     },
-    "sessions": {
+    "session": {
       "trend": "Session Trend",
-      "agentDistribution": "Distribution by Agent",
+      "byAgent": "Distribution by Agent",
       "agentRanking": "Agent Ranking",
       "agent": "Agent",
-      "sessionCount": "Sessions",
-      "messageCount": "Messages",
-      "tokenCount": "Tokens"
+      "sessions": "Sessions",
+      "messages": "Messages",
+      "tokens": "Tokens"
     },
-    "errors": {
+    "error": {
       "trend": "Error Trend",
-      "categoryDistribution": "Distribution by Category",
+      "byCategory": "Distribution by Category",
       "totalErrors": "Total Errors",
-      "totalWarnings": "Total Warnings"
+      "totalWarnings": "Total Warnings",
+      "errorRate": "Error Rate",
+      "errors": "Errors",
+      "warnings": "Warnings",
+      "count": "Count"
     },
-    "tasks": {
-      "cronStats": "Scheduled Tasks",
-      "subagentStats": "Sub-Agent Tasks",
+    "task": {
+      "cronTitle": "Scheduled Tasks",
+      "subagentTitle": "Sub-Agent Tasks",
       "totalJobs": "Total Jobs",
       "activeJobs": "Active",
       "totalRuns": "Total Runs",
       "successRuns": "Succeeded",
       "failedRuns": "Failed",
       "successRate": "Success Rate",
+      "completionRate": "Completion Rate",
       "avgDuration": "Avg Duration",
       "completed": "Completed",
+      "failed": "Failed",
       "killed": "Killed",
-      "tokensUsed": "Tokens Used"
+      "tokens": "Tokens Used",
+      "success": "Success",
+      "noRuns": "No Runs"
     },
     "noData": "No data available",
     "loading": "Loading..."

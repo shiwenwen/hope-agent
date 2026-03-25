@@ -171,8 +171,6 @@
     "profileGenderFemale": "女",
     "profileGenderCustom": "自訂",
     "profileGenderCustomPlaceholder": "輸入你的性別",
-    "profileAge": "年齡",
-    "profileAgePlaceholder": "你的年齡",
     "profileRole": "角色 / 職業",
     "profileRolePlaceholder": "例如：開發者、產品經理、學生...",
     "profileTimezone": "時區",
@@ -351,7 +349,9 @@
     "logsCopyPath": "複製路徑",
     "logsNoFiles": "暫無日誌檔案",
     "logsSelectFile": "選擇左側檔案檢視內容",
-    "logsPagination": "第 {{page}} 頁 / 共 {{totalPages}} 頁（{{total}} 筆）"
+    "logsPagination": "第 {{page}} 頁 / 共 {{totalPages}} 頁（{{total}} 筆）",
+    "profileAge": "年齡",
+    "profileAgePlaceholder": "你的年齡"
   },
   "tz": {
     "shanghai": "上海 (UTC+8)",

@@ -171,8 +171,6 @@
     "profileGenderFemale": "Perempuan",
     "profileGenderCustom": "Kustom",
     "profileGenderCustomPlaceholder": "Masukkan jantina anda",
-    "profileAge": "Umur",
-    "profileAgePlaceholder": "Umur anda",
     "profileRole": "Peranan",
     "profileRolePlaceholder": "Cth: Pembangun, Pereka, Pelajar...",
     "profileTimezone": "Zon Waktu",
@@ -351,7 +349,9 @@
     "logsCopyPath": "Salin laluan",
     "logsNoFiles": "Tiada fail log lagi",
     "logsSelectFile": "Pilih fail di sebelah kiri untuk lihat",
-    "logsPagination": "Halaman {{page}} / {{totalPages}} ({{total}} entri)"
+    "logsPagination": "Halaman {{page}} / {{totalPages}} ({{total}} entri)",
+    "profileAge": "Umur",
+    "profileAgePlaceholder": "Umur anda"
   },
   "tz": {
     "shanghai": "Shanghai (UTC+8)",

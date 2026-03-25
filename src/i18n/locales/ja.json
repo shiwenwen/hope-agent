@@ -171,8 +171,6 @@
     "profileGenderFemale": "女性",
     "profileGenderCustom": "カスタム",
     "profileGenderCustomPlaceholder": "性別を入力",
-    "profileAge": "年齢",
-    "profileAgePlaceholder": "あなたの年齢",
     "profileRole": "役割",
     "profileRolePlaceholder": "例：開発者、デザイナー、学生...",
     "profileTimezone": "タイムゾーン",
@@ -351,7 +349,9 @@
     "logsCopyPath": "パスをコピー",
     "logsNoFiles": "ログファイルはまだありません",
     "logsSelectFile": "左側のファイルを選択して表示",
-    "logsPagination": "{{page}} / {{totalPages}} ページ（{{total}} 件）"
+    "logsPagination": "{{page}} / {{totalPages}} ページ（{{total}} 件）",
+    "profileAge": "年齢",
+    "profileAgePlaceholder": "あなたの年齢"
   },
   "tz": {
     "shanghai": "上海 (UTC+8)",

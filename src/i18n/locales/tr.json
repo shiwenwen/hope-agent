@@ -171,8 +171,6 @@
     "profileGenderFemale": "Kadın",
     "profileGenderCustom": "Özel",
     "profileGenderCustomPlaceholder": "Cinsiyetinizi girin",
-    "profileAge": "Yaş",
-    "profileAgePlaceholder": "Yaşınız",
     "profileRole": "Rol",
     "profileRolePlaceholder": "Örn: Geliştirici, Tasarımcı, Öğrenci...",
     "profileTimezone": "Saat Dilimi",
@@ -351,7 +349,9 @@
     "logsCopyPath": "Yolu kopyala",
     "logsNoFiles": "Henüz günlük dosyası yok",
     "logsSelectFile": "Görüntülemek için sol taraftan dosya seçin",
-    "logsPagination": "Sayfa {{page}} / {{totalPages}} ({{total}} kayıt)"
+    "logsPagination": "Sayfa {{page}} / {{totalPages}} ({{total}} kayıt)",
+    "profileAge": "Yaş",
+    "profileAgePlaceholder": "Yaşınız"
   },
   "tz": {
     "shanghai": "Şanghay (UTC+8)",

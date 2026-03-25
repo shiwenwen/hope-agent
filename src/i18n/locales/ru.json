@@ -171,8 +171,6 @@
     "profileGenderFemale": "Женский",
     "profileGenderCustom": "Другой",
     "profileGenderCustomPlaceholder": "Укажите ваш пол",
-    "profileAge": "Возраст",
-    "profileAgePlaceholder": "Ваш возраст",
     "profileRole": "Роль",
     "profileRolePlaceholder": "Напр.: Разработчик, Дизайнер, Студент...",
     "profileTimezone": "Часовой пояс",
@@ -351,7 +349,9 @@
     "logsCopyPath": "Копировать путь",
     "logsNoFiles": "Файлы логов пока отсутствуют",
     "logsSelectFile": "Выберите файл слева для просмотра",
-    "logsPagination": "Стр. {{page}} / {{totalPages}} ({{total}} записей)"
+    "logsPagination": "Стр. {{page}} / {{totalPages}} ({{total}} записей)",
+    "profileAge": "Возраст",
+    "profileAgePlaceholder": "Ваш возраст"
   },
   "tz": {
     "shanghai": "Шанхай (UTC+8)",

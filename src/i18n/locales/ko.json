@@ -171,8 +171,6 @@
     "profileGenderFemale": "여성",
     "profileGenderCustom": "직접 입력",
     "profileGenderCustomPlaceholder": "성별 입력",
-    "profileAge": "나이",
-    "profileAgePlaceholder": "나이",
     "profileRole": "역할",
     "profileRolePlaceholder": "예: 개발자, 디자이너, 학생...",
     "profileTimezone": "시간대",
@@ -351,7 +349,9 @@
     "logsCopyPath": "경로 복사",
     "logsNoFiles": "로그 파일이 없습니다",
     "logsSelectFile": "왼쪽에서 파일을 선택하여 보기",
-    "logsPagination": "{{page}} / {{totalPages}} 페이지 ({{total}}건)"
+    "logsPagination": "{{page}} / {{totalPages}} 페이지 ({{total}}건)",
+    "profileAge": "나이",
+    "profileAgePlaceholder": "나이"
   },
   "tz": {
     "shanghai": "상하이 (UTC+8)",

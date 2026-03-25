@@ -171,8 +171,6 @@
     "profileGenderFemale": "Nữ",
     "profileGenderCustom": "Tùy chỉnh",
     "profileGenderCustomPlaceholder": "Nhập giới tính",
-    "profileAge": "Tuổi",
-    "profileAgePlaceholder": "Tuổi của bạn",
     "profileRole": "Vai trò",
     "profileRolePlaceholder": "VD: Lập trình viên, Thiết kế, Sinh viên...",
     "profileTimezone": "Múi giờ",
@@ -351,7 +349,9 @@
     "logsCopyPath": "Sao chép đường dẫn",
     "logsNoFiles": "Chưa có tệp nhật ký",
     "logsSelectFile": "Chọn tệp bên trái để xem",
-    "logsPagination": "Trang {{page}} / {{totalPages}} ({{total}} mục)"
+    "logsPagination": "Trang {{page}} / {{totalPages}} ({{total}} mục)",
+    "profileAge": "Tuổi",
+    "profileAgePlaceholder": "Tuổi của bạn"
   },
   "tz": {
     "shanghai": "Thượng Hải (UTC+8)",

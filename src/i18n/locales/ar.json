@@ -171,8 +171,6 @@
     "profileGenderFemale": "أنثى",
     "profileGenderCustom": "مخصص",
     "profileGenderCustomPlaceholder": "أدخل جنسك",
-    "profileAge": "العمر",
-    "profileAgePlaceholder": "عمرك",
     "profileRole": "الدور",
     "profileRolePlaceholder": "مثال: مطور، مصمم، طالب...",
     "profileTimezone": "المنطقة الزمنية",
@@ -351,7 +349,9 @@
     "logsCopyPath": "نسخ المسار",
     "logsNoFiles": "لا توجد ملفات سجل بعد",
     "logsSelectFile": "اختر ملفًا من اليسار للعرض",
-    "logsPagination": "صفحة {{page}} / {{totalPages}} ({{total}} سجل)"
+    "logsPagination": "صفحة {{page}} / {{totalPages}} ({{total}} سجل)",
+    "profileAge": "العمر",
+    "profileAgePlaceholder": "عمرك"
   },
   "tz": {
     "shanghai": "شنغهاي (UTC+8)",

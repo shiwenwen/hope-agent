@@ -171,8 +171,6 @@
     "profileGenderFemale": "Feminino",
     "profileGenderCustom": "Personalizado",
     "profileGenderCustomPlaceholder": "Informe seu gênero",
-    "profileAge": "Idade",
-    "profileAgePlaceholder": "Sua idade",
     "profileRole": "Função",
     "profileRolePlaceholder": "Ex: Desenvolvedor, Designer, Estudante...",
     "profileTimezone": "Fuso horário",
@@ -351,7 +349,9 @@
     "logsCopyPath": "Copiar caminho",
     "logsNoFiles": "Nenhum arquivo de log ainda",
     "logsSelectFile": "Selecione um arquivo à esquerda para visualizar",
-    "logsPagination": "Página {{page}} / {{totalPages}} ({{total}} registros)"
+    "logsPagination": "Página {{page}} / {{totalPages}} ({{total}} registros)",
+    "profileAge": "Idade",
+    "profileAgePlaceholder": "Sua idade"
   },
   "tz": {
     "shanghai": "Xangai (UTC+8)",

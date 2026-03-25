@@ -1072,7 +1072,7 @@
       "week": "按周",
       "month": "按月"
     },
-    "timeRange": {
+    "range": {
       "today": "今天",
       "7d": "近 7 天",
       "30d": "近 30 天",
@@ -1087,7 +1087,8 @@
       "allAgents": "全部 Agent",
       "allProviders": "全部 Provider",
       "allModels": "全部模型",
-      "clearFilters": "清除筛选"
+      "apply": "应用",
+      "clear": "清除筛选"
     },
     "overview": {
       "totalSessions": "总会话数",
@@ -1099,59 +1100,67 @@
       "activeAgents": "活跃 Agent",
       "cronJobs": "定时任务"
     },
-    "tokens": {
+    "token": {
       "trend": "Token 用量趋势",
-      "inputTokens": "输入 Token",
-      "outputTokens": "输出 Token",
-      "modelDistribution": "模型分布",
-      "costBreakdown": "费用明细",
-      "model": "模型",
-      "provider": "Provider",
       "input": "输入",
       "output": "输出",
+      "byModel": "模型分布",
+      "costTable": "费用明细",
+      "model": "模型",
+      "provider": "Provider",
       "cost": "费用",
       "total": "合计",
       "other": "其他"
     },
-    "tools": {
+    "tool": {
       "frequency": "调用频次",
-      "duration": "平均耗时",
+      "avgDuration": "平均耗时",
       "details": "工具详情",
-      "toolName": "工具名称",
+      "name": "工具名称",
       "calls": "调用次数",
-      "errorCount": "错误数",
+      "errors": "错误数",
       "errorRate": "错误率",
       "avgMs": "平均耗时(ms)",
-      "totalMs": "总耗时(ms)"
+      "totalMs": "总耗时(ms)",
+      "expand": "展开全部",
+      "collapse": "收起"
     },
-    "sessions": {
+    "session": {
       "trend": "会话趋势",
-      "agentDistribution": "Agent 分布",
+      "byAgent": "Agent 分布",
       "agentRanking": "Agent 排行",
       "agent": "Agent",
-      "sessionCount": "会话数",
-      "messageCount": "消息数",
-      "tokenCount": "Token 数"
+      "sessions": "会话数",
+      "messages": "消息数",
+      "tokens": "Token 数"
     },
-    "errors": {
+    "error": {
       "trend": "错误趋势",
-      "categoryDistribution": "分类分布",
+      "byCategory": "分类分布",
       "totalErrors": "总错误数",
-      "totalWarnings": "总警告数"
+      "totalWarnings": "总警告数",
+      "errorRate": "错误率",
+      "errors": "错误",
+      "warnings": "警告",
+      "count": "次数"
     },
-    "tasks": {
-      "cronStats": "定时任务",
-      "subagentStats": "子 Agent 任务",
+    "task": {
+      "cronTitle": "定时任务",
+      "subagentTitle": "子 Agent 任务",
       "totalJobs": "总任务数",
       "activeJobs": "活跃任务",
       "totalRuns": "总运行次数",
       "successRuns": "成功次数",
       "failedRuns": "失败次数",
       "successRate": "成功率",
+      "completionRate": "完成率",
       "avgDuration": "平均耗时",
       "completed": "已完成",
+      "failed": "失败",
       "killed": "已终止",
-      "tokensUsed": "Token 消耗"
+      "tokens": "Token 消耗",
+      "success": "成功",
+      "noRuns": "暂无运行"
     },
     "noData": "暂无数据",
     "loading": "加载中..."
