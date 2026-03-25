@@ -13,6 +13,7 @@ import ToolUsageSection from "./ToolUsageSection"
 import SessionSection from "./SessionSection"
 import ErrorSection from "./ErrorSection"
 import TaskSection from "./TaskSection"
+import SystemMetricsSection from "./SystemMetricsSection"
 import type {
   DashboardFilter as DashboardFilterState,
   OverviewStats,
@@ -21,6 +22,7 @@ import type {
   DashboardSessionData,
   DashboardErrorData,
   DashboardTaskData,
+  SystemMetrics,
   Granularity,
 } from "./types"
 
@@ -48,6 +50,7 @@ export default function DashboardView({ onBack }: { onBack: () => void }) {
   const [sessionData, setSessionData] = useState<DashboardSessionData | null>(null)
   const [errorData, setErrorData] = useState<DashboardErrorData | null>(null)
   const [taskData, setTaskData] = useState<DashboardTaskData | null>(null)
+  const [systemMetrics, setSystemMetrics] = useState<SystemMetrics | null>(null)
   const [granularity, setGranularity] = useState<Granularity>("day")
 
   const loadOverview = useCallback(async () => {
@@ -92,6 +95,11 @@ export default function DashboardView({ onBack }: { onBack: () => void }) {
           case "tasks": {
             const tkd = await invoke<DashboardTaskData>("dashboard_tasks", { filter })
             setTaskData(tkd)
+            break
+          }
+          case "system": {
+            const sm = await invoke<SystemMetrics>("dashboard_system_metrics")
+            setSystemMetrics(sm)
             break
           }
         }
@@ -159,6 +167,7 @@ export default function DashboardView({ onBack }: { onBack: () => void }) {
               <TabsTrigger value="sessions">{t("dashboard.tabs.sessions")}</TabsTrigger>
               <TabsTrigger value="errors">{t("dashboard.tabs.errors")}</TabsTrigger>
               <TabsTrigger value="tasks">{t("dashboard.tabs.tasks")}</TabsTrigger>
+              <TabsTrigger value="system">{t("dashboard.tabs.system")}</TabsTrigger>
             </TabsList>
             {showGranularity && (
               <div className="flex gap-1">
@@ -203,6 +212,9 @@ export default function DashboardView({ onBack }: { onBack: () => void }) {
           </TabsContent>
           <TabsContent value="tasks">
             <TaskSection data={taskData} loading={loading} />
+          </TabsContent>
+          <TabsContent value="system">
+            <SystemMetricsSection data={systemMetrics} loading={loading} />
           </TabsContent>
         </Tabs>
       </div>

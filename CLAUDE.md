@@ -22,7 +22,7 @@ src/                    前端（React + TypeScript）
     chat/               聊天相关组件（消息列表/输入框/审批对话框/思考块/工具调用块）
     settings/           设置面板（Provider/Agent/外观/语言/模型/技能/用户资料/系统）
     common/             共享组件（导航栏/Markdown 渲染/Provider 图标）
-    dashboard/          数据大盘（概览卡片/Token 用量/工具使用/会话分析/异常监控/任务统计，recharts 图表）
+    dashboard/          数据大盘（概览卡片/Token 用量/工具使用/会话分析/异常监控/任务统计/系统监控，recharts 图表）
   lib/logger.ts         前端统一日志工具（写入后端日志系统）
   i18n/locales/         12 种语言翻译文件
   types/chat.ts         共享类型定义
@@ -55,7 +55,7 @@ src-tauri/src/          后端（Rust）
   memory.rs             记忆系统（MemoryBackend trait + SQLite/FTS5 实现 + Embedding 配置 + 去重 + 批量操作 + 导入导出）
   memory_extract.rs     自动记忆提取（对话后异步 LLM 提取 + 去重保存 + 事件通知）
   cron.rs               定时任务系统（调度器 + CronDB + 任务执行 + 日历查询）
-  dashboard.rs          数据大盘聚合查询（6 个 Tauri 命令 + SQL 聚合 + 费用估算 + DashboardFilter 多维筛选）
+  dashboard.rs          数据大盘聚合查询（7 个 Tauri 命令 + SQL 聚合 + 费用估算 + DashboardFilter 多维筛选 + 系统指标采集）
   canvas_db.rs          画布数据库（SQLite：projects + versions 表，CRUD + 版本管理）
   sandbox.rs            Docker 沙箱系统（安全加固容器执行 + 环境变量过滤 + 挂载路径校验 + 配置持久化 + Tauri 命令）
   browser_state.rs      浏览器连接状态管理（全局单例 + CDP 生命周期 + Profile 隔离）
@@ -88,7 +88,7 @@ src-tauri/src/          后端（Rust）
 - **连续消息合并**：`push_user_message()` 自动合并连续 user 消息，兼容 Anthropic role 交替要求
 - **统一日志**：前后端日志统一写入后端 `logging.rs`（SQLite + 纯文本双写）。前端通过 `src/lib/logger.ts` 调用 `frontend_log` / `frontend_log_batch` 命令，支持批量缓冲（500ms / 20 条）。后端 Agent 执行全链路日志覆盖：chat 入口 → 模型链 → API 请求/响应（含原始 request body + response headers）→ SSE 流 → Tool 执行（参数/结果/耗时）→ 完成总结。API 请求体日志自动脱敏（`redact_sensitive`）并截断（32KB），工具执行日志截断（2KB），工具错误自动提升为 warn 级别
 - **记忆系统**：`memory.rs` 实现 `MemoryBackend` trait 可插拔架构，MVP 使用 SQLite + FTS5 全文搜索 + sqlite-vec 向量混合检索（RRF 融合评分）。4 种记忆类型（user/feedback/project/reference），2 种作用域（global/agent）。记忆自动注入系统提示词 section ⑧（`build_prompt_summary` 按 `updated_at DESC` 排序，逐条添加直到超出 budget，避免截断）。Embedding 配置支持 API 模式（5 个预设）和本地 ONNX 模型（4 个预设），存储在 `config.json`。启动时自动初始化 embedder。去重检测（`find_similar` + `add_with_dedup`）防止重复记忆，阈值可配置（`DedupConfig` 存储在 `config.json` 的 `dedup` 字段）。批量操作（`delete_batch` / `import_entries` / `reembed_all`）。JSON/Markdown 导入解析。`memory_extract.rs` 实现对话后自动记忆提取：异步 LLM 调用 + JSON 解析 + 去重保存 + Tauri 事件通知 + 前端 Toast。Per-Agent 配置 `autoExtract` / `extractMinTurns` / `extractProviderId` / `extractModelId`（可选独立提取模型）。`memory_stats` 命令返回 `MemoryStats`（总数/按类型分布/向量覆盖率），前端 MemoryPanel 展示统计行
-- **数据大盘**：`dashboard.rs` 实现多维度数据分析大盘。6 个 Tauri 命令（`dashboard_overview` / `dashboard_token_usage` / `dashboard_tool_usage` / `dashboard_sessions` / `dashboard_errors` / `dashboard_tasks`），从 SessionDB/LogDB/CronDB 聚合查询。`DashboardFilter` 支持时间范围/Agent/Provider/模型多维筛选，自动排除 cron 会话和子 Agent 会话。内置 20+ 模型定价表估算费用。前端 `src/components/dashboard/` 目录：`DashboardView.tsx` 主容器（Tab 切换 + 全局筛选）、`OverviewCards.tsx` 8 个指标卡片、`TokenUsageSection.tsx`（趋势折线图 + 模型饼图 + 费用表格）、`ToolUsageSection.tsx`（频次柱状图 + 耗时排行 + 详情表格）、`SessionSection.tsx`（会话趋势 + Agent 分布）、`ErrorSection.tsx`（错误/警告趋势 + 分类分布）、`TaskSection.tsx`（定时任务 + 子 Agent 统计 + 成功率环形图）。侧边栏 `BarChart3` 图标入口。使用 `recharts` 图表库
+- **数据大盘**：`dashboard.rs` 实现多维度数据分析大盘。7 个 Tauri 命令（`dashboard_overview` / `dashboard_token_usage` / `dashboard_tool_usage` / `dashboard_sessions` / `dashboard_errors` / `dashboard_tasks` / `dashboard_system_metrics`），从 SessionDB/LogDB/CronDB 聚合查询 + `sysinfo` crate 采集系统指标。`DashboardFilter` 支持时间范围/Agent/Provider/模型多维筛选，自动排除 cron 会话和子 Agent 会话。内置 20+ 模型定价表估算费用。前端 `src/components/dashboard/` 目录：`DashboardView.tsx` 主容器（Tab 切换 + 全局筛选）、`OverviewCards.tsx` 8 个指标卡片、`TokenUsageSection.tsx`（趋势折线图 + 模型饼图 + 费用表格）、`ToolUsageSection.tsx`（频次柱状图 + 耗时排行 + 详情表格）、`SessionSection.tsx`（会话趋势 + Agent 分布）、`ErrorSection.tsx`（错误/警告趋势 + 分类分布）、`TaskSection.tsx`（定时任务 + 子 Agent 统计 + 成功率环形图）、`SystemMetricsSection.tsx`（CPU 每核心柱状图 + RAM/Swap 环形图 + 网络流量柱状图 + 系统信息卡片）。侧边栏 `BarChart3` 图标入口。使用 `recharts` 图表库 + `sysinfo` crate
 - **定时任务系统**：`cron.rs` 实现完整定时任务调度。3 种调度类型（At 一次性 / Every 固定间隔 / Cron 表达式），tokio 后台轮询执行，隔离 session + 模型链降级。指数退避重试 + 自动禁用。日历视图页面（侧边栏入口）+ 设置面板列表管理。Agent 工具 `manage_cron` 支持 AI 直接管理定时任务
 - **Web 搜索多 Provider**：`tools/web_search.rs` 支持 8 个搜索引擎（DuckDuckGo / SearXNG / Brave / Perplexity / Google / Grok / Kimi / Tavily），enum 派发 + 自动检测。配置存储在 `config.json` 的 `webSearch` 字段，设置面板 `WebSearchPanel` 管理。SearXNG 支持 Docker 一键部署（`docker.rs`：镜像拉取 → 容器启动 → 配置注入 → 健康检查）
 - **画布工具**：`tools/canvas/` 实现交互式可视化内容创作工具。统一 `canvas` 工具，11 个 action（create/update/show/hide/snapshot/eval_js/list/delete/versions/restore/export），7 种内容类型（html/markdown/code/svg/mermaid/chart/slides）。前端 `CanvasPanel.tsx` 以 iframe 沙箱渲染（Tauri asset protocol），嵌入 ChatScreen 右侧。截图通过 html2canvas + postMessage 双向通信实现视觉反馈循环。版本历史 SQLite 持久化（`canvas_db.rs`），每次 update 自动创建快照。`renderer.rs` 按内容类型生成不同 HTML 模板（注入 marked.js/highlight.js/mermaid.js/chart.js 等）。配置存储在 `config.json` 的 `canvas` 字段，设置面板 `CanvasSettingsPanel` 管理。项目文件存储在 `~/.opencomputer/canvas/projects/{id}/`。Tauri 全局事件 `canvas_show`/`canvas_hide`/`canvas_reload`/`canvas_snapshot_request`/`canvas_eval_request` 驱动前后端通信

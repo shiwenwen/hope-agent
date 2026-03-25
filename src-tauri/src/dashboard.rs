@@ -6,6 +6,7 @@
 
 use anyhow::Result;
 use std::sync::Arc;
+use sysinfo::{Pid, ProcessesToUpdate, System};
 
 use crate::cron::CronDB;
 use crate::logging::LogDB;
@@ -149,6 +150,53 @@ pub struct SubagentStats {
 pub struct DashboardTaskData {
     pub cron: CronJobStats,
     pub subagent: SubagentStats,
+}
+
+// ── System Metrics Types (Process-level) ────────────────────────
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProcessMemoryInfo {
+    /// Process RSS (resident set size) in bytes
+    pub rss_bytes: u64,
+    /// Process virtual memory in bytes
+    pub virtual_bytes: u64,
+    /// System total memory in bytes (for context)
+    pub system_total_bytes: u64,
+    /// RSS as percentage of system total memory
+    pub rss_percent: f64,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProcessDiskIO {
+    /// Total bytes read by process
+    pub read_bytes: u64,
+    /// Total bytes written by process
+    pub written_bytes: u64,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemMetrics {
+    /// Process CPU usage (percentage, can exceed 100% on multi-core)
+    pub process_cpu_percent: f32,
+    /// Number of CPU cores (for context)
+    pub cpu_count: usize,
+    /// Process memory info
+    pub memory: ProcessMemoryInfo,
+    /// Process disk I/O
+    pub disk_io: ProcessDiskIO,
+    /// Process uptime in seconds
+    pub process_uptime_secs: u64,
+    /// Process ID
+    pub pid: u32,
+    /// OS name
+    pub os_name: String,
+    /// Host name
+    pub host_name: String,
+    /// System uptime in seconds
+    pub system_uptime_secs: u64,
 }
 
 // ── Cost Estimation ─────────────────────────────────────────────
@@ -747,4 +795,74 @@ pub fn query_tasks(
     };
 
     Ok(DashboardTaskData { cron, subagent })
+}
+
+/// System metrics: OpenComputer process CPU, memory, disk I/O (real-time snapshot).
+pub fn query_system_metrics() -> Result<SystemMetrics> {
+    let current_pid = sysinfo::get_current_pid()
+        .map_err(|e| anyhow::anyhow!("Failed to get current PID: {}", e))?;
+
+    let mut sys = System::new();
+    // First refresh to initialize CPU measurement baseline
+    sys.refresh_processes_specifics(
+        ProcessesToUpdate::Some(&[current_pid]),
+        true,
+        sysinfo::ProcessRefreshKind::everything(),
+    );
+    // Brief sleep to allow CPU usage delta measurement
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    // Second refresh to get actual CPU usage
+    sys.refresh_processes_specifics(
+        ProcessesToUpdate::Some(&[current_pid]),
+        true,
+        sysinfo::ProcessRefreshKind::everything(),
+    );
+    sys.refresh_cpu_list(sysinfo::CpuRefreshKind::default());
+    sys.refresh_memory();
+
+    let cpu_count = sys.cpus().len();
+
+    let process = sys.process(current_pid)
+        .ok_or_else(|| anyhow::anyhow!("Current process not found"))?;
+
+    let process_cpu = process.cpu_usage();
+    let rss = process.memory();
+    let virtual_mem = process.virtual_memory();
+    let disk_usage = process.disk_usage();
+    let run_time = process.run_time();
+
+    let system_total_mem = sys.total_memory();
+    let rss_percent = if system_total_mem > 0 {
+        (rss as f64 / system_total_mem as f64) * 100.0
+    } else {
+        0.0
+    };
+
+    let memory = ProcessMemoryInfo {
+        rss_bytes: rss,
+        virtual_bytes: virtual_mem,
+        system_total_bytes: system_total_mem,
+        rss_percent,
+    };
+
+    let disk_io = ProcessDiskIO {
+        read_bytes: disk_usage.total_read_bytes,
+        written_bytes: disk_usage.total_written_bytes,
+    };
+
+    let os_name = System::name().unwrap_or_else(|| "Unknown".to_string());
+    let host_name = System::host_name().unwrap_or_else(|| "Unknown".to_string());
+    let system_uptime_secs = System::uptime();
+
+    Ok(SystemMetrics {
+        process_cpu_percent: process_cpu,
+        cpu_count,
+        memory,
+        disk_io,
+        process_uptime_secs: run_time,
+        pid: current_pid.as_u32(),
+        os_name,
+        host_name,
+        system_uptime_secs,
+    })
 }

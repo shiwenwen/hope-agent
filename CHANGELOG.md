@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **图片生成 API（OpenAI/Google/Fal）**：请求参数（model/prompt 预览/size/n）、响应状态（status/ttfb/request-id）、错误响应体完整记录
 
 ### Added
+- **系统监控大盘（System Metrics Dashboard）**：数据大盘新增「系统监控」Tab，实时展示本机 CPU、内存、网络等系统资源使用情况
+  - **CPU 监控**：全局使用率 + 每核心使用率柱状图，支持多核心可视化
+  - **内存监控**：总内存/已用/可用 + RAM/Swap 双环形图，百分比实时展示
+  - **网络流量**：按网卡分组统计接收/发送流量，水平柱状图 + 详情表格
+  - **系统信息**：操作系统、主机名、运行时间、CPU 核心数概览卡片
+  - 后端使用 `sysinfo` crate 采集系统指标，通过 `dashboard_system_metrics` Tauri 命令暴露
 - **仪表盘分析模块（dashboard）**：新增 `dashboard.rs` 后端模块 + 6 个 Tauri 命令，提供会话/Token/工具/错误/任务多维度统计分析
   - **概览统计**：会话数、消息数、Token 用量、工具调用、错误数、活跃 Agent/定时任务数、预估费用
   - **Token 用量**：按日趋势 + 按模型分组统计 + 硬编码 20+ 模型定价预估费用（Claude/GPT/Gemini/DeepSeek/Qwen）

@@ -1084,7 +1084,8 @@
       "tools": "工具使用",
       "sessions": "会话分析",
       "errors": "异常监控",
-      "tasks": "任务统计"
+      "tasks": "任务统计",
+      "system": "系统监控"
     },
     "granularity": {
       "day": "按天",
@@ -1180,6 +1181,26 @@
       "tokens": "Token 消耗",
       "success": "成功",
       "noRuns": "暂无运行"
+    },
+    "system": {
+      "pid": "进程 ID",
+      "processUptime": "进程运行时间",
+      "osName": "操作系统",
+      "hostName": "主机名",
+      "systemUptime": "系统运行",
+      "cores": "核",
+      "cpuUsage": "CPU 使用率",
+      "cpuDesc": "OpenComputer 占用 {{percent}}% CPU（共 {{cores}} 核）",
+      "memoryUsage": "内存占用",
+      "memRss": "物理内存 (RSS)",
+      "processRss": "进程占用",
+      "virtualMem": "虚拟内存",
+      "memTotal": "系统总内存",
+      "systemFree": "系统剩余",
+      "ofSystem": "占系统",
+      "diskIO": "磁盘 I/O",
+      "diskRead": "读取",
+      "diskWrite": "写入"
     },
     "noData": "暂无数据",
     "loading": "加载中..."

@@ -1084,7 +1084,8 @@
       "tools": "Tool Usage",
       "sessions": "Sessions",
       "errors": "Errors",
-      "tasks": "Tasks"
+      "tasks": "Tasks",
+      "system": "System"
     },
     "granularity": {
       "day": "Day",
@@ -1180,6 +1181,26 @@
       "tokens": "Tokens Used",
       "success": "Success",
       "noRuns": "No Runs"
+    },
+    "system": {
+      "pid": "Process ID",
+      "processUptime": "Process Uptime",
+      "osName": "OS",
+      "hostName": "Host Name",
+      "systemUptime": "System Uptime",
+      "cores": "Cores",
+      "cpuUsage": "CPU Usage",
+      "cpuDesc": "OpenComputer uses {{percent}}% CPU ({{cores}} cores total)",
+      "memoryUsage": "Memory Usage",
+      "memRss": "Physical Memory (RSS)",
+      "processRss": "Process RSS",
+      "virtualMem": "Virtual Memory",
+      "memTotal": "System Total",
+      "systemFree": "System Free",
+      "ofSystem": "of System",
+      "diskIO": "Disk I/O",
+      "diskRead": "Read",
+      "diskWrite": "Write"
     },
     "noData": "No data available",
     "loading": "Loading..."
