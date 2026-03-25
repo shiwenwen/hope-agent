@@ -145,3 +145,99 @@
 .markdown-content img {
   cursor: zoom-in;
 }
+
+/* ── Starry sky background (dark mode only) ── */
+.starry-sky-container {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+  opacity: 0.55;
+}
+
+.starry-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-radius: 50%;
+  color: hsl(210 30% 90%);
+  will-change: opacity;
+}
+
+/* Three twinkle speeds with staggered phases + slow irregular drift */
+.starry-twinkle-1 {
+  animation: star-twinkle 4s ease-in-out infinite, star-drift-1 40s ease-in-out infinite;
+}
+.starry-twinkle-2 {
+  animation: star-twinkle 6s ease-in-out 1.5s infinite, star-drift-2 55s ease-in-out infinite;
+}
+.starry-twinkle-3 {
+  animation: star-twinkle 8s ease-in-out 3s infinite, star-drift-3 45s ease-in-out infinite;
+}
+
+@keyframes star-twinkle {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+/* Slow irregular drift — each layer moves a different path */
+@keyframes star-drift-1 {
+  0%   { transform: translate(0, 0); }
+  25%  { transform: translate(-25px, 18px); }
+  50%  { transform: translate(15px, 30px); }
+  75%  { transform: translate(22px, -12px); }
+  100% { transform: translate(0, 0); }
+}
+@keyframes star-drift-2 {
+  0%   { transform: translate(0, 0); }
+  20%  { transform: translate(20px, 25px); }
+  45%  { transform: translate(-18px, 14px); }
+  70%  { transform: translate(-28px, -20px); }
+  100% { transform: translate(0, 0); }
+}
+@keyframes star-drift-3 {
+  0%   { transform: translate(0, 0); }
+  30%  { transform: translate(18px, -22px); }
+  60%  { transform: translate(-22px, -14px); }
+  85%  { transform: translate(12px, 25px); }
+  100% { transform: translate(0, 0); }
+}
+
+/* Shooting star */
+.starry-shooting-star {
+  position: absolute;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.8), transparent);
+  border-radius: 999px;
+  transform: rotate(-35deg);
+  animation: shooting-star 1s ease-in forwards;
+  will-change: transform, opacity;
+  --travel: -400px;
+}
+
+.starry-shooting-star::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: 0;
+  width: 4px;
+  height: 3px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 0 6px 2px rgba(255, 255, 255, 0.6);
+}
+
+@keyframes shooting-star {
+  0% {
+    transform: rotate(-35deg) translateX(0);
+    opacity: 1;
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    transform: rotate(-35deg) translateX(var(--travel));
+    opacity: 0;
+  }
+}

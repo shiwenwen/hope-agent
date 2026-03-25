@@ -10,6 +10,7 @@ import IconSidebar from "@/components/common/IconSidebar"
 import ChatScreen from "@/components/chat/ChatScreen"
 import CronCalendarView from "@/components/cron/CronCalendarView"
 import DashboardView from "@/components/dashboard/DashboardView"
+import StarrySky from "@/components/common/StarrySky"
 
 export default function App() {
   const [view, setView] = useState<
@@ -107,6 +108,7 @@ export default function App() {
   if (view === "loading") {
     return (
       <div className="flex items-center justify-center h-screen">
+        <StarrySky />
         <div className="animate-spin h-6 w-6 border-2 border-foreground border-t-transparent rounded-full" />
       </div>
     )
@@ -116,6 +118,7 @@ export default function App() {
     return (
       <TooltipProvider>
         <div className="h-screen overflow-hidden">
+          <StarrySky />
           <ProviderSetup onComplete={() => setView("chat")} onCodexAuth={handleCodexAuth} />
         </div>
       </TooltipProvider>
@@ -126,6 +129,7 @@ export default function App() {
     <TooltipProvider>
     <LightboxProvider>
     <div className="flex h-screen overflow-hidden bg-background">
+      <StarrySky />
       <IconSidebar
         view={
           view === "settings"
