@@ -31,6 +31,7 @@ import { cn } from "@/lib/utils"
 import type { ToolCall } from "@/types/chat"
 import { IconTip } from "@/components/ui/tooltip"
 import SubagentBlock from "@/components/chat/SubagentBlock"
+import { useLightbox } from "@/components/common/ImageLightbox"
 
 /** Map tool name → Lucide icon component */
 const TOOL_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -150,6 +151,7 @@ function formatRawCall(tool: ToolCall): string {
 
 export default function ToolCallBlock({ tool }: { tool: ToolCall }) {
   const { t } = useTranslation()
+  const { openLightbox } = useLightbox()
   const [expanded, setExpanded] = useState(false)
   const [showRaw, setShowRaw] = useState(false)
   const isRunning = tool.result === undefined
@@ -227,12 +229,11 @@ export default function ToolCallBlock({ tool }: { tool: ToolCall }) {
       {tool.mediaUrls && tool.mediaUrls.length > 0 && (
         <div className="ml-5 mt-1.5 mb-1 flex flex-wrap gap-2">
           {tool.mediaUrls.map((url, i) => (
-            <a
+            <button
               key={i}
-              href={convertFileSrc(url)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block rounded-lg overflow-hidden border border-border/50 hover:border-primary/40 transition-colors"
+              type="button"
+              onClick={() => openLightbox(convertFileSrc(url), `Generated image ${i + 1}`)}
+              className="block rounded-lg overflow-hidden border border-border/50 hover:border-primary/40 transition-colors cursor-zoom-in"
             >
               <img
                 src={convertFileSrc(url)}
@@ -240,7 +241,7 @@ export default function ToolCallBlock({ tool }: { tool: ToolCall }) {
                 className="max-w-72 max-h-72 object-contain bg-secondary/30"
                 loading="lazy"
               />
-            </a>
+            </button>
           ))}
         </div>
       )}

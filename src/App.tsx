@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core"
 import { logger } from "@/lib/logger"
 import { initLanguageFromConfig } from "@/i18n/i18n"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { LightboxProvider } from "@/components/common/ImageLightbox"
 import ProviderSetup from "@/components/settings/ProviderSetup"
 import SettingsView from "@/components/settings/SettingsView"
 import IconSidebar from "@/components/common/IconSidebar"
@@ -123,6 +124,7 @@ export default function App() {
 
   return (
     <TooltipProvider>
+    <LightboxProvider>
     <div className="flex h-screen overflow-hidden bg-background">
       <IconSidebar
         view={
@@ -218,6 +220,7 @@ export default function App() {
         />
       </div>
     </div>
+    </LightboxProvider>
     </TooltipProvider>
   )
 }

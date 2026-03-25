@@ -122,7 +122,7 @@ export default function MarkdownRenderer({ content, isStreaming = false }: Markd
   const isActive = isStreaming || revealing
 
   return (
-    <div ref={containerRef} className={isActive ? "streaming-height" : undefined}>
+    <div ref={containerRef} className={isActive ? "streaming-height markdown-content" : "markdown-content"}>
       <div ref={contentRef}>
         <Streamdown
           animated={isActive ? streamingAnimation : true}

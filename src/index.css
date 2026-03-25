@@ -140,3 +140,8 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Markdown images: clickable zoom */
+.markdown-content img {
+  cursor: zoom-in;
+}

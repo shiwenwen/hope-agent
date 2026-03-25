@@ -13,6 +13,7 @@ import { Send, Square, Brain, ChevronRight, ImagePlus, Zap, Paperclip, X, Slash 
 import type { AvailableModel, ActiveModel } from "@/types/chat"
 import { getEffortOptionsForType } from "@/types/chat"
 import { useSlashCommands, type SlashCommandActions } from "./slash-commands/useSlashCommands"
+import { useLightbox } from "@/components/common/ImageLightbox"
 import SlashCommandMenu from "./slash-commands/SlashCommandMenu"
 import type { CommandResult } from "./slash-commands/types"
 
@@ -63,6 +64,7 @@ export default function ChatInput({
   onCommandAction,
 }: ChatInputProps) {
   const { t } = useTranslation()
+  const { openLightbox } = useLightbox()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -168,7 +170,11 @@ export default function ChatInput({
                     <img
                       src={URL.createObjectURL(file)}
                       alt={file.name}
-                      className="h-8 w-8 rounded object-cover"
+                      className="h-8 w-8 rounded object-cover cursor-zoom-in"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        openLightbox(URL.createObjectURL(file), file.name)
+                      }}
                     />
                   ) : (
                     <Paperclip className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
