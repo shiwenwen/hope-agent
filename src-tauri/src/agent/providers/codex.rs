@@ -248,6 +248,9 @@ impl AssistantAgent {
 
             // Execute tools and append results to input
             for tc in &tool_calls {
+                // Check cancel before each tool execution
+                if cancel.load(Ordering::SeqCst) { break; }
+
                 let args: serde_json::Value = serde_json::from_str(&tc.arguments).unwrap_or(json!({}));
 
                 emit_tool_call(on_delta, &tc.call_id, &tc.name, &tc.arguments);
@@ -272,9 +275,24 @@ impl AssistantAgent {
                 }
 
                 let tool_start = std::time::Instant::now();
-                let result = match tools::execute_tool_with_context(&tc.name, &args, &self.tool_context()).await {
-                    Ok(r) => r,
-                    Err(e) => format!("Tool error: {}", e),
+                // Use tokio::select! to race tool execution against cancel flag
+                let cancel_clone = cancel.clone();
+                let tool_ctx = self.tool_context();
+                let result = tokio::select! {
+                    res = tools::execute_tool_with_context(&tc.name, &args, &tool_ctx) => {
+                        match res {
+                            Ok(r) => r,
+                            Err(e) => format!("Tool error: {}", e),
+                        }
+                    }
+                    _ = async {
+                        loop {
+                            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                            if cancel_clone.load(Ordering::SeqCst) { break; }
+                        }
+                    } => {
+                        String::from("Tool execution cancelled by user")
+                    }
                 };
                 let tool_elapsed_ms = tool_start.elapsed().as_millis() as u64;
 
