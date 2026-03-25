@@ -10,6 +10,7 @@ use super::super::config::{apply_thinking_to_chat_body, build_api_url, get_max_t
 use super::super::content::build_user_content_openai_chat;
 use super::super::events::{
     emit_text_delta, emit_thinking_delta, emit_tool_call, emit_tool_result, emit_usage, extract_media_urls,
+    build_openai_chat_tool_result_content,
 };
 use super::super::types::{AssistantAgent, Attachment, ChatUsage, ThinkTagFilter};
 
@@ -283,7 +284,7 @@ impl AssistantAgent {
                 messages.push(json!({
                     "role": "tool",
                     "tool_call_id": tc.call_id,
-                    "content": clean_result,
+                    "content": build_openai_chat_tool_result_content(&clean_result),
                 }));
             }
 

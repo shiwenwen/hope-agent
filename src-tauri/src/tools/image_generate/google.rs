@@ -3,7 +3,7 @@ use base64::Engine;
 use reqwest::Client;
 use serde::Deserialize;
 
-use super::GeneratedImage;
+use super::{GeneratedImage, ImageGenResult};
 
 const DEFAULT_BASE_URL: &str = "https://generativelanguage.googleapis.com";
 const DEFAULT_MODEL: &str = "gemini-3.1-flash-image-preview";
@@ -26,7 +26,6 @@ struct GoogleContent {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct GooglePart {
-    #[allow(dead_code)]
     text: Option<String>,
     inline_data: Option<GoogleInlineData>,
 }
@@ -45,7 +44,7 @@ pub(super) async fn generate(
     prompt: &str,
     thinking_level: Option<&str>,
     timeout_secs: u64,
-) -> Result<Vec<GeneratedImage>> {
+) -> Result<ImageGenResult> {
     let base = base_url
         .filter(|s| !s.is_empty())
         .unwrap_or(DEFAULT_BASE_URL)
@@ -139,12 +138,19 @@ pub(super) async fn generate(
 
     let body: GoogleResponse = resp.json().await?;
     let mut images = Vec::new();
+    let mut text_parts = Vec::new();
 
     if let Some(candidates) = body.candidates {
         for candidate in candidates {
             if let Some(content) = candidate.content {
                 if let Some(parts) = content.parts {
                     for part in parts {
+                        if let Some(text) = part.text {
+                            let trimmed = text.trim();
+                            if !trimmed.is_empty() {
+                                text_parts.push(trimmed.to_string());
+                            }
+                        }
                         if let Some(inline) = part.inline_data {
                             if let Some(b64_data) = inline.data {
                                 let mime = inline
@@ -169,5 +175,11 @@ pub(super) async fn generate(
         anyhow::bail!("Google returned no image data");
     }
 
-    Ok(images)
+    let text = if text_parts.is_empty() {
+        None
+    } else {
+        Some(text_parts.join("\n"))
+    };
+
+    Ok(ImageGenResult { images, text })
 }

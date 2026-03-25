@@ -9,7 +9,7 @@ use super::super::api_types::{ReasoningConfig, ResponsesRequest};
 use super::super::config::{clamp_reasoning_effort, get_max_tool_rounds, CODEX_API_URL, MAX_RETRIES, BASE_DELAY_MS};
 use super::super::content::build_user_content_responses;
 use super::super::errors::{is_retryable_error, os_version, parse_error_response};
-use super::super::events::{emit_tool_call, emit_tool_result, emit_usage, extract_media_urls};
+use super::super::events::{emit_tool_call, emit_tool_result, emit_usage, extract_media_urls, build_responses_tool_result};
 use super::super::types::{AssistantAgent, Attachment, ChatUsage};
 
 impl AssistantAgent {
@@ -304,6 +304,8 @@ impl AssistantAgent {
                 let (clean_result, media_urls) = extract_media_urls(&result);
                 emit_tool_result(on_delta, &tc.call_id, &tc.name, &clean_result, tool_elapsed_ms, is_tool_error, &media_urls);
 
+                let (text_output, image_item) = build_responses_tool_result(&clean_result);
+
                 // Append function_call item to input
                 input.push(json!({
                     "type": "function_call",
@@ -317,8 +319,11 @@ impl AssistantAgent {
                 input.push(json!({
                     "type": "function_call_output",
                     "call_id": tc.call_id,
-                    "output": clean_result,
+                    "output": text_output,
                 }));
+                if let Some(img_item) = image_item {
+                    input.push(img_item);
+                }
             }
 
             // Tier 1 quick check: truncate any oversized tool results added this round

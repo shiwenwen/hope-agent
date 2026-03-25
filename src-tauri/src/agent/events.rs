@@ -56,34 +56,84 @@ pub(super) fn emit_tool_result(on_delta: &(impl Fn(&str) + Send), call_id: &str,
     emit_event(on_delta, &event);
 }
 
-/// Build tool result content, detecting image base64 markers for multimodal responses.
-/// For Anthropic: returns a content array with image + text blocks.
-/// For OpenAI: returns a plain string (OpenAI tool results don't support images directly).
-pub(super) fn build_anthropic_tool_result_content(result: &str) -> serde_json::Value {
+/// Parse the `__IMAGE_BASE64__<mime>__<base64data>\n<text>` marker.
+/// Returns `Some((mime, base64, text_description))` if present.
+fn parse_image_base64_marker(result: &str) -> Option<(&str, &str, &str)> {
     use crate::tools::browser::IMAGE_BASE64_PREFIX;
-    if let Some(rest) = result.strip_prefix(IMAGE_BASE64_PREFIX) {
-        // Format: __IMAGE_BASE64__<mime>__<base64data>\n<text description>
-        if let Some(sep_idx) = rest.find("__") {
-            let mime = &rest[..sep_idx];
-            let after = &rest[sep_idx + 2..];
-            let (b64, text) = after.split_once('\n').unwrap_or((after, ""));
-            return json!([
-                {
-                    "type": "image",
-                    "source": {
-                        "type": "base64",
-                        "media_type": mime,
-                        "data": b64
-                    }
-                },
-                {
-                    "type": "text",
-                    "text": if text.trim().is_empty() { "Screenshot captured." } else { text.trim() }
+    let rest = result.strip_prefix(IMAGE_BASE64_PREFIX)?;
+    let sep_idx = rest.find("__")?;
+    let mime = &rest[..sep_idx];
+    let after = &rest[sep_idx + 2..];
+    let (b64, text) = after.split_once('\n').unwrap_or((after, ""));
+    Some((mime, b64, text))
+}
+
+/// Build tool result content for Anthropic Messages API.
+/// Detects `__IMAGE_BASE64__` marker and returns a content array with image + text blocks.
+pub(super) fn build_anthropic_tool_result_content(result: &str) -> serde_json::Value {
+    if let Some((mime, b64, text)) = parse_image_base64_marker(result) {
+        return json!([
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": mime,
+                    "data": b64
                 }
-            ]);
-        }
+            },
+            {
+                "type": "text",
+                "text": if text.trim().is_empty() { "Screenshot captured." } else { text.trim() }
+            }
+        ]);
     }
     json!(result)
+}
+
+/// Build tool result content for OpenAI Chat Completions API.
+/// Returns a content array with `image_url` (data URI) + `text` blocks when image is detected.
+pub(super) fn build_openai_chat_tool_result_content(result: &str) -> serde_json::Value {
+    if let Some((mime, b64, text)) = parse_image_base64_marker(result) {
+        let data_uri = format!("data:{};base64,{}", mime, b64);
+        return json!([
+            {
+                "type": "image_url",
+                "image_url": { "url": data_uri }
+            },
+            {
+                "type": "text",
+                "text": if text.trim().is_empty() { "Screenshot captured." } else { text.trim() }
+            }
+        ]);
+    }
+    json!(result)
+}
+
+/// Build tool result for OpenAI Responses API (`function_call_output`).
+/// The `output` field only accepts a string, so when an image is detected,
+/// returns `(clean_text, Some(image_input_item))` where the image item
+/// should be appended to the input array as a separate message.
+pub(super) fn build_responses_tool_result(result: &str) -> (String, Option<serde_json::Value>) {
+    if let Some((mime, b64, text)) = parse_image_base64_marker(result) {
+        let clean = if text.trim().is_empty() { "Screenshot captured.".to_string() } else { text.trim().to_string() };
+        let data_uri = format!("data:{};base64,{}", mime, b64);
+        let image_item = json!({
+            "role": "user",
+            "content": [
+                {
+                    "type": "input_image",
+                    "image_url": data_uri
+                },
+                {
+                    "type": "input_text",
+                    "text": format!("[Tool visual output] {}", clean)
+                }
+            ]
+        });
+        (clean, Some(image_item))
+    } else {
+        (result.to_string(), None)
+    }
 }
 
 pub(super) fn emit_thinking_delta(on_delta: &(impl Fn(&str) + Send), text: &str) {

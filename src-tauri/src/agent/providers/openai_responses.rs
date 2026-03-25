@@ -10,6 +10,7 @@ use super::super::config::{build_api_url, clamp_reasoning_effort, get_max_tool_r
 use super::super::content::build_user_content_responses;
 use super::super::events::{
     emit_text_delta, emit_thinking_delta, emit_tool_call, emit_tool_result, emit_usage, extract_media_urls,
+    build_responses_tool_result,
 };
 use super::super::types::{AssistantAgent, Attachment, ChatUsage};
 
@@ -252,6 +253,8 @@ impl AssistantAgent {
                 let (clean_result, media_urls) = extract_media_urls(&result);
                 emit_tool_result(on_delta, &tc.call_id, &tc.name, &clean_result, tool_elapsed_ms, is_tool_error, &media_urls);
 
+                let (text_output, image_item) = build_responses_tool_result(&clean_result);
+
                 input.push(json!({
                     "type": "function_call",
                     "id": tc.call_id,
@@ -262,8 +265,11 @@ impl AssistantAgent {
                 input.push(json!({
                     "type": "function_call_output",
                     "call_id": tc.call_id,
-                    "output": clean_result,
+                    "output": text_output,
                 }));
+                if let Some(img_item) = image_item {
+                    input.push(img_item);
+                }
             }
 
             // Tier 1 quick check: truncate any oversized tool results added this round

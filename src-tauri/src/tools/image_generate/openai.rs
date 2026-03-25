@@ -27,7 +27,7 @@ pub(super) async fn generate(
     size: &str,
     n: u32,
     timeout_secs: u64,
-) -> Result<Vec<GeneratedImage>> {
+) -> Result<super::ImageGenResult> {
     let base = base_url
         .filter(|s| !s.is_empty())
         .unwrap_or(DEFAULT_BASE_URL)
@@ -142,5 +142,5 @@ pub(super) async fn generate(
         anyhow::bail!("OpenAI returned no valid image data");
     }
 
-    Ok(images)
+    Ok(super::ImageGenResult { images, text: None })
 }

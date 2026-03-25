@@ -140,6 +140,13 @@ pub(crate) struct GeneratedImage {
     pub revised_prompt: Option<String>,
 }
 
+/// Result from image generation, containing images and optional accompanying text.
+pub(crate) struct ImageGenResult {
+    pub images: Vec<GeneratedImage>,
+    /// Accompanying text content from the model (e.g. Gemini returns text alongside images).
+    pub text: Option<String>,
+}
+
 // ── Public Helpers ──────────────────────────────────────────────
 
 /// Check if at least one provider is enabled with an API key.
@@ -233,7 +240,7 @@ pub(crate) async fn tool_image_generate(args: &Value) -> Result<String> {
         n
     );
 
-    let images = match entry.id {
+    let gen_result = match entry.id {
         ImageGenProvider::OpenAI => {
             openai::generate(api_key, base_url, model, prompt, size, n, timeout).await?
         }
@@ -245,6 +252,9 @@ pub(crate) async fn tool_image_generate(args: &Value) -> Result<String> {
             fal::generate(api_key, base_url, model, prompt, size, n, timeout).await?
         }
     };
+
+    let images = gen_result.images;
+    let accompanying_text = gen_result.text;
 
     // Save images to disk
     let save_dir = crate::paths::generated_images_dir()?;
@@ -288,6 +298,9 @@ pub(crate) async fn tool_image_generate(args: &Value) -> Result<String> {
     }
     if let Some(ref rp) = images[0].revised_prompt {
         text_parts.push(format!("Revised prompt: {}", rp));
+    }
+    if let Some(ref text) = accompanying_text {
+        text_parts.push(format!("Model response: {}", text));
     }
 
     // Embed media URLs so the event system can extract them for frontend display
