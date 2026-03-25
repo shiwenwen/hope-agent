@@ -10,5 +10,6 @@ pub mod agent_mgmt;
 pub mod config;
 pub mod logging;
 pub mod crash;
+pub mod dashboard;
 pub mod docker;
 pub mod misc;

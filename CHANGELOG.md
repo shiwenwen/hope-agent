@@ -14,6 +14,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **图片生成 API（OpenAI/Google/Fal）**：请求参数（model/prompt 预览/size/n）、响应状态（status/ttfb/request-id）、错误响应体完整记录
 
 ### Added
+- **仪表盘分析模块（dashboard）**：新增 `dashboard.rs` 后端模块 + 6 个 Tauri 命令，提供会话/Token/工具/错误/任务多维度统计分析
+  - **概览统计**：会话数、消息数、Token 用量、工具调用、错误数、活跃 Agent/定时任务数、预估费用
+  - **Token 用量**：按日趋势 + 按模型分组统计 + 硬编码 20+ 模型定价预估费用（Claude/GPT/Gemini/DeepSeek/Qwen）
+  - **工具使用**：按工具名分组统计调用次数、错误次数、平均/总耗时
+  - **会话分析**：按日趋势 + 按 Agent 分组统计（会话数/消息数/Token 总量）
+  - **错误分析**：从日志库按日趋势 + 按分类分组统计（error/warn 双维度）
+  - **任务统计**：定时任务（总数/活跃/成功/失败/平均耗时）+ 子 Agent（总数/完成/失败/终止/Token/耗时）
+  - 所有查询支持 `DashboardFilter`（时间范围/Agent/Provider/模型过滤），自动排除 cron 会话和子 Agent 会话
 - **画布工具（canvas）**：新增第 29 个内置工具，支持交互式可视化内容创作
   - **7 种内容类型**：HTML/CSS/JS（Web 应用、游戏、动画）、Markdown（富文档）、Code（语法高亮）、SVG（矢量图形）、Mermaid（图表）、Chart（Chart.js 数据可视化）、Slides（演示文稿）
   - **11 个操作**：create/update/show/hide/snapshot/eval_js/list/delete/versions/restore/export
