@@ -106,6 +106,40 @@ export interface DashboardTaskData {
   subagent: SubagentStats
 }
 
+export interface CpuInfo {
+  name: string
+  usagePercent: number
+}
+
+export interface MemoryInfo {
+  totalBytes: number
+  usedBytes: number
+  availableBytes: number
+  usagePercent: number
+  swapTotalBytes: number
+  swapUsedBytes: number
+  swapUsagePercent: number
+}
+
+export interface NetworkInterfaceInfo {
+  name: string
+  receivedBytes: number
+  transmittedBytes: number
+}
+
+export interface SystemMetrics {
+  cpuGlobalUsage: number
+  cpuCores: CpuInfo[]
+  cpuCount: number
+  memory: MemoryInfo
+  networks: NetworkInterfaceInfo[]
+  totalReceivedBytes: number
+  totalTransmittedBytes: number
+  osName: string
+  hostName: string
+  uptimeSecs: number
+}
+
 export type Granularity = "day" | "week" | "month"
 
 /** Format large numbers as "1.2M", "45.6K", etc. */
@@ -118,6 +152,26 @@ export function formatNumber(n: number): string {
 /** Format USD currency */
 export function formatCost(n: number): string {
   return `$${n.toFixed(2)}`
+}
+
+/** Format bytes to human readable (KB, MB, GB, TB) */
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  if (bytes < 1024 * 1024 * 1024 * 1024)
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
+  return `${(bytes / (1024 * 1024 * 1024 * 1024)).toFixed(2)} TB`
+}
+
+/** Format seconds to human readable uptime */
+export function formatUptime(secs: number): string {
+  const days = Math.floor(secs / 86400)
+  const hours = Math.floor((secs % 86400) / 3600)
+  const minutes = Math.floor((secs % 3600) / 60)
+  if (days > 0) return `${days}d ${hours}h ${minutes}m`
+  if (hours > 0) return `${hours}h ${minutes}m`
+  return `${minutes}m`
 }
 
 /** Format milliseconds to human readable */

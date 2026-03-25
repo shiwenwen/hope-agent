@@ -6,6 +6,7 @@
 
 use anyhow::Result;
 use std::sync::Arc;
+use sysinfo::{Networks, System};
 
 use crate::cron::CronDB;
 use crate::logging::LogDB;
@@ -149,6 +150,50 @@ pub struct SubagentStats {
 pub struct DashboardTaskData {
     pub cron: CronJobStats,
     pub subagent: SubagentStats,
+}
+
+// ── System Metrics Types ────────────────────────────────────────
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CpuInfo {
+    pub name: String,
+    pub usage_percent: f32,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryInfo {
+    pub total_bytes: u64,
+    pub used_bytes: u64,
+    pub available_bytes: u64,
+    pub usage_percent: f64,
+    pub swap_total_bytes: u64,
+    pub swap_used_bytes: u64,
+    pub swap_usage_percent: f64,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NetworkInterfaceInfo {
+    pub name: String,
+    pub received_bytes: u64,
+    pub transmitted_bytes: u64,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemMetrics {
+    pub cpu_global_usage: f32,
+    pub cpu_cores: Vec<CpuInfo>,
+    pub cpu_count: usize,
+    pub memory: MemoryInfo,
+    pub networks: Vec<NetworkInterfaceInfo>,
+    pub total_received_bytes: u64,
+    pub total_transmitted_bytes: u64,
+    pub os_name: String,
+    pub host_name: String,
+    pub uptime_secs: u64,
 }
 
 // ── Cost Estimation ─────────────────────────────────────────────
@@ -747,4 +792,94 @@ pub fn query_tasks(
     };
 
     Ok(DashboardTaskData { cron, subagent })
+}
+
+/// System metrics: CPU, memory, network usage (real-time snapshot).
+pub fn query_system_metrics() -> Result<SystemMetrics> {
+    let mut sys = System::new();
+    sys.refresh_cpu_usage();
+    // Brief sleep to allow CPU usage measurement to stabilize
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    sys.refresh_cpu_usage();
+    sys.refresh_memory();
+
+    let cpu_cores: Vec<CpuInfo> = sys
+        .cpus()
+        .iter()
+        .map(|cpu| CpuInfo {
+            name: cpu.name().to_string(),
+            usage_percent: cpu.cpu_usage(),
+        })
+        .collect();
+
+    let cpu_global_usage = sys.global_cpu_usage();
+    let cpu_count = sys.cpus().len();
+
+    let total_mem = sys.total_memory();
+    let used_mem = sys.used_memory();
+    let available_mem = sys.available_memory();
+    let mem_usage = if total_mem > 0 {
+        (used_mem as f64 / total_mem as f64) * 100.0
+    } else {
+        0.0
+    };
+
+    let swap_total = sys.total_swap();
+    let swap_used = sys.used_swap();
+    let swap_usage = if swap_total > 0 {
+        (swap_used as f64 / swap_total as f64) * 100.0
+    } else {
+        0.0
+    };
+
+    let memory = MemoryInfo {
+        total_bytes: total_mem,
+        used_bytes: used_mem,
+        available_bytes: available_mem,
+        usage_percent: mem_usage,
+        swap_total_bytes: swap_total,
+        swap_used_bytes: swap_used,
+        swap_usage_percent: swap_usage,
+    };
+
+    let networks = Networks::new_with_refreshed_list();
+    let mut net_list: Vec<NetworkInterfaceInfo> = Vec::new();
+    let mut total_rx: u64 = 0;
+    let mut total_tx: u64 = 0;
+    for (name, data) in &networks {
+        let rx = data.total_received();
+        let tx = data.total_transmitted();
+        // Skip interfaces with zero traffic
+        if rx == 0 && tx == 0 {
+            continue;
+        }
+        total_rx += rx;
+        total_tx += tx;
+        net_list.push(NetworkInterfaceInfo {
+            name: name.to_string(),
+            received_bytes: rx,
+            transmitted_bytes: tx,
+        });
+    }
+    // Sort by total traffic descending
+    net_list.sort_by(|a, b| {
+        (b.received_bytes + b.transmitted_bytes).cmp(&(a.received_bytes + a.transmitted_bytes))
+    });
+
+    let os_name = System::name().unwrap_or_else(|| "Unknown".to_string());
+    let host_name = System::host_name().unwrap_or_else(|| "Unknown".to_string());
+    let uptime_secs = System::uptime();
+
+    Ok(SystemMetrics {
+        cpu_global_usage,
+        cpu_cores,
+        cpu_count,
+        memory,
+        networks: net_list,
+        total_received_bytes: total_rx,
+        total_transmitted_bytes: total_tx,
+        os_name,
+        host_name,
+        uptime_secs,
+    })
 }

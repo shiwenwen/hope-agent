@@ -1084,7 +1084,8 @@
       "tools": "Tool Usage",
       "sessions": "Sessions",
       "errors": "Errors",
-      "tasks": "Tasks"
+      "tasks": "Tasks",
+      "system": "System"
     },
     "granularity": {
       "day": "Day",
@@ -1180,6 +1181,27 @@
       "tokens": "Tokens Used",
       "success": "Success",
       "noRuns": "No Runs"
+    },
+    "system": {
+      "osName": "OS",
+      "hostName": "Host Name",
+      "uptime": "Uptime",
+      "cpuCores": "CPU Cores",
+      "cores": "Cores",
+      "usage": "Usage",
+      "cpuUsage": "CPU Usage",
+      "memoryUsage": "Memory Usage",
+      "memTotal": "Total Memory",
+      "memUsed": "Used",
+      "memAvailable": "Available",
+      "swapUsed": "Swap Used",
+      "swapFree": "Swap Free",
+      "networkTraffic": "Network Traffic",
+      "interface": "Interface",
+      "received": "Received",
+      "transmitted": "Transmitted",
+      "total": "Total",
+      "noNetworkData": "No network data"
     },
     "noData": "No data available",
     "loading": "Loading..."

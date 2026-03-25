@@ -1,6 +1,6 @@
 use tauri::State;
 use crate::AppState;
-use crate::dashboard::*;
+use crate::dashboard::{self, *};
 
 #[tauri::command]
 pub async fn dashboard_overview(
@@ -53,5 +53,14 @@ pub async fn dashboard_tasks(
     state: State<'_, AppState>,
 ) -> Result<DashboardTaskData, String> {
     query_tasks(&state.session_db, &state.cron_db, &filter)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn dashboard_system_metrics() -> Result<dashboard::SystemMetrics, String> {
+    // Run on blocking thread since sysinfo does a brief sleep for CPU measurement
+    tokio::task::spawn_blocking(|| dashboard::query_system_metrics())
+        .await
+        .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
 }

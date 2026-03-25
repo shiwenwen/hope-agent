@@ -1084,7 +1084,8 @@
       "tools": "工具使用",
       "sessions": "会话分析",
       "errors": "异常监控",
-      "tasks": "任务统计"
+      "tasks": "任务统计",
+      "system": "系统监控"
     },
     "granularity": {
       "day": "按天",
@@ -1180,6 +1181,27 @@
       "tokens": "Token 消耗",
       "success": "成功",
       "noRuns": "暂无运行"
+    },
+    "system": {
+      "osName": "操作系统",
+      "hostName": "主机名",
+      "uptime": "运行时间",
+      "cpuCores": "CPU 核心",
+      "cores": "核",
+      "usage": "使用率",
+      "cpuUsage": "CPU 使用率",
+      "memoryUsage": "内存使用率",
+      "memTotal": "总内存",
+      "memUsed": "已使用",
+      "memAvailable": "可用",
+      "swapUsed": "Swap 已用",
+      "swapFree": "Swap 可用",
+      "networkTraffic": "网络流量",
+      "interface": "网卡",
+      "received": "接收",
+      "transmitted": "发送",
+      "total": "合计",
+      "noNetworkData": "暂无网络数据"
     },
     "noData": "暂无数据",
     "loading": "加载中..."

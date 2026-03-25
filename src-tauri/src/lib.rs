@@ -526,6 +526,7 @@ pub fn run() {
             commands::dashboard::dashboard_sessions,
             commands::dashboard::dashboard_errors,
             commands::dashboard::dashboard_tasks,
+            commands::dashboard::dashboard_system_metrics,
             // Developer tools
             dev_tools::dev_clear_sessions,
             dev_tools::dev_clear_cron,
