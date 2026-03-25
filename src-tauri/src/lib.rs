@@ -406,6 +406,8 @@ pub fn run() {
             commands::config::save_web_search_config,
             commands::config::get_web_fetch_config,
             commands::config::save_web_fetch_config,
+            commands::config::get_image_generate_config,
+            commands::config::save_image_generate_config,
             commands::docker::searxng_docker_status,
             commands::docker::searxng_docker_deploy,
             commands::docker::searxng_docker_start,
@@ -492,6 +494,10 @@ pub fn run() {
             commands::crash::create_backup_cmd,
             commands::crash::get_guardian_enabled,
             commands::crash::set_guardian_enabled,
+            // Sandbox
+            sandbox::get_sandbox_config,
+            sandbox::set_sandbox_config,
+            sandbox::check_sandbox_available,
             // Slash commands
             slash_commands::list_slash_commands,
             slash_commands::execute_slash_command,

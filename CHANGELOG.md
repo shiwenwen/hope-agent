@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **图片生成工具（image_generate）**：新增第 28 个内置工具，支持 3 个 AI 图片生成 Provider
+  - **OpenAI**：DALL-E / gpt-image-1，通过 `/v1/images/generations` API 生成，支持 b64_json 返回
+  - **Google**：Gemini 图片生成（`gemini-2.0-flash-preview-image-generation`），通过 `generateContent` API 的 `responseModalities: ["IMAGE"]` 模式
+  - **Fal**：Flux 模型（`fal-ai/flux/dev`），通过 CDN URL 下载生成结果
+  - **条件注入**：仅在有配置了 API Key 的 Provider 时才向 Agent 注入该工具（同 `send_notification` 模式）
+  - **图片持久化**：生成的图片自动保存到 `~/.opencomputer/generated-images/`，带时间戳文件名
+  - **视觉反馈**：通过 `IMAGE_BASE64_PREFIX` 机制将生成图片回传给 LLM，实现 Agent 视觉确认
+  - **设置面板**：工具设置新增"图片生成"Tab，支持 Provider 开关、API Key、Base URL、Model、默认尺寸、超时配置
+- **Docker 沙箱安全加强**：全面提升容器隔离安全性
+  - **P0 修复断连**：Agent 设置面板的 `behavior.sandbox` 开关现在真正生效，`ToolExecContext` 新增 `force_sandbox` 字段自动注入
+  - **P1 安全加固**：默认镜像从 `ubuntu:22.04` 更换为 `debian:bookworm-slim`（更小更快）；新增 6 项 Docker 安全配置——只读根文件系统（`--read-only`）、移除所有 capability（`--cap-drop ALL`）、禁止新权限（`--no-new-privileges`）、网络隔离（`--network none`）、进程数限制（`--pids-limit 256`）、tmpfs 可写临时目录（`/tmp`、`/var/tmp`、`/run`）
+  - **P2 环境变量过滤**：`sanitize_env()` 拦截 API Key、Token、Password 等 20+ 种敏感环境变量模式，白名单放行 PATH/HOME/LANG 等安全变量
+  - **P3 挂载路径校验**：`validate_bind_mount()` 禁止挂载 `/etc`、`/proc`、`/sys`、`/dev`、`/root`、Docker socket 等系统关键路径，防止 symlink 逃逸
+  - **P4 系统提示词**：当 `behavior.sandbox` 启用时，自动注入 Section ⑪ 告知 LLM 沙箱特性和限制
+  - **P5 设置面板**：新增 Sandbox 设置页面（Docker 可用性检测、镜像配置、资源限制、安全开关），3 个 Tauri 命令（`get_sandbox_config`、`set_sandbox_config`、`check_sandbox_available`）
 - **斜杠命令系统（Slash Commands）**：输入框键入 `/` 自动展开命令菜单，支持 16 个内置命令
   - **架构**：命令解析和执行在 Rust 后端实现（`slash_commands/` 模块），channel-agnostic 设计，未来可复用于 Telegram/Discord/Slack 等渠道
   - **5 个命令类别**：会话（`/new` `/clear` `/compact` `/stop` `/rename`）、模型（`/model` `/think`）、记忆（`/remember` `/forget` `/memories`）、Agent（`/agent` `/agents`）、工具（`/help` `/status` `/export` `/usage` `/search`）

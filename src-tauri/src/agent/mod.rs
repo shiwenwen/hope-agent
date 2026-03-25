@@ -44,6 +44,7 @@ impl AssistantAgent {
             compact_config: crate::context_compact::CompactConfig::default(),
             token_calibrator: std::sync::Mutex::new(crate::context_compact::TokenEstimateCalibrator::new()),
             notification_enabled: false,
+            image_generate_enabled: false,
             session_id: None,
             subagent_depth: 0,
             steer_run_id: None,
@@ -68,6 +69,7 @@ impl AssistantAgent {
             compact_config: crate::context_compact::CompactConfig::default(),
             token_calibrator: std::sync::Mutex::new(crate::context_compact::TokenEstimateCalibrator::new()),
             notification_enabled: false,
+            image_generate_enabled: false,
             session_id: None,
             subagent_depth: 0,
             steer_run_id: None,
@@ -116,6 +118,7 @@ impl AssistantAgent {
             compact_config: crate::context_compact::CompactConfig::default(),
             token_calibrator: std::sync::Mutex::new(crate::context_compact::TokenEstimateCalibrator::new()),
             notification_enabled: false,
+            image_generate_enabled: false,
             session_id: None,
             subagent_depth: 0,
             steer_run_id: None,
@@ -136,6 +139,11 @@ impl AssistantAgent {
     /// Enable or disable the send_notification tool for this agent.
     pub fn set_notification_enabled(&mut self, enabled: bool) {
         self.notification_enabled = enabled;
+    }
+
+    /// Enable or disable the image_generate tool for this agent.
+    pub fn set_image_generate_enabled(&mut self, enabled: bool) {
+        self.image_generate_enabled = enabled;
     }
 
     /// Set the current session ID (for sub-agent context propagation).
@@ -164,6 +172,9 @@ impl AssistantAgent {
         if self.notification_enabled {
             prompt.push_str("\n\n- **send_notification**: Send a native desktop notification to alert the user about important events, task completions, or findings that need their attention. Parameters: title (optional), body (required).");
         }
+        if self.image_generate_enabled {
+            prompt.push_str("\n\n- **image_generate**: Generate images from text descriptions using AI image generation models (OpenAI/DALL-E, Google/Gemini, Fal/Flux). Parameters: prompt (required), size (optional, default 1024x1024), n (optional, 1-4), provider (optional). Generated images are saved to disk.");
+        }
         if let Some(extra) = &self.extra_system_context {
             prompt.push_str("\n\n");
             prompt.push_str(extra);
@@ -190,9 +201,13 @@ impl AssistantAgent {
 
     /// Build a ToolExecContext with agent home directory and context window.
     pub(crate) fn tool_context(&self) -> tools::ToolExecContext {
-        let require_approval = crate::agent_loader::load_agent(&self.agent_id)
+        let agent_def = crate::agent_loader::load_agent(&self.agent_id);
+        let require_approval = agent_def.as_ref()
             .map(|def| def.config.behavior.require_approval.clone())
             .unwrap_or_default();
+        let force_sandbox = agent_def.as_ref()
+            .map(|def| def.config.behavior.sandbox)
+            .unwrap_or(false);
         tools::ToolExecContext {
             context_window_tokens: Some(self.context_window),
             home_dir: self.agent_home(),
@@ -200,6 +215,7 @@ impl AssistantAgent {
             agent_id: Some(self.agent_id.clone()),
             subagent_depth: self.subagent_depth,
             require_approval,
+            force_sandbox,
         }
     }
 

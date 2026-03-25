@@ -85,10 +85,11 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
     let use_pty = args.get("pty").and_then(|v| v.as_bool()).unwrap_or(false);
-    let sandbox = args
-        .get("sandbox")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
+    let sandbox = ctx.force_sandbox
+        || args
+            .get("sandbox")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
     let yield_ms = args
         .get("yield_ms")

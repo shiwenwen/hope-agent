@@ -52,6 +52,10 @@ Params: session_id (required), limit (default 50), before_id (pagination cursor)
 Params: session_id, message (required), wait (default false), timeout_secs (default 60). \
 - image: Analyze an image file. Returns base64-encoded image data for visual analysis. \
 Supports PNG, JPEG, GIF, WebP, BMP, TIFF. Use prompt param to specify what to analyze. \
+- image_generate: Generate images from text descriptions using AI image generation models. \
+Supports OpenAI (DALL-E/gpt-image-1), Google (Gemini), and Fal (Flux). \
+Params: prompt (required), size (default 1024x1024), n (1-4, default 1), provider (optional). \
+Generated images are saved to disk and returned for visual inspection. \
 - pdf: Extract text content from PDF documents with page-level pagination. \
 Params: path (required), pages (e.g. '1-5'), max_chars (default 50000). \
 \
@@ -62,7 +66,7 @@ process(action='poll') to check progress.";
 
 /// Build the complete system prompt from an AgentDefinition.
 ///
-/// Assembly order (11 sections):
+/// Assembly order (12 sections):
 /// ① Identity line
 /// ② agent.md — what this agent does
 /// ③ persona.md — personality
@@ -73,7 +77,8 @@ process(action='poll') to check progress.";
 /// ⑧ Memory — injected from memory backend
 /// ⑨ Runtime info — date, OS, etc.
 /// ⑩ Sub-agent delegation (conditional)
-/// ⑪ (reserved for project context — not yet implemented)
+/// ⑪ Sandbox mode (conditional)
+/// ⑫ (reserved for project context — not yet implemented)
 pub fn build(definition: &AgentDefinition, model: Option<&str>, provider: Option<&str>, memory_context: Option<&str>, agent_home: Option<&str>) -> String {
     let mut sections: Vec<String> = Vec::new();
 
@@ -191,7 +196,25 @@ pub fn build(definition: &AgentDefinition, model: Option<&str>, provider: Option
         }
     }
 
-    // ⑪ Project context — not yet implemented
+    // ⑪ Sandbox mode (conditionally injected)
+    if definition.config.behavior.sandbox {
+        sections.push(
+            "# Sandbox Mode\n\n\
+             All commands you execute via the `exec` tool will automatically run inside a Docker sandbox container.\n\
+             You do NOT need to pass `sandbox=true` — it is enforced by your agent configuration.\n\n\
+             Sandbox properties:\n\
+             - Read-only root filesystem (only /workspace, /tmp, /var/tmp, /run are writable)\n\
+             - No network access (network mode: none)\n\
+             - All Linux capabilities dropped\n\
+             - Process count limited\n\
+             - Your working directory is mounted at /workspace inside the container\n\n\
+             If a command needs to write temporary files, use /tmp. \
+             If a command requires network access or special privileges, inform the user that it cannot run in sandbox mode."
+                .to_string(),
+        );
+    }
+
+    // ⑫ Project context — not yet implemented
 
     // Join all non-empty sections
     let section_lengths: Vec<usize> = sections.iter().map(|s| s.len()).collect();

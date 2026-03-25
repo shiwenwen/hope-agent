@@ -7,11 +7,11 @@ use super::{
     TOOL_SAVE_MEMORY, TOOL_RECALL_MEMORY, TOOL_UPDATE_MEMORY, TOOL_DELETE_MEMORY,
     TOOL_MANAGE_CRON, TOOL_BROWSER, TOOL_SEND_NOTIFICATION, TOOL_SUBAGENT,
     TOOL_MEMORY_GET, TOOL_AGENTS_LIST, TOOL_SESSIONS_LIST, TOOL_SESSION_STATUS,
-    TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_SEND, TOOL_IMAGE, TOOL_PDF,
+    TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_SEND, TOOL_IMAGE, TOOL_IMAGE_GENERATE, TOOL_PDF,
 };
 use super::{exec, process, read, write, edit, ls, grep, find, apply_patch};
 use super::{web_search, web_fetch, memory, cron, browser, notification, subagent};
-use super::{agents, sessions, image, pdf};
+use super::{agents, sessions, image, image_generate, pdf};
 
 // ── Tool Execution Context ────────────────────────────────────────
 
@@ -32,6 +32,8 @@ pub struct ToolExecContext {
     /// Tool names that require user approval before execution.
     /// `["*"]` means all tools require approval.
     pub require_approval: Vec<String>,
+    /// Whether the agent forces Docker sandbox mode for all exec commands.
+    pub force_sandbox: bool,
 }
 
 impl Default for ToolExecContext {
@@ -43,6 +45,7 @@ impl Default for ToolExecContext {
             agent_id: None,
             subagent_depth: 0,
             require_approval: Vec::new(),
+            force_sandbox: false,
         }
     }
 }
@@ -176,6 +179,7 @@ pub async fn execute_tool_with_context(
         TOOL_SESSIONS_HISTORY => sessions::tool_sessions_history(args).await,
         TOOL_SESSIONS_SEND => Box::pin(sessions::tool_sessions_send(args, ctx)).await,
         TOOL_IMAGE => image::tool_image(args).await,
+        TOOL_IMAGE_GENERATE => image_generate::tool_image_generate(args).await,
         TOOL_PDF => pdf::tool_pdf(args).await,
         _ => Err(anyhow::anyhow!("Unknown tool: {}", name)),
     };

@@ -7,6 +7,7 @@ export type SettingsSection =
   | "memory"
   | "cron"
   | "notifications"
+  | "sandbox"
   | "permissions"
   | "profile"
   | "chat"
