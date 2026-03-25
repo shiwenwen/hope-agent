@@ -6,7 +6,7 @@ use serde::Deserialize;
 use super::GeneratedImage;
 
 const DEFAULT_BASE_URL: &str = "https://generativelanguage.googleapis.com";
-const DEFAULT_MODEL: &str = "gemini-2.0-flash-preview-image-generation";
+const DEFAULT_MODEL: &str = "gemini-3.1-flash-image-preview";
 
 #[derive(Deserialize)]
 struct GoogleResponse {

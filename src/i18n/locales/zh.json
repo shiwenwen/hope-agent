@@ -15,7 +15,9 @@
     "loginTimeout": "登录超时，请重试",
     "dragToSort": "拖拽可排序",
     "saved": "已保存",
-    "saveFailed": "保存失败"
+    "saveFailed": "保存失败",
+    "custom": "自定义",
+    "select": "选择"
   },
   "chat": {
     "conversations": "会话",

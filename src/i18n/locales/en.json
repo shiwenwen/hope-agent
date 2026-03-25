@@ -15,7 +15,9 @@
     "loginTimeout": "Login timed out, please try again",
     "dragToSort": "Drag to reorder",
     "saved": "Saved",
-    "saveFailed": "Save failed"
+    "saveFailed": "Save failed",
+    "custom": "Custom",
+    "select": "Select"
   },
   "chat": {
     "conversations": "Chats",

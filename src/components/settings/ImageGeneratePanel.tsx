@@ -37,7 +37,75 @@ const DEFAULT_CONFIG: ImageGenConfig = {
 }
 
 
+const GOOGLE_MODEL_OPTIONS = [
+  { value: "gemini-3.1-flash-image-preview", label: "Gemini 3.1 Flash Image Preview" },
+  { value: "gemini-3-pro-image-preview", label: "Gemini 3 Pro Image Preview" },
+  { value: "gemini-2.5-flash-image", label: "Gemini 2.5 Flash Image" },
+  { value: "imagen-4.0-generate-001", label: "Imagen 4" },
+  { value: "imagen-4.0-ultra-generate-001", label: "Imagen 4 Ultra" },
+  { value: "imagen-4.0-fast-generate-001", label: "Imagen 4 Fast" },
+]
+
 const SIZE_OPTIONS = ["1024x1024", "1024x1536", "1536x1024"]
+
+function GoogleModelSelect({ value, onChange }: { value: string | null; onChange: (v: string | null) => void }) {
+  const { t } = useTranslation()
+  const isPreset = !value || GOOGLE_MODEL_OPTIONS.some((o) => o.value === value)
+  const [customMode, setCustomMode] = useState(!isPreset)
+
+  if (customMode) {
+    return (
+      <div className="flex gap-1.5">
+        <Input
+          className="flex-1"
+          value={value ?? ""}
+          placeholder="gemini-3.1-flash-image-preview"
+          onChange={(e) => onChange(e.target.value || null)}
+        />
+        <Button
+          variant="ghost"
+          size="sm"
+          className="shrink-0 text-xs px-2"
+          onClick={() => {
+            setCustomMode(false)
+            onChange(null)
+          }}
+        >
+          {t("common.select")}
+        </Button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex gap-1.5">
+      <Select
+        value={value || GOOGLE_MODEL_OPTIONS[0].value}
+        onValueChange={(v) => onChange(v)}
+      >
+        <SelectTrigger className="flex-1">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {GOOGLE_MODEL_OPTIONS.map((opt) => (
+            <SelectItem key={opt.value} value={opt.value}>
+              <span className="text-xs">{opt.label}</span>
+              <span className="text-[10px] text-muted-foreground ml-1.5">{opt.value}</span>
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="shrink-0 text-xs px-2"
+        onClick={() => setCustomMode(true)}
+      >
+        {t("common.custom")}
+      </Button>
+    </div>
+  )
+}
 
 export default function ImageGeneratePanel() {
   const { t } = useTranslation()
@@ -201,21 +269,26 @@ export default function ImageGeneratePanel() {
                         <span className="text-xs text-muted-foreground">
                           {t("settings.imageGenModel")}
                         </span>
-                        <Input
-                          value={provider.model ?? ""}
-                          placeholder={
-                            provider.id === "OpenAI"
-                              ? "gpt-image-1"
-                              : provider.id === "Google"
-                                ? "gemini-2.0-flash-preview-image-generation"
+                        {provider.id === "Google" ? (
+                          <GoogleModelSelect
+                            value={provider.model}
+                            onChange={(v) => updateProvider(index, { model: v })}
+                          />
+                        ) : (
+                          <Input
+                            value={provider.model ?? ""}
+                            placeholder={
+                              provider.id === "OpenAI"
+                                ? "gpt-image-1"
                                 : "fal-ai/flux/dev"
-                          }
-                          onChange={(e) =>
-                            updateProvider(index, {
-                              model: e.target.value || null,
-                            })
-                          }
-                        />
+                            }
+                            onChange={(e) =>
+                              updateProvider(index, {
+                                model: e.target.value || null,
+                              })
+                            }
+                          />
+                        )}
                       </div>
                     </div>
 
