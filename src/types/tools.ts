@@ -21,7 +21,10 @@ export const TOOL_BROWSER = "browser" as const
 export const TOOL_SEND_NOTIFICATION = "send_notification" as const
 export const TOOL_SUBAGENT = "subagent" as const
 
-/** Internal capability tools that never require user approval. */
+/**
+ * @deprecated Use the `internal` flag from `list_builtin_tools` API response instead.
+ * Kept only as a fallback — the backend ToolDefinition.internal field is the source of truth.
+ */
 export const INTERNAL_TOOLS = new Set([
   TOOL_SAVE_MEMORY,
   TOOL_RECALL_MEMORY,

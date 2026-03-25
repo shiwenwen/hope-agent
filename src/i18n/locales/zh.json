@@ -540,7 +540,7 @@
     "agentIdentity": "身份",
     "agentPersonalityTab": "性格",
     "agentBasicInfo": "基本信息",
-    "agentBehavior": "行为设置",
+    "agentBehavior": "工具能力设置",
     "agentMaxToolRounds": "最大工具调用轮数",
     "agentUnlimited": "不限制",
     "agentSkills": "技能",

@@ -37,7 +37,7 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
   const [availableSkills, setAvailableSkills] = useState<SkillSummary[]>([])
-  const [builtinTools, setBuiltinTools] = useState<{ name: string; description: string }[]>([])
+  const [builtinTools, setBuiltinTools] = useState<{ name: string; description: string; internal?: boolean }[]>([])
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
   const [needsFillTemplate, setNeedsFillTemplate] = useState(false)
   const composingRef = useRef(false)
@@ -51,7 +51,7 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
           invoke<string | null>("get_agent_markdown", { id: agentId, file: "persona.md" }),
           invoke<string | null>("get_agent_markdown", { id: agentId, file: "tools.md" }),
           invoke<SkillSummary[]>("get_skills"),
-          invoke<{ name: string; description: string }[]>("list_builtin_tools"),
+          invoke<{ name: string; description: string; internal?: boolean }[]>("list_builtin_tools"),
           invoke<AvailableModel[]>("get_available_models"),
         ])
         setAvailableModels(models)

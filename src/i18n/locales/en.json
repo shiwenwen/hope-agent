@@ -540,7 +540,7 @@
     "agentIdentity": "Identity",
     "agentPersonalityTab": "Personality",
     "agentBasicInfo": "Basic Info",
-    "agentBehavior": "Behavior",
+    "agentBehavior": "Tool Capabilities",
     "agentMaxToolRounds": "Max Tool Rounds",
     "agentUnlimited": "Unlimited",
     "agentSkills": "Skills",

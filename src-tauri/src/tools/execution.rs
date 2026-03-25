@@ -65,27 +65,10 @@ pub async fn execute_tool(name: &str, args: &Value) -> anyhow::Result<String> {
     execute_tool_with_context(name, args, &ToolExecContext::default()).await
 }
 
-/// Internal capability tools that never require user approval.
-/// These are autonomous agent abilities (memory, cron, notification) rather than
-/// system-interacting tools (exec, write, edit, etc.)
-const INTERNAL_TOOLS: &[&str] = &[
-    TOOL_SAVE_MEMORY,
-    TOOL_RECALL_MEMORY,
-    TOOL_UPDATE_MEMORY,
-    TOOL_DELETE_MEMORY,
-    TOOL_MEMORY_GET,
-    TOOL_MANAGE_CRON,
-    TOOL_SEND_NOTIFICATION,
-    TOOL_AGENTS_LIST,
-    TOOL_SESSIONS_LIST,
-    TOOL_SESSION_STATUS,
-    TOOL_SESSIONS_HISTORY,
-];
-
 /// Check if a tool requires approval based on the context's require_approval list.
 fn tool_needs_approval(name: &str, ctx: &ToolExecContext) -> bool {
-    // Internal capability tools never need approval
-    if INTERNAL_TOOLS.contains(&name) {
+    // Internal capability tools never need approval (flag set on ToolDefinition)
+    if super::is_internal_tool(name) {
         return false;
     }
     if ctx.require_approval.is_empty() {

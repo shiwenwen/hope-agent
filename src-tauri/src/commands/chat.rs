@@ -783,6 +783,6 @@ pub async fn list_builtin_tools() -> Result<Vec<serde_json::Value>, String> {
     all.push(tools::get_notification_tool());
     Ok(all
         .into_iter()
-        .map(|t| serde_json::json!({ "name": t.name, "description": t.description }))
+        .map(|t| serde_json::json!({ "name": t.name, "description": t.description, "internal": t.internal }))
         .collect())
 }

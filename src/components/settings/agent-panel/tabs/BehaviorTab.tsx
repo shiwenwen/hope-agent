@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
-import { INTERNAL_TOOLS, TOOL_I18N_KEY } from "@/types/tools"
+import { TOOL_I18N_KEY } from "@/types/tools"
 import { Switch } from "@/components/ui/switch"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -8,7 +8,7 @@ import type { AgentConfig, SkillSummary } from "../types"
 
 interface BehaviorTabProps {
   config: AgentConfig
-  builtinTools: { name: string; description: string }[]
+  builtinTools: { name: string; description: string; internal?: boolean }[]
   availableSkills: SkillSummary[]
   toolsGuide: string
   updateConfig: (patch: Partial<AgentConfig>) => void
@@ -139,7 +139,7 @@ export default function BehaviorTab({
         {!config.behavior.requireApproval.includes("*") &&
           config.behavior.requireApproval.length > 0 && (
             <div className="rounded-lg border border-border/50 overflow-hidden">
-              {builtinTools.filter((t) => !INTERNAL_TOOLS.has(t.name)).map((tool, idx) => {
+              {builtinTools.filter((t) => !t.internal).map((tool, idx) => {
                 const isRequired = config.behavior.requireApproval.includes(tool.name)
                 return (
                   <div

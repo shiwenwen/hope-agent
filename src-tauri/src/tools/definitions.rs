@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+use std::sync::LazyLock;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -19,9 +21,24 @@ pub struct ToolDefinition {
     pub description: String,
     /// JSON Schema for the tool parameters
     pub parameters: Value,
+    /// Internal capability tools never require user approval.
+    /// These are autonomous agent abilities (memory, cron, notification, read-only analysis)
+    /// rather than system-interacting tools (exec, write, edit, etc.)
+    #[serde(default)]
+    pub internal: bool,
 }
 
 impl ToolDefinition {
+    /// Create a new external (non-internal) tool definition.
+    fn new(name: &str, description: &str, parameters: Value) -> Self {
+        Self { name: name.into(), description: description.into(), parameters, internal: false }
+    }
+
+    /// Create a new internal capability tool definition (never requires approval).
+    fn new_internal(name: &str, description: &str, parameters: Value) -> Self {
+        Self { name: name.into(), description: description.into(), parameters, internal: true }
+    }
+
     pub fn to_anthropic_schema(&self) -> Value {
         json!({
             "name": self.name,
@@ -54,6 +71,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_EXEC.into(),
             description: "Execute a shell command. Returns stdout/stderr. Supports background execution with yield_ms/background params.".into(),
+            internal: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -98,6 +116,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_PROCESS.into(),
             description: "Manage running exec sessions: list, poll, log, write, kill, clear, remove.".into(),
+            internal: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -134,6 +153,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_READ.into(),
             description: "Read the contents of a file at the specified path. Supports text files with line-based pagination (offset/limit) and image files (auto-detected, returned as base64). For large files, use offset and limit to read specific sections.".into(),
+            internal: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -157,6 +177,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_WRITE.into(),
             description: "Write content to a file at the specified path. Creates parent directories if needed. Accepts 'file_path' as alias for 'path'.".into(),
+            internal: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -176,6 +197,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_EDIT.into(),
             description: "Edit a file by replacing specific text. More precise than write for making targeted changes. The old_text must match exactly once (including whitespace and indentation). Accepts aliases: 'file_path' for 'path', 'oldText'/'old_string' for 'old_text', 'newText'/'new_string' for 'new_text'.".into(),
+            internal: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -199,6 +221,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_LS.into(),
             description: "List files and directories in the specified path. Returns sorted names with type indicators (/ for directories, @ for symlinks). Supports ~ expansion and entry limit.".into(),
+            internal: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -218,6 +241,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_GREP.into(),
             description: "Search file contents using regex or literal patterns. Respects .gitignore. Returns matching lines with file paths and line numbers.".into(),
+            internal: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -257,6 +281,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_FIND.into(),
             description: "Find files by glob pattern. Respects .gitignore. Returns matching file paths relative to the search directory.".into(),
+            internal: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -280,6 +305,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_APPLY_PATCH.into(),
             description: "Apply a patch to create, modify, move, or delete files. Use the *** Begin Patch / *** End Patch format with Add File, Update File, Delete File, and Move to markers.".into(),
+            internal: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -295,6 +321,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_WEB_SEARCH.into(),
             description: "Search the web for information. Returns relevant results with titles, URLs, and snippets. Use this when the user asks about current events, recent information, or anything that requires up-to-date knowledge.".into(),
+            internal: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -327,6 +354,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_WEB_FETCH.into(),
             description: "Fetch and extract readable content from a URL using Mozilla Readability. Supports markdown and plain text output modes. Returns structured JSON with page content, metadata, and extraction info. Use this to read web pages, documentation, articles, or API responses.".into(),
+            internal: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -351,6 +379,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_SAVE_MEMORY.into(),
             description: "Save information to persistent memory for future conversations. Use this when the user shares personal info, preferences, corrections to your behavior, project context, or reference materials. Memories persist across conversations and help you provide better, personalized assistance.".into(),
+            internal: true,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -381,6 +410,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_RECALL_MEMORY.into(),
             description: "Search persistent memories by keyword or semantic query. Use this to recall previously stored information about the user, their preferences, project context, or reference materials.".into(),
+            internal: true,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -405,6 +435,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_UPDATE_MEMORY.into(),
             description: "Update an existing memory's content and tags by its ID. Use recall_memory first to find the memory ID. Use when a memory needs correction or its information has changed.".into(),
+            internal: true,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -429,6 +460,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_DELETE_MEMORY.into(),
             description: "Delete a memory by its ID. Use recall_memory first to find the memory ID, then use this tool to remove it. Use when the user asks to forget something or when a memory is outdated/incorrect.".into(),
+            internal: true,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -445,6 +477,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_MANAGE_CRON.into(),
             description: "Create, list, update, delete, and trigger scheduled tasks (cron jobs). Jobs run an agent turn with the given prompt on a schedule (isolated session, no prior history). Supports one-time (at), recurring (every), and cron expression schedules.".into(),
+            internal: true,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -503,6 +536,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_BROWSER.into(),
             description: "Control a Chrome browser via DevTools Protocol. Supports navigation, element interaction (click/fill/hover/drag), screenshots, accessibility snapshots, JavaScript execution, tab management, profile isolation, and PDF export. Chrome must be running with --remote-debugging-port=9222, or use action='launch' to start a managed instance. Use 'take_snapshot' to get element refs, then use those refs for click/fill/hover actions. Use 'list_profiles' to see available profiles and 'save_pdf' to export pages as PDF.".into(),
+            internal: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -641,6 +675,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_MEMORY_GET.into(),
             description: "Retrieve a specific memory entry by its ID with full content and metadata. Use after recall_memory to get complete details of a specific memory.".into(),
+            internal: true,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -657,6 +692,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_AGENTS_LIST.into(),
             description: "List all available agents with their descriptions and capabilities. Useful for choosing which agent to delegate tasks to via subagent.".into(),
+            internal: true,
             parameters: json!({
                 "type": "object",
                 "properties": {},
@@ -668,6 +704,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_SESSIONS_LIST.into(),
             description: "List all chat sessions with metadata (title, agent, model, message count). Use to discover existing sessions for cross-session communication.".into(),
+            internal: true,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -692,6 +729,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_SESSION_STATUS.into(),
             description: "Query detailed status of a specific session including agent, model, message count, and timestamps.".into(),
+            internal: true,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -708,6 +746,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_SESSIONS_HISTORY.into(),
             description: "Get paginated chat history from a specific session. Use to read conversation context from other sessions. Tool call details are excluded by default to reduce noise.".into(),
+            internal: true,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -736,6 +775,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_SESSIONS_SEND.into(),
             description: "Send a message to another session for cross-session communication. The message is delivered as a user message. With wait=true, blocks until the target agent responds (up to timeout_secs).".into(),
+            internal: true,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -764,6 +804,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_IMAGE.into(),
             description: "Analyze an image file. Reads the image at the given path and returns it as base64-encoded data for visual analysis. Supports PNG, JPEG, GIF, WebP, BMP, TIFF. Oversized images are auto-resized. Use 'prompt' to specify what to analyze.".into(),
+            internal: true,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -784,6 +825,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_PDF.into(),
             description: "Extract text content from a PDF document. Supports page-range filtering and character limit. Use for reading documents, reports, and papers. Returns extracted text organized by page.".into(),
+            internal: true,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -812,6 +854,7 @@ pub fn get_subagent_tool() -> ToolDefinition {
     ToolDefinition {
         name: TOOL_SUBAGENT.into(),
         description: "Spawn and manage sub-agents to delegate tasks. Sub-agents run asynchronously — their results are automatically pushed to you when complete. Use steer to redirect a running sub-agent. Use check(wait=true) as fallback if you need to actively wait for a result.".into(),
+        internal: false,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -897,6 +940,28 @@ pub fn get_subagent_tool() -> ToolDefinition {
     }
 }
 
+/// Cached set of internal tool names — derived from ToolDefinition.internal flag.
+/// This is the single source of truth; no separate hardcoded list needed.
+static INTERNAL_TOOL_NAMES: LazyLock<HashSet<String>> = LazyLock::new(|| {
+    let mut set: HashSet<String> = get_available_tools()
+        .into_iter()
+        .filter(|t| t.internal)
+        .map(|t| t.name)
+        .collect();
+    // Include conditionally-injected tools
+    for t in [get_notification_tool(), get_subagent_tool(), get_image_generate_tool()] {
+        if t.internal {
+            set.insert(t.name);
+        }
+    }
+    set
+});
+
+/// Check if a tool is an internal capability tool (never requires approval).
+pub fn is_internal_tool(name: &str) -> bool {
+    INTERNAL_TOOL_NAMES.contains(name)
+}
+
 /// Returns all tool schemas formatted for the given provider
 pub fn get_tools_for_provider(provider: ToolProvider) -> Vec<serde_json::Value> {
     get_available_tools()
@@ -910,6 +975,7 @@ pub fn get_image_generate_tool() -> ToolDefinition {
     ToolDefinition {
         name: TOOL_IMAGE_GENERATE.into(),
         description: "Generate images from text descriptions using AI image generation models (OpenAI/DALL-E, Google/Gemini, Fal/Flux). Generated images are saved to disk and returned for visual inspection.".into(),
+        internal: false,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -943,6 +1009,7 @@ pub fn get_notification_tool() -> ToolDefinition {
     ToolDefinition {
         name: TOOL_SEND_NOTIFICATION.into(),
         description: "Send a native desktop notification to the user. Use this to proactively alert the user about important events, task completions, or findings that need their attention.".into(),
+        internal: true,
         parameters: json!({
             "type": "object",
             "properties": {
