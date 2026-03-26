@@ -66,6 +66,9 @@ pub struct MemoryEntry {
     /// Source: "user" (manual), "auto" (agent-extracted), "import"
     pub source: String,
     pub source_session_id: Option<String>,
+    /// Whether this memory is pinned (always prioritized in system prompt injection)
+    #[serde(default)]
+    pub pinned: bool,
     pub created_at: String,
     pub updated_at: String,
     /// Populated during search, not stored in DB
@@ -86,6 +89,9 @@ pub struct NewMemory {
     pub source: String,
     #[serde(default)]
     pub source_session_id: Option<String>,
+    /// Whether this memory should be pinned (prioritized in system prompt)
+    #[serde(default)]
+    pub pinned: bool,
 }
 
 fn default_source() -> String {
@@ -140,6 +146,9 @@ pub struct MemoryExtractConfig {
     pub extract_provider_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extract_model_id: Option<String>,
+    /// Auto-extract memories before context compaction (Tier 3 summarization)
+    #[serde(default)]
+    pub flush_before_compact: bool,
 }
 
 fn default_extract_min_turns() -> usize { 3 }
@@ -151,6 +160,7 @@ impl Default for MemoryExtractConfig {
             extract_min_turns: 3,
             extract_provider_id: None,
             extract_model_id: None,
+            flush_before_compact: false,
         }
     }
 }

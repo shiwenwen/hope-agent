@@ -15,6 +15,12 @@ pub async fn memory_update(id: i64, content: String, tags: Vec<String>) -> Resul
 }
 
 #[tauri::command]
+pub async fn memory_toggle_pin(id: i64, pinned: bool) -> Result<(), String> {
+    let backend = get_memory_backend().ok_or("Memory backend not initialized")?;
+    backend.toggle_pin(id, pinned).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn memory_delete(id: i64) -> Result<(), String> {
     let backend = get_memory_backend().ok_or("Memory backend not initialized")?;
     backend.delete(id).map_err(|e| e.to_string())
@@ -176,4 +182,39 @@ pub async fn get_embedding_presets() -> Result<Vec<memory::EmbeddingPreset>, Str
 #[tauri::command]
 pub async fn list_local_embedding_models() -> Result<Vec<memory::LocalEmbeddingModel>, String> {
     Ok(memory::list_local_models_with_status())
+}
+
+// ── Core Memory (memory.md) commands ────────────────────────────
+
+#[tauri::command]
+pub async fn get_global_memory_md() -> Result<Option<String>, String> {
+    let path = crate::paths::root_dir().map_err(|e| e.to_string())?.join("memory.md");
+    if path.exists() {
+        std::fs::read_to_string(&path).map(Some).map_err(|e| e.to_string())
+    } else {
+        Ok(None)
+    }
+}
+
+#[tauri::command]
+pub async fn save_global_memory_md(content: String) -> Result<(), String> {
+    let path = crate::paths::root_dir().map_err(|e| e.to_string())?.join("memory.md");
+    std::fs::write(&path, content).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_agent_memory_md(id: String) -> Result<Option<String>, String> {
+    let path = crate::paths::agent_dir(&id).map_err(|e| e.to_string())?.join("memory.md");
+    if path.exists() {
+        std::fs::read_to_string(&path).map(Some).map_err(|e| e.to_string())
+    } else {
+        Ok(None)
+    }
+}
+
+#[tauri::command]
+pub async fn save_agent_memory_md(id: String, content: String) -> Result<(), String> {
+    let dir = crate::paths::agent_dir(&id).map_err(|e| e.to_string())?;
+    let _ = std::fs::create_dir_all(&dir);
+    std::fs::write(dir.join("memory.md"), content).map_err(|e| e.to_string())
 }

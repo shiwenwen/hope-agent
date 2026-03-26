@@ -12,6 +12,7 @@ const DEFAULT_AGENT_ID: &str = "default";
 const AGENT_MD: &str = "agent.md";
 const PERSONA_MD: &str = "persona.md";
 const TOOLS_MD: &str = "tools.md";
+const MEMORY_MD: &str = "memory.md";
 
 // ── Default Agent Template ───────────────────────────────────────
 
@@ -180,6 +181,18 @@ pub fn load_agent(id: &str) -> Result<AgentDefinition> {
     let agent_md = read_optional_md(&dir, AGENT_MD)?;
     let persona = read_optional_md(&dir, PERSONA_MD)?;
     let tools_guide = read_optional_md(&dir, TOOLS_MD)?;
+    let memory_md = read_optional_md(&dir, MEMORY_MD)?;
+
+    // Load global memory.md from ~/.opencomputer/memory.md
+    let global_memory_md = {
+        let global_path = paths::root_dir()?.join(MEMORY_MD);
+        if global_path.exists() {
+            Some(std::fs::read_to_string(&global_path)
+                .with_context(|| format!("Failed to read {}", global_path.display()))?)
+        } else {
+            None
+        }
+    };
 
     // Ensure agent home directory exists
     if let Ok(home) = paths::agent_home_dir(id) {
@@ -193,6 +206,8 @@ pub fn load_agent(id: &str) -> Result<AgentDefinition> {
         agent_md,
         persona,
         tools_guide,
+        global_memory_md,
+        memory_md,
     })
 }
 
@@ -262,6 +277,7 @@ pub fn list_agents() -> Result<Vec<AgentSummary>> {
             has_agent_md: path.join(AGENT_MD).exists(),
             has_persona: path.join(PERSONA_MD).exists(),
             has_tools_guide: path.join(TOOLS_MD).exists(),
+            has_memory_md: path.join(MEMORY_MD).exists(),
             memory_count,
             notify_on_complete: config.notify_on_complete,
         });

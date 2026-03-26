@@ -45,6 +45,7 @@ pub fn parse_import_json(json_str: &str) -> Result<Vec<NewMemory>> {
             tags,
             source: "import".to_string(),
             source_session_id: None,
+            pinned: false,
         });
     }
     Ok(entries)
@@ -80,6 +81,7 @@ pub fn parse_import_markdown(md_str: &str) -> Result<Vec<NewMemory>> {
                     tags: std::mem::take(&mut current_tags),
                     source: "import".to_string(),
                     source_session_id: None,
+                    pinned: false,
                 });
                 current_content.clear();
                 in_entry = false;
@@ -102,6 +104,7 @@ pub fn parse_import_markdown(md_str: &str) -> Result<Vec<NewMemory>> {
                     tags: std::mem::take(&mut current_tags),
                     source: "import".to_string(),
                     source_session_id: None,
+                    pinned: false,
                 });
                 current_content.clear();
             }
@@ -131,6 +134,7 @@ pub fn parse_import_markdown(md_str: &str) -> Result<Vec<NewMemory>> {
             tags: current_tags,
             source: "import".to_string(),
             source_session_id: None,
+            pinned: false,
         });
     }
 

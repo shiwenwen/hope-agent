@@ -252,6 +252,10 @@ pub struct MemoryConfig {
     /// Model ID for memory extraction (None = inherit global)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extract_model_id: Option<String>,
+
+    /// Whether to flush memories before context compaction (None = inherit global)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub flush_before_compact: Option<bool>,
 }
 
 fn default_true() -> bool {
@@ -272,6 +276,7 @@ impl Default for MemoryConfig {
             extract_min_turns: None,
             extract_provider_id: None,
             extract_model_id: None,
+            flush_before_compact: None,
         }
     }
 }
@@ -385,6 +390,12 @@ pub struct AgentDefinition {
 
     /// tools.md content — custom tool usage guidance
     pub tools_guide: Option<String>,
+
+    /// Global memory.md content — shared core memory across all agents
+    pub global_memory_md: Option<String>,
+
+    /// Agent-level memory.md content — core memory specific to this agent
+    pub memory_md: Option<String>,
 }
 
 // ── Agent Summary (for listing) ──────────────────────────────────
@@ -401,6 +412,7 @@ pub struct AgentSummary {
     pub has_agent_md: bool,
     pub has_persona: bool,
     pub has_tools_guide: bool,
+    pub has_memory_md: bool,
     pub memory_count: usize,
     pub notify_on_complete: Option<bool>,
 }

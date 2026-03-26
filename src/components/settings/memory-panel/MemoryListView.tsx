@@ -22,9 +22,11 @@ import {
   CheckSquare,
   Square,
   User,
+  Pin,
 } from "lucide-react"
 import { MEMORY_TYPES, MEMORY_TYPE_ICONS } from "./types"
 import ExtractConfig from "./ExtractConfig"
+import CoreMemoryEditor from "./CoreMemoryEditor"
 import type { useMemoryData } from "./useMemoryData"
 
 type MemoryData = ReturnType<typeof useMemoryData>
@@ -57,6 +59,7 @@ export default function MemoryListView({ data, isAgentMode, compact }: MemoryLis
     handleDelete,
     handleDeleteBatch,
     handleReembedBatch,
+    handleTogglePin,
     toggleSelect,
     toggleSelectAll,
     startEdit,
@@ -106,6 +109,9 @@ export default function MemoryListView({ data, isAgentMode, compact }: MemoryLis
             </div>
           </div>
           <p className="text-xs text-muted-foreground mb-4 shrink-0">{t("settings.memoryDesc")}</p>
+
+          {/* Global Core Memory editor (standalone mode only) */}
+          {!isAgentMode && <CoreMemoryEditor scope="global" />}
 
           {/* Auto-extract settings */}
           <ExtractConfig data={data} isAgentMode={isAgentMode} />
@@ -292,6 +298,7 @@ export default function MemoryListView({ data, isAgentMode, compact }: MemoryLis
                     className={cn(
                       "group flex items-start gap-3 px-3 py-2.5 rounded-lg hover:bg-secondary/40 cursor-pointer transition-colors",
                       isSelected && "bg-primary/5 border border-primary/20",
+                      mem.pinned && "border-l-2 border-l-amber-400",
                     )}
                     onClick={() => startEdit(mem)}
                   >
@@ -308,6 +315,22 @@ export default function MemoryListView({ data, isAgentMode, compact }: MemoryLis
                         <Square className="h-4 w-4 opacity-0 group-hover:opacity-100 transition-opacity" />
                       )}
                     </button>
+                    <IconTip label={mem.pinned ? t("settings.memoryUnpin") : t("settings.memoryPin")}>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleTogglePin(mem.id, !mem.pinned)
+                        }}
+                        className={cn(
+                          "mt-0.5 shrink-0 p-0 transition-colors",
+                          mem.pinned
+                            ? "text-amber-500"
+                            : "text-muted-foreground/30 hover:text-amber-500 opacity-0 group-hover:opacity-100 transition-opacity",
+                        )}
+                      >
+                        <Pin className="h-3.5 w-3.5" />
+                      </button>
+                    </IconTip>
                     <Icon className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
                     <div className="flex-1 min-w-0">
                       <div className="text-sm line-clamp-2">{mem.content}</div>

@@ -421,6 +421,7 @@ pub fn run() {
             // Memory management
             commands::memory::memory_add,
             commands::memory::memory_update,
+            commands::memory::memory_toggle_pin,
             commands::memory::memory_delete,
             commands::memory::memory_get,
             commands::memory::memory_list,
@@ -431,6 +432,10 @@ pub fn run() {
             commands::memory::memory_delete_batch,
             commands::memory::memory_import,
             commands::memory::memory_reembed,
+            commands::memory::get_global_memory_md,
+            commands::memory::save_global_memory_md,
+            commands::memory::get_agent_memory_md,
+            commands::memory::save_agent_memory_md,
             commands::config::get_web_search_config,
             commands::config::save_web_search_config,
             commands::config::get_web_fetch_config,

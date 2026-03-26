@@ -17,6 +17,7 @@ impl AssistantAgent {
 
     /// Run context compaction (Tier 1-3) on messages before API call.
     /// If Tier 3 summarization is needed, performs a non-streaming LLM call to summarize old messages.
+    /// If flush_before_compact is enabled, extracts memories from messages before they are summarized.
     pub(super) async fn run_compaction(
         &self,
         messages: &mut Vec<serde_json::Value>,
@@ -56,6 +57,63 @@ impl AssistantAgent {
         // Tier 3: LLM summarization needed
         if compact_result.description == "summarization_needed" {
             if let Some(split) = context_compact::split_for_summarization(messages, &self.compact_config) {
+                // Memory Flush: extract memories from messages about to be summarized
+                {
+                    let flush_enabled = {
+                        let global = crate::memory::load_extract_config();
+                        let agent_flush = crate::agent_loader::load_agent(&self.agent_id)
+                            .ok()
+                            .and_then(|d| d.config.memory.flush_before_compact);
+                        agent_flush.unwrap_or(global.flush_before_compact)
+                    };
+
+                    if flush_enabled {
+                        // Resolve provider config on the current thread before spawning
+                        let flush_provider = crate::provider::load_store()
+                            .ok()
+                            .and_then(|s| s.providers.first().cloned());
+
+                        if let Some(prov) = flush_provider {
+                            if let Some(model) = prov.models.first().cloned() {
+                                let agent_id = self.agent_id.clone();
+                                let session_id = self.session_id.clone().unwrap_or_default();
+                                let msgs = split.summarizable.clone();
+                                let model_id = model.id.clone();
+
+                                // Use a new tokio runtime on a background thread to avoid
+                                // Send bounds issues with the parent async context.
+                                std::thread::spawn(move || {
+                                    let rt = tokio::runtime::Builder::new_current_thread()
+                                        .enable_all()
+                                        .build();
+                                    if let Ok(rt) = rt {
+                                        let result = rt.block_on(async {
+                                            tokio::time::timeout(
+                                                std::time::Duration::from_secs(30),
+                                                crate::memory_extract::flush_before_compact(
+                                                    &msgs, &agent_id, &session_id, &prov, &model_id,
+                                                ),
+                                            ).await
+                                        });
+                                        match result {
+                                            Ok(Ok(count)) if count > 0 => {
+                                                app_info!("memory", "flush", "Flushed {} memories before compaction", count);
+                                            }
+                                            Ok(Err(e)) => {
+                                                app_warn!("memory", "flush", "Memory flush failed: {}", e);
+                                            }
+                                            Err(_) => {
+                                                app_warn!("memory", "flush", "Memory flush timed out (30s)");
+                                            }
+                                            _ => {}
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                    }
+                }
+
                 // Notify frontend that summarization is starting
                 if let Ok(event) = serde_json::to_string(&json!({
                     "type": "context_compacted",

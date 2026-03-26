@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Core Memory（核心记忆）**：全局 `~/.opencomputer/memory.md` 和 Agent 级 `agents/{id}/memory.md` 文件全文注入系统提示词，用于长期规则/偏好/指令。用户可在设置面板编辑，Agent 可通过 `update_core_memory` 工具主动修改（支持 append/replace + global/agent 作用域）
+- **Pinned（置顶）记忆**：记忆条目支持置顶功能，pinned 记忆在系统提示词中优先注入并带 ★ 标记，不受时间排序影响。前端记忆面板添加 Pin 按钮
+- **Memory Flush（压缩前记忆保存）**：上下文压缩 Tier 3 摘要前自动提取即将被丢弃消息中的重要信息保存为记忆，防止信息丢失。可通过 `flushBeforeCompact` 配置开启
+- **历史会话搜索**：messages 表添加 FTS5 全文索引，`recall_memory` 工具新增 `include_history` 参数，支持搜索历史对话消息（排除 cron 和子 Agent 会话）
+
 ### Changed
 - **图片生成系统重构（image_generate）**：Provider 抽象 + 排序降级 + 动态工具描述
   - 引入 `ImageGenProviderImpl` trait 抽象，支持可扩展的 Provider 架构

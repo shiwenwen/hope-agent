@@ -38,7 +38,7 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
   const [formScope, setFormScope] = useState<"global" | "agent">(isAgentMode ? "agent" : "global")
 
   // ── Auto-extract state ──
-  const [globalExtract, setGlobalExtract] = useState({ autoExtract: false, extractMinTurns: 3, extractProviderId: null as string | null, extractModelId: null as string | null })
+  const [globalExtract, setGlobalExtract] = useState({ autoExtract: false, extractMinTurns: 3, extractProviderId: null as string | null, extractModelId: null as string | null, flushBeforeCompact: false })
   const [agentExtractOverride, setAgentExtractOverride] = useState<{ autoExtract: boolean | null; extractMinTurns: number | null; extractProviderId: string | null; extractModelId: string | null }>({ autoExtract: null, extractMinTurns: null, extractProviderId: null, extractModelId: null })
   const [extractConfigLoaded, setExtractConfigLoaded] = useState(false)
   const [availableProviders, setAvailableProviders] = useState<{ id: string; name: string; models: { id: string; name: string }[] }[]>([])
@@ -56,6 +56,8 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
   const effectiveModelId = isAgentMode
     ? (agentExtractOverride.extractModelId ?? globalExtract.extractModelId)
     : globalExtract.extractModelId
+  const effectiveFlushBeforeCompact = globalExtract.flushBeforeCompact
+
   const agentHasOverride = isAgentMode && (
     agentExtractOverride.autoExtract !== null ||
     agentExtractOverride.extractMinTurns !== null ||
@@ -260,6 +262,10 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
     }
   }
 
+  function handleToggleFlushBeforeCompact(enabled: boolean) {
+    saveGlobalExtract({ flushBeforeCompact: enabled })
+  }
+
   // ── Load embedding config ──
   useEffect(() => {
     async function loadEmbedding() {
@@ -386,6 +392,20 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
       loadMemories()
     } catch (e) {
       logger.error("settings", "MemoryPanel::delete", "Failed to delete memory", e)
+    }
+  }
+
+  async function handleTogglePin(id: number, pinned: boolean) {
+    try {
+      // Optimistic update
+      setMemories((prev) =>
+        prev.map((m) => (m.id === id ? { ...m, pinned } : m))
+      )
+      await invoke("memory_toggle_pin", { id, pinned })
+      loadMemories()
+    } catch (e) {
+      logger.error("settings", "MemoryPanel::togglePin", "Failed to toggle pin", e)
+      loadMemories() // Revert on error
     }
   }
 
@@ -581,6 +601,7 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
     handleDedupUpdate,
     handleUpdate,
     handleDelete,
+    handleTogglePin,
     handleExport,
     toggleSelect,
     toggleSelectAll,
@@ -594,6 +615,8 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
     handleToggleAutoExtract,
     handleUpdateExtractModel,
     handleUpdateExtractMinTurns,
+    handleToggleFlushBeforeCompact,
+    effectiveFlushBeforeCompact,
     resetAgentExtract,
   }
 }

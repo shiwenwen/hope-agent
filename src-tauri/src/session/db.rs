@@ -92,7 +92,26 @@ impl SessionDB {
             );
             CREATE INDEX IF NOT EXISTS idx_subagent_parent ON subagent_runs(parent_session_id, started_at DESC);
             CREATE INDEX IF NOT EXISTS idx_subagent_status ON subagent_runs(status);
-            CREATE INDEX IF NOT EXISTS idx_subagent_label ON subagent_runs(label);"
+            CREATE INDEX IF NOT EXISTS idx_subagent_label ON subagent_runs(label);
+
+            -- FTS5 full-text search for message history
+            CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+                content,
+                content='messages',
+                content_rowid='id',
+                tokenize='unicode61'
+            );
+
+            -- Triggers for automatic FTS sync (only user/assistant messages)
+            CREATE TRIGGER IF NOT EXISTS messages_fts_ai AFTER INSERT ON messages
+            WHEN new.role IN ('user', 'assistant') AND length(new.content) > 0
+            BEGIN
+                INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content);
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS messages_fts_ad AFTER DELETE ON messages BEGIN
+                INSERT INTO messages_fts(messages_fts, rowid, content) VALUES('delete', old.id, old.content);
+            END;"
         )?;
 
         // Migration: add is_cron column if missing
@@ -151,36 +170,6 @@ impl SessionDB {
         if !has_ttft_ms {
             conn.execute_batch(
                 "ALTER TABLE messages ADD COLUMN ttft_ms INTEGER;",
-            )?;
-        }
-
-        // Migration: create FTS5 index for message search
-        let has_messages_fts = conn
-            .prepare("SELECT rowid FROM messages_fts LIMIT 1")
-            .is_ok();
-        if !has_messages_fts {
-            conn.execute_batch(
-                "CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
-                    content,
-                    content='messages',
-                    content_rowid='id',
-                    tokenize='unicode61'
-                );
-
-                -- Triggers for automatic FTS sync (only user/assistant messages)
-                CREATE TRIGGER IF NOT EXISTS messages_fts_ai AFTER INSERT ON messages
-                WHEN new.role IN ('user', 'assistant') AND length(new.content) > 0
-                BEGIN
-                    INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content);
-                END;
-
-                CREATE TRIGGER IF NOT EXISTS messages_fts_ad AFTER DELETE ON messages BEGIN
-                    INSERT INTO messages_fts(messages_fts, rowid, content) VALUES('delete', old.id, old.content);
-                END;
-
-                -- Backfill existing messages into FTS index
-                INSERT OR IGNORE INTO messages_fts(rowid, content)
-                SELECT id, content FROM messages WHERE role IN ('user', 'assistant') AND length(content) > 0;"
             )?;
         }
 
@@ -638,43 +627,31 @@ impl SessionDB {
         );
 
         let mut stmt = conn.prepare(&sql)?;
-        let rows = if let Some(ref aid) = agent_param {
-            stmt.query_map(rusqlite::params![fts_query, aid], |row| {
-                Ok(SessionSearchResult {
-                    session_id: row.get(1)?,
-                    session_title: row.get(5)?,
-                    message_role: row.get(2)?,
-                    content_snippet: {
-                        let content: String = row.get(3)?;
-                        if content.len() > 300 {
-                            format!("{}...", crate::truncate_utf8(&content, 300))
-                        } else {
-                            content
-                        }
-                    },
-                    timestamp: row.get(4)?,
-                    relevance_rank: row.get::<_, f64>(6).unwrap_or(0.0),
-                })
-            })?
-        } else {
-            stmt.query_map(rusqlite::params![fts_query], |row| {
-                Ok(SessionSearchResult {
-                    session_id: row.get(1)?,
-                    session_title: row.get(5)?,
-                    message_role: row.get(2)?,
-                    content_snippet: {
-                        let content: String = row.get(3)?;
-                        if content.len() > 300 {
-                            format!("{}...", crate::truncate_utf8(&content, 300))
-                        } else {
-                            content
-                        }
-                    },
-                    timestamp: row.get(4)?,
-                    relevance_rank: row.get::<_, f64>(6).unwrap_or(0.0),
-                })
-            })?
-        };
+
+        let mut params_vec: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        params_vec.push(Box::new(fts_query));
+        if let Some(aid) = agent_param {
+            params_vec.push(Box::new(aid));
+        }
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> = params_vec.iter().map(|p| p.as_ref()).collect();
+
+        let rows = stmt.query_map(param_refs.as_slice(), |row| {
+            Ok(SessionSearchResult {
+                session_id: row.get(1)?,
+                session_title: row.get(5)?,
+                message_role: row.get(2)?,
+                content_snippet: {
+                    let content: String = row.get(3)?;
+                    if content.len() > 300 {
+                        format!("{}...", crate::truncate_utf8(&content, 300))
+                    } else {
+                        content
+                    }
+                },
+                timestamp: row.get(4)?,
+                relevance_rank: row.get::<_, f64>(6).unwrap_or(0.0),
+            })
+        })?;
 
         let results: Vec<SessionSearchResult> = rows.filter_map(|r| r.ok()).collect();
         Ok(results)

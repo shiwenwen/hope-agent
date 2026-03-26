@@ -91,6 +91,16 @@ export default function ExtractConfig({ data, isAgentMode }: ExtractConfigProps)
               className="h-7 text-xs w-20"
             />
           </div>
+          {/* Memory Flush (pre-compaction extraction) */}
+          <div className="flex items-center justify-between pt-1">
+            <div className="flex-1 min-w-0">
+              <div className="text-xs text-muted-foreground">{t("settings.memoryFlushDesc")}</div>
+            </div>
+            <Switch
+              checked={data.effectiveFlushBeforeCompact}
+              onCheckedChange={data.handleToggleFlushBeforeCompact}
+            />
+          </div>
           {/* Reset to global (agent mode only) */}
           {isAgentMode && agentHasOverride && (
             <button

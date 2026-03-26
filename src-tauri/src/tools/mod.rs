@@ -50,6 +50,7 @@ pub const TOOL_SAVE_MEMORY: &str = "save_memory";
 pub const TOOL_RECALL_MEMORY: &str = "recall_memory";
 pub const TOOL_UPDATE_MEMORY: &str = "update_memory";
 pub const TOOL_DELETE_MEMORY: &str = "delete_memory";
+pub const TOOL_UPDATE_CORE_MEMORY: &str = "update_core_memory";
 pub const TOOL_MANAGE_CRON: &str = "manage_cron";
 pub const TOOL_BROWSER: &str = "browser";
 pub const TOOL_SEND_NOTIFICATION: &str = "send_notification";

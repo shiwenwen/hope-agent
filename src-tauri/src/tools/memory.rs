@@ -26,6 +26,10 @@ pub(crate) async fn tool_save_memory(args: &Value) -> Result<String> {
         .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
         .unwrap_or_default();
 
+    let pinned = args.get("pinned")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
     let scope = if scope_str == "agent" {
         MemoryScope::Agent { id: agent_id.to_string() }
     } else {
@@ -39,6 +43,7 @@ pub(crate) async fn tool_save_memory(args: &Value) -> Result<String> {
         tags,
         source: "auto".to_string(),
         source_session_id: None,
+        pinned,
     };
 
     // Run blocking backend operations (embedding API + SQLite) on a blocking thread
@@ -67,6 +72,7 @@ pub(crate) async fn tool_save_memory(args: &Value) -> Result<String> {
 }
 
 /// Tool: recall_memory — search persistent memories by keyword or semantic query.
+/// Optionally also searches past conversation history (include_history=true).
 pub(crate) async fn tool_recall_memory(args: &Value) -> Result<String> {
     let query_text = args.get("query")
         .and_then(|v| v.as_str())
@@ -85,8 +91,15 @@ pub(crate) async fn tool_recall_memory(args: &Value) -> Result<String> {
         .and_then(|v| v.as_str())
         .map(String::from);
 
+    let include_history = args.get("include_history")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
     // Run blocking backend operations (embedding API + SQLite) on a blocking thread
     // to avoid blocking the tokio runtime.
+    let query_text_clone = query_text.clone();
+    let agent_id_clone = agent_id.clone();
+
     let result = tokio::task::spawn_blocking(move || -> Result<String> {
         let backend = crate::get_memory_backend()
             .ok_or_else(|| anyhow::anyhow!("Memory backend not initialized"))?;
@@ -101,26 +114,59 @@ pub(crate) async fn tool_recall_memory(args: &Value) -> Result<String> {
 
         let results = backend.search(&query)?;
 
-        if results.is_empty() {
-            return Ok("No memories found matching the query.".to_string());
+        let mut output = String::new();
+
+        if !results.is_empty() {
+            output.push_str(&format!("Found {} memories:\n\n", results.len()));
+            for (i, mem) in results.iter().enumerate() {
+                let scope_label = match &mem.scope {
+                    MemoryScope::Global => "global".to_string(),
+                    MemoryScope::Agent { id } => format!("agent:{}", id),
+                };
+                let pin_marker = if mem.pinned { "★ " } else { "" };
+                let tags_str = if mem.tags.is_empty() { String::new() } else { format!(" [{}]", mem.tags.join(", ")) };
+                output.push_str(&format!(
+                    "{}. {}(id: {}) [{}|{}]{}\n{}\n\n",
+                    i + 1,
+                    pin_marker,
+                    mem.id,
+                    mem.memory_type.as_str(),
+                    scope_label,
+                    tags_str,
+                    mem.content,
+                ));
+            }
         }
 
-        let mut output = format!("Found {} memories:\n\n", results.len());
-        for (i, mem) in results.iter().enumerate() {
-            let scope_label = match &mem.scope {
-                MemoryScope::Global => "global".to_string(),
-                MemoryScope::Agent { id } => format!("agent:{}", id),
-            };
-            let tags_str = if mem.tags.is_empty() { String::new() } else { format!(" [{}]", mem.tags.join(", ")) };
-            output.push_str(&format!(
-                "{}. (id: {}) [{}|{}]{}\n{}\n\n",
-                i + 1,
-                mem.id,
-                mem.memory_type.as_str(),
-                scope_label,
-                tags_str,
-                mem.content,
-            ));
+        // Search conversation history if requested
+        if include_history {
+            if let Some(session_db) = crate::get_session_db() {
+                let history_results = session_db.search_messages(
+                    &query_text_clone,
+                    agent_id_clone.as_deref(),
+                    5,
+                ).unwrap_or_default();
+
+                if !history_results.is_empty() {
+                    output.push_str(&format!("\n--- Conversation History ({} matches) ---\n\n", history_results.len()));
+                    for (i, hit) in history_results.iter().enumerate() {
+                        let session_label = hit.session_title.as_deref().unwrap_or("Untitled");
+                        output.push_str(&format!(
+                            "{}. [{}] {} (session: {}, {})\n{}\n\n",
+                            i + 1,
+                            hit.message_role,
+                            hit.timestamp,
+                            session_label,
+                            hit.session_id,
+                            hit.content_snippet,
+                        ));
+                    }
+                }
+            }
+        }
+
+        if output.is_empty() {
+            return Ok("No memories or history found matching the query.".to_string());
         }
 
         Ok(output)
@@ -222,6 +268,71 @@ pub(crate) async fn tool_memory_get(args: &Value) -> Result<String> {
             }
             None => Ok(format!("Memory with id {} not found.", id)),
         }
+    }).await??;
+
+    Ok(result)
+}
+
+/// Tool: update_core_memory — update the core memory file (memory.md) that is always visible
+/// in the system prompt. Used for persistent rules, preferences, and standing instructions.
+pub(crate) async fn tool_update_core_memory(args: &Value, agent_id: &str) -> Result<String> {
+    let action = args.get("action")
+        .and_then(|v| v.as_str())
+        .unwrap_or("append");
+
+    let scope = args.get("scope")
+        .and_then(|v| v.as_str())
+        .unwrap_or("agent");
+
+    let content = args.get("content")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Missing 'content' parameter"))?;
+
+    // Determine file path based on scope
+    let path = match scope {
+        "global" => crate::paths::root_dir()?.join("memory.md"),
+        _ => crate::paths::agent_dir(agent_id)?.join("memory.md"),
+    };
+
+    // Ensure parent directory exists
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    let action_owned = action.to_string();
+    let scope_owned = scope.to_string();
+    let agent_id_owned = agent_id.to_string();
+    let content_owned = content.to_string();
+
+    let result = tokio::task::spawn_blocking(move || -> Result<String> {
+        match action_owned.as_str() {
+            "append" => {
+                let existing = std::fs::read_to_string(&path).unwrap_or_default();
+                let new_content = if existing.trim().is_empty() {
+                    content_owned
+                } else {
+                    format!("{}\n{}", existing.trim_end(), content_owned)
+                };
+                std::fs::write(&path, &new_content)?;
+            }
+            "replace" => {
+                std::fs::write(&path, &content_owned)?;
+            }
+            other => {
+                anyhow::bail!("Invalid action: '{}'. Use 'append' or 'replace'.", other);
+            }
+        }
+
+        // Emit event to notify frontend
+        if let Some(handle) = crate::get_app_handle() {
+            use tauri::Emitter;
+            let _ = handle.emit("core_memory_updated", serde_json::json!({
+                "agentId": agent_id_owned,
+                "scope": scope_owned,
+            }));
+        }
+
+        Ok(format!("Core memory updated (action: {}, scope: {})", action_owned, scope_owned))
     }).await??;
 
     Ok(result)

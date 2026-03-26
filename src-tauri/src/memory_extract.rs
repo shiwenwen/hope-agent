@@ -129,6 +129,7 @@ async fn do_extraction(
             tags: item.tags.clone(),
             source: "auto".to_string(),
             source_session_id: Some(session_id.to_string()),
+            pinned: false,
         };
 
         let dedup = crate::memory::load_dedup_config();
@@ -164,6 +165,115 @@ async fn do_extraction(
     }
 
     Ok(())
+}
+
+// ── Flush Before Compact ────────────────────────────────────────
+
+const FLUSH_PROMPT: &str = r#"The following conversation messages are about to be compressed and summarized.
+Extract any important, durable information worth preserving as long-term memories.
+Return a JSON array. Each item: {"content":"...","type":"user|feedback|project|reference","tags":["..."]}
+
+Types:
+- "user": facts about the user (name, location, preferences, expertise, role)
+- "feedback": user preferences about AI behavior (response style, things to avoid)
+- "project": technical/project facts (tech stack, architecture, goals, deadlines)
+- "reference": URLs, docs, external resources mentioned
+
+Rules:
+- Only extract NEW information not in "Known memories" below
+- Focus on information that would be lost after compression
+- Be concise — each content should be 1-2 sentences
+- Return [] if nothing worth remembering
+- Maximum 8 items
+
+Known memories:
+{EXISTING}
+
+Messages to be compressed:
+{MESSAGES}"#;
+
+/// Flush important memories before context compaction (Tier 3).
+/// Called before summarization to prevent information loss.
+/// Returns the number of memories saved.
+pub async fn flush_before_compact(
+    messages_to_discard: &[Value],
+    agent_id: &str,
+    session_id: &str,
+    provider_config: &crate::provider::ProviderConfig,
+    model_id: &str,
+) -> Result<usize> {
+    let backend = crate::get_memory_backend()
+        .ok_or_else(|| anyhow::anyhow!("Memory backend not initialized"))?;
+
+    let existing_summary = backend.build_prompt_summary(agent_id, true, 2000)
+        .unwrap_or_default();
+
+    // Format all messages to be discarded (more generous than auto_extract's 6-message limit)
+    let mut total_chars = 0usize;
+    let max_chars = 8000;
+    let formatted: Vec<String> = messages_to_discard.iter()
+        .filter_map(|msg| {
+            if total_chars >= max_chars {
+                return None;
+            }
+            let role = msg.get("role")?.as_str()?;
+            let content = extract_text_content(msg)?;
+            let truncated = if content.len() > 800 {
+                format!("{}...", crate::truncate_utf8(&content, 800))
+            } else {
+                content
+            };
+            total_chars += truncated.len();
+            Some(format!("[{}]: {}", role, truncated))
+        })
+        .collect();
+
+    if formatted.is_empty() {
+        return Ok(0);
+    }
+
+    let messages_text = formatted.join("\n\n");
+    let prompt = FLUSH_PROMPT
+        .replace("{EXISTING}", &existing_summary)
+        .replace("{MESSAGES}", &messages_text);
+
+    let mut agent = AssistantAgent::new_from_provider(provider_config, model_id);
+    agent.set_agent_id(agent_id);
+    agent.set_session_id(session_id);
+    agent.set_extra_system_context(
+        "You are a memory extraction assistant. Respond ONLY with a JSON array, no markdown fences."
+            .to_string(),
+    );
+
+    let cancel = Arc::new(AtomicBool::new(false));
+    let (response, _thinking) = agent.chat(&prompt, &[], None, cancel, |_| {}).await?;
+
+    let extracted = parse_extraction_response(&response)?;
+    if extracted.is_empty() {
+        return Ok(0);
+    }
+
+    let mut saved_count = 0usize;
+    for item in &extracted {
+        let scope = MemoryScope::Agent { id: agent_id.to_string() };
+        let entry = NewMemory {
+            memory_type: item.memory_type.clone(),
+            scope,
+            content: item.content.clone(),
+            tags: item.tags.clone(),
+            source: "flush".to_string(),
+            source_session_id: Some(session_id.to_string()),
+            pinned: false,
+        };
+
+        let dedup = crate::memory::load_dedup_config();
+        match backend.add_with_dedup(entry, dedup.threshold_high, dedup.threshold_merge) {
+            Ok(AddResult::Created { .. }) | Ok(AddResult::Updated { .. }) => saved_count += 1,
+            _ => {}
+        }
+    }
+
+    Ok(saved_count)
 }
 
 // ── Parsing ─────────────────────────────────────────────────────

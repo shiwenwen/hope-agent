@@ -45,9 +45,13 @@ impl SqliteMemoryBackend {
                 source TEXT NOT NULL DEFAULT 'user',
                 source_session_id TEXT,
                 embedding BLOB,
+                pinned INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
+
+            CREATE INDEX IF NOT EXISTS idx_memories_pinned
+                ON memories(pinned DESC, updated_at DESC);
 
             CREATE INDEX IF NOT EXISTS idx_memories_scope
                 ON memories(scope_type, scope_agent_id);
@@ -186,6 +190,8 @@ pub(crate) fn row_to_entry(row: &rusqlite::Row) -> rusqlite::Result<MemoryEntry>
 
     let memory_type_str: String = row.get("memory_type")?;
 
+    let pinned_int: i64 = row.get("pinned").unwrap_or(0);
+
     Ok(MemoryEntry {
         id: row.get("id")?,
         memory_type: MemoryType::from_str(&memory_type_str),
@@ -194,6 +200,7 @@ pub(crate) fn row_to_entry(row: &rusqlite::Row) -> rusqlite::Result<MemoryEntry>
         tags,
         source: row.get("source")?,
         source_session_id: row.get("source_session_id")?,
+        pinned: pinned_int != 0,
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
         relevance_score: None,
@@ -220,8 +227,8 @@ impl MemoryBackend for SqliteMemoryBackend {
         });
 
         conn.execute(
-            "INSERT INTO memories (memory_type, scope_type, scope_agent_id, content, tags, source, source_session_id, embedding, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            "INSERT INTO memories (memory_type, scope_type, scope_agent_id, content, tags, source, source_session_id, embedding, pinned, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
                 entry.memory_type.as_str(),
                 scope_type,
@@ -231,6 +238,7 @@ impl MemoryBackend for SqliteMemoryBackend {
                 entry.source,
                 entry.source_session_id,
                 embedding_bytes,
+                entry.pinned as i64,
                 now,
                 now,
             ],
@@ -290,6 +298,19 @@ impl MemoryBackend for SqliteMemoryBackend {
         Ok(())
     }
 
+    fn toggle_pin(&self, id: i64, pinned: bool) -> Result<()> {
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let now = chrono::Utc::now().to_rfc3339();
+        let affected = conn.execute(
+            "UPDATE memories SET pinned = ?1, updated_at = ?2 WHERE id = ?3",
+            params![pinned as i64, now, id],
+        )?;
+        if affected == 0 {
+            anyhow::bail!("Memory with id {} not found", id);
+        }
+        Ok(())
+    }
+
     fn delete(&self, id: i64) -> Result<()> {
         let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         // Delete from vec0 first (if table exists)
@@ -301,7 +322,7 @@ impl MemoryBackend for SqliteMemoryBackend {
     fn get(&self, id: i64) -> Result<Option<MemoryEntry>> {
         let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let mut stmt = conn.prepare(
-            "SELECT id, memory_type, scope_type, scope_agent_id, content, tags, source, source_session_id, created_at, updated_at
+            "SELECT id, memory_type, scope_type, scope_agent_id, content, tags, source, source_session_id, pinned, created_at, updated_at
              FROM memories WHERE id = ?1",
         )?;
 
@@ -334,10 +355,10 @@ impl MemoryBackend for SqliteMemoryBackend {
         };
 
         let sql = format!(
-            "SELECT id, memory_type, scope_type, scope_agent_id, content, tags, source, source_session_id, created_at, updated_at
+            "SELECT id, memory_type, scope_type, scope_agent_id, content, tags, source, source_session_id, pinned, created_at, updated_at
              FROM memories
              WHERE {} AND {}
-             ORDER BY updated_at DESC
+             ORDER BY pinned DESC, updated_at DESC
              LIMIT ? OFFSET ?",
             scope_clause, type_clause
         );
@@ -459,7 +480,7 @@ impl MemoryBackend for SqliteMemoryBackend {
 
         let sql = format!(
             "SELECT id, memory_type, scope_type, scope_agent_id, content, tags,
-                    source, source_session_id, created_at, updated_at
+                    source, source_session_id, pinned, created_at, updated_at
              FROM memories
              WHERE id IN ({}) AND {} AND {}",
             placeholders, scope_clause, type_clause
@@ -546,10 +567,15 @@ impl MemoryBackend for SqliteMemoryBackend {
                 break;
             }
 
-            let entries: Vec<&MemoryEntry> = all_memories
+            // Collect entries for this type, pinned first then by updated_at
+            let mut entries: Vec<&MemoryEntry> = all_memories
                 .iter()
                 .filter(|m| &m.memory_type == mem_type)
                 .collect();
+            entries.sort_by(|a, b| {
+                b.pinned.cmp(&a.pinned)
+                    .then_with(|| b.updated_at.cmp(&a.updated_at))
+            });
 
             if entries.is_empty() {
                 continue;
@@ -565,8 +591,9 @@ impl MemoryBackend for SqliteMemoryBackend {
             result.push_str(&heading);
             let mut section_has_entries = false;
 
-            for entry in entries {
-                let line = format!("- {}\n", entry.content.lines().next().unwrap_or(&entry.content));
+            for entry in &entries {
+                let prefix = if entry.pinned { "★ " } else { "" };
+                let line = format!("- {}{}\n", prefix, entry.content.lines().next().unwrap_or(&entry.content));
                 if line.len() > remaining {
                     budget_exhausted = true;
                     break;

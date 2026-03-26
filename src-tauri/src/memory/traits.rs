@@ -44,6 +44,11 @@ pub trait MemoryBackend: Send + Sync {
     /// Get memory statistics
     fn stats(&self, scope: Option<&MemoryScope>) -> Result<MemoryStats>;
 
+    // ── Pin ──
+
+    /// Toggle the pinned status of a memory.
+    fn toggle_pin(&self, id: i64, pinned: bool) -> Result<()>;
+
     // ── Deduplication ──
 
     /// Find memories similar to the given content (for dedup checks).

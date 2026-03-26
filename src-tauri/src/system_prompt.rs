@@ -155,7 +155,25 @@ pub fn build(definition: &AgentDefinition, model: Option<&str>, provider: Option
     if definition.config.memory.enabled {
         let mut memory_section = String::new();
 
-        // Existing memories
+        // 8a: Global Core Memory (shared across all agents)
+        if let Some(md) = &definition.global_memory_md {
+            if !md.trim().is_empty() {
+                memory_section.push_str("## Core Memory (Global)\n\n");
+                memory_section.push_str(&truncate(md, MAX_FILE_CHARS));
+                memory_section.push_str("\n\n");
+            }
+        }
+
+        // 8b: Agent Core Memory (specific to this agent)
+        if let Some(md) = &definition.memory_md {
+            if !md.trim().is_empty() {
+                memory_section.push_str("## Core Memory (Agent)\n\n");
+                memory_section.push_str(&truncate(md, MAX_FILE_CHARS));
+                memory_section.push_str("\n\n");
+            }
+        }
+
+        // 8c: SQLite memories (existing logic)
         if let Some(mem) = memory_context {
             if !mem.is_empty() {
                 memory_section.push_str(mem);
@@ -163,19 +181,24 @@ pub fn build(definition: &AgentDefinition, model: Option<&str>, provider: Option
             }
         }
 
-        // Memory usage guidance
+        // 8d: Memory usage guidance
         memory_section.push_str(
             "## Memory Guidelines\n\
+             Use update_core_memory when:\n\
+             - The user gives a standing instruction (\"always\", \"never\", \"from now on\", \"remember to\")\n\
+             - The user states a persistent preference or rule\n\
+             - The user corrects a recurring behavior\n\n\
              Use save_memory when:\n\
-             - The user shares personal info (name, role, preferences, expertise)\n\
-             - The user corrects your behavior or says \"don't do X\" / \"always do Y\"\n\
-             - The user mentions project context, deadlines, or architecture decisions\n\
-             - The user explicitly says \"remember this\" or \"don't forget\"\n\
-             - You learn something important that would help in future conversations\n\n\
+             - You learn a fact about the user, project, or external resource\n\
+             - The user mentions a deadline, event, or temporary context\n\
+             - You discover something worth noting for future reference\n\n\
              Use recall_memory when:\n\
              - You need context about the user or project from prior conversations\n\
              - The user references something discussed before\n\
              - You want to check if preferences or constraints were previously established\n\n\
+             Use recall_memory with include_history=true when:\n\
+             - The user references a previous conversation (\"last time\", \"we discussed\", \"remember when\")\n\
+             - You need to find what was said or decided in an earlier session\n\n\
              Do NOT save: ephemeral task details, code snippets, debugging steps, or anything derivable from the codebase."
         );
 

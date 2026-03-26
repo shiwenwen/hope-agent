@@ -7,7 +7,7 @@ use super::{
     ToolProvider,
     TOOL_EXEC, TOOL_PROCESS, TOOL_READ, TOOL_WRITE, TOOL_EDIT, TOOL_LS,
     TOOL_GREP, TOOL_FIND, TOOL_APPLY_PATCH, TOOL_WEB_SEARCH, TOOL_WEB_FETCH,
-    TOOL_SAVE_MEMORY, TOOL_RECALL_MEMORY, TOOL_UPDATE_MEMORY, TOOL_DELETE_MEMORY,
+    TOOL_SAVE_MEMORY, TOOL_RECALL_MEMORY, TOOL_UPDATE_MEMORY, TOOL_DELETE_MEMORY, TOOL_UPDATE_CORE_MEMORY,
     TOOL_MANAGE_CRON, TOOL_BROWSER, TOOL_SEND_NOTIFICATION, TOOL_SUBAGENT,
     TOOL_MEMORY_GET, TOOL_AGENTS_LIST, TOOL_SESSIONS_LIST, TOOL_SESSION_STATUS,
     TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_SEND, TOOL_IMAGE, TOOL_IMAGE_GENERATE, TOOL_PDF,
@@ -402,6 +402,10 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                         "type": "string",
                         "enum": ["global", "agent"],
                         "description": "Scope: global (shared across agents) or agent (private to current agent). Default: global"
+                    },
+                    "pinned": {
+                        "type": "boolean",
+                        "description": "If true, this memory is pinned and always prioritized in the system prompt regardless of age. Default: false"
                     }
                 },
                 "required": ["content", "type"],
@@ -410,7 +414,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: TOOL_RECALL_MEMORY.into(),
-            description: "Search persistent memories by keyword or semantic query. Use this to recall previously stored information about the user, their preferences, project context, or reference materials.".into(),
+            description: "Search persistent memories by keyword or semantic query. Use this to recall previously stored information about the user, their preferences, project context, or reference materials. Set include_history=true to also search past conversation messages.".into(),
             internal: true,
             parameters: json!({
                 "type": "object",
@@ -427,6 +431,10 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     "limit": {
                         "type": "integer",
                         "description": "Max results (default 10)"
+                    },
+                    "include_history": {
+                        "type": "boolean",
+                        "description": "Also search past conversation messages (default: false). Use when the user references previous conversations."
                     }
                 },
                 "required": ["query"],
@@ -686,6 +694,33 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     }
                 },
                 "required": ["id"],
+                "additionalProperties": false
+            }),
+        },
+        // ── Update Core Memory ─────────────────────────────────
+        ToolDefinition {
+            name: TOOL_UPDATE_CORE_MEMORY.into(),
+            description: "Update the core memory file (memory.md) that is always visible in the system prompt. Use for persistent rules, preferences, and standing instructions that the user wants you to always follow.".into(),
+            internal: true,
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["append", "replace"],
+                        "description": "append: add content to the end of core memory; replace: overwrite the entire core memory file"
+                    },
+                    "scope": {
+                        "type": "string",
+                        "enum": ["global", "agent"],
+                        "description": "global: shared across all agents; agent: specific to current agent. Default: agent"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "The rule, preference, or instruction to write"
+                    }
+                },
+                "required": ["action", "content"],
                 "additionalProperties": false
             }),
         },
