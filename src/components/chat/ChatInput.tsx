@@ -254,7 +254,7 @@ export default function ChatInput({
           />
 
           {/* Toolbar */}
-          <div className="flex items-center gap-1 px-2 pb-2">
+          <div className="flex items-center gap-1 px-2 pb-2 flex-wrap">
             {/* Attach buttons */}
             <IconTip label={t("chat.attachImage")}>
               <Button
@@ -312,7 +312,7 @@ export default function ChatInput({
                     setShowModelMenu(!showModelMenu)
                     setMenuProvider(null)
                   }}
-                  className="flex items-center gap-1 bg-transparent text-muted-foreground hover:text-foreground text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary"
+                  className="flex items-center gap-1 bg-transparent text-muted-foreground hover:text-foreground text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 max-w-[200px]"
                 >
                   <span className="truncate">
                     {currentModelInfo
@@ -394,7 +394,7 @@ export default function ChatInput({
               <div className="relative" ref={thinkMenuRef}>
                 <button
                   onClick={() => setShowThinkMenu(!showThinkMenu)}
-                  className="flex items-center gap-1 bg-transparent text-muted-foreground hover:text-foreground text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary"
+                  className="flex items-center gap-1 bg-transparent text-muted-foreground hover:text-foreground text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap"
                 >
                   <Brain className="h-3.5 w-3.5 shrink-0" />
                   <span>
@@ -435,7 +435,7 @@ export default function ChatInput({
               <button
                 onClick={() => planState === "off" ? onEnterPlanMode?.() : onTogglePlanPanel?.()}
                 className={cn(
-                  "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary",
+                  "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap",
                   planState === "planning"
                     ? "text-blue-600 bg-blue-500/10"
                     : planState === "executing"
@@ -455,7 +455,7 @@ export default function ChatInput({
               <button
                 onClick={() => setShowPermMenu(!showPermMenu)}
                 className={cn(
-                  "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary",
+                  "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap",
                   toolPermissionMode === "full_approve"
                     ? "text-destructive"
                     : toolPermissionMode === "ask_every_time"
