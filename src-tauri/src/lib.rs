@@ -1,6 +1,7 @@
 #[macro_use]
 mod logging;
 pub mod acp;
+pub(crate) mod acp_control;
 mod agent;
 mod agent_config;
 mod agent_loader;
@@ -61,6 +62,7 @@ static MEMORY_BACKEND: std::sync::OnceLock<Arc<dyn memory::MemoryBackend>> = std
 static CRON_DB: std::sync::OnceLock<Arc<cron::CronDB>> = std::sync::OnceLock::new();
 static SESSION_DB: std::sync::OnceLock<Arc<SessionDB>> = std::sync::OnceLock::new();
 static SUBAGENT_CANCELS: std::sync::OnceLock<Arc<subagent::SubagentCancelRegistry>> = std::sync::OnceLock::new();
+static ACP_MANAGER: std::sync::OnceLock<Arc<acp_control::AcpSessionManager>> = std::sync::OnceLock::new();
 
 /// Get stored AppLogger for global logging
 pub fn get_logger() -> Option<&'static AppLogger> {
@@ -90,6 +92,11 @@ pub fn get_session_db() -> Option<&'static Arc<SessionDB>> {
 /// Get stored SubagentCancelRegistry for sub-agent cancellation
 pub fn get_subagent_cancels() -> Option<&'static Arc<subagent::SubagentCancelRegistry>> {
     SUBAGENT_CANCELS.get()
+}
+
+/// Get stored AcpSessionManager for ACP control plane operations
+pub fn get_acp_manager() -> Option<&'static Arc<acp_control::AcpSessionManager>> {
+    ACP_MANAGER.get()
 }
 
 /// If SearXNG is docker-managed and enabled, auto-start the container on app launch.
@@ -316,6 +323,22 @@ pub fn run() {
             // Clean up orphan sub-agent runs from previous app session
             subagent::cleanup_orphan_runs(&session_db);
 
+            // Initialize ACP control plane
+            {
+                let store = provider::load_store().unwrap_or_default();
+                if store.acp_control.enabled {
+                    let registry = Arc::new(acp_control::AcpRuntimeRegistry::new());
+                    let registry_clone = Arc::clone(&registry);
+                    let acp_config = store.acp_control.clone();
+                    // Auto-discover backends in background
+                    tokio::spawn(async move {
+                        acp_control::registry::auto_discover_and_register(&registry_clone, &acp_config).await;
+                    });
+                    let manager = Arc::new(acp_control::AcpSessionManager::new(registry));
+                    let _ = ACP_MANAGER.set(manager);
+                }
+            }
+
             AppState {
                 agent: Mutex::new(None),
                 auth_result: Arc::new(Mutex::new(None)),
@@ -537,6 +560,15 @@ pub fn run() {
             dev_tools::dev_clear_memory,
             dev_tools::dev_reset_config,
             dev_tools::dev_clear_all,
+            // ACP control plane
+            commands::acp_control::acp_list_backends,
+            commands::acp_control::acp_health_check,
+            commands::acp_control::acp_refresh_backends,
+            commands::acp_control::acp_list_runs,
+            commands::acp_control::acp_kill_run,
+            commands::acp_control::acp_get_run_result,
+            commands::acp_control::acp_get_config,
+            commands::acp_control::acp_set_config,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

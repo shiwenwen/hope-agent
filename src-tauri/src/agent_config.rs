@@ -59,6 +59,10 @@ pub struct AgentConfig {
     /// Sub-agent delegation settings
     #[serde(default)]
     pub subagents: SubagentConfig,
+
+    /// ACP external agent delegation settings
+    #[serde(default)]
+    pub acp: crate::acp_control::AgentAcpConfig,
 }
 
 fn default_name() -> String {
@@ -81,6 +85,7 @@ impl Default for AgentConfig {
             use_custom_prompt: false,
             notify_on_complete: None,
             subagents: SubagentConfig::default(),
+            acp: crate::acp_control::AgentAcpConfig::default(),
         }
     }
 }

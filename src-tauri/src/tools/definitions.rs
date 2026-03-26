@@ -11,7 +11,7 @@ use super::{
     TOOL_MANAGE_CRON, TOOL_BROWSER, TOOL_SEND_NOTIFICATION, TOOL_SUBAGENT,
     TOOL_MEMORY_GET, TOOL_AGENTS_LIST, TOOL_SESSIONS_LIST, TOOL_SESSION_STATUS,
     TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_SEND, TOOL_IMAGE, TOOL_IMAGE_GENERATE, TOOL_PDF,
-    TOOL_CANVAS,
+    TOOL_CANVAS, TOOL_ACP_SPAWN,
 };
 
 // ── Tool Definition (provider-agnostic) ───────────────────────────
@@ -941,6 +941,63 @@ pub fn get_subagent_tool() -> ToolDefinition {
     }
 }
 
+/// Get the ACP spawn tool definition (conditionally injected).
+pub fn get_acp_spawn_tool() -> ToolDefinition {
+    ToolDefinition {
+        name: TOOL_ACP_SPAWN.into(),
+        description: "Spawn and manage external ACP agents (Claude Code, Codex CLI, Gemini CLI, etc.). External agents run as separate processes with their own tools, context, and capabilities. Use for tasks that benefit from a specialized external coding agent.".into(),
+        internal: false,
+        parameters: json!({
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["spawn", "check", "list", "result", "kill", "kill_all", "steer", "backends"],
+                    "description": "Action: spawn (start external agent), check (poll/wait), list (all runs), result (full output), kill (terminate), kill_all (terminate all), steer (send follow-up), backends (list available)"
+                },
+                "backend": {
+                    "type": "string",
+                    "description": "ACP backend ID (e.g. 'claude-code', 'codex-cli', 'gemini-cli'). Required for spawn."
+                },
+                "task": {
+                    "type": "string",
+                    "description": "Task description for the external agent (required for spawn)"
+                },
+                "run_id": {
+                    "type": "string",
+                    "description": "Run ID (for check/result/kill/steer)"
+                },
+                "cwd": {
+                    "type": "string",
+                    "description": "Working directory for the external agent"
+                },
+                "model": {
+                    "type": "string",
+                    "description": "Model override for the external agent"
+                },
+                "timeout_secs": {
+                    "type": "integer",
+                    "description": "Timeout in seconds (default 600, max 3600)"
+                },
+                "message": {
+                    "type": "string",
+                    "description": "Follow-up message to send (for steer action)"
+                },
+                "wait": {
+                    "type": "boolean",
+                    "description": "For check: block until completion (default false)"
+                },
+                "label": {
+                    "type": "string",
+                    "description": "Optional label for tracking"
+                }
+            },
+            "required": ["action"],
+            "additionalProperties": false
+        }),
+    }
+}
+
 /// Cached set of internal tool names — derived from ToolDefinition.internal flag.
 /// This is the single source of truth; no separate hardcoded list needed.
 static INTERNAL_TOOL_NAMES: LazyLock<HashSet<String>> = LazyLock::new(|| {
@@ -950,7 +1007,7 @@ static INTERNAL_TOOL_NAMES: LazyLock<HashSet<String>> = LazyLock::new(|| {
         .map(|t| t.name)
         .collect();
     // Include conditionally-injected tools
-    for t in [get_notification_tool(), get_subagent_tool(), get_image_generate_tool(), get_canvas_tool()] {
+    for t in [get_notification_tool(), get_subagent_tool(), get_image_generate_tool(), get_canvas_tool(), get_acp_spawn_tool()] {
         if t.internal {
             set.insert(t.name);
         }
@@ -971,11 +1028,57 @@ pub fn get_tools_for_provider(provider: ToolProvider) -> Vec<serde_json::Value> 
         .collect()
 }
 
-/// Returns the image_generate tool definition (conditionally injected).
+/// Returns the image_generate tool definition (static fallback for is_internal_tool etc.).
 pub fn get_image_generate_tool() -> ToolDefinition {
+    get_image_generate_tool_dynamic(&crate::tools::image_generate::ImageGenConfig::default())
+}
+
+/// Returns the image_generate tool definition with dynamic description based on enabled providers.
+pub fn get_image_generate_tool_dynamic(config: &crate::tools::image_generate::ImageGenConfig) -> ToolDefinition {
+    use crate::tools::image_generate;
+
+    // Build available models list from enabled providers
+    let enabled: Vec<_> = config.providers.iter()
+        .filter(|p| p.enabled && p.api_key.as_ref().map_or(false, |k| !k.is_empty()))
+        .collect();
+
+    let models_desc = if enabled.is_empty() {
+        "No models configured".to_string()
+    } else {
+        enabled.iter()
+            .map(|p| {
+                let model = image_generate::effective_model(p);
+                let display = image_generate::provider_display_name(p);
+                format!("{} ({})", model, display)
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+
+    let description = format!(
+        "Generate images from text descriptions. \
+         Available models (priority order): {}. \
+         Images are saved to disk and returned for visual inspection. \
+         Default: auto — tries models in order with automatic failover on failure.",
+        models_desc
+    );
+
+    let model_param_desc = if enabled.is_empty() {
+        "Specify a model. Default: auto.".to_string()
+    } else {
+        let model_list = enabled.iter()
+            .map(|p| format!("'{}'", image_generate::effective_model(p)))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(
+            "Specify a model. Available: {}. Default: auto (uses priority order with failover).",
+            model_list
+        )
+    };
+
     ToolDefinition {
         name: TOOL_IMAGE_GENERATE.into(),
-        description: "Generate images from text descriptions using AI image generation models (OpenAI/DALL-E, Google/Gemini, Fal/Flux). Generated images are saved to disk and returned for visual inspection.".into(),
+        description,
         internal: false,
         parameters: json!({
             "type": "object",
@@ -994,9 +1097,9 @@ pub fn get_image_generate_tool() -> ToolDefinition {
                     "minimum": 1,
                     "maximum": 4
                 },
-                "provider": {
+                "model": {
                     "type": "string",
-                    "description": "Force a specific provider: 'openai', 'google', or 'fal'. Default: first configured provider."
+                    "description": model_param_desc
                 }
             },
             "required": ["prompt"],

@@ -114,6 +114,35 @@ impl SessionDB {
             )?;
         }
 
+        // Migration: create acp_runs table if missing
+        let has_acp_runs = conn
+            .prepare("SELECT run_id FROM acp_runs LIMIT 1")
+            .is_ok();
+        if !has_acp_runs {
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS acp_runs (
+                    run_id TEXT PRIMARY KEY,
+                    parent_session_id TEXT NOT NULL,
+                    backend_id TEXT NOT NULL,
+                    external_session_id TEXT,
+                    task TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'starting',
+                    result TEXT,
+                    error TEXT,
+                    model_used TEXT,
+                    started_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    finished_at TEXT,
+                    duration_ms INTEGER,
+                    input_tokens INTEGER,
+                    output_tokens INTEGER,
+                    label TEXT,
+                    pid INTEGER
+                );
+                CREATE INDEX IF NOT EXISTS idx_acp_runs_parent ON acp_runs(parent_session_id);
+                CREATE INDEX IF NOT EXISTS idx_acp_runs_status ON acp_runs(status);",
+            )?;
+        }
+
         Ok(Self { conn: Mutex::new(conn) })
     }
 

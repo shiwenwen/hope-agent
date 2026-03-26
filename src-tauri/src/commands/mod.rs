@@ -13,3 +13,4 @@ pub mod crash;
 pub mod dashboard;
 pub mod docker;
 pub mod misc;
+pub mod acp_control;

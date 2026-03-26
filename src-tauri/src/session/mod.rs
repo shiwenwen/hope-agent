@@ -1,6 +1,7 @@
 mod types;
 mod db;
 mod subagent_db;
+mod acp_db;
 mod helpers;
 
 pub use types::{SessionMeta, SessionMessage, MessageRole, NewMessage};

@@ -10,10 +10,10 @@ use super::{
     TOOL_MANAGE_CRON, TOOL_BROWSER, TOOL_SEND_NOTIFICATION, TOOL_SUBAGENT,
     TOOL_MEMORY_GET, TOOL_AGENTS_LIST, TOOL_SESSIONS_LIST, TOOL_SESSION_STATUS,
     TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_SEND, TOOL_IMAGE, TOOL_IMAGE_GENERATE, TOOL_PDF,
-    TOOL_CANVAS,
+    TOOL_CANVAS, TOOL_ACP_SPAWN,
 };
 use super::{exec, process, read, write, edit, ls, grep, find, apply_patch};
-use super::{web_search, web_fetch, memory, cron, browser, notification, subagent};
+use super::{web_search, web_fetch, memory, cron, browser, notification, subagent, acp_spawn};
 use super::{agents, sessions, image, image_generate, pdf, canvas};
 
 /// Default hard timeout (seconds) for a single tool execution.
@@ -178,6 +178,7 @@ pub async fn execute_tool_with_context(
             TOOL_BROWSER => browser::tool_browser(args).await,
             TOOL_SEND_NOTIFICATION => notification::tool_send_notification(args, ctx).await,
             TOOL_SUBAGENT => subagent::tool_subagent(args, ctx).await,
+            TOOL_ACP_SPAWN => acp_spawn::tool_acp_spawn(args, ctx).await,
             TOOL_MEMORY_GET => memory::tool_memory_get(args).await,
             TOOL_AGENTS_LIST => agents::tool_agents_list(args).await,
             TOOL_SESSIONS_LIST => sessions::tool_sessions_list(args).await,

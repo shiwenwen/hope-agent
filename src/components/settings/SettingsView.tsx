@@ -20,6 +20,7 @@ import {
   Wrench,
   Bell,
   Container,
+  Cable,
 } from "lucide-react"
 import type { ProviderConfig } from "@/components/settings/ProviderSettings"
 import ProviderSetup from "@/components/settings/ProviderSetup"
@@ -40,6 +41,7 @@ import CrashHistoryPanel from "@/components/settings/CrashHistoryPanel"
 import NotificationPanel from "@/components/settings/NotificationPanel"
 import DeveloperPanel from "@/components/settings/DeveloperPanel"
 import SandboxPanel from "@/components/settings/SandboxPanel"
+import AcpControlPanel from "@/components/settings/AcpControlPanel"
 import type { SettingsSection, SettingsSectionItem } from "./types"
 
 const SECTIONS: SettingsSectionItem[] = [
@@ -87,6 +89,11 @@ const SECTIONS: SettingsSectionItem[] = [
     id: "sandbox",
     icon: <Container className="h-4 w-4" />,
     labelKey: "settings.sandbox",
+  },
+  {
+    id: "acp",
+    icon: <Cable className="h-4 w-4" />,
+    labelKey: "settings.acpControl",
   },
   {
     id: "cron",
@@ -236,6 +243,7 @@ export default function SettingsView({
             {activeSection === "notifications" && <NotificationPanel />}
             {activeSection === "tools" && <ToolSettingsPanel />}
             {activeSection === "sandbox" && <SandboxPanel />}
+            {activeSection === "acp" && <AcpControlPanel />}
             {activeSection === "permissions" && <PermissionsPanel />}
             {activeSection === "chat" && <ChatSettingsPanel />}
             {activeSection === "health" && <CrashHistoryPanel />}

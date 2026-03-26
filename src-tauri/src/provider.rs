@@ -379,6 +379,10 @@ pub struct ProviderStore {
     /// Bundled skills allowlist (empty = all allowed)
     #[serde(default)]
     pub skill_allow_bundled: Vec<String>,
+
+    /// ACP control plane configuration (external agent management)
+    #[serde(default)]
+    pub acp_control: crate::acp_control::AcpControlConfig,
 }
 
 fn default_skill_env_check() -> bool {
@@ -422,6 +426,7 @@ impl Default for ProviderStore {
             proxy: ProxyConfig::default(),
             skill_prompt_budget: crate::skills::SkillPromptBudget::default(),
             skill_allow_bundled: Vec::new(),
+            acp_control: crate::acp_control::AcpControlConfig::default(),
         }
     }
 }

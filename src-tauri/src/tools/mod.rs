@@ -21,6 +21,7 @@ mod pdf;
 mod process;
 pub(crate) mod read;
 mod sessions;
+pub(crate) mod acp_spawn;
 pub(crate) mod subagent;
 pub(crate) mod web_fetch;
 pub(crate) mod web_search;
@@ -29,7 +30,7 @@ mod write;
 // ── Public Re-exports ─────────────────────────────────────────────
 
 pub use approval::{ApprovalResponse, submit_approval_response};
-pub use definitions::{get_available_tools, get_subagent_tool, get_notification_tool, get_image_generate_tool, get_canvas_tool, get_tools_for_provider, is_internal_tool};
+pub use definitions::{get_available_tools, get_subagent_tool, get_notification_tool, get_image_generate_tool, get_image_generate_tool_dynamic, get_canvas_tool, get_acp_spawn_tool, get_tools_for_provider, is_internal_tool};
 pub use execution::{ToolExecContext, execute_tool_with_context};
 
 // ── Tool Name Constants ──────────────────────────────────────────
@@ -63,6 +64,7 @@ pub const TOOL_IMAGE: &str = "image";
 pub const TOOL_IMAGE_GENERATE: &str = "image_generate";
 pub const TOOL_PDF: &str = "pdf";
 pub const TOOL_CANVAS: &str = "canvas";
+pub const TOOL_ACP_SPAWN: &str = "acp_spawn";
 
 // ── Shared Helpers ────────────────────────────────────────────────
 

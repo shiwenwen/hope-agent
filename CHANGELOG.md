@@ -7,7 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **图片生成系统重构（image_generate）**：Provider 抽象 + 排序降级 + 动态工具描述
+  - 引入 `ImageGenProviderImpl` trait 抽象，支持可扩展的 Provider 架构
+  - Provider id 从枚举改为 String（向后兼容，自动 normalize "OpenAI" → "openai"）
+  - 实现自动降级（Failover）循环：按优先级遍历 Provider，retryable 错误自动重试，失败后降级到下一个
+  - 复用 `failover::classify_error` + `failover::retry_delay_ms` 指数退避重试
+  - 工具描述动态生成：只列出已启用的模型名称和优先级顺序
+  - 工具参数简化：去掉 `provider` 参数，改为 `model` 参数（默认 auto），LLM 视角更简洁
+  - 结果透明度：返回实际使用的模型信息，如发生降级则详细记录过程
+  - 前端设置面板添加 Provider 排序功能（上下箭头 + 优先级序号）
+
 ### Added
+- **ACP 控制面（ACP Control Plane）**：让模型能启动和管理外部 ACP Agent（Claude Code、Codex CLI、Gemini CLI 等）
+  - `AcpRuntime` trait 可插拔后端抽象 + `StdioAcpRuntime` 子进程 stdio/NDJSON 实现
+  - `AcpRuntimeRegistry` 全局后端注册表 + 自动发现（扫描 $PATH 中的 claude/codex/gemini）
+  - `AcpSessionManager` 会话生命周期管理（spawn/check/kill/steer + 异步 tokio::spawn 执行）
+  - `acp_spawn` 工具（8 种 action：spawn/check/list/result/kill/kill_all/steer/backends）
+  - 系统提示词 Section ⑬ 条件注入 ACP 外部 Agent 委派说明
+  - `acp_runs` SQLite 表持久化运行记录（自动迁移）
+  - 8 个 Tauri 命令（acp_list_backends/acp_health_check/acp_refresh_backends/acp_list_runs/acp_kill_run/acp_get_run_result/acp_get_config/acp_set_config）
+  - 前端设置面板 `AcpControlPanel.tsx`（启用开关、后端列表、健康状态、配置管理）
+  - 聊天嵌入组件 `AcpSpawnBlock.tsx`（流式输出、工具调用、状态、Kill 按钮）
+  - `AcpControlConfig` 全局配置 + `AgentAcpConfig` per-Agent 配置（allowed_backends/denied_backends/max_concurrent）
+  - 流式事件实时推送到前端（Tauri 全局事件 `acp_control_event`）
+  - 新增 `src-tauri/src/acp_control/` 模块目录（8 个文件）+ `src-tauri/src/tools/acp_spawn.rs`
+  - 新增依赖：`async-trait`、`which`
 - **ACP 协议支持（Agent Client Protocol）**：原生 Rust 实现 ACP 服务器，IDE（Zed/VS Code 等）可通过 stdio + NDJSON 直接连接 OpenComputer Agent
   - 通过 `opencomputer acp` 子命令启动 ACP 服务器（支持 `--verbose`/`--agent-id`/`--help` 参数）
   - 完整的 JSON-RPC 2.0 协议实现（NDJSON stdio 传输层）

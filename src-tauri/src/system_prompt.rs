@@ -53,8 +53,7 @@ Params: session_id, message (required), wait (default false), timeout_secs (defa
 - image: Analyze an image file. Returns base64-encoded image data for visual analysis. \
 Supports PNG, JPEG, GIF, WebP, BMP, TIFF. Use prompt param to specify what to analyze. \
 - image_generate: Generate images from text descriptions using AI image generation models. \
-Supports OpenAI (DALL-E/gpt-image-1), Google (Gemini), and Fal (Flux). \
-Params: prompt (required), size (default 1024x1024), n (1-4, default 1), provider (optional). \
+Params: prompt (required), size (default 1024x1024), n (1-4, default 1), model (optional, default auto with failover). \
 Generated images are saved to disk and returned for visual inspection. \
 - pdf: Extract text content from PDF documents with page-level pagination. \
 Params: path (required), pages (e.g. '1-5'), max_chars (default 50000). \
@@ -212,6 +211,14 @@ pub fn build(definition: &AgentDefinition, model: Option<&str>, provider: Option
              If a command requires network access or special privileges, inform the user that it cannot run in sandbox mode."
                 .to_string(),
         );
+    }
+
+    // ⑬ ACP external agent delegation (conditionally injected)
+    if definition.config.acp.enabled {
+        let acp_section = build_acp_section();
+        if !acp_section.is_empty() {
+            sections.push(acp_section);
+        }
     }
 
     // ⑫ Project context — not yet implemented
@@ -546,6 +553,57 @@ fn build_subagent_section(config: &crate::agent_config::SubagentConfig, current_
 #[allow(dead_code)]
 pub fn build_subagent_section_with_depth(config: &crate::agent_config::SubagentConfig, current_agent_id: &str, depth: u32) -> String {
     build_subagent_section(config, current_agent_id, depth)
+}
+
+// ── ACP Section ─────────────────────────────────────────────────
+
+/// Build the ACP external agent delegation section for the system prompt.
+fn build_acp_section() -> String {
+    // Check global config
+    let store = match crate::provider::load_store() {
+        Ok(s) => s,
+        Err(_) => return String::new(),
+    };
+
+    if !store.acp_control.enabled {
+        return String::new();
+    }
+
+    // Build available backends list from config
+    let mut backend_lines = Vec::new();
+    for b in &store.acp_control.backends {
+        if !b.enabled {
+            continue;
+        }
+        // Check if binary is available
+        let available = if std::path::Path::new(&b.binary).is_absolute() {
+            std::path::Path::new(&b.binary).exists()
+        } else {
+            crate::acp_control::registry::resolve_binary(&b.binary).is_some()
+        };
+        if available {
+            backend_lines.push(format!("- {}: {} (binary: {})", b.id, b.name, b.binary));
+        }
+    }
+
+    if backend_lines.is_empty() {
+        return String::new();
+    }
+
+    format!(
+        "# External Agent Delegation (ACP)\n\n\
+         You can delegate tasks to external ACP-compatible agents using the `acp_spawn` tool.\n\
+         These agents run as separate processes with their own tools, context, and capabilities.\n\n\
+         Available ACP backends:\n\
+         {}\n\n\
+         When to use external agents vs sub-agents:\n\
+         - Use `subagent` for tasks within OpenComputer's internal agent pool\n\
+         - Use `acp_spawn` when you need an external agent's specific capabilities \
+         (e.g., Claude Code's file editing, Codex's code generation)\n\n\
+         Actions: spawn (start), check (poll/wait), list, result, kill, kill_all, steer (follow-up), backends (list available)\n\n\
+         External agents run asynchronously. Use check(run_id, wait=true) to block until completion.",
+        backend_lines.join("\n")
+    )
 }
 
 // ── Truncation ───────────────────────────────────────────────────
