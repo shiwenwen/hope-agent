@@ -102,6 +102,9 @@ export function TemplateGrid({
               t("provider.codexSignIn")
             )}
           </Button>
+          <p className="text-xs text-amber-500 text-center mt-2">
+            {t("provider.codexSecurityWarning")}
+          </p>
           {codexError && <p className="text-xs text-red-400 text-center mt-2">{codexError}</p>}
           <div className="flex items-center gap-3 mt-4">
             <div className="flex-1 h-px bg-border" />

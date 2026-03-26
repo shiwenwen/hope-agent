@@ -115,6 +115,7 @@
     "selectProvider": "Select a provider to get started",
     "orSelectProvider": "or select a provider",
     "codexSignIn": "Sign in with ChatGPT (Codex)",
+    "codexSecurityWarning": "For your account security, Claude Code authentication mode is not available at this time",
     "waitingBrowserLogin": "Waiting for browser login...",
     "searchProviders": "Search providers...",
     "custom": "Custom",
