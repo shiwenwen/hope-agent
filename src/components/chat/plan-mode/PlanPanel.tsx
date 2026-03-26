@@ -62,17 +62,12 @@ export function PlanPanel({
         s.status === "failed"
     )
 
-  const planTitle = groupedPhases.length > 0 ? groupedPhases[0].name : "Plan"
-
   return (
     <div className="flex flex-col border-l border-border w-[400px] shrink-0 max-w-[40vw] bg-background animate-in slide-in-from-right-2 duration-200">
       {/* Title bar */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-secondary/30 shrink-0">
         <ClipboardList className="h-4 w-4 text-blue-500" />
-        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-          Plan
-        </span>
-        <span className="text-sm font-medium truncate flex-1">{planTitle}</span>
+        <span className="text-sm font-medium truncate flex-1">{t("planMode.panelTitle")}</span>
         <div className="flex items-center gap-0.5">
           <IconTip label={t("common.close")}>
             <button

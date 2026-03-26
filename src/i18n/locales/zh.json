@@ -1134,7 +1134,8 @@
     "executing": "正在按计划执行...",
     "stepsCompleted": "步完成",
     "completed": "计划执行完成",
-    "placeholder": "描述你想要实现的功能..."
+    "placeholder": "描述你想要实现的功能...",
+    "panelTitle": "执行计划"
   },
   "canvas": {
     "refresh": "刷新",

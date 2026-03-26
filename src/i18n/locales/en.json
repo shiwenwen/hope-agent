@@ -1134,7 +1134,8 @@
     "executing": "Executing plan...",
     "stepsCompleted": "steps completed",
     "completed": "Plan execution completed",
-    "placeholder": "Describe what you want to achieve..."
+    "placeholder": "Describe what you want to achieve...",
+    "panelTitle": "Execution Plan"
   },
   "canvas": {
     "refresh": "Refresh",
