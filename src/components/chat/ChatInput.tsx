@@ -9,7 +9,7 @@ import {
   IconTip,
 } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
-import { Send, Square, Brain, ChevronRight, ImagePlus, Zap, Paperclip, X, Slash, Shield, ShieldCheck, ShieldAlert, ClipboardList } from "lucide-react"
+import { Send, Square, Brain, ChevronRight, ImagePlus, Paperclip, X, Slash, Shield, ShieldCheck, ShieldAlert, ClipboardList } from "lucide-react"
 import type { AvailableModel, ActiveModel, ToolPermissionMode } from "@/types/chat"
 import { getEffortOptionsForType } from "@/types/chat"
 import { useSlashCommands, type SlashCommandActions } from "./slash-commands/useSlashCommands"
@@ -33,8 +33,6 @@ interface ChatInputProps {
   pendingMessage?: string | null
   onCancelPending?: () => void
   onStop?: () => void
-  onCompact?: () => void
-  compacting?: boolean
   // Slash command support
   currentSessionId?: string | null
   currentAgentId?: string
@@ -66,8 +64,6 @@ export default function ChatInput({
   pendingMessage,
   onCancelPending,
   onStop,
-  onCompact,
-  compacting,
   currentSessionId,
   currentAgentId = "default",
   onCommandAction,
@@ -519,21 +515,6 @@ export default function ChatInput({
                 </div>
               )}
             </div>
-
-            {/* Compact Context Button */}
-            {onCompact && (
-              <IconTip label={t("chat.compactNow")}>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground"
-                  onClick={onCompact}
-                  disabled={compacting || loading}
-                >
-                  <Zap className={cn("h-4 w-4", compacting && "animate-pulse")} />
-                </Button>
-              </IconTip>
-            )}
 
             <div className="flex-1" />
 

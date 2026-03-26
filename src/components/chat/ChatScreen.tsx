@@ -465,23 +465,6 @@ export default function ChatScreen({
             stream.setPendingMessage(null)
           }}
           onStop={stream.handleStop}
-          compacting={compacting}
-          onCompact={
-            session.currentSessionId
-              ? async () => {
-                  setCompacting(true)
-                  try {
-                    await invoke("compact_context_now", {
-                      sessionId: session.currentSessionId,
-                    })
-                  } catch (e) {
-                    console.error("compact failed", e)
-                  } finally {
-                    setCompacting(false)
-                  }
-                }
-              : undefined
-          }
           currentSessionId={session.currentSessionId}
           currentAgentId={session.currentAgentId}
           onCommandAction={handleCommandAction}

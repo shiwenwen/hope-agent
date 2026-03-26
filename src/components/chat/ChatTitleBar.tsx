@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { IconTip } from "@/components/ui/tooltip"
-import { Settings, Copy, BarChart3, Pencil } from "lucide-react"
+import { Settings, Copy, BarChart3, Pencil, Zap } from "lucide-react"
 import { formatMessageTime } from "./chatUtils"
 import type { Message, AvailableModel, ActiveModel, SessionMeta } from "@/types/chat"
 
@@ -135,6 +135,32 @@ export default function ChatTitleBar({
         )}
       </div>
       <div className="flex items-end gap-1">
+          {/* Compact Context Button */}
+          {currentSessionId && (
+            <IconTip label={t("chat.compactNow")}>
+              <button
+                className={cn(
+                  "pb-1.5 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50",
+                  compacting && "text-foreground",
+                )}
+                disabled={compacting || loading}
+                onClick={async () => {
+                  setCompacting(true)
+                  try {
+                    await invoke("compact_context_now", {
+                      sessionId: currentSessionId,
+                    })
+                  } catch (e) {
+                    console.error("compact failed", e)
+                  } finally {
+                    setCompacting(false)
+                  }
+                }}
+              >
+                <Zap className={cn("h-4 w-4", compacting && "animate-pulse")} />
+              </button>
+            </IconTip>
+          )}
           {/* Session Status Button */}
           <div className="relative" ref={statusRef}>
             <IconTip label={t("chat.sessionStatus")}>
