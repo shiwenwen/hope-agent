@@ -109,12 +109,13 @@ const TokenUsageSection = React.memo(function TokenUsageSection({
               />
               <RechartsTooltip
                 contentStyle={{
-                  backgroundColor: "hsl(var(--popover))",
-                  border: "1px solid hsl(var(--border))",
+                  backgroundColor: "var(--color-popover)",
+                  border: "1px solid var(--color-border)",
                   borderRadius: "8px",
                   fontSize: "12px",
+                color: "var(--color-popover-foreground)",
                 }}
-                labelStyle={{ color: "hsl(var(--foreground))" }}
+                labelStyle={{ color: "var(--color-foreground)" }}
                 formatter={(value: number, name: string) => [
                   formatNumber(value),
                   name === "inputTokens"
@@ -183,10 +184,11 @@ const TokenUsageSection = React.memo(function TokenUsageSection({
                 </Pie>
                 <RechartsTooltip
                   contentStyle={{
-                    backgroundColor: "hsl(var(--popover))",
-                    border: "1px solid hsl(var(--border))",
+                    backgroundColor: "var(--color-popover)",
+                    border: "1px solid var(--color-border)",
                     borderRadius: "8px",
                     fontSize: "12px",
+                  color: "var(--color-popover-foreground)",
                   }}
                   formatter={(value: number) => [formatNumber(value), "tokens"]}
                 />

@@ -294,11 +294,11 @@ const SystemMetricsSection = React.memo(function SystemMetricsSection({
                   </Pie>
                   <RechartsTooltip
                     contentStyle={{
-                      backgroundColor: "hsl(var(--popover))",
-                      border: "1px solid hsl(var(--border))",
+                      backgroundColor: "var(--color-popover)",
+                      border: "1px solid var(--color-border)",
                       borderRadius: "8px",
                       fontSize: "12px",
-                      color: "hsl(var(--popover-foreground))",
+                      color: "var(--color-popover-foreground)",
                     }}
                     formatter={(value: number) => [formatBytes(value)]}
                   />
@@ -355,12 +355,12 @@ const SystemMetricsSection = React.memo(function SystemMetricsSection({
             <BarChart data={diskBarData} layout="vertical" margin={{ left: 10, right: 20 }}>
               <CartesianGrid
                 strokeDasharray="3 3"
-                stroke="hsl(var(--border))"
+                stroke="var(--color-border)"
                 horizontal={false}
               />
               <XAxis
                 type="number"
-                tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+                tick={{ fontSize: 10, fill: "var(--color-muted-foreground)" }}
                 axisLine={false}
                 tickLine={false}
                 tickFormatter={(v) => formatBytes(v)}
@@ -369,16 +369,17 @@ const SystemMetricsSection = React.memo(function SystemMetricsSection({
                 type="category"
                 dataKey="name"
                 width={60}
-                tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                tick={{ fontSize: 11, fill: "var(--color-muted-foreground)" }}
                 axisLine={false}
                 tickLine={false}
               />
               <RechartsTooltip
                 contentStyle={{
-                  backgroundColor: "hsl(var(--popover))",
-                  border: "1px solid hsl(var(--border))",
+                  backgroundColor: "var(--color-popover)",
+                  border: "1px solid var(--color-border)",
                   borderRadius: "8px",
                   fontSize: "12px",
+                  color: "var(--color-popover-foreground)",
                 }}
                 formatter={(value: number) => [formatBytes(value)]}
               />

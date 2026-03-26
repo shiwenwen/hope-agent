@@ -146,10 +146,11 @@ const ErrorSection = React.memo(function ErrorSection({
               />
               <RechartsTooltip
                 contentStyle={{
-                  backgroundColor: "hsl(var(--popover))",
-                  border: "1px solid hsl(var(--border))",
+                  backgroundColor: "var(--color-popover)",
+                  border: "1px solid var(--color-border)",
                   borderRadius: "8px",
                   fontSize: "12px",
+                color: "var(--color-popover-foreground)",
                 }}
                 formatter={(value: number, name: string) => [
                   formatNumber(value),
@@ -221,10 +222,11 @@ const ErrorSection = React.memo(function ErrorSection({
               />
               <RechartsTooltip
                 contentStyle={{
-                  backgroundColor: "hsl(var(--popover))",
-                  border: "1px solid hsl(var(--border))",
+                  backgroundColor: "var(--color-popover)",
+                  border: "1px solid var(--color-border)",
                   borderRadius: "8px",
                   fontSize: "12px",
+                color: "var(--color-popover-foreground)",
                 }}
                 formatter={(value: number) => [
                   formatNumber(value),

@@ -71,7 +71,7 @@ function MiniCard({
 const DONUT_SUCCESS = "#10b981"
 const DONUT_FAIL = "#ef4444"
 const DONUT_KILLED = "#f59e0b"
-const DONUT_EMPTY = "hsl(var(--muted))"
+const DONUT_EMPTY = "var(--color-muted)"
 
 const TaskSection = React.memo(function TaskSection({
   data,
@@ -186,10 +186,11 @@ const TaskSection = React.memo(function TaskSection({
                 </Pie>
                 <RechartsTooltip
                   contentStyle={{
-                    backgroundColor: "hsl(var(--popover))",
-                    border: "1px solid hsl(var(--border))",
+                    backgroundColor: "var(--color-popover)",
+                    border: "1px solid var(--color-border)",
                     borderRadius: "8px",
                     fontSize: "12px",
+                  color: "var(--color-popover-foreground)",
                   }}
                   formatter={(value: number) => [formatNumber(value)]}
                 />
@@ -282,10 +283,11 @@ const TaskSection = React.memo(function TaskSection({
                 </Pie>
                 <RechartsTooltip
                   contentStyle={{
-                    backgroundColor: "hsl(var(--popover))",
-                    border: "1px solid hsl(var(--border))",
+                    backgroundColor: "var(--color-popover)",
+                    border: "1px solid var(--color-border)",
                     borderRadius: "8px",
                     fontSize: "12px",
+                  color: "var(--color-popover-foreground)",
                   }}
                   formatter={(value: number) => [formatNumber(value)]}
                 />
