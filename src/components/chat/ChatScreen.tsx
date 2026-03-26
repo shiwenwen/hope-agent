@@ -489,7 +489,28 @@ export default function ChatScreen({
           onToolPermissionChange={stream.setToolPermissionMode}
           planState={planMode.planState}
           planProgress={planMode.progress}
-          onEnterPlanMode={planMode.enterPlanMode}
+          onEnterPlanMode={async () => {
+            // If no session exists, create one first then enter plan mode
+            if (!session.currentSessionId) {
+              try {
+                const meta = await invoke<{ id: string }>("create_session_cmd", {
+                  agentId: session.currentAgentId,
+                })
+                session.handleSwitchSession(meta.id)
+                // Small delay to allow session state to update
+                setTimeout(async () => {
+                  await invoke("set_plan_mode", { sessionId: meta.id, state: "planning" })
+                  planMode.setPlanState("planning")
+                  planMode.setShowPanel(true)
+                }, 50)
+              } catch (e) {
+                console.error("Failed to create session for plan mode:", e)
+              }
+            } else {
+              await planMode.enterPlanMode()
+              planMode.setShowPanel(true)
+            }
+          }}
           onExitPlanMode={planMode.exitPlanMode}
           onTogglePlanPanel={() => planMode.setShowPanel((p) => !p)}
         />
