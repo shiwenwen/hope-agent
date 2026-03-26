@@ -1126,7 +1126,7 @@
     "indicator": "计划模式",
     "plan": "执行计划",
     "openPanel": "在面板中查看",
-    "restricted": "计划模式：文件修改工具已禁用，仅允许只读操作",
+    "restricted": "计划模式：AI 将先分析需求并制定执行计划",
     "approveAndExecute": "批准并执行",
     "keepPlanning": "继续完善",
     "exitWithout": "退出不执行",

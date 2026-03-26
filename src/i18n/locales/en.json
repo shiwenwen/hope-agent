@@ -1126,7 +1126,7 @@
     "indicator": "Plan Mode",
     "plan": "Execution Plan",
     "openPanel": "View in panel",
-    "restricted": "Plan Mode: File modification tools disabled, read-only access only",
+    "restricted": "Plan Mode: AI will analyze requirements and create an execution plan",
     "approveAndExecute": "Approve & Execute",
     "keepPlanning": "Keep Planning",
     "exitWithout": "Exit without executing",
