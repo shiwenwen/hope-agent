@@ -445,7 +445,7 @@ export default function ChatInput({
               >
                 <ClipboardList className="h-3.5 w-3.5 shrink-0" />
                 {planState !== "off" && (
-                  <span>{planState === "planning" ? "Plan" : `${planProgress}%`}</span>
+                  <span>{planState === "planning" ? t("planMode.indicator") : `${planProgress}%`}</span>
                 )}
               </button>
             </IconTip>
