@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **快捷对话快捷键（Quick Chat Shortcut）**：全局快捷键 Option+Space（Alt+Space）快速唤起 Spotlight 风格浮动对话框
+  - 居中浮层对话框，包含聊天输入、消息预览、Agent 快捷选择
+  - 连续唤起默认加载上一次快捷会话，支持新建会话
+  - 复用 ChatInput 组件，保留模型选择、斜杠命令、文件附件等完整功能
+  - Agent 切换自动保存/恢复对应会话
+  - "查看完整对话"一键跳转到主聊天界面
+  - 使用 `tauri-plugin-global-shortcut` 实现系统级全局快捷键
 - **Plan Mode（计划模式）**：可视化交互的 Plan Mode，LLM 在执行前先分析需求和探索代码库，制定详细执行计划
   - 三态流转：Off → Planning（只读，禁用 write/edit/apply_patch/canvas）→ Executing（全工具 + 进度追踪）
   - ChatInput 工具栏 Plan 按钮（蓝色/绿色/灰色三态）+ `/plan` 斜杠命令（enter/exit/approve/show）

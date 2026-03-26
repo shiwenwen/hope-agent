@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react"
 import { invoke } from "@tauri-apps/api/core"
+import { listen } from "@tauri-apps/api/event"
 import { logger } from "@/lib/logger"
 import { initLanguageFromConfig } from "@/i18n/i18n"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -11,6 +12,7 @@ import ChatScreen from "@/components/chat/ChatScreen"
 import CronCalendarView from "@/components/cron/CronCalendarView"
 import DashboardView from "@/components/dashboard/DashboardView"
 import StarrySky from "@/components/common/StarrySky"
+import QuickChatDialog from "@/components/chat/QuickChatDialog"
 
 export default function App() {
   const [view, setView] = useState<
@@ -21,6 +23,7 @@ export default function App() {
   const [pendingSessionId, setPendingSessionId] = useState<string | undefined>(undefined)
   const [totalUnreadCount, setTotalUnreadCount] = useState(0)
   const [sessionsRefreshTrigger, setSessionsRefreshTrigger] = useState(0)
+  const [quickChatOpen, setQuickChatOpen] = useState(false)
 
   // Load user avatar
   async function fetchUserAvatar() {
@@ -53,10 +56,28 @@ export default function App() {
         e.preventDefault()
         handleOpenSettings()
       }
+      // Alt+Space (Option+Space) to toggle quick chat (in-window fallback)
+      if (e.altKey && e.key === " ") {
+        e.preventDefault()
+        setQuickChatOpen((prev) => !prev)
+      }
     }
     document.addEventListener("keydown", onKeyDown)
     return () => document.removeEventListener("keydown", onKeyDown)
   }, [handleOpenSettings])
+
+  // Listen for global shortcut event from Rust backend
+  useEffect(() => {
+    let unlisten: (() => void) | undefined
+    listen("quick-chat-toggle", () => {
+      setQuickChatOpen((prev) => !prev)
+    }).then((fn) => {
+      unlisten = fn
+    })
+    return () => {
+      unlisten?.()
+    }
+  }, [])
 
   // Try to restore previous session on mount
   useEffect(() => {
@@ -224,6 +245,15 @@ export default function App() {
         />
       </div>
     </div>
+    <QuickChatDialog
+      open={quickChatOpen}
+      onOpenChange={setQuickChatOpen}
+      onNavigateToSession={(sessionId) => {
+        setQuickChatOpen(false)
+        setPendingSessionId(sessionId)
+        setView("chat")
+      }}
+    />
     </LightboxProvider>
     </TooltipProvider>
   )

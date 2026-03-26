@@ -1281,5 +1281,14 @@
     },
     "noData": "No data available",
     "loading": "Loading..."
+  },
+  "quickChat": {
+    "title": "Quick Chat",
+    "newChat": "New Chat",
+    "selectAgent": "Select Agent",
+    "viewFullChat": "View full conversation",
+    "placeholder": "Ask anything...",
+    "noMessages": "Start a quick conversation",
+    "continueSession": "Continuing previous session"
   }
 }
