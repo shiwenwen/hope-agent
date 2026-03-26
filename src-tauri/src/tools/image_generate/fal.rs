@@ -182,10 +182,32 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
         anyhow::bail!("Fal returned no images");
     }
 
+    // Log API response metadata (image URLs and content types)
+    if let Some(logger) = crate::get_logger() {
+        let urls: Vec<&str> = items.iter().filter_map(|i| i.url.as_deref()).collect();
+        let types: Vec<&str> = items.iter().filter_map(|i| i.content_type.as_deref()).collect();
+        logger.log(
+            "debug",
+            "tool",
+            "image_generate::fal::api_result",
+            &format!("Fal API returned {} image URL(s)", urls.len()),
+            Some(
+                serde_json::json!({
+                    "image_urls": urls,
+                    "content_types": types,
+                })
+                .to_string(),
+            ),
+            None,
+            None,
+        );
+    }
+
     let mut images = Vec::new();
-    for item in items {
+    for (i, item) in items.into_iter().enumerate() {
         if let Some(img_url) = item.url {
             // Download image from CDN URL
+            let dl_start = std::time::Instant::now();
             let img_resp = client
                 .get(&img_url)
                 .timeout(std::time::Duration::from_secs(30))
@@ -195,10 +217,11 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
                     anyhow::anyhow!("Failed to download Fal image from {}: {}", img_url, e)
                 })?;
 
-            if !img_resp.status().is_success() {
+            let dl_status = img_resp.status();
+            if !dl_status.is_success() {
                 anyhow::bail!(
                     "Fal image download failed ({}): {}",
-                    img_resp.status(),
+                    dl_status,
                     img_url
                 );
             }
@@ -207,6 +230,33 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
                 .content_type
                 .unwrap_or_else(|| "image/png".to_string());
             let data = img_resp.bytes().await?.to_vec();
+            let dl_ms = dl_start.elapsed().as_millis() as u64;
+
+            if let Some(logger) = crate::get_logger() {
+                logger.log(
+                    "debug",
+                    "tool",
+                    "image_generate::fal::download",
+                    &format!(
+                        "Fal image #{} downloaded: {} bytes, {}ms, mime={}",
+                        i, data.len(), dl_ms, mime
+                    ),
+                    Some(
+                        serde_json::json!({
+                            "index": i,
+                            "url": &img_url,
+                            "status": dl_status.as_u16(),
+                            "size_bytes": data.len(),
+                            "download_ms": dl_ms,
+                            "mime": &mime,
+                        })
+                        .to_string(),
+                    ),
+                    None,
+                    None,
+                );
+            }
+
             images.push(GeneratedImage {
                 data,
                 mime,

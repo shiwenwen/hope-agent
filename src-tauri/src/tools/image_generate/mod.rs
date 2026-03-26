@@ -482,15 +482,51 @@ fn build_success_result(
         text_parts.join("\n")
     );
 
-    app_info!(
-        "tool",
-        "image_generate",
-        "Image generation complete: {} image(s), {} saved, provider={}/{}",
-        images.len(),
-        saved_paths.len(),
-        display_name,
-        model
-    );
+    // Log detailed completion info
+    let revised_prompts: Vec<&str> = images
+        .iter()
+        .filter_map(|img| img.revised_prompt.as_deref())
+        .collect();
+    let image_sizes: Vec<usize> = images.iter().map(|img| img.data.len()).collect();
+    let mime_types: Vec<&str> = images.iter().map(|img| img.mime.as_str()).collect();
+    if let Some(logger) = crate::get_logger() {
+        let text_preview = accompanying_text.as_deref().map(|t| {
+            if t.len() > 500 {
+                format!("{}...", crate::truncate_utf8(t, 500))
+            } else {
+                t.to_string()
+            }
+        });
+        logger.log(
+            "info",
+            "tool",
+            "image_generate",
+            &format!(
+                "Image generation complete: {} image(s), {} saved, provider={}/{}",
+                images.len(),
+                saved_paths.len(),
+                display_name,
+                model
+            ),
+            Some(
+                serde_json::json!({
+                    "provider": display_name,
+                    "model": model,
+                    "size": size,
+                    "image_count": images.len(),
+                    "image_sizes_bytes": image_sizes,
+                    "mime_types": mime_types,
+                    "saved_paths": &saved_paths,
+                    "revised_prompts": revised_prompts,
+                    "accompanying_text": text_preview,
+                    "failover_log": failover_log,
+                })
+                .to_string(),
+            ),
+            None,
+            None,
+        );
+    }
 
     Ok(result)
 }

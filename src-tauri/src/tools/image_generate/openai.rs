@@ -178,7 +178,11 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
     }
 
     let mut images = Vec::new();
+    let mut revised_prompts: Vec<String> = Vec::new();
     for item in items {
+        if let Some(ref rp) = item.revised_prompt {
+            revised_prompts.push(rp.clone());
+        }
         if let Some(b64) = item.b64_json {
             let data = base64::engine::general_purpose::STANDARD.decode(&b64)?;
             images.push(GeneratedImage {
@@ -191,6 +195,32 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
 
     if images.is_empty() {
         anyhow::bail!("OpenAI returned no valid image data");
+    }
+
+    // Log successful result details (everything except raw image bytes)
+    if let Some(logger) = crate::get_logger() {
+        let image_sizes: Vec<usize> = images.iter().map(|img| img.data.len()).collect();
+        logger.log(
+            "debug",
+            "tool",
+            "image_generate::openai::result",
+            &format!(
+                "OpenAI image gen result: {} image(s), sizes={:?}",
+                images.len(),
+                image_sizes
+            ),
+            Some(
+                serde_json::json!({
+                    "image_count": images.len(),
+                    "image_sizes_bytes": image_sizes,
+                    "mime_types": images.iter().map(|img| &img.mime).collect::<Vec<_>>(),
+                    "revised_prompts": revised_prompts,
+                })
+                .to_string(),
+            ),
+            None,
+            None,
+        );
     }
 
     Ok(ImageGenResult { images, text: None })

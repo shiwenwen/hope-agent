@@ -85,8 +85,8 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
             "tool",
             "image_generate::google::request",
             &format!(
-                "Google image gen request: model={}, url={}",
-                params.model, url
+                "Google image gen request: model={}, thinking={}, url={}",
+                params.model, thinking_level, url
             ),
             Some(
                 serde_json::json!({
@@ -95,6 +95,7 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
                     "prompt_preview": prompt_preview,
                     "prompt_length": params.prompt.len(),
                     "timeout_secs": params.timeout_secs,
+                    "thinking_level": thinking_level,
                 })
                 .to_string(),
             ),
@@ -234,6 +235,41 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
     } else {
         Some(text_parts.join("\n"))
     };
+
+    // Log successful result details (everything except raw image bytes)
+    if let Some(logger) = crate::get_logger() {
+        let image_sizes: Vec<usize> = images.iter().map(|img| img.data.len()).collect();
+        let text_preview = text.as_deref().map(|t| {
+            if t.len() > 500 {
+                format!("{}...", crate::truncate_utf8(t, 500))
+            } else {
+                t.to_string()
+            }
+        });
+        logger.log(
+            "debug",
+            "tool",
+            "image_generate::google::result",
+            &format!(
+                "Google image gen result: {} image(s), {} text part(s), sizes={:?}",
+                images.len(),
+                text_parts.len(),
+                image_sizes
+            ),
+            Some(
+                serde_json::json!({
+                    "image_count": images.len(),
+                    "image_sizes_bytes": image_sizes,
+                    "mime_types": images.iter().map(|img| &img.mime).collect::<Vec<_>>(),
+                    "text_parts_count": text_parts.len(),
+                    "text_preview": text_preview,
+                })
+                .to_string(),
+            ),
+            None,
+            None,
+        );
+    }
 
     Ok(ImageGenResult { images, text })
 }
