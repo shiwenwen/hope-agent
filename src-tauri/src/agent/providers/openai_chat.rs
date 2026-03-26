@@ -52,6 +52,7 @@ impl AssistantAgent {
         let mut collected_text = String::new();
         let mut collected_thinking = String::new();
         let mut total_usage = ChatUsage::default();
+        let mut first_ttft_ms: Option<u64> = None;
         let system_prompt = self.build_full_system_prompt(model, "OpenAIChat");
 
         // Run context compaction (Tier 1-3) before API call
@@ -180,7 +181,10 @@ impl AssistantAgent {
             }
 
             // Parse SSE stream for Chat Completions format
-            let (text, tool_calls, round_usage, thinking) = self.parse_chat_completions_sse(resp, reasoning_effort, cancel, on_delta).await?;
+            let (text, tool_calls, round_usage, thinking, round_ttft) = self.parse_chat_completions_sse(resp, request_start, reasoning_effort, cancel, on_delta).await?;
+            if first_ttft_ms.is_none() {
+                first_ttft_ms = round_ttft;
+            }
             collected_text.push_str(&text);
             collected_thinking.push_str(&thinking);
             total_usage.input_tokens += round_usage.input_tokens;
@@ -320,8 +324,8 @@ impl AssistantAgent {
         }
         *self.conversation_history.lock().unwrap() = messages;
 
-        // Emit accumulated usage
-        emit_usage(on_delta, &total_usage, model);
+        // Emit accumulated usage (with TTFT)
+        emit_usage(on_delta, &total_usage, model, first_ttft_ms);
 
         // Log chat completion summary
         if let Some(logger) = crate::get_logger() {
@@ -353,10 +357,11 @@ impl AssistantAgent {
     async fn parse_chat_completions_sse(
         &self,
         resp: reqwest::Response,
+        request_start: std::time::Instant,
         reasoning_effort: Option<&str>,
         cancel: &Arc<AtomicBool>,
         on_delta: &(impl Fn(&str) + Send),
-    ) -> Result<(String, Vec<FunctionCallItem>, ChatUsage, String)> {
+    ) -> Result<(String, Vec<FunctionCallItem>, ChatUsage, String, Option<u64>)> {
         use futures_util::StreamExt;
 
         let mut collected_text = String::new();
@@ -366,6 +371,7 @@ impl AssistantAgent {
         let mut pending_calls: std::collections::HashMap<usize, FunctionCallItem> = std::collections::HashMap::new();
         let mut usage = ChatUsage::default();
         let mut think_filter = ThinkTagFilter::new();
+        let mut first_token_time: Option<u64> = None;
 
         let mut stream = resp.bytes_stream();
         let mut buffer = String::new();
@@ -424,6 +430,9 @@ impl AssistantAgent {
                                 // Reasoning/thinking content (DeepSeek, OpenAI o-series, etc.)
                                 if let Some(reasoning) = delta.get("reasoning_content").and_then(|c| c.as_str()) {
                                     if !reasoning.is_empty() {
+                                        if first_token_time.is_none() {
+                                            first_token_time = Some(request_start.elapsed().as_millis() as u64);
+                                        }
                                         emit_thinking_delta(on_delta, reasoning);
                                         collected_thinking.push_str(reasoning);
                                     }
@@ -440,6 +449,9 @@ impl AssistantAgent {
                                         collected_thinking.push_str(&think_part);
                                     }
                                     if !text_part.is_empty() {
+                                        if first_token_time.is_none() {
+                                            first_token_time = Some(request_start.elapsed().as_millis() as u64);
+                                        }
                                         emit_text_delta(on_delta, &text_part);
                                         collected_text.push_str(&text_part);
                                     }
@@ -509,6 +521,6 @@ impl AssistantAgent {
                 None, None);
         }
 
-        Ok((collected_text, tool_calls, usage, collected_thinking))
+        Ok((collected_text, tool_calls, usage, collected_thinking, first_token_time))
     }
 }

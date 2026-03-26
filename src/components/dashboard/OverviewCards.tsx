@@ -9,10 +9,11 @@ import {
   AlertTriangle,
   Bot,
   Clock,
+  Zap,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { OverviewStats } from "./types"
-import { formatNumber, formatCost } from "./types"
+import { formatNumber, formatCost, formatDuration } from "./types"
 
 interface OverviewCardsProps {
   data: OverviewStats | null
@@ -83,6 +84,13 @@ const cards: CardConfig[] = [
     colorClass: "text-orange-500",
     bgClass: "bg-orange-500/10",
     getValue: (d) => formatNumber(d.activeCronJobs),
+  },
+  {
+    key: "avgTtft",
+    icon: Zap,
+    colorClass: "text-yellow-500",
+    bgClass: "bg-yellow-500/10",
+    getValue: (d) => (d.avgTtftMs != null ? formatDuration(d.avgTtftMs) : "-"),
   },
 ]
 

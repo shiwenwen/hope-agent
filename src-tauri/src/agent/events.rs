@@ -143,15 +143,19 @@ pub(super) fn emit_thinking_delta(on_delta: &(impl Fn(&str) + Send), text: &str)
     }));
 }
 
-pub(super) fn emit_usage(on_delta: &(impl Fn(&str) + Send), usage: &ChatUsage, model: &str) {
-    emit_event(on_delta, &json!({
+pub(super) fn emit_usage(on_delta: &(impl Fn(&str) + Send), usage: &ChatUsage, model: &str, ttft_ms: Option<u64>) {
+    let mut event = json!({
         "type": "usage",
         "input_tokens": usage.input_tokens,
         "output_tokens": usage.output_tokens,
         "cache_creation_input_tokens": usage.cache_creation_input_tokens,
         "cache_read_input_tokens": usage.cache_read_input_tokens,
         "model": model,
-    }));
+    });
+    if let Some(ttft) = ttft_ms {
+        event["ttft_ms"] = json!(ttft);
+    }
+    emit_event(on_delta, &event);
 
     // Structured logging for LLM usage
     if let Some(logger) = crate::get_logger() {

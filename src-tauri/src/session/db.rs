@@ -61,6 +61,7 @@ impl SessionDB {
                 tool_result TEXT,
                 tool_duration_ms INTEGER,
                 is_error INTEGER DEFAULT 0,
+                ttft_ms INTEGER,
                 FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
             );
 
@@ -140,6 +141,46 @@ impl SessionDB {
                 );
                 CREATE INDEX IF NOT EXISTS idx_acp_runs_parent ON acp_runs(parent_session_id);
                 CREATE INDEX IF NOT EXISTS idx_acp_runs_status ON acp_runs(status);",
+            )?;
+        }
+
+        // Migration: add ttft_ms column to messages if missing
+        let has_ttft_ms = conn
+            .prepare("SELECT ttft_ms FROM messages LIMIT 1")
+            .is_ok();
+        if !has_ttft_ms {
+            conn.execute_batch(
+                "ALTER TABLE messages ADD COLUMN ttft_ms INTEGER;",
+            )?;
+        }
+
+        // Migration: create FTS5 index for message search
+        let has_messages_fts = conn
+            .prepare("SELECT rowid FROM messages_fts LIMIT 1")
+            .is_ok();
+        if !has_messages_fts {
+            conn.execute_batch(
+                "CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+                    content,
+                    content='messages',
+                    content_rowid='id',
+                    tokenize='unicode61'
+                );
+
+                -- Triggers for automatic FTS sync (only user/assistant messages)
+                CREATE TRIGGER IF NOT EXISTS messages_fts_ai AFTER INSERT ON messages
+                WHEN new.role IN ('user', 'assistant') AND length(new.content) > 0
+                BEGIN
+                    INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content);
+                END;
+
+                CREATE TRIGGER IF NOT EXISTS messages_fts_ad AFTER DELETE ON messages BEGIN
+                    INSERT INTO messages_fts(messages_fts, rowid, content) VALUES('delete', old.id, old.content);
+                END;
+
+                -- Backfill existing messages into FTS index
+                INSERT OR IGNORE INTO messages_fts(rowid, content)
+                SELECT id, content FROM messages WHERE role IN ('user', 'assistant') AND length(content) > 0;"
             )?;
         }
 
@@ -261,7 +302,7 @@ impl SessionDB {
             "SELECT id, session_id, role, content, timestamp,
                     attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                     tool_call_id, tool_name, tool_arguments, tool_result,
-                    tool_duration_ms, is_error, thinking
+                    tool_duration_ms, is_error, thinking, ttft_ms
              FROM messages
              WHERE session_id = ?1
              ORDER BY id ASC"
@@ -293,7 +334,7 @@ impl SessionDB {
             "SELECT id, session_id, role, content, timestamp,
                     attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                     tool_call_id, tool_name, tool_arguments, tool_result,
-                    tool_duration_ms, is_error, thinking
+                    tool_duration_ms, is_error, thinking, ttft_ms
              FROM messages
              WHERE session_id = ?1
              ORDER BY id DESC
@@ -322,7 +363,7 @@ impl SessionDB {
             "SELECT id, session_id, role, content, timestamp,
                     attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                     tool_call_id, tool_name, tool_arguments, tool_result,
-                    tool_duration_ms, is_error, thinking
+                    tool_duration_ms, is_error, thinking, ttft_ms
              FROM messages
              WHERE session_id = ?1 AND id < ?2
              ORDER BY id DESC
@@ -361,6 +402,7 @@ impl SessionDB {
             tool_duration_ms: row.get(14)?,
             is_error: is_error_val.map(|v| v != 0),
             thinking: row.get(16)?,
+            ttft_ms: row.get(17)?,
         })
     }
 
@@ -374,8 +416,8 @@ impl SessionDB {
             "INSERT INTO messages (session_id, role, content, timestamp,
                 attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                 tool_call_id, tool_name, tool_arguments, tool_result,
-                tool_duration_ms, is_error, thinking)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+                tool_duration_ms, is_error, thinking, ttft_ms)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
             params![
                 session_id,
                 msg.role.as_str(),
@@ -393,6 +435,7 @@ impl SessionDB {
                 msg.tool_duration_ms,
                 msg.is_error.map(|b| if b { 1i64 } else { 0i64 }),
                 msg.thinking,
+                msg.ttft_ms,
             ],
         )?;
 
@@ -556,4 +599,106 @@ impl SessionDB {
         )?;
         Ok(())
     }
+
+    // ── History Search ──────────────────────────────────────────
+
+    /// Search message history using FTS5 full-text search.
+    /// Returns matching messages with session context, excluding cron and sub-agent sessions.
+    pub fn search_messages(
+        &self,
+        query: &str,
+        agent_id: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<SessionSearchResult>> {
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+
+        let fts_query = sanitize_fts_query(query);
+        if fts_query.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let (agent_clause, agent_param) = if let Some(aid) = agent_id {
+            ("AND s.agent_id = ?2".to_string(), Some(aid.to_string()))
+        } else {
+            (String::new(), None)
+        };
+
+        let sql = format!(
+            "SELECT m.id, m.session_id, m.role, m.content, m.timestamp, s.title, fts.rank
+             FROM messages_fts fts
+             JOIN messages m ON m.id = fts.rowid
+             JOIN sessions s ON s.id = m.session_id
+             WHERE messages_fts MATCH ?1
+               AND s.is_cron = 0
+               AND s.parent_session_id IS NULL
+               {}
+             ORDER BY fts.rank
+             LIMIT {}",
+            agent_clause, limit
+        );
+
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = if let Some(ref aid) = agent_param {
+            stmt.query_map(rusqlite::params![fts_query, aid], |row| {
+                Ok(SessionSearchResult {
+                    session_id: row.get(1)?,
+                    session_title: row.get(5)?,
+                    message_role: row.get(2)?,
+                    content_snippet: {
+                        let content: String = row.get(3)?;
+                        if content.len() > 300 {
+                            format!("{}...", crate::truncate_utf8(&content, 300))
+                        } else {
+                            content
+                        }
+                    },
+                    timestamp: row.get(4)?,
+                    relevance_rank: row.get::<_, f64>(6).unwrap_or(0.0),
+                })
+            })?
+        } else {
+            stmt.query_map(rusqlite::params![fts_query], |row| {
+                Ok(SessionSearchResult {
+                    session_id: row.get(1)?,
+                    session_title: row.get(5)?,
+                    message_role: row.get(2)?,
+                    content_snippet: {
+                        let content: String = row.get(3)?;
+                        if content.len() > 300 {
+                            format!("{}...", crate::truncate_utf8(&content, 300))
+                        } else {
+                            content
+                        }
+                    },
+                    timestamp: row.get(4)?,
+                    relevance_rank: row.get::<_, f64>(6).unwrap_or(0.0),
+                })
+            })?
+        };
+
+        let results: Vec<SessionSearchResult> = rows.filter_map(|r| r.ok()).collect();
+        Ok(results)
+    }
+}
+
+/// Sanitize query for FTS5 MATCH: wrap each token in double quotes for exact matching.
+fn sanitize_fts_query(query: &str) -> String {
+    let tokens: Vec<String> = query
+        .split_whitespace()
+        .filter(|t| !t.is_empty())
+        .map(|t| format!("\"{}\"", t.replace('"', "")))
+        .collect();
+    tokens.join(" ")
+}
+
+/// Result from searching session message history.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionSearchResult {
+    pub session_id: String,
+    pub session_title: Option<String>,
+    pub message_role: String,
+    pub content_snippet: String,
+    pub timestamp: String,
+    pub relevance_rank: f64,
 }

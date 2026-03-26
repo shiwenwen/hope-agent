@@ -58,6 +58,7 @@ impl AssistantAgent {
         let mut collected_text = String::new();
         let mut collected_thinking = String::new();
         let mut total_usage = ChatUsage::default();
+        let mut first_ttft_ms: Option<u64> = None;
         let system_prompt = self.build_full_system_prompt(model, "Codex");
 
         // Run context compaction (Tier 1-3) before API call
@@ -220,7 +221,10 @@ impl AssistantAgent {
             })?;
 
             // Parse SSE stream
-            let (text, tool_calls, round_usage, thinking) = self.parse_openai_sse(resp, cancel, on_delta).await?;
+            let (text, tool_calls, round_usage, thinking, round_ttft) = self.parse_openai_sse(resp, request_start, cancel, on_delta).await?;
+            if first_ttft_ms.is_none() {
+                first_ttft_ms = round_ttft;
+            }
             collected_text.push_str(&text);
             collected_thinking.push_str(&thinking);
             total_usage.input_tokens += round_usage.input_tokens;
@@ -359,8 +363,8 @@ impl AssistantAgent {
         }
         *self.conversation_history.lock().unwrap() = input;
 
-        // Emit accumulated usage
-        emit_usage(on_delta, &total_usage, model);
+        // Emit accumulated usage (with TTFT)
+        emit_usage(on_delta, &total_usage, model, first_ttft_ms);
 
         // Log chat completion summary
         if let Some(logger) = crate::get_logger() {

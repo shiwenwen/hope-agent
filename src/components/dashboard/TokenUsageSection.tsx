@@ -3,6 +3,8 @@ import { useTranslation } from "react-i18next"
 import {
   AreaChart,
   Area,
+  LineChart,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -12,9 +14,8 @@ import {
   Pie,
   Cell,
 } from "recharts"
-import { cn } from "@/lib/utils"
 import type { DashboardTokenData } from "./types"
-import { formatNumber, formatCost } from "./types"
+import { formatNumber, formatCost, formatDuration } from "./types"
 
 const PIE_COLORS = [
   "#8b5cf6",
@@ -49,6 +50,11 @@ const TokenUsageSection = React.memo(function TokenUsageSection({
   onDrillDown,
 }: TokenUsageSectionProps) {
   const { t } = useTranslation()
+
+  const ttftData = useMemo(() => {
+    if (!data?.trend) return []
+    return data.trend.filter((t) => t.avgTtftMs != null)
+  }, [data?.trend])
 
   const pieData = useMemo(() => {
     if (!data?.byModel) return []
@@ -203,12 +209,13 @@ const TokenUsageSection = React.memo(function TokenUsageSection({
             {t("dashboard.token.costTable")}
           </h3>
           <div className="overflow-auto max-h-[300px]">
-            <div className="grid grid-cols-5 gap-2 text-xs font-medium text-muted-foreground pb-2 border-b">
+            <div className="grid grid-cols-6 gap-2 text-xs font-medium text-muted-foreground pb-2 border-b">
               <div>{t("dashboard.token.model")}</div>
               <div>{t("dashboard.token.provider")}</div>
               <div className="text-right">{t("dashboard.token.input")}</div>
               <div className="text-right">{t("dashboard.token.output")}</div>
               <div className="text-right">{t("dashboard.token.cost")}</div>
+              <div className="text-right">{t("dashboard.token.ttft")}</div>
             </div>
             {data.byModel.length === 0 ? (
               <div className="py-8 text-center text-sm text-muted-foreground">
@@ -219,7 +226,7 @@ const TokenUsageSection = React.memo(function TokenUsageSection({
                 {data.byModel.map((m) => (
                   <div
                     key={m.modelId}
-                    className="grid grid-cols-5 gap-2 text-xs py-2 border-b border-border/50 hover:bg-muted/50"
+                    className="grid grid-cols-6 gap-2 text-xs py-2 border-b border-border/50 hover:bg-muted/50"
                   >
                     <div className="truncate font-medium">{m.modelId}</div>
                     <div className="truncate text-muted-foreground">
@@ -232,14 +239,13 @@ const TokenUsageSection = React.memo(function TokenUsageSection({
                     <div className="text-right">
                       {formatCost(m.estimatedCostUsd)}
                     </div>
+                    <div className="text-right">
+                      {m.avgTtftMs != null ? formatDuration(m.avgTtftMs) : "-"}
+                    </div>
                   </div>
                 ))}
                 {/* Totals row */}
-                <div
-                  className={cn(
-                    "grid grid-cols-5 gap-2 text-xs py-2 font-semibold",
-                  )}
-                >
+                <div className="grid grid-cols-6 gap-2 text-xs py-2 font-semibold">
                   <div>{t("dashboard.token.total")}</div>
                   <div />
                   <div className="text-right">
@@ -255,12 +261,57 @@ const TokenUsageSection = React.memo(function TokenUsageSection({
                   <div className="text-right">
                     {formatCost(data.totalCostUsd)}
                   </div>
+                  <div />
                 </div>
               </>
             )}
           </div>
         </div>
       </div>
+
+      {/* TTFT trend chart */}
+      {ttftData.length > 0 && (
+        <div className="bg-card border rounded-xl p-4">
+          <h3 className="text-sm font-medium mb-4">{t("dashboard.token.ttftTrend")}</h3>
+          <ResponsiveContainer width="100%" height={250}>
+            <LineChart data={ttftData}>
+              <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+              <XAxis
+                dataKey="date"
+                tick={{ fontSize: 12 }}
+                className="fill-muted-foreground"
+              />
+              <YAxis
+                tick={{ fontSize: 12 }}
+                tickFormatter={(v: number) => formatDuration(v)}
+                className="fill-muted-foreground"
+              />
+              <RechartsTooltip
+                contentStyle={{
+                  backgroundColor: "var(--color-popover)",
+                  border: "1px solid var(--color-border)",
+                  borderRadius: "8px",
+                  fontSize: "12px",
+                  color: "var(--color-popover-foreground)",
+                }}
+                labelStyle={{ color: "var(--color-foreground)" }}
+                formatter={(value: number) => [
+                  formatDuration(value),
+                  t("dashboard.token.avgTtft"),
+                ]}
+              />
+              <Line
+                type="monotone"
+                dataKey="avgTtftMs"
+                stroke="#eab308"
+                strokeWidth={2}
+                dot={{ r: 3 }}
+                activeDot={{ r: 5 }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
     </div>
   )
 })

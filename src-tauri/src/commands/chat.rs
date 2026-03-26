@@ -321,11 +321,11 @@ pub async fn chat(
                 let cancel_clone = cancel.clone();
                 let chat_start = std::time::Instant::now();
                 let on_event_clone = on_event.clone();
-                // Shared state to capture token usage and model from on_delta callback
-                let captured_usage: Arc<std::sync::Mutex<(Option<i64>, Option<i64>, Option<String>)>> = Arc::new(std::sync::Mutex::new((None, None, None)));
+                // Shared state to capture token usage, model, and TTFT from on_delta callback
+                let captured_usage: Arc<std::sync::Mutex<(Option<i64>, Option<i64>, Option<String>, Option<i64>)>> = Arc::new(std::sync::Mutex::new((None, None, None, None)));
                 let captured_usage_clone = captured_usage.clone();
                 let (result, thinking) = match agent.chat(&message, &attachments, effort_ref, cancel_clone, move |delta| {
-                    // Intercept usage events to capture token counts and model
+                    // Intercept usage events to capture token counts, model, and TTFT
                     if let Ok(event) = serde_json::from_str::<serde_json::Value>(delta) {
                         if event.get("type").and_then(|t| t.as_str()) == Some("usage") {
                             if let Ok(mut usage) = captured_usage_clone.lock() {
@@ -337,6 +337,9 @@ pub async fn chat(
                                 }
                                 if let Some(m) = event.get("model").and_then(|v| v.as_str()) {
                                     usage.2 = Some(m.to_string());
+                                }
+                                if let Some(ttft) = event.get("ttft_ms").and_then(|v| v.as_i64()) {
+                                    usage.3 = Some(ttft);
                                 }
                             }
                         }
@@ -354,7 +357,7 @@ pub async fn chat(
                 let duration_ms = chat_start.elapsed().as_millis() as u64;
                 // Emit usage event with duration
                 emit_usage_event(&on_event, duration_ms);
-                // Save assistant reply with duration and tokens
+                // Save assistant reply with duration, tokens, and TTFT
                 let mut assistant_msg = session::NewMessage::assistant(&result);
                 assistant_msg.tool_duration_ms = Some(duration_ms as i64);
                 assistant_msg.thinking = thinking;
@@ -362,6 +365,7 @@ pub async fn chat(
                     assistant_msg.tokens_in = usage.0;
                     assistant_msg.tokens_out = usage.1;
                     assistant_msg.model = usage.2.clone();
+                    assistant_msg.ttft_ms = usage.3;
                 }
                 let _ = db.append_message(&sid, &assistant_msg);
                 // Persist conversation context for future restoration
@@ -459,8 +463,8 @@ pub async fn chat(
             let sid_for_cb = sid.clone();
             let cancel_clone = cancel.clone();
 
-            // Shared state to capture token usage and model from on_delta callback
-            let captured_usage: Arc<std::sync::Mutex<(Option<i64>, Option<i64>, Option<String>)>> = Arc::new(std::sync::Mutex::new((None, None, None)));
+            // Shared state to capture token usage, model, and TTFT from on_delta callback
+            let captured_usage: Arc<std::sync::Mutex<(Option<i64>, Option<i64>, Option<String>, Option<i64>)>> = Arc::new(std::sync::Mutex::new((None, None, None, None)));
             let captured_usage_clone = captured_usage.clone();
 
             // Accumulate text_delta content; flush as text_block before tool_call to preserve ordering
@@ -469,7 +473,7 @@ pub async fn chat(
 
             let chat_start = std::time::Instant::now();
             match agent.chat(&message, &attachments, effort_ref, cancel_clone, move |delta| {
-                // Intercept usage events to capture token counts and model
+                // Intercept usage events to capture token counts, model, and TTFT
                 if let Ok(event) = serde_json::from_str::<serde_json::Value>(delta) {
                     match event.get("type").and_then(|t| t.as_str()) {
                         Some("usage") => {
@@ -482,6 +486,9 @@ pub async fn chat(
                                 }
                                 if let Some(m) = event.get("model").and_then(|v| v.as_str()) {
                                     usage.2 = Some(m.to_string());
+                                }
+                                if let Some(ttft) = event.get("ttft_ms").and_then(|v| v.as_i64()) {
+                                    usage.3 = Some(ttft);
                                 }
                             }
                         }
@@ -513,7 +520,7 @@ pub async fn chat(
                     let duration_ms = chat_start.elapsed().as_millis() as u64;
                     // Emit usage event with duration
                     emit_usage_event(&on_event, duration_ms);
-                    // Save assistant reply to DB with duration and tokens
+                    // Save assistant reply to DB with duration, tokens, and TTFT
                     let mut assistant_msg = session::NewMessage::assistant(&result);
                     assistant_msg.tool_duration_ms = Some(duration_ms as i64);
                     assistant_msg.thinking = thinking;
@@ -521,6 +528,7 @@ pub async fn chat(
                         assistant_msg.tokens_in = usage.0;
                         assistant_msg.tokens_out = usage.1;
                         assistant_msg.model = usage.2.clone();
+                        assistant_msg.ttft_ms = usage.3;
                     }
                     let _ = db.append_message(&sid, &assistant_msg);
                     // Persist conversation context for future restoration

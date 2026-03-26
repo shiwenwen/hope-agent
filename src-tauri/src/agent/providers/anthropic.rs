@@ -52,6 +52,7 @@ impl AssistantAgent {
         let mut collected_text = String::new();
         let mut collected_thinking = String::new();
         let mut total_usage = ChatUsage::default();
+        let mut first_ttft_ms: Option<u64> = None;
 
         let api_url = build_api_url(base_url, "/v1/messages");
         let system_prompt = self.build_full_system_prompt(model, "Anthropic");
@@ -191,7 +192,10 @@ impl AssistantAgent {
             }
 
             // Parse SSE stream
-            let (text, tool_calls, stop_reason, round_usage, thinking) = self.parse_anthropic_sse(resp, cancel, on_delta).await?;
+            let (text, tool_calls, stop_reason, round_usage, thinking, round_ttft) = self.parse_anthropic_sse(resp, request_start, cancel, on_delta).await?;
+            if first_ttft_ms.is_none() {
+                first_ttft_ms = round_ttft;
+            }
             collected_text.push_str(&text);
             collected_thinking.push_str(&thinking);
             total_usage.input_tokens += round_usage.input_tokens;
@@ -333,8 +337,8 @@ impl AssistantAgent {
         }
         *self.conversation_history.lock().unwrap() = messages;
 
-        // Emit accumulated usage
-        emit_usage(on_delta, &total_usage, model);
+        // Emit accumulated usage (with TTFT)
+        emit_usage(on_delta, &total_usage, model, first_ttft_ms);
 
         // Log chat completion summary
         if let Some(logger) = crate::get_logger() {
@@ -362,13 +366,14 @@ impl AssistantAgent {
         Ok((collected_text, thinking_result))
     }
 
-    /// Parse Anthropic SSE stream. Returns (collected_text, tool_calls, stop_reason, usage, thinking)
+    /// Parse Anthropic SSE stream. Returns (collected_text, tool_calls, stop_reason, usage, thinking, ttft_ms)
     async fn parse_anthropic_sse(
         &self,
         resp: reqwest::Response,
+        request_start: std::time::Instant,
         cancel: &Arc<AtomicBool>,
         on_delta: &(impl Fn(&str) + Send),
-    ) -> Result<(String, Vec<FunctionCallItem>, Option<String>, ChatUsage, String)> {
+    ) -> Result<(String, Vec<FunctionCallItem>, Option<String>, ChatUsage, String, Option<u64>)> {
         use futures_util::StreamExt;
 
         let mut collected_text = String::new();
@@ -379,6 +384,7 @@ impl AssistantAgent {
         let mut in_thinking_block = false;
         let mut usage = ChatUsage::default();
         let mut stop_reason: Option<String> = None;
+        let mut first_token_time: Option<u64> = None;
 
         let mut stream = resp.bytes_stream();
         let mut buffer = String::new();
@@ -441,12 +447,18 @@ impl AssistantAgent {
                                 match delta.delta_type.as_deref() {
                                     Some("thinking_delta") => {
                                         if let Some(text) = &delta.text {
+                                            if first_token_time.is_none() {
+                                                first_token_time = Some(request_start.elapsed().as_millis() as u64);
+                                            }
                                             emit_thinking_delta(on_delta, text);
                                             collected_thinking.push_str(text);
                                         }
                                     }
                                     Some("text_delta") => {
                                         if let Some(text) = &delta.text {
+                                            if first_token_time.is_none() {
+                                                first_token_time = Some(request_start.elapsed().as_millis() as u64);
+                                            }
                                             emit_text_delta(on_delta, text);
                                             collected_text.push_str(text);
                                         }
@@ -533,6 +545,6 @@ impl AssistantAgent {
                 None, None);
         }
 
-        Ok((collected_text, tool_calls, stop_reason, usage, collected_thinking))
+        Ok((collected_text, tool_calls, stop_reason, usage, collected_thinking, first_token_time))
     }
 }

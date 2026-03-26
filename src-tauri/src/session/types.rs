@@ -89,6 +89,9 @@ pub struct SessionMessage {
     pub is_error: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thinking: Option<String>,
+    /// Time to first token in milliseconds (from API request to first content token)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ttft_ms: Option<i64>,
 }
 
 // ── NewMessage (for inserting) ───────────────────────────────────
@@ -111,6 +114,7 @@ pub struct NewMessage {
     pub tool_duration_ms: Option<i64>,
     pub is_error: Option<bool>,
     pub thinking: Option<String>,
+    pub ttft_ms: Option<i64>,
 }
 
 impl NewMessage {
@@ -132,6 +136,7 @@ impl NewMessage {
             tool_duration_ms: None,
             is_error: None,
             thinking: None,
+            ttft_ms: None,
         }
     }
 
@@ -153,6 +158,7 @@ impl NewMessage {
             tool_duration_ms: None,
             is_error: None,
             thinking: None,
+            ttft_ms: None,
         }
     }
 
@@ -174,6 +180,7 @@ impl NewMessage {
             tool_duration_ms: duration_ms,
             is_error: Some(is_error),
             thinking: None,
+            ttft_ms: None,
         }
     }
 
@@ -195,6 +202,7 @@ impl NewMessage {
             tool_duration_ms: None,
             is_error: None,
             thinking: None,
+            ttft_ms: None,
         }
     }
 
@@ -216,6 +224,7 @@ impl NewMessage {
             tool_duration_ms: None,
             is_error: None,
             thinking: None,
+            ttft_ms: None,
         }
     }
 }

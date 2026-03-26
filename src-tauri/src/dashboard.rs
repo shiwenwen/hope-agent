@@ -36,6 +36,8 @@ pub struct OverviewStats {
     pub active_agents: u64,
     pub active_cron_jobs: u64,
     pub estimated_cost_usd: f64,
+    /// Average time to first token in milliseconds
+    pub avg_ttft_ms: Option<f64>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -44,6 +46,8 @@ pub struct TokenUsageTrend {
     pub date: String,
     pub input_tokens: u64,
     pub output_tokens: u64,
+    /// Average time to first token for this date
+    pub avg_ttft_ms: Option<f64>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -54,6 +58,8 @@ pub struct TokenByModel {
     pub input_tokens: u64,
     pub output_tokens: u64,
     pub estimated_cost_usd: f64,
+    /// Average time to first token for this model
+    pub avg_ttft_ms: Option<f64>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -384,6 +390,17 @@ pub fn query_overview(
     let sql = format!("SELECT COUNT(DISTINCT s.agent_id) FROM sessions s {}", f.where_sql);
     let active_agents: u64 = sess_conn.query_row(&sql, params_ref(&f.params).as_slice(), |r| r.get(0))?;
 
+    // Query average TTFT
+    let f = build_session_filter(filter, "s", Some("m"));
+    let sql = format!(
+        "SELECT AVG(m.ttft_ms)
+         FROM messages m
+         JOIN sessions s ON s.id = m.session_id
+         {} AND m.ttft_ms IS NOT NULL AND m.role = 'assistant'",
+        if f.where_sql.is_empty() { "WHERE 1=1".to_string() } else { f.where_sql }
+    );
+    let avg_ttft_ms: Option<f64> = sess_conn.query_row(&sql, params_ref(&f.params).as_slice(), |r| r.get(0)).ok();
+
     drop(sess_conn);
 
     // Active cron jobs
@@ -428,6 +445,7 @@ pub fn query_overview(
         active_agents,
         active_cron_jobs,
         estimated_cost_usd,
+        avg_ttft_ms,
     })
 }
 
@@ -438,12 +456,13 @@ pub fn query_token_usage(
 ) -> Result<DashboardTokenData> {
     let conn = session_db.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
-    // Daily trend
+    // Daily trend (with avg TTFT)
     let f = build_session_filter(filter, "s", Some("m"));
     let sql = format!(
         "SELECT DATE(m.timestamp) as d,
                 COALESCE(SUM(m.tokens_in), 0),
-                COALESCE(SUM(m.tokens_out), 0)
+                COALESCE(SUM(m.tokens_out), 0),
+                AVG(CASE WHEN m.ttft_ms IS NOT NULL AND m.role = 'assistant' THEN m.ttft_ms END)
          FROM messages m
          JOIN sessions s ON s.id = m.session_id
          {}
@@ -457,17 +476,19 @@ pub fn query_token_usage(
             date: r.get(0)?,
             input_tokens: r.get(1)?,
             output_tokens: r.get(2)?,
+            avg_ttft_ms: r.get(3)?,
         })
     })?;
     let trend: Vec<TokenUsageTrend> = rows.collect::<std::result::Result<_, _>>()?;
 
-    // By model
+    // By model (with avg TTFT)
     let f = build_session_filter(filter, "s", Some("m"));
     let sql = format!(
         "SELECT COALESCE(s.model_id, 'unknown'),
                 COALESCE(s.provider_name, 'unknown'),
                 COALESCE(SUM(m.tokens_in), 0),
-                COALESCE(SUM(m.tokens_out), 0)
+                COALESCE(SUM(m.tokens_out), 0),
+                AVG(CASE WHEN m.ttft_ms IS NOT NULL AND m.role = 'assistant' THEN m.ttft_ms END)
          FROM messages m
          JOIN sessions s ON s.id = m.session_id
          {}
@@ -481,12 +502,14 @@ pub fn query_token_usage(
         let provider_name: String = r.get(1)?;
         let input_tokens: u64 = r.get(2)?;
         let output_tokens: u64 = r.get(3)?;
+        let avg_ttft_ms: Option<f64> = r.get(4)?;
         Ok(TokenByModel {
             estimated_cost_usd: estimate_cost(&model_id, input_tokens, output_tokens),
             model_id,
             provider_name,
             input_tokens,
             output_tokens,
+            avg_ttft_ms,
         })
     })?;
     let by_model: Vec<TokenByModel> = rows.collect::<std::result::Result<_, _>>()?;

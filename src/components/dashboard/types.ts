@@ -16,12 +16,14 @@ export interface OverviewStats {
   activeAgents: number
   activeCronJobs: number
   estimatedCostUsd: number
+  avgTtftMs: number | null
 }
 
 export interface TokenUsageTrend {
   date: string
   inputTokens: number
   outputTokens: number
+  avgTtftMs: number | null
 }
 
 export interface TokenByModel {
@@ -30,6 +32,7 @@ export interface TokenByModel {
   inputTokens: number
   outputTokens: number
   estimatedCostUsd: number
+  avgTtftMs: number | null
 }
 
 export interface DashboardTokenData {

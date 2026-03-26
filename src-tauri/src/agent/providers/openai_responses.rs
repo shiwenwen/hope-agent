@@ -56,6 +56,7 @@ impl AssistantAgent {
         let mut collected_text = String::new();
         let mut collected_thinking = String::new();
         let mut total_usage = ChatUsage::default();
+        let mut first_ttft_ms: Option<u64> = None;
         let system_prompt = self.build_full_system_prompt(model, "OpenAIResponses");
 
         // Run context compaction (Tier 1-3) before API call
@@ -172,7 +173,10 @@ impl AssistantAgent {
                 return Err(anyhow::anyhow!("OpenAI Responses API error ({}): {}", status, error_text));
             }
 
-            let (text, tool_calls, round_usage, thinking) = self.parse_openai_sse(resp, cancel, on_delta).await?;
+            let (text, tool_calls, round_usage, thinking, round_ttft) = self.parse_openai_sse(resp, request_start, cancel, on_delta).await?;
+            if first_ttft_ms.is_none() {
+                first_ttft_ms = round_ttft;
+            }
             collected_text.push_str(&text);
             collected_thinking.push_str(&thinking);
             total_usage.input_tokens += round_usage.input_tokens;
@@ -304,8 +308,8 @@ impl AssistantAgent {
         }
         *self.conversation_history.lock().unwrap() = input;
 
-        // Emit accumulated usage
-        emit_usage(on_delta, &total_usage, model);
+        // Emit accumulated usage (with TTFT)
+        emit_usage(on_delta, &total_usage, model, first_ttft_ms);
 
         // Log chat completion summary
         if let Some(logger) = crate::get_logger() {
@@ -333,14 +337,15 @@ impl AssistantAgent {
         Ok((collected_text, thinking_result))
     }
 
-    /// Parse OpenAI SSE stream. Returns (collected_text, tool_calls, usage, thinking)
+    /// Parse OpenAI SSE stream. Returns (collected_text, tool_calls, usage, thinking, ttft_ms)
     /// Shared by both OpenAI Responses API and Codex providers.
     pub(crate) async fn parse_openai_sse(
         &self,
         resp: reqwest::Response,
+        request_start: std::time::Instant,
         cancel: &Arc<AtomicBool>,
         on_delta: &(impl Fn(&str) + Send),
-    ) -> Result<(String, Vec<FunctionCallItem>, ChatUsage, String)> {
+    ) -> Result<(String, Vec<FunctionCallItem>, ChatUsage, String, Option<u64>)> {
         use futures_util::StreamExt;
 
         let mut collected_text = String::new();
@@ -348,6 +353,7 @@ impl AssistantAgent {
         let mut tool_calls: Vec<FunctionCallItem> = Vec::new();
         let mut pending_calls: std::collections::HashMap<String, FunctionCallItem> = std::collections::HashMap::new();
         let mut usage = ChatUsage::default();
+        let mut first_token_time: Option<u64> = None;
 
         let mut stream = resp.bytes_stream();
         let mut buffer = String::new();
@@ -385,6 +391,9 @@ impl AssistantAgent {
                         // Reasoning summary deltas
                         "response.reasoning_summary_text.delta" => {
                             if let Some(delta) = &event.delta {
+                                if first_token_time.is_none() {
+                                    first_token_time = Some(request_start.elapsed().as_millis() as u64);
+                                }
                                 emit_thinking_delta(on_delta, delta);
                                 collected_thinking.push_str(delta);
                             }
@@ -393,6 +402,9 @@ impl AssistantAgent {
                         // Text deltas
                         "response.output_text.delta" => {
                             if let Some(delta) = &event.delta {
+                                if first_token_time.is_none() {
+                                    first_token_time = Some(request_start.elapsed().as_millis() as u64);
+                                }
                                 emit_text_delta(on_delta, delta);
                                 collected_text.push_str(delta);
                             }
@@ -567,6 +579,6 @@ impl AssistantAgent {
                 None, None);
         }
 
-        Ok((collected_text, tool_calls, usage, collected_thinking))
+        Ok((collected_text, tool_calls, usage, collected_thinking, first_token_time))
     }
 }
