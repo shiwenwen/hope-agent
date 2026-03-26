@@ -14,6 +14,7 @@ import type {
   MessageUsage,
   AgentSummaryForSidebar,
   ParentAgentStreamEvent,
+  ToolPermissionMode,
 } from "@/types/chat"
 import type { ApprovalRequest } from "@/components/chat/ApprovalDialog"
 
@@ -47,6 +48,8 @@ export interface UseChatStreamReturn {
   approvalRequests: ApprovalRequest[]
   showCodexAuthExpired: boolean
   setShowCodexAuthExpired: React.Dispatch<React.SetStateAction<boolean>>
+  toolPermissionMode: ToolPermissionMode
+  setToolPermissionMode: React.Dispatch<React.SetStateAction<ToolPermissionMode>>
   handleSend: () => Promise<void>
   handleStop: () => Promise<void>
   handleApprovalResponse: (
@@ -81,6 +84,8 @@ export function useChatStream({
   const pendingMessageRef = useRef<string | null>(null)
   const [approvalRequests, setApprovalRequests] = useState<ApprovalRequest[]>([])
   const [showCodexAuthExpired, setShowCodexAuthExpired] = useState(false)
+  const [toolPermissionMode, setToolPermissionMode] = useState<ToolPermissionMode>("auto")
+  const toolPermissionModeRef = useRef<ToolPermissionMode>("auto")
 
   // Auto-send pending messages setting
   const autoSendPendingRef = useRef(true)
@@ -90,10 +95,13 @@ export function useChatStream({
   const deltaBufferRef = useRef({ text: "", thinking: "", sid: "" })
   const deltaFlushRafRef = useRef<number | null>(null)
 
-  // Keep ref in sync
+  // Keep refs in sync
   useEffect(() => {
     pendingMessageRef.current = pendingMessage
   }, [pendingMessage])
+  useEffect(() => {
+    toolPermissionModeRef.current = toolPermissionMode
+  }, [toolPermissionMode])
 
   // Load config on mount
   useEffect(() => {
@@ -589,6 +597,7 @@ export function useChatStream({
         sessionId: currentSessionId,
         modelOverride,
         agentId: currentAgentId,
+        toolPermissionMode: toolPermissionModeRef.current,
         onEvent,
       })
     } catch (e) {
@@ -677,6 +686,8 @@ export function useChatStream({
     approvalRequests,
     showCodexAuthExpired,
     setShowCodexAuthExpired,
+    toolPermissionMode,
+    setToolPermissionMode,
     handleSend,
     handleStop,
     handleApprovalResponse,

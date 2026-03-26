@@ -6,6 +6,38 @@ use tokio::sync::Mutex as TokioMutex;
 
 use crate::process_registry::create_session_id;
 
+// ── Tool Permission Mode (session-level) ─────────────────────────
+
+/// Session-level tool permission mode, controlling how tool calls are approved.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolPermissionMode {
+    /// Model decides whether approval is needed (current default behavior)
+    #[default]
+    Auto,
+    /// Every tool call requires user approval
+    AskEveryTime,
+    /// All tool calls are automatically approved (risky)
+    FullApprove,
+}
+
+/// Global session-level tool permission mode
+static TOOL_PERMISSION_MODE: OnceLock<TokioMutex<ToolPermissionMode>> = OnceLock::new();
+
+fn get_permission_mode_lock() -> &'static TokioMutex<ToolPermissionMode> {
+    TOOL_PERMISSION_MODE.get_or_init(|| TokioMutex::new(ToolPermissionMode::Auto))
+}
+
+/// Set the current session's tool permission mode
+pub async fn set_tool_permission_mode(mode: ToolPermissionMode) {
+    *get_permission_mode_lock().lock().await = mode;
+}
+
+/// Get the current session's tool permission mode
+pub async fn get_tool_permission_mode() -> ToolPermissionMode {
+    *get_permission_mode_lock().lock().await
+}
+
 // ── Command Approval System ───────────────────────────────────────
 
 /// Approval request sent to frontend

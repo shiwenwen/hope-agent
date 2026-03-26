@@ -448,6 +448,8 @@ export default function ChatScreen({
           currentSessionId={session.currentSessionId}
           currentAgentId={session.currentAgentId}
           onCommandAction={handleCommandAction}
+          toolPermissionMode={stream.toolPermissionMode}
+          onToolPermissionChange={stream.setToolPermissionMode}
         />
       </div>
 

@@ -112,11 +112,21 @@ pub async fn execute_tool_with_context(
     let start = std::time::Instant::now();
 
     // ── Tool-level approval gate ─────────────────────────────────
-    // Check if this tool requires user approval before execution.
+    // Check session-level permission mode and tool-level approval requirements.
     // Note: exec tool has its own command-level approval inside tool_exec;
     // this is the tool-level gate that applies to ALL approvable tools.
-    if tool_needs_approval(name, ctx) && name != TOOL_EXEC {
-        // Build a human-readable description for the approval dialog
+    let perm_mode = approval::get_tool_permission_mode().await;
+    let needs_approval = match perm_mode {
+        approval::ToolPermissionMode::FullApprove => false,
+        approval::ToolPermissionMode::AskEveryTime => {
+            // In ask_every_time mode, all non-internal tools need approval
+            !super::is_internal_tool(name) && name != TOOL_EXEC
+        }
+        approval::ToolPermissionMode::Auto => {
+            tool_needs_approval(name, ctx) && name != TOOL_EXEC
+        }
+    };
+    if needs_approval {
         let desc = format!("tool: {} {}", name, {
             let s = args.to_string();
             if s.len() > 200 { format!("{}...", crate::truncate_utf8(&s, 200)) } else { s }
@@ -127,8 +137,12 @@ pub async fn execute_tool_with_context(
                 app_info!("tool", "approval", "Tool '{}' approved (once)", name);
             }
             Ok(approval::ApprovalResponse::AllowAlways) => {
-                app_info!("tool", "approval", "Tool '{}' approved (always)", name);
-                approval::add_to_allowlist(&desc).await;
+                if perm_mode == approval::ToolPermissionMode::Auto {
+                    app_info!("tool", "approval", "Tool '{}' approved (always)", name);
+                    approval::add_to_allowlist(&desc).await;
+                } else {
+                    app_info!("tool", "approval", "Tool '{}' approved (ask_every_time)", name);
+                }
             }
             Ok(approval::ApprovalResponse::Deny) => {
                 return Err(anyhow::anyhow!(

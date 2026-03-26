@@ -92,9 +92,20 @@ pub async fn chat(
     session_id: Option<String>,
     model_override: Option<String>,
     agent_id: Option<String>,
+    tool_permission_mode: Option<String>,
     on_event: tauri::ipc::Channel<String>,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
+    // Set session-level tool permission mode
+    if let Some(ref mode_str) = tool_permission_mode {
+        let mode = match mode_str.as_str() {
+            "ask_every_time" => crate::tools::ToolPermissionMode::AskEveryTime,
+            "full_approve" => crate::tools::ToolPermissionMode::FullApprove,
+            _ => crate::tools::ToolPermissionMode::Auto,
+        };
+        crate::tools::set_tool_permission_mode(mode).await;
+    }
+
     let effort = state.reasoning_effort.lock().await.clone();
     let effort_ref_str = effort.clone();
     let db = state.session_db.clone();

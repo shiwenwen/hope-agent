@@ -7,7 +7,7 @@ use crate::process_registry::{
     ProcessSession, ProcessStatus, create_session_id, get_registry, now_ms,
 };
 
-use super::approval::{ApprovalResponse, add_to_allowlist, check_and_request_approval, is_command_allowed};
+use super::approval::{ApprovalResponse, ToolPermissionMode, add_to_allowlist, check_and_request_approval, get_tool_permission_mode, is_command_allowed};
 
 pub(crate) const DEFAULT_EXEC_TIMEOUT_SECS: u64 = 1800; // 30 minutes, aligned with OpenClaw
 pub(crate) const MAX_EXEC_TIMEOUT_SECS: u64 = 7200; // 2 hours max
@@ -184,30 +184,65 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
     }
 
     // ── Command approval gate ───────────────────────────────────
-    // Check if command needs approval before execution
-    if !is_command_allowed(command).await {
-        match check_and_request_approval(command, &session_cwd).await {
-            Ok(ApprovalResponse::AllowOnce) => {
-                app_info!("tool", "exec", "Command approved (once): {}", command);
+    // Check session-level tool permission mode first
+    let perm_mode = get_tool_permission_mode().await;
+    match perm_mode {
+        ToolPermissionMode::FullApprove => {
+            // Skip all approval checks
+            app_info!("tool", "exec", "Command auto-approved (full_approve mode): {}", command);
+        }
+        ToolPermissionMode::AskEveryTime => {
+            // Always ask, ignore allowlist
+            match check_and_request_approval(command, &session_cwd).await {
+                Ok(ApprovalResponse::AllowOnce) => {
+                    app_info!("tool", "exec", "Command approved (once, ask_every_time): {}", command);
+                }
+                Ok(ApprovalResponse::AllowAlways) => {
+                    // In ask_every_time mode, still ask next time — do NOT add to allowlist
+                    app_info!("tool", "exec", "Command approved (ask_every_time): {}", command);
+                }
+                Ok(ApprovalResponse::Deny) => {
+                    let mut registry = get_registry().lock().await;
+                    registry.mark_exited(&session_id, None, None, ProcessStatus::Failed);
+                    return Err(anyhow::anyhow!(
+                        "Command execution denied by user: {}",
+                        command
+                    ));
+                }
+                Err(e) => {
+                    app_warn!("tool", "exec",
+                        "Approval check failed ({}), proceeding with execution",
+                        e
+                    );
+                }
             }
-            Ok(ApprovalResponse::AllowAlways) => {
-                app_info!("tool", "exec", "Command approved (always): {}", command);
-                add_to_allowlist(command).await;
-            }
-            Ok(ApprovalResponse::Deny) => {
-                let mut registry = get_registry().lock().await;
-                registry.mark_exited(&session_id, None, None, ProcessStatus::Failed);
-                return Err(anyhow::anyhow!(
-                    "Command execution denied by user: {}",
-                    command
-                ));
-            }
-            Err(e) => {
-                app_warn!("tool", "exec",
-                    "Approval check failed ({}), proceeding with execution",
-                    e
-                );
-                // If approval system is unavailable, allow by default for now
+        }
+        ToolPermissionMode::Auto => {
+            // Default behavior: check allowlist first
+            if !is_command_allowed(command).await {
+                match check_and_request_approval(command, &session_cwd).await {
+                    Ok(ApprovalResponse::AllowOnce) => {
+                        app_info!("tool", "exec", "Command approved (once): {}", command);
+                    }
+                    Ok(ApprovalResponse::AllowAlways) => {
+                        app_info!("tool", "exec", "Command approved (always): {}", command);
+                        add_to_allowlist(command).await;
+                    }
+                    Ok(ApprovalResponse::Deny) => {
+                        let mut registry = get_registry().lock().await;
+                        registry.mark_exited(&session_id, None, None, ProcessStatus::Failed);
+                        return Err(anyhow::anyhow!(
+                            "Command execution denied by user: {}",
+                            command
+                        ));
+                    }
+                    Err(e) => {
+                        app_warn!("tool", "exec",
+                            "Approval check failed ({}), proceeding with execution",
+                            e
+                        );
+                    }
+                }
             }
         }
     }
