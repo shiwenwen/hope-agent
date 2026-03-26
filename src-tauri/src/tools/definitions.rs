@@ -1034,7 +1034,7 @@ pub fn get_canvas_tool() -> ToolDefinition {
     ToolDefinition {
         name: TOOL_CANVAS.into(),
         description: "Create and manage interactive canvas projects — HTML/CSS/JS live preview, documents (Markdown/code), data visualizations (Chart.js), diagrams (Mermaid), presentations (slides), and SVG graphics. Canvas content is rendered in a sandboxed preview panel visible to the user. Use snapshot to capture the current visual state for analysis.".into(),
-        internal: false,
+        internal: true,
         parameters: json!({
             "type": "object",
             "properties": {
