@@ -3,6 +3,7 @@ pub mod model;
 pub mod memory;
 pub mod agent;
 pub mod utility;
+pub mod plan;
 
 use crate::AppState;
 use crate::get_memory_backend;
@@ -54,6 +55,9 @@ pub async fn dispatch(
         // ── Agent ──
         "agent" => agent::handle_agent(&state.session_db, args),
         "agents" => agent::handle_agents(),
+
+        // ── Plan ──
+        "plan" => plan::handle_plan(&state.session_db, session_id, args).await,
 
         // ── Utility ──
         "permission" => utility::handle_permission(args),

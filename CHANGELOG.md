@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Plan Mode（计划模式）**：可视化交互的 Plan Mode，LLM 在执行前先分析需求和探索代码库，制定详细执行计划
+  - 三态流转：Off → Planning（只读，禁用 write/edit/apply_patch/canvas）→ Executing（全工具 + 进度追踪）
+  - ChatInput 工具栏 Plan 按钮（蓝色/绿色/灰色三态）+ `/plan` 斜杠命令（enter/exit/approve/show）
+  - 输入框蓝色横幅提示工具限制状态
+  - 聊天内嵌 PlanBlock：可折叠的 Plan 卡片，自动解析 markdown checklist，显示步骤状态
+  - 右侧 PlanPanel 详情面板：进度条 + 分阶段步骤列表 + 审批/退出操作栏
+  - `update_plan_step` 内部工具：LLM 执行时主动报告步骤进度，Tauri 全局事件驱动 UI 实时更新
+  - Plan 文件持久化到 `~/.opencomputer/plans/{session_id}.md`
+  - 会话 plan_mode 状态持久化到 DB，切换会话自动恢复
+  - 子 Agent 继承 Plan Mode 工具限制（防止逃逸）
 - **Core Memory（核心记忆）**：全局 `~/.opencomputer/memory.md` 和 Agent 级 `agents/{id}/memory.md` 文件全文注入系统提示词，用于长期规则/偏好/指令。用户可在设置面板编辑，Agent 可通过 `update_core_memory` 工具主动修改（支持 append/replace + global/agent 作用域）
 - **Pinned（置顶）记忆**：记忆条目支持置顶功能，pinned 记忆在系统提示词中优先注入并带 ★ 标记，不受时间排序影响。前端记忆面板添加 Pin 按钮
 - **Memory Flush（压缩前记忆保存）**：上下文压缩 Tier 3 摘要前自动提取即将被丢弃消息中的重要信息保存为记忆，防止信息丢失。可通过 `flushBeforeCompact` 配置开启

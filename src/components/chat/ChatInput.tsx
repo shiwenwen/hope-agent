@@ -9,7 +9,7 @@ import {
   IconTip,
 } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
-import { Send, Square, Brain, ChevronRight, ImagePlus, Zap, Paperclip, X, Slash, Shield, ShieldCheck, ShieldAlert } from "lucide-react"
+import { Send, Square, Brain, ChevronRight, ImagePlus, Zap, Paperclip, X, Slash, Shield, ShieldCheck, ShieldAlert, ClipboardList } from "lucide-react"
 import type { AvailableModel, ActiveModel, ToolPermissionMode } from "@/types/chat"
 import { getEffortOptionsForType } from "@/types/chat"
 import { useSlashCommands, type SlashCommandActions } from "./slash-commands/useSlashCommands"
@@ -42,6 +42,12 @@ interface ChatInputProps {
   // Tool permission mode
   toolPermissionMode: ToolPermissionMode
   onToolPermissionChange: (mode: ToolPermissionMode) => void
+  // Plan mode
+  planState?: "off" | "planning" | "executing"
+  planProgress?: number
+  onEnterPlanMode?: () => void
+  onExitPlanMode?: () => void
+  onTogglePlanPanel?: () => void
 }
 
 export default function ChatInput({
@@ -67,6 +73,11 @@ export default function ChatInput({
   onCommandAction,
   toolPermissionMode,
   onToolPermissionChange,
+  planState = "off",
+  planProgress = 0,
+  onEnterPlanMode,
+  onExitPlanMode,
+  onTogglePlanPanel,
 }: ChatInputProps) {
   const { t } = useTranslation()
   const { openLightbox } = useLightbox()
@@ -217,11 +228,26 @@ export default function ChatInput({
             </div>
           )}
 
+          {/* Plan Mode Banner */}
+          {planState === "planning" && (
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-500/10 border-b border-blue-500/20 text-blue-600 dark:text-blue-400 text-xs animate-in fade-in slide-in-from-top-1 duration-200">
+              <ClipboardList className="h-3.5 w-3.5 shrink-0" />
+              <span className="flex-1">{t("planMode.restricted")}</span>
+              <button onClick={onExitPlanMode} className="hover:text-blue-800 dark:hover:text-blue-200 transition-colors">
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
+
           {/* Textarea */}
           <Textarea
             ref={textareaRef}
             placeholder={
-              loading && pendingMessage ? t("chat.pendingQueued") : t("chat.askAnything")
+              planState === "planning"
+                ? t("planMode.placeholder")
+                : loading && pendingMessage
+                  ? t("chat.pendingQueued")
+                  : t("chat.askAnything")
             }
             value={input}
             onChange={(e) => onInputChange(e.target.value)}
@@ -407,6 +433,26 @@ export default function ChatInput({
                 )}
               </div>
             )}
+
+            {/* Plan Mode Toggle */}
+            <IconTip label={planState === "off" ? t("planMode.enter") : t("planMode.indicator")}>
+              <button
+                onClick={() => planState === "off" ? onEnterPlanMode?.() : onTogglePlanPanel?.()}
+                className={cn(
+                  "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary",
+                  planState === "planning"
+                    ? "text-blue-600 bg-blue-500/10"
+                    : planState === "executing"
+                    ? "text-green-600 bg-green-500/10"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <ClipboardList className="h-3.5 w-3.5 shrink-0" />
+                {planState !== "off" && (
+                  <span>{planState === "planning" ? "Plan" : `${planProgress}%`}</span>
+                )}
+              </button>
+            </IconTip>
 
             {/* Tool Permission Mode */}
             <div className="relative" ref={permMenuRef}>

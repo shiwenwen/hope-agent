@@ -26,6 +26,10 @@ export type CommandAction =
   | { type: "exportFile"; content: string; filename: string }
   | { type: "setToolPermission"; mode: string }
   | { type: "displayOnly" }
+  | { type: "enterPlanMode" }
+  | { type: "exitPlanMode"; planContent?: string }
+  | { type: "approvePlan"; planContent?: string }
+  | { type: "showPlan"; planContent: string }
 
 /** Matches Rust CommandResult struct */
 export interface CommandResult {

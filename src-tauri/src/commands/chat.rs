@@ -413,6 +413,29 @@ pub async fn chat(
         agent.set_image_generate_config(image_gen_config.clone());
         agent.set_canvas_enabled(canvas_enabled);
 
+        // ── Plan Mode: restrict tools / inject context ──
+        let plan_state = crate::plan::get_plan_state(&sid).await;
+        if plan_state == crate::plan::PlanModeState::Planning {
+            let mut denied = agent.get_denied_tools().to_vec();
+            for tool in crate::plan::PLAN_MODE_DENIED_TOOLS {
+                let t = tool.to_string();
+                if !denied.contains(&t) {
+                    denied.push(t);
+                }
+            }
+            agent.set_denied_tools(denied);
+            agent.set_extra_system_context(crate::plan::PLAN_MODE_SYSTEM_PROMPT.to_string());
+        } else if plan_state == crate::plan::PlanModeState::Executing {
+            agent.set_plan_executing(true);
+            if let Ok(Some(plan_content)) = crate::plan::load_plan_file(&sid) {
+                agent.set_extra_system_context(format!(
+                    "{}{}",
+                    crate::plan::PLAN_EXECUTING_SYSTEM_PROMPT_PREFIX,
+                    plan_content
+                ));
+            }
+        }
+
         // Restore conversation history from DB for this session
         restore_agent_context(&db, &sid, &agent);
 

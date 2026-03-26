@@ -10,11 +10,11 @@ use super::{
     TOOL_MANAGE_CRON, TOOL_BROWSER, TOOL_SEND_NOTIFICATION, TOOL_SUBAGENT,
     TOOL_MEMORY_GET, TOOL_AGENTS_LIST, TOOL_SESSIONS_LIST, TOOL_SESSION_STATUS,
     TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_SEND, TOOL_IMAGE, TOOL_IMAGE_GENERATE, TOOL_PDF,
-    TOOL_CANVAS, TOOL_ACP_SPAWN,
+    TOOL_CANVAS, TOOL_ACP_SPAWN, TOOL_UPDATE_PLAN_STEP,
 };
 use super::{exec, process, read, write, edit, ls, grep, find, apply_patch};
 use super::{web_search, web_fetch, memory, cron, browser, notification, subagent, acp_spawn};
-use super::{agents, sessions, image, image_generate, pdf, canvas};
+use super::{agents, sessions, image, image_generate, pdf, canvas, plan_step};
 
 /// Default hard timeout (seconds) for a single tool execution.
 /// Acts as a safety net when the inner tool timeout (e.g. reqwest) does not fire
@@ -204,6 +204,7 @@ pub async fn execute_tool_with_context(
             TOOL_IMAGE_GENERATE => image_generate::tool_image_generate(args).await,
             TOOL_PDF => pdf::tool_pdf(args).await,
             TOOL_CANVAS => canvas::tool_canvas(args, ctx).await,
+            TOOL_UPDATE_PLAN_STEP => Ok(plan_step::execute(args, ctx.session_id.as_deref()).await),
             _ => Err(anyhow::anyhow!("Unknown tool: {}", name)),
         }
     };

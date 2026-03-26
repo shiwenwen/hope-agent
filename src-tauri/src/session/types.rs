@@ -18,6 +18,8 @@ pub struct SessionMeta {
     pub is_cron: bool,
     /// If this session was created by a sub-agent spawn, stores the parent session ID.
     pub parent_session_id: Option<String>,
+    /// Plan mode state for this session: "off" | "planning" | "executing"
+    pub plan_mode: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

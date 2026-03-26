@@ -26,11 +26,12 @@ pub(crate) mod subagent;
 pub(crate) mod web_fetch;
 pub(crate) mod web_search;
 mod write;
+mod plan_step;
 
 // ── Public Re-exports ─────────────────────────────────────────────
 
 pub use approval::{ApprovalResponse, ToolPermissionMode, submit_approval_response, set_tool_permission_mode, get_tool_permission_mode};
-pub use definitions::{get_available_tools, get_subagent_tool, get_notification_tool, get_image_generate_tool, get_image_generate_tool_dynamic, get_canvas_tool, get_acp_spawn_tool, get_tools_for_provider, is_internal_tool};
+pub use definitions::{get_available_tools, get_subagent_tool, get_notification_tool, get_image_generate_tool, get_image_generate_tool_dynamic, get_canvas_tool, get_acp_spawn_tool, get_tools_for_provider, is_internal_tool, get_plan_step_tool};
 pub use execution::{ToolExecContext, execute_tool_with_context};
 
 // ── Tool Name Constants ──────────────────────────────────────────
@@ -66,6 +67,7 @@ pub const TOOL_IMAGE_GENERATE: &str = "image_generate";
 pub const TOOL_PDF: &str = "pdf";
 pub const TOOL_CANVAS: &str = "canvas";
 pub const TOOL_ACP_SPAWN: &str = "acp_spawn";
+pub const TOOL_UPDATE_PLAN_STEP: &str = "update_plan_step";
 
 // ── Shared Helpers ────────────────────────────────────────────────
 

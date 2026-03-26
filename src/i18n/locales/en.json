@@ -1109,6 +1109,7 @@
     "usage": { "description": "Token usage" },
     "search": { "description": "Search the web" },
     "permission": { "description": "Set tool permission mode (auto/ask/full)" },
+    "plan": { "description": "Enter/exit plan mode" },
     "categories": {
       "session": "Session",
       "model": "Model",
@@ -1119,6 +1120,21 @@
     },
     "noResults": "No matching commands",
     "buttonTip": "Quick Commands"
+  },
+  "planMode": {
+    "enter": "Enter Plan Mode",
+    "indicator": "Plan Mode",
+    "plan": "Execution Plan",
+    "openPanel": "View in panel",
+    "restricted": "Plan Mode: File modification tools disabled, read-only access only",
+    "approveAndExecute": "Approve & Execute",
+    "keepPlanning": "Keep Planning",
+    "exitWithout": "Exit without executing",
+    "showPlan": "Show Plan",
+    "executing": "Executing plan...",
+    "stepsCompleted": "steps completed",
+    "completed": "Plan execution completed",
+    "placeholder": "Describe what you want to achieve..."
   },
   "canvas": {
     "refresh": "Refresh",

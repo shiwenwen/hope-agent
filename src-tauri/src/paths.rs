@@ -175,7 +175,14 @@ pub fn canvas_db_path() -> Result<PathBuf> {
     Ok(canvas_dir()?.join("canvas.db"))
 }
 
-// ── Directory Initialization ─────────────────────────────────────
+// ── Plans ───────────────────────────────────────────────────────
+
+/// Plans directory: ~/.opencomputer/plans/
+pub fn plans_dir() -> Result<PathBuf> {
+    Ok(root_dir()?.join("plans"))
+}
+
+// ── Directory Initialization ────────���────────────────────────────
 
 /// Ensure all required directories exist.
 pub fn ensure_dirs() -> Result<()> {
@@ -194,6 +201,7 @@ pub fn ensure_dirs() -> Result<()> {
         generated_images_dir()?,
         canvas_dir()?,
         canvas_projects_dir()?,
+        plans_dir()?,
     ];
     for dir in &dirs_to_create {
         std::fs::create_dir_all(dir)?;

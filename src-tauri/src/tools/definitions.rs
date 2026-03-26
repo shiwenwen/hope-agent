@@ -11,7 +11,7 @@ use super::{
     TOOL_MANAGE_CRON, TOOL_BROWSER, TOOL_SEND_NOTIFICATION, TOOL_SUBAGENT,
     TOOL_MEMORY_GET, TOOL_AGENTS_LIST, TOOL_SESSIONS_LIST, TOOL_SESSION_STATUS,
     TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_SEND, TOOL_IMAGE, TOOL_IMAGE_GENERATE, TOOL_PDF,
-    TOOL_CANVAS, TOOL_ACP_SPAWN,
+    TOOL_CANVAS, TOOL_ACP_SPAWN, TOOL_UPDATE_PLAN_STEP,
 };
 
 // ── Tool Definition (provider-agnostic) ───────────────────────────
@@ -1229,6 +1229,31 @@ pub fn get_canvas_tool() -> ToolDefinition {
                 }
             },
             "required": ["action"],
+            "additionalProperties": false
+        }),
+    }
+}
+
+/// Tool for updating plan step status (conditionally injected during Executing state).
+pub fn get_plan_step_tool() -> ToolDefinition {
+    ToolDefinition {
+        name: TOOL_UPDATE_PLAN_STEP.into(),
+        description: "Update the status of a plan step during plan execution. Call this after starting or completing each step to track progress in the Plan panel.".into(),
+        internal: true,
+        parameters: json!({
+            "type": "object",
+            "properties": {
+                "step_index": {
+                    "type": "integer",
+                    "description": "Zero-based index of the plan step to update"
+                },
+                "status": {
+                    "type": "string",
+                    "enum": ["in_progress", "completed", "skipped", "failed"],
+                    "description": "New status for the step"
+                }
+            },
+            "required": ["step_index", "status"],
             "additionalProperties": false
         }),
     }

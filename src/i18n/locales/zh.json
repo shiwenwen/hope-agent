@@ -1109,6 +1109,7 @@
     "usage": { "description": "Token 用量" },
     "search": { "description": "搜索网络" },
     "permission": { "description": "设置工具权限模式（auto/ask/full）" },
+    "plan": { "description": "进入/退出计划模式" },
     "categories": {
       "session": "会话",
       "model": "模型",
@@ -1119,6 +1120,21 @@
     },
     "noResults": "没有匹配的命令",
     "buttonTip": "快捷指令"
+  },
+  "planMode": {
+    "enter": "进入计划模式",
+    "indicator": "计划模式",
+    "plan": "执行计划",
+    "openPanel": "在面板中查看",
+    "restricted": "计划模式：文件修改工具已禁用，仅允许只读操作",
+    "approveAndExecute": "批准并执行",
+    "keepPlanning": "继续完善",
+    "exitWithout": "退出不执行",
+    "showPlan": "显示计划",
+    "executing": "正在按计划执行...",
+    "stepsCompleted": "步完成",
+    "completed": "计划执行完成",
+    "placeholder": "描述你想要实现的功能..."
   },
   "canvas": {
     "refresh": "刷新",

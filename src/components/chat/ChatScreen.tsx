@@ -28,6 +28,8 @@ import {
 import { useChatSession } from "./useChatSession"
 import { useChatStream } from "./useChatStream"
 import { useAutoScroll } from "./useAutoScroll"
+import { usePlanMode } from "./plan-mode/usePlanMode"
+import { PlanPanel } from "./plan-mode/PlanPanel"
 
 interface ChatScreenProps {
   onOpenAgentSettings?: (agentId: string) => void
@@ -193,6 +195,9 @@ export default function ChatScreen({
     updateSessionMessages: session.updateSessionMessages,
   })
 
+  // ── Plan Mode Hook ─────────────────────────────────────────
+  const planMode = usePlanMode(session.currentSessionId)
+
   // ── Auto-scroll Hook ───────────────────────────────────────
   const { scrollContainerRef, bottomRef } = useAutoScroll({
     loading: session.loading,
@@ -313,9 +318,38 @@ export default function ChatScreen({
         case "displayOnly":
           // Already handled above by adding event message
           break
+        case "enterPlanMode":
+          planMode.enterPlanMode()
+          planMode.setShowPanel(true)
+          break
+        case "exitPlanMode":
+          planMode.exitPlanMode()
+          break
+        case "approvePlan":
+          handlePlanApprove(action.planContent)
+          break
+        case "showPlan":
+          planMode.setPlanContent(action.planContent)
+          planMode.setShowPanel(true)
+          break
       }
     },
-    [session, stream, handleModelChange, handleEffortChange, compacting], // eslint-disable-line react-hooks/exhaustive-deps
+    [session, stream, handleModelChange, handleEffortChange, compacting, planMode], // eslint-disable-line react-hooks/exhaustive-deps
+  )
+
+  // ── Plan Approve Handler ───────────────────────────────────────
+  const handlePlanApprove = useCallback(
+    async (planContentOverride?: string | null) => {
+      await planMode.approvePlan()
+      const content = planContentOverride || planMode.planContent
+      if (content) {
+        stream.setInput(
+          `请按照以下计划逐步执行，每完成一步调用 update_plan_step 工具更新进度：\n\n${content}`
+        )
+        setTimeout(() => stream.handleSend(), 50)
+      }
+    },
+    [planMode, stream]
   )
 
   return (
@@ -453,8 +487,28 @@ export default function ChatScreen({
           onCommandAction={handleCommandAction}
           toolPermissionMode={stream.toolPermissionMode}
           onToolPermissionChange={stream.setToolPermissionMode}
+          planState={planMode.planState}
+          planProgress={planMode.progress}
+          onEnterPlanMode={planMode.enterPlanMode}
+          onExitPlanMode={planMode.exitPlanMode}
+          onTogglePlanPanel={() => planMode.setShowPanel((p) => !p)}
         />
       </div>
+
+      {/* Plan Panel (right side) */}
+      {planMode.showPanel && planMode.planState !== "off" && (
+        <PlanPanel
+          planState={planMode.planState}
+          planSteps={planMode.planSteps}
+          planContent={planMode.planContent}
+          progress={planMode.progress}
+          completedCount={planMode.completedCount}
+          onApprove={() => handlePlanApprove()}
+          onKeepPlanning={() => planMode.setShowPanel(false)}
+          onExit={planMode.exitPlanMode}
+          onClose={() => planMode.setShowPanel(false)}
+        />
+      )}
 
       {/* Canvas Preview Panel */}
       <CanvasPanel />

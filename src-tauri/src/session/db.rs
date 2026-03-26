@@ -173,6 +173,16 @@ impl SessionDB {
             )?;
         }
 
+        // Migration: add plan_mode column to sessions if missing
+        let has_plan_mode = conn
+            .prepare("SELECT plan_mode FROM sessions LIMIT 1")
+            .is_ok();
+        if !has_plan_mode {
+            conn.execute_batch(
+                "ALTER TABLE sessions ADD COLUMN plan_mode TEXT DEFAULT 'off';",
+            )?;
+        }
+
         Ok(Self { conn: Mutex::new(conn) })
     }
 
@@ -207,6 +217,7 @@ impl SessionDB {
             unread_count: 0,
             is_cron: false,
             parent_session_id: parent_session_id.map(|s| s.to_string()),
+            plan_mode: "off".to_string(),
         })
     }
 
@@ -224,7 +235,8 @@ impl SessionDB {
                         (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) as msg_count,
                         (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.id > COALESCE(s.last_read_message_id, 0)) as unread_count,
                         s.is_cron,
-                        s.parent_session_id
+                        s.parent_session_id,
+                        s.plan_mode
                  FROM sessions s
                  WHERE s.agent_id = ?1
                  ORDER BY s.updated_at DESC"
@@ -243,6 +255,7 @@ impl SessionDB {
                     unread_count: row.get(9)?,
                     is_cron: row.get::<_, i64>(10).unwrap_or(0) != 0,
                     parent_session_id: row.get(11)?,
+                    plan_mode: row.get::<_, String>(12).unwrap_or_else(|_| "off".to_string()),
                 })
             })?;
             for row in rows {
@@ -255,7 +268,8 @@ impl SessionDB {
                         (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) as msg_count,
                         (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.id > COALESCE(s.last_read_message_id, 0)) as unread_count,
                         s.is_cron,
-                        s.parent_session_id
+                        s.parent_session_id,
+                        s.plan_mode
                  FROM sessions s
                  ORDER BY s.updated_at DESC"
             )?;
@@ -273,6 +287,7 @@ impl SessionDB {
                     unread_count: row.get(9)?,
                     is_cron: row.get::<_, i64>(10).unwrap_or(0) != 0,
                     parent_session_id: row.get(11)?,
+                    plan_mode: row.get::<_, String>(12).unwrap_or_else(|_| "off".to_string()),
                 })
             })?;
             for row in rows {
@@ -481,6 +496,16 @@ impl SessionDB {
         Ok(())
     }
 
+    /// Update the plan mode state for a session.
+    pub fn update_session_plan_mode(&self, session_id: &str, plan_mode: &str) -> Result<()> {
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        conn.execute(
+            "UPDATE sessions SET plan_mode = ?1 WHERE id = ?2",
+            params![plan_mode, session_id],
+        )?;
+        Ok(())
+    }
+
     /// Delete a session and all its messages (CASCADE) and attachments.
     pub fn delete_session(&self, session_id: &str) -> Result<()> {
         let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
@@ -526,7 +551,8 @@ impl SessionDB {
                     (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) as msg_count,
                     (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.id > COALESCE(s.last_read_message_id, 0)) as unread_count,
                     s.is_cron,
-                    s.parent_session_id
+                    s.parent_session_id,
+                    s.plan_mode
              FROM sessions s WHERE s.id = ?1"
         )?;
 
@@ -544,6 +570,7 @@ impl SessionDB {
                 unread_count: row.get(9)?,
                 is_cron: row.get::<_, i64>(10).unwrap_or(0) != 0,
                 parent_session_id: row.get(11)?,
+                plan_mode: row.get::<_, String>(12).unwrap_or_else(|_| "off".to_string()),
             })
         })?;
 

@@ -120,6 +120,20 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
             arg_options: None,
             description_raw: None,
         },
+        // ── Plan ──
+        SlashCommandDef {
+            name: "plan".into(),
+            category: CommandCategory::Session,
+            description_key: "slashCommands.plan.description".into(),
+            has_args: true,
+            arg_placeholder: Some("[exit|show|approve]".into()),
+            arg_options: Some(vec![
+                "exit".into(),
+                "show".into(),
+                "approve".into(),
+            ]),
+            description_raw: None,
+        },
         // ── Utility ──
         SlashCommandDef {
             name: "permission".into(),

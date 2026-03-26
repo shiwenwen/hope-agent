@@ -33,6 +33,7 @@ mod slash_commands;
 pub mod crash_journal;
 pub mod backup;
 pub mod self_diagnosis;
+mod plan;
 
 use agent::AssistantAgent;
 use oauth::TokenData;
@@ -565,6 +566,13 @@ pub fn run() {
             dev_tools::dev_clear_memory,
             dev_tools::dev_reset_config,
             dev_tools::dev_clear_all,
+            // Plan mode
+            commands::plan::get_plan_mode,
+            commands::plan::set_plan_mode,
+            commands::plan::get_plan_content,
+            commands::plan::save_plan_content,
+            commands::plan::get_plan_steps,
+            commands::plan::update_plan_step_status,
             // ACP control plane
             commands::acp_control::acp_list_backends,
             commands::acp_control::acp_health_check,

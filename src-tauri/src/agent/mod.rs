@@ -50,6 +50,7 @@ impl AssistantAgent {
             subagent_depth: 0,
             steer_run_id: None,
             denied_tools: Vec::new(),
+            plan_executing: false,
         }
     }
 
@@ -76,6 +77,7 @@ impl AssistantAgent {
             subagent_depth: 0,
             steer_run_id: None,
             denied_tools: Vec::new(),
+            plan_executing: false,
         }
     }
 
@@ -126,6 +128,7 @@ impl AssistantAgent {
             subagent_depth: 0,
             steer_run_id: None,
             denied_tools: Vec::new(),
+            plan_executing: false,
         }
     }
 
@@ -169,9 +172,19 @@ impl AssistantAgent {
         self.steer_run_id = Some(run_id);
     }
 
+    /// Get the current denied tools list.
+    pub fn get_denied_tools(&self) -> &[String] {
+        &self.denied_tools
+    }
+
     /// Set tools that are denied for this agent (depth-based tool policy).
     pub fn set_denied_tools(&mut self, tools: Vec<String>) {
         self.denied_tools = tools;
+    }
+
+    /// Enable the update_plan_step tool for plan execution mode.
+    pub fn set_plan_executing(&mut self, executing: bool) {
+        self.plan_executing = executing;
     }
 
     /// Build the full system prompt, including any extra context.

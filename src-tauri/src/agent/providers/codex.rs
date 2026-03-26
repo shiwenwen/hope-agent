@@ -30,6 +30,9 @@ impl AssistantAgent {
         if self.subagent_tool_enabled() {
             tool_schemas.push(tools::get_subagent_tool().to_provider_schema(ToolProvider::OpenAI));
         }
+        if self.plan_executing {
+            tool_schemas.push(tools::get_plan_step_tool().to_provider_schema(ToolProvider::OpenAI));
+        }
         // Filter out denied tools (depth-based tool policy)
         if !self.denied_tools.is_empty() {
             tool_schemas.retain(|t| {

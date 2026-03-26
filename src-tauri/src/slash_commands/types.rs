@@ -92,4 +92,18 @@ pub enum CommandAction {
     },
     /// No side-effect, just display the `content` field.
     DisplayOnly,
+    /// Enter plan mode for the current session.
+    EnterPlanMode,
+    /// Exit plan mode (optionally with plan content).
+    ExitPlanMode {
+        plan_content: Option<String>,
+    },
+    /// Approve plan and start execution.
+    ApprovePlan {
+        plan_content: Option<String>,
+    },
+    /// Show plan content in the plan panel.
+    ShowPlan {
+        plan_content: String,
+    },
 }
