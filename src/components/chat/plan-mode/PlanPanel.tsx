@@ -1,8 +1,8 @@
-import { useMemo } from "react"
+import { useMemo, useEffect } from "react"
+import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window"
 import {
   ClipboardList,
   X,
-  Maximize2,
   Play,
   Loader2,
   CheckCircle,
@@ -38,6 +38,15 @@ export function PlanPanel({
   onClose,
 }: PlanPanelProps) {
   const { t } = useTranslation()
+
+  // Adjust window min size when panel is mounted/unmounted
+  useEffect(() => {
+    const win = getCurrentWindow()
+    win.setMinSize(new LogicalSize(1240, 480))
+    return () => {
+      win.setMinSize(new LogicalSize(840, 480))
+    }
+  }, [])
 
   const groupedPhases = useMemo(
     () => groupStepsByPhase(planSteps),
