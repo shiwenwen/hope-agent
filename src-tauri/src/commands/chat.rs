@@ -569,6 +569,25 @@ pub async fn chat(
                             "tokens_out": assistant_msg.tokens_out,
                         }).to_string()),
                         Some(sid.clone()), Some(current_agent_id.clone()));
+                    // ── Plan Mode: auto-detect plan content from LLM output ──
+                    if plan_state == crate::plan::PlanModeState::Planning && !result.is_empty() {
+                        let steps = crate::plan::parse_plan_steps(&result);
+                        if steps.len() >= 2 {
+                            // Save plan file + update in-memory steps
+                            let _ = crate::plan::save_plan_file(&sid, &result);
+                            crate::plan::update_plan_steps(&sid, steps.clone()).await;
+                            // Emit event to frontend so PlanPanel updates in real-time
+                            let plan_event = serde_json::json!({
+                                "type": "plan_content_updated",
+                                "session_id": &sid,
+                                "step_count": steps.len(),
+                            });
+                            if let Ok(json_str) = serde_json::to_string(&plan_event) {
+                                let _ = on_event.send(json_str);
+                            }
+                        }
+                    }
+
                     // Spawn async memory extraction if enabled
                     // Resolve effective config: agent override → global fallback
                     {

@@ -30,7 +30,6 @@ import { useChatStream } from "./useChatStream"
 import { useAutoScroll } from "./useAutoScroll"
 import { usePlanMode } from "./plan-mode/usePlanMode"
 import { PlanPanel } from "./plan-mode/PlanPanel"
-import { detectPlanContent } from "./plan-mode/planParser"
 
 interface ChatScreenProps {
   onOpenAgentSettings?: (agentId: string) => void
@@ -199,46 +198,35 @@ export default function ChatScreen({
   // ── Plan Mode Hook ─────────────────────────────────────────
   const planMode = usePlanMode(session.currentSessionId)
 
-  // Auto-detect plan content from assistant messages and sync to PlanPanel
+  // Reload plan steps from backend when plan_content_updated event is received via chat stream
+  // The event is emitted by the backend after detecting plan checklist format in LLM output
+  const planContentUpdateRef = useRef(0)
   useEffect(() => {
-    if (planMode.planState !== "planning" && planMode.planState !== "executing") return
-    if (!session.currentSessionId) return
-
-    // Find the last assistant message with plan content
-    for (let i = session.messages.length - 1; i >= 0; i--) {
-      const msg = session.messages[i]
+    // Listen for plan_content_updated in the chat stream events
+    const msgs = session.messages
+    if (!session.currentSessionId || planMode.planState === "off") return
+    // Find the latest assistant message and use it as plan content for the panel
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const msg = msgs[i]
       if (msg.role === "assistant" && msg.content) {
-        const { isPlan, steps } = detectPlanContent(msg.content)
-        if (isPlan && steps.length > 0) {
-          // Sync to PlanPanel: update content + steps + save to backend
-          planMode.setPlanContent(msg.content)
-          // Map parsed steps to PlanStep format (preserve live status if executing)
-          if (planMode.planState === "planning") {
-            planMode.setPlanSteps(
-              steps.map((s) => ({
-                ...s,
-                description: "",
-              }))
-            )
-          } else if (planMode.planSteps.length === 0) {
-            // Executing but no steps loaded yet — initialize from parsed
-            planMode.setPlanSteps(
-              steps.map((s) => ({
-                ...s,
-                description: "",
-              }))
-            )
-          }
-          // Save to backend (fire-and-forget)
-          invoke("save_plan_content", {
+        // Only update when content actually changes
+        const hash = msg.content.length
+        if (hash !== planContentUpdateRef.current) {
+          planContentUpdateRef.current = hash
+          // Refresh steps from backend (backend already parsed and saved)
+          invoke<import("./plan-mode/usePlanMode").PlanStep[]>("get_plan_steps", {
             sessionId: session.currentSessionId,
-            content: msg.content,
+          }).then((steps) => {
+            if (steps && steps.length > 0) {
+              planMode.setPlanSteps(steps)
+              planMode.setPlanContent(msg.content)
+            }
           }).catch(() => {})
-          break
         }
+        break
       }
     }
-  }, [session.messages, planMode.planState, session.currentSessionId]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [session.messages.length, planMode.planState, session.currentSessionId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Auto-scroll Hook ───────────────────────────────────────
   const { scrollContainerRef, bottomRef } = useAutoScroll({
