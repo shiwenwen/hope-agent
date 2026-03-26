@@ -27,8 +27,8 @@ impl AssistantAgent {
         if self.notification_enabled {
             tool_schemas.push(tools::get_notification_tool().to_provider_schema(ToolProvider::Anthropic));
         }
-        if self.image_generate_enabled {
-            tool_schemas.push(tools::get_image_generate_tool().to_provider_schema(ToolProvider::Anthropic));
+        if let Some(ref img_config) = self.image_gen_config {
+            tool_schemas.push(tools::get_image_generate_tool_dynamic(img_config).to_provider_schema(ToolProvider::Anthropic));
         }
         if self.canvas_enabled {
             tool_schemas.push(tools::get_canvas_tool().to_provider_schema(ToolProvider::Anthropic));

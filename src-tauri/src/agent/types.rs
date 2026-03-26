@@ -69,8 +69,8 @@ pub struct AssistantAgent {
     pub(super) token_calibrator: std::sync::Mutex<crate::context_compact::TokenEstimateCalibrator>,
     /// Whether this agent can use the send_notification tool
     pub(super) notification_enabled: bool,
-    /// Whether this agent can use the image_generate tool
-    pub(super) image_generate_enabled: bool,
+    /// Image generation config (Some = enabled with config for dynamic tool description)
+    pub(super) image_gen_config: Option<crate::tools::image_generate::ImageGenConfig>,
     /// Whether this agent can use the canvas tool
     pub(super) canvas_enabled: bool,
     /// Current session ID (for sub-agent context)

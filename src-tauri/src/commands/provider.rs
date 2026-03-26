@@ -608,8 +608,14 @@ pub async fn test_image_generate(
             "success": false, "message": format!("Client error: {}", e),
         })).unwrap_or_default())?;
 
-    let (url, auth_header, auth_value) = match provider_id.as_str() {
-        "OpenAI" => {
+    // Normalize provider_id (backward compat: "OpenAI" → "openai")
+    let pid = provider_id.to_lowercase();
+    let display_name = crate::tools::image_generate::resolve_provider(&pid)
+        .map(|p| p.display_name().to_string())
+        .unwrap_or_else(|| provider_id.clone());
+
+    let (url, auth_header, auth_value) = match pid.as_str() {
+        "openai" => {
             let base = base_url.as_deref()
                 .filter(|s| !s.is_empty())
                 .unwrap_or("https://api.openai.com")
@@ -620,7 +626,7 @@ pub async fn test_image_generate(
                 format!("Bearer {}", api_key),
             )
         }
-        "Google" => {
+        "google" => {
             let base = base_url.as_deref()
                 .filter(|s| !s.is_empty())
                 .unwrap_or("https://generativelanguage.googleapis.com")
@@ -631,7 +637,7 @@ pub async fn test_image_generate(
                 String::new(),
             )
         }
-        "Fal" => {
+        "fal" => {
             let base = base_url.as_deref()
                 .filter(|s| !s.is_empty())
                 .unwrap_or("https://fal.run")
@@ -661,13 +667,13 @@ pub async fn test_image_generate(
             let status = resp.status().as_u16();
             let latency = start.elapsed().as_millis() as u64;
             // For Fal, a 405 (Method Not Allowed on GET) or 422 still means connectivity is fine
-            let ok = status < 400 || (provider_id == "Fal" && (status == 405 || status == 422));
+            let ok = status < 400 || (pid == "fal" && (status == 405 || status == 422));
             let msg = if ok {
-                format!("{} 连接成功", provider_id)
+                format!("{} 连接成功", display_name)
             } else if status == 401 || status == 403 {
-                format!("{} 认证失败，请检查 API Key", provider_id)
+                format!("{} 认证失败，请检查 API Key", display_name)
             } else {
-                format!("{} 请求失败 ({})", provider_id, status)
+                format!("{} 请求失败 ({})", display_name, status)
             };
 
             Ok(serde_json::to_string(&serde_json::json!({
@@ -682,11 +688,11 @@ pub async fn test_image_generate(
         Err(e) => {
             let latency = start.elapsed().as_millis() as u64;
             let msg = if e.is_timeout() {
-                format!("{} 连接超时，请检查网络或代理设置", provider_id)
+                format!("{} 连接超时，请检查网络或代理设置", display_name)
             } else if e.is_connect() {
-                format!("{} 无法连接，请检查网络或 Base URL", provider_id)
+                format!("{} 无法连接，请检查网络或 Base URL", display_name)
             } else {
-                format!("{} 连接失败: {}", provider_id, e)
+                format!("{} 连接失败: {}", display_name, e)
             };
 
             Err(serde_json::to_string(&serde_json::json!({

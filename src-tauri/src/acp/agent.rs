@@ -491,8 +491,14 @@ impl AcpAgent {
         agent.set_session_id(session_id);
         agent.set_compact_config(store.compact.clone());
         agent.set_notification_enabled(store.notification.enabled);
-        let image_enabled = crate::tools::image_generate::has_configured_provider_from_config(&store.image_generate);
-        agent.set_image_generate_enabled(image_enabled);
+        let image_gen_config = if crate::tools::image_generate::has_configured_provider_from_config(&store.image_generate) {
+            let mut cfg = store.image_generate.clone();
+            crate::tools::image_generate::backfill_providers(&mut cfg);
+            Some(cfg)
+        } else {
+            None
+        };
+        agent.set_image_generate_config(image_gen_config);
         agent.set_canvas_enabled(store.canvas.enabled);
 
         Ok(agent)

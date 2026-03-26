@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
-import { Check, Loader2, Info, Wifi } from "lucide-react"
+import { Check, Loader2, Info, Wifi, ChevronUp, ChevronDown } from "lucide-react"
 import TestResultDisplay, { parseTestResult, type TestResult } from "./TestResultDisplay"
 
 // ── Types ────────────────────────────────────────────────────────
@@ -29,14 +29,20 @@ interface ImageGenConfig {
 
 const DEFAULT_CONFIG: ImageGenConfig = {
   providers: [
-    { id: "OpenAI", enabled: false, apiKey: null, baseUrl: null, model: null, thinkingLevel: null },
-    { id: "Google", enabled: false, apiKey: null, baseUrl: null, model: null, thinkingLevel: null },
-    { id: "Fal", enabled: false, apiKey: null, baseUrl: null, model: null, thinkingLevel: null },
+    { id: "openai", enabled: false, apiKey: null, baseUrl: null, model: null, thinkingLevel: null },
+    { id: "google", enabled: false, apiKey: null, baseUrl: null, model: null, thinkingLevel: null },
+    { id: "fal", enabled: false, apiKey: null, baseUrl: null, model: null, thinkingLevel: null },
   ],
   timeoutSeconds: 60,
   defaultSize: "1024x1024",
 }
 
+// Provider display names and defaults
+const PROVIDER_DISPLAY: Record<string, { name: string; defaultModel: string; baseUrl: string }> = {
+  openai: { name: "OpenAI", defaultModel: "gpt-image-1", baseUrl: "https://api.openai.com" },
+  google: { name: "Google", defaultModel: "gemini-3.1-flash-image-preview", baseUrl: "https://generativelanguage.googleapis.com" },
+  fal: { name: "Fal", defaultModel: "fal-ai/flux/dev", baseUrl: "https://fal.run" },
+}
 
 const GOOGLE_MODEL_OPTIONS = [
   { value: "gemini-3.1-flash-image-preview", label: "Gemini 3.1 Flash Image Preview" },
@@ -160,6 +166,16 @@ export default function ImageGeneratePanel() {
     })
   }
 
+  const moveProvider = (index: number, direction: "up" | "down") => {
+    setConfig((prev) => {
+      const target = direction === "up" ? index - 1 : index + 1
+      if (target < 0 || target >= prev.providers.length) return prev
+      const providers = [...prev.providers]
+      ;[providers[index], providers[target]] = [providers[target], providers[index]]
+      return { ...prev, providers }
+    })
+  }
+
   const handleTest = async (provider: ImageGenProviderEntry) => {
     setTestLoading((prev) => ({ ...prev, [provider.id]: true }))
     setTestResults((prev) => {
@@ -185,6 +201,10 @@ export default function ImageGeneratePanel() {
     (p) => p.enabled && p.apiKey && p.apiKey.trim().length > 0
   )
 
+  const getDisplayName = (id: string) => PROVIDER_DISPLAY[id]?.name ?? id
+  const getDefaultModel = (id: string) => PROVIDER_DISPLAY[id]?.defaultModel ?? ""
+  const getDefaultBaseUrl = (id: string) => PROVIDER_DISPLAY[id]?.baseUrl ?? ""
+
   return (
     <div className="flex-1 overflow-y-auto p-6">
       <div className="space-y-6">
@@ -203,24 +223,58 @@ export default function ImageGeneratePanel() {
 
         {/* Providers */}
         <div className="space-y-4">
-          <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
-            {t("settings.imageGenProviders")}
-          </h3>
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+              {t("settings.imageGenProviders")}
+            </h3>
+          </div>
+
+          {/* Priority hint */}
+          <p className="text-xs text-muted-foreground">
+            {t("settings.imageGenPriorityHint")}
+          </p>
 
           <div className="space-y-4">
             {config.providers.map((provider, index) => (
               <div
-                key={provider.id}
+                key={`${provider.id}-${index}`}
                 className={cn(
                   "rounded-lg border p-4 space-y-3 transition-colors",
                   provider.enabled ? "border-primary/30 bg-primary/5" : "border-border"
                 )}
               >
-                {/* Provider header with toggle */}
+                {/* Provider header with priority, toggle, and reorder */}
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">
-                    {provider.id}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    {/* Priority badge */}
+                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-muted text-[10px] font-medium text-muted-foreground">
+                      {index + 1}
+                    </span>
+                    <span className="text-sm font-medium">
+                      {getDisplayName(provider.id)}
+                    </span>
+                    {/* Reorder buttons */}
+                    <div className="flex items-center">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6"
+                        disabled={index === 0}
+                        onClick={() => moveProvider(index, "up")}
+                      >
+                        <ChevronUp className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6"
+                        disabled={index === config.providers.length - 1}
+                        onClick={() => moveProvider(index, "down")}
+                      >
+                        <ChevronDown className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </div>
                   <Switch
                     checked={provider.enabled}
                     onCheckedChange={(v) => updateProvider(index, { enabled: v })}
@@ -251,13 +305,7 @@ export default function ImageGeneratePanel() {
                         </span>
                         <Input
                           value={provider.baseUrl ?? ""}
-                          placeholder={
-                            provider.id === "OpenAI"
-                              ? "https://api.openai.com"
-                              : provider.id === "Google"
-                                ? "https://generativelanguage.googleapis.com"
-                                : "https://fal.run"
-                          }
+                          placeholder={getDefaultBaseUrl(provider.id)}
                           onChange={(e) =>
                             updateProvider(index, {
                               baseUrl: e.target.value || null,
@@ -270,7 +318,7 @@ export default function ImageGeneratePanel() {
                         <span className="text-xs text-muted-foreground">
                           {t("settings.imageGenModel")}
                         </span>
-                        {provider.id === "Google" ? (
+                        {provider.id === "google" ? (
                           <GoogleModelSelect
                             value={provider.model}
                             onChange={(v) => updateProvider(index, { model: v })}
@@ -278,11 +326,7 @@ export default function ImageGeneratePanel() {
                         ) : (
                           <Input
                             value={provider.model ?? ""}
-                            placeholder={
-                              provider.id === "OpenAI"
-                                ? "gpt-image-1"
-                                : "fal-ai/flux/dev"
-                            }
+                            placeholder={getDefaultModel(provider.id)}
                             onChange={(e) =>
                               updateProvider(index, {
                                 model: e.target.value || null,
@@ -294,7 +338,7 @@ export default function ImageGeneratePanel() {
                     </div>
 
                     {/* Google-specific: Thinking Level */}
-                    {provider.id === "Google" && (
+                    {provider.id === "google" && (
                       <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-1.5">
                           <span className="text-xs text-muted-foreground">

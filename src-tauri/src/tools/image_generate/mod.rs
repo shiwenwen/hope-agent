@@ -1,3 +1,6 @@
+use std::future::Future;
+use std::pin::Pin;
+
 use anyhow::Result;
 use chrono::Local;
 use serde::{Deserialize, Serialize};
@@ -5,38 +8,75 @@ use serde_json::Value;
 
 use crate::provider;
 
-mod openai;
-mod google;
-mod fal;
+pub(crate) mod openai;
+pub(crate) mod google;
+pub(crate) mod fal;
 
-// ── Image Generation Provider Config ────────────────────────────
+// ── Provider Trait ──────────────────────────────────────────────
 
-/// Supported image generation providers
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum ImageGenProvider {
-    /// OpenAI DALL-E / gpt-image-1
-    OpenAI,
-    /// Google Gemini image generation
-    Google,
-    /// Fal (Flux) image generation
-    Fal,
+/// Unified parameters for image generation (provider differences are handled internally).
+pub(crate) struct ImageGenParams<'a> {
+    pub api_key: &'a str,
+    pub base_url: Option<&'a str>,
+    pub model: &'a str,
+    pub prompt: &'a str,
+    pub size: &'a str,
+    pub n: u32,
+    pub timeout_secs: u64,
+    /// Provider-specific extra fields (e.g. thinking_level for Google)
+    pub extra: &'a ImageGenProviderEntry,
 }
 
-impl std::fmt::Display for ImageGenProvider {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::OpenAI => write!(f, "OpenAI"),
-            Self::Google => write!(f, "Google"),
-            Self::Fal => write!(f, "Fal"),
-        }
+/// Trait for image generation providers.
+pub(crate) trait ImageGenProviderImpl: Send + Sync {
+    /// Unique provider id (lowercase), e.g. "openai", "google", "fal"
+    fn id(&self) -> &str;
+
+    /// Human-readable display name, e.g. "OpenAI", "Google", "Fal"
+    fn display_name(&self) -> &str;
+
+    /// Default model when user hasn't configured one
+    fn default_model(&self) -> &str;
+
+    /// Execute image generation
+    fn generate<'a>(
+        &'a self,
+        params: ImageGenParams<'a>,
+    ) -> Pin<Box<dyn Future<Output = Result<ImageGenResult>> + Send + 'a>>;
+}
+
+/// Resolve a provider implementation by id string.
+pub fn resolve_provider(id: &str) -> Option<Box<dyn ImageGenProviderImpl>> {
+    match id.to_lowercase().as_str() {
+        "openai" => Some(Box::new(openai::OpenAIProvider)),
+        "google" => Some(Box::new(google::GoogleProvider)),
+        "fal" => Some(Box::new(fal::FalProvider)),
+        _ => None,
     }
 }
+
+/// Known built-in provider ids.
+pub fn known_provider_ids() -> &'static [&'static str] {
+    &["openai", "google", "fal"]
+}
+
+/// Normalize provider id for backward compatibility (e.g. "OpenAI" → "openai").
+fn normalize_provider_id(id: &str) -> String {
+    match id {
+        "OpenAI" => "openai".to_string(),
+        "Google" => "google".to_string(),
+        "Fal" => "fal".to_string(),
+        other => other.to_lowercase(),
+    }
+}
+
+// ── Image Generation Provider Config ────────────────────────────
 
 /// A single image generation provider entry with credentials.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImageGenProviderEntry {
-    pub id: ImageGenProvider,
+    pub id: String,
     pub enabled: bool,
     #[serde(default)]
     pub api_key: Option<String>,
@@ -49,11 +89,24 @@ pub struct ImageGenProviderEntry {
     pub thinking_level: Option<String>,
 }
 
+impl Default for ImageGenProviderEntry {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            enabled: false,
+            api_key: None,
+            base_url: None,
+            model: None,
+            thinking_level: None,
+        }
+    }
+}
+
 /// Persistent image generation configuration, stored in config.json
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImageGenConfig {
-    /// Ordered list of providers. First enabled provider with API key is used.
+    /// Ordered list of providers (order = priority). First enabled provider with API key is used.
     #[serde(default = "default_providers")]
     pub providers: Vec<ImageGenProviderEntry>,
     /// Request timeout in seconds (default 60)
@@ -66,30 +119,9 @@ pub struct ImageGenConfig {
 
 fn default_providers() -> Vec<ImageGenProviderEntry> {
     vec![
-        ImageGenProviderEntry {
-            id: ImageGenProvider::OpenAI,
-            enabled: false,
-            api_key: None,
-            base_url: None,
-            model: None,
-            thinking_level: None,
-        },
-        ImageGenProviderEntry {
-            id: ImageGenProvider::Google,
-            enabled: false,
-            api_key: None,
-            base_url: None,
-            model: None,
-            thinking_level: None,
-        },
-        ImageGenProviderEntry {
-            id: ImageGenProvider::Fal,
-            enabled: false,
-            api_key: None,
-            base_url: None,
-            model: None,
-            thinking_level: None,
-        },
+        ImageGenProviderEntry { id: "openai".to_string(), ..Default::default() },
+        ImageGenProviderEntry { id: "google".to_string(), ..Default::default() },
+        ImageGenProviderEntry { id: "fal".to_string(), ..Default::default() },
     ]
 }
 
@@ -111,22 +143,18 @@ impl Default for ImageGenConfig {
     }
 }
 
-/// Ensure all known providers exist in the config (for forward compatibility).
+/// Ensure all known providers exist in the config and normalize ids.
 pub fn backfill_providers(config: &mut ImageGenConfig) {
-    let known = [
-        ImageGenProvider::OpenAI,
-        ImageGenProvider::Google,
-        ImageGenProvider::Fal,
-    ];
-    for id in &known {
-        if !config.providers.iter().any(|p| &p.id == id) {
+    // Normalize existing ids (backward compat: "OpenAI" → "openai")
+    for p in &mut config.providers {
+        p.id = normalize_provider_id(&p.id);
+    }
+    // Ensure all known providers exist
+    for id in known_provider_ids() {
+        if !config.providers.iter().any(|p| p.id == *id) {
             config.providers.push(ImageGenProviderEntry {
-                id: id.clone(),
-                enabled: false,
-                api_key: None,
-                base_url: None,
-                model: None,
-                thinking_level: None,
+                id: id.to_string(),
+                ..Default::default()
             });
         }
     }
@@ -164,7 +192,58 @@ pub fn has_configured_provider_from_config(config: &ImageGenConfig) -> bool {
     })
 }
 
-// ── Tool Entry Point ────────────────────────────────────────────
+/// Get the display name for a provider entry.
+pub fn provider_display_name(entry: &ImageGenProviderEntry) -> String {
+    resolve_provider(&entry.id)
+        .map(|p| p.display_name().to_string())
+        .unwrap_or_else(|| entry.id.clone())
+}
+
+/// Get the effective model name for a provider entry.
+pub fn effective_model(entry: &ImageGenProviderEntry) -> String {
+    entry
+        .model
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| {
+            resolve_provider(&entry.id)
+                .map(|p| p.default_model().to_string())
+                .unwrap_or_else(|| "unknown".to_string())
+        })
+}
+
+/// Find a provider entry by model name (for LLM tool `model` parameter routing).
+fn find_provider_by_model<'a>(
+    model: &str,
+    config: &'a ImageGenConfig,
+) -> Option<&'a ImageGenProviderEntry> {
+    let enabled_providers = config.providers.iter().filter(|p| {
+        p.enabled && p.api_key.as_ref().map_or(false, |k| !k.is_empty())
+    });
+
+    // 1. Exact match on user-configured model
+    for entry in config.providers.iter().filter(|p| {
+        p.enabled && p.api_key.as_ref().map_or(false, |k| !k.is_empty())
+    }) {
+        if entry.model.as_deref() == Some(model) {
+            return Some(entry);
+        }
+    }
+
+    // 2. Match against provider's default model
+    for entry in enabled_providers {
+        if let Some(impl_) = resolve_provider(&entry.id) {
+            if impl_.default_model() == model {
+                return Some(entry);
+            }
+        }
+    }
+
+    None
+}
+
+// ── Tool Entry Point (with Failover) ────────────────────────────
 
 pub(crate) async fn tool_image_generate(args: &Value) -> Result<String> {
     let config = provider::load_store()
@@ -188,71 +267,155 @@ pub(crate) async fn tool_image_generate(args: &Value) -> Result<String> {
         .min(4)
         .max(1) as u32;
 
-    let provider_override = args
-        .get("provider")
-        .and_then(|v| v.as_str());
+    let model_override = args
+        .get("model")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty() && *s != "auto");
 
-    // Resolve provider: explicit override or first enabled with API key
-    let entry = if let Some(pid) = provider_override {
-        let pid_lower = pid.to_lowercase();
-        config
-            .providers
-            .iter()
-            .find(|p| {
-                let id_str = format!("{:?}", p.id).to_lowercase();
-                id_str == pid_lower || format!("{}", p.id).to_lowercase() == pid_lower
-            })
-            .filter(|p| p.api_key.as_ref().map_or(false, |k| !k.is_empty()))
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "Provider '{}' not found or missing API key. Configure it in Settings > Tool Settings > Image Generation.",
-                    pid
-                )
-            })?
+    // Build candidate list
+    let candidates: Vec<&ImageGenProviderEntry> = if let Some(model_name) = model_override {
+        // Explicit model → find its provider (no failover)
+        match find_provider_by_model(model_name, &config) {
+            Some(entry) => vec![entry],
+            None => anyhow::bail!(
+                "Model '{}' not available. Configure it in Settings > Tool Settings > Image Generation.",
+                model_name
+            ),
+        }
     } else {
+        // Auto mode → all enabled providers in priority order
         config
             .providers
             .iter()
-            .find(|p| p.enabled && p.api_key.as_ref().map_or(false, |k| !k.is_empty()))
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "No image generation provider configured. Please configure one in Settings > Tool Settings > Image Generation."
-                )
-            })?
+            .filter(|p| p.enabled && p.api_key.as_ref().map_or(false, |k| !k.is_empty()))
+            .collect()
     };
 
-    let api_key = entry.api_key.as_deref().unwrap();
-    let base_url = entry.base_url.as_deref();
-    let model = entry.model.as_deref();
+    if candidates.is_empty() {
+        anyhow::bail!(
+            "No image generation provider configured. Please configure one in Settings > Tool Settings > Image Generation."
+        );
+    }
+
     let timeout = config.timeout_seconds;
+    let mut failover_log: Vec<String> = Vec::new();
+    let mut last_error = String::new();
 
-    app_info!(
-        "tool",
-        "image_generate",
-        "Image generate [{}]: prompt='{}', size={}, n={}",
-        entry.id,
-        if prompt.len() > 80 {
-            format!("{}...", crate::truncate_utf8(prompt, 80))
-        } else {
-            prompt.to_string()
-        },
-        size,
-        n
-    );
+    for entry in &candidates {
+        let impl_ = match resolve_provider(&entry.id) {
+            Some(i) => i,
+            None => {
+                failover_log.push(format!("Unknown provider '{}', skipped", entry.id));
+                continue;
+            }
+        };
 
-    let gen_result = match entry.id {
-        ImageGenProvider::OpenAI => {
-            openai::generate(api_key, base_url, model, prompt, size, n, timeout).await?
-        }
-        ImageGenProvider::Google => {
-            let thinking_level = entry.thinking_level.as_deref();
-            google::generate(api_key, base_url, model, prompt, thinking_level, timeout).await?
-        }
-        ImageGenProvider::Fal => {
-            fal::generate(api_key, base_url, model, prompt, size, n, timeout).await?
-        }
-    };
+        let model_name = entry
+            .model
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .unwrap_or(impl_.default_model());
+        let display = impl_.display_name();
 
+        app_info!(
+            "tool",
+            "image_generate",
+            "Image generate [{}/{}]: prompt='{}', size={}, n={}",
+            display,
+            model_name,
+            if prompt.len() > 80 {
+                format!("{}...", crate::truncate_utf8(prompt, 80))
+            } else {
+                prompt.to_string()
+            },
+            size,
+            n
+        );
+
+        // Retry loop: max 1 retry for retryable errors
+        let max_retries: u32 = 1;
+        let mut succeeded = false;
+
+        for attempt in 0..=max_retries {
+            let params = ImageGenParams {
+                api_key: entry.api_key.as_deref().unwrap(),
+                base_url: entry.base_url.as_deref(),
+                model: model_name,
+                prompt,
+                size,
+                n,
+                timeout_secs: timeout,
+                extra: entry,
+            };
+
+            match impl_.generate(params).await {
+                Ok(result) => {
+                    return build_success_result(
+                        result, display, model_name, size, &failover_log,
+                    );
+                }
+                Err(e) => {
+                    let reason = crate::failover::classify_error(&e.to_string());
+                    let reason_label = format!("{:?}", reason);
+
+                    if reason.is_retryable() && attempt < max_retries {
+                        let delay = crate::failover::retry_delay_ms(attempt, 2000, 10000);
+                        failover_log.push(format!(
+                            "{}/{} failed ({}), retrying in {}ms...",
+                            display, model_name, reason_label, delay
+                        ));
+                        app_warn!(
+                            "tool",
+                            "image_generate",
+                            "{}/{} failed ({}), retrying in {}ms",
+                            display,
+                            model_name,
+                            reason_label,
+                            delay
+                        );
+                        tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                        continue;
+                    }
+
+                    let err_string = e.to_string();
+                    let err_preview = crate::truncate_utf8(&err_string, 200);
+                    failover_log.push(format!(
+                        "{}/{} failed ({}): {}",
+                        display, model_name, reason_label, err_preview
+                    ));
+                    last_error = e.to_string();
+                    app_warn!(
+                        "tool",
+                        "image_generate",
+                        "{}/{} failed ({}): {}",
+                        display,
+                        model_name,
+                        reason_label,
+                        err_preview
+                    );
+                    break; // → next candidate
+                }
+            }
+        }
+    }
+
+    // All providers failed
+    let log_summary = failover_log.join("\n");
+    anyhow::bail!(
+        "All image generation providers failed.\n{}\nLast error: {}",
+        log_summary,
+        crate::truncate_utf8(&last_error, 300)
+    )
+}
+
+/// Build the success result string with failover transparency.
+fn build_success_result(
+    gen_result: ImageGenResult,
+    display_name: &str,
+    model: &str,
+    size: &str,
+    failover_log: &[String],
+) -> Result<String> {
     let images = gen_result.images;
     let accompanying_text = gen_result.text;
 
@@ -283,21 +446,29 @@ pub(crate) async fn tool_image_generate(args: &Value) -> Result<String> {
         }
     }
 
-    // Build result string with __MEDIA_URLS__ prefix for frontend image display
+    // Build result string
     let mut text_parts = Vec::new();
     text_parts.push(format!(
         "Generated {} image{} with {}/{}.",
         images.len(),
         if images.len() > 1 { "s" } else { "" },
-        entry.id,
-        model.unwrap_or("default")
+        display_name,
+        model
     ));
     text_parts.push(format!("Size: {}", size));
+
+    // Report failover if it occurred
+    if !failover_log.is_empty() {
+        text_parts.push(format!("[Failover] {}", failover_log.join(" → ")));
+    }
+
     for path in &saved_paths {
         text_parts.push(format!("Saved to: {}", path));
     }
-    if let Some(ref rp) = images[0].revised_prompt {
-        text_parts.push(format!("Revised prompt: {}", rp));
+    if !images.is_empty() {
+        if let Some(ref rp) = images[0].revised_prompt {
+            text_parts.push(format!("Revised prompt: {}", rp));
+        }
     }
     if let Some(ref text) = accompanying_text {
         text_parts.push(format!("Model response: {}", text));
@@ -314,9 +485,11 @@ pub(crate) async fn tool_image_generate(args: &Value) -> Result<String> {
     app_info!(
         "tool",
         "image_generate",
-        "Image generation complete: {} image(s), {} saved",
+        "Image generation complete: {} image(s), {} saved, provider={}/{}",
         images.len(),
-        saved_paths.len()
+        saved_paths.len(),
+        display_name,
+        model
     );
 
     Ok(result)

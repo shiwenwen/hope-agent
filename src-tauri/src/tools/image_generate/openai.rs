@@ -1,9 +1,12 @@
+use std::future::Future;
+use std::pin::Pin;
+
 use anyhow::Result;
 use base64::Engine;
 use reqwest::Client;
 use serde::Deserialize;
 
-use super::GeneratedImage;
+use super::{GeneratedImage, ImageGenParams, ImageGenProviderImpl, ImageGenResult};
 
 const DEFAULT_BASE_URL: &str = "https://api.openai.com";
 const DEFAULT_MODEL: &str = "gpt-image-1";
@@ -19,60 +22,87 @@ struct OpenAIImageData {
     revised_prompt: Option<String>,
 }
 
-pub(super) async fn generate(
-    api_key: &str,
-    base_url: Option<&str>,
-    model: Option<&str>,
-    prompt: &str,
-    size: &str,
-    n: u32,
-    timeout_secs: u64,
-) -> Result<super::ImageGenResult> {
-    let base = base_url
+pub(crate) struct OpenAIProvider;
+
+impl ImageGenProviderImpl for OpenAIProvider {
+    fn id(&self) -> &str {
+        "openai"
+    }
+
+    fn display_name(&self) -> &str {
+        "OpenAI"
+    }
+
+    fn default_model(&self) -> &str {
+        DEFAULT_MODEL
+    }
+
+    fn generate<'a>(
+        &'a self,
+        params: ImageGenParams<'a>,
+    ) -> Pin<Box<dyn Future<Output = Result<ImageGenResult>> + Send + 'a>> {
+        Box::pin(generate_impl(params))
+    }
+}
+
+async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
+    let base = params
+        .base_url
         .filter(|s| !s.is_empty())
         .unwrap_or(DEFAULT_BASE_URL)
         .trim_end_matches('/');
-    let model = model.filter(|s| !s.is_empty()).unwrap_or(DEFAULT_MODEL);
     let url = format!("{}/v1/images/generations", base);
 
     let request_body = serde_json::json!({
-        "model": model,
-        "prompt": prompt,
-        "n": n,
-        "size": size,
+        "model": params.model,
+        "prompt": params.prompt,
+        "n": params.n,
+        "size": params.size,
         "response_format": "b64_json",
     });
 
     // Log image generation request
     if let Some(logger) = crate::get_logger() {
-        let prompt_preview = if prompt.len() > 500 {
-            format!("{}...", crate::truncate_utf8(prompt, 500))
+        let prompt_preview = if params.prompt.len() > 500 {
+            format!("{}...", crate::truncate_utf8(params.prompt, 500))
         } else {
-            prompt.to_string()
+            params.prompt.to_string()
         };
-        logger.log("debug", "tool", "image_generate::openai::request",
-            &format!("OpenAI image gen request: model={}, size={}, n={}, url={}", model, size, n, url),
-            Some(serde_json::json!({
-                "api_url": &url,
-                "model": model,
-                "prompt_preview": prompt_preview,
-                "prompt_length": prompt.len(),
-                "size": size,
-                "n": n,
-                "timeout_secs": timeout_secs,
-            }).to_string()),
-            None, None);
+        logger.log(
+            "debug",
+            "tool",
+            "image_generate::openai::request",
+            &format!(
+                "OpenAI image gen request: model={}, size={}, n={}, url={}",
+                params.model, params.size, params.n, url
+            ),
+            Some(
+                serde_json::json!({
+                    "api_url": &url,
+                    "model": params.model,
+                    "prompt_preview": prompt_preview,
+                    "prompt_length": params.prompt.len(),
+                    "size": params.size,
+                    "n": params.n,
+                    "timeout_secs": params.timeout_secs,
+                })
+                .to_string(),
+            ),
+            None,
+            None,
+        );
     }
 
     let client = crate::provider::apply_proxy(
         Client::builder()
             .connect_timeout(std::time::Duration::from_secs(30))
-            .timeout(std::time::Duration::from_secs(timeout_secs))
-    ).build()?;
+            .timeout(std::time::Duration::from_secs(params.timeout_secs)),
+    )
+    .build()?;
     let request_start = std::time::Instant::now();
     let resp = client
         .post(&url)
-        .header("Authorization", format!("Bearer {}", api_key))
+        .header("Authorization", format!("Bearer {}", params.api_key))
         .header("Content-Type", "application/json")
         .json(&request_body)
         .send()
@@ -85,28 +115,49 @@ pub(super) async fn generate(
     if let Some(logger) = crate::get_logger() {
         logger.log(
             if status.is_success() { "debug" } else { "error" },
-            "tool", "image_generate::openai::response",
-            &format!("OpenAI image gen response: status={}, ttfb={}ms", status.as_u16(), ttfb_ms),
-            Some(serde_json::json!({
-                "status": status.as_u16(),
-                "ttfb_ms": ttfb_ms,
-                "request_id": resp.headers().get("x-request-id").and_then(|v| v.to_str().ok()),
-            }).to_string()),
-            None, None);
+            "tool",
+            "image_generate::openai::response",
+            &format!(
+                "OpenAI image gen response: status={}, ttfb={}ms",
+                status.as_u16(),
+                ttfb_ms
+            ),
+            Some(
+                serde_json::json!({
+                    "status": status.as_u16(),
+                    "ttfb_ms": ttfb_ms,
+                    "request_id": resp.headers().get("x-request-id").and_then(|v| v.to_str().ok()),
+                })
+                .to_string(),
+            ),
+            None,
+            None,
+        );
     }
 
     if !status.is_success() {
         let body = resp.text().await.unwrap_or_default();
         // Log full error response
         if let Some(logger) = crate::get_logger() {
-            logger.log("error", "tool", "image_generate::openai::error",
-                &format!("OpenAI image gen error ({}): {}",
-                    status.as_u16(), crate::truncate_utf8(&body, 500)),
-                Some(serde_json::json!({
-                    "status": status.as_u16(),
-                    "error_body": &body,
-                }).to_string()),
-                None, None);
+            logger.log(
+                "error",
+                "tool",
+                "image_generate::openai::error",
+                &format!(
+                    "OpenAI image gen error ({}): {}",
+                    status.as_u16(),
+                    crate::truncate_utf8(&body, 500)
+                ),
+                Some(
+                    serde_json::json!({
+                        "status": status.as_u16(),
+                        "error_body": &body,
+                    })
+                    .to_string(),
+                ),
+                None,
+                None,
+            );
         }
         let preview = if body.len() > 300 {
             format!("{}...", crate::truncate_utf8(&body, 300))
@@ -142,5 +193,5 @@ pub(super) async fn generate(
         anyhow::bail!("OpenAI returned no valid image data");
     }
 
-    Ok(super::ImageGenResult { images, text: None })
+    Ok(ImageGenResult { images, text: None })
 }

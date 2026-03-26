@@ -1,9 +1,12 @@
+use std::future::Future;
+use std::pin::Pin;
+
 use anyhow::Result;
 use base64::Engine;
 use reqwest::Client;
 use serde::Deserialize;
 
-use super::{GeneratedImage, ImageGenResult};
+use super::{GeneratedImage, ImageGenParams, ImageGenProviderImpl, ImageGenResult};
 
 const DEFAULT_BASE_URL: &str = "https://generativelanguage.googleapis.com";
 const DEFAULT_MODEL: &str = "gemini-3.1-flash-image-preview";
@@ -37,59 +40,89 @@ struct GoogleInlineData {
     data: Option<String>,
 }
 
-pub(super) async fn generate(
-    api_key: &str,
-    base_url: Option<&str>,
-    model: Option<&str>,
-    prompt: &str,
-    thinking_level: Option<&str>,
-    timeout_secs: u64,
-) -> Result<ImageGenResult> {
-    let base = base_url
+pub(crate) struct GoogleProvider;
+
+impl ImageGenProviderImpl for GoogleProvider {
+    fn id(&self) -> &str {
+        "google"
+    }
+
+    fn display_name(&self) -> &str {
+        "Google"
+    }
+
+    fn default_model(&self) -> &str {
+        DEFAULT_MODEL
+    }
+
+    fn generate<'a>(
+        &'a self,
+        params: ImageGenParams<'a>,
+    ) -> Pin<Box<dyn Future<Output = Result<ImageGenResult>> + Send + 'a>> {
+        Box::pin(generate_impl(params))
+    }
+}
+
+async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
+    let base = params
+        .base_url
         .filter(|s| !s.is_empty())
         .unwrap_or(DEFAULT_BASE_URL)
         .trim_end_matches('/');
-    let model = model.filter(|s| !s.is_empty()).unwrap_or(DEFAULT_MODEL);
-    let url = format!("{}/v1beta/models/{}:generateContent", base, model);
+    let url = format!("{}/v1beta/models/{}:generateContent", base, params.model);
+
+    let thinking_level = params.extra.thinking_level.as_deref().unwrap_or("MINIMAL");
 
     // Log image generation request
     if let Some(logger) = crate::get_logger() {
-        let prompt_preview = if prompt.len() > 500 {
-            format!("{}...", crate::truncate_utf8(prompt, 500))
+        let prompt_preview = if params.prompt.len() > 500 {
+            format!("{}...", crate::truncate_utf8(params.prompt, 500))
         } else {
-            prompt.to_string()
+            params.prompt.to_string()
         };
-        logger.log("debug", "tool", "image_generate::google::request",
-            &format!("Google image gen request: model={}, url={}", model, url),
-            Some(serde_json::json!({
-                "api_url": &url,
-                "model": model,
-                "prompt_preview": prompt_preview,
-                "prompt_length": prompt.len(),
-                "timeout_secs": timeout_secs,
-            }).to_string()),
-            None, None);
+        logger.log(
+            "debug",
+            "tool",
+            "image_generate::google::request",
+            &format!(
+                "Google image gen request: model={}, url={}",
+                params.model, url
+            ),
+            Some(
+                serde_json::json!({
+                    "api_url": &url,
+                    "model": params.model,
+                    "prompt_preview": prompt_preview,
+                    "prompt_length": params.prompt.len(),
+                    "timeout_secs": params.timeout_secs,
+                })
+                .to_string(),
+            ),
+            None,
+            None,
+        );
     }
 
     let client = crate::provider::apply_proxy(
         Client::builder()
             .connect_timeout(std::time::Duration::from_secs(30))
-            .timeout(std::time::Duration::from_secs(timeout_secs))
-    ).build()?;
+            .timeout(std::time::Duration::from_secs(params.timeout_secs)),
+    )
+    .build()?;
     let request_start = std::time::Instant::now();
     let resp = client
         .post(&url)
-        .header("x-goog-api-key", api_key)
+        .header("x-goog-api-key", params.api_key)
         .header("Content-Type", "application/json")
         .json(&serde_json::json!({
             "contents": [{
                 "role": "user",
-                "parts": [{ "text": prompt }]
+                "parts": [{ "text": params.prompt }]
             }],
             "generationConfig": {
                 "responseModalities": ["IMAGE", "TEXT"],
                 "thinkingConfig": {
-                    "thinkingLevel": thinking_level.unwrap_or("MINIMAL")
+                    "thinkingLevel": thinking_level
                 }
             }
         }))
@@ -103,26 +136,47 @@ pub(super) async fn generate(
     if let Some(logger) = crate::get_logger() {
         logger.log(
             if status.is_success() { "debug" } else { "error" },
-            "tool", "image_generate::google::response",
-            &format!("Google image gen response: status={}, ttfb={}ms", status.as_u16(), ttfb_ms),
-            Some(serde_json::json!({
-                "status": status.as_u16(),
-                "ttfb_ms": ttfb_ms,
-            }).to_string()),
-            None, None);
+            "tool",
+            "image_generate::google::response",
+            &format!(
+                "Google image gen response: status={}, ttfb={}ms",
+                status.as_u16(),
+                ttfb_ms
+            ),
+            Some(
+                serde_json::json!({
+                    "status": status.as_u16(),
+                    "ttfb_ms": ttfb_ms,
+                })
+                .to_string(),
+            ),
+            None,
+            None,
+        );
     }
 
     if !status.is_success() {
         let body = resp.text().await.unwrap_or_default();
         if let Some(logger) = crate::get_logger() {
-            logger.log("error", "tool", "image_generate::google::error",
-                &format!("Google image gen error ({}): {}",
-                    status.as_u16(), crate::truncate_utf8(&body, 500)),
-                Some(serde_json::json!({
-                    "status": status.as_u16(),
-                    "error_body": &body,
-                }).to_string()),
-                None, None);
+            logger.log(
+                "error",
+                "tool",
+                "image_generate::google::error",
+                &format!(
+                    "Google image gen error ({}): {}",
+                    status.as_u16(),
+                    crate::truncate_utf8(&body, 500)
+                ),
+                Some(
+                    serde_json::json!({
+                        "status": status.as_u16(),
+                        "error_body": &body,
+                    })
+                    .to_string(),
+                ),
+                None,
+                None,
+            );
         }
         let preview = if body.len() > 300 {
             format!("{}...", crate::truncate_utf8(&body, 300))
