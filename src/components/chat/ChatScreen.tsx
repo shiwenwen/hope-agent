@@ -30,6 +30,7 @@ import { useChatStream } from "./useChatStream"
 import { useAutoScroll } from "./useAutoScroll"
 import { usePlanMode } from "./plan-mode/usePlanMode"
 import { PlanPanel } from "./plan-mode/PlanPanel"
+import { detectPlanContent } from "./plan-mode/planParser"
 
 interface ChatScreenProps {
   onOpenAgentSettings?: (agentId: string) => void
@@ -197,6 +198,47 @@ export default function ChatScreen({
 
   // ── Plan Mode Hook ─────────────────────────────────────────
   const planMode = usePlanMode(session.currentSessionId)
+
+  // Auto-detect plan content from assistant messages and sync to PlanPanel
+  useEffect(() => {
+    if (planMode.planState !== "planning" && planMode.planState !== "executing") return
+    if (!session.currentSessionId) return
+
+    // Find the last assistant message with plan content
+    for (let i = session.messages.length - 1; i >= 0; i--) {
+      const msg = session.messages[i]
+      if (msg.role === "assistant" && msg.content) {
+        const { isPlan, steps } = detectPlanContent(msg.content)
+        if (isPlan && steps.length > 0) {
+          // Sync to PlanPanel: update content + steps + save to backend
+          planMode.setPlanContent(msg.content)
+          // Map parsed steps to PlanStep format (preserve live status if executing)
+          if (planMode.planState === "planning") {
+            planMode.setPlanSteps(
+              steps.map((s) => ({
+                ...s,
+                description: "",
+              }))
+            )
+          } else if (planMode.planSteps.length === 0) {
+            // Executing but no steps loaded yet — initialize from parsed
+            planMode.setPlanSteps(
+              steps.map((s) => ({
+                ...s,
+                description: "",
+              }))
+            )
+          }
+          // Save to backend (fire-and-forget)
+          invoke("save_plan_content", {
+            sessionId: session.currentSessionId,
+            content: msg.content,
+          }).catch(() => {})
+          break
+        }
+      }
+    }
+  }, [session.messages, planMode.planState, session.currentSessionId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Auto-scroll Hook ───────────────────────────────────────
   const { scrollContainerRef, bottomRef } = useAutoScroll({
