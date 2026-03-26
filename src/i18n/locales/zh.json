@@ -268,6 +268,8 @@
     "memory": "记忆",
     "memoryDesc": "持久化记忆，帮助 AI 在跨对话中记住重要上下文",
     "memoryAdd": "添加记忆",
+    "memoryPin": "置顶",
+    "memoryUnpin": "取消置顶",
     "memoryEdit": "编辑记忆",
     "memorySearch": "搜索记忆...",
     "memoryCount": "{{count}} 条记忆",
@@ -1099,6 +1101,7 @@
     "export": { "description": "导出为 Markdown" },
     "usage": { "description": "Token 用量" },
     "search": { "description": "搜索网络" },
+    "permission": { "description": "设置工具权限模式（auto/ask/full）" },
     "categories": {
       "session": "会话",
       "model": "模型",
@@ -1164,7 +1167,8 @@
       "toolCalls": "工具调用",
       "errors": "错误数",
       "activeAgents": "活跃 Agent",
-      "cronJobs": "定时任务"
+      "cronJobs": "定时任务",
+      "avgTtft": "平均首Token耗时"
     },
     "token": {
       "trend": "Token 用量趋势",
@@ -1176,7 +1180,10 @@
       "provider": "Provider",
       "cost": "费用",
       "total": "合计",
-      "other": "其他"
+      "other": "其他",
+      "ttft": "首Token耗时",
+      "ttftTrend": "首 Token 耗时趋势 (TTFT)",
+      "avgTtft": "平均 TTFT"
     },
     "tool": {
       "frequency": "调用频次",

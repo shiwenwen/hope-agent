@@ -176,6 +176,28 @@ pub fn handle_usage(
     })
 }
 
+/// /permission <mode> — Set tool permission mode for current session.
+pub fn handle_permission(args: &str) -> Result<CommandResult, String> {
+    let mode = args.trim().to_lowercase();
+    let (resolved, label) = match mode.as_str() {
+        "auto" => ("auto", "Auto"),
+        "ask" | "ask_every_time" => ("ask_every_time", "Ask Every Time"),
+        "full" | "full_approve" => ("full_approve", "Full Approve"),
+        _ => {
+            return Err(format!(
+                "Invalid permission mode: `{}`. Valid: auto, ask, full",
+                mode
+            ));
+        }
+    };
+    Ok(CommandResult {
+        content: format!("Tool permission set to **{}**.", label),
+        action: Some(CommandAction::SetToolPermission {
+            mode: resolved.to_string(),
+        }),
+    })
+}
+
 /// /search <query> — Pass through to LLM as a search request.
 pub fn handle_search(args: &str) -> Result<CommandResult, String> {
     let query = args.trim();

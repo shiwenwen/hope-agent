@@ -122,6 +122,19 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
         },
         // ── Utility ──
         SlashCommandDef {
+            name: "permission".into(),
+            category: CommandCategory::Utility,
+            description_key: "slashCommands.permission.description".into(),
+            has_args: true,
+            arg_placeholder: Some("<mode>".into()),
+            arg_options: Some(vec![
+                "auto".into(),
+                "ask".into(),
+                "full".into(),
+            ]),
+            description_raw: None,
+        },
+        SlashCommandDef {
             name: "help".into(),
             category: CommandCategory::Utility,
             description_key: "slashCommands.help.description".into(),

@@ -24,6 +24,7 @@ export type CommandAction =
   | { type: "sessionCleared" }
   | { type: "passThrough"; message: string }
   | { type: "exportFile"; content: string; filename: string }
+  | { type: "setToolPermission"; mode: string }
   | { type: "displayOnly" }
 
 /** Matches Rust CommandResult struct */

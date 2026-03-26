@@ -307,6 +307,9 @@ export default function ChatScreen({
             logger.error("ui", "ChatScreen::slashExport", "Export failed", e)
           }
           break
+        case "setToolPermission":
+          stream.setToolPermissionMode(action.mode as import("@/types/chat").ToolPermissionMode)
+          break
         case "displayOnly":
           // Already handled above by adding event message
           break

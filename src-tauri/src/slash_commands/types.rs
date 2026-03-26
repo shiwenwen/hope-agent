@@ -86,6 +86,10 @@ pub enum CommandAction {
         content: String,
         filename: String,
     },
+    /// Set tool permission mode for current session.
+    SetToolPermission {
+        mode: String,
+    },
     /// No side-effect, just display the `content` field.
     DisplayOnly,
 }

@@ -56,6 +56,7 @@ pub async fn dispatch(
         "agents" => agent::handle_agents(),
 
         // ── Utility ──
+        "permission" => utility::handle_permission(args),
         "help" => Ok(utility::handle_help()),
         "status" => {
             let store = state.provider_store.lock().await;
