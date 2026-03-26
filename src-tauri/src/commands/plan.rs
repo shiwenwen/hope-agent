@@ -1,9 +1,23 @@
 use crate::plan::{self, PlanModeState, PlanStep, PlanStepStatus};
 
 #[tauri::command]
-pub async fn get_plan_mode(session_id: String) -> Result<String, String> {
+pub async fn get_plan_mode(
+    session_id: String,
+    app_state: tauri::State<'_, crate::AppState>,
+) -> Result<String, String> {
     let state = plan::get_plan_state(&session_id).await;
-    Ok(state.as_str().to_string())
+    if state != PlanModeState::Off {
+        return Ok(state.as_str().to_string());
+    }
+    // Fallback: check DB (in-memory store may be empty after restart)
+    if let Ok(Some(meta)) = app_state.session_db.get_session(&session_id) {
+        if meta.plan_mode != "off" {
+            // Restore in-memory state from DB + plan file
+            plan::restore_from_db(&session_id, &meta.plan_mode).await;
+            return Ok(meta.plan_mode);
+        }
+    }
+    Ok("off".to_string())
 }
 
 #[tauri::command]
@@ -37,11 +51,26 @@ pub async fn save_plan_content(session_id: String, content: String) -> Result<()
 }
 
 #[tauri::command]
-pub async fn get_plan_steps(session_id: String) -> Result<Vec<PlanStep>, String> {
-    match plan::get_plan_meta(&session_id).await {
-        Some(meta) => Ok(meta.steps),
-        None => Ok(Vec::new()),
+pub async fn get_plan_steps(
+    session_id: String,
+    app_state: tauri::State<'_, crate::AppState>,
+) -> Result<Vec<PlanStep>, String> {
+    // Try in-memory first
+    if let Some(meta) = plan::get_plan_meta(&session_id).await {
+        if !meta.steps.is_empty() {
+            return Ok(meta.steps);
+        }
     }
+    // Fallback: restore from DB + plan file (after restart)
+    if let Ok(Some(session_meta)) = app_state.session_db.get_session(&session_id) {
+        if session_meta.plan_mode != "off" {
+            plan::restore_from_db(&session_id, &session_meta.plan_mode).await;
+            if let Some(meta) = plan::get_plan_meta(&session_id).await {
+                return Ok(meta.steps);
+            }
+        }
+    }
+    Ok(Vec::new())
 }
 
 #[tauri::command]
