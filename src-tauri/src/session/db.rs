@@ -109,7 +109,9 @@ impl SessionDB {
                 INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content);
             END;
 
-            CREATE TRIGGER IF NOT EXISTS messages_fts_ad AFTER DELETE ON messages BEGIN
+            CREATE TRIGGER IF NOT EXISTS messages_fts_ad AFTER DELETE ON messages
+            WHEN old.role IN ('user', 'assistant') AND length(old.content) > 0
+            BEGIN
                 INSERT INTO messages_fts(messages_fts, rowid, content) VALUES('delete', old.id, old.content);
             END;"
         )?;
@@ -172,6 +174,21 @@ impl SessionDB {
                 "ALTER TABLE messages ADD COLUMN ttft_ms INTEGER;",
             )?;
         }
+
+        // Migration: fix FTS delete trigger — must match INSERT trigger's WHEN clause
+        // to avoid "database disk image is malformed" errors during CASCADE delete.
+        // The old trigger fired for ALL messages but only user/assistant were indexed.
+        conn.execute_batch(
+            "DROP TRIGGER IF EXISTS messages_fts_ad;
+             CREATE TRIGGER messages_fts_ad AFTER DELETE ON messages
+             WHEN old.role IN ('user', 'assistant') AND length(old.content) > 0
+             BEGIN
+                 INSERT INTO messages_fts(messages_fts, rowid, content) VALUES('delete', old.id, old.content);
+             END;"
+        )?;
+
+        // Rebuild FTS index to fix any existing corruption
+        let _ = conn.execute_batch("INSERT INTO messages_fts(messages_fts) VALUES('rebuild');");
 
         // Migration: add plan_mode column to sessions if missing
         let has_plan_mode = conn
@@ -509,7 +526,22 @@ impl SessionDB {
     /// Delete a session and all its messages (CASCADE) and attachments.
     pub fn delete_session(&self, session_id: &str) -> Result<()> {
         let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        conn.execute("DELETE FROM sessions WHERE id = ?1", params![session_id])?;
+
+        // Try direct delete (CASCADE will handle messages + FTS trigger)
+        match conn.execute("DELETE FROM sessions WHERE id = ?1", params![session_id]) {
+            Ok(_) => {}
+            Err(e) => {
+                // FTS index corrupted — rebuild and retry
+                app_warn!("session", "db", "delete_session failed ({}), rebuilding FTS and retrying", e);
+                let _ = conn.execute_batch("INSERT INTO messages_fts(messages_fts) VALUES('rebuild');");
+                conn.execute("DELETE FROM sessions WHERE id = ?1", params![session_id])?;
+            }
+        }
+
+        // Clean up plan file
+        if let Ok(plans_dir) = crate::paths::plans_dir() {
+            let _ = std::fs::remove_file(plans_dir.join(format!("{}.md", session_id)));
+        }
 
         // Clean up attachments directory
         if let Ok(att_dir) = crate::paths::attachments_dir(session_id) {
