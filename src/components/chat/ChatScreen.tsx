@@ -373,10 +373,8 @@ export default function ChatScreen({
       await planMode.approvePlan()
       const content = planContentOverride || planMode.planContent
       if (content) {
-        stream.setInput(
-          `请按照以下计划逐步执行，每完成一步调用 update_plan_step 工具更新进度：\n\n${content}`
-        )
-        setTimeout(() => stream.handleSend(), 50)
+        const msg = `请按照以下计划逐步执行，每完成一步调用 update_plan_step 工具更新进度：\n\n${content}`
+        stream.handleSend(msg)
       }
     },
     [planMode, stream]

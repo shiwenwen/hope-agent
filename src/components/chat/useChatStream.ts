@@ -50,7 +50,7 @@ export interface UseChatStreamReturn {
   setShowCodexAuthExpired: React.Dispatch<React.SetStateAction<boolean>>
   toolPermissionMode: ToolPermissionMode
   setToolPermissionMode: React.Dispatch<React.SetStateAction<ToolPermissionMode>>
-  handleSend: () => Promise<void>
+  handleSend: (directText?: string) => Promise<void>
   handleStop: () => Promise<void>
   handleApprovalResponse: (
     requestId: string,
@@ -310,18 +310,23 @@ export function useChatStream({
     }
   }
 
-  async function handleSend() {
-    if (!input.trim()) return
+  /**
+   * Send a message. If `directText` is provided, use it directly instead of the input box.
+   * This avoids flashing text in the input (used by Plan Mode approve).
+   */
+  async function handleSend(directText?: string) {
+    const rawText = directText ?? input
+    if (!rawText.trim()) return
 
     // If currently loading, queue the message as pending
     if (loading) {
-      setPendingMessage(input.trim())
-      setInput("")
+      setPendingMessage(rawText.trim())
+      if (!directText) setInput("")
       return
     }
 
-    const text = input.trim()
-    const filesToSend = [...attachedFiles]
+    const text = rawText.trim()
+    const filesToSend = directText ? [] : [...attachedFiles]
     setInput("")
     setAttachedFiles([])
     const now = new Date().toISOString()
