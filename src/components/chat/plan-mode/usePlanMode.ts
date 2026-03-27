@@ -111,6 +111,31 @@ export function usePlanMode(currentSessionId: string | null): UsePlanModeReturn 
       })
   }, [currentSessionId])
 
+  // Listen for plan_content_updated events (backend detected plan in LLM output)
+  useEffect(() => {
+    let unlisten: UnlistenFn | undefined
+    listen<{ sessionId: string; stepCount: number; content: string }>(
+      "plan_content_updated",
+      (event) => {
+        if (event.payload.sessionId !== currentSessionId) return
+        // Update plan content and refresh steps from backend
+        setPlanContent(event.payload.content)
+        invoke<PlanStep[]>("get_plan_steps", { sessionId: event.payload.sessionId })
+          .then((steps) => {
+            if (steps && steps.length > 0) {
+              setPlanSteps(steps)
+            }
+          })
+          .catch(() => {})
+      }
+    ).then((fn) => {
+      unlisten = fn
+    })
+    return () => {
+      unlisten?.()
+    }
+  }, [currentSessionId])
+
   // Listen for plan_step_updated events
   useEffect(() => {
     let unlisten: UnlistenFn | undefined

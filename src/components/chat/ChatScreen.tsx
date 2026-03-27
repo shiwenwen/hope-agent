@@ -198,36 +198,6 @@ export default function ChatScreen({
   // ── Plan Mode Hook ─────────────────────────────────────────
   const planMode = usePlanMode(session.currentSessionId)
 
-  // Reload plan steps from backend when plan_content_updated event is received via chat stream
-  // The event is emitted by the backend after detecting plan checklist format in LLM output
-  const planContentUpdateRef = useRef(0)
-  useEffect(() => {
-    // Listen for plan_content_updated in the chat stream events
-    const msgs = session.messages
-    if (!session.currentSessionId || planMode.planState === "off") return
-    // Find the latest assistant message and use it as plan content for the panel
-    for (let i = msgs.length - 1; i >= 0; i--) {
-      const msg = msgs[i]
-      if (msg.role === "assistant" && msg.content) {
-        // Only update when content actually changes
-        const hash = msg.content.length
-        if (hash !== planContentUpdateRef.current) {
-          planContentUpdateRef.current = hash
-          // Refresh steps from backend (backend already parsed and saved)
-          invoke<import("./plan-mode/usePlanMode").PlanStep[]>("get_plan_steps", {
-            sessionId: session.currentSessionId,
-          }).then((steps) => {
-            if (steps && steps.length > 0) {
-              planMode.setPlanSteps(steps)
-              planMode.setPlanContent(msg.content)
-            }
-          }).catch(() => {})
-        }
-        break
-      }
-    }
-  }, [session.messages.length, planMode.planState, session.currentSessionId]) // eslint-disable-line react-hooks/exhaustive-deps
-
   // ── Auto-scroll Hook ───────────────────────────────────────
   const { scrollContainerRef, bottomRef } = useAutoScroll({
     loading: session.loading,

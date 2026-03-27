@@ -576,14 +576,14 @@ pub async fn chat(
                             // Save plan file + update in-memory steps
                             let _ = crate::plan::save_plan_file(&sid, &result);
                             crate::plan::update_plan_steps(&sid, steps.clone()).await;
-                            // Emit event to frontend so PlanPanel updates in real-time
-                            let plan_event = serde_json::json!({
-                                "type": "plan_content_updated",
-                                "session_id": &sid,
-                                "step_count": steps.len(),
-                            });
-                            if let Ok(json_str) = serde_json::to_string(&plan_event) {
-                                let _ = on_event.send(json_str);
+                            // Emit Tauri global event so PlanPanel updates in real-time
+                            if let Some(app_handle) = crate::get_app_handle() {
+                                use tauri::Emitter;
+                                let _ = app_handle.emit("plan_content_updated", serde_json::json!({
+                                    "sessionId": &sid,
+                                    "stepCount": steps.len(),
+                                    "content": &result,
+                                }));
                             }
                         }
                     }
