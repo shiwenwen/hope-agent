@@ -290,6 +290,49 @@ pub fn apply_proxy_blocking(builder: reqwest::blocking::ClientBuilder) -> reqwes
     }
 }
 
+// ── Shortcut Config ─────────────────────────────────────────────
+
+/// A single keyboard shortcut binding
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShortcutBinding {
+    /// Unique identifier for this shortcut action
+    pub id: String,
+    /// The shortcut key combination (e.g. "Alt+Space", "CommandOrControl+Shift+K")
+    /// Empty string means disabled.
+    pub keys: String,
+    /// Whether this shortcut is enabled
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+/// Global shortcut configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShortcutConfig {
+    /// All shortcut bindings
+    #[serde(default = "default_shortcut_bindings")]
+    pub bindings: Vec<ShortcutBinding>,
+}
+
+fn default_shortcut_bindings() -> Vec<ShortcutBinding> {
+    vec![
+        ShortcutBinding {
+            id: "quickChat".to_string(),
+            keys: "Alt+Space".to_string(),
+            enabled: true,
+        },
+    ]
+}
+
+impl Default for ShortcutConfig {
+    fn default() -> Self {
+        Self {
+            bindings: default_shortcut_bindings(),
+        }
+    }
+}
+
 // ── Notification Config ─────────────────────────────────────────
 
 /// Global notification configuration
@@ -383,6 +426,10 @@ pub struct ProviderStore {
     /// ACP control plane configuration (external agent management)
     #[serde(default)]
     pub acp_control: crate::acp_control::AcpControlConfig,
+
+    /// Global keyboard shortcut configuration
+    #[serde(default)]
+    pub shortcuts: ShortcutConfig,
 }
 
 fn default_skill_env_check() -> bool {
@@ -427,6 +474,7 @@ impl Default for ProviderStore {
             skill_prompt_budget: crate::skills::SkillPromptBudget::default(),
             skill_allow_bundled: Vec::new(),
             acp_control: crate::acp_control::AcpControlConfig::default(),
+            shortcuts: ShortcutConfig::default(),
         }
     }
 }

@@ -153,6 +153,48 @@ pub async fn compact_context_now(
     Ok(result)
 }
 
+// ── Shortcuts ────────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn get_shortcut_config() -> Result<provider::ShortcutConfig, String> {
+    let store = provider::load_store().map_err(|e| e.to_string())?;
+    Ok(store.shortcuts)
+}
+
+#[tauri::command]
+pub async fn save_shortcut_config(app: tauri::AppHandle, config: provider::ShortcutConfig) -> Result<(), String> {
+    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    store.shortcuts = config.clone();
+    provider::save_store(&store).map_err(|e| e.to_string())?;
+
+    // Re-register global shortcuts
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+    let manager = app.global_shortcut();
+
+    // Unregister all existing shortcuts
+    let _ = manager.unregister_all();
+
+    // Register enabled shortcuts
+    for binding in &config.bindings {
+        if !binding.enabled || binding.keys.is_empty() {
+            continue;
+        }
+        if let Ok(shortcut) = binding.keys.parse::<tauri_plugin_global_shortcut::Shortcut>() {
+            if let Err(e) = manager.register(shortcut) {
+                if let Some(logger) = crate::get_logger() {
+                    logger.log("warn", "shortcut", "save_shortcut_config",
+                        &format!("Failed to register shortcut '{}' ({}): {}", binding.id, binding.keys, e),
+                        None, None, None);
+                }
+            }
+        } else {
+            return Err(format!("Invalid shortcut key combination: {}", binding.keys));
+        }
+    }
+
+    Ok(())
+}
+
 // ── Proxy ────────────────────────────────────────────────────────
 
 #[tauri::command]

@@ -228,6 +228,9 @@
     "languageDesc": "Choose the display language",
     "appearance": "Appearance",
     "appearanceDesc": "Choose the theme appearance mode",
+    "tabAppearance": "Appearance & Language",
+    "tabSystem": "System & Shortcuts",
+    "tabNetwork": "Network Proxy",
     "about": "About",
     "health": "System Health",
     "skills": "Skills",
@@ -340,6 +343,7 @@
     "memoryResetToGlobal": "Reset to inherit global settings",
     "cron": "Scheduled Tasks",
     "notifications": "Notifications",
+    "shortcuts": "Shortcuts",
     "sandbox": "Docker Sandbox",
     "sandboxDesc": "Configure Docker container sandbox isolation for secure command execution",
     "acpControl": "ACP Control Plane",
@@ -948,6 +952,18 @@
     "cronError": "Scheduled task failed",
     "cronNotify": "Notify on complete",
     "cronNotifyDesc": "Send a desktop notification when this task finishes"
+  },
+  "shortcuts": {
+    "title": "Keyboard Shortcuts",
+    "desc": "Customize global keyboard shortcuts. Click on a shortcut area and press a new key combination to change it.",
+    "actionQuickChat": "Quick Chat",
+    "actionQuickChatDesc": "Toggle the quick chat overlay globally",
+    "actionOpenSettings": "Open Settings",
+    "actionOpenSettingsDesc": "Open the settings panel",
+    "recording": "Press a shortcut...",
+    "unset": "Not set",
+    "hint": "Shortcuts must include at least one modifier key (Cmd/Alt/Shift/Ctrl). Press Esc to cancel recording.",
+    "reset": "Reset to Default"
   },
   "about": {
     "title": "About",

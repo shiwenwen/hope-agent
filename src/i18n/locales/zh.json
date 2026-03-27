@@ -228,6 +228,9 @@
     "languageDesc": "选择界面显示语言",
     "appearance": "外观",
     "appearanceDesc": "选择主题外观模式",
+    "tabAppearance": "外观与语言",
+    "tabSystem": "系统与快捷键",
+    "tabNetwork": "网络代理",
     "about": "关于",
     "health": "系统健康",
     "skills": "技能",
@@ -340,6 +343,7 @@
     "memoryResetToGlobal": "恢复继承全局设置",
     "cron": "定时任务",
     "notifications": "通知",
+    "shortcuts": "快捷键",
     "sandbox": "Docker 沙箱",
     "sandboxDesc": "配置 Docker 容器沙箱隔离，用于安全执行命令",
     "acpControl": "ACP 控制面",
@@ -948,6 +952,18 @@
     "cronError": "定时任务失败",
     "cronNotify": "完成时通知",
     "cronNotifyDesc": "任务完成时发送桌面通知"
+  },
+  "shortcuts": {
+    "title": "快捷键设置",
+    "desc": "自定义全局键盘快捷键。点击快捷键区域后按下新的组合键即可修改。",
+    "actionQuickChat": "快捷对话",
+    "actionQuickChatDesc": "全局唤起快捷对话浮层",
+    "actionOpenSettings": "打开设置",
+    "actionOpenSettingsDesc": "打开设置面板",
+    "recording": "请按下快捷键...",
+    "unset": "未设置",
+    "hint": "快捷键需包含至少一个修饰键（⌘/⌥/⇧/⌃）。按 Esc 取消录制。",
+    "reset": "恢复默认"
   },
   "about": {
     "title": "关于",

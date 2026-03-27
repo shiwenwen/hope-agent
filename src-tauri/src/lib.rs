@@ -204,16 +204,41 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(|app_handle, _shortcut, event| {
+                .with_handler(|app_handle, shortcut, event| {
                     if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                        // Look up which action this shortcut maps to
+                        let store = provider::load_store().unwrap_or_default();
+                        let action_id = store.shortcuts.bindings.iter()
+                            .find(|b| {
+                                b.enabled && b.keys.parse::<tauri_plugin_global_shortcut::Shortcut>()
+                                    .map(|s| s == *shortcut)
+                                    .unwrap_or(false)
+                            })
+                            .map(|b| b.id.clone());
+
                         use tauri::Manager;
-                        if let Some(window) = app_handle.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.unminimize();
-                            let _ = window.set_focus();
-                        }
                         use tauri::Emitter;
-                        let _ = app_handle.emit("quick-chat-toggle", ());
+                        match action_id.as_deref() {
+                            Some("quickChat") => {
+                                if let Some(window) = app_handle.get_webview_window("main") {
+                                    let _ = window.show();
+                                    let _ = window.unminimize();
+                                    let _ = window.set_focus();
+                                }
+                                let _ = app_handle.emit("quick-chat-toggle", ());
+                            }
+                            Some("openSettings") => {
+                                if let Some(window) = app_handle.get_webview_window("main") {
+                                    let _ = window.show();
+                                    let _ = window.unminimize();
+                                    let _ = window.set_focus();
+                                }
+                                let _ = app_handle.emit("open-settings", ());
+                            }
+                            _ => {
+                                let _ = app_handle.emit("shortcut-triggered", shortcut.to_string());
+                            }
+                        }
                     }
                 })
                 .build(),
@@ -270,13 +295,20 @@ pub fn run() {
             // Auto-start Docker SearXNG if previously configured
             auto_start_searxng_docker();
 
-            // Register global shortcut (Alt+Space / Option+Space)
+            // Register global shortcuts from config
             {
                 use tauri_plugin_global_shortcut::GlobalShortcutExt;
-                let shortcut = "Alt+Space".parse::<tauri_plugin_global_shortcut::Shortcut>()
-                    .map_err(|e| format!("Failed to parse shortcut: {}", e))?;
-                app.global_shortcut().register(shortcut)
-                    .map_err(|e| format!("Failed to register global shortcut: {}", e))?;
+                let store = provider::load_store().unwrap_or_default();
+                for binding in &store.shortcuts.bindings {
+                    if !binding.enabled || binding.keys.is_empty() {
+                        continue;
+                    }
+                    if let Ok(shortcut) = binding.keys.parse::<tauri_plugin_global_shortcut::Shortcut>() {
+                        if let Err(e) = app.global_shortcut().register(shortcut) {
+                            log::warn!("Failed to register shortcut '{}' ({}): {}", binding.id, binding.keys, e);
+                        }
+                    }
+                }
             }
 
             Ok(())
@@ -340,6 +372,17 @@ pub fn run() {
 
             // Log system startup
             logger.log("info", "system", "lib::run", "OpenComputer started", None, None, None);
+
+            // Send welcome notification on startup
+            if let Some(handle) = APP_HANDLE.get() {
+                use tauri::Emitter;
+                let payload = serde_json::json!({
+                    "type": "agent_notification",
+                    "title": "欢迎使用 OpenComputer",
+                    "body": "文文，准备好开始今天的工作了吗？",
+                });
+                let _ = handle.emit("agent:send_notification", payload);
+            }
 
             // Initialize sub-agent cancel registry
             let subagent_cancels = Arc::new(subagent::SubagentCancelRegistry::new());
@@ -503,6 +546,9 @@ pub fn run() {
             // Tool timeout
             commands::config::get_tool_timeout,
             commands::config::set_tool_timeout,
+            // Shortcuts
+            commands::config::get_shortcut_config,
+            commands::config::save_shortcut_config,
             // Autostart
             commands::config::get_autostart_enabled,
             commands::config::set_autostart_enabled,
