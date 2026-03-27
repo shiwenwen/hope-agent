@@ -1,14 +1,18 @@
-import { useMemo, useEffect } from "react"
+import { useMemo, useEffect, useState, useCallback } from "react"
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window"
+import { invoke } from "@tauri-apps/api/core"
 import {
   ClipboardList,
   X,
   Play,
   Loader2,
   CheckCircle,
+  Save,
+  FileText,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { Textarea } from "@/components/ui/textarea"
 import { IconTip } from "@/components/ui/tooltip"
 import { useTranslation } from "react-i18next"
 import { groupStepsByPhase } from "./planParser"
@@ -21,8 +25,9 @@ interface PlanPanelProps {
   planContent: string
   progress: number
   completedCount: number
+  sessionId: string | null
+  onPlanContentChange: (content: string) => void
   onApprove: () => void
-  onKeepPlanning?: () => void
   onExit: () => void
   onClose: () => void
 }
@@ -30,16 +35,28 @@ interface PlanPanelProps {
 export function PlanPanel({
   planState,
   planSteps,
+  planContent,
   progress,
   completedCount,
+  sessionId,
+  onPlanContentChange,
   onApprove,
-  onKeepPlanning,
   onExit,
   onClose,
 }: PlanPanelProps) {
   const { t } = useTranslation()
+  const [editContent, setEditContent] = useState(planContent)
+  const [dirty, setDirty] = useState(false)
+  const [saving, setSaving] = useState(false)
 
-  // Adjust window min size when panel is mounted/unmounted
+  // Sync external planContent → local editContent (when LLM updates the plan)
+  useEffect(() => {
+    if (!dirty) {
+      setEditContent(planContent)
+    }
+  }, [planContent, dirty])
+
+  // Adjust window min size
   useEffect(() => {
     const win = getCurrentWindow()
     win.setMinSize(new LogicalSize(1240, 480))
@@ -47,6 +64,25 @@ export function PlanPanel({
       win.setMinSize(new LogicalSize(840, 480))
     }
   }, [])
+
+  const handleEditChange = useCallback((value: string) => {
+    setEditContent(value)
+    setDirty(true)
+  }, [])
+
+  const handleSave = useCallback(async () => {
+    if (!sessionId || !dirty) return
+    setSaving(true)
+    try {
+      await invoke("save_plan_content", { sessionId, content: editContent })
+      onPlanContentChange(editContent)
+      setDirty(false)
+    } catch (e) {
+      console.error("Failed to save plan:", e)
+    } finally {
+      setSaving(false)
+    }
+  }, [sessionId, editContent, dirty, onPlanContentChange])
 
   const groupedPhases = useMemo(
     () => groupStepsByPhase(planSteps),
@@ -62,6 +98,8 @@ export function PlanPanel({
         s.status === "failed"
     )
 
+  const isEditable = planState === "planning"
+
   return (
     <div className="flex flex-col border-l border-border w-[400px] shrink-0 max-w-[40vw] bg-background animate-in slide-in-from-right-2 duration-200">
       {/* Title bar */}
@@ -69,6 +107,18 @@ export function PlanPanel({
         <ClipboardList className="h-4 w-4 text-blue-500" />
         <span className="text-sm font-medium truncate flex-1">{t("planMode.panelTitle")}</span>
         <div className="flex items-center gap-0.5">
+          {/* Save button (only in editing mode when dirty) */}
+          {isEditable && dirty && (
+            <IconTip label={t("common.save")}>
+              <button
+                className="p-1 rounded hover:bg-secondary transition-colors text-blue-500 hover:text-blue-600"
+                onClick={handleSave}
+                disabled={saving}
+              >
+                {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+              </button>
+            </IconTip>
+          )}
           <IconTip label={t("common.close")}>
             <button
               className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
@@ -80,8 +130,8 @@ export function PlanPanel({
         </div>
       </div>
 
-      {/* Progress bar */}
-      {planSteps.length > 0 && (
+      {/* Progress bar (only when executing or done) */}
+      {(planState === "executing" || allDone) && planSteps.length > 0 && (
         <div className="px-3 py-2 border-b border-border/50">
           <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
             <span>
@@ -101,21 +151,57 @@ export function PlanPanel({
         </div>
       )}
 
-      {/* Step list (scrollable) */}
-      <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1">
-        {groupedPhases.map((phase) => (
-          <div key={phase.name} className="mb-3">
-            <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5 px-1">
-              {phase.name}
+      {/* Main content area */}
+      <div className="flex-1 overflow-y-auto">
+        {/* Planning mode: show editable textarea + step preview */}
+        {isEditable && (
+          <div className="flex flex-col h-full">
+            {/* Editable plan content */}
+            <div className="flex-1 p-3">
+              <Textarea
+                value={editContent}
+                onChange={(e) => handleEditChange(e.target.value)}
+                placeholder={t("planMode.editorPlaceholder")}
+                className="h-full min-h-[200px] resize-none border-border/50 bg-secondary/20 text-sm font-mono"
+              />
             </div>
-            {phase.steps.map((step) => (
-              <PlanStepItem key={step.index} step={step} detailed />
-            ))}
+            {/* Parsed step preview (below editor) */}
+            {planSteps.length > 0 && (
+              <div className="border-t border-border/50 px-3 py-2">
+                <div className="flex items-center gap-1.5 mb-2">
+                  <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span className="text-xs text-muted-foreground font-medium">
+                    {planSteps.length} {t("planMode.stepsDetected")}
+                  </span>
+                </div>
+                <div className="space-y-0.5 max-h-[200px] overflow-y-auto">
+                  {planSteps.map((step) => (
+                    <PlanStepItem key={step.index} step={step} />
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
-        ))}
-        {planSteps.length === 0 && planState === "planning" && (
-          <div className="text-sm text-muted-foreground text-center py-8">
-            {t("planMode.placeholder")}
+        )}
+
+        {/* Executing / Done mode: show step list with progress */}
+        {!isEditable && (
+          <div className="px-3 py-2 space-y-1">
+            {groupedPhases.map((phase) => (
+              <div key={phase.name} className="mb-3">
+                <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5 px-1">
+                  {phase.name}
+                </div>
+                {phase.steps.map((step) => (
+                  <PlanStepItem key={step.index} step={step} detailed />
+                ))}
+              </div>
+            ))}
+            {planSteps.length === 0 && (
+              <div className="text-sm text-muted-foreground text-center py-8">
+                {t("planMode.noSteps")}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -126,21 +212,23 @@ export function PlanPanel({
           <>
             <Button
               className="w-full bg-blue-600 hover:bg-blue-700 text-white"
-              onClick={onApprove}
+              onClick={() => {
+                // Save any unsaved edits first, then approve
+                if (dirty && sessionId) {
+                  invoke("save_plan_content", { sessionId, content: editContent })
+                    .then(() => onApprove())
+                    .catch(() => onApprove())
+                } else {
+                  onApprove()
+                }
+              }}
             >
               <Play className="h-4 w-4 mr-2" />
               {t("planMode.approveAndExecute")}
             </Button>
-            <div className="flex gap-2">
-              {onKeepPlanning && (
-                <Button variant="outline" className="flex-1" onClick={onKeepPlanning}>
-                  {t("planMode.keepPlanning")}
-                </Button>
-              )}
-              <Button variant="ghost" className="flex-1" onClick={onExit}>
-                {t("planMode.exitWithout")}
-              </Button>
-            </div>
+            <Button variant="ghost" className="w-full" onClick={onExit}>
+              {t("planMode.exitWithout")}
+            </Button>
           </>
         )}
         {planState === "planning" && planSteps.length === 0 && (
@@ -154,7 +242,7 @@ export function PlanPanel({
             <span>{t("planMode.executing")}</span>
           </div>
         )}
-        {allDone && planState !== "off" && (
+        {allDone && (
           <div className="flex items-center gap-2 text-sm text-green-600">
             <CheckCircle className="h-4 w-4" />
             <span>{t("planMode.completed")}</span>

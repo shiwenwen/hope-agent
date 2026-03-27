@@ -189,10 +189,11 @@
     "recall_memory": "回忆记忆",
     "update_memory": "更新记忆",
     "delete_memory": "删除记忆",
+    "memory_get": "读取记忆",
+    "update_core_memory": "更新核心记忆",
     "manage_cron": "定时任务",
     "browser": "浏览器",
     "send_notification": "发送通知",
-    "memory_get": "读取记忆",
     "agents_list": "Agent 列表",
     "sessions_list": "会话列表",
     "session_status": "会话状态",
@@ -202,6 +203,8 @@
     "image_generate": "生成图片",
     "pdf": "读取 PDF",
     "canvas": "画布",
+    "subagent": "子 Agent",
+    "update_plan_step": "更新计划步骤",
     "rawCall": "查看原始调用"
   },
   "toolGroup": {
@@ -1135,7 +1138,11 @@
     "stepsCompleted": "步完成",
     "completed": "计划执行完成",
     "placeholder": "描述你想要实现的功能...",
-    "panelTitle": "执行计划"
+    "panelTitle": "执行计划",
+    "editorPlaceholder": "在此编辑计划内容...\n\n### Phase 1: 分析\n- [ ] 步骤描述\n\n### Phase 2: 实现\n- [ ] 步骤描述",
+    "stepsDetected": "个步骤已识别",
+    "noSteps": "暂无步骤",
+    "executeCommand": "开始执行计划，按步骤逐一完成，每完成一步调用 update_plan_step 更新进度。"
   },
   "canvas": {
     "refresh": "刷新",

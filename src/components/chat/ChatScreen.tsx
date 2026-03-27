@@ -356,7 +356,7 @@ export default function ChatScreen({
           planMode.exitPlanMode()
           break
         case "approvePlan":
-          handlePlanApprove(action.planContent)
+          handlePlanApprove()
           break
         case "showPlan":
           planMode.setPlanContent(action.planContent)
@@ -369,15 +369,12 @@ export default function ChatScreen({
 
   // ── Plan Approve Handler ───────────────────────────────────────
   const handlePlanApprove = useCallback(
-    async (planContentOverride?: string | null) => {
+    async () => {
       await planMode.approvePlan()
-      const content = planContentOverride || planMode.planContent
-      if (content) {
-        const msg = `请按照以下计划逐步执行，每完成一步调用 update_plan_step 工具更新进度：\n\n${content}`
-        stream.handleSend(msg)
-      }
+      // Send a short trigger — the full plan is already in the system prompt (Executing state)
+      stream.handleSend(t("planMode.executeCommand"))
     },
-    [planMode, stream]
+    [planMode, stream, t]
   )
 
   return (
@@ -535,8 +532,9 @@ export default function ChatScreen({
           planContent={planMode.planContent}
           progress={planMode.progress}
           completedCount={planMode.completedCount}
-          onApprove={() => handlePlanApprove()}
-          onKeepPlanning={() => planMode.setShowPanel(false)}
+          sessionId={session.currentSessionId}
+          onPlanContentChange={planMode.setPlanContent}
+          onApprove={handlePlanApprove}
           onExit={planMode.exitPlanMode}
           onClose={() => planMode.setShowPanel(false)}
         />

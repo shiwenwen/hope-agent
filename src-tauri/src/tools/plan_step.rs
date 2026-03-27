@@ -32,11 +32,22 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
         }));
     }
 
-    // Check if all steps completed → auto-transition
+    // Check if all steps completed → auto-transition + save result file
     if let Some(meta) = plan::get_plan_meta(sid).await {
         if meta.all_terminal() && meta.state == plan::PlanModeState::Executing {
+            // Save execution result as MD file
+            let plan_title = meta.title.as_deref().unwrap_or("Plan");
+            let summary_text = args.get("summary").and_then(|v| v.as_str()).unwrap_or("");
+            match plan::save_result_file(sid, plan_title, &meta.steps, summary_text) {
+                Ok(result_path) => {
+                    app_info!("plan", "plan_step", "Execution result saved to {}", result_path);
+                }
+                Err(e) => {
+                    app_warn!("plan", "plan_step", "Failed to save execution result: {}", e);
+                }
+            }
+
             plan::set_plan_state(sid, plan::PlanModeState::Off).await;
-            // Update DB
             if let Some(session_db) = crate::get_session_db() {
                 let _ = session_db.update_session_plan_mode(sid, "off");
             }

@@ -202,6 +202,9 @@
     "image_generate": "Generate Image",
     "pdf": "Read PDF",
     "canvas": "Canvas",
+    "update_core_memory": "Update Core Memory",
+    "subagent": "Sub-Agent",
+    "update_plan_step": "Update Plan Step",
     "rawCall": "View raw call"
   },
   "toolGroup": {
@@ -1135,7 +1138,11 @@
     "stepsCompleted": "steps completed",
     "completed": "Plan execution completed",
     "placeholder": "Describe what you want to achieve...",
-    "panelTitle": "Execution Plan"
+    "panelTitle": "Execution Plan",
+    "editorPlaceholder": "Edit plan content here...\n\n### Phase 1: Analysis\n- [ ] Step description\n\n### Phase 2: Implementation\n- [ ] Step description",
+    "stepsDetected": "steps detected",
+    "noSteps": "No steps yet",
+    "executeCommand": "Start executing the plan. Complete each step in order, calling update_plan_step to track progress."
   },
   "canvas": {
     "refresh": "Refresh",
