@@ -19,7 +19,7 @@ node scripts/sync-i18n.mjs --apply   # 从翻译文件补齐缺失翻译
 ```
 src/                    前端（React + TypeScript）
   components/
-    chat/               聊天相关组件（消息列表/输入框/审批对话框/思考块/工具调用块/Plan Mode）
+    chat/               聊天相关组件（消息列表/输入框/审批对话框/思考块/工具调用块/Plan Mode/快捷对话浮层）
       plan-mode/          Plan Mode 组件（PlanBlock 内嵌卡片 + PlanPanel 右侧面板 + usePlanMode hook + planParser 解析器）
     settings/           设置面板（Provider/Agent/外观/语言/模型/技能/用户资料/系统）
     common/             共享组件（导航栏/Markdown 渲染/Provider 图标）
@@ -121,6 +121,7 @@ src-tauri/src/          后端（Rust）
 - **Docker 沙箱系统**：`sandbox.rs` 实现安全加固的 Docker 容器沙箱执行。`exec` 工具 `sandbox=true` 参数或 Agent `behavior.sandbox` 配置触发。默认镜像 `debian:bookworm-slim`。安全加固：只读根文件系统（`--read-only`）+ capability 全部移除（`--cap-drop ALL`）+ 禁止新权限（`--no-new-privileges`）+ 网络隔离（`--network none`）+ 进程数限制（`--pids-limit 256`）+ tmpfs 可写临时目录。环境变量过滤：`sanitize_env()` 拦截 20+ 种敏感变量模式（API_KEY/TOKEN/SECRET/PASSWORD 等），白名单放行 PATH/HOME/LANG 等。挂载路径校验：`validate_bind_mount()` 禁止挂载 `/etc`、`/proc`、`/sys`、`/dev`、`/root`、Docker socket 等系统路径，canonicalize 防 symlink 逃逸。`SandboxConfig` 持久化在 `~/.opencomputer/sandbox.json`（8 个可配置参数）。系统提示词 Section ⑪ 条件注入沙箱说明。设置面板 `SandboxPanel` 管理（Docker 可用性检测 + 镜像/资源/安全配置）。3 个 Tauri 命令（`get_sandbox_config` / `set_sandbox_config` / `check_sandbox_available`）
 - **ACP 协议支持**：`acp/` 模块实现原生 Agent Client Protocol 服务器，IDE（Zed/VS Code 等）通过 stdio + NDJSON（JSON-RPC 2.0）直连 OpenComputer Agent。`opencomputer acp` 子命令启动（`--verbose`/`--agent-id`）。完整会话生命周期（new/load/list/close）+ prompt 执行（流式事件映射）+ 历史重放（loadSession 从 SessionDB 重建完整对话）+ 多 Agent 模式切换 + failover 降级。共享 SessionDB 实现桌面端与 IDE 会话互通
 - **自愈式自动重启**：`main.rs` 实现 Guardian Process 架构，同一二进制通过 `OPENCOMPUTER_CHILD` 环境变量区分 Guardian/Child 模式。Guardian 监控子进程退出码，捕获所有崩溃类型（panic/segfault/OOM/abort），指数退避重启。连续崩溃 5 次触发 `backup.rs` 配置备份 + `self_diagnosis.rs` LLM 自诊断（多 Provider Failover + 基础分析降级），保守自动修复（仅 config/logs.db 损坏）。崩溃记录持久化到 `crash_journal.json`（JSON 格式，最近 50 条）。信号转发确保 Force Quit 不误判。退出码：0=正常、42=请求重启、其他=崩溃。设置面板 `CrashHistoryPanel` 管理崩溃历史和备份
+- **快捷对话快捷键**：全局 Option+Space（Alt+Space）快捷键快速唤起 Spotlight 风格浮动对话框。`tauri-plugin-global-shortcut` 后端注册快捷键，Rust handler 显示/聚焦主窗口并发射 `quick-chat-toggle` 事件。前端 `QuickChatDialog.tsx` 浮层组件（`createPortal` 渲染到 body）+ `useQuickChatSession.ts` 独立会话管理 Hook + `QuickChatMessages.tsx` 简化消息列表。复用 `ChatInput` 完整功能（模型选择/斜杠命令/文件附件）和 `useChatStream` 流式对话。Agent 快捷选择器支持切换 Agent 并自动保存/恢复会话（localStorage 持久化 `quickchat:lastSession:{agentId}`）。连续唤起加载上次会话，支持新建会话和"查看完整对话"跳转
 
 ## 编码规范
 

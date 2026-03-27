@@ -47,6 +47,7 @@ tauri-plugin-autostart = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-process = "2"
 tauri-plugin-notification = "2"
+tauri-plugin-global-shortcut = "2"
 rusqlite = { version = "0.34", features = ["bundled"] }
 sqlite-vec = "0.1"
 fastembed = "5"

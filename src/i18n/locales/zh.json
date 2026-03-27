@@ -1281,5 +1281,14 @@
     },
     "noData": "暂无数据",
     "loading": "加载中..."
+  },
+  "quickChat": {
+    "title": "快捷对话",
+    "newChat": "新建对话",
+    "selectAgent": "选择 Agent",
+    "viewFullChat": "查看完整对话",
+    "placeholder": "问点什么...",
+    "noMessages": "开始一段快捷对话",
+    "continueSession": "继续上次对话"
   }
 }

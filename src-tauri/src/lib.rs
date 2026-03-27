@@ -202,6 +202,22 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_process::init())
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app_handle, _shortcut, event| {
+                    if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                        use tauri::Manager;
+                        if let Some(window) = app_handle.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.unminimize();
+                            let _ = window.set_focus();
+                        }
+                        use tauri::Emitter;
+                        let _ = app_handle.emit("quick-chat-toggle", ());
+                    }
+                })
+                .build(),
+        )
         .setup(|app| {
             // Store global AppHandle for event emission
             let _ = APP_HANDLE.set(app.handle().clone());
@@ -253,6 +269,15 @@ pub fn run() {
 
             // Auto-start Docker SearXNG if previously configured
             auto_start_searxng_docker();
+
+            // Register global shortcut (Alt+Space / Option+Space)
+            {
+                use tauri_plugin_global_shortcut::GlobalShortcutExt;
+                let shortcut = "Alt+Space".parse::<tauri_plugin_global_shortcut::Shortcut>()
+                    .map_err(|e| format!("Failed to parse shortcut: {}", e))?;
+                app.global_shortcut().register(shortcut)
+                    .map_err(|e| format!("Failed to register global shortcut: {}", e))?;
+            }
 
             Ok(())
         })
