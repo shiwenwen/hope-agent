@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from "react"
+import { useState, useCallback, useEffect, useMemo, useRef } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 
@@ -70,15 +70,30 @@ export function usePlanMode(currentSessionId: string | null): UsePlanModeReturn 
   }, [currentSessionId])
 
   // Sync state when session changes
+  const planStateRef = useRef(planState)
+  planStateRef.current = planState
+
   useEffect(() => {
     if (!currentSessionId) {
-      setPlanState("off")
-      setPlanSteps([])
-      setPlanContent("")
-      setShowPanel(false)
+      // No session — don't reset if we're in a "pre-session" plan mode
+      // (user clicked Plan button before sending any message)
+      if (planStateRef.current === "off") {
+        setPlanSteps([])
+        setPlanContent("")
+        setShowPanel(false)
+      }
       return
     }
 
+    // If frontend already has a non-off plan state (entered before session existed),
+    // sync it TO the backend instead of reading FROM backend
+    if (planStateRef.current !== "off") {
+      invoke("set_plan_mode", { sessionId: currentSessionId, state: planStateRef.current })
+        .catch(() => {})
+      return
+    }
+
+    // Otherwise, load plan state from backend (e.g. restoring a historical session)
     Promise.all([
       invoke<string>("get_plan_mode", { sessionId: currentSessionId }),
       invoke<PlanStep[]>("get_plan_steps", { sessionId: currentSessionId }),
