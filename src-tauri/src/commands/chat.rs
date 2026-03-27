@@ -93,6 +93,7 @@ pub async fn chat(
     model_override: Option<String>,
     agent_id: Option<String>,
     tool_permission_mode: Option<String>,
+    plan_mode: Option<String>,
     on_event: tauri::ipc::Channel<String>,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
@@ -414,7 +415,18 @@ pub async fn chat(
         agent.set_canvas_enabled(canvas_enabled);
 
         // ── Plan Mode: restrict tools / inject context ──
-        let plan_state = crate::plan::get_plan_state(&sid).await;
+        // Use the plan_mode parameter passed from frontend as source of truth,
+        // then sync to backend store + DB to ensure consistency.
+        let plan_state = if let Some(ref pm) = plan_mode {
+            let ps = crate::plan::PlanModeState::from_str(pm);
+            if ps != crate::plan::PlanModeState::Off {
+                crate::plan::set_plan_state(&sid, ps.clone()).await;
+                let _ = db.update_session_plan_mode(&sid, pm);
+            }
+            ps
+        } else {
+            crate::plan::get_plan_state(&sid).await
+        };
         if plan_state == crate::plan::PlanModeState::Planning {
             let mut denied = agent.get_denied_tools().to_vec();
             for tool in crate::plan::PLAN_MODE_DENIED_TOOLS {

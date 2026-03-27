@@ -36,6 +36,8 @@ export interface UseChatStreamOptions {
   activeModel: ActiveModel | null
   reloadSessions: () => Promise<void>
   updateSessionMessages: (sessionId: string, updater: (prev: Message[]) => Message[]) => void
+  /** Current plan mode state, passed to backend chat() for reliable sync */
+  planMode?: string
 }
 
 export interface UseChatStreamReturn {
@@ -76,6 +78,7 @@ export function useChatStream({
   activeModel,
   reloadSessions,
   updateSessionMessages,
+  planMode,
 }: UseChatStreamOptions): UseChatStreamReturn {
   const { t } = useTranslation()
   const [input, setInput] = useState("")
@@ -603,6 +606,7 @@ export function useChatStream({
         modelOverride,
         agentId: currentAgentId,
         toolPermissionMode: toolPermissionModeRef.current,
+        planMode: planMode && planMode !== "off" ? planMode : undefined,
         onEvent,
       })
     } catch (e) {

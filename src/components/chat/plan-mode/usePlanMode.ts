@@ -29,8 +29,15 @@ export interface UsePlanModeReturn {
   approvePlan: () => Promise<void>
 }
 
-export function usePlanMode(currentSessionId: string | null): UsePlanModeReturn {
-  const [planState, setPlanState] = useState<PlanModeState>("off")
+export function usePlanMode(
+  currentSessionId: string | null,
+  externalPlanState?: PlanModeState,
+  externalSetPlanState?: React.Dispatch<React.SetStateAction<PlanModeState>>,
+): UsePlanModeReturn {
+  const [internalPlanState, internalSetPlanState] = useState<PlanModeState>("off")
+  // Use external state if provided (for sharing with useChatStream)
+  const planState = externalPlanState ?? internalPlanState
+  const setPlanState = externalSetPlanState ?? internalSetPlanState
   const [planSteps, setPlanSteps] = useState<PlanStep[]>([])
   const [planContent, setPlanContent] = useState<string>("")
   const [showPanel, setShowPanel] = useState(false)

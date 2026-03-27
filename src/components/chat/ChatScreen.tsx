@@ -62,6 +62,9 @@ export default function ChatScreen({
   // Context compact state
   const [compacting, setCompacting] = useState(false)
 
+  // Plan mode state (declared early so useChatStream can access it)
+  const [planModeState, setPlanModeState] = useState<"off" | "planning" | "executing">("off")
+
   // Update model display + reasoning effort without persisting to global settings
   const applyModelForDisplay = useCallback(
     (key: string) => {
@@ -193,10 +196,11 @@ export default function ChatScreen({
     activeModel,
     reloadSessions: session.reloadSessions,
     updateSessionMessages: session.updateSessionMessages,
+    planMode: planModeState,
   })
 
   // ── Plan Mode Hook ─────────────────────────────────────────
-  const planMode = usePlanMode(session.currentSessionId)
+  const planMode = usePlanMode(session.currentSessionId, planModeState, setPlanModeState)
 
   // ── Auto-scroll Hook ───────────────────────────────────────
   const { scrollContainerRef, bottomRef } = useAutoScroll({
