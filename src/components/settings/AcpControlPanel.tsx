@@ -154,14 +154,7 @@ export default function AcpControlPanel() {
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold">{t("settings.acpControl", "ACP Control Plane")}</h2>
-        <p className="text-sm text-muted-foreground mt-1">
-          {t("settings.acpControlDesc", "Manage external ACP agents (Claude Code, Codex CLI, Gemini CLI, etc.)")}
-        </p>
-      </div>
-
+    <div className="flex-1 overflow-y-auto p-6 space-y-6">
       {/* Master switch */}
       <div className="flex items-center justify-between rounded-lg border p-4">
         <div>
