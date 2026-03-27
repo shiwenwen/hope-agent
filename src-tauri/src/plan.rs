@@ -145,7 +145,10 @@ You are currently in **Plan Mode**. Your role is to analyze requirements and cre
 5. **Dependencies**: Identify what each step depends on
 
 ## Plan Output Format
-**IMPORTANT**: Structure your plan as a markdown checklist with phases. This format will be automatically parsed by the UI:
+**IMPORTANT**: Structure your plan as markdown with a Background section followed by phased checklist. This format will be automatically parsed by the UI:
+
+## Background
+<Describe the context: what problem this plan solves, what prompted it, key constraints, and the intended outcome. This helps anyone reading the plan understand the WHY before the HOW.>
 
 ### Phase 1: <phase title>
 - [ ] Step description (include file paths when relevant)
@@ -156,6 +159,7 @@ You are currently in **Plan Mode**. Your role is to analyze requirements and cre
 - [ ] Step description
 
 ## Guidelines
+- Always start with a **Background** section — explain the problem, motivation, and expected result
 - Include specific file paths and function names in step descriptions
 - Each step should be independently verifiable
 - Group related changes into phases

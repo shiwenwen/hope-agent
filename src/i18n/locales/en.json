@@ -1155,7 +1155,7 @@
     "completed": "Plan execution completed",
     "placeholder": "Describe what you want to achieve...",
     "panelTitle": "Execution Plan",
-    "editorPlaceholder": "Edit plan content here...\n\n### Phase 1: Analysis\n- [ ] Step description\n\n### Phase 2: Implementation\n- [ ] Step description",
+    "editorPlaceholder": "Edit plan content here...\n\n## Background\nDescribe the context: what problem to solve, why, and expected outcome\n\n### Phase 1: Analysis\n- [ ] Step description\n\n### Phase 2: Implementation\n- [ ] Step description",
     "stepsDetected": "steps detected",
     "noSteps": "No steps yet",
     "executeCommand": "Start executing the plan. Complete each step in order, calling update_plan_step to track progress."
