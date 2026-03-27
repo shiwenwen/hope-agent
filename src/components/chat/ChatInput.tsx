@@ -2,12 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-  IconTip,
-} from "@/components/ui/tooltip"
+import { IconTip } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import { Send, Square, Brain, ChevronRight, ImagePlus, Paperclip, X, Slash, Shield, ShieldCheck, ShieldAlert, ClipboardList } from "lucide-react"
 import type { AvailableModel, ActiveModel, ToolPermissionMode } from "@/types/chat"
@@ -535,19 +530,16 @@ export default function ChatInput({
             )}
 
             {/* Send Button */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  size="icon"
-                  className="h-8 w-8 rounded-full shrink-0"
-                  onClick={onSend}
-                  disabled={!input.trim() || (loading && !!pendingMessage)}
-                >
-                  <Send className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              {loading && input.trim() && <TooltipContent>{t("chat.queueMessage")}</TooltipContent>}
-            </Tooltip>
+            <IconTip label={loading && input.trim() ? t("chat.queueMessage") : t("chat.send")}>
+              <Button
+                size="icon"
+                className="h-8 w-8 rounded-full shrink-0"
+                onClick={onSend}
+                disabled={!input.trim() || (loading && !!pendingMessage)}
+              >
+                <Send className="h-4 w-4" />
+              </Button>
+            </IconTip>
           </div>
         </div>
       </div>

@@ -48,6 +48,7 @@
     "loadingMore": "加载中...",
     "askAnything": "想做什么，尽管说...",
     "pendingQueued": "消息已排队，等待回复完成后发送...",
+    "send": "发送",
     "queueMessage": "排队发送",
     "stopReply": "停止回复",
     "modelsCount": "{{count}} 个模型",

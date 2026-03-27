@@ -48,6 +48,7 @@
     "loadingMore": "Loading...",
     "askAnything": "Ask, create, code — anything goes...",
     "pendingQueued": "Message queued, will send after reply...",
+    "send": "Send",
     "queueMessage": "Queue message",
     "stopReply": "Stop reply",
     "modelsCount": "{{count}} models",
