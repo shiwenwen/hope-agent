@@ -3,7 +3,12 @@ import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import MessageBubble from "./MessageBubble"
 import MessageContextMenu from "./MessageContextMenu"
+import PlanQuestionBlock from "./plan-mode/PlanQuestionBlock"
+import PlanCardBlock from "./plan-mode/PlanCardBlock"
+import type { PlanQuestionGroup } from "./plan-mode/PlanQuestionBlock"
+import type { PlanCardData } from "./plan-mode/PlanCardBlock"
 import type { Message, AgentSummaryForSidebar } from "@/types/chat"
+import type { PlanModeState, PlanStep } from "./plan-mode/usePlanMode"
 
 interface MessageListProps {
   messages: Message[]
@@ -14,6 +19,17 @@ interface MessageListProps {
   onLoadMore: () => void
   scrollContainerRef: React.RefObject<HTMLDivElement | null>
   bottomRef: React.RefObject<HTMLDivElement | null>
+  // Plan mode
+  pendingQuestionGroup?: PlanQuestionGroup | null
+  onQuestionSubmitted?: () => void
+  planCardData?: PlanCardData | null
+  planState?: PlanModeState
+  planSteps?: PlanStep[]
+  onOpenPlanPanel?: () => void
+  onApprovePlan?: () => void
+  onExitPlan?: () => void
+  onPausePlan?: () => void
+  onResumePlan?: () => void
 }
 
 export default function MessageList({
@@ -25,6 +41,16 @@ export default function MessageList({
   onLoadMore,
   scrollContainerRef,
   bottomRef,
+  pendingQuestionGroup,
+  onQuestionSubmitted,
+  planCardData,
+  planState,
+  planSteps,
+  onOpenPlanPanel,
+  onApprovePlan,
+  onExitPlan,
+  onPausePlan,
+  onResumePlan,
 }: MessageListProps) {
   const { t } = useTranslation()
   const [hoveredMsgIndex, setHoveredMsgIndex] = useState<number | null>(null)
@@ -119,6 +145,38 @@ export default function MessageList({
           />
         </div>
       ))}
+      {/* Plan Question Block (interactive Q&A during planning) */}
+      {pendingQuestionGroup && (
+        <div className="flex justify-start">
+          <div className="max-w-[85%] w-full">
+            <PlanQuestionBlock
+              group={pendingQuestionGroup}
+              onSubmitted={onQuestionSubmitted}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Plan Card Block (plan summary after submit_plan) */}
+      {planCardData && planState && planState !== "off" && planState !== "planning" && (
+        <div className="flex justify-start">
+          <div className="max-w-[85%] w-full">
+            <PlanCardBlock
+              data={{
+                ...planCardData,
+                steps: planSteps || planCardData.steps,
+              }}
+              planState={planState}
+              onOpenPanel={onOpenPlanPanel}
+              onApprove={onApprovePlan}
+              onExit={onExitPlan}
+              onPause={onPausePlan}
+              onResume={onResumePlan}
+            />
+          </div>
+        </div>
+      )}
+
       <div ref={bottomRef} />
 
       {/* Right-click context menu for assistant messages */}

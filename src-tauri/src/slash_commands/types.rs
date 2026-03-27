@@ -106,4 +106,8 @@ pub enum CommandAction {
     ShowPlan {
         plan_content: String,
     },
+    /// Pause plan execution.
+    PausePlan,
+    /// Resume plan execution.
+    ResumePlan,
 }

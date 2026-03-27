@@ -66,9 +66,9 @@ const DEFAULT_SHORTCUT_BINDINGS: ShortcutBinding[] = [
 
 const isMac = typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC")
 
-function formatKeyForDisplay(keys: string): string {
-  if (!keys) return ""
-  return keys
+function formatSingleCombo(combo: string): string {
+  if (!combo) return ""
+  return combo
     .replace(/CommandOrControl/gi, isMac ? "\u2318" : "Ctrl")
     .replace(/Alt/gi, isMac ? "\u2325" : "Alt")
     .replace(/Shift/gi, isMac ? "\u21E7" : "Shift")
@@ -77,6 +77,13 @@ function formatKeyForDisplay(keys: string): string {
     .replace(/Space/gi, "Space")
     .replace(/Comma/gi, ",")
     .replace(/\+/g, " + ")
+}
+
+function formatKeyForDisplay(keys: string): string {
+  if (!keys) return ""
+  // Chord bindings are space-separated (e.g. "CommandOrControl+K CommandOrControl+C")
+  const parts = keys.split(/\s+/)
+  return parts.map(formatSingleCombo).join("  ")
 }
 
 function keyEventToShortcutStr(e: KeyboardEvent): string | null {
@@ -130,6 +137,8 @@ export default function GeneralPanel() {
   const [shortcutSaving, setShortcutSaving] = useState(false)
   const [shortcutSaveStatus, setShortcutSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
   const [recordingId, setRecordingId] = useState<string | null>(null)
+  const [chordFirstPart, setChordFirstPart] = useState<string | null>(null)
+  const chordTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [shortcutDirty, setShortcutDirty] = useState(false)
   const shortcutSavedRef = useRef("")
 
@@ -210,21 +219,62 @@ export default function GeneralPanel() {
 
   // ── Shortcut handlers ──
 
+  // Pause/resume global shortcuts when recording starts/stops
+  useEffect(() => {
+    if (recordingId) {
+      invoke("set_shortcuts_paused", { paused: true }).catch(() => {})
+    } else {
+      invoke("set_shortcuts_paused", { paused: false }).catch(() => {})
+      setChordFirstPart(null)
+      if (chordTimerRef.current) { clearTimeout(chordTimerRef.current); chordTimerRef.current = null }
+    }
+  }, [recordingId])
+
+  // Ensure shortcuts are resumed if component unmounts during recording
+  useEffect(() => {
+    return () => { invoke("set_shortcuts_paused", { paused: false }).catch(() => {}) }
+  }, [])
+
   useEffect(() => {
     if (!recordingId) return
-    function onKeyDown(e: KeyboardEvent) {
-      e.preventDefault()
-      e.stopPropagation()
-      if (e.key === "Escape") { setRecordingId(null); return }
-      const shortcutStr = keyEventToShortcutStr(e)
-      if (!shortcutStr) return
+    function finishRecording(keys: string) {
       setShortcuts((prev) => {
         if (!prev) return prev
-        const updated = { ...prev, bindings: prev.bindings.map((b) => b.id === recordingId ? { ...b, keys: shortcutStr } : b) }
+        const updated = { ...prev, bindings: prev.bindings.map((b) => b.id === recordingId ? { ...b, keys } : b) }
         setShortcutDirty(JSON.stringify(updated) !== shortcutSavedRef.current)
         return updated
       })
+      setChordFirstPart(null)
       setRecordingId(null)
+      if (chordTimerRef.current) { clearTimeout(chordTimerRef.current); chordTimerRef.current = null }
+    }
+
+    function onKeyDown(e: KeyboardEvent) {
+      e.preventDefault()
+      e.stopPropagation()
+      if (e.key === "Escape") {
+        setChordFirstPart(null)
+        setRecordingId(null)
+        if (chordTimerRef.current) { clearTimeout(chordTimerRef.current); chordTimerRef.current = null }
+        return
+      }
+      const shortcutStr = keyEventToShortcutStr(e)
+      if (!shortcutStr) return
+
+      setChordFirstPart((prevFirst) => {
+        if (prevFirst) {
+          // Second combo captured → complete chord
+          finishRecording(`${prevFirst} ${shortcutStr}`)
+          return null
+        }
+        // First combo captured → start chord timer
+        if (chordTimerRef.current) clearTimeout(chordTimerRef.current)
+        chordTimerRef.current = setTimeout(() => {
+          // Timeout → use as single combo
+          finishRecording(shortcutStr)
+        }, 1500)
+        return shortcutStr
+      })
     }
     window.addEventListener("keydown", onKeyDown, true)
     return () => window.removeEventListener("keydown", onKeyDown, true)
@@ -400,7 +450,9 @@ export default function GeneralPanel() {
                         disabled={!binding.enabled}
                       >
                         {recordingId === binding.id
-                          ? t("shortcuts.recording")
+                          ? (chordFirstPart
+                            ? `${formatSingleCombo(chordFirstPart)}  ${t("shortcuts.chordNext")}`
+                            : t("shortcuts.recording"))
                           : formatKeyForDisplay(binding.keys) || t("shortcuts.unset")}
                       </button>
                       <Switch
@@ -410,7 +462,8 @@ export default function GeneralPanel() {
                     </div>
                   ))}
                 </div>
-                <p className="text-xs text-muted-foreground mt-2 mb-3">{t("shortcuts.hint")}</p>
+                <p className="text-xs text-muted-foreground mt-2 mb-1">{t("shortcuts.hint")}</p>
+                <p className="text-xs text-muted-foreground mb-3">{t("shortcuts.chordHint")}</p>
                 <div className="flex items-center gap-2">
                   <Button
                     size="sm"

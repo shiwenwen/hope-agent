@@ -1,35 +1,28 @@
-import React, { useState, useEffect, useCallback, useRef } from "react"
-import { createPortal } from "react-dom"
+/**
+ * QuickChatWindow — root component for the independent quick-chat Tauri window.
+ * Rendered when `?window=quickchat` is in the URL (see main.tsx).
+ */
+import { useEffect, useCallback, useRef } from "react"
 import { convertFileSrc } from "@tauri-apps/api/core"
+import { getCurrentWindow } from "@tauri-apps/api/window"
 import { useTranslation } from "react-i18next"
-import { X, Plus, ChevronDown, Bot } from "lucide-react"
+import { initLanguageFromConfig } from "@/i18n/i18n"
+import { Plus, ChevronDown, Bot, Minus, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import ChatInput from "@/components/chat/ChatInput"
 import QuickChatMessages from "@/components/chat/QuickChatMessages"
 import ApprovalDialog from "@/components/chat/ApprovalDialog"
-import { useQuickChatSession } from "./useQuickChatSession"
-import { useChatStream } from "./useChatStream"
-import type { CommandResult } from "./slash-commands/types"
+import { useQuickChatSession } from "@/components/chat/useQuickChatSession"
+import { useChatStream } from "@/components/chat/useChatStream"
+import type { CommandResult } from "@/components/chat/slash-commands/types"
 import type { AgentSummaryForSidebar } from "@/types/chat"
 
-interface QuickChatDialogProps {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  onNavigateToSession?: (sessionId: string) => void
-}
+export default function QuickChatWindow() {
+  // Always active — this is a standalone window
+  const session = useQuickChatSession(true)
 
-export default function QuickChatDialog({
-  open,
-  onOpenChange,
-  onNavigateToSession,
-}: QuickChatDialogProps) {
-  const { t } = useTranslation()
-  const session = useQuickChatSession(open)
-  const agentMenuRef = useRef<HTMLDivElement>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
-
-  // ── Stream Hook ─────────────────────────────────
   const stream = useChatStream({
     messages: session.messages,
     setMessages: session.setMessages,
@@ -50,20 +43,21 @@ export default function QuickChatDialog({
     updateSessionMessages: session.updateSessionMessages,
   })
 
-  // ── Keyboard handling ───────────────────────────
+  // Init language
+  useEffect(() => { initLanguageFromConfig() }, [])
+
+  // Escape → hide window (not close — keep alive for next shortcut toggle)
   useEffect(() => {
-    if (!open) return
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {
         e.preventDefault()
-        onOpenChange(false)
+        getCurrentWindow().hide()
       }
     }
     document.addEventListener("keydown", onKeyDown)
     return () => document.removeEventListener("keydown", onKeyDown)
-  }, [open, onOpenChange])
+  }, [])
 
-  // ── Slash command action handler ────────────────
   const handleCommandAction = useCallback(
     (result: CommandResult) => {
       const action = result.action
@@ -77,40 +71,18 @@ export default function QuickChatDialog({
     [session],
   )
 
-  // ── Navigate to full conversation ───────────────
-  const handleNavigate = useCallback(
-    (sessionId: string) => {
-      onOpenChange(false)
-      onNavigateToSession?.(sessionId)
-    },
-    [onOpenChange, onNavigateToSession],
-  )
-
-  if (!open) return null
-
+  const { t } = useTranslation()
   const currentAgent = session.agents.find((a) => a.id === session.currentAgentId)
+  const agentMenuRef = useRef<HTMLDivElement>(null)
 
-  return createPortal(
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onOpenChange(false)
-      }}
-    >
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm animate-in fade-in duration-150" />
-
-      {/* Dialog */}
-      <div
-        ref={containerRef}
-        className={cn(
-          "relative w-[640px] max-w-[90vw] max-h-[70vh] flex flex-col",
-          "bg-background border border-border rounded-2xl shadow-2xl",
-          "animate-in fade-in slide-in-from-top-4 duration-200",
-        )}
-      >
-        {/* ── Header ─────────────────────────────── */}
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
+  return (
+    <TooltipProvider>
+      <div className="flex flex-col h-screen bg-background rounded-2xl overflow-hidden">
+        {/* ── Title bar (draggable) ─────────────── */}
+        <div
+          data-tauri-drag-region
+          className="flex items-center gap-2 px-4 py-2.5 border-b border-border shrink-0 select-none"
+        >
           {/* Agent selector */}
           <AgentSelector
             agents={session.agents}
@@ -119,7 +91,7 @@ export default function QuickChatDialog({
             menuRef={agentMenuRef}
           />
 
-          <div className="flex-1" />
+          <div className="flex-1" data-tauri-drag-region />
 
           {/* Continuing session hint */}
           {session.currentSessionId && session.messages.length > 0 && (
@@ -128,7 +100,7 @@ export default function QuickChatDialog({
             </span>
           )}
 
-          {/* New chat button */}
+          {/* New chat */}
           <Button
             variant="ghost"
             size="sm"
@@ -139,11 +111,21 @@ export default function QuickChatDialog({
             {t("quickChat.newChat")}
           </Button>
 
-          {/* Close button */}
+          {/* Minimize */}
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => onOpenChange(false)}
+            onClick={() => getCurrentWindow().hide()}
+            className="h-7 w-7"
+          >
+            <Minus className="h-3.5 w-3.5" />
+          </Button>
+
+          {/* Close */}
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => getCurrentWindow().hide()}
             className="h-7 w-7"
           >
             <X className="h-4 w-4" />
@@ -155,7 +137,6 @@ export default function QuickChatDialog({
           messages={session.messages}
           loading={session.loading}
           sessionId={session.currentSessionId}
-          onNavigateToSession={handleNavigate}
         />
 
         {/* ── Approval Dialog ────────────────────── */}
@@ -164,8 +145,8 @@ export default function QuickChatDialog({
           onRespond={stream.handleApprovalResponse}
         />
 
-        {/* ── Input Area ──────────────────────────── */}
-        <div className="border-t border-border px-3 py-2">
+        {/* ── Input ──────────────────────────────── */}
+        <div className="border-t border-border px-3 py-2 shrink-0">
           <ChatInput
             input={stream.input}
             onInputChange={stream.setInput}
@@ -192,12 +173,11 @@ export default function QuickChatDialog({
           />
         </div>
       </div>
-    </div>,
-    document.body,
+    </TooltipProvider>
   )
 }
 
-// ── Agent Selector Sub-component ─────────────────
+// ── Agent Selector ──────────────────────────────
 
 function AgentSelector({
   agents,
@@ -211,9 +191,8 @@ function AgentSelector({
   menuRef: React.RefObject<HTMLDivElement | null>
 }) {
   const { t } = useTranslation()
-  const [menuOpen, setMenuOpen] = useState(false)
+  const [menuOpen, setMenuOpen] = React.useState(false)
 
-  // Close menu on outside click
   useEffect(() => {
     if (!menuOpen) return
     function onClick(e: MouseEvent) {
@@ -235,7 +214,7 @@ function AgentSelector({
           menuOpen && "bg-muted",
         )}
       >
-        <AgentAvatarIcon agent={currentAgent} size="sm" />
+        <AgentAvatarIcon agent={currentAgent} />
         <span className="font-medium">
           {currentAgent?.name || t("chat.mainAgent")}
         </span>
@@ -247,16 +226,13 @@ function AgentSelector({
           {agents.map((agent) => (
             <button
               key={agent.id}
-              onClick={() => {
-                onSelect(agent.id)
-                setMenuOpen(false)
-              }}
+              onClick={() => { onSelect(agent.id); setMenuOpen(false) }}
               className={cn(
                 "w-full text-left px-3 py-1.5 text-sm hover:bg-muted transition-colors flex items-center gap-2",
                 agent.id === currentAgent?.id && "bg-muted/50",
               )}
             >
-              <AgentAvatarIcon agent={agent} size="sm" />
+              <AgentAvatarIcon agent={agent} />
               <span className="truncate">{agent.name}</span>
               {agent.id === currentAgent?.id && (
                 <span className="ml-auto text-xs text-primary">●</span>
@@ -271,17 +247,9 @@ function AgentSelector({
 
 // ── Agent Avatar Icon ───────────────────────────
 
-function AgentAvatarIcon({
-  agent,
-  size = "sm",
-}: {
-  agent?: AgentSummaryForSidebar
-  size?: "sm" | "md"
-}) {
-  const dim = size === "md" ? "w-6 h-6" : "w-5 h-5"
-  const iconDim = size === "md" ? "h-3.5 w-3.5" : "h-3 w-3"
+function AgentAvatarIcon({ agent }: { agent?: AgentSummaryForSidebar }) {
   return (
-    <div className={cn(dim, "rounded-full bg-primary/15 flex items-center justify-center text-primary shrink-0 text-[10px] overflow-hidden")}>
+    <div className="w-5 h-5 rounded-full bg-primary/15 flex items-center justify-center text-primary shrink-0 text-[10px] overflow-hidden">
       {agent?.avatar ? (
         <img
           src={agent.avatar.startsWith("/") ? convertFileSrc(agent.avatar) : agent.avatar}
@@ -291,7 +259,7 @@ function AgentAvatarIcon({
       ) : agent?.emoji ? (
         <span>{agent.emoji}</span>
       ) : (
-        <Bot className={iconDim} />
+        <Bot className="h-3 w-3" />
       )}
     </div>
   )

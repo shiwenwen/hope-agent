@@ -9,6 +9,7 @@ import {
   CheckCircle,
   Save,
   FileText,
+  Pause,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -18,6 +19,7 @@ import { useTranslation } from "react-i18next"
 import { groupStepsByPhase } from "./planParser"
 import { PlanStepItem } from "./PlanStepItem"
 import type { PlanModeState, PlanStep } from "./usePlanMode"
+import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 
 interface PlanPanelProps {
   planState: PlanModeState
@@ -30,6 +32,8 @@ interface PlanPanelProps {
   onApprove: () => void
   onExit: () => void
   onClose: () => void
+  onPause?: () => void
+  onResume?: () => void
 }
 
 export function PlanPanel({
@@ -43,6 +47,8 @@ export function PlanPanel({
   onApprove,
   onExit,
   onClose,
+  onPause,
+  onResume,
 }: PlanPanelProps) {
   const { t } = useTranslation()
   const [editContent, setEditContent] = useState(planContent)
@@ -99,12 +105,21 @@ export function PlanPanel({
     )
 
   const isEditable = planState === "planning"
+  const showProgressBar = planState === "executing" || planState === "paused" || planState === "completed" || allDone
+  const showStepList = planState !== "planning"
+
+  // Title bar icon color based on state
+  const iconColor = planState === "completed" ? "text-green-500"
+    : planState === "executing" ? "text-blue-500"
+    : planState === "paused" ? "text-yellow-500"
+    : planState === "review" ? "text-purple-500"
+    : "text-blue-500"
 
   return (
     <div className="flex flex-col border-l border-border w-[400px] shrink-0 max-w-[40vw] bg-background animate-in slide-in-from-right-2 duration-200">
       {/* Title bar */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-secondary/30 shrink-0">
-        <ClipboardList className="h-4 w-4 text-blue-500" />
+        <ClipboardList className={cn("h-4 w-4", iconColor)} />
         <span className="text-sm font-medium truncate flex-1">{t("planMode.panelTitle")}</span>
         <div className="flex items-center gap-0.5">
           {/* Save button (only in editing mode when dirty) */}
@@ -130,8 +145,8 @@ export function PlanPanel({
         </div>
       </div>
 
-      {/* Progress bar (only when executing or done) */}
-      {(planState === "executing" || allDone) && planSteps.length > 0 && (
+      {/* Progress bar */}
+      {showProgressBar && planSteps.length > 0 && (
         <div className="px-3 py-2 border-b border-border/50">
           <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
             <span>
@@ -143,11 +158,21 @@ export function PlanPanel({
             <div
               className={cn(
                 "h-full rounded-full transition-all duration-500 ease-out",
-                allDone ? "bg-green-500" : "bg-blue-500"
+                planState === "completed" || allDone ? "bg-green-500"
+                  : planState === "paused" ? "bg-yellow-500"
+                  : "bg-blue-500"
               )}
               style={{ width: `${progress}%` }}
             />
           </div>
+        </div>
+      )}
+
+      {/* Paused banner */}
+      {planState === "paused" && (
+        <div className="px-3 py-2 bg-yellow-500/10 border-b border-yellow-500/20 text-sm text-yellow-600 flex items-center gap-2">
+          <Pause className="h-3.5 w-3.5" />
+          {t("planMode.pausedBanner")}
         </div>
       )}
 
@@ -156,7 +181,6 @@ export function PlanPanel({
         {/* Planning mode: show editable textarea + step preview */}
         {isEditable && (
           <div className="flex flex-col h-full">
-            {/* Editable plan content */}
             <div className="flex-1 p-3">
               <Textarea
                 value={editContent}
@@ -165,7 +189,6 @@ export function PlanPanel({
                 className="h-full min-h-[200px] resize-none border-border/50 bg-secondary/20 text-sm font-mono"
               />
             </div>
-            {/* Parsed step preview (below editor) */}
             {planSteps.length > 0 && (
               <div className="border-t border-border/50 px-3 py-2">
                 <div className="flex items-center gap-1.5 mb-2">
@@ -184,8 +207,17 @@ export function PlanPanel({
           </div>
         )}
 
-        {/* Executing / Done mode: show step list with progress */}
-        {!isEditable && (
+        {/* Review mode: read-only markdown */}
+        {planState === "review" && planContent && (
+          <div className="px-3 py-3">
+            <div className="prose prose-sm dark:prose-invert max-w-none">
+              <MarkdownRenderer content={planContent} />
+            </div>
+          </div>
+        )}
+
+        {/* Executing / Paused / Completed: step list with progress */}
+        {showStepList && planState !== "review" && (
           <div className="px-3 py-2 space-y-1">
             {groupedPhases.map((phase) => (
               <div key={phase.name} className="mb-3">
@@ -208,20 +240,19 @@ export function PlanPanel({
 
       {/* Action bar */}
       <div className="px-3 py-3 border-t border-border bg-secondary/20 shrink-0 space-y-2">
-        {planState === "planning" && planSteps.length > 0 && (
+        {/* Planning: exit only */}
+        {planState === "planning" && (
+          <Button variant="ghost" className="w-full" onClick={onExit}>
+            {t("planMode.exitWithout")}
+          </Button>
+        )}
+
+        {/* Review: approve or exit */}
+        {planState === "review" && (
           <>
             <Button
               className="w-full bg-blue-600 hover:bg-blue-700 text-white"
-              onClick={() => {
-                // Save any unsaved edits first, then approve
-                if (dirty && sessionId) {
-                  invoke("save_plan_content", { sessionId, content: editContent })
-                    .then(() => onApprove())
-                    .catch(() => onApprove())
-                } else {
-                  onApprove()
-                }
-              }}
+              onClick={onApprove}
             >
               <Play className="h-4 w-4 mr-2" />
               {t("planMode.approveAndExecute")}
@@ -231,18 +262,41 @@ export function PlanPanel({
             </Button>
           </>
         )}
-        {planState === "planning" && planSteps.length === 0 && (
-          <Button variant="ghost" className="w-full" onClick={onExit}>
-            {t("planMode.exitWithout")}
-          </Button>
-        )}
+
+        {/* Executing: show status + pause button */}
         {planState === "executing" && !allDone && (
-          <div className="flex items-center gap-2 text-sm text-blue-600">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            <span>{t("planMode.executing")}</span>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-sm text-blue-600">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span>{t("planMode.executing")}</span>
+            </div>
+            {onPause && (
+              <Button size="sm" variant="outline" onClick={onPause} className="gap-1.5">
+                <Pause className="h-3.5 w-3.5" />
+                {t("planMode.pause")}
+              </Button>
+            )}
           </div>
         )}
-        {allDone && (
+
+        {/* Paused: resume or exit */}
+        {planState === "paused" && (
+          <>
+            <Button
+              className="w-full bg-yellow-600 hover:bg-yellow-700 text-white"
+              onClick={onResume}
+            >
+              <Play className="h-4 w-4 mr-2" />
+              {t("planMode.resume")}
+            </Button>
+            <Button variant="ghost" className="w-full" onClick={onExit}>
+              {t("planMode.exitWithout")}
+            </Button>
+          </>
+        )}
+
+        {/* Completed */}
+        {(planState === "completed" || allDone) && (
           <div className="flex items-center gap-2 text-sm text-green-600">
             <CheckCircle className="h-4 w-4" />
             <span>{t("planMode.completed")}</span>

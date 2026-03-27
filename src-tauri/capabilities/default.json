@@ -4,7 +4,8 @@
   "description": "enables the default permissions",
   "windows": [
     "main",
-    "canvas-window"
+    "canvas-window",
+    "quickchat"
   ],
   "permissions": [
     "core:default",

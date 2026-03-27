@@ -1,8 +1,9 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
+import type { PlanQuestionGroup } from "./PlanQuestionBlock"
 
-export type PlanModeState = "off" | "planning" | "executing"
+export type PlanModeState = "off" | "planning" | "review" | "executing" | "paused" | "completed"
 
 export interface PlanStep {
   index: number
@@ -11,6 +12,12 @@ export interface PlanStep {
   description: string
   status: "pending" | "in_progress" | "completed" | "skipped" | "failed"
   durationMs?: number
+}
+
+export interface PlanCardInfo {
+  title: string
+  stepCount: number
+  phaseCount: number
 }
 
 export interface UsePlanModeReturn {
@@ -24,9 +31,13 @@ export interface UsePlanModeReturn {
   setShowPanel: React.Dispatch<React.SetStateAction<boolean>>
   progress: number
   completedCount: number
+  planCardInfo: PlanCardInfo | null
+  pendingQuestionGroup: PlanQuestionGroup | null
   enterPlanMode: () => Promise<void>
   exitPlanMode: () => Promise<void>
   approvePlan: () => Promise<void>
+  pauseExecution: () => Promise<void>
+  resumeExecution: () => Promise<void>
 }
 
 export function usePlanMode(
@@ -41,6 +52,8 @@ export function usePlanMode(
   const [planSteps, setPlanSteps] = useState<PlanStep[]>([])
   const [planContent, setPlanContent] = useState<string>("")
   const [showPanel, setShowPanel] = useState(false)
+  const [planCardInfo, setPlanCardInfo] = useState<PlanCardInfo | null>(null)
+  const [pendingQuestionGroup, setPendingQuestionGroup] = useState<PlanQuestionGroup | null>(null)
 
   // Enter Plan Mode
   const enterPlanMode = useCallback(async () => {
@@ -51,7 +64,7 @@ export function usePlanMode(
     } catch (e) {
       console.error("Failed to enter plan mode:", e)
     }
-  }, [currentSessionId])
+  }, [currentSessionId, setPlanState])
 
   // Exit Plan Mode
   const exitPlanMode = useCallback(async () => {
@@ -60,10 +73,12 @@ export function usePlanMode(
       await invoke("set_plan_mode", { sessionId: currentSessionId, state: "off" })
       setPlanState("off")
       setShowPanel(false)
+      setPlanCardInfo(null)
+      setPendingQuestionGroup(null)
     } catch (e) {
       console.error("Failed to exit plan mode:", e)
     }
-  }, [currentSessionId])
+  }, [currentSessionId, setPlanState])
 
   // Approve and start execution
   const approvePlan = useCallback(async () => {
@@ -74,7 +89,29 @@ export function usePlanMode(
     } catch (e) {
       console.error("Failed to approve plan:", e)
     }
-  }, [currentSessionId])
+  }, [currentSessionId, setPlanState])
+
+  // Pause execution
+  const pauseExecution = useCallback(async () => {
+    if (!currentSessionId) return
+    try {
+      await invoke("set_plan_mode", { sessionId: currentSessionId, state: "paused" })
+      setPlanState("paused")
+    } catch (e) {
+      console.error("Failed to pause plan:", e)
+    }
+  }, [currentSessionId, setPlanState])
+
+  // Resume execution
+  const resumeExecution = useCallback(async () => {
+    if (!currentSessionId) return
+    try {
+      await invoke("set_plan_mode", { sessionId: currentSessionId, state: "executing" })
+      setPlanState("executing")
+    } catch (e) {
+      console.error("Failed to resume plan:", e)
+    }
+  }, [currentSessionId, setPlanState])
 
   // Sync state when session changes
   const planStateRef = useRef(planState)
@@ -83,11 +120,11 @@ export function usePlanMode(
   useEffect(() => {
     if (!currentSessionId) {
       // No session — don't reset if we're in a "pre-session" plan mode
-      // (user clicked Plan button before sending any message)
       if (planStateRef.current === "off") {
         setPlanSteps([])
         setPlanContent("")
         setShowPanel(false)
+        setPlanCardInfo(null)
       }
       return
     }
@@ -116,7 +153,7 @@ export function usePlanMode(
       .catch(() => {
         setPlanState("off")
       })
-  }, [currentSessionId])
+  }, [currentSessionId, setPlanState])
 
   // Listen for plan_content_updated events (backend detected plan in LLM output)
   useEffect(() => {
@@ -125,7 +162,6 @@ export function usePlanMode(
       "plan_content_updated",
       (event) => {
         if (event.payload.sessionId !== currentSessionId) return
-        // Update plan content and refresh steps from backend
         setPlanContent(event.payload.content)
         invoke<PlanStep[]>("get_plan_steps", { sessionId: event.payload.sessionId })
           .then((steps) => {
@@ -170,7 +206,7 @@ export function usePlanMode(
     }
   }, [currentSessionId])
 
-  // Listen for plan_mode_changed events (auto-transition when all steps done)
+  // Listen for plan_mode_changed events (auto-transition)
   useEffect(() => {
     let unlisten: UnlistenFn | undefined
     listen<{ sessionId: string; state: string; reason?: string }>(
@@ -178,8 +214,56 @@ export function usePlanMode(
       (event) => {
         if (event.payload.sessionId !== currentSessionId) return
         setPlanState(event.payload.state as PlanModeState)
-        if (event.payload.state === "off") {
-          // Keep panel open briefly to show completion
+      }
+    ).then((fn) => {
+      unlisten = fn
+    })
+    return () => {
+      unlisten?.()
+    }
+  }, [currentSessionId, setPlanState])
+
+  // Listen for plan_submitted events (LLM submitted a plan via submit_plan tool)
+  useEffect(() => {
+    let unlisten: UnlistenFn | undefined
+    listen<{ sessionId: string; title: string; stepCount: number; phaseCount: number; steps: PlanStep[] }>(
+      "plan_submitted",
+      (event) => {
+        if (event.payload.sessionId !== currentSessionId) return
+        setPlanCardInfo({
+          title: event.payload.title,
+          stepCount: event.payload.stepCount,
+          phaseCount: event.payload.phaseCount,
+        })
+        setPlanSteps(event.payload.steps)
+        setPlanState("review")
+        // Load the plan content
+        invoke<string | null>("get_plan_content", { sessionId: currentSessionId })
+          .then((content) => {
+            if (content) setPlanContent(content)
+          })
+          .catch(() => {})
+      }
+    ).then((fn) => {
+      unlisten = fn
+    })
+    return () => {
+      unlisten?.()
+    }
+  }, [currentSessionId, setPlanState])
+
+  // Listen for plan_question_request events
+  useEffect(() => {
+    let unlisten: UnlistenFn | undefined
+    listen<string>(
+      "plan_question_request",
+      (event) => {
+        try {
+          const group: PlanQuestionGroup = JSON.parse(event.payload)
+          if (group.sessionId !== currentSessionId) return
+          setPendingQuestionGroup(group)
+        } catch {
+          // ignore parse errors
         }
       }
     ).then((fn) => {
@@ -213,8 +297,12 @@ export function usePlanMode(
     setShowPanel,
     progress,
     completedCount,
+    planCardInfo,
+    pendingQuestionGroup,
     enterPlanMode,
     exitPlanMode,
     approvePlan,
+    pauseExecution,
+    resumeExecution,
   }
 }

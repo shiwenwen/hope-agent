@@ -47,15 +47,15 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
                 }
             }
 
-            plan::set_plan_state(sid, plan::PlanModeState::Off).await;
+            plan::set_plan_state(sid, plan::PlanModeState::Completed).await;
             if let Some(session_db) = crate::get_session_db() {
-                let _ = session_db.update_session_plan_mode(sid, "off");
+                let _ = session_db.update_session_plan_mode(sid, "completed");
             }
             if let Some(app_handle) = crate::get_app_handle() {
                 use tauri::Emitter;
                 let _ = app_handle.emit("plan_mode_changed", serde_json::json!({
                     "sessionId": sid,
-                    "state": "off",
+                    "state": "completed",
                     "reason": "all_steps_completed",
                 }));
             }

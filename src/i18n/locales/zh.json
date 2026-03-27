@@ -964,6 +964,8 @@
     "recording": "请按下快捷键...",
     "unset": "未设置",
     "hint": "快捷键需包含至少一个修饰键（⌘/⌥/⇧/⌃）。按 Esc 取消录制。",
+    "chordHint": "支持组合快捷键：按下第一组后 1.5 秒内按下第二组即可录制双段快捷键（如 ⌘K ⌘C）。",
+    "chordNext": "+ ...",
     "reset": "恢复默认"
   },
   "about": {
@@ -1146,20 +1148,40 @@
     "indicator": "计划模式",
     "plan": "执行计划",
     "openPanel": "在面板中查看",
-    "restricted": "计划模式：AI 将先分析需求并制定执行计划",
-    "approveAndExecute": "批准并执行",
+    "restricted": "计划模式：AI 将收集信息并与你交互制定计划",
+    "approveAndExecute": "开始执行",
     "keepPlanning": "继续完善",
-    "exitWithout": "退出不执行",
+    "exitWithout": "退出计划",
     "showPlan": "显示计划",
     "executing": "正在按计划执行...",
     "stepsCompleted": "步完成",
-    "completed": "计划执行完成",
+    "completed": "执行完成",
     "placeholder": "描述你想要实现的功能...",
     "panelTitle": "执行计划",
     "editorPlaceholder": "您可以在此协同编辑计划内容...\n\n## Background\n描述背景：要解决什么问题、为什么做、预期结果\n\n### Phase 1: 分析\n- [ ] 步骤描述\n\n### Phase 2: 实现\n- [ ] 步骤描述",
     "stepsDetected": "个步骤已识别",
     "noSteps": "暂无步骤",
-    "executeCommand": "开始执行计划，按步骤逐一完成，每完成一步调用 update_plan_step 更新进度。"
+    "executeCommand": "开始执行计划，按步骤逐一完成，每完成一步调用 update_plan_step 更新进度。",
+    "planning": "正在制定计划...",
+    "pause": "暂停",
+    "resume": "恢复执行",
+    "pausedBanner": "计划执行已暂停",
+    "review": {
+      "badge": "待审批"
+    },
+    "paused": {
+      "badge": "已暂停"
+    },
+    "card": {
+      "phases": "个阶段",
+      "steps": "个步骤"
+    },
+    "question": {
+      "title": "计划确认",
+      "submit": "提交回答",
+      "answered": "已回答",
+      "customPlaceholder": "输入自定义回答..."
+    }
   },
   "canvas": {
     "refresh": "刷新",

@@ -12,6 +12,7 @@ use super::{
     TOOL_MEMORY_GET, TOOL_AGENTS_LIST, TOOL_SESSIONS_LIST, TOOL_SESSION_STATUS,
     TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_SEND, TOOL_IMAGE, TOOL_IMAGE_GENERATE, TOOL_PDF,
     TOOL_CANVAS, TOOL_ACP_SPAWN, TOOL_UPDATE_PLAN_STEP,
+    TOOL_PLAN_QUESTION, TOOL_SUBMIT_PLAN,
 };
 
 // ── Tool Definition (provider-agnostic) ───────────────────────────
@@ -1254,6 +1255,91 @@ pub fn get_plan_step_tool() -> ToolDefinition {
                 }
             },
             "required": ["step_index", "status"],
+            "additionalProperties": false
+        }),
+    }
+}
+
+/// Tool for sending structured questions to the user during plan creation.
+pub fn get_plan_question_tool() -> ToolDefinition {
+    ToolDefinition {
+        name: TOOL_PLAN_QUESTION.into(),
+        description: "Send structured questions to the user during plan creation. Each question includes suggested options that render as an interactive UI. The user can select options or provide custom input. Use this to clarify requirements, confirm design decisions, and gather preferences before submitting the final plan.".into(),
+        internal: true,
+        parameters: json!({
+            "type": "object",
+            "properties": {
+                "questions": {
+                    "type": "array",
+                    "description": "List of questions to ask the user",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "question_id": {
+                                "type": "string",
+                                "description": "Unique identifier for this question (e.g. 'q_framework', 'q_scope')"
+                            },
+                            "text": {
+                                "type": "string",
+                                "description": "The question text to display to the user"
+                            },
+                            "options": {
+                                "type": "array",
+                                "description": "Suggested options for the user to choose from (2-5 recommended)",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "value": { "type": "string", "description": "Option identifier" },
+                                        "label": { "type": "string", "description": "Display text" },
+                                        "description": { "type": "string", "description": "Additional explanation" }
+                                    },
+                                    "required": ["value", "label"]
+                                }
+                            },
+                            "allow_custom": {
+                                "type": "boolean",
+                                "description": "Whether to show a custom input field (default: true)",
+                                "default": true
+                            },
+                            "multi_select": {
+                                "type": "boolean",
+                                "description": "Whether the user can select multiple options (default: false)",
+                                "default": false
+                            }
+                        },
+                        "required": ["question_id", "text", "options"]
+                    }
+                },
+                "context": {
+                    "type": "string",
+                    "description": "Optional context text explaining why these questions are being asked"
+                }
+            },
+            "required": ["questions"],
+            "additionalProperties": false
+        }),
+    }
+}
+
+/// Tool for submitting the final plan after interactive Q&A.
+pub fn get_submit_plan_tool() -> ToolDefinition {
+    ToolDefinition {
+        name: TOOL_SUBMIT_PLAN.into(),
+        description: "Submit the final implementation plan after gathering requirements through plan_question. The plan should be structured as markdown with phased checklists. This transitions the plan to Review mode where the user can approve and start execution.".into(),
+        internal: true,
+        parameters: json!({
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Short title for the plan (e.g. 'Refactor Auth Module')"
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Full plan content in markdown format. Must include: ## Background section, then ### Phase N: <title> headers with - [ ] checklist items"
+                }
+            },
+            "required": ["title", "content"],
             "additionalProperties": false
         }),
     }

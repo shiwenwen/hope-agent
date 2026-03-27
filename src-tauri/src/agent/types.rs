@@ -83,6 +83,8 @@ pub struct AssistantAgent {
     pub(super) denied_tools: Vec<String>,
     /// Whether the update_plan_step tool should be available (Executing plan state)
     pub(super) plan_executing: bool,
+    /// Whether plan_question and submit_plan tools should be available (Planning state)
+    pub(super) plan_tools_enabled: bool,
 }
 
 /// Stateful filter that strips `<think>...</think>` tags from streaming content.

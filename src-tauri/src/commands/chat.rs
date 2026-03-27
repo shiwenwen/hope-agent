@@ -436,6 +436,7 @@ pub async fn chat(
                 }
             }
             agent.set_denied_tools(denied);
+            agent.set_plan_tools_enabled(true);
             agent.set_extra_system_context(crate::plan::PLAN_MODE_SYSTEM_PROMPT.to_string());
         } else if plan_state == crate::plan::PlanModeState::Executing {
             agent.set_plan_executing(true);
@@ -444,6 +445,36 @@ pub async fn chat(
                     "{}{}",
                     crate::plan::PLAN_EXECUTING_SYSTEM_PROMPT_PREFIX,
                     plan_content
+                ));
+            }
+        } else if plan_state == crate::plan::PlanModeState::Review {
+            // In Review state, tools are still restricted (same as Planning)
+            let mut denied = agent.get_denied_tools().to_vec();
+            for tool in crate::plan::PLAN_MODE_DENIED_TOOLS {
+                let t = tool.to_string();
+                if !denied.contains(&t) {
+                    denied.push(t);
+                }
+            }
+            agent.set_denied_tools(denied);
+            // Inject plan content as context so LLM can answer questions about the plan
+            if let Ok(Some(plan_content)) = crate::plan::load_plan_file(&sid) {
+                agent.set_extra_system_context(format!(
+                    "# Plan Review\n\nThe following plan has been submitted and is awaiting user approval:\n\n{}",
+                    plan_content
+                ));
+            }
+        } else if plan_state == crate::plan::PlanModeState::Paused {
+            // Paused: inject plan context + inform LLM that plan is paused
+            if let Ok(Some(plan_content)) = crate::plan::load_plan_file(&sid) {
+                let paused_step = crate::plan::get_plan_meta(&sid).await
+                    .and_then(|m| m.paused_at_step)
+                    .unwrap_or(0);
+                agent.set_extra_system_context(format!(
+                    "# Plan Paused\n\nPlan execution is currently **paused** at step {}. \
+                     The user may ask to resume, modify the plan, or discuss progress.\n\n\
+                     ## Plan Content\n\n{}",
+                    paused_step, plan_content
                 ));
             }
         }

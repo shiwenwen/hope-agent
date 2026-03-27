@@ -1,4 +1,4 @@
-use crate::plan::{self, PlanModeState, PlanStep, PlanStepStatus};
+use crate::plan::{self, PlanModeState, PlanStep, PlanStepStatus, PlanQuestionAnswer};
 
 #[tauri::command]
 pub async fn get_plan_mode(
@@ -92,15 +92,15 @@ pub async fn update_plan_step_status(
         }));
     }
 
-    // Check if all steps are terminal → auto-transition to Off
+    // Check if all steps are terminal → auto-transition to Completed
     if let Some(meta) = plan::get_plan_meta(&session_id).await {
         if meta.all_terminal() && meta.state == PlanModeState::Executing {
-            plan::set_plan_state(&session_id, PlanModeState::Off).await;
+            plan::set_plan_state(&session_id, PlanModeState::Completed).await;
             if let Some(app_handle) = crate::get_app_handle() {
                 use tauri::Emitter;
                 let _ = app_handle.emit("plan_mode_changed", serde_json::json!({
                     "sessionId": session_id,
-                    "state": "off",
+                    "state": "completed",
                     "reason": "all_steps_completed",
                 }));
             }
@@ -108,4 +108,14 @@ pub async fn update_plan_step_status(
     }
 
     Ok(())
+}
+
+#[tauri::command]
+pub async fn respond_plan_question(
+    request_id: String,
+    answers: Vec<PlanQuestionAnswer>,
+) -> Result<(), String> {
+    plan::submit_plan_question_response(&request_id, answers)
+        .await
+        .map_err(|e| e.to_string())
 }

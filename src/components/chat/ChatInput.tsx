@@ -36,7 +36,7 @@ interface ChatInputProps {
   toolPermissionMode: ToolPermissionMode
   onToolPermissionChange: (mode: ToolPermissionMode) => void
   // Plan mode
-  planState?: "off" | "planning" | "executing"
+  planState?: "off" | "planning" | "review" | "executing" | "paused" | "completed"
   planProgress?: number
   onEnterPlanMode?: () => void
   onExitPlanMode?: () => void
@@ -445,14 +445,26 @@ export default function ChatInput({
                   "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap",
                   planState === "planning"
                     ? "text-blue-600 bg-blue-500/10"
+                    : planState === "review"
+                    ? "text-purple-600 bg-purple-500/10"
                     : planState === "executing"
+                    ? "text-green-600 bg-green-500/10"
+                    : planState === "paused"
+                    ? "text-yellow-600 bg-yellow-500/10"
+                    : planState === "completed"
                     ? "text-green-600 bg-green-500/10"
                     : "text-muted-foreground hover:text-foreground"
                 )}
               >
                 <ClipboardList className="h-3.5 w-3.5 shrink-0" />
                 {planState !== "off" && (
-                  <span>{planState === "planning" ? t("planMode.indicator") : `${planProgress}%`}</span>
+                  <span>
+                    {planState === "planning" ? t("planMode.indicator")
+                      : planState === "review" ? t("planMode.review.badge")
+                      : planState === "paused" ? t("planMode.paused.badge")
+                      : planState === "completed" ? t("planMode.completed")
+                      : `${planProgress}%`}
+                  </span>
                 )}
               </button>
             </IconTip>

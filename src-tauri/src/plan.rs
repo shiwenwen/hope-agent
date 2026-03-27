@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 use tokio::sync::RwLock;
+use tokio::sync::Mutex as TokioMutex;
 use serde::{Deserialize, Serialize};
 use anyhow::Result;
 
@@ -11,7 +12,10 @@ use anyhow::Result;
 pub enum PlanModeState {
     Off,
     Planning,
+    Review,
     Executing,
+    Paused,
+    Completed,
 }
 
 impl Default for PlanModeState {
@@ -25,14 +29,20 @@ impl PlanModeState {
         match self {
             Self::Off => "off",
             Self::Planning => "planning",
+            Self::Review => "review",
             Self::Executing => "executing",
+            Self::Paused => "paused",
+            Self::Completed => "completed",
         }
     }
 
     pub fn from_str(s: &str) -> Self {
         match s {
             "planning" => Self::Planning,
+            "review" => Self::Review,
             "executing" => Self::Executing,
+            "paused" => Self::Paused,
+            "completed" => Self::Completed,
             _ => Self::Off,
         }
     }
@@ -100,6 +110,9 @@ pub struct PlanMeta {
     pub steps: Vec<PlanStep>,
     pub created_at: String,
     pub updated_at: String,
+    /// Step index where execution was paused (for Paused state)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub paused_at_step: Option<usize>,
 }
 
 impl PlanMeta {
@@ -110,6 +123,98 @@ impl PlanMeta {
     pub fn all_terminal(&self) -> bool {
         !self.steps.is_empty() && self.steps.iter().all(|s| s.status.is_terminal())
     }
+}
+
+// ── Plan Question (Interactive Planning) ────────────────────────
+
+/// A single question option for the user to choose from
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanQuestionOption {
+    pub value: String,
+    pub label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+/// A structured question sent by LLM to the user during planning
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanQuestion {
+    pub question_id: String,
+    pub text: String,
+    pub options: Vec<PlanQuestionOption>,
+    #[serde(default = "default_true")]
+    pub allow_custom: bool,
+    #[serde(default)]
+    pub multi_select: bool,
+}
+
+fn default_true() -> bool { true }
+
+/// A group of questions sent together
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanQuestionGroup {
+    pub request_id: String,
+    pub session_id: String,
+    pub questions: Vec<PlanQuestion>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<String>,
+}
+
+/// User's answer to a single question
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanQuestionAnswer {
+    pub question_id: String,
+    pub selected: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_input: Option<String>,
+}
+
+// ── Pending Plan Questions Registry (oneshot pattern) ────────────
+
+static PENDING_PLAN_QUESTIONS: OnceLock<
+    TokioMutex<HashMap<String, tokio::sync::oneshot::Sender<Vec<PlanQuestionAnswer>>>>,
+> = OnceLock::new();
+
+fn get_pending_questions()
+    -> &'static TokioMutex<HashMap<String, tokio::sync::oneshot::Sender<Vec<PlanQuestionAnswer>>>>
+{
+    PENDING_PLAN_QUESTIONS.get_or_init(|| TokioMutex::new(HashMap::new()))
+}
+
+/// Register a pending question and return the receiver.
+pub async fn register_plan_question(
+    request_id: String,
+    sender: tokio::sync::oneshot::Sender<Vec<PlanQuestionAnswer>>,
+) {
+    let mut pending = get_pending_questions().lock().await;
+    pending.insert(request_id, sender);
+}
+
+/// Submit answers from the frontend (called by Tauri command).
+pub async fn submit_plan_question_response(
+    request_id: &str,
+    answers: Vec<PlanQuestionAnswer>,
+) -> Result<()> {
+    let mut pending = get_pending_questions().lock().await;
+    if let Some(sender) = pending.remove(request_id) {
+        let _ = sender.send(answers);
+        Ok(())
+    } else {
+        Err(anyhow::anyhow!(
+            "No pending plan question request: {}",
+            request_id
+        ))
+    }
+}
+
+/// Cancel a pending question (e.g., on plan exit).
+pub async fn cancel_pending_plan_question(request_id: &str) {
+    let mut pending = get_pending_questions().lock().await;
+    pending.remove(request_id);
 }
 
 // ── Tool Restrictions ───────────────────────────────────────────
@@ -130,7 +235,7 @@ pub const PLAN_MODE_ASK_TOOLS: &[&str] = &["exec"];
 pub const PLAN_MODE_SYSTEM_PROMPT: &str = "\
 # Plan Mode Active
 
-You are currently in **Plan Mode**. Your role is to analyze requirements and create a detailed, structured implementation plan.
+You are in **Plan Mode**. Collaborate with the user to create a detailed implementation plan through interactive Q&A.
 
 ## Restrictions
 - You **CANNOT** create, modify, or delete files (write, edit, apply_patch tools are disabled)
@@ -138,34 +243,38 @@ You are currently in **Plan Mode**. Your role is to analyze requirements and cre
 - Shell commands (exec) require user approval before execution
 
 ## Planning Process
-1. **Requirements Analysis**: Understand what the user wants to achieve
-2. **Codebase Exploration**: Read relevant files, search for patterns, understand architecture
-3. **Architecture Design**: Propose the approach with trade-offs considered
-4. **Step Breakdown**: Create a detailed, ordered checklist of implementation steps
-5. **Dependencies**: Identify what each step depends on
+1. **Analyze Requirements**: Understand what the user wants
+2. **Explore & Research**: Read files, search code, browse web as needed
+3. **Ask Clarifying Questions**: Use the `plan_question` tool to ask structured questions with suggested options
+   - Group related questions together (send multiple in one call)
+   - Provide 2-5 suggested options per question with clear labels
+   - Set `allow_custom=true` when the user might have a different idea
+   - After receiving answers, you may ask follow-up questions if needed
+4. **Submit Plan**: When ready, use `submit_plan` to submit the final plan
 
-## Plan Output Format
-**IMPORTANT**: Structure your plan as markdown with a Background section followed by phased checklist. This format will be automatically parsed by the UI:
+## Tools
+- `plan_question`: Send structured questions to the user with suggested options (renders as interactive UI)
+- `submit_plan`: Submit the final plan (title + markdown content)
+- All read-only tools (read, search, glob, web_search, web_fetch, etc.)
 
+## Plan Format (for submit_plan content)
 ## Background
-<Describe the context: what problem this plan solves, what prompted it, key constraints, and the intended outcome. This helps anyone reading the plan understand the WHY before the HOW.>
+<context: problem, motivation, constraints, expected outcome>
 
-### Phase 1: <phase title>
-- [ ] Step description (include file paths when relevant)
+### Phase 1: <title>
+- [ ] Step description (include file paths)
 - [ ] Step description
 
-### Phase 2: <phase title>
-- [ ] Step description
+### Phase 2: <title>
 - [ ] Step description
 
 ## Guidelines
-- Always start with a **Background** section — explain the problem, motivation, and expected result
-- Include specific file paths and function names in step descriptions
+- Always start with a **Background** section
+- Include specific file paths and function names
 - Each step should be independently verifiable
 - Group related changes into phases
 - Consider testing as a separate phase
-
-When the plan is ready, tell the user they can approve it via the Plan panel button or `/plan approve`.";
+- Do NOT output the plan directly in chat messages — always use `submit_plan` tool";
 
 /// System prompt injected during plan execution phase.
 pub const PLAN_EXECUTING_SYSTEM_PROMPT_PREFIX: &str = "\
@@ -186,7 +295,7 @@ After completing each step, call the `update_plan_step` tool to mark your progre
 
 static PLAN_STORE: OnceLock<Arc<RwLock<HashMap<String, PlanMeta>>>> = OnceLock::new();
 
-fn store() -> &'static Arc<RwLock<HashMap<String, PlanMeta>>> {
+pub(crate) fn store() -> &'static Arc<RwLock<HashMap<String, PlanMeta>>> {
     PLAN_STORE.get_or_init(|| Arc::new(RwLock::new(HashMap::new())))
 }
 
@@ -202,6 +311,17 @@ pub async fn set_plan_state(session_id: &str, state: PlanModeState) {
     if state == PlanModeState::Off {
         map.remove(session_id);
     } else if let Some(meta) = map.get_mut(session_id) {
+        // Record paused_at_step when transitioning to Paused
+        if state == PlanModeState::Paused {
+            // Find the first in_progress step, or the first pending step
+            let paused_at = meta.steps.iter()
+                .position(|s| s.status == PlanStepStatus::InProgress)
+                .or_else(|| meta.steps.iter().position(|s| s.status == PlanStepStatus::Pending));
+            meta.paused_at_step = paused_at;
+        } else if state == PlanModeState::Executing {
+            // Clear paused_at_step when resuming
+            meta.paused_at_step = None;
+        }
         meta.state = state;
         meta.updated_at = chrono::Utc::now().to_rfc3339();
     } else {
@@ -217,6 +337,7 @@ pub async fn set_plan_state(session_id: &str, state: PlanModeState) {
             steps: Vec::new(),
             created_at: chrono::Utc::now().to_rfc3339(),
             updated_at: chrono::Utc::now().to_rfc3339(),
+            paused_at_step: None,
         });
     }
 }
@@ -270,6 +391,7 @@ pub async fn restore_from_db(session_id: &str, plan_mode_str: &str) {
         steps,
         created_at: chrono::Utc::now().to_rfc3339(),
         updated_at: chrono::Utc::now().to_rfc3339(),
+        paused_at_step: None,
     });
 }
 
@@ -475,9 +597,15 @@ mod tests {
     #[test]
     fn test_plan_mode_state_roundtrip() {
         assert_eq!(PlanModeState::from_str("planning"), PlanModeState::Planning);
+        assert_eq!(PlanModeState::from_str("review"), PlanModeState::Review);
         assert_eq!(PlanModeState::from_str("executing"), PlanModeState::Executing);
+        assert_eq!(PlanModeState::from_str("paused"), PlanModeState::Paused);
+        assert_eq!(PlanModeState::from_str("completed"), PlanModeState::Completed);
         assert_eq!(PlanModeState::from_str("off"), PlanModeState::Off);
         assert_eq!(PlanModeState::from_str("unknown"), PlanModeState::Off);
         assert_eq!(PlanModeState::Planning.as_str(), "planning");
+        assert_eq!(PlanModeState::Review.as_str(), "review");
+        assert_eq!(PlanModeState::Paused.as_str(), "paused");
+        assert_eq!(PlanModeState::Completed.as_str(), "completed");
     }
 }

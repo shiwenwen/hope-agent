@@ -51,6 +51,7 @@ impl AssistantAgent {
             steer_run_id: None,
             denied_tools: Vec::new(),
             plan_executing: false,
+            plan_tools_enabled: false,
         }
     }
 
@@ -78,6 +79,7 @@ impl AssistantAgent {
             steer_run_id: None,
             denied_tools: Vec::new(),
             plan_executing: false,
+            plan_tools_enabled: false,
         }
     }
 
@@ -129,6 +131,7 @@ impl AssistantAgent {
             steer_run_id: None,
             denied_tools: Vec::new(),
             plan_executing: false,
+            plan_tools_enabled: false,
         }
     }
 
@@ -185,6 +188,11 @@ impl AssistantAgent {
     /// Enable the update_plan_step tool for plan execution mode.
     pub fn set_plan_executing(&mut self, executing: bool) {
         self.plan_executing = executing;
+    }
+
+    /// Enable plan_question and submit_plan tools for interactive planning.
+    pub fn set_plan_tools_enabled(&mut self, enabled: bool) {
+        self.plan_tools_enabled = enabled;
     }
 
     /// Build the full system prompt, including any extra context.

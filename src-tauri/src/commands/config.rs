@@ -155,6 +155,38 @@ pub async fn compact_context_now(
 
 // ── Shortcuts ────────────────────────────────────────────────────
 
+/// Temporarily unregister all global shortcuts (for recording mode)
+/// or re-register them from config.
+#[tauri::command]
+pub async fn set_shortcuts_paused(app: tauri::AppHandle, paused: bool) -> Result<(), String> {
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+    let manager = app.global_shortcut();
+
+    if paused {
+        // Clear pending chord state and unregister all
+        *crate::chord_state().lock().unwrap() = None;
+        let _ = manager.unregister_all();
+    } else {
+        // Re-register from saved config
+        let store = provider::load_store().map_err(|e| e.to_string())?;
+        let _ = manager.unregister_all();
+        for binding in &store.shortcuts.bindings {
+            if !binding.enabled || binding.keys.is_empty() {
+                continue;
+            }
+            let key_to_register = if binding.is_chord() {
+                binding.chord_parts()[0].to_string()
+            } else {
+                binding.keys.clone()
+            };
+            if let Ok(shortcut) = key_to_register.parse::<tauri_plugin_global_shortcut::Shortcut>() {
+                let _ = manager.register(shortcut);
+            }
+        }
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn get_shortcut_config() -> Result<provider::ShortcutConfig, String> {
     let store = provider::load_store().map_err(|e| e.to_string())?;
@@ -163,32 +195,47 @@ pub async fn get_shortcut_config() -> Result<provider::ShortcutConfig, String> {
 
 #[tauri::command]
 pub async fn save_shortcut_config(app: tauri::AppHandle, config: provider::ShortcutConfig) -> Result<(), String> {
+    // Validate all key combinations first
+    for binding in &config.bindings {
+        if binding.keys.is_empty() { continue; }
+        for part in binding.chord_parts() {
+            if part.parse::<tauri_plugin_global_shortcut::Shortcut>().is_err() {
+                return Err(format!("Invalid shortcut key combination: {}", part));
+            }
+        }
+    }
+
     let mut store = provider::load_store().map_err(|e| e.to_string())?;
     store.shortcuts = config.clone();
     provider::save_store(&store).map_err(|e| e.to_string())?;
 
-    // Re-register global shortcuts
+    // Clear any pending chord state
+    *crate::chord_state().lock().unwrap() = None;
+
+    // Re-register global shortcuts (chord-aware)
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
     let manager = app.global_shortcut();
-
-    // Unregister all existing shortcuts
     let _ = manager.unregister_all();
 
-    // Register enabled shortcuts
     for binding in &config.bindings {
         if !binding.enabled || binding.keys.is_empty() {
             continue;
         }
-        if let Ok(shortcut) = binding.keys.parse::<tauri_plugin_global_shortcut::Shortcut>() {
+        // For chord bindings, only register the first part;
+        // second part is registered temporarily when first part is pressed.
+        let key_to_register = if binding.is_chord() {
+            binding.chord_parts()[0].to_string()
+        } else {
+            binding.keys.clone()
+        };
+        if let Ok(shortcut) = key_to_register.parse::<tauri_plugin_global_shortcut::Shortcut>() {
             if let Err(e) = manager.register(shortcut) {
                 if let Some(logger) = crate::get_logger() {
                     logger.log("warn", "shortcut", "save_shortcut_config",
-                        &format!("Failed to register shortcut '{}' ({}): {}", binding.id, binding.keys, e),
+                        &format!("Failed to register shortcut '{}' ({}): {}", binding.id, key_to_register, e),
                         None, None, None);
                 }
             }
-        } else {
-            return Err(format!("Invalid shortcut key combination: {}", binding.keys));
         }
     }
 

@@ -325,6 +325,19 @@ fn default_shortcut_bindings() -> Vec<ShortcutBinding> {
     ]
 }
 
+impl ShortcutBinding {
+    /// Whether this binding is a chord (two sequential key combos separated by space).
+    /// e.g. "CommandOrControl+K CommandOrControl+C"
+    pub fn is_chord(&self) -> bool {
+        self.chord_parts().len() > 1
+    }
+
+    /// Split keys into chord parts. Single combo returns vec of 1.
+    pub fn chord_parts(&self) -> Vec<&str> {
+        self.keys.split_whitespace().collect()
+    }
+}
+
 impl Default for ShortcutConfig {
     fn default() -> Self {
         Self {

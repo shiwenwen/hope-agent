@@ -964,6 +964,8 @@
     "recording": "Press a shortcut...",
     "unset": "Not set",
     "hint": "Shortcuts must include at least one modifier key (Cmd/Alt/Shift/Ctrl). Press Esc to cancel recording.",
+    "chordHint": "Chord shortcuts supported: press a second combo within 1.5s to record a two-part shortcut (e.g. Ctrl+K Ctrl+C).",
+    "chordNext": "+ ...",
     "reset": "Reset to Default"
   },
   "about": {
@@ -1146,20 +1148,40 @@
     "indicator": "Plan Mode",
     "plan": "Execution Plan",
     "openPanel": "View in panel",
-    "restricted": "Plan Mode: AI will analyze requirements and create an execution plan",
-    "approveAndExecute": "Approve & Execute",
+    "restricted": "Plan Mode: AI will gather info and collaborate with you to create a plan",
+    "approveAndExecute": "Start Execution",
     "keepPlanning": "Keep Planning",
-    "exitWithout": "Exit without executing",
+    "exitWithout": "Exit Plan",
     "showPlan": "Show Plan",
     "executing": "Executing plan...",
     "stepsCompleted": "steps completed",
-    "completed": "Plan execution completed",
+    "completed": "Completed",
     "placeholder": "Describe what you want to achieve...",
     "panelTitle": "Execution Plan",
     "editorPlaceholder": "Edit plan content here...\n\n## Background\nDescribe the context: what problem to solve, why, and expected outcome\n\n### Phase 1: Analysis\n- [ ] Step description\n\n### Phase 2: Implementation\n- [ ] Step description",
     "stepsDetected": "steps detected",
     "noSteps": "No steps yet",
-    "executeCommand": "Start executing the plan. Complete each step in order, calling update_plan_step to track progress."
+    "executeCommand": "Start executing the plan. Complete each step in order, calling update_plan_step to track progress.",
+    "planning": "Creating plan...",
+    "pause": "Pause",
+    "resume": "Resume",
+    "pausedBanner": "Plan execution is paused",
+    "review": {
+      "badge": "Review"
+    },
+    "paused": {
+      "badge": "Paused"
+    },
+    "card": {
+      "phases": "phases",
+      "steps": "steps"
+    },
+    "question": {
+      "title": "Planning Questions",
+      "submit": "Submit Answers",
+      "answered": "Answered",
+      "customPlaceholder": "Enter custom answer..."
+    }
   },
   "canvas": {
     "refresh": "Refresh",

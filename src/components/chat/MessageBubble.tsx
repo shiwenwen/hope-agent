@@ -160,6 +160,11 @@ export default function MessageBubble({
                   )
                   i++
                 } else if (block.type === "tool_call") {
+                  // Skip plan tools — rendered separately by MessageList
+                  if (block.tool.name === "plan_question" || block.tool.name === "submit_plan") {
+                    i++
+                    continue
+                  }
                   // Collect consecutive tool_call blocks of same category
                   const cat = getToolCategory(block.tool.name)
                   const group: ContentBlock[] = [block]

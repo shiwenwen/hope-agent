@@ -1,0 +1,228 @@
+import { useState, useCallback } from "react"
+import { invoke } from "@tauri-apps/api/core"
+import { useTranslation } from "react-i18next"
+import { cn } from "@/lib/utils"
+import { Input } from "@/components/ui/input"
+import { Button } from "@/components/ui/button"
+import { HelpCircle, Check, Send, MessageSquare } from "lucide-react"
+
+export interface PlanQuestionOption {
+  value: string
+  label: string
+  description?: string
+}
+
+export interface PlanQuestion {
+  questionId: string
+  text: string
+  options: PlanQuestionOption[]
+  allowCustom: boolean
+  multiSelect: boolean
+}
+
+export interface PlanQuestionGroup {
+  requestId: string
+  sessionId: string
+  questions: PlanQuestion[]
+  context?: string
+}
+
+export interface PlanQuestionAnswer {
+  question_id: string
+  selected: string[]
+  custom_input?: string
+}
+
+interface PlanQuestionBlockProps {
+  group: PlanQuestionGroup
+  onSubmitted?: () => void
+}
+
+interface QuestionState {
+  selected: Set<string>
+  customInput: string
+}
+
+export default function PlanQuestionBlock({ group, onSubmitted }: PlanQuestionBlockProps) {
+  const { t } = useTranslation()
+  const [submitted, setSubmitted] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [answers, setAnswers] = useState<Record<string, QuestionState>>(() => {
+    const init: Record<string, QuestionState> = {}
+    for (const q of group.questions) {
+      init[q.questionId] = { selected: new Set(), customInput: "" }
+    }
+    return init
+  })
+
+  const toggleOption = useCallback((questionId: string, value: string, multiSelect: boolean) => {
+    setAnswers(prev => {
+      const q = prev[questionId]
+      if (!q) return prev
+      const newSelected = new Set(q.selected)
+      if (multiSelect) {
+        if (newSelected.has(value)) newSelected.delete(value)
+        else newSelected.add(value)
+      } else {
+        newSelected.clear()
+        newSelected.add(value)
+      }
+      return { ...prev, [questionId]: { ...q, selected: newSelected } }
+    })
+  }, [])
+
+  const setCustomInput = useCallback((questionId: string, value: string) => {
+    setAnswers(prev => {
+      const q = prev[questionId]
+      if (!q) return prev
+      return { ...prev, [questionId]: { ...q, customInput: value } }
+    })
+  }, [])
+
+  const handleSubmit = useCallback(async () => {
+    setSubmitting(true)
+    try {
+      const answerList: PlanQuestionAnswer[] = group.questions.map(q => {
+        const state = answers[q.questionId]
+        return {
+          question_id: q.questionId,
+          selected: state ? Array.from(state.selected) : [],
+          custom_input: state?.customInput || undefined,
+        }
+      })
+      await invoke("respond_plan_question", {
+        requestId: group.requestId,
+        answers: answerList,
+      })
+      setSubmitted(true)
+      onSubmitted?.()
+    } catch (e) {
+      console.error("Failed to submit plan question response:", e)
+    } finally {
+      setSubmitting(false)
+    }
+  }, [group, answers, onSubmitted])
+
+  if (submitted) {
+    return (
+      <div className="my-2 rounded-lg border border-green-500/20 bg-green-500/5 p-4">
+        <div className="flex items-center gap-2 text-sm text-green-600">
+          <Check className="h-4 w-4" />
+          <span className="font-medium">{t("planMode.question.answered")}</span>
+        </div>
+        <div className="mt-2 space-y-2">
+          {group.questions.map(q => {
+            const state = answers[q.questionId]
+            return (
+              <div key={q.questionId} className="text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">{q.text}</span>
+                <div className="mt-0.5 pl-2">
+                  {state && state.selected.size > 0 && (
+                    Array.from(state.selected).map(v => {
+                      const opt = q.options.find(o => o.value === v)
+                      return <div key={v}>- {opt?.label || v}</div>
+                    })
+                  )}
+                  {state?.customInput && (
+                    <div>- {state.customInput}</div>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="my-2 rounded-lg border border-blue-500/20 bg-blue-500/5 p-4 space-y-4">
+      {/* Header */}
+      <div className="flex items-center gap-2 text-sm font-medium text-blue-600">
+        <MessageSquare className="h-4 w-4" />
+        <span>{t("planMode.question.title")}</span>
+      </div>
+
+      {/* Context */}
+      {group.context && (
+        <p className="text-sm text-muted-foreground">{group.context}</p>
+      )}
+
+      {/* Questions */}
+      {group.questions.map((q, qi) => (
+        <div key={q.questionId} className="space-y-2">
+          <div className="flex items-start gap-2">
+            <HelpCircle className="h-3.5 w-3.5 mt-0.5 text-blue-500 shrink-0" />
+            <span className="text-sm font-medium">
+              {group.questions.length > 1 && `${qi + 1}. `}{q.text}
+            </span>
+          </div>
+
+          {/* Options */}
+          <div className="pl-5 space-y-1.5">
+            {q.options.map(opt => {
+              const isSelected = answers[q.questionId]?.selected.has(opt.value)
+              return (
+                <button
+                  key={opt.value}
+                  onClick={() => toggleOption(q.questionId, opt.value, q.multiSelect)}
+                  className={cn(
+                    "w-full text-left px-3 py-2 rounded-md border text-sm transition-colors cursor-pointer",
+                    isSelected
+                      ? "border-blue-500 bg-blue-500/10 text-blue-700 dark:text-blue-300"
+                      : "border-border hover:border-blue-500/50 hover:bg-blue-500/5"
+                  )}
+                >
+                  <div className="flex items-center gap-2">
+                    <div className={cn(
+                      "h-4 w-4 rounded-full border-2 flex items-center justify-center shrink-0",
+                      q.multiSelect ? "rounded-sm" : "",
+                      isSelected ? "border-blue-500 bg-blue-500" : "border-muted-foreground/30"
+                    )}>
+                      {isSelected && <Check className="h-2.5 w-2.5 text-white" />}
+                    </div>
+                    <div>
+                      <div className="font-medium">{opt.label}</div>
+                      {opt.description && (
+                        <div className="text-xs text-muted-foreground mt-0.5">{opt.description}</div>
+                      )}
+                    </div>
+                  </div>
+                </button>
+              )
+            })}
+
+            {/* Custom input */}
+            {q.allowCustom && (
+              <div className="flex gap-2 mt-1">
+                <Input
+                  placeholder={t("planMode.question.customPlaceholder")}
+                  value={answers[q.questionId]?.customInput || ""}
+                  onChange={e => setCustomInput(q.questionId, e.target.value)}
+                  className="text-sm h-9"
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      ))}
+
+      {/* Submit button */}
+      <div className="flex justify-end pt-1">
+        <Button
+          size="sm"
+          onClick={handleSubmit}
+          disabled={submitting}
+          className="gap-1.5"
+        >
+          {submitting ? (
+            <span className="animate-spin h-3.5 w-3.5 border-2 border-current border-t-transparent rounded-full" />
+          ) : (
+            <Send className="h-3.5 w-3.5" />
+          )}
+          {t("planMode.question.submit")}
+        </Button>
+      </div>
+    </div>
+  )
+}

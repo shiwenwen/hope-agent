@@ -46,6 +46,30 @@ pub async fn handle_plan(
                 action: Some(CommandAction::ShowPlan { plan_content }),
             })
         }
-        _ => Err("Usage: /plan [enter|exit|approve|show]".to_string()),
+        "pause" => {
+            let current = plan::get_plan_state(sid).await;
+            if current != PlanModeState::Executing {
+                return Err("Can only pause when plan is executing".to_string());
+            }
+            plan::set_plan_state(sid, PlanModeState::Paused).await;
+            db.update_session_plan_mode(sid, "paused").map_err(|e| e.to_string())?;
+            Ok(CommandResult {
+                content: String::new(),
+                action: Some(CommandAction::PausePlan),
+            })
+        }
+        "resume" => {
+            let current = plan::get_plan_state(sid).await;
+            if current != PlanModeState::Paused {
+                return Err("Can only resume when plan is paused".to_string());
+            }
+            plan::set_plan_state(sid, PlanModeState::Executing).await;
+            db.update_session_plan_mode(sid, "executing").map_err(|e| e.to_string())?;
+            Ok(CommandResult {
+                content: String::new(),
+                action: Some(CommandAction::ResumePlan),
+            })
+        }
+        _ => Err("Usage: /plan [enter|exit|approve|pause|resume|show]".to_string()),
     }
 }

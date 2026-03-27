@@ -63,7 +63,7 @@ export default function ChatScreen({
   const [compacting, setCompacting] = useState(false)
 
   // Plan mode state (declared early so useChatStream can access it)
-  const [planModeState, setPlanModeState] = useState<"off" | "planning" | "executing">("off")
+  const [planModeState, setPlanModeState] = useState<"off" | "planning" | "review" | "executing" | "paused" | "completed">("off")
 
   // Update model display + reasoning effort without persisting to global settings
   const applyModelForDisplay = useCallback(
@@ -336,6 +336,13 @@ export default function ChatScreen({
           planMode.setPlanContent(action.planContent)
           planMode.setShowPanel(true)
           break
+        case "pausePlan":
+          planMode.pauseExecution()
+          break
+        case "resumePlan":
+          planMode.resumeExecution()
+          planMode.setShowPanel(true)
+          break
       }
     },
     [session, stream, handleModelChange, handleEffortChange, compacting, planMode], // eslint-disable-line react-hooks/exhaustive-deps
@@ -430,6 +437,20 @@ export default function ChatScreen({
           onLoadMore={session.handleLoadMore}
           scrollContainerRef={scrollContainerRef}
           bottomRef={bottomRef}
+          pendingQuestionGroup={planMode.pendingQuestionGroup}
+          onQuestionSubmitted={() => { /* PlanQuestionBlock handles its own submitted state */ }}
+          planCardData={planMode.planCardInfo ? {
+            title: planMode.planCardInfo.title,
+            steps: planMode.planSteps,
+            sessionId: session.currentSessionId || "",
+          } : null}
+          planState={planMode.planState}
+          planSteps={planMode.planSteps}
+          onOpenPlanPanel={() => planMode.setShowPanel(true)}
+          onApprovePlan={handlePlanApprove}
+          onExitPlan={planMode.exitPlanMode}
+          onPausePlan={planMode.pauseExecution}
+          onResumePlan={planMode.resumeExecution}
         />
 
         {/* Memory extraction toast */}
@@ -499,6 +520,8 @@ export default function ChatScreen({
           onApprove={handlePlanApprove}
           onExit={planMode.exitPlanMode}
           onClose={() => planMode.setShowPanel(false)}
+          onPause={planMode.pauseExecution}
+          onResume={planMode.resumeExecution}
         />
       )}
 
