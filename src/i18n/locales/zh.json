@@ -1155,7 +1155,7 @@
     "completed": "计划执行完成",
     "placeholder": "描述你想要实现的功能...",
     "panelTitle": "执行计划",
-    "editorPlaceholder": "在此编辑计划内容...\n\n## Background\n描述背景：要解决什么问题、为什么做、预期结果\n\n### Phase 1: 分析\n- [ ] 步骤描述\n\n### Phase 2: 实现\n- [ ] 步骤描述",
+    "editorPlaceholder": "您可以在此协同编辑计划内容...\n\n## Background\n描述背景：要解决什么问题、为什么做、预期结果\n\n### Phase 1: 分析\n- [ ] 步骤描述\n\n### Phase 2: 实现\n- [ ] 步骤描述",
     "stepsDetected": "个步骤已识别",
     "noSteps": "暂无步骤",
     "executeCommand": "开始执行计划，按步骤逐一完成，每完成一步调用 update_plan_step 更新进度。"
