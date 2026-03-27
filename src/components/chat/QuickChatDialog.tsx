@@ -169,7 +169,7 @@ export default function QuickChatDialog({
           <ChatInput
             input={stream.input}
             onInputChange={stream.setInput}
-            onSend={stream.handleSend}
+            onSend={() => stream.handleSend()}
             loading={session.loading}
             availableModels={session.availableModels}
             activeModel={session.activeModel}

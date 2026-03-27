@@ -467,7 +467,7 @@ export default function ChatScreen({
         <ChatInput
           input={stream.input}
           onInputChange={stream.setInput}
-          onSend={stream.handleSend}
+          onSend={() => stream.handleSend()}
           loading={session.loading}
           availableModels={availableModels}
           activeModel={activeModel}
