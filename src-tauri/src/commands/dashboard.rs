@@ -64,3 +64,48 @@ pub async fn dashboard_system_metrics() -> Result<dashboard::SystemMetrics, Stri
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub async fn dashboard_session_list(
+    filter: DashboardFilter,
+    state: State<'_, AppState>,
+) -> Result<Vec<dashboard::DashboardSessionItem>, String> {
+    dashboard::query_session_list(&state.session_db, &filter)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn dashboard_message_list(
+    filter: DashboardFilter,
+    state: State<'_, AppState>,
+) -> Result<Vec<dashboard::DashboardMessageItem>, String> {
+    dashboard::query_message_list(&state.session_db, &filter)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn dashboard_tool_call_list(
+    filter: DashboardFilter,
+    state: State<'_, AppState>,
+) -> Result<Vec<dashboard::DashboardToolCallItem>, String> {
+    dashboard::query_tool_call_list(&state.session_db, &filter)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn dashboard_error_list(
+    filter: DashboardFilter,
+    state: State<'_, AppState>,
+) -> Result<Vec<dashboard::DashboardErrorItem>, String> {
+    dashboard::query_error_list(&state.log_db, &filter)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn dashboard_agent_list(
+    filter: DashboardFilter,
+    state: State<'_, AppState>,
+) -> Result<Vec<dashboard::DashboardAgentItem>, String> {
+    dashboard::query_agent_list(&state.session_db, &filter)
+        .map_err(|e| e.to_string())
+}

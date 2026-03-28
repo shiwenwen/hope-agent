@@ -7,7 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Plan Mode 双 Agent 架构重构**：从单 Agent 状态机切换改为 Plan Agent / Build Agent 双 Agent 架构
+  - 新增 `PlanAgentConfig` 声明式配置，Plan Agent 使用工具白名单（替代 denied_tools 黑名单）
+  - 新增 `PlanAgentMode` 枚举（Off/PlanAgent/BuildAgent）统一控制工具注入
+  - 新增 `apply_plan_tools()` 共享方法，消除 4 个 Provider 各自重复的 8 行条件注入代码
+  - 移除 `AssistantAgent` 上的 3 个 plan 专用字段（plan_ask_tools/plan_executing/plan_tools_enabled）
+  - `commands/chat.rs` plan 分支从 100+ 行 if/else 简化为 ~50 行 match 表达式
+  - PlanCardBlock Phase 列表支持点击展开显示步骤详情
+
 ### Added
+- **数据大盘详情列表**：Overview 卡片点击展开详情列表面板
+  - 新增 5 个后端查询命令：`dashboard_session_list` / `dashboard_message_list` / `dashboard_tool_call_list` / `dashboard_error_list` / `dashboard_agent_list`
+  - 6 种详情列表：会话列表、消息列表、工具调用列表、错误日志列表、Agent 列表、定时任务列表
+  - 卡片点击 toggle 展开/收起，活跃卡片高亮边框，列表复用全局 DashboardFilter
 - **Plan Mode 深度增强**：对标 OpenCode/Claude Code，全面提升计划模式的可靠性、灵活性和智能水平
   - **步骤进度持久化**：plan_steps 列持久化到 SessionDB，崩溃/重启后步骤进度完整恢复（P0）
   - **子 Agent 安全继承**：Planning/Review 状态下 spawn 的子 Agent 自动继承 PLAN_MODE_DENIED_TOOLS 限制，修复工具限制泄漏安全漏洞（P0）

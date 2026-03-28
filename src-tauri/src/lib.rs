@@ -871,6 +871,11 @@ pub fn run() {
             commands::dashboard::dashboard_errors,
             commands::dashboard::dashboard_tasks,
             commands::dashboard::dashboard_system_metrics,
+            commands::dashboard::dashboard_session_list,
+            commands::dashboard::dashboard_message_list,
+            commands::dashboard::dashboard_tool_call_list,
+            commands::dashboard::dashboard_error_list,
+            commands::dashboard::dashboard_agent_list,
             // Developer tools
             dev_tools::dev_clear_sessions,
             dev_tools::dev_clear_cron,

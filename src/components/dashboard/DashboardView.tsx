@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
@@ -8,6 +8,8 @@ import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
 import DashboardFilter from "./DashboardFilter"
 import OverviewCards from "./OverviewCards"
+import type { CardAction } from "./OverviewCards"
+import DetailListPanel from "./DetailListPanel"
 import TokenUsageSection from "./TokenUsageSection"
 import ToolUsageSection from "./ToolUsageSection"
 import SessionSection from "./SessionSection"
@@ -24,6 +26,7 @@ import type {
   DashboardTaskData,
   SystemMetrics,
   Granularity,
+  DetailListType,
 } from "./types"
 
 function defaultFilter(): DashboardFilterState {
@@ -43,6 +46,7 @@ export default function DashboardView({ onBack }: { onBack: () => void }) {
   const { t } = useTranslation()
   const [filter, setFilter] = useState<DashboardFilterState>(defaultFilter)
   const [activeTab, setActiveTab] = useState("tokens")
+  const [activeList, setActiveList] = useState<DetailListType | null>(null)
   const [loading, setLoading] = useState(true)
   const [overview, setOverview] = useState<OverviewStats | null>(null)
   const [tokenData, setTokenData] = useState<DashboardTokenData | null>(null)
@@ -52,6 +56,16 @@ export default function DashboardView({ onBack }: { onBack: () => void }) {
   const [taskData, setTaskData] = useState<DashboardTaskData | null>(null)
   const [systemMetrics, setSystemMetrics] = useState<SystemMetrics | null>(null)
   const [granularity, setGranularity] = useState<Granularity>("day")
+  const [agents, setAgents] = useState<{ id: string; name: string; emoji?: string | null }[]>([])
+  const tabsRef = useRef<HTMLDivElement>(null)
+
+  const agentNameMap = useMemo(() => {
+    const map: Record<string, string> = {}
+    for (const a of agents) {
+      map[a.id] = a.emoji ? `${a.emoji} ${a.name}` : a.name
+    }
+    return map
+  }, [agents])
 
   const loadOverview = useCallback(async () => {
     try {
@@ -61,6 +75,13 @@ export default function DashboardView({ onBack }: { onBack: () => void }) {
       logger.error("dashboard", "loadOverview", `Failed: ${e}`)
     }
   }, [filter])
+
+  // Load agent names once on mount
+  useEffect(() => {
+    invoke<{ id: string; name: string; emoji?: string | null }[]>("list_agents")
+      .then(setAgents)
+      .catch(() => {})
+  }, [])
 
   const loadTabData = useCallback(
     async (tab: string) => {
@@ -119,8 +140,23 @@ export default function DashboardView({ onBack }: { onBack: () => void }) {
     loadTabData(activeTab)
   }, [activeTab, granularity]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  const handleCardClick = useCallback((action: CardAction) => {
+    if (action.type === "tab") {
+      setActiveList(null)
+      setActiveTab(action.tab)
+      requestAnimationFrame(() => {
+        tabsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+      })
+    } else {
+      // Toggle list: click same card again to close
+      setActiveList((prev) => (prev === action.listType ? null : action.listType))
+    }
+  }, [])
+
   const handleRefresh = useCallback(() => {
     setLoading(true)
+    // Close detail list on refresh so it reloads when reopened
+    setActiveList(null)
     Promise.all([loadOverview(), loadTabData(activeTab)]).finally(() => setLoading(false))
   }, [loadOverview, loadTabData, activeTab])
 
@@ -156,10 +192,20 @@ export default function DashboardView({ onBack }: { onBack: () => void }) {
       {/* Scrollable content */}
       <div className="flex-1 overflow-y-auto p-6 space-y-6">
         {/* Overview cards */}
-        <OverviewCards data={overview} loading={loading} />
+        <OverviewCards data={overview} loading={loading} activeList={activeList} onCardClick={handleCardClick} />
+
+        {/* Detail list panel (between cards and tabs) */}
+        {activeList && (
+          <DetailListPanel
+            listType={activeList}
+            filter={filter}
+            agentNameMap={agentNameMap}
+            onClose={() => setActiveList(null)}
+          />
+        )}
 
         {/* Tabs */}
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <Tabs ref={tabsRef} value={activeTab} onValueChange={setActiveTab}>
           <div className="flex items-center gap-3 flex-wrap">
             <TabsList>
               <TabsTrigger value="tokens">{t("dashboard.tabs.tokens")}</TabsTrigger>
@@ -202,6 +248,7 @@ export default function DashboardView({ onBack }: { onBack: () => void }) {
             <SessionSection
               data={sessionData}
               loading={loading}
+              agentNameMap={agentNameMap}
               onDrillDown={(agentId) =>
                 setFilter((f) => ({ ...f, agentId: agentId }))
               }

@@ -133,6 +133,81 @@ export interface SystemMetrics {
   systemUptimeSecs: number
 }
 
+// ── Detail List Types ───────────────────────────────────────────
+
+export type DetailListType = "sessions" | "messages" | "toolCalls" | "errors" | "agents" | "cronJobs"
+
+export interface DashboardSessionItem {
+  id: string
+  title: string | null
+  agentId: string
+  modelId: string | null
+  messageCount: number
+  totalTokens: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface DashboardMessageItem {
+  id: number
+  sessionId: string
+  sessionTitle: string | null
+  role: string
+  contentPreview: string
+  tokensIn: number
+  tokensOut: number
+  timestamp: string
+}
+
+export interface DashboardToolCallItem {
+  id: number
+  sessionId: string
+  sessionTitle: string | null
+  toolName: string
+  isError: boolean
+  durationMs: number | null
+  timestamp: string
+}
+
+export interface DashboardErrorItem {
+  id: number
+  level: string
+  category: string
+  source: string
+  message: string
+  sessionId: string | null
+  timestamp: string
+}
+
+export interface DashboardAgentItem {
+  agentId: string
+  sessionCount: number
+  messageCount: number
+  totalTokens: number
+  lastActiveAt: string
+}
+
+export type CronSchedule =
+  | { type: "at"; timestamp: string }
+  | { type: "every"; intervalMs: number }
+  | { type: "cron"; expression: string; timezone?: string }
+
+export interface CronJob {
+  id: string
+  name: string
+  description: string | null
+  schedule: CronSchedule
+  status: string
+  nextRunAt: string | null
+  lastRunAt: string | null
+  runningAt: string | null
+  consecutiveFailures: number
+  maxFailures: number
+  createdAt: string
+  updatedAt: string
+  notifyOnComplete: boolean
+}
+
 export type Granularity = "day" | "week" | "month"
 
 /** Format large numbers as "1.2M", "45.6K", etc. */

@@ -205,6 +205,68 @@ pub struct SystemMetrics {
     pub system_uptime_secs: u64,
 }
 
+// ── Detail List Types ───────────────────────────────────────────
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DashboardSessionItem {
+    pub id: String,
+    pub title: Option<String>,
+    pub agent_id: String,
+    pub model_id: Option<String>,
+    pub message_count: u64,
+    pub total_tokens: u64,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DashboardMessageItem {
+    pub id: i64,
+    pub session_id: String,
+    pub session_title: Option<String>,
+    pub role: String,
+    pub content_preview: String,
+    pub tokens_in: u64,
+    pub tokens_out: u64,
+    pub timestamp: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DashboardToolCallItem {
+    pub id: i64,
+    pub session_id: String,
+    pub session_title: Option<String>,
+    pub tool_name: String,
+    pub is_error: bool,
+    pub duration_ms: Option<f64>,
+    pub timestamp: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DashboardErrorItem {
+    pub id: i64,
+    pub level: String,
+    pub category: String,
+    pub source: String,
+    pub message: String,
+    pub session_id: Option<String>,
+    pub timestamp: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DashboardAgentItem {
+    pub agent_id: String,
+    pub session_count: u64,
+    pub message_count: u64,
+    pub total_tokens: u64,
+    pub last_active_at: String,
+}
+
 // ── Cost Estimation ─────────────────────────────────────────────
 
 fn estimate_cost(model_id: &str, input_tokens: u64, output_tokens: u64) -> f64 {
@@ -888,4 +950,188 @@ pub fn query_system_metrics() -> Result<SystemMetrics> {
         host_name,
         system_uptime_secs,
     })
+}
+
+// ── Detail List Queries ─────────────────────────────────────────
+
+/// List sessions with message count and token totals.
+pub fn query_session_list(
+    session_db: &Arc<SessionDB>,
+    filter: &DashboardFilter,
+) -> Result<Vec<DashboardSessionItem>> {
+    let conn = session_db.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+
+    let f = build_session_filter(filter, "s", None);
+    let sql = format!(
+        "SELECT s.id, s.title, s.agent_id, s.model_id,
+                (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) as msg_count,
+                (SELECT COALESCE(SUM(m.tokens_in), 0) + COALESCE(SUM(m.tokens_out), 0) FROM messages m WHERE m.session_id = s.id) as total_tokens,
+                s.created_at, s.updated_at
+         FROM sessions s
+         {}
+         ORDER BY s.updated_at DESC
+         LIMIT 100",
+        f.where_sql
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params_ref(&f.params).as_slice(), |r| {
+        Ok(DashboardSessionItem {
+            id: r.get(0)?,
+            title: r.get(1)?,
+            agent_id: r.get(2)?,
+            model_id: r.get(3)?,
+            message_count: r.get(4)?,
+            total_tokens: r.get(5)?,
+            created_at: r.get(6)?,
+            updated_at: r.get(7)?,
+        })
+    })?;
+    rows.collect::<std::result::Result<_, _>>().map_err(Into::into)
+}
+
+/// List recent messages across all sessions.
+pub fn query_message_list(
+    session_db: &Arc<SessionDB>,
+    filter: &DashboardFilter,
+) -> Result<Vec<DashboardMessageItem>> {
+    let conn = session_db.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+
+    let f = build_session_filter(filter, "s", Some("m"));
+    let sql = format!(
+        "SELECT m.id, m.session_id, s.title, m.role,
+                SUBSTR(m.content, 1, 200),
+                COALESCE(m.tokens_in, 0),
+                COALESCE(m.tokens_out, 0),
+                m.timestamp
+         FROM messages m
+         JOIN sessions s ON s.id = m.session_id
+         {}
+         ORDER BY m.timestamp DESC
+         LIMIT 100",
+        f.where_sql
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params_ref(&f.params).as_slice(), |r| {
+        Ok(DashboardMessageItem {
+            id: r.get(0)?,
+            session_id: r.get(1)?,
+            session_title: r.get(2)?,
+            role: r.get(3)?,
+            content_preview: r.get::<_, Option<String>>(4)?.unwrap_or_default(),
+            tokens_in: r.get(5)?,
+            tokens_out: r.get(6)?,
+            timestamp: r.get(7)?,
+        })
+    })?;
+    rows.collect::<std::result::Result<_, _>>().map_err(Into::into)
+}
+
+/// List recent tool calls across all sessions.
+pub fn query_tool_call_list(
+    session_db: &Arc<SessionDB>,
+    filter: &DashboardFilter,
+) -> Result<Vec<DashboardToolCallItem>> {
+    let conn = session_db.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+
+    let f = build_session_filter(filter, "s", Some("m"));
+    let extra = if f.where_sql.is_empty() {
+        "WHERE m.tool_name IS NOT NULL AND m.tool_name != ''".to_string()
+    } else {
+        format!("{} AND m.tool_name IS NOT NULL AND m.tool_name != ''", f.where_sql)
+    };
+    let sql = format!(
+        "SELECT m.id, m.session_id, s.title, m.tool_name,
+                COALESCE(m.is_error, 0),
+                m.tool_duration_ms,
+                m.timestamp
+         FROM messages m
+         JOIN sessions s ON s.id = m.session_id
+         {}
+         ORDER BY m.timestamp DESC
+         LIMIT 100",
+        extra
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params_ref(&f.params).as_slice(), |r| {
+        Ok(DashboardToolCallItem {
+            id: r.get(0)?,
+            session_id: r.get(1)?,
+            session_title: r.get(2)?,
+            tool_name: r.get(3)?,
+            is_error: r.get::<_, i64>(4)? != 0,
+            duration_ms: r.get(5)?,
+            timestamp: r.get(6)?,
+        })
+    })?;
+    rows.collect::<std::result::Result<_, _>>().map_err(Into::into)
+}
+
+/// List recent error/warning log entries.
+pub fn query_error_list(
+    log_db: &Arc<LogDB>,
+    filter: &DashboardFilter,
+) -> Result<Vec<DashboardErrorItem>> {
+    let conn = log_db.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+
+    let base = build_log_filter(filter);
+    let condition = if base.where_sql.is_empty() {
+        "WHERE level IN ('error', 'warn')".to_string()
+    } else {
+        format!("{} AND level IN ('error', 'warn')", base.where_sql)
+    };
+    let sql = format!(
+        "SELECT id, level, category, source, message, session_id, timestamp
+         FROM logs
+         {}
+         ORDER BY timestamp DESC
+         LIMIT 100",
+        condition
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params_ref(&base.params).as_slice(), |r| {
+        Ok(DashboardErrorItem {
+            id: r.get(0)?,
+            level: r.get(1)?,
+            category: r.get(2)?,
+            source: r.get(3)?,
+            message: r.get(4)?,
+            session_id: r.get(5)?,
+            timestamp: r.get(6)?,
+        })
+    })?;
+    rows.collect::<std::result::Result<_, _>>().map_err(Into::into)
+}
+
+/// List agents with session counts and token totals.
+pub fn query_agent_list(
+    session_db: &Arc<SessionDB>,
+    filter: &DashboardFilter,
+) -> Result<Vec<DashboardAgentItem>> {
+    let conn = session_db.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+
+    let f = build_session_filter(filter, "s", None);
+    let sql = format!(
+        "SELECT s.agent_id,
+                COUNT(DISTINCT s.id) as sess_count,
+                COUNT(m.id) as msg_count,
+                COALESCE(SUM(m.tokens_in), 0) + COALESCE(SUM(m.tokens_out), 0) as total_tokens,
+                MAX(s.updated_at) as last_active
+         FROM sessions s
+         LEFT JOIN messages m ON m.session_id = s.id
+         {}
+         GROUP BY s.agent_id
+         ORDER BY sess_count DESC",
+        f.where_sql
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params_ref(&f.params).as_slice(), |r| {
+        Ok(DashboardAgentItem {
+            agent_id: r.get(0)?,
+            session_count: r.get(1)?,
+            message_count: r.get(2)?,
+            total_tokens: r.get(3)?,
+            last_active_at: r.get(4)?,
+        })
+    })?;
+    rows.collect::<std::result::Result<_, _>>().map_err(Into::into)
 }

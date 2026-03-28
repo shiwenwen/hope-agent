@@ -12,16 +12,23 @@ import {
   Zap,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import type { OverviewStats } from "./types"
+import type { OverviewStats, DetailListType } from "./types"
 import { formatNumber, formatCost, formatDuration } from "./types"
+
+export type CardAction =
+  | { type: "tab"; tab: string }
+  | { type: "list"; listType: DetailListType }
 
 interface OverviewCardsProps {
   data: OverviewStats | null
   loading: boolean
+  activeList: DetailListType | null
+  onCardClick?: (action: CardAction) => void
 }
 
 interface CardConfig {
   key: string
+  action: CardAction
   icon: React.ElementType
   colorClass: string
   bgClass: string
@@ -31,6 +38,7 @@ interface CardConfig {
 const cards: CardConfig[] = [
   {
     key: "totalSessions",
+    action: { type: "list", listType: "sessions" },
     icon: MessageSquare,
     colorClass: "text-blue-500",
     bgClass: "bg-blue-500/10",
@@ -38,6 +46,7 @@ const cards: CardConfig[] = [
   },
   {
     key: "totalMessages",
+    action: { type: "list", listType: "messages" },
     icon: MessagesSquare,
     colorClass: "text-green-500",
     bgClass: "bg-green-500/10",
@@ -45,6 +54,7 @@ const cards: CardConfig[] = [
   },
   {
     key: "totalTokens",
+    action: { type: "tab", tab: "tokens" },
     icon: Coins,
     colorClass: "text-purple-500",
     bgClass: "bg-purple-500/10",
@@ -52,6 +62,7 @@ const cards: CardConfig[] = [
   },
   {
     key: "estimatedCost",
+    action: { type: "tab", tab: "tokens" },
     icon: DollarSign,
     colorClass: "text-amber-500",
     bgClass: "bg-amber-500/10",
@@ -59,6 +70,7 @@ const cards: CardConfig[] = [
   },
   {
     key: "toolCalls",
+    action: { type: "list", listType: "toolCalls" },
     icon: Wrench,
     colorClass: "text-cyan-500",
     bgClass: "bg-cyan-500/10",
@@ -66,6 +78,7 @@ const cards: CardConfig[] = [
   },
   {
     key: "errors",
+    action: { type: "list", listType: "errors" },
     icon: AlertTriangle,
     colorClass: "text-red-500",
     bgClass: "bg-red-500/10",
@@ -73,6 +86,7 @@ const cards: CardConfig[] = [
   },
   {
     key: "activeAgents",
+    action: { type: "list", listType: "agents" },
     icon: Bot,
     colorClass: "text-indigo-500",
     bgClass: "bg-indigo-500/10",
@@ -80,6 +94,7 @@ const cards: CardConfig[] = [
   },
   {
     key: "cronJobs",
+    action: { type: "list", listType: "cronJobs" },
     icon: Clock,
     colorClass: "text-orange-500",
     bgClass: "bg-orange-500/10",
@@ -87,6 +102,7 @@ const cards: CardConfig[] = [
   },
   {
     key: "avgTtft",
+    action: { type: "tab", tab: "tokens" },
     icon: Zap,
     colorClass: "text-yellow-500",
     bgClass: "bg-yellow-500/10",
@@ -108,7 +124,7 @@ function SkeletonCard() {
   )
 }
 
-const OverviewCards = React.memo(function OverviewCards({ data, loading }: OverviewCardsProps) {
+const OverviewCards = React.memo(function OverviewCards({ data, loading, activeList, onCardClick }: OverviewCardsProps) {
   const { t } = useTranslation()
 
   if (loading && !data) {
@@ -126,8 +142,16 @@ const OverviewCards = React.memo(function OverviewCards({ data, loading }: Overv
       {cards.map((card) => {
         const Icon = card.icon
         const value = data ? card.getValue(data) : "-"
+        const isActive = card.action.type === "list" && activeList === card.action.listType
         return (
-          <div key={card.key} className="bg-card border rounded-xl p-4">
+          <div
+            key={card.key}
+            className={cn(
+              "bg-card border rounded-xl p-4 cursor-pointer transition-colors active:scale-[0.98] active:transition-transform",
+              isActive ? "border-primary ring-1 ring-primary/30" : "hover:border-primary/50",
+            )}
+            onClick={() => onCardClick?.(card.action)}
+          >
             <div className="flex items-center gap-3">
               <div className={cn("h-9 w-9 rounded-full flex items-center justify-center", card.bgClass)}>
                 <Icon className={cn("h-4.5 w-4.5", card.colorClass)} />

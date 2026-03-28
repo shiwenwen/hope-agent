@@ -31,6 +31,7 @@ const PIE_COLORS = [
 interface SessionSectionProps {
   data: DashboardSessionData | null
   loading: boolean
+  agentNameMap: Record<string, string>
   onDrillDown: (agentId: string) => void
 }
 
@@ -46,8 +47,10 @@ function SectionSkeleton({ height }: { height: number }) {
 const SessionSection = React.memo(function SessionSection({
   data,
   loading,
+  agentNameMap,
   onDrillDown,
 }: SessionSectionProps) {
+  const resolveAgent = (id: string) => agentNameMap[id] || id
   const { t } = useTranslation()
 
   const pieData = useMemo(() => {
@@ -56,10 +59,11 @@ const SessionSection = React.memo(function SessionSection({
       .sort((a, b) => b.sessionCount - a.sessionCount)
       .slice(0, 9)
       .map((a) => ({
-        name: a.agentId,
+        name: resolveAgent(a.agentId),
+        agentId: a.agentId,
         value: a.sessionCount,
       }))
-  }, [data?.byAgent])
+  }, [data?.byAgent, agentNameMap]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading && !data) {
     return (
@@ -174,7 +178,7 @@ const SessionSection = React.memo(function SessionSection({
                     `${name} (${(percent * 100).toFixed(0)}%)`
                   }
                   labelLine={{ strokeWidth: 1 }}
-                  onClick={(entry) => onDrillDown(entry.name)}
+                  onClick={(entry) => onDrillDown(entry.agentId)}
                   className="cursor-pointer"
                 >
                   {pieData.map((_, i) => (
@@ -230,7 +234,7 @@ const SessionSection = React.memo(function SessionSection({
                   className="grid grid-cols-4 gap-2 text-xs py-2 border-b border-border/50 hover:bg-muted/50 cursor-pointer"
                   onClick={() => onDrillDown(agent.agentId)}
                 >
-                  <div className="truncate font-medium">{agent.agentId}</div>
+                  <div className="truncate font-medium">{resolveAgent(agent.agentId)}</div>
                   <div className="text-right">
                     {formatNumber(agent.sessionCount)}
                   </div>

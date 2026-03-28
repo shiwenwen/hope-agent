@@ -1344,7 +1344,35 @@
       "diskWrite": "Write"
     },
     "noData": "No data available",
-    "loading": "Loading..."
+    "loading": "Loading...",
+    "detail": {
+      "sessions": "Sessions",
+      "messages": "Messages",
+      "toolCalls": "Tool Calls",
+      "errors": "Error Logs",
+      "agents": "Agents",
+      "cronJobs": "Cron Jobs",
+      "sessionTitle": "Session Title",
+      "messageCount": "Messages",
+      "sessionCount": "Sessions",
+      "role": "Role",
+      "content": "Content",
+      "session": "Session",
+      "toolName": "Tool Name",
+      "duration": "Duration",
+      "status": "Status",
+      "time": "Time",
+      "level": "Level",
+      "category": "Category",
+      "source": "Source",
+      "errorMessage": "Error Message",
+      "lastActive": "Last Active",
+      "cronName": "Job Name",
+      "schedule": "Schedule",
+      "failures": "Failures",
+      "lastRun": "Last Run",
+      "empty": "No data"
+    }
   },
   "quickChat": {
     "title": "Quick Chat",

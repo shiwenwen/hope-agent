@@ -1344,7 +1344,35 @@
       "diskWrite": "写入"
     },
     "noData": "暂无数据",
-    "loading": "加载中..."
+    "loading": "加载中...",
+    "detail": {
+      "sessions": "会话列表",
+      "messages": "消息列表",
+      "toolCalls": "工具调用列表",
+      "errors": "错误日志",
+      "agents": "Agent 列表",
+      "cronJobs": "定时任务列表",
+      "sessionTitle": "会话标题",
+      "messageCount": "消息数",
+      "sessionCount": "会话数",
+      "role": "角色",
+      "content": "内容",
+      "session": "会话",
+      "toolName": "工具名称",
+      "duration": "耗时",
+      "status": "状态",
+      "time": "时间",
+      "level": "级别",
+      "category": "分类",
+      "source": "来源",
+      "errorMessage": "错误信息",
+      "lastActive": "最近活跃",
+      "cronName": "任务名称",
+      "schedule": "调度规则",
+      "failures": "失败次数",
+      "lastRun": "最近运行",
+      "empty": "暂无数据"
+    }
   },
   "quickChat": {
     "title": "快捷对话",
