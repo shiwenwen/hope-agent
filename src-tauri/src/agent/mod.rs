@@ -53,6 +53,7 @@ impl AssistantAgent {
             plan_ask_tools: Vec::new(),
             plan_executing: false,
             plan_tools_enabled: false,
+            plan_mode_allow_paths: Vec::new(),
         }
     }
 
@@ -82,6 +83,7 @@ impl AssistantAgent {
             plan_ask_tools: Vec::new(),
             plan_executing: false,
             plan_tools_enabled: false,
+            plan_mode_allow_paths: Vec::new(),
         }
     }
 
@@ -135,6 +137,7 @@ impl AssistantAgent {
             plan_ask_tools: Vec::new(),
             plan_executing: false,
             plan_tools_enabled: false,
+            plan_mode_allow_paths: Vec::new(),
         }
     }
 
@@ -191,6 +194,11 @@ impl AssistantAgent {
     /// Set additional tools that require user approval in plan mode.
     pub fn set_plan_ask_tools(&mut self, tools: Vec<String>) {
         self.plan_ask_tools = tools;
+    }
+
+    /// Set plan mode path-based allow rules for fine-grained write/edit permission.
+    pub fn set_plan_mode_allow_paths(&mut self, paths: Vec<String>) {
+        self.plan_mode_allow_paths = paths;
     }
 
     /// Enable the update_plan_step tool for plan execution mode.
@@ -262,6 +270,7 @@ impl AssistantAgent {
             subagent_depth: self.subagent_depth,
             require_approval,
             force_sandbox,
+            plan_mode_allow_paths: self.plan_mode_allow_paths.clone(),
         }
     }
 

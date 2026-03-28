@@ -447,13 +447,21 @@ pub async fn chat(
         };
         if plan_state == crate::plan::PlanModeState::Planning {
             let mut denied = agent.get_denied_tools().to_vec();
+            // Fine-grained permission: allow write/edit for plan files,
+            // deny apply_patch and canvas completely
             for tool in crate::plan::PLAN_MODE_DENIED_TOOLS {
+                // write/edit are allowed via path-based rules (plan files only)
+                if crate::plan::PLAN_MODE_PATH_AWARE_TOOLS.contains(tool) {
+                    continue;
+                }
                 let t = tool.to_string();
                 if !denied.contains(&t) {
                     denied.push(t);
                 }
             }
             agent.set_denied_tools(denied);
+            // Set path-based allow rules: write/edit only to plan files
+            agent.set_plan_mode_allow_paths(vec!["plans".to_string()]);
             // Activate PLAN_MODE_ASK_TOOLS: exec requires user approval during planning
             agent.set_plan_ask_tools(
                 crate::plan::PLAN_MODE_ASK_TOOLS.iter().map(|s| s.to_string()).collect()
@@ -473,12 +481,16 @@ pub async fn chat(
             // In Review state, tools are still restricted (same as Planning)
             let mut denied = agent.get_denied_tools().to_vec();
             for tool in crate::plan::PLAN_MODE_DENIED_TOOLS {
+                if crate::plan::PLAN_MODE_PATH_AWARE_TOOLS.contains(tool) {
+                    continue;
+                }
                 let t = tool.to_string();
                 if !denied.contains(&t) {
                     denied.push(t);
                 }
             }
             agent.set_denied_tools(denied);
+            agent.set_plan_mode_allow_paths(vec!["plans".to_string()]);
             // exec requires approval in review state too
             agent.set_plan_ask_tools(
                 crate::plan::PLAN_MODE_ASK_TOOLS.iter().map(|s| s.to_string()).collect()

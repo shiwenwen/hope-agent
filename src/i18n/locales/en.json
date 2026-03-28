@@ -767,6 +767,9 @@
     "selectFallbackModel": "Select fallback model",
     "noModelSelected": "No model selected",
     "selectDefaultModel": "Select default model",
+    "selectPlanModel": "Select plan mode model",
+    "agentPlanModel": "Plan Mode Model",
+    "agentPlanModelDesc": "Use a cheaper/faster model during the planning phase to reduce costs by 60-80%. The primary model is used during execution.",
     "inheritGlobal": "Inherit Global Settings",
     "customModel": "Custom Model",
     "agentModelConfig": "Model Configuration",
@@ -1176,11 +1179,19 @@
       "phases": "phases",
       "steps": "steps"
     },
+    "versions": "Version History",
+    "versionHistory": "Plan Versions",
+    "currentVersion": "Current",
+    "noVersions": "No previous versions",
+    "requestChanges": "Request Changes",
+    "requestChangesPlaceholder": "Describe what you want changed...",
+    "rollback": "Rollback Changes",
     "question": {
       "title": "Planning Questions",
       "submit": "Submit Answers",
       "answered": "Answered",
-      "customPlaceholder": "Enter custom answer..."
+      "customPlaceholder": "Enter custom answer...",
+      "recommended": "Recommended"
     }
   },
   "canvas": {

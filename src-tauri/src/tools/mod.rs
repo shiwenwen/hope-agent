@@ -29,11 +29,12 @@ mod write;
 mod plan_step;
 mod plan_question;
 mod submit_plan;
+mod amend_plan;
 
 // ── Public Re-exports ─────────────────────────────────────────────
 
 pub use approval::{ApprovalResponse, ToolPermissionMode, submit_approval_response, set_tool_permission_mode, get_tool_permission_mode};
-pub use definitions::{get_available_tools, get_subagent_tool, get_notification_tool, get_image_generate_tool, get_image_generate_tool_dynamic, get_canvas_tool, get_acp_spawn_tool, get_tools_for_provider, is_internal_tool, get_plan_step_tool, get_plan_question_tool, get_submit_plan_tool};
+pub use definitions::{get_available_tools, get_subagent_tool, get_notification_tool, get_image_generate_tool, get_image_generate_tool_dynamic, get_canvas_tool, get_acp_spawn_tool, get_tools_for_provider, is_internal_tool, get_plan_step_tool, get_plan_question_tool, get_submit_plan_tool, get_amend_plan_tool};
 pub use execution::{ToolExecContext, execute_tool_with_context};
 
 // ── Tool Name Constants ──────────────────────────────────────────
@@ -72,6 +73,7 @@ pub const TOOL_ACP_SPAWN: &str = "acp_spawn";
 pub const TOOL_UPDATE_PLAN_STEP: &str = "update_plan_step";
 pub const TOOL_PLAN_QUESTION: &str = "plan_question";
 pub const TOOL_SUBMIT_PLAN: &str = "submit_plan";
+pub const TOOL_AMEND_PLAN: &str = "amend_plan";
 
 // ── Shared Helpers ────────────────────────────────────────────────
 

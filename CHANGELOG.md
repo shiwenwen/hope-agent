@@ -16,6 +16,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Completed 状态系统提示词**：计划执行完成后注入 PLAN_COMPLETED_SYSTEM_PROMPT，指导 LLM 总结执行结果、标注失败步骤、建议后续操作（P1）
   - **项目本地化计划文件**：git 仓库内计划存储到 `.opencomputer/plans/`（可随项目版本控制），非 VCS 项目回退到全局目录（P1）
   - **5 阶段规划流程**：全新 PLAN_MODE_SYSTEM_PROMPT，引入 Deep Exploration → Requirements Clarification → Design & Architecture → Plan Composition → Review & Refinement 五阶段工作流，推荐使用子 Agent 并行探索代码库（P1）
+  - **细粒度路径权限**：Planning 阶段 write/edit 工具仅允许编辑 `.opencomputer/plans/` 下的计划文件，通过 `plan_mode_allow_paths` 在 ToolExecContext 中传播路径白名单（P2）
+  - **计划版本管理**：保存计划时自动备份旧版本为 `plan-xxx-v{N}.md`，PlanPanel 支持版本历史浏览与一键恢复（P2）
+  - **执行中修改计划**：新增 `amend_plan` 工具，Executing/Paused 状态下支持 insert/delete/update 步骤，自动重编号 + 计划文件再生成 + `plan_amended` 事件驱动前端实时更新（P3）
+  - **Git Checkpoint 回滚**：进入 Executing 状态时自动创建 git 分支 checkpoint，执行失败后 PlanPanel 显示回滚按钮（`git reset --hard`），成功完成后自动清理 checkpoint 分支（P3）
+  - **plan_question 增强**：选项支持 `recommended` 标记（琥珀色星标高亮），问题支持 `template` 模板分类（scope/tech_choice/priority 对应不同图标）
+  - **Review 请求修改**：PlanPanel Review 状态新增"请求修改"按钮，用户输入反馈文本后自动转回 Planning 状态，将反馈发送给 LLM 修订计划
+  - **Plan Model 前端配置**：Agent 设置面板新增 Plan Mode Model 选择器，琥珀色 Lightbulb 图标标识
+  - **自定义 plansDirectory**：ProviderStore 新增 `plans_directory` 配置项，支持覆盖默认计划文件存储路径
 - **快捷对话快捷键（Quick Chat Shortcut）**：全局快捷键 Option+Space（Alt+Space）快速唤起 Spotlight 风格浮动对话框
   - 居中浮层对话框，包含聊天输入、消息预览、Agent 快捷选择
   - 连续唤起默认加载上一次快捷会话，支持新建会话

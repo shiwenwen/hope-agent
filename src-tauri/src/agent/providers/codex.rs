@@ -32,6 +32,7 @@ impl AssistantAgent {
         }
         if self.plan_executing {
             tool_schemas.push(tools::get_plan_step_tool().to_provider_schema(ToolProvider::OpenAI));
+            tool_schemas.push(tools::get_amend_plan_tool().to_provider_schema(ToolProvider::OpenAI));
         }
         if self.plan_tools_enabled {
             tool_schemas.push(tools::get_plan_question_tool().to_provider_schema(ToolProvider::OpenAI));

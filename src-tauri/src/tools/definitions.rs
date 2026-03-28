@@ -1291,7 +1291,8 @@ pub fn get_plan_question_tool() -> ToolDefinition {
                                     "properties": {
                                         "value": { "type": "string", "description": "Option identifier" },
                                         "label": { "type": "string", "description": "Display text" },
-                                        "description": { "type": "string", "description": "Additional explanation" }
+                                        "description": { "type": "string", "description": "Additional explanation" },
+                                        "recommended": { "type": "boolean", "description": "Mark as recommended option (renders with ★ badge)", "default": false }
                                     },
                                     "required": ["value", "label"]
                                 }
@@ -1305,6 +1306,11 @@ pub fn get_plan_question_tool() -> ToolDefinition {
                                 "type": "boolean",
                                 "description": "Whether the user can select multiple options (default: false)",
                                 "default": false
+                            },
+                            "template": {
+                                "type": "string",
+                                "description": "Question template category for specialized UI rendering: 'scope', 'tech_choice', 'priority'",
+                                "enum": ["scope", "tech_choice", "priority"]
                             }
                         },
                         "required": ["question_id", "text", "options"]
@@ -1340,6 +1346,47 @@ pub fn get_submit_plan_tool() -> ToolDefinition {
                 }
             },
             "required": ["title", "content"],
+            "additionalProperties": false
+        }),
+    }
+}
+
+/// Tool for amending the plan during execution (insert/delete/update steps).
+pub fn get_amend_plan_tool() -> ToolDefinition {
+    ToolDefinition {
+        name: TOOL_AMEND_PLAN.into(),
+        description: "Modify the current plan during execution. Use this when you discover the plan needs changes (new steps needed, steps should be removed, or step descriptions need updating). Available actions: insert (add a new step), delete (remove a pending step), update (modify a pending step's title/description).".into(),
+        internal: true,
+        parameters: json!({
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "description": "The amendment action to perform",
+                    "enum": ["insert", "delete", "update"]
+                },
+                "step_index": {
+                    "type": "integer",
+                    "description": "Target step index (required for delete and update actions)"
+                },
+                "after_index": {
+                    "type": "integer",
+                    "description": "Insert new step after this index (for insert action). Omit to append to end."
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Step title (required for insert, optional for update)"
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Step description (optional)"
+                },
+                "phase": {
+                    "type": "string",
+                    "description": "Phase name (optional, defaults to 'Amended' for insert)"
+                }
+            },
+            "required": ["action"],
             "additionalProperties": false
         }),
     }

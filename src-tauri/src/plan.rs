@@ -113,7 +113,15 @@ pub struct PlanMeta {
     /// Step index where execution was paused (for Paused state)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub paused_at_step: Option<usize>,
+    /// Plan version counter (incremented on each save/edit)
+    #[serde(default = "default_version")]
+    pub version: u32,
+    /// Git checkpoint reference (branch or stash) created before execution
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub checkpoint_ref: Option<String>,
 }
+
+fn default_version() -> u32 { 1 }
 
 impl PlanMeta {
     pub fn completed_count(&self) -> usize {
@@ -135,6 +143,9 @@ pub struct PlanQuestionOption {
     pub label: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Whether this option is recommended/suggested as the default choice.
+    #[serde(default)]
+    pub recommended: bool,
 }
 
 /// A structured question sent by LLM to the user during planning
@@ -148,6 +159,10 @@ pub struct PlanQuestion {
     pub allow_custom: bool,
     #[serde(default)]
     pub multi_select: bool,
+    /// Optional question template/category (e.g., "scope", "tech_choice", "priority")
+    /// Used to render category-specific UI styling.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub template: Option<String>,
 }
 
 fn default_true() -> bool { true }
@@ -230,6 +245,44 @@ pub const PLAN_MODE_DENIED_TOOLS: &[&str] = &[
 /// Tools that require user approval (ask) in Plan Mode.
 pub const PLAN_MODE_ASK_TOOLS: &[&str] = &["exec"];
 
+/// Tools that support path-based allow in Plan Mode.
+/// During Planning, these tools are normally denied, but if the file path targets
+/// a plan file (under plans dir), the operation is allowed.
+pub const PLAN_MODE_PATH_AWARE_TOOLS: &[&str] = &["write", "edit"];
+
+/// Check if a file path is allowed during Plan Mode (targets a plan file).
+pub fn is_plan_mode_path_allowed(file_path: &str) -> bool {
+    let path = std::path::Path::new(file_path);
+    // Allow writes to any .md file under any plans directory
+    // (.opencomputer/plans/ or ~/.opencomputer/plans/)
+    if let Some(ext) = path.extension() {
+        if ext != "md" {
+            return false;
+        }
+    } else {
+        return false;
+    }
+    // Check if any ancestor directory is named "plans" under an ".opencomputer" dir
+    let path_str = file_path.replace('\\', "/");
+    if path_str.contains(".opencomputer/plans/") || path_str.contains(".opencomputer\\plans\\") {
+        return true;
+    }
+    // Also allow if the file is directly in the plans_dir
+    if let Ok(plans) = plans_dir() {
+        let plans_str = plans.to_string_lossy().replace('\\', "/");
+        if path_str.starts_with(&plans_str) {
+            return true;
+        }
+    }
+    if let Ok(global) = crate::paths::global_plans_dir() {
+        let global_str = global.to_string_lossy().replace('\\', "/");
+        if path_str.starts_with(&global_str) {
+            return true;
+        }
+    }
+    false
+}
+
 // ── System Prompt ───────────────────────────────────────────────
 
 pub const PLAN_MODE_SYSTEM_PROMPT: &str = "\
@@ -238,7 +291,8 @@ pub const PLAN_MODE_SYSTEM_PROMPT: &str = "\
 You are in **Plan Mode**. Create a comprehensive, high-quality implementation plan through structured exploration and interactive Q&A.
 
 ## Restrictions
-- You **CANNOT** create, modify, or delete files (write, edit, apply_patch tools are disabled)
+- You **CANNOT** modify project source files (apply_patch, canvas tools are disabled)
+- You **CAN** use `write` and `edit` tools **only on plan files** (under `.opencomputer/plans/`)
 - You **CAN** read files, search code, browse the web, and analyze the codebase
 - Shell commands (exec) require user approval before execution
 
@@ -260,6 +314,8 @@ You are in **Plan Mode**. Create a comprehensive, high-quality implementation pl
   - Provide 2-5 suggested options per question with clear labels and descriptions
   - Set `allow_custom=true` when the user might have a different idea
   - Use `multi_select=true` when multiple options can apply
+  - Mark the best option with `recommended=true` to highlight it (renders with a ★ badge)
+  - Use `template` field for category-specific UI: "scope", "tech_choice", "priority"
 - Ask about: scope, technical approach, priority, testing strategy, edge cases
 - After receiving answers, you may ask follow-up questions if needed
 
@@ -333,6 +389,13 @@ After completing each step, call the `update_plan_step` tool to mark your progre
 - `update_plan_step(step_index=N, status=\"failed\")` if a step fails
 - `update_plan_step(step_index=N, status=\"skipped\")` if skipping
 
+A git checkpoint has been created before execution started. If execution fails, the user can rollback all changes.
+
+If you discover the plan needs changes during execution, use the `amend_plan` tool:
+- `amend_plan(action=\"insert\", title=\"New step\", after_index=N)` to add a step
+- `amend_plan(action=\"delete\", step_index=N)` to remove a pending step
+- `amend_plan(action=\"update\", step_index=N, title=\"Updated title\")` to modify a step
+
 ## Plan Content
 
 ";
@@ -384,6 +447,8 @@ pub async fn set_plan_state(session_id: &str, state: PlanModeState) {
             created_at: chrono::Utc::now().to_rfc3339(),
             updated_at: chrono::Utc::now().to_rfc3339(),
             paused_at_step: None,
+            version: 1,
+            checkpoint_ref: None,
         });
     }
 }
@@ -479,6 +544,8 @@ pub async fn restore_from_db(session_id: &str, plan_mode_str: &str) {
         created_at: chrono::Utc::now().to_rfc3339(),
         updated_at: chrono::Utc::now().to_rfc3339(),
         paused_at_step: None,
+        version: 1,
+        checkpoint_ref: None,
     });
 }
 
@@ -525,6 +592,35 @@ pub fn save_plan_file(session_id: &str, content: &str) -> Result<String> {
     let dir = plans_dir()?;
     std::fs::create_dir_all(&dir)?;
     let path = plan_file_path(session_id)?;
+
+    // Version management: backup old version before overwriting
+    if path.exists() {
+        let current_version = {
+            let store = PLAN_STORE.get_or_init(|| Arc::new(RwLock::new(HashMap::new())));
+            if let Ok(map) = store.try_read() {
+                map.get(session_id).map(|m| m.version).unwrap_or(1)
+            } else {
+                1
+            }
+        };
+        // Copy current file to versioned backup: plan-xxx-v{N}.md
+        let stem = path.file_stem().unwrap_or_default().to_string_lossy();
+        let backup_name = format!("{}-v{}.md", stem, current_version);
+        let backup_path = dir.join(&backup_name);
+        let _ = std::fs::copy(&path, &backup_path);
+        // Increment version counter in memory
+        tokio::task::block_in_place(|| {
+            let rt = tokio::runtime::Handle::current();
+            rt.block_on(async {
+                let store_ref = store();
+                let mut map = store_ref.write().await;
+                if let Some(meta) = map.get_mut(session_id) {
+                    meta.version += 1;
+                }
+            });
+        });
+    }
+
     std::fs::write(&path, content)?;
     let path_str = path.to_string_lossy().to_string();
     // Update file_path in memory
@@ -616,6 +712,89 @@ pub fn save_result_file(session_id: &str, plan_title: &str, steps: &[PlanStep], 
     Ok(path.to_string_lossy().to_string())
 }
 
+/// List available versions of a plan (including the current and all backups).
+pub fn list_plan_versions(session_id: &str) -> Result<Vec<PlanVersionInfo>> {
+    let dir = plans_dir()?;
+    let path = plan_file_path(session_id)?;
+    let stem = path.file_stem().unwrap_or_default().to_string_lossy().to_string();
+
+    let mut versions = Vec::new();
+
+    // Current version
+    if path.exists() {
+        let meta = std::fs::metadata(&path)?;
+        let modified = meta.modified()
+            .map(|t| {
+                let dt: chrono::DateTime<chrono::Local> = t.into();
+                dt.to_rfc3339()
+            })
+            .unwrap_or_default();
+        let current_version = {
+            let store = PLAN_STORE.get_or_init(|| Arc::new(RwLock::new(HashMap::new())));
+            if let Ok(map) = store.try_read() {
+                map.get(session_id).map(|m| m.version).unwrap_or(1)
+            } else {
+                1
+            }
+        };
+        versions.push(PlanVersionInfo {
+            version: current_version,
+            file_path: path.to_string_lossy().to_string(),
+            modified_at: modified,
+            is_current: true,
+        });
+    }
+
+    // Backup versions
+    if dir.exists() {
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                // Match pattern: {stem}-v{N}.md
+                if name.starts_with(&format!("{}-v", stem)) && name.ends_with(".md") {
+                    let version_str = name
+                        .trim_start_matches(&format!("{}-v", stem))
+                        .trim_end_matches(".md");
+                    if let Ok(v) = version_str.parse::<u32>() {
+                        let meta = std::fs::metadata(entry.path()).ok();
+                        let modified = meta.and_then(|m| m.modified().ok())
+                            .map(|t| {
+                                let dt: chrono::DateTime<chrono::Local> = t.into();
+                                dt.to_rfc3339()
+                            })
+                            .unwrap_or_default();
+                        versions.push(PlanVersionInfo {
+                            version: v,
+                            file_path: entry.path().to_string_lossy().to_string(),
+                            modified_at: modified,
+                            is_current: false,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // Sort by version descending (current first)
+    versions.sort_by(|a, b| b.version.cmp(&a.version));
+    Ok(versions)
+}
+
+/// Info about a plan version.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanVersionInfo {
+    pub version: u32,
+    pub file_path: String,
+    pub modified_at: String,
+    pub is_current: bool,
+}
+
+/// Load content of a specific plan version.
+pub fn load_plan_version(file_path: &str) -> Result<String> {
+    Ok(std::fs::read_to_string(file_path)?)
+}
+
 // ── Markdown Checklist Parser ───────────────────────────────────
 
 /// Parse a markdown plan into structured PlanStep items.
@@ -670,6 +849,119 @@ pub fn parse_plan_steps(markdown: &str) -> Vec<PlanStep> {
     }
 
     steps
+}
+
+// ── Git Checkpoint ──────────────────────────────────────────────
+// Creates a lightweight git checkpoint before plan execution starts,
+// allowing rollback if execution fails.
+
+/// Create a git checkpoint (branch) at the current HEAD for the working directory.
+/// Returns the checkpoint branch name on success, or None if not in a git repo.
+pub fn create_git_checkpoint(session_id: &str) -> Option<String> {
+    let short_id = &session_id[..8.min(session_id.len())];
+    let ts = chrono::Local::now().format("%Y%m%d%H%M%S");
+    let branch_name = format!("opencomputer/checkpoint-{}-{}", short_id, ts);
+
+    // Check if we're in a git repo
+    let status = std::process::Command::new("git")
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+    if !matches!(status, Ok(s) if s.success()) {
+        return None;
+    }
+
+    // Create a checkpoint branch at current HEAD (without switching to it)
+    let result = std::process::Command::new("git")
+        .args(["branch", &branch_name, "HEAD"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+
+    match result {
+        Ok(s) if s.success() => {
+            app_info!("plan", "checkpoint", "Created git checkpoint branch: {}", branch_name);
+            Some(branch_name)
+        }
+        _ => {
+            app_warn!("plan", "checkpoint", "Failed to create git checkpoint branch");
+            None
+        }
+    }
+}
+
+/// Create a checkpoint and store it in the plan's metadata.
+pub async fn create_checkpoint_for_session(session_id: &str) {
+    if let Some(ref_name) = create_git_checkpoint(session_id) {
+        let mut map = store().write().await;
+        if let Some(meta) = map.get_mut(session_id) {
+            meta.checkpoint_ref = Some(ref_name);
+        }
+    }
+}
+
+/// Get the checkpoint reference for a session.
+pub async fn get_checkpoint_ref(session_id: &str) -> Option<String> {
+    let map = store().read().await;
+    map.get(session_id).and_then(|m| m.checkpoint_ref.clone())
+}
+
+/// Rollback to a git checkpoint by resetting the current branch to the checkpoint.
+/// This performs a `git reset --hard <checkpoint_branch>` to undo all changes
+/// made during plan execution.
+pub fn rollback_to_checkpoint(checkpoint_ref: &str) -> Result<String> {
+    // Verify the checkpoint branch exists
+    let check = std::process::Command::new("git")
+        .args(["rev-parse", "--verify", checkpoint_ref])
+        .output();
+    match check {
+        Ok(o) if o.status.success() => {}
+        _ => return Err(anyhow::anyhow!("Checkpoint branch '{}' does not exist", checkpoint_ref)),
+    }
+
+    // Get current HEAD for logging
+    let head_before = std::process::Command::new("git")
+        .args(["rev-parse", "--short", "HEAD"])
+        .output()
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_default();
+
+    // Reset to checkpoint
+    let result = std::process::Command::new("git")
+        .args(["reset", "--hard", checkpoint_ref])
+        .output()?;
+
+    if result.status.success() {
+        let msg = format!(
+            "Rolled back from {} to checkpoint '{}'",
+            head_before, checkpoint_ref
+        );
+        app_info!("plan", "checkpoint", "{}", msg);
+
+        // Clean up: delete the checkpoint branch
+        let _ = std::process::Command::new("git")
+            .args(["branch", "-D", checkpoint_ref])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+
+        Ok(msg)
+    } else {
+        let stderr = String::from_utf8_lossy(&result.stderr).to_string();
+        Err(anyhow::anyhow!("Git reset failed: {}", stderr))
+    }
+}
+
+/// Clean up a checkpoint branch (e.g., after successful execution).
+pub fn cleanup_checkpoint(checkpoint_ref: &str) {
+    let _ = std::process::Command::new("git")
+        .args(["branch", "-D", checkpoint_ref])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+    app_info!("plan", "checkpoint", "Cleaned up checkpoint branch: {}", checkpoint_ref);
 }
 
 #[cfg(test)]

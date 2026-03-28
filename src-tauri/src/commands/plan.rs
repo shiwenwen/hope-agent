@@ -1,4 +1,4 @@
-use crate::plan::{self, PlanModeState, PlanStep, PlanStepStatus, PlanQuestionAnswer};
+use crate::plan::{self, PlanModeState, PlanStep, PlanStepStatus, PlanQuestionAnswer, PlanVersionInfo};
 
 #[tauri::command]
 pub async fn get_plan_mode(
@@ -27,6 +27,19 @@ pub async fn set_plan_mode(
     app_state: tauri::State<'_, crate::AppState>,
 ) -> Result<(), String> {
     let plan_state = PlanModeState::from_str(&state);
+
+    // Create git checkpoint when entering Executing state
+    if plan_state == PlanModeState::Executing {
+        plan::create_checkpoint_for_session(&session_id).await;
+    }
+
+    // Clean up checkpoint on successful completion
+    if plan_state == PlanModeState::Completed || plan_state == PlanModeState::Off {
+        if let Some(ref_name) = plan::get_checkpoint_ref(&session_id).await {
+            plan::cleanup_checkpoint(&ref_name);
+        }
+    }
+
     plan::set_plan_state(&session_id, plan_state).await;
     // Persist to DB
     let db = &app_state.session_db;
@@ -118,4 +131,44 @@ pub async fn respond_plan_question(
     plan::submit_plan_question_response(&request_id, answers)
         .await
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_plan_versions(session_id: String) -> Result<Vec<PlanVersionInfo>, String> {
+    plan::list_plan_versions(&session_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn load_plan_version_content(file_path: String) -> Result<String, String> {
+    plan::load_plan_version(&file_path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn restore_plan_version(session_id: String, file_path: String) -> Result<(), String> {
+    let content = plan::load_plan_version(&file_path).map_err(|e| e.to_string())?;
+    plan::save_plan_file(&session_id, &content).map_err(|e| e.to_string())?;
+    let steps = plan::parse_plan_steps(&content);
+    plan::update_plan_steps(&session_id, steps).await;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn plan_rollback(session_id: String) -> Result<String, String> {
+    let checkpoint = plan::get_checkpoint_ref(&session_id).await
+        .ok_or_else(|| "No git checkpoint found for this plan execution".to_string())?;
+
+    let msg = plan::rollback_to_checkpoint(&checkpoint).map_err(|e| e.to_string())?;
+
+    // Clear checkpoint ref after rollback
+    let mut map = plan::store().write().await;
+    if let Some(meta) = map.get_mut(&session_id) {
+        meta.checkpoint_ref = None;
+    }
+
+    Ok(msg)
+}
+
+#[tauri::command]
+pub async fn get_plan_checkpoint(session_id: String) -> Result<Option<String>, String> {
+    Ok(plan::get_checkpoint_ref(&session_id).await)
 }

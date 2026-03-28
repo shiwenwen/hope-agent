@@ -32,7 +32,8 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
                     let value = opt.get("value").and_then(|v| v.as_str())?.to_string();
                     let label = opt.get("label").and_then(|v| v.as_str())?.to_string();
                     let description = opt.get("description").and_then(|v| v.as_str()).map(|s| s.to_string());
-                    Some(PlanQuestionOption { value, label, description })
+                    let recommended = opt.get("recommended").and_then(|v| v.as_bool()).unwrap_or(false);
+                    Some(PlanQuestionOption { value, label, description, recommended })
                 }).collect::<Vec<_>>()
             })
             .unwrap_or_default();
@@ -45,12 +46,15 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
             .map(|s| s.to_string())
             .unwrap_or_else(|| format!("q_{}", i));
 
+        let template = q.get("template").and_then(|v| v.as_str()).map(|s| s.to_string());
+
         questions.push(PlanQuestion {
             question_id,
             text,
             options,
             allow_custom,
             multi_select,
+            template,
         });
     }
 

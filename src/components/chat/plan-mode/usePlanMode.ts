@@ -252,6 +252,23 @@ export function usePlanMode(
     }
   }, [currentSessionId, setPlanState])
 
+  // Listen for plan_amended events (steps changed during execution via amend_plan tool)
+  useEffect(() => {
+    let unlisten: UnlistenFn | undefined
+    listen<{ sessionId: string; steps: PlanStep[]; stepCount: number }>(
+      "plan_amended",
+      (event) => {
+        if (event.payload.sessionId !== currentSessionId) return
+        setPlanSteps(event.payload.steps)
+      }
+    ).then((fn) => {
+      unlisten = fn
+    })
+    return () => {
+      unlisten?.()
+    }
+  }, [currentSessionId])
+
   // Listen for plan_question_request events
   useEffect(() => {
     let unlisten: UnlistenFn | undefined

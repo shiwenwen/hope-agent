@@ -177,9 +177,27 @@ pub fn canvas_db_path() -> Result<PathBuf> {
 
 // ── Plans ───────────────────────────────────────────────────────
 
-/// Plans directory: project-local `.opencomputer/plans/` when inside a git repo,
+/// Plans directory: uses custom `plansDirectory` config if set,
+/// otherwise project-local `.opencomputer/plans/` when inside a git repo,
 /// otherwise falls back to global `~/.opencomputer/plans/`.
 pub fn plans_dir() -> Result<PathBuf> {
+    // Check custom plansDirectory config
+    if let Ok(store) = crate::provider::load_store() {
+        if let Some(ref custom_dir) = store.plans_directory {
+            if !custom_dir.is_empty() {
+                let expanded = if custom_dir.starts_with('~') {
+                    if let Some(home) = dirs::home_dir() {
+                        home.join(custom_dir.trim_start_matches("~/"))
+                    } else {
+                        PathBuf::from(custom_dir)
+                    }
+                } else {
+                    PathBuf::from(custom_dir)
+                };
+                return Ok(expanded);
+            }
+        }
+    }
     // Try to detect git repo root and use project-local plans dir
     if let Some(project_dir) = detect_git_root() {
         let local_plans = project_dir.join(".opencomputer").join("plans");

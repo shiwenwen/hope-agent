@@ -358,6 +358,19 @@ export default function ChatScreen({
     [planMode, stream, t]
   )
 
+  // ── Plan Request Changes Handler ──────────────────────────────
+  const handleRequestChanges = useCallback(
+    (feedback: string) => {
+      // Send feedback back to LLM, which will revise the plan
+      planMode.setPlanState("planning")
+      if (session.currentSessionId) {
+        invoke("set_plan_mode", { sessionId: session.currentSessionId, state: "planning" }).catch(() => {})
+      }
+      stream.handleSend(feedback)
+    },
+    [planMode, stream, session.currentSessionId]
+  )
+
   return (
     <>
       {/* Sidebar */}
@@ -522,6 +535,7 @@ export default function ChatScreen({
           onClose={() => planMode.setShowPanel(false)}
           onPause={planMode.pauseExecution}
           onResume={planMode.resumeExecution}
+          onRequestChanges={handleRequestChanges}
         />
       )}
 
