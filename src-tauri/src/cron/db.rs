@@ -196,7 +196,12 @@ impl CronDB {
         })?;
         let mut jobs = Vec::new();
         for row in rows {
-            jobs.push(row?);
+            match row {
+                Ok(job) => jobs.push(job),
+                Err(e) => {
+                    app_warn!("cron", "db", "Skipping corrupted job row: {}", e);
+                }
+            }
         }
         Ok(jobs)
     }
