@@ -104,8 +104,7 @@ export default function QuickChatWindow() {
 
   return (
     <TooltipProvider>
-      <div className="h-screen p-[2px]" data-tauri-drag-region>
-      <div className="flex flex-col h-full rounded-2xl overflow-hidden bg-background/70 dark:bg-background/60 backdrop-blur-2xl backdrop-saturate-150 shadow-2xl">
+      <div className="flex flex-col h-screen rounded-2xl bg-background/70 dark:bg-background/60 backdrop-blur-2xl backdrop-saturate-150 shadow-2xl [clip-path:inset(0_round_16px)]">
         {/* ── Title bar (draggable) ─────────────── */}
         <div
           className="flex items-center gap-2 px-4 py-2 shrink-0 select-none"
@@ -158,7 +157,6 @@ export default function QuickChatWindow() {
         {/* ── Input ──────────────────────────────── */}
         <div className="shrink-0">
           <ChatInput
-            borderless
             input={stream.input}
             onInputChange={stream.setInput}
             onSend={() => stream.handleSend()}
@@ -183,7 +181,6 @@ export default function QuickChatWindow() {
             onToolPermissionChange={stream.setToolPermissionMode}
           />
         </div>
-      </div>
       </div>
     </TooltipProvider>
   )
