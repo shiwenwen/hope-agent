@@ -241,10 +241,10 @@ export default function MessageBubble({
                 }
               }
 
-              // Loading dots between tool rounds
+              // Loading dots during/between tool rounds
               if (loading && isLast) {
                 const lastBlock = blocks[blocks.length - 1]
-                if (lastBlock.type === "tool_call" && lastBlock.tool.result !== undefined) {
+                if (lastBlock.type === "tool_call") {
                   elements.push(
                     <div key="__loading__" className="flex items-center gap-1 py-1 px-2">
                       <span className="block w-1.5 h-1.5 rounded-full bg-foreground/50 animate-pulse" />
