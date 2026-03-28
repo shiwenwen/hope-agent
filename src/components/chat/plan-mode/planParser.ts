@@ -66,11 +66,11 @@ export function detectPlanContent(content: string): {
 /**
  * Group steps by phase name.
  */
-export function groupStepsByPhase(
-  steps: ParsedPlanStep[]
-): { name: string; steps: ParsedPlanStep[] }[] {
-  const groups: { name: string; steps: ParsedPlanStep[] }[] = []
-  let currentGroup: { name: string; steps: ParsedPlanStep[] } | null = null
+export function groupStepsByPhase<T extends ParsedPlanStep>(
+  steps: T[]
+): { name: string; steps: T[] }[] {
+  const groups: { name: string; steps: T[] }[] = []
+  let currentGroup: { name: string; steps: T[] } | null = null
 
   for (const step of steps) {
     if (!currentGroup || currentGroup.name !== step.phase) {

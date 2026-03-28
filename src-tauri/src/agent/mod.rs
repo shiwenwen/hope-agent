@@ -50,8 +50,10 @@ impl AssistantAgent {
             subagent_depth: 0,
             steer_run_id: None,
             denied_tools: Vec::new(),
+            plan_ask_tools: Vec::new(),
             plan_executing: false,
             plan_tools_enabled: false,
+            plan_mode_allow_paths: Vec::new(),
         }
     }
 
@@ -78,8 +80,10 @@ impl AssistantAgent {
             subagent_depth: 0,
             steer_run_id: None,
             denied_tools: Vec::new(),
+            plan_ask_tools: Vec::new(),
             plan_executing: false,
             plan_tools_enabled: false,
+            plan_mode_allow_paths: Vec::new(),
         }
     }
 
@@ -130,8 +134,10 @@ impl AssistantAgent {
             subagent_depth: 0,
             steer_run_id: None,
             denied_tools: Vec::new(),
+            plan_ask_tools: Vec::new(),
             plan_executing: false,
             plan_tools_enabled: false,
+            plan_mode_allow_paths: Vec::new(),
         }
     }
 
@@ -185,6 +191,16 @@ impl AssistantAgent {
         self.denied_tools = tools;
     }
 
+    /// Set additional tools that require user approval in plan mode.
+    pub fn set_plan_ask_tools(&mut self, tools: Vec<String>) {
+        self.plan_ask_tools = tools;
+    }
+
+    /// Set plan mode path-based allow rules for fine-grained write/edit permission.
+    pub fn set_plan_mode_allow_paths(&mut self, paths: Vec<String>) {
+        self.plan_mode_allow_paths = paths;
+    }
+
     /// Enable the update_plan_step tool for plan execution mode.
     pub fn set_plan_executing(&mut self, executing: bool) {
         self.plan_executing = executing;
@@ -234,9 +250,15 @@ impl AssistantAgent {
     /// Build a ToolExecContext with agent home directory and context window.
     pub(crate) fn tool_context(&self) -> tools::ToolExecContext {
         let agent_def = crate::agent_loader::load_agent(&self.agent_id);
-        let require_approval = agent_def.as_ref()
+        let mut require_approval = agent_def.as_ref()
             .map(|def| def.config.behavior.require_approval.clone())
             .unwrap_or_default();
+        // Merge plan mode ask tools (e.g., exec requires approval during planning)
+        for tool in &self.plan_ask_tools {
+            if !require_approval.contains(tool) {
+                require_approval.push(tool.clone());
+            }
+        }
         let force_sandbox = agent_def.as_ref()
             .map(|def| def.config.behavior.sandbox)
             .unwrap_or(false);
@@ -248,6 +270,7 @@ impl AssistantAgent {
             subagent_depth: self.subagent_depth,
             require_approval,
             force_sandbox,
+            plan_mode_allow_paths: self.plan_mode_allow_paths.clone(),
         }
     }
 

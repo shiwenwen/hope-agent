@@ -9,6 +9,7 @@ import {
   ArrowUp,
   Plus,
   X,
+  Lightbulb,
 } from "lucide-react"
 import type { AgentConfig, AvailableModel, ActiveModelRef } from "../types"
 
@@ -217,6 +218,49 @@ export default function ModelTab({ config, availableModels, updateConfig }: Mode
                 }}
                 availableModels={availableForFallback}
                 placeholder={t("settings.selectFallbackModel")}
+              />
+            )}
+          </div>
+          <div className="border-t border-border/50" />
+
+          {/* Plan Mode model override */}
+          <div>
+            <div className="flex items-center gap-1.5 mb-1 px-1">
+              <Lightbulb className="h-3.5 w-3.5 text-amber-500" />
+              <span className="text-xs font-medium text-muted-foreground">
+                {t("settings.agentPlanModel")}
+              </span>
+            </div>
+            <p className="text-[11px] text-muted-foreground/60 mb-3 px-1">
+              {t("settings.agentPlanModelDesc")}
+            </p>
+
+            {config.model.planModel ? (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/5 border border-amber-500/20">
+                <span className="text-sm text-foreground flex-1 truncate">
+                  {modelDisplayName(config.model.planModel)}
+                </span>
+                <button
+                  className="p-0.5 text-muted-foreground hover:text-destructive transition-colors"
+                  onClick={() =>
+                    updateConfig({
+                      model: { ...config.model, planModel: null },
+                    })
+                  }
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ) : (
+              <ModelSelector
+                value=""
+                onChange={(providerId, modelId) =>
+                  updateConfig({
+                    model: { ...config.model, planModel: `${providerId}::${modelId}` },
+                  })
+                }
+                availableModels={availableModels}
+                placeholder={t("settings.selectPlanModel")}
               />
             )}
           </div>

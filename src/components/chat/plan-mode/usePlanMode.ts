@@ -129,6 +129,9 @@ export function usePlanMode(
       return
     }
 
+    // Always clear stale question UI on session switch
+    setPendingQuestionGroup(null)
+
     // If frontend already has a non-off plan state (entered before session existed),
     // sync it TO the backend instead of reading FROM backend
     if (planStateRef.current !== "off") {
@@ -237,6 +240,7 @@ export function usePlanMode(
         })
         setPlanSteps(event.payload.steps)
         setPlanState("review")
+        setPendingQuestionGroup(null)
         // Load the plan content
         invoke<string | null>("get_plan_content", { sessionId: currentSessionId })
           .then((content) => {
@@ -251,6 +255,23 @@ export function usePlanMode(
       unlisten?.()
     }
   }, [currentSessionId, setPlanState])
+
+  // Listen for plan_amended events (steps changed during execution via amend_plan tool)
+  useEffect(() => {
+    let unlisten: UnlistenFn | undefined
+    listen<{ sessionId: string; steps: PlanStep[]; stepCount: number }>(
+      "plan_amended",
+      (event) => {
+        if (event.payload.sessionId !== currentSessionId) return
+        setPlanSteps(event.payload.steps)
+      }
+    ).then((fn) => {
+      unlisten = fn
+    })
+    return () => {
+      unlisten?.()
+    }
+  }, [currentSessionId])
 
   // Listen for plan_question_request events
   useEffect(() => {

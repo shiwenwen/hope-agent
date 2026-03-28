@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Plan Mode 深度增强**：对标 OpenCode/Claude Code，全面提升计划模式的可靠性、灵活性和智能水平
+  - **步骤进度持久化**：plan_steps 列持久化到 SessionDB，崩溃/重启后步骤进度完整恢复（P0）
+  - **子 Agent 安全继承**：Planning/Review 状态下 spawn 的子 Agent 自动继承 PLAN_MODE_DENIED_TOOLS 限制，修复工具限制泄漏安全漏洞（P0）
+  - **exec 审批激活**：Planning/Review 状态下 exec 工具需要用户审批，激活原有定义但从未生效的 PLAN_MODE_ASK_TOOLS（P0）
+  - **Plan/Build 独立模型**：Agent 配置新增 `planModel` 字段，Planning 阶段可使用更便宜/快速的模型探索，执行阶段用强模型生成代码（P1）
+  - **Completed 状态系统提示词**：计划执行完成后注入 PLAN_COMPLETED_SYSTEM_PROMPT，指导 LLM 总结执行结果、标注失败步骤、建议后续操作（P1）
+  - **项目本地化计划文件**：git 仓库内计划存储到 `.opencomputer/plans/`（可随项目版本控制），非 VCS 项目回退到全局目录（P1）
+  - **5 阶段规划流程**：全新 PLAN_MODE_SYSTEM_PROMPT，引入 Deep Exploration → Requirements Clarification → Design & Architecture → Plan Composition → Review & Refinement 五阶段工作流，推荐使用子 Agent 并行探索代码库（P1）
+  - **细粒度路径权限**：Planning 阶段 write/edit 工具仅允许编辑 `.opencomputer/plans/` 下的计划文件，通过 `plan_mode_allow_paths` 在 ToolExecContext 中传播路径白名单（P2）
+  - **计划版本管理**：保存计划时自动备份旧版本为 `plan-xxx-v{N}.md`，PlanPanel 支持版本历史浏览与一键恢复（P2）
+  - **执行中修改计划**：新增 `amend_plan` 工具，Executing/Paused 状态下支持 insert/delete/update 步骤，自动重编号 + 计划文件再生成 + `plan_amended` 事件驱动前端实时更新（P3）
+  - **Git Checkpoint 回滚**：进入 Executing 状态时自动创建 git 分支 checkpoint，执行失败后 PlanPanel 显示回滚按钮（`git reset --hard`），成功完成后自动清理 checkpoint 分支（P3）
+  - **plan_question 增强**：选项支持 `recommended` 标记（琥珀色星标高亮），问题支持 `template` 模板分类（scope/tech_choice/priority 对应不同图标）
+  - **Review 请求修改**：PlanPanel Review 状态新增"请求修改"按钮，用户输入反馈文本后自动转回 Planning 状态，将反馈发送给 LLM 修订计划
+  - **Plan Model 前端配置**：Agent 设置面板新增 Plan Mode Model 选择器，琥珀色 Lightbulb 图标标识
+  - **自定义 plansDirectory**：ProviderStore 新增 `plans_directory` 配置项，支持覆盖默认计划文件存储路径
 - **系统托盘常驻（System Tray）**：应用关闭窗口后常驻系统托盘，不再退出
   - 菜单栏/系统托盘图标，提供快捷菜单（显示主窗口/快捷对话/新建对话/设置/退出）
   - 关闭主窗口仅隐藏，应用在后台持续运行，全局快捷键始终可用

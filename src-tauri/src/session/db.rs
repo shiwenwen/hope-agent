@@ -200,6 +200,16 @@ impl SessionDB {
             )?;
         }
 
+        // Migration: add plan_steps column for step progress persistence (crash recovery)
+        let has_plan_steps = conn
+            .prepare("SELECT plan_steps FROM sessions LIMIT 1")
+            .is_ok();
+        if !has_plan_steps {
+            conn.execute_batch(
+                "ALTER TABLE sessions ADD COLUMN plan_steps TEXT;",
+            )?;
+        }
+
         Ok(Self { conn: Mutex::new(conn) })
     }
 
@@ -521,6 +531,26 @@ impl SessionDB {
             params![plan_mode, session_id],
         )?;
         Ok(())
+    }
+
+    /// Persist plan step statuses to DB for crash recovery.
+    pub fn save_plan_steps(&self, session_id: &str, steps_json: &str) -> Result<()> {
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        conn.execute(
+            "UPDATE sessions SET plan_steps = ?1 WHERE id = ?2",
+            params![steps_json, session_id],
+        )?;
+        Ok(())
+    }
+
+    /// Load persisted plan step statuses from DB.
+    pub fn load_plan_steps(&self, session_id: &str) -> Result<Option<String>> {
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare("SELECT plan_steps FROM sessions WHERE id = ?1")?;
+        let result = stmt.query_row(params![session_id], |row| {
+            row.get::<_, Option<String>>(0)
+        })?;
+        Ok(result)
     }
 
     /// Delete a session and all its messages (CASCADE) and attachments.
