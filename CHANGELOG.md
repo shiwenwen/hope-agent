@@ -24,6 +24,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Review 请求修改**：PlanPanel Review 状态新增"请求修改"按钮，用户输入反馈文本后自动转回 Planning 状态，将反馈发送给 LLM 修订计划
   - **Plan Model 前端配置**：Agent 设置面板新增 Plan Mode Model 选择器，琥珀色 Lightbulb 图标标识
   - **自定义 plansDirectory**：ProviderStore 新增 `plans_directory` 配置项，支持覆盖默认计划文件存储路径
+- **系统托盘常驻（System Tray）**：应用关闭窗口后常驻系统托盘，不再退出
+  - 菜单栏/系统托盘图标，提供快捷菜单（显示主窗口/快捷对话/新建对话/设置/退出）
+  - 关闭主窗口仅隐藏，应用在后台持续运行，全局快捷键始终可用
+  - 左键单击托盘图标直接显示主窗口
+  - macOS: 点击 Dock 图标恢复主窗口（`RunEvent::Reopen`）
+  - 托盘菜单"退出"才会真正退出应用
 - **快捷对话快捷键（Quick Chat Shortcut）**：全局快捷键 Option+Space（Alt+Space）快速唤起 Spotlight 风格浮动对话框
   - 居中浮层对话框，包含聊天输入、消息预览、Agent 快捷选择
   - 连续唤起默认加载上一次快捷会话，支持新建会话

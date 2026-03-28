@@ -34,6 +34,7 @@ pub mod crash_journal;
 pub mod backup;
 pub mod self_diagnosis;
 mod plan;
+mod tray;
 
 use agent::AssistantAgent;
 use oauth::TokenData;
@@ -212,7 +213,7 @@ fn execute_shortcut_action(app_handle: &tauri::AppHandle, action_id: &str, _shor
 }
 
 /// Toggle the independent quick-chat window. Creates it on first use.
-fn toggle_quickchat_window(app_handle: &tauri::AppHandle) {
+pub(crate) fn toggle_quickchat_window(app_handle: &tauri::AppHandle) {
     use tauri::Manager;
 
     if let Some(win) = app_handle.get_webview_window("quickchat") {
@@ -230,9 +231,9 @@ fn toggle_quickchat_window(app_handle: &tauri::AppHandle) {
     let url = tauri::WebviewUrl::App("index.html?window=quickchat".into());
     match tauri::WebviewWindowBuilder::new(app_handle, "quickchat", url)
         .title("Quick Chat")
-        .inner_size(640.0, 480.0)
-        .min_inner_size(400.0, 300.0)
-        .resizable(true)
+        .inner_size(680.0, 180.0)
+        .min_inner_size(500.0, 150.0)
+        .resizable(false)
         .decorations(false)
         .transparent(true)
         .always_on_top(true)
@@ -241,26 +242,15 @@ fn toggle_quickchat_window(app_handle: &tauri::AppHandle) {
         .build()
     {
         Ok(win) => {
-            // macOS: match system appearance background
+            // macOS: transparent window background so CSS border-radius works
             #[cfg(target_os = "macos")]
             {
                 let _ = win.with_webview(|webview| unsafe {
                     let ns_window: &objc2_app_kit::NSWindow =
                         &*webview.ns_window().cast();
-                    let is_dark = {
-                        use objc2_app_kit::NSAppearanceCustomization;
-                        let appearance = ns_window.effectiveAppearance();
-                        let name = appearance.name();
-                        name.to_string().contains("Dark")
-                    };
-                    let (r, g, b) = if is_dark {
-                        (15.0 / 255.0, 15.0 / 255.0, 15.0 / 255.0)
-                    } else {
-                        (1.0, 1.0, 1.0)
-                    };
-                    let bg_color =
-                        objc2_app_kit::NSColor::colorWithSRGBRed_green_blue_alpha(r, g, b, 1.0);
-                    ns_window.setBackgroundColor(Some(&bg_color));
+                    let clear_color =
+                        objc2_app_kit::NSColor::colorWithSRGBRed_green_blue_alpha(0.0, 0.0, 0.0, 0.0);
+                    ns_window.setBackgroundColor(Some(&clear_color));
                 });
             }
             let _ = win.set_focus();
@@ -299,9 +289,10 @@ pub fn run() {
             None,
         ))
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            // When a second instance is launched, focus the existing window
+            // When a second instance is launched, show and focus the existing window
             use tauri::Manager;
             if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
                 let _ = window.unminimize();
                 let _ = window.set_focus();
             }
@@ -426,6 +417,16 @@ pub fn run() {
                 })
                 .build(),
         )
+        .on_window_event(|window, event| {
+            // Intercept window close → hide instead of quit (app stays resident in tray)
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let label = window.label();
+                if label == "main" || label == "quickchat" {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
         .setup(|app| {
             // Store global AppHandle for event emission
             let _ = APP_HANDLE.set(app.handle().clone());
@@ -436,6 +437,55 @@ pub fn run() {
                         .build(),
                 )?;
             }
+
+            // macOS: custom app menu — Cmd+Q hides window instead of quitting
+            #[cfg(target_os = "macos")]
+            {
+                use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
+                let hide_quit = MenuItemBuilder::with_id("hide_quit", "Hide OpenComputer")
+                    .accelerator("CmdOrCtrl+Q")
+                    .build(app)?;
+                let app_submenu = SubmenuBuilder::new(app, "OpenComputer")
+                    .about(None)
+                    .separator()
+                    .item(&hide_quit)
+                    .build()?;
+                let edit_submenu = SubmenuBuilder::new(app, "Edit")
+                    .undo()
+                    .redo()
+                    .separator()
+                    .cut()
+                    .copy()
+                    .paste()
+                    .select_all()
+                    .build()?;
+                let view_submenu = SubmenuBuilder::new(app, "View")
+                    .item(&PredefinedMenuItem::fullscreen(app, None)?)
+                    .build()?;
+                let window_submenu = SubmenuBuilder::new(app, "Window")
+                    .minimize()
+                    .item(&PredefinedMenuItem::maximize(app, None)?)
+                    .close_window()
+                    .build()?;
+                let menu = MenuBuilder::new(app)
+                    .item(&app_submenu)
+                    .item(&edit_submenu)
+                    .item(&view_submenu)
+                    .item(&window_submenu)
+                    .build()?;
+                app.set_menu(menu)?;
+                app.on_menu_event(|app_handle, event| {
+                    if event.id().as_ref() == "hide_quit" {
+                        use tauri::Manager;
+                        if let Some(window) = app_handle.get_webview_window("main") {
+                            let _ = window.hide();
+                        }
+                    }
+                });
+            }
+
+            // Set up system tray icon with context menu
+            tray::setup_tray(app)?;
 
             // Fix macOS theme-aware background to prevent flash on window resize
             #[cfg(target_os = "macos")]
@@ -850,6 +900,17 @@ pub fn run() {
             commands::acp_control::acp_get_config,
             commands::acp_control::acp_set_config,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            // macOS: clicking Dock icon when all windows are hidden → show main window
+            if let tauri::RunEvent::Reopen { .. } = event {
+                use tauri::Manager;
+                if let Some(window) = app_handle.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.unminimize();
+                    let _ = window.set_focus();
+                }
+            }
+        });
 }

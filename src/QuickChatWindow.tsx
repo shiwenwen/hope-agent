@@ -2,13 +2,12 @@
  * QuickChatWindow — root component for the independent quick-chat Tauri window.
  * Rendered when `?window=quickchat` is in the URL (see main.tsx).
  */
-import { useEffect, useCallback, useRef } from "react"
+import React, { useEffect, useCallback, useRef } from "react"
 import { convertFileSrc } from "@tauri-apps/api/core"
-import { getCurrentWindow } from "@tauri-apps/api/window"
+import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window"
 import { useTranslation } from "react-i18next"
 import { initLanguageFromConfig } from "@/i18n/i18n"
-import { Plus, ChevronDown, Bot, Minus, X } from "lucide-react"
-import { Button } from "@/components/ui/button"
+import { Plus, ChevronDown, Bot, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import ChatInput from "@/components/chat/ChatInput"
@@ -19,8 +18,9 @@ import { useChatStream } from "@/components/chat/useChatStream"
 import type { CommandResult } from "@/components/chat/slash-commands/types"
 import type { AgentSummaryForSidebar } from "@/types/chat"
 
+const hideWindow = () => getCurrentWindow().hide()
+
 export default function QuickChatWindow() {
-  // Always active — this is a standalone window
   const session = useQuickChatSession(true)
 
   const stream = useChatStream({
@@ -43,19 +43,46 @@ export default function QuickChatWindow() {
     updateSessionMessages: session.updateSessionMessages,
   })
 
-  // Init language
   useEffect(() => { initLanguageFromConfig() }, [])
 
-  // Escape → hide window (not close — keep alive for next shortcut toggle)
+  // Transparent html/body so CSS border-radius shows rounded corners on macOS
+  useEffect(() => {
+    document.documentElement.style.background = "transparent"
+    document.body.style.background = "transparent"
+  }, [])
+
+  const hasMessages = session.messages.length > 0
+
+  // Dynamic window height: compact when empty, expanded when has messages
+  useEffect(() => {
+    const win = getCurrentWindow()
+    if (hasMessages) {
+      win.setSize(new LogicalSize(680, 500))
+    } else {
+      win.setSize(new LogicalSize(680, 180))
+    }
+  }, [hasMessages])
+
+  // Escape → hide window
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {
         e.preventDefault()
-        getCurrentWindow().hide()
+        hideWindow()
       }
     }
     document.addEventListener("keydown", onKeyDown)
     return () => document.removeEventListener("keydown", onKeyDown)
+  }, [])
+
+  // Window blur (click outside) → hide window
+  useEffect(() => {
+    const win = getCurrentWindow()
+    let unlisten: (() => void) | undefined
+    win.onFocusChanged(({ payload: focused }) => {
+      if (!focused) hideWindow()
+    }).then((fn) => { unlisten = fn })
+    return () => { unlisten?.() }
   }, [])
 
   const handleCommandAction = useCallback(
@@ -77,13 +104,12 @@ export default function QuickChatWindow() {
 
   return (
     <TooltipProvider>
-      <div className="flex flex-col h-screen bg-background rounded-2xl overflow-hidden">
+      <div className="flex flex-col h-screen rounded-2xl bg-background/70 dark:bg-background/60 backdrop-blur-2xl backdrop-saturate-150 shadow-2xl [clip-path:inset(0_round_16px)]">
         {/* ── Title bar (draggable) ─────────────── */}
         <div
+          className="flex items-center gap-2 px-4 py-2 shrink-0 select-none"
           data-tauri-drag-region
-          className="flex items-center gap-2 px-4 py-2.5 border-b border-border shrink-0 select-none"
         >
-          {/* Agent selector */}
           <AgentSelector
             agents={session.agents}
             currentAgent={currentAgent}
@@ -93,51 +119,34 @@ export default function QuickChatWindow() {
 
           <div className="flex-1" data-tauri-drag-region />
 
-          {/* Continuing session hint */}
-          {session.currentSessionId && session.messages.length > 0 && (
-            <span className="text-xs text-muted-foreground">
+          {session.currentSessionId && hasMessages && (
+            <span className="text-[11px] text-muted-foreground/70">
               {t("quickChat.continueSession")}
             </span>
           )}
 
-          {/* New chat */}
-          <Button
-            variant="ghost"
-            size="sm"
+          <button
             onClick={session.handleNewChat}
-            className="h-7 px-2 text-xs gap-1"
+            className="h-7 px-2 text-xs gap-1 inline-flex items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
           >
             <Plus className="h-3.5 w-3.5" />
-            {t("quickChat.newChat")}
-          </Button>
-
-          {/* Minimize */}
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => getCurrentWindow().hide()}
-            className="h-7 w-7"
+          </button>
+          <button
+            onClick={hideWindow}
+            className="h-7 w-7 inline-flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
           >
-            <Minus className="h-3.5 w-3.5" />
-          </Button>
-
-          {/* Close */}
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => getCurrentWindow().hide()}
-            className="h-7 w-7"
-          >
-            <X className="h-4 w-4" />
-          </Button>
+            <X className="h-3.5 w-3.5" />
+          </button>
         </div>
 
-        {/* ── Messages ──────────────────────────── */}
-        <QuickChatMessages
-          messages={session.messages}
-          loading={session.loading}
-          sessionId={session.currentSessionId}
-        />
+        {/* ── Messages (only when present) ──────── */}
+        {hasMessages && (
+          <QuickChatMessages
+            messages={session.messages}
+            loading={session.loading}
+            sessionId={session.currentSessionId}
+          />
+        )}
 
         {/* ── Approval Dialog ────────────────────── */}
         <ApprovalDialog
@@ -146,7 +155,7 @@ export default function QuickChatWindow() {
         />
 
         {/* ── Input ──────────────────────────────── */}
-        <div className="border-t border-border px-3 py-2 shrink-0">
+        <div className="shrink-0">
           <ChatInput
             input={stream.input}
             onInputChange={stream.setInput}
@@ -210,8 +219,8 @@ function AgentSelector({
         onClick={() => setMenuOpen(!menuOpen)}
         className={cn(
           "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-sm",
-          "hover:bg-muted transition-colors",
-          menuOpen && "bg-muted",
+          "hover:bg-muted/60 transition-colors",
+          menuOpen && "bg-muted/60",
         )}
       >
         <AgentAvatarIcon agent={currentAgent} />

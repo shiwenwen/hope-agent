@@ -60,6 +60,7 @@ src-tauri/src/          后端（Rust）
   cron.rs               定时任务系统（调度器 + CronDB + 任务执行 + 日历查询）
   dashboard.rs          数据大盘聚合查询（7 个 Tauri 命令 + SQL 聚合 + 费用估算 + DashboardFilter 多维筛选 + 系统指标采集）
   sandbox.rs            Docker 沙箱系统（安全加固容器执行 + 环境变量过滤 + 挂载路径校验 + 配置持久化 + Tauri 命令）
+  tray.rs               系统托盘（菜单栏常驻图标 + 上下文菜单 + 窗口显示/隐藏 + 退出控制）
   browser_state.rs      浏览器连接状态管理（全局单例 + CDP 生命周期 + Profile 隔离）
   permissions.rs        macOS 系统权限检测 & 申请（15 项权限，JXA + 框架 API 检测）
   context_compact.rs    上下文压缩系统（4 层渐进式压缩 + Token 估算校准 + 工具结果截断 + 上下文裁剪 + LLM 摘要 + 溢出恢复）
@@ -121,6 +122,7 @@ src-tauri/src/          后端（Rust）
 - **Docker 沙箱系统**：`sandbox.rs` 实现安全加固的 Docker 容器沙箱执行。`exec` 工具 `sandbox=true` 参数或 Agent `behavior.sandbox` 配置触发。默认镜像 `debian:bookworm-slim`。安全加固：只读根文件系统（`--read-only`）+ capability 全部移除（`--cap-drop ALL`）+ 禁止新权限（`--no-new-privileges`）+ 网络隔离（`--network none`）+ 进程数限制（`--pids-limit 256`）+ tmpfs 可写临时目录。环境变量过滤：`sanitize_env()` 拦截 20+ 种敏感变量模式（API_KEY/TOKEN/SECRET/PASSWORD 等），白名单放行 PATH/HOME/LANG 等。挂载路径校验：`validate_bind_mount()` 禁止挂载 `/etc`、`/proc`、`/sys`、`/dev`、`/root`、Docker socket 等系统路径，canonicalize 防 symlink 逃逸。`SandboxConfig` 持久化在 `~/.opencomputer/sandbox.json`（8 个可配置参数）。系统提示词 Section ⑪ 条件注入沙箱说明。设置面板 `SandboxPanel` 管理（Docker 可用性检测 + 镜像/资源/安全配置）。3 个 Tauri 命令（`get_sandbox_config` / `set_sandbox_config` / `check_sandbox_available`）
 - **ACP 协议支持**：`acp/` 模块实现原生 Agent Client Protocol 服务器，IDE（Zed/VS Code 等）通过 stdio + NDJSON（JSON-RPC 2.0）直连 OpenComputer Agent。`opencomputer acp` 子命令启动（`--verbose`/`--agent-id`）。完整会话生命周期（new/load/list/close）+ prompt 执行（流式事件映射）+ 历史重放（loadSession 从 SessionDB 重建完整对话）+ 多 Agent 模式切换 + failover 降级。共享 SessionDB 实现桌面端与 IDE 会话互通
 - **自愈式自动重启**：`main.rs` 实现 Guardian Process 架构，同一二进制通过 `OPENCOMPUTER_CHILD` 环境变量区分 Guardian/Child 模式。Guardian 监控子进程退出码，捕获所有崩溃类型（panic/segfault/OOM/abort），指数退避重启。连续崩溃 5 次触发 `backup.rs` 配置备份 + `self_diagnosis.rs` LLM 自诊断（多 Provider Failover + 基础分析降级），保守自动修复（仅 config/logs.db 损坏）。崩溃记录持久化到 `crash_journal.json`（JSON 格式，最近 50 条）。信号转发确保 Force Quit 不误判。退出码：0=正常、42=请求重启、其他=崩溃。设置面板 `CrashHistoryPanel` 管理崩溃历史和备份
+- **系统托盘常驻**：`tray.rs` 实现系统托盘（菜单栏）常驻。关闭主窗口仅隐藏（`on_window_event` 拦截 `CloseRequested` + `prevent_close`），应用在后台持续运行。托盘菜单提供显示主窗口/快捷对话/新建对话/设置/退出五个操作。左键单击托盘图标直接显示主窗口。macOS 点击 Dock 图标通过 `RunEvent::Reopen` 恢复窗口。Tauri 2 内置 `tray-icon` feature，无需额外插件
 - **快捷对话快捷键**：全局 Option+Space（Alt+Space）快捷键快速唤起 Spotlight 风格浮动对话框。`tauri-plugin-global-shortcut` 后端注册快捷键，Rust handler 显示/聚焦主窗口并发射 `quick-chat-toggle` 事件。前端 `QuickChatDialog.tsx` 浮层组件（`createPortal` 渲染到 body）+ `useQuickChatSession.ts` 独立会话管理 Hook + `QuickChatMessages.tsx` 简化消息列表。复用 `ChatInput` 完整功能（模型选择/斜杠命令/文件附件）和 `useChatStream` 流式对话。Agent 快捷选择器支持切换 Agent 并自动保存/恢复会话（localStorage 持久化 `quickchat:lastSession:{agentId}`）。连续唤起加载上次会话，支持新建会话和"查看完整对话"跳转
 
 ## Plan Mode 前后端时序流程

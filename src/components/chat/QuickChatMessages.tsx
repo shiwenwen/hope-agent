@@ -26,11 +26,7 @@ export default function QuickChatMessages({
   }, [messages.length, messages[messages.length - 1]?.content])
 
   if (messages.length === 0) {
-    return (
-      <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
-        {t("quickChat.noMessages")}
-      </div>
-    )
+    return null
   }
 
   return (
