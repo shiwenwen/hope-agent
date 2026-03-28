@@ -149,6 +149,15 @@ export default function ChatScreen({
     }
   }, [sessionsRefreshTrigger])
 
+  // Listen for tray "new-session" event to trigger new chat
+  useEffect(() => {
+    let unlisten: UnlistenFn | undefined
+    listen("new-session", () => {
+      session.handleNewChat(session.currentAgentId)
+    }).then((fn) => { unlisten = fn })
+    return () => { unlisten?.() }
+  }, [session.handleNewChat, session.currentAgentId])
+
   // Fetch models and current settings on mount
   useEffect(() => {
     ;(async () => {

@@ -34,6 +34,7 @@ pub mod crash_journal;
 pub mod backup;
 pub mod self_diagnosis;
 mod plan;
+mod tray;
 
 use agent::AssistantAgent;
 use oauth::TokenData;
@@ -212,7 +213,7 @@ fn execute_shortcut_action(app_handle: &tauri::AppHandle, action_id: &str, _shor
 }
 
 /// Toggle the independent quick-chat window. Creates it on first use.
-fn toggle_quickchat_window(app_handle: &tauri::AppHandle) {
+pub(crate) fn toggle_quickchat_window(app_handle: &tauri::AppHandle) {
     use tauri::Manager;
 
     if let Some(win) = app_handle.get_webview_window("quickchat") {
@@ -299,9 +300,10 @@ pub fn run() {
             None,
         ))
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            // When a second instance is launched, focus the existing window
+            // When a second instance is launched, show and focus the existing window
             use tauri::Manager;
             if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
                 let _ = window.unminimize();
                 let _ = window.set_focus();
             }
@@ -426,6 +428,16 @@ pub fn run() {
                 })
                 .build(),
         )
+        .on_window_event(|window, event| {
+            // Intercept window close → hide instead of quit (app stays resident in tray)
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let label = window.label();
+                if label == "main" || label == "quickchat" {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
         .setup(|app| {
             // Store global AppHandle for event emission
             let _ = APP_HANDLE.set(app.handle().clone());
@@ -436,6 +448,9 @@ pub fn run() {
                         .build(),
                 )?;
             }
+
+            // Set up system tray icon with context menu
+            tray::setup_tray(app)?;
 
             // Fix macOS theme-aware background to prevent flash on window resize
             #[cfg(target_os = "macos")]
@@ -845,6 +860,17 @@ pub fn run() {
             commands::acp_control::acp_get_config,
             commands::acp_control::acp_set_config,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            // macOS: clicking Dock icon when all windows are hidden → show main window
+            if let tauri::RunEvent::Reopen { .. } = event {
+                use tauri::Manager;
+                if let Some(window) = app_handle.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.unminimize();
+                    let _ = window.set_focus();
+                }
+            }
+        });
 }
