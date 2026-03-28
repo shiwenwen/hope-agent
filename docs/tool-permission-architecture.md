@@ -140,7 +140,7 @@ flowchart TD
     PlanCheck -- 否 --> Execute[🔧 执行工具]
     PlanCheck -- 是 --> IsPathAware{是 write/edit/<br/>apply_patch？}
     IsPathAware -- 否 --> Execute
-    IsPathAware -- 是 --> PathAllowed{文件路径在<br/>plans/ 目录下？}
+    IsPathAware -- 是 --> PathAllowed{is_plan_mode_path_allowed?<br/><small>.opencomputer/plans/*.md</small>}
     PathAllowed -- 是 --> Execute
     PathAllowed -- 否 --> PlanDenied[❌ Plan Mode restriction<br/>cannot modify file]
 
@@ -202,17 +202,115 @@ flowchart TD
 
 ---
 
-## Plan Mode 路径限制
+## Plan Mode 工具限制
 
-**源码**：`tools/execution.rs:201-219`
-**触发条件**：`ToolExecContext.plan_mode_allow_paths` 非空时（Planning 阶段自动设置）
+Plan Mode 在权限控制层面引入了**两层独立限制**：工具可见性裁剪 + 路径级硬限制，二者共同作用于 Planning/Review 阶段。
+
+### 常量定义（`plan.rs`）
+
+```rust
+pub const PLAN_MODE_DENIED_TOOLS: &[&str] = &["write", "edit", "apply_patch", "canvas"];
+pub const PLAN_MODE_ASK_TOOLS: &[&str] = &["exec"];
+pub const PLAN_MODE_PATH_AWARE_TOOLS: &[&str] = &["write", "edit"];
+```
+
+### 1. 工具可见性裁剪（Planning/Review 阶段）
+
+**源码**：`plan.rs` → `PlanAgentConfig` + `commands/chat.rs`
+**生效位置**：chat 入口根据 `get_plan_state()` 动态修改 Agent 的 `denied_tools` 和工具注入
+
+| 配置项 | 值 | 效果 |
+|--------|-----|------|
+| `PlanAgentConfig.allowed_tools` | `["read", "ls", "grep", "find", "glob", "web_search", "web_fetch", "exec", "plan_question", "submit_plan", "write", "edit", "recall_memory", "memory_get", "subagent"]` | Plan Agent 白名单，仅这些工具对 LLM 可见 |
+| `PLAN_MODE_DENIED_TOOLS` | `["write", "edit", "apply_patch", "canvas"]` | 追加到 `denied_tools`，从 LLM tool schema 中移除（注意 `write`/`edit` 虽在白名单中但被 denied，实际通过路径限制有条件放行） |
+| `PLAN_MODE_ASK_TOOLS` | `["exec"]` | 追加到 `ask_tools`，exec 在 Planning 阶段始终弹审批 |
+
+**双 Agent 模式**（`PlanAgentMode` 枚举）：
+
+| 状态 | Agent 模式 | 工具集 |
+|------|-----------|--------|
+| Off | 正常 | Agent 配置的完整工具集 |
+| Planning / Review | PlanAgent | 白名单工具 + path-restricted `write`/`edit` + 条件注入 `plan_question`/`submit_plan` |
+| Executing / Paused | BuildAgent | 全量工具 + 条件注入 `update_plan_step`/`amend_plan` |
+| Completed | BuildAgent | 全量工具 + 注入 `PLAN_COMPLETED_SYSTEM_PROMPT` |
+
+### 2. 路径级硬限制（Planning 阶段文件写入）
+
+**源码**：`tools/execution.rs:201-219`（执行守卫）+ `plan.rs` → `is_plan_mode_path_allowed()`
+**触发条件**：`ToolExecContext.plan_mode_allow_paths` 非空时（Planning 阶段由 `PlanAgentConfig.plan_mode_allow_paths = ["plans"]` 自动设置）
 
 在审批门**之后**、实际执行**之前**做路径检查：
-- 仅影响 `write` / `edit` / `apply_patch` 三个工具
-- 只允许修改 plan 文件（`~/.opencomputer/plans/` 下的文件）
-- 其他路径返回错误：`"Plan Mode restriction: cannot modify '...'""`
+
+```rust
+// tools/execution.rs
+if !ctx.plan_mode_allow_paths.is_empty() {
+    let is_path_aware = matches!(name, TOOL_WRITE | TOOL_EDIT | TOOL_APPLY_PATCH);
+    if is_path_aware {
+        let target_path = args.get("file_path")
+            .or_else(|| args.get("path"))
+            .and_then(|v| v.as_str()).unwrap_or("");
+        if !target_path.is_empty()
+            && !crate::plan::is_plan_mode_path_allowed(target_path) {
+            return Err("Plan Mode restriction: cannot modify '{path}'");
+        }
+    }
+}
+```
+
+**`is_plan_mode_path_allowed()` 判断逻辑**：
+
+```
+文件扩展名不是 .md → 拒绝
+路径包含 ".opencomputer/plans/" → 允许
+路径以 plans_dir()（解析后的绝对路径）开头 → 允许
+其他 → 拒绝
+```
+
+允许的路径范围：
+- 项目本地：`<project>/.opencomputer/plans/*.md`
+- 全局目录：`~/.opencomputer/plans/*.md`
+- 自定义：`plansDirectory` 配置覆盖的目录下 `*.md`
 
 这是一个**独立于审批的硬限制**，即使审批通过也会被拦截。
+
+### 3. 子 Agent 安全继承
+
+**源码**：`subagent/spawn.rs`
+
+Planning/Review 状态下 spawn 的子 Agent 自动继承 `PLAN_MODE_DENIED_TOOLS`：
+
+```
+子 Agent denied_tools = SubagentConfig.deniedTools ∪ PLAN_MODE_DENIED_TOOLS
+```
+
+防止子 Agent 绕过 Plan Mode 的工具限制（如通过子 Agent 修改文件）。
+
+### 决策流程图
+
+```mermaid
+flowchart TD
+    Start([工具调用触发<br/>Planning 状态]) --> IsDenied{工具在 denied_tools 中？<br/><small>apply_patch / canvas</small>}
+
+    IsDenied -- 是 --> Blocked[/LLM 不会调用<br/>tool schema 已移除/]
+    IsDenied -- 否 --> IsAllowed{工具在 PlanAgent<br/>白名单中？}
+
+    IsAllowed -- 否 --> Blocked
+    IsAllowed -- 是 --> IsExec{是 exec？}
+
+    IsExec -- 是 --> AskApproval[弹出审批<br/><small>PLAN_MODE_ASK_TOOLS</small>]
+    IsExec -- 否 --> IsPathAware{是 write / edit /<br/>apply_patch？}
+
+    IsPathAware -- 否 --> Execute[✅ 直接执行<br/><small>read/grep/glob 等</small>]
+    IsPathAware -- 是 --> CheckPath{目标路径通过<br/>is_plan_mode_path_allowed？}
+
+    CheckPath -- ".opencomputer/plans/*.md" --> Execute
+    CheckPath -- 其他路径 --> PlanDenied[❌ Plan Mode restriction<br/>cannot modify file]
+
+    style Execute fill:#d4edda,stroke:#28a745
+    style Blocked fill:#e2e3e5,stroke:#6c757d
+    style PlanDenied fill:#f8d7da,stroke:#dc3545
+    style AskApproval fill:#fff3cd,stroke:#ffc107
+```
 
 ---
 
