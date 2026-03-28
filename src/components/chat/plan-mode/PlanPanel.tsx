@@ -10,6 +10,9 @@ import {
   Save,
   FileText,
   Pause,
+  History,
+  RotateCcw,
+  Send,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -34,6 +37,7 @@ interface PlanPanelProps {
   onClose: () => void
   onPause?: () => void
   onResume?: () => void
+  onRequestChanges?: (feedback: string) => void
 }
 
 export function PlanPanel({
@@ -49,11 +53,19 @@ export function PlanPanel({
   onClose,
   onPause,
   onResume,
+  onRequestChanges,
 }: PlanPanelProps) {
   const { t } = useTranslation()
   const [editContent, setEditContent] = useState(planContent)
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [changesFeedback, setChangesFeedback] = useState("")
+  const [showChangesInput, setShowChangesInput] = useState(false)
+  const [showVersions, setShowVersions] = useState(false)
+  const [versions, setVersions] = useState<{ version: number; filePath: string; modifiedAt: string; isCurrent: boolean }[]>([])
+  const [loadingVersions, setLoadingVersions] = useState(false)
+  const [hasCheckpoint, setHasCheckpoint] = useState(false)
+  const [rollingBack, setRollingBack] = useState(false)
 
   // Sync external planContent → local editContent (when LLM updates the plan)
   useEffect(() => {
@@ -75,6 +87,64 @@ export function PlanPanel({
     setEditContent(value)
     setDirty(true)
   }, [])
+
+  const handleLoadVersions = useCallback(async () => {
+    if (!sessionId) return
+    setLoadingVersions(true)
+    try {
+      const v = await invoke<{ version: number; filePath: string; modifiedAt: string; isCurrent: boolean }[]>(
+        "get_plan_versions", { sessionId }
+      )
+      setVersions(v)
+      setShowVersions(true)
+    } catch (e) {
+      console.error("Failed to load plan versions:", e)
+    } finally {
+      setLoadingVersions(false)
+    }
+  }, [sessionId])
+
+  // Check for git checkpoint availability
+  useEffect(() => {
+    if (!sessionId) return
+    if (planState === "executing" || planState === "paused" || planState === "completed") {
+      invoke<string | null>("get_plan_checkpoint", { sessionId })
+        .then((ref) => setHasCheckpoint(!!ref))
+        .catch(() => setHasCheckpoint(false))
+    } else {
+      setHasCheckpoint(false)
+    }
+  }, [sessionId, planState])
+
+  const handleRollback = useCallback(async () => {
+    if (!sessionId) return
+    setRollingBack(true)
+    try {
+      const msg = await invoke<string>("plan_rollback", { sessionId })
+      console.log("Rollback result:", msg)
+      setHasCheckpoint(false)
+    } catch (e) {
+      console.error("Failed to rollback:", e)
+    } finally {
+      setRollingBack(false)
+    }
+  }, [sessionId])
+
+  const handleRestoreVersion = useCallback(async (filePath: string) => {
+    if (!sessionId) return
+    try {
+      await invoke("restore_plan_version", { sessionId, filePath })
+      const content = await invoke<string | null>("get_plan_content", { sessionId })
+      if (content) {
+        setEditContent(content)
+        onPlanContentChange(content)
+      }
+      setShowVersions(false)
+      setDirty(false)
+    } catch (e) {
+      console.error("Failed to restore plan version:", e)
+    }
+  }, [sessionId, onPlanContentChange])
 
   const handleSave = useCallback(async () => {
     if (!sessionId || !dirty) return
@@ -122,6 +192,18 @@ export function PlanPanel({
         <ClipboardList className={cn("h-4 w-4", iconColor)} />
         <span className="text-sm font-medium truncate flex-1">{t("planMode.panelTitle")}</span>
         <div className="flex items-center gap-0.5">
+          {/* Version history button */}
+          {(planState === "review" || planState === "planning") && (
+            <IconTip label={t("planMode.versions")}>
+              <button
+                className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
+                onClick={handleLoadVersions}
+                disabled={loadingVersions}
+              >
+                {loadingVersions ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <History className="h-3.5 w-3.5" />}
+              </button>
+            </IconTip>
+          )}
           {/* Save button (only in editing mode when dirty) */}
           {isEditable && dirty && (
             <IconTip label={t("common.save")}>
@@ -173,6 +255,50 @@ export function PlanPanel({
         <div className="px-3 py-2 bg-yellow-500/10 border-b border-yellow-500/20 text-sm text-yellow-600 flex items-center gap-2">
           <Pause className="h-3.5 w-3.5" />
           {t("planMode.pausedBanner")}
+        </div>
+      )}
+
+      {/* Version history overlay */}
+      {showVersions && (
+        <div className="px-3 py-2 border-b border-border/50 bg-secondary/30">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-medium text-muted-foreground">{t("planMode.versionHistory")}</span>
+            <button
+              className="p-0.5 rounded hover:bg-secondary text-muted-foreground"
+              onClick={() => setShowVersions(false)}
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+          <div className="space-y-1 max-h-[200px] overflow-y-auto">
+            {versions.map((v) => (
+              <div
+                key={v.version}
+                className={cn(
+                  "flex items-center gap-2 px-2 py-1.5 rounded text-xs",
+                  v.isCurrent ? "bg-blue-500/10 text-blue-600" : "hover:bg-secondary/60"
+                )}
+              >
+                <span className="font-medium">v{v.version}</span>
+                <span className="text-muted-foreground flex-1 truncate">
+                  {v.modifiedAt ? new Date(v.modifiedAt).toLocaleString() : ""}
+                </span>
+                {v.isCurrent ? (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-600">{t("planMode.currentVersion")}</span>
+                ) : (
+                  <button
+                    className="p-0.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground"
+                    onClick={() => handleRestoreVersion(v.filePath)}
+                  >
+                    <RotateCcw className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+            ))}
+            {versions.length === 0 && (
+              <div className="text-xs text-muted-foreground text-center py-3">{t("planMode.noVersions")}</div>
+            )}
+          </div>
         </div>
       )}
 
@@ -247,7 +373,7 @@ export function PlanPanel({
           </Button>
         )}
 
-        {/* Review: approve or exit */}
+        {/* Review: approve, request changes, or exit */}
         {planState === "review" && (
           <>
             <Button
@@ -257,6 +383,50 @@ export function PlanPanel({
               <Play className="h-4 w-4 mr-2" />
               {t("planMode.approveAndExecute")}
             </Button>
+            {onRequestChanges && !showChangesInput && (
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => setShowChangesInput(true)}
+              >
+                {t("planMode.requestChanges")}
+              </Button>
+            )}
+            {showChangesInput && (
+              <div className="space-y-2">
+                <Textarea
+                  value={changesFeedback}
+                  onChange={(e) => setChangesFeedback(e.target.value)}
+                  placeholder={t("planMode.requestChangesPlaceholder")}
+                  className="text-sm min-h-[60px] resize-none"
+                  autoFocus
+                />
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    className="flex-1"
+                    disabled={!changesFeedback.trim()}
+                    onClick={() => {
+                      if (changesFeedback.trim()) {
+                        onRequestChanges?.(changesFeedback.trim())
+                        setChangesFeedback("")
+                        setShowChangesInput(false)
+                      }
+                    }}
+                  >
+                    <Send className="h-3.5 w-3.5 mr-1.5" />
+                    {t("common.send")}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => { setShowChangesInput(false); setChangesFeedback("") }}
+                  >
+                    {t("common.cancel")}
+                  </Button>
+                </div>
+              </div>
+            )}
             <Button variant="ghost" className="w-full" onClick={onExit}>
               {t("planMode.exitWithout")}
             </Button>
@@ -279,16 +449,29 @@ export function PlanPanel({
           </div>
         )}
 
-        {/* Paused: resume or exit */}
+        {/* Paused: resume, rollback, or exit */}
         {planState === "paused" && (
           <>
-            <Button
-              className="w-full bg-yellow-600 hover:bg-yellow-700 text-white"
-              onClick={onResume}
-            >
-              <Play className="h-4 w-4 mr-2" />
-              {t("planMode.resume")}
-            </Button>
+            {onResume && (
+              <Button
+                className="w-full bg-yellow-600 hover:bg-yellow-700 text-white"
+                onClick={onResume}
+              >
+                <Play className="h-4 w-4 mr-2" />
+                {t("planMode.resume")}
+              </Button>
+            )}
+            {hasCheckpoint && (
+              <Button
+                variant="outline"
+                className="w-full text-destructive border-destructive/30 hover:bg-destructive/10"
+                onClick={handleRollback}
+                disabled={rollingBack}
+              >
+                {rollingBack ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RotateCcw className="h-4 w-4 mr-2" />}
+                {t("planMode.rollback")}
+              </Button>
+            )}
             <Button variant="ghost" className="w-full" onClick={onExit}>
               {t("planMode.exitWithout")}
             </Button>
@@ -297,10 +480,26 @@ export function PlanPanel({
 
         {/* Completed */}
         {(planState === "completed" || allDone) && (
-          <div className="flex items-center gap-2 text-sm text-green-600">
-            <CheckCircle className="h-4 w-4" />
-            <span>{t("planMode.completed")}</span>
-          </div>
+          <>
+            <div className="flex items-center gap-2 text-sm text-green-600">
+              <CheckCircle className="h-4 w-4" />
+              <span>{t("planMode.completed")}</span>
+            </div>
+            {hasCheckpoint && planSteps.some((s) => s.status === "failed") && (
+              <Button
+                variant="outline"
+                className="w-full text-destructive border-destructive/30 hover:bg-destructive/10"
+                onClick={handleRollback}
+                disabled={rollingBack}
+              >
+                {rollingBack ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RotateCcw className="h-4 w-4 mr-2" />}
+                {t("planMode.rollback")}
+              </Button>
+            )}
+            <Button variant="ghost" className="w-full" onClick={onExit}>
+              {t("planMode.exitWithout")}
+            </Button>
+          </>
         )}
       </div>
     </div>

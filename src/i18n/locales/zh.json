@@ -772,6 +772,9 @@
     "selectFallbackModel": "选择降级模型",
     "noModelSelected": "未选择模型",
     "selectDefaultModel": "选择默认模型",
+    "selectPlanModel": "选择计划模式模型",
+    "agentPlanModel": "计划模式模型",
+    "agentPlanModelDesc": "在计划阶段使用更便宜/快速的模型，可降低 60-80% 成本。执行阶段仍使用主模型。",
     "inheritGlobal": "继承全局设置",
     "customModel": "自定义模型",
     "agentModelConfig": "模型配置",
@@ -1181,11 +1184,19 @@
       "phases": "个阶段",
       "steps": "个步骤"
     },
+    "versions": "版本历史",
+    "versionHistory": "计划版本",
+    "currentVersion": "当前",
+    "noVersions": "暂无历史版本",
+    "requestChanges": "请求修改",
+    "requestChangesPlaceholder": "描述你希望修改的内容...",
+    "rollback": "回滚更改",
     "question": {
       "title": "计划确认",
       "submit": "提交回答",
       "answered": "已回答",
-      "customPlaceholder": "输入自定义回答..."
+      "customPlaceholder": "输入自定义回答...",
+      "recommended": "推荐"
     }
   },
   "canvas": {

@@ -101,8 +101,8 @@ export function PlanBlock({
           ))}
         </div>
 
-        {/* Action bar (only in planning state) */}
-        {planState === "planning" && (
+        {/* Action bar (only in review state, after plan is submitted) */}
+        {planState === "review" && (
           <div className="flex items-center gap-2 px-4 py-2 border-t border-blue-500/10 bg-blue-500/5">
             <Button
               size="sm"

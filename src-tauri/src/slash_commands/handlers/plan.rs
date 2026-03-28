@@ -20,6 +20,10 @@ pub async fn handle_plan(
         }
         "exit" => {
             let plan_content = plan::load_plan_file(sid).ok().flatten();
+            // Clean up git checkpoint if any
+            if let Some(ref_name) = plan::get_checkpoint_ref(sid).await {
+                plan::cleanup_checkpoint(&ref_name);
+            }
             plan::set_plan_state(sid, PlanModeState::Off).await;
             db.update_session_plan_mode(sid, "off").map_err(|e| e.to_string())?;
             Ok(CommandResult {
@@ -31,6 +35,8 @@ pub async fn handle_plan(
             let plan_content = plan::load_plan_file(sid).ok().flatten();
             plan::set_plan_state(sid, PlanModeState::Executing).await;
             db.update_session_plan_mode(sid, "executing").map_err(|e| e.to_string())?;
+            // Create git checkpoint AFTER PlanMeta entry exists in the store
+            plan::create_checkpoint_for_session(sid).await;
             Ok(CommandResult {
                 content: String::new(),
                 action: Some(CommandAction::ApprovePlan { plan_content }),

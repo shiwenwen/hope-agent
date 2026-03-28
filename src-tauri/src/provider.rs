@@ -443,6 +443,11 @@ pub struct ProviderStore {
     /// Global keyboard shortcut configuration
     #[serde(default)]
     pub shortcuts: ShortcutConfig,
+
+    /// Custom plans directory override. When set, plans are stored here instead of
+    /// the default project-local `.opencomputer/plans/` or global `~/.opencomputer/plans/`.
+    #[serde(default)]
+    pub plans_directory: Option<String>,
 }
 
 fn default_skill_env_check() -> bool {

@@ -38,6 +38,7 @@ impl AssistantAgent {
         }
         if self.plan_executing {
             tool_schemas.push(tools::get_plan_step_tool().to_provider_schema(ToolProvider::Anthropic));
+            tool_schemas.push(tools::get_amend_plan_tool().to_provider_schema(ToolProvider::Anthropic));
         }
         if self.plan_tools_enabled {
             tool_schemas.push(tools::get_plan_question_tool().to_provider_schema(ToolProvider::Anthropic));
