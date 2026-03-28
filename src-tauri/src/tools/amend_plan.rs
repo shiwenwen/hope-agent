@@ -161,6 +161,7 @@ async fn action_update(args: &Value, session_id: &str) -> String {
 }
 
 /// Regenerate the plan markdown file from the current steps.
+/// Preserves step descriptions as indented text below each checklist item.
 async fn update_plan_file(session_id: &str, steps: &[PlanStep]) {
     // Build markdown from steps
     let mut md = String::new();
@@ -173,6 +174,12 @@ async fn update_plan_file(session_id: &str, steps: &[PlanStep]) {
         }
         let checkbox = if step.status == PlanStepStatus::Completed { "x" } else { " " };
         md.push_str(&format!("- [{}] {}\n", checkbox, step.title));
+        if !step.description.is_empty() {
+            // Indent description as continuation of the list item
+            for line in step.description.lines() {
+                md.push_str(&format!("  {}\n", line));
+            }
+        }
     }
 
     let _ = plan::save_plan_file(session_id, md.trim());

@@ -187,7 +187,10 @@ pub fn plans_dir() -> Result<PathBuf> {
             if !custom_dir.is_empty() {
                 let expanded = if custom_dir.starts_with('~') {
                     if let Some(home) = dirs::home_dir() {
-                        home.join(custom_dir.trim_start_matches("~/"))
+                        let suffix = custom_dir.strip_prefix("~/")
+                            .or_else(|| custom_dir.strip_prefix("~"))
+                            .unwrap_or(custom_dir);
+                        if suffix.is_empty() { home } else { home.join(suffix) }
                     } else {
                         PathBuf::from(custom_dir)
                     }

@@ -27,13 +27,9 @@ pub async fn set_plan_mode(
     app_state: tauri::State<'_, crate::AppState>,
 ) -> Result<(), String> {
     let plan_state = PlanModeState::from_str(&state);
+    let is_executing = plan_state == PlanModeState::Executing;
 
-    // Create git checkpoint when entering Executing state
-    if plan_state == PlanModeState::Executing {
-        plan::create_checkpoint_for_session(&session_id).await;
-    }
-
-    // Clean up checkpoint on successful completion
+    // Clean up checkpoint on successful completion or exit
     if plan_state == PlanModeState::Completed || plan_state == PlanModeState::Off {
         if let Some(ref_name) = plan::get_checkpoint_ref(&session_id).await {
             plan::cleanup_checkpoint(&ref_name);
@@ -41,6 +37,11 @@ pub async fn set_plan_mode(
     }
 
     plan::set_plan_state(&session_id, plan_state).await;
+
+    // Create git checkpoint AFTER PlanMeta entry exists in the store
+    if is_executing {
+        plan::create_checkpoint_for_session(&session_id).await;
+    }
     // Persist to DB
     let db = &app_state.session_db;
     db.update_session_plan_mode(&session_id, &state)
@@ -108,7 +109,15 @@ pub async fn update_plan_step_status(
     // Check if all steps are terminal → auto-transition to Completed
     if let Some(meta) = plan::get_plan_meta(&session_id).await {
         if meta.all_terminal() && meta.state == PlanModeState::Executing {
+            // Clean up git checkpoint on successful completion
+            if let Some(ref_name) = plan::get_checkpoint_ref(&session_id).await {
+                plan::cleanup_checkpoint(&ref_name);
+            }
             plan::set_plan_state(&session_id, PlanModeState::Completed).await;
+            // Persist completed state to DB for crash safety
+            if let Some(session_db) = crate::get_session_db() {
+                let _ = session_db.update_session_plan_mode(&session_id, "completed");
+            }
             if let Some(app_handle) = crate::get_app_handle() {
                 use tauri::Emitter;
                 let _ = app_handle.emit("plan_mode_changed", serde_json::json!({

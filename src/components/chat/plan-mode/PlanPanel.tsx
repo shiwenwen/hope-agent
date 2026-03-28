@@ -452,13 +452,15 @@ export function PlanPanel({
         {/* Paused: resume, rollback, or exit */}
         {planState === "paused" && (
           <>
-            <Button
-              className="w-full bg-yellow-600 hover:bg-yellow-700 text-white"
-              onClick={onResume}
-            >
-              <Play className="h-4 w-4 mr-2" />
-              {t("planMode.resume")}
-            </Button>
+            {onResume && (
+              <Button
+                className="w-full bg-yellow-600 hover:bg-yellow-700 text-white"
+                onClick={onResume}
+              >
+                <Play className="h-4 w-4 mr-2" />
+                {t("planMode.resume")}
+              </Button>
+            )}
             {hasCheckpoint && (
               <Button
                 variant="outline"
@@ -494,6 +496,9 @@ export function PlanPanel({
                 {t("planMode.rollback")}
               </Button>
             )}
+            <Button variant="ghost" className="w-full" onClick={onExit}>
+              {t("planMode.exitWithout")}
+            </Button>
           </>
         )}
       </div>

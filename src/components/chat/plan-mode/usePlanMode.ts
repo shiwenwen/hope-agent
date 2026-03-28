@@ -237,6 +237,7 @@ export function usePlanMode(
         })
         setPlanSteps(event.payload.steps)
         setPlanState("review")
+        setPendingQuestionGroup(null)
         // Load the plan content
         invoke<string | null>("get_plan_content", { sessionId: currentSessionId })
           .then((content) => {

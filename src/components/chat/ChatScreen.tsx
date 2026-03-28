@@ -368,7 +368,7 @@ export default function ChatScreen({
       }
       stream.handleSend(feedback)
     },
-    [planMode, stream, session.currentSessionId]
+    [planMode.setPlanState, stream.handleSend, session.currentSessionId]
   )
 
   return (
