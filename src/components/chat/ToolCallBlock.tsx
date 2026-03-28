@@ -243,7 +243,7 @@ export default function ToolCallBlock({ tool }: { tool: ToolCall }) {
           />
         )}
         <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-        <span className="text-muted-foreground font-medium">{toolLabel}</span>
+        <span className="text-muted-foreground font-medium shrink-0 whitespace-nowrap">{toolLabel}</span>
         <span className="text-muted-foreground/60 truncate font-mono text-[11px]">
           {displayArgs}
         </span>

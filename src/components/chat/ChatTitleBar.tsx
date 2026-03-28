@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { IconTip } from "@/components/ui/tooltip"
-import { Settings, Copy, BarChart3, Pencil, Zap } from "lucide-react"
+import { Settings, Copy, BarChart3, Pencil, Zap, Check, X } from "lucide-react"
 import { formatMessageTime } from "./chatUtils"
 import type { Message, AvailableModel, ActiveModel, SessionMeta } from "@/types/chat"
 
@@ -41,6 +41,10 @@ export default function ChatTitleBar({
   const { t } = useTranslation()
   const [showStatus, setShowStatus] = useState(false)
   const statusRef = useRef<HTMLDivElement>(null)
+
+  // Compact result toast
+  const [compactToast, setCompactToast] = useState<{ success: boolean; message: string } | null>(null)
+  const compactToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Inline title editing
   const [editingTitle, setEditingTitle] = useState(false)
@@ -137,29 +141,59 @@ export default function ChatTitleBar({
       <div className="flex items-end gap-1">
           {/* Compact Context Button */}
           {currentSessionId && (
-            <IconTip label={t("chat.compactNow")}>
-              <button
-                className={cn(
-                  "pb-1.5 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50",
-                  compacting && "text-foreground",
-                )}
-                disabled={compacting || loading}
-                onClick={async () => {
-                  setCompacting(true)
-                  try {
-                    await invoke("compact_context_now", {
-                      sessionId: currentSessionId,
-                    })
-                  } catch (e) {
-                    console.error("compact failed", e)
-                  } finally {
-                    setCompacting(false)
-                  }
-                }}
-              >
-                <Zap className={cn("h-4 w-4", compacting && "animate-pulse")} />
-              </button>
-            </IconTip>
+            <div className="relative">
+              <IconTip label={t("chat.compactNow")}>
+                <button
+                  className={cn(
+                    "pb-1.5 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50",
+                    compacting && "text-foreground",
+                  )}
+                  disabled={compacting || loading}
+                  onClick={async () => {
+                    setCompacting(true)
+                    try {
+                      const result = await invoke<{
+                        tierApplied: number
+                        tokensBefore: number
+                        tokensAfter: number
+                        messagesAffected: number
+                      }>("compact_context_now", {
+                        sessionId: currentSessionId,
+                      })
+                      const saved = result.tokensBefore - result.tokensAfter
+                      const msg = result.messagesAffected > 0
+                        ? t("chat.compactDone", { saved, affected: result.messagesAffected })
+                        : t("chat.compactNoChange")
+                      if (compactToastTimer.current) clearTimeout(compactToastTimer.current)
+                      setCompactToast({ success: true, message: msg })
+                      compactToastTimer.current = setTimeout(() => setCompactToast(null), 3000)
+                    } catch (e) {
+                      console.error("compact failed", e)
+                      if (compactToastTimer.current) clearTimeout(compactToastTimer.current)
+                      setCompactToast({ success: false, message: t("chat.compactFailed") })
+                      compactToastTimer.current = setTimeout(() => setCompactToast(null), 3000)
+                    } finally {
+                      setCompacting(false)
+                    }
+                  }}
+                >
+                  <Zap className={cn("h-4 w-4 pointer-events-none", compacting && "animate-pulse")} />
+                </button>
+              </IconTip>
+              {compactToast && (
+                <div className={cn(
+                  "absolute top-full right-0 mt-1.5 z-50 whitespace-nowrap rounded-lg border px-2.5 py-1.5 text-xs shadow-lg animate-in fade-in slide-in-from-top-1 duration-200",
+                  compactToast.success
+                    ? "border-border bg-popover text-popover-foreground"
+                    : "border-destructive/30 bg-destructive/10 text-destructive",
+                )}>
+                  <div className="flex items-center gap-1.5">
+                    {compactToast.success ? <Check className="h-3 w-3 text-green-500" /> : <X className="h-3 w-3" />}
+                    {compactToast.message}
+                  </div>
+                </div>
+              )}
+            </div>
           )}
           {/* Session Status Button */}
           <div className="relative" ref={statusRef}>
@@ -258,11 +292,21 @@ export default function ChatTitleBar({
                               }>("compact_context_now", {
                                 sessionId: currentSessionId,
                               })
+                              const saved = result.tokensBefore - result.tokensAfter
+                              const msg = result.messagesAffected > 0
+                                ? t("chat.compactDone", { saved, affected: result.messagesAffected })
+                                : t("chat.compactNoChange")
+                              if (compactToastTimer.current) clearTimeout(compactToastTimer.current)
+                              setCompactToast({ success: true, message: msg })
+                              compactToastTimer.current = setTimeout(() => setCompactToast(null), 3000)
                               if (result.messagesAffected > 0) {
                                 setShowStatus(false)
                               }
                             } catch (e) {
                               console.error("compact failed", e)
+                              if (compactToastTimer.current) clearTimeout(compactToastTimer.current)
+                              setCompactToast({ success: false, message: t("chat.compactFailed") })
+                              compactToastTimer.current = setTimeout(() => setCompactToast(null), 3000)
                             } finally {
                               setCompacting(false)
                             }
