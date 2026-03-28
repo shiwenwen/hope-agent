@@ -129,6 +129,9 @@ export function usePlanMode(
       return
     }
 
+    // Always clear stale question UI on session switch
+    setPendingQuestionGroup(null)
+
     // If frontend already has a non-off plan state (entered before session existed),
     // sync it TO the backend instead of reading FROM backend
     if (planStateRef.current !== "off") {
