@@ -88,11 +88,30 @@ pub async fn execute_tool(name: &str, args: &Value) -> anyhow::Result<String> {
     execute_tool_with_context(name, args, &ToolExecContext::default()).await
 }
 
+/// Check if a read tool call targets a SKILL.md file (pre-authorized by skill system).
+fn is_skill_read(name: &str, args: &Value) -> bool {
+    if name != TOOL_READ {
+        return false;
+    }
+    args.get("path")
+        .and_then(|v| v.as_str())
+        .map(|p| p.ends_with("/SKILL.md") || p.ends_with("\\SKILL.md"))
+        .unwrap_or(false)
+}
+
 /// Check if a tool requires approval based on the context's require_approval list.
-fn tool_needs_approval(name: &str, ctx: &ToolExecContext) -> bool {
+fn tool_needs_approval(name: &str, args: &Value, ctx: &ToolExecContext) -> bool {
     // Internal capability tools never need approval (flag set on ToolDefinition)
     if super::is_internal_tool(name) {
         return false;
+    }
+    // Reading SKILL.md files never needs approval — skills are pre-authorized
+    if name == TOOL_READ {
+        if let Some(path) = args.get("path").and_then(|v| v.as_str()) {
+            if path.ends_with("/SKILL.md") || path.ends_with("\\SKILL.md") {
+                return false;
+            }
+        }
     }
     if ctx.require_approval.is_empty() {
         return false;
@@ -121,10 +140,12 @@ pub async fn execute_tool_with_context(
         approval::ToolPermissionMode::FullApprove => false,
         approval::ToolPermissionMode::AskEveryTime => {
             // In ask_every_time mode, all non-internal tools need approval
+            // (except reading SKILL.md — pre-authorized by skill system)
             !super::is_internal_tool(name) && name != TOOL_EXEC
+                && !is_skill_read(name, args)
         }
         approval::ToolPermissionMode::Auto => {
-            tool_needs_approval(name, ctx) && name != TOOL_EXEC
+            tool_needs_approval(name, args, ctx) && name != TOOL_EXEC
         }
     };
     if needs_approval {

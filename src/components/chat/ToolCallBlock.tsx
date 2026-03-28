@@ -67,6 +67,21 @@ const TOOL_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
   canvas: PanelRight,
 }
 
+/** Check if a read tool call targets a SKILL.md file, return skill name if so */
+function getSkillName(name: string, args: string): string | null {
+  if (name !== "read") return null
+  try {
+    const parsed = JSON.parse(args)
+    const path: string = parsed.path || ""
+    if (path.endsWith("/SKILL.md") || path.endsWith("\\SKILL.md")) {
+      // Extract skill name from parent directory: .../skills/apple-notes/SKILL.md → apple-notes
+      const parts = path.replace(/\\/g, "/").split("/")
+      return parts.length >= 2 ? parts[parts.length - 2] : "skill"
+    }
+  } catch { /* ignore */ }
+  return null
+}
+
 /** Extract a short, human-friendly summary of tool arguments */
 function getDisplayArgs(name: string, args: string): string {
   try {
@@ -188,9 +203,12 @@ export default function ToolCallBlock({ tool }: { tool: ToolCall }) {
     )
   }
 
-  const Icon = TOOL_ICONS[tool.name] || Terminal
-  const toolLabel = t(`tools.${tool.name}`, tool.name)
-  const displayArgs = getDisplayArgs(tool.name, tool.arguments)
+  const skillName = getSkillName(tool.name, tool.arguments)
+  const Icon = skillName ? FileCode : (TOOL_ICONS[tool.name] || Terminal)
+  const toolLabel = skillName
+    ? t("tools.loadingSkill", { name: skillName })
+    : t(`tools.${tool.name}`, tool.name)
+  const displayArgs = skillName ? "" : getDisplayArgs(tool.name, tool.arguments)
 
   // Canvas reopen logic
   const canvasInfo = useMemo(() => {

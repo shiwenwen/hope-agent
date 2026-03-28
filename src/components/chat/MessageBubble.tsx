@@ -7,7 +7,7 @@ import { Copy, Check, Info, Network } from "lucide-react"
 import { formatTokens, formatDuration, formatMessageTime, extractModifiedFiles } from "./chatUtils"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import ToolCallBlock from "@/components/chat/ToolCallBlock"
-import ToolCallGroup, { getToolCategory } from "@/components/chat/ToolCallGroup"
+import ToolCallGroup from "@/components/chat/ToolCallGroup"
 import type { ContentBlock } from "@/types/chat"
 import ThinkingBlock from "@/components/chat/ThinkingBlock"
 import FallbackBanner from "@/components/chat/FallbackBanner"
@@ -165,37 +165,33 @@ export default function MessageBubble({
                     i++
                     continue
                   }
-                  // Collect consecutive tool_call blocks of same category
-                  const cat = getToolCategory(block.tool.name)
+                  // Collect ALL consecutive tool_call blocks (regardless of category)
                   const group: ContentBlock[] = [block]
                   let j = i + 1
                   while (
                     j < blocks.length &&
-                    blocks[j].type === "tool_call" &&
-                    getToolCategory((blocks[j] as { type: "tool_call"; tool: { name: string } }).tool.name) === cat
+                    blocks[j].type === "tool_call"
                   ) {
+                    const tb = blocks[j] as { type: "tool_call"; tool: { name: string } }
+                    if (tb.tool.name === "plan_question" || tb.tool.name === "submit_plan") break
                     group.push(blocks[j])
                     j++
                   }
 
-                  if (group.length >= 2 && cat !== "other") {
-                    // Render as a group
+                  if (group.length >= 2) {
+                    // Render as a collapsed group
                     const tools = group.map(
                       (b) => (b as { type: "tool_call"; tool: typeof block.tool }).tool,
                     )
                     elements.push(
                       <ToolCallGroup
                         key={`grp-${tools[0].callId}`}
-                        category={cat}
                         tools={tools}
                       />,
                     )
                   } else {
-                    // Render individually
-                    for (const b of group) {
-                      const tc = (b as { type: "tool_call"; tool: typeof block.tool }).tool
-                      elements.push(<ToolCallBlock key={tc.callId} tool={tc} />)
-                    }
+                    // Single tool — render individually
+                    elements.push(<ToolCallBlock key={block.tool.callId} tool={block.tool} />)
                   }
                   i = j
                 } else {

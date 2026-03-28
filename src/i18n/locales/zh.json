@@ -209,7 +209,8 @@
     "canvas": "画布",
     "subagent": "子 Agent",
     "update_plan_step": "更新计划步骤",
-    "rawCall": "查看原始调用"
+    "rawCall": "查看原始调用",
+    "loadingSkill": "加载技能: {{name}}"
   },
   "toolGroup": {
     "browse": "已浏览 {{count}} 个文件",
@@ -217,7 +218,8 @@
     "search": "已搜索 {{count}} 次",
     "web": "已搜索网页 {{count}} 次",
     "memory": "记忆操作 {{count}} 次",
-    "other": "工具调用 {{count}} 次"
+    "other": "工具调用 {{count}} 次",
+    "skill": "加载了 {{count}} 个技能"
   },
   "settings": {
     "title": "设置",

@@ -209,7 +209,8 @@
     "canvas": "Canvas",
     "subagent": "Sub-Agent",
     "update_plan_step": "Update Plan Step",
-    "rawCall": "View raw call"
+    "rawCall": "View raw call",
+    "loadingSkill": "Loading skill: {{name}}"
   },
   "toolGroup": {
     "browse": "Browsed {{count}} files",
@@ -217,7 +218,8 @@
     "search": "Searched {{count}} times",
     "web": "Web searched {{count}} times",
     "memory": "Memory operations: {{count}}",
-    "other": "Tool calls: {{count}}"
+    "other": "Tool calls: {{count}}",
+    "skill": "Loaded {{count}} skills"
   },
   "settings": {
     "title": "Settings",
