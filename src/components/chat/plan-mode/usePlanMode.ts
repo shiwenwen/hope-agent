@@ -68,16 +68,20 @@ export function usePlanMode(
 
   // Exit Plan Mode
   const exitPlanMode = useCallback(async () => {
-    if (!currentSessionId) return
-    try {
-      await invoke("set_plan_mode", { sessionId: currentSessionId, state: "off" })
-      setPlanState("off")
-      setShowPanel(false)
-      setPlanCardInfo(null)
-      setPendingQuestionGroup(null)
-    } catch (e) {
-      console.error("Failed to exit plan mode:", e)
+    if (currentSessionId) {
+      try {
+        await invoke("set_plan_mode", { sessionId: currentSessionId, state: "off" })
+      } catch (e) {
+        console.error("Failed to exit plan mode:", e)
+        return
+      }
     }
+    // Always reset frontend state (even without a session,
+    // since enterPlanMode can set "planning" before a session exists)
+    setPlanState("off")
+    setShowPanel(false)
+    setPlanCardInfo(null)
+    setPendingQuestionGroup(null)
   }, [currentSessionId, setPlanState])
 
   // Approve and start execution
