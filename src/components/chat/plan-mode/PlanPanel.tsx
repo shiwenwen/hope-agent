@@ -1,6 +1,7 @@
 import { useMemo, useEffect, useState, useCallback } from "react"
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window"
 import { invoke } from "@tauri-apps/api/core"
+import { logger } from "@/lib/logger"
 import {
   ClipboardList,
   X,
@@ -98,7 +99,7 @@ export function PlanPanel({
       setVersions(v)
       setShowVersions(true)
     } catch (e) {
-      console.error("Failed to load plan versions:", e)
+      logger.error("plan", "PlanPanel::loadVersions", "Failed to load plan versions", e)
     } finally {
       setLoadingVersions(false)
     }
@@ -121,10 +122,10 @@ export function PlanPanel({
     setRollingBack(true)
     try {
       const msg = await invoke<string>("plan_rollback", { sessionId })
-      console.log("Rollback result:", msg)
+      logger.info("plan", "PlanPanel::rollback", "Rollback result", msg)
       setHasCheckpoint(false)
     } catch (e) {
-      console.error("Failed to rollback:", e)
+      logger.error("plan", "PlanPanel::rollback", "Failed to rollback", e)
     } finally {
       setRollingBack(false)
     }
@@ -142,7 +143,7 @@ export function PlanPanel({
       setShowVersions(false)
       setDirty(false)
     } catch (e) {
-      console.error("Failed to restore plan version:", e)
+      logger.error("plan", "PlanPanel::restoreVersion", "Failed to restore plan version", e)
     }
   }, [sessionId, onPlanContentChange])
 
@@ -154,7 +155,7 @@ export function PlanPanel({
       onPlanContentChange(editContent)
       setDirty(false)
     } catch (e) {
-      console.error("Failed to save plan:", e)
+      logger.error("plan", "PlanPanel::save", "Failed to save plan", e)
     } finally {
       setSaving(false)
     }

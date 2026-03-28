@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react"
 import { invoke } from "@tauri-apps/api/core"
+import { logger } from "@/lib/logger"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
@@ -102,7 +103,7 @@ export default function PlanQuestionBlock({ group, onSubmitted }: PlanQuestionBl
       onSubmitted?.()
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
-      console.error("Failed to submit plan question response:", msg)
+      logger.error("plan", "PlanQuestionBlock::submit", "Failed to submit plan question response", msg)
       setError(msg)
     } finally {
       setSubmitting(false)

@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { convertFileSrc } from "@tauri-apps/api/core"
+import { logger } from "@/lib/logger"
 import { useTranslation } from "react-i18next"
 import {
   AlertDialog,
@@ -431,7 +432,7 @@ export default function ChatSidebar({
                     })
                     if (onMarkAllRead) onMarkAllRead()
                   } catch (err) {
-                    console.error("Failed to mark sessions as read:", err)
+                    logger.error("chat", "ChatSidebar::markSessionsRead", "Failed to mark sessions as read", err)
                   }
                 }
 
@@ -492,7 +493,7 @@ export default function ChatSidebar({
                       })
                       if (onMarkAllRead) onMarkAllRead()
                     } catch (err) {
-                      console.error("Failed to mark session as read:", err)
+                      logger.error("chat", "ChatSidebar::markSessionRead", "Failed to mark session as read", err)
                     }
                   }
                   return (

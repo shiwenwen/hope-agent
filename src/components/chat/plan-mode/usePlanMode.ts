@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
+import { logger } from "@/lib/logger"
 import type { PlanQuestionGroup } from "./PlanQuestionBlock"
 
 export type PlanModeState = "off" | "planning" | "review" | "executing" | "paused" | "completed"
@@ -62,7 +63,7 @@ export function usePlanMode(
       await invoke("set_plan_mode", { sessionId: currentSessionId, state: "planning" })
       setPlanState("planning")
     } catch (e) {
-      console.error("Failed to enter plan mode:", e)
+      logger.error("plan", "usePlanMode::enter", "Failed to enter plan mode", e)
     }
   }, [currentSessionId, setPlanState])
 
@@ -72,7 +73,7 @@ export function usePlanMode(
       try {
         await invoke("set_plan_mode", { sessionId: currentSessionId, state: "off" })
       } catch (e) {
-        console.error("Failed to exit plan mode:", e)
+        logger.error("plan", "usePlanMode::exit", "Failed to exit plan mode", e)
         return
       }
     }
@@ -91,7 +92,7 @@ export function usePlanMode(
       await invoke("set_plan_mode", { sessionId: currentSessionId, state: "executing" })
       setPlanState("executing")
     } catch (e) {
-      console.error("Failed to approve plan:", e)
+      logger.error("plan", "usePlanMode::approve", "Failed to approve plan", e)
     }
   }, [currentSessionId, setPlanState])
 
@@ -102,7 +103,7 @@ export function usePlanMode(
       await invoke("set_plan_mode", { sessionId: currentSessionId, state: "paused" })
       setPlanState("paused")
     } catch (e) {
-      console.error("Failed to pause plan:", e)
+      logger.error("plan", "usePlanMode::pause", "Failed to pause plan", e)
     }
   }, [currentSessionId, setPlanState])
 
@@ -113,7 +114,7 @@ export function usePlanMode(
       await invoke("set_plan_mode", { sessionId: currentSessionId, state: "executing" })
       setPlanState("executing")
     } catch (e) {
-      console.error("Failed to resume plan:", e)
+      logger.error("plan", "usePlanMode::resume", "Failed to resume plan", e)
     }
   }, [currentSessionId, setPlanState])
 

@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react"
 import { useTranslation } from "react-i18next"
 import { invoke } from "@tauri-apps/api/core"
+import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
 import {
   AlertDialog,
@@ -87,7 +88,7 @@ export default function DeveloperPanel() {
       // Restart app to reinitialize databases
       await invoke("request_app_restart")
     } catch (e) {
-      console.error(`Failed to clear ${target}:`, e)
+      logger.error("settings", "DeveloperPanel::clearData", `Failed to clear ${target}`, e)
       setLoading(null)
     }
   }, [])

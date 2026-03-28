@@ -20,7 +20,7 @@ export default function ChatSettingsPanel() {
         setConfig({ autoSendPending: cfg.autoSendPending !== false })
         setLoaded(true)
       })
-      .catch(console.error)
+      .catch((e: unknown) => logger.error("settings", "ChatSettingsPanel::load", "Failed to load config", e))
   }, [])
 
   async function toggle(key: keyof ChatConfig) {

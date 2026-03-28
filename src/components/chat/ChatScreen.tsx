@@ -143,7 +143,7 @@ export default function ChatScreen({
       await invoke("rename_session_cmd", { sessionId, title })
       session.reloadSessions()
     } catch (err) {
-      console.error("Failed to rename session:", err)
+      logger.error("chat", "ChatScreen::renameSession", "Failed to rename session", err)
     }
   }, [session.reloadSessions])
 

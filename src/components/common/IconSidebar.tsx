@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { convertFileSrc, invoke } from "@tauri-apps/api/core"
+import { logger } from "@/lib/logger"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
@@ -108,7 +109,7 @@ export default function IconSidebar({
                     await invoke("mark_all_sessions_read_cmd")
                     onMarkAllRead?.()
                   } catch (err) {
-                    console.error("Failed to mark all as read:", err)
+                    logger.error("ui", "IconSidebar::markAllRead", "Failed to mark all as read", err)
                   }
                 }}
                 disabled={!totalUnreadCount || totalUnreadCount === 0}
