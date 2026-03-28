@@ -503,7 +503,8 @@ pub async fn chat(
                 ));
             }
         } else if plan_state == crate::plan::PlanModeState::Paused {
-            // Paused: inject plan context + inform LLM that plan is paused
+            // Paused: inject plan context + enable amend_plan tool for step modifications
+            agent.set_plan_executing(true);
             if let Ok(Some(plan_content)) = crate::plan::load_plan_file(&sid) {
                 let paused_step = crate::plan::get_plan_meta(&sid).await
                     .and_then(|m| m.paused_at_step)

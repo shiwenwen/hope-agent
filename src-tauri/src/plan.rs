@@ -574,7 +574,7 @@ fn plan_file_path(session_id: &str) -> Result<std::path::PathBuf> {
         }
     }
     // Generate new path: plan-{short_id}-{date}.md
-    let short_id = &session_id[..8.min(session_id.len())];
+    let short_id = crate::truncate_utf8(session_id, 8);
     let date = chrono::Local::now().format("%Y%m%d-%H%M%S");
     let filename = format!("plan-{}-{}.md", short_id, date);
     Ok(plans_dir()?.join(filename))
@@ -582,7 +582,7 @@ fn plan_file_path(session_id: &str) -> Result<std::path::PathBuf> {
 
 /// Build the result file path for a session.
 fn result_file_path(session_id: &str) -> Result<std::path::PathBuf> {
-    let short_id = &session_id[..8.min(session_id.len())];
+    let short_id = crate::truncate_utf8(session_id, 8);
     let date = chrono::Local::now().format("%Y%m%d-%H%M%S");
     let filename = format!("result-{}-{}.md", short_id, date);
     Ok(plans_dir()?.join(filename))
@@ -607,7 +607,9 @@ pub fn save_plan_file(session_id: &str, content: &str) -> Result<String> {
         let stem = path.file_stem().unwrap_or_default().to_string_lossy();
         let backup_name = format!("{}-v{}.md", stem, current_version);
         let backup_path = dir.join(&backup_name);
-        let _ = std::fs::copy(&path, &backup_path);
+        if let Err(e) = std::fs::copy(&path, &backup_path) {
+            app_warn!("plan", "version", "Failed to backup plan version {}: {}", current_version, e);
+        }
         // Increment version counter in memory
         tokio::task::block_in_place(|| {
             let rt = tokio::runtime::Handle::current();
@@ -643,7 +645,7 @@ pub fn load_plan_file(session_id: &str) -> Result<Option<String>> {
     }
     // Fallback: check global plans dir (for plans created before project-local storage)
     if let Ok(global_dir) = crate::paths::global_plans_dir() {
-        let short_id = &session_id[..8.min(session_id.len())];
+        let short_id = crate::truncate_utf8(session_id, 8);
         // Try to find any plan file matching this session's short ID in global dir
         if global_dir.exists() {
             if let Ok(entries) = std::fs::read_dir(&global_dir) {
@@ -855,25 +857,38 @@ pub fn parse_plan_steps(markdown: &str) -> Vec<PlanStep> {
 // Creates a lightweight git checkpoint before plan execution starts,
 // allowing rollback if execution fails.
 
+/// Detect the git repository root directory by running `git rev-parse --show-toplevel`.
+/// Returns None if not inside a git repository.
+fn git_repo_root() -> Option<std::path::PathBuf> {
+    let output = std::process::Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .ok()?;
+    if output.status.success() {
+        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if path.is_empty() {
+            None
+        } else {
+            Some(std::path::PathBuf::from(path))
+        }
+    } else {
+        None
+    }
+}
+
 /// Create a git checkpoint (branch) at the current HEAD for the working directory.
 /// Returns the checkpoint branch name on success, or None if not in a git repo.
 pub fn create_git_checkpoint(session_id: &str) -> Option<String> {
-    let short_id = &session_id[..8.min(session_id.len())];
+    let short_id = crate::truncate_utf8(session_id, 8);
     let ts = chrono::Local::now().format("%Y%m%d%H%M%S");
     let branch_name = format!("opencomputer/checkpoint-{}-{}", short_id, ts);
 
-    // Check if we're in a git repo
-    let status = std::process::Command::new("git")
-        .args(["rev-parse", "--is-inside-work-tree"])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status();
-    if !matches!(status, Ok(s) if s.success()) {
-        return None;
-    }
+    // Detect git repo root directory
+    let git_root = git_repo_root()?;
 
     // Create a checkpoint branch at current HEAD (without switching to it)
     let result = std::process::Command::new("git")
+        .current_dir(&git_root)
         .args(["branch", &branch_name, "HEAD"])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -911,8 +926,12 @@ pub async fn get_checkpoint_ref(session_id: &str) -> Option<String> {
 /// This performs a `git reset --hard <checkpoint_branch>` to undo all changes
 /// made during plan execution.
 pub fn rollback_to_checkpoint(checkpoint_ref: &str) -> Result<String> {
+    let git_root = git_repo_root()
+        .ok_or_else(|| anyhow::anyhow!("Not inside a git repository"))?;
+
     // Verify the checkpoint branch exists
     let check = std::process::Command::new("git")
+        .current_dir(&git_root)
         .args(["rev-parse", "--verify", checkpoint_ref])
         .output();
     match check {
@@ -922,6 +941,7 @@ pub fn rollback_to_checkpoint(checkpoint_ref: &str) -> Result<String> {
 
     // Get current HEAD for logging
     let head_before = std::process::Command::new("git")
+        .current_dir(&git_root)
         .args(["rev-parse", "--short", "HEAD"])
         .output()
         .ok()
@@ -930,6 +950,7 @@ pub fn rollback_to_checkpoint(checkpoint_ref: &str) -> Result<String> {
 
     // Reset to checkpoint
     let result = std::process::Command::new("git")
+        .current_dir(&git_root)
         .args(["reset", "--hard", checkpoint_ref])
         .output()?;
 
@@ -942,6 +963,7 @@ pub fn rollback_to_checkpoint(checkpoint_ref: &str) -> Result<String> {
 
         // Clean up: delete the checkpoint branch
         let _ = std::process::Command::new("git")
+            .current_dir(&git_root)
             .args(["branch", "-D", checkpoint_ref])
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
@@ -956,11 +978,21 @@ pub fn rollback_to_checkpoint(checkpoint_ref: &str) -> Result<String> {
 
 /// Clean up a checkpoint branch (e.g., after successful execution).
 pub fn cleanup_checkpoint(checkpoint_ref: &str) {
-    let _ = std::process::Command::new("git")
-        .args(["branch", "-D", checkpoint_ref])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status();
+    let git_cmd = if let Some(git_root) = git_repo_root() {
+        std::process::Command::new("git")
+            .current_dir(git_root)
+            .args(["branch", "-D", checkpoint_ref])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+    } else {
+        std::process::Command::new("git")
+            .args(["branch", "-D", checkpoint_ref])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+    };
+    let _ = git_cmd;
     app_info!("plan", "checkpoint", "Cleaned up checkpoint branch: {}", checkpoint_ref);
 }
 
