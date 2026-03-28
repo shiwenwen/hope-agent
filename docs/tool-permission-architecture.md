@@ -103,66 +103,53 @@ pub enum ToolPermissionMode {
 
 ## 完整决策流程
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    工具调用触发                               │
-└──────────────────────────┬──────────────────────────────────┘
-                           │
-                           ▼
-              ┌─────────────────────────┐
-              │  工具是否在 Provider 的   │ ← denied_tools（子 Agent）
-              │  tool_schemas 中？       │
-              └────────┬────────────────┘
-                       │ 不在 → LLM 根本不会调用
-                       │ 在 ↓
-                       ▼
-              ┌─────────────────────────┐
-              │  是 internal tool？      │ ← is_internal_tool()
-              │  (plan_question/         │    ToolDefinition.internal=true
-              │   submit_plan/...)       │
-              └────────┬────────────────┘
-                       │ 是 → 直接执行，永不审批
-                       │ 否 ↓
-                       ▼
-              ┌─────────────────────────┐
-              │  是 SKILL.md 读取？      │ ← read 工具 + 路径以 SKILL.md 结尾
-              └────────┬────────────────┘
-                       │ 是 → 直接执行（技能预授权）
-                       │ 否 ↓
-                       ▼
-              ┌─────────────────────────┐
-              │  是 exec 工具？          │
-              └────────┬────────────────┘
-                       │ 是 → 走 exec 独立审批流程（见下方）
-                       │ 否 ↓
-                       ▼
-        ┌──────────────────────────────────┐
-        │  读取 ToolPermissionMode（盾牌） │
-        └──────────┬───────────────────────┘
-                   │
-         ┌─────────┼──────────┐
-         │         │          │
-         ▼         ▼          ▼
-    FullApprove  AskEvery   Auto
-         │       Time        │
-         │         │         ▼
-         │         │   ┌──────────────────────┐
-         │         │   │ 读取 Agent 的          │
-         │         │   │ require_approval      │
-         │         │   └─────────┬────────────┘
-         │         │             │
-         │         │     ┌───────┼────────┐
-         │         │     │       │        │
-         │         │   ["*"]  ["具体"]    []
-         │         │     │    工具名      │
-         │         │     │       │        │
-         │         │     ▼       ▼        ▼
-         │         │   需审批  匹配→审批  不需审批
-         │         │          不匹配→放行
-         │         ▼
-         │       弹审批
-         ▼
-       直接执行
+```mermaid
+flowchart TD
+    Start([工具调用触发]) --> InSchema{工具是否在 Provider<br/>tool_schemas 中？}
+
+    InSchema -- "不在（被 denied_tools 移除）" --> Blocked[/LLM 根本不会调用/]
+    InSchema -- 在 --> IsInternal{是 internal tool？<br/><small>plan_question / submit_plan<br/>update_plan_step / canvas ...</small>}
+
+    IsInternal -- 是 --> DirectExec[✅ 直接执行<br/>永不审批]
+    IsInternal -- 否 --> IsSkillRead{是 SKILL.md 读取？<br/><small>read 工具 + 路径以 SKILL.md 结尾</small>}
+
+    IsSkillRead -- 是 --> DirectExec
+    IsSkillRead -- 否 --> IsExec{是 exec 工具？}
+
+    IsExec -- 是 --> ExecFlow[走 exec 独立审批流程<br/><small>见下方 exec 流程图</small>]
+    IsExec -- 否 --> PermMode{读取 ToolPermissionMode<br/><small>输入框盾牌按钮</small>}
+
+    PermMode -- FullApprove --> DirectExec
+    PermMode -- AskEveryTime --> ShowApproval[弹出审批对话框]
+    PermMode -- "Auto（默认）" --> AgentConfig{读取 Agent 的<br/>require_approval}
+
+    AgentConfig -- '["*"]（默认）' --> ShowApproval
+    AgentConfig -- "[]（空）" --> DirectExec
+    AgentConfig -- '["具体工具名"]' --> MatchTool{工具名在列表中？}
+
+    MatchTool -- 匹配 --> ShowApproval
+    MatchTool -- 不匹配 --> DirectExec
+
+    ShowApproval --> UserChoice{用户选择}
+    UserChoice -- 允许一次 --> DirectExec
+    UserChoice -- 始终允许 --> WriteAllowlist[写入 allowlist<br/><small>仅 Auto 模式生效</small>] --> DirectExec
+    UserChoice -- 拒绝 --> Denied[❌ 返回错误<br/>Tool execution denied]
+    UserChoice -- "超时（5分钟）" --> Denied
+
+    DirectExec --> PlanCheck{plan_mode_allow_paths<br/>非空？}
+    PlanCheck -- 否 --> Execute[🔧 执行工具]
+    PlanCheck -- 是 --> IsPathAware{是 write/edit/<br/>apply_patch？}
+    IsPathAware -- 否 --> Execute
+    IsPathAware -- 是 --> PathAllowed{文件路径在<br/>plans/ 目录下？}
+    PathAllowed -- 是 --> Execute
+    PathAllowed -- 否 --> PlanDenied[❌ Plan Mode restriction<br/>cannot modify file]
+
+    style DirectExec fill:#d4edda,stroke:#28a745
+    style Execute fill:#d4edda,stroke:#28a745
+    style Blocked fill:#e2e3e5,stroke:#6c757d
+    style Denied fill:#f8d7da,stroke:#dc3545
+    style PlanDenied fill:#f8d7da,stroke:#dc3545
+    style ShowApproval fill:#fff3cd,stroke:#ffc107
 ```
 
 ### 审批对话框交互
@@ -183,36 +170,31 @@ pub enum ToolPermissionMode {
 
 exec 被排除在通用审批门（`name != TOOL_EXEC`）之外，在 `tools/exec.rs` 内部实现自己的命令级审批逻辑：
 
-```
-┌──────────────────────────────────┐
-│     exec 工具被调用               │
-└───────────────┬──────────────────┘
-                │
-                ▼
-    ┌───────────────────────┐
-    │ 读取 ToolPermissionMode│
-    └─────────┬─────────────┘
-              │
-    ┌─────────┼──────────┐
-    │         │          │
-    ▼         ▼          ▼
-FullApprove AskEvery   Auto
-    │       Time        │
-    │         │         ▼
-    │         │   ┌──────────────────┐
-    │         │   │ 查 exec-approvals│
-    │         │   │ .json allowlist  │
-    │         │   └────────┬─────────┘
-    │         │            │
-    │         │     命中 → 放行
-    │         │     未命中 ↓
-    │         │            │
-    │         ▼            ▼
-    │       弹审批       弹审批
-    │    (AllowAlways   (AllowAlways
-    │     不写allowlist)  写入allowlist)
-    ▼
-  直接执行
+```mermaid
+flowchart TD
+    ExecStart([exec 工具被调用]) --> ExecPerm{读取 ToolPermissionMode<br/><small>输入框盾牌按钮</small>}
+
+    ExecPerm -- FullApprove --> ExecRun[✅ 直接执行<br/><small>跳过一切检查，含 allowlist</small>]
+    ExecPerm -- AskEveryTime --> ExecAsk[弹出审批对话框]
+    ExecPerm -- "Auto（默认）" --> CheckAllowlist{查 exec-approvals.json<br/>allowlist<br/><small>命令前缀匹配</small>}
+
+    CheckAllowlist -- 命中 --> ExecRun
+    CheckAllowlist -- 未命中 --> ExecAskAuto[弹出审批对话框]
+
+    ExecAsk --> ExecChoice1{用户选择}
+    ExecChoice1 -- 允许一次 --> ExecRun
+    ExecChoice1 -- "始终允许<br/><small>（不写 allowlist）</small>" --> ExecRun
+    ExecChoice1 -- 拒绝 --> ExecDenied[❌ 命令被拒绝]
+
+    ExecAskAuto --> ExecChoice2{用户选择}
+    ExecChoice2 -- 允许一次 --> ExecRun
+    ExecChoice2 -- 始终允许 --> WriteExecAllowlist[写入 exec-approvals.json<br/><small>下次同命令自动放行</small>] --> ExecRun
+    ExecChoice2 -- 拒绝 --> ExecDenied
+
+    style ExecRun fill:#d4edda,stroke:#28a745
+    style ExecDenied fill:#f8d7da,stroke:#dc3545
+    style ExecAsk fill:#fff3cd,stroke:#ffc107
+    style ExecAskAuto fill:#fff3cd,stroke:#ffc107
 ```
 
 **Allowlist 持久化文件**：`~/.opencomputer/exec-approvals.json`
@@ -271,23 +253,40 @@ FullApprove AskEvery   Auto
 
 ## 优先级总结
 
-```
-最高 ─── ToolPermissionMode（输入框盾牌）
-  │         FullApprove → 跳过一切审批（含 exec）
-  │         AskEveryTime → 强制审批一切（含 exec，无视 Agent 配置）
-  │         Auto → 交给下一层
-  │
-  ├─── Agent require_approval（Agent 设置 → 行为）
-  │         仅在 Auto 模式下生效
-  │         ["*"] / [] / ["具体工具"]
-  │
-  ├─── exec Allowlist（命令级持久化白名单）
-  │         仅在 Auto 模式下生效
-  │         exec-approvals.json 前缀匹配
-  │
-  └─── 特殊豁免
-最低         Internal Tools → 永不审批
-             SKILL.md 读取 → 永不审批
+```mermaid
+block-beta
+    columns 1
+
+    block:L1:1
+        A["🛡️ ToolPermissionMode（输入框盾牌）— 最高优先级"]
+    end
+
+    space
+
+    block:L2:1
+        B["📋 Agent require_approval（Agent 设置 → 行为）— 仅 Auto 模式生效"]
+    end
+
+    space
+
+    block:L3:1
+        C["📝 exec Allowlist（命令级持久化白名单）— 仅 Auto 模式 + exec 工具"]
+    end
+
+    space
+
+    block:L4:1
+        D["⚡ 特殊豁免 — Internal Tools / SKILL.md 读取 → 永不审批"]
+    end
+
+    L1 --> L2
+    L2 --> L3
+    L3 --> L4
+
+    style L1 fill:#dc3545,color:#fff
+    style L2 fill:#fd7e14,color:#fff
+    style L3 fill:#ffc107,color:#000
+    style L4 fill:#28a745,color:#fff
 ```
 
 > **关键理解**：输入框的盾牌（ToolPermissionMode）是全局最高优先级开关，它能完全覆盖 Agent 设置中的 `require_approval` 配置。Agent 设置中的审批配置只在盾牌为 Auto（默认）时才参与决策。
