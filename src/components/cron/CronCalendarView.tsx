@@ -230,13 +230,20 @@ export default function CronCalendarView({ onNavigateToSession }: CronCalendarVi
                         {eventsByDay
                           .get(day)!
                           .slice(0, 4)
-                          .map((evt, j) => (
-                            <span
-                              key={j}
-                              className={`inline-block w-1.5 h-1.5 rounded-full ${statusColor(evt.status)}`}
-                              title={evt.jobName}
-                            />
-                          ))}
+                          .map((evt, j) => {
+                            const dotColor = evt.runLog?.status === "success"
+                              ? "bg-emerald-500"
+                              : evt.runLog?.status === "error"
+                                ? "bg-red-500"
+                                : statusColor(evt.status)
+                            return (
+                              <span
+                                key={j}
+                                className={`inline-block w-1.5 h-1.5 rounded-full ${dotColor}`}
+                                title={evt.jobName}
+                              />
+                            )
+                          })}
                         {eventsByDay.get(day)!.length > 4 && (
                           <span className="text-[9px] text-muted-foreground">
                             +{eventsByDay.get(day)!.length - 4}
@@ -287,7 +294,13 @@ export default function CronCalendarView({ onNavigateToSession }: CronCalendarVi
                       >
                         <div className="flex items-center gap-2">
                           <span
-                            className={`inline-block w-2 h-2 rounded-full shrink-0 ${statusColor(evt.status)}`}
+                            className={`inline-block w-2 h-2 rounded-full shrink-0 ${
+                              evt.runLog?.status === "success"
+                                ? "bg-emerald-500"
+                                : evt.runLog?.status === "error"
+                                  ? "bg-red-500"
+                                  : statusColor(evt.status)
+                            }`}
                           />
                           <span className="text-xs font-medium truncate">{evt.jobName}</span>
                           <span className="text-[10px] text-muted-foreground ml-auto shrink-0">

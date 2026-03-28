@@ -269,10 +269,12 @@ function CronJobList() {
           </div>
           <span className="font-mono text-xs truncate">{formatSchedule(j.schedule)}</span>
           <span className={cn(
-            "text-xs font-medium px-1.5 py-0.5 rounded w-fit",
-            j.status === "active" ? "bg-green-500/10 text-green-500" :
+            "text-xs font-medium px-1.5 py-0.5 rounded w-fit h-fit leading-none",
+            j.status === "active" ? "bg-blue-500/10 text-blue-500" :
             j.status === "paused" ? "bg-amber-500/10 text-amber-500" :
-            "bg-red-500/10 text-red-500"
+            j.status === "completed" ? "bg-green-500/10 text-green-500" :
+            j.status === "disabled" ? "bg-red-500/10 text-red-500" :
+            "bg-muted text-muted-foreground"
           )}>
             {j.status}
           </span>

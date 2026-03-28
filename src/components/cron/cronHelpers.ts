@@ -119,13 +119,13 @@ export function toLocalDatetimeString(isoString: string): string {
 export function statusColor(status: string): string {
   switch (status) {
     case "active":
-      return "bg-emerald-500"
+      return "bg-blue-500"
     case "paused":
       return "bg-amber-500"
     case "disabled":
       return "bg-red-500"
     case "completed":
-      return "bg-gray-400"
+      return "bg-emerald-500"
     case "missed":
       return "bg-orange-500"
     default:
