@@ -595,6 +595,13 @@ pub async fn chat(
             let pending_text: Arc<std::sync::Mutex<String>> = Arc::new(std::sync::Mutex::new(String::new()));
             let pending_text_clone = pending_text.clone();
 
+            // Accumulate thinking_delta content; flush as thinking_block before tool_call to preserve multi-round thinking
+            let pending_thinking: Arc<std::sync::Mutex<String>> = Arc::new(std::sync::Mutex::new(String::new()));
+            let pending_thinking_clone = pending_thinking.clone();
+            // Track whether any thinking_block was persisted (to avoid duplicating on assistant message)
+            let had_thinking_blocks: Arc<std::sync::atomic::AtomicBool> = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let had_thinking_blocks_clone = had_thinking_blocks.clone();
+
             let chat_start = std::time::Instant::now();
             match agent.chat(&message, &attachments, effort_ref, cancel_clone, move |delta| {
                 // Intercept usage events to capture token counts, model, and TTFT
@@ -616,6 +623,14 @@ pub async fn chat(
                                 }
                             }
                         }
+                        Some("thinking_delta") => {
+                            // Accumulate thinking content for ordering preservation
+                            if let Some(text) = event.get("content").and_then(|t| t.as_str()) {
+                                if let Ok(mut pk) = pending_thinking_clone.lock() {
+                                    pk.push_str(text);
+                                }
+                            }
+                        }
                         Some("text_delta") => {
                             // Accumulate text content for ordering preservation
                             if let Some(text) = event.get("text").and_then(|t| t.as_str()) {
@@ -625,6 +640,15 @@ pub async fn chat(
                             }
                         }
                         Some("tool_call") => {
+                            // Flush accumulated thinking as thinking_block before tool_call
+                            if let Ok(mut pk) = pending_thinking_clone.lock() {
+                                if !pk.is_empty() {
+                                    let thinking_msg = session::NewMessage::thinking_block(&pk);
+                                    let _ = db_for_cb.append_message(&sid_for_cb, &thinking_msg);
+                                    pk.clear();
+                                    had_thinking_blocks_clone.store(true, std::sync::atomic::Ordering::SeqCst);
+                                }
+                            }
                             // Flush accumulated text as text_block before tool_call
                             if let Ok(mut pt) = pending_text_clone.lock() {
                                 if !pt.is_empty() {
@@ -644,10 +668,24 @@ pub async fn chat(
                     let duration_ms = chat_start.elapsed().as_millis() as u64;
                     // Emit usage event with duration
                     emit_usage_event(&on_event, duration_ms);
+                    // Flush any remaining pending thinking as thinking_block
+                    if let Ok(mut pk) = pending_thinking.lock() {
+                        if !pk.is_empty() {
+                            let thinking_msg = session::NewMessage::thinking_block(&pk);
+                            let _ = db.append_message(&sid, &thinking_msg);
+                            pk.clear();
+                            had_thinking_blocks.store(true, std::sync::atomic::Ordering::SeqCst);
+                        }
+                    }
+                    let has_thinking_blocks = had_thinking_blocks.load(std::sync::atomic::Ordering::SeqCst);
                     // Save assistant reply to DB with duration, tokens, and TTFT
                     let mut assistant_msg = session::NewMessage::assistant(&result);
                     assistant_msg.tool_duration_ms = Some(duration_ms as i64);
-                    assistant_msg.thinking = thinking;
+                    // Only store thinking on assistant message if no thinking_blocks were persisted
+                    // (thinking_blocks preserve multi-round ordering; assistant.thinking is a flat concatenation)
+                    if !has_thinking_blocks {
+                        assistant_msg.thinking = thinking;
+                    }
                     if let Ok(usage) = captured_usage.lock() {
                         assistant_msg.tokens_in = usage.0;
                         assistant_msg.tokens_out = usage.1;
