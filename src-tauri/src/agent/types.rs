@@ -48,6 +48,23 @@ pub enum LlmProvider {
     Codex { access_token: String, account_id: String, model: String },
 }
 
+/// Dual-agent plan mode: Plan Agent (read-only + planning tools) vs Build Agent (full tools + execution tracking).
+#[derive(Clone, Default)]
+pub enum PlanAgentMode {
+    /// Normal mode, no plan restrictions
+    #[default]
+    Off,
+    /// Plan Agent: allow-list based tool access + path-restricted write/edit
+    PlanAgent {
+        allowed_tools: Vec<String>,
+        ask_tools: Vec<String>,
+    },
+    /// Build Agent: full tool access + extra plan execution tools
+    BuildAgent {
+        extra_tools: Vec<String>,
+    },
+}
+
 pub struct AssistantAgent {
     pub(super) provider: LlmProvider,
     /// Custom User-Agent header for API requests
@@ -81,12 +98,8 @@ pub struct AssistantAgent {
     pub(super) steer_run_id: Option<String>,
     /// Tools denied for this agent (used for depth-based tool policy)
     pub(super) denied_tools: Vec<String>,
-    /// Additional tools that require user approval in plan mode (e.g., ["exec"])
-    pub(super) plan_ask_tools: Vec<String>,
-    /// Whether the update_plan_step tool should be available (Executing plan state)
-    pub(super) plan_executing: bool,
-    /// Whether plan_question and submit_plan tools should be available (Planning state)
-    pub(super) plan_tools_enabled: bool,
+    /// Plan Agent / Build Agent mode (dual-agent architecture)
+    pub(super) plan_agent_mode: PlanAgentMode,
     /// Plan mode path-based allow rules: write/edit targeting these paths are allowed
     /// even when the tool is normally denied during planning.
     pub(super) plan_mode_allow_paths: Vec<String>,

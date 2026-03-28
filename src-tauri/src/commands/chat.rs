@@ -432,9 +432,9 @@ pub async fn chat(
         agent.set_image_generate_config(image_gen_config.clone());
         agent.set_canvas_enabled(canvas_enabled);
 
-        // ── Plan Mode: restrict tools / inject context ──
-        // Use the plan_mode parameter passed from frontend as source of truth,
-        // then sync to backend store + DB to ensure consistency.
+        // ── Plan Mode: dual-agent architecture ──
+        // Plan Agent (Planning/Review) = read-only + plan tools
+        // Build Agent (Executing/Paused) = full tools + step tracking
         let plan_state = if let Some(ref pm) = plan_mode {
             let ps = crate::plan::PlanModeState::from_str(pm);
             if ps != crate::plan::PlanModeState::Off {
@@ -445,96 +445,69 @@ pub async fn chat(
         } else {
             crate::plan::get_plan_state(&sid).await
         };
-        if plan_state == crate::plan::PlanModeState::Planning {
-            let mut denied = agent.get_denied_tools().to_vec();
-            // Fine-grained permission: allow write/edit for plan files,
-            // deny apply_patch and canvas completely
-            for tool in crate::plan::PLAN_MODE_DENIED_TOOLS {
-                // write/edit are allowed via path-based rules (plan files only)
-                if crate::plan::PLAN_MODE_PATH_AWARE_TOOLS.contains(tool) {
-                    continue;
-                }
-                let t = tool.to_string();
-                if !denied.contains(&t) {
-                    denied.push(t);
-                }
-            }
-            agent.set_denied_tools(denied);
-            // Set path-based allow rules: write/edit only to plan files
-            agent.set_plan_mode_allow_paths(vec!["plans".to_string()]);
-            // Activate PLAN_MODE_ASK_TOOLS: exec requires user approval during planning
-            agent.set_plan_ask_tools(
-                crate::plan::PLAN_MODE_ASK_TOOLS.iter().map(|s| s.to_string()).collect()
-            );
-            agent.set_plan_tools_enabled(true);
-            agent.set_extra_system_context(crate::plan::PLAN_MODE_SYSTEM_PROMPT.to_string());
-        } else if plan_state == crate::plan::PlanModeState::Executing {
-            agent.set_plan_executing(true);
-            if let Ok(Some(plan_content)) = crate::plan::load_plan_file(&sid) {
-                agent.set_extra_system_context(format!(
-                    "{}{}",
-                    crate::plan::PLAN_EXECUTING_SYSTEM_PROMPT_PREFIX,
-                    plan_content
-                ));
-            }
-        } else if plan_state == crate::plan::PlanModeState::Review {
-            // In Review state, tools are still restricted (same as Planning)
-            let mut denied = agent.get_denied_tools().to_vec();
-            for tool in crate::plan::PLAN_MODE_DENIED_TOOLS {
-                if crate::plan::PLAN_MODE_PATH_AWARE_TOOLS.contains(tool) {
-                    continue;
-                }
-                let t = tool.to_string();
-                if !denied.contains(&t) {
-                    denied.push(t);
-                }
-            }
-            agent.set_denied_tools(denied);
-            agent.set_plan_mode_allow_paths(vec!["plans".to_string()]);
-            // exec requires approval in review state too
-            agent.set_plan_ask_tools(
-                crate::plan::PLAN_MODE_ASK_TOOLS.iter().map(|s| s.to_string()).collect()
-            );
-            // Inject plan content as context so LLM can answer questions about the plan
-            if let Ok(Some(plan_content)) = crate::plan::load_plan_file(&sid) {
-                agent.set_extra_system_context(format!(
-                    "# Plan Review\n\nThe following plan has been submitted and is awaiting user approval:\n\n{}",
-                    plan_content
-                ));
-            }
-        } else if plan_state == crate::plan::PlanModeState::Paused {
-            // Paused: inject plan context + enable amend_plan tool for step modifications
-            agent.set_plan_executing(true);
-            if let Ok(Some(plan_content)) = crate::plan::load_plan_file(&sid) {
-                let paused_step = crate::plan::get_plan_meta(&sid).await
-                    .and_then(|m| m.paused_at_step)
-                    .unwrap_or(0);
-                agent.set_extra_system_context(format!(
-                    "# Plan Paused\n\nPlan execution is currently **paused** at step {}. \
-                     The user may ask to resume, modify the plan, or discuss progress.\n\n\
-                     ## Plan Content\n\n{}",
-                    paused_step, plan_content
-                ));
-            }
-        } else if plan_state == crate::plan::PlanModeState::Completed {
-            // Completed: inject summary context so LLM can discuss results
-            if let Ok(Some(plan_content)) = crate::plan::load_plan_file(&sid) {
-                let step_summary = if let Some(meta) = crate::plan::get_plan_meta(&sid).await {
-                    let completed = meta.steps.iter().filter(|s| s.status == crate::plan::PlanStepStatus::Completed).count();
-                    let failed = meta.steps.iter().filter(|s| s.status == crate::plan::PlanStepStatus::Failed).count();
-                    let skipped = meta.steps.iter().filter(|s| s.status == crate::plan::PlanStepStatus::Skipped).count();
-                    format!("\n\n## Statistics\n- Completed: {}\n- Failed: {}\n- Skipped: {}\n- Total: {}\n",
-                        completed, failed, skipped, meta.steps.len())
+        match plan_state {
+            crate::plan::PlanModeState::Planning | crate::plan::PlanModeState::Review => {
+                // ── Plan Agent ──
+                let config = crate::plan::PlanAgentConfig::default_config();
+                agent.set_plan_agent_mode(crate::agent::PlanAgentMode::PlanAgent {
+                    allowed_tools: config.allowed_tools,
+                    ask_tools: config.ask_tools,
+                });
+                agent.set_plan_mode_allow_paths(config.plan_mode_allow_paths);
+                let prompt = if plan_state == crate::plan::PlanModeState::Review {
+                    if let Ok(Some(plan_content)) = crate::plan::load_plan_file(&sid) {
+                        format!("# Plan Review\n\nThe following plan has been submitted and is awaiting user approval:\n\n{}", plan_content)
+                    } else {
+                        crate::plan::PLAN_MODE_SYSTEM_PROMPT.to_string()
+                    }
                 } else {
-                    String::new()
+                    crate::plan::PLAN_MODE_SYSTEM_PROMPT.to_string()
                 };
-                agent.set_extra_system_context(format!(
-                    "{}{}{}",
-                    crate::plan::PLAN_COMPLETED_SYSTEM_PROMPT,
-                    plan_content,
-                    step_summary
-                ));
+                agent.set_extra_system_context(prompt);
             }
+            crate::plan::PlanModeState::Executing | crate::plan::PlanModeState::Paused => {
+                // ── Build Agent ──
+                agent.set_plan_agent_mode(crate::agent::PlanAgentMode::BuildAgent {
+                    extra_tools: crate::plan::BUILD_AGENT_EXTRA_TOOLS.iter().map(|s| s.to_string()).collect(),
+                });
+                if let Ok(Some(plan_content)) = crate::plan::load_plan_file(&sid) {
+                    let prefix = if plan_state == crate::plan::PlanModeState::Paused {
+                        let paused_step = crate::plan::get_plan_meta(&sid).await
+                            .and_then(|m| m.paused_at_step)
+                            .unwrap_or(0);
+                        format!(
+                            "# Plan Paused\n\nPlan execution is currently **paused** at step {}. \
+                             The user may ask to resume, modify the plan, or discuss progress.\n\n\
+                             ## Plan Content\n\n",
+                            paused_step
+                        )
+                    } else {
+                        crate::plan::PLAN_EXECUTING_SYSTEM_PROMPT_PREFIX.to_string()
+                    };
+                    agent.set_extra_system_context(format!("{}{}", prefix, plan_content));
+                }
+            }
+            crate::plan::PlanModeState::Completed => {
+                // No special tool mode — just inject summary context
+                if let Ok(Some(plan_content)) = crate::plan::load_plan_file(&sid) {
+                    let step_summary = if let Some(meta) = crate::plan::get_plan_meta(&sid).await {
+                        let completed = meta.steps.iter().filter(|s| s.status == crate::plan::PlanStepStatus::Completed).count();
+                        let failed = meta.steps.iter().filter(|s| s.status == crate::plan::PlanStepStatus::Failed).count();
+                        let skipped = meta.steps.iter().filter(|s| s.status == crate::plan::PlanStepStatus::Skipped).count();
+                        format!("\n\n## Statistics\n- Completed: {}\n- Failed: {}\n- Skipped: {}\n- Total: {}\n",
+                            completed, failed, skipped, meta.steps.len())
+                    } else {
+                        String::new()
+                    };
+                    agent.set_extra_system_context(format!(
+                        "{}{}{}",
+                        crate::plan::PLAN_COMPLETED_SYSTEM_PROMPT,
+                        plan_content,
+                        step_summary
+                    ));
+                }
+            }
+            crate::plan::PlanModeState::Off => {}
         }
 
         // Restore conversation history from DB for this session

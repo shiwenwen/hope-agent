@@ -1,4 +1,4 @@
-import { useMemo } from "react"
+import { useMemo, useCallback, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -13,6 +13,7 @@ import {
 } from "lucide-react"
 import type { ParsedPlanStep } from "./planParser"
 import { groupStepsByPhase } from "./planParser"
+import { PlanStepItem } from "./PlanStepItem"
 
 export interface PlanCardData {
   title: string
@@ -28,6 +29,57 @@ interface PlanCardBlockProps {
   onExit?: () => void
   onPause?: () => void
   onResume?: () => void
+}
+
+function PhaseList({
+  phases,
+  planState,
+}: {
+  phases: ReturnType<typeof groupStepsByPhase>
+  planState: string
+}) {
+  const [expanded, setExpanded] = useState<Record<number, boolean>>({})
+
+  const toggle = useCallback((index: number) => {
+    setExpanded(prev => ({ ...prev, [index]: !prev[index] }))
+  }, [])
+
+  const showProgress = planState === "executing" || planState === "paused" || planState === "completed"
+
+  return (
+    <div className="space-y-0.5">
+      {phases.map((phase, i) => {
+        const phaseCompleted = phase.steps.filter(
+          s => s.status === "completed" || s.status === "skipped" || s.status === "failed"
+        ).length
+        const phaseTotal = phase.steps.length
+        const isExpanded = expanded[i] ?? false
+
+        return (
+          <div key={i}>
+            <button
+              type="button"
+              onClick={() => toggle(i)}
+              className="flex items-center gap-2 text-xs text-muted-foreground w-full hover:text-foreground transition-colors cursor-pointer py-0.5"
+            >
+              <ChevronRight className={cn("h-3 w-3 shrink-0 transition-transform duration-200", isExpanded && "rotate-90")} />
+              <span className="truncate text-left">{phase.name}</span>
+              <span className="shrink-0 ml-auto">
+                {showProgress ? `${phaseCompleted}/${phaseTotal}` : `(${phaseTotal})`}
+              </span>
+            </button>
+            {isExpanded && (
+              <div className="ml-5 mt-0.5 mb-1 space-y-0.5">
+                {phase.steps.map((step, j) => (
+                  <PlanStepItem key={j} step={step} />
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
 }
 
 export default function PlanCardBlock({
@@ -121,28 +173,7 @@ export default function PlanCardBlock({
       )}
 
       {/* Phase list */}
-      <div className="space-y-1">
-        {phases.map((phase, i) => {
-          const phaseCompleted = phase.steps.filter(
-            s => s.status === "completed" || s.status === "skipped" || s.status === "failed"
-          ).length
-          const phaseTotal = phase.steps.length
-          return (
-            <div key={i} className="flex items-center gap-2 text-xs text-muted-foreground">
-              <ChevronRight className="h-3 w-3 shrink-0" />
-              <span className="truncate">{phase.name}</span>
-              {(planState === "executing" || planState === "paused" || planState === "completed") && (
-                <span className="shrink-0 ml-auto">
-                  {phaseCompleted}/{phaseTotal}
-                </span>
-              )}
-              {planState !== "executing" && planState !== "paused" && planState !== "completed" && (
-                <span className="shrink-0 ml-auto">({phaseTotal})</span>
-              )}
-            </div>
-          )
-        })}
-      </div>
+      <PhaseList phases={phases} planState={planState} />
 
       {/* Action buttons */}
       <div className="flex items-center gap-2 pt-1">

@@ -9,7 +9,7 @@ mod types;
 
 // Re-export public API
 pub use config::{build_api_url, get_codex_models, USER_AGENT};
-pub use types::{Attachment, AssistantAgent, CodexModel, LlmProvider};
+pub use types::{Attachment, AssistantAgent, CodexModel, LlmProvider, PlanAgentMode};
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -50,9 +50,7 @@ impl AssistantAgent {
             subagent_depth: 0,
             steer_run_id: None,
             denied_tools: Vec::new(),
-            plan_ask_tools: Vec::new(),
-            plan_executing: false,
-            plan_tools_enabled: false,
+            plan_agent_mode: types::PlanAgentMode::Off,
             plan_mode_allow_paths: Vec::new(),
         }
     }
@@ -80,9 +78,7 @@ impl AssistantAgent {
             subagent_depth: 0,
             steer_run_id: None,
             denied_tools: Vec::new(),
-            plan_ask_tools: Vec::new(),
-            plan_executing: false,
-            plan_tools_enabled: false,
+            plan_agent_mode: types::PlanAgentMode::Off,
             plan_mode_allow_paths: Vec::new(),
         }
     }
@@ -134,9 +130,7 @@ impl AssistantAgent {
             subagent_depth: 0,
             steer_run_id: None,
             denied_tools: Vec::new(),
-            plan_ask_tools: Vec::new(),
-            plan_executing: false,
-            plan_tools_enabled: false,
+            plan_agent_mode: types::PlanAgentMode::Off,
             plan_mode_allow_paths: Vec::new(),
         }
     }
@@ -191,9 +185,9 @@ impl AssistantAgent {
         self.denied_tools = tools;
     }
 
-    /// Set additional tools that require user approval in plan mode.
-    pub fn set_plan_ask_tools(&mut self, tools: Vec<String>) {
-        self.plan_ask_tools = tools;
+    /// Set the plan agent mode (Plan Agent / Build Agent / Off).
+    pub fn set_plan_agent_mode(&mut self, mode: types::PlanAgentMode) {
+        self.plan_agent_mode = mode;
     }
 
     /// Set plan mode path-based allow rules for fine-grained write/edit permission.
@@ -201,14 +195,36 @@ impl AssistantAgent {
         self.plan_mode_allow_paths = paths;
     }
 
-    /// Enable the update_plan_step tool for plan execution mode.
-    pub fn set_plan_executing(&mut self, executing: bool) {
-        self.plan_executing = executing;
-    }
-
-    /// Enable plan_question and submit_plan tools for interactive planning.
-    pub fn set_plan_tools_enabled(&mut self, enabled: bool) {
-        self.plan_tools_enabled = enabled;
+    /// Apply plan-mode tool modifications to a tool schema list.
+    /// Called by each provider to inject/filter plan tools without code duplication.
+    pub(crate) fn apply_plan_tools(&self, tool_schemas: &mut Vec<serde_json::Value>, provider: tools::ToolProvider) {
+        match &self.plan_agent_mode {
+            types::PlanAgentMode::PlanAgent { allowed_tools, .. } => {
+                // Add plan-specific tools
+                tool_schemas.push(tools::get_plan_question_tool().to_provider_schema(provider));
+                tool_schemas.push(tools::get_submit_plan_tool().to_provider_schema(provider));
+                // Filter to allow-list only
+                tool_schemas.retain(|t| {
+                    let name = t.get("name")
+                        .and_then(|v| v.as_str())
+                        // OpenAI Responses format: tool.function.name
+                        .or_else(|| t.get("function").and_then(|f| f.get("name")).and_then(|v| v.as_str()))
+                        .unwrap_or("");
+                    allowed_tools.iter().any(|a| a == name)
+                });
+            }
+            types::PlanAgentMode::BuildAgent { extra_tools } => {
+                // Add extra plan execution tools
+                for tool_name in extra_tools {
+                    match tool_name.as_str() {
+                        "update_plan_step" => tool_schemas.push(tools::get_plan_step_tool().to_provider_schema(provider)),
+                        "amend_plan" => tool_schemas.push(tools::get_amend_plan_tool().to_provider_schema(provider)),
+                        _ => {}
+                    }
+                }
+            }
+            types::PlanAgentMode::Off => {}
+        }
     }
 
     /// Build the full system prompt, including any extra context.
@@ -253,10 +269,12 @@ impl AssistantAgent {
         let mut require_approval = agent_def.as_ref()
             .map(|def| def.config.behavior.require_approval.clone())
             .unwrap_or_default();
-        // Merge plan mode ask tools (e.g., exec requires approval during planning)
-        for tool in &self.plan_ask_tools {
-            if !require_approval.contains(tool) {
-                require_approval.push(tool.clone());
+        // Merge plan agent ask tools (e.g., exec requires approval during planning)
+        if let types::PlanAgentMode::PlanAgent { ask_tools, .. } = &self.plan_agent_mode {
+            for tool in ask_tools {
+                if !require_approval.contains(tool) {
+                    require_approval.push(tool.clone());
+                }
             }
         }
         let force_sandbox = agent_def.as_ref()

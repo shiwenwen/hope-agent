@@ -232,9 +232,47 @@ pub async fn cancel_pending_plan_question(request_id: &str) {
     pending.remove(request_id);
 }
 
-// ── Tool Restrictions ───────────────────────────────────────────
+// ── Plan Agent / Build Agent Configuration ─────────────────────
 
-/// Tools denied in Plan Mode (file modification + creation tools).
+/// Declarative configuration for the Plan Agent (Planning/Review states).
+/// Uses an **allow-list** approach: only listed tools are available.
+pub struct PlanAgentConfig {
+    /// Tool allow-list: only these tools are available to the Plan Agent
+    pub allowed_tools: Vec<String>,
+    /// Path restrictions for write/edit (only .md in plans/ directory)
+    pub plan_mode_allow_paths: Vec<String>,
+    /// Tools that require user approval (e.g., exec)
+    pub ask_tools: Vec<String>,
+}
+
+impl PlanAgentConfig {
+    pub fn default_config() -> Self {
+        Self {
+            allowed_tools: vec![
+                // Read-only exploration tools
+                "read", "ls", "grep", "find", "glob",
+                "web_search", "web_fetch",
+                // Restricted execution (requires approval)
+                "exec",
+                // Plan-specific tools
+                "plan_question", "submit_plan",
+                // Path-restricted write tools (only plans/ directory)
+                "write", "edit",
+                // Memory and delegation
+                "recall_memory", "memory_get",
+                "subagent",
+            ].into_iter().map(String::from).collect(),
+            plan_mode_allow_paths: vec!["plans".into()],
+            ask_tools: vec!["exec".into()],
+        }
+    }
+}
+
+/// Extra tools injected for the Build Agent (Executing/Paused states).
+pub const BUILD_AGENT_EXTRA_TOOLS: &[&str] = &["update_plan_step", "amend_plan"];
+
+/// Tools denied in Plan Mode — kept for sub-agent inheritance compatibility.
+/// Derived from PlanAgentConfig: tools NOT in the allow-list.
 pub const PLAN_MODE_DENIED_TOOLS: &[&str] = &[
     "write",
     "edit",
