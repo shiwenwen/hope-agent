@@ -26,6 +26,10 @@
         "transparent": true
       }
     ],
+    "trayIcon": {
+      "iconPath": "icons/menuIcon.png",
+      "iconAsTemplate": true
+    },
     "security": {
       "csp": null,
       "assetProtocol": {
