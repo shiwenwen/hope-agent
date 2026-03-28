@@ -46,12 +46,13 @@ src-tauri/src/          后端（Rust）
     canvas/             画布工具（HTML/Markdown/Code/SVG/Mermaid/Chart/Slides 7 种类型，iframe 预览 + 截图反馈 + 版本历史）
     image_generate/     图片生成工具（Provider trait 抽象 + 排序降级 + 动态工具描述，条件注入）
     plan_step.rs        Plan 步骤更新工具（update_plan_step，Executing 状态条件注入，实时事件驱动 UI）
+    amend_plan.rs       执行中计划修改工具（insert/delete/update 步骤，Executing/Paused 状态条件注入）
   skills.rs             技能系统（SKILL.md 发现 + 懒加载 prompt + 三层预算降级 + anyBins/always/install 等 Requirements + 调用策略 + 健康检查 + 缓存）
   slash_commands/       斜杠命令系统（命令注册表 + 解析器 + handlers 分发 + channel-agnostic 结果 + 动态 skill 命令注册）
   provider.rs           Provider 数据模型 & 持久化
   session.rs            会话持久化（SQLite）
   paths.rs              统一路径管理（~/.opencomputer/）
-  plan.rs               Plan Mode 系统（三态状态机 + Plan 文件持久化 + Markdown Checklist 解析 + 工具限制 + 系统提示词注入）
+  plan.rs               Plan Mode 系统（六态状态机 + Plan 文件持久化 + Markdown Checklist 解析 + 工具限制 + 系统提示词注入 + 步骤进度 DB 持久化 + 子 Agent 安全继承 + 5 阶段规划流程 + Completed 状态提示词 + 项目本地化存储 + 细粒度路径权限 + 计划版本管理 + Git Checkpoint 回滚）
   failover.rs           模型降级错误分类 & 重试策略
   system_prompt.rs      系统提示词模块化拼装
   memory.rs             记忆系统（MemoryBackend trait + SQLite/FTS5 实现 + Embedding 配置 + 去重 + 批量操作 + pinned 置顶 + 导入导出）
@@ -116,13 +117,162 @@ src-tauri/src/          后端（Rust）
 - **系统消息通知**：`tauri-plugin-notification` 实现 macOS 原生桌面通知。三级粒度控制：全局开关（`config.json` 的 `notification` 字段，默认开启）→ 按 Agent 覆盖（`agent.json` 的 `notifyOnComplete`，None/true/false）→ 按定时任务开关（`cron_jobs.notify_on_complete` 列）。通知触发场景：非当前会话模型完成/异常、定时任务成功/失败。Agent 可调用 `send_notification` 工具（`tools/notification.rs`），仅在通知开启时条件注入到工具列表。前端 `src/lib/notifications.ts` 统一管理权限检查和通知发送。设置面板 `NotificationPanel` 管理
 - **子 Agent 系统**：`subagent.rs` 实现 Agent 间任务委派。`subagent` 工具支持 spawn/check/list/result/kill/kill_all/steer/batch_spawn/wait_all 九种操作。非阻塞异步 spawn（`tokio::spawn`），子 Agent 在隔离 session 中运行，复用 cron 的 `build_and_run_agent` 模式（load agent → resolve model chain → failover retry）。可配置最大嵌套深度（1-5，默认 3），每个父 session 最多 5 个并发。**Steer 运行中干预**：`SubagentMailbox` 消息邮箱模式，父 Agent 可在子 Agent tool loop 每轮注入消息改变方向。**文件附件传递**：spawn 时可传递 files（utf8/base64），自动转为 Attachment 传入子 Agent。**标签系统**：每个 run 可附带 label 便于追踪定位。**深度分层工具策略**：`SubagentConfig.deniedTools` 可限制子 Agent 可用工具集。**批量操作**：batch_spawn 一次 spawn 多个任务，wait_all 等待多个 run 完成。**Token 统计**：记录 input_tokens/output_tokens 到 DB。`SubagentCancelRegistry`（`AtomicBool`）管理运行时取消。SQLite `subagent_runs` 表持久化运行记录（含 label/attachment_count/input_tokens/output_tokens）。Tauri 全局事件 `subagent_event` 实时通知前端。`SubagentConfig` per-Agent 配置（enabled/allowedAgents/deniedAgents/maxConcurrent/defaultTimeoutSecs/model/deniedTools/maxSpawnDepth/archiveAfterMinutes/announceTimeoutSecs）。系统提示词 section ⑩ 条件注入委派说明（含 steer/files/label/batch 用法）。前端 `SubagentBlock.tsx`（聊天内嵌状态，含 label/model/token 统计展示）+ `SubagentPanel.tsx`（Agent 设置面板，含深度/超时/工具策略配置）
 - **技能系统**：`skills.rs` 实现完整技能发现与管理系统。SKILL.md frontmatter 格式定义技能（name/description/requires/install/invocation policy）。三层目录发现（extra dirs → managed `~/.opencomputer/skills/` → project `.opencomputer/skills/`），支持嵌套 skills/ 子目录自动检测。**懒加载 Prompt 注入**：系统提示词仅注入目录（`- name: description (read: ~/path/SKILL.md)`），LLM 按需 read 全文。**三层预算降级**：Full（名称+描述+路径）→ Compact（名称+路径）→ 二分截断，`SkillPromptBudget` 可配置（max_count/max_chars/max_file_bytes/max_candidates_per_root）。**Requirements 增强**：bins（AND）+ anyBins（OR）+ env + os + config 路径 + always 标记 + primaryEnv。**调用策略**：`user-invocable`（默认 true）控制是否注册为斜杠命令，`disable-model-invocation`（默认 false）控制是否注入 prompt。**安装引导**：`install:` 块支持 brew/node/go/uv/download 五种方式，前端一键安装 + 二进制验证。**健康检查**：`check_all_skills_status()` 返回 `SkillStatusEntry`（eligible/disabled/blocked/missing_*），前端状态徽章。**缓存**：`AtomicU64` 版本号 + 30 秒 TTL，配置变更自动 `bump_skill_version()`。**Bundled Allowlist**：`skill_allow_bundled` 限制 bundled 技能可用集。14 个 Tauri 命令（含 `get_skills_status` / `install_skill_dependency`）。前端 `SkillsPanel.tsx` 管理（列表+详情+安装+健康状态）
-- **Plan Mode（计划模式）**：`plan.rs` 实现交互式六态 Plan Mode（Off → Planning → Review → Executing → Paused → Completed）。**Planning 阶段**：自动禁用文件修改工具 + 条件注入 `plan_question`（交互式问答）和 `submit_plan`（提交计划）两个内部工具，LLM 通过 `plan_question` 发送结构化问题（含建议选项），前端渲染可视化选择卡片（PlanQuestionBlock），用户选择/自定义输入后通过 oneshot channel 回传（复用 `approval.rs` 阻塞模式），LLM 收到回答后继续制定或提交计划。`submit_plan` 提交后自动转入 Review 状态。**Review 阶段**：PlanPanel 只读 Markdown 渲染 + 审批/退出按钮，消息流中嵌入 PlanCardBlock 摘要卡片（标题/阶段数/步骤数/进度条）。**Executing 阶段**：注入计划内容 + 条件注入 `update_plan_step` 工具实时报告步骤进度，支持暂停（→ Paused）。**Paused 阶段**：记录 `paused_at_step`，可恢复执行。Per-session 状态管理（内存 HashMap + DB `plan_mode` 列）。Plan 文件持久化到 `~/.opencomputer/plans/`。`/plan` 斜杠命令（enter/exit/approve/show/pause/resume）。7 个 Tauri 命令（含 `respond_plan_question`）。Tauri 全局事件 `plan_question_request` / `plan_submitted` / `plan_step_updated` / `plan_mode_changed` 驱动前端实时更新。前端：ChatInput 工具栏 Plan 按钮（灰/蓝/紫/绿/黄五色）+ PlanQuestionBlock 交互问答卡片 + PlanCardBlock 计划摘要卡片 + PlanPanel 详情面板（Review/Executing/Paused/Completed 四种视图）。子 Agent 继承 Plan Mode 工具限制防止逃逸
+- **Plan Mode（计划模式）**：`plan.rs` 实现交互式六态 Plan Mode（Off → Planning → Review → Executing → Paused → Completed）。**Planning 阶段**：5 阶段规划流程（Deep Exploration → Requirements Clarification → Design & Architecture → Plan Composition → Review & Refinement），推荐子 Agent 并行探索代码库。细粒度路径权限：write/edit 工具在 Planning 阶段仅允许编辑计划文件（`.opencomputer/plans/`），通过 `plan_mode_allow_paths` 在 `ToolExecContext` 中传播路径白名单，其他文件全部禁止。`exec` 需用户审批（`PLAN_MODE_ASK_TOOLS` 激活）。条件注入 `plan_question`（交互式问答，支持 `recommended` 标记 + `template` 模板分类图标）和 `submit_plan`（提交计划）两个内部工具，LLM 通过 `plan_question` 发送结构化问题（含建议选项），前端渲染可视化选择卡片（PlanQuestionBlock），用户选择/自定义输入后通过 oneshot channel 回传。**Review 阶段**：PlanPanel 只读 Markdown 渲染 + 审批/请求修改/退出按钮 + 版本历史浏览与恢复，消息流中嵌入 PlanCardBlock 摘要卡片（标题/阶段数/步骤数/进度条）。**请求修改流程**：用户输入反馈文本，前端自动转回 Planning 状态并将反馈发送给 LLM 修订计划。**Executing 阶段**：注入计划内容 + 条件注入 `update_plan_step` 工具实时报告步骤进度 + `amend_plan` 工具支持执行中修改计划（insert/delete/update 步骤，自动重编号 + 计划文件再生成 + `plan_amended` 事件通知前端），支持暂停（→ Paused）。**Git Checkpoint 回滚**：进入 Executing 状态时自动创建 git 分支 checkpoint（`opencomputer/checkpoint-{id}-{ts}`），步骤失败后 PlanPanel 显示回滚按钮，执行 `git reset --hard` 恢复到执行前状态，成功完成后自动清理 checkpoint 分支。**Paused 阶段**：记录 `paused_at_step`，可恢复执行或回滚。**Completed 阶段**：注入 `PLAN_COMPLETED_SYSTEM_PROMPT`，引导 LLM 总结执行结果、标注失败/跳过步骤、建议后续操作。**步骤进度持久化**：`plan_steps` JSON 列持久化到 SessionDB，每次 `update_step_status` 自动写入 DB，崩溃恢复时优先从 DB 加载步骤状态。**计划版本管理**：编辑/保存计划时自动备份旧版本为 `plan-xxx-v{N}.md`，PlanMeta 维护 `version` 计数器，PlanPanel 支持版本历史浏览与一键恢复。**Plan/Build 独立模型**：`AgentModelConfig.planModel` 配置 Planning 阶段模型覆盖，使用便宜模型探索节省 60-80% 成本，前端 Agent 设置面板提供 Plan Model 选择器。**项目本地化存储**：git 仓库内计划存储到 `.opencomputer/plans/`，非 VCS 回退 `~/.opencomputer/plans/`，支持自定义 `plansDirectory` 配置覆盖，加载时自动查找全局目录兼容旧计划。**子 Agent 安全继承**：`subagent/spawn.rs` 检测父 session 计划模式状态，Planning/Review 状态下子 Agent 自动继承 `PLAN_MODE_DENIED_TOOLS`，防止工具限制逃逸。Per-session 状态管理（内存 HashMap + DB `plan_mode` + `plan_steps` 列）。`/plan` 斜杠命令（enter/exit/approve/show/pause/resume）。11 个 Tauri 命令（含 `respond_plan_question` / `get_plan_versions` / `plan_rollback` / `get_plan_checkpoint`）。Tauri 全局事件驱动前端实时更新（`plan_amended` / `plan_step_updated` / `plan_mode_changed` / `plan_submitted` / `plan_question_request`）。前端：ChatInput 工具栏 Plan 按钮（灰/蓝/紫/绿/黄五色）+ PlanQuestionBlock 交互问答卡片（含 recommended 标记 + template 图标）+ PlanCardBlock 计划摘要卡片 + PlanPanel 详情面板（Review/Executing/Paused/Completed 四种视图 + 版本历史 + 请求修改 + Git 回滚）
 - **斜杠命令系统**：`slash_commands/` 模块实现 channel-agnostic 命令系统，17 个内置命令分 6 类（Session/Model/Memory/Agent/Utility/Skill）。后端 `registry.rs` 声明式命令注册表，`parser.rs` 文本解析（`/command args` 格式），`handlers/` 按类别拆分（session.rs/model.rs/memory.rs/agent.rs/utility.rs），dispatch 模式分发执行。**Skill 命令动态注册**：`user-invocable` 的技能自动注册为 Skill 分类的斜杠命令，名称规范化（小写+去重+32 字符截断）。支持 `command-dispatch: tool` + `command-tool` 绑定特定工具直接调用。3 个 Tauri 命令（`list_slash_commands` / `execute_slash_command` / `is_slash_command`），返回 `CommandResult`（content 文本 + `CommandAction` 枚举），各 channel（桌面端/Telegram/Discord 等）根据 action 类型执行对应副作用。前端 `SlashCommandMenu.tsx` 弹出菜单（按分类分组、键盘导航、模糊过滤，支持 `descriptionRaw` 直接展示技能描述），`useSlashCommands.ts` hook 管理输入检测和执行，`ChatInput.tsx` 集成 "/" 按钮和键盘拦截。模型切换支持模糊匹配（exact → prefix → contains），Agent 切换自动创建新 session。`/export` 导出为 Markdown（后端生成内容 + 前端 save dialog + `write_export_file`），`/search` 作为 PassThrough 注入给 LLM
 - **Docker 沙箱系统**：`sandbox.rs` 实现安全加固的 Docker 容器沙箱执行。`exec` 工具 `sandbox=true` 参数或 Agent `behavior.sandbox` 配置触发。默认镜像 `debian:bookworm-slim`。安全加固：只读根文件系统（`--read-only`）+ capability 全部移除（`--cap-drop ALL`）+ 禁止新权限（`--no-new-privileges`）+ 网络隔离（`--network none`）+ 进程数限制（`--pids-limit 256`）+ tmpfs 可写临时目录。环境变量过滤：`sanitize_env()` 拦截 20+ 种敏感变量模式（API_KEY/TOKEN/SECRET/PASSWORD 等），白名单放行 PATH/HOME/LANG 等。挂载路径校验：`validate_bind_mount()` 禁止挂载 `/etc`、`/proc`、`/sys`、`/dev`、`/root`、Docker socket 等系统路径，canonicalize 防 symlink 逃逸。`SandboxConfig` 持久化在 `~/.opencomputer/sandbox.json`（8 个可配置参数）。系统提示词 Section ⑪ 条件注入沙箱说明。设置面板 `SandboxPanel` 管理（Docker 可用性检测 + 镜像/资源/安全配置）。3 个 Tauri 命令（`get_sandbox_config` / `set_sandbox_config` / `check_sandbox_available`）
 - **ACP 协议支持**：`acp/` 模块实现原生 Agent Client Protocol 服务器，IDE（Zed/VS Code 等）通过 stdio + NDJSON（JSON-RPC 2.0）直连 OpenComputer Agent。`opencomputer acp` 子命令启动（`--verbose`/`--agent-id`）。完整会话生命周期（new/load/list/close）+ prompt 执行（流式事件映射）+ 历史重放（loadSession 从 SessionDB 重建完整对话）+ 多 Agent 模式切换 + failover 降级。共享 SessionDB 实现桌面端与 IDE 会话互通
 - **自愈式自动重启**：`main.rs` 实现 Guardian Process 架构，同一二进制通过 `OPENCOMPUTER_CHILD` 环境变量区分 Guardian/Child 模式。Guardian 监控子进程退出码，捕获所有崩溃类型（panic/segfault/OOM/abort），指数退避重启。连续崩溃 5 次触发 `backup.rs` 配置备份 + `self_diagnosis.rs` LLM 自诊断（多 Provider Failover + 基础分析降级），保守自动修复（仅 config/logs.db 损坏）。崩溃记录持久化到 `crash_journal.json`（JSON 格式，最近 50 条）。信号转发确保 Force Quit 不误判。退出码：0=正常、42=请求重启、其他=崩溃。设置面板 `CrashHistoryPanel` 管理崩溃历史和备份
 - **系统托盘常驻**：`tray.rs` 实现系统托盘（菜单栏）常驻。关闭主窗口仅隐藏（`on_window_event` 拦截 `CloseRequested` + `prevent_close`），应用在后台持续运行。托盘菜单提供显示主窗口/快捷对话/新建对话/设置/退出五个操作。左键单击托盘图标直接显示主窗口。macOS 点击 Dock 图标通过 `RunEvent::Reopen` 恢复窗口。Tauri 2 内置 `tray-icon` feature，无需额外插件
 - **快捷对话快捷键**：全局 Option+Space（Alt+Space）快捷键快速唤起 Spotlight 风格浮动对话框。`tauri-plugin-global-shortcut` 后端注册快捷键，Rust handler 显示/聚焦主窗口并发射 `quick-chat-toggle` 事件。前端 `QuickChatDialog.tsx` 浮层组件（`createPortal` 渲染到 body）+ `useQuickChatSession.ts` 独立会话管理 Hook + `QuickChatMessages.tsx` 简化消息列表。复用 `ChatInput` 完整功能（模型选择/斜杠命令/文件附件）和 `useChatStream` 流式对话。Agent 快捷选择器支持切换 Agent 并自动保存/恢复会话（localStorage 持久化 `quickchat:lastSession:{agentId}`）。连续唤起加载上次会话，支持新建会话和"查看完整对话"跳转
+
+## Plan Mode 前后端时序流程
+
+### 1. Planning 阶段（制定计划）
+
+```
+用户                    前端（React）                  后端（Rust）                  LLM
+ │                        │                              │                           │
+ ├── 点击 Plan 按钮 ──────►│                              │                           │
+ │                        ├── invoke("set_plan_mode",    │                           │
+ │                        │     {state:"planning"}) ─────►├── set_plan_state()        │
+ │                        │                              │   + persist DB             │
+ │                        ├── setShowPanel(true)          │                           │
+ │                        │                              │                           │
+ ├── 输入需求 ────────────►│                              │                           │
+ │                        ├── invoke("chat") ────────────►│                           │
+ │                        │                              ├── 注入 PLAN_MODE_SYSTEM_PROMPT
+ │                        │                              ├── 设置 denied_tools       │
+ │                        │                              │   (write/edit 仅允许 plans/ 路径)
+ │                        │                              ├── 设置 ask_tools (exec)   │
+ │                        │                              ├── 注入 plan_question +    │
+ │                        │                              │   submit_plan 工具定义     │
+ │                        │                              ├── SSE 请求 ───────────────►│
+ │                        │                              │                           │
+ │                        │                              │◄── tool_call: plan_question│
+ │                        │                              ├── 解析问题 + oneshot channel
+ │                        │◄── emit("plan_question_request")│                        │
+ │◄── PlanQuestionBlock ──│                              │                           │
+ │    (可视化选择卡片)     │                              │                           │
+ ├── 选择/输入答案 ───────►│                              │                           │
+ │                        ├── invoke("respond_plan_question")──►│                    │
+ │                        │                              ├── oneshot.send(answers)    │
+ │                        │                              ├── 回传 LLM ──────────────►│
+ │                        │                              │   ...（可能多轮 Q&A）...   │
+ │                        │                              │◄── tool_call: submit_plan  │
+ │                        │                              ├── save_plan_file()         │
+ │                        │                              ├── parse_plan_steps()       │
+ │                        │                              ├── persist_steps_to_db()    │
+ │                        │◄── emit("plan_submitted") ───│                           │
+ │                        ├── setPlanState("review")     │                           │
+ │                        ├── setPlanSteps(steps)        │                           │
+```
+
+### 2. Review 阶段（审查计划）
+
+```
+用户                    前端（React）                  后端（Rust）
+ │                        │                              │
+ │◄── PlanPanel 渲染 ─────│                              │
+ │    (Markdown 只读 +    │                              │
+ │     审批/请求修改/退出) │                              │
+ │                        │                              │
+ │── [选项 A] 批准 ───────►│                              │
+ │                        ├── invoke("set_plan_mode",    │
+ │                        │     {state:"executing"}) ────►├── create_git_checkpoint()
+ │                        │                              │   → branch: opencomputer/checkpoint-xxx
+ │                        │                              ├── set_plan_state(Executing)
+ │                        ├── handleSend("执行计划")     │
+ │                        │                              │
+ │── [选项 B] 请求修改 ──►│                              │
+ │   (输入反馈文本)       │                              │
+ │                        ├── invoke("set_plan_mode",    │
+ │                        │     {state:"planning"}) ─────►├── set_plan_state(Planning)
+ │                        ├── handleSend(feedback) ──────►├── 将反馈发送给 LLM 修订
+ │                        │                              │
+ │── [选项 C] 版本历史 ──►│                              │
+ │                        ├── invoke("get_plan_versions")►├── list_plan_versions()
+ │                        │◄── versions[] ───────────────│
+ │◄── 版本列表 ───────────│                              │
+ │── 恢复旧版本 ──────────►│                              │
+ │                        ├── invoke("restore_plan_version")►├── load + save + re-parse
+```
+
+### 3. Executing 阶段（执行计划）
+
+```
+用户                    前端（React）                  后端（Rust）                  LLM
+ │                        │                              │                           │
+ │                        │                              ├── 注入 PLAN_EXECUTING_SYSTEM_PROMPT
+ │                        │                              │   + 计划内容               │
+ │                        │                              ├── 注入 update_plan_step   │
+ │                        │                              │   + amend_plan 工具定义    │
+ │                        │                              ├── SSE 请求 ──────────────►│
+ │                        │                              │                           │
+ │                        │                              │◄── tool_call: update_plan_step
+ │                        │                              │    (step_index=0, status="in_progress")
+ │                        │                              ├── update_step_status()     │
+ │                        │                              ├── persist_steps_to_db()    │
+ │                        │◄── emit("plan_step_updated")─│                           │
+ │◄── 步骤 0 变为进行中 ──│                              │                           │
+ │                        │                              │◄── tool_call: write/edit   │
+ │                        │                              ├── execute_tool() 正常执行   │
+ │                        │                              │◄── tool_call: update_plan_step
+ │                        │                              │    (step_index=0, status="completed")
+ │                        │                              ├── update_step_status()     │
+ │                        │◄── emit("plan_step_updated")─│                           │
+ │◄── 步骤 0 变为已完成 ──│                              │                           │
+ │                        │                              │   ...（重复直到所有步骤）   │
+ │                        │                              │                           │
+ │                        │                              │◄── [可选] tool_call: amend_plan
+ │                        │                              │    (action="insert", title="新步骤")
+ │                        │                              ├── 插入步骤 + 重编号        │
+ │                        │                              ├── 再生成计划文件            │
+ │                        │◄── emit("plan_amended") ─────│                           │
+ │◄── 步骤列表刷新 ───────│                              │                           │
+ │                        │                              │                           │
+ │                        │                              ├── all_terminal() == true   │
+ │                        │                              ├── set_plan_state(Completed)│
+ │                        │◄── emit("plan_mode_changed", │                           │
+ │                        │     state:"completed") ──────│                           │
+ │◄── 显示完成状态 ───────│                              │                           │
+```
+
+### 4. 失败回滚流程
+
+```
+用户                    前端（React）                  后端（Rust）
+ │                        │                              │
+ │◄── 步骤 N 失败（红色） │                              │
+ │◄── 回滚按钮出现 ───────│                              │
+ │                        ├── invoke("get_plan_checkpoint")►├── get_checkpoint_ref()
+ │                        │◄── "opencomputer/checkpoint-xxx"│
+ │                        ├── setHasCheckpoint(true)     │
+ │                        │                              │
+ │── 点击"回滚更改" ─────►│                              │
+ │                        ├── invoke("plan_rollback") ───►├── rollback_to_checkpoint()
+ │                        │                              │   → git reset --hard <checkpoint>
+ │                        │                              │   → git branch -D <checkpoint>
+ │                        │◄── "Rolled back from abc to  │
+ │                        │     checkpoint 'xxx'" ───────│
+ │◄── 代码恢复到执行前 ──│                              │
+```
+
+### 5. 子 Agent 安全继承
+
+```
+主 Agent (Planning 状态)    subagent/spawn.rs             子 Agent
+ │                              │                           │
+ ├── tool_call: subagent ──────►│                           │
+ │   (spawn, task="探索代码")   │                           │
+ │                              ├── 检测父 session 状态     │
+ │                              │   = Planning              │
+ │                              ├── 合并 denied_tools:      │
+ │                              │   config.deniedTools       │
+ │                              │   + PLAN_MODE_DENIED_TOOLS │
+ │                              ├── spawn 子 Agent ─────────►│
+ │                              │                           ├── 工具列表不含 write/edit
+ │                              │                           ├── 无法修改文件 ✓ 安全
+```
 
 ## 编码规范
 

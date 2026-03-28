@@ -51,6 +51,20 @@ const CATEGORY_ICONS: Record<ToolCategory, React.ComponentType<{ className?: str
   other: Terminal,
 }
 
+/** Check if a read tool call targets a SKILL.md file, return skill name if so */
+function getSkillName(tool: ToolCall): string | null {
+  if (tool.name !== "read") return null
+  try {
+    const parsed = JSON.parse(tool.arguments)
+    const path: string = parsed.path || ""
+    if (path.endsWith("/SKILL.md") || path.endsWith("\\SKILL.md")) {
+      const parts = path.replace(/\\/g, "/").split("/")
+      return parts.length >= 2 ? parts[parts.length - 2] : "skill"
+    }
+  } catch { /* ignore */ }
+  return null
+}
+
 /** Extract the full target path/URL/query from tool arguments */
 function getFullTarget(tool: ToolCall): string {
   try {
@@ -89,15 +103,74 @@ function formatRawCall(tool: ToolCall): string {
   }
 }
 
+/** Build a comma-separated summary label from mixed tool categories */
+function buildSummaryLabel(
+  tools: ToolCall[],
+  t: (key: string, opts?: Record<string, unknown>) => string,
+): string {
+  // Count tools per category, preserving first-seen order
+  // Skill reads get their own "skill" pseudo-category
+  type LabelKey = ToolCategory | "skill"
+  const order: LabelKey[] = []
+  const counts = new Map<LabelKey, number>()
+  const skillNames: string[] = []
+
+  for (const tool of tools) {
+    const sn = getSkillName(tool)
+    const key: LabelKey = sn ? "skill" : getToolCategory(tool.name)
+    if (sn) skillNames.push(sn)
+    if (!counts.has(key)) {
+      order.push(key)
+    }
+    counts.set(key, (counts.get(key) || 0) + 1)
+  }
+
+  return order
+    .map((key) => {
+      if (key === "skill") {
+        const count = counts.get(key)!
+        if (count === 1 && skillNames.length === 1) {
+          return t("tools.loadingSkill", { name: skillNames[0] })
+        }
+        return t("toolGroup.skill", { count })
+      }
+      return t(`toolGroup.${key}`, { count: counts.get(key)! })
+    })
+    .join(", ")
+}
+
+/** Get the icon for the most frequent category in a mixed group */
+function getPrimaryIcon(tools: ToolCall[]): React.ComponentType<{ className?: string }> {
+  const counts = new Map<ToolCategory, number>()
+  for (const tool of tools) {
+    const cat = getToolCategory(tool.name)
+    counts.set(cat, (counts.get(cat) || 0) + 1)
+  }
+  let maxCat: ToolCategory = "other"
+  let maxCount = 0
+  for (const [cat, count] of counts) {
+    if (count > maxCount) {
+      maxCat = cat
+      maxCount = count
+    }
+  }
+  return CATEGORY_ICONS[maxCat]
+}
+
 /** Single item inside a group — shows label + expandable result */
 function GroupItem({ tool }: { tool: ToolCall }) {
   const { t } = useTranslation()
   const [showResult, setShowResult] = useState(false)
   const [showRaw, setShowRaw] = useState(false)
   const isRunning = tool.result === undefined
-  const fullTarget = getFullTarget(tool)
-  const toolLabel = t(`tools.${tool.name}`, tool.name)
-  const preview = getResultPreview(tool.result)
+  const skillName = getSkillName(tool)
+  const fullTarget = skillName ? "" : getFullTarget(tool)
+  const toolLabel = skillName
+    ? t("tools.loadingSkill", { name: skillName })
+    : t(`tools.${tool.name}`, tool.name)
+  const preview = skillName ? null : getResultPreview(tool.result)
+  const cat = getToolCategory(tool.name)
+  const CatIcon = CATEGORY_ICONS[cat]
 
   return (
     <div className="text-[11px]">
@@ -115,6 +188,7 @@ function GroupItem({ tool }: { tool: ToolCall }) {
             )}
           />
         )}
+        <CatIcon className="h-3 w-3 shrink-0 text-muted-foreground/40" />
         <span className="text-muted-foreground/80 font-medium shrink-0">{toolLabel}</span>
         <span className="text-muted-foreground/60 truncate font-mono">{fullTarget}</span>
         {/* Inline result preview when collapsed */}
@@ -167,18 +241,16 @@ function GroupItem({ tool }: { tool: ToolCall }) {
 }
 
 interface ToolCallGroupProps {
-  category: ToolCategory
   tools: ToolCall[]
 }
 
-export default function ToolCallGroup({ category, tools }: ToolCallGroupProps) {
+export default function ToolCallGroup({ tools }: ToolCallGroupProps) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
   const anyRunning = tools.some((tc) => tc.result === undefined)
 
-  const Icon = CATEGORY_ICONS[category]
-  const count = tools.length
-  const label = t(`toolGroup.${category}`, { count })
+  const Icon = getPrimaryIcon(tools)
+  const label = buildSummaryLabel(tools, t)
 
   return (
     <div className="my-1 text-xs">
@@ -202,9 +274,12 @@ export default function ToolCallGroup({ category, tools }: ToolCallGroupProps) {
       {!expanded && (
         <div className="ml-6 mt-0.5 space-y-px">
           {tools.map((tool) => {
-            const target = getFullTarget(tool)
-            const short = getShortName(target)
+            const sn = getSkillName(tool)
+            const target = sn || getFullTarget(tool)
+            const short = sn || getShortName(target)
             const isRunning = tool.result === undefined
+            const cat = getToolCategory(tool.name)
+            const CatIcon = CATEGORY_ICONS[cat]
             return (
               <div
                 key={tool.callId}
@@ -213,12 +288,12 @@ export default function ToolCallGroup({ category, tools }: ToolCallGroupProps) {
                 {isRunning ? (
                   <span className="animate-spin h-2.5 w-2.5 border border-current border-t-transparent rounded-full shrink-0" />
                 ) : (
-                  <Icon className="h-2.5 w-2.5 shrink-0 text-muted-foreground/40" />
+                  <CatIcon className="h-2.5 w-2.5 shrink-0 text-muted-foreground/40" />
                 )}
                 <span className="font-medium truncate max-w-[180px]" title={target}>
                   {short}
                 </span>
-                {short !== target && (
+                {!sn && short !== target && (
                   <span className="text-muted-foreground/30 truncate text-[10px]" title={target}>
                     {target}
                   </span>

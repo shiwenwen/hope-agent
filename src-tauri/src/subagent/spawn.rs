@@ -339,10 +339,30 @@ fn execute_subagent(
             agent.set_subagent_depth(depth);
             agent.set_steer_run_id(run_id.clone());
             // Apply denied_tools from parent agent's subagent config
+            let mut denied = Vec::new();
             if let Ok(parent_def) = crate::agent_loader::load_agent(&agent_id) {
                 if !parent_def.config.subagents.denied_tools.is_empty() {
-                    agent.set_denied_tools(parent_def.config.subagents.denied_tools.clone());
+                    denied.extend(parent_def.config.subagents.denied_tools.clone());
                 }
+            }
+            // Inherit plan mode tool restrictions from parent session
+            // (prevents subagents from bypassing plan mode safety)
+            {
+                let parent_plan_state = crate::plan::get_plan_state(&parent_session_id).await;
+                if matches!(
+                    parent_plan_state,
+                    crate::plan::PlanModeState::Planning | crate::plan::PlanModeState::Review
+                ) {
+                    for tool in crate::plan::PLAN_MODE_DENIED_TOOLS {
+                        let t = tool.to_string();
+                        if !denied.contains(&t) {
+                            denied.push(t);
+                        }
+                    }
+                }
+            }
+            if !denied.is_empty() {
+                agent.set_denied_tools(denied);
             }
 
             let cancel_clone = cancel.clone();

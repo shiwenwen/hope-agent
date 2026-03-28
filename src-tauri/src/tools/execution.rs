@@ -11,11 +11,11 @@ use super::{
     TOOL_MEMORY_GET, TOOL_AGENTS_LIST, TOOL_SESSIONS_LIST, TOOL_SESSION_STATUS,
     TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_SEND, TOOL_IMAGE, TOOL_IMAGE_GENERATE, TOOL_PDF,
     TOOL_CANVAS, TOOL_ACP_SPAWN, TOOL_UPDATE_PLAN_STEP,
-    TOOL_PLAN_QUESTION, TOOL_SUBMIT_PLAN,
+    TOOL_PLAN_QUESTION, TOOL_SUBMIT_PLAN, TOOL_AMEND_PLAN,
 };
 use super::{exec, process, read, write, edit, ls, grep, find, apply_patch};
 use super::{web_search, web_fetch, memory, cron, browser, notification, subagent, acp_spawn};
-use super::{agents, sessions, image, image_generate, pdf, canvas, plan_step, plan_question, submit_plan};
+use super::{agents, sessions, image, image_generate, pdf, canvas, plan_step, plan_question, submit_plan, amend_plan};
 
 /// Default hard timeout (seconds) for a single tool execution.
 /// Acts as a safety net when the inner tool timeout (e.g. reqwest) does not fire
@@ -57,6 +57,10 @@ pub struct ToolExecContext {
     pub require_approval: Vec<String>,
     /// Whether the agent forces Docker sandbox mode for all exec commands.
     pub force_sandbox: bool,
+    /// Plan mode file-pattern allow rules: when set, write/edit tools targeting these
+    /// glob patterns are allowed even if the tool is in the denied list.
+    /// Format: list of glob patterns (e.g. ["~/.opencomputer/plans/*.md"])
+    pub plan_mode_allow_paths: Vec<String>,
 }
 
 impl Default for ToolExecContext {
@@ -69,6 +73,7 @@ impl Default for ToolExecContext {
             subagent_depth: 0,
             require_approval: Vec::new(),
             force_sandbox: false,
+            plan_mode_allow_paths: Vec::new(),
         }
     }
 }
@@ -88,11 +93,30 @@ pub async fn execute_tool(name: &str, args: &Value) -> anyhow::Result<String> {
     execute_tool_with_context(name, args, &ToolExecContext::default()).await
 }
 
+/// Check if a read tool call targets a SKILL.md file (pre-authorized by skill system).
+fn is_skill_read(name: &str, args: &Value) -> bool {
+    if name != TOOL_READ {
+        return false;
+    }
+    args.get("path")
+        .and_then(|v| v.as_str())
+        .map(|p| p.ends_with("/SKILL.md") || p.ends_with("\\SKILL.md"))
+        .unwrap_or(false)
+}
+
 /// Check if a tool requires approval based on the context's require_approval list.
-fn tool_needs_approval(name: &str, ctx: &ToolExecContext) -> bool {
+fn tool_needs_approval(name: &str, args: &Value, ctx: &ToolExecContext) -> bool {
     // Internal capability tools never need approval (flag set on ToolDefinition)
     if super::is_internal_tool(name) {
         return false;
+    }
+    // Reading SKILL.md files never needs approval — skills are pre-authorized
+    if name == TOOL_READ {
+        if let Some(path) = args.get("path").and_then(|v| v.as_str()) {
+            if path.ends_with("/SKILL.md") || path.ends_with("\\SKILL.md") {
+                return false;
+            }
+        }
     }
     if ctx.require_approval.is_empty() {
         return false;
@@ -121,10 +145,12 @@ pub async fn execute_tool_with_context(
         approval::ToolPermissionMode::FullApprove => false,
         approval::ToolPermissionMode::AskEveryTime => {
             // In ask_every_time mode, all non-internal tools need approval
+            // (except reading SKILL.md — pre-authorized by skill system)
             !super::is_internal_tool(name) && name != TOOL_EXEC
+                && !is_skill_read(name, args)
         }
         approval::ToolPermissionMode::Auto => {
-            tool_needs_approval(name, ctx) && name != TOOL_EXEC
+            tool_needs_approval(name, args, ctx) && name != TOOL_EXEC
         }
     };
     if needs_approval {
@@ -172,6 +198,26 @@ pub async fn execute_tool_with_context(
             None, None);
     }
 
+    // ── Plan Mode path-based permission check ─────────────────────
+    // When plan_mode_allow_paths is set, write/edit/apply_patch tools check
+    // the target file path and block non-plan-file operations.
+    if !ctx.plan_mode_allow_paths.is_empty() {
+        let is_path_aware = matches!(name, TOOL_WRITE | TOOL_EDIT | TOOL_APPLY_PATCH);
+        if is_path_aware {
+            let target_path = args.get("file_path")
+                .or_else(|| args.get("path"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if !target_path.is_empty() && !crate::plan::is_plan_mode_path_allowed(target_path) {
+                return Err(anyhow::anyhow!(
+                    "Plan Mode restriction: cannot modify '{}'. During planning, only plan files \
+                     (under .opencomputer/plans/) can be edited. Use submit_plan to finalize the plan.",
+                    target_path
+                ));
+            }
+        }
+    }
+
     let dispatch = async {
         match name {
             TOOL_EXEC => exec::tool_exec(args, ctx).await,
@@ -208,6 +254,7 @@ pub async fn execute_tool_with_context(
             TOOL_UPDATE_PLAN_STEP => Ok(plan_step::execute(args, ctx.session_id.as_deref()).await),
             TOOL_PLAN_QUESTION => Ok(plan_question::execute(args, ctx.session_id.as_deref()).await),
             TOOL_SUBMIT_PLAN => Ok(submit_plan::execute(args, ctx.session_id.as_deref()).await),
+            TOOL_AMEND_PLAN => Ok(amend_plan::execute(args, ctx.session_id.as_deref()).await),
             _ => Err(anyhow::anyhow!("Unknown tool: {}", name)),
         }
     };

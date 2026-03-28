@@ -35,6 +35,10 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
     // Check if all steps completed → auto-transition + save result file
     if let Some(meta) = plan::get_plan_meta(sid).await {
         if meta.all_terminal() && meta.state == plan::PlanModeState::Executing {
+            // Clean up git checkpoint on successful completion
+            if let Some(ref_name) = plan::get_checkpoint_ref(sid).await {
+                plan::cleanup_checkpoint(&ref_name);
+            }
             // Save execution result as MD file
             let plan_title = meta.title.as_deref().unwrap_or("Plan");
             let summary_text = args.get("summary").and_then(|v| v.as_str()).unwrap_or("");

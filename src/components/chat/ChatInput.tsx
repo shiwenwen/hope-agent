@@ -535,35 +535,36 @@ export default function ChatInput({
               )}
             </div>
 
-            <div className="flex-1" />
+            {/* Send & Stop — ml-auto keeps them right-aligned even when toolbar wraps */}
+            <div className="flex items-center gap-1 ml-auto">
+              {/* Stop Button (always visible during loading) */}
+              {loading && (
+                <div className="animate-in fade-in-0 zoom-in-90 duration-150">
+                  <IconTip label={t("chat.stopReply")}>
+                    <Button
+                      size="icon"
+                      variant="destructive"
+                      className="h-8 w-8 rounded-full shrink-0"
+                      onClick={onStop}
+                    >
+                      <Square className="h-4 w-4 fill-white stroke-white" />
+                    </Button>
+                  </IconTip>
+                </div>
+              )}
 
-            {/* Stop Button (always visible during loading) */}
-            {loading && (
-              <div className="animate-in fade-in-0 zoom-in-90 duration-150">
-                <IconTip label={t("chat.stopReply")}>
-                  <Button
-                    size="icon"
-                    variant="destructive"
-                    className="h-8 w-8 rounded-full shrink-0"
-                    onClick={onStop}
-                  >
-                    <Square className="h-4 w-4 fill-white stroke-white" />
-                  </Button>
-                </IconTip>
-              </div>
-            )}
-
-            {/* Send Button */}
-            <IconTip label={loading && input.trim() ? t("chat.queueMessage") : t("chat.send")}>
-              <Button
-                size="icon"
-                className="h-8 w-8 rounded-full shrink-0"
-                onClick={onSend}
-                disabled={!input.trim() || (loading && !!pendingMessage)}
-              >
-                <Send className="h-4 w-4" />
-              </Button>
-            </IconTip>
+              {/* Send Button */}
+              <IconTip label={loading && input.trim() ? t("chat.queueMessage") : t("chat.send")}>
+                <Button
+                  size="icon"
+                  className="h-8 w-8 rounded-full shrink-0"
+                  onClick={onSend}
+                  disabled={!input.trim() || (loading && !!pendingMessage)}
+                >
+                  <Send className="h-4 w-4" />
+                </Button>
+              </IconTip>
+            </div>
           </div>
         </div>
       </div>

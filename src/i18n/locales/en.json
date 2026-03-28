@@ -79,6 +79,9 @@
     "statusContext": "Context",
     "compactNow": "Compress Context",
     "compacting": "Compressing...",
+    "compactDone": "Compressed, saved {{saved}} tokens, {{affected}} messages affected",
+    "compactNoChange": "Context does not need compression",
+    "compactFailed": "Compression failed",
     "toolPermission": "Tool Permission",
     "toolPermissionAuto": "Auto",
     "toolPermissionAsk": "Ask Every Time",
@@ -206,7 +209,8 @@
     "canvas": "Canvas",
     "subagent": "Sub-Agent",
     "update_plan_step": "Update Plan Step",
-    "rawCall": "View raw call"
+    "rawCall": "View raw call",
+    "loadingSkill": "Loading skill: {{name}}"
   },
   "toolGroup": {
     "browse": "Browsed {{count}} files",
@@ -214,7 +218,8 @@
     "search": "Searched {{count}} times",
     "web": "Web searched {{count}} times",
     "memory": "Memory operations: {{count}}",
-    "other": "Tool calls: {{count}}"
+    "other": "Tool calls: {{count}}",
+    "skill": "Loaded {{count}} skills"
   },
   "settings": {
     "title": "Settings",
@@ -767,6 +772,9 @@
     "selectFallbackModel": "Select fallback model",
     "noModelSelected": "No model selected",
     "selectDefaultModel": "Select default model",
+    "selectPlanModel": "Select plan mode model",
+    "agentPlanModel": "Plan Mode Model",
+    "agentPlanModelDesc": "Use a cheaper/faster model during the planning phase to reduce costs by 60-80%. The primary model is used during execution.",
     "inheritGlobal": "Inherit Global Settings",
     "customModel": "Custom Model",
     "agentModelConfig": "Model Configuration",
@@ -1176,11 +1184,19 @@
       "phases": "phases",
       "steps": "steps"
     },
+    "versions": "Version History",
+    "versionHistory": "Plan Versions",
+    "currentVersion": "Current",
+    "noVersions": "No previous versions",
+    "requestChanges": "Request Changes",
+    "requestChangesPlaceholder": "Describe what you want changed...",
+    "rollback": "Rollback Changes",
     "question": {
       "title": "Planning Questions",
       "submit": "Submit Answers",
       "answered": "Answered",
-      "customPlaceholder": "Enter custom answer..."
+      "customPlaceholder": "Enter custom answer...",
+      "recommended": "Recommended"
     }
   },
   "canvas": {

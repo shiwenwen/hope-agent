@@ -231,9 +231,9 @@ pub(crate) fn toggle_quickchat_window(app_handle: &tauri::AppHandle) {
     let url = tauri::WebviewUrl::App("index.html?window=quickchat".into());
     match tauri::WebviewWindowBuilder::new(app_handle, "quickchat", url)
         .title("Quick Chat")
-        .inner_size(640.0, 480.0)
-        .min_inner_size(400.0, 300.0)
-        .resizable(true)
+        .inner_size(680.0, 180.0)
+        .min_inner_size(500.0, 150.0)
+        .resizable(false)
         .decorations(false)
         .transparent(true)
         .always_on_top(true)
@@ -242,26 +242,15 @@ pub(crate) fn toggle_quickchat_window(app_handle: &tauri::AppHandle) {
         .build()
     {
         Ok(win) => {
-            // macOS: match system appearance background
+            // macOS: transparent window background so CSS border-radius works
             #[cfg(target_os = "macos")]
             {
                 let _ = win.with_webview(|webview| unsafe {
                     let ns_window: &objc2_app_kit::NSWindow =
                         &*webview.ns_window().cast();
-                    let is_dark = {
-                        use objc2_app_kit::NSAppearanceCustomization;
-                        let appearance = ns_window.effectiveAppearance();
-                        let name = appearance.name();
-                        name.to_string().contains("Dark")
-                    };
-                    let (r, g, b) = if is_dark {
-                        (15.0 / 255.0, 15.0 / 255.0, 15.0 / 255.0)
-                    } else {
-                        (1.0, 1.0, 1.0)
-                    };
-                    let bg_color =
-                        objc2_app_kit::NSColor::colorWithSRGBRed_green_blue_alpha(r, g, b, 1.0);
-                    ns_window.setBackgroundColor(Some(&bg_color));
+                    let clear_color =
+                        objc2_app_kit::NSColor::colorWithSRGBRed_green_blue_alpha(0.0, 0.0, 0.0, 0.0);
+                    ns_window.setBackgroundColor(Some(&clear_color));
                 });
             }
             let _ = win.set_focus();
@@ -447,6 +436,52 @@ pub fn run() {
                         .level(log::LevelFilter::Info)
                         .build(),
                 )?;
+            }
+
+            // macOS: custom app menu — Cmd+Q hides window instead of quitting
+            #[cfg(target_os = "macos")]
+            {
+                use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
+                let hide_quit = MenuItemBuilder::with_id("hide_quit", "Hide OpenComputer")
+                    .accelerator("CmdOrCtrl+Q")
+                    .build(app)?;
+                let app_submenu = SubmenuBuilder::new(app, "OpenComputer")
+                    .about(None)
+                    .separator()
+                    .item(&hide_quit)
+                    .build()?;
+                let edit_submenu = SubmenuBuilder::new(app, "Edit")
+                    .undo()
+                    .redo()
+                    .separator()
+                    .cut()
+                    .copy()
+                    .paste()
+                    .select_all()
+                    .build()?;
+                let view_submenu = SubmenuBuilder::new(app, "View")
+                    .item(&PredefinedMenuItem::fullscreen(app, None)?)
+                    .build()?;
+                let window_submenu = SubmenuBuilder::new(app, "Window")
+                    .minimize()
+                    .item(&PredefinedMenuItem::maximize(app, None)?)
+                    .close_window()
+                    .build()?;
+                let menu = MenuBuilder::new(app)
+                    .item(&app_submenu)
+                    .item(&edit_submenu)
+                    .item(&view_submenu)
+                    .item(&window_submenu)
+                    .build()?;
+                app.set_menu(menu)?;
+                app.on_menu_event(|app_handle, event| {
+                    if event.id().as_ref() == "hide_quit" {
+                        use tauri::Manager;
+                        if let Some(window) = app_handle.get_webview_window("main") {
+                            let _ = window.hide();
+                        }
+                    }
+                });
             }
 
             // Set up system tray icon with context menu
@@ -850,6 +885,11 @@ pub fn run() {
             commands::plan::get_plan_steps,
             commands::plan::update_plan_step_status,
             commands::plan::respond_plan_question,
+            commands::plan::get_plan_versions,
+            commands::plan::load_plan_version_content,
+            commands::plan::restore_plan_version,
+            commands::plan::plan_rollback,
+            commands::plan::get_plan_checkpoint,
             // ACP control plane
             commands::acp_control::acp_list_backends,
             commands::acp_control::acp_health_check,

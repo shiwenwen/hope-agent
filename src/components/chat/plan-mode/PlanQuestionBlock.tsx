@@ -4,12 +4,13 @@ import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { HelpCircle, Check, Send, MessageSquare } from "lucide-react"
+import { HelpCircle, Check, Send, MessageSquare, Star, Target, Layers, AlertTriangle } from "lucide-react"
 
 export interface PlanQuestionOption {
   value: string
   label: string
   description?: string
+  recommended?: boolean
 }
 
 export interface PlanQuestion {
@@ -18,6 +19,7 @@ export interface PlanQuestion {
   options: PlanQuestionOption[]
   allowCustom: boolean
   multiSelect: boolean
+  template?: string
 }
 
 export interface PlanQuestionGroup {
@@ -152,7 +154,10 @@ export default function PlanQuestionBlock({ group, onSubmitted }: PlanQuestionBl
       {group.questions.map((q, qi) => (
         <div key={q.questionId} className="space-y-2">
           <div className="flex items-start gap-2">
-            <HelpCircle className="h-3.5 w-3.5 mt-0.5 text-blue-500 shrink-0" />
+            {q.template === "scope" ? <Target className="h-3.5 w-3.5 mt-0.5 text-purple-500 shrink-0" />
+              : q.template === "tech_choice" ? <Layers className="h-3.5 w-3.5 mt-0.5 text-green-500 shrink-0" />
+              : q.template === "priority" ? <AlertTriangle className="h-3.5 w-3.5 mt-0.5 text-amber-500 shrink-0" />
+              : <HelpCircle className="h-3.5 w-3.5 mt-0.5 text-blue-500 shrink-0" />}
             <span className="text-sm font-medium">
               {group.questions.length > 1 && `${qi + 1}. `}{q.text}
             </span>
@@ -170,7 +175,9 @@ export default function PlanQuestionBlock({ group, onSubmitted }: PlanQuestionBl
                     "w-full text-left px-3 py-2 rounded-md border text-sm transition-colors cursor-pointer",
                     isSelected
                       ? "border-blue-500 bg-blue-500/10 text-blue-700 dark:text-blue-300"
-                      : "border-border hover:border-blue-500/50 hover:bg-blue-500/5"
+                      : opt.recommended
+                        ? "border-amber-500/40 bg-amber-500/5 hover:border-amber-500/60"
+                        : "border-border hover:border-blue-500/50 hover:bg-blue-500/5"
                   )}
                 >
                   <div className="flex items-center gap-2">
@@ -181,8 +188,16 @@ export default function PlanQuestionBlock({ group, onSubmitted }: PlanQuestionBl
                     )}>
                       {isSelected && <Check className="h-2.5 w-2.5 text-white" />}
                     </div>
-                    <div>
-                      <div className="font-medium">{opt.label}</div>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-medium">{opt.label}</span>
+                        {opt.recommended && (
+                          <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-600">
+                            <Star className="h-2.5 w-2.5" />
+                            {t("planMode.question.recommended")}
+                          </span>
+                        )}
+                      </div>
                       {opt.description && (
                         <div className="text-xs text-muted-foreground mt-0.5">{opt.description}</div>
                       )}
