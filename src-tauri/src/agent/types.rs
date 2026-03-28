@@ -81,6 +81,8 @@ pub struct AssistantAgent {
     pub(super) steer_run_id: Option<String>,
     /// Tools denied for this agent (used for depth-based tool policy)
     pub(super) denied_tools: Vec<String>,
+    /// Additional tools that require user approval in plan mode (e.g., ["exec"])
+    pub(super) plan_ask_tools: Vec<String>,
     /// Whether the update_plan_step tool should be available (Executing plan state)
     pub(super) plan_executing: bool,
     /// Whether plan_question and submit_plan tools should be available (Planning state)

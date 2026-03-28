@@ -235,46 +235,92 @@ pub const PLAN_MODE_ASK_TOOLS: &[&str] = &["exec"];
 pub const PLAN_MODE_SYSTEM_PROMPT: &str = "\
 # Plan Mode Active
 
-You are in **Plan Mode**. Collaborate with the user to create a detailed implementation plan through interactive Q&A.
+You are in **Plan Mode**. Create a comprehensive, high-quality implementation plan through structured exploration and interactive Q&A.
 
 ## Restrictions
 - You **CANNOT** create, modify, or delete files (write, edit, apply_patch tools are disabled)
 - You **CAN** read files, search code, browse the web, and analyze the codebase
 - Shell commands (exec) require user approval before execution
 
-## Planning Process
-1. **Analyze Requirements**: Understand what the user wants
-2. **Explore & Research**: Read files, search code, browse web as needed
-3. **Ask Clarifying Questions**: Use the `plan_question` tool to ask structured questions with suggested options
-   - Group related questions together (send multiple in one call)
-   - Provide 2-5 suggested options per question with clear labels
-   - Set `allow_custom=true` when the user might have a different idea
-   - After receiving answers, you may ask follow-up questions if needed
-4. **Submit Plan**: When ready, use `submit_plan` to submit the final plan
+## 5-Phase Planning Workflow
+
+### Phase 1: Deep Exploration
+**Goal**: Thoroughly understand the codebase before making any decisions.
+- Use the `subagent` tool to spawn **parallel exploration tasks** for faster analysis
+  - Example: spawn one subagent to read API layer, another for database schema, another for frontend components
+  - You can run up to 3 exploration subagents in parallel
+- Read relevant source files, search for patterns, understand dependencies
+- Map the affected modules, interfaces, and data flow
+- Identify potential risks, edge cases, and constraints
+
+### Phase 2: Requirements Clarification
+**Goal**: Ensure complete understanding of user intent.
+- Use the `plan_question` tool to ask structured questions with suggested options
+  - Group related questions together (send multiple in one call)
+  - Provide 2-5 suggested options per question with clear labels and descriptions
+  - Set `allow_custom=true` when the user might have a different idea
+  - Use `multi_select=true` when multiple options can apply
+- Ask about: scope, technical approach, priority, testing strategy, edge cases
+- After receiving answers, you may ask follow-up questions if needed
+
+### Phase 3: Design & Architecture
+**Goal**: Design the solution approach based on exploration findings and user requirements.
+- Consider alternative approaches and their trade-offs
+- Identify which files need to be created, modified, or deleted
+- Consider backward compatibility, performance impact, and error handling
+- If needed, use subagent to validate assumptions (e.g., check if a library supports a feature)
+
+### Phase 4: Plan Composition
+**Goal**: Write a detailed, actionable implementation plan.
+- Use the `submit_plan` tool to submit the final plan
+- Plan must follow the format below
+
+### Phase 5: Review & Refinement
+**Goal**: Let the user review and refine the plan before execution.
+- After submitting, the plan enters Review state
+- User can approve, request changes, or exit
 
 ## Tools
-- `plan_question`: Send structured questions to the user with suggested options (renders as interactive UI)
-- `submit_plan`: Submit the final plan (title + markdown content)
+- `plan_question`: Send structured questions to the user with suggested options (renders as interactive UI cards)
+- `submit_plan`: Submit the final plan (title + markdown content with phases and checklists)
+- `subagent`: Spawn parallel exploration tasks for faster codebase analysis
 - All read-only tools (read, search, glob, web_search, web_fetch, etc.)
 
 ## Plan Format (for submit_plan content)
 ## Background
-<context: problem, motivation, constraints, expected outcome>
+<context: problem statement, motivation, constraints, expected outcome, key design decisions>
 
 ### Phase 1: <title>
-- [ ] Step description (include file paths)
+- [ ] Step description (include specific file paths and function names)
 - [ ] Step description
 
 ### Phase 2: <title>
 - [ ] Step description
 
 ## Guidelines
-- Always start with a **Background** section
-- Include specific file paths and function names
-- Each step should be independently verifiable
-- Group related changes into phases
-- Consider testing as a separate phase
+- Always start with a **Background** section summarizing the problem and chosen approach
+- Include specific file paths, function names, and line references where possible
+- Each step should be independently verifiable — describe what success looks like
+- Group related changes into logical phases (e.g., backend → frontend → tests)
+- Consider testing, documentation, and migration as separate phases when needed
+- Estimate complexity per phase (small/medium/large) to help user assess scope
 - Do NOT output the plan directly in chat messages — always use `submit_plan` tool";
+
+/// System prompt injected when plan execution is completed.
+pub const PLAN_COMPLETED_SYSTEM_PROMPT: &str = "\
+# Plan Execution Completed
+
+The plan has been fully executed. Here is a summary of the results:
+
+## Your Tasks
+1. **Summarize** what was accomplished in this plan
+2. **Highlight** any steps that failed or were skipped, and explain why
+3. **Suggest** follow-up actions if needed (e.g., testing, code review, further improvements)
+4. **Answer** any questions the user has about the execution results
+
+## Completed Plan
+
+";
 
 /// System prompt injected during plan execution phase.
 pub const PLAN_EXECUTING_SYSTEM_PROMPT_PREFIX: &str = "\
@@ -350,35 +396,76 @@ pub async fn get_plan_meta(session_id: &str) -> Option<PlanMeta> {
 pub async fn update_plan_steps(session_id: &str, steps: Vec<PlanStep>) {
     let mut map = store().write().await;
     if let Some(meta) = map.get_mut(session_id) {
-        meta.steps = steps;
+        meta.steps = steps.clone();
         meta.updated_at = chrono::Utc::now().to_rfc3339();
     }
+    drop(map);
+    // Persist to DB for crash recovery
+    persist_steps_to_db(session_id, &steps);
 }
 
 pub async fn update_step_status(session_id: &str, step_index: usize, status: PlanStepStatus, duration_ms: Option<u64>) {
-    let mut map = store().write().await;
-    if let Some(meta) = map.get_mut(session_id) {
-        if let Some(step) = meta.steps.get_mut(step_index) {
-            step.status = status;
-            if duration_ms.is_some() {
-                step.duration_ms = duration_ms;
+    let steps_snapshot;
+    {
+        let mut map = store().write().await;
+        if let Some(meta) = map.get_mut(session_id) {
+            if let Some(step) = meta.steps.get_mut(step_index) {
+                step.status = status;
+                if duration_ms.is_some() {
+                    step.duration_ms = duration_ms;
+                }
+                meta.updated_at = chrono::Utc::now().to_rfc3339();
             }
-            meta.updated_at = chrono::Utc::now().to_rfc3339();
+            steps_snapshot = Some(meta.steps.clone());
+        } else {
+            steps_snapshot = None;
+        }
+    }
+    // Persist step statuses to DB for crash recovery
+    if let Some(steps) = steps_snapshot {
+        persist_steps_to_db(session_id, &steps);
+    }
+}
+
+/// Persist plan steps to DB as JSON (fire-and-forget, non-blocking).
+fn persist_steps_to_db(session_id: &str, steps: &[PlanStep]) {
+    if let Ok(json) = serde_json::to_string(steps) {
+        if let Some(db) = crate::get_session_db() {
+            let _ = db.save_plan_steps(session_id, &json);
         }
     }
 }
 
 /// Restore plan state from DB on session load.
+/// First tries to load persisted step statuses from DB (crash-safe),
+/// then falls back to re-parsing the plan markdown file.
 pub async fn restore_from_db(session_id: &str, plan_mode_str: &str) {
     let state = PlanModeState::from_str(plan_mode_str);
     if state == PlanModeState::Off {
         return;
     }
-    // Load plan content from file if exists
-    let steps = match load_plan_file(session_id) {
-        Ok(Some(content)) => parse_plan_steps(&content),
-        _ => Vec::new(),
+
+    // Try loading persisted step statuses from DB first (crash recovery)
+    let steps = if let Some(db) = crate::get_session_db() {
+        if let Ok(Some(json)) = db.load_plan_steps(session_id) {
+            serde_json::from_str::<Vec<PlanStep>>(&json).unwrap_or_default()
+        } else {
+            Vec::new()
+        }
+    } else {
+        Vec::new()
     };
+
+    // Fallback: if DB had no steps, re-parse from plan file
+    let steps = if steps.is_empty() {
+        match load_plan_file(session_id) {
+            Ok(Some(content)) => parse_plan_steps(&content),
+            _ => Vec::new(),
+        }
+    } else {
+        steps
+    };
+
     let file_path = plan_file_path(session_id)
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_default();
@@ -456,10 +543,24 @@ pub fn save_plan_file(session_id: &str, content: &str) -> Result<String> {
 pub fn load_plan_file(session_id: &str) -> Result<Option<String>> {
     let path = plan_file_path(session_id)?;
     if path.exists() {
-        Ok(Some(std::fs::read_to_string(path)?))
-    } else {
-        Ok(None)
+        return Ok(Some(std::fs::read_to_string(path)?));
     }
+    // Fallback: check global plans dir (for plans created before project-local storage)
+    if let Ok(global_dir) = crate::paths::global_plans_dir() {
+        let short_id = &session_id[..8.min(session_id.len())];
+        // Try to find any plan file matching this session's short ID in global dir
+        if global_dir.exists() {
+            if let Ok(entries) = std::fs::read_dir(&global_dir) {
+                for entry in entries.flatten() {
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    if name.starts_with(&format!("plan-{}", short_id)) && name.ends_with(".md") {
+                        return Ok(Some(std::fs::read_to_string(entry.path())?));
+                    }
+                }
+            }
+        }
+    }
+    Ok(None)
 }
 
 pub fn delete_plan_file(session_id: &str) -> Result<()> {

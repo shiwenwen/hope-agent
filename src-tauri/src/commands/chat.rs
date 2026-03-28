@@ -271,11 +271,29 @@ pub async fn chat(
         store.canvas.enabled
     };
 
+    // Resolve plan state early so we can use plan_model override for model chain
+    let early_plan_state = if let Some(ref pm) = plan_mode {
+        crate::plan::PlanModeState::from_str(pm)
+    } else {
+        crate::plan::get_plan_state(&sid).await
+    };
+
     let (primary, fallbacks) = {
         let store = state.provider_store.lock().await;
-        // If user explicitly selected a model in the input box, use it as primary
-        // (overrides agent's configured model)
-        if let Some(ref override_str) = model_override {
+        // Plan Mode model override: use cheaper/faster model during Planning phase
+        let plan_model_override = if early_plan_state == crate::plan::PlanModeState::Planning {
+            agent_model_config.plan_model.clone()
+        } else {
+            None
+        };
+
+        if let Some(ref plan_model_str) = plan_model_override {
+            // Planning phase: use plan_model as primary, keep fallbacks
+            let mut cfg = agent_model_config.clone();
+            cfg.primary = Some(plan_model_str.clone());
+            provider::resolve_model_chain(&cfg, &store)
+        } else if let Some(ref override_str) = model_override {
+            // User explicitly selected a model in the input box
             let override_model = provider::parse_model_ref(override_str);
             let mut cfg = agent_model_config.clone();
             if override_model.is_some() {
@@ -436,6 +454,10 @@ pub async fn chat(
                 }
             }
             agent.set_denied_tools(denied);
+            // Activate PLAN_MODE_ASK_TOOLS: exec requires user approval during planning
+            agent.set_plan_ask_tools(
+                crate::plan::PLAN_MODE_ASK_TOOLS.iter().map(|s| s.to_string()).collect()
+            );
             agent.set_plan_tools_enabled(true);
             agent.set_extra_system_context(crate::plan::PLAN_MODE_SYSTEM_PROMPT.to_string());
         } else if plan_state == crate::plan::PlanModeState::Executing {
@@ -457,6 +479,10 @@ pub async fn chat(
                 }
             }
             agent.set_denied_tools(denied);
+            // exec requires approval in review state too
+            agent.set_plan_ask_tools(
+                crate::plan::PLAN_MODE_ASK_TOOLS.iter().map(|s| s.to_string()).collect()
+            );
             // Inject plan content as context so LLM can answer questions about the plan
             if let Ok(Some(plan_content)) = crate::plan::load_plan_file(&sid) {
                 agent.set_extra_system_context(format!(
@@ -475,6 +501,25 @@ pub async fn chat(
                      The user may ask to resume, modify the plan, or discuss progress.\n\n\
                      ## Plan Content\n\n{}",
                     paused_step, plan_content
+                ));
+            }
+        } else if plan_state == crate::plan::PlanModeState::Completed {
+            // Completed: inject summary context so LLM can discuss results
+            if let Ok(Some(plan_content)) = crate::plan::load_plan_file(&sid) {
+                let step_summary = if let Some(meta) = crate::plan::get_plan_meta(&sid).await {
+                    let completed = meta.steps.iter().filter(|s| s.status == crate::plan::PlanStepStatus::Completed).count();
+                    let failed = meta.steps.iter().filter(|s| s.status == crate::plan::PlanStepStatus::Failed).count();
+                    let skipped = meta.steps.iter().filter(|s| s.status == crate::plan::PlanStepStatus::Skipped).count();
+                    format!("\n\n## Statistics\n- Completed: {}\n- Failed: {}\n- Skipped: {}\n- Total: {}\n",
+                        completed, failed, skipped, meta.steps.len())
+                } else {
+                    String::new()
+                };
+                agent.set_extra_system_context(format!(
+                    "{}{}{}",
+                    crate::plan::PLAN_COMPLETED_SYSTEM_PROMPT,
+                    plan_content,
+                    step_summary
                 ));
             }
         }

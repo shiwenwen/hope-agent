@@ -177,9 +177,33 @@ pub fn canvas_db_path() -> Result<PathBuf> {
 
 // ── Plans ───────────────────────────────────────────────────────
 
-/// Plans directory: ~/.opencomputer/plans/
+/// Plans directory: project-local `.opencomputer/plans/` when inside a git repo,
+/// otherwise falls back to global `~/.opencomputer/plans/`.
 pub fn plans_dir() -> Result<PathBuf> {
+    // Try to detect git repo root and use project-local plans dir
+    if let Some(project_dir) = detect_git_root() {
+        let local_plans = project_dir.join(".opencomputer").join("plans");
+        return Ok(local_plans);
+    }
     Ok(root_dir()?.join("plans"))
+}
+
+/// Global plans directory (always `~/.opencomputer/plans/`), used as fallback
+/// when loading plan files that may have been created before project-local storage.
+pub fn global_plans_dir() -> Result<PathBuf> {
+    Ok(root_dir()?.join("plans"))
+}
+
+/// Detect the git repository root from current working directory.
+fn detect_git_root() -> Option<PathBuf> {
+    let cwd = std::env::current_dir().ok()?;
+    let mut dir = cwd.as_path();
+    loop {
+        if dir.join(".git").exists() {
+            return Some(dir.to_path_buf());
+        }
+        dir = dir.parent()?;
+    }
 }
 
 // ── Directory Initialization ────────���────────────────────────────

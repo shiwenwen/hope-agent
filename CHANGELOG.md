@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Plan Mode 深度增强**：对标 OpenCode/Claude Code，全面提升计划模式的可靠性、灵活性和智能水平
+  - **步骤进度持久化**：plan_steps 列持久化到 SessionDB，崩溃/重启后步骤进度完整恢复（P0）
+  - **子 Agent 安全继承**：Planning/Review 状态下 spawn 的子 Agent 自动继承 PLAN_MODE_DENIED_TOOLS 限制，修复工具限制泄漏安全漏洞（P0）
+  - **exec 审批激活**：Planning/Review 状态下 exec 工具需要用户审批，激活原有定义但从未生效的 PLAN_MODE_ASK_TOOLS（P0）
+  - **Plan/Build 独立模型**：Agent 配置新增 `planModel` 字段，Planning 阶段可使用更便宜/快速的模型探索，执行阶段用强模型生成代码（P1）
+  - **Completed 状态系统提示词**：计划执行完成后注入 PLAN_COMPLETED_SYSTEM_PROMPT，指导 LLM 总结执行结果、标注失败步骤、建议后续操作（P1）
+  - **项目本地化计划文件**：git 仓库内计划存储到 `.opencomputer/plans/`（可随项目版本控制），非 VCS 项目回退到全局目录（P1）
+  - **5 阶段规划流程**：全新 PLAN_MODE_SYSTEM_PROMPT，引入 Deep Exploration → Requirements Clarification → Design & Architecture → Plan Composition → Review & Refinement 五阶段工作流，推荐使用子 Agent 并行探索代码库（P1）
 - **快捷对话快捷键（Quick Chat Shortcut）**：全局快捷键 Option+Space（Alt+Space）快速唤起 Spotlight 风格浮动对话框
   - 居中浮层对话框，包含聊天输入、消息预览、Agent 快捷选择
   - 连续唤起默认加载上一次快捷会话，支持新建会话

@@ -134,6 +134,7 @@ pub struct PersonalityConfig {
 
 /// Optional model override for an Agent.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AgentModelConfig {
     /// Primary model: "provider_id/model_id", empty = global activeModel
     #[serde(default)]
@@ -142,6 +143,12 @@ pub struct AgentModelConfig {
     /// Fallback models in order
     #[serde(default)]
     pub fallbacks: Vec<String>,
+
+    /// Model override for Plan Mode planning phase: "provider_id/model_id".
+    /// Uses a cheaper/faster model for exploration & planning, saving cost.
+    /// When set, Planning state will use this model instead of primary.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_model: Option<String>,
 }
 
 // ── Filter Config ────────────────────────────────────────────────
