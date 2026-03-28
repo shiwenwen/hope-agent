@@ -569,8 +569,24 @@ impl AppLogger {
             }
         }
 
+        let timestamp = chrono::Utc::now().to_rfc3339();
+
+        // Dev mode: also print to stderr for console visibility
+        #[cfg(debug_assertions)]
+        {
+            let level_upper = level.to_uppercase();
+            eprintln!(
+                "[{}] {} [{}] {} — {}",
+                &timestamp[11..19], // HH:MM:SS
+                level_upper,
+                category,
+                source,
+                message,
+            );
+        }
+
         let entry = PendingLog {
-            timestamp: chrono::Utc::now().to_rfc3339(),
+            timestamp,
             level: level.to_string(),
             category: category.to_string(),
             source: source.to_string(),
