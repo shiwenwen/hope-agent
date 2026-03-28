@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react"
 import { invoke } from "@tauri-apps/api/core"
+import { listen } from "@tauri-apps/api/event"
 import { logger } from "@/lib/logger"
 import { initLanguageFromConfig } from "@/i18n/i18n"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -57,6 +58,20 @@ export default function App() {
     document.addEventListener("keydown", onKeyDown)
     return () => document.removeEventListener("keydown", onKeyDown)
   }, [handleOpenSettings])
+
+  // Listen for system tray events
+  useEffect(() => {
+    const unlistenSettings = listen("open-settings", () => {
+      setView("settings")
+    })
+    const unlistenNewSession = listen("new-session", () => {
+      setView("chat")
+    })
+    return () => {
+      unlistenSettings.then((fn) => fn())
+      unlistenNewSession.then((fn) => fn())
+    }
+  }, [])
 
   // Try to restore previous session on mount
   useEffect(() => {
