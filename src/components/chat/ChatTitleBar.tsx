@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils"
 import { IconTip } from "@/components/ui/tooltip"
 import { Settings, Copy, BarChart3, Pencil, Zap, Check, X } from "lucide-react"
 import { formatMessageTime } from "./chatUtils"
+import logger from "@/lib/logger"
 import type { Message, AvailableModel, ActiveModel, SessionMeta } from "@/types/chat"
 
 interface ChatTitleBarProps {
@@ -168,7 +169,7 @@ export default function ChatTitleBar({
                       setCompactToast({ success: true, message: msg })
                       compactToastTimer.current = setTimeout(() => setCompactToast(null), 3000)
                     } catch (e) {
-                      console.error("compact failed", e)
+                      logger.error("ui", "ChatTitleBar::compact", "Compact failed", e)
                       if (compactToastTimer.current) clearTimeout(compactToastTimer.current)
                       setCompactToast({ success: false, message: t("chat.compactFailed") })
                       compactToastTimer.current = setTimeout(() => setCompactToast(null), 3000)
@@ -303,7 +304,7 @@ export default function ChatTitleBar({
                                 setShowStatus(false)
                               }
                             } catch (e) {
-                              console.error("compact failed", e)
+                              logger.error("ui", "ChatTitleBar::compact", "Compact failed", e)
                               if (compactToastTimer.current) clearTimeout(compactToastTimer.current)
                               setCompactToast({ success: false, message: t("chat.compactFailed") })
                               compactToastTimer.current = setTimeout(() => setCompactToast(null), 3000)
