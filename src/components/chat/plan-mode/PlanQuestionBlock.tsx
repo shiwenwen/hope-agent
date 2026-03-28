@@ -30,9 +30,9 @@ export interface PlanQuestionGroup {
 }
 
 export interface PlanQuestionAnswer {
-  question_id: string
+  questionId: string
   selected: string[]
-  custom_input?: string
+  customInput?: string
 }
 
 interface PlanQuestionBlockProps {
@@ -49,6 +49,7 @@ export default function PlanQuestionBlock({ group, onSubmitted }: PlanQuestionBl
   const { t } = useTranslation()
   const [submitted, setSubmitted] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [answers, setAnswers] = useState<Record<string, QuestionState>>(() => {
     const init: Record<string, QuestionState> = {}
     for (const q of group.questions) {
@@ -83,13 +84,14 @@ export default function PlanQuestionBlock({ group, onSubmitted }: PlanQuestionBl
 
   const handleSubmit = useCallback(async () => {
     setSubmitting(true)
+    setError(null)
     try {
       const answerList: PlanQuestionAnswer[] = group.questions.map(q => {
         const state = answers[q.questionId]
         return {
-          question_id: q.questionId,
+          questionId: q.questionId,
           selected: state ? Array.from(state.selected) : [],
-          custom_input: state?.customInput || undefined,
+          customInput: state?.customInput || undefined,
         }
       })
       await invoke("respond_plan_question", {
@@ -99,7 +101,9 @@ export default function PlanQuestionBlock({ group, onSubmitted }: PlanQuestionBl
       setSubmitted(true)
       onSubmitted?.()
     } catch (e) {
-      console.error("Failed to submit plan question response:", e)
+      const msg = e instanceof Error ? e.message : String(e)
+      console.error("Failed to submit plan question response:", msg)
+      setError(msg)
     } finally {
       setSubmitting(false)
     }
@@ -222,20 +226,27 @@ export default function PlanQuestionBlock({ group, onSubmitted }: PlanQuestionBl
         </div>
       ))}
 
+      {/* Error display */}
+      {error && (
+        <div className="text-xs text-destructive bg-destructive/10 rounded-md px-3 py-2">
+          {error}
+        </div>
+      )}
+
       {/* Submit button */}
       <div className="flex justify-end pt-1">
         <Button
           size="sm"
           onClick={handleSubmit}
           disabled={submitting}
-          className="gap-1.5"
+          className={cn("gap-1.5", error && "bg-destructive/10 text-destructive hover:bg-destructive/20")}
         >
           {submitting ? (
             <span className="animate-spin h-3.5 w-3.5 border-2 border-current border-t-transparent rounded-full" />
           ) : (
             <Send className="h-3.5 w-3.5" />
           )}
-          {t("planMode.question.submit")}
+          {error ? t("planMode.question.retry") : t("planMode.question.submit")}
         </Button>
       </div>
     </div>

@@ -1196,6 +1196,7 @@
     "question": {
       "title": "计划确认",
       "submit": "提交回答",
+      "retry": "重试",
       "answered": "已回答",
       "customPlaceholder": "输入自定义回答...",
       "recommended": "推荐"

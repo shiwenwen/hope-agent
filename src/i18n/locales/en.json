@@ -1196,6 +1196,7 @@
     "question": {
       "title": "Planning Questions",
       "submit": "Submit Answers",
+      "retry": "Retry",
       "answered": "Answered",
       "customPlaceholder": "Enter custom answer...",
       "recommended": "Recommended"
