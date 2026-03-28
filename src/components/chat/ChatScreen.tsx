@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react"
+import { useState, useRef, useEffect, useCallback, useMemo } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import { save } from "@tauri-apps/plugin-dialog"
@@ -131,6 +131,11 @@ export default function ChatScreen({
     onSessionNavigated,
     onUnreadCountChange,
   })
+
+  const isCronSession = useMemo(
+    () => session.sessions.find((s) => s.id === session.currentSessionId)?.isCron ?? false,
+    [session.sessions, session.currentSessionId],
+  )
 
   // Rename session handler
   const handleRenameSession = useCallback(async (sessionId: string, title: string) => {
@@ -476,57 +481,61 @@ export default function ChatScreen({
         />
 
         {/* Memory extraction toast */}
-        {memoryToast && (
-          <div className="flex items-center gap-2 mx-4 mb-2 px-3 py-1.5 rounded-lg bg-secondary/50 text-xs text-muted-foreground animate-in fade-in slide-in-from-bottom-2 duration-300">
-            <Brain className="h-3.5 w-3.5 shrink-0" />
-            <span>{t("settings.memoryExtractedToast", { count: memoryToast.count })}</span>
-            <button onClick={() => setMemoryToast(null)} className="ml-auto text-muted-foreground/60 hover:text-muted-foreground">
-              ×
-            </button>
-          </div>
-        )}
+        {!isCronSession && (
+          <>
+            {memoryToast && (
+              <div className="flex items-center gap-2 mx-4 mb-2 px-3 py-1.5 rounded-lg bg-secondary/50 text-xs text-muted-foreground animate-in fade-in slide-in-from-bottom-2 duration-300">
+                <Brain className="h-3.5 w-3.5 shrink-0" />
+                <span>{t("settings.memoryExtractedToast", { count: memoryToast.count })}</span>
+                <button onClick={() => setMemoryToast(null)} className="ml-auto text-muted-foreground/60 hover:text-muted-foreground">
+                  ×
+                </button>
+              </div>
+            )}
 
-        <ChatInput
-          input={stream.input}
-          onInputChange={stream.setInput}
-          onSend={() => stream.handleSend()}
-          loading={session.loading}
-          availableModels={availableModels}
-          activeModel={activeModel}
-          reasoningEffort={reasoningEffort}
-          onModelChange={handleModelChange}
-          onEffortChange={handleEffortChange}
-          attachedFiles={stream.attachedFiles}
-          onAttachFiles={(files) => stream.setAttachedFiles((prev) => [...prev, ...files])}
-          onRemoveFile={(index) =>
-            stream.setAttachedFiles((prev) => prev.filter((_, i) => i !== index))
-          }
-          pendingMessage={stream.pendingMessage}
-          onCancelPending={() => {
-            stream.setInput(stream.pendingMessage || "")
-            stream.setPendingMessage(null)
-          }}
-          onStop={stream.handleStop}
-          currentSessionId={session.currentSessionId}
-          currentAgentId={session.currentAgentId}
-          onCommandAction={handleCommandAction}
-          toolPermissionMode={stream.toolPermissionMode}
-          onToolPermissionChange={stream.setToolPermissionMode}
-          planState={planMode.planState}
-          planProgress={planMode.progress}
-          onEnterPlanMode={async () => {
-            // Enter plan mode in frontend state first.
-            // If no session yet, it will be created when user sends the first message.
-            if (session.currentSessionId) {
-              await planMode.enterPlanMode()
-            } else {
-              planMode.setPlanState("planning")
-            }
-            planMode.setShowPanel(true)
-          }}
-          onExitPlanMode={planMode.exitPlanMode}
-          onTogglePlanPanel={() => planMode.setShowPanel((p) => !p)}
-        />
+            <ChatInput
+              input={stream.input}
+              onInputChange={stream.setInput}
+              onSend={() => stream.handleSend()}
+              loading={session.loading}
+              availableModels={availableModels}
+              activeModel={activeModel}
+              reasoningEffort={reasoningEffort}
+              onModelChange={handleModelChange}
+              onEffortChange={handleEffortChange}
+              attachedFiles={stream.attachedFiles}
+              onAttachFiles={(files) => stream.setAttachedFiles((prev) => [...prev, ...files])}
+              onRemoveFile={(index) =>
+                stream.setAttachedFiles((prev) => prev.filter((_, i) => i !== index))
+              }
+              pendingMessage={stream.pendingMessage}
+              onCancelPending={() => {
+                stream.setInput(stream.pendingMessage || "")
+                stream.setPendingMessage(null)
+              }}
+              onStop={stream.handleStop}
+              currentSessionId={session.currentSessionId}
+              currentAgentId={session.currentAgentId}
+              onCommandAction={handleCommandAction}
+              toolPermissionMode={stream.toolPermissionMode}
+              onToolPermissionChange={stream.setToolPermissionMode}
+              planState={planMode.planState}
+              planProgress={planMode.progress}
+              onEnterPlanMode={async () => {
+                // Enter plan mode in frontend state first.
+                // If no session yet, it will be created when user sends the first message.
+                if (session.currentSessionId) {
+                  await planMode.enterPlanMode()
+                } else {
+                  planMode.setPlanState("planning")
+                }
+                planMode.setShowPanel(true)
+              }}
+              onExitPlanMode={planMode.exitPlanMode}
+              onTogglePlanPanel={() => planMode.setShowPanel((p) => !p)}
+            />
+          </>
+        )}
       </div>
 
       {/* Plan Panel (right side) */}

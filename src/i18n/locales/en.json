@@ -66,6 +66,8 @@
     "inputTokens": "Input",
     "outputTokens": "Output",
     "totalTokens": "Total",
+    "cronTrigger": "Scheduled Task",
+    "cronTaskStarted": "A scheduled task was triggered",
     "sessionStatus": "Session Status",
     "statusModel": "Model",
     "statusAgent": "Agent",

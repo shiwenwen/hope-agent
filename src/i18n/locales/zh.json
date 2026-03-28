@@ -66,6 +66,8 @@
     "inputTokens": "输入",
     "outputTokens": "输出",
     "totalTokens": "总计",
+    "cronTrigger": "定时任务",
+    "cronTaskStarted": "定时器触发了一个任务",
     "sessionStatus": "会话状态",
     "statusModel": "模型",
     "statusAgent": "Agent",

@@ -751,7 +751,7 @@ impl AcpAgent {
                         None
                     }
                 }
-                session::MessageRole::Event => None,
+                session::MessageRole::Event | session::MessageRole::ThinkingBlock => None,
             };
 
             if let Some(n) = notif {

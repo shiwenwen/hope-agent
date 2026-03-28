@@ -58,7 +58,14 @@ pub(crate) async fn execute_job(
             app_info!("cron", "executor", "Job '{}' completed successfully ({}ms)", job.name, duration_ms);
 
             // Save user prompt and assistant response into the session
-            let _ = session_db.append_message(&session_id, &crate::session::NewMessage::user(&prompt));
+            let mut user_msg = crate::session::NewMessage::user(&prompt);
+            user_msg.attachments_meta = Some(serde_json::json!({
+                "cron_trigger": {
+                    "job_id": &job.id,
+                    "job_name": &job.name,
+                }
+            }).to_string());
+            let _ = session_db.append_message(&session_id, &user_msg);
             let _ = session_db.append_message(&session_id, &crate::session::NewMessage::assistant(&response));
 
             // Record success run log
@@ -89,7 +96,14 @@ pub(crate) async fn execute_job(
             app_error!("cron", "executor", "Job '{}' failed: {}", job.name, e);
 
             // Write the prompt + error message into the session so the user can see what happened
-            let _ = session_db.append_message(&session_id, &crate::session::NewMessage::user(&prompt));
+            let mut user_msg = crate::session::NewMessage::user(&prompt);
+            user_msg.attachments_meta = Some(serde_json::json!({
+                "cron_trigger": {
+                    "job_id": &job.id,
+                    "job_name": &job.name,
+                }
+            }).to_string());
+            let _ = session_db.append_message(&session_id, &user_msg);
             let mut err_msg = crate::session::NewMessage::assistant(&e.to_string());
             err_msg.is_error = Some(true);
             let _ = session_db.append_message(&session_id, &err_msg);

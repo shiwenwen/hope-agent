@@ -123,7 +123,7 @@ export default function MessageList({
           key={i}
           className={cn(
             "flex",
-            msg.role === "event" || msg.isSubagentResult
+            msg.role === "event" || msg.isSubagentResult || msg.isCronTrigger
               ? "justify-center"
               : msg.role === "user" && !msg.fromAgentId
                 ? "justify-end"

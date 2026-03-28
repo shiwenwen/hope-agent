@@ -105,15 +105,21 @@ export function parseSessionMessages(
   let firstUserSeen = false
   for (const msg of msgs) {
     if (msg.role === "user") {
-      // Detect sub-agent result messages via attachments_meta marker
+      // Detect sub-agent result / cron trigger messages via attachments_meta marker
       let isSubagentResult = false
       let subagentResultAgentId: string | undefined
+      let isCronTrigger = false
+      let cronJobName: string | undefined
       if (msg.attachmentsMeta) {
         try {
           const meta = JSON.parse(msg.attachmentsMeta)
           if (meta?.subagent_result) {
             isSubagentResult = true
             subagentResultAgentId = meta.subagent_result.agent_id
+          }
+          if (meta?.cron_trigger) {
+            isCronTrigger = true
+            cronJobName = meta.cron_trigger.job_name
           }
         } catch {
           /* ignore */
@@ -129,6 +135,8 @@ export function parseSessionMessages(
         fromAgentId: isAgentMessage ? parentAgentId : undefined,
         isSubagentResult,
         subagentResultAgentId,
+        isCronTrigger,
+        cronJobName,
       })
     } else if (msg.role === "tool" && msg.toolCallId) {
       // Extract mediaUrls from image_generate tool results (for DB-loaded history)
@@ -168,6 +176,11 @@ export function parseSessionMessages(
         pendingTools.push(tool)
         pendingBlocks.push({ type: "tool_call", tool })
       }
+    } else if (msg.role === "thinking_block") {
+      // Intermediate thinking emitted before tool calls — preserve multi-round thinking ordering
+      if (msg.content) {
+        pendingBlocks.push({ type: "thinking", content: msg.content })
+      }
     } else if (msg.role === "text_block") {
       // Intermediate text emitted before tool calls — preserve ordering
       if (msg.content) {
@@ -190,8 +203,10 @@ export function parseSessionMessages(
             outputTokens: msg.tokensOut || undefined,
           }
         : undefined
-      // Prepend thinking block if present (from DB history)
-      if (msg.thinking) {
+      // Prepend thinking block if present (from DB history),
+      // but only if no thinking_blocks were already added from pendingBlocks
+      const hasThinkingBlocks = blocks.some((b) => b.type === "thinking")
+      if (msg.thinking && !hasThinkingBlocks) {
         blocks.unshift({ type: "thinking", content: msg.thinking })
       }
       displayMessages.push({

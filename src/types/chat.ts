@@ -36,6 +36,10 @@ export interface Message {
   isSubagentResult?: boolean
   /** The child agent ID that produced the sub-agent result */
   subagentResultAgentId?: string
+  /** If true, this user message was triggered by a cron job */
+  isCronTrigger?: boolean
+  /** The cron job name that triggered this message */
+  cronJobName?: string
   /** Database row ID, used for deduplication during streaming append */
   dbId?: number
 }

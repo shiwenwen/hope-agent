@@ -165,6 +165,9 @@ pub(crate) async fn tool_sessions_history(args: &Value) -> Result<String> {
             MessageRole::TextBlock => {
                 format!("\n[#{}] text ({}):\n  {}\n", msg.id, msg.timestamp, truncate_str(&msg.content, 2000))
             }
+            MessageRole::ThinkingBlock => {
+                format!("\n[#{}] thinking ({}):\n  {}\n", msg.id, msg.timestamp, truncate_str(&msg.content, 2000))
+            }
         };
 
         if output.len() + entry.len() > MAX_OUTPUT_BYTES {

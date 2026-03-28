@@ -3,7 +3,7 @@ import { convertFileSrc } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { IconTip } from "@/components/ui/tooltip"
-import { Copy, Check, Info, Network } from "lucide-react"
+import { Copy, Check, Info, Network, Timer } from "lucide-react"
 import { formatTokens, formatDuration, formatMessageTime, extractModifiedFiles } from "./chatUtils"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import ToolCallBlock from "@/components/chat/ToolCallBlock"
@@ -27,6 +27,44 @@ interface MessageBubbleProps {
   // Copy
   copiedIndex: number | null
   onCopy: (content: string, index: number) => void
+}
+
+function CronTriggerBubble({ msg, t }: { msg: Message; t: (key: string) => string }) {
+  const [expanded, setExpanded] = useState(false)
+  return (
+    <div className="flex flex-col items-center gap-1 max-w-[80%]">
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-500/8 border border-amber-500/20 text-xs text-amber-400/80 hover:bg-amber-500/15 transition-colors cursor-pointer"
+      >
+        <Timer className="w-3 h-3 shrink-0 text-amber-500" />
+        <span className="font-medium text-amber-500">
+          {msg.cronJobName || t("chat.cronTrigger")}
+        </span>
+        <span className="text-amber-400/50">·</span>
+        <span>{t("chat.cronTaskStarted")}</span>
+        <svg
+          className={cn(
+            "w-3 h-3 shrink-0 text-amber-500/60 transition-transform duration-200",
+            expanded && "rotate-180",
+          )}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
+      {expanded && (
+        <div className="w-full px-3 py-2 rounded-lg bg-amber-500/5 border border-amber-500/15 text-xs text-foreground/80 whitespace-pre-wrap break-words animate-in fade-in-0 slide-in-from-top-1 duration-150">
+          {msg.content}
+        </div>
+      )}
+    </div>
+  )
 }
 
 export default function MessageBubble({
@@ -75,6 +113,10 @@ export default function MessageBubble({
         <span>任务完成，结果已注入</span>
       </div>
     )
+  }
+
+  if (msg.isCronTrigger) {
+    return <CronTriggerBubble msg={msg} t={t} />
   }
 
   return (

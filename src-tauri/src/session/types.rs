@@ -31,6 +31,8 @@ pub enum MessageRole {
     Tool,
     /// Intermediate text block emitted before tool calls to preserve ordering.
     TextBlock,
+    /// Intermediate thinking block emitted before tool calls to preserve multi-round thinking ordering.
+    ThinkingBlock,
 }
 
 impl MessageRole {
@@ -41,6 +43,7 @@ impl MessageRole {
             MessageRole::Event => "event",
             MessageRole::Tool => "tool",
             MessageRole::TextBlock => "text_block",
+            MessageRole::ThinkingBlock => "thinking_block",
         }
     }
 
@@ -51,6 +54,7 @@ impl MessageRole {
             "event" => MessageRole::Event,
             "tool" => MessageRole::Tool,
             "text_block" => MessageRole::TextBlock,
+            "thinking_block" => MessageRole::ThinkingBlock,
             _ => MessageRole::User,
         }
     }
@@ -190,6 +194,28 @@ impl NewMessage {
     pub fn text_block(content: &str) -> Self {
         Self {
             role: MessageRole::TextBlock,
+            content: content.to_string(),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            attachments_meta: None,
+            model: None,
+            tokens_in: None,
+            tokens_out: None,
+            reasoning_effort: None,
+            tool_call_id: None,
+            tool_name: None,
+            tool_arguments: None,
+            tool_result: None,
+            tool_duration_ms: None,
+            is_error: None,
+            thinking: None,
+            ttft_ms: None,
+        }
+    }
+
+    /// Create a thinking_block message (intermediate thinking before tool calls).
+    pub fn thinking_block(content: &str) -> Self {
+        Self {
+            role: MessageRole::ThinkingBlock,
             content: content.to_string(),
             timestamp: chrono::Utc::now().to_rfc3339(),
             attachments_meta: None,
