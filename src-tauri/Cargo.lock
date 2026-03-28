@@ -6506,6 +6506,7 @@ dependencies = [
  "heck 0.5.0",
  "http 1.4.0",
  "http-range",
+ "image",
  "jni",
  "libc",
  "log",
