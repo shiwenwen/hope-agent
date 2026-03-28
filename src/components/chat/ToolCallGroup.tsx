@@ -270,40 +270,6 @@ export default function ToolCallGroup({ tools }: ToolCallGroupProps) {
         <span className="text-muted-foreground font-medium">{label}</span>
       </button>
 
-      {/* Collapsed: show target file/URL list directly */}
-      {!expanded && (
-        <div className="ml-6 mt-0.5 space-y-px">
-          {tools.map((tool) => {
-            const sn = getSkillName(tool)
-            const target = sn || getFullTarget(tool)
-            const short = sn || getShortName(target)
-            const isRunning = tool.result === undefined
-            const cat = getToolCategory(tool.name)
-            const CatIcon = CATEGORY_ICONS[cat]
-            return (
-              <div
-                key={tool.callId}
-                className="flex items-center gap-1.5 text-[11px] text-muted-foreground/70 py-px"
-              >
-                {isRunning ? (
-                  <span className="animate-spin h-2.5 w-2.5 border border-current border-t-transparent rounded-full shrink-0" />
-                ) : (
-                  <CatIcon className="h-2.5 w-2.5 shrink-0 text-muted-foreground/40" />
-                )}
-                <span className="font-medium truncate max-w-[180px]" title={target}>
-                  {short}
-                </span>
-                {!sn && short !== target && (
-                  <span className="text-muted-foreground/30 truncate text-[10px]" title={target}>
-                    {target}
-                  </span>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      )}
-
       {/* Expanded: show each item with inline result access */}
       <div
         className={cn(
