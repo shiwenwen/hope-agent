@@ -409,8 +409,7 @@ impl CronDB {
     ) -> Vec<DateTime<Utc>> {
         match schedule {
             CronSchedule::At { timestamp } => {
-                if let Ok(ts) = DateTime::parse_from_rfc3339(timestamp) {
-                    let ts = ts.with_timezone(&Utc);
+                if let Some(ts) = super::schedule::parse_flexible_timestamp(timestamp) {
                     if ts >= *start && ts < *end {
                         return vec![ts];
                     }
