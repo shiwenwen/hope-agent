@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils"
 import { IconTip } from "@/components/ui/tooltip"
 import { Settings, Copy, BarChart3, Pencil, Zap, Check, X } from "lucide-react"
 import { formatMessageTime } from "./chatUtils"
-import logger from "@/lib/logger"
+import { logger } from "@/lib/logger"
 import type { Message, AvailableModel, ActiveModel, SessionMeta } from "@/types/chat"
 
 interface ChatTitleBarProps {
