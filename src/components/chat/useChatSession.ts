@@ -207,7 +207,7 @@ export function useChatSession({
   // Switch to an existing session
   const handleSwitchSession = useCallback(
     async (sessionId: string) => {
-      if (sessionId === currentSessionIdRef.current) return
+      if (!sessionId || sessionId === currentSessionIdRef.current) return
 
       // Save current session's messages to cache
       const curSid = currentSessionIdRef.current

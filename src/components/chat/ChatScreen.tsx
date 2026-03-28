@@ -276,7 +276,7 @@ export default function ChatScreen({
 
       switch (action.type) {
         case "newSession":
-          session.handleSwitchSession(action.sessionId)
+          if (action.sessionId) session.handleSwitchSession(action.sessionId)
           break
         case "switchModel":
           handleModelChange(`${action.providerId}::${action.modelId}`)
@@ -285,7 +285,7 @@ export default function ChatScreen({
           handleEffortChange(action.effort)
           break
         case "switchAgent":
-          session.handleSwitchSession(action.sessionId)
+          if (action.sessionId) session.handleSwitchSession(action.sessionId)
           break
         case "stopStream":
           stream.handleStop()
