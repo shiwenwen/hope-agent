@@ -445,7 +445,7 @@ pub struct ProviderStore {
     pub shortcuts: ShortcutConfig,
 
     /// Custom plans directory override. When set, plans are stored here instead of
-    /// the default project-local `.opencomputer/plans/` or global `~/.opencomputer/plans/`.
+    /// the default `~/.opencomputer/plans/`.
     #[serde(default)]
     pub plans_directory: Option<String>,
 }

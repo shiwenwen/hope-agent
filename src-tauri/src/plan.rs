@@ -291,8 +291,7 @@ pub const PLAN_MODE_PATH_AWARE_TOOLS: &[&str] = &["write", "edit"];
 /// Check if a file path is allowed during Plan Mode (targets a plan file).
 pub fn is_plan_mode_path_allowed(file_path: &str) -> bool {
     let path = std::path::Path::new(file_path);
-    // Allow writes to any .md file under any plans directory
-    // (.opencomputer/plans/ or ~/.opencomputer/plans/)
+    // Allow writes to any .md file under ~/.opencomputer/plans/
     if let Some(ext) = path.extension() {
         if ext != "md" {
             return false;
@@ -312,12 +311,6 @@ pub fn is_plan_mode_path_allowed(file_path: &str) -> bool {
             return true;
         }
     }
-    if let Ok(global) = crate::paths::global_plans_dir() {
-        let global_str = global.to_string_lossy().replace('\\', "/");
-        if path_str.starts_with(&global_str) {
-            return true;
-        }
-    }
     false
 }
 
@@ -330,7 +323,7 @@ You are in **Plan Mode**. Create a comprehensive, high-quality implementation pl
 
 ## Restrictions
 - You **CANNOT** modify project source files (apply_patch, canvas tools are disabled)
-- You **CAN** use `write` and `edit` tools **only on plan files** (under `.opencomputer/plans/`)
+- You **CAN** use `write` and `edit` tools **only on plan files** (under `~/.opencomputer/plans/`)
 - You **CAN** read files, search code, browse the web, and analyze the codebase
 - Shell commands (exec) require user approval before execution
 
@@ -680,21 +673,6 @@ pub fn load_plan_file(session_id: &str) -> Result<Option<String>> {
     let path = plan_file_path(session_id)?;
     if path.exists() {
         return Ok(Some(std::fs::read_to_string(path)?));
-    }
-    // Fallback: check global plans dir (for plans created before project-local storage)
-    if let Ok(global_dir) = crate::paths::global_plans_dir() {
-        let short_id = crate::truncate_utf8(session_id, 8);
-        // Try to find any plan file matching this session's short ID in global dir
-        if global_dir.exists() {
-            if let Ok(entries) = std::fs::read_dir(&global_dir) {
-                for entry in entries.flatten() {
-                    let name = entry.file_name().to_string_lossy().to_string();
-                    if name.starts_with(&format!("plan-{}", short_id)) && name.ends_with(".md") {
-                        return Ok(Some(std::fs::read_to_string(entry.path())?));
-                    }
-                }
-            }
-        }
     }
     Ok(None)
 }

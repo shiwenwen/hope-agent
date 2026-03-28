@@ -8,6 +8,9 @@ dist/
 src-tauri/target/
 src-tauri/WixTools/
 
+# OpenComputer runtime data
+.opencomputer/
+
 # IDE
 .vscode/
 .idea/
