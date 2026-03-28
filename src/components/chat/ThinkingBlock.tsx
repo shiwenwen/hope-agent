@@ -1,8 +1,34 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useTranslation } from "react-i18next"
+import { invoke } from "@tauri-apps/api/core"
 import { cn } from "@/lib/utils"
 import { ChevronRight, BrainCircuit } from "lucide-react"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
+
+// Module-level cache to avoid repeated invoke calls
+let cachedAutoExpand: boolean | null = null
+let cachePromise: Promise<boolean> | null = null
+
+function getAutoExpandThinking(): Promise<boolean> {
+  if (cachedAutoExpand !== null) return Promise.resolve(cachedAutoExpand)
+  if (cachePromise) return cachePromise
+  cachePromise = invoke<{ autoExpandThinking?: boolean }>("get_user_config")
+    .then((cfg) => {
+      cachedAutoExpand = cfg.autoExpandThinking !== false
+      return cachedAutoExpand
+    })
+    .catch(() => {
+      cachedAutoExpand = true
+      return true
+    })
+  return cachePromise
+}
+
+/** Allow settings panel to invalidate cache when config changes */
+export function invalidateThinkingExpandCache() {
+  cachedAutoExpand = null
+  cachePromise = null
+}
 
 interface ThinkingBlockProps {
   content: string
@@ -11,15 +37,29 @@ interface ThinkingBlockProps {
 
 export default function ThinkingBlock({ content, isStreaming }: ThinkingBlockProps) {
   const { t } = useTranslation()
+  const [autoExpand, setAutoExpand] = useState(cachedAutoExpand ?? true)
   const [isOpen, setIsOpen] = useState(!!isStreaming)
   const [prevStreaming, setPrevStreaming] = useState(isStreaming)
 
-  // Auto-expand while streaming, auto-collapse when done
+  // Load auto-expand setting
+  useEffect(() => {
+    if (cachedAutoExpand === null) {
+      getAutoExpandThinking().then((v) => {
+        setAutoExpand(v)
+        // If setting loaded as false and not streaming, ensure collapsed
+        if (!v && !isStreaming) {
+          setIsOpen(false)
+        }
+      })
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-expand while streaming (only when autoExpand is on), auto-collapse when done
   if (isStreaming !== prevStreaming) {
     setPrevStreaming(isStreaming)
-    if (isStreaming) {
+    if (isStreaming && autoExpand) {
       setIsOpen(true)
-    } else if (content) {
+    } else if (!isStreaming && content) {
       setIsOpen(false)
     }
   }

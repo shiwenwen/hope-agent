@@ -55,6 +55,10 @@ pub struct UserConfig {
     /// Whether pending messages auto-send after reply finishes (default: false)
     #[serde(default)]
     pub auto_send_pending: bool,
+
+    /// Whether thinking blocks auto-expand in chat bubbles (default: true)
+    #[serde(default = "default_true")]
+    pub auto_expand_thinking: bool,
 }
 
 #[allow(dead_code)]
