@@ -78,11 +78,19 @@ function StarrySkyInner() {
   useEffect(() => {
     if (!isDark || reducedMotion) return
 
+    const cleanupTimers: ReturnType<typeof setTimeout>[] = []
+
     const scheduleNext = () => {
       const delay = 6000 + Math.random() * 12000 // 6-18s
       timerRef.current = setTimeout(() => {
         const id = nextId.current++
         setShootingStars((prev) => [...prev, id])
+        // Fallback: remove after max animation duration (1.4s) + buffer,
+        // in case onAnimationEnd doesn't fire (e.g. window hidden by tray)
+        const t = setTimeout(() => {
+          setShootingStars((prev) => prev.filter((s) => s !== id))
+        }, 2000)
+        cleanupTimers.push(t)
         scheduleNext()
       }, delay)
     }
@@ -90,6 +98,7 @@ function StarrySkyInner() {
     scheduleNext()
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current)
+      cleanupTimers.forEach(clearTimeout)
     }
   }, [isDark, reducedMotion])
 
