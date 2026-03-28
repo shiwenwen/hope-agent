@@ -438,6 +438,52 @@ pub fn run() {
                 )?;
             }
 
+            // macOS: custom app menu — Cmd+Q hides window instead of quitting
+            #[cfg(target_os = "macos")]
+            {
+                use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
+                let hide_quit = MenuItemBuilder::with_id("hide_quit", "Hide OpenComputer")
+                    .accelerator("CmdOrCtrl+Q")
+                    .build(app)?;
+                let app_submenu = SubmenuBuilder::new(app, "OpenComputer")
+                    .about(None)
+                    .separator()
+                    .item(&hide_quit)
+                    .build()?;
+                let edit_submenu = SubmenuBuilder::new(app, "Edit")
+                    .undo()
+                    .redo()
+                    .separator()
+                    .cut()
+                    .copy()
+                    .paste()
+                    .select_all()
+                    .build()?;
+                let view_submenu = SubmenuBuilder::new(app, "View")
+                    .item(&PredefinedMenuItem::fullscreen(app, None)?)
+                    .build()?;
+                let window_submenu = SubmenuBuilder::new(app, "Window")
+                    .minimize()
+                    .item(&PredefinedMenuItem::maximize(app, None)?)
+                    .close_window()
+                    .build()?;
+                let menu = MenuBuilder::new(app)
+                    .item(&app_submenu)
+                    .item(&edit_submenu)
+                    .item(&view_submenu)
+                    .item(&window_submenu)
+                    .build()?;
+                app.set_menu(menu)?;
+                app.on_menu_event(|app_handle, event| {
+                    if event.id().as_ref() == "hide_quit" {
+                        use tauri::Manager;
+                        if let Some(window) = app_handle.get_webview_window("main") {
+                            let _ = window.hide();
+                        }
+                    }
+                });
+            }
+
             // Set up system tray icon with context menu
             tray::setup_tray(app)?;
 
