@@ -231,9 +231,9 @@ pub(crate) fn toggle_quickchat_window(app_handle: &tauri::AppHandle) {
     let url = tauri::WebviewUrl::App("index.html?window=quickchat".into());
     match tauri::WebviewWindowBuilder::new(app_handle, "quickchat", url)
         .title("Quick Chat")
-        .inner_size(640.0, 480.0)
-        .min_inner_size(400.0, 300.0)
-        .resizable(true)
+        .inner_size(680.0, 180.0)
+        .min_inner_size(500.0, 150.0)
+        .resizable(false)
         .decorations(false)
         .transparent(true)
         .always_on_top(true)
@@ -242,26 +242,15 @@ pub(crate) fn toggle_quickchat_window(app_handle: &tauri::AppHandle) {
         .build()
     {
         Ok(win) => {
-            // macOS: match system appearance background
+            // macOS: transparent window background so CSS border-radius works
             #[cfg(target_os = "macos")]
             {
                 let _ = win.with_webview(|webview| unsafe {
                     let ns_window: &objc2_app_kit::NSWindow =
                         &*webview.ns_window().cast();
-                    let is_dark = {
-                        use objc2_app_kit::NSAppearanceCustomization;
-                        let appearance = ns_window.effectiveAppearance();
-                        let name = appearance.name();
-                        name.to_string().contains("Dark")
-                    };
-                    let (r, g, b) = if is_dark {
-                        (15.0 / 255.0, 15.0 / 255.0, 15.0 / 255.0)
-                    } else {
-                        (1.0, 1.0, 1.0)
-                    };
-                    let bg_color =
-                        objc2_app_kit::NSColor::colorWithSRGBRed_green_blue_alpha(r, g, b, 1.0);
-                    ns_window.setBackgroundColor(Some(&bg_color));
+                    let clear_color =
+                        objc2_app_kit::NSColor::colorWithSRGBRed_green_blue_alpha(0.0, 0.0, 0.0, 0.0);
+                    ns_window.setBackgroundColor(Some(&clear_color));
                 });
             }
             let _ = win.set_focus();

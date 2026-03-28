@@ -36,6 +36,7 @@ interface ChatInputProps {
   toolPermissionMode: ToolPermissionMode
   onToolPermissionChange: (mode: ToolPermissionMode) => void
   // Plan mode
+  borderless?: boolean
   planState?: "off" | "planning" | "review" | "executing" | "paused" | "completed"
   planProgress?: number
   onEnterPlanMode?: () => void
@@ -69,6 +70,7 @@ export default function ChatInput({
   onEnterPlanMode,
   onExitPlanMode,
   onTogglePlanPanel,
+  borderless = false,
 }: ChatInputProps) {
   const { t } = useTranslation()
   const { openLightbox } = useLightbox()
@@ -172,7 +174,7 @@ export default function ChatInput({
 
   return (
     <div className="px-3 pb-3 pt-2">
-        <div className="relative rounded-2xl border border-border bg-card">
+        <div className={cn("relative rounded-2xl", borderless ? "" : "border border-border bg-card")}>
           {/* Slash Command Menu */}
           {slash.isOpen && (
             <SlashCommandMenu
