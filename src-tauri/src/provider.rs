@@ -493,6 +493,7 @@ impl Default for ProviderStore {
             skill_allow_bundled: Vec::new(),
             acp_control: crate::acp_control::AcpControlConfig::default(),
             shortcuts: ShortcutConfig::default(),
+            plans_directory: None,
         }
     }
 }

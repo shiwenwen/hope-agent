@@ -315,7 +315,7 @@ You are in **Plan Mode**. Create a comprehensive, high-quality implementation pl
   - Set `allow_custom=true` when the user might have a different idea
   - Use `multi_select=true` when multiple options can apply
   - Mark the best option with `recommended=true` to highlight it (renders with a ★ badge)
-  - Use `template` field for category-specific UI: "scope", "tech_choice", "priority"
+  - Use `template` field for category-specific UI: `scope`, `tech_choice`, `priority`
 - Ask about: scope, technical approach, priority, testing strategy, edge cases
 - After receiving answers, you may ask follow-up questions if needed
 

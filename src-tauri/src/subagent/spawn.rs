@@ -134,7 +134,7 @@ pub async fn spawn_subagent(
         let exec_result = std::panic::AssertUnwindSafe(
             tokio::time::timeout(
                 std::time::Duration::from_secs(timeout_secs),
-                execute_subagent(agent_id_exec, task_exec, depth, model_override_exec, cancel_exec, run_id_exec, attachments_exec),
+                execute_subagent(agent_id_exec, task_exec, depth, model_override_exec, cancel_exec, run_id_exec, attachments_exec, parent_session_id.clone()),
             )
         );
         let result = futures_util::FutureExt::catch_unwind(exec_result).await;
@@ -252,6 +252,7 @@ fn execute_subagent(
     cancel: Arc<AtomicBool>,
     run_id: String,
     attachments: Vec<crate::agent::Attachment>,
+    parent_session_id: String,
 ) -> impl std::future::Future<Output = Result<(String, Option<String>)>> + Send {
     async move {
     use crate::agent::AssistantAgent;
