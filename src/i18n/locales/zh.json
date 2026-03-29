@@ -551,6 +551,8 @@
     "chatAutoSendDesc": "回复结束后自动发送排队中的消息，关闭则回填到输入框",
     "chatAutoExpandThinking": "自动展开Think过程",
     "chatAutoExpandThinkingDesc": "聊天气泡中的Think过程默认自动展开，关闭后需手动点击展开",
+    "planSubagent": "计划子 Agent 模式",
+    "planSubagentDesc": "开启后 Plan Mode 的计划制定由独立子 Agent 执行，主 Agent 上下文更干净；关闭时在主 Agent 中内联制定计划，保持上下文连续",
     "contextCompact": "上下文管理",
     "contextCompactDesc": "自动压缩对话上下文，防止超出模型上下文窗口限制",
     "contextCompactEnabled": "启用上下文自动压缩",

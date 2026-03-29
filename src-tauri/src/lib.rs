@@ -788,6 +788,8 @@ pub fn run() {
             // Temperature
             commands::config::get_global_temperature,
             commands::config::set_global_temperature,
+            commands::config::get_plan_subagent,
+            commands::config::set_plan_subagent,
             // Shortcuts
             commands::config::get_shortcut_config,
             commands::config::save_shortcut_config,

@@ -14,15 +14,20 @@ interface ChatConfig {
 export default function ChatSettingsPanel() {
   const { t } = useTranslation()
   const [config, setConfig] = useState<ChatConfig>({ autoSendPending: true, autoExpandThinking: true })
+  const [planSubagent, setPlanSubagent] = useState(false)
   const [loaded, setLoaded] = useState(false)
 
   useEffect(() => {
-    invoke<{ autoSendPending?: boolean; autoExpandThinking?: boolean }>("get_user_config")
-      .then((cfg) => {
+    Promise.all([
+      invoke<{ autoSendPending?: boolean; autoExpandThinking?: boolean }>("get_user_config"),
+      invoke<boolean>("get_plan_subagent"),
+    ])
+      .then(([cfg, subagent]) => {
         setConfig({
           autoSendPending: cfg.autoSendPending !== false,
           autoExpandThinking: cfg.autoExpandThinking !== false,
         })
+        setPlanSubagent(subagent)
         setLoaded(true)
       })
       .catch((e: unknown) => logger.error("settings", "ChatSettingsPanel::load", "Failed to load config", e))
@@ -72,6 +77,38 @@ export default function ChatSettingsPanel() {
           <Switch
             checked={config.autoExpandThinking}
             onCheckedChange={() => toggle("autoExpandThinking")}
+          />
+        </div>
+
+        {/* Plan Mode 子 Agent 开关 */}
+        <div
+          className="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-secondary/40 transition-colors cursor-pointer"
+          onClick={async () => {
+            const next = !planSubagent
+            setPlanSubagent(next)
+            try {
+              await invoke("set_plan_subagent", { enabled: next })
+            } catch (e) {
+              logger.error("settings", "ChatSettingsPanel::planSubagent", "Failed to save", e)
+              setPlanSubagent(!next)
+            }
+          }}
+        >
+          <div className="space-y-0.5">
+            <div className="text-sm font-medium">{t("settings.planSubagent")}</div>
+            <div className="text-xs text-muted-foreground">{t("settings.planSubagentDesc")}</div>
+          </div>
+          <Switch
+            checked={planSubagent}
+            onCheckedChange={async (checked) => {
+              setPlanSubagent(checked)
+              try {
+                await invoke("set_plan_subagent", { enabled: checked })
+              } catch (e) {
+                logger.error("settings", "ChatSettingsPanel::planSubagent", "Failed to save", e)
+                setPlanSubagent(!checked)
+              }
+            }}
           />
         </div>
 

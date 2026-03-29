@@ -411,3 +411,16 @@ pub async fn set_global_temperature(temperature: Option<f64>) -> Result<(), Stri
     store.temperature = temperature;
     provider::save_store(&store).map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub async fn get_plan_subagent() -> Result<bool, String> {
+    let store = provider::load_store().map_err(|e| e.to_string())?;
+    Ok(store.plan_subagent)
+}
+
+#[tauri::command]
+pub async fn set_plan_subagent(enabled: bool) -> Result<(), String> {
+    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    store.plan_subagent = enabled;
+    provider::save_store(&store).map_err(|e| e.to_string())
+}
