@@ -91,6 +91,38 @@ pub fn build_summarization_prompt(
 
     // Serialize messages in a readable format
     for msg in messages_to_summarize {
+        let msg_type = msg.get("type").and_then(|t| t.as_str()).unwrap_or("");
+
+        // Skip encrypted reasoning items (not human-readable)
+        if msg_type == "reasoning" {
+            continue;
+        }
+
+        // Responses API function_call → readable tool call
+        if msg_type == "function_call" {
+            let name = msg.get("name").and_then(|n| n.as_str()).unwrap_or("unknown");
+            let args = msg.get("arguments").and_then(|a| a.as_str()).unwrap_or("{}");
+            let args_preview = if args.len() > 200 {
+                format!("{}...", crate::truncate_utf8(args, 200))
+            } else {
+                args.to_string()
+            };
+            prompt.push_str(&format!("[tool_call]: {}({})\n", name, args_preview));
+            continue;
+        }
+
+        // Responses API function_call_output → readable tool result
+        if msg_type == "function_call_output" {
+            let output = msg.get("output").and_then(|o| o.as_str()).unwrap_or("");
+            let preview = if output.len() > 500 {
+                format!("{}... [{}+ chars]", crate::truncate_utf8(output, 500), output.len())
+            } else {
+                output.to_string()
+            };
+            prompt.push_str(&format!("[tool_result]: {}\n", preview));
+            continue;
+        }
+
         let role = msg
             .get("role")
             .and_then(|r| r.as_str())
@@ -105,8 +137,55 @@ pub fn build_summarization_prompt(
                 };
                 prompt.push_str(&format!("[tool_result]: {}\n", preview));
             }
+        } else if msg_type == "message" {
+            // OpenAI Responses API message format
+            if let Some(parts) = msg.get("content").and_then(|c| c.as_array()) {
+                for part in parts {
+                    if part.get("type").and_then(|t| t.as_str()) == Some("output_text") {
+                        if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
+                            prompt.push_str(&format!("[{}]: {}\n", role, text));
+                        }
+                    }
+                }
+            }
         } else if let Some(content) = msg.get("content").and_then(|c| c.as_str()) {
+            // Simple string content (Chat Completions / Anthropic simple format)
             prompt.push_str(&format!("[{}]: {}\n", role, content));
+        } else if let Some(content_arr) = msg.get("content").and_then(|c| c.as_array()) {
+            // Array content (Anthropic format with thinking + text blocks)
+            for block in content_arr {
+                let block_type = block.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                match block_type {
+                    "text" => {
+                        if let Some(text) = block.get("text").and_then(|t| t.as_str()) {
+                            prompt.push_str(&format!("[{}]: {}\n", role, text));
+                        }
+                    }
+                    "thinking" => {
+                        if let Some(thinking) = block.get("thinking").and_then(|t| t.as_str()) {
+                            let preview = if thinking.len() > 300 {
+                                format!("{}...", crate::truncate_utf8(thinking, 300))
+                            } else {
+                                thinking.to_string()
+                            };
+                            prompt.push_str(&format!("[{}/thinking]: {}\n", role, preview));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // Chat Completions reasoning_content field
+        if let Some(reasoning) = msg.get("reasoning_content").and_then(|r| r.as_str()) {
+            if !reasoning.is_empty() {
+                let preview = if reasoning.len() > 300 {
+                    format!("{}...", crate::truncate_utf8(reasoning, 300))
+                } else {
+                    reasoning.to_string()
+                };
+                prompt.push_str(&format!("[{}/thinking]: {}\n", role, preview));
+            }
         }
     }
 

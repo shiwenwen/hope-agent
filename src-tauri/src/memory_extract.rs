@@ -352,18 +352,23 @@ fn extract_json_array(text: &str) -> Option<String> {
 }
 
 fn extract_text_content(msg: &Value) -> Option<String> {
-    // Handle string content
+    // Skip OpenAI Responses API reasoning items (encrypted, no readable text)
+    if msg.get("type").and_then(|t| t.as_str()) == Some("reasoning") {
+        return None;
+    }
+    // Handle string content (Chat Completions / simple Anthropic)
     if let Some(s) = msg.get("content").and_then(|v| v.as_str()) {
         return Some(s.to_string());
     }
-    // Handle array content (Anthropic format)
+    // Handle array content (Anthropic format / Responses API message format)
     if let Some(arr) = msg.get("content").and_then(|v| v.as_array()) {
         let texts: Vec<&str> = arr.iter()
             .filter_map(|block| {
-                if block.get("type").and_then(|t| t.as_str()) == Some("text") {
-                    block.get("text").and_then(|t| t.as_str())
-                } else {
-                    None
+                let block_type = block.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                match block_type {
+                    "text" => block.get("text").and_then(|t| t.as_str()),
+                    "output_text" => block.get("text").and_then(|t| t.as_str()),
+                    _ => None,
                 }
             })
             .collect();

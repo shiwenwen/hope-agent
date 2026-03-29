@@ -46,13 +46,15 @@ impl AssistantAgent {
             });
         }
 
-        let mut messages = self.conversation_history.lock().unwrap().clone();
+        // Normalize history in case previous turns were from a different provider (failover / model switch)
+        let mut messages = Self::normalize_history_for_chat(&self.conversation_history.lock().unwrap());
         let user_content = build_user_content_openai_chat(message, attachments);
         Self::push_user_message(&mut messages, user_content);
 
         let api_url = build_api_url(base_url, "/v1/chat/completions");
         let mut collected_text = String::new();
         let mut collected_thinking = String::new();
+        let mut last_round_thinking = String::new();
         let mut total_usage = ChatUsage::default();
         let mut first_ttft_ms: Option<u64> = None;
         let system_prompt = self.build_full_system_prompt(model, "OpenAIChat");
@@ -189,6 +191,7 @@ impl AssistantAgent {
             }
             collected_text.push_str(&text);
             collected_thinking.push_str(&thinking);
+            last_round_thinking = thinking.clone();
             total_usage.input_tokens += round_usage.input_tokens;
             total_usage.output_tokens += round_usage.output_tokens;
             total_usage.cache_creation_input_tokens += round_usage.cache_creation_input_tokens;
@@ -226,6 +229,9 @@ impl AssistantAgent {
             let mut assistant_msg = json!({ "role": "assistant" });
             if !text.is_empty() {
                 assistant_msg["content"] = json!(text);
+            }
+            if !thinking.is_empty() {
+                assistant_msg["reasoning_content"] = json!(thinking);
             }
             assistant_msg["tool_calls"] = json!(tc_json);
             messages.push(assistant_msg);
@@ -322,7 +328,11 @@ impl AssistantAgent {
         }
 
         if !collected_text.is_empty() {
-            messages.push(json!({ "role": "assistant", "content": collected_text }));
+            let mut final_msg = json!({ "role": "assistant", "content": collected_text });
+            if !last_round_thinking.is_empty() {
+                final_msg["reasoning_content"] = json!(last_round_thinking);
+            }
+            messages.push(final_msg);
         }
         *self.conversation_history.lock().unwrap() = messages;
 

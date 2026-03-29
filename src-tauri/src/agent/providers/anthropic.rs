@@ -47,12 +47,14 @@ impl AssistantAgent {
         }
 
         // Build messages from conversation history + new user message (with optional image attachments)
-        let mut messages = self.conversation_history.lock().unwrap().clone();
+        // Normalize history in case previous turns were from a different provider (failover / model switch)
+        let mut messages = Self::normalize_history_for_anthropic(&self.conversation_history.lock().unwrap());
         let user_content = build_user_content_anthropic(message, attachments);
         Self::push_user_message(&mut messages, user_content);
 
         let mut collected_text = String::new();
         let mut collected_thinking = String::new();
+        let mut last_round_thinking = String::new();
         let mut total_usage = ChatUsage::default();
         let mut first_ttft_ms: Option<u64> = None;
 
@@ -200,6 +202,7 @@ impl AssistantAgent {
             }
             collected_text.push_str(&text);
             collected_thinking.push_str(&thinking);
+            last_round_thinking = thinking.clone();
             total_usage.input_tokens += round_usage.input_tokens;
             total_usage.output_tokens += round_usage.output_tokens;
             total_usage.cache_creation_input_tokens += round_usage.cache_creation_input_tokens;
@@ -212,6 +215,10 @@ impl AssistantAgent {
 
             // Build assistant message with all content blocks
             let mut assistant_content: Vec<serde_json::Value> = Vec::new();
+            // Thinking blocks must come before text blocks per Anthropic API spec
+            if !thinking.is_empty() {
+                assistant_content.push(json!({ "type": "thinking", "thinking": thinking }));
+            }
             if !text.is_empty() {
                 assistant_content.push(json!({ "type": "text", "text": text }));
             }
@@ -333,9 +340,18 @@ impl AssistantAgent {
             return Err(anyhow::anyhow!("No content received from Anthropic API"));
         }
 
-        // Persist conversation history (including partial response if cancelled)
-        if !collected_text.is_empty() {
-            messages.push(json!({ "role": "assistant", "content": collected_text }));
+        // Persist conversation history with thinking blocks for multi-turn reasoning continuity
+        {
+            let mut final_content: Vec<serde_json::Value> = Vec::new();
+            if !last_round_thinking.is_empty() {
+                final_content.push(json!({ "type": "thinking", "thinking": last_round_thinking }));
+            }
+            if !collected_text.is_empty() {
+                final_content.push(json!({ "type": "text", "text": collected_text }));
+            }
+            if !final_content.is_empty() {
+                messages.push(json!({ "role": "assistant", "content": final_content }));
+            }
         }
         *self.conversation_history.lock().unwrap() = messages;
 

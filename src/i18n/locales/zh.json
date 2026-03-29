@@ -473,11 +473,15 @@
     "webFetchSsrfDesc": "阻止对私有/内部网络地址的请求",
     "webFetchSaved": "已保存",
     "imageGenerate": "图片生成",
-    "imageGenerateDesc": "配置 AI 图片生成服务商（OpenAI、Google、Fal），启用后 Agent 可通过 image_generate 工具生成图片。",
+    "imageGenerateDesc": "配置 AI 图片生成服务商（OpenAI、Google、Fal、MiniMax、硅基流动、智谱、通义万相），启用后 Agent 可通过 image_generate 工具生成和编辑图片。",
     "imageGenProviders": "服务商",
     "imageGenProviderOpenAI": "OpenAI (DALL-E / gpt-image-1)",
     "imageGenProviderGoogle": "Google (Gemini)",
     "imageGenProviderFal": "Fal (Flux)",
+    "imageGenProviderMiniMax": "MiniMax（Image-01）",
+    "imageGenProviderSiliconFlow": "硅基流动（Qwen-Image / Kolors）",
+    "imageGenProviderZhipu": "智谱（CogView-4）",
+    "imageGenProviderTongyi": "通义万相（wanx-v1）",
     "imageGenApiKey": "API Key",
     "imageGenBaseUrl": "Base URL（可选）",
     "imageGenModel": "模型（可选）",
@@ -1084,7 +1088,7 @@
     },
     "minimax": {
       "name": "MiniMax",
-      "description": "MiniMax M2 系列 (Anthropic 兼容)"
+      "description": "MiniMax M2 系列模型 (Anthropic 兼容)"
     },
     "kimi-coding": {
       "name": "Kimi Coding",
@@ -1121,6 +1125,26 @@
     "lm-studio": {
       "name": "LM Studio",
       "description": "桌面端本地模型推理"
+    },
+    "huggingface": {
+      "name": "Hugging Face",
+      "description": "HF Inference API 开源模型推理"
+    },
+    "byteplus": {
+      "name": "BytePlus (海外火山)",
+      "description": "BytePlus AI 国际版大模型平台"
+    },
+    "chutes": {
+      "name": "Chutes (TEE)",
+      "description": "TEE 可信执行环境 AI 推理"
+    },
+    "cloudflare-ai": {
+      "name": "Cloudflare AI Gateway",
+      "description": "Cloudflare AI 网关代理"
+    },
+    "litellm": {
+      "name": "LiteLLM",
+      "description": "统一 LLM API 代理网关"
     }
   },
   "slashCommands": {

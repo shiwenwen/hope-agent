@@ -473,11 +473,15 @@
     "webFetchSsrfDesc": "Block requests to private/internal network addresses",
     "webFetchSaved": "Saved",
     "imageGenerate": "Image Generation",
-    "imageGenerateDesc": "Configure AI image generation providers (OpenAI, Google, Fal). Once enabled, Agent can generate images via the image_generate tool.",
+    "imageGenerateDesc": "Configure AI image generation providers (OpenAI, Google, Fal, MiniMax, SiliconFlow, ZhipuAI, Tongyi). Once enabled, Agent can generate and edit images via the image_generate tool.",
     "imageGenProviders": "Providers",
     "imageGenProviderOpenAI": "OpenAI (DALL-E / gpt-image-1)",
     "imageGenProviderGoogle": "Google (Gemini)",
     "imageGenProviderFal": "Fal (Flux)",
+    "imageGenProviderMiniMax": "MiniMax (Image-01)",
+    "imageGenProviderSiliconFlow": "SiliconFlow (Qwen-Image / Kolors)",
+    "imageGenProviderZhipu": "ZhipuAI (CogView-4)",
+    "imageGenProviderTongyi": "Tongyi Wanxiang (wanx-v1)",
     "imageGenApiKey": "API Key",
     "imageGenBaseUrl": "Base URL (optional)",
     "imageGenModel": "Model (optional)",
@@ -1084,7 +1088,7 @@
     },
     "minimax": {
       "name": "MiniMax",
-      "description": "MiniMax M2 series (Anthropic compatible)"
+      "description": "MiniMax M2 series models (Anthropic compatible)"
     },
     "kimi-coding": {
       "name": "Kimi Coding",
@@ -1121,6 +1125,26 @@
     "lm-studio": {
       "name": "LM Studio",
       "description": "Desktop local model inference"
+    },
+    "huggingface": {
+      "name": "Hugging Face",
+      "description": "HF Inference API for open-source models"
+    },
+    "byteplus": {
+      "name": "BytePlus",
+      "description": "BytePlus AI international model platform"
+    },
+    "chutes": {
+      "name": "Chutes (TEE)",
+      "description": "Trusted Execution Environment AI inference"
+    },
+    "cloudflare-ai": {
+      "name": "Cloudflare AI Gateway",
+      "description": "Cloudflare AI gateway proxy"
+    },
+    "litellm": {
+      "name": "LiteLLM",
+      "description": "Unified LLM API proxy gateway"
     }
   },
   "slashCommands": {

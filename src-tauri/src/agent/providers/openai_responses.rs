@@ -48,9 +48,10 @@ impl AssistantAgent {
 
         let reasoning = reasoning_effort
             .and_then(|e| clamp_reasoning_effort(model, e))
-            .map(|effort| ReasoningConfig { effort, summary: "auto".to_string() });
+            .map(|effort| ReasoningConfig { effort, summary: Some("auto".to_string()) });
 
-        let mut input: Vec<serde_json::Value> = self.conversation_history.lock().unwrap().clone();
+        // Normalize history in case previous turns were from a different provider (failover / model switch)
+        let mut input = Self::normalize_history_for_responses(&self.conversation_history.lock().unwrap());
         let user_content = build_user_content_responses(message, attachments);
         Self::push_user_message(&mut input, user_content);
 
@@ -84,7 +85,8 @@ impl AssistantAgent {
                 stream: true,
                 instructions: system_prompt.clone(),
                 input: input.clone(),
-                reasoning: reasoning.as_ref().map(|r| ReasoningConfig { effort: r.effort.clone(), summary: "auto".to_string() }),
+                reasoning: reasoning.as_ref().map(|r| ReasoningConfig { effort: r.effort.clone(), summary: Some("auto".to_string()) }),
+                include: if reasoning.is_some() { Some(vec!["reasoning.encrypted_content".to_string()]) } else { None },
                 tools: Some(tool_schemas.clone()),
             };
 
@@ -175,7 +177,7 @@ impl AssistantAgent {
                 return Err(anyhow::anyhow!("OpenAI Responses API error ({}): {}", status, error_text));
             }
 
-            let (text, tool_calls, round_usage, thinking, round_ttft) = self.parse_openai_sse(resp, request_start, cancel, on_delta).await?;
+            let (text, tool_calls, round_usage, thinking, round_ttft, round_reasoning_items) = self.parse_openai_sse(resp, request_start, cancel, on_delta).await?;
             if first_ttft_ms.is_none() {
                 first_ttft_ms = round_ttft;
             }
@@ -187,7 +189,16 @@ impl AssistantAgent {
             total_usage.cache_read_input_tokens += round_usage.cache_read_input_tokens;
 
             if tool_calls.is_empty() {
+                // Last round: save reasoning items for final history
+                for ri in &round_reasoning_items {
+                    input.push(ri.clone());
+                }
                 break;
+            }
+
+            // Push reasoning items from this round (before function_call items)
+            for ri in &round_reasoning_items {
+                input.push(ri.clone());
             }
 
             // Log tool loop progress
@@ -306,7 +317,12 @@ impl AssistantAgent {
         }
 
         if !collected_text.is_empty() {
-            input.push(json!({ "role": "assistant", "content": collected_text }));
+            input.push(json!({
+                "type": "message",
+                "role": "assistant",
+                "content": [{ "type": "output_text", "text": collected_text }],
+                "status": "completed"
+            }));
         }
         *self.conversation_history.lock().unwrap() = input;
 
@@ -339,7 +355,7 @@ impl AssistantAgent {
         Ok((collected_text, thinking_result))
     }
 
-    /// Parse OpenAI SSE stream. Returns (collected_text, tool_calls, usage, thinking, ttft_ms)
+    /// Parse OpenAI SSE stream. Returns (collected_text, tool_calls, usage, thinking, ttft_ms, reasoning_items)
     /// Shared by both OpenAI Responses API and Codex providers.
     pub(crate) async fn parse_openai_sse(
         &self,
@@ -347,7 +363,7 @@ impl AssistantAgent {
         request_start: std::time::Instant,
         cancel: &Arc<AtomicBool>,
         on_delta: &(impl Fn(&str) + Send),
-    ) -> Result<(String, Vec<FunctionCallItem>, ChatUsage, String, Option<u64>)> {
+    ) -> Result<(String, Vec<FunctionCallItem>, ChatUsage, String, Option<u64>, Vec<serde_json::Value>)> {
         use futures_util::StreamExt;
 
         let mut collected_text = String::new();
@@ -356,6 +372,7 @@ impl AssistantAgent {
         let mut pending_calls: std::collections::HashMap<String, FunctionCallItem> = std::collections::HashMap::new();
         let mut usage = ChatUsage::default();
         let mut first_token_time: Option<u64> = None;
+        let mut reasoning_items: Vec<serde_json::Value> = Vec::new();
 
         let mut stream = resp.bytes_stream();
         let mut buffer = String::new();
@@ -399,6 +416,12 @@ impl AssistantAgent {
                                 emit_thinking_delta(on_delta, delta);
                                 collected_thinking.push_str(delta);
                             }
+                        }
+
+                        // Reasoning summary part done — add paragraph separator (align with OpenClaw)
+                        "response.reasoning_summary_part.done" => {
+                            collected_thinking.push_str("\n\n");
+                            emit_thinking_delta(on_delta, "\n\n");
                         }
 
                         // Text deltas
@@ -468,6 +491,15 @@ impl AssistantAgent {
                                             tc.name = item.name.clone().unwrap_or_default();
                                         }
                                         tool_calls.push(tc);
+                                    }
+                                }
+                                // Capture complete reasoning items for roundtrip
+                                // Lazy raw parse only for reasoning items (preserves encrypted_content)
+                                if item.item_type.as_deref() == Some("reasoning") {
+                                    if let Ok(raw) = serde_json::from_str::<serde_json::Value>(&data) {
+                                        if let Some(raw_item) = raw.get("item") {
+                                            reasoning_items.push(raw_item.clone());
+                                        }
                                     }
                                 }
                             }
@@ -581,6 +613,6 @@ impl AssistantAgent {
                 None, None);
         }
 
-        Ok((collected_text, tool_calls, usage, collected_thinking, first_token_time))
+        Ok((collected_text, tool_calls, usage, collected_thinking, first_token_time, reasoning_items))
     }
 }

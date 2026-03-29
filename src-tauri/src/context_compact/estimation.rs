@@ -31,13 +31,18 @@ pub fn estimate_message_chars(msg: &Value) -> usize {
                 .map(|block| {
                     if let Some(t) = block.get("type").and_then(|t| t.as_str()) {
                         match t {
-                            "text" | "tool_result" => block
+                            "text" | "output_text" | "tool_result" => block
                                 .get("text")
                                 .or_else(|| block.get("content"))
                                 .and_then(|v| v.as_str())
                                 .map(|s| s.len())
                                 .unwrap_or(128),
-                            "image" | "image_url" => IMAGE_CHAR_ESTIMATE,
+                            "thinking" => block
+                                .get("thinking")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.len())
+                                .unwrap_or(128),
+                            "image" | "image_url" | "input_image" => IMAGE_CHAR_ESTIMATE,
                             _ => 128,
                         }
                     } else {

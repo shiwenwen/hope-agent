@@ -311,6 +311,180 @@ impl AssistantAgent {
         }
     }
 
+    /// Normalize conversation history for Anthropic Messages API.
+    /// Converts foreign format items (Responses API / Chat Completions) to Anthropic format.
+    pub(super) fn normalize_history_for_anthropic(history: &[serde_json::Value]) -> Vec<serde_json::Value> {
+        let mut result = Vec::new();
+        for item in history {
+            let item_type = item.get("type").and_then(|t| t.as_str()).unwrap_or("");
+            match item_type {
+                // Skip OpenAI Responses reasoning items (encrypted, Anthropic can't use them)
+                "reasoning" => continue,
+                // Skip Responses API tool items (Anthropic uses tool_use/tool_result)
+                "function_call" | "function_call_output" => continue,
+                // Convert Responses API message format to Anthropic format
+                "message" => {
+                    let role = item.get("role").and_then(|r| r.as_str()).unwrap_or("assistant");
+                    if let Some(parts) = item.get("content").and_then(|c| c.as_array()) {
+                        let text: String = parts.iter()
+                            .filter(|p| p.get("type").and_then(|t| t.as_str()) == Some("output_text"))
+                            .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
+                            .collect::<Vec<_>>()
+                            .join("");
+                        if !text.is_empty() {
+                            result.push(json!({ "role": role, "content": text }));
+                        }
+                    }
+                }
+                _ => {
+                    // Standard role-based messages — pass through, but strip reasoning_content
+                    let mut msg = item.clone();
+                    if msg.get("reasoning_content").is_some() {
+                        // Convert Chat API reasoning_content to Anthropic thinking block
+                        if let Some(reasoning) = msg.get("reasoning_content").and_then(|r| r.as_str()) {
+                            if !reasoning.is_empty() {
+                                if let Some(content) = msg.get("content").and_then(|c| c.as_str()) {
+                                    // Convert string content + reasoning to content array with thinking block
+                                    msg["content"] = json!([
+                                        { "type": "thinking", "thinking": reasoning },
+                                        { "type": "text", "text": content }
+                                    ]);
+                                }
+                            }
+                        }
+                        msg.as_object_mut().map(|o| o.remove("reasoning_content"));
+                    }
+                    result.push(msg);
+                }
+            }
+        }
+        result
+    }
+
+    /// Normalize conversation history for OpenAI Chat Completions API.
+    /// Converts foreign format items (Responses API / Anthropic) to Chat format.
+    pub(super) fn normalize_history_for_chat(history: &[serde_json::Value]) -> Vec<serde_json::Value> {
+        let mut result = Vec::new();
+        for item in history {
+            let item_type = item.get("type").and_then(|t| t.as_str()).unwrap_or("");
+            match item_type {
+                // Skip OpenAI Responses reasoning items
+                "reasoning" => continue,
+                // Skip Responses API tool items (Chat uses tool_calls array)
+                "function_call" | "function_call_output" => continue,
+                // Convert Responses API message format to Chat format
+                "message" => {
+                    let role = item.get("role").and_then(|r| r.as_str()).unwrap_or("assistant");
+                    if let Some(parts) = item.get("content").and_then(|c| c.as_array()) {
+                        let text: String = parts.iter()
+                            .filter(|p| p.get("type").and_then(|t| t.as_str()) == Some("output_text"))
+                            .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
+                            .collect::<Vec<_>>()
+                            .join("");
+                        if !text.is_empty() {
+                            result.push(json!({ "role": role, "content": text }));
+                        }
+                    }
+                }
+                _ => {
+                    // Standard role-based messages — handle Anthropic content arrays
+                    if let Some(content_arr) = item.get("content").and_then(|c| c.as_array()) {
+                        // Anthropic format: content is array of blocks
+                        let has_tool_use = content_arr.iter().any(|b|
+                            b.get("type").and_then(|t| t.as_str()) == Some("tool_use")
+                        );
+                        if has_tool_use {
+                            // Pass through Anthropic tool messages as-is (already role-based)
+                            result.push(item.clone());
+                        } else {
+                            // Extract text and thinking from Anthropic content blocks
+                            let mut thinking = String::new();
+                            let mut text = String::new();
+                            for block in content_arr {
+                                let block_type = block.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                                match block_type {
+                                    "thinking" => {
+                                        if let Some(t) = block.get("thinking").and_then(|t| t.as_str()) {
+                                            thinking.push_str(t);
+                                        }
+                                    }
+                                    "text" => {
+                                        if let Some(t) = block.get("text").and_then(|t| t.as_str()) {
+                                            text.push_str(t);
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            let role = item.get("role").and_then(|r| r.as_str()).unwrap_or("assistant");
+                            if !text.is_empty() || !thinking.is_empty() {
+                                let content = if text.is_empty() { &thinking } else { &text };
+                                let mut msg = json!({ "role": role, "content": content });
+                                if !thinking.is_empty() && !text.is_empty() {
+                                    msg["reasoning_content"] = json!(&thinking);
+                                }
+                                result.push(msg);
+                            }
+                        }
+                    } else {
+                        // String content or other — pass through
+                        result.push(item.clone());
+                    }
+                }
+            }
+        }
+        result
+    }
+
+    /// Normalize conversation history for OpenAI Responses API.
+    /// Converts foreign format items (Anthropic / Chat) to Responses input format.
+    /// The Responses API is flexible and accepts both `{ "role": "...", "content": "..." }`
+    /// and `{ "type": "message", ... }` formats, so we mainly need to strip incompatible items.
+    pub(super) fn normalize_history_for_responses(history: &[serde_json::Value]) -> Vec<serde_json::Value> {
+        let mut result = Vec::new();
+        for item in history {
+            let item_type = item.get("type").and_then(|t| t.as_str()).unwrap_or("");
+            match item_type {
+                // Native Responses API items — pass through
+                "reasoning" | "message" | "function_call" | "function_call_output" => {
+                    result.push(item.clone());
+                }
+                _ => {
+                    // Role-based messages (from Anthropic/Chat)
+                    if let Some(content_arr) = item.get("content").and_then(|c| c.as_array()) {
+                        // Anthropic format: extract text from content blocks, skip thinking/tool blocks
+                        let has_tool_use = content_arr.iter().any(|b|
+                            b.get("type").and_then(|t| t.as_str()) == Some("tool_use")
+                        );
+                        let has_tool_result = content_arr.iter().any(|b|
+                            b.get("type").and_then(|t| t.as_str()) == Some("tool_result")
+                        );
+                        if has_tool_use || has_tool_result {
+                            // Skip Anthropic tool messages (Responses API uses function_call format)
+                            continue;
+                        }
+                        let text: String = content_arr.iter()
+                            .filter(|b| b.get("type").and_then(|t| t.as_str()) == Some("text"))
+                            .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
+                            .collect::<Vec<_>>()
+                            .join("");
+                        let role = item.get("role").and_then(|r| r.as_str()).unwrap_or("assistant");
+                        if !text.is_empty() {
+                            result.push(json!({ "role": role, "content": text }));
+                        }
+                    } else {
+                        // String content or tool role messages — pass through (Responses accepts them)
+                        let mut msg = item.clone();
+                        // Strip reasoning_content (not part of Responses API)
+                        msg.as_object_mut().map(|o| o.remove("reasoning_content"));
+                        result.push(msg);
+                    }
+                }
+            }
+        }
+        result
+    }
+
     /// Push a user message, merging with the last message if it's also a user message.
     /// This avoids consecutive user messages which Anthropic API rejects.
     pub(super) fn push_user_message(messages: &mut Vec<serde_json::Value>, new_content: serde_json::Value) {

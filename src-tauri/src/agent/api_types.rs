@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize)]
 pub(super) struct ReasoningConfig {
     pub effort: String,
-    pub summary: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -17,6 +18,8 @@ pub(super) struct ResponsesRequest {
     pub input: Vec<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning: Option<ReasoningConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub include: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<serde_json::Value>>,
 }

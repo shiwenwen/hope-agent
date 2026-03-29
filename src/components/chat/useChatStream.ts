@@ -497,6 +497,50 @@ export function useChatStream({
             return
           }
 
+          // Flush pending thinking/text buffer before tool_call to preserve display order
+          if (event.type === "tool_call") {
+            if (deltaFlushRafRef.current !== null) {
+              cancelAnimationFrame(deltaFlushRafRef.current)
+              deltaFlushRafRef.current = null
+            }
+            const buf = deltaBufferRef.current
+            const textChunk = buf.text
+            const thinkingChunk = buf.thinking
+            buf.text = ""
+            buf.thinking = ""
+            if (textChunk || thinkingChunk) {
+              updateSessionMessages(sid, (prev) => {
+                const updated = [...prev]
+                const last = updated[updated.length - 1]
+                if (!last || last.role !== "assistant") return updated
+                const blocks: ContentBlock[] = [...(last.contentBlocks || [])]
+                if (thinkingChunk) {
+                  const lastBlock = blocks[blocks.length - 1]
+                  if (lastBlock && lastBlock.type === "thinking") {
+                    blocks[blocks.length - 1] = { type: "thinking", content: lastBlock.content + thinkingChunk }
+                  } else {
+                    blocks.push({ type: "thinking", content: thinkingChunk })
+                  }
+                }
+                if (textChunk) {
+                  const lastBlock = blocks[blocks.length - 1]
+                  if (lastBlock && lastBlock.type === "text") {
+                    blocks[blocks.length - 1] = { type: "text", content: lastBlock.content + textChunk }
+                  } else {
+                    blocks.push({ type: "text", content: textChunk })
+                  }
+                }
+                updated[updated.length - 1] = {
+                  ...last,
+                  contentBlocks: blocks,
+                  ...(textChunk ? { content: last.content + textChunk } : {}),
+                  ...(thinkingChunk ? { thinking: (last.thinking || "") + thinkingChunk } : {}),
+                }
+                return updated
+              })
+            }
+          }
+
           updateSessionMessages(sid, (prev) => {
             const updated = [...prev]
             const last = updated[updated.length - 1]

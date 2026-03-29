@@ -43,10 +43,11 @@ impl AssistantAgent {
         // Build reasoning config with clamping
         let reasoning = reasoning_effort
             .and_then(|e| clamp_reasoning_effort(model, e))
-            .map(|effort| ReasoningConfig { effort, summary: "auto".to_string() });
+            .map(|effort| ReasoningConfig { effort, summary: Some("auto".to_string()) });
 
         // Build input from conversation history + new user message (with optional image attachments)
-        let mut input: Vec<serde_json::Value> = self.conversation_history.lock().unwrap().clone();
+        // Normalize history in case previous turns were from a different provider (failover / model switch)
+        let mut input = Self::normalize_history_for_responses(&self.conversation_history.lock().unwrap());
         let user_content = build_user_content_responses(message, attachments);
         Self::push_user_message(&mut input, user_content);
 
@@ -86,7 +87,8 @@ impl AssistantAgent {
                 stream: true,
                 instructions: system_prompt.clone(),
                 input: input.clone(),
-                reasoning: reasoning.as_ref().map(|r| ReasoningConfig { effort: r.effort.clone(), summary: "auto".to_string() }),
+                reasoning: reasoning.as_ref().map(|r| ReasoningConfig { effort: r.effort.clone(), summary: Some("auto".to_string()) }),
+                include: if reasoning.is_some() { Some(vec!["reasoning.encrypted_content".to_string()]) } else { None },
                 tools: Some(tool_schemas.clone()),
             };
 
@@ -223,7 +225,7 @@ impl AssistantAgent {
             })?;
 
             // Parse SSE stream
-            let (text, tool_calls, round_usage, thinking, round_ttft) = self.parse_openai_sse(resp, request_start, cancel, on_delta).await?;
+            let (text, tool_calls, round_usage, thinking, round_ttft, round_reasoning_items) = self.parse_openai_sse(resp, request_start, cancel, on_delta).await?;
             if first_ttft_ms.is_none() {
                 first_ttft_ms = round_ttft;
             }
@@ -236,7 +238,16 @@ impl AssistantAgent {
 
             // If no tool calls, we're done
             if tool_calls.is_empty() {
+                // Last round: save reasoning items for final history
+                for ri in &round_reasoning_items {
+                    input.push(ri.clone());
+                }
                 break;
+            }
+
+            // Push reasoning items from this round (before function_call items)
+            for ri in &round_reasoning_items {
+                input.push(ri.clone());
             }
 
             // Log tool loop progress
@@ -359,9 +370,14 @@ impl AssistantAgent {
             return Err(anyhow::anyhow!("No content received from Codex API"));
         }
 
-        // Persist conversation history
+        // Persist conversation history with proper Responses API format
         if !collected_text.is_empty() {
-            input.push(json!({ "role": "assistant", "content": collected_text }));
+            input.push(json!({
+                "type": "message",
+                "role": "assistant",
+                "content": [{ "type": "output_text", "text": collected_text }],
+                "status": "completed"
+            }));
         }
         *self.conversation_history.lock().unwrap() = input;
 
