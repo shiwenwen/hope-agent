@@ -233,7 +233,7 @@ export default function ChatInput({
 
           {/* Plan Mode Banner */}
           {planState === "planning" && (
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-500/10 border-b border-blue-500/20 text-blue-600 dark:text-blue-400 text-xs animate-in fade-in slide-in-from-top-1 duration-200">
+            <div className={`flex items-center gap-2 px-3 py-1.5 bg-blue-500/10 border-b border-blue-500/20 text-blue-600 dark:text-blue-400 text-xs animate-in fade-in slide-in-from-top-1 duration-200${attachedFiles.length === 0 && !(loading && pendingMessage) ? " rounded-t-2xl" : ""}`}>
               <ClipboardList className="h-3.5 w-3.5 shrink-0" />
               <span className="flex-1">{t("planMode.restricted")}</span>
               <button onClick={onExitPlanMode} className="hover:text-blue-800 dark:hover:text-blue-200 transition-colors">
