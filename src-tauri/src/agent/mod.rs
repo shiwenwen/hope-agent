@@ -255,6 +255,29 @@ impl AssistantAgent {
         if self.canvas_enabled {
             prompt.push_str("\n\n# Canvas\n\nYou have a `canvas` tool for creating interactive visual content rendered in a preview panel visible to the user.\n\n## Content Types\n- **html**: Full HTML/CSS/JS — web apps, games, animations, interactive demos\n- **markdown**: Rich documents with live preview\n- **code**: Syntax-highlighted code with line numbers\n- **svg**: Scalable vector graphics\n- **mermaid**: Diagrams (flowchart, sequence, class, gantt, etc.)\n- **chart**: Data visualizations (Chart.js JSON config in `content` field)\n- **slides**: Presentation slides (HTML `<section>` tags, arrow key navigation)\n\n## Workflow\n1. `canvas(action=\"create\", content_type=\"html\", title=\"...\", html=\"...\", css=\"...\", js=\"...\")` — create project\n2. Content appears in the user's preview panel immediately\n3. `canvas(action=\"snapshot\", project_id=\"...\")` — capture screenshot to verify visual output\n4. `canvas(action=\"update\", project_id=\"...\", html=\"...\")` — iterate based on screenshot feedback\n5. `canvas(action=\"export\", project_id=\"...\", format=\"html\")` — export when done\n\n## Best Practices\n- Always use snapshot after create/update to verify the visual result\n- For complex UIs, build incrementally — skeleton first, then add features\n- Use semantic HTML and responsive CSS\n- For charts, use Chart.js config JSON format in the `content` field\n- For slides, use `<section>` tags to separate slides");
         }
+        // Collect unconfigured capabilities so the model can suggest enabling them
+        let mut unconfigured: Vec<&str> = Vec::new();
+        if !self.web_search_enabled {
+            unconfigured.push("Web Search — Settings → Tools → Web Search");
+        }
+        if !self.notification_enabled {
+            unconfigured.push("Desktop Notifications — Settings → Tools → Notifications");
+        }
+        if self.image_gen_config.is_none() {
+            unconfigured.push("Image Generation — Settings → Tools → Image Generation");
+        }
+        if !self.canvas_enabled {
+            unconfigured.push("Canvas (interactive visual content) — Settings → Tools → Canvas");
+        }
+        if !unconfigured.is_empty() {
+            prompt.push_str("\n\n# Unconfigured Capabilities\n\nThese features are available but not yet enabled. If relevant to the user's request, suggest they enable it:\n");
+            for item in &unconfigured {
+                prompt.push_str("- ");
+                prompt.push_str(item);
+                prompt.push('\n');
+            }
+        }
+
         if let Some(extra) = &self.extra_system_context {
             prompt.push_str("\n\n");
             prompt.push_str(extra);
