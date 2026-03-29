@@ -10,19 +10,22 @@
 
 **`src-tauri/src/provider.rs`**
 
-```
-ApiType (4 种协议)
-├── Anthropic        → /v1/messages
-├── OpenaiChat       → /v1/chat/completions
-├── OpenaiResponses  → /v1/responses
-└── Codex            → ChatGPT OAuth (Responses API 变体)
+```mermaid
+graph LR
+  subgraph ApiType["ApiType (4 种协议)"]
+    A1["Anthropic<br/>/v1/messages"]
+    A2["OpenaiChat<br/>/v1/chat/completions"]
+    A3["OpenaiResponses<br/>/v1/responses"]
+    A4["Codex<br/>ChatGPT OAuth"]
+  end
 
-ThinkingStyle (5 种推理参数格式)
-├── Openai     → reasoning_effort: "low"/"medium"/"high"
-├── Anthropic  → thinking: { type: "enabled", budget_tokens: N }
-├── Zai        → 同 Anthropic（智谱 Z.AI 预留）
-├── Qwen       → enable_thinking: true/false
-└── None       → 不发送推理参数
+  subgraph ThinkingStyle["ThinkingStyle (5 种格式)"]
+    T1["Openai<br/>reasoning_effort"]
+    T2["Anthropic<br/>thinking budget_tokens"]
+    T3["Zai<br/>同 Anthropic"]
+    T4["Qwen<br/>enable_thinking"]
+    T5["None<br/>不发送"]
+  end
 ```
 
 **`ProviderConfig`** — 单个 Provider 的完整配置：
@@ -100,17 +103,13 @@ enum LlmProvider {
 
 **`src-tauri/src/agent/mod.rs`**
 
-```rust
-pub async fn chat(&self, message, attachments, reasoning_effort, cancel, on_delta)
-    -> Result<(String, Option<String>)>
-{
-    match &self.provider {
-        Anthropic { .. }       => self.chat_anthropic(..),
-        OpenAIChat { .. }      => self.chat_openai_chat(..),
-        OpenAIResponses { .. } => self.chat_openai_responses(..),
-        Codex { .. }           => self.chat_openai(..),  // Responses + 重试
-    }
-}
+```mermaid
+flowchart LR
+  chat["agent.chat()"] --> match{match provider}
+  match -->|Anthropic| A["chat_anthropic()"]
+  match -->|OpenAIChat| B["chat_openai_chat()"]
+  match -->|OpenAIResponses| C["chat_openai_responses()"]
+  match -->|Codex| D["chat_openai()<br/>Responses + 重试"]
 ```
 
 ---
@@ -121,34 +120,31 @@ pub async fn chat(&self, message, attachments, reasoning_effort, cancel, on_delt
 
 **`src-tauri/src/commands/chat.rs`**
 
-```
-前端 invoke("chat", { message, attachments, sessionId, agentId, on_event: Channel })
-  │
-  ├─ 1. Session 初始化
-  │    ├─ 新建 or 恢复 session
-  │    └─ 处理附件（图片 base64、文件移动）
-  │
-  ├─ 2. 模型链解析
-  │    ├─ Agent 配置 → primary + fallbacks
-  │    ├─ Plan Mode → 替换 plan_model
-  │    └─ model_override → 用户手动覆盖
-  │
-  ├─ 3. 模型链迭代 (for model in chain)
-  │    ├─ build_agent_for_model() → 创建 Agent 实例
-  │    ├─ restore_agent_context() → 从 DB 恢复 history
-  │    ├─ agent.chat() → 调用 Provider 实现
-  │    │    ├─ normalize_history → 格式转换（跨 Provider 兼容）
-  │    │    ├─ run_compaction → 上下文压缩（Tier 1-3）
-  │    │    ├─ HTTP POST → SSE 流式请求
-  │    │    ├─ parse SSE → 发射事件到前端
-  │    │    └─ Tool Loop → 执行工具 → 回传结果 → 继续
-  │    │
-  │    ├─ 成功 → save_agent_context() → return
-  │    └─ 失败 → classify_error() → retry / fallback / abort
-  │
-  └─ 4. 返回结果
-       ├─ Ok(text) → 前端显示
-       └─ Err(error) → 所有模型失败
+```mermaid
+flowchart TD
+  FE["前端 invoke('chat')"] --> INIT["1. Session 初始化<br/>新建/恢复 session + 处理附件"]
+  INIT --> CHAIN["2. 模型链解析<br/>Agent 配置 → primary + fallbacks"]
+  CHAIN --> LOOP["3. 模型链迭代"]
+
+  LOOP --> BUILD["build_agent_for_model()"]
+  BUILD --> RESTORE["restore_agent_context()<br/>从 DB 恢复 history"]
+  RESTORE --> CHAT["agent.chat()"]
+
+  CHAT --> NORM["normalize_history<br/>跨 Provider 格式转换"]
+  NORM --> COMPACT["run_compaction<br/>上下文压缩 Tier 1-3"]
+  COMPACT --> API["HTTP POST SSE 流式请求"]
+  API --> PARSE["parse SSE → 发射事件到前端"]
+  PARSE --> TOOL{"有 tool_call?"}
+  TOOL -->|是| EXEC["执行工具 → 回传结果"] --> PARSE
+  TOOL -->|否| SAVE["save_agent_context()"]
+
+  SAVE --> OK["返回 Ok(text)"]
+
+  CHAT -->|失败| CLASSIFY["classify_error()"]
+  CLASSIFY -->|retryable| RETRY["指数退避重试"] --> CHAT
+  CLASSIFY -->|overflow| EMERGENCY["紧急压缩"] --> CHAT
+  CLASSIFY -->|terminal| NEXT["跳下一模型"] --> BUILD
+  CLASSIFY -->|全部失败| ERR["返回 Err(error)"]
 ```
 
 ### 3.2 事件流 (Channel\<String\>)
@@ -170,7 +166,7 @@ Provider 通过 `on_delta` 回调实时推送 JSON 事件：
 **`src/components/chat/useChatStream.ts`**
 
 - `text_delta` + `thinking_delta`：缓冲 + `requestAnimationFrame` 批量刷新（60fps）
-- `tool_call` → 创建 ToolCallBlock 组件（pending 状态）
+- `tool_call` → 先同步 flush 缓冲区 → 创建 ToolCallBlock 组件（pending 状态）
 - `tool_result` → 更新 ToolCallBlock（完成/错误状态）
 - `thinking_delta` → ThinkingBlock 组件（可折叠，自动展开配置）
 
@@ -303,24 +299,21 @@ Provider 通过 `on_delta` 回调实时推送 JSON 事件：
 
 **`src-tauri/src/agent/config.rs`**
 
-```
-reasoning_effort 输入值: "none" | "minimal" | "low" | "medium" | "high" | "xhigh"
+```mermaid
+flowchart TD
+  INPUT["reasoning_effort<br/>none | minimal | low | medium | high | xhigh"]
+  INPUT --> CLAMP["clamp_reasoning_effort(model, effort)"]
 
-┌─────────────────────────────────────────────────────────┐
-│ clamp_reasoning_effort(model, effort)                   │
-│   GPT 5.1 mini: minimal/low → medium, xhigh → high     │
-│   GPT 5.1:      minimal → low, xhigh → high            │
-│   其他:          直接传递（无效值 → medium）               │
-└────────────────────────┬────────────────────────────────┘
-                         │
-    ┌────────────────────┼────────────────────┐
-    ▼                    ▼                    ▼
- Openai 风格         Anthropic 风格        Qwen 风格
- reasoning_effort    thinking budget       enable_thinking
- "low"/"medium"/     low→1024             any→true
- "high"              medium→4096          none→false
-                     high→8192
-                     xhigh→16384
+  CLAMP -->|"GPT 5.1 mini"| C1["minimal/low → medium<br/>xhigh → high"]
+  CLAMP -->|"GPT 5.1"| C2["minimal → low<br/>xhigh → high"]
+  CLAMP -->|"其他"| C3["直接传递<br/>无效值 → medium"]
+
+  C1 & C2 & C3 --> STYLE{ThinkingStyle}
+
+  STYLE -->|Openai| S1["reasoning_effort<br/>'low' / 'medium' / 'high'"]
+  STYLE -->|Anthropic / Zai| S2["thinking budget<br/>low→1024 / medium→4096<br/>high→8192 / xhigh→16384"]
+  STYLE -->|Qwen| S3["enable_thinking<br/>any→true / none→false"]
+  STYLE -->|None| S4["不发送参数"]
 ```
 
 ### 5.2 ThinkTagFilter
@@ -329,11 +322,11 @@ reasoning_effort 输入值: "none" | "minimal" | "low" | "medium" | "high" | "xh
 
 有状态的流式解析器，用于从 Chat Completions 响应中提取 `<think>` 标签内的内容：
 
-```
-输入流: "Let me <think>analyze this problem</think>The answer is 42"
-           │                                          │
-           ▼                                          ▼
-       thinking: "analyze this problem"    text: "Let me The answer is 42"
+```mermaid
+flowchart LR
+  INPUT["SSE chunk 流"] --> FILTER["ThinkTagFilter<br/>状态机"]
+  FILTER -->|"标签外"| TEXT["text 输出"]
+  FILTER -->|"标签内"| THINK["thinking 输出"]
 ```
 
 - 支持 `<think>`、`<thinking>`、`<thought>` 标签（大小写不敏感）
@@ -344,26 +337,17 @@ reasoning_effort 输入值: "none" | "minimal" | "low" | "medium" | "high" | "xh
 
 每个 Provider 在 conversation_history 中保存 thinking 内容，确保下一轮对话时模型能看到之前的推理：
 
-```
-┌─────────────────────────────────────────────────────┐
-│ Anthropic                                            │
-│   content: [                                         │
-│     { type: "thinking", thinking: "推理过程" },       │
-│     { type: "text", text: "回复" }                    │
-│   ]                                                  │
-├─────────────────────────────────────────────────────┤
-│ OpenAI Chat                                          │
-│   { role: "assistant",                               │
-│     content: "回复",                                  │
-│     reasoning_content: "推理过程" }                    │
-├─────────────────────────────────────────────────────┤
-│ OpenAI Responses                                     │
-│   { type: "reasoning", id: "rs_xxx",                 │
-│     encrypted_content: "...", summary: [...] }        │
-│   +                                                  │
-│   { type: "message", role: "assistant",              │
-│     content: [{ type: "output_text", text: "回复" }] }│
-└─────────────────────────────────────────────────────┘
+```mermaid
+graph TB
+  subgraph Anthropic
+    A["content: [<br/>  { type: 'thinking', thinking: '推理过程' },<br/>  { type: 'text', text: '回复' }<br/>]"]
+  end
+  subgraph "OpenAI Chat"
+    B["{ role: 'assistant',<br/>  content: '回复',<br/>  reasoning_content: '推理过程' }"]
+  end
+  subgraph "OpenAI Responses"
+    C["{ type: 'reasoning', id: 'rs_xxx',<br/>  encrypted_content: '...', summary: [...] }<br/>+<br/>{ type: 'message', role: 'assistant',<br/>  content: [{ type: 'output_text', text: '回复' }] }"]
+  end
 ```
 
 ---
@@ -377,6 +361,18 @@ reasoning_effort 输入值: "none" | "minimal" | "low" | "medium" | "high" | "xh
 ### 6.2 解决方案
 
 **`src-tauri/src/agent/context.rs`** 中三个标准化函数，每个 Provider 在读取 history 时调用：
+
+```mermaid
+flowchart LR
+  H["conversation_history<br/>(混合格式)"]
+  H --> NA["normalize_for_anthropic()"]
+  H --> NC["normalize_for_chat()"]
+  H --> NR["normalize_for_responses()"]
+
+  NA --> PA["Anthropic API<br/>role + content 数组"]
+  NC --> PC["Chat API<br/>role + string/reasoning_content"]
+  NR --> PR["Responses API<br/>type items + role items"]
+```
 
 **`normalize_history_for_anthropic()`**
 
@@ -426,59 +422,56 @@ let mut input = Self::normalize_history_for_responses(&self.conversation_history
 
 **`src-tauri/src/failover.rs`**
 
-```
-classify_error(error_text) → FailoverReason
+```mermaid
+flowchart TD
+  ERR["classify_error(error_text)"] --> R{FailoverReason}
 
-FailoverReason
-├── RateLimit (429)          → 同模型重试（指数退避）
-├── Overloaded (503/502/521) → 同模型重试
-├── Timeout (网络超时)        → 同模型重试
-├── ContextOverflow          → 触发紧急压缩 → 重试一次
-├── Auth (401/403)           → 跳下一模型
-├── Billing (402)            → 跳下一模型
-├── ModelNotFound (404)      → 跳下一模型
-└── Unknown                  → 跳下一模型
+  R -->|"429"| RL["RateLimit<br/>同模型重试"]
+  R -->|"503/502/521"| OL["Overloaded<br/>同模型重试"]
+  R -->|"网络超时"| TO["Timeout<br/>同模型重试"]
+  R -->|"ContextOverflow"| CO["ContextOverflow<br/>紧急压缩 → 重试"]
+  R -->|"401/403"| AU["Auth<br/>跳下一模型"]
+  R -->|"402"| BI["Billing<br/>跳下一模型"]
+  R -->|"404"| NF["ModelNotFound<br/>跳下一模型"]
+  R -->|"其他"| UK["Unknown<br/>跳下一模型"]
 ```
 
 ### 7.2 模型链解析
 
-```
-Agent 配置 (agent.json)
-  model.primary: "provider_id::model_id"
-  model.fallbacks: ["p2::m2", "p3::m3"]
-  model.planModel: "p4::cheap_model"
-          │
-          ▼
-resolve_model_chain(agent_config, provider_store)
-          │
-          ▼
-最终链: [primary, fallback1, fallback2, ...]
-          │
-   Plan Mode 时: [plan_model, primary, fallback1, ...]
-   model_override: [override, fallback1, fallback2, ...]
+```mermaid
+flowchart TD
+  AGENT["Agent 配置 (agent.json)<br/>primary + fallbacks + planModel"]
+  STORE["Provider Store (config.json)<br/>active_model + fallback_models"]
+
+  AGENT & STORE --> RESOLVE["resolve_model_chain()"]
+  RESOLVE --> CHAIN["模型链: [primary, fallback1, fallback2, ...]"]
+
+  PLAN{"Plan Mode?"} -->|"是"| PLANCHAIN["[plan_model, primary, fallback1, ...]"]
+  PLAN -->|"否"| CHAIN
+  OVERRIDE{"model_override?"} -->|"是"| OVERCHAIN["[override, fallback1, fallback2, ...]"]
+  OVERRIDE -->|"否"| CHAIN
+
+  CHAIN --> ITERATE["for model in chain:<br/>build → restore → chat → save/fallback"]
 ```
 
 ### 7.3 重试策略
 
-```
-for model in chain:
-  retry_count = 0
-  loop:
-    result = agent.chat()
-    if OK → save context → return
+```mermaid
+flowchart TD
+  START["开始模型链迭代"] --> MODEL["取下一个模型"]
+  MODEL --> BUILD["build_agent_for_model()"]
+  BUILD --> CHAT["agent.chat()"]
 
-    reason = classify_error(error)
+  CHAT -->|成功| SAVE["save_agent_context() → return Ok"]
+  CHAT -->|失败| CLASSIFY["classify_error()"]
 
-    if ContextOverflow && retry == 0:
-      emergency_compact() → retry once
+  CLASSIFY -->|ContextOverflow<br/>retry==0| COMPACT["emergency_compact()"] --> CHAT
+  CLASSIFY -->|retryable<br/>retry<2| BACKOFF["sleep(1s × 2^retry)"] --> CHAT
+  CLASSIFY -->|terminal| ABORT["return Err 立即终止"]
+  CLASSIFY -->|其他| NEXT{"还有模型?"}
 
-    if retryable && retry < 2:
-      sleep(1000ms * 2^retry) → retry same model
-
-    if terminal:
-      return error immediately
-
-    → break to next model
+  NEXT -->|是| MODEL
+  NEXT -->|否| FAIL["return Err 全部失败"]
 ```
 
 ---
@@ -489,23 +482,23 @@ for model in chain:
 
 对话数据存在**两条并行的持久化通道**，服务于不同目的：
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                   SessionDB (SQLite)                     │
-│   ~/.opencomputer/sessions.db                            │
-│                                                          │
-│   通道 1: messages 表 — 面向「前端展示」                    │
-│   ├─ 每条消息独立一行（user / assistant / tool / event）   │
-│   ├─ 逐条实时写入（流式回调中）                             │
-│   ├─ 前端通过 load_session_messages_latest_cmd 加载       │
-│   └─ 支持分页、FTS5 全文搜索                               │
-│                                                          │
-│   通道 2: sessions.context_json — 面向「模型上下文」        │
-│   ├─ 整个 conversation_history 序列化为一个 JSON 字符串     │
-│   ├─ 对话成功结束后一次性写入                               │
-│   ├─ 下次对话时通过 restore_agent_context() 整体加载        │
-│   └─ 包含 Provider 特有格式（reasoning items、thinking 块） │
-└─────────────────────────────────────────────────────────┘
+```mermaid
+graph TB
+  subgraph DB["SessionDB (SQLite) ~/.opencomputer/sessions.db"]
+    direction TB
+    subgraph CH1["通道 1: messages 表 — 面向前端展示"]
+      M1["每条消息独立一行<br/>user / assistant / tool / event"]
+      M2["逐条实时写入（流式回调中）"]
+      M3["前端 load_session_messages_latest_cmd 加载"]
+      M4["支持分页、FTS5 全文搜索"]
+    end
+    subgraph CH2["通道 2: sessions.context_json — 面向模型上下文"]
+      C1["整个 conversation_history<br/>序列化为 JSON 字符串"]
+      C2["对话成功结束后一次性写入"]
+      C3["restore_agent_context() 整体加载"]
+      C4["包含 Provider 特有格式<br/>reasoning items、thinking 块"]
+    end
+  end
 ```
 
 **为什么需要两条通道？**
@@ -548,32 +541,22 @@ CREATE TRIGGER messages_fts_ai AFTER INSERT ON messages
 
 **写入时机（`src-tauri/src/commands/chat.rs`）：**
 
-```
-on_delta 回调（SSE 流式）
-  │
-  ├─ text_delta → 累积到 pending_text（不立即写入）
-  │
-  ├─ thinking_delta → 累积到 pending_thinking（不立即写入）
-  │
-  ├─ tool_call →
-  │    ├─ flush pending_thinking → append_message(thinking_block)
-  │    ├─ flush pending_text → append_message(text_block)
-  │    └─ append_message(tool) ← 立即写入工具调用记录
-  │
-  ├─ tool_result → update_tool_result() ← 更新同一条 tool 记录
-  │
-  └─ usage → 仅内存缓存（写入 captured_usage）
+```mermaid
+flowchart TD
+  SSE["on_delta 回调（SSE 流式）"]
+  SSE -->|text_delta| PT["累积到 pending_text"]
+  SSE -->|thinking_delta| PK["累积到 pending_thinking"]
+  SSE -->|tool_call| FLUSH["触发 flush"]
+  SSE -->|tool_result| UPDATE["update_tool_result()<br/>更新同一行 tool 记录"]
+  SSE -->|usage| MEM["仅内存缓存 captured_usage"]
 
-chat 完成后
-  │
-  ├─ flush 剩余 pending_thinking → append_message(thinking_block)
-  │
-  └─ append_message(assistant) ← 最终回复
-       ├─ content: 完整回复文本
-       ├─ thinking: 累积思维（仅在无 thinking_block 时填写，避免重复）
-       ├─ tokens_in / tokens_out: 从 captured_usage 读取
-       ├─ model: 实际使用的模型
-       └─ ttft_ms: 首 token 延迟
+  FLUSH --> FK["flush pending_thinking<br/>→ INSERT thinking_block"]
+  FLUSH --> FT["flush pending_text<br/>→ INSERT text_block"]
+  FLUSH --> IT["INSERT tool<br/>call_id, name, arguments"]
+
+  DONE["chat 完成后"] --> FKREM["flush 剩余 pending_thinking<br/>→ INSERT thinking_block"]
+  DONE --> ASST["INSERT assistant<br/>content + thinking + tokens + model + ttft"]
+  DONE --> CTX["save_agent_context()<br/>→ UPDATE context_json"]
 ```
 
 **消息角色（`MessageRole` 枚举）：**
@@ -632,8 +615,7 @@ fn restore_agent_context(db: &SessionDB, session_id: &str, agent: &AssistantAgen
     { "type": "thinking", "thinking": "用户在打招呼..." },
     { "type": "text", "text": "你好！" }
   ]},
-  { "role": "user", "content": [{ "type": "tool_result", "tool_use_id": "call_1", "content": "..." }] },
-  ...
+  { "role": "user", "content": [{ "type": "tool_result", "tool_use_id": "call_1", "content": "..." }] }
 ]
 
 // OpenAI Responses 格式
@@ -642,8 +624,7 @@ fn restore_agent_context(db: &SessionDB, session_id: &str, agent: &AssistantAgen
   { "type": "reasoning", "id": "rs_xxx", "encrypted_content": "...", "summary": [...] },
   { "type": "message", "role": "assistant", "content": [{ "type": "output_text", "text": "你好！" }], "status": "completed" },
   { "type": "function_call", "id": "fc_xxx", "call_id": "fc_xxx", "name": "read", "arguments": "{...}" },
-  { "type": "function_call_output", "call_id": "fc_xxx", "output": "文件内容" },
-  ...
+  { "type": "function_call_output", "call_id": "fc_xxx", "output": "文件内容" }
 ]
 
 // OpenAI Chat 格式
@@ -652,88 +633,84 @@ fn restore_agent_context(db: &SessionDB, session_id: &str, agent: &AssistantAgen
   { "role": "user", "content": "你好" },
   { "role": "assistant", "content": "你好！", "reasoning_content": "用户在打招呼..." },
   { "role": "assistant", "content": null, "tool_calls": [{ "id": "call_1", "type": "function", "function": { "name": "read", "arguments": "{...}" } }] },
-  { "role": "tool", "tool_call_id": "call_1", "content": "文件内容" },
-  ...
+  { "role": "tool", "tool_call_id": "call_1", "content": "文件内容" }
 ]
 ```
 
 ### 8.3 写入时序全景
 
-```
-用户发送消息
-│
-├─ 1. append_message(user) ← 用户消息立即入 messages 表
-│
-├─ 2. agent.chat() 开始 ─── SSE 流式接收
-│     │
-│     ├─ thinking_delta × N → 内存累积 pending_thinking
-│     ├─ text_delta × N → 内存累积 pending_text
-│     │
-│     ├─ tool_call ←──────── 触发 flush
-│     │   ├─ flush pending_thinking → INSERT thinking_block
-│     │   ├─ flush pending_text → INSERT text_block
-│     │   └─ INSERT tool（call_id, name, arguments）
-│     │
-│     ├─ tool_result ←────── UPDATE tool（同一行，补 result + duration）
-│     │
-│     ├─ (下一轮 tool loop...)
-│     │
-│     └─ 流结束（无更多 tool_call）
-│
-├─ 3. flush 剩余 pending_thinking → INSERT thinking_block
-│
-├─ 4. append_message(assistant) ← 最终回复入 messages 表
-│     ├─ content = 完整回复文本
-│     ├─ thinking = 累积思维（如果无 thinking_block）
-│     ├─ tokens_in / tokens_out / model / ttft_ms
-│     └─ tool_duration_ms = 总耗时
-│
-├─ 5. save_agent_context() ← conversation_history 序列化入 context_json
-│     └─ 包含完整的 Provider 特有格式（reasoning items、thinking 块等）
-│
-└─ 6. 返回前端
+```mermaid
+sequenceDiagram
+  participant U as 用户
+  participant FE as 前端
+  participant CMD as chat 命令
+  participant Agent as Agent
+  participant DB as SessionDB
+
+  U->>FE: 发送消息
+  FE->>CMD: invoke("chat")
+  CMD->>DB: 1. INSERT user 消息
+
+  CMD->>Agent: agent.chat()
+  activate Agent
+
+  loop Tool Loop (最多 10 轮)
+    Agent-->>FE: thinking_delta × N (内存累积)
+    Agent-->>FE: text_delta × N (内存累积)
+    Agent-->>FE: tool_call
+    CMD->>DB: flush thinking → INSERT thinking_block
+    CMD->>DB: flush text → INSERT text_block
+    CMD->>DB: INSERT tool (call_id, name, args)
+    Agent->>Agent: 执行工具
+    Agent-->>FE: tool_result
+    CMD->>DB: UPDATE tool (补 result + duration)
+  end
+
+  Agent-->>FE: 流结束
+  deactivate Agent
+
+  CMD->>DB: 2. flush 剩余 thinking → INSERT thinking_block
+  CMD->>DB: 3. INSERT assistant (content + tokens + model + ttft)
+  CMD->>DB: 4. UPDATE context_json (序列化 conversation_history)
+  CMD->>FE: return Ok(text)
 ```
 
 ### 8.4 加载时序
 
-```
-用户打开已有会话 / Failover 切换模型
-│
-├─ 前端加载（展示用）
-│   └─ invoke("load_session_messages_latest_cmd", { sessionId, limit: 50 })
-│       → SELECT * FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 50
-│       → 返回 Vec<SessionMessage>，前端渲染消息列表
-│       → 支持上滑加载更多：load_session_messages_before_cmd(before_id)
-│
-├─ 后端加载（模型上下文用）
-│   └─ restore_agent_context(db, session_id, agent)
-│       → SELECT context_json FROM sessions WHERE id = ?
-│       → JSON 反序列化为 Vec<Value>
-│       → agent.set_conversation_history(history)
-│       → 后续 normalize_history_for_*() 转换为目标 Provider 格式
-│
-└─ 两条通道独立，互不干扰
-    ├─ messages 表：前端 UI 只读（展示）
-    └─ context_json：后端 Agent 读写（API 调用）
+```mermaid
+flowchart LR
+  subgraph "前端加载（展示用）"
+    FE1["invoke('load_session_messages_latest_cmd')"]
+    FE1 --> SQL1["SELECT * FROM messages<br/>WHERE session_id = ?<br/>ORDER BY id DESC LIMIT 50"]
+    SQL1 --> PARSE["parseSessionMessages()<br/>重建 contentBlocks 时序"]
+  end
+
+  subgraph "后端加载（模型上下文用）"
+    BE1["restore_agent_context()"]
+    BE1 --> SQL2["SELECT context_json<br/>FROM sessions WHERE id = ?"]
+    SQL2 --> DESER["JSON 反序列化<br/>→ Vec&lt;Value&gt;"]
+    DESER --> SET["agent.set_conversation_history()"]
+    SET --> NORM["normalize_history_for_*()<br/>转换为目标 Provider 格式"]
+  end
 ```
 
 ### 8.5 Failover 场景的存储交互
 
-```
-Model A (Responses API) 对话成功
-  → save_agent_context(): context_json 存储 Responses 格式
-  → messages 表写入 user + thinking_block + tool + assistant
+```mermaid
+sequenceDiagram
+  participant A as Model A (Responses)
+  participant DB as SessionDB
+  participant B as Model B (Anthropic)
 
-下一轮对话，Model A 失败，降级到 Model B (Anthropic)
-  │
-  ├─ build_agent_for_model(Model B)  ← 新建 Anthropic Agent
-  ├─ restore_agent_context()          ← 从 DB 加载 Responses 格式的 context_json
-  ├─ normalize_history_for_anthropic() ← 转换格式
-  │     ├─ type: "reasoning" → 跳过
-  │     ├─ type: "message" → 提取 text → { role: "assistant", content: text }
-  │     └─ function_call/output → 跳过
-  ├─ chat_anthropic() 成功
-  └─ save_agent_context(): context_json 覆盖为 Anthropic 格式
+  Note over A: 对话成功
+  A->>DB: save_agent_context()<br/>context_json = Responses 格式
+  A->>DB: INSERT messages (user + thinking_block + tool + assistant)
+
+  Note over B: 下一轮对话，Model A 失败，降级
+  DB->>B: restore_agent_context()<br/>加载 Responses 格式
+  B->>B: normalize_history_for_anthropic()<br/>reasoning→跳过, message→提取text
+  B->>B: chat_anthropic() 成功
+  B->>DB: save_agent_context()<br/>context_json 覆盖为 Anthropic 格式
 ```
 
 ### 8.6 附件存储
@@ -760,29 +737,26 @@ Model A (Responses API) 对话成功
 
 **`src-tauri/src/context_compact/`**
 
-```
-Tier 1: 工具结果截断
-  ├─ 超长 tool_result → head + "...truncated..." + tail
-  ├─ 结构感知边界切割（不在 JSON/代码块中间截断）
-  └─ 可配置 head_lines / tail_lines
+```mermaid
+flowchart TD
+  CHECK["compact_if_needed()"]
+  CHECK --> T1{"Tier 1<br/>工具结果截断"}
+  T1 -->|"超长 tool_result"| TRUNC["head + '...truncated...' + tail<br/>结构感知边界切割"]
+  T1 -->|"仍然超标"| T2{"Tier 2<br/>上下文裁剪"}
 
-Tier 2: 上下文裁剪
-  ├─ 软裁剪：截断旧的大消息（保留 head+tail）
-  ├─ 硬裁剪：完全替换为 "[message removed for context management]"
-  └─ 优先级：age × size 评分，保护最近 N 个 assistant 消息
+  T2 -->|"软裁剪"| SOFT["截断旧的大消息<br/>保留 head+tail"]
+  T2 -->|"硬裁剪"| HARD["替换为 [message removed]"]
+  T2 -->|"仍然超标"| T3{"Tier 3<br/>LLM 摘要"}
 
-Tier 3: LLM 摘要
-  ├─ 分块摘要：split_for_summarization() 找到可摘要区间
-  ├─ Memory Flush（可选）：压缩前提取重要记忆
-  ├─ 非流式 LLM 调用生成摘要
-  └─ 3 级 fallback（摘要模型 → 当前模型 → 硬截断）
+  T3 --> FLUSH["Memory Flush（可选）<br/>压缩前提取重要记忆"]
+  FLUSH --> SUMM["非流式 LLM 调用<br/>生成摘要"]
+  SUMM --> APPLY["apply_summary()<br/>替换旧消息为摘要"]
 
-Tier 4: 溢出恢复
-  ├─ ContextOverflow 触发紧急压缩
-  └─ 压缩后自动重试 API 调用
+  T3 -->|"API 返回 ContextOverflow"| T4{"Tier 4<br/>溢出恢复"}
+  T4 --> EMERG["emergency_compact()"] --> RETRY["自动重试 API 调用"]
 ```
 
-### 8.2 Summarization 消息格式处理
+### 9.2 Summarization 消息格式处理
 
 **`src-tauri/src/context_compact/summarization.rs`**
 
@@ -800,7 +774,7 @@ Tier 4: 溢出恢复
 | 简单字符串 content | `[role]: text` |
 | `tool_result` (Anthropic) | `[tool_result]: preview(500chars)` |
 
-### 8.3 Session 持久化
+### 9.3 Session 持久化
 
 **`src-tauri/src/session/db.rs`**
 
@@ -827,62 +801,46 @@ restore_agent_context(db, session_id, agent)
 
 ## 10. 数据流全景图
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│                        前端 (React)                          │
-│                                                              │
-│  ChatInput → invoke("chat") ──────────────────────┐          │
-│                                                    │          │
-│  useChatStream ← Channel<String> events ◄─────────┼──────┐   │
-│    ├─ text_delta → MessageBubble                   │      │   │
-│    ├─ thinking_delta → ThinkingBlock               │      │   │
-│    ├─ tool_call → ToolCallBlock (pending)          │      │   │
-│    ├─ tool_result → ToolCallBlock (done)           │      │   │
-│    └─ usage → TokenDisplay                         │      │   │
-└────────────────────────────────────────────────────┼──────┼───┘
-                                                     │      │
-┌────────────────────────────────────────────────────┼──────┼───┐
-│                     后端 (Rust/Tauri)              │      │   │
-│                                                    ▼      │   │
-│  commands/chat.rs ─── chat() ──────────────────────┐      │   │
-│    │                                               │      │   │
-│    ├─ resolve_model_chain() → [model1, model2...]  │      │   │
-│    │                                               │      │   │
-│    └─ for model in chain: ─────────────────────────┤      │   │
-│         │                                          │      │   │
-│         ├─ build_agent_for_model()                 │      │   │
-│         ├─ restore_agent_context() ◄── SessionDB   │      │   │
-│         │                                          │      │   │
-│         ├─ agent.chat() ───────────────────────────┤      │   │
-│         │    │                                     │      │   │
-│         │    ├─ normalize_history_for_*()           │      │   │
-│         │    ├─ run_compaction() (Tier 1-3)         │      │   │
-│         │    │                                     │      │   │
-│         │    ├─ match provider:                     │      │   │
-│         │    │   ├─ Anthropic  → POST /v1/messages  │      │   │
-│         │    │   ├─ OpenAIChat → POST /v1/chat/...  │      │   │
-│         │    │   ├─ Responses  → POST /v1/responses │      │   │
-│         │    │   └─ Codex      → POST /codex/...    │      │   │
-│         │    │                                     │      │   │
-│         │    ├─ SSE 解析 → on_delta(event_json) ───┼──────┘   │
-│         │    │                                     │          │
-│         │    └─ Tool Loop (最多 10 轮):             │          │
-│         │         ├─ emit tool_call                 │          │
-│         │         ├─ execute_tool_with_context()    │          │
-│         │         ├─ emit tool_result               │          │
-│         │         └─ 追加结果到 history → 继续       │          │
-│         │                                          │          │
-│         ├─ save_agent_context() ──► SessionDB       │          │
-│         │                                          │          │
-│         └─ 失败 → classify_error()                  │          │
-│              ├─ retryable → 指数退避重试             │          │
-│              ├─ overflow → emergency_compact → 重试  │          │
-│              └─ terminal → 跳下一模型                │          │
-│                                                              │
-│  failover.rs ── classify_error() → FailoverReason            │
-│  context_compact/ ── 4 层渐进式压缩                           │
-│  session/db.rs ── SQLite 持久化                               │
-└──────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+  subgraph Frontend["前端 (React)"]
+    INPUT["ChatInput"] -->|"invoke('chat')"| INVOKE
+    STREAM["useChatStream"] -->|"Channel events"| RENDER
+    RENDER["MessageBubble / ThinkingBlock / ToolCallBlock"]
+  end
+
+  subgraph Backend["后端 (Rust/Tauri)"]
+    INVOKE["commands/chat.rs"] --> RESOLVE["resolve_model_chain()"]
+    RESOLVE --> LOOP["for model in chain"]
+
+    LOOP --> BUILD["build_agent_for_model()"]
+    BUILD --> RESTORE["restore_agent_context() ◄── SessionDB"]
+    RESTORE --> AGENT["agent.chat()"]
+
+    AGENT --> NORMALIZE["normalize_history_for_*()"]
+    NORMALIZE --> COMPACTION["run_compaction() Tier 1-3"]
+    COMPACTION --> PROVIDER{"match provider"}
+
+    PROVIDER -->|Anthropic| P1["POST /v1/messages"]
+    PROVIDER -->|OpenAIChat| P2["POST /v1/chat/completions"]
+    PROVIDER -->|Responses| P3["POST /v1/responses"]
+    PROVIDER -->|Codex| P4["POST /codex/responses"]
+
+    P1 & P2 & P3 & P4 --> SSE["SSE 解析"]
+    SSE -->|"on_delta(event_json)"| STREAM
+
+    SSE --> TOOLQ{"tool_call?"}
+    TOOLQ -->|是| TEXEC["execute_tool_with_context()"]
+    TEXEC --> SSE
+    TOOLQ -->|否| SAVE["save_agent_context() → SessionDB"]
+
+    AGENT -->|失败| CLASSIFY["classify_error()"]
+    CLASSIFY -->|retryable| BACKOFF["指数退避重试"]
+    BACKOFF --> AGENT
+    CLASSIFY -->|overflow| EMERGENCY["emergency_compact"]
+    EMERGENCY --> AGENT
+    CLASSIFY -->|skip| LOOP
+  end
 ```
 
 ---
