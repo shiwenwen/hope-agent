@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
@@ -7,7 +7,17 @@ import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
-import { Check, Loader2, Info, Wifi, ChevronUp, ChevronDown } from "lucide-react"
+import { Check, Loader2, Info, Wifi, GripVertical } from "lucide-react"
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core"
+import { SortableContext, verticalListSortingStrategy, arrayMove, useSortable } from "@dnd-kit/sortable"
+import { CSS } from "@dnd-kit/utilities"
 import TestResultDisplay, { parseTestResult, type TestResult } from "./TestResultDisplay"
 
 // ── Types ────────────────────────────────────────────────────────
@@ -122,6 +132,67 @@ function GoogleModelSelect({ value, onChange }: { value: string | null; onChange
   )
 }
 
+function SortableProviderCard({
+  provider,
+  index,
+  getDisplayName,
+  onToggleEnabled,
+  children,
+}: {
+  provider: ImageGenProviderEntry
+  index: number
+  getDisplayName: (id: string) => string
+  onToggleEnabled: (v: boolean) => void
+  children: React.ReactNode
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: provider.id,
+  })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+    zIndex: isDragging ? 50 : undefined,
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={cn(
+        "rounded-lg border p-4 space-y-3 transition-colors",
+        provider.enabled ? "border-primary/30 bg-primary/5" : "border-border"
+      )}
+    >
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          {/* Drag handle */}
+          <div
+            className="cursor-grab active:cursor-grabbing text-muted-foreground/40 hover:text-muted-foreground/70 shrink-0 touch-none"
+            {...attributes}
+            {...listeners}
+          >
+            <GripVertical className="h-3.5 w-3.5" />
+          </div>
+          {/* Priority badge */}
+          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-muted text-[10px] font-medium text-muted-foreground">
+            {index + 1}
+          </span>
+          <span className="text-sm font-medium">
+            {getDisplayName(provider.id)}
+          </span>
+        </div>
+        <Switch
+          checked={provider.enabled}
+          onCheckedChange={onToggleEnabled}
+        />
+      </div>
+      {children}
+    </div>
+  )
+}
+
 export default function ImageGeneratePanel() {
   const { t } = useTranslation()
   const [config, setConfig] = useState<ImageGenConfig>(DEFAULT_CONFIG)
@@ -174,15 +245,19 @@ export default function ImageGeneratePanel() {
     })
   }
 
-  const moveProvider = (index: number, direction: "up" | "down") => {
-    setConfig((prev) => {
-      const target = direction === "up" ? index - 1 : index + 1
-      if (target < 0 || target >= prev.providers.length) return prev
-      const providers = [...prev.providers]
-      ;[providers[index], providers[target]] = [providers[target], providers[index]]
-      return { ...prev, providers }
-    })
-  }
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
+
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event
+      if (!over || active.id === over.id) return
+      const oldIndex = config.providers.findIndex((p) => p.id === active.id)
+      const newIndex = config.providers.findIndex((p) => p.id === over.id)
+      if (oldIndex === -1 || newIndex === -1) return
+      setConfig((prev) => ({ ...prev, providers: arrayMove(prev.providers, oldIndex, newIndex) }))
+    },
+    [config],
+  )
 
   const handleTest = async (provider: ImageGenProviderEntry) => {
     setTestLoading((prev) => ({ ...prev, [provider.id]: true }))
@@ -243,52 +318,17 @@ export default function ImageGeneratePanel() {
             {t("settings.imageGenPriorityHint")}
           </p>
 
-          <div className="space-y-4">
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <SortableContext items={config.providers.map((p) => p.id)} strategy={verticalListSortingStrategy}>
+            <div className="space-y-4">
             {config.providers.map((provider, index) => (
-              <div
-                key={`${provider.id}-${index}`}
-                className={cn(
-                  "rounded-lg border p-4 space-y-3 transition-colors",
-                  provider.enabled ? "border-primary/30 bg-primary/5" : "border-border"
-                )}
+              <SortableProviderCard
+                key={provider.id}
+                provider={provider}
+                index={index}
+                getDisplayName={getDisplayName}
+                onToggleEnabled={(v) => updateProvider(index, { enabled: v })}
               >
-                {/* Provider header with priority, toggle, and reorder */}
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    {/* Priority badge */}
-                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-muted text-[10px] font-medium text-muted-foreground">
-                      {index + 1}
-                    </span>
-                    <span className="text-sm font-medium">
-                      {getDisplayName(provider.id)}
-                    </span>
-                    {/* Reorder buttons */}
-                    <div className="flex items-center">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6"
-                        disabled={index === 0}
-                        onClick={() => moveProvider(index, "up")}
-                      >
-                        <ChevronUp className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6"
-                        disabled={index === config.providers.length - 1}
-                        onClick={() => moveProvider(index, "down")}
-                      >
-                        <ChevronDown className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  </div>
-                  <Switch
-                    checked={provider.enabled}
-                    onCheckedChange={(v) => updateProvider(index, { enabled: v })}
-                  />
-                </div>
 
                 {/* Provider details (shown when enabled) */}
                 {provider.enabled && (
@@ -397,9 +437,11 @@ export default function ImageGeneratePanel() {
                     )}
                   </div>
                 )}
-              </div>
+              </SortableProviderCard>
             ))}
-          </div>
+            </div>
+            </SortableContext>
+          </DndContext>
         </div>
 
         {/* General settings */}
