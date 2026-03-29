@@ -1,6 +1,9 @@
 use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem};
-use tauri::tray::{TrayIconBuilder, TrayIconEvent, MouseButton, MouseButtonState};
+use tauri::tray::{TrayIcon, TrayIconBuilder, TrayIconEvent, MouseButton, MouseButtonState};
 use tauri::{Manager, Emitter};
+
+/// Wrapper to hold the TrayIcon in Tauri managed state, preventing it from being dropped.
+pub struct TrayState(#[allow(dead_code)] TrayIcon);
 
 /// Show and focus the main window (creates it if needed).
 fn show_main_window(app_handle: &tauri::AppHandle) {
@@ -199,10 +202,25 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         ])
         .build()?;
 
-    let _tray = TrayIconBuilder::new()
+    // Read icon config from tauri.conf.json trayIcon section
+    let (icon, icon_as_template) = match &app.config().app.tray_icon {
+        Some(tc) => {
+            let icon_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(&tc.icon_path);
+            let img = tauri::image::Image::from_path(&icon_path).unwrap_or_else(|_| {
+                tauri::image::Image::from_bytes(include_bytes!("../icons/menuIcon.png")).unwrap()
+            });
+            (img, tc.icon_as_template)
+        }
+        None => (
+            tauri::image::Image::from_bytes(include_bytes!("../icons/menuIcon.png")).unwrap(),
+            true,
+        ),
+    };
+
+    let tray = TrayIconBuilder::new()
         .tooltip("OpenComputer")
-        .icon(tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png")).unwrap())
-        .icon_as_template(true)
+        .icon(icon)
+        .icon_as_template(icon_as_template)
         .menu(&menu)
         .on_menu_event(|app_handle, event| {
             match event.id().as_ref() {
@@ -238,6 +256,9 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             }
         })
         .build(app)?;
+
+    // Store in managed state to prevent Drop from unregistering the tray icon
+    app.manage(TrayState(tray));
 
     Ok(())
 }
