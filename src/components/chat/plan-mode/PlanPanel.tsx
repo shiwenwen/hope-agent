@@ -1,4 +1,4 @@
-import { useMemo, useEffect, useState, useCallback } from "react"
+import { useMemo, useEffect, useState, useCallback, useRef } from "react"
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window"
 import { invoke } from "@tauri-apps/api/core"
 import { logger } from "@/lib/logger"
@@ -8,12 +8,11 @@ import {
   Play,
   Loader2,
   CheckCircle,
-  Save,
-  FileText,
   Pause,
   History,
   RotateCcw,
   Send,
+  MessageSquareQuote,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -32,13 +31,96 @@ interface PlanPanelProps {
   progress: number
   completedCount: number
   sessionId: string | null
-  onPlanContentChange: (content: string) => void
   onApprove: () => void
   onExit: () => void
   onClose: () => void
   onPause?: () => void
   onResume?: () => void
   onRequestChanges?: (feedback: string) => void
+}
+
+/** Floating comment popover shown when user selects text in the plan */
+function CommentPopover({
+  position,
+  selectedText,
+  onSubmit,
+  onClose,
+}: {
+  position: { top: number; left: number }
+  selectedText: string
+  onSubmit: (comment: string) => void
+  onClose: () => void
+}) {
+  const { t } = useTranslation()
+  const [comment, setComment] = useState("")
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    // Auto-focus textarea on mount
+    setTimeout(() => textareaRef.current?.focus(), 50)
+  }, [])
+
+  const handleSubmit = useCallback(() => {
+    if (!comment.trim()) return
+    onSubmit(comment.trim())
+    setComment("")
+  }, [comment, onSubmit])
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault()
+      handleSubmit()
+    }
+    if (e.key === "Escape") {
+      e.preventDefault()
+      onClose()
+    }
+  }, [handleSubmit, onClose])
+
+  return (
+    <div
+      className="absolute z-50 w-[280px] rounded-lg border border-border bg-popover shadow-lg animate-in fade-in zoom-in-95 duration-150"
+      style={{ top: position.top, left: position.left }}
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      <div className="px-3 py-2 border-b border-border/50 bg-secondary/30 rounded-t-lg">
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <MessageSquareQuote className="h-3 w-3 shrink-0" />
+          <span className="truncate italic">&ldquo;{selectedText.length > 60 ? selectedText.slice(0, 60) + "…" : selectedText}&rdquo;</span>
+        </div>
+      </div>
+      <div className="p-2 space-y-2">
+        <Textarea
+          ref={textareaRef}
+          value={comment}
+          onChange={(e) => setComment(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder={t("planMode.comment.placeholder")}
+          className="text-sm min-h-[48px] max-h-[120px] resize-none border-border/50"
+          rows={2}
+        />
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] text-muted-foreground">
+            {t("planMode.comment.shortcut")}
+          </span>
+          <div className="flex gap-1.5">
+            <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={onClose}>
+              {t("common.cancel")}
+            </Button>
+            <Button
+              size="sm"
+              className="h-7 px-2.5 text-xs gap-1"
+              disabled={!comment.trim()}
+              onClick={handleSubmit}
+            >
+              <Send className="h-3 w-3" />
+              {t("planMode.comment.submit")}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 export function PlanPanel({
@@ -48,7 +130,6 @@ export function PlanPanel({
   progress,
   completedCount,
   sessionId,
-  onPlanContentChange,
   onApprove,
   onExit,
   onClose,
@@ -57,23 +138,18 @@ export function PlanPanel({
   onRequestChanges,
 }: PlanPanelProps) {
   const { t } = useTranslation()
-  const [editContent, setEditContent] = useState(planContent)
-  const [dirty, setDirty] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [changesFeedback, setChangesFeedback] = useState("")
-  const [showChangesInput, setShowChangesInput] = useState(false)
   const [showVersions, setShowVersions] = useState(false)
   const [versions, setVersions] = useState<{ version: number; filePath: string; modifiedAt: string; isCurrent: boolean }[]>([])
   const [loadingVersions, setLoadingVersions] = useState(false)
   const [hasCheckpoint, setHasCheckpoint] = useState(false)
   const [rollingBack, setRollingBack] = useState(false)
 
-  // Sync external planContent → local editContent (when LLM updates the plan)
-  useEffect(() => {
-    if (!dirty) {
-      setEditContent(planContent)
-    }
-  }, [planContent, dirty])
+  // Comment popover state
+  const [commentPopover, setCommentPopover] = useState<{
+    position: { top: number; left: number }
+    selectedText: string
+  } | null>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
 
   // Adjust window min size
   useEffect(() => {
@@ -82,11 +158,6 @@ export function PlanPanel({
     return () => {
       win.setMinSize(new LogicalSize(840, 480))
     }
-  }, [])
-
-  const handleEditChange = useCallback((value: string) => {
-    setEditContent(value)
-    setDirty(true)
   }, [])
 
   const handleLoadVersions = useCallback(async () => {
@@ -135,31 +206,64 @@ export function PlanPanel({
     if (!sessionId) return
     try {
       await invoke("restore_plan_version", { sessionId, filePath })
-      const content = await invoke<string | null>("get_plan_content", { sessionId })
-      if (content) {
-        setEditContent(content)
-        onPlanContentChange(content)
-      }
       setShowVersions(false)
-      setDirty(false)
     } catch (e) {
       logger.error("plan", "PlanPanel::restoreVersion", "Failed to restore plan version", e)
     }
-  }, [sessionId, onPlanContentChange])
+  }, [sessionId])
 
-  const handleSave = useCallback(async () => {
-    if (!sessionId || !dirty) return
-    setSaving(true)
-    try {
-      await invoke("save_plan_content", { sessionId, content: editContent })
-      onPlanContentChange(editContent)
-      setDirty(false)
-    } catch (e) {
-      logger.error("plan", "PlanPanel::save", "Failed to save plan", e)
-    } finally {
-      setSaving(false)
+  // Handle text selection for inline commenting
+  const handleMouseUp = useCallback(() => {
+    if (!contentRef.current) return
+    // Only allow commenting in review/planning states
+    if (planState !== "review" && planState !== "planning") return
+
+    const selection = window.getSelection()
+    if (!selection || selection.isCollapsed || !selection.toString().trim()) {
+      return
     }
-  }, [sessionId, editContent, dirty, onPlanContentChange])
+
+    const selectedText = selection.toString().trim()
+    if (!selectedText) return
+
+    // Check if selection is within the content area
+    const range = selection.getRangeAt(0)
+    if (!contentRef.current.contains(range.commonAncestorContainer)) return
+
+    // Calculate position relative to the content container
+    const rect = range.getBoundingClientRect()
+    const containerRect = contentRef.current.getBoundingClientRect()
+
+    // Position the popover below the selection, clamped within container bounds
+    const top = rect.bottom - containerRect.top + contentRef.current.scrollTop + 4
+    let left = rect.left - containerRect.left
+    // Clamp to prevent overflow (popover is 280px wide)
+    left = Math.max(0, Math.min(left, contentRef.current.clientWidth - 280))
+
+    setCommentPopover({ position: { top, left }, selectedText })
+  }, [planState])
+
+  // Close comment popover when clicking outside or selection changes
+  useEffect(() => {
+    const handleMouseDown = (e: MouseEvent) => {
+      // Don't close if clicking inside the popover (handled by stopPropagation there)
+      if (commentPopover) {
+        setCommentPopover(null)
+      }
+    }
+    // Use mousedown on document to dismiss
+    document.addEventListener("mousedown", handleMouseDown)
+    return () => document.removeEventListener("mousedown", handleMouseDown)
+  }, [commentPopover])
+
+  // Submit comment: format as quoted selection + comment and send to model
+  const handleCommentSubmit = useCallback((comment: string) => {
+    if (!commentPopover || !onRequestChanges) return
+    const feedback = `> ${commentPopover.selectedText}\n\n${comment}`
+    onRequestChanges(feedback)
+    setCommentPopover(null)
+    window.getSelection()?.removeAllRanges()
+  }, [commentPopover, onRequestChanges])
 
   const groupedPhases = useMemo(
     () => groupStepsByPhase(planSteps),
@@ -175,9 +279,11 @@ export function PlanPanel({
         s.status === "failed"
     )
 
-  const isEditable = planState === "planning"
   const showProgressBar = planState === "executing" || planState === "paused" || planState === "completed" || allDone
-  const showStepList = planState !== "planning"
+  // Show markdown content in review and planning states (read-only)
+  const showMarkdown = planContent && (planState === "review" || planState === "planning")
+  // Show step list in executing/paused/completed states
+  const showStepList = planState === "executing" || planState === "paused" || planState === "completed"
 
   // Title bar icon color based on state
   const iconColor = planState === "completed" ? "text-green-500"
@@ -185,6 +291,9 @@ export function PlanPanel({
     : planState === "paused" ? "text-yellow-500"
     : planState === "review" ? "text-purple-500"
     : "text-blue-500"
+
+  // Whether inline commenting is enabled
+  const canComment = (planState === "review" || planState === "planning") && !!onRequestChanges
 
   return (
     <div className="flex flex-col border-l border-border w-[400px] shrink-0 max-w-[40vw] bg-background animate-in slide-in-from-right-2 duration-200">
@@ -202,18 +311,6 @@ export function PlanPanel({
                 disabled={loadingVersions}
               >
                 {loadingVersions ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <History className="h-3.5 w-3.5" />}
-              </button>
-            </IconTip>
-          )}
-          {/* Save button (only in editing mode when dirty) */}
-          {isEditable && dirty && (
-            <IconTip label={t("common.save")}>
-              <button
-                className="p-1 rounded hover:bg-secondary transition-colors text-blue-500 hover:text-blue-600"
-                onClick={handleSave}
-                disabled={saving}
-              >
-                {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
               </button>
             </IconTip>
           )}
@@ -256,6 +353,14 @@ export function PlanPanel({
         <div className="px-3 py-2 bg-yellow-500/10 border-b border-yellow-500/20 text-sm text-yellow-600 flex items-center gap-2">
           <Pause className="h-3.5 w-3.5" />
           {t("planMode.pausedBanner")}
+        </div>
+      )}
+
+      {/* Comment hint banner */}
+      {canComment && showMarkdown && (
+        <div className="px-3 py-1.5 bg-blue-500/5 border-b border-blue-500/10 text-[11px] text-muted-foreground flex items-center gap-1.5">
+          <MessageSquareQuote className="h-3 w-3 shrink-0 text-blue-500/60" />
+          {t("planMode.comment.hint")}
         </div>
       )}
 
@@ -304,47 +409,26 @@ export function PlanPanel({
       )}
 
       {/* Main content area */}
-      <div className="flex-1 overflow-y-auto">
-        {/* Planning mode: show editable textarea + step preview */}
-        {isEditable && (
-          <div className="flex flex-col h-full">
-            <div className="flex-1 p-3">
-              <Textarea
-                value={editContent}
-                onChange={(e) => handleEditChange(e.target.value)}
-                placeholder={t("planMode.editorPlaceholder")}
-                className="h-full min-h-[200px] resize-none border-border/50 bg-secondary/20 text-sm font-mono"
-              />
-            </div>
-            {planSteps.length > 0 && (
-              <div className="border-t border-border/50 px-3 py-2">
-                <div className="flex items-center gap-1.5 mb-2">
-                  <FileText className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span className="text-xs text-muted-foreground font-medium">
-                    {planSteps.length} {t("planMode.stepsDetected")}
-                  </span>
-                </div>
-                <div className="space-y-0.5 max-h-[200px] overflow-y-auto">
-                  {planSteps.map((step) => (
-                    <PlanStepItem key={step.index} step={step} />
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Review mode: read-only markdown */}
-        {planState === "review" && planContent && (
-          <div className="px-3 py-3">
+      <div className="flex-1 overflow-y-auto relative" ref={contentRef} onMouseUp={canComment ? handleMouseUp : undefined}>
+        {/* Read-only markdown content (planning + review states) */}
+        {showMarkdown && (
+          <div className={cn("px-3 py-3", canComment && "select-text cursor-text")}>
             <div className="prose prose-sm dark:prose-invert max-w-none">
               <MarkdownRenderer content={planContent} />
             </div>
           </div>
         )}
 
+        {/* No content placeholder for planning state */}
+        {planState === "planning" && !planContent && (
+          <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+            <ClipboardList className="h-8 w-8 mb-3 opacity-30" />
+            <span className="text-sm">{t("planMode.planning")}</span>
+          </div>
+        )}
+
         {/* Executing / Paused / Completed: step list with progress */}
-        {showStepList && planState !== "review" && (
+        {showStepList && (
           <div className="px-3 py-2 space-y-1">
             {groupedPhases.map((phase) => (
               <div key={phase.name} className="mb-3">
@@ -363,6 +447,19 @@ export function PlanPanel({
             )}
           </div>
         )}
+
+        {/* Comment popover (positioned absolutely within content area) */}
+        {commentPopover && (
+          <CommentPopover
+            position={commentPopover.position}
+            selectedText={commentPopover.selectedText}
+            onSubmit={handleCommentSubmit}
+            onClose={() => {
+              setCommentPopover(null)
+              window.getSelection()?.removeAllRanges()
+            }}
+          />
+        )}
       </div>
 
       {/* Action bar */}
@@ -374,7 +471,7 @@ export function PlanPanel({
           </Button>
         )}
 
-        {/* Review: approve, request changes, or exit */}
+        {/* Review: approve or exit */}
         {planState === "review" && (
           <>
             <Button
@@ -384,50 +481,6 @@ export function PlanPanel({
               <Play className="h-4 w-4 mr-2" />
               {t("planMode.approveAndExecute")}
             </Button>
-            {onRequestChanges && !showChangesInput && (
-              <Button
-                variant="outline"
-                className="w-full"
-                onClick={() => setShowChangesInput(true)}
-              >
-                {t("planMode.requestChanges")}
-              </Button>
-            )}
-            {showChangesInput && (
-              <div className="space-y-2">
-                <Textarea
-                  value={changesFeedback}
-                  onChange={(e) => setChangesFeedback(e.target.value)}
-                  placeholder={t("planMode.requestChangesPlaceholder")}
-                  className="text-sm min-h-[60px] resize-none"
-                  autoFocus
-                />
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    className="flex-1"
-                    disabled={!changesFeedback.trim()}
-                    onClick={() => {
-                      if (changesFeedback.trim()) {
-                        onRequestChanges?.(changesFeedback.trim())
-                        setChangesFeedback("")
-                        setShowChangesInput(false)
-                      }
-                    }}
-                  >
-                    <Send className="h-3.5 w-3.5 mr-1.5" />
-                    {t("common.send")}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => { setShowChangesInput(false); setChangesFeedback("") }}
-                  >
-                    {t("common.cancel")}
-                  </Button>
-                </div>
-              </div>
-            )}
             <Button variant="ghost" className="w-full" onClick={onExit}>
               {t("planMode.exitWithout")}
             </Button>

@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **Plan Mode 计划面板协同编辑重构**：
+  - 计划面板不再在进入计划模式时立即显示，仅在计划 Markdown 内容生成后自动展示
+  - 移除计划面板中的手动编辑 textarea，所有状态下均为只读 Markdown 渲染
+  - 新增选中文本评论功能（CommentPopover），用户选中计划文本后弹出评论框，评论以引用格式发送给模型进行修订
+  - 移除独立的"请求修改"按钮，改为更精准的内联评论协同编辑方式
 - **Plan Mode 双 Agent 架构重构**：从单 Agent 状态机切换改为 Plan Agent / Build Agent 双 Agent 架构
   - 新增 `PlanAgentConfig` 声明式配置，Plan Agent 使用工具白名单（替代 denied_tools 黑名单）
   - 新增 `PlanAgentMode` 枚举（Off/PlanAgent/BuildAgent）统一控制工具注入

@@ -156,7 +156,8 @@ export function usePlanMode(
         setPlanState(s)
         setPlanSteps(steps || [])
         setPlanContent(content || "")
-        if (s !== "off") setShowPanel(true)
+        // Only auto-show panel when plan content exists (not during initial planning)
+        if (s !== "off" && content) setShowPanel(true)
       })
       .catch(() => {
         setPlanState("off")
@@ -246,10 +247,13 @@ export function usePlanMode(
         setPlanSteps(event.payload.steps)
         setPlanState("review")
         setPendingQuestionGroup(null)
-        // Load the plan content
+        // Load the plan content and auto-show panel
         invoke<string | null>("get_plan_content", { sessionId: currentSessionId })
           .then((content) => {
-            if (content) setPlanContent(content)
+            if (content) {
+              setPlanContent(content)
+              setShowPanel(true)
+            }
           })
           .catch(() => {})
       }

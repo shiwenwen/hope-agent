@@ -338,7 +338,6 @@ export default function ChatScreen({
           break
         case "enterPlanMode":
           planMode.enterPlanMode()
-          planMode.setShowPanel(true)
           break
         case "exitPlanMode":
           planMode.exitPlanMode()
@@ -529,7 +528,6 @@ export default function ChatScreen({
                 } else {
                   planMode.setPlanState("planning")
                 }
-                planMode.setShowPanel(true)
               }}
               onExitPlanMode={planMode.exitPlanMode}
               onTogglePlanPanel={() => planMode.setShowPanel((p) => !p)}
@@ -547,7 +545,6 @@ export default function ChatScreen({
           progress={planMode.progress}
           completedCount={planMode.completedCount}
           sessionId={session.currentSessionId}
-          onPlanContentChange={planMode.setPlanContent}
           onApprove={handlePlanApprove}
           onExit={planMode.exitPlanMode}
           onClose={() => planMode.setShowPanel(false)}

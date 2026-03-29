@@ -1219,6 +1219,12 @@
     "requestChanges": "Request Changes",
     "requestChangesPlaceholder": "Describe what you want changed...",
     "rollback": "Rollback Changes",
+    "comment": {
+      "hint": "Select text to add comments and collaboratively refine the plan",
+      "placeholder": "Suggest changes for the selected content...",
+      "submit": "Send",
+      "shortcut": "⌘+Enter to send"
+    },
     "question": {
       "title": "Planning Questions",
       "submit": "Submit Answers",
