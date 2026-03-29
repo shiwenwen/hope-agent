@@ -1191,6 +1191,8 @@
     "plan": "执行计划",
     "openPanel": "在面板中查看",
     "openFolder": "打开文件夹",
+    "planningInProgress": "正在制定计划...",
+    "messageSentToPlanner": "消息已转发给计划 Agent",
     "restricted": "计划模式：AI 将收集信息并与你交互制定计划",
     "approveAndExecute": "开始执行",
     "keepPlanning": "继续完善",
@@ -1225,6 +1227,11 @@
     "noVersions": "暂无历史版本",
     "requestChanges": "请求修改",
     "requestChangesPlaceholder": "描述你希望修改的内容...",
+    "maximize": "最大化",
+    "minimize": "还原",
+    "popOut": "独立窗口",
+    "popOutActive": "已在独立窗口中打开",
+    "reattach": "收回到面板",
     "rollback": "回滚更改",
     "comment": {
       "hint": "选中文本即可添加评论，协同修改计划",
@@ -1413,6 +1420,10 @@
       "lastRun": "最近运行",
       "empty": "暂无数据"
     }
+  },
+  "urlPreview": {
+    "loading": "正在加载预览...",
+    "openLink": "打开链接"
   },
   "quickChat": {
     "title": "快捷对话",

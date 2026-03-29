@@ -1191,6 +1191,8 @@
     "plan": "Execution Plan",
     "openPanel": "View in panel",
     "openFolder": "Open folder",
+    "planningInProgress": "Creating plan...",
+    "messageSentToPlanner": "Message forwarded to planning agent",
     "restricted": "Plan Mode: AI will gather info and collaborate with you to create a plan",
     "approveAndExecute": "Start Execution",
     "keepPlanning": "Keep Planning",
@@ -1225,6 +1227,11 @@
     "noVersions": "No previous versions",
     "requestChanges": "Request Changes",
     "requestChangesPlaceholder": "Describe what you want changed...",
+    "maximize": "Maximize",
+    "minimize": "Minimize",
+    "popOut": "Pop Out",
+    "popOutActive": "Opened in a separate window",
+    "reattach": "Reattach to Panel",
     "rollback": "Rollback Changes",
     "comment": {
       "hint": "Select text to add comments and collaboratively refine the plan",
@@ -1413,6 +1420,10 @@
       "lastRun": "Last Run",
       "empty": "No data"
     }
+  },
+  "urlPreview": {
+    "loading": "Loading preview...",
+    "openLink": "Open link"
   },
   "quickChat": {
     "title": "Quick Chat",

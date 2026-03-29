@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react"
+import { useState, useEffect, useRef, useMemo } from "react"
 import { convertFileSrc } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
@@ -13,7 +13,39 @@ import type { ContentBlock } from "@/types/chat"
 import ThinkingBlock from "@/components/chat/ThinkingBlock"
 import FallbackBanner from "@/components/chat/FallbackBanner"
 import FileAttachments from "@/components/chat/FileAttachments"
+import UrlPreviewCard, { type UrlPreviewData } from "@/components/chat/UrlPreviewCard"
+import { extractUrls } from "@/lib/urlDetect"
 import type { Message, AgentSummaryForSidebar } from "@/types/chat"
+
+/** Renders URL preview cards for a message's content */
+function MessageUrlPreviews({ content, isStreaming }: { content: string; isStreaming: boolean }) {
+  const [previews, setPreviews] = useState<UrlPreviewData[]>([])
+  const fetchedRef = useRef(false)
+
+  useEffect(() => {
+    if (isStreaming || fetchedRef.current || !content.trim()) return
+
+    const urls = extractUrls(content)
+    if (urls.length === 0) return
+
+    fetchedRef.current = true
+    const urlsToFetch = urls.slice(0, 5)
+
+    invoke<UrlPreviewData[]>("fetch_url_previews", { urls: urlsToFetch })
+      .then(setPreviews)
+      .catch(() => {})
+  }, [content, isStreaming])
+
+  if (previews.length === 0) return null
+
+  return (
+    <div className="mt-2 flex flex-col gap-1.5">
+      {previews.map((p) => (
+        <UrlPreviewCard key={p.url} data={p} />
+      ))}
+    </div>
+  )
+}
 
 interface MessageBubbleProps {
   msg: Message
@@ -400,6 +432,10 @@ export default function MessageBubble({
           ) : (
             // User message content
             msg.content
+          )}
+          {/* URL Previews (only for non-streaming messages) */}
+          {msg.content && !(loading && isLast) && (
+            <MessageUrlPreviews content={msg.content} isStreaming={loading && isLast} />
           )}
           {modifiedFiles.length > 0 && <FileAttachments files={modifiedFiles} />}
           {msg.timestamp && (

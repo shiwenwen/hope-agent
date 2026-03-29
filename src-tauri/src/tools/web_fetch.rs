@@ -78,7 +78,7 @@ impl Default for WebFetchConfig {
 // ── SSRF Protection ─────────────────────────────────────────────
 
 /// Check if a URL is safe to fetch (not targeting private/internal networks).
-async fn check_ssrf_safe(url_str: &str) -> Result<()> {
+pub(crate) async fn check_ssrf_safe(url_str: &str) -> Result<()> {
     let parsed = url::Url::parse(url_str)
         .map_err(|e| anyhow::anyhow!("Invalid URL: {}", e))?;
 
@@ -105,7 +105,7 @@ async fn check_ssrf_safe(url_str: &str) -> Result<()> {
 }
 
 /// Check if an IP address belongs to a private/reserved range.
-fn is_private_ip(ip: &IpAddr) -> bool {
+pub(crate) fn is_private_ip(ip: &IpAddr) -> bool {
     match ip {
         IpAddr::V4(v4) => {
             v4.is_loopback()                            // 127.0.0.0/8

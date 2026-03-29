@@ -10,7 +10,9 @@ import type { AvailableModel, ActiveModel, ToolPermissionMode } from "@/types/ch
 import { getEffortOptionsForType } from "@/types/chat"
 import { useSlashCommands, type SlashCommandActions } from "./slash-commands/useSlashCommands"
 import { useLightbox } from "@/components/common/ImageLightbox"
+import { useUrlPreview } from "@/hooks/useUrlPreview"
 import SlashCommandMenu from "./slash-commands/SlashCommandMenu"
+import UrlPreviewCard from "./UrlPreviewCard"
 import type { CommandResult } from "./slash-commands/types"
 
 interface ChatInputProps {
@@ -89,6 +91,9 @@ export default function ChatInput({
     agentId: currentAgentId,
   }
   const slash = useSlashCommands(input, onInputChange, slashActions)
+
+  // URL preview
+  const { previews: urlPreviews, dismissedUrls, dismiss: dismissUrl } = useUrlPreview(input)
 
   // Model selector popup state
   const [showModelMenu, setShowModelMenu] = useState(false)
@@ -270,6 +275,22 @@ export default function ChatInput({
             rows={1}
             className="border-0 shadow-none bg-transparent px-4 pt-3 pb-1 text-sm text-foreground placeholder:text-muted-foreground focus-visible:ring-0 resize-none min-h-[42px] max-h-[40vh] overflow-y-auto"
           />
+
+          {/* URL Previews */}
+          {urlPreviews.size > 0 && (
+            <div className="px-3 pb-1 flex flex-col gap-1.5 max-h-[200px] overflow-y-auto">
+              {Array.from(urlPreviews.entries())
+                .filter(([url]) => !dismissedUrls.has(url))
+                .map(([url, data]) => (
+                  <UrlPreviewCard
+                    key={url}
+                    data={data}
+                    dismissible
+                    onDismiss={() => dismissUrl(url)}
+                  />
+                ))}
+            </div>
+          )}
 
           {/* Toolbar */}
           <div className="flex items-center gap-1 px-2 pb-2 flex-wrap">

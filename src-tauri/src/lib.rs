@@ -35,6 +35,7 @@ pub mod backup;
 pub mod self_diagnosis;
 mod plan;
 mod tray;
+mod url_preview;
 
 use agent::AssistantAgent;
 use oauth::TokenData;
@@ -898,6 +899,7 @@ pub fn run() {
             commands::plan::plan_rollback,
             commands::plan::get_plan_checkpoint,
             commands::plan::get_plan_file_path,
+            commands::plan::cancel_plan_subagent,
             // ACP control plane
             commands::acp_control::acp_list_backends,
             commands::acp_control::acp_health_check,
@@ -907,6 +909,9 @@ pub fn run() {
             commands::acp_control::acp_get_run_result,
             commands::acp_control::acp_get_config,
             commands::acp_control::acp_set_config,
+            // URL preview
+            commands::url_preview::fetch_url_preview,
+            commands::url_preview::fetch_url_previews,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
