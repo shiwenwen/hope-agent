@@ -24,6 +24,9 @@ impl AssistantAgent {
             .build()
             .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
         let mut tool_schemas = tools::get_tools_for_provider(ToolProvider::Anthropic);
+        if self.web_search_enabled {
+            tool_schemas.push(tools::get_web_search_tool().to_provider_schema(ToolProvider::Anthropic));
+        }
         if self.notification_enabled {
             tool_schemas.push(tools::get_notification_tool().to_provider_schema(ToolProvider::Anthropic));
         }

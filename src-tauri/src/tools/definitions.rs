@@ -321,39 +321,6 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             }),
         },
         ToolDefinition {
-            name: TOOL_WEB_SEARCH.into(),
-            description: "Search the web for information. Returns relevant results with titles, URLs, and snippets. Use this when the user asks about current events, recent information, or anything that requires up-to-date knowledge.".into(),
-            internal: false,
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "Search query string"
-                    },
-                    "count": {
-                        "type": "integer",
-                        "description": "Number of results to return (1-10, default from settings)"
-                    },
-                    "country": {
-                        "type": "string",
-                        "description": "ISO 3166-1 alpha-2 country code (e.g. 'US', 'CN'). Limits results to this country. Supported by: Brave, Google, Tavily."
-                    },
-                    "language": {
-                        "type": "string",
-                        "description": "ISO 639-1 language code (e.g. 'en', 'zh'). Prefer results in this language. Supported by: Brave, SearXNG, Google."
-                    },
-                    "freshness": {
-                        "type": "string",
-                        "enum": ["day", "week", "month", "year"],
-                        "description": "Time filter: only return results from the specified period. Supported by: Brave, SearXNG, Perplexity, Google, Tavily."
-                    }
-                },
-                "required": ["query"],
-                "additionalProperties": false
-            }),
-        },
-        ToolDefinition {
             name: TOOL_WEB_FETCH.into(),
             description: "Fetch and extract readable content from a URL using Mozilla Readability. Supports markdown and plain text output modes. Returns structured JSON with page content, metadata, and extraction info. Use this to read web pages, documentation, articles, or API responses.".into(),
             internal: false,
@@ -1245,6 +1212,43 @@ pub fn get_image_generate_tool_dynamic(config: &crate::tools::image_generate::Im
                 }
             },
             "required": ["prompt"],
+            "additionalProperties": false
+        }),
+    }
+}
+
+/// Returns the web_search tool definition (conditionally injected when enabled).
+pub fn get_web_search_tool() -> ToolDefinition {
+    ToolDefinition {
+        name: TOOL_WEB_SEARCH.into(),
+        description: "Search the web for information. Returns relevant results with titles, URLs, and snippets. Use this when the user asks about current events, recent information, or anything that requires up-to-date knowledge.".into(),
+        internal: false,
+        parameters: json!({
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search query string"
+                },
+                "count": {
+                    "type": "integer",
+                    "description": "Number of results to return (1-10, default from settings)"
+                },
+                "country": {
+                    "type": "string",
+                    "description": "ISO 3166-1 alpha-2 country code (e.g. 'US', 'CN'). Limits results to this country. Supported by: Brave, Google, Tavily."
+                },
+                "language": {
+                    "type": "string",
+                    "description": "ISO 639-1 language code (e.g. 'en', 'zh'). Prefer results in this language. Supported by: Brave, SearXNG, Google."
+                },
+                "freshness": {
+                    "type": "string",
+                    "enum": ["day", "week", "month", "year"],
+                    "description": "Time filter: only return results from the specified period. Supported by: Brave, SearXNG, Perplexity, Google, Tavily."
+                }
+            },
+            "required": ["query"],
             "additionalProperties": false
         }),
     }

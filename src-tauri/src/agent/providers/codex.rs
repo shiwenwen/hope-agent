@@ -18,6 +18,9 @@ impl AssistantAgent {
     pub(crate) async fn chat_openai(&self, access_token: &str, account_id: &str, model: &str, message: &str, attachments: &[Attachment], reasoning_effort: Option<&str>, cancel: &Arc<AtomicBool>, on_delta: &(impl Fn(&str) + Send)) -> Result<(String, Option<String>)> {
         let client = reqwest::Client::new();
         let mut tool_schemas = tools::get_tools_for_provider(ToolProvider::OpenAI);
+        if self.web_search_enabled {
+            tool_schemas.push(tools::get_web_search_tool().to_provider_schema(ToolProvider::OpenAI));
+        }
         if self.notification_enabled {
             tool_schemas.push(tools::get_notification_tool().to_provider_schema(ToolProvider::OpenAI));
         }

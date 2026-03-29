@@ -84,6 +84,8 @@ pub struct AssistantAgent {
     /// Token estimate calibrator (updated with actual API usage)
     #[allow(dead_code)]
     pub(super) token_calibrator: std::sync::Mutex<crate::context_compact::TokenEstimateCalibrator>,
+    /// Whether this agent can use the web_search tool
+    pub(super) web_search_enabled: bool,
     /// Whether this agent can use the send_notification tool
     pub(super) notification_enabled: bool,
     /// Image generation config (Some = enabled with config for dynamic tool description)

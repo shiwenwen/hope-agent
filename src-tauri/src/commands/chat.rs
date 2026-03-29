@@ -272,6 +272,11 @@ pub async fn chat(
         store.canvas.enabled
     };
 
+    let web_search_enabled = {
+        let store = state.provider_store.lock().await;
+        crate::tools::web_search::has_enabled_provider(&store.web_search)
+    };
+
     // Resolve temperature: session > agent > global
     let resolved_temperature: Option<f64> = {
         let global_temp = state.provider_store.lock().await.temperature;
@@ -438,6 +443,7 @@ pub async fn chat(
         };
         agent.set_agent_id(&current_agent_id);
         agent.set_session_id(&sid);
+        agent.set_web_search_enabled(web_search_enabled);
         agent.set_notification_enabled(notification_enabled);
         agent.set_image_generate_config(image_gen_config.clone());
         agent.set_canvas_enabled(canvas_enabled);

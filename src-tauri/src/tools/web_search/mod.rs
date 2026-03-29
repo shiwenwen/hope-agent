@@ -153,6 +153,11 @@ impl Default for WebSearchConfig {
     }
 }
 
+/// Check if any web search provider is enabled in the config.
+pub fn has_enabled_provider(config: &WebSearchConfig) -> bool {
+    config.providers.iter().any(|p| p.enabled)
+}
+
 /// Resolve which provider to use: first enabled provider in the ordered list.
 /// Falls back to DuckDuckGo if none enabled.
 fn resolve_provider(config: &WebSearchConfig) -> (WebSearchProvider, &WebSearchProviderEntry) {

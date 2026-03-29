@@ -43,6 +43,7 @@ impl AssistantAgent {
             context_window: 200_000,
             compact_config: crate::context_compact::CompactConfig::default(),
             token_calibrator: std::sync::Mutex::new(crate::context_compact::TokenEstimateCalibrator::new()),
+            web_search_enabled: true,
             notification_enabled: false,
             image_gen_config: None,
             canvas_enabled: false,
@@ -72,6 +73,7 @@ impl AssistantAgent {
             context_window: 200_000,
             compact_config: crate::context_compact::CompactConfig::default(),
             token_calibrator: std::sync::Mutex::new(crate::context_compact::TokenEstimateCalibrator::new()),
+            web_search_enabled: true,
             notification_enabled: false,
             image_gen_config: None,
             canvas_enabled: false,
@@ -125,6 +127,7 @@ impl AssistantAgent {
             context_window,
             compact_config: crate::context_compact::CompactConfig::default(),
             token_calibrator: std::sync::Mutex::new(crate::context_compact::TokenEstimateCalibrator::new()),
+            web_search_enabled: true,
             notification_enabled: false,
             image_gen_config: None,
             canvas_enabled: false,
@@ -146,6 +149,11 @@ impl AssistantAgent {
     /// Set extra context to append to the system prompt.
     pub fn set_extra_system_context(&mut self, context: String) {
         self.extra_system_context = Some(context);
+    }
+
+    /// Enable or disable the web_search tool for this agent.
+    pub fn set_web_search_enabled(&mut self, enabled: bool) {
+        self.web_search_enabled = enabled;
     }
 
     /// Enable or disable the send_notification tool for this agent.

@@ -490,6 +490,7 @@ impl AcpAgent {
         agent.set_agent_id(agent_id);
         agent.set_session_id(session_id);
         agent.set_compact_config(store.compact.clone());
+        agent.set_web_search_enabled(crate::tools::web_search::has_enabled_provider(&store.web_search));
         agent.set_notification_enabled(store.notification.enabled);
         let image_gen_config = if crate::tools::image_generate::has_configured_provider_from_config(&store.image_generate) {
             let mut cfg = store.image_generate.clone();
