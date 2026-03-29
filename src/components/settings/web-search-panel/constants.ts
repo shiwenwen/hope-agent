@@ -19,7 +19,7 @@ export const PROVIDER_META: Record<string, ProviderMeta> = {
       {
         configKey: "baseUrl",
         labelKey: "settings.webSearchInstanceUrl",
-        placeholder: "http://localhost:8080",
+        placeholder: "http://127.0.0.1:8080",
       },
     ],
   },

@@ -4,12 +4,7 @@ import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { useSortable } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
-import {
-  ChevronDown,
-  ChevronRight,
-  ExternalLink,
-  GripVertical,
-} from "lucide-react"
+import { ChevronDown, ChevronRight, ExternalLink, GripVertical } from "lucide-react"
 import type { ProviderEntry } from "./types"
 import { PROVIDER_META, hasRequiredCredentials } from "./constants"
 import { SearxngDockerSection } from "./SearxngDocker"
@@ -18,16 +13,22 @@ export function SortableProviderItem({
   entry,
   index,
   expanded,
+  searxngDockerUseProxy,
   onToggleExpand,
   onToggleEnabled,
   onFieldChange,
+  onSearxngDockerUseProxyChange,
+  saveConfig,
 }: {
   entry: ProviderEntry
   index: number
   expanded: boolean
+  searxngDockerUseProxy: boolean
   onToggleExpand: () => void
   onToggleEnabled: (enabled: boolean) => void
   onFieldChange: (key: "apiKey" | "apiKey2" | "baseUrl", value: string | null) => void
+  onSearxngDockerUseProxyChange: (enabled: boolean) => Promise<boolean>
+  saveConfig: () => Promise<boolean>
 }) {
   const { t } = useTranslation()
   const meta = PROVIDER_META[entry.id]
@@ -134,7 +135,12 @@ export function SortableProviderItem({
 
           {/* SearXNG Docker section */}
           {entry.id === "searxng" && (
-            <SearxngDockerSection onUrlSet={(url) => onFieldChange("baseUrl", url)} />
+            <SearxngDockerSection
+              onUrlSet={(url) => onFieldChange("baseUrl", url)}
+              useProxy={searxngDockerUseProxy}
+              onUseProxyChange={onSearxngDockerUseProxyChange}
+              saveConfig={saveConfig}
+            />
           )}
         </div>
       )}

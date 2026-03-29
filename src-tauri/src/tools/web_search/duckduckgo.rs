@@ -1,10 +1,50 @@
 use anyhow::Result;
 use serde_json::Value;
+use std::sync::atomic::{AtomicU64, Ordering};
 
-use super::helpers::{DEFAULT_WEB_FETCH_USER_AGENT, strip_html_tags, html_decode};
+use super::helpers::{html_decode, strip_html_tags, DEFAULT_WEB_FETCH_USER_AGENT};
 use super::{SearchResult, DEFAULT_WEB_SEARCH_TIMEOUT_SECS};
 
-pub(super) async fn search_duckduckgo(query: &str, count: usize, _timeout_secs: u64) -> Result<Vec<SearchResult>> {
+/// Timestamp (epoch secs) until which DDG is rate-limited. Skip requests until then.
+static DDG_RATE_LIMITED_UNTIL: AtomicU64 = AtomicU64::new(0);
+/// Cooldown period after DDG rate-limits us (seconds).
+const DDG_RATE_LIMIT_COOLDOWN_SECS: u64 = 30;
+
+fn ddg_is_rate_limited() -> bool {
+    let until = DDG_RATE_LIMITED_UNTIL.load(Ordering::Relaxed);
+    if until == 0 {
+        return false;
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    now < until
+}
+
+fn ddg_mark_rate_limited() {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    DDG_RATE_LIMITED_UNTIL.store(now + DDG_RATE_LIMIT_COOLDOWN_SECS, Ordering::Relaxed);
+}
+
+pub(super) async fn search_duckduckgo(
+    query: &str,
+    count: usize,
+    _timeout_secs: u64,
+) -> Result<Vec<SearchResult>> {
+    // Skip if recently rate-limited — don't waste time on requests that will be 202'd
+    if ddg_is_rate_limited() {
+        app_warn!(
+            "tool",
+            "web_search",
+            "DDG rate-limit cooldown active, skipping"
+        );
+        return Ok(Vec::new());
+    }
+
     let client = build_ddg_client()?;
 
     // 1. Try Instant Answer API first (structured JSON, high quality for factual queries)
@@ -13,8 +53,45 @@ pub(super) async fn search_duckduckgo(query: &str, count: usize, _timeout_secs: 
     // 2. Scrape HTML search results, fallback to Lite endpoint
     let mut results = match ddg_html_search(&client, query, count).await {
         Ok(r) if !r.is_empty() => r,
-        _ => ddg_lite_search(&client, query, count).await?,
+        Ok(_) => {
+            app_warn!(
+                "tool",
+                "web_search",
+                "DDG HTML search returned 0 results, falling back to Lite endpoint"
+            );
+            ddg_lite_search(&client, query, count).await?
+        }
+        Err(e) => {
+            let err_msg = e.to_string();
+            if err_msg.contains("anti-bot") || err_msg.contains("rate-limited") {
+                // DDG is blocking/throttling us — Lite will likely fail too, skip it
+                app_warn!(
+                    "tool",
+                    "web_search",
+                    "DDG blocked ({}), skipping Lite fallback",
+                    err_msg
+                );
+                Vec::new()
+            } else {
+                app_warn!(
+                    "tool",
+                    "web_search",
+                    "DDG HTML search failed: {}, falling back to Lite endpoint",
+                    e
+                );
+                ddg_lite_search(&client, query, count).await?
+            }
+        }
     };
+
+    if results.is_empty() && instant.is_none() {
+        app_warn!(
+            "tool",
+            "web_search",
+            "DDG all endpoints returned 0 results for query: {}",
+            query
+        );
+    }
 
     // 3. Prepend instant answer if we got one and it's useful
     if let Some(ia) = instant {
@@ -24,7 +101,9 @@ pub(super) async fn search_duckduckgo(query: &str, count: usize, _timeout_secs: 
     // 4. Deduplicate by URL
     let mut seen = std::collections::HashSet::new();
     results.retain(|r| {
-        if r.url.is_empty() { return true; }
+        if r.url.is_empty() {
+            return true;
+        }
         seen.insert(r.url.clone())
     });
 
@@ -36,7 +115,10 @@ pub(super) async fn search_duckduckgo(query: &str, count: usize, _timeout_secs: 
 fn build_ddg_client() -> Result<reqwest::Client> {
     use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, ACCEPT_LANGUAGE, REFERER};
     let mut headers = HeaderMap::new();
-    headers.insert(ACCEPT, HeaderValue::from_static("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"));
+    headers.insert(
+        ACCEPT,
+        HeaderValue::from_static("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"),
+    );
     headers.insert(ACCEPT_LANGUAGE, HeaderValue::from_static("en-US,en;q=0.9"));
     headers.insert(REFERER, HeaderValue::from_static("https://duckduckgo.com/"));
     headers.insert("Sec-Fetch-Mode", HeaderValue::from_static("navigate"));
@@ -46,10 +128,12 @@ fn build_ddg_client() -> Result<reqwest::Client> {
         reqwest::Client::builder()
             .user_agent(DEFAULT_WEB_FETCH_USER_AGENT)
             .default_headers(headers)
-            .timeout(std::time::Duration::from_secs(DEFAULT_WEB_SEARCH_TIMEOUT_SECS))
+            .timeout(std::time::Duration::from_secs(
+                DEFAULT_WEB_SEARCH_TIMEOUT_SECS,
+            )),
     )
-        .build()
-        .map_err(|e| anyhow::anyhow!("Failed to create DDG HTTP client: {}", e))
+    .build()
+    .map_err(|e| anyhow::anyhow!("Failed to create DDG HTTP client: {}", e))
 }
 
 /// DuckDuckGo Instant Answer API — returns structured data for factual queries.
@@ -59,19 +143,31 @@ async fn ddg_instant_answer(client: &reqwest::Client, query: &str) -> Option<Sea
         urlencoding::encode(query)
     );
     let resp = client.get(&url).send().await.ok()?;
-    if !resp.status().is_success() { return None; }
+    if !resp.status().is_success() {
+        return None;
+    }
     let data: Value = resp.json().await.ok()?;
 
     // AbstractText + AbstractURL — encyclopedia-style answer
-    let abstract_text = data.get("AbstractText").and_then(|v| v.as_str()).unwrap_or("");
-    let abstract_url = data.get("AbstractURL").and_then(|v| v.as_str()).unwrap_or("");
-    let abstract_source = data.get("AbstractSource").and_then(|v| v.as_str()).unwrap_or("");
+    let abstract_text = data
+        .get("AbstractText")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let abstract_url = data
+        .get("AbstractURL")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let abstract_source = data
+        .get("AbstractSource")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
 
     if !abstract_text.is_empty() && !abstract_url.is_empty() {
         return Some(SearchResult {
             title: format!("{} ({})", query, abstract_source),
             url: abstract_url.to_string(),
             snippet: abstract_text.chars().take(300).collect(),
+            source: "DuckDuckGo".into(),
         });
     }
 
@@ -82,6 +178,7 @@ async fn ddg_instant_answer(client: &reqwest::Client, query: &str) -> Option<Sea
             title: format!("{} — Instant Answer", query),
             url: String::new(),
             snippet: answer.to_string(),
+            source: "DuckDuckGo".into(),
         });
     }
 
@@ -89,39 +186,107 @@ async fn ddg_instant_answer(client: &reqwest::Client, query: &str) -> Option<Sea
 }
 
 /// Primary DDG search via the HTML endpoint.
-async fn ddg_html_search(client: &reqwest::Client, query: &str, count: usize) -> Result<Vec<SearchResult>> {
-    let search_url = format!(
-        "https://html.duckduckgo.com/html/?q={}",
-        urlencoding::encode(query)
-    );
+async fn ddg_html_search(
+    client: &reqwest::Client,
+    query: &str,
+    count: usize,
+) -> Result<Vec<SearchResult>> {
+    let search_url = "https://html.duckduckgo.com/html/";
     let resp = client
-        .post(&search_url)
+        .post(search_url)
         .form(&[("q", query), ("b", ""), ("kl", "")])
         .send()
         .await
         .map_err(|e| anyhow::anyhow!("DuckDuckGo HTML request failed: {}", e))?;
-    if !resp.status().is_success() {
-        return Err(anyhow::anyhow!("DuckDuckGo HTML failed with status: {}", resp.status()));
+    let status = resp.status();
+    // DDG returns 202 when rate-limited
+    if status == reqwest::StatusCode::ACCEPTED {
+        app_warn!(
+            "tool",
+            "web_search",
+            "DDG rate-limited (HTTP 202), cooldown {}s",
+            DDG_RATE_LIMIT_COOLDOWN_SECS
+        );
+        ddg_mark_rate_limited();
+        return Err(anyhow::anyhow!("DDG rate-limited (HTTP 202)"));
     }
-    let html = resp.text().await
+    if !status.is_success() {
+        return Err(anyhow::anyhow!(
+            "DuckDuckGo HTML failed with status: {}",
+            status
+        ));
+    }
+    let html = resp
+        .text()
+        .await
         .map_err(|e| anyhow::anyhow!("Failed to read DuckDuckGo response: {}", e))?;
-    Ok(parse_ddg_results(&html, count))
+
+    // Detect anti-bot redirect: DDG returns homepage instead of results
+    if is_ddg_blocked(&html) {
+        app_warn!(
+            "tool",
+            "web_search",
+            "DDG HTML returned homepage (anti-bot/rate-limit), {}B response, cooldown {}s",
+            html.len(),
+            DDG_RATE_LIMIT_COOLDOWN_SECS
+        );
+        ddg_mark_rate_limited();
+        return Err(anyhow::anyhow!("DDG blocked (anti-bot redirect)"));
+    }
+
+    let results = parse_ddg_results(&html, count);
+    if results.is_empty() {
+        let preview = crate::truncate_utf8(&html, 2048);
+        app_warn!(
+            "tool",
+            "web_search",
+            "DDG HTML parsed 0 results, raw response ({}B, preview {}B):\n{}",
+            html.len(),
+            preview.len(),
+            preview
+        );
+    }
+    Ok(results)
 }
 
 /// Fallback: DDG Lite endpoint (simpler HTML, more resilient).
-async fn ddg_lite_search(client: &reqwest::Client, query: &str, count: usize) -> Result<Vec<SearchResult>> {
+async fn ddg_lite_search(
+    client: &reqwest::Client,
+    query: &str,
+    count: usize,
+) -> Result<Vec<SearchResult>> {
     let url = format!(
         "https://lite.duckduckgo.com/lite/?q={}",
         urlencoding::encode(query)
     );
-    let resp = client.get(&url).send().await
+    let resp = client
+        .get(&url)
+        .send()
+        .await
         .map_err(|e| anyhow::anyhow!("DuckDuckGo Lite request failed: {}", e))?;
     if !resp.status().is_success() {
-        return Err(anyhow::anyhow!("DuckDuckGo Lite failed with status: {}", resp.status()));
+        return Err(anyhow::anyhow!(
+            "DuckDuckGo Lite failed with status: {}",
+            resp.status()
+        ));
     }
-    let html = resp.text().await
+    let html = resp
+        .text()
+        .await
         .map_err(|e| anyhow::anyhow!("Failed to read DDG Lite response: {}", e))?;
-    Ok(parse_ddg_lite_results(&html, count))
+    let results = parse_ddg_lite_results(&html, count);
+    if results.is_empty() {
+        let preview = crate::truncate_utf8(&html, 2048);
+        app_warn!(
+            "tool",
+            "web_search",
+            "DDG Lite parsed 0 results, raw response ({}B, preview {}B):\n{}",
+            html.len(),
+            preview.len(),
+            preview
+        );
+    }
+    Ok(results)
 }
 
 fn parse_ddg_results(html: &str, max_results: usize) -> Vec<SearchResult> {
@@ -178,7 +343,11 @@ fn parse_ddg_results(html: &str, max_results: usize) -> Vec<SearchResult> {
                     html[content_start..].find("</a>"),
                     html[content_start..].find("</span>"),
                     html[content_start..].find("</div>"),
-                ].iter().filter_map(|x| *x).min().unwrap_or(0);
+                ]
+                .iter()
+                .filter_map(|x| *x)
+                .min()
+                .unwrap_or(0);
                 if end_pos > 0 {
                     strip_html_tags(&html[content_start..content_start + end_pos])
                 } else {
@@ -196,6 +365,7 @@ fn parse_ddg_results(html: &str, max_results: usize) -> Vec<SearchResult> {
                 title: html_decode(&title),
                 url,
                 snippet: html_decode(&snippet),
+                source: "DuckDuckGo".into(),
             });
         }
 
@@ -203,6 +373,17 @@ fn parse_ddg_results(html: &str, max_results: usize) -> Vec<SearchResult> {
     }
 
     results
+}
+
+/// Detect if DDG returned its homepage instead of search results (anti-bot block).
+fn is_ddg_blocked(html: &str) -> bool {
+    // When blocked, DDG returns a page with canonical URL pointing to the homepage
+    // and no search result markers at all
+    let has_canonical_home = html.contains(r#"rel="canonical" href="https://duckduckgo.com/"#);
+    let has_no_results = !html.contains("result__a")
+        && !html.contains("result-link")
+        && !html.contains("result__snippet");
+    has_canonical_home && has_no_results
 }
 
 fn extract_ddg_url(raw: &str) -> String {
@@ -270,7 +451,9 @@ fn parse_ddg_lite_results(html: &str, max_results: usize) -> Vec<SearchResult> {
             if let Some(tag_end) = html[abs_snip..].find('>') {
                 let content_start = abs_snip + tag_end + 1;
                 if let Some(td_end) = html[content_start..].find("</td>") {
-                    html_decode(&strip_html_tags(&html[content_start..content_start + td_end]))
+                    html_decode(&strip_html_tags(
+                        &html[content_start..content_start + td_end],
+                    ))
                 } else {
                     String::new()
                 }
@@ -287,6 +470,7 @@ fn parse_ddg_lite_results(html: &str, max_results: usize) -> Vec<SearchResult> {
                 title: html_decode(&title),
                 url,
                 snippet,
+                source: "DuckDuckGo".into(),
             });
         }
 

@@ -52,13 +52,13 @@ src-tauri/src/          后端（Rust）
 
 ## 技术栈
 
-| 层 | 技术 |
-|----|------|
-| 前端 | React 19 + TypeScript, Vite 8, Tailwind CSS v4, shadcn/ui (Radix UI) |
-| 桌面 | Tauri 2 |
-| 后端 | Rust, tokio, reqwest |
-| 渲染 | Streamdown + Shiki + KaTeX + Mermaid |
-| 多语言 | i18next (12 种语言) |
+| 层     | 技术                                                                 |
+| ------ | -------------------------------------------------------------------- |
+| 前端   | React 19 + TypeScript, Vite 8, Tailwind CSS v4, shadcn/ui (Radix UI) |
+| 桌面   | Tauri 2                                                              |
+| 后端   | Rust, tokio, reqwest                                                 |
+| 渲染   | Streamdown + Shiki + KaTeX + Mermaid                                 |
+| 多语言 | i18next (12 种语言)                                                  |
 
 ## 架构约定
 
@@ -68,6 +68,7 @@ src-tauri/src/          后端（Rust）
 - **温度配置**：三层覆盖架构（会话 > Agent > 全局）。全局存储在 `config.json` 的 `temperature` 字段，Agent 级存储在 `agent.json` 的 `model.temperature` 字段，会话级通过 `chat` 命令的 `temperatureOverride` 参数传递。`AssistantAgent.temperature` 字段在四种 Provider 的 API 请求中统一注入。范围 0.0–2.0，`None` 表示使用 API 默认值
 - **Tool Loop**：请求 → 解析 tool_call → 执行 → 回传 → 继续，最多 10 轮
 - **数据存储**：所有数据统一在 `~/.opencomputer/`，`paths.rs` 集中管理
+- **SearXNG Docker 代理注入**：`web_search.searxng_docker_use_proxy` 控制是否向 Docker SearXNG 写入 `settings.yml` 的 `outgoing.proxies` 和代理环境变量；适用于系统 VPN 场景，修改后在下次启动或重新部署容器时生效
 - **降级策略**：ContextOverflow 终止 → RateLimit/Overloaded/Timeout 指数退避重试 2 次 → Auth/Billing/ModelNotFound 跳下一模型
 - **连续消息合并**：`push_user_message()` 自动合并连续 user 消息，兼容 Anthropic role 交替要求
 - **统一日志**：前后端日志统一写入 `logging.rs`（SQLite + 纯文本双写），API 请求体自动脱敏（`redact_sensitive`）并截断（32KB）
@@ -75,11 +76,13 @@ src-tauri/src/          后端（Rust）
 ## 编码规范
 
 ### 通用
+
 - **性能和用户体验是最高优先级**
 - **核心逻辑必须在 Rust 后端实现**：业务逻辑、数据处理、文件 IO、状态管理等一律放 `src-tauri/`，前端只负责展示和交互
 - 操作即时反馈（乐观更新、loading 态），动效 60fps（优先 CSS transform/opacity）
 
 ### 前端
+
 - 函数式组件 + hooks，不用 class 组件
 - UI 组件统一用 `src/components/ui/`（shadcn/ui），不直接用 HTML 原生表单组件
 - 样式只用 Tailwind utility class，不写行内 style 和自定义 CSS
@@ -92,6 +95,7 @@ src-tauri/src/          后端（Rust）
 - **保存按钮统一三态交互**：saving（Loader2 旋转 + disabled）→ saved（绿色 + Check 图标，2 秒恢复）→ failed（红色，2 秒恢复）。使用 `saveStatus: "idle" | "saved" | "failed"` + `saving: boolean` 管理
 
 ### 后端（Rust）
+
 - 新功能放单独模块文件，在 `lib.rs` 注册命令
 - 内部用 `anyhow::Result`，命令边界转为 `String`
 - 异步命令加 `async`，不要自己 `block_on`
@@ -114,10 +118,10 @@ src-tauri/src/          后端（Rust）
 
 代码改动时**必须同步更新文档**：
 
-| 改动类型 | 需更新 |
-|---------|--------|
+| 改动类型                  | 需更新                      |
+| ------------------------- | --------------------------- |
 | 新增/删除功能、命令、模块 | `CHANGELOG.md`、`AGENTS.md` |
-| 技术栈/架构/规范变更 | `AGENTS.md` |
+| 技术栈/架构/规范变更      | `AGENTS.md`                 |
 
 - `CHANGELOG.md`：[Keep a Changelog](https://keepachangelog.com/) 格式
 - `AGENTS.md`保持与 `CLAUDE.md` 及 `.agent/rules/default.md` 一致，当任意一个文件更新时，其他两个文件也需要更新

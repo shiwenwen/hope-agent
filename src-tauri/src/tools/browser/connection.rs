@@ -1,11 +1,11 @@
 use anyhow::Result;
 use serde_json::Value;
 
+use super::{get_bool, get_str};
 use crate::browser_state::get_browser_state;
-use super::{get_str, get_bool};
 
 pub(super) async fn action_connect(args: &Value) -> Result<String> {
-    let url = get_str(args, "url").unwrap_or("http://localhost:9222");
+    let url = get_str(args, "url").unwrap_or("http://127.0.0.1:9222");
 
     let mut state = get_browser_state().lock().await;
     if state.is_connected() {
@@ -36,7 +36,9 @@ pub(super) async fn action_launch(args: &Value) -> Result<String> {
     state.launch(executable, headless, profile).await?;
 
     let page_count = state.pages.len();
-    let profile_info = profile.map(|p| format!(", profile: {}", p)).unwrap_or_default();
+    let profile_info = profile
+        .map(|p| format!(", profile: {}", p))
+        .unwrap_or_default();
 
     Ok(format!(
         "Chrome launched successfully{}{}. {} page(s) available.",

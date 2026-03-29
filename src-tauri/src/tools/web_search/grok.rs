@@ -4,7 +4,12 @@ use serde_json::Value;
 use super::helpers::build_search_client;
 use super::SearchResult;
 
-pub(super) async fn search_grok(api_key: &str, query: &str, count: usize, timeout_secs: u64) -> Result<Vec<SearchResult>> {
+pub(super) async fn search_grok(
+    api_key: &str,
+    query: &str,
+    count: usize,
+    timeout_secs: u64,
+) -> Result<Vec<SearchResult>> {
     if api_key.is_empty() {
         return Err(anyhow::anyhow!("Grok (X.AI) API key not configured"));
     }
@@ -29,7 +34,9 @@ pub(super) async fn search_grok(api_key: &str, query: &str, count: usize, timeou
         let text = resp.text().await.unwrap_or_default();
         return Err(anyhow::anyhow!("Grok failed ({}): {}", status, text));
     }
-    let data: Value = resp.json().await
+    let data: Value = resp
+        .json()
+        .await
         .map_err(|e| anyhow::anyhow!("Grok JSON parse failed: {}", e))?;
 
     // Extract search results from response
@@ -45,8 +52,13 @@ pub(super) async fn search_grok(api_key: &str, query: &str, count: usize, timeou
                 results.push(SearchResult {
                     title: title.to_string(),
                     url: url.to_string(),
-                    snippet: item.get("snippet").or(item.get("description"))
-                        .and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                    snippet: item
+                        .get("snippet")
+                        .or(item.get("description"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    source: "Grok".into(),
                 });
             }
         }
@@ -54,7 +66,8 @@ pub(super) async fn search_grok(api_key: &str, query: &str, count: usize, timeou
 
     // Fallback: parse model content as JSON array
     if results.is_empty() {
-        if let Some(content) = data.get("choices")
+        if let Some(content) = data
+            .get("choices")
             .and_then(|c| c.get(0))
             .and_then(|c| c.get("message"))
             .and_then(|m| m.get("content"))
@@ -72,8 +85,12 @@ pub(super) async fn search_grok(api_key: &str, query: &str, count: usize, timeou
                                 results.push(SearchResult {
                                     title: title.to_string(),
                                     url: url.to_string(),
-                                    snippet: item.get("snippet")
-                                        .and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                                    snippet: item
+                                        .get("snippet")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("")
+                                        .to_string(),
+                                    source: "Grok".into(),
                                 });
                             }
                         }
@@ -86,6 +103,7 @@ pub(super) async fn search_grok(api_key: &str, query: &str, count: usize, timeou
                     title: "Grok Summary".into(),
                     url: String::new(),
                     snippet: content.chars().take(500).collect(),
+                    source: "Grok".into(),
                 });
             }
         }

@@ -8,14 +8,14 @@ use std::time::Instant;
 
 use crate::provider;
 
-mod helpers;
-mod duckduckgo;
-mod searxng;
 mod brave;
-mod perplexity;
+mod duckduckgo;
 mod google;
 mod grok;
+mod helpers;
 mod kimi;
+mod perplexity;
+mod searxng;
 mod tavily;
 
 const DEFAULT_WEB_SEARCH_RESULT_COUNT: usize = 5;
@@ -89,6 +89,10 @@ pub struct WebSearchConfig {
     /// Docker-managed SearXNG container
     #[serde(default)]
     pub searxng_docker_managed: Option<bool>,
+    /// Whether Docker-managed SearXNG should use the app/system proxy for its
+    /// outgoing requests. Disable this when host-level VPN routing is enough.
+    #[serde(default = "default_searxng_docker_use_proxy")]
+    pub searxng_docker_use_proxy: bool,
     /// Default number of search results (1-10)
     #[serde(default = "default_ws_result_count")]
     pub default_result_count: usize,
@@ -111,14 +115,62 @@ pub struct WebSearchConfig {
 
 fn default_providers() -> Vec<WebSearchProviderEntry> {
     vec![
-        WebSearchProviderEntry { id: WebSearchProvider::DuckDuckGo, enabled: true, api_key: None, api_key2: None, base_url: None },
-        WebSearchProviderEntry { id: WebSearchProvider::Searxng, enabled: false, api_key: None, api_key2: None, base_url: None },
-        WebSearchProviderEntry { id: WebSearchProvider::Brave, enabled: false, api_key: None, api_key2: None, base_url: None },
-        WebSearchProviderEntry { id: WebSearchProvider::Perplexity, enabled: false, api_key: None, api_key2: None, base_url: None },
-        WebSearchProviderEntry { id: WebSearchProvider::Google, enabled: false, api_key: None, api_key2: None, base_url: None },
-        WebSearchProviderEntry { id: WebSearchProvider::Grok, enabled: false, api_key: None, api_key2: None, base_url: None },
-        WebSearchProviderEntry { id: WebSearchProvider::Kimi, enabled: false, api_key: None, api_key2: None, base_url: None },
-        WebSearchProviderEntry { id: WebSearchProvider::Tavily, enabled: false, api_key: None, api_key2: None, base_url: None },
+        WebSearchProviderEntry {
+            id: WebSearchProvider::DuckDuckGo,
+            enabled: true,
+            api_key: None,
+            api_key2: None,
+            base_url: None,
+        },
+        WebSearchProviderEntry {
+            id: WebSearchProvider::Searxng,
+            enabled: false,
+            api_key: None,
+            api_key2: None,
+            base_url: None,
+        },
+        WebSearchProviderEntry {
+            id: WebSearchProvider::Brave,
+            enabled: false,
+            api_key: None,
+            api_key2: None,
+            base_url: None,
+        },
+        WebSearchProviderEntry {
+            id: WebSearchProvider::Perplexity,
+            enabled: false,
+            api_key: None,
+            api_key2: None,
+            base_url: None,
+        },
+        WebSearchProviderEntry {
+            id: WebSearchProvider::Google,
+            enabled: false,
+            api_key: None,
+            api_key2: None,
+            base_url: None,
+        },
+        WebSearchProviderEntry {
+            id: WebSearchProvider::Grok,
+            enabled: false,
+            api_key: None,
+            api_key2: None,
+            base_url: None,
+        },
+        WebSearchProviderEntry {
+            id: WebSearchProvider::Kimi,
+            enabled: false,
+            api_key: None,
+            api_key2: None,
+            base_url: None,
+        },
+        WebSearchProviderEntry {
+            id: WebSearchProvider::Tavily,
+            enabled: false,
+            api_key: None,
+            api_key2: None,
+            base_url: None,
+        },
     ]
 }
 
@@ -134,15 +186,25 @@ pub fn backfill_providers(config: &mut WebSearchConfig) {
     }
 }
 
-fn default_ws_result_count() -> usize { DEFAULT_WEB_SEARCH_RESULT_COUNT }
-fn default_ws_timeout_secs() -> u64 { DEFAULT_WEB_SEARCH_TIMEOUT_SECS }
-fn default_ws_cache_ttl() -> u64 { DEFAULT_WEB_SEARCH_CACHE_TTL_MINUTES }
+fn default_ws_result_count() -> usize {
+    DEFAULT_WEB_SEARCH_RESULT_COUNT
+}
+fn default_searxng_docker_use_proxy() -> bool {
+    true
+}
+fn default_ws_timeout_secs() -> u64 {
+    DEFAULT_WEB_SEARCH_TIMEOUT_SECS
+}
+fn default_ws_cache_ttl() -> u64 {
+    DEFAULT_WEB_SEARCH_CACHE_TTL_MINUTES
+}
 
 impl Default for WebSearchConfig {
     fn default() -> Self {
         Self {
             providers: default_providers(),
             searxng_docker_managed: None,
+            searxng_docker_use_proxy: default_searxng_docker_use_proxy(),
             default_result_count: DEFAULT_WEB_SEARCH_RESULT_COUNT,
             timeout_seconds: DEFAULT_WEB_SEARCH_TIMEOUT_SECS,
             cache_ttl_minutes: DEFAULT_WEB_SEARCH_CACHE_TTL_MINUTES,
@@ -158,19 +220,23 @@ pub fn has_enabled_provider(config: &WebSearchConfig) -> bool {
     config.providers.iter().any(|p| p.enabled)
 }
 
-/// Resolve which provider to use: first enabled provider in the ordered list.
-/// Falls back to DuckDuckGo if none enabled.
-fn resolve_provider(config: &WebSearchConfig) -> (WebSearchProvider, &WebSearchProviderEntry) {
-    for entry in &config.providers {
-        if entry.enabled {
-            return (entry.id.clone(), entry);
-        }
+/// Collect all enabled providers in order. Falls back to DuckDuckGo if none enabled.
+fn resolve_providers(config: &WebSearchConfig) -> Vec<&WebSearchProviderEntry> {
+    let enabled: Vec<&WebSearchProviderEntry> =
+        config.providers.iter().filter(|e| e.enabled).collect();
+    if enabled.is_empty() {
+        static DDG_FALLBACK: std::sync::LazyLock<WebSearchProviderEntry> =
+            std::sync::LazyLock::new(|| WebSearchProviderEntry {
+                id: WebSearchProvider::DuckDuckGo,
+                enabled: true,
+                api_key: None,
+                api_key2: None,
+                base_url: None,
+            });
+        vec![&DDG_FALLBACK]
+    } else {
+        enabled
     }
-    // Fallback: DDG (always works)
-    static DDG_FALLBACK: std::sync::LazyLock<WebSearchProviderEntry> = std::sync::LazyLock::new(|| {
-        WebSearchProviderEntry { id: WebSearchProvider::DuckDuckGo, enabled: true, api_key: None, api_key2: None, base_url: None }
-    });
-    (WebSearchProvider::DuckDuckGo, &DDG_FALLBACK)
 }
 
 // ── Tool Entry Point ─────────────────────────────────────────────
@@ -192,76 +258,150 @@ pub(crate) async fn tool_web_search(args: &Value) -> Result<String> {
         .min(10) as usize;
 
     let params = SearchParams {
-        country: args.get("country").and_then(|v| v.as_str()).map(String::from)
+        country: args
+            .get("country")
+            .and_then(|v| v.as_str())
+            .map(String::from)
             .or_else(|| config.default_country.clone()),
-        language: args.get("language").and_then(|v| v.as_str()).map(String::from)
+        language: args
+            .get("language")
+            .and_then(|v| v.as_str())
+            .map(String::from)
             .or_else(|| config.default_language.clone()),
-        freshness: args.get("freshness").and_then(|v| v.as_str()).map(String::from)
+        freshness: args
+            .get("freshness")
+            .and_then(|v| v.as_str())
+            .map(String::from)
             .or_else(|| config.default_freshness.clone()),
     };
 
-    let (provider_id, entry) = resolve_provider(&config);
+    let providers = resolve_providers(&config);
     let timeout = config.timeout_seconds;
 
-    app_info!("tool", "web_search", "Web search [{}]: {} (count: {}, country: {:?}, lang: {:?}, freshness: {:?})",
-        provider_id, query, count, params.country, params.language, params.freshness);
+    // Try each enabled provider in order; fallback to next on error or 0 results
+    let mut results = Vec::new();
+    let mut used_provider = String::new();
+    let mut last_error: Option<anyhow::Error> = None;
 
-    // Check cache
-    let ck = search_cache_key(&provider_id.to_string(), query, count, &params);
-    if let Some(cached) = read_search_cache(&ck, config.cache_ttl_minutes) {
-        app_info!("tool", "web_search", "Cache hit for [{}]: {}", provider_id, query);
-        return Ok(cached);
+    for entry in &providers {
+        let provider_id = &entry.id;
+
+        app_info!(
+            "tool",
+            "web_search",
+            "Web search [{}]: {} (count: {}, country: {:?}, lang: {:?}, freshness: {:?})",
+            provider_id,
+            query,
+            count,
+            params.country,
+            params.language,
+            params.freshness
+        );
+
+        // Check cache
+        let ck = search_cache_key(&provider_id.to_string(), query, count, &params);
+        if let Some(cached) = read_search_cache(&ck, config.cache_ttl_minutes) {
+            app_info!(
+                "tool",
+                "web_search",
+                "Cache hit for [{}]: {}",
+                provider_id,
+                query
+            );
+            return Ok(cached);
+        }
+
+        let attempt = match provider_id {
+            WebSearchProvider::DuckDuckGo => {
+                duckduckgo::search_duckduckgo(query, count, timeout).await
+            }
+            WebSearchProvider::Searxng => {
+                let url = entry.base_url.as_deref().unwrap_or("http://127.0.0.1:8080");
+                searxng::search_searxng(url, query, count, &params, timeout).await
+            }
+            WebSearchProvider::Brave => {
+                let key = entry.api_key.as_deref().unwrap_or("");
+                brave::search_brave(key, query, count, &params, timeout).await
+            }
+            WebSearchProvider::Perplexity => {
+                let key = entry.api_key.as_deref().unwrap_or("");
+                perplexity::search_perplexity(key, query, count, &params, timeout).await
+            }
+            WebSearchProvider::Google => {
+                let key = entry.api_key.as_deref().unwrap_or("");
+                let cx = entry.api_key2.as_deref().unwrap_or("");
+                google::search_google(key, cx, query, count, &params, timeout).await
+            }
+            WebSearchProvider::Grok => {
+                let key = entry.api_key.as_deref().unwrap_or("");
+                grok::search_grok(key, query, count, timeout).await
+            }
+            WebSearchProvider::Kimi => {
+                let key = entry.api_key.as_deref().unwrap_or("");
+                kimi::search_kimi(key, query, count, timeout).await
+            }
+            WebSearchProvider::Tavily => {
+                let key = entry.api_key.as_deref().unwrap_or("");
+                tavily::search_tavily(key, query, count, &params, timeout).await
+            }
+        };
+
+        match attempt {
+            Ok(r) if !r.is_empty() => {
+                used_provider = provider_id.to_string();
+                results = r;
+                break;
+            }
+            Ok(_) => {
+                app_warn!(
+                    "tool",
+                    "web_search",
+                    "Provider [{}] returned 0 results for '{}', trying next provider",
+                    provider_id,
+                    query
+                );
+            }
+            Err(e) => {
+                app_warn!(
+                    "tool",
+                    "web_search",
+                    "Provider [{}] error for '{}': {}, trying next provider",
+                    provider_id,
+                    query,
+                    e
+                );
+                last_error = Some(e);
+            }
+        }
     }
 
-    let results = match provider_id {
-        WebSearchProvider::DuckDuckGo => duckduckgo::search_duckduckgo(query, count, timeout).await,
-        WebSearchProvider::Searxng => {
-            let url = entry.base_url.as_deref().unwrap_or("http://localhost:8080");
-            searxng::search_searxng(url, query, count, &params, timeout).await
-        }
-        WebSearchProvider::Brave => {
-            let key = entry.api_key.as_deref().unwrap_or("");
-            brave::search_brave(key, query, count, &params, timeout).await
-        }
-        WebSearchProvider::Perplexity => {
-            let key = entry.api_key.as_deref().unwrap_or("");
-            perplexity::search_perplexity(key, query, count, &params, timeout).await
-        }
-        WebSearchProvider::Google => {
-            let key = entry.api_key.as_deref().unwrap_or("");
-            let cx = entry.api_key2.as_deref().unwrap_or("");
-            google::search_google(key, cx, query, count, &params, timeout).await
-        }
-        WebSearchProvider::Grok => {
-            let key = entry.api_key.as_deref().unwrap_or("");
-            grok::search_grok(key, query, count, timeout).await
-        }
-        WebSearchProvider::Kimi => {
-            let key = entry.api_key.as_deref().unwrap_or("");
-            kimi::search_kimi(key, query, count, timeout).await
-        }
-        WebSearchProvider::Tavily => {
-            let key = entry.api_key.as_deref().unwrap_or("");
-            tavily::search_tavily(key, query, count, &params, timeout).await
-        }
-    }?;
-
     if results.is_empty() {
+        if let Some(e) = last_error {
+            app_warn!(
+                "tool",
+                "web_search",
+                "All providers failed for '{}', last error: {}",
+                query,
+                e
+            );
+        }
         return Ok(format!("No results found for: {}", query));
     }
 
-    let mut output = format!("Search results for: {} (via {})\n\n", query, provider_id);
+    let mut output = format!("Search results for: {} (via {})\n\n", query, used_provider);
     for (i, result) in results.iter().enumerate() {
         output.push_str(&format!(
-            "{}. {}\n   URL: {}\n   {}\n\n",
+            "{}. {}\n   URL: {}\n   Source: {}\n   {}\n\n",
             i + 1,
             result.title,
             result.url,
+            result.source,
             result.snippet
         ));
     }
 
     // Write to cache
+    let ck = search_cache_key(&used_provider, query, count, &params);
     write_search_cache(ck, output.clone(), config.cache_ttl_minutes);
 
     Ok(output)
@@ -271,6 +411,8 @@ struct SearchResult {
     title: String,
     url: String,
     snippet: String,
+    /// Which search engine/provider produced this result
+    source: String,
 }
 
 // ── Search Params & Helpers ─────────────────────────────────────
@@ -293,7 +435,8 @@ static WEB_SEARCH_CACHE: Lazy<Mutex<HashMap<String, CacheEntry>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
 fn search_cache_key(provider: &str, query: &str, count: usize, params: &SearchParams) -> String {
-    format!("{}:{}:{}:{}:{}:{}",
+    format!(
+        "{}:{}:{}:{}:{}:{}",
         provider,
         query.to_lowercase().trim(),
         count,
@@ -304,7 +447,9 @@ fn search_cache_key(provider: &str, query: &str, count: usize, params: &SearchPa
 }
 
 fn read_search_cache(key: &str, ttl_minutes: u64) -> Option<String> {
-    if ttl_minutes == 0 { return None; }
+    if ttl_minutes == 0 {
+        return None;
+    }
     let cache = WEB_SEARCH_CACHE.lock().ok()?;
     let entry = cache.get(key)?;
     if entry.inserted_at.elapsed().as_secs() < ttl_minutes * 60 {
@@ -315,19 +460,28 @@ fn read_search_cache(key: &str, ttl_minutes: u64) -> Option<String> {
 }
 
 fn write_search_cache(key: String, response: String, ttl_minutes: u64) {
-    if ttl_minutes == 0 { return; }
+    if ttl_minutes == 0 {
+        return;
+    }
     if let Ok(mut cache) = WEB_SEARCH_CACHE.lock() {
         let now = Instant::now();
         let ttl_secs = ttl_minutes * 60;
         cache.retain(|_, v| now.duration_since(v.inserted_at).as_secs() < ttl_secs);
         if cache.len() >= WEB_SEARCH_CACHE_MAX_ENTRIES {
-            if let Some(oldest_key) = cache.iter()
+            if let Some(oldest_key) = cache
+                .iter()
                 .min_by_key(|(_, v)| v.inserted_at)
                 .map(|(k, _)| k.clone())
             {
                 cache.remove(&oldest_key);
             }
         }
-        cache.insert(key, CacheEntry { response, inserted_at: now });
+        cache.insert(
+            key,
+            CacheEntry {
+                response,
+                inserted_at: now,
+            },
+        );
     }
 }

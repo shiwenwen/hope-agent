@@ -2,9 +2,15 @@ use anyhow::Result;
 use serde_json::Value;
 
 use super::helpers::build_search_client;
-use super::{SearchResult, SearchParams};
+use super::{SearchParams, SearchResult};
 
-pub(super) async fn search_perplexity(api_key: &str, query: &str, count: usize, params: &SearchParams, timeout_secs: u64) -> Result<Vec<SearchResult>> {
+pub(super) async fn search_perplexity(
+    api_key: &str,
+    query: &str,
+    count: usize,
+    params: &SearchParams,
+    timeout_secs: u64,
+) -> Result<Vec<SearchResult>> {
     if api_key.is_empty() {
         return Err(anyhow::anyhow!("Perplexity API key not configured"));
     }
@@ -30,7 +36,9 @@ pub(super) async fn search_perplexity(api_key: &str, query: &str, count: usize, 
         let text = resp.text().await.unwrap_or_default();
         return Err(anyhow::anyhow!("Perplexity failed ({}): {}", status, text));
     }
-    let data: Value = resp.json().await
+    let data: Value = resp
+        .json()
+        .await
         .map_err(|e| anyhow::anyhow!("Perplexity JSON parse failed: {}", e))?;
 
     // Extract citations as search results
@@ -50,7 +58,12 @@ pub(super) async fn search_perplexity(api_key: &str, query: &str, count: usize, 
                 let url = c.as_str()?.to_string();
                 // Extract domain as title fallback
                 let title = url.split('/').nth(2).unwrap_or(&url).to_string();
-                Some(SearchResult { title, url, snippet: String::new() })
+                Some(SearchResult {
+                    title,
+                    url,
+                    snippet: String::new(),
+                    source: "Perplexity".into(),
+                })
             })
             .collect()
     });
@@ -61,6 +74,7 @@ pub(super) async fn search_perplexity(api_key: &str, query: &str, count: usize, 
             title: "Perplexity Summary".into(),
             url: String::new(),
             snippet: content.chars().take(500).collect(),
+            source: "Perplexity".into(),
         });
     }
 

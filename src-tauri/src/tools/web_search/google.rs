@@ -2,11 +2,20 @@ use anyhow::Result;
 use serde_json::Value;
 
 use super::helpers::{build_search_client, google_date_restrict};
-use super::{SearchResult, SearchParams};
+use super::{SearchParams, SearchResult};
 
-pub(super) async fn search_google(api_key: &str, cx: &str, query: &str, count: usize, params: &SearchParams, timeout_secs: u64) -> Result<Vec<SearchResult>> {
+pub(super) async fn search_google(
+    api_key: &str,
+    cx: &str,
+    query: &str,
+    count: usize,
+    params: &SearchParams,
+    timeout_secs: u64,
+) -> Result<Vec<SearchResult>> {
     if api_key.is_empty() || cx.is_empty() {
-        return Err(anyhow::anyhow!("Google Custom Search API key or CX not configured"));
+        return Err(anyhow::anyhow!(
+            "Google Custom Search API key or CX not configured"
+        ));
     }
     let client = build_search_client(timeout_secs)?;
     let mut url = format!(
@@ -23,16 +32,28 @@ pub(super) async fn search_google(api_key: &str, cx: &str, query: &str, count: u
         url.push_str(&format!("&lr=lang_{}", urlencoding::encode(lang)));
     }
     if let Some(ref freshness) = params.freshness {
-        url.push_str(&format!("&dateRestrict={}", google_date_restrict(freshness)));
+        url.push_str(&format!(
+            "&dateRestrict={}",
+            google_date_restrict(freshness)
+        ));
     }
-    let resp = client.get(&url).send().await
+    let resp = client
+        .get(&url)
+        .send()
+        .await
         .map_err(|e| anyhow::anyhow!("Google Custom Search request failed: {}", e))?;
     if !resp.status().is_success() {
         let status = resp.status();
         let text = resp.text().await.unwrap_or_default();
-        return Err(anyhow::anyhow!("Google Custom Search failed ({}): {}", status, text));
+        return Err(anyhow::anyhow!(
+            "Google Custom Search failed ({}): {}",
+            status,
+            text
+        ));
     }
-    let data: Value = resp.json().await
+    let data: Value = resp
+        .json()
+        .await
         .map_err(|e| anyhow::anyhow!("Google Custom Search JSON parse failed: {}", e))?;
     let items = data.get("items").and_then(|v| v.as_array());
     Ok(items.map_or_else(Vec::new, |arr| {
@@ -41,8 +62,17 @@ pub(super) async fn search_google(api_key: &str, cx: &str, query: &str, count: u
             .filter_map(|item| {
                 let title = item.get("title")?.as_str()?.to_string();
                 let url = item.get("link")?.as_str()?.to_string();
-                let snippet = item.get("snippet").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                Some(SearchResult { title, url, snippet })
+                let snippet = item
+                    .get("snippet")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                Some(SearchResult {
+                    title,
+                    url,
+                    snippet,
+                    source: "Google".into(),
+                })
             })
             .collect()
     }))

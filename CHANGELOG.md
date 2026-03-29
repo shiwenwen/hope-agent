@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+
 - **System Prompt 工具描述重构 + 行为指导增强**（参考 Claude Code System Prompts）
   - 工具描述从单一 60 行常量拆分为 31 个独立 per-tool 常量，每个工具包含详细使用指南、最佳实践和常见陷阱
   - `build_tools_section()` 重写为按 agent allow/deny 配置动态组装，只注入授权工具的描述，减少无关 token 消耗
@@ -28,11 +29,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 子 Agent 模式追加 `PLAN_SUBAGENT_CONTEXT_NOTICE`，要求计划自包含所有执行所需上下文
 
 ### Fixed
+
+- **本地 loopback 代理绕行修复**：访问 Docker SearXNG 和本地 Chrome CDP 时，`localhost` / `127.0.0.1` / `::1` 目标现在会自动直连，不再误走系统代理导致 503 或连接失败
+  - `web_search` 的 SearXNG client 改为按目标 URL 判断是否绕过代理，修复本地 Docker 实例搜索 503，同时保留远程 SearXNG 走代理能力
+  - SearXNG Docker 部署返回地址、默认回退地址和设置面板填充地址统一改为 `127.0.0.1`
+  - 浏览器 CDP 自动连接与默认连接地址统一改为 `127.0.0.1:9222`，避免系统代理拦截本地调试端口
+  - SearXNG `start()` 前会先刷新挂载的 `settings.yml`，代理配置变更后无需重新部署容器，直接重启即可生效
+  - 新增 SearXNG Docker “向容器注入代理”开关；关闭后不会写入 `settings.yml` 的 `outgoing.proxies`，适合系统 VPN 已接管出网的场景
 - **Plan Mode 内联评论提示词包装**：评论消息使用 `<plan-inline-comment>` 结构化标签包裹，后端 system prompt 同步补充内联评论处理说明，模型能正确理解"对计划的修改意见"意图
 - **Plan Mode 选中文本高亮**：计划面板评论时选中区域以蓝色 `<mark>` 高亮显示，弹窗关闭后自动清除，支持跨元素选区降级处理
 - **Plan Mode 问答回溯**：`plan_question` 工具调用结果不再隐藏，改为在消息流中渲染绿色 Q&A 摘要卡片，与 Think/Tool Call 保持时序，不再因状态清除而消失
 
 ### Added
+
 - **提示词系统技术文档** (`docs/prompt-system.md`)：完整记录 System Prompt 13 段组装流程、31 个 per-tool 描述清单、3 个行为指导段、Plan Mode 提示词、上下文压缩提示词、条件注入段、缓存优化策略等
 - **温度配置三层覆盖**：支持全局、Agent、会话三个层级的 LLM 温度（Temperature）配置，覆盖优先级：会话 > Agent > 全局
   - 全局设置面板（GlobalModelPanel）新增温度滑块，范围 0.0–2.0，存储在 `config.json` 的 `temperature` 字段
@@ -43,6 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 新增 `src/components/ui/slider.tsx` Radix UI Slider 组件
 
 ### Changed
+
 - **Plan Mode 计划面板协同编辑重构**：
   - 计划面板不再在进入计划模式时立即显示，仅在计划 Markdown 内容生成后自动展示
   - 移除计划面板中的手动编辑 textarea，所有状态下均为只读 Markdown 渲染
@@ -57,6 +67,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - PlanCardBlock Phase 列表支持点击展开显示步骤详情
 
 ### Added
+
 - **图片生成能力增强**：追平 OpenClaw，全面增强图片生成工具
   - **新增 MiniMax Provider**：支持 image-01 模型，最多生成 9 张图片，支持 aspectRatio 和参考图编辑
   - **图片编辑支持**：Google（最多 5 张参考图）、Fal（1 张）、MiniMax（1 张）均支持参考图输入编辑
@@ -119,6 +130,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **历史会话搜索**：messages 表添加 FTS5 全文索引，`recall_memory` 工具新增 `include_history` 参数，支持搜索历史对话消息（排除 cron 和子 Agent 会话）
 
 ### Changed
+
 - **图片生成系统重构（image_generate）**：Provider 抽象 + 排序降级 + 动态工具描述
   - 引入 `ImageGenProviderImpl` trait 抽象，支持可扩展的 Provider 架构
   - Provider id 从枚举改为 String（向后兼容，自动 normalize "OpenAI" → "openai"）
@@ -130,6 +142,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 前端设置面板添加 Provider 排序功能（上下箭头 + 优先级序号）
 
 ### Added
+
 - **ACP 控制面（ACP Control Plane）**：让模型能启动和管理外部 ACP Agent（Claude Code、Codex CLI、Gemini CLI 等）
   - `AcpRuntime` trait 可插拔后端抽象 + `StdioAcpRuntime` 子进程 stdio/NDJSON 实现
   - `AcpRuntimeRegistry` 全局后端注册表 + 自动发现（扫描 $PATH 中的 claude/codex/gemini）
@@ -168,12 +181,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Bundled Allowlist**：`skill_allow_bundled` 限制可用的 bundled 技能集
 
 ### Changed
+
 - **API 请求/响应全链路日志增强**：大幅提升所有外部 API 调用的 debug 级别日志详细度，覆盖 Agent Provider、Embedding、图片生成三大模块
   - **Agent Provider（4 个）**：原始请求体（脱敏+截断 32KB）、响应头（rate limit/model version/request-id/retry-after）、工具执行全链路（参数/结果/耗时/错误标记）
   - **Embedding API（OpenAI/Google）**：请求参数（model/text_count/dimensions/body）、响应状态（status/ttfb/body 摘要）、Google 逐条请求日志
   - **图片生成 API（OpenAI/Google/Fal）**：请求参数（model/prompt 预览/size/n）、响应状态（status/ttfb/request-id）、错误响应体完整记录
 
 ### Added
+
 - **系统监控大盘（System Metrics Dashboard）**：数据大盘新增「系统监控」Tab，实时展示本机 CPU、内存、网络等系统资源使用情况
   - **CPU 监控**：全局使用率 + 每核心使用率柱状图，支持多核心可视化
   - **内存监控**：总内存/已用/可用 + RAM/Swap 双环形图，百分比实时展示
@@ -252,6 +267,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 前端 SubagentPanel 增强：新增 maxSpawnDepth 和 announceTimeout 配置
 
 ### Changed
+
 - **重构 `agent.rs` 为模块目录**：将 2940 行的 `agent.rs` 拆分为 `agent/` 模块目录，提升可维护性
   - `agent/mod.rs`：模块声明 + 公共 API 重导出 + 构造器/setter/chat 分发器
   - `agent/types.rs`：核心类型定义（`AssistantAgent`、`LlmProvider`、`Attachment`、`ChatUsage`、`CodexModel`、`ThinkTagFilter`）
@@ -265,6 +281,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 公共 API 保持不变，外部调用方无需修改
 
 ### Added
+
 - **子 Agent 配置、调度与协作通讯系统**：Agent 可通过 `subagent` 工具委派子任务给其他 Agent
   - 新增 `subagent` 工具：spawn（委派任务）、check（轮询状态）、list（查看所有子 Agent）、result（获取完整结果）、kill/kill_all（终止）
   - 非阻塞异步执行：spawn 立即返回 run_id，子 Agent 在隔离 session 中独立运行
@@ -328,9 +345,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 前端：Agent Memory 设置区新增"自动提取记忆"开关
 
 ### Refactored
+
 - **`tools/web.rs` 拆分为独立模块**：`web_search.rs`（搜索 Provider 配置 + 8 个搜索引擎实现 + 搜索缓存）和 `web_fetch.rs`（网页抓取配置 + SSRF 防护 + Readability 提取 + 抓取缓存），职责分离更清晰
 
 ### Changed
+
 - **web_fetch 工具全面升级**：从简单正则 HTML 清理升级为生产级网页抓取工具
   - Mozilla Readability（`readability` crate）正文提取 + `htmd` crate HTML→Markdown 转换
   - 新增 `extract_mode` 参数：`markdown`（默认）保留格式结构，`text` 纯文本
@@ -345,6 +364,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - i18n：中英文翻译
 
 ### Added
+
 - **记忆工具完善**：新增 `update_memory` 和 `delete_memory` AI 工具
   - `update_memory`：根据 ID 修改记忆内容和标签
   - `delete_memory`：根据 ID 删除记忆
@@ -440,6 +460,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **前端统一日志**：新增 `src/lib/logger.ts` 前端日志工具，通过 `frontend_log` / `frontend_log_batch` Tauri 命令将前端日志写入后端统一日志系统，支持批量缓冲（500ms/20 条），error/warn 级别同时镜像到 console。替换全部 10 个组件中 ~45 处 `console.error` 为结构化 logger 调用
 
 ### Changed
+
 - **`SettingsView.tsx` 拆分为独立面板组件**：原 2831 行单文件拆分为 `types.ts`（共享类型）+ 8 个独立面板组件（ChatSettingsPanel / AppearancePanel / LanguagePanel / GlobalModelPanel / SkillsPanel / AgentPanel / UserProfilePanel / AboutPanel）+ 瘦身后的 SettingsView 编排入口（~170 行）
 - **`tools.rs` 拆分为子模块目录**：原 2927 行单文件拆分为 `src-tauri/src/tools/` 目录下 12 个模块（mod.rs / approval.rs / exec.rs / process.rs / read.rs / write.rs / edit.rs / ls.rs / grep.rs / find.rs / apply_patch.rs / web.rs），公共 API 保持不变
 - **前端组件目录重构**：`src/components/` 按功能模块拆分为三个子目录
@@ -450,6 +471,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 所有跨组件 import 路径同步更新
 
 ### Added
+
 - **文件附件内容提取**：非图片文件（PDF/Word/Excel/PPT/文本代码）发送给 LLM 前自动提取内容
   - 新增 `file_extract.rs` 模块，统一文件内容提取逻辑
   - PDF：`pdf-extract` 提取文本 + `pdfium-render` 渲染页面为 PNG 图片
@@ -725,6 +747,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **图片消息发送**：前端读取图片为 base64 传递给 Rust 后端，后端按各 Provider API 格式构建多模态请求
 
 ### Changed
+
 - **App.tsx 组件化重构**：将 1583 行的 `App.tsx` 拆分为 6 个独立模块，主文件精简至约 110 行
   - `types/chat.ts`：共享类型定义（Message / Attachment / LlmApiType）+ `getEffortOptionsForType`
   - `ChatInput.tsx`：底部输入区（附件 / 模型选择器 / 思考模式 / 发送按钮）
@@ -759,14 +782,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 对话界面从单栏改为三栏布局（图标侧边栏 / Agent 列表 / 对话区）
 
 ### Fixed
+
 - 修复对话上下文丢失问题：`AssistantAgent` 新增 `conversation_history` 字段保存多轮对话历史
 - 修复发送消息时出现两个气泡的问题：将独立 loading 指示器合并到 assistant 气泡中
 - 修复三栏顶部分割线高度不对齐问题
 
-
 ## [0.2.0] - 2026-03-14
 
 ### Added
+
 - **Codex OAuth 登录**：支持通过 ChatGPT 账号 OAuth 2.0（PKCE）登录，使用 OpenAI Codex 模型
 - **多模型选择**：顶栏模型下拉菜单，支持 GPT-5.4 / GPT-5.3 Codex / GPT-5.2 / GPT-5.1 等系列模型
 - **流式输出**：基于 Tauri Channel + SSE 的流式响应，实时显示 AI 回复
@@ -778,6 +802,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 新增 Tauri 命令：`start_codex_auth`、`check_auth_status`、`finalize_codex_auth`、`try_restore_session`、`logout_codex`、`get_codex_models`、`set_codex_model`、`set_reasoning_effort`、`get_current_settings`
 
 ### Changed
+
 - `rig-core` 从 0.9 升级至 0.32
 - `AssistantAgent` 重构为多 Provider 架构（`LlmProvider::Anthropic` / `LlmProvider::OpenAI`）
 - `chat` 命令新增 `on_event: Channel<String>` 参数以支持流式输出
@@ -787,11 +812,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `vite.config.ts` 固定开发端口为 1420
 
 ### Added (Dependencies)
+
 - `sha2`、`base64`、`uuid`、`dirs`、`open`、`rand`、`tiny_http`、`reqwest`、`futures-util`
 
 ## [0.1.0] - 2026-03-14
 
 ### Added
+
 - Initial scaffold: Tauri 2 + React 19 + TypeScript + Vite
 - Setup screen with Anthropic API key input
 - Chat screen with message history and streaming-style UX

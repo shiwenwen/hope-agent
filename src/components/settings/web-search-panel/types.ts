@@ -11,6 +11,7 @@ export interface ProviderEntry {
 export interface WebSearchConfig {
   providers: ProviderEntry[]
   searxngDockerManaged: boolean | null
+  searxngDockerUseProxy: boolean
   defaultResultCount: number
   timeoutSeconds: number
   cacheTtlMinutes: number
@@ -26,6 +27,12 @@ export interface SearxngDockerStatus {
   containerRunning: boolean
   port: number | null
   healthOk: boolean
+  deploying: boolean
+  deployStep: string | null
+  deployLogs: string[]
+  searchOk: boolean
+  searchResultCount: number
+  unresponsiveEngines: string[]
 }
 
 export interface ProviderMeta {

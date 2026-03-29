@@ -1,10 +1,10 @@
+use chromiumoxide::browser::{Browser, BrowserConfig};
+use chromiumoxide::Page;
+use futures_util::StreamExt;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
-use futures_util::StreamExt;
-use chromiumoxide::browser::{Browser, BrowserConfig};
-use chromiumoxide::Page;
 
 // ── Element Reference (from snapshot) ────────────────────────────
 
@@ -104,7 +104,12 @@ impl BrowserState {
     }
 
     /// Launch a new managed Chrome instance
-    pub async fn launch(&mut self, executable_path: Option<&str>, headless: bool, profile: Option<&str>) -> anyhow::Result<()> {
+    pub async fn launch(
+        &mut self,
+        executable_path: Option<&str>,
+        headless: bool,
+        profile: Option<&str>,
+    ) -> anyhow::Result<()> {
         let mut config = BrowserConfig::builder();
 
         if let Some(path) = executable_path {
@@ -129,11 +134,16 @@ impl BrowserState {
             .arg("--no-default-browser-check")
             .arg("--disable-background-networking");
 
-        let config = config.build()
+        let config = config
+            .build()
             .map_err(|e| anyhow::anyhow!("Failed to build browser config: {}", e))?;
 
-        let (browser, mut handler) = Browser::launch(config).await
-            .map_err(|e| anyhow::anyhow!("Failed to launch Chrome: {}. Make sure Chrome/Chromium is installed.", e))?;
+        let (browser, mut handler) = Browser::launch(config).await.map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to launch Chrome: {}. Make sure Chrome/Chromium is installed.",
+                e
+            )
+        })?;
 
         let handle = tokio::spawn(async move {
             loop {
@@ -186,15 +196,22 @@ impl BrowserState {
     /// Check if connected to a browser (browser exists AND handler is still running)
     pub fn is_connected(&self) -> bool {
         self.browser.is_some()
-            && self.handler_task.as_ref().map_or(false, |h| !h.is_finished())
+            && self
+                .handler_task
+                .as_ref()
+                .map_or(false, |h| !h.is_finished())
     }
 
     /// Refresh the page list from the browser
     pub async fn refresh_pages(&mut self) -> anyhow::Result<()> {
-        let browser = self.browser.as_ref()
+        let browser = self
+            .browser
+            .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Not connected to browser"))?;
 
-        let pages = browser.pages().await
+        let pages = browser
+            .pages()
+            .await
             .map_err(|e| anyhow::anyhow!("Failed to list pages: {}", e))?;
 
         self.pages.clear();
@@ -213,11 +230,16 @@ impl BrowserState {
 
     /// Get the active page handle
     pub fn get_active_page(&self) -> anyhow::Result<&Page> {
-        let page_id = self.active_page_id.as_ref()
-            .ok_or_else(|| anyhow::anyhow!("No active page. Use 'new_page' or 'select_page' first."))?;
+        let page_id = self.active_page_id.as_ref().ok_or_else(|| {
+            anyhow::anyhow!("No active page. Use 'new_page' or 'select_page' first.")
+        })?;
 
-        self.pages.get(page_id)
-            .ok_or_else(|| anyhow::anyhow!("Active page {} no longer exists. Use 'list_pages' to see available pages.", page_id))
+        self.pages.get(page_id).ok_or_else(|| {
+            anyhow::anyhow!(
+                "Active page {} no longer exists. Use 'list_pages' to see available pages.",
+                page_id
+            )
+        })
     }
 
     /// Find an element ref by ref_id
@@ -244,7 +266,7 @@ pub fn get_browser_state() -> &'static Mutex<BrowserState> {
     BROWSER_STATE.get_or_init(|| Mutex::new(BrowserState::new()))
 }
 
-/// Auto-connect to Chrome if not already connected (tries localhost:9222)
+/// Auto-connect to Chrome if not already connected (tries 127.0.0.1:9222)
 pub async fn ensure_connected() -> anyhow::Result<()> {
     let mut state = get_browser_state().lock().await;
     if state.is_connected() {
@@ -253,11 +275,15 @@ pub async fn ensure_connected() -> anyhow::Result<()> {
 
     // Clean up stale connection if handler died
     if state.browser.is_some() {
-        app_info!("browser", "cdp", "Cleaning up stale browser connection (handler died)");
+        app_info!(
+            "browser",
+            "cdp",
+            "Cleaning up stale browser connection (handler died)"
+        );
         state.disconnect().await;
     }
 
-    state.connect("http://localhost:9222").await.map_err(|_| {
+    state.connect("http://127.0.0.1:9222").await.map_err(|_| {
         anyhow::anyhow!(
             "Browser not connected. Please either:\n\
              1. Launch Chrome with: chrome --remote-debugging-port=9222\n\
@@ -273,23 +299,32 @@ pub async fn ensure_connected() -> anyhow::Result<()> {
 async fn discover_ws_url(base_url: &str) -> anyhow::Result<String> {
     let version_url = format!("{}/json/version", base_url.trim_end_matches('/'));
 
-    let client = crate::provider::apply_proxy(
-        reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(5))
+    let client = crate::provider::apply_proxy_for_url(
+        reqwest::Client::builder().timeout(std::time::Duration::from_secs(5)),
+        &version_url,
     )
-        .build()?;
+    .build()?;
 
-    let resp = client.get(&version_url).send().await
-        .map_err(|e| anyhow::anyhow!(
+    let resp = client.get(&version_url).send().await.map_err(|e| {
+        anyhow::anyhow!(
             "Cannot reach Chrome at {}. Is Chrome running with --remote-debugging-port? Error: {}",
-            base_url, e
-        ))?;
+            base_url,
+            e
+        )
+    })?;
 
-    let body: serde_json::Value = resp.json().await
+    let body: serde_json::Value = resp
+        .json()
+        .await
         .map_err(|e| anyhow::anyhow!("Invalid response from Chrome: {}", e))?;
 
     body.get("webSocketDebuggerUrl")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
-        .ok_or_else(|| anyhow::anyhow!("Chrome did not return webSocketDebuggerUrl. Response: {}", body))
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Chrome did not return webSocketDebuggerUrl. Response: {}",
+                body
+            )
+        })
 }

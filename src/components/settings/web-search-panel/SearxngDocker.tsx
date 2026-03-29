@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
+import { Switch } from "@/components/ui/switch"
 import {
   Circle,
   Download,
@@ -11,17 +12,29 @@ import {
   Loader2,
   Play,
   RefreshCw,
+  RotateCw,
   Square,
   Trash2,
 } from "lucide-react"
 import type { SearxngDockerStatus } from "./types"
 
-export function SearxngDockerSection({ onUrlSet }: { onUrlSet: (url: string) => void }) {
+export function SearxngDockerSection({
+  onUrlSet,
+  useProxy,
+  onUseProxyChange,
+  saveConfig,
+}: {
+  onUrlSet: (url: string) => void
+  useProxy: boolean
+  onUseProxyChange: (enabled: boolean) => Promise<boolean>
+  saveConfig: () => Promise<boolean>
+}) {
   const { t } = useTranslation()
   const [status, setStatus] = useState<SearxngDockerStatus | null>(null)
   const [checking, setChecking] = useState(true)
   const [deploying, setDeploying] = useState(false)
   const [deployStep, setDeployStep] = useState<string | null>(null)
+  const [deployLogs, setDeployLogs] = useState<string[]>([])
   const [actionLoading, setActionLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -41,20 +54,27 @@ export function SearxngDockerSection({ onUrlSet }: { onUrlSet: (url: string) => 
     refreshStatus()
   }, [refreshStatus])
 
-  // Poll status while container is running but not yet healthy
+  // Poll status while container is starting or deploy is in progress
   useEffect(() => {
-    if (!status?.containerRunning || status?.healthOk) return
+    const needsPoll = status?.deploying || (status?.containerRunning && !status?.healthOk)
+    if (!needsPoll) return
     const timer = setInterval(async () => {
       try {
         const s = await invoke<SearxngDockerStatus>("searxng_docker_status")
         setStatus(s)
+        // Sync deploy state from backend when we're observing an external deploy
+        if (s.deploying && !deploying) {
+          setDeployStep(s.deployStep ?? null)
+          setDeployLogs(s.deployLogs ?? [])
+        }
+        if (!s.deploying && !s.containerRunning) clearInterval(timer)
         if (s.healthOk) clearInterval(timer)
       } catch {
         /* ignore */
       }
-    }, 3000)
+    }, 1500)
     return () => clearInterval(timer)
-  }, [status?.containerRunning, status?.healthOk])
+  }, [status?.containerRunning, status?.healthOk, status?.deploying, deploying])
 
   const deployStepLabels: Record<string, string> = {
     checking_docker: t("settings.webSearchDockerStepCheckingDocker"),
@@ -67,14 +87,45 @@ export function SearxngDockerSection({ onUrlSet }: { onUrlSet: (url: string) => 
     done: t("settings.webSearchDockerStepDone"),
   }
 
+  const waitForHealthy = useCallback(async () => {
+    for (let i = 0; i < 10; i++) {
+      await new Promise((r) => setTimeout(r, 1500))
+      const s = await invoke<SearxngDockerStatus>("searxng_docker_status")
+      setStatus(s)
+      if (s.healthOk) break
+    }
+  }, [])
+
+  const ensureConfigSaved = useCallback(async () => {
+    const ok = await saveConfig()
+    if (!ok) {
+      setError(t("settings.webSearchDockerSaveConfigFailed"))
+      return false
+    }
+    return true
+  }, [saveConfig, t])
+
   const handleDeploy = useCallback(async () => {
+    if (!(await ensureConfigSaved())) return
     setDeploying(true)
     setDeployStep(null)
+    setDeployLogs([])
     setError(null)
     try {
       const channel = new Channel<string>()
-      channel.onmessage = (step) => {
-        setDeployStep(step)
+      channel.onmessage = (msg) => {
+        try {
+          const parsed = JSON.parse(msg)
+          if (parsed.step) {
+            setDeployStep(parsed.step)
+          }
+          if (parsed.log) {
+            setDeployLogs((prev) => [...prev.slice(-50), parsed.log])
+          }
+        } catch {
+          // Legacy: plain step string
+          setDeployStep(msg)
+        }
       }
       const url = await invoke<string>("searxng_docker_deploy", { channel })
       onUrlSet(url)
@@ -85,10 +136,27 @@ export function SearxngDockerSection({ onUrlSet }: { onUrlSet: (url: string) => 
       setDeploying(false)
       setDeployStep(null)
     }
-  }, [onUrlSet, refreshStatus])
+  }, [ensureConfigSaved, onUrlSet, refreshStatus])
+
+  const handleRedeploy = useCallback(async () => {
+    if (!(await ensureConfigSaved())) return
+    setActionLoading(true)
+    setError(null)
+    try {
+      // Remove existing container first
+      await invoke("searxng_docker_remove")
+      await refreshStatus()
+    } catch {
+      // Ignore remove errors (container might not exist)
+    }
+    setActionLoading(false)
+    // Then deploy fresh
+    await handleDeploy()
+  }, [ensureConfigSaved, handleDeploy, refreshStatus])
 
   const handleAction = useCallback(
     async (action: "start" | "stop" | "remove") => {
+      if (action === "start" && !(await ensureConfigSaved())) return
       setActionLoading(true)
       setError(null)
       try {
@@ -109,7 +177,48 @@ export function SearxngDockerSection({ onUrlSet }: { onUrlSet: (url: string) => 
         setActionLoading(false)
       }
     },
-    [refreshStatus],
+    [ensureConfigSaved, refreshStatus],
+  )
+
+  const handleUseProxyToggle = useCallback(
+    async (enabled: boolean) => {
+      if (deploying || status?.deploying || actionLoading) return
+      setError(null)
+
+      const wasRunning = !!status?.containerRunning
+      const ok = await onUseProxyChange(enabled)
+      if (!ok) {
+        setError(t("settings.webSearchDockerSaveConfigFailed"))
+        return
+      }
+
+      if (!wasRunning) {
+        await refreshStatus()
+        return
+      }
+
+      setActionLoading(true)
+      try {
+        await invoke("searxng_docker_stop")
+        await invoke("searxng_docker_start")
+        await refreshStatus()
+        await waitForHealthy()
+      } catch (e) {
+        setError(String(e))
+      } finally {
+        setActionLoading(false)
+      }
+    },
+    [
+      actionLoading,
+      deploying,
+      onUseProxyChange,
+      refreshStatus,
+      status?.containerRunning,
+      status?.deploying,
+      t,
+      waitForHealthy,
+    ],
   )
 
   if (checking && !status) {
@@ -162,55 +271,97 @@ export function SearxngDockerSection({ onUrlSet }: { onUrlSet: (url: string) => 
     <div className="rounded-md border border-border/50 p-3 mt-1 space-y-2">
       <div className="text-xs font-medium">{t("settings.webSearchDockerTitle")}</div>
 
-      {status.containerExists && (
-        <div className="flex items-center gap-2 text-xs">
-          <Circle
-            className={`h-2 w-2 fill-current ${
-              status.containerRunning && status.healthOk
-                ? "text-green-500"
-                : status.containerRunning
-                  ? "text-yellow-500"
-                  : "text-muted-foreground"
-            }`}
+      <div className="rounded-md border border-border/40 bg-secondary/20 p-2.5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="space-y-1">
+            <div className="text-xs font-medium">{t("settings.webSearchDockerUseProxy")}</div>
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              {t("settings.webSearchDockerUseProxyDesc")}
+            </p>
+          </div>
+          <Switch
+            checked={useProxy}
+            onCheckedChange={(checked) => void handleUseProxyToggle(checked)}
+            disabled={deploying || status.deploying || actionLoading}
           />
-          <span>
-            {status.containerRunning
-              ? status.healthOk
-                ? t("settings.webSearchDockerRunning")
-                : t("settings.webSearchDockerStarting")
-              : t("settings.webSearchDockerStopped")}
-          </span>
-          {status.port && status.containerRunning && (
-            <IconTip label={t("settings.webSearchDockerFillUrl")}>
+        </div>
+      </div>
+
+      {status.containerExists && (
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-2 text-xs">
+            <Circle
+              className={`h-2 w-2 fill-current ${
+                status.containerRunning && status.searchOk
+                  ? "text-green-500"
+                  : status.containerRunning && status.healthOk
+                    ? "text-yellow-500"
+                    : status.containerRunning
+                      ? "text-yellow-500"
+                      : "text-muted-foreground"
+              }`}
+            />
+            <span>
+              {status.containerRunning
+                ? status.searchOk
+                  ? t("settings.webSearchDockerSearchOk", { count: status.searchResultCount })
+                  : status.healthOk
+                    ? t("settings.webSearchDockerSearchFail")
+                    : t("settings.webSearchDockerStarting")
+                : t("settings.webSearchDockerStopped")}
+            </span>
+            {status.port && status.containerRunning && (
+              <IconTip label={t("settings.webSearchDockerFillUrl")}>
                 <button
                   type="button"
                   className="text-muted-foreground hover:text-primary underline decoration-dotted underline-offset-2 transition-colors"
-                  onClick={() => onUrlSet(`http://localhost:${status.port}`)}
+                  onClick={() => onUrlSet(`http://127.0.0.1:${status.port}`)}
                 >
-                  localhost:{status.port}
+                  127.0.0.1:{status.port}
                 </button>
               </IconTip>
+            )}
+          </div>
+          {status.containerRunning && status.healthOk && status.unresponsiveEngines.length > 0 && (
+            <div className="text-xs text-yellow-600 dark:text-yellow-500 pl-4">
+              {t("settings.webSearchDockerUnresponsive")}: {status.unresponsiveEngines.join(", ")}
+            </div>
           )}
         </div>
       )}
 
       {error && <p className="text-xs text-destructive whitespace-pre-wrap break-all">{error}</p>}
 
-      {deploying && deployStep && (
-        <p className="text-xs text-muted-foreground">
-          <Loader2 className="h-3 w-3 animate-spin inline mr-1" />
-          {deployStepLabels[deployStep] || deployStep}
-        </p>
+      {(deploying || status.deploying) && (
+        <div className="space-y-1.5">
+          {(deployStep || status.deployStep) && (
+            <p className="text-xs text-muted-foreground">
+              <Loader2 className="h-3 w-3 animate-spin inline mr-1" />
+              {deployStepLabels[deployStep || status.deployStep || ""] ||
+                deployStep ||
+                status.deployStep}
+            </p>
+          )}
+          {(deployLogs.length > 0 || (status.deployLogs?.length ?? 0) > 0) && (
+            <div className="rounded bg-muted/50 p-2 max-h-36 overflow-y-auto font-mono text-[11px] text-muted-foreground leading-relaxed">
+              {(deployLogs.length > 0 ? deployLogs : (status.deployLogs ?? [])).map((line, i) => (
+                <div key={i} className={line.startsWith("ERROR") ? "text-destructive" : ""}>
+                  {line}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       <div className="flex items-center gap-2">
-        {!status.containerExists && (
+        {!status.containerExists && !status.deploying && (
           <Button
             size="sm"
             variant="outline"
             className="h-7 text-xs"
             onClick={handleDeploy}
-            disabled={deploying}
+            disabled={deploying || status.deploying}
           >
             {deploying ? (
               <Loader2 className="h-3 w-3 animate-spin mr-1" />
@@ -252,6 +403,22 @@ export function SearxngDockerSection({ onUrlSet }: { onUrlSet: (url: string) => 
               <Square className="h-3 w-3 mr-1" />
             )}
             {t("settings.webSearchDockerStop")}
+          </Button>
+        )}
+        {status.containerExists && !status.deploying && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs"
+            onClick={handleRedeploy}
+            disabled={actionLoading || deploying}
+          >
+            {actionLoading ? (
+              <Loader2 className="h-3 w-3 animate-spin mr-1" />
+            ) : (
+              <RotateCw className="h-3 w-3 mr-1" />
+            )}
+            {t("settings.webSearchDockerRedeploy")}
           </Button>
         )}
         {status.containerExists && (
