@@ -2,7 +2,6 @@ use std::future::Future;
 use std::pin::Pin;
 
 use anyhow::Result;
-use base64::Engine;
 use reqwest::Client;
 use serde::Deserialize;
 
@@ -11,29 +10,28 @@ use super::{
     ImageGenModeCapabilities, ImageGenParams, ImageGenProviderImpl, ImageGenResult,
 };
 
-const DEFAULT_BASE_URL: &str = "https://api.openai.com";
-const DEFAULT_MODEL: &str = "gpt-image-1";
+const DEFAULT_BASE_URL: &str = "https://open.bigmodel.cn/api/paas";
+const DEFAULT_MODEL: &str = "cogView-4-250304";
 
 #[derive(Deserialize)]
-struct OpenAIImageResponse {
-    data: Option<Vec<OpenAIImageData>>,
+struct ZhipuResponse {
+    data: Option<Vec<ZhipuImageData>>,
 }
 
 #[derive(Deserialize)]
-struct OpenAIImageData {
-    b64_json: Option<String>,
-    revised_prompt: Option<String>,
+struct ZhipuImageData {
+    url: Option<String>,
 }
 
-pub(crate) struct OpenAIProvider;
+pub(crate) struct ZhipuProvider;
 
-impl ImageGenProviderImpl for OpenAIProvider {
+impl ImageGenProviderImpl for ZhipuProvider {
     fn id(&self) -> &str {
-        "openai"
+        "zhipu"
     }
 
     fn display_name(&self) -> &str {
-        "OpenAI"
+        "ZhipuAI"
     }
 
     fn default_model(&self) -> &str {
@@ -43,7 +41,7 @@ impl ImageGenProviderImpl for OpenAIProvider {
     fn capabilities(&self) -> ImageGenCapabilities {
         ImageGenCapabilities {
             generate: ImageGenModeCapabilities {
-                max_count: 4,
+                max_count: 1,
                 supports_size: true,
                 supports_aspect_ratio: false,
                 supports_resolution: false,
@@ -57,7 +55,10 @@ impl ImageGenProviderImpl for OpenAIProvider {
                 supports_resolution: false,
             },
             geometry: Some(ImageGenGeometry {
-                sizes: vec!["1024x1024", "1024x1536", "1536x1024"],
+                sizes: vec![
+                    "1024x1024", "1024x1536", "1536x1024",
+                    "1024x1792", "1792x1024", "2048x2048",
+                ],
                 aspect_ratios: vec![],
                 resolutions: vec![],
             }),
@@ -78,17 +79,15 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
         .filter(|s| !s.is_empty())
         .unwrap_or(DEFAULT_BASE_URL)
         .trim_end_matches('/');
-    let url = format!("{}/v1/images/generations", base);
+    let url = format!("{}/v4/images/generations", base);
 
     let request_body = serde_json::json!({
         "model": params.model,
         "prompt": params.prompt,
-        "n": params.n,
         "size": params.size,
-        "response_format": "b64_json",
     });
 
-    // Log image generation request
+    // Log request
     if let Some(logger) = crate::get_logger() {
         let prompt_preview = if params.prompt.len() > 500 {
             format!("{}...", crate::truncate_utf8(params.prompt, 500))
@@ -98,10 +97,10 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
         logger.log(
             "debug",
             "tool",
-            "image_generate::openai::request",
+            "image_generate::zhipu::request",
             &format!(
-                "OpenAI image gen request: model={}, size={}, n={}, url={}",
-                params.model, params.size, params.n, url
+                "ZhipuAI image gen request: model={}, size={}, url={}",
+                params.model, params.size, url
             ),
             Some(
                 serde_json::json!({
@@ -110,7 +109,6 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
                     "prompt_preview": prompt_preview,
                     "prompt_length": params.prompt.len(),
                     "size": params.size,
-                    "n": params.n,
                     "timeout_secs": params.timeout_secs,
                 })
                 .to_string(),
@@ -138,25 +136,13 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
     let status = resp.status();
     let ttfb_ms = request_start.elapsed().as_millis() as u64;
 
-    // Log response status
     if let Some(logger) = crate::get_logger() {
         logger.log(
             if status.is_success() { "debug" } else { "error" },
             "tool",
-            "image_generate::openai::response",
-            &format!(
-                "OpenAI image gen response: status={}, ttfb={}ms",
-                status.as_u16(),
-                ttfb_ms
-            ),
-            Some(
-                serde_json::json!({
-                    "status": status.as_u16(),
-                    "ttfb_ms": ttfb_ms,
-                    "request_id": resp.headers().get("x-request-id").and_then(|v| v.to_str().ok()),
-                })
-                .to_string(),
-            ),
+            "image_generate::zhipu::response",
+            &format!("ZhipuAI response: status={}, ttfb={}ms", status.as_u16(), ttfb_ms),
+            Some(serde_json::json!({"status": status.as_u16(), "ttfb_ms": ttfb_ms}).to_string()),
             None,
             None,
         );
@@ -164,24 +150,13 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
 
     if !status.is_success() {
         let body = resp.text().await.unwrap_or_default();
-        // Log full error response
         if let Some(logger) = crate::get_logger() {
             logger.log(
                 "error",
                 "tool",
-                "image_generate::openai::error",
-                &format!(
-                    "OpenAI image gen error ({}): {}",
-                    status.as_u16(),
-                    crate::truncate_utf8(&body, 500)
-                ),
-                Some(
-                    serde_json::json!({
-                        "status": status.as_u16(),
-                        "error_body": &body,
-                    })
-                    .to_string(),
-                ),
+                "image_generate::zhipu::error",
+                &format!("ZhipuAI error ({}): {}", status.as_u16(), crate::truncate_utf8(&body, 500)),
+                Some(serde_json::json!({"status": status.as_u16(), "error_body": &body}).to_string()),
                 None,
                 None,
             );
@@ -191,63 +166,66 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
         } else {
             body
         };
-        anyhow::bail!(
-            "OpenAI image generation failed ({}): {}",
-            status,
-            preview
-        );
+        anyhow::bail!("ZhipuAI image generation failed ({}): {}", status, preview);
     }
 
-    let body: OpenAIImageResponse = resp.json().await?;
+    let body: ZhipuResponse = resp.json().await?;
     let items = body.data.unwrap_or_default();
     if items.is_empty() {
-        anyhow::bail!("OpenAI returned no images");
+        anyhow::bail!("ZhipuAI returned no images");
     }
 
+    // Download images from URLs
     let mut images = Vec::new();
-    let mut revised_prompts: Vec<String> = Vec::new();
-    for item in items {
-        if let Some(ref rp) = item.revised_prompt {
-            revised_prompts.push(rp.clone());
-        }
-        if let Some(b64) = item.b64_json {
-            let data = base64::engine::general_purpose::STANDARD.decode(&b64)?;
+    for (i, item) in items.into_iter().enumerate() {
+        if let Some(img_url) = item.url {
+            let dl_start = std::time::Instant::now();
+            let img_resp = client
+                .get(&img_url)
+                .timeout(std::time::Duration::from_secs(30))
+                .send()
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to download ZhipuAI image: {}", e))?;
+
+            if !img_resp.status().is_success() {
+                anyhow::bail!("ZhipuAI image download failed ({})", img_resp.status());
+            }
+
+            let content_type = img_resp
+                .headers()
+                .get("content-type")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("image/png")
+                .split(';')
+                .next()
+                .unwrap_or("image/png")
+                .trim()
+                .to_string();
+            let data = img_resp.bytes().await?.to_vec();
+            let dl_ms = dl_start.elapsed().as_millis() as u64;
+
+            if let Some(logger) = crate::get_logger() {
+                logger.log(
+                    "debug",
+                    "tool",
+                    "image_generate::zhipu::download",
+                    &format!("ZhipuAI image #{} downloaded: {} bytes, {}ms", i, data.len(), dl_ms),
+                    Some(serde_json::json!({"index": i, "size_bytes": data.len(), "download_ms": dl_ms}).to_string()),
+                    None,
+                    None,
+                );
+            }
+
             images.push(GeneratedImage {
                 data,
-                mime: "image/png".to_string(),
-                revised_prompt: item.revised_prompt,
+                mime: content_type,
+                revised_prompt: None,
             });
         }
     }
 
     if images.is_empty() {
-        anyhow::bail!("OpenAI returned no valid image data");
-    }
-
-    // Log successful result details (everything except raw image bytes)
-    if let Some(logger) = crate::get_logger() {
-        let image_sizes: Vec<usize> = images.iter().map(|img| img.data.len()).collect();
-        logger.log(
-            "debug",
-            "tool",
-            "image_generate::openai::result",
-            &format!(
-                "OpenAI image gen result: {} image(s), sizes={:?}",
-                images.len(),
-                image_sizes
-            ),
-            Some(
-                serde_json::json!({
-                    "image_count": images.len(),
-                    "image_sizes_bytes": image_sizes,
-                    "mime_types": images.iter().map(|img| &img.mime).collect::<Vec<_>>(),
-                    "revised_prompts": revised_prompts,
-                })
-                .to_string(),
-            ),
-            None,
-            None,
-        );
+        anyhow::bail!("ZhipuAI returned no downloadable images");
     }
 
     Ok(ImageGenResult { images, text: None })

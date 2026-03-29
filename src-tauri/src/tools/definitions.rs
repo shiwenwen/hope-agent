@@ -1091,12 +1091,58 @@ pub fn get_image_generate_tool_dynamic(config: &crate::tools::image_generate::Im
             .join(", ")
     };
 
+    // Build dynamic capability summaries from enabled providers
+    let mut edit_providers: Vec<String> = Vec::new();
+    let mut multi_image_providers: Vec<String> = Vec::new();
+    let mut ar_providers: Vec<String> = Vec::new();
+    let mut res_providers: Vec<String> = Vec::new();
+    let mut max_n: u32 = 4;
+
+    for p in &enabled {
+        if let Some(impl_) = image_generate::resolve_provider(&p.id) {
+            let caps = impl_.capabilities();
+            let name = impl_.display_name().to_string();
+            if caps.edit.enabled {
+                let detail = if caps.edit.max_input_images > 1 {
+                    format!("{} (up to {})", name, caps.edit.max_input_images)
+                } else {
+                    name.clone()
+                };
+                edit_providers.push(detail);
+                if caps.edit.max_input_images > 1 {
+                    multi_image_providers.push(name.clone());
+                }
+            }
+            if caps.generate.supports_aspect_ratio {
+                ar_providers.push(name.clone());
+            }
+            if caps.generate.supports_resolution {
+                res_providers.push(name.clone());
+            }
+            max_n = max_n.max(caps.generate.max_count);
+            if caps.edit.enabled {
+                max_n = max_n.max(caps.edit.max_count);
+            }
+        }
+    }
+
+    let edit_desc = if edit_providers.is_empty() {
+        String::new()
+    } else {
+        format!(
+            " Supports image editing with reference images ({}).",
+            edit_providers.join(", ")
+        )
+    };
+
     let description = format!(
-        "Generate images from text descriptions. \
-         Available models (priority order): {}. \
+        "Generate or edit images from text descriptions. \
+         Available models (priority order): {}.{} \
+         Use action='list' to see all providers with detailed capabilities. \
          Images are saved to disk and returned for visual inspection. \
          Default: auto — tries models in order with automatic failover on failure.",
-        models_desc
+        models_desc,
+        edit_desc
     );
 
     let model_param_desc = if enabled.is_empty() {
@@ -1112,6 +1158,43 @@ pub fn get_image_generate_tool_dynamic(config: &crate::tools::image_generate::Im
         )
     };
 
+    // Dynamic descriptions for parameters
+    let image_desc = if edit_providers.is_empty() {
+        "Path or URL of a reference/input image for editing.".to_string()
+    } else {
+        format!(
+            "Path or URL of a reference/input image for editing. Supported by: {}.",
+            edit_providers.join(", ")
+        )
+    };
+
+    let images_desc = if multi_image_providers.is_empty() {
+        "Array of paths/URLs for multiple reference images (max 5 total).".to_string()
+    } else {
+        format!(
+            "Array of paths/URLs for multiple reference images (max 5 total). Supported by: {}.",
+            multi_image_providers.join(", ")
+        )
+    };
+
+    let ar_desc = if ar_providers.is_empty() {
+        "Aspect ratio hint: 1:1, 2:3, 3:2, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, or 21:9.".to_string()
+    } else {
+        format!(
+            "Aspect ratio hint: 1:1, 2:3, 3:2, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, or 21:9. Supported by: {}.",
+            ar_providers.join(", ")
+        )
+    };
+
+    let res_desc = if res_providers.is_empty() {
+        "Output resolution: 1K=1024px, 2K=2048px, 4K=4096px. Auto-inferred from input images when editing.".to_string()
+    } else {
+        format!(
+            "Output resolution: 1K=1024px, 2K=2048px, 4K=4096px. Supported by: {}. Auto-inferred from input images when editing.",
+            res_providers.join(", ")
+        )
+    };
+
     ToolDefinition {
         name: TOOL_IMAGE_GENERATE.into(),
         description,
@@ -1119,19 +1202,42 @@ pub fn get_image_generate_tool_dynamic(config: &crate::tools::image_generate::Im
         parameters: json!({
             "type": "object",
             "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["generate", "list"],
+                    "description": "Action: 'generate' (default) creates images, 'list' shows available providers and capabilities."
+                },
                 "prompt": {
                     "type": "string",
-                    "description": "Text description of the image to generate"
+                    "description": "Text description of the image to generate or edit"
+                },
+                "image": {
+                    "type": "string",
+                    "description": image_desc
+                },
+                "images": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": images_desc
                 },
                 "size": {
                     "type": "string",
-                    "description": "Image dimensions (e.g. '1024x1024', '1024x1536', '1536x1024'). Default: 1024x1024"
+                    "description": "Image dimensions (e.g. '1024x1024', '1024x1536', '1536x1024', '1024x1792', '1792x1024'). Default: 1024x1024"
+                },
+                "aspectRatio": {
+                    "type": "string",
+                    "description": ar_desc
+                },
+                "resolution": {
+                    "type": "string",
+                    "enum": ["1K", "2K", "4K"],
+                    "description": res_desc
                 },
                 "n": {
                     "type": "integer",
-                    "description": "Number of images to generate (1-4, default 1)",
+                    "description": format!("Number of images to generate (1-{} depending on provider, default 1)", max_n),
                     "minimum": 1,
-                    "maximum": 4
+                    "maximum": max_n
                 },
                 "model": {
                     "type": "string",

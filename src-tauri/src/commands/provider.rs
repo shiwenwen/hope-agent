@@ -649,6 +649,59 @@ pub async fn test_image_generate(
                 format!("Key {}", api_key),
             )
         }
+        "minimax" => {
+            let base = base_url.as_deref()
+                .filter(|s| !s.is_empty())
+                .map(|s| {
+                    if let Ok(parsed) = url::Url::parse(s) {
+                        format!("{}://{}", parsed.scheme(), parsed.host_str().unwrap_or(s))
+                    } else {
+                        s.trim_end_matches('/').to_string()
+                    }
+                })
+                .unwrap_or_else(|| "https://api.minimax.io".to_string());
+            // MiniMax: GET on the endpoint will return 405 = API alive
+            (
+                format!("{}/v1/image_generation", base),
+                "Authorization",
+                format!("Bearer {}", api_key),
+            )
+        }
+        "siliconflow" => {
+            let base = base_url.as_deref()
+                .filter(|s| !s.is_empty())
+                .unwrap_or("https://api.siliconflow.cn")
+                .trim_end_matches('/');
+            (
+                format!("{}/v1/models", base),
+                "Authorization",
+                format!("Bearer {}", api_key),
+            )
+        }
+        "zhipu" => {
+            let base = base_url.as_deref()
+                .filter(|s| !s.is_empty())
+                .unwrap_or("https://open.bigmodel.cn/api/paas")
+                .trim_end_matches('/');
+            // ZhipuAI: GET on generations endpoint returns 405 = alive
+            (
+                format!("{}/v4/images/generations", base),
+                "Authorization",
+                format!("Bearer {}", api_key),
+            )
+        }
+        "tongyi" => {
+            let base = base_url.as_deref()
+                .filter(|s| !s.is_empty())
+                .unwrap_or("https://dashscope.aliyuncs.com")
+                .trim_end_matches('/');
+            // DashScope: GET on text2image endpoint returns 405 = alive
+            (
+                format!("{}/api/v1/services/aigc/text2image/image-synthesis", base),
+                "Authorization",
+                format!("Bearer {}", api_key),
+            )
+        }
         _ => {
             return Err(serde_json::to_string(&serde_json::json!({
                 "success": false,

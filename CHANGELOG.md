@@ -17,6 +17,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - PlanCardBlock Phase 列表支持点击展开显示步骤详情
 
 ### Added
+- **图片生成能力增强**：追平 OpenClaw，全面增强图片生成工具
+  - **新增 MiniMax Provider**：支持 image-01 模型，最多生成 9 张图片，支持 aspectRatio 和参考图编辑
+  - **图片编辑支持**：Google（最多 5 张参考图）、Fal（1 张）、MiniMax（1 张）均支持参考图输入编辑
+  - **aspectRatio 参数**：支持 10 种比例（1:1, 2:3, 3:2, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, 21:9），Google/Fal/MiniMax 可用
+  - **resolution 参数**：支持 1K/2K/4K 分辨率，Google/Fal 可用，编辑时自动从参考图推断
+  - **action=list 查询**：Agent 可查询所有 Provider 的模型和能力详情
+  - **Provider Capabilities 系统**：每个 Provider 声明 generate/edit 能力和几何约束，自动跳过不兼容的 Provider
+  - **新增尺寸**：Google/Fal 支持 1024x1792 和 1792x1024
+- **新增 3 个国产图片生成 Provider**：
+  - **硅基流动 SiliconFlow**：聚合 Qwen-Image/Kolors 等多模型，支持 Qwen-Image-Edit 图片编辑，OpenAI 兼容 API
+  - **智谱 ZhipuAI CogView-4**：中文文字渲染能力最强，支持 2048x2048 分辨率，OpenAI 兼容 API
+  - **通义万相 Tongyi Wanxiang**：DashScope 异步 API，支持文生图和 wanx2.1-imageedit 描述编辑，自动轮询任务结果
 - **数据大盘详情列表**：Overview 卡片点击展开详情列表面板
   - 新增 5 个后端查询命令：`dashboard_session_list` / `dashboard_message_list` / `dashboard_tool_call_list` / `dashboard_error_list` / `dashboard_agent_list`
   - 6 种详情列表：会话列表、消息列表、工具调用列表、错误日志列表、Agent 列表、定时任务列表

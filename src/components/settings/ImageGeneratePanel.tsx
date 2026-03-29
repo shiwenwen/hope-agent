@@ -32,6 +32,10 @@ const DEFAULT_CONFIG: ImageGenConfig = {
     { id: "openai", enabled: false, apiKey: null, baseUrl: null, model: null, thinkingLevel: null },
     { id: "google", enabled: false, apiKey: null, baseUrl: null, model: null, thinkingLevel: null },
     { id: "fal", enabled: false, apiKey: null, baseUrl: null, model: null, thinkingLevel: null },
+    { id: "minimax", enabled: false, apiKey: null, baseUrl: null, model: null, thinkingLevel: null },
+    { id: "siliconflow", enabled: false, apiKey: null, baseUrl: null, model: null, thinkingLevel: null },
+    { id: "zhipu", enabled: false, apiKey: null, baseUrl: null, model: null, thinkingLevel: null },
+    { id: "tongyi", enabled: false, apiKey: null, baseUrl: null, model: null, thinkingLevel: null },
   ],
   timeoutSeconds: 60,
   defaultSize: "1024x1024",
@@ -42,6 +46,10 @@ const PROVIDER_DISPLAY: Record<string, { name: string; defaultModel: string; bas
   openai: { name: "OpenAI", defaultModel: "gpt-image-1", baseUrl: "https://api.openai.com" },
   google: { name: "Google", defaultModel: "gemini-3.1-flash-image-preview", baseUrl: "https://generativelanguage.googleapis.com" },
   fal: { name: "Fal", defaultModel: "fal-ai/flux/dev", baseUrl: "https://fal.run" },
+  minimax: { name: "MiniMax", defaultModel: "image-01", baseUrl: "https://api.minimax.io" },
+  siliconflow: { name: "SiliconFlow", defaultModel: "Qwen/Qwen-Image", baseUrl: "https://api.siliconflow.cn" },
+  zhipu: { name: "ZhipuAI", defaultModel: "cogView-4-250304", baseUrl: "https://open.bigmodel.cn/api/paas" },
+  tongyi: { name: "Tongyi Wanxiang", defaultModel: "wanx-v1", baseUrl: "https://dashscope.aliyuncs.com" },
 }
 
 const GOOGLE_MODEL_OPTIONS = [
@@ -53,7 +61,7 @@ const GOOGLE_MODEL_OPTIONS = [
   { value: "imagen-4.0-fast-generate-001", label: "Imagen 4 Fast" },
 ]
 
-const SIZE_OPTIONS = ["1024x1024", "1024x1536", "1536x1024"]
+const SIZE_OPTIONS = ["1024x1024", "1024x1536", "1536x1024", "1024x1792", "1792x1024"]
 
 function GoogleModelSelect({ value, onChange }: { value: string | null; onChange: (v: string | null) => void }) {
   const { t } = useTranslation()

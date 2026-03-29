@@ -6,7 +6,10 @@ use base64::Engine;
 use reqwest::Client;
 use serde::Deserialize;
 
-use super::{GeneratedImage, ImageGenParams, ImageGenProviderImpl, ImageGenResult};
+use super::{
+    GeneratedImage, ImageGenCapabilities, ImageGenEditCapabilities, ImageGenGeometry,
+    ImageGenModeCapabilities, ImageGenParams, ImageGenProviderImpl, ImageGenResult,
+};
 
 const DEFAULT_BASE_URL: &str = "https://generativelanguage.googleapis.com";
 const DEFAULT_MODEL: &str = "gemini-3.1-flash-image-preview";
@@ -55,11 +58,52 @@ impl ImageGenProviderImpl for GoogleProvider {
         DEFAULT_MODEL
     }
 
+    fn capabilities(&self) -> ImageGenCapabilities {
+        ImageGenCapabilities {
+            generate: ImageGenModeCapabilities {
+                max_count: 4,
+                supports_size: true,
+                supports_aspect_ratio: true,
+                supports_resolution: true,
+            },
+            edit: ImageGenEditCapabilities {
+                enabled: true,
+                max_count: 4,
+                max_input_images: 5,
+                supports_size: true,
+                supports_aspect_ratio: true,
+                supports_resolution: true,
+            },
+            geometry: Some(ImageGenGeometry {
+                sizes: vec![
+                    "1024x1024", "1024x1536", "1536x1024", "1024x1792", "1792x1024",
+                ],
+                aspect_ratios: vec![
+                    "1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9",
+                ],
+                resolutions: vec!["1K", "2K", "4K"],
+            }),
+        }
+    }
+
     fn generate<'a>(
         &'a self,
         params: ImageGenParams<'a>,
     ) -> Pin<Box<dyn Future<Output = Result<ImageGenResult>> + Send + 'a>> {
         Box::pin(generate_impl(params))
+    }
+}
+
+/// Map size string to Google imageConfig fields.
+fn map_size_to_image_config(size: &str) -> Option<(&'static str, Option<&'static str>)> {
+    // Returns (aspectRatio, imageSize) where imageSize is "2K" or "4K" if needed
+    match size {
+        "1024x1024" => Some(("1:1", None)),
+        "1024x1536" => Some(("2:3", None)),
+        "1536x1024" => Some(("3:2", None)),
+        "1024x1792" => Some(("9:16", None)),
+        "1792x1024" => Some(("16:9", None)),
+        _ => None,
     }
 }
 
@@ -73,6 +117,61 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
 
     let thinking_level = params.extra.thinking_level.as_deref().unwrap_or("MINIMAL");
 
+    // Build content parts: input images first, then text prompt
+    let mut parts = Vec::new();
+
+    // Add reference/input images as inlineData parts
+    for img in params.input_images {
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&img.data);
+        parts.push(serde_json::json!({
+            "inlineData": {
+                "mimeType": img.mime,
+                "data": b64
+            }
+        }));
+    }
+
+    // Add text prompt
+    parts.push(serde_json::json!({ "text": params.prompt }));
+
+    // Build imageConfig from aspectRatio/resolution/size
+    let mut image_config = serde_json::Map::new();
+
+    // Explicit aspectRatio takes precedence
+    if let Some(ar) = params.aspect_ratio {
+        image_config.insert("aspectRatio".to_string(), serde_json::json!(ar));
+    } else if let Some((ar, _)) = map_size_to_image_config(params.size) {
+        // Map size to aspectRatio for Google API
+        image_config.insert("aspectRatio".to_string(), serde_json::json!(ar));
+    }
+
+    // Resolution → imageSize
+    if let Some(res) = params.resolution {
+        match res {
+            "2K" | "4K" => {
+                image_config.insert("imageSize".to_string(), serde_json::json!(res));
+            }
+            _ => {} // 1K is default, don't send
+        }
+    } else if let Some((_, Some(img_size))) = map_size_to_image_config(params.size) {
+        image_config.insert("imageSize".to_string(), serde_json::json!(img_size));
+    }
+
+    // Build generationConfig
+    let mut gen_config = serde_json::json!({
+        "responseModalities": ["IMAGE", "TEXT"],
+        "thinkingConfig": {
+            "thinkingLevel": thinking_level
+        }
+    });
+
+    if !image_config.is_empty() {
+        gen_config.as_object_mut().unwrap().insert(
+            "imageConfig".to_string(),
+            serde_json::Value::Object(image_config),
+        );
+    }
+
     // Log image generation request
     if let Some(logger) = crate::get_logger() {
         let prompt_preview = if params.prompt.len() > 500 {
@@ -85,8 +184,8 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
             "tool",
             "image_generate::google::request",
             &format!(
-                "Google image gen request: model={}, thinking={}, url={}",
-                params.model, thinking_level, url
+                "Google image gen request: model={}, thinking={}, edit={}, url={}",
+                params.model, thinking_level, !params.input_images.is_empty(), url
             ),
             Some(
                 serde_json::json!({
@@ -96,6 +195,9 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
                     "prompt_length": params.prompt.len(),
                     "timeout_secs": params.timeout_secs,
                     "thinking_level": thinking_level,
+                    "input_images_count": params.input_images.len(),
+                    "aspect_ratio": params.aspect_ratio,
+                    "resolution": params.resolution,
                 })
                 .to_string(),
             ),
@@ -118,14 +220,9 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
         .json(&serde_json::json!({
             "contents": [{
                 "role": "user",
-                "parts": [{ "text": params.prompt }]
+                "parts": parts
             }],
-            "generationConfig": {
-                "responseModalities": ["IMAGE", "TEXT"],
-                "thinkingConfig": {
-                    "thinkingLevel": thinking_level
-                }
-            }
+            "generationConfig": gen_config
         }))
         .send()
         .await?;
