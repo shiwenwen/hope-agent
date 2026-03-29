@@ -243,15 +243,27 @@ pub(crate) fn toggle_quickchat_window(app_handle: &tauri::AppHandle) {
         .build()
     {
         Ok(win) => {
-            // macOS: transparent window background so CSS border-radius works
             #[cfg(target_os = "macos")]
             {
                 let _ = win.with_webview(|webview| unsafe {
                     let ns_window: &objc2_app_kit::NSWindow =
                         &*webview.ns_window().cast();
+
+                    // Transparent background so CSS border-radius works
                     let clear_color =
                         objc2_app_kit::NSColor::colorWithSRGBRed_green_blue_alpha(0.0, 0.0, 0.0, 0.0);
                     ns_window.setBackgroundColor(Some(&clear_color));
+
+                    // Highest window level — above almost everything (including other always-on-top windows)
+                    ns_window.setLevel(
+                        objc2_app_kit::NSWindowLevel::from(25_isize), // NSStatusWindowLevel
+                    );
+
+                    // Visible on ALL Spaces / desktops, including full-screen apps
+                    ns_window.setCollectionBehavior(
+                        objc2_app_kit::NSWindowCollectionBehavior::CanJoinAllSpaces
+                            | objc2_app_kit::NSWindowCollectionBehavior::FullScreenAuxiliary,
+                    );
                 });
             }
             let _ = win.set_focus();
