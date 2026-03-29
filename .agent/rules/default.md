@@ -45,7 +45,7 @@ src-tauri/src/          后端（Rust）
   session.rs            会话持久化（SQLite）
   paths.rs              统一路径管理（~/.opencomputer/）
   failover.rs           模型降级 & 重试策略
-  system_prompt.rs      系统提示词模块化拼装
+  system_prompt.rs      系统提示词模块化拼装（per-tool 描述 + 行为指导）
   dashboard.rs          数据大盘聚合查询
   logging.rs            统一日志（SQLite + 纯文本双写）
 ```

@@ -1,0 +1,507 @@
+# OpenComputer 提示词系统技术文档
+
+> 更新时间：2026-03-29
+
+## 目录
+
+- [概述](#概述)（含架构总览图）
+- [System Prompt 组装流程](#system-prompt-组装流程)
+  - [13 段组装顺序](#13-段组装顺序)（含数据流图）
+  - [结构化模式 vs 自定义模式](#结构化模式-vs-自定义模式)
+  - [Legacy 兼容路径](#legacy-兼容路径)
+- [Per-Tool 描述系统](#per-tool-描述系统)
+  - [设计理念](#设计理念)
+  - [工具描述清单（31 个工具）](#工具描述清单31-个工具)
+  - [动态过滤机制](#动态过滤机制)
+- [行为指导系统](#行为指导系统)
+  - [Output Efficiency（输出效率）](#output-efficiency输出效率)
+  - [Action Safety（操作安全）](#action-safety操作安全)
+  - [Task Execution Guidelines（任务执行）](#task-execution-guidelines任务执行)
+- [Plan Mode 提示词](#plan-mode-提示词)
+  - [5 阶段规划 Prompt](#5-阶段规划-prompt)
+  - [执行阶段 Prompt](#执行阶段-prompt)
+  - [完成阶段 Prompt](#完成阶段-prompt)
+  - [子 Agent 上下文隔离](#子-agent-上下文隔离)
+- [Memory Guidelines（记忆指导）](#memory-guidelines记忆指导)
+- [上下文压缩提示词](#上下文压缩提示词)
+  - [4 层渐进式压缩](#4-层渐进式压缩)
+  - [Summarization System Prompt](#summarization-system-prompt)
+  - [标识符保留策略](#标识符保留策略)
+- [条件注入段](#条件注入段)
+  - [Sub-Agent Delegation](#sub-agent-delegation)
+  - [Sandbox Mode](#sandbox-mode)
+  - [ACP External Agents](#acp-external-agents)
+- [Prompt 缓存优化](#prompt-缓存优化)
+- [关键文件索引](#关键文件索引)
+
+---
+
+## 概述
+
+OpenComputer 的提示词系统采用**模块化组装**架构，由 `system_prompt.rs` 统一编排。System Prompt 由最多 13 个独立段落（section）按固定顺序拼接，每段可独立启用/禁用/过滤，支持 Agent 级别的差异化配置。
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    System Prompt                         │
+│                                                         │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐    │
+│  │ ① Identity  │  │ ② agent.md  │  │ ③ persona   │    │
+│  └─────────────┘  └─────────────┘  └─────────────┘    │
+│  ┌─────────────┐  ┌─────────────┐  ┌──────────────┐   │
+│  │ ④ User Ctx  │  │ ⑤ tools.md  │  │ ⑥ Tool Descs │   │
+│  └─────────────┘  └─────────────┘  │  (filtered)  │   │
+│                                     └──────────────┘   │
+│  ┌─────────────┐  ┌──────────────┐ ┌──────────────┐   │
+│  │ ⑦ Skills    │  │ ⑦b Behavior  │ │ ⑧ Memory     │   │
+│  │ (filtered)  │  │  Guidance    │ │  Guidelines  │   │
+│  └─────────────┘  └──────────────┘ └──────────────┘   │
+│  ┌─────────────┐  ┌──────────────┐ ┌──────────────┐   │
+│  │ ⑨ Runtime   │  │ ⑩ SubAgent   │ │ ⑪ Sandbox    │   │
+│  │    Info      │  │  Delegation  │ │   Mode       │   │
+│  └─────────────┘  └──────────────┘ └──────────────┘   │
+│  ┌──────────────┐                                      │
+│  │ ⑬ ACP       │     ⑫ (reserved: Project Context)    │
+│  │  Ext Agents  │                                      │
+│  └──────────────┘                                      │
+└─────────────────────────────────────────────────────────┘
+```
+
+**核心设计原则**：
+
+| 原则 | 说明 |
+|------|------|
+| **Per-Agent 差异化** | 每个 Agent 的工具、技能、记忆、子 Agent 权限可独立配置 |
+| **动态过滤** | 工具描述和技能描述按 allow/deny 列表过滤，减少无关 token |
+| **缓存友好** | 日期只精确到天，避免每次请求都改变 system prompt |
+| **安全截断** | 注入的 markdown 文件限制 20,000 字符，head(70%)+tail(20%) 截断 |
+| **条件注入** | Sandbox、SubAgent、ACP 段仅在配置启用时注入 |
+
+---
+
+## System Prompt 组装流程
+
+### 13 段组装顺序
+
+组装由 `system_prompt::build()` 函数执行，入口参数为 `AgentDefinition`（Agent 完整配置）：
+
+```
+AgentDefinition
+    ├── config.name / config.personality    → ① Identity + ② Personality
+    ├── agent_md                            → ③ agent.md
+    ├── persona                             → ④ persona.md
+    ├── tools_guide                         → ⑤ tools.md
+    ├── config.tools (FilterConfig)         → ⑥ Tool Descriptions (filtered)
+    ├── config.skills (FilterConfig)        → ⑦ Skills (filtered)
+    │                                       → ⑦b Behavior Guidance (always)
+    ├── config.memory.enabled               → ⑧ Memory (conditional)
+    │   ├── global_memory_md                   └── 8a: Core Memory (Global)
+    │   ├── memory_md                          └── 8b: Core Memory (Agent)
+    │   ├── memory_context (SQLite)            └── 8c: SQLite Memories
+    │   └── (hardcoded)                        └── 8d: Memory Guidelines
+    ├── model / provider                    → ⑨ Runtime Info
+    ├── config.subagents.enabled            → ⑩ Sub-Agent Delegation (conditional)
+    ├── config.behavior.sandbox             → ⑪ Sandbox Mode (conditional)
+    └── config.acp.enabled                  → ⑬ ACP External Agents (conditional)
+```
+
+**代码位置**：`src-tauri/src/system_prompt.rs:322` — `pub fn build()`
+
+### 结构化模式 vs 自定义模式
+
+通过 `config.use_custom_prompt` 切换：
+
+| | 结构化模式（默认） | 自定义模式 |
+|---|---|---|
+| Identity | `"You are {name}, a {role}, running on..."` | `"You are {name}, running on..."` |
+| Personality | 从 `PersonalityConfig` 字段组装（vibe/tone/traits/principles...） | 跳过 |
+| agent.md | 作为补充说明注入 | 作为主要 identity 注入 |
+| persona.md | 作为补充个性注入 | 作为主要个性注入 |
+
+### Legacy 兼容路径
+
+`build_legacy()` 为无 `AgentDefinition` 的场景提供后向兼容：
+- 注入全部工具描述（不过滤）
+- 注入全部行为指导
+- 从全局 `ProviderStore` 加载技能
+- 无 Memory、SubAgent、Sandbox、ACP 段
+
+**代码位置**：`src-tauri/src/system_prompt.rs:520` — `pub fn build_legacy()`
+
+---
+
+## Per-Tool 描述系统
+
+### 设计理念
+
+参考 Claude Code 的 prompt 工程实践，每个工具拥有独立的详细描述常量。相比之前的单一 `TOOLS_DESCRIPTION` 字符串（60 行、所有工具挤在一起），新架构的优势：
+
+1. **精准过滤**：Agent 只看到被授权的工具描述，减少无关 token 消耗
+2. **详细指南**：每个工具包含使用指南、最佳实践、常见陷阱
+3. **工具优先级**：`exec` 工具明确标注「优先使用专用工具」规则，防止模型绕过专用工具直接用 shell
+
+### 工具描述清单（31 个工具）
+
+工具描述以 `TOOL_DESC_*` 常量定义，通过 `TOOL_DESCRIPTIONS` 数组映射：
+
+| 分类 | 工具 | 常量 | 描述要点 |
+|------|------|------|----------|
+| **执行** | exec | `TOOL_DESC_EXEC` | cwd/timeout/background/sandbox；**强调优先使用专用工具** |
+| | process | `TOOL_DESC_PROCESS` | 管理后台 exec session；禁止 sleep 轮询 |
+| **文件操作** | read | `TOOL_DESC_READ` | 分页/图片检测/PDF 分页；**先读后改** |
+| | write | `TOOL_DESC_WRITE` | 优先用 edit；不创建不必要的文件 |
+| | edit | `TOOL_DESC_EDIT` | old_text 唯一性；replace_all 重命名 |
+| | ls | `TOOL_DESC_LS` | 目录列表；创建前先验证 |
+| | grep | `TOOL_DESC_GREP` | **禁止用 exec 替代**；regex + multiline |
+| | find | `TOOL_DESC_FIND` | **禁止用 exec 替代**；glob 模式 |
+| | apply_patch | `TOOL_DESC_APPLY_PATCH` | 多文件补丁；3-pass fuzzy matching |
+| **网络** | web_search | `TOOL_DESC_WEB_SEARCH` | 搜索当前信息 |
+| | web_fetch | `TOOL_DESC_WEB_FETCH` | 抓取网页内容 |
+| | browser | `TOOL_DESC_BROWSER` | 无头浏览器；动态页面交互 |
+| **记忆** | save_memory | `TOOL_DESC_SAVE_MEMORY` | 4 种类型；禁止保存临时信息 |
+| | recall_memory | `TOOL_DESC_RECALL_MEMORY` | 关键词/语义搜索；include_history |
+| | update_memory | `TOOL_DESC_UPDATE_MEMORY` | 更新已有记忆 |
+| | delete_memory | `TOOL_DESC_DELETE_MEMORY` | 删除过期记忆 |
+| | update_core_memory | `TOOL_DESC_UPDATE_CORE_MEMORY` | 持久指令写入 memory.md |
+| | memory_get | `TOOL_DESC_MEMORY_GET` | 按 ID 获取完整记忆 |
+| **委托** | subagent | `TOOL_DESC_SUBAGENT` | spawn/check/steer/kill；异步执行 |
+| | agents_list | `TOOL_DESC_AGENTS_LIST` | 列出可委托 Agent |
+| | acp_spawn | `TOOL_DESC_ACP_SPAWN` | 外部 ACP Agent（Claude Code/Codex） |
+| **会话** | sessions_list | `TOOL_DESC_SESSIONS_LIST` | 跨会话通信发现 |
+| | session_status | `TOOL_DESC_SESSION_STATUS` | 会话详细状态 |
+| | sessions_history | `TOOL_DESC_SESSIONS_HISTORY` | 分页历史记录 |
+| | sessions_send | `TOOL_DESC_SESSIONS_SEND` | 跨会话消息发送 |
+| **媒体** | image | `TOOL_DESC_IMAGE` | 图片分析；prompt 指定分析目标 |
+| | image_generate | `TOOL_DESC_IMAGE_GENERATE` | AI 图片生成；failover |
+| | pdf | `TOOL_DESC_PDF` | PDF 文本提取；大文件必须分页 |
+| **其他** | canvas | `TOOL_DESC_CANVAS` | 富内容制品 |
+| | manage_cron | `TOOL_DESC_MANAGE_CRON` | 定时任务管理 |
+| | send_notification | `TOOL_DESC_SEND_NOTIFICATION` | 系统通知 |
+
+**代码位置**：`src-tauri/src/system_prompt.rs:10-236`
+
+### 动态过滤机制
+
+```rust
+fn build_tools_section(filter: &FilterConfig) -> String {
+    let no_filter = filter.allow.is_empty() && filter.deny.is_empty();
+    let descs: Vec<&str> = TOOL_DESCRIPTIONS
+        .iter()
+        .filter(|(name, _)| no_filter || filter.is_allowed(name))
+        .map(|(_, desc)| *desc)
+        .collect();
+    format!("# Available Tools\n\n{}", descs.join("\n\n"))
+}
+```
+
+- `allow` 为空且 `deny` 为空 → 注入全部工具描述
+- `allow` 非空 → 只注入白名单中的工具
+- `deny` 非空 → 排除黑名单中的工具
+- 过滤后为空 → 不注入工具段
+
+**代码位置**：`src-tauri/src/system_prompt.rs:573-589`
+
+---
+
+## 行为指导系统
+
+行为指导段通过 `build_behavior_section()` 组装，**所有 Agent 都会注入**（不受过滤控制），共 3 个子段：
+
+### Output Efficiency（输出效率）
+
+**常量**：`BEHAVIOR_OUTPUT_EFFICIENCY`
+
+**核心指令**：
+- 直奔主题，先尝试最简单方案
+- 先给出答案/行动，再给理由
+- 跳过填充词、前言、不必要的过渡
+- 不要复述用户的话
+- 一句能说清的不用三句
+
+**重点输出方向**：
+- 需要用户决策的内容
+- 关键里程碑的状态更新
+- 改变计划的错误或阻断
+
+**例外**：不适用于代码和工具调用——只约束文本回复。
+
+**设计参考**：Claude Code `system-prompt-output-efficiency.md`
+
+### Action Safety（操作安全）
+
+**常量**：`BEHAVIOR_ACTION_SAFETY`
+
+**安全分级**：
+
+| 分级 | 操作类型 | 策略 |
+|------|---------|------|
+| **安全** | 读文件、搜索代码、运行测试、编辑本地文件、创建分支 | 自由执行 |
+| **需确认** | 删除文件/分支、rm -rf、覆盖未提交更改 | 用户确认 |
+| **需确认** | force-push、git reset --hard、删除包 | 用户确认 |
+| **需确认** | push 代码、创建/评论 PR、发消息、上传到第三方 | 用户确认 |
+
+**障碍处理原则**：
+- 不用破坏性操作绕过障碍——先查根因
+- 陌生文件/分支/配置先调查再删
+- 优先解决冲突而非丢弃变更
+- lock 文件先查进程再决定
+
+**核心原则**：measure twice, cut once.
+
+**设计参考**：Claude Code `system-prompt-executing-actions-with-care.md`
+
+### Task Execution Guidelines（任务执行）
+
+**常量**：`BEHAVIOR_DOING_TASKS`
+
+**核心规则**：
+
+| 规则 | 说明 |
+|------|------|
+| 先读后改 | 不要对没读过的代码提议修改 |
+| 最小文件创建 | 优先编辑现有文件，防止文件膨胀 |
+| 工程语境解读 | 模糊指令默认按软件工程 + 当前工作目录理解 |
+| 反过度工程 | 不添加多余功能/重构/错误处理/抽象 |
+| 阻断应变 | 被阻断时换方案，不暴力重试 |
+| 安全编码 | 注意 XSS/SQL注入/命令注入等 |
+
+**设计参考**：Claude Code `system-prompt-doing-tasks-*.md`（多个文件合并）
+
+**代码位置**：`src-tauri/src/system_prompt.rs:238-301`
+
+---
+
+## Plan Mode 提示词
+
+Plan Mode 使用独立于主 system prompt 的额外提示词，注入到对话上下文中。详细架构见 [Plan Mode 架构文档](plan-mode.md)。
+
+### 5 阶段规划 Prompt
+
+**常量**：`PLAN_MODE_SYSTEM_PROMPT`（`plan.rs:467`）
+
+```
+Phase 1: Deep Exploration    → subagent 并行探索，映射模块/接口/数据流
+Phase 2: Requirements         → plan_question 结构化问答，带选项卡片
+Phase 3: Design & Architecture → 方案对比，文件清单，风险识别
+Phase 4: Plan Composition      → submit_plan 提交，checklist 格式
+Phase 5: Review & Refinement   → 用户审核，inline comment 修订
+```
+
+**工具限制**：
+- 禁止：apply_patch、canvas（源文件不可修改）
+- 限制：write/edit 只能操作 `~/.opencomputer/plans/` 路径
+- 需审批：exec（shell 命令需用户同意）
+- 允许：read、grep、find、web_search、web_fetch、subagent、plan_question、submit_plan
+
+**计划格式要求**：
+- 以**文件为中心**组织步骤（非抽象 Phase）
+- 步骤标题包含文件路径：`### Step N: <verb> — <file_path>`
+- 必须包含**代码块**（struct/函数签名/关键逻辑）
+- 引用已有代码用 `file_path:line` 标注
+- 使用 `- [ ]` 子任务便于追踪
+- 末尾 Verification 段列出测试命令
+
+### 执行阶段 Prompt
+
+**常量**：`PLAN_EXECUTING_SYSTEM_PROMPT_PREFIX`（`plan.rs:610`）
+
+- 逐步执行已审批计划
+- `update_plan_step(step_index, status)` 追踪进度
+- `amend_plan()` 动态修改计划（insert/delete/update）
+- Git checkpoint 已创建，失败可回滚
+
+### 完成阶段 Prompt
+
+**常量**：`PLAN_COMPLETED_SYSTEM_PROMPT`（`plan.rs:594`）
+
+- 总结完成情况
+- 高亮失败/跳过的步骤并解释原因
+- 建议后续行动
+
+### 子 Agent 上下文隔离
+
+**常量**：`PLAN_SUBAGENT_CONTEXT_NOTICE`（`plan.rs:454`）
+
+当 Plan Mode 使用子 Agent 模式时，注入此 notice 提醒 planning subagent：
+- 执行 Agent **不会**看到你的探索历史
+- 计划必须**自包含**：代码片段、文件路径、行号、依赖
+- "The plan IS the only context"
+
+---
+
+## Memory Guidelines（记忆指导）
+
+**位置**：`system_prompt.rs:429-447`（⑧ Memory 段的 8d 子段）
+
+仅在 `config.memory.enabled = true` 时注入。指导 Agent 正确使用 4 个记忆工具：
+
+| 工具 | 使用场景 |
+|------|---------|
+| `update_core_memory` | 长期指令：「always」「never」「from now on」 |
+| `save_memory` | 事实、截止日期、临时上下文、值得备注的发现 |
+| `recall_memory` | 查找先前偏好/约束/上下文 |
+| `recall_memory(include_history=true)` | 搜索历史对话（「last time」「we discussed」） |
+
+**禁止保存**：临时任务细节、代码片段、调试步骤、可从代码库推导的信息。
+
+记忆段还包括 Core Memory 注入（8a 全局、8b Agent 级别）和 SQLite 记忆检索结果（8c）。
+
+---
+
+## 上下文压缩提示词
+
+### 4 层渐进式压缩
+
+上下文压缩系统在对话历史逼近上下文窗口限制时自动触发：
+
+```
+Tier 1: Tool Result Truncation     ← 单条工具结果过大时 head+tail 截断
+   ↓ context 仍然过大
+Tier 2: Context Pruning            ← 旧工具结果 soft-trim → hard-clear
+   ↓ context 仍然过大
+Tier 3: LLM Summarization          ← 调用模型总结旧消息
+   ↓ ContextOverflow 错误
+Tier 4: Emergency Compaction        ← 激进截断
+```
+
+**代码位置**：`src-tauri/src/context_compact/mod.rs`
+
+### Summarization System Prompt
+
+**常量**：`SUMMARIZATION_SYSTEM_PROMPT`（`context_compact/summarization.rs:14`）
+
+```
+You are a context compaction assistant.
+
+MUST PRESERVE:
+- Active tasks and their current status (in-progress, blocked, pending)
+- Batch operation progress (e.g., "5/17 items completed")
+- The last thing the user requested and what was being done about it
+- Decisions made and their rationale
+- TODOs, open questions, and constraints
+- Any commitments or follow-ups promised
+- All file paths, function names, and code references mentioned
+
+PRIORITIZE recent context over older history.
+
+Output format:
+## Decisions
+## Open TODOs
+## Constraints/Rules
+## Pending user asks
+## Exact identifiers
+## Conversation summary
+```
+
+**设计要点**：
+- 优先保留近期上下文（"正在做什么"比"讨论过什么"更重要）
+- 6 段结构化输出，确保关键信息不丢失
+- 所有标识符（UUID、路径、函数名）原样保留
+
+### 标识符保留策略
+
+**常量**：`IDENTIFIER_PRESERVATION_INSTRUCTIONS`（`context_compact/mod.rs:70`）
+
+```
+Preserve all opaque identifiers exactly as written (no shortening or reconstruction),
+including UUIDs, hashes, IDs, tokens, hostnames, IPs, ports, URLs, and file names.
+```
+
+通过 `CompactConfig.identifier_policy` 配置：
+
+| 策略 | 行为 |
+|------|------|
+| `strict`（默认） | 使用内置保留指令 |
+| `off` | 不注入保留指令 |
+| `custom` | 使用用户自定义 `identifier_instructions` |
+
+### 压缩配置参数
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `soft_trim_ratio` | 0.50 | Tier 2 软截断触发比例 |
+| `hard_clear_ratio` | 0.70 | Tier 2 硬清除触发比例 |
+| `keep_last_assistants` | 4 | 保护最近 N 条 assistant 消息 |
+| `soft_trim_max_chars` | 6,000 | 超过此值才软截断 |
+| `soft_trim_head_chars` | 2,000 | 软截断保留头部 |
+| `soft_trim_tail_chars` | 2,000 | 软截断保留尾部 |
+| `summarization_threshold` | 0.85 | Tier 3 总结触发比例 |
+| `preserve_recent_turns` | 4 | 总结时保留最近 N 轮对话 |
+| `summary_max_tokens` | 4,096 | 总结输出最大 token |
+| `summarization_timeout_secs` | 60 | 总结调用超时 |
+
+**代码位置**：`src-tauri/src/context_compact/config.rs`
+
+---
+
+## 条件注入段
+
+### Sub-Agent Delegation
+
+**触发条件**：`config.subagents.enabled == true` 且 `depth < max_spawn_depth`
+
+**注入内容**：
+- 可委托 Agent 列表（emoji + name + id + description）
+- 使用方式：spawn → 异步执行 → 自动推送结果
+- steer 重定向、check 状态检查、kill 终止
+- spawn 选项：label、files、model override
+- 当前深度显示：`Current depth: N/M`
+
+**过滤规则**：
+- 不列出自身（防止自委托）
+- 受 `SubagentConfig.allow/deny` 控制
+
+**代码位置**：`src-tauri/src/system_prompt.rs:770-823`
+
+### Sandbox Mode
+
+**触发条件**：`config.behavior.sandbox == true`
+
+**注入内容**：
+- 所有 exec 自动在 Docker 容器内执行
+- 只读根文件系统（/workspace, /tmp, /var/tmp, /run 可写）
+- 无网络访问
+- 所有 Linux capabilities 已 drop
+- 进程数限制
+
+### ACP External Agents
+
+**触发条件**：`config.acp.enabled == true` 且全局 `acp_control.enabled == true`
+
+**注入内容**：
+- 可用 ACP 后端列表（检测 binary 是否存在）
+- 使用场景区分：subagent（内部）vs acp_spawn（外部）
+- 异步执行 + check(wait=true) 阻塞等待
+
+**代码位置**：`src-tauri/src/system_prompt.rs:834-880`
+
+---
+
+## Prompt 缓存优化
+
+为最大化 LLM prompt 缓存命中率，系统采取以下策略：
+
+| 策略 | 实现 | 效果 |
+|------|------|------|
+| 日期精确到天 | `date +%Y-%m-%d %Z`（无时间） | 同一天的 system prompt 完全相同 |
+| 固定段顺序 | 13 段按固定顺序组装 | prompt prefix 稳定，利于 KV cache |
+| 常量描述 | 工具/行为描述为编译时常量 | 不受运行时数据影响 |
+| 截断上限 | markdown 注入限制 20K 字符 | 防止动态内容过大破坏缓存 |
+
+**日期函数**：`current_date()`（`system_prompt.rs:758`）— 文档注释明确说明排除时间是为缓存优化。
+
+---
+
+## 关键文件索引
+
+| 文件 | 内容 |
+|------|------|
+| `src-tauri/src/system_prompt.rs` | **核心**：13 段组装、31 个工具描述、3 个行为指导、所有 section builder |
+| `src-tauri/src/plan.rs:454-630` | Plan Mode 4 个提示词常量 |
+| `src-tauri/src/context_compact/summarization.rs` | 上下文压缩 system prompt + 总结构建 |
+| `src-tauri/src/context_compact/config.rs` | 压缩配置结构体（17 个参数） |
+| `src-tauri/src/context_compact/mod.rs` | 4 层压缩常量 + 标识符保留指令 |
+| `src-tauri/src/user_config.rs` | 用户上下文构建（name/role/birthday/timezone/...） |
+| `src-tauri/src/agent_config.rs` | Agent 配置结构（personality/tools/skills/memory/subagents） |
+| `src-tauri/src/skills.rs` | 技能加载 + prompt 构建 + budget 管理 |
+| `src-tauri/src/tools/mod.rs:42-76` | 35 个 `TOOL_*` 名称常量 |
+| `src-tauri/src/tools/definitions.rs` | 工具 JSON Schema 定义（发送给 LLM 的 function calling schema） |

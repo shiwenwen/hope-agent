@@ -7,77 +7,318 @@ use crate::user_config;
 /// Maximum characters per injected markdown file.
 const MAX_FILE_CHARS: usize = 20_000;
 
-/// Tool descriptions — kept here as the canonical reference.
-/// Previously hardcoded in agent.rs as SYSTEM_PROMPT_BASE.
-const TOOLS_DESCRIPTION: &str = "\
-Available tools: \
-- exec: Execute shell commands. Supports cwd, timeout (default 30min, max 2h), \
-custom env vars, background execution (background=true or yield_ms for auto-backgrounding), \
-and Docker sandbox isolation (sandbox=true) for untrusted or risky commands. \
-- process: Manage background exec sessions — list, poll (get new output), log (full output), \
-write (stdin), kill, clear, remove. Use after backgrounding a command. \
-- read: Read file contents with line-based pagination (offset/limit). \
-Auto-detects image files (PNG/JPEG/GIF/WebP/BMP/TIFF) and returns base64. \
-Oversized images are auto-resized. Accepts both 'path' and 'file_path'. \
-- write: Write content to a file. Accepts both 'path' and 'file_path'. \
-- edit: Targeted search-replace edits (old_text → new_text). Prefer over write for modifications. \
-Accepts aliases: file_path, oldText/old_string, newText/new_string. Empty new_text deletes text. \
-- ls: List directory contents (sorted, with / and @ indicators). Supports ~ expansion, limit param, 50KB output cap. \
-- grep: Search file contents with regex or literal patterns. Respects .gitignore. \
-Params: pattern (required), path, glob, ignore_case, literal, context, limit (default 100). \
-- find: Find files by glob pattern. Respects .gitignore. \
-Params: pattern (required), path, limit (default 1000). \
-- apply_patch: Apply multi-file patches (add/update/delete/move files). \
-Use *** Begin Patch / *** End Patch format with Add File, Update File, Delete File markers. \
-Update hunks use @@ context + -/+ line prefixes with 3-pass fuzzy matching. \
-- web_search / web_fetch: Search the web and fetch page content. \
-- save_memory: Save information to persistent memory. Use when the user shares personal info, \
-preferences, corrections, project context, or says \"remember this\". \
-Params: content (required), type (user/feedback/project/reference), tags (optional array), scope (global/agent). \
-- recall_memory: Search persistent memories by keyword or semantic query. \
-Use to recall user preferences, project context, or previously stored information. \
-Params: query (required), type (optional filter), limit (default 10). \
-- subagent: Spawn and manage sub-agents to delegate tasks to other agents. \
-Actions: spawn (start sub-agent with task), check (poll status), list, result, kill, kill_all. \
-- memory_get: Retrieve a specific memory entry by ID with full content and metadata. \
-Use after recall_memory to get the complete details of a specific memory. \
-- agents_list: List all available agents with their descriptions and capabilities. \
-Useful for choosing which agent to delegate tasks to via subagent. \
-- sessions_list: List all chat sessions with metadata (title, agent, model, message count). \
-Use to discover existing sessions for cross-session communication. \
-- session_status: Query detailed status of a specific session. \
-- sessions_history: Get paginated chat history from a specific session. \
-Params: session_id (required), limit (default 50), before_id (pagination cursor), include_tools (default false). \
-- sessions_send: Send a message to another session for cross-session communication. \
-Params: session_id, message (required), wait (default false), timeout_secs (default 60). \
-- image: Analyze an image file. Returns base64-encoded image data for visual analysis. \
-Supports PNG, JPEG, GIF, WebP, BMP, TIFF. Use prompt param to specify what to analyze. \
-- image_generate: Generate images from text descriptions using AI image generation models. \
-Params: prompt (required), size (default 1024x1024), n (1-4, default 1), model (optional, default auto with failover). \
-Generated images are saved to disk and returned for visual inspection. \
-- pdf: Extract text content from PDF documents with page-level pagination. \
-Params: path (required), pages (e.g. '1-5'), max_chars (default 50000). \
-\
-For long-running commands (builds, installs), consider using background=true and then \
-process(action='poll') to check progress.";
+// ── Per-Tool Descriptions ───────────────────────────────────────
+// Each tool has its own detailed description with usage guidelines,
+// best practices, and common pitfalls. Referenced by TOOL_DESCRIPTIONS
+// array and assembled dynamically by build_tools_section().
+
+const TOOL_DESC_EXEC: &str = "\
+- exec: Execute shell commands and return output.\n\
+  - Supports cwd, timeout (default 30min, max 2h), custom env vars\n\
+  - Background execution: background=true or yield_ms for auto-backgrounding\n\
+  - Docker sandbox isolation: sandbox=true for untrusted or risky commands\n\
+  - IMPORTANT: Prefer dedicated tools over exec for common operations:\n\
+    - Read files → use `read` (not cat/head/tail)\n\
+    - Edit files → use `edit` (not sed/awk)\n\
+    - Create files → use `write` (not echo/cat heredoc)\n\
+    - Search content → use `grep` (not grep/rg command)\n\
+    - Find files → use `find` (not find command)\n\
+  - For long-running commands (builds, installs), use background=true then process(action='poll')\n\
+  - Use absolute paths throughout; avoid cd unless user explicitly requests it\n\
+  - When creating files/dirs, first verify parent directory exists with ls\n\
+  - Quote file paths containing spaces with double quotes\n\
+  - For sequential dependent commands, chain with && in a single call\n\
+  - For independent commands, make separate parallel exec calls";
+
+const TOOL_DESC_PROCESS: &str = "\
+- process: Manage background exec sessions.\n\
+  - Actions: list, poll (get new output), log (full output), write (stdin), kill, clear, remove\n\
+  - Use after backgrounding a command with exec(background=true)\n\
+  - Do not poll in a loop with sleep — you will be notified when the process completes";
+
+const TOOL_DESC_READ: &str = "\
+- read: Read file contents with line-based pagination (offset/limit).\n\
+  - Default: up to 2000 lines from beginning of file\n\
+  - When you know which part you need, only read that part (important for large files)\n\
+  - Auto-detects image files (PNG/JPEG/GIF/WebP/BMP/TIFF) and returns base64; oversized images auto-resized\n\
+  - For large PDFs (>10 pages), MUST specify pages parameter (max 20 pages per request)\n\
+  - Can read Jupyter notebooks (.ipynb) with all cells and outputs\n\
+  - Accepts both 'path' and 'file_path'\n\
+  - IMPORTANT: Read files BEFORE proposing modifications — understand existing code first\n\
+  - Can only read files, not directories. Use `ls` for directory listings";
+
+const TOOL_DESC_WRITE: &str = "\
+- write: Write content to a file (overwrites existing).\n\
+  - Prefer `edit` tool for modifying existing files — it sends only the diff\n\
+  - Only create new files when absolutely necessary — prefer editing existing files to prevent file bloat\n\
+  - If overwriting an existing file, MUST read it first to understand current content\n\
+  - Do NOT create documentation files (*.md) or README unless explicitly requested\n\
+  - Accepts both 'path' and 'file_path'";
+
+const TOOL_DESC_EDIT: &str = "\
+- edit: Targeted search-replace edits (old_text → new_text).\n\
+  - ALWAYS prefer over `write` for modifications — sends only the diff\n\
+  - old_text must be unique in the file — provide more surrounding context if not unique\n\
+  - Use replace_all=true to rename variables/strings across the entire file\n\
+  - Empty new_text deletes the matched text\n\
+  - Preserve exact indentation from the source file\n\
+  - Accepts aliases: file_path, oldText/old_string, newText/new_string";
+
+const TOOL_DESC_LS: &str = "\
+- ls: List directory contents (sorted, with / and @ indicators).\n\
+  - Supports ~ expansion, limit param, 50KB output cap\n\
+  - Use to verify directory structure before creating files";
+
+const TOOL_DESC_GREP: &str = "\
+- grep: Search file contents with regex or literal patterns.\n\
+  - ALWAYS use this tool for content search — never grep/rg via exec\n\
+  - Respects .gitignore automatically\n\
+  - Full regex syntax supported; literal braces need escaping (e.g., interface\\{\\})\n\
+  - For patterns spanning multiple lines, use multiline=true\n\
+  - Params: pattern (required), path, glob, ignore_case, literal, context, limit (default 100)\n\
+  - For open-ended searches requiring multiple rounds, use subagent instead";
+
+const TOOL_DESC_FIND: &str = "\
+- find: Find files by glob pattern.\n\
+  - ALWAYS use this tool for file search — never find via exec\n\
+  - Respects .gitignore automatically\n\
+  - Params: pattern (required), path, limit (default 1000)";
+
+const TOOL_DESC_APPLY_PATCH: &str = "\
+- apply_patch: Apply multi-file patches (add/update/delete/move files).\n\
+  - Use *** Begin Patch / *** End Patch format with Add File, Update File, Delete File markers\n\
+  - Update hunks use @@ context + -/+ line prefixes with 3-pass fuzzy matching\n\
+  - Preferred for large-scale changes across multiple files";
+
+const TOOL_DESC_WEB_SEARCH: &str = "\
+- web_search: Search the web for information.\n\
+  - Use when you need current information not available in the codebase\n\
+  - Returns search results with titles, snippets, and URLs";
+
+const TOOL_DESC_WEB_FETCH: &str = "\
+- web_fetch: Fetch and extract content from a web page.\n\
+  - Use after web_search to get full content of a specific page\n\
+  - Returns cleaned text content extracted from HTML";
+
+const TOOL_DESC_SAVE_MEMORY: &str = "\
+- save_memory: Save information to persistent memory.\n\
+  - Use when the user shares personal info, preferences, corrections, or says \"remember this\"\n\
+  - Params: content (required), type (user/feedback/project/reference), tags (optional array), scope (global/agent)\n\
+  - Do NOT save: ephemeral task details, code snippets, debugging steps, or anything derivable from the codebase";
+
+const TOOL_DESC_RECALL_MEMORY: &str = "\
+- recall_memory: Search persistent memories by keyword or semantic query.\n\
+  - Use to recall user preferences, project context, or previously stored information\n\
+  - Use when the user references something discussed before or you need prior context\n\
+  - Params: query (required), type (optional filter), limit (default 10)\n\
+  - With include_history=true: also searches past conversation history";
+
+const TOOL_DESC_UPDATE_MEMORY: &str = "\
+- update_memory: Update an existing memory entry's content or metadata.\n\
+  - Use after recall_memory or memory_get to modify a specific memory\n\
+  - Params: id (required), content, type, tags";
+
+const TOOL_DESC_DELETE_MEMORY: &str = "\
+- delete_memory: Delete a memory entry by ID.\n\
+  - Use to remove outdated or incorrect memories\n\
+  - Params: id (required)";
+
+const TOOL_DESC_UPDATE_CORE_MEMORY: &str = "\
+- update_core_memory: Update the agent's core memory (persistent instructions in memory.md).\n\
+  - Use for standing instructions, persistent preferences, and recurring corrections\n\
+  - Params: content (required), section (optional)";
+
+const TOOL_DESC_MANAGE_CRON: &str = "\
+- manage_cron: Create, list, update, or delete scheduled tasks.\n\
+  - Actions: create, list, get, update, delete, run_now\n\
+  - Cron expressions follow standard format (minute hour day month weekday)";
+
+const TOOL_DESC_BROWSER: &str = "\
+- browser: Interact with web pages via a headless browser.\n\
+  - Supports navigation, screenshots, clicking, typing, and JavaScript execution\n\
+  - Use for dynamic web pages that web_fetch cannot handle";
+
+const TOOL_DESC_SEND_NOTIFICATION: &str = "\
+- send_notification: Send a system notification to the user.\n\
+  - Use for important alerts when the user may not be watching the conversation\n\
+  - Params: title, body (required), sound (optional boolean)";
+
+const TOOL_DESC_SUBAGENT: &str = "\
+- subagent: Spawn and manage sub-agents to delegate tasks.\n\
+  - Actions: spawn (start with task + agent_id), check (poll status), list, result, kill, kill_all, steer (redirect)\n\
+  - Sub-agents run asynchronously — you can continue working while they execute\n\
+  - Results are automatically pushed to you when the sub-agent completes\n\
+  - Use steer to redirect a running sub-agent without killing it";
+
+const TOOL_DESC_MEMORY_GET: &str = "\
+- memory_get: Retrieve a specific memory entry by ID with full content and metadata.\n\
+  - Use after recall_memory to get the complete details of a specific memory";
+
+const TOOL_DESC_AGENTS_LIST: &str = "\
+- agents_list: List all available agents with their descriptions and capabilities.\n\
+  - Useful for choosing which agent to delegate tasks to via subagent";
+
+const TOOL_DESC_SESSIONS_LIST: &str = "\
+- sessions_list: List all chat sessions with metadata (title, agent, model, message count).\n\
+  - Use to discover existing sessions for cross-session communication";
+
+const TOOL_DESC_SESSION_STATUS: &str = "\
+- session_status: Query detailed status of a specific session.\n\
+  - Returns session metadata, current state, and activity info";
+
+const TOOL_DESC_SESSIONS_HISTORY: &str = "\
+- sessions_history: Get paginated chat history from a specific session.\n\
+  - Params: session_id (required), limit (default 50), before_id (pagination cursor), include_tools (default false)\n\
+  - Use to understand context from another session before sending messages";
+
+const TOOL_DESC_SESSIONS_SEND: &str = "\
+- sessions_send: Send a message to another session for cross-session communication.\n\
+  - Params: session_id, message (required), wait (default false), timeout_secs (default 60)\n\
+  - Use wait=true to block until the other session responds";
+
+const TOOL_DESC_IMAGE: &str = "\
+- image: Analyze an image file and return base64-encoded data for visual analysis.\n\
+  - Supports PNG, JPEG, GIF, WebP, BMP, TIFF\n\
+  - Use prompt param to specify what to analyze (e.g., \"describe the UI layout\")";
+
+const TOOL_DESC_IMAGE_GENERATE: &str = "\
+- image_generate: Generate images from text descriptions using AI image generation models.\n\
+  - Params: prompt (required), size (default 1024x1024), n (1-4, default 1), model (optional, default auto with failover)\n\
+  - Generated images are saved to disk and returned for visual inspection";
+
+const TOOL_DESC_PDF: &str = "\
+- pdf: Extract text content from PDF documents with page-level pagination.\n\
+  - Params: path (required), pages (e.g. '1-5'), max_chars (default 50000)\n\
+  - For large PDFs, always specify pages to avoid excessive output";
+
+const TOOL_DESC_CANVAS: &str = "\
+- canvas: Create and edit rich content artifacts (diagrams, documents, visualizations).\n\
+  - Use for content that benefits from visual rendering";
+
+const TOOL_DESC_ACP_SPAWN: &str = "\
+- acp_spawn: Delegate tasks to external ACP-compatible agents (e.g., Claude Code, Codex).\n\
+  - Similar to subagent but for external processes with their own tools and capabilities\n\
+  - Actions: spawn, check, list, result, kill, kill_all, steer, backends";
+
+/// Tool name → description mapping for dynamic assembly.
+const TOOL_DESCRIPTIONS: &[(&str, &str)] = &[
+    ("exec", TOOL_DESC_EXEC),
+    ("process", TOOL_DESC_PROCESS),
+    ("read", TOOL_DESC_READ),
+    ("write", TOOL_DESC_WRITE),
+    ("edit", TOOL_DESC_EDIT),
+    ("ls", TOOL_DESC_LS),
+    ("grep", TOOL_DESC_GREP),
+    ("find", TOOL_DESC_FIND),
+    ("apply_patch", TOOL_DESC_APPLY_PATCH),
+    ("web_search", TOOL_DESC_WEB_SEARCH),
+    ("web_fetch", TOOL_DESC_WEB_FETCH),
+    ("save_memory", TOOL_DESC_SAVE_MEMORY),
+    ("recall_memory", TOOL_DESC_RECALL_MEMORY),
+    ("update_memory", TOOL_DESC_UPDATE_MEMORY),
+    ("delete_memory", TOOL_DESC_DELETE_MEMORY),
+    ("update_core_memory", TOOL_DESC_UPDATE_CORE_MEMORY),
+    ("manage_cron", TOOL_DESC_MANAGE_CRON),
+    ("browser", TOOL_DESC_BROWSER),
+    ("send_notification", TOOL_DESC_SEND_NOTIFICATION),
+    ("subagent", TOOL_DESC_SUBAGENT),
+    ("memory_get", TOOL_DESC_MEMORY_GET),
+    ("agents_list", TOOL_DESC_AGENTS_LIST),
+    ("sessions_list", TOOL_DESC_SESSIONS_LIST),
+    ("session_status", TOOL_DESC_SESSION_STATUS),
+    ("sessions_history", TOOL_DESC_SESSIONS_HISTORY),
+    ("sessions_send", TOOL_DESC_SESSIONS_SEND),
+    ("image", TOOL_DESC_IMAGE),
+    ("image_generate", TOOL_DESC_IMAGE_GENERATE),
+    ("pdf", TOOL_DESC_PDF),
+    ("canvas", TOOL_DESC_CANVAS),
+    ("acp_spawn", TOOL_DESC_ACP_SPAWN),
+];
+
+// ── Behavior Guidance ───────────────────────────────────────────
+
+/// Output efficiency instructions — reduce LLM verbosity.
+/// Reference: Claude Code system-prompt-output-efficiency.md
+const BEHAVIOR_OUTPUT_EFFICIENCY: &str = "\
+# Output Efficiency
+
+IMPORTANT: Go straight to the point. Try the simplest approach first without going in circles.
+
+Keep your text output brief and direct:
+- Lead with the answer or action, not the reasoning
+- Skip filler words, preamble, and unnecessary transitions
+- Do not restate what the user said — just do it
+- When explaining, include only what is necessary for the user to understand
+- If you can say it in one sentence, don't use three
+
+Focus text output on:
+- Decisions that need the user's input
+- High-level status updates at natural milestones
+- Errors or blockers that change the plan
+
+This does NOT apply to code or tool calls — only to your text responses.";
+
+/// Action safety instructions — blast radius evaluation.
+/// Reference: Claude Code system-prompt-executing-actions-with-care.md
+const BEHAVIOR_ACTION_SAFETY: &str = "\
+# Action Safety
+
+Carefully consider the reversibility and blast radius of actions.
+
+**Safe to execute freely** (local, reversible):
+- Reading files, searching code, running tests
+- Editing local files, creating branches
+
+**Require user confirmation** (hard to reverse, affect shared systems):
+- Destructive operations: deleting files/branches, dropping tables, rm -rf, overwriting uncommitted changes
+- Hard-to-reverse operations: force-push, git reset --hard, amending published commits, removing packages
+- Actions visible to others: pushing code, creating/commenting on PRs/issues, sending messages, posting to external services
+
+When encountering obstacles:
+- Do NOT use destructive actions as shortcuts — identify root causes first
+- Investigate unexpected state (unfamiliar files, branches, config) before deleting or overwriting
+- Prefer resolving merge conflicts over discarding changes
+- If a lock file exists, investigate what process holds it rather than deleting it
+
+Principle: measure twice, cut once.";
+
+/// Task execution guidelines — how to approach work.
+/// Reference: Claude Code system-prompt-doing-tasks-*.md
+const BEHAVIOR_DOING_TASKS: &str = "\
+# Task Execution Guidelines
+
+- Do NOT propose changes to code you haven't read. Read files first, understand existing code before suggesting modifications.
+- Do NOT create files unless absolutely necessary. Prefer editing existing files to prevent file bloat.
+- When given an unclear instruction, interpret it in the context of software engineering and the current working directory. \
+For example, if asked to change \"methodName\" to snake case, find the method in the code and modify it — don't just reply with the converted name.
+- Avoid over-engineering:
+  - Only make changes that are directly requested or clearly necessary
+  - Don't add features, refactor code, or make \"improvements\" beyond what was asked
+  - Don't add error handling for scenarios that can't happen — trust internal code and framework guarantees
+  - Don't create helpers or abstractions for one-time operations
+  - Three similar lines of code is better than a premature abstraction
+- If your approach is blocked, consider alternative approaches rather than brute-forcing or retrying the same action repeatedly.
+- Be careful not to introduce security vulnerabilities (XSS, SQL injection, command injection, etc.). If you notice insecure code you wrote, fix it immediately.";
 
 // ── Build System Prompt ──────────────────────────────────────────
 
 /// Build the complete system prompt from an AgentDefinition.
 ///
-/// Assembly order (12 sections):
+/// Assembly order (13 sections):
 /// ① Identity line
 /// ② agent.md — what this agent does
 /// ③ persona.md — personality
 /// ④ User context — from user.json
 /// ⑤ tools.md — custom tool guidance
-/// ⑥ Tool definitions — built-in tool descriptions (filtered)
+/// ⑥ Tool definitions — per-tool descriptions (filtered by agent config)
 /// ⑦ Skills — available skill descriptions (filtered)
+/// ⑦b Behavior guidance — output efficiency, action safety, task execution
 /// ⑧ Memory — injected from memory backend
 /// ⑨ Runtime info — date, OS, etc.
 /// ⑩ Sub-agent delegation (conditional)
 /// ⑪ Sandbox mode (conditional)
 /// ⑫ (reserved for project context — not yet implemented)
+/// ⑬ ACP external agents (conditional)
 pub fn build(definition: &AgentDefinition, model: Option<&str>, provider: Option<&str>, memory_context: Option<&str>, agent_home: Option<&str>) -> String {
     let mut sections: Vec<String> = Vec::new();
 
@@ -150,6 +391,9 @@ pub fn build(definition: &AgentDefinition, model: Option<&str>, provider: Option
 
     // ⑦ Skills (filtered by agent config)
     sections.push(build_skills_section(&definition.config.skills, definition.config.behavior.skill_env_check));
+
+    // ⑦b Behavior guidance (output efficiency, action safety, task execution)
+    sections.push(build_behavior_section());
 
     // ⑧ Memory
     if definition.config.memory.enabled {
@@ -308,12 +552,15 @@ pub fn build_legacy(model: Option<&str>, provider: Option<&str>) -> String {
     }
 
     // Tools
-    sections.push(TOOLS_DESCRIPTION.to_string());
+    sections.push(build_all_tools_description());
 
     // Skills
     if !skills_section.is_empty() {
         sections.push(skills_section);
     }
+
+    // Behavior guidance
+    sections.push(build_behavior_section());
 
     // Runtime (legacy mode has no agent home)
     sections.push(build_runtime_section(model, provider, None));
@@ -324,33 +571,36 @@ pub fn build_legacy(model: Option<&str>, provider: Option<&str>) -> String {
 // ── Section Builders ─────────────────────────────────────────────
 
 /// Build tool definitions section, filtered by agent config.
+/// Only includes descriptions for tools the agent is allowed to use.
 fn build_tools_section(filter: &FilterConfig) -> String {
-    // If no filtering configured, return full descriptions
-    if filter.allow.is_empty() && filter.deny.is_empty() {
-        return TOOLS_DESCRIPTION.to_string();
-    }
+    let no_filter = filter.allow.is_empty() && filter.deny.is_empty();
 
-    use crate::tools::*;
-    // All tool names in the system
-    let all_tools = [
-        TOOL_EXEC, TOOL_PROCESS, TOOL_READ, TOOL_WRITE, TOOL_EDIT,
-        TOOL_LS, TOOL_GREP, TOOL_FIND, TOOL_APPLY_PATCH, TOOL_WEB_SEARCH, TOOL_WEB_FETCH,
-        TOOL_SAVE_MEMORY, TOOL_RECALL_MEMORY, TOOL_SUBAGENT,
-        TOOL_MEMORY_GET, TOOL_AGENTS_LIST, TOOL_SESSIONS_LIST, TOOL_SESSION_STATUS,
-        TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_SEND, TOOL_IMAGE, TOOL_PDF,
-    ];
+    let descs: Vec<&str> = TOOL_DESCRIPTIONS
+        .iter()
+        .filter(|(name, _)| no_filter || filter.is_allowed(name))
+        .map(|(_, desc)| *desc)
+        .collect();
 
-    let active: Vec<&&str> = all_tools.iter().filter(|t| filter.is_allowed(t)).collect();
-    if active.is_empty() {
+    if descs.is_empty() {
         return String::new();
     }
 
-    // For now, return the full description with a note about which tools are enabled.
-    // A more granular per-tool description split can be done later.
+    format!("# Available Tools\n\n{}", descs.join("\n\n"))
+}
+
+/// Build a flat tool descriptions string for legacy mode (all tools).
+fn build_all_tools_description() -> String {
+    let descs: Vec<&str> = TOOL_DESCRIPTIONS.iter().map(|(_, desc)| *desc).collect();
+    format!("# Available Tools\n\n{}", descs.join("\n\n"))
+}
+
+/// Build behavior guidance section (output efficiency + action safety + task execution).
+fn build_behavior_section() -> String {
     format!(
-        "{}\n\nNote: Only the following tools are enabled for this agent: {}",
-        TOOLS_DESCRIPTION,
-        active.iter().map(|t| **t).collect::<Vec<_>>().join(", ")
+        "{}\n\n{}\n\n{}",
+        BEHAVIOR_OUTPUT_EFFICIENCY,
+        BEHAVIOR_ACTION_SAFETY,
+        BEHAVIOR_DOING_TASKS,
     )
 }
 

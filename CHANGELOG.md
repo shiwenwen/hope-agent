@@ -33,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Plan Mode 问答回溯**：`plan_question` 工具调用结果不再隐藏，改为在消息流中渲染绿色 Q&A 摘要卡片，与 Think/Tool Call 保持时序，不再因状态清除而消失
 
 ### Added
+- **提示词系统技术文档** (`docs/prompt-system.md`)：完整记录 System Prompt 13 段组装流程、31 个 per-tool 描述清单、3 个行为指导段、Plan Mode 提示词、上下文压缩提示词、条件注入段、缓存优化策略等
 - **温度配置三层覆盖**：支持全局、Agent、会话三个层级的 LLM 温度（Temperature）配置，覆盖优先级：会话 > Agent > 全局
   - 全局设置面板（GlobalModelPanel）新增温度滑块，范围 0.0–2.0，存储在 `config.json` 的 `temperature` 字段
   - Agent 模型配置（ModelTab）新增温度覆盖选项，继承/自定义模式，存储在 `agent.json` 的 `model.temperature` 字段
