@@ -9,6 +9,10 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
         None => return "Error: no session context available".to_string(),
     };
 
+    // Route to parent session if this is a plan sub-agent
+    let effective_sid = plan::get_plan_owner_session_id(sid).await
+        .unwrap_or_else(|| sid.to_string());
+
     let title = match args.get("title").and_then(|v| v.as_str()) {
         Some(t) => t.to_string(),
         None => return "Error: title parameter is required".to_string(),
@@ -25,8 +29,8 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
         return "Error: plan content must contain at least one step in checklist format (- [ ] step)".to_string();
     }
 
-    // Save plan file
-    match plan::save_plan_file(sid, &content) {
+    // Save plan file under the effective (parent) session
+    match plan::save_plan_file(&effective_sid, &content) {
         Ok(file_path) => {
             app_info!("plan", "submit_plan",
                 "Plan saved: '{}' ({} steps) → {}",
@@ -46,11 +50,11 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
     }
 
     // First ensure meta exists, then update title and steps
-    plan::set_plan_state(sid, PlanModeState::Review).await;
+    plan::set_plan_state(&effective_sid, PlanModeState::Review).await;
     {
         let store_ref = plan::store();
         let mut map = store_ref.write().await;
-        if let Some(meta) = map.get_mut(sid) {
+        if let Some(meta) = map.get_mut(&*effective_sid) {
             meta.title = Some(title.clone());
             meta.steps = steps.clone();
         }
@@ -58,7 +62,7 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
 
     // Persist to DB
     if let Some(session_db) = crate::get_session_db() {
-        let _ = session_db.update_session_plan_mode(sid, "review");
+        let _ = session_db.update_session_plan_mode(&effective_sid, "review");
     }
 
     // Emit event to frontend
@@ -77,7 +81,7 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
         };
 
         let _ = app_handle.emit("plan_submitted", serde_json::json!({
-            "sessionId": sid,
+            "sessionId": effective_sid,
             "title": title,
             "stepCount": steps.len(),
             "phaseCount": phase_count,
@@ -86,7 +90,7 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
 
         // Also emit plan_mode_changed
         let _ = app_handle.emit("plan_mode_changed", serde_json::json!({
-            "sessionId": sid,
+            "sessionId": effective_sid,
             "state": "review",
             "reason": "plan_submitted",
         }));

@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **System Prompt 工具描述重构 + 行为指导增强**（参考 Claude Code System Prompts）
+  - 工具描述从单一 60 行常量拆分为 31 个独立 per-tool 常量，每个工具包含详细使用指南、最佳实践和常见陷阱
+  - `build_tools_section()` 重写为按 agent allow/deny 配置动态组装，只注入授权工具的描述，减少无关 token 消耗
+  - 新增 3 个行为指导段：
+    - **Output Efficiency**：简洁输出指引，减少 LLM 冗余回复
+    - **Action Safety**：爆炸半径评估，破坏性操作需用户确认
+    - **Task Execution Guidelines**：先读后改、避免过度工程、安全编码
+  - 新增 8 个之前缺失的工具描述：update_memory、delete_memory、update_core_memory、manage_cron、browser、send_notification、canvas、acp_spawn
+- **Plan Mode 架构重构：双模式支持 + 计划质量提升**
+  - 支持**子 Agent 模式**（`plan_subagent: true`）和**内联模式**（默认），通过全局设置切换
+  - 子 Agent 模式：Planning 阶段由独立子 Agent 执行，探索上下文不污染主 Agent 对话历史
+  - 内联模式：与 Claude Code 一致，主 Agent 内联制定计划，保持上下文连续性
+  - 新增 `PLAN_SUBAGENT_SESSIONS` 注册表，plan_question 和 submit_plan 事件自动路由到父 session
+  - `SpawnParams` 扩展 `plan_agent_mode` / `plan_mode_allow_paths` / `skip_parent_injection` / `extra_system_context` 字段
+  - 新增 `cancel_plan_subagent` Tauri 命令，退出 Plan Mode 时自动取消活跃的计划子 Agent
+  - 前端新增 `planSubagentRunning` 状态和 "正在制定计划..." 动画指示器
+  - **重写计划 system prompt**：以文件为中心组织步骤（非抽象 Phase），要求包含代码块、结构体定义、函数签名、file:line 引用等实现细节
+  - 子 Agent 模式追加 `PLAN_SUBAGENT_CONTEXT_NOTICE`，要求计划自包含所有执行所需上下文
+
 ### Fixed
 - **Plan Mode 内联评论提示词包装**：评论消息使用 `<plan-inline-comment>` 结构化标签包裹，后端 system prompt 同步补充内联评论处理说明，模型能正确理解"对计划的修改意见"意图
 - **Plan Mode 选中文本高亮**：计划面板评论时选中区域以蓝色 `<mark>` 高亮显示，弹窗关闭后自动清除，支持跨元素选区降级处理

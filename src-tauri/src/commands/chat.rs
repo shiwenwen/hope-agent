@@ -288,10 +288,62 @@ pub async fn chat(
 
     // Resolve plan state early so we can use plan_model override for model chain
     let early_plan_state = if let Some(ref pm) = plan_mode {
-        crate::plan::PlanModeState::from_str(pm)
+        let ps = crate::plan::PlanModeState::from_str(pm);
+        if ps != crate::plan::PlanModeState::Off {
+            crate::plan::set_plan_state(&sid, ps.clone()).await;
+            let _ = db.update_session_plan_mode(&sid, pm);
+        }
+        ps
     } else {
         crate::plan::get_plan_state(&sid).await
     };
+
+    // ── Plan Sub-Agent: optionally dispatch Planning to an isolated sub-agent ──
+    // When plan_subagent=true, keeps the main agent's context clean for execution.
+    // When plan_subagent=false (default), planning runs inline in the main agent.
+    if early_plan_state == crate::plan::PlanModeState::Planning {
+        let use_subagent = {
+            let store = state.provider_store.lock().await;
+            store.plan_subagent
+        };
+
+        if use_subagent {
+            // Check if a plan sub-agent is already active for this session
+            if let Some(run_id) = crate::plan::get_active_plan_run_id(&sid).await {
+                // User sent a message while planning → route as steer to the sub-agent
+                crate::subagent::SUBAGENT_MAILBOX.push(&run_id, message.clone());
+                let _ = on_event.send(serde_json::json!({
+                    "type": "text",
+                    "text": "💬 Message forwarded to planning agent."
+                }).to_string());
+                return Ok("Message forwarded to planning agent.".to_string());
+            }
+
+            // First message in Planning state → spawn plan sub-agent
+            let recent_summary = build_recent_context_summary(&db, &sid).await;
+            let cancel_registry = crate::get_subagent_cancels()
+                .cloned()
+                .ok_or_else(|| "Sub-agent cancel registry not initialized".to_string())?;
+            match crate::plan::spawn_plan_subagent(
+                &sid, &current_agent_id, &message, &recent_summary,
+                db.clone(), cancel_registry,
+            ).await {
+                Ok(run_id) => {
+                    app_info!("plan", "chat", "Plan sub-agent spawned: run_id={}", run_id);
+                    let _ = on_event.send(serde_json::json!({
+                        "type": "text",
+                        "text": "🗂️ Plan creation started..."
+                    }).to_string());
+                    return Ok(format!("Plan sub-agent spawned: {}", run_id));
+                }
+                Err(e) => {
+                    app_error!("plan", "chat", "Failed to spawn plan sub-agent: {}", e);
+                    // Fall through to inline planning as fallback
+                }
+            }
+        }
+        // else: use_subagent=false, fall through to inline PlanAgent mode below
+    }
 
     let (primary, fallbacks) = {
         let store = state.provider_store.lock().await;
@@ -450,21 +502,13 @@ pub async fn chat(
         agent.set_temperature(resolved_temperature);
 
         // ── Plan Mode: dual-agent architecture ──
-        // Plan Agent (Planning/Review) = read-only + plan tools
-        // Build Agent (Executing/Paused) = full tools + step tracking
-        let plan_state = if let Some(ref pm) = plan_mode {
-            let ps = crate::plan::PlanModeState::from_str(pm);
-            if ps != crate::plan::PlanModeState::Off {
-                crate::plan::set_plan_state(&sid, ps.clone()).await;
-                let _ = db.update_session_plan_mode(&sid, pm);
-            }
-            ps
-        } else {
-            crate::plan::get_plan_state(&sid).await
-        };
+        // Planning state is handled by sub-agent above (early return).
+        // This section handles Review (inline), Build (executing), and fallback Planning.
+        let plan_state = crate::plan::get_plan_state(&sid).await;
         match plan_state {
             crate::plan::PlanModeState::Planning | crate::plan::PlanModeState::Review => {
-                // ── Plan Agent ──
+                // Planning fallback (sub-agent spawn failed) or Review state
+                // Review: main agent handles change requests with plan content
                 let config = crate::plan::PlanAgentConfig::default_config();
                 agent.set_plan_agent_mode(crate::agent::PlanAgentMode::PlanAgent {
                     allowed_tools: config.allowed_tools,
@@ -907,6 +951,40 @@ pub(crate) fn save_agent_context(db: &Arc<SessionDB>, session_id: &str, agent: &
 }
 
 /// Emit a usage event (with duration) to the frontend via the Tauri Channel.
+/// Build a compact summary of recent conversation for passing to a plan sub-agent.
+/// Returns up to the last N messages as a condensed text summary.
+async fn build_recent_context_summary(db: &Arc<SessionDB>, session_id: &str) -> String {
+    const MAX_MESSAGES: u32 = 10;
+    const MAX_CHARS: usize = 4000;
+
+    // Load the latest messages (excluding the just-appended user message which is the task)
+    let (messages, _total) = match db.load_session_messages_latest(session_id, MAX_MESSAGES + 1) {
+        Ok(result) => result,
+        Err(_) => return String::new(),
+    };
+
+    if messages.len() <= 1 {
+        return String::new();
+    }
+
+    // Skip the last message (it's the task itself, just appended)
+    let relevant = &messages[..messages.len() - 1];
+
+    let mut summary = String::new();
+    for msg in relevant {
+        let role = &msg.role;
+        let content = &msg.content;
+        let line = format!("[{:?}]: {}\n", role, truncate_utf8(content, 500));
+        if summary.len() + line.len() > MAX_CHARS {
+            summary.push_str("...(earlier messages omitted)\n");
+            break;
+        }
+        summary.push_str(&line);
+    }
+
+    summary
+}
+
 fn emit_usage_event(on_event: &tauri::ipc::Channel<String>, duration_ms: u64) {
     let event = serde_json::json!({
         "type": "usage",

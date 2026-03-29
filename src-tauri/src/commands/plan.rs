@@ -36,6 +36,16 @@ pub async fn set_plan_mode(
         }
     }
 
+    // Cancel active plan sub-agent when exiting plan mode or transitioning away from Planning
+    if plan_state == PlanModeState::Off {
+        if let Some(run_id) = plan::get_active_plan_run_id(&session_id).await {
+            if let Some(cancels) = crate::get_subagent_cancels() {
+                cancels.cancel(&run_id);
+                app_info!("plan", "set_plan_mode", "Cancelled plan sub-agent: {}", run_id);
+            }
+        }
+    }
+
     plan::set_plan_state(&session_id, plan_state).await;
 
     // Create git checkpoint AFTER PlanMeta entry exists in the store
@@ -190,4 +200,19 @@ pub async fn get_plan_file_path(session_id: String) -> Result<Option<String>, St
         }
     }
     Ok(None)
+}
+
+#[tauri::command]
+pub async fn cancel_plan_subagent(session_id: String) -> Result<(), String> {
+    if let Some(run_id) = plan::get_active_plan_run_id(&session_id).await {
+        if let Some(cancels) = crate::get_subagent_cancels() {
+            cancels.cancel(&run_id);
+            app_info!("plan", "cancel_plan_subagent", "Cancelled plan sub-agent: {}", run_id);
+            Ok(())
+        } else {
+            Err("Cancel registry not initialized".to_string())
+        }
+    } else {
+        Ok(()) // No active plan sub-agent — nothing to cancel
+    }
 }

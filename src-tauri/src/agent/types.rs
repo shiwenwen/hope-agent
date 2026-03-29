@@ -49,7 +49,7 @@ pub enum LlmProvider {
 }
 
 /// Dual-agent plan mode: Plan Agent (read-only + planning tools) vs Build Agent (full tools + execution tracking).
-#[derive(Clone, Default)]
+#[derive(Debug, Clone, Default)]
 pub enum PlanAgentMode {
     /// Normal mode, no plan restrictions
     #[default]

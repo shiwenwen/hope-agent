@@ -33,7 +33,7 @@ src-tauri/src/          后端（Rust）
   tools/                30 个内置工具（按工具拆分子模块）
   skills.rs             技能系统（SKILL.md 发现 + 懒加载）
   slash_commands/       斜杠命令系统
-  plan.rs               Plan Mode（双 Agent 六态状态机）
+  plan.rs               Plan Mode（子 Agent 制定计划 + 主 Agent 执行，六态状态机）
   memory.rs             记忆系统（SQLite + FTS5 + 向量检索）
   context_compact.rs    上下文压缩（4 层渐进式）
   subagent.rs           子 Agent 系统

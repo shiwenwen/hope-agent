@@ -235,7 +235,7 @@ impl Default for ProxyConfig {
 }
 
 /// Load global proxy config once.
-fn load_proxy_config() -> ProxyConfig {
+pub fn load_proxy_config() -> ProxyConfig {
     load_store()
         .map(|s| s.proxy)
         .unwrap_or_default()
@@ -453,6 +453,13 @@ pub struct ProviderStore {
     /// Can be overridden at the agent level or session level.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f64>,
+
+    /// Whether to use a dedicated sub-agent for plan creation (Planning phase).
+    /// When true, planning runs in an isolated sub-agent (saves main agent context).
+    /// When false, planning runs inline in the main agent (preserves context continuity).
+    /// Default: false (inline mode)
+    #[serde(default)]
+    pub plan_subagent: bool,
 }
 
 fn default_skill_env_check() -> bool {
@@ -500,6 +507,7 @@ impl Default for ProviderStore {
             shortcuts: ShortcutConfig::default(),
             plans_directory: None,
             temperature: None,
+            plan_subagent: false,
         }
     }
 }

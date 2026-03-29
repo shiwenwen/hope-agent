@@ -86,6 +86,14 @@ pub struct SpawnParams {
     pub label: Option<String>,
     /// File attachments to pass to the sub-agent
     pub attachments: Vec<crate::agent::Attachment>,
+    /// Plan agent mode to configure on the sub-agent (None = normal sub-agent)
+    pub plan_agent_mode: Option<crate::agent::PlanAgentMode>,
+    /// Path allow-list for plan mode file writes (plans/ directory)
+    pub plan_mode_allow_paths: Vec<String>,
+    /// If true, skip automatic result injection into parent conversation
+    pub skip_parent_injection: bool,
+    /// Extra system context to inject into the sub-agent (e.g., PLAN_MODE_SYSTEM_PROMPT)
+    pub extra_system_context: Option<String>,
 }
 
 /// Event payload for streaming parent agent responses back to frontend.

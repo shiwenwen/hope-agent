@@ -31,6 +31,7 @@ interface MessageListProps {
   onExitPlan?: () => void
   onPausePlan?: () => void
   onResumePlan?: () => void
+  planSubagentRunning?: boolean
 }
 
 export default function MessageList({
@@ -53,6 +54,7 @@ export default function MessageList({
   onExitPlan,
   onPausePlan,
   onResumePlan,
+  planSubagentRunning,
 }: MessageListProps) {
   const { t } = useTranslation()
   const [hoveredMsgIndex, setHoveredMsgIndex] = useState<number | null>(null)
@@ -178,6 +180,14 @@ export default function MessageList({
               onResume={onResumePlan}
             />
           </div>
+        </div>
+      )}
+
+      {/* Plan sub-agent running indicator */}
+      {planSubagentRunning && (
+        <div className="flex items-center gap-2 mx-4 mb-2 px-3 py-2 rounded-lg bg-blue-500/5 border border-blue-500/20 text-sm text-blue-600 dark:text-blue-400 animate-in fade-in slide-in-from-bottom-2 duration-300">
+          <span className="animate-spin h-3.5 w-3.5 border-2 border-current border-t-transparent rounded-full shrink-0" />
+          <span>{t("planMode.planningInProgress")}</span>
         </div>
       )}
 

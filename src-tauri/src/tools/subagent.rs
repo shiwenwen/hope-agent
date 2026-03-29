@@ -116,6 +116,10 @@ async fn action_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
         model_override,
         label,
         attachments,
+        plan_agent_mode: None,
+        plan_mode_allow_paths: Vec::new(),
+        skip_parent_injection: false,
+        extra_system_context: None,
     };
 
     let run_id = subagent::spawn_subagent(params, session_db, cancel_registry).await?;
@@ -335,6 +339,10 @@ async fn action_batch_spawn(args: &Value, ctx: &ToolExecContext) -> Result<Strin
             model_override,
             label,
             attachments: Vec::new(),
+            plan_agent_mode: None,
+            plan_mode_allow_paths: Vec::new(),
+            skip_parent_injection: false,
+            extra_system_context: None,
         };
 
         match subagent::spawn_subagent(params, session_db.clone(), cancel_registry.clone()).await {

@@ -64,9 +64,13 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
 
     let request_id = create_session_id();
 
+    // Route to parent session if this is a plan sub-agent
+    let effective_sid = plan::get_plan_owner_session_id(sid).await
+        .unwrap_or_else(|| sid.to_string());
+
     let group = PlanQuestionGroup {
         request_id: request_id.clone(),
-        session_id: sid.to_string(),
+        session_id: effective_sid,
         questions: questions.clone(),
         context: context.clone(),
     };

@@ -113,6 +113,10 @@ pub async fn spawn_subagent(
     let child_session_id_clone = child_session_id.clone();
     let label = params.label.clone();
     let attachments = params.attachments.clone();
+    let plan_agent_mode = params.plan_agent_mode.clone();
+    let plan_mode_allow_paths = params.plan_mode_allow_paths.clone();
+    let skip_parent_injection = params.skip_parent_injection;
+    let extra_system_context = params.extra_system_context.clone();
 
     tokio::spawn(async move {
         let start = std::time::Instant::now();
@@ -131,10 +135,17 @@ pub async fn spawn_subagent(
 
         let run_id_exec = run_id_clone.clone();
         let attachments_exec = attachments.clone();
+        let plan_agent_mode_exec = plan_agent_mode.clone();
+        let plan_mode_allow_paths_exec = plan_mode_allow_paths.clone();
+        let extra_system_context_exec = extra_system_context.clone();
         let exec_result = std::panic::AssertUnwindSafe(
             tokio::time::timeout(
                 std::time::Duration::from_secs(timeout_secs),
-                execute_subagent(agent_id_exec, task_exec, depth, model_override_exec, cancel_exec, run_id_exec, attachments_exec, parent_session_id.clone()),
+                execute_subagent(
+                    agent_id_exec, task_exec, depth, model_override_exec,
+                    cancel_exec, run_id_exec, attachments_exec, parent_session_id.clone(),
+                    plan_agent_mode_exec, plan_mode_allow_paths_exec, extra_system_context_exec,
+                ),
             )
         );
         let result = futures_util::FutureExt::catch_unwind(exec_result).await;
@@ -188,6 +199,7 @@ pub async fn spawn_subagent(
         let result_text_for_inject = result_text.clone();
         let error_text_for_inject = error_text.clone();
         let parent_session_id_for_inject = parent_session_id.clone();
+        let child_session_id_for_cleanup = child_session_id_clone.clone();
         emit_subagent_event(&SubagentEvent {
             event_type: status.as_str().to_string(),
             run_id: run_id_clone.clone(),
@@ -211,10 +223,13 @@ pub async fn spawn_subagent(
 
         app_info!("subagent", "spawn", "Sub-agent run {} finished in {}ms", run_id_clone, duration_ms);
 
+        // Cleanup plan subagent registration if applicable
+        crate::plan::try_unregister_plan_subagent_sync(&child_session_id_for_cleanup);
+
         // Backend-driven result injection: push result to parent agent without relying on frontend.
         // Uses a dedicated OS thread + runtime to avoid the Send cycle:
         // inject_and_run_parent → agent.chat() → action_spawn → spawn_subagent → tokio::spawn
-        if matches!(status_for_inject, SubagentStatus::Completed | SubagentStatus::Error | SubagentStatus::Timeout) {
+        if !skip_parent_injection && matches!(status_for_inject, SubagentStatus::Completed | SubagentStatus::Error | SubagentStatus::Timeout) {
             let push_msg = build_subagent_push_message(
                 &run_id_clone, &agent_id_for_inject, &task, &status_for_inject, duration_ms,
                 result_text_for_inject.as_deref(), error_text_for_inject.as_deref(),
@@ -253,6 +268,9 @@ fn execute_subagent(
     run_id: String,
     attachments: Vec<crate::agent::Attachment>,
     parent_session_id: String,
+    plan_agent_mode: Option<crate::agent::PlanAgentMode>,
+    plan_mode_allow_paths: Vec<String>,
+    extra_system_context_override: Option<String>,
 ) -> impl std::future::Future<Output = Result<(String, Option<String>)>> + Send {
     async move {
     use crate::agent::AssistantAgent;
@@ -336,9 +354,19 @@ fn execute_subagent(
 
             let mut agent = AssistantAgent::new_from_provider(prov, &model_ref.model_id);
             agent.set_agent_id(&agent_id);
-            agent.set_extra_system_context(extra_context.clone());
+            // Use custom system context if provided (e.g., PLAN_MODE_SYSTEM_PROMPT), otherwise use default
+            if let Some(ref ctx) = extra_system_context_override {
+                agent.set_extra_system_context(format!("{}\n\n{}", ctx, extra_context));
+            } else {
+                agent.set_extra_system_context(extra_context.clone());
+            }
             agent.set_subagent_depth(depth);
             agent.set_steer_run_id(run_id.clone());
+            // Apply plan agent mode if configured (for plan creation sub-agents)
+            if let Some(ref mode) = plan_agent_mode {
+                agent.set_plan_agent_mode(mode.clone());
+                agent.set_plan_mode_allow_paths(plan_mode_allow_paths.clone());
+            }
             // Apply denied_tools from parent agent's subagent config
             let mut denied = Vec::new();
             if let Ok(parent_def) = crate::agent_loader::load_agent(&agent_id) {
@@ -348,7 +376,8 @@ fn execute_subagent(
             }
             // Inherit plan mode tool restrictions from parent session
             // (prevents subagents from bypassing plan mode safety)
-            {
+            // Skip if this sub-agent has its own plan_agent_mode (it IS the plan agent)
+            if plan_agent_mode.is_none() {
                 let parent_plan_state = crate::plan::get_plan_state(&parent_session_id).await;
                 if matches!(
                     parent_plan_state,

@@ -316,7 +316,153 @@ pub fn is_plan_mode_path_allowed(file_path: &str) -> bool {
     false
 }
 
+// ── Plan Sub-Agent Session Registry ─────────────────────────────
+// Maps child_session_id → parent info, so plan tools (plan_question, submit_plan)
+// can route events to the parent session instead of the sub-agent session.
+
+struct PlanSubagentInfo {
+    parent_session_id: String,
+    run_id: String,
+}
+
+static PLAN_SUBAGENT_SESSIONS: OnceLock<
+    Arc<RwLock<HashMap<String, PlanSubagentInfo>>>,
+> = OnceLock::new();
+
+fn plan_subagent_store() -> &'static Arc<RwLock<HashMap<String, PlanSubagentInfo>>> {
+    PLAN_SUBAGENT_SESSIONS.get_or_init(|| Arc::new(RwLock::new(HashMap::new())))
+}
+
+/// Register a plan sub-agent session mapping.
+pub async fn register_plan_subagent(child_sid: &str, parent_sid: &str, run_id: &str) {
+    let mut map = plan_subagent_store().write().await;
+    map.insert(child_sid.to_string(), PlanSubagentInfo {
+        parent_session_id: parent_sid.to_string(),
+        run_id: run_id.to_string(),
+    });
+    app_info!("plan", "subagent", "Registered plan sub-agent: child={} parent={} run={}", child_sid, parent_sid, run_id);
+}
+
+/// Unregister a plan sub-agent session mapping.
+#[allow(dead_code)]
+pub async fn unregister_plan_subagent(child_sid: &str) {
+    let mut map = plan_subagent_store().write().await;
+    if map.remove(child_sid).is_some() {
+        app_info!("plan", "subagent", "Unregistered plan sub-agent: child={}", child_sid);
+    }
+}
+
+/// Synchronous version for use in non-async contexts (e.g., spawn completion callback).
+/// Spawns a blocking task to do the cleanup.
+pub fn try_unregister_plan_subagent_sync(child_sid: &str) {
+    let sid = child_sid.to_string();
+    let store = plan_subagent_store().clone();
+    tokio::spawn(async move {
+        let mut map = store.write().await;
+        if map.remove(&sid).is_some() {
+            app_info!("plan", "subagent", "Unregistered plan sub-agent (sync): child={}", sid);
+        }
+    });
+}
+
+/// If this session_id belongs to a plan sub-agent, return the parent session_id.
+pub async fn get_plan_owner_session_id(session_id: &str) -> Option<String> {
+    let map = plan_subagent_store().read().await;
+    map.get(session_id).map(|info| info.parent_session_id.clone())
+}
+
+/// Get the active plan sub-agent run_id for a parent session, if any.
+pub async fn get_active_plan_run_id(parent_session_id: &str) -> Option<String> {
+    let map = plan_subagent_store().read().await;
+    map.values()
+        .find(|info| info.parent_session_id == parent_session_id)
+        .map(|info| info.run_id.clone())
+}
+
+/// Spawn a dedicated plan sub-agent for the Planning phase.
+/// Returns the run_id. The sub-agent runs with PlanAgent mode and PLAN_MODE_SYSTEM_PROMPT.
+pub async fn spawn_plan_subagent(
+    parent_session_id: &str,
+    parent_agent_id: &str,
+    user_message: &str,
+    recent_context_summary: &str,
+    session_db: std::sync::Arc<crate::session::SessionDB>,
+    cancel_registry: std::sync::Arc<crate::subagent::SubagentCancelRegistry>,
+) -> Result<String> {
+    let config = PlanAgentConfig::default_config();
+
+    let task = if recent_context_summary.is_empty() {
+        user_message.to_string()
+    } else {
+        format!(
+            "## User Request\n{}\n\n## Conversation Context\n{}",
+            user_message, recent_context_summary
+        )
+    };
+
+    let params = crate::subagent::SpawnParams {
+        task,
+        agent_id: parent_agent_id.to_string(),
+        parent_session_id: parent_session_id.to_string(),
+        parent_agent_id: parent_agent_id.to_string(),
+        depth: 1,
+        timeout_secs: Some(3600), // 1 hour — plan_question can wait 10 min each
+        model_override: None,
+        label: Some("Plan Creation".to_string()),
+        attachments: Vec::new(),
+        plan_agent_mode: Some(crate::agent::PlanAgentMode::PlanAgent {
+            allowed_tools: config.allowed_tools,
+            ask_tools: config.ask_tools,
+        }),
+        plan_mode_allow_paths: config.plan_mode_allow_paths,
+        skip_parent_injection: true,
+        extra_system_context: Some(format!(
+            "{}\n\n{}",
+            PLAN_MODE_SYSTEM_PROMPT,
+            PLAN_SUBAGENT_CONTEXT_NOTICE
+        )),
+    };
+
+    let run_id = crate::subagent::spawn_subagent(
+        params, session_db.clone(), cancel_registry,
+    ).await?;
+
+    // Get child_session_id from the run record
+    if let Ok(Some(run)) = session_db.get_subagent_run(&run_id) {
+        register_plan_subagent(&run.child_session_id, parent_session_id, &run_id).await;
+    }
+
+    app_info!("plan", "subagent", "Spawned plan sub-agent: run_id={} parent_session={}", run_id, parent_session_id);
+
+    // Emit status event to frontend
+    if let Some(app_handle) = crate::get_app_handle() {
+        use tauri::Emitter;
+        let _ = app_handle.emit("plan_subagent_status", serde_json::json!({
+            "sessionId": parent_session_id,
+            "status": "running",
+            "runId": run_id,
+        }));
+    }
+
+    Ok(run_id)
+}
+
 // ── System Prompt ───────────────────────────────────────────────
+
+/// Extra context appended to PLAN_MODE_SYSTEM_PROMPT when running as a sub-agent.
+/// Reminds the LLM that the executing agent has NO exploration history.
+const PLAN_SUBAGENT_CONTEXT_NOTICE: &str = "\
+## Sub-Agent Context Notice
+
+You are running as a **plan creation sub-agent**. The executing agent will NOT have \
+access to your exploration history — only the plan you submit via `submit_plan`.
+
+Your plan must be **self-contained**:
+- Include code snippets for ALL new structs, types, and key functions
+- Quote relevant existing code that the executor needs to understand
+- Specify exact file paths, line ranges, and function signatures
+- Document all dependencies and imports needed
+- The plan IS the only context — make it complete enough to execute without re-exploration";
 
 pub const PLAN_MODE_SYSTEM_PROMPT: &str = "\
 # Plan Mode Active
@@ -379,24 +525,70 @@ When you receive an inline comment, revise the referenced `<selected-text>` sect
 - All read-only tools (read, search, glob, web_search, web_fetch, etc.)
 
 ## Plan Format (for submit_plan content)
-## Background
-<context: problem statement, motivation, constraints, expected outcome, key design decisions>
 
-### Phase 1: <title>
-- [ ] Step description (include specific file paths and function names)
-- [ ] Step description
+Your plan must be **implementation-ready** — an executor should be able to follow it \
+without re-reading the codebase. Structure by files, not by abstract phases.
 
-### Phase 2: <title>
-- [ ] Step description
+### Required Sections:
+
+**Context** (2-3 sentences only)
+What problem this solves and the chosen approach. Do NOT restate the user's request verbatim.
+
+**Steps** (the core of the plan — organize by file or logical unit)
+
+For each step:
+- Step title includes file path: `### Step N: <verb> — <file_path>`
+- What to create or modify, with enough detail to execute
+- **Code blocks** for new struct/type definitions, function signatures, key logic
+- **Tables** for mappings when applicable (field → type → source)
+- Existing utilities to reuse (with `file_path:line` references)
+- Wire-up: where to register, import, or connect this change
+- Use `- [ ]` sub-tasks for trackable items within a step
+
+**Verification** (concrete test commands or manual steps)
+
+### Example:
+
+```markdown
+## Context
+添加 URL 预览功能：消息和输入框中的 URL 自动抓取 OpenGraph 元数据并展示预览卡片。
+
+### Step 1: 后端 — `src-tauri/src/url_preview.rs`
+
+新建模块，定义结构体并实现轻量抓取：
+
+‍```rust
+pub struct UrlPreviewMeta {
+    pub url: String,
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub image: Option<String>,
+}
+‍```
+
+- [ ] 用 regex 提取 `<meta property=\"og:*\">` / `<title>`
+- [ ] 复用 `web_fetch.rs` 的 `check_ssrf_safe()` (line 45)
+- [ ] 独立内存缓存（100 条，TTL 5 分钟）
+
+### Step 2: 后端 — `src-tauri/src/commands/url_preview.rs`
+
+- [ ] 新增 `fetch_url_preview(url: String) -> Result<UrlPreviewMeta, String>`
+- [ ] 注册到 `lib.rs` invoke_handler
+
+## Verification
+cargo check && npx tsc --noEmit
+```
 
 ## Guidelines
-- Always start with a **Background** section summarizing the problem and chosen approach
-- Include specific file paths, function names, and line references where possible
-- Each step should be independently verifiable — describe what success looks like
-- Group related changes into logical phases (e.g., backend → frontend → tests)
-- Consider testing, documentation, and migration as separate phases when needed
-- Estimate complexity per phase (small/medium/large) to help user assess scope
-- Do NOT output the plan directly in chat messages — always use `submit_plan` tool";
+- Structure by **files**, not abstract phases — each step title includes a file path
+- Use **code blocks** for struct definitions, type interfaces, function signatures
+- Reference existing code with `file_path:line` notation (e.g., `utils.rs:42`)
+- List dependencies to reuse — avoid reinventing existing utilities
+- Each step should be independently verifiable
+- Include a **Verification** section with concrete test commands
+- Do NOT add Background/Overview sections longer than 3 sentences
+- Do NOT write steps that just say \"implement X\" without showing HOW
+- Do NOT output the plan in chat messages — always use `submit_plan` tool";
 
 /// System prompt injected when plan execution is completed.
 pub const PLAN_COMPLETED_SYSTEM_PROMPT: &str = "\
