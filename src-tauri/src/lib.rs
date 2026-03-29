@@ -897,6 +897,7 @@ pub fn run() {
             commands::plan::restore_plan_version,
             commands::plan::plan_rollback,
             commands::plan::get_plan_checkpoint,
+            commands::plan::get_plan_file_path,
             // ACP control plane
             commands::acp_control::acp_list_backends,
             commands::acp_control::acp_health_check,

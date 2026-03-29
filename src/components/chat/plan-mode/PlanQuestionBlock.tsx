@@ -110,37 +110,9 @@ export default function PlanQuestionBlock({ group, onSubmitted }: PlanQuestionBl
     }
   }, [group, answers, onSubmitted])
 
-  if (submitted) {
-    return (
-      <div className="my-2 rounded-lg border border-green-500/20 bg-green-500/5 p-4">
-        <div className="flex items-center gap-2 text-sm text-green-600">
-          <Check className="h-4 w-4" />
-          <span className="font-medium">{t("planMode.question.answered")}</span>
-        </div>
-        <div className="mt-2 space-y-2">
-          {group.questions.map(q => {
-            const state = answers[q.questionId]
-            return (
-              <div key={q.questionId} className="text-xs text-muted-foreground">
-                <span className="font-medium text-foreground">{q.text}</span>
-                <div className="mt-0.5 pl-2">
-                  {state && state.selected.size > 0 && (
-                    Array.from(state.selected).map(v => {
-                      const opt = q.options.find(o => o.value === v)
-                      return <div key={v}>- {opt?.label || v}</div>
-                    })
-                  )}
-                  {state?.customInput && (
-                    <div>- {state.customInput}</div>
-                  )}
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      </div>
-    )
-  }
+  // After submission, the Q&A summary is rendered inline by PlanQuestionResult
+  // in the tool call's position within the message flow
+  if (submitted) return null
 
   return (
     <div className="my-2 rounded-lg border border-blue-500/20 bg-blue-500/5 p-4 space-y-4">

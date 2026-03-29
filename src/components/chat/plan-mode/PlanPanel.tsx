@@ -212,6 +212,45 @@ export function PlanPanel({
     }
   }, [sessionId])
 
+  // Highlight selected text with <mark> wrapper
+  const highlightSelection = useCallback((range: Range) => {
+    try {
+      const mark = document.createElement("mark")
+      mark.className = "bg-blue-200/50 dark:bg-blue-500/30 rounded-sm plan-comment-highlight"
+      range.surroundContents(mark)
+    } catch {
+      // surroundContents fails for cross-element selections — wrap individual text nodes
+      const treeWalker = document.createTreeWalker(
+        range.commonAncestorContainer,
+        NodeFilter.SHOW_TEXT,
+      )
+      const textNodes: Text[] = []
+      while (treeWalker.nextNode()) {
+        const node = treeWalker.currentNode as Text
+        if (range.intersectsNode(node)) textNodes.push(node)
+      }
+      for (const node of textNodes) {
+        const mark = document.createElement("mark")
+        mark.className = "bg-blue-200/50 dark:bg-blue-500/30 rounded-sm plan-comment-highlight"
+        node.parentNode?.insertBefore(mark, node)
+        mark.appendChild(node)
+      }
+    }
+  }, [])
+
+  // Remove all highlight <mark> wrappers, restoring original DOM
+  const clearHighlight = useCallback(() => {
+    if (!contentRef.current) return
+    const marks = contentRef.current.querySelectorAll("mark.plan-comment-highlight")
+    marks.forEach((mark) => {
+      const parent = mark.parentNode
+      if (parent) {
+        while (mark.firstChild) parent.insertBefore(mark.firstChild, mark)
+        parent.removeChild(mark)
+      }
+    })
+  }, [])
+
   // Handle text selection for inline commenting
   const handleMouseUp = useCallback(() => {
     if (!contentRef.current) return
@@ -240,30 +279,57 @@ export function PlanPanel({
     // Clamp to prevent overflow (popover is 280px wide)
     left = Math.max(0, Math.min(left, contentRef.current.clientWidth - 280))
 
+    // Clear any previous highlight, then apply new one
+    clearHighlight()
+    highlightSelection(range.cloneRange())
+    selection.removeAllRanges()
+
     setCommentPopover({ position: { top, left }, selectedText })
-  }, [planState])
+  }, [planState, clearHighlight, highlightSelection])
 
   // Close comment popover when clicking outside or selection changes
   useEffect(() => {
-    const handleMouseDown = (e: MouseEvent) => {
+    const handleMouseDown = () => {
       // Don't close if clicking inside the popover (handled by stopPropagation there)
       if (commentPopover) {
+        clearHighlight()
         setCommentPopover(null)
       }
     }
     // Use mousedown on document to dismiss
     document.addEventListener("mousedown", handleMouseDown)
     return () => document.removeEventListener("mousedown", handleMouseDown)
-  }, [commentPopover])
+  }, [commentPopover, clearHighlight])
+
+  // Cleanup highlights when commenting is disabled
+  useEffect(() => {
+    const canCommentNow = (planState === "review" || planState === "planning") && !!onRequestChanges
+    if (!canCommentNow) clearHighlight()
+  }, [planState, onRequestChanges, clearHighlight])
 
   // Submit comment: format as quoted selection + comment and send to model
   const handleCommentSubmit = useCallback((comment: string) => {
     if (!commentPopover || !onRequestChanges) return
-    const feedback = `> ${commentPopover.selectedText}\n\n${comment}`
+    const feedback = [
+      `<plan-inline-comment>`,
+      `The user selected the following section from the current plan and requests a revision:`,
+      ``,
+      `<selected-text>`,
+      commentPopover.selectedText,
+      `</selected-text>`,
+      ``,
+      `<revision-request>`,
+      comment,
+      `</revision-request>`,
+      ``,
+      `Please revise the plan to address this feedback. Modify the quoted section while keeping the rest of the plan intact, then resubmit the updated plan using the submit_plan tool.`,
+      `</plan-inline-comment>`,
+    ].join("\n")
     onRequestChanges(feedback)
+    clearHighlight()
     setCommentPopover(null)
     window.getSelection()?.removeAllRanges()
-  }, [commentPopover, onRequestChanges])
+  }, [commentPopover, onRequestChanges, clearHighlight])
 
   const groupedPhases = useMemo(
     () => groupStepsByPhase(planSteps),
@@ -455,6 +521,7 @@ export function PlanPanel({
             selectedText={commentPopover.selectedText}
             onSubmit={handleCommentSubmit}
             onClose={() => {
+              clearHighlight()
               setCommentPopover(null)
               window.getSelection()?.removeAllRanges()
             }}

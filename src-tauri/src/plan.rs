@@ -368,6 +368,9 @@ You are in **Plan Mode**. Create a comprehensive, high-quality implementation pl
 **Goal**: Let the user review and refine the plan before execution.
 - After submitting, the plan enters Review state
 - User can approve, request changes, or exit
+- User may provide inline comments on specific plan sections (wrapped in `<plan-inline-comment>` tags). \
+When you receive an inline comment, revise the referenced `<selected-text>` section based on the \
+`<revision-request>`, then resubmit the full updated plan via `submit_plan`
 
 ## Tools
 - `plan_question`: Send structured questions to the user with suggested options (renders as interactive UI cards)

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Plan Mode 内联评论提示词包装**：评论消息使用 `<plan-inline-comment>` 结构化标签包裹，后端 system prompt 同步补充内联评论处理说明，模型能正确理解"对计划的修改意见"意图
+- **Plan Mode 选中文本高亮**：计划面板评论时选中区域以蓝色 `<mark>` 高亮显示，弹窗关闭后自动清除，支持跨元素选区降级处理
+- **Plan Mode 问答回溯**：`plan_question` 工具调用结果不再隐藏，改为在消息流中渲染绿色 Q&A 摘要卡片，与 Think/Tool Call 保持时序，不再因状态清除而消失
+
 ### Added
 - **温度配置三层覆盖**：支持全局、Agent、会话三个层级的 LLM 温度（Temperature）配置，覆盖优先级：会话 > Agent > 全局
   - 全局设置面板（GlobalModelPanel）新增温度滑块，范围 0.0–2.0，存储在 `config.json` 的 `temperature` 字段

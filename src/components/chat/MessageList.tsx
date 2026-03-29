@@ -20,6 +20,7 @@ interface MessageListProps {
   scrollContainerRef: React.RefObject<HTMLDivElement | null>
   bottomRef: React.RefObject<HTMLDivElement | null>
   // Plan mode
+  sessionId?: string | null
   pendingQuestionGroup?: PlanQuestionGroup | null
   onQuestionSubmitted?: () => void
   planCardData?: PlanCardData | null
@@ -41,6 +42,7 @@ export default function MessageList({
   onLoadMore,
   scrollContainerRef,
   bottomRef,
+  sessionId,
   pendingQuestionGroup,
   onQuestionSubmitted,
   planCardData,
@@ -142,6 +144,8 @@ export default function MessageList({
             onContextMenu={handleContextMenu}
             copiedIndex={copiedIndex}
             onCopy={handleCopyMessage}
+            sessionId={sessionId}
+            onOpenPlanPanel={onOpenPlanPanel}
           />
         </div>
       ))}

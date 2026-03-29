@@ -116,41 +116,38 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
     }
 }
 
-/// Format user answers into readable text for the LLM to continue planning.
+/// Format user answers as JSON for both LLM consumption and frontend rendering.
 fn format_answers_for_llm(
     questions: &[PlanQuestion],
     answers: &[PlanQuestionAnswer],
     _context: Option<&str>,
 ) -> String {
-    let mut result = String::from("User's responses:\n\n");
-
+    let mut items = Vec::new();
     for question in questions {
-        result.push_str(&format!("**Q: {}**\n", question.text));
+        let mut selected_labels = Vec::new();
+        let mut custom_input: Option<String> = None;
 
         if let Some(answer) = answers.iter().find(|a| a.question_id == question.question_id) {
-            if !answer.selected.is_empty() {
-                // Map selected values to labels
-                for sel in &answer.selected {
-                    let label = question.options.iter()
-                        .find(|o| o.value == *sel)
-                        .map(|o| o.label.as_str())
-                        .unwrap_or(sel);
-                    result.push_str(&format!("- Selected: {}\n", label));
+            for sel in &answer.selected {
+                let label = question.options.iter()
+                    .find(|o| o.value == *sel)
+                    .map(|o| o.label.clone())
+                    .unwrap_or_else(|| sel.clone());
+                selected_labels.push(label);
+            }
+            if let Some(c) = &answer.custom_input {
+                if !c.is_empty() {
+                    custom_input = Some(c.clone());
                 }
             }
-            if let Some(custom) = &answer.custom_input {
-                if !custom.is_empty() {
-                    result.push_str(&format!("- Custom input: {}\n", custom));
-                }
-            }
-            if answer.selected.is_empty() && answer.custom_input.as_ref().map_or(true, |s| s.is_empty()) {
-                result.push_str("- (No answer provided)\n");
-            }
-        } else {
-            result.push_str("- (No answer provided)\n");
         }
-        result.push('\n');
+
+        items.push(serde_json::json!({
+            "question": question.text,
+            "selected": selected_labels,
+            "customInput": custom_input,
+        }));
     }
 
-    result
+    serde_json::json!({ "answers": items }).to_string()
 }

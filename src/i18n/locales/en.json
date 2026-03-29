@@ -1190,6 +1190,7 @@
     "indicator": "Plan Mode",
     "plan": "Execution Plan",
     "openPanel": "View in panel",
+    "openFolder": "Open folder",
     "restricted": "Plan Mode: AI will gather info and collaborate with you to create a plan",
     "approveAndExecute": "Start Execution",
     "keepPlanning": "Keep Planning",

@@ -1190,6 +1190,7 @@
     "indicator": "计划模式",
     "plan": "执行计划",
     "openPanel": "在面板中查看",
+    "openFolder": "打开文件夹",
     "restricted": "计划模式：AI 将收集信息并与你交互制定计划",
     "approveAndExecute": "开始执行",
     "keepPlanning": "继续完善",

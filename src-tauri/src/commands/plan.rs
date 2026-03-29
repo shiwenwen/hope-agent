@@ -181,3 +181,13 @@ pub async fn plan_rollback(session_id: String) -> Result<String, String> {
 pub async fn get_plan_checkpoint(session_id: String) -> Result<Option<String>, String> {
     Ok(plan::get_checkpoint_ref(&session_id).await)
 }
+
+#[tauri::command]
+pub async fn get_plan_file_path(session_id: String) -> Result<Option<String>, String> {
+    if let Some(meta) = plan::get_plan_meta(&session_id).await {
+        if !meta.file_path.is_empty() {
+            return Ok(Some(meta.file_path));
+        }
+    }
+    Ok(None)
+}
