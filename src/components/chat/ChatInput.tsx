@@ -505,7 +505,17 @@ export default function ChatInput({
             {/* Plan Mode Toggle */}
             <IconTip label={planState === "off" ? t("planMode.enter") : t("planMode.indicator")}>
               <button
-                onClick={() => planState === "off" ? onEnterPlanMode?.() : onTogglePlanPanel?.()}
+                onClick={() => {
+                  if (planState === "off") {
+                    onEnterPlanMode?.()
+                  } else if (planState === "planning") {
+                    // In planning state without content, clicking exits plan mode
+                    onExitPlanMode?.()
+                  } else {
+                    // In other states (review/executing/paused/completed), toggle panel
+                    onTogglePlanPanel?.()
+                  }
+                }}
                 className={cn(
                   "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap",
                   planState === "planning"
