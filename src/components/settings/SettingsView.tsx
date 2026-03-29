@@ -21,6 +21,7 @@ import {
   Bell,
   Container,
   Cable,
+  ClipboardList,
 } from "lucide-react"
 import type { ProviderConfig } from "@/components/settings/ProviderSettings"
 import ProviderSetup from "@/components/settings/ProviderSetup"
@@ -29,6 +30,7 @@ import GeneralPanel from "@/components/settings/GeneralPanel"
 import ModelConfigPanel from "@/components/settings/ModelConfigPanel"
 import ToolSettingsPanel from "@/components/settings/ToolSettingsPanel"
 import ChatSettingsPanel from "@/components/settings/ChatSettingsPanel"
+import PlanSettingsPanel from "@/components/settings/PlanSettingsPanel"
 import SkillsPanel from "@/components/settings/SkillsPanel"
 import AgentPanel from "@/components/settings/AgentPanel"
 import UserProfilePanel from "@/components/settings/UserProfilePanel"
@@ -79,6 +81,11 @@ const SECTIONS: SettingsSectionItem[] = [
     id: "chat",
     icon: <MessageSquare className="h-4 w-4" />,
     labelKey: "settings.chat",
+  },
+  {
+    id: "plan",
+    icon: <ClipboardList className="h-4 w-4" />,
+    labelKey: "settings.plan",
   },
   {
     id: "tools",
@@ -246,6 +253,7 @@ export default function SettingsView({
             {activeSection === "acp" && <AcpControlPanel />}
             {activeSection === "permissions" && <PermissionsPanel />}
             {activeSection === "chat" && <ChatSettingsPanel />}
+            {activeSection === "plan" && <PlanSettingsPanel />}
             {activeSection === "health" && <CrashHistoryPanel />}
             {activeSection === "logs" && <LogPanel />}
             {activeSection === "about" && <AboutPanel />}

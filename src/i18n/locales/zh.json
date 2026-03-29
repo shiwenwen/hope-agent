@@ -547,6 +547,7 @@
     "permRefresh": "刷新状态",
     "permRefreshHint": "在系统设置中授权后，点击刷新或切回窗口自动检测",
     "chat": "对话与上下文",
+    "plan": "计划模式",
     "chatAutoSend": "自动发送排队消息",
     "chatAutoSendDesc": "回复结束后自动发送排队中的消息，关闭则回填到输入框",
     "chatAutoExpandThinking": "自动展开Think过程",

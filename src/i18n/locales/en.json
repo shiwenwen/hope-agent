@@ -547,6 +547,7 @@
     "permRefresh": "Refresh",
     "permRefreshHint": "After granting in System Settings, click refresh or switch back to auto-detect",
     "chat": "Chat & Context",
+    "plan": "Plan Mode",
     "chatAutoSend": "Auto-send queued messages",
     "chatAutoSendDesc": "Automatically send queued messages after reply finishes. When off, message is filled back to input.",
     "chatAutoExpandThinking": "Auto-expand thinking process",

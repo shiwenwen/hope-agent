@@ -11,6 +11,7 @@ export type SettingsSection =
   | "permissions"
   | "profile"
   | "chat"
+  | "plan"
   | "logs"
   | "health"
   | "about"
