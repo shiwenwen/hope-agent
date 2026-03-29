@@ -107,6 +107,7 @@ export const PROVIDER_META: Record<string, ProviderMeta> = {
     id: "tavily",
     labelKey: "settings.webSearchProviderTavily",
     free: false,
+    recommended: true,
     needsApiKey: true,
     url: "https://tavily.com",
     fields: [

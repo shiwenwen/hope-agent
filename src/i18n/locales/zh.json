@@ -409,6 +409,7 @@
     "webSearchProviderKimi": "Kimi (Moonshot)",
     "webSearchProviderTavily": "Tavily（每月 1000 次免费）",
     "webSearchFree": "免费",
+    "webSearchRecommended": "推荐",
     "webSearchNeedsKey": "需要密钥",
     "webSearchNeedsConfig": "需要配置",
     "webSearchApiKey": "API Key",

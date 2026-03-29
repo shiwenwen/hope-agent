@@ -90,6 +90,11 @@ export function SortableProviderItem({
               {t("settings.webSearchFree")}
             </span>
           )}
+          {meta.recommended && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 font-medium shrink-0">
+              {t("settings.webSearchRecommended")}
+            </span>
+          )}
           {!canEnable && entry.id !== "duck-duck-go" && (
             <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 font-medium shrink-0">
               {t(meta.needsApiKey ? "settings.webSearchNeedsKey" : "settings.webSearchNeedsConfig")}

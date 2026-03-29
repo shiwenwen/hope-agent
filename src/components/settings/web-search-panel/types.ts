@@ -39,6 +39,7 @@ export interface ProviderMeta {
   id: string
   labelKey: string
   free: boolean
+  recommended?: boolean
   needsApiKey: boolean
   url: string
   fields: FieldDef[]
