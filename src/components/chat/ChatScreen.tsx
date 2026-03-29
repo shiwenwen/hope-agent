@@ -480,6 +480,7 @@ export default function ChatScreen({
           onExitPlan={planMode.exitPlanMode}
           onPausePlan={planMode.pauseExecution}
           onResumePlan={planMode.resumeExecution}
+          planSubagentRunning={planMode.planSubagentRunning}
         />
 
         {/* Memory extraction toast */}
@@ -525,15 +526,7 @@ export default function ChatScreen({
               onSessionTemperatureChange={setSessionTemperature}
               planState={planMode.planState}
               planProgress={planMode.progress}
-              onEnterPlanMode={async () => {
-                // Enter plan mode in frontend state first.
-                // If no session yet, it will be created when user sends the first message.
-                if (session.currentSessionId) {
-                  await planMode.enterPlanMode()
-                } else {
-                  planMode.setPlanState("planning")
-                }
-              }}
+              onEnterPlanMode={planMode.enterPlanMode}
               onExitPlanMode={planMode.exitPlanMode}
               onTogglePlanPanel={() => planMode.setShowPanel((p) => !p)}
             />

@@ -34,6 +34,7 @@ export interface UsePlanModeReturn {
   completedCount: number
   planCardInfo: PlanCardInfo | null
   pendingQuestionGroup: PlanQuestionGroup | null
+  planSubagentRunning: boolean
   enterPlanMode: () => Promise<void>
   exitPlanMode: () => Promise<void>
   approvePlan: () => Promise<void>
@@ -55,10 +56,19 @@ export function usePlanMode(
   const [showPanel, setShowPanel] = useState(false)
   const [planCardInfo, setPlanCardInfo] = useState<PlanCardInfo | null>(null)
   const [pendingQuestionGroup, setPendingQuestionGroup] = useState<PlanQuestionGroup | null>(null)
+  const [planSubagentRunning, setPlanSubagentRunning] = useState(false)
+
+  // Track whether plan mode was entered in the current no-session context
+  const preSessionPlanRef = useRef(false)
 
   // Enter Plan Mode
   const enterPlanMode = useCallback(async () => {
-    if (!currentSessionId) return
+    if (!currentSessionId) {
+      // Pre-session plan mode: set flag so reset logic doesn't clear it
+      preSessionPlanRef.current = true
+      setPlanState("planning")
+      return
+    }
     try {
       await invoke("set_plan_mode", { sessionId: currentSessionId, state: "planning" })
       setPlanState("planning")
@@ -79,6 +89,7 @@ export function usePlanMode(
     }
     // Always reset frontend state (even without a session,
     // since enterPlanMode can set "planning" before a session exists)
+    preSessionPlanRef.current = false
     setPlanState("off")
     setShowPanel(false)
     setPlanCardInfo(null)
@@ -124,8 +135,10 @@ export function usePlanMode(
 
   useEffect(() => {
     if (!currentSessionId) {
-      // No session — don't reset if we're in a "pre-session" plan mode
-      if (planStateRef.current === "off") {
+      // No session — reset plan state unless user just entered plan mode
+      // in this no-session context (pre-session plan mode)
+      if (!preSessionPlanRef.current) {
+        setPlanState("off")
         setPlanSteps([])
         setPlanContent("")
         setShowPanel(false)
@@ -133,6 +146,9 @@ export function usePlanMode(
       }
       return
     }
+
+    // Session exists now — clear pre-session flag
+    preSessionPlanRef.current = false
 
     // Always clear stale question UI on session switch
     setPendingQuestionGroup(null)
@@ -304,6 +320,30 @@ export function usePlanMode(
     }
   }, [currentSessionId])
 
+  // Listen for plan_subagent_status events (plan sub-agent running/completed)
+  useEffect(() => {
+    let unlisten: UnlistenFn | undefined
+    listen<{ sessionId: string; status: string; runId: string }>(
+      "plan_subagent_status",
+      (event) => {
+        if (event.payload.sessionId !== currentSessionId) return
+        setPlanSubagentRunning(event.payload.status === "running")
+      }
+    ).then((fn) => {
+      unlisten = fn
+    })
+    return () => {
+      unlisten?.()
+    }
+  }, [currentSessionId])
+
+  // Also clear planSubagentRunning when plan state transitions away from planning
+  useEffect(() => {
+    if (planState !== "planning") {
+      setPlanSubagentRunning(false)
+    }
+  }, [planState])
+
   // Calculate progress
   const completedCount = useMemo(() => {
     return planSteps.filter(
@@ -329,6 +369,7 @@ export function usePlanMode(
     completedCount,
     planCardInfo,
     pendingQuestionGroup,
+    planSubagentRunning,
     enterPlanMode,
     exitPlanMode,
     approvePlan,
