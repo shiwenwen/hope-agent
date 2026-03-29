@@ -1,5 +1,6 @@
 import { useMemo, useEffect, useState, useCallback, useRef } from "react"
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window"
+import { WebviewWindow } from "@tauri-apps/api/webviewWindow"
 import { invoke } from "@tauri-apps/api/core"
 import { logger } from "@/lib/logger"
 import {
@@ -13,6 +14,10 @@ import {
   RotateCcw,
   Send,
   MessageSquareQuote,
+  Maximize2,
+  Minimize2,
+  ExternalLink,
+  PanelLeftClose,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -143,6 +148,9 @@ export function PlanPanel({
   const [loadingVersions, setLoadingVersions] = useState(false)
   const [hasCheckpoint, setHasCheckpoint] = useState(false)
   const [rollingBack, setRollingBack] = useState(false)
+  const [maximized, setMaximized] = useState(false)
+  const [detached, setDetached] = useState(false)
+  const detachedWindowRef = useRef<WebviewWindow | null>(null)
 
   // Comment popover state
   const [commentPopover, setCommentPopover] = useState<{
@@ -154,10 +162,70 @@ export function PlanPanel({
   // Adjust window min size
   useEffect(() => {
     const win = getCurrentWindow()
-    win.setMinSize(new LogicalSize(1240, 480))
+    if (!detached) {
+      win.setMinSize(new LogicalSize(1240, 480))
+    } else {
+      win.setMinSize(new LogicalSize(840, 480))
+    }
     return () => {
       win.setMinSize(new LogicalSize(840, 480))
     }
+  }, [detached])
+
+  // Clean up detached window on unmount
+  useEffect(() => {
+    return () => {
+      if (detachedWindowRef.current) {
+        detachedWindowRef.current.close().catch(() => {})
+        detachedWindowRef.current = null
+      }
+    }
+  }, [])
+
+  const handleDetach = useCallback(async () => {
+    if (!sessionId) return
+    try {
+      if (detachedWindowRef.current) {
+        await detachedWindowRef.current.close().catch(() => {})
+      }
+
+      const url = `index.html?window=plan&sessionId=${encodeURIComponent(sessionId)}`
+      const webview = new WebviewWindow("plan-window", {
+        url,
+        title: t("planMode.panelTitle"),
+        width: 500,
+        height: 700,
+        minWidth: 360,
+        minHeight: 400,
+        center: true,
+      })
+
+      webview.once("tauri://created", () => {
+        detachedWindowRef.current = webview
+        setDetached(true)
+        setMaximized(false)
+      })
+
+      webview.once("tauri://error", () => {
+        detachedWindowRef.current = null
+        setDetached(false)
+      })
+
+      webview.once("tauri://destroyed", () => {
+        detachedWindowRef.current = null
+        setDetached(false)
+      })
+    } catch {
+      /* ignore creation errors */
+    }
+  }, [sessionId, t])
+
+  const handleReattach = useCallback(() => {
+    if (detachedWindowRef.current) {
+      detachedWindowRef.current.close().catch(() => {})
+      detachedWindowRef.current = null
+    }
+    setDetached(false)
   }, [])
 
   const handleLoadVersions = useCallback(async () => {
@@ -361,10 +429,60 @@ export function PlanPanel({
   // Whether inline commenting is enabled
   const canComment = (planState === "review" || planState === "planning") && !!onRequestChanges
 
+  // Detached: show compact placeholder
+  if (detached) {
+    return (
+      <div className="flex flex-col border-l border-border w-[200px] shrink-0 bg-background animate-in slide-in-from-right-2 duration-200">
+        <div
+          className="flex items-center gap-2 px-3 py-2 border-b border-border bg-secondary/30 shrink-0"
+          data-tauri-drag-region
+        >
+          <ClipboardList className={cn("h-4 w-4", iconColor)} />
+          <span className="text-sm font-medium truncate flex-1">{t("planMode.panelTitle")}</span>
+          <div className="flex items-center gap-0.5">
+            <IconTip label={t("planMode.reattach")}>
+              <button
+                onClick={handleReattach}
+                className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
+              >
+                <PanelLeftClose className="h-3.5 w-3.5" />
+              </button>
+            </IconTip>
+            <IconTip label={t("common.close")}>
+              <button
+                onClick={() => { handleReattach(); onClose() }}
+                className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </IconTip>
+          </div>
+        </div>
+        <div className="flex-1 flex items-center justify-center p-4">
+          <p className="text-xs text-muted-foreground text-center">
+            {t("planMode.popOutActive")}
+          </p>
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div className="flex flex-col border-l border-border w-[400px] shrink-0 max-w-[40vw] bg-background animate-in slide-in-from-right-2 duration-200">
+    <div
+      className={
+        maximized
+          ? "fixed inset-0 z-50 flex flex-col bg-background"
+          : "flex flex-col border-l border-border w-[400px] shrink-0 max-w-[40vw] bg-background animate-in slide-in-from-right-2 duration-200"
+      }
+    >
       {/* Title bar */}
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-secondary/30 shrink-0">
+      <div
+        className={cn(
+          "flex items-center gap-2 px-3 py-2 border-b border-border bg-secondary/30 shrink-0",
+          maximized && "pt-8"
+        )}
+        data-tauri-drag-region
+      >
         <ClipboardList className={cn("h-4 w-4", iconColor)} />
         <span className="text-sm font-medium truncate flex-1">{t("planMode.panelTitle")}</span>
         <div className="flex items-center gap-0.5">
@@ -380,6 +498,22 @@ export function PlanPanel({
               </button>
             </IconTip>
           )}
+          <IconTip label={t("planMode.popOut")}>
+            <button
+              onClick={handleDetach}
+              className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+            </button>
+          </IconTip>
+          <IconTip label={maximized ? t("planMode.minimize") : t("planMode.maximize")}>
+            <button
+              onClick={() => setMaximized((v) => !v)}
+              className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
+            >
+              {maximized ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+            </button>
+          </IconTip>
           <IconTip label={t("common.close")}>
             <button
               className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"

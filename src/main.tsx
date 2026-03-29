@@ -4,11 +4,18 @@ import "./index.css"
 import "./i18n/i18n"
 import App from "./App.tsx"
 import QuickChatWindow from "./QuickChatWindow.tsx"
+import PlanDetachedWindow from "./PlanDetachedWindow.tsx"
 
-const isQuickChat = new URLSearchParams(window.location.search).get("window") === "quickchat"
+const windowType = new URLSearchParams(window.location.search).get("window")
+
+const Root = windowType === "quickchat"
+  ? QuickChatWindow
+  : windowType === "plan"
+    ? PlanDetachedWindow
+    : App
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    {isQuickChat ? <QuickChatWindow /> : <App />}
+    <Root />
   </StrictMode>,
 )

@@ -5,6 +5,7 @@
   "windows": [
     "main",
     "canvas-window",
+    "plan-window",
     "quickchat"
   ],
   "permissions": [
