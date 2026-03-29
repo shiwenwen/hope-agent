@@ -94,6 +94,7 @@ pub async fn chat(
     agent_id: Option<String>,
     tool_permission_mode: Option<String>,
     plan_mode: Option<String>,
+    temperature_override: Option<f64>,
     on_event: tauri::ipc::Channel<String>,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
@@ -271,6 +272,15 @@ pub async fn chat(
         store.canvas.enabled
     };
 
+    // Resolve temperature: session > agent > global
+    let resolved_temperature: Option<f64> = {
+        let global_temp = state.provider_store.lock().await.temperature;
+        let agent_temp = agent_def.as_ref()
+            .and_then(|def| def.config.model.temperature);
+        // Priority: session (frontend override) > agent > global
+        temperature_override.or(agent_temp).or(global_temp)
+    };
+
     // Resolve plan state early so we can use plan_model override for model chain
     let early_plan_state = if let Some(ref pm) = plan_mode {
         crate::plan::PlanModeState::from_str(pm)
@@ -431,6 +441,7 @@ pub async fn chat(
         agent.set_notification_enabled(notification_enabled);
         agent.set_image_generate_config(image_gen_config.clone());
         agent.set_canvas_enabled(canvas_enabled);
+        agent.set_temperature(resolved_temperature);
 
         // ── Plan Mode: dual-agent architecture ──
         // Plan Agent (Planning/Review) = read-only + plan tools

@@ -54,6 +54,7 @@ export default function ChatScreen({
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
   const [activeModel, setActiveModel] = useState<ActiveModel | null>(null)
   const [reasoningEffort, setReasoningEffort] = useState("medium")
+  const [sessionTemperature, setSessionTemperature] = useState<number | null>(null)
   const globalActiveModelRef = useRef<ActiveModel | null>(null)
 
   // Sidebar panel width
@@ -211,6 +212,7 @@ export default function ChatScreen({
     reloadSessions: session.reloadSessions,
     updateSessionMessages: session.updateSessionMessages,
     planMode: planModeState,
+    temperatureOverride: sessionTemperature,
   })
 
   // ── Plan Mode Hook ─────────────────────────────────────────
@@ -518,6 +520,8 @@ export default function ChatScreen({
               onCommandAction={handleCommandAction}
               toolPermissionMode={stream.toolPermissionMode}
               onToolPermissionChange={stream.setToolPermissionMode}
+              sessionTemperature={sessionTemperature}
+              onSessionTemperatureChange={setSessionTemperature}
               planState={planMode.planState}
               planProgress={planMode.progress}
               onEnterPlanMode={async () => {

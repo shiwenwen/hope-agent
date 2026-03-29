@@ -501,6 +501,12 @@ impl AcpAgent {
         agent.set_image_generate_config(image_gen_config);
         agent.set_canvas_enabled(store.canvas.enabled);
 
+        // Resolve temperature: agent > global
+        let agent_temp = crate::agent_loader::load_agent(agent_id)
+            .ok()
+            .and_then(|def| def.config.model.temperature);
+        agent.set_temperature(agent_temp.or(store.temperature));
+
         Ok(agent)
     }
 

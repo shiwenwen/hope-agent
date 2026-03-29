@@ -109,6 +109,11 @@ impl AssistantAgent {
                 body["thinking"] = think_config.clone();
             }
 
+            // Add temperature if configured
+            if let Some(temp) = self.temperature {
+                body["temperature"] = json!(temp);
+            }
+
             // Log API request details (including raw body for debugging)
             let body_str = serde_json::to_string(&body).unwrap_or_default();
             if let Some(logger) = crate::get_logger() {

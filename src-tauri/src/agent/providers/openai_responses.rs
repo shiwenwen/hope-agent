@@ -88,6 +88,7 @@ impl AssistantAgent {
                 reasoning: reasoning.as_ref().map(|r| ReasoningConfig { effort: r.effort.clone(), summary: Some("auto".to_string()) }),
                 include: if reasoning.is_some() { Some(vec!["reasoning.encrypted_content".to_string()]) } else { None },
                 tools: Some(tool_schemas.clone()),
+                temperature: self.temperature,
             };
 
             // Log API request details (including raw body for debugging)

@@ -448,6 +448,11 @@ pub struct ProviderStore {
     /// the default `~/.opencomputer/plans/`.
     #[serde(default)]
     pub plans_directory: Option<String>,
+
+    /// Global default temperature for LLM API calls (0.0–2.0).
+    /// Can be overridden at the agent level or session level.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f64>,
 }
 
 fn default_skill_env_check() -> bool {
@@ -494,6 +499,7 @@ impl Default for ProviderStore {
             acp_control: crate::acp_control::AcpControlConfig::default(),
             shortcuts: ShortcutConfig::default(),
             plans_directory: None,
+            temperature: None,
         }
     }
 }

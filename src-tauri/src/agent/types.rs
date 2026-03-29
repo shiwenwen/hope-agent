@@ -103,6 +103,8 @@ pub struct AssistantAgent {
     /// Plan mode path-based allow rules: write/edit targeting these paths are allowed
     /// even when the tool is normally denied during planning.
     pub(super) plan_mode_allow_paths: Vec<String>,
+    /// Temperature for LLM API calls (0.0–2.0). None = use API default.
+    pub(super) temperature: Option<f64>,
 }
 
 /// Stateful filter that strips `<think>...</think>` tags from streaming content.

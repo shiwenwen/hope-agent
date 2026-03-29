@@ -391,3 +391,23 @@ pub async fn set_tool_timeout(seconds: u64) -> Result<(), String> {
     store.tool_timeout = seconds;
     provider::save_store(&store).map_err(|e| e.to_string())
 }
+
+// ── Temperature ─────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn get_global_temperature() -> Result<Option<f64>, String> {
+    let store = provider::load_store().map_err(|e| e.to_string())?;
+    Ok(store.temperature)
+}
+
+#[tauri::command]
+pub async fn set_global_temperature(temperature: Option<f64>) -> Result<(), String> {
+    if let Some(t) = temperature {
+        if !(0.0..=2.0).contains(&t) {
+            return Err("Temperature must be between 0.0 and 2.0".to_string());
+        }
+    }
+    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    store.temperature = temperature;
+    provider::save_store(&store).map_err(|e| e.to_string())
+}

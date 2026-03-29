@@ -17,8 +17,9 @@ import {
   arrayMove,
 } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
-import { GripVertical, Layers, Plus, X } from "lucide-react"
+import { GripVertical, Layers, Plus, X, RotateCcw } from "lucide-react"
 import { ModelSelector } from "@/components/ui/model-selector"
+import { Slider } from "@/components/ui/slider"
 import type { AvailableModel, ActiveModelRef } from "./types"
 
 function SortableFallbackItem({
@@ -84,18 +85,21 @@ export default function GlobalModelPanel() {
   const [fallbackModels, setFallbackModels] = useState<ActiveModelRef[]>([])
   const [loading, setLoading] = useState(true)
   const [addingFallback, setAddingFallback] = useState(false)
+  const [globalTemperature, setGlobalTemperature] = useState<number | null>(null)
 
   useEffect(() => {
     async function load() {
       try {
-        const [models, active, fallbacks] = await Promise.all([
+        const [models, active, fallbacks, temp] = await Promise.all([
           invoke<AvailableModel[]>("get_available_models"),
           invoke<ActiveModelRef | null>("get_active_model"),
           invoke<ActiveModelRef[]>("get_fallback_models"),
+          invoke<number | null>("get_global_temperature"),
         ])
         setAvailableModels(models)
         setActiveModel(active)
         setFallbackModels(fallbacks)
+        setGlobalTemperature(temp)
       } catch (e) {
         logger.error("settings", "GlobalModelPanel::load", "Failed to load model settings", e)
       } finally {
@@ -259,6 +263,53 @@ export default function GlobalModelPanel() {
             <span>{t("settings.addFallback")}</span>
           </button>
         )}
+      </div>
+
+      <div className="border-t border-border/50 mb-6 mt-6" />
+
+      {/* Global Temperature */}
+      <div>
+        <div className="text-xs font-medium text-muted-foreground mb-1 px-1">
+          {t("settings.temperature")}
+        </div>
+        <p className="text-[11px] text-muted-foreground/60 mb-3 px-1">
+          {t("settings.globalTemperatureDesc")}
+        </p>
+
+        <div className="flex items-center gap-3 px-1">
+          <Slider
+            min={0}
+            max={200}
+            step={1}
+            value={[globalTemperature != null ? Math.round(globalTemperature * 100) : 100]}
+            onValueChange={([v]) => {
+              const temp = v / 100
+              setGlobalTemperature(temp)
+            }}
+            onValueCommit={([v]) => {
+              const temp = v / 100
+              invoke("set_global_temperature", { temperature: temp }).catch((e) =>
+                logger.error("settings", "GlobalModelPanel::setTemperature", "Failed", e),
+              )
+            }}
+            className="flex-1"
+          />
+          <span className="text-sm font-mono text-foreground w-10 text-right tabular-nums">
+            {globalTemperature != null ? globalTemperature.toFixed(2) : "1.00"}
+          </span>
+          <button
+            className="text-muted-foreground/50 hover:text-foreground transition-colors"
+            onClick={() => {
+              setGlobalTemperature(null)
+              invoke("set_global_temperature", { temperature: null }).catch((e) =>
+                logger.error("settings", "GlobalModelPanel::resetTemperature", "Failed", e),
+              )
+            }}
+            title={t("settings.temperatureReset")}
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </div>
     </div>
   )

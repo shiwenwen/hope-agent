@@ -52,6 +52,7 @@ impl AssistantAgent {
             denied_tools: Vec::new(),
             plan_agent_mode: types::PlanAgentMode::Off,
             plan_mode_allow_paths: Vec::new(),
+            temperature: None,
         }
     }
 
@@ -80,6 +81,7 @@ impl AssistantAgent {
             denied_tools: Vec::new(),
             plan_agent_mode: types::PlanAgentMode::Off,
             plan_mode_allow_paths: Vec::new(),
+            temperature: None,
         }
     }
 
@@ -132,6 +134,7 @@ impl AssistantAgent {
             denied_tools: Vec::new(),
             plan_agent_mode: types::PlanAgentMode::Off,
             plan_mode_allow_paths: Vec::new(),
+            temperature: None,
         }
     }
 
@@ -193,6 +196,11 @@ impl AssistantAgent {
     /// Set plan mode path-based allow rules for fine-grained write/edit permission.
     pub fn set_plan_mode_allow_paths(&mut self, paths: Vec<String>) {
         self.plan_mode_allow_paths = paths;
+    }
+
+    /// Set temperature for LLM API calls (0.0–2.0). None = use API default.
+    pub fn set_temperature(&mut self, temp: Option<f64>) {
+        self.temperature = temp;
     }
 
     /// Apply plan-mode tool modifications to a tool schema list.

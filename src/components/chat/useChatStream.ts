@@ -38,6 +38,8 @@ export interface UseChatStreamOptions {
   updateSessionMessages: (sessionId: string, updater: (prev: Message[]) => Message[]) => void
   /** Current plan mode state, passed to backend chat() for reliable sync */
   planMode?: string
+  /** Session-level temperature override (0.0–2.0). Overrides agent and global settings. */
+  temperatureOverride?: number | null
 }
 
 export interface UseChatStreamReturn {
@@ -79,6 +81,7 @@ export function useChatStream({
   reloadSessions,
   updateSessionMessages,
   planMode,
+  temperatureOverride,
 }: UseChatStreamOptions): UseChatStreamReturn {
   const { t } = useTranslation()
   const [input, setInput] = useState("")
@@ -651,6 +654,7 @@ export function useChatStream({
         agentId: currentAgentId,
         toolPermissionMode: toolPermissionModeRef.current,
         planMode: planMode && planMode !== "off" ? planMode : undefined,
+        temperatureOverride: temperatureOverride ?? undefined,
         onEvent,
       })
     } catch (e) {

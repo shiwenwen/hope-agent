@@ -105,7 +105,7 @@ export interface AgentConfig {
   description?: string | null
   emoji?: string | null
   avatar?: string | null
-  model: { primary?: string | null; fallbacks: string[]; planModel?: string | null }
+  model: { primary?: string | null; fallbacks: string[]; planModel?: string | null; temperature?: number | null }
   skills: { allow: string[]; deny: string[] }
   tools: { allow: string[]; deny: string[] }
   personality: PersonalityConfig

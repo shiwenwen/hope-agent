@@ -22,6 +22,8 @@ pub(super) struct ResponsesRequest {
     pub include: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<serde_json::Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f64>,
 }
 
 /// Tracks a function_call being accumulated from SSE events

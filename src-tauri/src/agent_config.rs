@@ -149,6 +149,11 @@ pub struct AgentModelConfig {
     /// When set, Planning state will use this model instead of primary.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plan_model: Option<String>,
+
+    /// Temperature override for this agent (0.0–2.0).
+    /// When set, overrides the global temperature. Can be further overridden at session level.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f64>,
 }
 
 // ── Filter Config ────────────────────────────────────────────────

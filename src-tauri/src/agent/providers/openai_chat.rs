@@ -98,6 +98,11 @@ impl AssistantAgent {
             // Apply thinking parameters based on provider's ThinkingStyle
             apply_thinking_to_chat_body(&mut body, &self.thinking_style, reasoning_effort, 16384);
 
+            // Add temperature if configured
+            if let Some(temp) = self.temperature {
+                body["temperature"] = json!(temp);
+            }
+
             // Log API request details (including raw body for debugging)
             let body_str = serde_json::to_string(&body).unwrap_or_default();
             if let Some(logger) = crate::get_logger() {

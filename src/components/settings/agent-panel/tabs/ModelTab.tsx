@@ -10,7 +10,10 @@ import {
   Plus,
   X,
   Lightbulb,
+  Thermometer,
+  RotateCcw,
 } from "lucide-react"
+import { Slider } from "@/components/ui/slider"
 import type { AgentConfig, AvailableModel, ActiveModelRef } from "../types"
 
 interface ModelTabProps {
@@ -263,6 +266,50 @@ export default function ModelTab({ config, availableModels, updateConfig }: Mode
                 placeholder={t("settings.selectPlanModel")}
               />
             )}
+          </div>
+
+          <div className="border-t border-border/50" />
+
+          {/* Temperature override */}
+          <div>
+            <div className="flex items-center gap-1.5 mb-1 px-1">
+              <Thermometer className="h-3.5 w-3.5 text-orange-500" />
+              <span className="text-xs font-medium text-muted-foreground">
+                {t("settings.temperature")}
+              </span>
+            </div>
+            <p className="text-[11px] text-muted-foreground/60 mb-3 px-1">
+              {t("settings.agentTemperatureDesc")}
+            </p>
+
+            <div className="flex items-center gap-3 px-1">
+              <Slider
+                min={0}
+                max={200}
+                step={1}
+                value={[config.model.temperature != null ? Math.round(config.model.temperature * 100) : 100]}
+                onValueChange={([v]) => {
+                  updateConfig({
+                    model: { ...config.model, temperature: v / 100 },
+                  })
+                }}
+                className="flex-1"
+              />
+              <span className="text-sm font-mono text-foreground w-10 text-right tabular-nums">
+                {config.model.temperature != null ? config.model.temperature.toFixed(2) : "1.00"}
+              </span>
+              <button
+                className="text-muted-foreground/50 hover:text-foreground transition-colors"
+                onClick={() =>
+                  updateConfig({
+                    model: { ...config.model, temperature: null },
+                  })
+                }
+                title={t("settings.temperatureReset")}
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+              </button>
+            </div>
           </div>
         </>
       )}

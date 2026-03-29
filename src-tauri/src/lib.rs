@@ -784,6 +784,9 @@ pub fn run() {
             // Tool timeout
             commands::config::get_tool_timeout,
             commands::config::set_tool_timeout,
+            // Temperature
+            commands::config::get_global_temperature,
+            commands::config::set_global_temperature,
             // Shortcuts
             commands::config::get_shortcut_config,
             commands::config::save_shortcut_config,

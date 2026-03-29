@@ -90,6 +90,7 @@ impl AssistantAgent {
                 reasoning: reasoning.as_ref().map(|r| ReasoningConfig { effort: r.effort.clone(), summary: Some("auto".to_string()) }),
                 include: if reasoning.is_some() { Some(vec!["reasoning.encrypted_content".to_string()]) } else { None },
                 tools: Some(tool_schemas.clone()),
+                temperature: self.temperature,
             };
 
             let body_json = serde_json::to_string(&request)?;

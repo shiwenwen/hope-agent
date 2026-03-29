@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **温度配置三层覆盖**：支持全局、Agent、会话三个层级的 LLM 温度（Temperature）配置，覆盖优先级：会话 > Agent > 全局
+  - 全局设置面板（GlobalModelPanel）新增温度滑块，范围 0.0–2.0，存储在 `config.json` 的 `temperature` 字段
+  - Agent 模型配置（ModelTab）新增温度覆盖选项，继承/自定义模式，存储在 `agent.json` 的 `model.temperature` 字段
+  - 聊天输入框（ChatInput）新增温度弹出菜单，会话级即时调整，通过 `temperatureOverride` 参数传递给后端
+  - 后端 `AssistantAgent` 新增 `temperature` 字段，四种 Provider（Anthropic/OpenAI Chat/OpenAI Responses/Codex）均已适配
+  - 新增 Tauri 命令 `get_global_temperature` / `set_global_temperature`
+  - 新增 `src/components/ui/slider.tsx` Radix UI Slider 组件
+
 ### Changed
 - **Plan Mode 计划面板协同编辑重构**：
   - 计划面板不再在进入计划模式时立即显示，仅在计划 Markdown 内容生成后自动展示
