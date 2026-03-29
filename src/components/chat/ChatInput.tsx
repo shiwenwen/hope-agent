@@ -4,7 +4,8 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { IconTip } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
-import { Send, Square, Brain, ChevronRight, ImagePlus, Paperclip, X, Slash, Shield, ShieldCheck, ShieldAlert, ClipboardList, Thermometer } from "lucide-react"
+import { Send, Square, Brain, ChevronRight, ImagePlus, Paperclip, X, Slash, Shield, ShieldCheck, ShieldAlert, ClipboardList, Thermometer, Pencil, Trash2, MoreHorizontal, BetweenHorizontalStart } from "lucide-react"
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu"
 import { Slider } from "@/components/ui/slider"
 import type { AvailableModel, ActiveModel, ToolPermissionMode } from "@/types/chat"
 import { getEffortOptionsForType } from "@/types/chat"
@@ -30,6 +31,7 @@ interface ChatInputProps {
   onRemoveFile: (index: number) => void
   pendingMessage?: string | null
   onCancelPending?: () => void
+  onDiscardPending?: () => void
   onStop?: () => void
   // Slash command support
   currentSessionId?: string | null
@@ -64,6 +66,7 @@ export default function ChatInput({
   onRemoveFile,
   pendingMessage,
   onCancelPending,
+  onDiscardPending,
   onStop,
   currentSessionId,
   currentAgentId = "default",
@@ -231,18 +234,49 @@ export default function ChatInput({
             </div>
           )}
 
-          {/* Pending message indicator */}
+          {/* Pending message card */}
           {loading && pendingMessage && (
-            <div className="flex items-center gap-2 px-4 pt-2 pb-0 animate-in fade-in-0 slide-in-from-top-1 duration-200">
-              <div className="flex items-center gap-1.5 bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded-lg px-2.5 py-1 text-xs">
-                <div className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
-                <span className="truncate max-w-[300px]">{pendingMessage}</span>
-                <button
-                  className="hover:text-foreground transition-colors"
-                  onClick={onCancelPending}
-                >
-                  <X className="h-3 w-3" />
-                </button>
+            <div className="px-3 pt-2.5 pb-0 animate-in fade-in-0 slide-in-from-top-1 duration-200">
+              <div className="flex items-center gap-2 bg-amber-500/8 border border-amber-500/20 rounded-xl px-3 py-2">
+                <BetweenHorizontalStart className="h-4 w-4 text-amber-500 shrink-0" />
+                <span className="flex-1 text-sm text-foreground/90 truncate">{pendingMessage}</span>
+                <IconTip label={t("chat.pendingDelete")}>
+                  <button
+                    className="p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                    onClick={onDiscardPending}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </IconTip>
+                <DropdownMenu.Root>
+                  <DropdownMenu.Trigger asChild>
+                    <button className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors">
+                      <MoreHorizontal className="h-3.5 w-3.5" />
+                    </button>
+                  </DropdownMenu.Trigger>
+                  <DropdownMenu.Portal>
+                    <DropdownMenu.Content
+                      className="min-w-[140px] bg-popover/95 backdrop-blur-xl border border-border/60 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] p-1.5 z-50 animate-in fade-in-0 zoom-in-95 duration-150"
+                      sideOffset={6}
+                      align="end"
+                    >
+                      <DropdownMenu.Item
+                        className="flex items-center gap-2 px-2.5 py-1.5 text-[13px] text-foreground/80 rounded-md cursor-pointer transition-colors hover:bg-secondary/60 hover:text-foreground outline-none"
+                        onSelect={onCancelPending}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                        {t("chat.pendingEdit")}
+                      </DropdownMenu.Item>
+                      <DropdownMenu.Item
+                        className="flex items-center gap-2 px-2.5 py-1.5 text-[13px] text-foreground/80 rounded-md cursor-pointer transition-colors hover:bg-secondary/60 hover:text-foreground outline-none"
+                        onSelect={onDiscardPending}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                        {t("chat.pendingDiscard")}
+                      </DropdownMenu.Item>
+                    </DropdownMenu.Content>
+                  </DropdownMenu.Portal>
+                </DropdownMenu.Root>
               </div>
             </div>
           )}

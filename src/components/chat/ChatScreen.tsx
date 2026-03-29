@@ -516,6 +516,9 @@ export default function ChatScreen({
                 stream.setInput(stream.pendingMessage || "")
                 stream.setPendingMessage(null)
               }}
+              onDiscardPending={() => {
+                stream.setPendingMessage(null)
+              }}
               onStop={stream.handleStop}
               currentSessionId={session.currentSessionId}
               currentAgentId={session.currentAgentId}
