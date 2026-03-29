@@ -63,7 +63,8 @@ export default function CanvasSettingsPanel() {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-6">
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+      <div className="flex-1 overflow-y-auto p-6">
       <div className="space-y-6">
         {/* Description */}
         <p className="text-xs text-muted-foreground">{t("settings.canvasDesc")}</p>
@@ -157,7 +158,11 @@ export default function CanvasSettingsPanel() {
           </div>
         </div>
 
-        {/* Save */}
+      </div>
+      </div>
+
+      {/* Save — fixed bottom */}
+      <div className="shrink-0 flex justify-end px-6 py-3 border-t border-border/30">
         <Button
           onClick={handleSave}
           disabled={saving || !isDirty}

@@ -92,7 +92,8 @@ export default function WebFetchPanel() {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-6">
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+      <div className="flex-1 overflow-y-auto p-6">
       <div className="space-y-6">
         {/* Header */}
         <div>
@@ -226,33 +227,35 @@ export default function WebFetchPanel() {
           </div>
         </div>
 
-        {/* Save button */}
-        <div className="flex items-center gap-2 pt-2">
-          <Button
-            onClick={save}
-            disabled={(!isDirty && saveStatus === "idle") || saving}
-            className={cn(
-              saveStatus === "saved" && "bg-green-500/10 text-green-600 hover:bg-green-500/20",
-              saveStatus === "failed" && "bg-destructive/10 text-destructive hover:bg-destructive/20",
-            )}
-          >
-            {saving ? (
-              <span className="flex items-center gap-1.5">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                {t("common.saving")}
-              </span>
-            ) : saveStatus === "saved" ? (
-              <span className="flex items-center gap-1.5">
-                <Check className="h-3.5 w-3.5" />
-                {t("common.saved")}
-              </span>
-            ) : saveStatus === "failed" ? (
-              t("common.saveFailed")
-            ) : (
-              t("common.save")
-            )}
-          </Button>
-        </div>
+      </div>
+      </div>
+
+      {/* Save — fixed bottom */}
+      <div className="shrink-0 flex justify-end px-6 py-3 border-t border-border/30">
+        <Button
+          onClick={save}
+          disabled={(!isDirty && saveStatus === "idle") || saving}
+          className={cn(
+            saveStatus === "saved" && "bg-green-500/10 text-green-600 hover:bg-green-500/20",
+            saveStatus === "failed" && "bg-destructive/10 text-destructive hover:bg-destructive/20",
+          )}
+        >
+          {saving ? (
+            <span className="flex items-center gap-1.5">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              {t("common.saving")}
+            </span>
+          ) : saveStatus === "saved" ? (
+            <span className="flex items-center gap-1.5">
+              <Check className="h-3.5 w-3.5" />
+              {t("common.saved")}
+            </span>
+          ) : saveStatus === "failed" ? (
+            t("common.saveFailed")
+          ) : (
+            t("common.save")
+          )}
+        </Button>
       </div>
     </div>
   )
