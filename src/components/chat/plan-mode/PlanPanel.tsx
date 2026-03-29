@@ -42,6 +42,7 @@ interface PlanPanelProps {
   onPause?: () => void
   onResume?: () => void
   onRequestChanges?: (feedback: string) => void
+  panelWidth?: number
 }
 
 /** Floating comment popover shown when user selects text in the plan */
@@ -141,6 +142,7 @@ export function PlanPanel({
   onPause,
   onResume,
   onRequestChanges,
+  panelWidth,
 }: PlanPanelProps) {
   const { t } = useTranslation()
   const [showVersions, setShowVersions] = useState(false)
@@ -432,7 +434,7 @@ export function PlanPanel({
   // Detached: show compact placeholder
   if (detached) {
     return (
-      <div className="flex flex-col border-l border-border w-[200px] shrink-0 bg-background animate-in slide-in-from-right-2 duration-200">
+      <div className="flex flex-col w-[200px] shrink-0 bg-background animate-in slide-in-from-right-2 duration-200">
         <div
           className="flex items-center gap-2 px-3 py-2 border-b border-border bg-secondary/30 shrink-0"
           data-tauri-drag-region
@@ -472,8 +474,9 @@ export function PlanPanel({
       className={
         maximized
           ? "fixed inset-0 z-50 flex flex-col bg-background"
-          : "flex flex-col border-l border-border w-[400px] shrink-0 max-w-[40vw] bg-background animate-in slide-in-from-right-2 duration-200"
+          : "flex flex-col shrink-0 max-w-[40vw] bg-background animate-in slide-in-from-right-2 duration-200"
       }
+      style={maximized ? undefined : { width: panelWidth ?? 400 }}
     >
       {/* Title bar */}
       <div

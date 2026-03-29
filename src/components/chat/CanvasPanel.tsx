@@ -22,7 +22,12 @@ interface CanvasInfo {
   projectPath?: string
 }
 
-export default function CanvasPanel() {
+interface CanvasPanelProps {
+  panelWidth?: number
+  onPanelWidthChange?: (width: number) => void
+}
+
+export default function CanvasPanel({ panelWidth = 480, onPanelWidthChange }: CanvasPanelProps) {
   const { t } = useTranslation()
   const [canvas, setCanvas] = useState<CanvasInfo | null>(null)
   const [maximized, setMaximized] = useState(false)
@@ -270,6 +275,29 @@ export default function CanvasPanel() {
     setDetached(false)
   }, [])
 
+  const handlePanelDragStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startWidth = panelWidth
+    const onMouseMove = (ev: MouseEvent) => {
+      const newWidth = Math.min(960, Math.max(320, startWidth - (ev.clientX - startX)))
+      onPanelWidthChange?.(newWidth)
+    }
+    const iframes = document.querySelectorAll("iframe")
+    iframes.forEach((f) => ((f as HTMLElement).style.pointerEvents = "none"))
+    const onMouseUp = () => {
+      document.removeEventListener("mousemove", onMouseMove)
+      document.removeEventListener("mouseup", onMouseUp)
+      document.body.style.cursor = ""
+      document.body.style.userSelect = ""
+      iframes.forEach((f) => ((f as HTMLElement).style.pointerEvents = ""))
+    }
+    document.addEventListener("mousemove", onMouseMove)
+    document.addEventListener("mouseup", onMouseUp)
+    document.body.style.cursor = "col-resize"
+    document.body.style.userSelect = "none"
+  }, [panelWidth, onPanelWidthChange])
+
   if (!canvas) return null
 
   // Build the asset URL for the iframe via Tauri asset protocol
@@ -281,7 +309,12 @@ export default function CanvasPanel() {
   // When detached, show a compact placeholder panel
   if (detached) {
     return (
-      <div className="flex flex-col border-l border-border w-[200px] shrink-0">
+      <>
+      <div
+        className="w-1 shrink-0 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors"
+        onMouseDown={handlePanelDragStart}
+      />
+      <div className="flex flex-col w-[200px] shrink-0">
         {/* Title Bar */}
         <div
           className="flex items-center gap-2 px-3 py-2 border-b border-border bg-secondary/30 shrink-0"
@@ -315,16 +348,23 @@ export default function CanvasPanel() {
           </p>
         </div>
       </div>
+      </>
     )
   }
 
   return (
+    <>
+    <div
+      className="w-1 shrink-0 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors"
+      onMouseDown={handlePanelDragStart}
+    />
     <div
       className={
         maximized
           ? "fixed inset-0 z-50 flex flex-col bg-background"
-          : "flex flex-col border-l border-border w-[480px] shrink-0 max-w-[50vw]"
+          : "flex flex-col shrink-0 max-w-[50vw]"
       }
+      style={maximized ? undefined : { width: panelWidth }}
     >
       {/* Title Bar */}
       <div
@@ -396,5 +436,6 @@ export default function CanvasPanel() {
         />
       </div>
     </div>
+    </>
   )
 }

@@ -60,6 +60,10 @@ export default function ChatScreen({
   // Sidebar panel width
   const [panelWidth, setPanelWidth] = useState(256)
 
+  // Right panel widths (resizable)
+  const [planPanelWidth, setPlanPanelWidth] = useState(400)
+  const [canvasPanelWidth, setCanvasPanelWidth] = useState(480)
+
   // Context compact state
   const [compacting, setCompacting] = useState(false)
 
@@ -539,24 +543,52 @@ export default function ChatScreen({
 
       {/* Plan Panel (right side) */}
       {planMode.showPanel && planMode.planState !== "off" && (
-        <PlanPanel
-          planState={planMode.planState}
-          planSteps={planMode.planSteps}
-          planContent={planMode.planContent}
-          progress={planMode.progress}
-          completedCount={planMode.completedCount}
-          sessionId={session.currentSessionId}
-          onApprove={handlePlanApprove}
-          onExit={planMode.exitPlanMode}
-          onClose={() => planMode.setShowPanel(false)}
-          onPause={planMode.pauseExecution}
-          onResume={planMode.resumeExecution}
-          onRequestChanges={handleRequestChanges}
-        />
+        <>
+          <div
+            className="w-1 shrink-0 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors"
+            onMouseDown={(e) => {
+              e.preventDefault()
+              const startX = e.clientX
+              const startWidth = planPanelWidth
+              const onMouseMove = (ev: MouseEvent) => {
+                const newWidth = Math.min(800, Math.max(280, startWidth - (ev.clientX - startX)))
+                setPlanPanelWidth(newWidth)
+              }
+              const iframes = document.querySelectorAll("iframe")
+              iframes.forEach((f) => ((f as HTMLElement).style.pointerEvents = "none"))
+              const onMouseUp = () => {
+                document.removeEventListener("mousemove", onMouseMove)
+                document.removeEventListener("mouseup", onMouseUp)
+                document.body.style.cursor = ""
+                document.body.style.userSelect = ""
+                iframes.forEach((f) => ((f as HTMLElement).style.pointerEvents = ""))
+              }
+              document.addEventListener("mousemove", onMouseMove)
+              document.addEventListener("mouseup", onMouseUp)
+              document.body.style.cursor = "col-resize"
+              document.body.style.userSelect = "none"
+            }}
+          />
+          <PlanPanel
+            planState={planMode.planState}
+            planSteps={planMode.planSteps}
+            planContent={planMode.planContent}
+            progress={planMode.progress}
+            completedCount={planMode.completedCount}
+            sessionId={session.currentSessionId}
+            onApprove={handlePlanApprove}
+            onExit={planMode.exitPlanMode}
+            onClose={() => planMode.setShowPanel(false)}
+            onPause={planMode.pauseExecution}
+            onResume={planMode.resumeExecution}
+            onRequestChanges={handleRequestChanges}
+            panelWidth={planPanelWidth}
+          />
+        </>
       )}
 
       {/* Canvas Preview Panel */}
-      <CanvasPanel />
+      <CanvasPanel panelWidth={canvasPanelWidth} onPanelWidthChange={setCanvasPanelWidth} />
     </>
   )
 }
