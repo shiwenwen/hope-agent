@@ -50,6 +50,7 @@ impl Default for CanvasConfig {
 }
 
 /// Check if canvas is enabled in config.
+#[allow(dead_code)]
 pub fn is_canvas_enabled() -> bool {
     crate::provider::load_store()
         .map(|s| s.canvas.enabled)

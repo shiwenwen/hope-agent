@@ -197,6 +197,7 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
 }
 
 /// Check if a command name is valid.
+#[allow(dead_code)]
 pub fn is_valid_command(name: &str) -> bool {
     all_commands().iter().any(|c| c.name == name)
 }

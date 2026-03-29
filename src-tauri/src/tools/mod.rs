@@ -33,8 +33,8 @@ mod amend_plan;
 
 // ── Public Re-exports ─────────────────────────────────────────────
 
-pub use approval::{ApprovalResponse, ToolPermissionMode, submit_approval_response, set_tool_permission_mode, get_tool_permission_mode};
-pub use definitions::{get_available_tools, get_subagent_tool, get_notification_tool, get_image_generate_tool, get_image_generate_tool_dynamic, get_canvas_tool, get_acp_spawn_tool, get_tools_for_provider, is_internal_tool, get_plan_step_tool, get_plan_question_tool, get_submit_plan_tool, get_amend_plan_tool};
+pub use approval::{ApprovalResponse, ToolPermissionMode, submit_approval_response, set_tool_permission_mode};
+pub use definitions::{get_available_tools, get_subagent_tool, get_notification_tool, get_image_generate_tool_dynamic, get_canvas_tool, get_tools_for_provider, is_internal_tool, get_plan_step_tool, get_plan_question_tool, get_submit_plan_tool, get_amend_plan_tool};
 pub use execution::{ToolExecContext, execute_tool_with_context};
 
 // ── Tool Name Constants ──────────────────────────────────────────

@@ -61,6 +61,7 @@ pub enum PlanStepStatus {
 }
 
 impl PlanStepStatus {
+    #[allow(dead_code)]
     pub fn as_str(&self) -> &str {
         match self {
             Self::Pending => "pending",
@@ -124,6 +125,7 @@ pub struct PlanMeta {
 fn default_version() -> u32 { 1 }
 
 impl PlanMeta {
+    #[allow(dead_code)]
     pub fn completed_count(&self) -> usize {
         self.steps.iter().filter(|s| s.status.is_terminal()).count()
     }
@@ -280,12 +282,12 @@ pub const PLAN_MODE_DENIED_TOOLS: &[&str] = &[
     "canvas",
 ];
 
-/// Tools that require user approval (ask) in Plan Mode.
+#[allow(dead_code)]
 pub const PLAN_MODE_ASK_TOOLS: &[&str] = &["exec"];
 
 /// Tools that support path-based allow in Plan Mode.
 /// During Planning, these tools are normally denied, but if the file path targets
-/// a plan file (under plans dir), the operation is allowed.
+#[allow(dead_code)]
 pub const PLAN_MODE_PATH_AWARE_TOOLS: &[&str] = &["write", "edit"];
 
 /// Check if a file path is allowed during Plan Mode (targets a plan file).
@@ -677,6 +679,7 @@ pub fn load_plan_file(session_id: &str) -> Result<Option<String>> {
     Ok(None)
 }
 
+#[allow(dead_code)]
 pub fn delete_plan_file(session_id: &str) -> Result<()> {
     let path = plan_file_path(session_id)?;
     if path.exists() {

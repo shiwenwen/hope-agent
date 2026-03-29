@@ -304,7 +304,6 @@ pub fn run() {
                     if event.state != tauri_plugin_global_shortcut::ShortcutState::Pressed {
                         return;
                     }
-                    use tauri::Manager;
                     use tauri::Emitter;
                     use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
@@ -317,7 +316,7 @@ pub fn run() {
                         if let Some(pending) = state.as_ref() {
                             if std::time::Instant::now() < pending.deadline {
                                 // Check if this shortcut matches any expected second part
-                                if let Some((action_id, second_str)) = pending.completions.iter()
+                                if let Some((action_id, _second_str)) = pending.completions.iter()
                                     .find(|(_, s)| s.parse::<tauri_plugin_global_shortcut::Shortcut>()
                                         .map(|parsed| parsed == *shortcut).unwrap_or(false))
                                     .cloned()

@@ -6,7 +6,7 @@
 
 use anyhow::Result;
 use std::sync::Arc;
-use sysinfo::{Pid, ProcessesToUpdate, System};
+use sysinfo::{ProcessesToUpdate, System};
 
 use crate::cron::CronDB;
 use crate::logging::LogDB;
@@ -464,7 +464,7 @@ fn params_ref(params: &[Box<dyn rusqlite::types::ToSql>]) -> Vec<&dyn rusqlite::
 /// Overview stats: session/message/token counts, tool calls, errors, active agents/cron.
 pub fn query_overview(
     session_db: &Arc<SessionDB>,
-    log_db: &Arc<LogDB>,
+    _log_db: &Arc<LogDB>,
     cron_db: &Arc<CronDB>,
     filter: &DashboardFilter,
 ) -> Result<OverviewStats> {

@@ -21,7 +21,7 @@ pub fn bump_skill_version() {
     SKILL_CACHE_VERSION.fetch_add(1, Ordering::Relaxed);
 }
 
-/// Get the current skill cache version.
+#[allow(dead_code)]
 pub fn skill_cache_version() -> u64 {
     SKILL_CACHE_VERSION.load(Ordering::Relaxed)
 }
@@ -235,6 +235,7 @@ pub struct SkillStatusEntry {
 }
 
 /// Cached skill entries with version tracking.
+#[allow(dead_code)]
 pub struct SkillCache {
     pub entries: Vec<SkillEntry>,
     pub version: u64,
@@ -244,6 +245,7 @@ pub struct SkillCache {
 
 impl SkillCache {
     /// Check if the cache is still valid (30-second TTL + version match).
+    #[allow(dead_code)]
     pub fn is_valid(&self, extra_dirs: &[String]) -> bool {
         self.loaded_at.elapsed() < std::time::Duration::from_secs(30)
             && self.version == SKILL_CACHE_VERSION.load(Ordering::Relaxed)
@@ -258,6 +260,7 @@ struct ParsedFrontmatter {
     name: String,
     description: String,
     requires: SkillRequires,
+    #[allow(dead_code)]
     body: String,
     skill_key: Option<String>,
     user_invocable: Option<bool>,

@@ -270,7 +270,7 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
     }
 
     let mut images = Vec::new();
-    for (i, b64) in base64_images.iter().enumerate() {
+    for (_i, b64) in base64_images.iter().enumerate() {
         if b64.is_empty() {
             continue;
         }

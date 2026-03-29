@@ -31,12 +31,12 @@ pub struct ToolDefinition {
 }
 
 impl ToolDefinition {
-    /// Create a new external (non-internal) tool definition.
+    #[allow(dead_code)]
     fn new(name: &str, description: &str, parameters: Value) -> Self {
         Self { name: name.into(), description: description.into(), parameters, internal: false }
     }
 
-    /// Create a new internal capability tool definition (never requires approval).
+    #[allow(dead_code)]
     fn new_internal(name: &str, description: &str, parameters: Value) -> Self {
         Self { name: name.into(), description: description.into(), parameters, internal: true }
     }

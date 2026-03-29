@@ -84,6 +84,7 @@ pub(crate) struct ImageGenParams<'a> {
 /// Trait for image generation providers.
 pub(crate) trait ImageGenProviderImpl: Send + Sync {
     /// Unique provider id (lowercase), e.g. "openai", "google", "fal", "minimax"
+    #[allow(dead_code)]
     fn id(&self) -> &str;
 
     /// Human-readable display name, e.g. "OpenAI", "Google", "Fal", "MiniMax"
@@ -405,7 +406,7 @@ fn decode_data_url(url: &str) -> Result<InputImage> {
 fn infer_resolution(images: &[InputImage]) -> &'static str {
     let mut max_dim: u32 = 0;
     for img in images {
-        if let Ok(reader) = image::io::Reader::new(std::io::Cursor::new(&img.data)).with_guessed_format() {
+        if let Ok(reader) = image::ImageReader::new(std::io::Cursor::new(&img.data)).with_guessed_format() {
             if let Ok(dims) = reader.into_dimensions() {
                 max_dim = max_dim.max(dims.0).max(dims.1);
             }

@@ -79,6 +79,7 @@ impl StdioAcpRuntime {
         // Prevent the child from becoming a zombie
         #[cfg(unix)]
         {
+            #[allow(unused_imports)]
             use std::os::unix::process::CommandExt;
             unsafe {
                 cmd.pre_exec(|| {
