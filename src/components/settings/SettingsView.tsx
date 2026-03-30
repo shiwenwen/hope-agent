@@ -22,6 +22,7 @@ import {
   Container,
   Cable,
   ClipboardList,
+  MessageCircle,
 } from "lucide-react"
 import type { ProviderConfig } from "@/components/settings/ProviderSettings"
 import ProviderSetup from "@/components/settings/ProviderSetup"
@@ -44,6 +45,7 @@ import NotificationPanel from "@/components/settings/NotificationPanel"
 import DeveloperPanel from "@/components/settings/DeveloperPanel"
 import SandboxPanel from "@/components/settings/SandboxPanel"
 import AcpControlPanel from "@/components/settings/AcpControlPanel"
+import ChannelPanel from "@/components/settings/ChannelPanel"
 import type { SettingsSection, SettingsSectionItem } from "./types"
 
 const SECTIONS: SettingsSectionItem[] = [
@@ -101,6 +103,11 @@ const SECTIONS: SettingsSectionItem[] = [
     id: "acp",
     icon: <Cable className="h-4 w-4" />,
     labelKey: "settings.acpControl",
+  },
+  {
+    id: "channels",
+    icon: <MessageCircle className="h-4 w-4" />,
+    labelKey: "settings.channels",
   },
   {
     id: "cron",
@@ -251,6 +258,7 @@ export default function SettingsView({
             {activeSection === "tools" && <ToolSettingsPanel />}
             {activeSection === "sandbox" && <SandboxPanel />}
             {activeSection === "acp" && <AcpControlPanel />}
+            {activeSection === "channels" && <ChannelPanel />}
             {activeSection === "permissions" && <PermissionsPanel />}
             {activeSection === "chat" && <ChatSettingsPanel />}
             {activeSection === "plan" && <PlanSettingsPanel />}

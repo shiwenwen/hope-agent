@@ -548,6 +548,21 @@ pub struct ProviderStore {
     /// Memory deduplication thresholds
     #[serde(default)]
     pub dedup: crate::memory::DedupConfig,
+    /// Hybrid search weight configuration
+    #[serde(default)]
+    pub hybrid_search: crate::memory::HybridSearchConfig,
+    /// Temporal decay configuration for memory search
+    #[serde(default)]
+    pub temporal_decay: crate::memory::TemporalDecayConfig,
+    /// MMR reranking configuration
+    #[serde(default)]
+    pub mmr: crate::memory::MmrConfig,
+    /// Multimodal embedding configuration (image/audio)
+    #[serde(default)]
+    pub multimodal: crate::memory::MultimodalConfig,
+    /// Embedding cache configuration
+    #[serde(default)]
+    pub embedding_cache: crate::memory::EmbeddingCacheConfig,
     /// Context compaction configuration
     #[serde(default)]
     pub compact: crate::context_compact::CompactConfig,
@@ -605,6 +620,10 @@ pub struct ProviderStore {
     /// Default: false (inline mode)
     #[serde(default)]
     pub plan_subagent: bool,
+
+    /// IM channel configuration (Telegram, Discord, Slack, etc.)
+    #[serde(default)]
+    pub channels: crate::channel::ChannelStoreConfig,
 }
 
 fn default_skill_env_check() -> bool {
@@ -635,6 +654,11 @@ impl Default for ProviderStore {
             embedding: crate::memory::EmbeddingConfig::default(),
             memory_extract: crate::memory::MemoryExtractConfig::default(),
             dedup: crate::memory::DedupConfig::default(),
+            hybrid_search: crate::memory::HybridSearchConfig::default(),
+            temporal_decay: crate::memory::TemporalDecayConfig::default(),
+            mmr: crate::memory::MmrConfig::default(),
+            multimodal: crate::memory::MultimodalConfig::default(),
+            embedding_cache: crate::memory::EmbeddingCacheConfig::default(),
             web_search: crate::tools::web_search::WebSearchConfig::default(),
             web_fetch: crate::tools::web_fetch::WebFetchConfig::default(),
             skill_env: std::collections::HashMap::new(),
@@ -653,6 +677,7 @@ impl Default for ProviderStore {
             plans_directory: None,
             temperature: None,
             plan_subagent: false,
+            channels: crate::channel::ChannelStoreConfig::default(),
         }
     }
 }

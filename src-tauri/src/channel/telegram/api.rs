@@ -1,0 +1,214 @@
+use anyhow::Result;
+use teloxide::prelude::*;
+use teloxide::types::{
+    ChatAction, ChatId, InputFile, Me, MessageId, ParseMode as TgParseMode,
+    ReplyParameters, ThreadId,
+};
+
+/// Thin wrapper around teloxide's `Bot` to isolate framework details.
+pub struct TelegramBotApi {
+    bot: Bot,
+}
+
+impl TelegramBotApi {
+    /// Create a new Telegram Bot API client.
+    ///
+    /// If `proxy_url` is provided, it's set via `HTTPS_PROXY` env before creating
+    /// the client (teloxide reads proxy from env via `client_from_env()`).
+    pub fn new(token: &str, proxy_url: Option<&str>, _api_root: Option<&str>) -> Self {
+        // Teloxide's Bot::new() uses `client_from_env()` which reads HTTPS_PROXY.
+        // For a per-account proxy, we temporarily set the env var.
+        // This is safe because bot creation is synchronous.
+        let bot = if let Some(proxy) = proxy_url {
+            let prev = std::env::var("HTTPS_PROXY").ok();
+            std::env::set_var("HTTPS_PROXY", proxy);
+            let bot = Bot::new(token);
+            // Restore previous value
+            match prev {
+                Some(val) => std::env::set_var("HTTPS_PROXY", val),
+                None => std::env::remove_var("HTTPS_PROXY"),
+            }
+            bot
+        } else {
+            Bot::new(token)
+        };
+
+        Self { bot }
+    }
+
+    /// Get the underlying teloxide Bot reference.
+    pub fn bot(&self) -> &Bot {
+        &self.bot
+    }
+
+    /// Verify the bot token and return bot info.
+    pub async fn get_me(&self) -> Result<Me> {
+        self.bot.get_me().await.map_err(|e| anyhow::anyhow!("getMe failed: {}", e))
+    }
+
+    /// Send a text message.
+    pub async fn send_text(
+        &self,
+        chat_id: i64,
+        text: &str,
+        parse_mode: Option<TgParseMode>,
+        reply_to: Option<i32>,
+        thread_id: Option<i32>,
+    ) -> Result<teloxide::types::Message> {
+        let mut req = self.bot.send_message(ChatId(chat_id), text);
+
+        if let Some(pm) = parse_mode {
+            req = req.parse_mode(pm);
+        }
+        if let Some(reply_id) = reply_to {
+            req = req.reply_parameters(ReplyParameters::new(MessageId(reply_id)));
+        }
+        if let Some(tid) = thread_id {
+            req = req.message_thread_id(ThreadId(teloxide::types::MessageId(tid)));
+        }
+
+        req.await.map_err(|e| anyhow::anyhow!("sendMessage failed: {}", e))
+    }
+
+    /// Send a text message, falling back to plain text if parse mode fails.
+    pub async fn send_text_with_fallback(
+        &self,
+        chat_id: i64,
+        text: &str,
+        reply_to: Option<i32>,
+        thread_id: Option<i32>,
+    ) -> Result<teloxide::types::Message> {
+        // Try with HTML first
+        match self.send_text(chat_id, text, Some(TgParseMode::Html), reply_to, thread_id).await {
+            Ok(msg) => Ok(msg),
+            Err(_) => {
+                // Fallback: strip HTML tags and send as plain text
+                let plain = strip_html_tags(text);
+                self.send_text(chat_id, &plain, None, reply_to, thread_id).await
+            }
+        }
+    }
+
+    /// Send a typing indicator (chat action).
+    pub async fn send_typing(&self, chat_id: i64) -> Result<()> {
+        self.bot
+            .send_chat_action(ChatId(chat_id), ChatAction::Typing)
+            .await
+            .map_err(|e| anyhow::anyhow!("sendChatAction failed: {}", e))?;
+        Ok(())
+    }
+
+    /// Edit an existing text message.
+    pub async fn edit_message_text(
+        &self,
+        chat_id: i64,
+        message_id: i32,
+        text: &str,
+        parse_mode: Option<TgParseMode>,
+    ) -> Result<()> {
+        let mut req = self.bot.edit_message_text(ChatId(chat_id), MessageId(message_id), text);
+        if let Some(pm) = parse_mode {
+            req = req.parse_mode(pm);
+        }
+        req.await.map_err(|e| anyhow::anyhow!("editMessageText failed: {}", e))?;
+        Ok(())
+    }
+
+    /// Delete a message.
+    pub async fn delete_message(&self, chat_id: i64, message_id: i32) -> Result<()> {
+        self.bot
+            .delete_message(ChatId(chat_id), MessageId(message_id))
+            .await
+            .map_err(|e| anyhow::anyhow!("deleteMessage failed: {}", e))?;
+        Ok(())
+    }
+
+    /// Get updates using long-polling.
+    pub async fn get_updates(
+        &self,
+        offset: i32,
+        timeout: u32,
+        allowed_updates: &[&str],
+    ) -> Result<Vec<teloxide::types::Update>> {
+        use teloxide::types::AllowedUpdate;
+
+        let mut req = self.bot.get_updates().offset(offset).timeout(timeout);
+
+        // Map string allowed_updates to teloxide enum
+        let updates: Vec<AllowedUpdate> = allowed_updates
+            .iter()
+            .filter_map(|s| match *s {
+                "message" => Some(AllowedUpdate::Message),
+                "edited_message" => Some(AllowedUpdate::EditedMessage),
+                "callback_query" => Some(AllowedUpdate::CallbackQuery),
+                "channel_post" => Some(AllowedUpdate::ChannelPost),
+                _ => None,
+            })
+            .collect();
+
+        if !updates.is_empty() {
+            req = req.allowed_updates(updates);
+        }
+
+        req.await.map_err(|e| anyhow::anyhow!("getUpdates failed: {}", e))
+    }
+
+    /// Download a file by file_id (returns the file path on Telegram servers).
+    pub async fn get_file(&self, file_id: &str) -> Result<teloxide::types::File> {
+        self.bot
+            .get_file(file_id)
+            .await
+            .map_err(|e| anyhow::anyhow!("getFile failed: {}", e))
+    }
+
+    /// Send a photo.
+    pub async fn send_photo(
+        &self,
+        chat_id: i64,
+        photo: InputFile,
+        caption: Option<&str>,
+        thread_id: Option<i32>,
+    ) -> Result<teloxide::types::Message> {
+        let mut req = self.bot.send_photo(ChatId(chat_id), photo);
+        if let Some(c) = caption {
+            req = req.caption(c);
+        }
+        if let Some(tid) = thread_id {
+            req = req.message_thread_id(ThreadId(teloxide::types::MessageId(tid)));
+        }
+        req.await.map_err(|e| anyhow::anyhow!("sendPhoto failed: {}", e))
+    }
+
+    /// Send a document (file).
+    pub async fn send_document(
+        &self,
+        chat_id: i64,
+        document: InputFile,
+        caption: Option<&str>,
+        thread_id: Option<i32>,
+    ) -> Result<teloxide::types::Message> {
+        let mut req = self.bot.send_document(ChatId(chat_id), document);
+        if let Some(c) = caption {
+            req = req.caption(c);
+        }
+        if let Some(tid) = thread_id {
+            req = req.message_thread_id(ThreadId(teloxide::types::MessageId(tid)));
+        }
+        req.await.map_err(|e| anyhow::anyhow!("sendDocument failed: {}", e))
+    }
+}
+
+/// Strip HTML tags from text (simple implementation for fallback).
+fn strip_html_tags(html: &str) -> String {
+    let mut result = String::with_capacity(html.len());
+    let mut in_tag = false;
+    for ch in html.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => result.push(ch),
+            _ => {}
+        }
+    }
+    result
+}

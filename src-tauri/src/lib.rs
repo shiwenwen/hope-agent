@@ -7,6 +7,7 @@ mod agent_config;
 mod agent_loader;
 mod browser_state;
 mod canvas_db;
+pub mod channel;
 mod commands;
 mod cron;
 mod dev_tools;
@@ -85,6 +86,8 @@ static CRON_DB: std::sync::OnceLock<Arc<cron::CronDB>> = std::sync::OnceLock::ne
 static SESSION_DB: std::sync::OnceLock<Arc<SessionDB>> = std::sync::OnceLock::new();
 static SUBAGENT_CANCELS: std::sync::OnceLock<Arc<subagent::SubagentCancelRegistry>> = std::sync::OnceLock::new();
 static ACP_MANAGER: std::sync::OnceLock<Arc<acp_control::AcpSessionManager>> = std::sync::OnceLock::new();
+static CHANNEL_REGISTRY: std::sync::OnceLock<Arc<channel::ChannelRegistry>> = std::sync::OnceLock::new();
+static CHANNEL_DB: std::sync::OnceLock<Arc<channel::ChannelDB>> = std::sync::OnceLock::new();
 
 /// Get stored AppLogger for global logging
 pub fn get_logger() -> Option<&'static AppLogger> {
@@ -119,6 +122,16 @@ pub fn get_subagent_cancels() -> Option<&'static Arc<subagent::SubagentCancelReg
 /// Get stored AcpSessionManager for ACP control plane operations
 pub fn get_acp_manager() -> Option<&'static Arc<acp_control::AcpSessionManager>> {
     ACP_MANAGER.get()
+}
+
+/// Get stored ChannelRegistry for IM channel operations
+pub fn get_channel_registry() -> Option<&'static Arc<channel::ChannelRegistry>> {
+    CHANNEL_REGISTRY.get()
+}
+
+/// Get stored ChannelDB for channel conversation management
+pub fn get_channel_db() -> Option<&'static Arc<channel::ChannelDB>> {
+    CHANNEL_DB.get()
 }
 
 /// If SearXNG is docker-managed and enabled, auto-start the container on app launch.
@@ -643,6 +656,43 @@ pub fn run() {
             // Clean up orphan sub-agent runs from previous app session
             subagent::cleanup_orphan_runs(&session_db);
 
+            // Initialize IM Channel system
+            {
+                let (mut registry, inbound_rx) = channel::ChannelRegistry::new(256);
+
+                // Register built-in channel plugins
+                registry.register_plugin(Arc::new(channel::telegram::TelegramPlugin::new()));
+
+                let registry = Arc::new(registry);
+                let channel_db = Arc::new(channel::ChannelDB::new(session_db.clone()));
+
+                // Run channel DB migration
+                if let Err(e) = channel_db.migrate() {
+                    app_error!("channel", "init", "Failed to run channel DB migration: {}", e);
+                }
+
+                // Spawn the inbound message dispatcher
+                channel::worker::spawn_dispatcher(
+                    registry.clone(),
+                    channel_db.clone(),
+                    inbound_rx,
+                );
+
+                // Auto-start enabled channel accounts
+                let channel_registry_clone = registry.clone();
+                let store_for_channels = provider::load_store().unwrap_or_default();
+                tokio::spawn(async move {
+                    for account in store_for_channels.channels.enabled_accounts() {
+                        if let Err(e) = channel_registry_clone.start_account(account).await {
+                            app_error!("channel", "init", "Failed to auto-start channel account '{}': {}", account.label, e);
+                        }
+                    }
+                });
+
+                let _ = CHANNEL_REGISTRY.set(registry);
+                let _ = CHANNEL_DB.set(channel_db);
+            }
+
             // Initialize ACP control plane
             {
                 let store = provider::load_store().unwrap_or_default();
@@ -775,6 +825,16 @@ pub fn run() {
             commands::memory::save_extract_config,
             commands::memory::get_dedup_config,
             commands::memory::save_dedup_config,
+            commands::memory::get_hybrid_search_config,
+            commands::memory::save_hybrid_search_config,
+            commands::memory::get_temporal_decay_config,
+            commands::memory::save_temporal_decay_config,
+            commands::memory::get_mmr_config,
+            commands::memory::save_mmr_config,
+            commands::memory::get_embedding_cache_config,
+            commands::memory::save_embedding_cache_config,
+            commands::memory::get_multimodal_config,
+            commands::memory::save_multimodal_config,
             commands::memory::get_embedding_config,
             commands::memory::save_embedding_config,
             commands::memory::get_embedding_presets,
@@ -926,6 +986,19 @@ pub fn run() {
             // URL preview
             commands::url_preview::fetch_url_preview,
             commands::url_preview::fetch_url_previews,
+            // IM Channel management
+            commands::channel::channel_list_plugins,
+            commands::channel::channel_list_accounts,
+            commands::channel::channel_add_account,
+            commands::channel::channel_update_account,
+            commands::channel::channel_remove_account,
+            commands::channel::channel_start_account,
+            commands::channel::channel_stop_account,
+            commands::channel::channel_health,
+            commands::channel::channel_health_all,
+            commands::channel::channel_validate_credentials,
+            commands::channel::channel_send_test_message,
+            commands::channel::channel_list_sessions,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

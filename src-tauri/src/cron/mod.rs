@@ -1,5 +1,5 @@
 mod db;
-mod executor;
+pub(crate) mod executor;
 mod schedule;
 mod scheduler;
 mod types;

@@ -16,3 +16,4 @@ pub mod misc;
 pub mod acp_control;
 pub mod plan;
 pub mod url_preview;
+pub mod channel;

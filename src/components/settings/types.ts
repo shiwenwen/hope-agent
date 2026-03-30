@@ -15,6 +15,7 @@ export type SettingsSection =
   | "logs"
   | "health"
   | "about"
+  | "channels"
   | "developer"
 
 export interface SettingsSectionItem {
