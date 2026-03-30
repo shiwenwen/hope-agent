@@ -5,12 +5,22 @@ use tauri::Emitter;
 
 use super::db::ChannelDB;
 use super::registry::ChannelRegistry;
+use super::traits::ChannelPlugin;
 use super::types::*;
 
 /// Notify the frontend that a channel session has new messages.
 fn emit_channel_update(session_id: &str) {
     if let Some(handle) = crate::get_app_handle() {
         let _ = handle.emit("channel:message_update", serde_json::json!({
+            "sessionId": session_id,
+        }));
+    }
+}
+
+/// Notify the frontend that a channel session started/stopped streaming.
+fn emit_stream_lifecycle(event_name: &str, session_id: &str) {
+    if let Some(handle) = crate::get_app_handle() {
+        let _ = handle.emit(event_name, serde_json::json!({
             "sessionId": session_id,
         }));
     }
@@ -69,7 +79,8 @@ async fn handle_inbound_message(
 
     // 2. Check access control
     let plugin = registry.get_plugin(&msg.channel_id)
-        .ok_or_else(|| anyhow::anyhow!("No plugin for channel: {}", msg.channel_id))?;
+        .ok_or_else(|| anyhow::anyhow!("No plugin for channel: {}", msg.channel_id))?
+        .clone();
 
     if !plugin.check_access(&account, &msg) {
         app_warn!("channel", "worker", "[{}] Access denied for sender {} in {}",
@@ -194,6 +205,22 @@ async fn handle_inbound_message(
     };
     let canvas_enabled = store.canvas.enabled;
 
+    // 8. Create ChannelStreamSink + spawn streaming background task
+    let (event_tx, event_rx) = mpsc::unbounded_channel::<String>();
+
+    let supports_draft = plugin.capabilities().supports_draft;
+    let max_msg_len = plugin.capabilities().max_message_length.unwrap_or(4096);
+    let stream_task = spawn_channel_stream_task(
+        event_rx,
+        plugin.clone(),
+        account.id.clone(),
+        msg.chat_id.clone(),
+        msg.message_id.clone(),
+        msg.thread_id.clone(),
+        supports_draft,
+        max_msg_len,
+    );
+
     let engine_params = crate::chat_engine::ChatEngineParams {
         session_id: session_id.clone(),
         agent_id: agent_id.clone(),
@@ -213,51 +240,24 @@ async fn handle_inbound_message(
         cancel: Arc::new(AtomicBool::new(false)),
         plan_agent_mode: None,
         plan_mode_allow_paths: None,
-        event_sink: Arc::new(crate::chat_engine::EmitSink::new(session_id.clone())),
+        event_sink: Arc::new(crate::chat_engine::ChannelStreamSink::new(session_id.clone(), event_tx)),
     };
 
-    // 8. Run shared chat engine (streaming, failover, tool persistence, etc.)
+    // Notify frontend that streaming started (loading indicator)
+    emit_stream_lifecycle("channel:stream_start", &session_id);
+
+    // 9. Run shared chat engine (streaming, failover, tool persistence, etc.)
     let result = crate::chat_engine::run_chat_engine(engine_params).await;
 
-    // 9. Process result — send response to IM channel
+    // Drop the sink's sender is implicit — engine_params is consumed.
+    // Wait for the streaming background task to finish.
+    let _ = stream_task.await;
+
+    // 10. Process result — send final formatted response via sendMessage
     match result {
         Ok(engine_result) => {
             let response = &engine_result.response;
-
-            // Convert and send through IM channel
-            let native_text = plugin.markdown_to_native(response);
-            let chunks = plugin.chunk_message(&native_text);
-
-            for (i, chunk) in chunks.iter().enumerate() {
-                let payload = if i == 0 {
-                    ReplyPayload {
-                        text: Some(chunk.clone()),
-                        reply_to_message_id: Some(msg.message_id.clone()),
-                        thread_id: msg.thread_id.clone(),
-                        parse_mode: Some(ParseMode::Html),
-                        ..ReplyPayload::text("")
-                    }
-                } else {
-                    ReplyPayload {
-                        text: Some(chunk.clone()),
-                        thread_id: msg.thread_id.clone(),
-                        parse_mode: Some(ParseMode::Html),
-                        ..ReplyPayload::text("")
-                    }
-                };
-
-                match plugin.send_message(&account.id, &msg.chat_id, &payload).await {
-                    Ok(r) => {
-                        if !r.success {
-                            app_warn!("channel", "worker", "[{}] Send failed: {}",
-                                channel_id_str, r.error.unwrap_or_default());
-                        }
-                    }
-                    Err(e) => {
-                        app_error!("channel", "worker", "[{}] Send error: {}", channel_id_str, e);
-                    }
-                }
-            }
+            send_final_reply(&plugin, &account.id, &msg, response).await;
 
             app_info!("channel", "worker", "[{}] Reply sent to {} ({} chars)",
                 channel_id_str, msg.chat_id, response.len());
@@ -265,14 +265,175 @@ async fn handle_inbound_message(
         Err(e) => {
             app_error!("channel", "worker", "[{}] Agent error: {}", channel_id_str, e);
 
-            // Send error notification to channel
-            let error_text = "⚠️ Sorry, I encountered an error processing your message. Please try again.".to_string();
-            let payload = ReplyPayload::text(error_text);
+            let error_text = "⚠️ Sorry, I encountered an error processing your message. Please try again.";
+            let payload = ReplyPayload {
+                text: Some(error_text.to_string()),
+                reply_to_message_id: Some(msg.message_id.clone()),
+                thread_id: msg.thread_id.clone(),
+                ..ReplyPayload::text("")
+            };
             let _ = plugin.send_message(&account.id, &msg.chat_id, &payload).await;
         }
     }
 
+    // Notify frontend that streaming ended
+    emit_stream_lifecycle("channel:stream_end", &session_id);
+
     // Emit final update so frontend reloads complete message from DB
     emit_channel_update(&session_id);
     Ok(())
+}
+
+/// Send the final formatted response to the IM channel.
+///
+/// Converts markdown to native format, chunks if needed, and sends via `send_message`.
+/// This is always the last step — drafts are just previews, `sendMessage` commits.
+async fn send_final_reply(
+    plugin: &Arc<dyn ChannelPlugin>,
+    account_id: &str,
+    msg: &MsgContext,
+    response: &str,
+) {
+    let native_text = plugin.markdown_to_native(response);
+    let chunks = plugin.chunk_message(&native_text);
+
+    for (i, chunk) in chunks.iter().enumerate() {
+        let payload = if i == 0 {
+            ReplyPayload {
+                text: Some(chunk.clone()),
+                reply_to_message_id: Some(msg.message_id.clone()),
+                thread_id: msg.thread_id.clone(),
+                parse_mode: Some(ParseMode::Html),
+                ..ReplyPayload::text("")
+            }
+        } else {
+            ReplyPayload {
+                text: Some(chunk.clone()),
+                thread_id: msg.thread_id.clone(),
+                parse_mode: Some(ParseMode::Html),
+                ..ReplyPayload::text("")
+            }
+        };
+
+        match plugin.send_message(account_id, &msg.chat_id, &payload).await {
+            Ok(r) => {
+                if !r.success {
+                    app_warn!("channel", "worker", "Send failed: {}",
+                        r.error.unwrap_or_default());
+                }
+            }
+            Err(e) => {
+                app_error!("channel", "worker", "Send error: {}", e);
+            }
+        }
+    }
+}
+
+// ── Channel Streaming Background Task ──────────────────────────────
+
+/// Spawn a background task that receives streaming events from the chat engine
+/// and sends progressive drafts to the IM channel via `send_draft` (e.g. Telegram's
+/// `sendMessageDraft` — Bot API 9.3+).
+///
+/// Draft-based streaming flow:
+/// 1. Accumulate text_delta events from the chat engine
+/// 2. Periodically call `send_draft` with accumulated text (no rate limiting, no flicker)
+/// 3. When engine finishes, the caller sends the final `send_message` to commit
+///
+/// For channels without `send_draft` support, events are simply drained (frontend
+/// still receives streaming via `channel:stream_delta` Tauri events).
+fn spawn_channel_stream_task(
+    mut event_rx: mpsc::UnboundedReceiver<String>,
+    plugin: Arc<dyn ChannelPlugin>,
+    account_id: String,
+    chat_id: String,
+    reply_to_message_id: String,
+    thread_id: Option<String>,
+    supports_draft: bool,
+    max_msg_len: usize,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        // If the channel doesn't support drafts, just drain events and return.
+        // Frontend still receives streaming via channel:stream_delta events.
+        if !supports_draft {
+            while event_rx.recv().await.is_some() {}
+            return;
+        }
+
+        let mut accumulated = String::new();
+        let mut dirty = false;
+        // sendMessageDraft has no rate limiting, but we still batch to avoid
+        // excessive network calls. 300ms gives smooth streaming.
+        let mut interval = tokio::time::interval(std::time::Duration::from_millis(300));
+        // Don't fire immediately
+        interval.tick().await;
+
+        loop {
+            tokio::select! {
+                biased;
+
+                event = event_rx.recv() => {
+                    match event {
+                        Some(event_str) => {
+                            if let Some(text) = extract_text_delta(&event_str) {
+                                accumulated.push_str(&text);
+                                dirty = true;
+                            }
+                        }
+                        None => {
+                            // Channel closed — engine finished. Send one last draft if dirty.
+                            if dirty && !accumulated.is_empty() && accumulated.len() <= max_msg_len {
+                                send_draft(
+                                    &plugin, &account_id, &chat_id,
+                                    &reply_to_message_id, thread_id.as_deref(),
+                                    &accumulated,
+                                ).await;
+                            }
+                            break;
+                        }
+                    }
+                }
+
+                _ = interval.tick() => {
+                    if dirty && !accumulated.is_empty() && accumulated.len() <= max_msg_len {
+                        send_draft(
+                            &plugin, &account_id, &chat_id,
+                            &reply_to_message_id, thread_id.as_deref(),
+                            &accumulated,
+                        ).await;
+                        dirty = false;
+                    }
+                }
+            }
+        }
+    })
+}
+
+/// Extract text from a `text_delta` event JSON string.
+fn extract_text_delta(event_str: &str) -> Option<String> {
+    let event: serde_json::Value = serde_json::from_str(event_str).ok()?;
+    if event.get("type")?.as_str()? != "text_delta" {
+        return None;
+    }
+    event.get("text")?.as_str().map(|s| s.to_string())
+}
+
+/// Send a draft to the IM channel for progressive streaming display.
+async fn send_draft(
+    plugin: &Arc<dyn ChannelPlugin>,
+    account_id: &str,
+    chat_id: &str,
+    reply_to_message_id: &str,
+    thread_id: Option<&str>,
+    text: &str,
+) {
+    let payload = ReplyPayload {
+        text: Some(text.to_string()),
+        reply_to_message_id: Some(reply_to_message_id.to_string()),
+        thread_id: thread_id.map(|s| s.to_string()),
+        ..ReplyPayload::text("")
+    };
+    if let Err(e) = plugin.send_draft(account_id, chat_id, &payload).await {
+        app_warn!("channel", "worker", "send_draft failed: {}", e);
+    }
 }

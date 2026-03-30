@@ -46,28 +46,32 @@ impl EventSink for ChannelSink {
     }
 }
 
-/// EventSink for IM channel worker — pushes streaming events via Tauri global emit.
-/// Sends `channel:stream_delta` with only the delta text (frontend accumulates).
-pub struct EmitSink {
+/// EventSink for IM channel worker — pushes streaming events via Tauri global emit
+/// AND forwards them to a background task for progressive Telegram message editing.
+pub struct ChannelStreamSink {
     pub session_id: String,
+    /// Forwards raw events to the channel streaming background task.
+    pub event_tx: tokio::sync::mpsc::UnboundedSender<String>,
 }
 
-impl EmitSink {
-    pub fn new(session_id: String) -> Self {
-        Self { session_id }
+impl ChannelStreamSink {
+    pub fn new(session_id: String, event_tx: tokio::sync::mpsc::UnboundedSender<String>) -> Self {
+        Self { session_id, event_tx }
     }
 }
 
-impl EventSink for EmitSink {
+impl EventSink for ChannelStreamSink {
     fn send(&self, event: &str) {
+        // 1. Emit to frontend for real-time streaming display
         if let Some(handle) = crate::get_app_handle() {
             use tauri::Emitter;
-            // Forward the raw event — frontend handles text_delta accumulation
             let _ = handle.emit("channel:stream_delta", serde_json::json!({
                 "sessionId": &self.session_id,
                 "event": event,
             }));
         }
+        // 2. Forward to background task for progressive IM channel delivery
+        let _ = self.event_tx.send(event.to_string());
     }
 }
 

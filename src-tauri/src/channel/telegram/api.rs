@@ -123,6 +123,55 @@ impl TelegramBotApi {
         Ok(())
     }
 
+    /// Send a message draft for streaming (Bot API 9.3+).
+    ///
+    /// This is a purpose-built method for streaming partial messages during generation.
+    /// Unlike `editMessageText`, it has no rate limiting and renders progressively
+    /// without flicker. Call repeatedly with accumulated text, then finalize with
+    /// `send_text()` to commit the message.
+    ///
+    /// teloxide 0.13 doesn't have native support, so we use a raw HTTP request.
+    pub async fn send_message_draft(
+        &self,
+        chat_id: i64,
+        text: &str,
+        reply_to: Option<i32>,
+        thread_id: Option<i32>,
+    ) -> Result<()> {
+        let token = self.bot.token();
+        let url = format!("https://api.telegram.org/bot{}/sendMessageDraft", token);
+
+        let mut body = serde_json::json!({
+            "chat_id": chat_id,
+            "text": text,
+        });
+
+        if let Some(reply_id) = reply_to {
+            body["reply_parameters"] = serde_json::json!({
+                "message_id": reply_id,
+            });
+        }
+        if let Some(tid) = thread_id {
+            body["message_thread_id"] = serde_json::json!(tid);
+        }
+
+        let client = reqwest::Client::new();
+        let resp = client
+            .post(&url)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("sendMessageDraft request failed: {}", e))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            anyhow::bail!("sendMessageDraft failed ({}): {}", status, crate::truncate_utf8(&text, 200));
+        }
+
+        Ok(())
+    }
+
     /// Get updates using long-polling.
     pub async fn get_updates(
         &self,
@@ -155,8 +204,9 @@ impl TelegramBotApi {
 
     /// Download a file by file_id (returns the file path on Telegram servers).
     pub async fn get_file(&self, file_id: &str) -> Result<teloxide::types::File> {
+        use teloxide::types::FileId;
         self.bot
-            .get_file(file_id)
+            .get_file(FileId(file_id.to_string()))
             .await
             .map_err(|e| anyhow::anyhow!("getFile failed: {}", e))
     }

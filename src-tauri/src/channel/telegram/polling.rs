@@ -112,7 +112,7 @@ fn convert_message(
                         ChatType::Group
                     }
                 }
-                teloxide::types::PublicChatKind::Group(_) => ChatType::Group,
+                teloxide::types::PublicChatKind::Group => ChatType::Group,
                 teloxide::types::PublicChatKind::Channel(_) => ChatType::Channel,
             }
         }
@@ -138,7 +138,7 @@ fn convert_message(
     if let Some(doc) = msg.document() {
         media.push(InboundMedia {
             media_type: MediaType::Document,
-            file_id: doc.file.id.clone(),
+            file_id: doc.file.id.to_string(),
             file_url: None,
             mime_type: doc.mime_type.as_ref().map(|m| m.to_string()),
             file_size: Some(doc.file.size as u64),

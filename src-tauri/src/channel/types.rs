@@ -115,6 +115,8 @@ pub struct ChannelCapabilities {
     #[serde(default)]
     pub supports_reactions: bool,
     #[serde(default)]
+    pub supports_draft: bool,
+    #[serde(default)]
     pub supports_edit: bool,
     #[serde(default)]
     pub supports_unsend: bool,

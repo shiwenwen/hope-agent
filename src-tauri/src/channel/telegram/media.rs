@@ -8,7 +8,7 @@ pub fn photo_to_inbound(photos: &[PhotoSize]) -> Option<InboundMedia> {
     let best = photos.iter().max_by_key(|p| p.width * p.height)?;
     Some(InboundMedia {
         media_type: MediaType::Photo,
-        file_id: best.file.id.clone(),
+        file_id: best.file.id.to_string(),
         file_url: None,
         mime_type: Some("image/jpeg".to_string()),
         file_size: Some(best.file.size as u64),

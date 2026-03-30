@@ -68,7 +68,7 @@ which = "7"
 url = "2"
 signal-hook = "0.3"
 sysinfo = "0.33"
-teloxide = { version = "0.13", features = ["macros"], default-features = false }
+teloxide = { version = "0.17", features = ["macros"], default-features = false }
 tokio-util = { version = "0.7", features = ["rt"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]

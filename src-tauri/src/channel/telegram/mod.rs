@@ -91,6 +91,7 @@ impl ChannelPlugin for TelegramPlugin {
             chat_types: vec![ChatType::Dm, ChatType::Group, ChatType::Forum],
             supports_polls: true,
             supports_reactions: true,
+            supports_draft: true,
             supports_edit: true,
             supports_unsend: true,
             supports_reply: true,
@@ -231,6 +232,28 @@ impl ChannelPlugin for TelegramPlugin {
         let chat_id_num: i64 = chat_id.parse()
             .map_err(|_| anyhow::anyhow!("Invalid chat_id: {}", chat_id))?;
         api.send_typing(chat_id_num).await
+    }
+
+    async fn send_draft(
+        &self,
+        account_id: &str,
+        chat_id: &str,
+        payload: &ReplyPayload,
+    ) -> Result<()> {
+        let api = self.get_api(account_id).await?;
+        let chat_id_num: i64 = chat_id.parse()
+            .map_err(|_| anyhow::anyhow!("Invalid chat_id: {}", chat_id))?;
+
+        let thread_id: Option<i32> = payload.thread_id
+            .as_ref()
+            .and_then(|t| t.parse().ok());
+
+        let reply_to: Option<i32> = payload.reply_to_message_id
+            .as_ref()
+            .and_then(|r| r.parse().ok());
+
+        let text = payload.text.as_deref().unwrap_or("");
+        api.send_message_draft(chat_id_num, text, reply_to, thread_id).await
     }
 
     async fn edit_message(

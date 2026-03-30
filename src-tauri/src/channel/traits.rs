@@ -59,6 +59,20 @@ pub trait ChannelPlugin: Send + Sync + 'static {
     /// internally if the platform requires periodic refresh.
     async fn send_typing(&self, account_id: &str, chat_id: &str) -> Result<()>;
 
+    /// Send a message draft for streaming (e.g. Telegram's sendMessageDraft).
+    ///
+    /// Purpose-built for streaming partial messages during generation.
+    /// Unlike `edit_message`, drafts have no rate limiting and render progressively.
+    /// Call repeatedly with accumulated text, then finalize with `send_message`.
+    async fn send_draft(
+        &self,
+        _account_id: &str,
+        _chat_id: &str,
+        _payload: &ReplyPayload,
+    ) -> Result<()> {
+        Err(anyhow::anyhow!("send_draft not supported by this channel"))
+    }
+
     /// Edit an existing message. Not all channels support this.
     async fn edit_message(
         &self,
