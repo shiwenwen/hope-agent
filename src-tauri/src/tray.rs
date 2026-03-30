@@ -1,11 +1,8 @@
 use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem};
-use tauri::tray::{TrayIcon, TrayIconBuilder, TrayIconEvent, MouseButton, MouseButtonState};
+use tauri::tray::{TrayIconBuilder, TrayIconEvent, MouseButton, MouseButtonState};
 use tauri::{Manager, Emitter};
 
-/// Wrapper to hold the TrayIcon in Tauri managed state, preventing it from being dropped.
-pub struct TrayState(#[allow(dead_code)] TrayIcon);
-
-/// Show and focus the main window (creates it if needed).
+/// Show and focus the main window if it already exists.
 fn show_main_window(app_handle: &tauri::AppHandle) {
     if let Some(window) = app_handle.get_webview_window("main") {
         let _ = window.show();
@@ -202,18 +199,19 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         ])
         .build()?;
 
-    // Read icon config from tauri.conf.json trayIcon section
-    let (icon, icon_as_template) = match &app.config().app.tray_icon {
+    // Read icon config from tauri.conf.json trayIcon section.
+    let (icon, icon_as_template, show_menu_on_left_click) = match &app.config().app.tray_icon {
         Some(tc) => {
             let icon_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(&tc.icon_path);
             let img = tauri::image::Image::from_path(&icon_path).unwrap_or_else(|_| {
-                tauri::image::Image::from_bytes(include_bytes!("../icons/menuIcon.png")).unwrap()
+                tauri::image::Image::from_bytes(include_bytes!("../icons/menuIconTray.png")).unwrap()
             });
-            (img, tc.icon_as_template)
+            (img, tc.icon_as_template, tc.show_menu_on_left_click)
         }
         None => (
-            tauri::image::Image::from_bytes(include_bytes!("../icons/menuIcon.png")).unwrap(),
+            tauri::image::Image::from_bytes(include_bytes!("../icons/menuIconTray.png")).unwrap(),
             true,
+            false,
         ),
     };
 
@@ -221,8 +219,10 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .tooltip("OpenComputer")
         .icon(icon)
         .icon_as_template(icon_as_template)
+        .show_menu_on_left_click(show_menu_on_left_click)
         .menu(&menu)
         .on_menu_event(|app_handle, event| {
+            app_debug!("tray", "menu", "Tray menu item clicked: {}", event.id().as_ref());
             match event.id().as_ref() {
                 "show_main" => {
                     show_main_window(app_handle);
@@ -245,20 +245,36 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             }
         })
         .on_tray_icon_event(|tray, event| {
-            // Left click on tray icon → show main window
             if let TrayIconEvent::Click {
-                button: MouseButton::Left,
-                button_state: MouseButtonState::Up,
+                button,
+                button_state,
                 ..
             } = event
             {
-                show_main_window(tray.app_handle());
+                app_debug!(
+                    "tray",
+                    "icon",
+                    "Tray icon click: button={:?}, state={:?}",
+                    button,
+                    button_state
+                );
+
+                // Left click on tray icon → show main window.
+                if button == MouseButton::Left && button_state == MouseButtonState::Up {
+                    show_main_window(tray.app_handle());
+                }
             }
         })
         .build(app)?;
 
-    // Store in managed state to prevent Drop from unregistering the tray icon
-    app.manage(TrayState(tray));
+    app_info!(
+        "tray",
+        "setup",
+        "Tray initialized: id={}, show_menu_on_left_click={}, icon_as_template={}",
+        tray.id().as_ref(),
+        show_menu_on_left_click,
+        icon_as_template
+    );
 
     Ok(())
 }

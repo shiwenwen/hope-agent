@@ -30,6 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **系统托盘交互修复**：菜单栏图标恢复预期点击行为，左键显示主窗口、右键弹出菜单
+  - `TrayIconBuilder` 现在显式关闭 `show_menu_on_left_click`，避免和自定义左键打开主窗口逻辑互相打架
+  - tray icon 改为专用小图 `menuIconTray.png`，不再把 `1830x1830` 的大 PNG 直接嵌入 Tauri 二进制
+  - 新增 tray setup / click / menu item 调试日志，便于继续排查 macOS 菜单栏事件异常
 - **本地 loopback 代理绕行修复**：访问 Docker SearXNG 和本地 Chrome CDP 时，`localhost` / `127.0.0.1` / `::1` 目标现在会自动直连，不再误走系统代理导致 503 或连接失败
   - `web_search` 的 SearXNG client 改为按目标 URL 判断是否绕过代理，修复本地 Docker 实例搜索 503，同时保留远程 SearXNG 走代理能力
   - SearXNG Docker 部署返回地址、默认回退地址和设置面板填充地址统一改为 `127.0.0.1`
