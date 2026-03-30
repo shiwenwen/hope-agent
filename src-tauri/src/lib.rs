@@ -681,7 +681,7 @@ pub fn run() {
                 // Auto-start enabled channel accounts
                 let channel_registry_clone = registry.clone();
                 let store_for_channels = provider::load_store().unwrap_or_default();
-                tokio::spawn(async move {
+                tauri::async_runtime::spawn(async move {
                     for account in store_for_channels.channels.enabled_accounts() {
                         if let Err(e) = channel_registry_clone.start_account(account).await {
                             app_error!("channel", "init", "Failed to auto-start channel account '{}': {}", account.label, e);

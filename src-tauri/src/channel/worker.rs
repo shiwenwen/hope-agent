@@ -17,7 +17,7 @@ pub fn spawn_dispatcher(
     channel_db: Arc<ChannelDB>,
     mut inbound_rx: mpsc::Receiver<MsgContext>,
 ) {
-    tokio::spawn(async move {
+    tauri::async_runtime::spawn(async move {
         app_info!("channel", "worker", "Inbound message dispatcher started");
 
         while let Some(msg) = inbound_rx.recv().await {
@@ -25,7 +25,7 @@ pub fn spawn_dispatcher(
             let channel_db = channel_db.clone();
 
             // Handle each message in a separate task for concurrency
-            tokio::spawn(async move {
+            tauri::async_runtime::spawn(async move {
                 if let Err(e) = handle_inbound_message(&registry, &channel_db, msg).await {
                     app_error!("channel", "worker", "Failed to handle inbound message: {}", e);
                 }

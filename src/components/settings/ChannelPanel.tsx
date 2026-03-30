@@ -31,7 +31,7 @@ import {
   AlertCircle,
   MessageCircle,
 } from "lucide-react"
-import logger from "@/lib/logger"
+import { logger } from "@/lib/logger"
 
 interface ChannelAccountConfig {
   id: string
