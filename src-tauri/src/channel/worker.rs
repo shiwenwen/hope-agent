@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use tokio::sync::mpsc;
 use tauri::Emitter;
 
@@ -11,17 +12,6 @@ fn emit_channel_update(session_id: &str) {
     if let Some(handle) = crate::get_app_handle() {
         let _ = handle.emit("channel:message_update", serde_json::json!({
             "sessionId": session_id,
-        }));
-    }
-}
-
-/// Emit a streaming text delta to the frontend for a channel session.
-fn emit_channel_stream_delta(session_id: &str, delta: &str, accumulated: &str) {
-    if let Some(handle) = crate::get_app_handle() {
-        let _ = handle.emit("channel:stream_delta", serde_json::json!({
-            "sessionId": session_id,
-            "delta": delta,
-            "accumulated": accumulated,
         }));
     }
 }
@@ -164,83 +154,106 @@ async fn handle_inbound_message(
          Keep responses concise and suitable for IM format."
     );
 
-    // 7. Build streaming callback for front-end real-time updates
-    let accumulated_text = Arc::new(std::sync::Mutex::new(String::new()));
-    let accumulated_clone = accumulated_text.clone();
-    let session_id_for_cb = session_id.clone();
+    // 7. Build ChatEngineParams — load config from disk (no State dependency)
+    let agent_def = crate::agent_loader::load_agent(&agent_id).ok();
+    let agent_model_config = agent_def.as_ref()
+        .map(|d| d.config.model.clone())
+        .unwrap_or_default();
 
-    let on_delta: Arc<dyn Fn(&str) + Send + Sync> = Arc::new(move |delta: &str| {
-        // Parse the delta event to extract text
-        if let Ok(event) = serde_json::from_str::<serde_json::Value>(delta) {
-            if event.get("type").and_then(|t| t.as_str()) == Some("text_delta") {
-                if let Some(text) = event.get("text").and_then(|t| t.as_str()) {
-                    let mut acc = accumulated_clone.lock().unwrap_or_else(|e| e.into_inner());
-                    acc.push_str(text);
-                    let current = acc.clone();
-                    drop(acc);
-                    // Emit to frontend for real-time display
-                    emit_channel_stream_delta(&session_id_for_cb, text, &current);
-                }
-            }
+    let (primary, fallbacks) = crate::provider::resolve_model_chain(&agent_model_config, &store);
+    let mut model_chain = Vec::new();
+    if let Some(p) = primary { model_chain.push(p); }
+    for fb in fallbacks {
+        if !model_chain.iter().any(|m| m.provider_id == fb.provider_id && m.model_id == fb.model_id) {
+            model_chain.push(fb);
         }
-    });
+    }
 
-    let result = crate::cron::executor::build_and_run_agent_streaming(
-        &agent_id,
-        user_text,
-        &session_id,
-        session_db,
-        Some(&channel_context),
-        Some(on_delta),
-    ).await;
+    if model_chain.is_empty() {
+        anyhow::bail!("No model configured for channel chat");
+    }
 
-    // 8. Process result
+    // Resolve temperature: agent > global
+    let resolved_temperature = {
+        let agent_temp = agent_def.as_ref().and_then(|d| d.config.model.temperature);
+        let global_temp = store.temperature;
+        agent_temp.or(global_temp)
+    };
+
+    let web_search_enabled = crate::tools::web_search::has_enabled_provider(&store.web_search);
+    let notification_enabled = {
+        let agent_notify = agent_def.as_ref().and_then(|d| d.config.notify_on_complete);
+        store.notification.enabled && agent_notify != Some(false)
+    };
+    let image_gen_config = if crate::tools::image_generate::has_configured_provider_from_config(&store.image_generate) {
+        let mut cfg = store.image_generate.clone();
+        crate::tools::image_generate::backfill_providers(&mut cfg);
+        Some(cfg)
+    } else {
+        None
+    };
+    let canvas_enabled = store.canvas.enabled;
+
+    let engine_params = crate::chat_engine::ChatEngineParams {
+        session_id: session_id.clone(),
+        agent_id: agent_id.clone(),
+        message: user_text.to_string(),
+        session_db: session_db.clone(),
+        model_chain,
+        providers: store.providers.clone(),
+        codex_token: None, // Channel doesn't support Codex OAuth
+        resolved_temperature,
+        web_search_enabled,
+        notification_enabled,
+        image_gen_config,
+        canvas_enabled,
+        compact_config: store.compact.clone(),
+        extra_system_context: Some(channel_context),
+        reasoning_effort: None,
+        cancel: Arc::new(AtomicBool::new(false)),
+        plan_agent_mode: None,
+        plan_mode_allow_paths: None,
+        event_sink: Arc::new(crate::chat_engine::EmitSink::new(session_id.clone())),
+    };
+
+    // 8. Run shared chat engine (streaming, failover, tool persistence, etc.)
+    let result = crate::chat_engine::run_chat_engine(engine_params).await;
+
+    // 9. Process result — send response to IM channel
     match result {
-        Ok(response) => {
-            // Save assistant response to session
-            let _ = session_db.append_message(
-                &session_id,
-                &crate::session::NewMessage::assistant(&response),
-            );
+        Ok(engine_result) => {
+            let response = &engine_result.response;
 
-            // Send final response through IM channel
-            let native_text = plugin.markdown_to_native(&response);
+            // Convert and send through IM channel
+            let native_text = plugin.markdown_to_native(response);
             let chunks = plugin.chunk_message(&native_text);
 
-            // Send first chunk as a new message, then edit it if channel supports edit
-            let mut first_message_id: Option<String> = None;
             for (i, chunk) in chunks.iter().enumerate() {
-                if i == 0 {
-                    // First chunk: send as reply
-                    let payload = ReplyPayload {
+                let payload = if i == 0 {
+                    ReplyPayload {
                         text: Some(chunk.clone()),
                         reply_to_message_id: Some(msg.message_id.clone()),
                         thread_id: msg.thread_id.clone(),
                         parse_mode: Some(ParseMode::Html),
                         ..ReplyPayload::text("")
-                    };
-                    match plugin.send_message(&account.id, &msg.chat_id, &payload).await {
-                        Ok(result) => {
-                            if result.success {
-                                first_message_id = result.message_id;
-                            } else {
-                                app_warn!("channel", "worker", "[{}] Send failed: {}",
-                                    channel_id_str, result.error.unwrap_or_default());
-                            }
-                        }
-                        Err(e) => {
-                            app_error!("channel", "worker", "[{}] Send error: {}", channel_id_str, e);
-                        }
                     }
                 } else {
-                    // Subsequent chunks: send as separate messages
-                    let payload = ReplyPayload {
+                    ReplyPayload {
                         text: Some(chunk.clone()),
                         thread_id: msg.thread_id.clone(),
                         parse_mode: Some(ParseMode::Html),
                         ..ReplyPayload::text("")
-                    };
-                    if let Err(e) = plugin.send_message(&account.id, &msg.chat_id, &payload).await {
+                    }
+                };
+
+                match plugin.send_message(&account.id, &msg.chat_id, &payload).await {
+                    Ok(r) => {
+                        if !r.success {
+                            app_warn!("channel", "worker", "[{}] Send failed: {}",
+                                channel_id_str, r.error.unwrap_or_default());
+                        }
+                    }
+                    Err(e) => {
                         app_error!("channel", "worker", "[{}] Send error: {}", channel_id_str, e);
                     }
                 }
@@ -248,26 +261,18 @@ async fn handle_inbound_message(
 
             app_info!("channel", "worker", "[{}] Reply sent to {} ({} chars)",
                 channel_id_str, msg.chat_id, response.len());
-
-            // Store the first_message_id so it could be used for streaming edits
-            let _ = first_message_id;
         }
         Err(e) => {
             app_error!("channel", "worker", "[{}] Agent error: {}", channel_id_str, e);
 
-            // Save error to session
-            let mut err_msg = crate::session::NewMessage::assistant(&format!("Error: {}", e));
-            err_msg.is_error = Some(true);
-            let _ = session_db.append_message(&session_id, &err_msg);
-
             // Send error notification to channel
-            let error_text = format!("⚠️ Sorry, I encountered an error processing your message. Please try again.");
+            let error_text = "⚠️ Sorry, I encountered an error processing your message. Please try again.".to_string();
             let payload = ReplyPayload::text(error_text);
             let _ = plugin.send_message(&account.id, &msg.chat_id, &payload).await;
         }
     }
 
-    // Emit final update so frontend reloads complete message
+    // Emit final update so frontend reloads complete message from DB
     emit_channel_update(&session_id);
     Ok(())
 }

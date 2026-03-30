@@ -28,6 +28,7 @@ mod system_prompt;
 mod permissions;
 mod tools;
 mod user_config;
+mod chat_engine;
 mod context_compact;
 mod dashboard;
 mod slash_commands;

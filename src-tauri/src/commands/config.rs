@@ -4,7 +4,7 @@ use crate::tools;
 use crate::context_compact;
 use crate::paths;
 use crate::user_config;
-use crate::commands::chat::save_agent_context;
+use crate::chat_engine::save_agent_context;
 
 #[tauri::command]
 pub async fn get_web_search_config() -> Result<tools::web_search::WebSearchConfig, String> {
