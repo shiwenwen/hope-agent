@@ -129,7 +129,8 @@ async fn handle_inbound_message(
         }
     }
 
-    emit_channel_update(&session_id);
+    // NOTE: We don't emit channel:message_update here because channel:stream_start
+    // will handle frontend state. Emitting here would race with the stream placeholder.
 
     // 5. Send typing indicator
     let _ = plugin.send_typing(&account.id, &msg.chat_id).await;
@@ -276,11 +277,9 @@ async fn handle_inbound_message(
         }
     }
 
-    // Notify frontend that streaming ended
+    // Notify frontend that streaming ended (triggers DB reload in frontend)
     emit_stream_lifecycle("channel:stream_end", &session_id);
 
-    // Emit final update so frontend reloads complete message from DB
-    emit_channel_update(&session_id);
     Ok(())
 }
 
@@ -360,6 +359,18 @@ fn spawn_channel_stream_task(
             return;
         }
 
+        // Generate a stable draft_id for this streaming session.
+        // Must be non-zero. Telegram animates changes to drafts with the same ID.
+        let draft_id: i64 = reply_to_message_id.parse::<i64>().unwrap_or_else(|_| {
+            // Fallback: use current timestamp as a unique non-zero ID
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as i64)
+                .unwrap_or(1)
+        });
+        // Ensure non-zero
+        let draft_id = if draft_id == 0 { 1 } else { draft_id };
+
         let mut accumulated = String::new();
         let mut dirty = false;
         // sendMessageDraft has no rate limiting, but we still batch to avoid
@@ -386,7 +397,7 @@ fn spawn_channel_stream_task(
                                 send_draft(
                                     &plugin, &account_id, &chat_id,
                                     &reply_to_message_id, thread_id.as_deref(),
-                                    &accumulated,
+                                    &accumulated, draft_id,
                                 ).await;
                             }
                             break;
@@ -399,7 +410,7 @@ fn spawn_channel_stream_task(
                         send_draft(
                             &plugin, &account_id, &chat_id,
                             &reply_to_message_id, thread_id.as_deref(),
-                            &accumulated,
+                            &accumulated, draft_id,
                         ).await;
                         dirty = false;
                     }
@@ -426,11 +437,13 @@ async fn send_draft(
     reply_to_message_id: &str,
     thread_id: Option<&str>,
     text: &str,
+    draft_id: i64,
 ) {
     let payload = ReplyPayload {
         text: Some(text.to_string()),
         reply_to_message_id: Some(reply_to_message_id.to_string()),
         thread_id: thread_id.map(|s| s.to_string()),
+        draft_id: Some(draft_id),
         ..ReplyPayload::text("")
     };
     if let Err(e) = plugin.send_draft(account_id, chat_id, &payload).await {

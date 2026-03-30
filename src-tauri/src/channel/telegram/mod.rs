@@ -252,8 +252,10 @@ impl ChannelPlugin for TelegramPlugin {
             .as_ref()
             .and_then(|r| r.parse().ok());
 
+        let draft_id = payload.draft_id.unwrap_or(1);
+
         let text = payload.text.as_deref().unwrap_or("");
-        api.send_message_draft(chat_id_num, text, reply_to, thread_id).await
+        api.send_message_draft(chat_id_num, text, draft_id, reply_to, thread_id).await
     }
 
     async fn edit_message(

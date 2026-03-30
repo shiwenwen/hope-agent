@@ -7,6 +7,8 @@ import { notify } from "@/lib/notifications"
 import { parseSessionMessages } from "./chatUtils"
 import type {
   Message,
+  ContentBlock,
+  MessageUsage,
   AvailableModel,
   ActiveModel,
   SessionMeta,
@@ -98,6 +100,10 @@ export function useChatSession({
   const loadingSessionsRef = useRef<Set<string>>(new Set())
   const hasMoreRef = useRef<Map<string, boolean>>(new Map())
   const oldestDbIdRef = useRef<Map<string, number>>(new Map())
+
+  // Channel streaming delta buffer + rAF handle (mirrors useChatStream's batching)
+  const channelDeltaBufferRef = useRef({ text: "", thinking: "", sid: "" })
+  const channelDeltaFlushRafRef = useRef<number | null>(null)
 
   // Keep ref in sync with state
   useEffect(() => {
@@ -231,7 +237,7 @@ export function useChatSession({
     }
   }, [reloadSessions])
 
-  // Listen for channel stream lifecycle — loading state management
+  // Listen for channel stream lifecycle — loading state + message placeholder
   useEffect(() => {
     const unlisteners: UnlistenFn[] = []
 
@@ -241,8 +247,44 @@ export function useChatSession({
       // Mark session as loading
       loadingSessionsRef.current.add(payload.sessionId)
       setLoadingSessionIds(new Set(loadingSessionsRef.current))
+      // Refresh sidebar to show new session / update title
+      reloadSessions()
       if (payload.sessionId === currentSessionIdRef.current) {
         setLoading(true)
+        // Load latest messages from DB (includes the just-saved user message),
+        // then append an empty assistant placeholder for streaming into.
+        invoke<[SessionMessage[], number]>("load_session_messages_latest_cmd", {
+          sessionId: payload.sessionId,
+          limit: PAGE_SIZE,
+        }).then(([msgs]) => {
+          const parsed = parseSessionMessages(msgs)
+          const withPlaceholder = [
+            ...parsed,
+            {
+              role: "assistant" as const,
+              content: "",
+              isStreaming: true,
+              timestamp: new Date().toISOString(),
+            },
+          ]
+          sessionCacheRef.current.set(payload.sessionId, withPlaceholder)
+          setMessages(withPlaceholder)
+        }).catch(() => {
+          // Fallback: just add placeholder to existing messages
+          setMessages((prev) => {
+            const next = [
+              ...prev,
+              {
+                role: "assistant" as const,
+                content: "",
+                isStreaming: true,
+                timestamp: new Date().toISOString(),
+              },
+            ]
+            sessionCacheRef.current.set(payload.sessionId, next)
+            return next
+          })
+        })
       }
     }).then((fn) => unlisteners.push(fn))
 
@@ -251,59 +293,246 @@ export function useChatSession({
       if (!payload.sessionId) return
       loadingSessionsRef.current.delete(payload.sessionId)
       setLoadingSessionIds(new Set(loadingSessionsRef.current))
+
+      // Flush any remaining delta buffer
+      if (channelDeltaFlushRafRef.current !== null) {
+        cancelAnimationFrame(channelDeltaFlushRafRef.current)
+        channelDeltaFlushRafRef.current = null
+      }
+      channelDeltaBufferRef.current = { text: "", thinking: "", sid: "" }
+
       if (payload.sessionId === currentSessionIdRef.current) {
         setLoading(false)
+        // Reload messages from DB to get final persisted content
+        // (replaces the streaming placeholder with the complete message)
+        invoke<[SessionMessage[], number]>("load_session_messages_latest_cmd", {
+          sessionId: payload.sessionId,
+          limit: PAGE_SIZE,
+        }).then(([msgs]) => {
+          const parsed = parseSessionMessages(msgs)
+          sessionCacheRef.current.set(payload.sessionId, parsed)
+          setMessages(parsed)
+        }).catch(() => {})
       }
     }).then((fn) => unlisteners.push(fn))
 
     return () => { unlisteners.forEach((fn) => fn()) }
   }, [setLoading, setLoadingSessionIds])
 
-  // Listen for channel streaming events — real-time display for active channel session
+  // Listen for channel streaming events — full event processing (mirrors useChatStream)
   useEffect(() => {
     let unlisten: UnlistenFn | undefined
     listen("channel:stream_delta", (event) => {
       const payload = event.payload as { sessionId: string; event: string }
       if (!payload.sessionId || payload.sessionId !== currentSessionIdRef.current) return
 
-      // Parse the raw event from chat engine
-      let parsed: { type?: string; text?: string } | null = null
-      try { parsed = JSON.parse(payload.event) } catch { return }
-      if (!parsed || parsed.type !== "text_delta" || !parsed.text) return
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let ev: any = null
+      try { ev = JSON.parse(payload.event) } catch { return }
+      if (!ev || !ev.type) return
 
-      const delta = parsed.text
-      setMessages((prev) => {
-        const last = prev[prev.length - 1]
-        if (last && last.role === "assistant" && last.isStreaming) {
-          const updated = [...prev]
-          updated[updated.length - 1] = { ...last, content: last.content + delta }
-          return updated
+      const sid = payload.sessionId
+
+      // ── text_delta / thinking_delta: buffer and flush via rAF ──
+      if (ev.type === "text_delta" || ev.type === "thinking_delta") {
+        if (ev.type === "text_delta") {
+          channelDeltaBufferRef.current.text += ev.text || ev.content || ""
+        } else {
+          channelDeltaBufferRef.current.thinking += ev.content || ""
         }
-        return [
-          ...prev,
-          { role: "assistant" as const, content: delta, isStreaming: true, timestamp: new Date().toISOString() },
-        ]
+        channelDeltaBufferRef.current.sid = sid
+        if (channelDeltaFlushRafRef.current === null) {
+          channelDeltaFlushRafRef.current = requestAnimationFrame(() => {
+            channelDeltaFlushRafRef.current = null
+            const buf = channelDeltaBufferRef.current
+            const textChunk = buf.text
+            const thinkingChunk = buf.thinking
+            buf.text = ""
+            buf.thinking = ""
+            if (!textChunk && !thinkingChunk) return
+            setMessages((prev) => {
+              const updated = [...prev]
+              const last = updated[updated.length - 1]
+              if (!last || last.role !== "assistant") return updated
+              const blocks: ContentBlock[] = [...(last.contentBlocks || [])]
+              if (thinkingChunk) {
+                const lastBlock = blocks[blocks.length - 1]
+                if (lastBlock && lastBlock.type === "thinking") {
+                  blocks[blocks.length - 1] = { type: "thinking", content: lastBlock.content + thinkingChunk }
+                } else {
+                  blocks.push({ type: "thinking", content: thinkingChunk })
+                }
+              }
+              if (textChunk) {
+                const lastBlock = blocks[blocks.length - 1]
+                if (lastBlock && lastBlock.type === "text") {
+                  blocks[blocks.length - 1] = { type: "text", content: lastBlock.content + textChunk }
+                } else {
+                  blocks.push({ type: "text", content: textChunk })
+                }
+              }
+              updated[updated.length - 1] = {
+                ...last,
+                contentBlocks: blocks,
+                ...(textChunk ? { content: last.content + textChunk } : {}),
+                ...(thinkingChunk ? { thinking: (last.thinking || "") + thinkingChunk } : {}),
+              }
+              sessionCacheRef.current.set(sid, updated)
+              return updated
+            })
+          })
+        }
+        return
+      }
+
+      // ── Flush pending buffer before tool_call to preserve display order ──
+      if (ev.type === "tool_call") {
+        if (channelDeltaFlushRafRef.current !== null) {
+          cancelAnimationFrame(channelDeltaFlushRafRef.current)
+          channelDeltaFlushRafRef.current = null
+        }
+        const buf = channelDeltaBufferRef.current
+        const textChunk = buf.text
+        const thinkingChunk = buf.thinking
+        buf.text = ""
+        buf.thinking = ""
+        if (textChunk || thinkingChunk) {
+          setMessages((prev) => {
+            const updated = [...prev]
+            const last = updated[updated.length - 1]
+            if (!last || last.role !== "assistant") return updated
+            const blocks: ContentBlock[] = [...(last.contentBlocks || [])]
+            if (thinkingChunk) {
+              const lastBlock = blocks[blocks.length - 1]
+              if (lastBlock && lastBlock.type === "thinking") {
+                blocks[blocks.length - 1] = { type: "thinking", content: lastBlock.content + thinkingChunk }
+              } else {
+                blocks.push({ type: "thinking", content: thinkingChunk })
+              }
+            }
+            if (textChunk) {
+              const lastBlock = blocks[blocks.length - 1]
+              if (lastBlock && lastBlock.type === "text") {
+                blocks[blocks.length - 1] = { type: "text", content: lastBlock.content + textChunk }
+              } else {
+                blocks.push({ type: "text", content: textChunk })
+              }
+            }
+            updated[updated.length - 1] = {
+              ...last,
+              contentBlocks: blocks,
+              ...(textChunk ? { content: last.content + textChunk } : {}),
+              ...(thinkingChunk ? { thinking: (last.thinking || "") + thinkingChunk } : {}),
+            }
+            sessionCacheRef.current.set(sid, updated)
+            return updated
+          })
+        }
+      }
+
+      // ── Process structured events (tool_call, tool_result, usage, model_fallback) ──
+      setMessages((prev) => {
+        const updated = [...prev]
+        const last = updated[updated.length - 1]
+        if (!last || last.role !== "assistant") return updated
+
+        switch (ev.type) {
+          case "tool_call": {
+            const calls = [...(last.toolCalls || [])]
+            const newTool = {
+              callId: ev.call_id,
+              name: ev.name,
+              arguments: ev.arguments || "",
+            }
+            calls.push(newTool)
+            const blocks: ContentBlock[] = [...(last.contentBlocks || [])]
+            blocks.push({ type: "tool_call", tool: { ...newTool } })
+            updated[updated.length - 1] = {
+              ...last,
+              toolCalls: calls,
+              contentBlocks: blocks,
+            }
+            break
+          }
+          case "tool_result": {
+            const mediaUrls: string[] | undefined = ev.media_urls?.length ? ev.media_urls : undefined
+            const calls = [...(last.toolCalls || [])]
+            const idx = calls.findIndex((c) => c.callId === ev.call_id)
+            if (idx >= 0) {
+              calls[idx] = { ...calls[idx], result: ev.result, ...(mediaUrls && { mediaUrls }) }
+            }
+            const blocks: ContentBlock[] = [...(last.contentBlocks || [])]
+            const blockIdx = blocks.findIndex(
+              (b) => b.type === "tool_call" && b.tool.callId === ev.call_id,
+            )
+            if (blockIdx >= 0) {
+              const block = blocks[blockIdx] as {
+                type: "tool_call"
+                tool: { callId: string; name: string; arguments: string; result?: string; mediaUrls?: string[] }
+              }
+              blocks[blockIdx] = {
+                type: "tool_call",
+                tool: { ...block.tool, result: ev.result, ...(mediaUrls && { mediaUrls }) },
+              }
+            }
+            updated[updated.length - 1] = {
+              ...last,
+              toolCalls: calls,
+              contentBlocks: blocks,
+            }
+            break
+          }
+          case "usage": {
+            const prevUsage = last.usage || {}
+            const usage: MessageUsage = {
+              ...prevUsage,
+              ...(ev.duration_ms != null ? { durationMs: ev.duration_ms } : {}),
+              ...(ev.input_tokens != null ? { inputTokens: ev.input_tokens } : {}),
+              ...(ev.output_tokens != null ? { outputTokens: ev.output_tokens } : {}),
+              ...(ev.cache_creation_input_tokens != null
+                ? { cacheCreationInputTokens: ev.cache_creation_input_tokens }
+                : {}),
+              ...(ev.cache_read_input_tokens != null
+                ? { cacheReadInputTokens: ev.cache_read_input_tokens }
+                : {}),
+            }
+            const model = ev.model ? String(ev.model) : last.model
+            updated[updated.length - 1] = { ...last, usage, model }
+            break
+          }
+          case "model_fallback": {
+            updated[updated.length - 1] = { ...last, fallbackEvent: ev }
+            break
+          }
+          default:
+            return updated
+        }
+        sessionCacheRef.current.set(sid, updated)
+        return updated
       })
     }).then((fn) => { unlisten = fn })
     return () => { unlisten?.() }
   }, [])
 
   // Listen for channel message updates — refresh sessions + reload current session messages
+  // (but SKIP DB reload if the session is currently streaming to avoid overwriting stream state)
   useEffect(() => {
     let unlisten: UnlistenFn | undefined
     listen("channel:message_update", (event) => {
       const payload = event.payload as { sessionId: string }
       reloadSessions()
+      // If the session is currently streaming, skip DB reload — stream_end will reload
+      if (payload.sessionId && loadingSessionsRef.current.has(payload.sessionId)) {
+        return
+      }
       // If the updated session is currently active, reload its messages from DB
-      // (replaces the streaming placeholder with the final persisted message)
       if (payload.sessionId && payload.sessionId === currentSessionIdRef.current) {
         invoke<[SessionMessage[], number]>("load_session_messages_latest_cmd", {
           sessionId: payload.sessionId,
-          limit: 50,
+          limit: PAGE_SIZE,
         }).then(([msgs]) => {
           const parsed = parseSessionMessages(msgs)
           setMessages(parsed)
-          // Update cache
           sessionCacheRef.current.set(payload.sessionId, parsed)
         }).catch(() => {})
       }

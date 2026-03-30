@@ -8,6 +8,8 @@ use teloxide::types::{
 /// Thin wrapper around teloxide's `Bot` to isolate framework details.
 pub struct TelegramBotApi {
     bot: Bot,
+    /// Stored proxy URL for raw HTTP requests (sendMessageDraft etc.)
+    proxy_url: Option<String>,
 }
 
 impl TelegramBotApi {
@@ -33,7 +35,7 @@ impl TelegramBotApi {
             Bot::new(token)
         };
 
-        Self { bot }
+        Self { bot, proxy_url: proxy_url.map(|s| s.to_string()) }
     }
 
     /// Get the underlying teloxide Bot reference.
@@ -135,15 +137,20 @@ impl TelegramBotApi {
         &self,
         chat_id: i64,
         text: &str,
+        draft_id: i64,
         reply_to: Option<i32>,
         thread_id: Option<i32>,
     ) -> Result<()> {
         let token = self.bot.token();
-        let url = format!("https://api.telegram.org/bot{}/sendMessageDraft", token);
+        // Use the bot's API URL base (respects custom apiRoot)
+        let api_url_owned = self.bot.api_url();
+        let api_url = api_url_owned.as_str().trim_end_matches('/');
+        let url = format!("{}/bot{}/sendMessageDraft", api_url, token);
 
         let mut body = serde_json::json!({
             "chat_id": chat_id,
             "text": text,
+            "draft_id": draft_id,
         });
 
         if let Some(reply_id) = reply_to {
@@ -155,7 +162,16 @@ impl TelegramBotApi {
             body["message_thread_id"] = serde_json::json!(tid);
         }
 
-        let client = reqwest::Client::new();
+        // Build reqwest client with proxy if configured (same proxy as the Bot)
+        let client = if let Some(ref proxy) = self.proxy_url {
+            reqwest::Client::builder()
+                .proxy(reqwest::Proxy::all(proxy)
+                    .map_err(|e| anyhow::anyhow!("Invalid proxy URL: {}", e))?)
+                .build()
+                .map_err(|e| anyhow::anyhow!("Failed to build HTTP client: {}", e))?
+        } else {
+            reqwest::Client::new()
+        };
         let resp = client
             .post(&url)
             .json(&body)

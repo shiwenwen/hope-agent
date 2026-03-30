@@ -182,6 +182,10 @@ pub struct ReplyPayload {
     #[serde(default)]
     pub buttons: Vec<Vec<InlineButton>>,
     pub thread_id: Option<String>,
+    /// Draft ID for streaming (e.g. Telegram sendMessageDraft).
+    /// Must be non-zero. Drafts with the same ID are animated in the client.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub draft_id: Option<i64>,
 }
 
 impl ReplyPayload {
@@ -194,6 +198,7 @@ impl ReplyPayload {
             parse_mode: None,
             buttons: Vec::new(),
             thread_id: None,
+            draft_id: None,
         }
     }
 }
