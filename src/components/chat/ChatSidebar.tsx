@@ -427,7 +427,9 @@ export default function ChatSidebar({
                   cron: sessions.filter((s) => s.isCron),
                   subagent: sessions.filter((s) => !!s.parentSessionId),
                 }[filter]
-                const count = filterSessions.reduce((sum, s) => sum + s.unreadCount, 0)
+                const count = filter === "channel"
+                  ? 0  // Channel sessions don't show unread counts
+                  : filterSessions.reduce((sum, s) => sum + s.unreadCount, 0)
                 const isActive = sessionFilter === filter
                 const handleMarkAllRead = async () => {
                   const unreadSessions = filterSessions.filter((s) => s.unreadCount > 0)
@@ -543,7 +545,7 @@ export default function ChatSidebar({
                             <Bot className="h-3.5 w-3.5" />
                           )}
                         </div>
-                        {!isActive && session.unreadCount > 0 && (
+                        {!isActive && !session.channelInfo && session.unreadCount > 0 && (
                           <span
                             className="absolute -top-1 -right-1.5 z-10 min-w-[16px] h-[16px] px-0.5 rounded-full text-white text-[9px] font-bold flex items-center justify-center border border-background pointer-events-none leading-none"
                             style={{

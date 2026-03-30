@@ -47,6 +47,8 @@ export interface Message {
   }
   /** Database row ID, used for deduplication during streaming append */
   dbId?: number
+  /** If true, this message is currently being streamed (channel streaming) */
+  isStreaming?: boolean
 }
 
 export interface FallbackEvent {

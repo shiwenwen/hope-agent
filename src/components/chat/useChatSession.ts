@@ -194,13 +194,57 @@ export function useChatSession({
     }
   }, [reloadSessions])
 
+  // Listen for channel streaming deltas — real-time display for active channel session
+  useEffect(() => {
+    let unlisten: UnlistenFn | undefined
+    listen("channel:stream_delta", (event) => {
+      const payload = event.payload as {
+        sessionId: string
+        delta: string
+        accumulated: string
+      }
+      // Only update if this channel session is currently active
+      if (payload.sessionId && payload.sessionId === currentSessionIdRef.current) {
+        setMessages((prev) => {
+          // Find or create a streaming assistant message at the end
+          const last = prev[prev.length - 1]
+          if (last && last.role === "assistant" && last.isStreaming) {
+            // Update existing streaming message
+            const updated = [...prev]
+            updated[updated.length - 1] = {
+              ...last,
+              content: payload.accumulated,
+            }
+            return updated
+          }
+          // Create new streaming assistant message
+          return [
+            ...prev,
+            {
+              role: "assistant" as const,
+              content: payload.accumulated,
+              isStreaming: true,
+              timestamp: new Date().toISOString(),
+            },
+          ]
+        })
+      }
+    }).then((fn) => {
+      unlisten = fn
+    })
+    return () => {
+      unlisten?.()
+    }
+  }, [])
+
   // Listen for channel message updates — refresh sessions + reload current session messages
   useEffect(() => {
     let unlisten: UnlistenFn | undefined
     listen("channel:message_update", (event) => {
       const payload = event.payload as { sessionId: string }
       reloadSessions()
-      // If the updated session is currently active, reload its messages
+      // If the updated session is currently active, reload its messages from DB
+      // (replaces the streaming placeholder with the final persisted message)
       if (payload.sessionId && payload.sessionId === currentSessionIdRef.current) {
         invoke<[SessionMessage[], number]>("load_session_messages_latest_cmd", {
           sessionId: payload.sessionId,
@@ -220,9 +264,12 @@ export function useChatSession({
     }
   }, [reloadSessions])
 
-  // Compute total unread count and notify parent
+  // Compute total unread count — exclude channel sessions (IM messages don't count as unread)
   const totalUnreadCount = useMemo(
-    () => sessions.reduce((sum, s) => sum + (s.id === currentSessionId ? 0 : s.unreadCount), 0),
+    () => sessions.reduce((sum, s) => {
+      if (s.channelInfo || s.id === currentSessionId) return sum
+      return sum + s.unreadCount
+    }, 0),
     [sessions, currentSessionId],
   )
 

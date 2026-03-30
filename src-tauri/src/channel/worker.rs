@@ -15,6 +15,17 @@ fn emit_channel_update(session_id: &str) {
     }
 }
 
+/// Emit a streaming text delta to the frontend for a channel session.
+fn emit_channel_stream_delta(session_id: &str, delta: &str, accumulated: &str) {
+    if let Some(handle) = crate::get_app_handle() {
+        let _ = handle.emit("channel:stream_delta", serde_json::json!({
+            "sessionId": session_id,
+            "delta": delta,
+            "accumulated": accumulated,
+        }));
+    }
+}
+
 /// Spawn the inbound message dispatcher as a background tokio task.
 ///
 /// This task receives `MsgContext` from all channel plugins and:
@@ -153,13 +164,34 @@ async fn handle_inbound_message(
          Keep responses concise and suitable for IM format."
     );
 
-    // 7. Build agent and run chat with channel context
-    let result = crate::cron::executor::build_and_run_agent_with_context(
+    // 7. Build streaming callback for front-end real-time updates
+    let accumulated_text = Arc::new(std::sync::Mutex::new(String::new()));
+    let accumulated_clone = accumulated_text.clone();
+    let session_id_for_cb = session_id.clone();
+
+    let on_delta: Arc<dyn Fn(&str) + Send + Sync> = Arc::new(move |delta: &str| {
+        // Parse the delta event to extract text
+        if let Ok(event) = serde_json::from_str::<serde_json::Value>(delta) {
+            if event.get("type").and_then(|t| t.as_str()) == Some("text_delta") {
+                if let Some(text) = event.get("text").and_then(|t| t.as_str()) {
+                    let mut acc = accumulated_clone.lock().unwrap_or_else(|e| e.into_inner());
+                    acc.push_str(text);
+                    let current = acc.clone();
+                    drop(acc);
+                    // Emit to frontend for real-time display
+                    emit_channel_stream_delta(&session_id_for_cb, text, &current);
+                }
+            }
+        }
+    });
+
+    let result = crate::cron::executor::build_and_run_agent_streaming(
         &agent_id,
         user_text,
         &session_id,
         session_db,
         Some(&channel_context),
+        Some(on_delta),
     ).await;
 
     // 8. Process result
@@ -171,27 +203,44 @@ async fn handle_inbound_message(
                 &crate::session::NewMessage::assistant(&response),
             );
 
-            // Convert and send through channel
+            // Send final response through IM channel
             let native_text = plugin.markdown_to_native(&response);
             let chunks = plugin.chunk_message(&native_text);
 
-            for chunk in chunks {
-                let payload = ReplyPayload {
-                    text: Some(chunk),
-                    reply_to_message_id: Some(msg.message_id.clone()),
-                    thread_id: msg.thread_id.clone(),
-                    parse_mode: Some(ParseMode::Html),
-                    ..ReplyPayload::text("")
-                };
-
-                match plugin.send_message(&account.id, &msg.chat_id, &payload).await {
-                    Ok(result) => {
-                        if !result.success {
-                            app_warn!("channel", "worker", "[{}] Send failed: {}",
-                                channel_id_str, result.error.unwrap_or_default());
+            // Send first chunk as a new message, then edit it if channel supports edit
+            let mut first_message_id: Option<String> = None;
+            for (i, chunk) in chunks.iter().enumerate() {
+                if i == 0 {
+                    // First chunk: send as reply
+                    let payload = ReplyPayload {
+                        text: Some(chunk.clone()),
+                        reply_to_message_id: Some(msg.message_id.clone()),
+                        thread_id: msg.thread_id.clone(),
+                        parse_mode: Some(ParseMode::Html),
+                        ..ReplyPayload::text("")
+                    };
+                    match plugin.send_message(&account.id, &msg.chat_id, &payload).await {
+                        Ok(result) => {
+                            if result.success {
+                                first_message_id = result.message_id;
+                            } else {
+                                app_warn!("channel", "worker", "[{}] Send failed: {}",
+                                    channel_id_str, result.error.unwrap_or_default());
+                            }
+                        }
+                        Err(e) => {
+                            app_error!("channel", "worker", "[{}] Send error: {}", channel_id_str, e);
                         }
                     }
-                    Err(e) => {
+                } else {
+                    // Subsequent chunks: send as separate messages
+                    let payload = ReplyPayload {
+                        text: Some(chunk.clone()),
+                        thread_id: msg.thread_id.clone(),
+                        parse_mode: Some(ParseMode::Html),
+                        ..ReplyPayload::text("")
+                    };
+                    if let Err(e) = plugin.send_message(&account.id, &msg.chat_id, &payload).await {
                         app_error!("channel", "worker", "[{}] Send error: {}", channel_id_str, e);
                     }
                 }
@@ -199,6 +248,9 @@ async fn handle_inbound_message(
 
             app_info!("channel", "worker", "[{}] Reply sent to {} ({} chars)",
                 channel_id_str, msg.chat_id, response.len());
+
+            // Store the first_message_id so it could be used for streaming edits
+            let _ = first_message_id;
         }
         Err(e) => {
             app_error!("channel", "worker", "[{}] Agent error: {}", channel_id_str, e);
@@ -215,6 +267,7 @@ async fn handle_inbound_message(
         }
     }
 
+    // Emit final update so frontend reloads complete message
     emit_channel_update(&session_id);
     Ok(())
 }

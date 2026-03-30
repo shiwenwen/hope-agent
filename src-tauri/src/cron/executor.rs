@@ -137,6 +137,20 @@ pub async fn build_and_run_agent_with_context(
     _session_db: &Arc<crate::session::SessionDB>,
     extra_system_context: Option<&str>,
 ) -> Result<String> {
+    build_and_run_agent_streaming(agent_id, message, session_id, _session_db, extra_system_context, None).await
+}
+
+/// Build an AssistantAgent and run a chat with full failover, optional custom system context, and streaming callback.
+///
+/// `on_delta`: if Some, receives raw JSON event strings (same format as `agent.chat()` `on_delta`).
+pub async fn build_and_run_agent_streaming(
+    agent_id: &str,
+    message: &str,
+    session_id: &str,
+    _session_db: &Arc<crate::session::SessionDB>,
+    extra_system_context: Option<&str>,
+    on_delta: Option<Arc<dyn Fn(&str) + Send + Sync>>,
+) -> Result<String> {
     use crate::agent::AssistantAgent;
     use crate::failover;
     use crate::provider;
@@ -196,7 +210,12 @@ pub async fn build_and_run_agent_with_context(
             agent.set_extra_system_context(ctx.to_string());
 
             let cancel = Arc::new(AtomicBool::new(false));
-            match agent.chat(message, &[], None, cancel, |_delta| {}).await {
+            let delta_cb = on_delta.clone();
+            match agent.chat(message, &[], None, cancel, move |delta| {
+                if let Some(ref cb) = delta_cb {
+                    cb(delta);
+                }
+            }).await {
                 Ok((response, _thinking)) => {
                     if idx > 0 {
                         app_info!("cron", "failover", "Fallback model {} succeeded", model_label);
