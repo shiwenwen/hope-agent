@@ -333,6 +333,7 @@ Step 5: MMR 多样性重排（如启用，默认开启）
 | **Voyage input_type** | 自动注入 `query`（搜索场景）/ `document`（索引场景）非对称 embedding |
 | **Embedding 缓存** | SQLite `embedding_cache` 表，hash+provider+model 三元组去重，避免重复 API 调用，自动清理 |
 | **多模态 Embedding** | 图片（jpg/png/webp/gif/heic/heif）+ 音频（mp3/wav/ogg/opus/m4a/aac/flac），Gemini embedding-2 专属。双重门控（config + provider），10MB 上限，失败自动降级文本 |
+| **异步 Batch API** | OpenAI + Voyage：JSONL 上传 → 创建批次任务 → 轮询状态 → 下载结果。≤50,000 条/批次，~50% 价格优惠。`reembed_all` 时自动启用（≥10 条），失败自动降级同步接口 |
 
 ### 2.6 完整工作链路图
 
@@ -698,7 +699,7 @@ flowchart TD
 | **L2 归一化** | ✅ | ✅ |
 | **Token 限制** | ✅ per-model 限制 + 安全截断 | ✅ |
 | **多模态 embedding** | ✅ 图片+音频（14 种格式，Gemini embedding-2） | ✅ Gemini embedding-2-preview |
-| **完整 Batch API** | ❌（仅 Gemini batch） | ✅ 三家 JSONL Batch |
+| **完整 Batch API** | ✅ OpenAI + Voyage（JSONL 上传→轮询→下载，≤50K/批，自动降级） | ✅ 三家 JSONL Batch |
 | **版本控制** | ❌ SQLite 数据库 | ✅ 文件系统天然 git |
 
 ### OpenComputer 系统提示词 Section ⑧ 结构

@@ -123,4 +123,22 @@ pub trait EmbeddingProvider: Send + Sync {
     fn embed_multimodal(&self, input: &MultimodalInput) -> Result<Vec<f32>> {
         self.embed(&input.label)
     }
+
+    /// Whether this provider supports the async Batch API (JSONL upload → poll → download).
+    /// Used for bulk re-embedding at ~50% lower cost.
+    fn supports_batch_api(&self) -> bool { false }
+
+    /// Submit a batch embedding job via the async Batch API.
+    /// Returns a map of custom_id → embedding vector.
+    /// Default: falls back to synchronous embed_batch().
+    fn embed_batch_async(&self, texts: &[(String, String)]) -> Result<std::collections::HashMap<String, Vec<f32>>> {
+        // Default: synchronous fallback
+        let text_strs: Vec<String> = texts.iter().map(|(_, t)| t.clone()).collect();
+        let results = self.embed_batch(&text_strs)?;
+        let mut map = std::collections::HashMap::new();
+        for ((id, _), emb) in texts.iter().zip(results) {
+            map.insert(id.clone(), emb);
+        }
+        Ok(map)
+    }
 }

@@ -703,6 +703,242 @@ impl ApiEmbeddingProvider {
 
         Ok(values.iter().map(|v| v.as_f64().unwrap_or(0.0) as f32).collect())
     }
+
+    // ── Async Batch API (OpenAI / Voyage compatible) ──
+
+    /// Check if this provider supports the async Batch API.
+    fn batch_api_supported(&self) -> bool {
+        match self.provider_type {
+            EmbeddingProviderType::OpenaiCompatible => {
+                // OpenAI and Voyage support Batch API
+                self.base_url.contains("openai.com") || self.base_url.contains("voyageai.com")
+            }
+            _ => false, // Gemini uses batchEmbedContents (already synchronous batch)
+        }
+    }
+
+    /// Upload a JSONL file for batch processing.
+    fn batch_upload_jsonl(&self, jsonl_content: &str) -> Result<String> {
+        let url = format!("{}/v1/files", self.base_url.trim_end_matches('/'));
+
+        let boundary = format!("----BatchBoundary{}", chrono::Utc::now().timestamp_millis());
+        let body = format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"purpose\"\r\n\r\nbatch\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"memory-embeddings.jsonl\"\r\nContent-Type: application/jsonl\r\n\r\n{jsonl_content}\r\n--{boundary}--\r\n",
+        );
+
+        let resp = self.client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("Content-Type", format!("multipart/form-data; boundary={}", boundary))
+            .body(body)
+            .send()
+            .context("Failed to upload batch JSONL file")?;
+
+        let status = resp.status();
+        let resp_text = resp.text()?;
+        if !status.is_success() {
+            anyhow::bail!("Batch file upload error {}: {}", status, resp_text);
+        }
+
+        let resp_json: serde_json::Value = serde_json::from_str(&resp_text)?;
+        resp_json["id"].as_str()
+            .map(String::from)
+            .ok_or_else(|| anyhow::anyhow!("Missing file id in upload response"))
+    }
+
+    /// Create a batch job.
+    fn batch_create(&self, input_file_id: &str) -> Result<String> {
+        let url = format!("{}/v1/batches", self.base_url.trim_end_matches('/'));
+
+        let mut body = serde_json::json!({
+            "input_file_id": input_file_id,
+            "endpoint": "/v1/embeddings",
+            "completion_window": "24h",
+        });
+
+        // Voyage needs request_params
+        if self.base_url.contains("voyageai.com") {
+            body["completion_window"] = serde_json::json!("12h");
+            body["request_params"] = serde_json::json!({
+                "model": &self.model,
+                "input_type": "document",
+            });
+        }
+
+        let resp = self.client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .context("Failed to create batch job")?;
+
+        let status = resp.status();
+        let resp_text = resp.text()?;
+        if !status.is_success() {
+            anyhow::bail!("Batch create error {}: {}", status, resp_text);
+        }
+
+        let resp_json: serde_json::Value = serde_json::from_str(&resp_text)?;
+        resp_json["id"].as_str()
+            .map(String::from)
+            .ok_or_else(|| anyhow::anyhow!("Missing batch id in create response"))
+    }
+
+    /// Poll batch status until completion or failure.
+    fn batch_poll(&self, batch_id: &str, timeout_ms: u64, poll_interval_ms: u64) -> Result<String> {
+        let url = format!("{}/v1/batches/{}", self.base_url.trim_end_matches('/'), batch_id);
+        let start = std::time::Instant::now();
+
+        loop {
+            let resp = self.client
+                .get(&url)
+                .header("Authorization", format!("Bearer {}", self.api_key))
+                .send()
+                .context("Failed to poll batch status")?;
+
+            let resp_text = resp.text()?;
+            let resp_json: serde_json::Value = serde_json::from_str(&resp_text)?;
+            let state = resp_json["status"].as_str().unwrap_or("unknown");
+
+            match state {
+                "completed" => {
+                    return resp_json["output_file_id"].as_str()
+                        .map(String::from)
+                        .ok_or_else(|| anyhow::anyhow!("Batch completed but no output_file_id"));
+                }
+                "failed" | "expired" | "cancelled" | "canceled" => {
+                    anyhow::bail!("Batch {} {}: {}", batch_id, state,
+                        resp_json["error"].as_str().unwrap_or("unknown error"));
+                }
+                _ => {
+                    if start.elapsed().as_millis() as u64 > timeout_ms {
+                        anyhow::bail!("Batch {} timed out after {}ms (state: {})", batch_id, timeout_ms, state);
+                    }
+                    if let Some(logger) = crate::get_logger() {
+                        logger.log("debug", "memory", "embedding::batch_poll",
+                            &format!("Batch {} state={}, waiting {}ms", batch_id, state, poll_interval_ms),
+                            None, None, None);
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(poll_interval_ms));
+                }
+            }
+        }
+    }
+
+    /// Download batch output file content (JSONL).
+    fn batch_download_output(&self, file_id: &str) -> Result<String> {
+        let url = format!("{}/v1/files/{}/content", self.base_url.trim_end_matches('/'), file_id);
+
+        let resp = self.client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .send()
+            .context("Failed to download batch output")?;
+
+        let status = resp.status();
+        let text = resp.text()?;
+        if !status.is_success() {
+            anyhow::bail!("Batch output download error {}: {}", status, text);
+        }
+        Ok(text)
+    }
+
+    /// Run the complete async Batch API flow: upload JSONL → create batch → poll → download → parse.
+    fn run_batch_api(&self, items: &[(String, String)]) -> Result<std::collections::HashMap<String, Vec<f32>>> {
+        use std::collections::HashMap;
+        const MAX_BATCH_SIZE: usize = 50_000;
+        const POLL_INTERVAL_MS: u64 = 5_000;
+        const TIMEOUT_MS: u64 = 60 * 60 * 1_000; // 60 minutes
+
+        if let Some(logger) = crate::get_logger() {
+            logger.log("info", "memory", "embedding::batch_api",
+                &format!("Starting async Batch API: {} items, model={}", items.len(), self.model),
+                None, None, None);
+        }
+
+        let mut all_results: HashMap<String, Vec<f32>> = HashMap::new();
+
+        for chunk in items.chunks(MAX_BATCH_SIZE) {
+            // Build JSONL
+            let jsonl: String = chunk.iter().map(|(id, text)| {
+                let mut body = serde_json::json!({
+                    "model": &self.model,
+                    "input": text,
+                });
+                if self.dimensions > 0 {
+                    body["dimensions"] = serde_json::json!(self.dimensions);
+                }
+                serde_json::json!({
+                    "custom_id": id,
+                    "method": "POST",
+                    "url": "/v1/embeddings",
+                    "body": body,
+                }).to_string()
+            }).collect::<Vec<_>>().join("\n");
+
+            // Upload → Create → Poll → Download
+            let file_id = self.batch_upload_jsonl(&jsonl)?;
+            if let Some(logger) = crate::get_logger() {
+                logger.log("info", "memory", "embedding::batch_api",
+                    &format!("Batch JSONL uploaded: file_id={}, {} items", file_id, chunk.len()),
+                    None, None, None);
+            }
+
+            let batch_id = self.batch_create(&file_id)?;
+            if let Some(logger) = crate::get_logger() {
+                logger.log("info", "memory", "embedding::batch_api",
+                    &format!("Batch created: batch_id={}", batch_id),
+                    None, None, None);
+            }
+
+            let output_file_id = self.batch_poll(&batch_id, TIMEOUT_MS, POLL_INTERVAL_MS)?;
+            let output = self.batch_download_output(&output_file_id)?;
+
+            // Parse JSONL output
+            for line in output.lines() {
+                let line = line.trim();
+                if line.is_empty() { continue; }
+                let parsed: serde_json::Value = serde_json::from_str(line)
+                    .with_context(|| format!("Invalid batch output line: {}", crate::truncate_utf8(line, 200)))?;
+
+                let custom_id = parsed["custom_id"].as_str().unwrap_or("").to_string();
+                if custom_id.is_empty() { continue; }
+
+                let status_code = parsed["response"]["status_code"].as_u64().unwrap_or(0);
+                if status_code >= 400 {
+                    let err_msg = parsed["response"]["body"]["error"]["message"]
+                        .as_str().unwrap_or("unknown error");
+                    if let Some(logger) = crate::get_logger() {
+                        logger.log("warn", "memory", "embedding::batch_api",
+                            &format!("Batch item {} failed: {}", custom_id, err_msg),
+                            None, None, None);
+                    }
+                    continue;
+                }
+
+                if let Some(data) = parsed["response"]["body"]["data"].as_array() {
+                    if let Some(first) = data.first() {
+                        if let Some(emb_arr) = first["embedding"].as_array() {
+                            let mut emb: Vec<f32> = emb_arr.iter()
+                                .map(|v| v.as_f64().unwrap_or(0.0) as f32)
+                                .collect();
+                            l2_normalize(&mut emb);
+                            all_results.insert(custom_id, emb);
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Some(logger) = crate::get_logger() {
+            logger.log("info", "memory", "embedding::batch_api",
+                &format!("Batch API completed: {}/{} embeddings generated", all_results.len(), items.len()),
+                None, None, None);
+        }
+
+        Ok(all_results)
+    }
 }
 
 impl EmbeddingProvider for ApiEmbeddingProvider {
@@ -744,6 +980,24 @@ impl EmbeddingProvider for ApiEmbeddingProvider {
         let mut vec = self.call_google_multimodal(input)?;
         l2_normalize(&mut vec);
         Ok(vec)
+    }
+
+    fn supports_batch_api(&self) -> bool {
+        self.batch_api_supported()
+    }
+
+    fn embed_batch_async(&self, texts: &[(String, String)]) -> Result<std::collections::HashMap<String, Vec<f32>>> {
+        if !self.batch_api_supported() {
+            // Fallback to synchronous
+            let text_strs: Vec<String> = texts.iter().map(|(_, t)| t.clone()).collect();
+            let results = self.embed_batch(&text_strs)?;
+            let mut map = std::collections::HashMap::new();
+            for ((id, _), emb) in texts.iter().zip(results) {
+                map.insert(id.clone(), emb);
+            }
+            return Ok(map);
+        }
+        self.run_batch_api(texts)
     }
 }
 
@@ -858,6 +1112,24 @@ impl EmbeddingProvider for FallbackEmbeddingProvider {
                         None, None, None);
                 }
                 self.fallback.embed_multimodal(input)
+            }
+        }
+    }
+
+    fn supports_batch_api(&self) -> bool {
+        self.primary.supports_batch_api()
+    }
+
+    fn embed_batch_async(&self, texts: &[(String, String)]) -> Result<std::collections::HashMap<String, Vec<f32>>> {
+        match self.primary.embed_batch_async(texts) {
+            Ok(v) => Ok(v),
+            Err(e) => {
+                if let Some(logger) = crate::get_logger() {
+                    logger.log("warn", "memory", "embedding::fallback",
+                        &format!("Primary embed_batch_async failed, trying fallback: {}", e),
+                        None, None, None);
+                }
+                self.fallback.embed_batch_async(texts)
             }
         }
     }

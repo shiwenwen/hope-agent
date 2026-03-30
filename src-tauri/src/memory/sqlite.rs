@@ -298,24 +298,86 @@ impl SqliteMemoryBackend {
         }
         let _ = self.ensure_vec_table(&conn, dims);
 
+        // Try async Batch API for bulk re-embedding (cheaper + faster for large batches)
+        let guard = self.embedder.read().unwrap();
+        let use_batch = guard.as_ref().map_or(false, |e| e.supports_batch_api()) && entries.len() >= 10;
+        drop(guard);
+
+        if use_batch {
+            // Collect text-only entries (skip multimodal for batch)
+            let batch_items: Vec<(String, String)> = entries.iter()
+                .filter(|e| e.attachment_path.is_none())
+                .map(|e| (e.id.to_string(), e.content.clone()))
+                .collect();
+
+            if !batch_items.is_empty() {
+                if let Some(logger) = crate::get_logger() {
+                    logger.log("info", "memory", "embedding::reembed",
+                        &format!("Using async Batch API for {} entries", batch_items.len()),
+                        None, None, None);
+                }
+
+                let guard = self.embedder.read().unwrap();
+                if let Some(embedder) = guard.as_ref() {
+                    match embedder.embed_batch_async(&batch_items) {
+                        Ok(results) => {
+                            let mut count = 0usize;
+                            for (id_str, emb) in &results {
+                                let id: i64 = id_str.parse().unwrap_or(0);
+                                if id == 0 { continue; }
+                                let emb_bytes: Vec<u8> = emb.iter().flat_map(|f| f.to_le_bytes()).collect();
+                                let _ = conn.execute("UPDATE memories SET embedding = ?1 WHERE id = ?2", params![emb_bytes, id]);
+                                let _ = conn.execute("DELETE FROM memories_vec WHERE rowid = ?1", params![id]);
+                                let _ = conn.execute("INSERT INTO memories_vec(rowid, embedding) VALUES (?1, ?2)", params![id, emb_bytes]);
+                                count += 1;
+                            }
+
+                            // Handle multimodal entries with synchronous fallback
+                            for entry in entries.iter().filter(|e| e.attachment_path.is_some()) {
+                                if let Some(emb) = self.generate_multimodal_embedding(
+                                    &entry.content,
+                                    entry.attachment_path.as_deref().unwrap_or(""),
+                                    entry.attachment_mime.as_deref().unwrap_or(""),
+                                ) {
+                                    let emb_bytes: Vec<u8> = emb.iter().flat_map(|f| f.to_le_bytes()).collect();
+                                    let _ = conn.execute("UPDATE memories SET embedding = ?1 WHERE id = ?2", params![emb_bytes, entry.id]);
+                                    let _ = conn.execute("DELETE FROM memories_vec WHERE rowid = ?1", params![entry.id]);
+                                    let _ = conn.execute("INSERT INTO memories_vec(rowid, embedding) VALUES (?1, ?2)", params![entry.id, emb_bytes]);
+                                    count += 1;
+                                }
+                            }
+
+                            return Ok(count);
+                        }
+                        Err(e) => {
+                            if let Some(logger) = crate::get_logger() {
+                                logger.log("warn", "memory", "embedding::reembed",
+                                    &format!("Batch API failed, falling back to synchronous: {}", e),
+                                    None, None, None);
+                            }
+                            // Fall through to synchronous path
+                        }
+                    }
+                }
+            }
+        }
+
+        // Synchronous fallback: embed one by one
         let mut count = 0usize;
         for entry in entries {
-            if let Some(emb) = self.generate_embedding(&entry.content) {
+            let emb = if let (Some(ref att_path), Some(ref att_mime)) = (&entry.attachment_path, &entry.attachment_mime) {
+                self.generate_multimodal_embedding(&entry.content, att_path, att_mime)
+            } else {
+                self.generate_embedding(&entry.content)
+            };
+            if let Some(emb) = emb {
                 let emb_bytes: Vec<u8> = emb.iter().flat_map(|f| f.to_le_bytes()).collect();
-                // Update embedding blob in memories table
                 conn.execute(
                     "UPDATE memories SET embedding = ?1 WHERE id = ?2",
                     params![emb_bytes, entry.id],
                 )?;
-                // Upsert into vec0 table
-                let _ = conn.execute(
-                    "DELETE FROM memories_vec WHERE rowid = ?1",
-                    params![entry.id],
-                );
-                let _ = conn.execute(
-                    "INSERT INTO memories_vec(rowid, embedding) VALUES (?1, ?2)",
-                    params![entry.id, emb_bytes],
-                );
+                let _ = conn.execute("DELETE FROM memories_vec WHERE rowid = ?1", params![entry.id]);
+                let _ = conn.execute("INSERT INTO memories_vec(rowid, embedding) VALUES (?1, ?2)", params![entry.id, emb_bytes]);
                 count += 1;
             }
         }
