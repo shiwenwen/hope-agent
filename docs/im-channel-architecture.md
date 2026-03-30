@@ -143,7 +143,7 @@ graph TB
 
     CHANNEL_DB --> SESSION_DB
     CONFIG --> PROVIDER_STORE
-    PANEL -->|invoke()| REGISTRY
+    PANEL -->|"invoke()"| REGISTRY
 ```
 
 ---
@@ -599,7 +599,7 @@ graph LR
     POLL -->|getUpdates| API
     API -->|委托| BOT
     BOT -->|HTTPS| TGAPI
-    TGAPI -->|Update[]| BOT
+    TGAPI -->|"Update[]"| BOT
 
     FORMAT -.->|被 Plugin 调用| API
     MEDIA -.->|类型转换| API
