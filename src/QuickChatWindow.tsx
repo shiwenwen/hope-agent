@@ -19,6 +19,8 @@ import type { CommandResult } from "@/components/chat/slash-commands/types"
 import type { AgentSummaryForSidebar } from "@/types/chat"
 
 const hideWindow = () => getCurrentWindow().hide()
+const QUICK_CHAT_EMPTY_HEIGHT = 460
+const QUICK_CHAT_MESSAGES_HEIGHT = 500
 
 export default function QuickChatWindow() {
   const session = useQuickChatSession(true)
@@ -57,9 +59,9 @@ export default function QuickChatWindow() {
   useEffect(() => {
     const win = getCurrentWindow()
     if (hasMessages) {
-      win.setSize(new LogicalSize(680, 500))
+      win.setSize(new LogicalSize(680, QUICK_CHAT_MESSAGES_HEIGHT))
     } else {
-      win.setSize(new LogicalSize(680, 180))
+      win.setSize(new LogicalSize(680, QUICK_CHAT_EMPTY_HEIGHT))
     }
   }, [hasMessages])
 
@@ -104,7 +106,7 @@ export default function QuickChatWindow() {
 
   return (
     <TooltipProvider>
-      <div className="flex flex-col h-screen rounded-2xl bg-background/70 dark:bg-background/60 backdrop-blur-2xl backdrop-saturate-150 shadow-2xl">
+      <div className="flex flex-col h-screen rounded-2xl bg-background/70 dark:bg-background/60 backdrop-blur-2xl backdrop-saturate-150 shadow-2xl [clip-path:inset(0_round_16px)]">
         {/* ── Title bar (draggable) ─────────────── */}
         <div
           className="flex items-center gap-2 px-4 py-2 shrink-0 select-none"
@@ -153,6 +155,8 @@ export default function QuickChatWindow() {
           requests={stream.approvalRequests}
           onRespond={stream.handleApprovalResponse}
         />
+
+        {!hasMessages && <div className="flex-1 min-h-0" />}
 
         {/* ── Input ──────────────────────────────── */}
         <div className="shrink-0">

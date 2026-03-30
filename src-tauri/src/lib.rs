@@ -246,8 +246,8 @@ pub(crate) fn toggle_quickchat_window(app_handle: &tauri::AppHandle) {
     let url = tauri::WebviewUrl::App("index.html?window=quickchat".into());
     match tauri::WebviewWindowBuilder::new(app_handle, "quickchat", url)
         .title("Quick Chat")
-        .inner_size(680.0, 180.0)
-        .min_inner_size(500.0, 150.0)
+        .inner_size(680.0, 460.0)
+        .min_inner_size(500.0, 420.0)
         .resizable(false)
         .decorations(false)
         .transparent(true)
