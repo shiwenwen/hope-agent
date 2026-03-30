@@ -406,6 +406,9 @@ export default function ChatScreen({
         onEditAgent={onOpenAgentSettings}
         onMarkAllRead={session.reloadSessions}
         onRenameSession={handleRenameSession}
+        hasMoreSessions={session.hasMoreSessions}
+        loadingMoreSessions={session.loadingMoreSessions}
+        onLoadMoreSessions={session.handleLoadMoreSessions}
       />
 
       {/* Command Approval Dialog */}

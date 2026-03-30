@@ -252,6 +252,18 @@ impl SessionDB {
     /// List all sessions, ordered by most recently updated.
     /// Optionally filter by agent_id.
     pub fn list_sessions(&self, agent_id: Option<&str>) -> Result<Vec<SessionMeta>> {
+        let (sessions, _) = self.list_sessions_paged(agent_id, None, None)?;
+        Ok(sessions)
+    }
+
+    /// Paginated session list. Returns `(sessions, total_count)`.
+    /// When `limit` is `None`, all sessions are returned (backwards-compatible).
+    pub fn list_sessions_paged(
+        &self,
+        agent_id: Option<&str>,
+        limit: Option<u32>,
+        offset: Option<u32>,
+    ) -> Result<(Vec<SessionMeta>, u32)> {
         let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
         let base_sql = "SELECT s.id, s.title, s.agent_id, s.provider_id, s.provider_name, s.model_id,
@@ -264,6 +276,8 @@ impl SessionDB {
                         cc.channel_id, cc.account_id, cc.chat_id, cc.chat_type, cc.sender_name
                  FROM sessions s
                  LEFT JOIN channel_conversations cc ON cc.session_id = s.id";
+
+        let count_base = "SELECT COUNT(*) FROM sessions s";
 
         let row_mapper = |row: &rusqlite::Row| {
             let cc_channel_id: Option<String> = row.get(13)?;
@@ -293,16 +307,27 @@ impl SessionDB {
         };
 
         let mut sessions = Vec::new();
+        let total: u32;
+
+        let pagination_clause = match limit {
+            Some(l) => format!(" LIMIT {} OFFSET {}", l, offset.unwrap_or(0)),
+            None => String::new(),
+        };
 
         if let Some(agent_id) = agent_id {
-            let sql = format!("{} WHERE s.agent_id = ?1 ORDER BY s.updated_at DESC", base_sql);
+            let count_sql = format!("{} WHERE s.agent_id = ?1", count_base);
+            total = conn.query_row(&count_sql, params![agent_id], |r| r.get::<_, u32>(0))?;
+
+            let sql = format!("{} WHERE s.agent_id = ?1 ORDER BY s.updated_at DESC{}", base_sql, pagination_clause);
             let mut stmt = conn.prepare(&sql)?;
             let rows = stmt.query_map(params![agent_id], row_mapper)?;
             for row in rows {
                 sessions.push(row?);
             }
         } else {
-            let sql = format!("{} ORDER BY s.updated_at DESC", base_sql);
+            total = conn.query_row(count_base, [], |r| r.get::<_, u32>(0))?;
+
+            let sql = format!("{} ORDER BY s.updated_at DESC{}", base_sql, pagination_clause);
             let mut stmt = conn.prepare(&sql)?;
             let rows = stmt.query_map([], row_mapper)?;
             for row in rows {
@@ -310,7 +335,7 @@ impl SessionDB {
             }
         }
 
-        Ok(sessions)
+        Ok((sessions, total))
     }
 
     /// Load all messages for a session.

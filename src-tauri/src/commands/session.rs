@@ -14,9 +14,11 @@ pub async fn create_session_cmd(
 #[tauri::command]
 pub async fn list_sessions_cmd(
     agent_id: Option<String>,
+    limit: Option<u32>,
+    offset: Option<u32>,
     state: State<'_, AppState>,
-) -> Result<Vec<session::SessionMeta>, String> {
-    state.session_db.list_sessions(agent_id.as_deref()).map_err(|e| e.to_string())
+) -> Result<(Vec<session::SessionMeta>, u32), String> {
+    state.session_db.list_sessions_paged(agent_id.as_deref(), limit, offset).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

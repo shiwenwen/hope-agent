@@ -50,6 +50,9 @@ interface ChatSidebarProps {
   onEditAgent?: (agentId: string) => void
   onMarkAllRead?: () => void
   onRenameSession?: (sessionId: string, title: string) => void
+  hasMoreSessions?: boolean
+  loadingMoreSessions?: boolean
+  onLoadMoreSessions?: () => void
 }
 
 export default function ChatSidebar({
@@ -65,6 +68,9 @@ export default function ChatSidebar({
   onEditAgent,
   onMarkAllRead,
   onRenameSession,
+  hasMoreSessions,
+  loadingMoreSessions,
+  onLoadMoreSessions,
 }: ChatSidebarProps) {
   const { t } = useTranslation()
   const [agentsExpanded, setAgentsExpanded] = useState(true)
@@ -282,7 +288,17 @@ export default function ChatSidebar({
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto">
+          <div
+            className="flex-1 overflow-y-auto"
+            onScroll={(e) => {
+              if (!hasMoreSessions || loadingMoreSessions || !onLoadMoreSessions) return
+              const el = e.currentTarget
+              // Trigger when scrolled within 100px of the bottom
+              if (el.scrollHeight - el.scrollTop - el.clientHeight < 100) {
+                onLoadMoreSessions()
+              }
+            }}
+          >
             {/* Collapsible Agents section */}
             <div className="border-b border-border/50">
               <div className="flex items-center">
@@ -664,6 +680,11 @@ export default function ChatSidebar({
                     </ContextMenu>
                   )
                 })
+              )}
+              {loadingMoreSessions && (
+                <div className="flex justify-center py-3">
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                </div>
               )}
             </div>
           </div>

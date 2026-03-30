@@ -139,7 +139,7 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
   // Reload sessions list (for useChatStream compatibility)
   const reloadSessions = useCallback(async () => {
     try {
-      const list = await invoke<SessionMeta[]>("list_sessions_cmd", {
+      const [list] = await invoke<[SessionMeta[], number]>("list_sessions_cmd", {
         agentId: currentAgentId === "default" ? null : currentAgentId,
       })
       setSessions(list)

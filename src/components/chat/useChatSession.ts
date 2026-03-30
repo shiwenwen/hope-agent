@@ -17,6 +17,7 @@ import type {
 import type { AgentConfig } from "@/components/settings/types"
 
 export const PAGE_SIZE = 30
+export const SESSION_PAGE_SIZE = 50
 
 export interface UseChatSessionReturn {
   // State
@@ -37,6 +38,8 @@ export interface UseChatSessionReturn {
   setLoadingSessionIds: React.Dispatch<React.SetStateAction<Set<string>>>
   hasMore: boolean
   loadingMore: boolean
+  hasMoreSessions: boolean
+  loadingMoreSessions: boolean
 
   // Refs
   sessionCacheRef: React.MutableRefObject<Map<string, Message[]>>
@@ -51,6 +54,7 @@ export interface UseChatSessionReturn {
   handleNewChat: (agentId: string) => Promise<void>
   handleDeleteSession: (sessionId: string) => Promise<void>
   handleLoadMore: () => Promise<void>
+  handleLoadMoreSessions: () => Promise<void>
   updateSessionMessages: (sessionId: string, updater: (prev: Message[]) => Message[]) => void
 }
 
@@ -86,6 +90,8 @@ export function useChatSession({
   const [loadingSessionIds, setLoadingSessionIds] = useState<Set<string>>(new Set())
   const [hasMore, setHasMore] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
+  const [hasMoreSessions, setHasMoreSessions] = useState(false)
+  const [loadingMoreSessions, setLoadingMoreSessions] = useState(false)
 
   const currentSessionIdRef = useRef<string | null>(null)
   const sessionCacheRef = useRef<Map<string, Message[]>>(new Map())
@@ -111,15 +117,46 @@ export function useChatSession({
     [],
   )
 
-  // Load session list and agent list
+  // Load session list and agent list (paginated)
   const reloadSessions = useCallback(async () => {
     try {
-      const list = await invoke<SessionMeta[]>("list_sessions_cmd", {})
+      const [list, total] = await invoke<[SessionMeta[], number]>("list_sessions_cmd", {
+        limit: SESSION_PAGE_SIZE,
+        offset: 0,
+      })
       setSessions(list)
+      setHasMoreSessions(list.length < total)
     } catch (e) {
       logger.error("ui", "ChatScreen::loadSessions", "Failed to load sessions", e)
     }
   }, [])
+
+  const handleLoadMoreSessions = useCallback(async () => {
+    if (loadingMoreSessions || !hasMoreSessions) return
+    setLoadingMoreSessions(true)
+    try {
+      const [more, total] = await invoke<[SessionMeta[], number]>("list_sessions_cmd", {
+        limit: SESSION_PAGE_SIZE,
+        offset: sessions.length,
+      })
+      if (more.length === 0) {
+        setHasMoreSessions(false)
+        return
+      }
+      setSessions((prev) => {
+        // Deduplicate by id in case new sessions appeared while paginating
+        const existingIds = new Set(prev.map((s) => s.id))
+        const newItems = more.filter((s) => !existingIds.has(s.id))
+        const merged = [...prev, ...newItems]
+        setHasMoreSessions(merged.length < total)
+        return merged
+      })
+    } catch (e) {
+      logger.error("ui", "ChatScreen::loadMoreSessions", "Failed to load more sessions", e)
+    } finally {
+      setLoadingMoreSessions(false)
+    }
+  }, [loadingMoreSessions, hasMoreSessions, sessions.length])
 
   const reloadAgents = useCallback(async () => {
     try {
@@ -193,6 +230,34 @@ export function useChatSession({
       unlisten?.()
     }
   }, [reloadSessions])
+
+  // Listen for channel stream lifecycle — loading state management
+  useEffect(() => {
+    const unlisteners: UnlistenFn[] = []
+
+    listen("channel:stream_start", (event) => {
+      const payload = event.payload as { sessionId: string }
+      if (!payload.sessionId) return
+      // Mark session as loading
+      loadingSessionsRef.current.add(payload.sessionId)
+      setLoadingSessionIds(new Set(loadingSessionsRef.current))
+      if (payload.sessionId === currentSessionIdRef.current) {
+        setLoading(true)
+      }
+    }).then((fn) => unlisteners.push(fn))
+
+    listen("channel:stream_end", (event) => {
+      const payload = event.payload as { sessionId: string }
+      if (!payload.sessionId) return
+      loadingSessionsRef.current.delete(payload.sessionId)
+      setLoadingSessionIds(new Set(loadingSessionsRef.current))
+      if (payload.sessionId === currentSessionIdRef.current) {
+        setLoading(false)
+      }
+    }).then((fn) => unlisteners.push(fn))
+
+    return () => { unlisteners.forEach((fn) => fn()) }
+  }, [setLoading, setLoadingSessionIds])
 
   // Listen for channel streaming events — real-time display for active channel session
   useEffect(() => {
@@ -289,7 +354,7 @@ export function useChatSession({
             "load_session_messages_latest_cmd",
             { sessionId, limit: PAGE_SIZE },
           )
-          const currentSessions = await invoke<SessionMeta[]>("list_sessions_cmd", {})
+          const [currentSessions] = await invoke<[SessionMeta[], number]>("list_sessions_cmd", {})
           const sessionMeta = currentSessions.find((s) => s.id === sessionId)
           const parentSession = sessionMeta?.parentSessionId
             ? currentSessions.find((s) => s.id === sessionMeta.parentSessionId)
@@ -315,8 +380,8 @@ export function useChatSession({
       }
 
       // Use fresh sessions list for session lookup
-      const currentSessions = await invoke<SessionMeta[]>("list_sessions_cmd", {}).catch(
-        () => [] as SessionMeta[],
+      const [currentSessions] = await invoke<[SessionMeta[], number]>("list_sessions_cmd", {}).catch(
+        () => [[] as SessionMeta[], 0] as [SessionMeta[], number],
       )
       const currentAgents = await invoke<AgentSummaryForSidebar[]>("list_agents").catch(
         () => [] as AgentSummaryForSidebar[],
@@ -477,8 +542,8 @@ export function useChatSession({
         setHasMore(false)
         return
       }
-      const currentSessions = await invoke<SessionMeta[]>("list_sessions_cmd", {}).catch(
-        () => [] as SessionMeta[],
+      const [currentSessions] = await invoke<[SessionMeta[], number]>("list_sessions_cmd", {}).catch(
+        () => [[] as SessionMeta[], 0] as [SessionMeta[], number],
       )
       const sessionMeta = currentSessions.find((s) => s.id === curSid)
       const parentSession = sessionMeta?.parentSessionId
@@ -521,6 +586,8 @@ export function useChatSession({
     setLoadingSessionIds,
     hasMore,
     loadingMore,
+    hasMoreSessions,
+    loadingMoreSessions,
     sessionCacheRef,
     loadingSessionsRef,
     hasMoreRef,
@@ -531,6 +598,7 @@ export function useChatSession({
     handleNewChat,
     handleDeleteSession,
     handleLoadMore,
+    handleLoadMoreSessions,
     updateSessionMessages,
   }
 }
