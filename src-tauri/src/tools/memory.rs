@@ -44,6 +44,8 @@ pub(crate) async fn tool_save_memory(args: &Value) -> Result<String> {
         source: "auto".to_string(),
         source_session_id: None,
         pinned,
+        attachment_path: None,
+        attachment_mime: None,
     };
 
     // Run blocking backend operations (embedding API + SQLite) on a blocking thread

@@ -130,6 +130,8 @@ async fn do_extraction(
             source: "auto".to_string(),
             source_session_id: Some(session_id.to_string()),
             pinned: false,
+            attachment_path: None,
+            attachment_mime: None,
         };
 
         let dedup = crate::memory::load_dedup_config();
@@ -264,6 +266,8 @@ pub async fn flush_before_compact(
             source: "flush".to_string(),
             source_session_id: Some(session_id.to_string()),
             pinned: false,
+            attachment_path: None,
+            attachment_mime: None,
         };
 
         let dedup = crate::memory::load_dedup_config();

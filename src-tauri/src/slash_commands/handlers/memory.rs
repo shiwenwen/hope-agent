@@ -21,6 +21,8 @@ pub fn handle_remember(
         source: "slash_command".to_string(),
         source_session_id: session_id.map(|s| s.to_string()),
         pinned: false,
+        attachment_path: None,
+        attachment_mime: None,
     };
 
     let id = backend.add(entry).map_err(|e| e.to_string())?;

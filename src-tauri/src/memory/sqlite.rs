@@ -2,9 +2,41 @@ use anyhow::{Context, Result};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::sync::{Arc, Mutex};
 
-use super::helpers::{load_dedup_config, sanitize_fts_query};
+use super::helpers::{expand_query, load_dedup_config, load_hybrid_search_config, load_temporal_decay_config};
 use super::traits::{EmbeddingProvider, MemoryBackend};
 use super::types::*;
+
+// ── Prompt Injection Protection ─────────────────────────────────
+
+/// Sanitize memory content before injecting into system prompt.
+/// Detects suspicious patterns and escapes special tokens.
+fn sanitize_for_prompt(content: &str) -> String {
+    let lower = content.to_lowercase();
+    let suspicious_patterns = [
+        "ignore previous instructions",
+        "ignore all instructions",
+        "ignore above instructions",
+        "disregard previous",
+        "disregard all previous",
+        "you are now",
+        "new instructions:",
+        "system prompt:",
+        "<<sys>>",
+        "<|im_start|>",
+        "<|endoftext|>",
+        "<|system|>",
+    ];
+
+    if suspicious_patterns.iter().any(|p| lower.contains(p)) {
+        return "[Content filtered: potential prompt injection detected]".to_string();
+    }
+
+    // Escape special tokens that could be interpreted by LLMs
+    content
+        .replace("<|", "&lt;|")
+        .replace("|>", "|&gt;")
+        .replace("<<sys>>", "&lt;&lt;sys&gt;&gt;")
+}
 
 // ── SQLite Backend ──────────────────────────────────────────────
 
@@ -68,6 +100,17 @@ impl SqliteMemoryBackend {
                 tokenize='unicode61'
             );
 
+            -- Embedding cache to reduce API calls for repeated texts
+            CREATE TABLE IF NOT EXISTS embedding_cache (
+                hash TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                model TEXT NOT NULL,
+                embedding BLOB NOT NULL,
+                dimensions INTEGER NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                PRIMARY KEY (hash, provider, model)
+            );
+
             -- Triggers to keep FTS in sync
             CREATE TRIGGER IF NOT EXISTS memories_ai AFTER INSERT ON memories BEGIN
                 INSERT INTO memories_fts(rowid, content, tags)
@@ -87,6 +130,14 @@ impl SqliteMemoryBackend {
             END;",
         )?;
 
+        // Migration: add attachment columns for multimodal embedding
+        if conn.prepare("SELECT attachment_path FROM memories LIMIT 0").is_err() {
+            let _ = conn.execute_batch(
+                "ALTER TABLE memories ADD COLUMN attachment_path TEXT;
+                 ALTER TABLE memories ADD COLUMN attachment_mime TEXT;"
+            );
+        }
+
         Ok(Self {
             conn: Mutex::new(conn),
             embedder: std::sync::RwLock::new(None),
@@ -104,10 +155,138 @@ impl SqliteMemoryBackend {
         Ok(())
     }
 
-    /// Generate embedding for text using the configured provider.
+    /// Generate embedding for text, with optional caching to reduce API calls.
     fn generate_embedding(&self, text: &str) -> Option<Vec<f32>> {
         let guard = self.embedder.read().unwrap();
-        guard.as_ref().and_then(|e| e.embed(text).ok())
+        let embedder = guard.as_ref()?;
+
+        let cache_cfg = super::helpers::load_embedding_cache_config();
+        if !cache_cfg.enabled {
+            return embedder.embed(text).ok();
+        }
+
+        // Compute content hash
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let mut hasher = DefaultHasher::new();
+        text.hash(&mut hasher);
+        let hash_str = format!("{:016x}", hasher.finish());
+
+        // Load provider/model info from config for cache key
+        let store = crate::provider::load_store().ok()?;
+        let provider_key = format!("{:?}", store.embedding.provider_type);
+        let model_key = store.embedding.api_model.clone().unwrap_or_default();
+
+        // Check cache
+        if let Ok(conn) = self.conn.lock() {
+            let cached: Option<Vec<u8>> = conn.query_row(
+                "SELECT embedding FROM embedding_cache WHERE hash = ?1 AND provider = ?2 AND model = ?3",
+                params![hash_str, provider_key, model_key],
+                |row| row.get(0),
+            ).optional().unwrap_or(None);
+
+            if let Some(bytes) = cached {
+                // Deserialize f32 bytes
+                let floats: Vec<f32> = bytes.chunks_exact(4)
+                    .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                    .collect();
+                if !floats.is_empty() {
+                    return Some(floats);
+                }
+            }
+        }
+
+        // Cache miss: compute embedding
+        let emb = embedder.embed(text).ok()?;
+
+        // Store in cache
+        if let Ok(conn) = self.conn.lock() {
+            let emb_bytes: Vec<u8> = emb.iter().flat_map(|f| f.to_le_bytes()).collect();
+            let dims = emb.len() as i64;
+            let _ = conn.execute(
+                "INSERT OR REPLACE INTO embedding_cache (hash, provider, model, embedding, dimensions, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, datetime('now'))",
+                params![hash_str, provider_key, model_key, emb_bytes, dims],
+            );
+
+            // Prune cache if over limit
+            if cache_cfg.max_entries > 0 {
+                let count: i64 = conn.query_row(
+                    "SELECT COUNT(*) FROM embedding_cache", [], |row| row.get(0),
+                ).unwrap_or(0);
+                if count as usize > cache_cfg.max_entries {
+                    let to_delete = count as usize - cache_cfg.max_entries + cache_cfg.max_entries / 10;
+                    let _ = conn.execute(
+                        &format!("DELETE FROM embedding_cache WHERE rowid IN (SELECT rowid FROM embedding_cache ORDER BY created_at ASC LIMIT {})", to_delete),
+                        [],
+                    );
+                }
+            }
+        }
+
+        Some(emb)
+    }
+
+    /// Generate multimodal embedding for a file attachment + text label.
+    /// Falls back to text-only if provider doesn't support multimodal or file is invalid.
+    fn generate_multimodal_embedding(&self, label: &str, file_path: &str, mime_type: &str) -> Option<Vec<f32>> {
+        let guard = self.embedder.read().unwrap();
+        let embedder = guard.as_ref()?;
+
+        // Check multimodal config
+        let mm_cfg = super::helpers::load_multimodal_config();
+        if !mm_cfg.enabled {
+            return embedder.embed(label).ok();
+        }
+
+        if !embedder.supports_multimodal() {
+            if let Some(logger) = crate::get_logger() {
+                logger.log("info", "memory", "embedding::multimodal",
+                    "Embedding provider does not support multimodal, falling back to text-only",
+                    None, None, None);
+            }
+            return embedder.embed(label).ok();
+        }
+
+        // Validate file
+        let path = std::path::Path::new(file_path);
+        if !path.exists() {
+            if let Some(logger) = crate::get_logger() {
+                logger.log("warn", "memory", "embedding::multimodal",
+                    &format!("Attachment file not found: {}", file_path),
+                    None, None, None);
+            }
+            return embedder.embed(label).ok();
+        }
+
+        let metadata = std::fs::metadata(path).ok()?;
+        if metadata.len() > mm_cfg.max_file_bytes {
+            if let Some(logger) = crate::get_logger() {
+                logger.log("warn", "memory", "embedding::multimodal",
+                    &format!("Attachment too large: {} bytes > {} max", metadata.len(), mm_cfg.max_file_bytes),
+                    None, None, None);
+            }
+            return embedder.embed(label).ok();
+        }
+
+        let file_data = std::fs::read(path).ok()?;
+        let input = super::traits::MultimodalInput {
+            label: label.to_string(),
+            mime_type: mime_type.to_string(),
+            file_data,
+        };
+
+        match embedder.embed_multimodal(&input) {
+            Ok(emb) => Some(emb),
+            Err(e) => {
+                if let Some(logger) = crate::get_logger() {
+                    logger.log("warn", "memory", "embedding::multimodal",
+                        &format!("Multimodal embedding failed, falling back to text: {}", e),
+                        None, None, None);
+                }
+                embedder.embed(label).ok()
+            }
+        }
     }
 
     /// Re-generate embeddings for a set of entries and update the DB.
@@ -204,6 +383,8 @@ pub(crate) fn row_to_entry(row: &rusqlite::Row) -> rusqlite::Result<MemoryEntry>
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
         relevance_score: None,
+        attachment_path: row.get("attachment_path").ok().flatten(),
+        attachment_mime: row.get("attachment_mime").ok().flatten(),
     })
 }
 
@@ -220,15 +401,19 @@ impl MemoryBackend for SqliteMemoryBackend {
             MemoryScope::Agent { id } => ("agent", Some(id.as_str())),
         };
 
-        // Generate embedding if provider is configured
-        let embedding = self.generate_embedding(&entry.content);
+        // Generate embedding: multimodal if attachment present + supported, else text-only
+        let embedding = if let (Some(ref att_path), Some(ref att_mime)) = (&entry.attachment_path, &entry.attachment_mime) {
+            self.generate_multimodal_embedding(&entry.content, att_path, att_mime)
+        } else {
+            self.generate_embedding(&entry.content)
+        };
         let embedding_bytes: Option<Vec<u8>> = embedding.as_ref().map(|v| {
             v.iter().flat_map(|f| f.to_le_bytes()).collect()
         });
 
         conn.execute(
-            "INSERT INTO memories (memory_type, scope_type, scope_agent_id, content, tags, source, source_session_id, embedding, pinned, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            "INSERT INTO memories (memory_type, scope_type, scope_agent_id, content, tags, source, source_session_id, embedding, pinned, created_at, updated_at, attachment_path, attachment_mime)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
                 entry.memory_type.as_str(),
                 scope_type,
@@ -241,6 +426,8 @@ impl MemoryBackend for SqliteMemoryBackend {
                 entry.pinned as i64,
                 now,
                 now,
+                entry.attachment_path,
+                entry.attachment_mime,
             ],
         )?;
 
@@ -390,12 +577,16 @@ impl MemoryBackend for SqliteMemoryBackend {
         let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let limit = query.limit.unwrap_or(20);
 
+        // Load configurable search parameters
+        let hybrid_cfg = load_hybrid_search_config();
+        let decay_cfg = load_temporal_decay_config();
+
         // Try hybrid search (FTS5 + vector), fall back to FTS5-only
         let query_embedding = self.generate_embedding(&query.query);
         let has_vec = query_embedding.is_some();
 
-        // ── Step 1: FTS5 keyword search ──
-        let fts_query = sanitize_fts_query(&query.query);
+        // ── Step 1: FTS5 keyword search (with query expansion) ──
+        let fts_query = expand_query(&query.query);
         let mut fts_results: Vec<(i64, f64)> = Vec::new(); // (id, rank)
 
         {
@@ -433,19 +624,51 @@ impl MemoryBackend for SqliteMemoryBackend {
             }
         }
 
-        // ── Step 3: RRF (Reciprocal Rank Fusion) to merge results ──
+        // ── Step 3: Weighted RRF (Reciprocal Rank Fusion) to merge results ──
         use std::collections::HashMap;
-        let k = 60.0_f64; // RRF constant
+        let k = hybrid_cfg.rrf_k;
 
         let mut scores: HashMap<i64, f64> = HashMap::new();
 
         for (rank, (id, _)) in fts_results.iter().enumerate() {
-            *scores.entry(*id).or_insert(0.0) += 1.0 / (k + rank as f64 + 1.0);
+            *scores.entry(*id).or_insert(0.0) += hybrid_cfg.text_weight as f64 / (k + rank as f64 + 1.0);
         }
 
         if has_vec {
             for (rank, (id, _)) in vec_results.iter().enumerate() {
-                *scores.entry(*id).or_insert(0.0) += 1.0 / (k + rank as f64 + 1.0);
+                *scores.entry(*id).or_insert(0.0) += hybrid_cfg.vector_weight as f64 / (k + rank as f64 + 1.0);
+            }
+        }
+
+        // ── Step 3b: Apply temporal decay ──
+        if decay_cfg.enabled && decay_cfg.half_life_days > 0.0 {
+            let lambda = (2.0_f64).ln() / decay_cfg.half_life_days;
+            let now = chrono::Utc::now();
+            // Need to load updated_at for scored entries to apply decay
+            let ids: Vec<i64> = scores.keys().cloned().collect();
+            if !ids.is_empty() {
+                let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+                let sql = format!(
+                    "SELECT id, updated_at, pinned FROM memories WHERE id IN ({})", placeholders
+                );
+                let params: Vec<Box<dyn rusqlite::types::ToSql>> = ids.iter().map(|id| Box::new(*id) as Box<dyn rusqlite::types::ToSql>).collect();
+                let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+                let mut stmt = conn.prepare(&sql)?;
+                let rows = stmt.query_map(param_refs.as_slice(), |row| {
+                    Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, bool>(2)?))
+                })?;
+                for r in rows.flatten() {
+                    let (id, updated_at, pinned) = r;
+                    if pinned { continue; } // Pinned memories are evergreen
+                    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&updated_at) {
+                        let age_days = (now - dt.with_timezone(&chrono::Utc)).num_seconds() as f64 / 86400.0;
+                        if age_days > 0.0 {
+                            if let Some(score) = scores.get_mut(&id) {
+                                *score *= (-lambda * age_days).exp();
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -515,6 +738,22 @@ impl MemoryBackend for SqliteMemoryBackend {
             b.relevance_score.unwrap_or(0.0).partial_cmp(&a.relevance_score.unwrap_or(0.0))
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
+
+        // ── Step 5: MMR diversity reranking ──
+        let mmr_cfg = super::helpers::load_mmr_config();
+        if mmr_cfg.enabled && entries.len() > 1 {
+            let candidates: Vec<(i64, f32, &str)> = entries.iter()
+                .map(|e| (e.id, e.relevance_score.unwrap_or(0.0), e.content.as_str()))
+                .collect();
+            let reranked = super::mmr::mmr_rerank(&candidates, limit, mmr_cfg.lambda);
+
+            // Rebuild entries in MMR order
+            let id_order: Vec<i64> = reranked.iter().map(|(id, _)| *id).collect();
+            let entry_map: HashMap<i64, MemoryEntry> = entries.into_iter().map(|e| (e.id, e)).collect();
+            entries = id_order.into_iter()
+                .filter_map(|id| entry_map.get(&id).cloned())
+                .collect();
+        }
 
         Ok(entries)
     }
@@ -593,7 +832,14 @@ impl MemoryBackend for SqliteMemoryBackend {
 
             for entry in &entries {
                 let prefix = if entry.pinned { "★ " } else { "" };
-                let line = format!("- {}{}\n", prefix, entry.content.lines().next().unwrap_or(&entry.content));
+                let att_prefix = match (&entry.attachment_path, &entry.attachment_mime) {
+                    (Some(_), Some(mime)) if mime.starts_with("image/") => "[img] ",
+                    (Some(_), Some(mime)) if mime.starts_with("audio/") => "[audio] ",
+                    _ => "",
+                };
+                let content_line = entry.content.lines().next().unwrap_or(&entry.content);
+                let safe_content = sanitize_for_prompt(content_line);
+                let line = format!("- {}{}{}\n", prefix, att_prefix, safe_content);
                 if line.len() > remaining {
                     budget_exhausted = true;
                     break;

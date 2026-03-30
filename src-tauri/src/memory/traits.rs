@@ -95,6 +95,16 @@ pub trait MemoryBackend: Send + Sync {
 
 // ── EmbeddingProvider Trait ───────────────────────────────────────
 
+/// Input for multimodal embedding: text label + binary file data.
+pub struct MultimodalInput {
+    /// Descriptive label, e.g. "Image file: photo.jpg"
+    pub label: String,
+    /// MIME type, e.g. "image/jpeg"
+    pub mime_type: String,
+    /// Raw file bytes (will be base64-encoded for API calls)
+    pub file_data: Vec<u8>,
+}
+
 /// Trait for generating text embeddings. Implementations can be API-based or local.
 pub trait EmbeddingProvider: Send + Sync {
     /// Generate embedding for a single text
@@ -103,4 +113,14 @@ pub trait EmbeddingProvider: Send + Sync {
     fn embed_batch(&self, texts: &[String]) -> Result<Vec<Vec<f32>>>;
     /// Return the embedding dimensions
     fn dimensions(&self) -> u32;
+
+    /// Whether this provider supports multimodal embedding (image/audio → vector).
+    /// Only Gemini embedding-2-preview supports this.
+    fn supports_multimodal(&self) -> bool { false }
+
+    /// Generate embedding for a multimodal input (text + image/audio file).
+    /// Default: falls back to text-only embedding of the label.
+    fn embed_multimodal(&self, input: &MultimodalInput) -> Result<Vec<f32>> {
+        self.embed(&input.label)
+    }
 }

@@ -120,6 +120,11 @@ pub fn models_cache_dir() -> Result<PathBuf> {
     Ok(root_dir()?.join("models"))
 }
 
+/// Memory attachments directory: ~/.opencomputer/memory_attachments/
+pub fn memory_attachments_dir() -> Result<PathBuf> {
+    Ok(root_dir()?.join("memory_attachments"))
+}
+
 // ── Browser Profiles ────────────────────────────────────────────
 
 /// Browser profiles root directory: ~/.opencomputer/browser-profiles/

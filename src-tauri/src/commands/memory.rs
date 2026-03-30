@@ -139,6 +139,73 @@ pub async fn save_dedup_config(config: memory::DedupConfig) -> Result<(), String
     provider::save_store(&store).map_err(|e| e.to_string())
 }
 
+// ── Search Tuning Configs ──────────────────────────────────────
+
+#[tauri::command]
+pub async fn get_hybrid_search_config() -> Result<memory::HybridSearchConfig, String> {
+    let store = provider::load_store().map_err(|e| e.to_string())?;
+    Ok(store.hybrid_search)
+}
+
+#[tauri::command]
+pub async fn save_hybrid_search_config(config: memory::HybridSearchConfig) -> Result<(), String> {
+    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    store.hybrid_search = config;
+    provider::save_store(&store).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_temporal_decay_config() -> Result<memory::TemporalDecayConfig, String> {
+    let store = provider::load_store().map_err(|e| e.to_string())?;
+    Ok(store.temporal_decay)
+}
+
+#[tauri::command]
+pub async fn save_temporal_decay_config(config: memory::TemporalDecayConfig) -> Result<(), String> {
+    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    store.temporal_decay = config;
+    provider::save_store(&store).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_mmr_config() -> Result<memory::MmrConfig, String> {
+    let store = provider::load_store().map_err(|e| e.to_string())?;
+    Ok(store.mmr)
+}
+
+#[tauri::command]
+pub async fn save_mmr_config(config: memory::MmrConfig) -> Result<(), String> {
+    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    store.mmr = config;
+    provider::save_store(&store).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_embedding_cache_config() -> Result<memory::EmbeddingCacheConfig, String> {
+    let store = provider::load_store().map_err(|e| e.to_string())?;
+    Ok(store.embedding_cache)
+}
+
+#[tauri::command]
+pub async fn save_embedding_cache_config(config: memory::EmbeddingCacheConfig) -> Result<(), String> {
+    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    store.embedding_cache = config;
+    provider::save_store(&store).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_multimodal_config() -> Result<memory::MultimodalConfig, String> {
+    let store = provider::load_store().map_err(|e| e.to_string())?;
+    Ok(store.multimodal)
+}
+
+#[tauri::command]
+pub async fn save_multimodal_config(config: memory::MultimodalConfig) -> Result<(), String> {
+    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    store.multimodal = config;
+    provider::save_store(&store).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn get_embedding_config() -> Result<memory::EmbeddingConfig, String> {
     let store = provider::load_store().map_err(|e| e.to_string())?;

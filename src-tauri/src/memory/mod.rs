@@ -4,6 +4,7 @@ pub mod sqlite;
 pub mod embedding;
 pub mod import;
 pub mod helpers;
+pub mod mmr;
 
 // ── Re-exports for backward compatibility ───────────────────────
 // Everything that was `pub` in the original memory.rs is re-exported here

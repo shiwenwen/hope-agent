@@ -46,6 +46,8 @@ pub fn parse_import_json(json_str: &str) -> Result<Vec<NewMemory>> {
             source: "import".to_string(),
             source_session_id: None,
             pinned: false,
+            attachment_path: None,
+            attachment_mime: None,
         });
     }
     Ok(entries)
@@ -82,6 +84,8 @@ pub fn parse_import_markdown(md_str: &str) -> Result<Vec<NewMemory>> {
                     source: "import".to_string(),
                     source_session_id: None,
                     pinned: false,
+                    attachment_path: None,
+                    attachment_mime: None,
                 });
                 current_content.clear();
                 in_entry = false;
@@ -105,6 +109,8 @@ pub fn parse_import_markdown(md_str: &str) -> Result<Vec<NewMemory>> {
                     source: "import".to_string(),
                     source_session_id: None,
                     pinned: false,
+                    attachment_path: None,
+                    attachment_mime: None,
                 });
                 current_content.clear();
             }
@@ -135,6 +141,8 @@ pub fn parse_import_markdown(md_str: &str) -> Result<Vec<NewMemory>> {
             source: "import".to_string(),
             source_session_id: None,
             pinned: false,
+            attachment_path: None,
+            attachment_mime: None,
         });
     }
 
