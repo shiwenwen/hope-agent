@@ -34,6 +34,7 @@ pub async fn channel_list_accounts() -> Result<Vec<ChannelAccountConfig>, String
 pub async fn channel_add_account(
     channel_id: String,
     label: String,
+    agent_id: Option<String>,
     credentials: serde_json::Value,
     settings: serde_json::Value,
     security: SecurityConfig,
@@ -48,6 +49,7 @@ pub async fn channel_add_account(
         channel_id: parsed_channel_id,
         label,
         enabled: true,
+        agent_id,
         credentials,
         settings,
         security,
@@ -75,6 +77,7 @@ pub async fn channel_update_account(
     account_id: String,
     label: Option<String>,
     enabled: Option<bool>,
+    agent_id: Option<String>,
     credentials: Option<serde_json::Value>,
     settings: Option<serde_json::Value>,
     security: Option<SecurityConfig>,
@@ -91,6 +94,10 @@ pub async fn channel_update_account(
     }
     if let Some(e) = enabled {
         account.enabled = e;
+    }
+    // agent_id: Some("xxx") = set, Some("") = clear to default, None = no change
+    if let Some(ref aid) = agent_id {
+        account.agent_id = if aid.is_empty() { None } else { Some(aid.clone()) };
     }
     if let Some(c) = credentials {
         account.credentials = c;

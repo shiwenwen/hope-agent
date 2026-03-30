@@ -97,17 +97,8 @@ impl ChannelDB {
         let session_meta = self.session_db.create_session(agent_id)?;
         let session_id = session_meta.id;
 
-        // Set session title based on chat info
-        let title = match chat_type {
-            ChatType::Dm => {
-                let name = sender_name.or(sender_id).unwrap_or("Unknown");
-                format!("[{}] {}", channel_id, name)
-            }
-            ChatType::Group | ChatType::Forum | ChatType::Channel => {
-                format!("[{}] {}", channel_id, chat_id)
-            }
-        };
-        let _ = self.session_db.update_session_title(&session_id, &title);
+        // Title is left as None here — auto_title from first message content
+        // will be applied in worker.rs, same as normal chat sessions.
 
         // Store the context_json with channel info
         let context = serde_json::json!({
@@ -205,5 +196,37 @@ impl ChannelDB {
         })?.collect::<std::result::Result<Vec<_>, _>>()?;
 
         Ok(rows)
+    }
+
+    /// Look up a channel conversation by its linked session ID.
+    pub fn get_conversation_by_session(&self, session_id: &str) -> Result<Option<ChannelConversation>> {
+        let conn = self.session_db.conn.lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+
+        let result = conn.query_row(
+            "SELECT id, channel_id, account_id, chat_id, thread_id, session_id, sender_id, sender_name, chat_type, created_at, updated_at FROM channel_conversations WHERE session_id = ?1",
+            params![session_id],
+            |row| {
+                Ok(ChannelConversation {
+                    id: row.get(0)?,
+                    channel_id: row.get(1)?,
+                    account_id: row.get(2)?,
+                    chat_id: row.get(3)?,
+                    thread_id: row.get(4)?,
+                    session_id: row.get(5)?,
+                    sender_id: row.get(6)?,
+                    sender_name: row.get(7)?,
+                    chat_type: row.get(8)?,
+                    created_at: row.get(9)?,
+                    updated_at: row.get(10)?,
+                })
+            },
+        );
+
+        match result {
+            Ok(conv) => Ok(Some(conv)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
     }
 }

@@ -1,9 +1,19 @@
 use std::sync::Arc;
 use tokio::sync::mpsc;
+use tauri::Emitter;
 
 use super::db::ChannelDB;
 use super::registry::ChannelRegistry;
 use super::types::*;
+
+/// Notify the frontend that a channel session has new messages.
+fn emit_channel_update(session_id: &str) {
+    if let Some(handle) = crate::get_app_handle() {
+        let _ = handle.emit("channel:message_update", serde_json::json!({
+            "sessionId": session_id,
+        }));
+    }
+}
 
 /// Spawn the inbound message dispatcher as a background tokio task.
 ///
@@ -66,8 +76,10 @@ async fn handle_inbound_message(
         return Ok(());
     }
 
-    // 3. Resolve or create session
-    let agent_id = store.channels.agent_id().to_string();
+    // 3. Resolve agent_id: per-account binding > global default
+    let agent_id = account.agent_id.as_deref()
+        .unwrap_or_else(|| store.channels.agent_id())
+        .to_string();
     let session_id = channel_db.resolve_or_create_session(
         &channel_id_str,
         &msg.account_id,
@@ -97,18 +109,60 @@ async fn handle_inbound_message(
     }).to_string());
     let _ = session_db.append_message(&session_id, &user_msg);
 
+    // Auto-generate title from first message (same logic as normal chat)
+    if let Ok(Some(meta)) = session_db.get_session(&session_id) {
+        if meta.title.is_none() && meta.message_count <= 1 {
+            let title = crate::session::auto_title(user_text);
+            let _ = session_db.update_session_title(&session_id, &title);
+        }
+    }
+
+    emit_channel_update(&session_id);
+
     // 5. Send typing indicator
     let _ = plugin.send_typing(&account.id, &msg.chat_id).await;
 
-    // 6. Build agent and run chat (reuses cron executor pattern)
-    let result = crate::cron::executor::build_and_run_agent(
+    // 6. Build channel context for prompt injection
+    let chat_type_label = match msg.chat_type {
+        ChatType::Dm => "direct message",
+        ChatType::Group => "group chat",
+        ChatType::Forum => "forum",
+        ChatType::Channel => "channel",
+    };
+    let mut channel_context = format!(
+        "## IM Channel Context\n\
+         You are responding to a message from an **IM channel** ({channel}), not a direct UI chat.\n\
+         - **Channel**: {channel}\n\
+         - **Chat type**: {chat_type}\n\
+         - **Chat ID**: {chat_id}",
+        channel = channel_id_str,
+        chat_type = chat_type_label,
+        chat_id = msg.chat_id,
+    );
+    if let Some(ref title) = msg.chat_title {
+        channel_context.push_str(&format!("\n- **Chat title**: {}", title));
+    }
+    if let Some(ref name) = msg.sender_name {
+        channel_context.push_str(&format!("\n- **Sender**: {} (ID: {})", name, msg.sender_id));
+    } else {
+        channel_context.push_str(&format!("\n- **Sender ID**: {}", msg.sender_id));
+    }
+    channel_context.push_str(
+        "\n\nBehave exactly as you would in a normal conversation. \
+         The message comes through an IM channel but your capabilities and personality remain the same. \
+         Keep responses concise and suitable for IM format."
+    );
+
+    // 7. Build agent and run chat with channel context
+    let result = crate::cron::executor::build_and_run_agent_with_context(
         &agent_id,
         user_text,
         &session_id,
         session_db,
+        Some(&channel_context),
     ).await;
 
-    // 7. Process result
+    // 8. Process result
     match result {
         Ok(response) => {
             // Save assistant response to session
@@ -161,5 +215,6 @@ async fn handle_inbound_message(
         }
     }
 
+    emit_channel_update(&session_id);
     Ok(())
 }

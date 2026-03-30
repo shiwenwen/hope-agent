@@ -32,8 +32,10 @@ import {
   Pencil,
   Network,
   CheckCheck,
+  MessageCircle,
 } from "lucide-react"
 import type { SessionMeta, AgentSummaryForSidebar } from "@/types/chat"
+import ChannelIcon from "@/components/common/ChannelIcon"
 
 interface ChatSidebarProps {
   sessions: SessionMeta[]
@@ -97,7 +99,7 @@ export default function ChatSidebar({
   }, [])
 
   // Session type filter
-  type SessionFilterType = "all" | "session" | "cron" | "subagent"
+  type SessionFilterType = "all" | "session" | "cron" | "subagent" | "channel"
   const [sessionFilter, setSessionFilter] = useState<SessionFilterType>("session")
 
   // Agent filter state (single-select)
@@ -108,11 +110,13 @@ export default function ChatSidebar({
       selectedAgentId === null ? sessions : sessions.filter((s) => s.agentId === selectedAgentId)
     switch (sessionFilter) {
       case "session":
-        return list.filter((s) => !s.isCron && !s.parentSessionId)
+        return list.filter((s) => !s.isCron && !s.parentSessionId && !s.channelInfo)
       case "cron":
         return list.filter((s) => s.isCron)
       case "subagent":
         return list.filter((s) => !!s.parentSessionId)
+      case "channel":
+        return list.filter((s) => !!s.channelInfo)
       default:
         return list
     }
@@ -408,16 +412,18 @@ export default function ChatSidebar({
 
             {/* Session type filter tabs */}
             <div className="flex items-center gap-0.5 px-3 py-1.5 border-b border-border/40">
-              {(["all", "session", "cron", "subagent"] as const).map((filter) => {
+              {(["all", "session", "channel", "cron", "subagent"] as const).map((filter) => {
                 const label = {
                   all: t("chat.filterAll"),
                   session: t("chat.filterSessions"),
+                  channel: t("chat.filterChannel"),
                   cron: t("chat.filterCron"),
                   subagent: t("chat.filterSubagent"),
                 }[filter]
                 const filterSessions = {
                   all: sessions,
-                  session: sessions.filter((s) => !s.isCron && !s.parentSessionId),
+                  session: sessions.filter((s) => !s.isCron && !s.parentSessionId && !s.channelInfo),
+                  channel: sessions.filter((s) => !!s.channelInfo),
                   cron: sessions.filter((s) => s.isCron),
                   subagent: sessions.filter((s) => !!s.parentSessionId),
                 }[filter]
@@ -580,6 +586,15 @@ export default function ChatSidebar({
                                 </IconTip>
                               )
                             })()}
+                          {session.channelInfo && (
+                            <IconTip
+                              label={`${session.channelInfo.channelId} · ${session.channelInfo.senderName || session.channelInfo.chatId}`}
+                            >
+                              <span className="inline-flex items-center justify-center shrink-0 w-4 h-4 rounded bg-blue-500/15 text-blue-500">
+                                <ChannelIcon channelId={session.channelInfo.channelId} className="w-2.5 h-2.5" />
+                              </span>
+                            </IconTip>
+                          )}
                           {renamingSessionId === session.id ? (
                             <input
                               ref={renameInputRef}

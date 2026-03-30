@@ -70,6 +70,11 @@ const SECTIONS: SettingsSectionItem[] = [
     labelKey: "settings.agents",
   },
   {
+    id: "channels",
+    icon: <MessageCircle className="h-4 w-4" />,
+    labelKey: "settings.channels",
+  },
+  {
     id: "skills",
     icon: <Puzzle className="h-4 w-4" />,
     labelKey: "settings.skills",
@@ -103,11 +108,6 @@ const SECTIONS: SettingsSectionItem[] = [
     id: "acp",
     icon: <Cable className="h-4 w-4" />,
     labelKey: "settings.acpControl",
-  },
-  {
-    id: "channels",
-    icon: <MessageCircle className="h-4 w-4" />,
-    labelKey: "settings.channels",
   },
   {
     id: "cron",

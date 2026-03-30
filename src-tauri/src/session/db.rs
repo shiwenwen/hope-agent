@@ -3,7 +3,7 @@ use rusqlite::{Connection, params};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use super::types::{SessionMeta, SessionMessage, MessageRole, NewMessage};
+use super::types::{SessionMeta, SessionMessage, MessageRole, NewMessage, ChannelSessionInfo};
 
 // ── Database Manager ─────────────────────────────────────────────
 
@@ -245,6 +245,7 @@ impl SessionDB {
             is_cron: false,
             parent_session_id: parent_session_id.map(|s| s.to_string()),
             plan_mode: "off".to_string(),
+            channel_info: None,
         })
     }
 
@@ -253,70 +254,57 @@ impl SessionDB {
     pub fn list_sessions(&self, agent_id: Option<&str>) -> Result<Vec<SessionMeta>> {
         let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
-        let mut sessions = Vec::new();
-
-        if let Some(agent_id) = agent_id {
-            let mut stmt = conn.prepare(
-                "SELECT s.id, s.title, s.agent_id, s.provider_id, s.provider_name, s.model_id,
+        let base_sql = "SELECT s.id, s.title, s.agent_id, s.provider_id, s.provider_name, s.model_id,
                         s.created_at, s.updated_at,
                         (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) as msg_count,
                         (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.id > COALESCE(s.last_read_message_id, 0) AND m.role != 'user') as unread_count,
                         s.is_cron,
                         s.parent_session_id,
-                        s.plan_mode
+                        s.plan_mode,
+                        cc.channel_id, cc.account_id, cc.chat_id, cc.chat_type, cc.sender_name
                  FROM sessions s
-                 WHERE s.agent_id = ?1
-                 ORDER BY s.updated_at DESC"
-            )?;
-            let rows = stmt.query_map(params![agent_id], |row| {
-                Ok(SessionMeta {
-                    id: row.get(0)?,
-                    title: row.get(1)?,
-                    agent_id: row.get(2)?,
-                    provider_id: row.get(3)?,
-                    provider_name: row.get(4)?,
-                    model_id: row.get(5)?,
-                    created_at: row.get(6)?,
-                    updated_at: row.get(7)?,
-                    message_count: row.get(8)?,
-                    unread_count: row.get(9)?,
-                    is_cron: row.get::<_, i64>(10).unwrap_or(0) != 0,
-                    parent_session_id: row.get(11)?,
-                    plan_mode: row.get::<_, String>(12).unwrap_or_else(|_| "off".to_string()),
-                })
-            })?;
+                 LEFT JOIN channel_conversations cc ON cc.session_id = s.id";
+
+        let row_mapper = |row: &rusqlite::Row| {
+            let cc_channel_id: Option<String> = row.get(13)?;
+            let channel_info = cc_channel_id.map(|ch_id| ChannelSessionInfo {
+                channel_id: ch_id,
+                account_id: row.get::<_, String>(14).unwrap_or_default(),
+                chat_id: row.get::<_, String>(15).unwrap_or_default(),
+                chat_type: row.get::<_, String>(16).unwrap_or_default(),
+                sender_name: row.get(17).ok().flatten(),
+            });
+            Ok(SessionMeta {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                agent_id: row.get(2)?,
+                provider_id: row.get(3)?,
+                provider_name: row.get(4)?,
+                model_id: row.get(5)?,
+                created_at: row.get(6)?,
+                updated_at: row.get(7)?,
+                message_count: row.get(8)?,
+                unread_count: row.get(9)?,
+                is_cron: row.get::<_, i64>(10).unwrap_or(0) != 0,
+                parent_session_id: row.get(11)?,
+                plan_mode: row.get::<_, String>(12).unwrap_or_else(|_| "off".to_string()),
+                channel_info,
+            })
+        };
+
+        let mut sessions = Vec::new();
+
+        if let Some(agent_id) = agent_id {
+            let sql = format!("{} WHERE s.agent_id = ?1 ORDER BY s.updated_at DESC", base_sql);
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map(params![agent_id], row_mapper)?;
             for row in rows {
                 sessions.push(row?);
             }
         } else {
-            let mut stmt = conn.prepare(
-                "SELECT s.id, s.title, s.agent_id, s.provider_id, s.provider_name, s.model_id,
-                        s.created_at, s.updated_at,
-                        (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) as msg_count,
-                        (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.id > COALESCE(s.last_read_message_id, 0) AND m.role != 'user') as unread_count,
-                        s.is_cron,
-                        s.parent_session_id,
-                        s.plan_mode
-                 FROM sessions s
-                 ORDER BY s.updated_at DESC"
-            )?;
-            let rows = stmt.query_map([], |row| {
-                Ok(SessionMeta {
-                    id: row.get(0)?,
-                    title: row.get(1)?,
-                    agent_id: row.get(2)?,
-                    provider_id: row.get(3)?,
-                    provider_name: row.get(4)?,
-                    model_id: row.get(5)?,
-                    created_at: row.get(6)?,
-                    updated_at: row.get(7)?,
-                    message_count: row.get(8)?,
-                    unread_count: row.get(9)?,
-                    is_cron: row.get::<_, i64>(10).unwrap_or(0) != 0,
-                    parent_session_id: row.get(11)?,
-                    plan_mode: row.get::<_, String>(12).unwrap_or_else(|_| "off".to_string()),
-                })
-            })?;
+            let sql = format!("{} ORDER BY s.updated_at DESC", base_sql);
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map([], row_mapper)?;
             for row in rows {
                 sessions.push(row?);
             }
@@ -614,11 +602,22 @@ impl SessionDB {
                     (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.id > COALESCE(s.last_read_message_id, 0) AND m.role != 'user') as unread_count,
                     s.is_cron,
                     s.parent_session_id,
-                    s.plan_mode
-             FROM sessions s WHERE s.id = ?1"
+                    s.plan_mode,
+                    cc.channel_id, cc.account_id, cc.chat_id, cc.chat_type, cc.sender_name
+             FROM sessions s
+             LEFT JOIN channel_conversations cc ON cc.session_id = s.id
+             WHERE s.id = ?1"
         )?;
 
         let mut rows = stmt.query_map(params![session_id], |row| {
+            let cc_channel_id: Option<String> = row.get(13)?;
+            let channel_info = cc_channel_id.map(|ch_id| ChannelSessionInfo {
+                channel_id: ch_id,
+                account_id: row.get::<_, String>(14).unwrap_or_default(),
+                chat_id: row.get::<_, String>(15).unwrap_or_default(),
+                chat_type: row.get::<_, String>(16).unwrap_or_default(),
+                sender_name: row.get(17).ok().flatten(),
+            });
             Ok(SessionMeta {
                 id: row.get(0)?,
                 title: row.get(1)?,
@@ -633,6 +632,7 @@ impl SessionDB {
                 is_cron: row.get::<_, i64>(10).unwrap_or(0) != 0,
                 parent_session_id: row.get(11)?,
                 plan_mode: row.get::<_, String>(12).unwrap_or_else(|_| "off".to_string()),
+                channel_info,
             })
         })?;
 

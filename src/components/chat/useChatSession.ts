@@ -194,6 +194,32 @@ export function useChatSession({
     }
   }, [reloadSessions])
 
+  // Listen for channel message updates — refresh sessions + reload current session messages
+  useEffect(() => {
+    let unlisten: UnlistenFn | undefined
+    listen("channel:message_update", (event) => {
+      const payload = event.payload as { sessionId: string }
+      reloadSessions()
+      // If the updated session is currently active, reload its messages
+      if (payload.sessionId && payload.sessionId === currentSessionIdRef.current) {
+        invoke<[SessionMessage[], number]>("load_session_messages_latest_cmd", {
+          sessionId: payload.sessionId,
+          limit: 50,
+        }).then(([msgs]) => {
+          const parsed = parseSessionMessages(msgs)
+          setMessages(parsed)
+          // Update cache
+          sessionCacheRef.current.set(payload.sessionId, parsed)
+        }).catch(() => {})
+      }
+    }).then((fn) => {
+      unlisten = fn
+    })
+    return () => {
+      unlisten?.()
+    }
+  }, [reloadSessions])
+
   // Compute total unread count and notify parent
   const totalUnreadCount = useMemo(
     () => sessions.reduce((sum, s) => sum + (s.id === currentSessionId ? 0 : s.unreadCount), 0),

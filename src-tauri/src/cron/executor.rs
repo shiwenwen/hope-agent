@@ -126,6 +126,17 @@ pub async fn build_and_run_agent(
     session_id: &str,
     _session_db: &Arc<crate::session::SessionDB>,
 ) -> Result<String> {
+    build_and_run_agent_with_context(agent_id, message, session_id, _session_db, None).await
+}
+
+/// Build an AssistantAgent and run a chat message with full failover logic and optional custom system context.
+pub async fn build_and_run_agent_with_context(
+    agent_id: &str,
+    message: &str,
+    session_id: &str,
+    _session_db: &Arc<crate::session::SessionDB>,
+    extra_system_context: Option<&str>,
+) -> Result<String> {
     use crate::agent::AssistantAgent;
     use crate::failover;
     use crate::provider;
@@ -175,14 +186,14 @@ pub async fn build_and_run_agent(
             let mut agent = AssistantAgent::new_from_provider(prov, &model_ref.model_id);
             agent.set_agent_id(agent_id);
             agent.set_session_id(session_id);
-            agent.set_extra_system_context(
+            let ctx = extra_system_context.unwrap_or(
                 "## Execution Context\n\
                  You are running as a **scheduled task** (cron job), not an interactive chat.\n\
                  - No user is actively waiting — execute the prompt directly and concisely.\n\
                  - This is an isolated session with no prior conversation history.\n\
                  - Focus on completing the task described in the user message."
-                .to_string()
             );
+            agent.set_extra_system_context(ctx.to_string());
 
             let cancel = Arc::new(AtomicBool::new(false));
             match agent.chat(message, &[], None, cancel, |_delta| {}).await {

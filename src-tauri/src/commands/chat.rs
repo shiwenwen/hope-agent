@@ -454,6 +454,8 @@ pub async fn chat(
                     assistant_msg.ttft_ms = usage.3;
                 }
                 let _ = db.append_message(&sid, &assistant_msg);
+                // Relay to IM channel if linked
+                relay_to_channel(&sid, &result).await;
                 // Persist conversation context for future restoration
                 save_agent_context(&db, &sid, agent);
                 Ok(result)
@@ -727,6 +729,8 @@ pub async fn chat(
                         assistant_msg.ttft_ms = usage.3;
                     }
                     let _ = db.append_message(&sid, &assistant_msg);
+                    // Relay to IM channel if linked
+                    relay_to_channel(&sid, &result).await;
                     // Persist conversation context for future restoration
                     save_agent_context(&db, &sid, &agent);
                     // Log chat success
@@ -1045,6 +1049,51 @@ pub async fn respond_to_approval(
     tools::submit_approval_response(&request_id, approval_response)
         .await
         .map_err(|e| e.to_string())
+}
+
+// ── Channel Relay ─────────────────────────────────────────────────
+
+/// If this session is linked to an IM channel, forward the assistant reply to that channel.
+async fn relay_to_channel(session_id: &str, response: &str) {
+    let channel_db = match crate::get_channel_db() {
+        Some(db) => db,
+        None => return,
+    };
+    let registry = match crate::get_channel_registry() {
+        Some(r) => r,
+        None => return,
+    };
+
+    let conv = match channel_db.get_conversation_by_session(session_id) {
+        Ok(Some(c)) => c,
+        _ => return,
+    };
+
+    let store = crate::provider::load_store().unwrap_or_default();
+    let account = match store.channels.find_account(&conv.account_id) {
+        Some(a) => a.clone(),
+        None => return,
+    };
+
+    let plugin = match registry.get_plugin(&account.channel_id) {
+        Some(p) => p,
+        None => return,
+    };
+
+    let native_text = plugin.markdown_to_native(response);
+    let chunks = plugin.chunk_message(&native_text);
+
+    for chunk in chunks {
+        let payload = crate::channel::types::ReplyPayload {
+            text: Some(chunk),
+            parse_mode: Some(crate::channel::types::ParseMode::Html),
+            thread_id: conv.thread_id.clone(),
+            ..crate::channel::types::ReplyPayload::text("")
+        };
+        if let Err(e) = plugin.send_message(&account.id, &conv.chat_id, &payload).await {
+            app_error!("channel", "relay", "Failed to relay to {}: {}", conv.channel_id, e);
+        }
+    }
 }
 
 // ── Tools Info Commands ───────────────────────────────────────────

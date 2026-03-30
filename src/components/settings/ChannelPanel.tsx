@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef, type KeyboardEvent } from "react"
 import { useTranslation } from "react-i18next"
 import { invoke } from "@tauri-apps/api/core"
 import { Button } from "@/components/ui/button"
@@ -30,6 +30,8 @@ import {
   Loader2,
   AlertCircle,
   MessageCircle,
+  Pencil,
+  X,
 } from "lucide-react"
 import { logger } from "@/lib/logger"
 
@@ -38,6 +40,7 @@ interface ChannelAccountConfig {
   channelId: string
   label: string
   enabled: boolean
+  agentId?: string | null
   credentials: Record<string, unknown>
   settings: Record<string, unknown>
   security: {
@@ -46,6 +49,13 @@ interface ChannelAccountConfig {
     userAllowlist: string[]
     adminIds: string[]
   }
+}
+
+interface AgentInfo {
+  id: string
+  name: string
+  emoji?: string | null
+  avatar?: string | null
 }
 
 interface ChannelHealth {
@@ -81,17 +91,21 @@ export default function ChannelPanel() {
   const [plugins, setPlugins] = useState<ChannelPluginInfo[]>([])
   const [healthMap, setHealthMap] = useState<Record<string, ChannelHealth>>({})
   const [showAddDialog, setShowAddDialog] = useState(false)
+  const [editingAccount, setEditingAccount] = useState<ChannelAccountConfig | null>(null)
+  const [agents, setAgents] = useState<AgentInfo[]>([])
   const [loading, setLoading] = useState(true)
 
   const loadData = useCallback(async () => {
     try {
-      const [accountList, pluginList, healthList] = await Promise.all([
+      const [accountList, pluginList, healthList, agentList] = await Promise.all([
         invoke<ChannelAccountConfig[]>("channel_list_accounts"),
         invoke<ChannelPluginInfo[]>("channel_list_plugins"),
         invoke<[string, ChannelHealth][]>("channel_health_all"),
+        invoke<AgentInfo[]>("list_agents"),
       ])
       setAccounts(accountList)
       setPlugins(pluginList)
+      setAgents(agentList)
       const hMap: Record<string, ChannelHealth> = {}
       for (const [id, health] of healthList) {
         hMap[id] = health
@@ -235,6 +249,10 @@ export default function ChannelPanel() {
                         ? t("channels.starting")
                         : t("channels.stopped")}
                     {health?.botName && ` · ${health.botName}`}
+                    {account.agentId && (() => {
+                      const agent = agents.find(a => a.id === account.agentId)
+                      return agent ? ` · ${agent.emoji ?? "🤖"} ${agent.name}` : ` · ${account.agentId}`
+                    })()}
                     {health?.error && (
                       <span className="text-destructive ml-1">· {health.error}</span>
                     )}
@@ -261,6 +279,15 @@ export default function ChannelPanel() {
                       </Button>
                     </IconTip>
                   )}
+                  <IconTip label={t("channels.edit")}>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setEditingAccount(account)}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                  </IconTip>
                   <IconTip label={t("channels.remove")}>
                     <Button
                       variant="ghost"
@@ -282,8 +309,21 @@ export default function ChannelPanel() {
         open={showAddDialog}
         onOpenChange={setShowAddDialog}
         plugins={plugins}
+        agents={agents}
         onAdded={() => {
           setShowAddDialog(false)
+          loadData()
+        }}
+      />
+
+      {/* Edit Account Dialog */}
+      <EditAccountDialog
+        open={!!editingAccount}
+        onOpenChange={(open) => { if (!open) setEditingAccount(null) }}
+        account={editingAccount}
+        agents={agents}
+        onSaved={() => {
+          setEditingAccount(null)
           loadData()
         }}
       />
@@ -295,18 +335,23 @@ function AddAccountDialog({
   open,
   onOpenChange,
   plugins,
+  agents,
   onAdded,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   plugins: ChannelPluginInfo[]
+  agents: AgentInfo[]
   onAdded: () => void
 }) {
   const { t } = useTranslation()
   const [channelId, setChannelId] = useState("telegram")
   const [label, setLabel] = useState("")
   const [token, setToken] = useState("")
+  const [agentId, setAgentId] = useState("")
   const [dmPolicy, setDmPolicy] = useState("open")
+  const [userAllowlist, setUserAllowlist] = useState<string[]>([])
+  const [allowlistInput, setAllowlistInput] = useState("")
   const [saving, setSaving] = useState(false)
   const [validating, setValidating] = useState(false)
   const [validationResult, setValidationResult] = useState<string | null>(null)
@@ -340,19 +385,23 @@ function AddAccountDialog({
       await invoke("channel_add_account", {
         channelId,
         label: label.trim(),
+        agentId: agentId || null,
         credentials: { token: token.trim() },
         settings: { transport: "polling" },
         security: {
           dmPolicy,
           groupAllowlist: [],
-          userAllowlist: [],
+          userAllowlist,
           adminIds: [],
         },
       })
       // Reset form
       setLabel("")
       setToken("")
+      setAgentId("")
       setDmPolicy("open")
+      setUserAllowlist([])
+      setAllowlistInput("")
       setValidationResult(null)
       setValidationError(null)
       onAdded()
@@ -445,6 +494,27 @@ function AddAccountDialog({
             />
           </div>
 
+          {/* Bound Agent */}
+          <div className="space-y-2">
+            <Label>{t("channels.boundAgent")}</Label>
+            <Select value={agentId} onValueChange={setAgentId}>
+              <SelectTrigger>
+                <SelectValue placeholder={t("channels.boundAgentDefault")} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">{t("channels.boundAgentDefault")}</SelectItem>
+                {agents.map((a) => (
+                  <SelectItem key={a.id} value={a.id}>
+                    {a.emoji ?? "🤖"} {a.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {t("channels.boundAgentHint")}
+            </p>
+          </div>
+
           {/* DM Policy */}
           <div className="space-y-2">
             <Label>{t("channels.dmPolicy")}</Label>
@@ -458,6 +528,16 @@ function AddAccountDialog({
               </SelectContent>
             </Select>
           </div>
+
+          {/* User Allowlist */}
+          {dmPolicy === "allowlist" && (
+            <AllowlistTagInput
+              tags={userAllowlist}
+              onTagsChange={setUserAllowlist}
+              inputValue={allowlistInput}
+              onInputChange={setAllowlistInput}
+            />
+          )}
         </div>
 
         <DialogFooter>
@@ -474,6 +554,318 @@ function AddAccountDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+function EditAccountDialog({
+  open,
+  onOpenChange,
+  account,
+  agents,
+  onSaved,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  account: ChannelAccountConfig | null
+  agents: AgentInfo[]
+  onSaved: () => void
+}) {
+  const { t } = useTranslation()
+  const [label, setLabel] = useState("")
+  const [token, setToken] = useState("")
+  const [agentId, setAgentId] = useState("")
+  const [dmPolicy, setDmPolicy] = useState("open")
+  const [userAllowlist, setUserAllowlist] = useState<string[]>([])
+  const [allowlistInput, setAllowlistInput] = useState("")
+  const [saving, setSaving] = useState(false)
+  const [validating, setValidating] = useState(false)
+  const [validationResult, setValidationResult] = useState<string | null>(null)
+  const [validationError, setValidationError] = useState<string | null>(null)
+
+  // Populate form when account changes
+  useEffect(() => {
+    if (account) {
+      setLabel(account.label)
+      setToken((account.credentials as Record<string, string>).token ?? "")
+      setAgentId(account.agentId ?? "")
+      setDmPolicy(account.security.dmPolicy)
+      setUserAllowlist([...account.security.userAllowlist])
+      setAllowlistInput("")
+      setValidationResult(null)
+      setValidationError(null)
+    }
+  }, [account])
+
+  const handleValidate = async () => {
+    if (!token.trim() || !account) return
+    setValidating(true)
+    setValidationResult(null)
+    setValidationError(null)
+    try {
+      const botName = await invoke<string>("channel_validate_credentials", {
+        channelId: account.channelId,
+        credentials: { token: token.trim() },
+      })
+      setValidationResult(botName)
+    } catch (e) {
+      setValidationError(String(e))
+    } finally {
+      setValidating(false)
+    }
+  }
+
+  const handleSave = async () => {
+    if (!account || !label.trim()) return
+    setSaving(true)
+    try {
+      const params: Record<string, unknown> = {
+        accountId: account.id,
+        label: label.trim(),
+        agentId: agentId || "",  // empty string = clear to default
+        security: {
+          dmPolicy,
+          groupAllowlist: account.security.groupAllowlist,
+          userAllowlist,
+          adminIds: account.security.adminIds,
+        },
+      }
+      // Only send credentials if token was changed
+      const originalToken = (account.credentials as Record<string, string>).token ?? ""
+      if (token.trim() !== originalToken) {
+        params.credentials = { token: token.trim() }
+      }
+      await invoke("channel_update_account", params)
+      onSaved()
+    } catch (e) {
+      logger.error("Failed to update channel account", e)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (!account) return null
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{t("channels.editAccount")}</DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          {/* Channel Type (read-only) */}
+          <div className="space-y-2">
+            <Label>{t("channels.channelType")}</Label>
+            <Input value={account.channelId} disabled />
+          </div>
+
+          {/* Bot Token */}
+          {account.channelId === "telegram" && (
+            <div className="space-y-2">
+              <Label>Bot Token</Label>
+              <div className="flex gap-2">
+                <Input
+                  type="password"
+                  placeholder="123456:ABC-DEF..."
+                  value={token}
+                  onChange={(e) => {
+                    setToken(e.target.value)
+                    setValidationResult(null)
+                    setValidationError(null)
+                  }}
+                  className="flex-1"
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleValidate}
+                  disabled={!token.trim() || validating}
+                >
+                  {validating ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    t("channels.testConnection")
+                  )}
+                </Button>
+              </div>
+              {validationResult && (
+                <div className="flex items-center gap-1 text-sm text-green-600">
+                  <Check className="h-3.5 w-3.5" />
+                  {validationResult}
+                </div>
+              )}
+              {validationError && (
+                <div className="flex items-center gap-1 text-sm text-destructive">
+                  <AlertCircle className="h-3.5 w-3.5" />
+                  {validationError}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Label */}
+          <div className="space-y-2">
+            <Label>{t("channels.accountLabel")}</Label>
+            <Input
+              placeholder={t("channels.accountLabelPlaceholder")}
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+            />
+          </div>
+
+          {/* Bound Agent */}
+          <div className="space-y-2">
+            <Label>{t("channels.boundAgent")}</Label>
+            <Select value={agentId} onValueChange={setAgentId}>
+              <SelectTrigger>
+                <SelectValue placeholder={t("channels.boundAgentDefault")} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">{t("channels.boundAgentDefault")}</SelectItem>
+                {agents.map((a) => (
+                  <SelectItem key={a.id} value={a.id}>
+                    {a.emoji ?? "🤖"} {a.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {t("channels.boundAgentHint")}
+            </p>
+          </div>
+
+          {/* DM Policy */}
+          <div className="space-y-2">
+            <Label>{t("channels.dmPolicy")}</Label>
+            <Select value={dmPolicy} onValueChange={setDmPolicy}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="open">{t("channels.dmPolicyOpen")}</SelectItem>
+                <SelectItem value="allowlist">{t("channels.dmPolicyAllowlist")}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* User Allowlist */}
+          {dmPolicy === "allowlist" && (
+            <AllowlistTagInput
+              tags={userAllowlist}
+              onTagsChange={setUserAllowlist}
+              inputValue={allowlistInput}
+              onInputChange={setAllowlistInput}
+            />
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            {t("common.cancel")}
+          </Button>
+          <Button
+            onClick={handleSave}
+            disabled={!label.trim() || saving}
+          >
+            {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+            {t("common.save")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function AllowlistTagInput({
+  tags,
+  onTagsChange,
+  inputValue,
+  onInputChange,
+}: {
+  tags: string[]
+  onTagsChange: (tags: string[]) => void
+  inputValue: string
+  onInputChange: (value: string) => void
+}) {
+  const { t } = useTranslation()
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const addTag = (raw: string) => {
+    const value = raw.trim()
+    if (value && !tags.includes(value)) {
+      onTagsChange([...tags, value])
+    }
+    onInputChange("")
+  }
+
+  const removeTag = (index: number) => {
+    onTagsChange(tags.filter((_, i) => i !== index))
+  }
+
+  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault()
+      addTag(inputValue)
+    } else if (e.key === "Backspace" && !inputValue && tags.length > 0) {
+      removeTag(tags.length - 1)
+    }
+  }
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const text = e.clipboardData.getData("text")
+    if (text.includes(",") || text.includes("\n")) {
+      e.preventDefault()
+      const newTags = text
+        .split(/[\n,]/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .filter((s) => !tags.includes(s))
+      if (newTags.length > 0) {
+        onTagsChange([...tags, ...newTags])
+      }
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <Label>{t("channels.userAllowlist")}</Label>
+      <div
+        className="flex flex-wrap gap-1.5 rounded-md border bg-background px-3 py-2 min-h-[38px] cursor-text"
+        onClick={() => inputRef.current?.focus()}
+      >
+        {tags.map((tag, i) => (
+          <span
+            key={tag}
+            className="inline-flex items-center gap-0.5 rounded bg-muted px-2 py-0.5 text-sm"
+          >
+            {tag}
+            <button
+              type="button"
+              className="ml-0.5 rounded-full hover:bg-muted-foreground/20 p-0.5"
+              onClick={(e) => {
+                e.stopPropagation()
+                removeTag(i)
+              }}
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </span>
+        ))}
+        <input
+          ref={inputRef}
+          className="flex-1 min-w-[120px] bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+          placeholder={tags.length === 0 ? t("channels.userAllowlistPlaceholder") : ""}
+          value={inputValue}
+          onChange={(e) => onInputChange(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
+          onBlur={() => { if (inputValue.trim()) addTag(inputValue) }}
+        />
+      </div>
+      <p className="text-xs text-muted-foreground">
+        {t("channels.userAllowlistHint")}
+      </p>
+    </div>
   )
 }
 

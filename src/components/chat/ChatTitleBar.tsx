@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { IconTip } from "@/components/ui/tooltip"
 import { Settings, Copy, BarChart3, Pencil, Zap, Check, X } from "lucide-react"
+import ChannelIcon from "@/components/common/ChannelIcon"
 import { formatMessageTime } from "./chatUtils"
 import { logger } from "@/lib/logger"
 import type { Message, AvailableModel, ActiveModel, SessionMeta } from "@/types/chat"
@@ -135,6 +136,15 @@ export default function ChatTitleBar({
                 </span>
                 <Pencil className="h-3 w-3 shrink-0 opacity-0 group-hover:opacity-60 transition-opacity" />
               </button>
+            )}
+            {currentSession?.channelInfo && (
+              <span className="inline-flex items-center gap-1 shrink-0 text-[11px] text-blue-500 bg-blue-500/10 px-1.5 py-0.5 rounded">
+                <ChannelIcon channelId={currentSession.channelInfo.channelId} />
+                {currentSession.channelInfo.channelId}
+                {currentSession.channelInfo.senderName && (
+                  <span className="text-blue-400">· {currentSession.channelInfo.senderName}</span>
+                )}
+              </span>
             )}
           </>
         )}

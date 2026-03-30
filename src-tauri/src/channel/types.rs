@@ -246,6 +246,9 @@ pub struct ChannelAccountConfig {
     pub label: String,
     #[serde(default = "default_true")]
     pub enabled: bool,
+    /// Agent ID bound to this channel account. If None, falls back to global default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
     /// Opaque per-channel credential blob (e.g. {"token": "..."}).
     #[serde(default)]
     pub credentials: serde_json::Value,

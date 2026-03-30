@@ -110,6 +110,7 @@ export function parseSessionMessages(
       let subagentResultAgentId: string | undefined
       let isCronTrigger = false
       let cronJobName: string | undefined
+      let channelInbound: { channelId: string; senderName?: string } | undefined
       if (msg.attachmentsMeta) {
         try {
           const meta = JSON.parse(msg.attachmentsMeta)
@@ -120,6 +121,12 @@ export function parseSessionMessages(
           if (meta?.cron_trigger) {
             isCronTrigger = true
             cronJobName = meta.cron_trigger.job_name
+          }
+          if (meta?.channel_inbound) {
+            channelInbound = {
+              channelId: meta.channel_inbound.channelId,
+              senderName: meta.channel_inbound.senderName,
+            }
           }
         } catch {
           /* ignore */
@@ -137,6 +144,7 @@ export function parseSessionMessages(
         subagentResultAgentId,
         isCronTrigger,
         cronJobName,
+        channelInbound,
       })
     } else if (msg.role === "tool" && msg.toolCallId) {
       // Extract mediaUrls from image_generate tool results (for DB-loaded history)

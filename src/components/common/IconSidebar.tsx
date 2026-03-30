@@ -17,6 +17,7 @@ import {
   Settings,
   Languages,
   Puzzle,
+  MessageCircle,
   CalendarDays,
   BarChart3,
   Sun,
@@ -30,10 +31,11 @@ import { useTheme } from "@/hooks/useTheme"
 import { SUPPORTED_LANGUAGES, isFollowingSystem, setFollowSystemLanguage, setLanguage } from "@/i18n/i18n"
 
 interface IconSidebarProps {
-  view: "chat" | "settings" | "skills" | "profile" | "agents" | "calendar" | "dashboard"
+  view: "chat" | "settings" | "skills" | "profile" | "agents" | "channels" | "calendar" | "dashboard"
   onOpenSettings: () => void
   onOpenChat: () => void
   onOpenAgents: () => void
+  onOpenChannels: () => void
   onOpenSkills: () => void
   onOpenProfile: () => void
   onOpenCalendar: () => void
@@ -48,6 +50,7 @@ export default function IconSidebar({
   onOpenSettings,
   onOpenChat,
   onOpenAgents,
+  onOpenChannels,
   onOpenSkills,
   onOpenProfile,
   onOpenCalendar,
@@ -136,6 +139,25 @@ export default function IconSidebar({
               onClick={onOpenAgents}
             >
               <Bot className="h-4 w-4" />
+            </Button>
+          </IconTip>
+        </div>
+
+        {/* Channels entry */}
+        <div className="w-full flex justify-center mt-1">
+          <IconTip label={t("settings.channels")} side="right">
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn(
+                "rounded-xl h-8 w-8",
+                view === "channels"
+                  ? "bg-primary/10 text-primary hover:bg-primary/20"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              onClick={onOpenChannels}
+            >
+              <MessageCircle className="h-4 w-4" />
             </Button>
           </IconTip>
         </div>

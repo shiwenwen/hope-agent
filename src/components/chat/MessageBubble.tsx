@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils"
 import { IconTip } from "@/components/ui/tooltip"
 import { invoke } from "@tauri-apps/api/core"
 import { Copy, Check, Info, Network, Timer, MessageSquare, ChevronRight, ClipboardList, FolderOpen, PanelRight } from "lucide-react"
+import ChannelIcon from "@/components/common/ChannelIcon"
 import { formatTokens, formatDuration, formatMessageTime, extractModifiedFiles } from "./chatUtils"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import ToolCallBlock from "@/components/chat/ToolCallBlock"
@@ -280,6 +281,15 @@ export default function MessageBubble({
         {msg.fromAgentId && (
           <div className="text-[10px] text-purple-500 mb-0.5 font-medium">
             {fromAgent?.name || msg.fromAgentId}
+          </div>
+        )}
+        {msg.channelInbound && (
+          <div className="flex items-center gap-1 text-[10px] text-blue-500 mb-0.5 font-medium justify-end">
+            <ChannelIcon channelId={msg.channelInbound.channelId} className="w-2.5 h-2.5" />
+            <span>{msg.channelInbound.channelId}</span>
+            {msg.channelInbound.senderName && (
+              <span className="text-blue-400">· {msg.channelInbound.senderName}</span>
+            )}
           </div>
         )}
         {msg.role === "assistant" && msg.fallbackEvent && (

@@ -15,7 +15,7 @@ import StarrySky from "@/components/common/StarrySky"
 
 export default function App() {
   const [view, setView] = useState<
-    "loading" | "setup" | "chat" | "settings" | "skills" | "profile" | "agents" | "calendar" | "dashboard"
+    "loading" | "setup" | "chat" | "settings" | "skills" | "profile" | "agents" | "channels" | "calendar" | "dashboard"
   >("loading")
   const [agentIdForSettings, setAgentIdForSettings] = useState<string | undefined>(undefined)
   const [userAvatar, setUserAvatar] = useState<string | null>(null)
@@ -155,11 +155,13 @@ export default function App() {
                 ? "profile"
                 : view === "agents"
                   ? "agents"
-                  : view === "calendar"
-                    ? "calendar"
-                    : view === "dashboard"
-                      ? "dashboard"
-                      : "chat"
+                  : view === "channels"
+                    ? "channels"
+                    : view === "calendar"
+                      ? "calendar"
+                      : view === "dashboard"
+                        ? "dashboard"
+                        : "chat"
         }
         onOpenSettings={() => setView("settings")}
         onOpenChat={() => setView("chat")}
@@ -168,6 +170,7 @@ export default function App() {
           setView("agents")
         }}
         onOpenSkills={() => setView("skills")}
+        onOpenChannels={() => setView("channels")}
         onOpenProfile={() => {
           setView("profile")
         }}
@@ -211,6 +214,14 @@ export default function App() {
           onCodexReauth={handleCodexAuth}
           initialSection="agents"
           initialAgentId={agentIdForSettings}
+        />
+      )}
+      {view === "channels" && (
+        <SettingsView
+          onBack={() => setView("chat")}
+          onCodexAuth={handleCodexAuth}
+          onCodexReauth={handleCodexAuth}
+          initialSection="channels"
         />
       )}
       {view === "calendar" && (

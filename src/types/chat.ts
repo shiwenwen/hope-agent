@@ -40,6 +40,11 @@ export interface Message {
   isCronTrigger?: boolean
   /** The cron job name that triggered this message */
   cronJobName?: string
+  /** If set, this user message came from an IM channel */
+  channelInbound?: {
+    channelId: string
+    senderName?: string
+  }
   /** Database row ID, used for deduplication during streaming append */
   dbId?: number
 }
@@ -88,6 +93,13 @@ export interface SessionMeta {
   unreadCount: number
   isCron: boolean
   parentSessionId?: string | null
+  channelInfo?: {
+    channelId: string
+    accountId: string
+    chatId: string
+    chatType: string
+    senderName?: string | null
+  } | null
 }
 
 export interface SessionMessage {

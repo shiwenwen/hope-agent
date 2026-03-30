@@ -20,6 +20,20 @@ pub struct SessionMeta {
     pub parent_session_id: Option<String>,
     /// Plan mode state for this session: "off" | "planning" | "executing"
     pub plan_mode: String,
+    /// If this session is linked to an IM channel conversation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub channel_info: Option<ChannelSessionInfo>,
+}
+
+/// Lightweight channel info attached to a session for UI display.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelSessionInfo {
+    pub channel_id: String,
+    pub account_id: String,
+    pub chat_id: String,
+    pub chat_type: String,
+    pub sender_name: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
