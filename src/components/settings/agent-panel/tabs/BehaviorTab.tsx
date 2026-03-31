@@ -1,9 +1,11 @@
+import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { TOOL_I18N_KEY } from "@/types/tools"
 import { Switch } from "@/components/ui/switch"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
+import { ChevronDown } from "lucide-react"
 import type { AgentConfig, SkillSummary } from "../types"
 
 interface BehaviorTabProps {
@@ -33,6 +35,7 @@ export default function BehaviorTab({
   CharCounter,
 }: BehaviorTabProps) {
   const { t } = useTranslation()
+  const [skillsOpen, setSkillsOpen] = useState(false)
 
   const toolDisplayName = (name: string) => {
     const key = TOOL_I18N_KEY[name]
@@ -200,62 +203,90 @@ export default function BehaviorTab({
 
       {/* Skills */}
       <div>
-        <div className="text-xs font-medium text-muted-foreground mb-1 px-1">
-          {t("settings.agentSkills")}
-        </div>
-        <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">
-          {t("settings.agentSkillsDesc")}
-        </p>
-        {availableSkills.length > 0 && (
-          <div className="rounded-lg border border-border/50 overflow-hidden mb-3">
-            {availableSkills.map((skill, idx) => {
-              const isDenied = config.skills.deny.includes(skill.name)
-              return (
-                <div
-                  key={skill.name}
-                  className={cn(
-                    "flex items-center justify-between px-3 py-2 gap-3",
-                    idx > 0 && "border-t border-border/30",
-                  )}
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="text-xs font-medium text-foreground truncate">
-                      {skill.name}
-                    </div>
-                    <div className="text-[11px] text-muted-foreground/60 truncate">
-                      {skill.description}
-                    </div>
-                  </div>
-                  <Switch
-                    checked={!isDenied}
-                    onCheckedChange={(checked) => {
-                      const newDeny = checked
-                        ? config.skills.deny.filter((n) => n !== skill.name)
-                        : [...config.skills.deny, skill.name]
-                      updateConfig({ skills: { ...config.skills, deny: newDeny } })
-                    }}
-                  />
-                </div>
-              )
-            })}
-          </div>
-        )}
-        {/* Skill env check */}
-        <div className="flex items-center justify-between px-1">
-          <div>
-            <div className="text-sm text-foreground">
-              {t("settings.agentSkillEnvCheck")}
+        <button
+          type="button"
+          className="w-full flex items-center justify-between px-1 py-1 group cursor-pointer"
+          onClick={() => setSkillsOpen(!skillsOpen)}
+        >
+          <div className="text-left">
+            <div className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+              {t("settings.agentSkills")}
+              {availableSkills.length > 0 && (
+                <span className="text-[11px] text-muted-foreground/50">
+                  ({availableSkills.filter((s) => !config.skills.deny.includes(s.name)).length}/{availableSkills.length})
+                </span>
+              )}
             </div>
-            <div className="text-xs text-muted-foreground">
-              {t("settings.agentSkillEnvCheckDesc")}
-            </div>
+            <p className="text-[11px] text-muted-foreground/60 mt-0.5">
+              {t("settings.agentSkillsDesc")}
+            </p>
           </div>
-          <Switch
-            checked={config.behavior.skillEnvCheck ?? true}
-            onCheckedChange={(v) =>
-              updateConfig({ behavior: { ...config.behavior, skillEnvCheck: v } })
-            }
+          <ChevronDown
+            className={cn(
+              "h-4 w-4 text-muted-foreground/50 transition-transform duration-200 shrink-0",
+              skillsOpen && "rotate-180",
+            )}
           />
+        </button>
+        <div
+          className={cn(
+            "grid transition-[grid-template-rows] duration-200 ease-in-out",
+            skillsOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+          )}
+        >
+          <div className="overflow-hidden">
+            {availableSkills.length > 0 && (
+              <div className="rounded-lg border border-border/50 overflow-hidden mt-2 mb-3">
+                {availableSkills.map((skill, idx) => {
+                  const isDenied = config.skills.deny.includes(skill.name)
+                  return (
+                    <div
+                      key={skill.name}
+                      className={cn(
+                        "flex items-center justify-between px-3 py-2 gap-3",
+                        idx > 0 && "border-t border-border/30",
+                      )}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs font-medium text-foreground truncate">
+                          {skill.name}
+                        </div>
+                        <div className="text-[11px] text-muted-foreground/60 truncate">
+                          {skill.description}
+                        </div>
+                      </div>
+                      <Switch
+                        checked={!isDenied}
+                        onCheckedChange={(checked) => {
+                          const newDeny = checked
+                            ? config.skills.deny.filter((n) => n !== skill.name)
+                            : [...config.skills.deny, skill.name]
+                          updateConfig({ skills: { ...config.skills, deny: newDeny } })
+                        }}
+                      />
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+            {/* Skill env check */}
+            <div className="flex items-center justify-between px-1 pb-1">
+              <div>
+                <div className="text-sm text-foreground">
+                  {t("settings.agentSkillEnvCheck")}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {t("settings.agentSkillEnvCheckDesc")}
+                </div>
+              </div>
+              <Switch
+                checked={config.behavior.skillEnvCheck ?? true}
+                onCheckedChange={(v) =>
+                  updateConfig({ behavior: { ...config.behavior, skillEnvCheck: v } })
+                }
+              />
+            </div>
+          </div>
         </div>
       </div>
 
