@@ -4,10 +4,13 @@ use std::sync::OnceLock;
 use tokio::process::Command;
 
 use crate::process_registry::{
-    ProcessSession, ProcessStatus, create_session_id, get_registry, now_ms,
+    create_session_id, get_registry, now_ms, ProcessSession, ProcessStatus,
 };
 
-use super::approval::{ApprovalResponse, ToolPermissionMode, add_to_allowlist, check_and_request_approval, get_tool_permission_mode, is_command_allowed};
+use super::approval::{
+    add_to_allowlist, check_and_request_approval, get_tool_permission_mode, is_command_allowed,
+    ApprovalResponse, ToolPermissionMode,
+};
 
 pub(crate) const DEFAULT_EXEC_TIMEOUT_SECS: u64 = 1800; // 30 minutes, aligned with OpenClaw
 pub(crate) const MAX_EXEC_TIMEOUT_SECS: u64 = 7200; // 2 hours max
@@ -38,7 +41,9 @@ pub(crate) fn get_login_shell_path() -> Option<&'static str> {
             if output.status.success() {
                 let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
                 if !path.is_empty() {
-                    app_info!("tool", "exec",
+                    app_info!(
+                        "tool",
+                        "exec",
                         "Resolved login shell PATH: {}",
                         &path[..path.len().min(120)]
                     );
@@ -72,7 +77,10 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Missing 'command' parameter"))?;
 
-    let cwd = args.get("cwd").and_then(|v| v.as_str()).map(super::expand_tilde);
+    let cwd = args
+        .get("cwd")
+        .and_then(|v| v.as_str())
+        .map(super::expand_tilde);
 
     let timeout_secs = args
         .get("timeout")
@@ -99,7 +107,9 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
 
     let max_output = compute_max_output_chars(ctx.context_window_tokens);
 
-    app_info!("tool", "exec",
+    app_info!(
+        "tool",
+        "exec",
         "Executing command: {} (cwd: {:?}, timeout: {}s, bg: {}, pty: {}, max_out: {})",
         command,
         cwd,
@@ -111,14 +121,26 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
 
     // Structured logging
     if let Some(logger) = crate::get_logger() {
-        let cmd_preview = if command.len() > 200 { format!("{}...", crate::truncate_utf8(command, 200)) } else { command.to_string() };
-        logger.log("info", "tool", "exec::start",
+        let cmd_preview = if command.len() > 200 {
+            format!("{}...", crate::truncate_utf8(command, 200))
+        } else {
+            command.to_string()
+        };
+        logger.log(
+            "info",
+            "tool",
+            "exec::start",
             &format!("exec: {}", cmd_preview),
-            Some(serde_json::json!({
-                "cwd": cwd, "timeout": timeout_secs,
-                "background": background, "pty": use_pty, "sandbox": sandbox,
-            }).to_string()),
-            None, None);
+            Some(
+                serde_json::json!({
+                    "cwd": cwd, "timeout": timeout_secs,
+                    "background": background, "pty": use_pty, "sandbox": sandbox,
+                })
+                .to_string(),
+            ),
+            None,
+            None,
+        );
     }
 
     // Build the command
@@ -189,17 +211,32 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
     match perm_mode {
         ToolPermissionMode::FullApprove => {
             // Skip all approval checks
-            app_info!("tool", "exec", "Command auto-approved (full_approve mode): {}", command);
+            app_info!(
+                "tool",
+                "exec",
+                "Command auto-approved (full_approve mode): {}",
+                command
+            );
         }
         ToolPermissionMode::AskEveryTime => {
             // Always ask, ignore allowlist
             match check_and_request_approval(command, &session_cwd).await {
                 Ok(ApprovalResponse::AllowOnce) => {
-                    app_info!("tool", "exec", "Command approved (once, ask_every_time): {}", command);
+                    app_info!(
+                        "tool",
+                        "exec",
+                        "Command approved (once, ask_every_time): {}",
+                        command
+                    );
                 }
                 Ok(ApprovalResponse::AllowAlways) => {
                     // In ask_every_time mode, still ask next time — do NOT add to allowlist
-                    app_info!("tool", "exec", "Command approved (ask_every_time): {}", command);
+                    app_info!(
+                        "tool",
+                        "exec",
+                        "Command approved (ask_every_time): {}",
+                        command
+                    );
                 }
                 Ok(ApprovalResponse::Deny) => {
                     let mut registry = get_registry().lock().await;
@@ -210,7 +247,9 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
                     ));
                 }
                 Err(e) => {
-                    app_warn!("tool", "exec",
+                    app_warn!(
+                        "tool",
+                        "exec",
                         "Approval check failed ({}), proceeding with execution",
                         e
                     );
@@ -237,7 +276,9 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
                         ));
                     }
                     Err(e) => {
-                        app_warn!("tool", "exec",
+                        app_warn!(
+                            "tool",
+                            "exec",
                             "Approval check failed ({}), proceeding with execution",
                             e
                         );
@@ -249,7 +290,12 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
 
     // ── Docker sandbox execution path ─────────────────────────
     if sandbox {
-        app_info!("tool", "exec", "Using Docker sandbox for command: {}", command);
+        app_info!(
+            "tool",
+            "exec",
+            "Using Docker sandbox for command: {}",
+            command
+        );
         let sandbox_config = crate::sandbox::load_sandbox_config().unwrap_or_default();
         let env_map = args.get("env").and_then(|v| v.as_object());
 
@@ -257,8 +303,7 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
             // Background sandbox execution
             let cmd_owned = command.to_string();
             let cwd_owned = session_cwd.clone();
-            let env_owned: Option<serde_json::Map<String, serde_json::Value>> =
-                env_map.cloned();
+            let env_owned: Option<serde_json::Map<String, serde_json::Value>> = env_map.cloned();
             let config_owned = sandbox_config.clone();
             let sid = session_id.clone();
 
@@ -296,11 +341,7 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
                         registry.mark_exited(&sid, Some(sr.exit_code as i32), None, status);
                     }
                     Err(e) => {
-                        registry.append_output(
-                            &sid,
-                            "stderr",
-                            &format!("Sandbox error: {}", e),
-                        );
+                        registry.append_output(&sid, "stderr", &format!("Sandbox error: {}", e));
                         registry.mark_exited(&sid, Some(-1), None, ProcessStatus::Failed);
                     }
                 }
@@ -337,8 +378,10 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
                         timeout_secs
                     ));
                 } else if result_text.is_empty() {
-                    result_text =
-                        format!("[sandbox] Command completed with exit code {}", sr.exit_code);
+                    result_text = format!(
+                        "[sandbox] Command completed with exit code {}",
+                        sr.exit_code
+                    );
                 } else if sr.exit_code != 0 {
                     result_text.push_str(&format!("\n[exit code: {}]", sr.exit_code));
                 }
@@ -377,10 +420,25 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
     // ── PTY execution path ──────────────────────────────────────
     if use_pty {
         app_info!("tool", "exec", "Using PTY mode for command: {}", command);
-        match exec_via_pty(command, cwd.as_deref(), args, timeout_secs, max_output, &session_id, ctx).await {
+        match exec_via_pty(
+            command,
+            cwd.as_deref(),
+            args,
+            timeout_secs,
+            max_output,
+            &session_id,
+            ctx,
+        )
+        .await
+        {
             Ok(result) => return Ok(result),
             Err(e) => {
-                app_warn!("tool", "exec", "PTY execution failed ({}), falling back to normal mode", e);
+                app_warn!(
+                    "tool",
+                    "exec",
+                    "PTY execution failed ({}), falling back to normal mode",
+                    e
+                );
                 // Fall through to normal execution
             }
         }
@@ -393,11 +451,8 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
         let sid = session_id.clone();
         let timeout = timeout_secs;
         tokio::spawn(async move {
-            let result = tokio::time::timeout(
-                std::time::Duration::from_secs(timeout),
-                cmd.output(),
-            )
-            .await;
+            let result =
+                tokio::time::timeout(std::time::Duration::from_secs(timeout), cmd.output()).await;
             let mut registry = get_registry().lock().await;
             match result {
                 Ok(Ok(output)) => {
@@ -406,11 +461,7 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
                     let exit_code = output.status.code().unwrap_or(-1);
                     registry.append_output(&sid, "stdout", &stdout);
                     if !stderr.is_empty() {
-                        registry.append_output(
-                            &sid,
-                            "stderr",
-                            &format!("[stderr] {}", stderr),
-                        );
+                        registry.append_output(&sid, "stderr", &format!("[stderr] {}", stderr));
                     }
                     let status = if exit_code == 0 {
                         ProcessStatus::Completed
@@ -420,11 +471,7 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
                     registry.mark_exited(&sid, Some(exit_code), None, status);
                 }
                 Ok(Err(e)) => {
-                    registry.append_output(
-                        &sid,
-                        "stderr",
-                        &format!("Failed to execute: {}", e),
-                    );
+                    registry.append_output(&sid, "stderr", &format!("Failed to execute: {}", e));
                     registry.mark_exited(&sid, None, None, ProcessStatus::Failed);
                 }
                 Err(_) => {
@@ -457,10 +504,8 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
     }
 
     // Non-background: run with yield_ms support
-    let cmd_future = tokio::time::timeout(
-        std::time::Duration::from_secs(timeout_secs),
-        cmd.output(),
-    );
+    let cmd_future =
+        tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), cmd.output());
 
     // If yield_ms is specified (and not default 10s for non-background), use it
     let wants_yield = args.get("yield_ms").is_some();
@@ -585,7 +630,7 @@ async fn exec_via_pty(
     session_id: &str,
     ctx: &super::ToolExecContext,
 ) -> Result<String> {
-    use portable_pty::{CommandBuilder, PtySize, native_pty_system};
+    use portable_pty::{native_pty_system, CommandBuilder, PtySize};
     use std::io::Read;
 
     let command_owned = command.to_string();
@@ -655,8 +700,7 @@ async fn exec_via_pty(
 
         let mut output = String::new();
         let mut buf = [0u8; 4096];
-        let deadline =
-            std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
 
         loop {
             if std::time::Instant::now() >= deadline {
@@ -782,7 +826,7 @@ fn strip_ansi_escapes(s: &str) -> String {
             if let Some(&next) = chars.peek() {
                 if next == '[' {
                     chars.next(); // consume '['
-                    // Read until we hit an alphabetic terminator
+                                  // Read until we hit an alphabetic terminator
                     while let Some(&ch) = chars.peek() {
                         chars.next();
                         if ch.is_ascii_alphabetic() {
@@ -791,7 +835,7 @@ fn strip_ansi_escapes(s: &str) -> String {
                     }
                 } else if next == ']' {
                     chars.next(); // consume ']'
-                    // Read until BEL or ST
+                                  // Read until BEL or ST
                     while let Some(ch) = chars.next() {
                         if ch == '\x07' {
                             break;

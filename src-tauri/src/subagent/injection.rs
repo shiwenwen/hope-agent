@@ -3,7 +3,10 @@ use std::sync::Arc;
 
 use super::helpers::{emit_parent_stream_event, truncate_str, CleanupGuard};
 use super::types::{ParentAgentStreamEvent, SubagentStatus};
-use super::{ACTIVE_CHAT_SESSIONS, FETCHED_RUN_IDS, INJECTING_SESSIONS, INJECTION_CANCELS, PENDING_INJECTIONS, SESSION_IDLE_NOTIFY};
+use super::{
+    ACTIVE_CHAT_SESSIONS, FETCHED_RUN_IDS, INJECTING_SESSIONS, INJECTION_CANCELS,
+    PENDING_INJECTIONS, SESSION_IDLE_NOTIFY,
+};
 
 /// A deferred injection task that was cancelled and needs to be retried.
 #[derive(Clone)]
@@ -52,10 +55,19 @@ pub(crate) fn flush_pending_injections(session_id: &str) {
                 .build()
             {
                 Ok(rt) => rt.block_on(inject_and_run_parent(
-                    t.parent_session_id, t.parent_agent_id, t.child_agent_id,
-                    t.run_id, t.push_message, t.session_db,
+                    t.parent_session_id,
+                    t.parent_agent_id,
+                    t.child_agent_id,
+                    t.run_id,
+                    t.push_message,
+                    t.session_db,
                 )),
-                Err(e) => app_error!("subagent", "inject", "Failed to build runtime for retry: {}", e),
+                Err(e) => app_error!(
+                    "subagent",
+                    "inject",
+                    "Failed to build runtime for retry: {}",
+                    e
+                ),
             }
         });
         break; // Only re-trigger one at a time; next one queues on completion
@@ -99,7 +111,12 @@ pub(crate) async fn inject_and_run_parent(
     {
         let mut set = FETCHED_RUN_IDS.lock().unwrap_or_else(|p| p.into_inner());
         if set.contains(&run_id) {
-            app_info!("subagent", "inject", "Run {} already fetched by parent, skipping injection", &run_id);
+            app_info!(
+                "subagent",
+                "inject",
+                "Run {} already fetched by parent, skipping injection",
+                &run_id
+            );
             set.remove(&run_id); // Clean up — no longer needed
             return;
         }
@@ -109,19 +126,29 @@ pub(crate) async fn inject_and_run_parent(
     {
         let mut guard = INJECTING_SESSIONS.lock().unwrap_or_else(|p| p.into_inner());
         if guard.contains(&parent_session_id) {
-            app_info!("subagent", "inject",
-                "Session {} already has active injection, queuing for later", &parent_session_id);
+            app_info!(
+                "subagent",
+                "inject",
+                "Session {} already has active injection, queuing for later",
+                &parent_session_id
+            );
             if let Ok(mut queue) = PENDING_INJECTIONS.lock() {
                 queue.push(PendingInjection {
-                    parent_session_id, parent_agent_id, child_agent_id,
-                    run_id, push_message, session_db,
+                    parent_session_id,
+                    parent_agent_id,
+                    child_agent_id,
+                    run_id,
+                    push_message,
+                    session_db,
                 });
             }
             return;
         }
         guard.insert(parent_session_id.clone());
     }
-    let _cleanup = CleanupGuard { session_id: parent_session_id.clone() };
+    let _cleanup = CleanupGuard {
+        session_id: parent_session_id.clone(),
+    };
 
     // 1. Wait for parent session to become idle (event-driven with timeout fallback)
     let announce_timeout = crate::agent_loader::load_agent(&parent_agent_id)
@@ -133,19 +160,35 @@ pub(crate) async fn inject_and_run_parent(
     let fallback_interval = std::time::Duration::from_secs(5);
     let start = std::time::Instant::now();
     loop {
-        let is_busy = ACTIVE_CHAT_SESSIONS.lock()
+        let is_busy = ACTIVE_CHAT_SESSIONS
+            .lock()
             .unwrap_or_else(|p| p.into_inner())
             .contains(&parent_session_id);
-        if !is_busy { break; }
+        if !is_busy {
+            break;
+        }
 
         if start.elapsed() > max_wait {
-            app_warn!("subagent", "inject",
-                "Timed out waiting for session {} to become idle, skipping", &parent_session_id);
+            app_warn!(
+                "subagent",
+                "inject",
+                "Timed out waiting for session {} to become idle, skipping",
+                &parent_session_id
+            );
             return;
         }
         // Re-check if result was fetched while we were waiting
-        if FETCHED_RUN_IDS.lock().unwrap_or_else(|p| p.into_inner()).contains(&run_id) {
-            app_info!("subagent", "inject", "Run {} fetched while waiting, skipping", &run_id);
+        if FETCHED_RUN_IDS
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .contains(&run_id)
+        {
+            app_info!(
+                "subagent",
+                "inject",
+                "Run {} fetched while waiting, skipping",
+                &run_id
+            );
             return;
         }
         // Wait for notify (instant wake) or fallback timeout (in case notify is missed)
@@ -156,7 +199,11 @@ pub(crate) async fn inject_and_run_parent(
     }
 
     // Final check before proceeding
-    if FETCHED_RUN_IDS.lock().unwrap_or_else(|p| p.into_inner()).contains(&run_id) {
+    if FETCHED_RUN_IDS
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .contains(&run_id)
+    {
         return;
     }
 
@@ -167,13 +214,19 @@ pub(crate) async fn inject_and_run_parent(
     }
     // Ensure cancel flag is cleaned up on all exit paths
     let cancel_cleanup_sid = parent_session_id.clone();
-    struct CancelCleanup { sid: String }
+    struct CancelCleanup {
+        sid: String,
+    }
     impl Drop for CancelCleanup {
         fn drop(&mut self) {
-            if let Ok(mut map) = INJECTION_CANCELS.lock() { map.remove(&self.sid); }
+            if let Ok(mut map) = INJECTION_CANCELS.lock() {
+                map.remove(&self.sid);
+            }
         }
     }
-    let _cancel_cleanup = CancelCleanup { sid: cancel_cleanup_sid };
+    let _cancel_cleanup = CancelCleanup {
+        sid: cancel_cleanup_sid,
+    };
 
     // 3. Emit "started" so frontend can show loading state
     emit_parent_stream_event(&ParentAgentStreamEvent {
@@ -192,15 +245,24 @@ pub(crate) async fn inject_and_run_parent(
         .unwrap_or_default();
     let (primary, fallbacks) = provider::resolve_model_chain(&agent_model_config, &store);
     let mut model_chain = Vec::new();
-    if let Some(p) = primary { model_chain.push(p); }
+    if let Some(p) = primary {
+        model_chain.push(p);
+    }
     for fb in fallbacks {
-        if !model_chain.iter().any(|m: &crate::provider::ActiveModel| m.provider_id == fb.provider_id && m.model_id == fb.model_id) {
+        if !model_chain.iter().any(|m: &crate::provider::ActiveModel| {
+            m.provider_id == fb.provider_id && m.model_id == fb.model_id
+        }) {
             model_chain.push(fb);
         }
     }
 
     if model_chain.is_empty() {
-        app_error!("subagent", "inject", "No model configured for parent agent {}", &parent_agent_id);
+        app_error!(
+            "subagent",
+            "inject",
+            "No model configured for parent agent {}",
+            &parent_agent_id
+        );
         emit_parent_stream_event(&ParentAgentStreamEvent {
             event_type: "error".into(),
             parent_session_id: parent_session_id.clone(),
@@ -230,7 +292,12 @@ pub(crate) async fn inject_and_run_parent(
         loop {
             // Check cancel before each attempt
             if cancel.load(Ordering::SeqCst) {
-                app_info!("subagent", "inject", "Injection cancelled before attempt for session {}", &parent_session_id);
+                app_info!(
+                    "subagent",
+                    "inject",
+                    "Injection cancelled before attempt for session {}",
+                    &parent_session_id
+                );
                 break 'outer;
             }
 
@@ -251,31 +318,41 @@ pub(crate) async fn inject_and_run_parent(
             let parent_sid_for_cb = parent_session_id.clone();
             let run_id_for_cb = run_id.clone();
 
-            match agent.chat(&push_message, &[], None, cancel_for_chat, move |delta| {
-                emit_parent_stream_event(&ParentAgentStreamEvent {
-                    event_type: "delta".into(),
-                    parent_session_id: parent_sid_for_cb.clone(),
-                    run_id: run_id_for_cb.clone(),
-                    push_message: None,
-                    delta: Some(delta.to_string()),
-                    error: None,
-                });
-            }).await {
+            match agent
+                .chat(&push_message, &[], None, cancel_for_chat, move |delta| {
+                    emit_parent_stream_event(&ParentAgentStreamEvent {
+                        event_type: "delta".into(),
+                        parent_session_id: parent_sid_for_cb.clone(),
+                        run_id: run_id_for_cb.clone(),
+                        push_message: None,
+                        delta: Some(delta.to_string()),
+                        error: None,
+                    });
+                })
+                .await
+            {
                 Ok((response, _thinking)) => {
                     // If cancelled during execution, don't write to DB — user's chat takes over
                     if cancel.load(Ordering::SeqCst) {
-                        app_info!("subagent", "inject",
-                            "Injection cancelled during execution for session {}", &parent_session_id);
+                        app_info!(
+                            "subagent",
+                            "inject",
+                            "Injection cancelled during execution for session {}",
+                            &parent_session_id
+                        );
                         break 'outer;
                     }
                     // 5. Success: write push message + assistant response to DB
                     let mut user_msg = crate::session::NewMessage::user(&push_message);
-                    user_msg.attachments_meta = Some(serde_json::json!({
-                        "subagent_result": {
-                            "run_id": &run_id,
-                            "agent_id": &child_agent_id,
-                        }
-                    }).to_string());
+                    user_msg.attachments_meta = Some(
+                        serde_json::json!({
+                            "subagent_result": {
+                                "run_id": &run_id,
+                                "agent_id": &child_agent_id,
+                            }
+                        })
+                        .to_string(),
+                    );
                     let _ = session_db.append_message(&parent_session_id, &user_msg);
                     let _ = session_db.append_message(
                         &parent_session_id,
@@ -286,32 +363,53 @@ pub(crate) async fn inject_and_run_parent(
                     if let Ok(json_str) = serde_json::to_string(&history) {
                         let _ = session_db.save_context(&parent_session_id, &json_str);
                     }
-                    app_info!("subagent", "inject",
-                        "Parent agent {} responded via model {}", &parent_agent_id, model_label);
+                    app_info!(
+                        "subagent",
+                        "inject",
+                        "Parent agent {} responded via model {}",
+                        &parent_agent_id,
+                        model_label
+                    );
                     succeeded = true;
                     break 'outer;
                 }
                 Err(e) => {
                     if cancel.load(Ordering::SeqCst) {
-                        app_info!("subagent", "inject",
-                            "Injection cancelled (error path) for session {}", &parent_session_id);
+                        app_info!(
+                            "subagent",
+                            "inject",
+                            "Injection cancelled (error path) for session {}",
+                            &parent_session_id
+                        );
                         break 'outer;
                     }
                     last_error = e.to_string();
                     let reason = failover::classify_error(&last_error);
                     if reason.is_terminal() {
-                        app_error!("subagent", "inject",
-                            "Terminal error from {}: {}", model_label, last_error);
+                        app_error!(
+                            "subagent",
+                            "inject",
+                            "Terminal error from {}: {}",
+                            model_label,
+                            last_error
+                        );
                         break 'outer;
                     }
                     if reason.is_retryable() && retry_count < MAX_RETRIES {
                         retry_count += 1;
-                        let delay = std::cmp::min(RETRY_BASE_MS * 2u64.pow(retry_count - 1), RETRY_MAX_MS);
+                        let delay =
+                            std::cmp::min(RETRY_BASE_MS * 2u64.pow(retry_count - 1), RETRY_MAX_MS);
                         tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
                         continue;
                     }
-                    app_warn!("subagent", "inject",
-                        "Model {} failed ({:?}), trying next: {}", model_label, reason, last_error);
+                    app_warn!(
+                        "subagent",
+                        "inject",
+                        "Model {} failed ({:?}), trying next: {}",
+                        model_label,
+                        reason,
+                        last_error
+                    );
                     break;
                 }
             }
@@ -332,8 +430,12 @@ pub(crate) async fn inject_and_run_parent(
                 session_db,
             });
         }
-        app_info!("subagent", "inject",
-            "Injection for run {} cancelled, re-queued for next idle", &run_id);
+        app_info!(
+            "subagent",
+            "inject",
+            "Injection for run {} cancelled, re-queued for next idle",
+            &run_id
+        );
         emit_parent_stream_event(&ParentAgentStreamEvent {
             event_type: "error".into(),
             parent_session_id,

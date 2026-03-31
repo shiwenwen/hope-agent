@@ -8,13 +8,13 @@
 //
 //  Reference: openclaw context-pruning + compaction systems.
 
+mod compact;
 mod config;
-mod types;
 mod estimation;
-mod truncation;
 mod pruning;
 mod summarization;
-mod compact;
+mod truncation;
+mod types;
 
 // ── Hardcoded Constants (safety baselines, not user-configurable) ──
 
@@ -87,12 +87,10 @@ PRIORITIZE recent context over older history."#;
 
 // ── Re-exports ──
 
-pub use config::CompactConfig;
-pub use types::{CompactResult, TokenEstimateCalibrator};
-pub use estimation::estimate_request_tokens;
-pub use truncation::truncate_tool_results;
-pub(crate) use summarization::SUMMARIZATION_SYSTEM_PROMPT;
-pub use summarization::{
-    split_for_summarization, build_summarization_prompt, apply_summary,
-};
 pub use compact::{compact_if_needed, emergency_compact};
+pub use config::CompactConfig;
+pub use estimation::estimate_request_tokens;
+pub(crate) use summarization::SUMMARIZATION_SYSTEM_PROMPT;
+pub use summarization::{apply_summary, build_summarization_prompt, split_for_summarization};
+pub use truncation::truncate_tool_results;
+pub use types::{CompactResult, TokenEstimateCalibrator};

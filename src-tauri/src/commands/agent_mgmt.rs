@@ -18,7 +18,10 @@ pub async fn get_agent_markdown(id: String, file: String) -> Result<Option<Strin
 }
 
 #[tauri::command]
-pub async fn save_agent_config_cmd(id: String, config: agent_config::AgentConfig) -> Result<(), String> {
+pub async fn save_agent_config_cmd(
+    id: String,
+    config: agent_config::AgentConfig,
+) -> Result<(), String> {
     agent_loader::save_agent_config(&id, &config).map_err(|e| e.to_string())
 }
 

@@ -1,13 +1,13 @@
-pub mod types;
-pub mod traits;
 pub mod config;
 pub mod db;
 pub mod registry;
-pub mod worker;
 pub mod telegram;
+pub mod traits;
+pub mod types;
+pub mod worker;
 
-pub use types::*;
-pub use traits::ChannelPlugin;
 pub use config::ChannelStoreConfig;
-pub use registry::ChannelRegistry;
 pub use db::ChannelDB;
+pub use registry::ChannelRegistry;
+pub use traits::ChannelPlugin;
+pub use types::*;

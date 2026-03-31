@@ -23,7 +23,9 @@ pub(super) fn parse_error_response(status: u16, raw: &str) -> String {
         }
 
         if let Some(err) = parsed.error {
-            let code = err.code.as_deref()
+            let code = err
+                .code
+                .as_deref()
                 .or(err.error_type.as_deref())
                 .unwrap_or("");
 
@@ -32,7 +34,8 @@ pub(super) fn parse_error_response(status: u16, raw: &str) -> String {
                 || code.contains("rate_limit_exceeded")
                 || status == 429
             {
-                let plan = err.plan_type
+                let plan = err
+                    .plan_type
                     .as_ref()
                     .map(|p| format!(" ({} plan)", p.to_lowercase()))
                     .unwrap_or_default();

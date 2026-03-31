@@ -1,18 +1,14 @@
-use tauri::State;
-use crate::AppState;
-use crate::provider::{
-    self, ActiveModel, ApiType, AvailableModel, ProviderConfig,
-};
-use crate::agent::{AssistantAgent, build_api_url};
+use crate::agent::{build_api_url, AssistantAgent};
 use crate::memory;
+use crate::provider::{self, ActiveModel, ApiType, AvailableModel, ProviderConfig};
 use crate::truncate_utf8;
+use crate::AppState;
+use tauri::State;
 
 // ── Provider Management Commands ──────────────────────────────────
 
 #[tauri::command]
-pub async fn get_providers(
-    state: State<'_, AppState>,
-) -> Result<Vec<ProviderConfig>, String> {
+pub async fn get_providers(state: State<'_, AppState>) -> Result<Vec<ProviderConfig>, String> {
     let store = state.provider_store.lock().await;
     Ok(store.providers.clone())
 }
@@ -110,21 +106,20 @@ pub async fn delete_provider(
 }
 
 #[tauri::command]
-pub async fn test_provider(
-    config: ProviderConfig,
-) -> Result<String, String> {
+pub async fn test_provider(config: ProviderConfig) -> Result<String, String> {
     use std::time::{Duration, Instant};
 
     let client = crate::provider::apply_proxy(
         reqwest::Client::builder()
             .timeout(Duration::from_secs(10))
-            .user_agent(&config.user_agent)
+            .user_agent(&config.user_agent),
     )
-        .build()
-        .map_err(|e| format!("Client error: {}", e))?;
+    .build()
+    .map_err(|e| format!("Client error: {}", e))?;
 
     let base = config.base_url.trim_end_matches('/');
-    let has_version_suffix = base.ends_with("/v1") || base.ends_with("/v2") || base.ends_with("/v3");
+    let has_version_suffix =
+        base.ends_with("/v1") || base.ends_with("/v2") || base.ends_with("/v3");
     let mut steps: Vec<serde_json::Value> = Vec::new();
     let total_start = Instant::now();
 
@@ -157,33 +152,59 @@ pub async fn test_provider(
 
             // Try x-api-key
             let t = Instant::now();
-            let resp = client.post(&url)
+            let resp = client
+                .post(&url)
                 .header("x-api-key", &config.api_key)
                 .header("anthropic-version", "2023-06-01")
                 .header("content-type", "application/json")
-                .json(&body).send().await
-                .map_err(|e| build_result!(false, format!("连接失败: {}", e), &url, 0, "x-api-key"))?;
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| {
+                    build_result!(false, format!("连接失败: {}", e), &url, 0, "x-api-key")
+                })?;
             let status = resp.status().as_u16();
             steps.push(serde_json::json!({"endpoint": &url, "method": "POST", "auth": "x-api-key", "status": status, "latencyMs": t.elapsed().as_millis() as u64}));
 
             if resp.status().is_success() || status == 400 || status == 404 {
-                return Ok(build_result!(true, if status == 200 { "连接成功" } else { "认证成功（模型名需调整）" }, &url, status, "x-api-key"));
+                return Ok(build_result!(
+                    true,
+                    if status == 200 {
+                        "连接成功"
+                    } else {
+                        "认证成功（模型名需调整）"
+                    },
+                    &url,
+                    status,
+                    "x-api-key"
+                ));
             }
 
             // Fallback: Bearer auth
             if status == 401 || status == 403 {
                 let t2 = Instant::now();
-                let resp2 = client.post(&url)
+                let resp2 = client
+                    .post(&url)
                     .header("Authorization", format!("Bearer {}", config.api_key))
                     .header("anthropic-version", "2023-06-01")
                     .header("content-type", "application/json")
-                    .json(&body).send().await
-                    .map_err(|e| build_result!(false, format!("连接失败: {}", e), &url, 0, "Bearer"))?;
+                    .json(&body)
+                    .send()
+                    .await
+                    .map_err(|e| {
+                        build_result!(false, format!("连接失败: {}", e), &url, 0, "Bearer")
+                    })?;
                 let s2 = resp2.status().as_u16();
                 steps.push(serde_json::json!({"endpoint": &url, "method": "POST", "auth": "Bearer", "status": s2, "latencyMs": t2.elapsed().as_millis() as u64}));
 
                 if resp2.status().is_success() || s2 == 400 || s2 == 404 {
-                    return Ok(build_result!(true, "连接成功（Bearer 认证）", &url, s2, "Bearer"));
+                    return Ok(build_result!(
+                        true,
+                        "连接成功（Bearer 认证）",
+                        &url,
+                        s2,
+                        "Bearer"
+                    ));
                 }
                 let detail = resp2.text().await.unwrap_or_default();
                 return Err(serde_json::to_string(&serde_json::json!({
@@ -199,17 +220,30 @@ pub async fn test_provider(
             })).unwrap_or_default())
         }
         ApiType::OpenaiChat | ApiType::OpenaiResponses => {
-            let models_url = if has_version_suffix { format!("{}/models", base) } else { format!("{}/v1/models", base) };
+            let models_url = if has_version_suffix {
+                format!("{}/models", base)
+            } else {
+                format!("{}/v1/models", base)
+            };
             let t = Instant::now();
             let mut req = client.get(&models_url);
-            if !config.api_key.is_empty() { req = req.header("Authorization", format!("Bearer {}", config.api_key)); }
-            let resp = req.send().await
-                .map_err(|e| build_result!(false, format!("连接失败: {}", e), &models_url, 0, "Bearer"))?;
+            if !config.api_key.is_empty() {
+                req = req.header("Authorization", format!("Bearer {}", config.api_key));
+            }
+            let resp = req.send().await.map_err(|e| {
+                build_result!(false, format!("连接失败: {}", e), &models_url, 0, "Bearer")
+            })?;
             let status = resp.status().as_u16();
             steps.push(serde_json::json!({"endpoint": &models_url, "method": "GET", "status": status, "latencyMs": t.elapsed().as_millis() as u64}));
 
             if resp.status().is_success() {
-                return Ok(build_result!(true, "连接成功", &models_url, status, "Bearer"));
+                return Ok(build_result!(
+                    true,
+                    "连接成功",
+                    &models_url,
+                    status,
+                    "Bearer"
+                ));
             }
             if status == 401 || status == 403 {
                 let detail = resp.text().await.unwrap_or_default();
@@ -220,19 +254,35 @@ pub async fn test_provider(
             }
 
             // Fallback: chat/completions
-            let chat_url = if has_version_suffix { format!("{}/chat/completions", base) } else { format!("{}/v1/chat/completions", base) };
+            let chat_url = if has_version_suffix {
+                format!("{}/chat/completions", base)
+            } else {
+                format!("{}/v1/chat/completions", base)
+            };
             let t2 = Instant::now();
             let mut chat_req = client.post(&chat_url)
                 .header("content-type", "application/json")
                 .json(&serde_json::json!({"model": "test", "max_tokens": 1, "messages": [{"role": "user", "content": "Hi"}]}));
-            if !config.api_key.is_empty() { chat_req = chat_req.header("Authorization", format!("Bearer {}", config.api_key)); }
+            if !config.api_key.is_empty() {
+                chat_req = chat_req.header("Authorization", format!("Bearer {}", config.api_key));
+            }
 
             match chat_req.send().await {
                 Ok(chat_resp) => {
                     let cs = chat_resp.status().as_u16();
                     steps.push(serde_json::json!({"endpoint": &chat_url, "method": "POST", "status": cs, "latencyMs": t2.elapsed().as_millis() as u64}));
                     if chat_resp.status().is_success() || cs == 400 || cs == 404 {
-                        Ok(build_result!(true, if cs == 200 { "连接成功" } else { "认证成功（模型名需调整）" }, &chat_url, cs, "Bearer"))
+                        Ok(build_result!(
+                            true,
+                            if cs == 200 {
+                                "连接成功"
+                            } else {
+                                "认证成功（模型名需调整）"
+                            },
+                            &chat_url,
+                            cs,
+                            "Bearer"
+                        ))
                     } else if cs == 401 || cs == 403 {
                         let detail = chat_resp.text().await.unwrap_or_default();
                         Err(serde_json::to_string(&serde_json::json!({
@@ -240,35 +290,48 @@ pub async fn test_provider(
                             "url": &chat_url, "status": cs, "latencyMs": total_start.elapsed().as_millis() as u64, "steps": steps,
                         })).unwrap_or_default())
                     } else {
-                        Ok(build_result!(true, "连接成功（不支持模型列表查询）", &chat_url, cs, "Bearer"))
+                        Ok(build_result!(
+                            true,
+                            "连接成功（不支持模型列表查询）",
+                            &chat_url,
+                            cs,
+                            "Bearer"
+                        ))
                     }
                 }
                 Err(e) => {
                     steps.push(serde_json::json!({"endpoint": &chat_url, "method": "POST", "error": format!("{}", e), "latencyMs": t2.elapsed().as_millis() as u64}));
-                    Err(build_result!(false, format!("连接失败: {}", e), &chat_url, 0, ""))
+                    Err(build_result!(
+                        false,
+                        format!("连接失败: {}", e),
+                        &chat_url,
+                        0,
+                        ""
+                    ))
                 }
             }
         }
-        ApiType::Codex => {
-            Ok(build_result!(true, "Codex 使用 OAuth 认证，无需测试", "", 0, "OAuth"))
-        }
+        ApiType::Codex => Ok(build_result!(
+            true,
+            "Codex 使用 OAuth 认证，无需测试",
+            "",
+            0,
+            "OAuth"
+        )),
     }
 }
 
 #[tauri::command]
-pub async fn test_model(
-    config: ProviderConfig,
-    model_id: String,
-) -> Result<String, String> {
+pub async fn test_model(config: ProviderConfig, model_id: String) -> Result<String, String> {
     use std::time::{Duration, Instant};
 
     let client = crate::provider::apply_proxy(
         reqwest::Client::builder()
             .timeout(Duration::from_secs(15))
-            .user_agent(&config.user_agent)
+            .user_agent(&config.user_agent),
     )
-        .build()
-        .map_err(|e| format!("Client error: {}", e))?;
+    .build()
+    .map_err(|e| format!("Client error: {}", e))?;
 
     let base = config.base_url.trim_end_matches('/');
     let start = Instant::now();
@@ -287,51 +350,72 @@ pub async fn test_model(
                 "body": &body,
             });
 
-            let resp = client.post(&url)
+            let resp = client
+                .post(&url)
                 .header("x-api-key", &config.api_key)
                 .header("anthropic-version", "2023-06-01")
                 .header("content-type", "application/json")
-                .json(&body).send().await;
+                .json(&body)
+                .send()
+                .await;
 
             let resp = match resp {
                 Ok(r) => r,
-                Err(_) => {
-                    client.post(&url)
-                        .header("Authorization", format!("Bearer {}", config.api_key))
-                        .header("anthropic-version", "2023-06-01")
-                        .header("content-type", "application/json")
-                        .json(&body).send().await
-                        .map_err(|e| serde_json::to_string(&serde_json::json!({
+                Err(_) => client
+                    .post(&url)
+                    .header("Authorization", format!("Bearer {}", config.api_key))
+                    .header("anthropic-version", "2023-06-01")
+                    .header("content-type", "application/json")
+                    .json(&body)
+                    .send()
+                    .await
+                    .map_err(|e| {
+                        serde_json::to_string(&serde_json::json!({
                             "success": false, "message": format!("连接失败: {}", e),
                             "model": model_id, "latencyMs": start.elapsed().as_millis() as u64,
                             "request": request_info,
-                        })).unwrap_or_default())?
-                }
+                        }))
+                        .unwrap_or_default()
+                    })?,
             };
 
             let status = resp.status().as_u16();
             let body_text = resp.text().await.unwrap_or_default();
             let latency = start.elapsed().as_millis() as u64;
-            let response_body: serde_json::Value = serde_json::from_str(&body_text).unwrap_or(serde_json::json!(body_text));
+            let response_body: serde_json::Value =
+                serde_json::from_str(&body_text).unwrap_or(serde_json::json!(body_text));
 
             if status == 200 {
                 let reply = serde_json::from_str::<serde_json::Value>(&body_text)
                     .ok()
-                    .and_then(|v| v["content"].as_array()?.first()?.get("text")?.as_str().map(|s| s.to_string()))
+                    .and_then(|v| {
+                        v["content"]
+                            .as_array()?
+                            .first()?
+                            .get("text")?
+                            .as_str()
+                            .map(|s| s.to_string())
+                    })
                     .unwrap_or_default();
-                let preview = if reply.len() > 100 { format!("{}...", truncate_utf8(&reply, 100)) } else { reply.clone() };
+                let preview = if reply.len() > 100 {
+                    format!("{}...", truncate_utf8(&reply, 100))
+                } else {
+                    reply.clone()
+                };
                 Ok(serde_json::to_string(&serde_json::json!({
                     "success": true, "message": "模型响应正常",
                     "model": model_id, "status": status, "latencyMs": latency,
                     "reply": preview,
                     "request": request_info, "response": response_body,
-                })).unwrap_or_default())
+                }))
+                .unwrap_or_default())
             } else {
                 Err(serde_json::to_string(&serde_json::json!({
                     "success": false, "message": format!("模型测试失败 ({})", status),
                     "model": model_id, "status": status, "latencyMs": latency,
                     "request": request_info, "response": response_body,
-                })).unwrap_or_default())
+                }))
+                .unwrap_or_default())
             }
         }
         ApiType::OpenaiChat | ApiType::OpenaiResponses => {
@@ -341,71 +425,93 @@ pub async fn test_model(
                 "max_tokens": 32,
                 "messages": [{ "role": "user", "content": "Hi" }]
             });
-            let auth_header = if !config.api_key.is_empty() { "Bearer ***" } else { "(none)" };
+            let auth_header = if !config.api_key.is_empty() {
+                "Bearer ***"
+            } else {
+                "(none)"
+            };
             let request_info = serde_json::json!({
                 "url": &url, "method": "POST",
                 "headers": { "Authorization": auth_header, "content-type": "application/json" },
                 "body": &body,
             });
 
-            let mut req = client.post(&url)
+            let mut req = client
+                .post(&url)
                 .header("content-type", "application/json")
                 .json(&body);
             if !config.api_key.is_empty() {
                 req = req.header("Authorization", format!("Bearer {}", config.api_key));
             }
-            let resp = req.send().await
-                .map_err(|e| serde_json::to_string(&serde_json::json!({
+            let resp = req.send().await.map_err(|e| {
+                serde_json::to_string(&serde_json::json!({
                     "success": false, "message": format!("连接失败: {}", e),
                     "model": model_id, "latencyMs": start.elapsed().as_millis() as u64,
                     "request": request_info,
-                })).unwrap_or_default())?;
+                }))
+                .unwrap_or_default()
+            })?;
 
             let status = resp.status().as_u16();
             let body_text = resp.text().await.unwrap_or_default();
             let latency = start.elapsed().as_millis() as u64;
-            let response_body: serde_json::Value = serde_json::from_str(&body_text).unwrap_or(serde_json::json!(body_text));
+            let response_body: serde_json::Value =
+                serde_json::from_str(&body_text).unwrap_or(serde_json::json!(body_text));
 
             if status == 200 {
                 let reply = serde_json::from_str::<serde_json::Value>(&body_text)
                     .ok()
-                    .and_then(|v| v["choices"].as_array()?.first()?.get("message")?.get("content")?.as_str().map(|s| s.to_string()))
+                    .and_then(|v| {
+                        v["choices"]
+                            .as_array()?
+                            .first()?
+                            .get("message")?
+                            .get("content")?
+                            .as_str()
+                            .map(|s| s.to_string())
+                    })
                     .unwrap_or_default();
-                let preview = if reply.len() > 100 { format!("{}...", truncate_utf8(&reply, 100)) } else { reply.clone() };
+                let preview = if reply.len() > 100 {
+                    format!("{}...", truncate_utf8(&reply, 100))
+                } else {
+                    reply.clone()
+                };
                 Ok(serde_json::to_string(&serde_json::json!({
                     "success": true, "message": "模型响应正常",
                     "model": model_id, "status": status, "latencyMs": latency,
                     "reply": preview,
                     "request": request_info, "response": response_body,
-                })).unwrap_or_default())
+                }))
+                .unwrap_or_default())
             } else {
                 Err(serde_json::to_string(&serde_json::json!({
                     "success": false, "message": format!("模型测试失败 ({})", status),
                     "model": model_id, "status": status, "latencyMs": latency,
                     "request": request_info, "response": response_body,
-                })).unwrap_or_default())
+                }))
+                .unwrap_or_default())
             }
         }
-        ApiType::Codex => {
-            Ok(serde_json::to_string(&serde_json::json!({
-                "success": true, "message": "Codex 模型无需单独测试",
-                "model": model_id, "latencyMs": 0,
-            })).unwrap_or_default())
-        }
+        ApiType::Codex => Ok(serde_json::to_string(&serde_json::json!({
+            "success": true, "message": "Codex 模型无需单独测试",
+            "model": model_id, "latencyMs": 0,
+        }))
+        .unwrap_or_default()),
     }
 }
 
 #[tauri::command]
-pub async fn test_embedding(
-    config: memory::EmbeddingConfig,
-) -> Result<String, String> {
+pub async fn test_embedding(config: memory::EmbeddingConfig) -> Result<String, String> {
     use std::time::{Duration, Instant};
 
     let start = Instant::now();
 
     match config.provider_type {
         memory::EmbeddingProviderType::Local => {
-            let model_id = config.local_model_id.clone().unwrap_or_else(|| "bge-small-en-v1.5".to_string());
+            let model_id = config
+                .local_model_id
+                .clone()
+                .unwrap_or_else(|| "bge-small-en-v1.5".to_string());
             let model_id_clone = model_id.clone();
             // Local model init + embed is blocking, run in spawn_blocking
             let result = tokio::task::spawn_blocking(move || -> Result<(usize, u64), String> {
@@ -413,13 +519,17 @@ pub async fn test_embedding(
                 let t = Instant::now();
                 let provider = memory::LocalEmbeddingProvider::new(&model_id_clone)
                     .map_err(|e| format!("{}", e))?;
-                let vec = provider.embed("test")
-                    .map_err(|e| format!("{}", e))?;
+                let vec = provider.embed("test").map_err(|e| format!("{}", e))?;
                 Ok((vec.len(), t.elapsed().as_millis() as u64))
-            }).await.map_err(|e| serde_json::to_string(&serde_json::json!({
-                "success": false, "message": format!("任务执行失败: {}", e),
-                "latencyMs": start.elapsed().as_millis() as u64,
-            })).unwrap_or_default())?;
+            })
+            .await
+            .map_err(|e| {
+                serde_json::to_string(&serde_json::json!({
+                    "success": false, "message": format!("任务执行失败: {}", e),
+                    "latencyMs": start.elapsed().as_millis() as u64,
+                }))
+                .unwrap_or_default()
+            })?;
 
             match result {
                 Ok((dims, latency)) => Ok(serde_json::to_string(&serde_json::json!({
@@ -427,43 +537,63 @@ pub async fn test_embedding(
                     "message": format!("本地模型测试成功（{}维）", dims),
                     "url": model_id,
                     "latencyMs": latency,
-                })).unwrap_or_default()),
+                }))
+                .unwrap_or_default()),
                 Err(e) => Err(serde_json::to_string(&serde_json::json!({
                     "success": false,
                     "message": format!("本地模型测试失败: {}", e),
                     "latencyMs": start.elapsed().as_millis() as u64,
-                })).unwrap_or_default()),
+                }))
+                .unwrap_or_default()),
             }
         }
         memory::EmbeddingProviderType::Google => {
-            let base_url = config.api_base_url.as_deref().unwrap_or("https://generativelanguage.googleapis.com").trim_end_matches('/').to_string();
+            let base_url = config
+                .api_base_url
+                .as_deref()
+                .unwrap_or("https://generativelanguage.googleapis.com")
+                .trim_end_matches('/')
+                .to_string();
             let api_key = config.api_key.as_deref().unwrap_or("").to_string();
-            let model = config.api_model.as_deref().unwrap_or("gemini-embedding-001").to_string();
+            let model = config
+                .api_model
+                .as_deref()
+                .unwrap_or("gemini-embedding-001")
+                .to_string();
 
-            let url = format!("{}/v1beta/models/{}:embedContent?key={}", base_url, model, api_key);
+            let url = format!(
+                "{}/v1beta/models/{}:embedContent?key={}",
+                base_url, model, api_key
+            );
 
             let mut body = serde_json::json!({
                 "content": { "parts": [{"text": "test"}] }
             });
             if let Some(dims) = config.api_dimensions {
-                if dims > 0 { body["outputDimensionality"] = serde_json::json!(dims); }
+                if dims > 0 {
+                    body["outputDimensionality"] = serde_json::json!(dims);
+                }
             }
 
             let client = crate::provider::apply_proxy(
-                reqwest::Client::builder()
-                    .timeout(Duration::from_secs(15))
+                reqwest::Client::builder().timeout(Duration::from_secs(15)),
             )
-                .build()
-                .map_err(|e| serde_json::to_string(&serde_json::json!({
+            .build()
+            .map_err(|e| {
+                serde_json::to_string(&serde_json::json!({
                     "success": false, "message": format!("Client error: {}", e),
-                })).unwrap_or_default())?;
+                }))
+                .unwrap_or_default()
+            })?;
 
             let display_url = format!("{}/v1beta/models/{}:embedContent", base_url, model);
 
-            match client.post(&url)
+            match client
+                .post(&url)
                 .header("Content-Type", "application/json")
                 .json(&body)
-                .send().await
+                .send()
+                .await
             {
                 Ok(resp) => {
                     let status = resp.status().as_u16();
@@ -482,7 +612,8 @@ pub async fn test_embedding(
                             "status": status,
                             "latencyMs": latency,
                             "auth": "API Key (query)",
-                        })).unwrap_or_default())
+                        }))
+                        .unwrap_or_default())
                     } else {
                         Err(serde_json::to_string(&serde_json::json!({
                             "success": false,
@@ -491,7 +622,8 @@ pub async fn test_embedding(
                             "status": status,
                             "latencyMs": latency,
                             "detail": &resp_text[..resp_text.len().min(500)],
-                        })).unwrap_or_default())
+                        }))
+                        .unwrap_or_default())
                     }
                 }
                 Err(e) => Err(serde_json::to_string(&serde_json::json!({
@@ -499,14 +631,24 @@ pub async fn test_embedding(
                     "message": format!("连接失败: {}", e),
                     "url": display_url,
                     "latencyMs": start.elapsed().as_millis() as u64,
-                })).unwrap_or_default()),
+                }))
+                .unwrap_or_default()),
             }
         }
         _ => {
             // OpenAI-compatible
-            let base_url = config.api_base_url.as_deref().unwrap_or("https://api.openai.com").trim_end_matches('/').to_string();
+            let base_url = config
+                .api_base_url
+                .as_deref()
+                .unwrap_or("https://api.openai.com")
+                .trim_end_matches('/')
+                .to_string();
             let api_key = config.api_key.as_deref().unwrap_or("").to_string();
-            let model = config.api_model.as_deref().unwrap_or("text-embedding-3-small").to_string();
+            let model = config
+                .api_model
+                .as_deref()
+                .unwrap_or("text-embedding-3-small")
+                .to_string();
 
             let url = format!("{}/v1/embeddings", base_url);
 
@@ -515,19 +657,24 @@ pub async fn test_embedding(
                 "input": ["test"],
             });
             if let Some(dims) = config.api_dimensions {
-                if dims > 0 { body["dimensions"] = serde_json::json!(dims); }
+                if dims > 0 {
+                    body["dimensions"] = serde_json::json!(dims);
+                }
             }
 
             let client = crate::provider::apply_proxy(
-                reqwest::Client::builder()
-                    .timeout(Duration::from_secs(15))
+                reqwest::Client::builder().timeout(Duration::from_secs(15)),
             )
-                .build()
-                .map_err(|e| serde_json::to_string(&serde_json::json!({
+            .build()
+            .map_err(|e| {
+                serde_json::to_string(&serde_json::json!({
                     "success": false, "message": format!("Client error: {}", e),
-                })).unwrap_or_default())?;
+                }))
+                .unwrap_or_default()
+            })?;
 
-            let mut req = client.post(&url)
+            let mut req = client
+                .post(&url)
                 .header("Content-Type", "application/json")
                 .json(&body);
             if !api_key.is_empty() {
@@ -543,7 +690,11 @@ pub async fn test_embedding(
                     if status == 200 {
                         let dims = serde_json::from_str::<serde_json::Value>(&resp_text)
                             .ok()
-                            .and_then(|v| v["data"].as_array()?.first()?["embedding"].as_array().map(|a| a.len()))
+                            .and_then(|v| {
+                                v["data"].as_array()?.first()?["embedding"]
+                                    .as_array()
+                                    .map(|a| a.len())
+                            })
                             .unwrap_or(0);
                         Ok(serde_json::to_string(&serde_json::json!({
                             "success": true,
@@ -552,7 +703,8 @@ pub async fn test_embedding(
                             "status": status,
                             "latencyMs": latency,
                             "auth": "Bearer",
-                        })).unwrap_or_default())
+                        }))
+                        .unwrap_or_default())
                     } else if status == 401 || status == 403 {
                         let detail = &resp_text[..resp_text.len().min(500)];
                         Err(serde_json::to_string(&serde_json::json!({
@@ -563,7 +715,8 @@ pub async fn test_embedding(
                             "latencyMs": latency,
                             "auth": "Bearer",
                             "detail": detail,
-                        })).unwrap_or_default())
+                        }))
+                        .unwrap_or_default())
                     } else {
                         let detail = &resp_text[..resp_text.len().min(500)];
                         Err(serde_json::to_string(&serde_json::json!({
@@ -573,7 +726,8 @@ pub async fn test_embedding(
                             "status": status,
                             "latencyMs": latency,
                             "detail": detail,
-                        })).unwrap_or_default())
+                        }))
+                        .unwrap_or_default())
                     }
                 }
                 Err(e) => Err(serde_json::to_string(&serde_json::json!({
@@ -581,7 +735,8 @@ pub async fn test_embedding(
                     "message": format!("连接失败: {}", e),
                     "url": url,
                     "latencyMs": start.elapsed().as_millis() as u64,
-                })).unwrap_or_default()),
+                }))
+                .unwrap_or_default()),
             }
         }
     }
@@ -601,12 +756,15 @@ pub async fn test_image_generate(
     let client = crate::provider::apply_proxy(
         reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(15))
-            .timeout(Duration::from_secs(15))
+            .timeout(Duration::from_secs(15)),
     )
-        .build()
-        .map_err(|e| serde_json::to_string(&serde_json::json!({
+    .build()
+    .map_err(|e| {
+        serde_json::to_string(&serde_json::json!({
             "success": false, "message": format!("Client error: {}", e),
-        })).unwrap_or_default())?;
+        }))
+        .unwrap_or_default()
+    })?;
 
     // Normalize provider_id (backward compat: "OpenAI" → "openai")
     let pid = provider_id.to_lowercase();
@@ -616,7 +774,8 @@ pub async fn test_image_generate(
 
     let (url, auth_header, auth_value) = match pid.as_str() {
         "openai" => {
-            let base = base_url.as_deref()
+            let base = base_url
+                .as_deref()
                 .filter(|s| !s.is_empty())
                 .unwrap_or("https://api.openai.com")
                 .trim_end_matches('/');
@@ -627,7 +786,8 @@ pub async fn test_image_generate(
             )
         }
         "google" => {
-            let base = base_url.as_deref()
+            let base = base_url
+                .as_deref()
                 .filter(|s| !s.is_empty())
                 .unwrap_or("https://generativelanguage.googleapis.com")
                 .trim_end_matches('/');
@@ -638,7 +798,8 @@ pub async fn test_image_generate(
             )
         }
         "fal" => {
-            let base = base_url.as_deref()
+            let base = base_url
+                .as_deref()
                 .filter(|s| !s.is_empty())
                 .unwrap_or("https://fal.run")
                 .trim_end_matches('/');
@@ -650,7 +811,8 @@ pub async fn test_image_generate(
             )
         }
         "minimax" => {
-            let base = base_url.as_deref()
+            let base = base_url
+                .as_deref()
                 .filter(|s| !s.is_empty())
                 .map(|s| {
                     if let Ok(parsed) = url::Url::parse(s) {
@@ -668,7 +830,8 @@ pub async fn test_image_generate(
             )
         }
         "siliconflow" => {
-            let base = base_url.as_deref()
+            let base = base_url
+                .as_deref()
                 .filter(|s| !s.is_empty())
                 .unwrap_or("https://api.siliconflow.cn")
                 .trim_end_matches('/');
@@ -679,7 +842,8 @@ pub async fn test_image_generate(
             )
         }
         "zhipu" => {
-            let base = base_url.as_deref()
+            let base = base_url
+                .as_deref()
                 .filter(|s| !s.is_empty())
                 .unwrap_or("https://open.bigmodel.cn/api/paas")
                 .trim_end_matches('/');
@@ -691,7 +855,8 @@ pub async fn test_image_generate(
             )
         }
         "tongyi" => {
-            let base = base_url.as_deref()
+            let base = base_url
+                .as_deref()
                 .filter(|s| !s.is_empty())
                 .unwrap_or("https://dashscope.aliyuncs.com")
                 .trim_end_matches('/');
@@ -706,7 +871,8 @@ pub async fn test_image_generate(
             return Err(serde_json::to_string(&serde_json::json!({
                 "success": false,
                 "message": format!("Unknown provider: {}", provider_id),
-            })).unwrap_or_default());
+            }))
+            .unwrap_or_default());
         }
     };
 
@@ -736,7 +902,8 @@ pub async fn test_image_generate(
                 "status": status,
                 "latencyMs": latency,
                 "auth": if auth_header.is_empty() { "Query Parameter" } else { auth_header },
-            })).unwrap_or_default())
+            }))
+            .unwrap_or_default())
         }
         Err(e) => {
             let latency = start.elapsed().as_millis() as u64;
@@ -753,7 +920,8 @@ pub async fn test_image_generate(
                 "message": msg,
                 "url": url.replace(&api_key, "***"),
                 "latencyMs": latency,
-            })).unwrap_or_default())
+            }))
+            .unwrap_or_default())
         }
     }
 }
@@ -767,9 +935,7 @@ pub async fn get_available_models(
 }
 
 #[tauri::command]
-pub async fn get_active_model(
-    state: State<'_, AppState>,
-) -> Result<Option<ActiveModel>, String> {
+pub async fn get_active_model(state: State<'_, AppState>) -> Result<Option<ActiveModel>, String> {
     let store = state.provider_store.lock().await;
     Ok(store.active_model.clone())
 }
@@ -783,7 +949,10 @@ pub async fn set_active_model(
     let mut store = state.provider_store.lock().await;
 
     // Find the provider
-    let provider = store.providers.iter().find(|p| p.id == provider_id)
+    let provider = store
+        .providers
+        .iter()
+        .find(|p| p.id == provider_id)
         .ok_or_else(|| format!("Provider not found: {}", provider_id))?;
 
     // Verify model exists
@@ -813,9 +982,7 @@ pub async fn set_active_model(
 }
 
 #[tauri::command]
-pub async fn get_fallback_models(
-    state: State<'_, AppState>,
-) -> Result<Vec<ActiveModel>, String> {
+pub async fn get_fallback_models(state: State<'_, AppState>) -> Result<Vec<ActiveModel>, String> {
     let store = state.provider_store.lock().await;
     Ok(store.fallback_models.clone())
 }
@@ -832,9 +999,7 @@ pub async fn set_fallback_models(
 }
 
 #[tauri::command]
-pub async fn has_providers(
-    state: State<'_, AppState>,
-) -> Result<bool, String> {
+pub async fn has_providers(state: State<'_, AppState>) -> Result<bool, String> {
     let store = state.provider_store.lock().await;
     Ok(!store.providers.is_empty())
 }

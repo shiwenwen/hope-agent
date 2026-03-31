@@ -40,7 +40,9 @@ pub(crate) async fn tool_edit(args: &Value) -> Result<String> {
         // edit that threw after writing (e.g. interrupted tool call). If new_text is
         // present and old_text is absent, treat as success rather than false failure.
         if !new_text.is_empty() && content.contains(new_text) {
-            app_info!("tool", "edit", 
+            app_info!(
+                "tool",
+                "edit",
                 "Post-write recovery: old_text absent but new_text already present in '{}'",
                 path
             );
@@ -74,7 +76,9 @@ pub(crate) async fn tool_edit(args: &Value) -> Result<String> {
             let has_new = new_text.is_empty() || on_disk.contains(new_text);
             let still_has_old = !old_text.is_empty() && on_disk.contains(old_text);
             if has_new && !still_has_old {
-                app_warn!("tool", "edit", 
+                app_warn!(
+                    "tool",
+                    "edit",
                     "Post-write recovery: write error but file correct in '{}': {}",
                     path,
                     e
@@ -88,5 +92,8 @@ pub(crate) async fn tool_edit(args: &Value) -> Result<String> {
         return Err(anyhow::anyhow!("Failed to write file '{}': {}", path, e));
     }
 
-    Ok(format!("Successfully edited {} (replaced 1 occurrence)", path))
+    Ok(format!(
+        "Successfully edited {} (replaced 1 occurrence)",
+        path
+    ))
 }

@@ -1,11 +1,13 @@
 use serde_json::json;
 
-use crate::file_extract;
 use super::types::Attachment;
+use crate::file_extract;
 
 /// Process non-image attachments: extract text and images from files (PDF, Word, Excel, PPT, text).
 /// Returns (extra_text to append to message, extra_images as base64 tuples).
-pub(super) fn process_file_attachments(attachments: &[Attachment]) -> (String, Vec<file_extract::ExtractedImage>) {
+pub(super) fn process_file_attachments(
+    attachments: &[Attachment],
+) -> (String, Vec<file_extract::ExtractedImage>) {
     let mut file_texts = Vec::new();
     let mut extra_images = Vec::new();
 
@@ -47,7 +49,10 @@ pub(super) fn process_file_attachments(attachments: &[Attachment]) -> (String, V
 }
 
 /// Build multimodal user content array for Anthropic Messages API.
-pub(super) fn build_user_content_anthropic(message: &str, attachments: &[Attachment]) -> serde_json::Value {
+pub(super) fn build_user_content_anthropic(
+    message: &str,
+    attachments: &[Attachment],
+) -> serde_json::Value {
     if attachments.is_empty() {
         return json!(message);
     }
@@ -60,7 +65,9 @@ pub(super) fn build_user_content_anthropic(message: &str, attachments: &[Attachm
     };
 
     // Check if we have any images (original image attachments + extracted images)
-    let has_images = attachments.iter().any(|a| a.mime_type.starts_with("image/"))
+    let has_images = attachments
+        .iter()
+        .any(|a| a.mime_type.starts_with("image/"))
         || !extra_images.is_empty();
 
     if !has_images {
@@ -84,7 +91,13 @@ pub(super) fn build_user_content_anthropic(message: &str, attachments: &[Attachm
                     }));
                 }
                 Err(e) => {
-                    app_warn!("agent", "attachment", "Skipping attachment {}: {}", att.name, e);
+                    app_warn!(
+                        "agent",
+                        "attachment",
+                        "Skipping attachment {}: {}",
+                        att.name,
+                        e
+                    );
                 }
             }
         }
@@ -107,7 +120,10 @@ pub(super) fn build_user_content_anthropic(message: &str, attachments: &[Attachm
 }
 
 /// Build multimodal user content array for OpenAI Chat Completions API.
-pub(super) fn build_user_content_openai_chat(message: &str, attachments: &[Attachment]) -> serde_json::Value {
+pub(super) fn build_user_content_openai_chat(
+    message: &str,
+    attachments: &[Attachment],
+) -> serde_json::Value {
     if attachments.is_empty() {
         return json!(message);
     }
@@ -119,7 +135,9 @@ pub(super) fn build_user_content_openai_chat(message: &str, attachments: &[Attac
         format!("{}{}", message, extra_text)
     };
 
-    let has_images = attachments.iter().any(|a| a.mime_type.starts_with("image/"))
+    let has_images = attachments
+        .iter()
+        .any(|a| a.mime_type.starts_with("image/"))
         || !extra_images.is_empty();
 
     if !has_images {
@@ -139,7 +157,13 @@ pub(super) fn build_user_content_openai_chat(message: &str, attachments: &[Attac
                     }));
                 }
                 Err(e) => {
-                    app_warn!("agent", "attachment", "Skipping attachment {}: {}", att.name, e);
+                    app_warn!(
+                        "agent",
+                        "attachment",
+                        "Skipping attachment {}: {}",
+                        att.name,
+                        e
+                    );
                 }
             }
         }
@@ -158,7 +182,10 @@ pub(super) fn build_user_content_openai_chat(message: &str, attachments: &[Attac
 }
 
 /// Build multimodal user content array for OpenAI Responses API / Codex.
-pub(super) fn build_user_content_responses(message: &str, attachments: &[Attachment]) -> serde_json::Value {
+pub(super) fn build_user_content_responses(
+    message: &str,
+    attachments: &[Attachment],
+) -> serde_json::Value {
     if attachments.is_empty() {
         return json!(message);
     }
@@ -170,7 +197,9 @@ pub(super) fn build_user_content_responses(message: &str, attachments: &[Attachm
         format!("{}{}", message, extra_text)
     };
 
-    let has_images = attachments.iter().any(|a| a.mime_type.starts_with("image/"))
+    let has_images = attachments
+        .iter()
+        .any(|a| a.mime_type.starts_with("image/"))
         || !extra_images.is_empty();
 
     if !has_images {
@@ -190,7 +219,13 @@ pub(super) fn build_user_content_responses(message: &str, attachments: &[Attachm
                     }));
                 }
                 Err(e) => {
-                    app_warn!("agent", "attachment", "Skipping attachment {}: {}", att.name, e);
+                    app_warn!(
+                        "agent",
+                        "attachment",
+                        "Skipping attachment {}: {}",
+                        att.name,
+                        e
+                    );
                 }
             }
         }

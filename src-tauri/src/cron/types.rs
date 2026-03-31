@@ -9,9 +9,7 @@ pub enum CronSchedule {
     /// Fire once at a specific timestamp
     At { timestamp: String },
     /// Fire every N milliseconds
-    Every {
-        interval_ms: u64,
-    },
+    Every { interval_ms: u64 },
     /// Cron expression with optional timezone (default UTC)
     Cron {
         expression: String,

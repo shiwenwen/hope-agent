@@ -51,14 +51,30 @@ pub struct WebFetchConfig {
     pub ssrf_protection: bool,
 }
 
-fn default_wf_max_chars() -> usize { DEFAULT_WEB_FETCH_MAX_CHARS }
-fn default_wf_max_chars_cap() -> usize { DEFAULT_WEB_FETCH_MAX_CHARS_CAP }
-fn default_wf_max_response_bytes() -> usize { DEFAULT_WEB_FETCH_MAX_RESPONSE_BYTES }
-fn default_wf_max_redirects() -> usize { DEFAULT_WEB_FETCH_MAX_REDIRECTS }
-fn default_wf_timeout_seconds() -> u64 { DEFAULT_WEB_FETCH_TIMEOUT_SECS }
-fn default_wf_cache_ttl_minutes() -> u64 { DEFAULT_WEB_FETCH_CACHE_TTL_MINUTES }
-fn default_wf_user_agent() -> String { DEFAULT_WEB_FETCH_USER_AGENT.to_string() }
-fn default_wf_ssrf_protection() -> bool { true }
+fn default_wf_max_chars() -> usize {
+    DEFAULT_WEB_FETCH_MAX_CHARS
+}
+fn default_wf_max_chars_cap() -> usize {
+    DEFAULT_WEB_FETCH_MAX_CHARS_CAP
+}
+fn default_wf_max_response_bytes() -> usize {
+    DEFAULT_WEB_FETCH_MAX_RESPONSE_BYTES
+}
+fn default_wf_max_redirects() -> usize {
+    DEFAULT_WEB_FETCH_MAX_REDIRECTS
+}
+fn default_wf_timeout_seconds() -> u64 {
+    DEFAULT_WEB_FETCH_TIMEOUT_SECS
+}
+fn default_wf_cache_ttl_minutes() -> u64 {
+    DEFAULT_WEB_FETCH_CACHE_TTL_MINUTES
+}
+fn default_wf_user_agent() -> String {
+    DEFAULT_WEB_FETCH_USER_AGENT.to_string()
+}
+fn default_wf_ssrf_protection() -> bool {
+    true
+}
 
 impl Default for WebFetchConfig {
     fn default() -> Self {
@@ -79,16 +95,17 @@ impl Default for WebFetchConfig {
 
 /// Check if a URL is safe to fetch (not targeting private/internal networks).
 pub(crate) async fn check_ssrf_safe(url_str: &str) -> Result<()> {
-    let parsed = url::Url::parse(url_str)
-        .map_err(|e| anyhow::anyhow!("Invalid URL: {}", e))?;
+    let parsed = url::Url::parse(url_str).map_err(|e| anyhow::anyhow!("Invalid URL: {}", e))?;
 
-    let host = parsed.host_str()
+    let host = parsed
+        .host_str()
         .ok_or_else(|| anyhow::anyhow!("URL has no host"))?;
 
     let port = parsed.port_or_known_default().unwrap_or(80);
     let addr_str = format!("{}:{}", host, port);
 
-    let addrs = tokio::net::lookup_host(&addr_str).await
+    let addrs = tokio::net::lookup_host(&addr_str)
+        .await
         .map_err(|e| anyhow::anyhow!("DNS resolution failed for {}: {}", host, e))?;
 
     for addr in addrs {
@@ -113,7 +130,7 @@ pub(crate) fn is_private_ip(ip: &IpAddr) -> bool {
                 || v4.is_link_local()                   // 169.254.0.0/16
                 || v4.is_unspecified()                   // 0.0.0.0
                 || v4.octets()[0] == 0                   // 0.0.0.0/8
-                || v4.is_broadcast()                     // 255.255.255.255
+                || v4.is_broadcast() // 255.255.255.255
         }
         IpAddr::V6(v6) => {
             v6.is_loopback()                            // ::1
@@ -166,7 +183,8 @@ fn write_cache(key: String, response: String, ttl_minutes: u64) {
 
         // Evict oldest if still at capacity
         if cache.len() >= WEB_FETCH_CACHE_MAX_ENTRIES {
-            if let Some(oldest_key) = cache.iter()
+            if let Some(oldest_key) = cache
+                .iter()
                 .min_by_key(|(_, v)| v.inserted_at)
                 .map(|(k, _)| k.clone())
             {
@@ -174,10 +192,13 @@ fn write_cache(key: String, response: String, ttl_minutes: u64) {
             }
         }
 
-        cache.insert(key, CacheEntry {
-            response,
-            inserted_at: now,
-        });
+        cache.insert(
+            key,
+            CacheEntry {
+                response,
+                inserted_at: now,
+            },
+        );
     }
 }
 
@@ -185,12 +206,21 @@ fn write_cache(key: String, response: String, ttl_minutes: u64) {
 
 /// Extract article content using Mozilla Readability, with fallback to basic HTML cleaning.
 /// Returns (content, title, extractor_name).
-fn extract_content(html: &str, url: &str, extract_mode: &str) -> (String, Option<String>, &'static str) {
+fn extract_content(
+    html: &str,
+    url: &str,
+    extract_mode: &str,
+) -> (String, Option<String>, &'static str) {
     // Try Readability first
-    let parsed_url = url::Url::parse(url).unwrap_or_else(|_| url::Url::parse("https://example.com").unwrap());
+    let parsed_url =
+        url::Url::parse(url).unwrap_or_else(|_| url::Url::parse("https://example.com").unwrap());
     match readability::extractor::extract(&mut html.as_bytes(), &parsed_url) {
         Ok(product) => {
-            let title = if product.title.is_empty() { None } else { Some(product.title) };
+            let title = if product.title.is_empty() {
+                None
+            } else {
+                Some(product.title)
+            };
             let article_html = product.content;
             if article_html.trim().is_empty() {
                 // Readability returned empty → fallback
@@ -199,9 +229,8 @@ fn extract_content(html: &str, url: &str, extract_mode: &str) -> (String, Option
             }
             match extract_mode {
                 "markdown" => {
-                    let md = htmd::convert(&article_html).unwrap_or_else(|_| {
-                        extract_readable_text_basic(&article_html)
-                    });
+                    let md = htmd::convert(&article_html)
+                        .unwrap_or_else(|_| extract_readable_text_basic(&article_html));
                     (md, title, "readability")
                 }
                 _ => {
@@ -342,7 +371,14 @@ pub(crate) async fn tool_web_fetch(args: &Value) -> Result<String> {
         requested.min(config.max_chars_cap)
     };
 
-    app_info!("tool", "web_fetch", "Fetching URL: {} (mode: {}, max_chars: {})", url, extract_mode, max_chars);
+    app_info!(
+        "tool",
+        "web_fetch",
+        "Fetching URL: {} (mode: {}, max_chars: {})",
+        url,
+        extract_mode,
+        max_chars
+    );
 
     if !url.starts_with("http://") && !url.starts_with("https://") {
         return Err(anyhow::anyhow!(
@@ -367,10 +403,10 @@ pub(crate) async fn tool_web_fetch(args: &Value) -> Result<String> {
         reqwest::Client::builder()
             .user_agent(&config.user_agent)
             .timeout(std::time::Duration::from_secs(config.timeout_seconds))
-            .redirect(reqwest::redirect::Policy::limited(config.max_redirects))
+            .redirect(reqwest::redirect::Policy::limited(config.max_redirects)),
     )
-        .build()
-        .map_err(|e| anyhow::anyhow!("Failed to create HTTP client: {}", e))?;
+    .build()
+    .map_err(|e| anyhow::anyhow!("Failed to create HTTP client: {}", e))?;
 
     let resp = client
         .get(url)
@@ -454,7 +490,9 @@ pub(crate) async fn tool_web_fetch(args: &Value) -> Result<String> {
 
     let result = format!(
         "<web_fetch_result url=\"{}\" status=\"{}\" extractor=\"{}\">\n{}\n</web_fetch_result>",
-        url, status, extractor,
+        url,
+        status,
+        extractor,
         serde_json::to_string_pretty(&response_json).unwrap_or_else(|_| response_json.to_string())
     );
 

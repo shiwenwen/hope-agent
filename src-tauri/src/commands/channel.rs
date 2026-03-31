@@ -39,10 +39,19 @@ pub async fn channel_add_account(
     settings: serde_json::Value,
     security: SecurityConfig,
 ) -> Result<String, String> {
-    let id = format!("{}-{}", channel_id, uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("0000"));
+    let id = format!(
+        "{}-{}",
+        channel_id,
+        uuid::Uuid::new_v4()
+            .to_string()
+            .split('-')
+            .next()
+            .unwrap_or("0000")
+    );
 
-    let parsed_channel_id: ChannelId = serde_json::from_value(serde_json::Value::String(channel_id.clone()))
-        .map_err(|e| format!("Invalid channel_id '{}': {}", channel_id, e))?;
+    let parsed_channel_id: ChannelId =
+        serde_json::from_value(serde_json::Value::String(channel_id.clone()))
+            .map_err(|e| format!("Invalid channel_id '{}': {}", channel_id, e))?;
 
     let account = ChannelAccountConfig {
         id: id.clone(),
@@ -64,7 +73,13 @@ pub async fn channel_add_account(
     if account.enabled {
         if let Some(registry) = crate::get_channel_registry() {
             if let Err(e) = registry.start_account(&account).await {
-                app_warn!("channel", "commands", "Failed to auto-start new account '{}': {}", id, e);
+                app_warn!(
+                    "channel",
+                    "commands",
+                    "Failed to auto-start new account '{}': {}",
+                    id,
+                    e
+                );
             }
         }
     }
@@ -84,7 +99,9 @@ pub async fn channel_update_account(
 ) -> Result<(), String> {
     let mut store = provider::load_store().map_err(|e| e.to_string())?;
 
-    let account = store.channels.find_account_mut(&account_id)
+    let account = store
+        .channels
+        .find_account_mut(&account_id)
         .ok_or_else(|| format!("Account '{}' not found", account_id))?;
 
     let was_enabled = account.enabled;
@@ -97,7 +114,11 @@ pub async fn channel_update_account(
     }
     // agent_id: Some("xxx") = set, Some("") = clear to default, None = no change
     if let Some(ref aid) = agent_id {
-        account.agent_id = if aid.is_empty() { None } else { Some(aid.clone()) };
+        account.agent_id = if aid.is_empty() {
+            None
+        } else {
+            Some(aid.clone())
+        };
     }
     if let Some(c) = credentials {
         account.credentials = c;
@@ -151,14 +172,19 @@ pub async fn channel_remove_account(account_id: String) -> Result<(), String> {
 #[tauri::command]
 pub async fn channel_start_account(account_id: String) -> Result<(), String> {
     let store = provider::load_store().map_err(|e| e.to_string())?;
-    let account = store.channels.find_account(&account_id)
+    let account = store
+        .channels
+        .find_account(&account_id)
         .ok_or_else(|| format!("Account '{}' not found", account_id))?
         .clone();
 
     let registry = crate::get_channel_registry()
         .ok_or_else(|| "Channel registry not initialized".to_string())?;
 
-    registry.start_account(&account).await.map_err(|e| e.to_string())
+    registry
+        .start_account(&account)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -166,7 +192,10 @@ pub async fn channel_stop_account(account_id: String) -> Result<(), String> {
     let registry = crate::get_channel_registry()
         .ok_or_else(|| "Channel registry not initialized".to_string())?;
 
-    registry.stop_account(&account_id).await.map_err(|e| e.to_string())
+    registry
+        .stop_account(&account_id)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 // ── Health ───────────────────────────────────────────────────────
@@ -212,16 +241,21 @@ pub async fn channel_validate_credentials(
     channel_id: String,
     credentials: serde_json::Value,
 ) -> Result<String, String> {
-    let parsed_channel_id: ChannelId = serde_json::from_value(serde_json::Value::String(channel_id.clone()))
-        .map_err(|e| format!("Invalid channel_id '{}': {}", channel_id, e))?;
+    let parsed_channel_id: ChannelId =
+        serde_json::from_value(serde_json::Value::String(channel_id.clone()))
+            .map_err(|e| format!("Invalid channel_id '{}': {}", channel_id, e))?;
 
     let registry = crate::get_channel_registry()
         .ok_or_else(|| "Channel registry not initialized".to_string())?;
 
-    let plugin = registry.get_plugin(&parsed_channel_id)
+    let plugin = registry
+        .get_plugin(&parsed_channel_id)
         .ok_or_else(|| format!("No plugin for channel: {}", channel_id))?;
 
-    plugin.validate_credentials(&credentials).await.map_err(|e| e.to_string())
+    plugin
+        .validate_credentials(&credentials)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 // ── Test Message ─────────────────────────────────────────────────
@@ -233,14 +267,19 @@ pub async fn channel_send_test_message(
     text: String,
 ) -> Result<DeliveryResult, String> {
     let store = provider::load_store().map_err(|e| e.to_string())?;
-    let account = store.channels.find_account(&account_id)
+    let account = store
+        .channels
+        .find_account(&account_id)
         .ok_or_else(|| format!("Account '{}' not found", account_id))?;
 
     let registry = crate::get_channel_registry()
         .ok_or_else(|| "Channel registry not initialized".to_string())?;
 
     let payload = ReplyPayload::text(text);
-    registry.send_reply(account, &chat_id, &payload).await.map_err(|e| e.to_string())
+    registry
+        .send_reply(account, &chat_id, &payload)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 // ── Sessions ─────────────────────────────────────────────────────
@@ -250,10 +289,11 @@ pub async fn channel_list_sessions(
     channel_id: String,
     account_id: String,
 ) -> Result<Vec<serde_json::Value>, String> {
-    let channel_db = crate::get_channel_db()
-        .ok_or_else(|| "Channel DB not initialized".to_string())?;
+    let channel_db =
+        crate::get_channel_db().ok_or_else(|| "Channel DB not initialized".to_string())?;
 
-    let conversations = channel_db.list_conversations(&channel_id, &account_id)
+    let conversations = channel_db
+        .list_conversations(&channel_id, &account_id)
         .map_err(|e| e.to_string())?;
 
     let result: Vec<serde_json::Value> = conversations

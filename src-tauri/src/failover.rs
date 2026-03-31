@@ -48,7 +48,6 @@ impl FailoverReason {
     }
 }
 
-
 // ── Error Classification ──────────────────────────────────────────
 
 /// Regex-style patterns for error classification.
@@ -85,7 +84,8 @@ pub fn classify_error(error_msg: &str) -> FailoverReason {
         || lower.contains("502")  // Bad Gateway
         || lower.contains("521")  // Cloudflare origin down
         || lower.contains("522")  // Cloudflare connection timed out
-        || lower.contains("524")  // Cloudflare timeout
+        || lower.contains("524")
+    // Cloudflare timeout
     {
         return FailoverReason::Overloaded;
     }
@@ -152,8 +152,7 @@ fn is_context_overflow(lower: &str) -> bool {
         || lower.contains("maximum context length")
         || lower.contains("prompt is too long")
         || lower.contains("token limit")
-        || lower.contains("max_tokens")
-            && (lower.contains("exceed") || lower.contains("too large"))
+        || lower.contains("max_tokens") && (lower.contains("exceed") || lower.contains("too large"))
         || lower.contains("input too long")
         || lower.contains("request too large")
 }
@@ -190,23 +189,44 @@ mod tests {
 
     #[test]
     fn test_rate_limit() {
-        assert_eq!(classify_error("429 Too Many Requests"), FailoverReason::RateLimit);
-        assert_eq!(classify_error("Rate limit exceeded"), FailoverReason::RateLimit);
-        assert_eq!(classify_error("RESOURCE_EXHAUSTED"), FailoverReason::RateLimit);
+        assert_eq!(
+            classify_error("429 Too Many Requests"),
+            FailoverReason::RateLimit
+        );
+        assert_eq!(
+            classify_error("Rate limit exceeded"),
+            FailoverReason::RateLimit
+        );
+        assert_eq!(
+            classify_error("RESOURCE_EXHAUSTED"),
+            FailoverReason::RateLimit
+        );
     }
 
     #[test]
     fn test_overloaded() {
-        assert_eq!(classify_error("503 Service Unavailable"), FailoverReason::Overloaded);
-        assert_eq!(classify_error("The server is overloaded"), FailoverReason::Overloaded);
-        assert_eq!(classify_error("502 Bad Gateway"), FailoverReason::Overloaded);
+        assert_eq!(
+            classify_error("503 Service Unavailable"),
+            FailoverReason::Overloaded
+        );
+        assert_eq!(
+            classify_error("The server is overloaded"),
+            FailoverReason::Overloaded
+        );
+        assert_eq!(
+            classify_error("502 Bad Gateway"),
+            FailoverReason::Overloaded
+        );
     }
 
     #[test]
     fn test_timeout() {
         assert_eq!(classify_error("request timed out"), FailoverReason::Timeout);
         assert_eq!(classify_error("ETIMEDOUT"), FailoverReason::Timeout);
-        assert_eq!(classify_error("connection reset by peer"), FailoverReason::Timeout);
+        assert_eq!(
+            classify_error("connection reset by peer"),
+            FailoverReason::Timeout
+        );
     }
 
     #[test]
@@ -218,15 +238,30 @@ mod tests {
 
     #[test]
     fn test_billing() {
-        assert_eq!(classify_error("402 Payment Required"), FailoverReason::Billing);
-        assert_eq!(classify_error("You exceeded your current quota"), FailoverReason::Billing);
+        assert_eq!(
+            classify_error("402 Payment Required"),
+            FailoverReason::Billing
+        );
+        assert_eq!(
+            classify_error("You exceeded your current quota"),
+            FailoverReason::Billing
+        );
     }
 
     #[test]
     fn test_model_not_found() {
-        assert_eq!(classify_error("404 Not Found"), FailoverReason::ModelNotFound);
-        assert_eq!(classify_error("model_not_found"), FailoverReason::ModelNotFound);
-        assert_eq!(classify_error("The model does not exist"), FailoverReason::ModelNotFound);
+        assert_eq!(
+            classify_error("404 Not Found"),
+            FailoverReason::ModelNotFound
+        );
+        assert_eq!(
+            classify_error("model_not_found"),
+            FailoverReason::ModelNotFound
+        );
+        assert_eq!(
+            classify_error("The model does not exist"),
+            FailoverReason::ModelNotFound
+        );
     }
 
     #[test]

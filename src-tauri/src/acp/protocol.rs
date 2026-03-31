@@ -5,7 +5,7 @@ use std::io::{self, BufRead, Write};
 use anyhow::Result;
 use serde_json::Value;
 
-use crate::acp::types::{JsonRpcMessage, JsonRpcResponse, JsonRpcNotification, ERROR_PARSE};
+use crate::acp::types::{JsonRpcMessage, JsonRpcNotification, JsonRpcResponse, ERROR_PARSE};
 
 /// Newline-Delimited JSON transport over stdin/stdout.
 ///

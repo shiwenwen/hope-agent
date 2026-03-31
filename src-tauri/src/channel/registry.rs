@@ -47,7 +47,13 @@ impl ChannelRegistry {
     /// before the registry is wrapped in `Arc`.
     pub fn register_plugin(&mut self, plugin: Arc<dyn ChannelPlugin>) {
         let meta = plugin.meta();
-        app_info!("channel", "registry", "Registered channel plugin: {} ({})", meta.display_name, meta.id);
+        app_info!(
+            "channel",
+            "registry",
+            "Registered channel plugin: {} ({})",
+            meta.display_name,
+            meta.id
+        );
         self.plugins.insert(meta.id, plugin);
     }
 
@@ -58,28 +64,35 @@ impl ChannelRegistry {
 
     /// List all registered plugins' metadata.
     pub fn list_plugins(&self) -> Vec<(ChannelMeta, ChannelCapabilities)> {
-        self.plugins.values()
+        self.plugins
+            .values()
             .map(|p| (p.meta(), p.capabilities()))
             .collect()
     }
 
     /// Start a channel account. Spawns the plugin's background worker.
     pub async fn start_account(&self, account: &ChannelAccountConfig) -> Result<()> {
-        let plugin = self.plugins.get(&account.channel_id)
-            .ok_or_else(|| anyhow::anyhow!("No plugin registered for channel: {}", account.channel_id))?;
+        let plugin = self.plugins.get(&account.channel_id).ok_or_else(|| {
+            anyhow::anyhow!("No plugin registered for channel: {}", account.channel_id)
+        })?;
 
         // Check if already running
         {
             let workers = self.workers.lock().await;
             if workers.contains_key(&account.id) {
-                return Err(anyhow::anyhow!("Account '{}' is already running", account.id));
+                return Err(anyhow::anyhow!(
+                    "Account '{}' is already running",
+                    account.id
+                ));
             }
         }
 
         let cancel = CancellationToken::new();
 
         // Start the plugin's account listener
-        plugin.start_account(account, self.inbound_tx.clone(), cancel.clone()).await?;
+        plugin
+            .start_account(account, self.inbound_tx.clone(), cancel.clone())
+            .await?;
 
         // Record the worker handle
         let handle = ChannelWorkerHandle {
@@ -92,7 +105,13 @@ impl ChannelRegistry {
         let mut workers = self.workers.lock().await;
         workers.insert(account.id.clone(), handle);
 
-        app_info!("channel", "registry", "Started account '{}' on channel {}", account.label, account.channel_id);
+        app_info!(
+            "channel",
+            "registry",
+            "Started account '{}' on channel {}",
+            account.label,
+            account.channel_id
+        );
         Ok(())
     }
 
@@ -129,7 +148,9 @@ impl ChannelRegistry {
         chat_id: &str,
         payload: &ReplyPayload,
     ) -> Result<DeliveryResult> {
-        let plugin = self.plugins.get(&account.channel_id)
+        let plugin = self
+            .plugins
+            .get(&account.channel_id)
             .ok_or_else(|| anyhow::anyhow!("No plugin for channel: {}", account.channel_id))?;
         plugin.send_message(&account.id, chat_id, payload).await
     }
@@ -151,13 +172,19 @@ impl ChannelRegistry {
     /// List all running accounts with their health.
     pub async fn list_running(&self) -> Vec<(String, ChannelHealth)> {
         let workers = self.workers.lock().await;
-        workers.iter().map(|(id, handle)| {
-            (id.clone(), ChannelHealth {
-                is_running: true,
-                uptime_secs: Some(handle.uptime_secs()),
-                ..Default::default()
+        workers
+            .iter()
+            .map(|(id, handle)| {
+                (
+                    id.clone(),
+                    ChannelHealth {
+                        is_running: true,
+                        uptime_secs: Some(handle.uptime_secs()),
+                        ..Default::default()
+                    },
+                )
             })
-        }).collect()
+            .collect()
     }
 
     /// Stop all running accounts. Called during app shutdown.
@@ -169,7 +196,13 @@ impl ChannelRegistry {
 
         for account_id in account_ids {
             if let Err(e) = self.stop_account(&account_id).await {
-                app_warn!("channel", "registry", "Failed to stop account '{}': {}", account_id, e);
+                app_warn!(
+                    "channel",
+                    "registry",
+                    "Failed to stop account '{}': {}",
+                    account_id,
+                    e
+                );
             }
         }
     }

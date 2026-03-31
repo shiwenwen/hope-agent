@@ -127,11 +127,7 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
             description_key: "slashCommands.plan.description".into(),
             has_args: true,
             arg_placeholder: Some("[exit|show|approve]".into()),
-            arg_options: Some(vec![
-                "exit".into(),
-                "show".into(),
-                "approve".into(),
-            ]),
+            arg_options: Some(vec!["exit".into(), "show".into(), "approve".into()]),
             description_raw: None,
         },
         // ── Utility ──
@@ -141,11 +137,7 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
             description_key: "slashCommands.permission.description".into(),
             has_args: true,
             arg_placeholder: Some("<mode>".into()),
-            arg_options: Some(vec![
-                "auto".into(),
-                "ask".into(),
-                "full".into(),
-            ]),
+            arg_options: Some(vec!["auto".into(), "ask".into(), "full".into()]),
             description_raw: None,
         },
         SlashCommandDef {

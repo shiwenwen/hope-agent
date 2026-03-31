@@ -74,9 +74,7 @@ pub fn handle_forget(
 
 /// /memories — List saved memories.
 pub fn handle_memories(backend: &Arc<dyn MemoryBackend>) -> Result<CommandResult, String> {
-    let entries = backend
-        .list(None, None, 20, 0)
-        .map_err(|e| e.to_string())?;
+    let entries = backend.list(None, None, 20, 0).map_err(|e| e.to_string())?;
 
     if entries.is_empty() {
         return Ok(CommandResult {

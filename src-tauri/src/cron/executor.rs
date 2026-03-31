@@ -24,13 +24,20 @@ pub(crate) async fn execute_job(
     let start_time = std::time::Instant::now();
     let started_at = Utc::now().to_rfc3339();
 
-    app_info!("cron", "executor", "Executing job '{}' ({})", job.name, job.id);
+    app_info!(
+        "cron",
+        "executor",
+        "Executing job '{}' ({})",
+        job.name,
+        job.id
+    );
 
     // Extract prompt and agent_id from payload
     let (prompt, agent_id) = match &job.payload {
-        CronPayload::AgentTurn { prompt, agent_id } => {
-            (prompt.clone(), agent_id.clone().unwrap_or_else(|| "default".to_string()))
-        }
+        CronPayload::AgentTurn { prompt, agent_id } => (
+            prompt.clone(),
+            agent_id.clone().unwrap_or_else(|| "default".to_string()),
+        ),
     };
 
     // Create an isolated session for this cron run
@@ -41,8 +48,22 @@ pub(crate) async fn execute_job(
             meta.id
         }
         Err(e) => {
-            app_error!("cron", "executor", "Failed to create session for job '{}': {}", job.name, e);
-            record_failure(cron_db, job, &started_at, start_time, "no_session", &e.to_string(), "");
+            app_error!(
+                "cron",
+                "executor",
+                "Failed to create session for job '{}': {}",
+                job.name,
+                e
+            );
+            record_failure(
+                cron_db,
+                job,
+                &started_at,
+                start_time,
+                "no_session",
+                &e.to_string(),
+                "",
+            );
             return;
         }
     };
@@ -55,18 +76,30 @@ pub(crate) async fn execute_job(
 
     match result {
         Ok(response) => {
-            app_info!("cron", "executor", "Job '{}' completed successfully ({}ms)", job.name, duration_ms);
+            app_info!(
+                "cron",
+                "executor",
+                "Job '{}' completed successfully ({}ms)",
+                job.name,
+                duration_ms
+            );
 
             // Save user prompt and assistant response into the session
             let mut user_msg = crate::session::NewMessage::user(&prompt);
-            user_msg.attachments_meta = Some(serde_json::json!({
-                "cron_trigger": {
-                    "job_id": &job.id,
-                    "job_name": &job.name,
-                }
-            }).to_string());
+            user_msg.attachments_meta = Some(
+                serde_json::json!({
+                    "cron_trigger": {
+                        "job_id": &job.id,
+                        "job_name": &job.name,
+                    }
+                })
+                .to_string(),
+            );
             let _ = session_db.append_message(&session_id, &user_msg);
-            let _ = session_db.append_message(&session_id, &crate::session::NewMessage::assistant(&response));
+            let _ = session_db.append_message(
+                &session_id,
+                &crate::session::NewMessage::assistant(&response),
+            );
 
             // Record success run log
             let preview = if response.len() > 500 {
@@ -97,18 +130,29 @@ pub(crate) async fn execute_job(
 
             // Write the prompt + error message into the session so the user can see what happened
             let mut user_msg = crate::session::NewMessage::user(&prompt);
-            user_msg.attachments_meta = Some(serde_json::json!({
-                "cron_trigger": {
-                    "job_id": &job.id,
-                    "job_name": &job.name,
-                }
-            }).to_string());
+            user_msg.attachments_meta = Some(
+                serde_json::json!({
+                    "cron_trigger": {
+                        "job_id": &job.id,
+                        "job_name": &job.name,
+                    }
+                })
+                .to_string(),
+            );
             let _ = session_db.append_message(&session_id, &user_msg);
             let mut err_msg = crate::session::NewMessage::assistant(&e.to_string());
             err_msg.is_error = Some(true);
             let _ = session_db.append_message(&session_id, &err_msg);
 
-            record_failure(cron_db, job, &started_at, start_time, "error", &e.to_string(), &session_id);
+            record_failure(
+                cron_db,
+                job,
+                &started_at,
+                start_time,
+                "error",
+                &e.to_string(),
+                &session_id,
+            );
         }
     }
 }
@@ -161,13 +205,18 @@ pub async fn build_and_run_agent_with_context(
         model_chain.push(p);
     }
     for fb in fallbacks {
-        if !model_chain.iter().any(|m| m.provider_id == fb.provider_id && m.model_id == fb.model_id) {
+        if !model_chain
+            .iter()
+            .any(|m| m.provider_id == fb.provider_id && m.model_id == fb.model_id)
+        {
             model_chain.push(fb);
         }
     }
 
     if model_chain.is_empty() {
-        return Err(anyhow::anyhow!("No model configured for cron job execution"));
+        return Err(anyhow::anyhow!(
+            "No model configured for cron job execution"
+        ));
     }
 
     // Try each model in the chain with proper failover
@@ -191,7 +240,7 @@ pub async fn build_and_run_agent_with_context(
                  You are running as a **scheduled task** (cron job), not an interactive chat.\n\
                  - No user is actively waiting — execute the prompt directly and concisely.\n\
                  - This is an isolated session with no prior conversation history.\n\
-                 - Focus on completing the task described in the user message."
+                 - Focus on completing the task described in the user message.",
             );
             agent.set_extra_system_context(ctx.to_string());
 
@@ -199,7 +248,12 @@ pub async fn build_and_run_agent_with_context(
             match agent.chat(message, &[], None, cancel, |_delta| {}).await {
                 Ok((response, _thinking)) => {
                     if idx > 0 {
-                        app_info!("cron", "failover", "Fallback model {} succeeded", model_label);
+                        app_info!(
+                            "cron",
+                            "failover",
+                            "Fallback model {} succeeded",
+                            model_label
+                        );
                     }
                     return Ok(response);
                 }
@@ -209,28 +263,56 @@ pub async fn build_and_run_agent_with_context(
 
                     // Terminal error — surface immediately, no point trying other models
                     if reason.is_terminal() {
-                        app_error!("cron", "failover", "Model {} hit terminal error ({:?}): {}", model_label, reason, last_error);
+                        app_error!(
+                            "cron",
+                            "failover",
+                            "Model {} hit terminal error ({:?}): {}",
+                            model_label,
+                            reason,
+                            last_error
+                        );
                         return Err(anyhow::anyhow!("{}", last_error));
                     }
 
                     // Retryable error — retry same model with backoff
                     if reason.is_retryable() && retry_count < MAX_RETRIES {
                         retry_count += 1;
-                        let delay = failover::retry_delay_ms(retry_count - 1, RETRY_BASE_MS, RETRY_MAX_MS);
-                        app_warn!("cron", "failover", "Model {} retryable error ({:?}), attempt {}/{}, retrying in {}ms: {}", model_label, reason, retry_count, MAX_RETRIES, delay, last_error);
+                        let delay =
+                            failover::retry_delay_ms(retry_count - 1, RETRY_BASE_MS, RETRY_MAX_MS);
+                        app_warn!(
+                            "cron",
+                            "failover",
+                            "Model {} retryable error ({:?}), attempt {}/{}, retrying in {}ms: {}",
+                            model_label,
+                            reason,
+                            retry_count,
+                            MAX_RETRIES,
+                            delay,
+                            last_error
+                        );
                         tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
                         continue;
                     }
 
                     // Non-retryable or retries exhausted — skip to next model
-                    app_warn!("cron", "failover", "Model {} failed ({:?}), skipping to next model: {}", model_label, reason, last_error);
+                    app_warn!(
+                        "cron",
+                        "failover",
+                        "Model {} failed ({:?}), skipping to next model: {}",
+                        model_label,
+                        reason,
+                        last_error
+                    );
                     break;
                 }
             }
         }
     }
 
-    Err(anyhow::anyhow!("All models failed. Last error: {}", last_error))
+    Err(anyhow::anyhow!(
+        "All models failed. Last error: {}",
+        last_error
+    ))
 }
 
 /// Record a failure run log and update job state.

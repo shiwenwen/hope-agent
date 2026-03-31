@@ -3,11 +3,7 @@ use std::path::Path;
 
 /// Build the complete index.html file for a canvas project.
 /// Wraps user HTML/CSS/JS in a safe template with live-reload support.
-pub fn build_html_page(
-    html: Option<&str>,
-    css: Option<&str>,
-    js: Option<&str>,
-) -> String {
+pub fn build_html_page(html: Option<&str>, css: Option<&str>, js: Option<&str>) -> String {
     let user_html = html.unwrap_or("<p>Empty canvas</p>");
     let user_css = css.unwrap_or("");
     let user_js = js.unwrap_or("");

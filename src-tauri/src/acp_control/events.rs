@@ -38,14 +38,12 @@ pub fn emit_stream_event(
     event: &AcpStreamEvent,
 ) {
     let (event_type, data) = match event {
-        AcpStreamEvent::TextDelta { content } => (
-            "text_delta",
-            serde_json::json!({ "content": content }),
-        ),
-        AcpStreamEvent::ThinkingDelta { content } => (
-            "thinking_delta",
-            serde_json::json!({ "content": content }),
-        ),
+        AcpStreamEvent::TextDelta { content } => {
+            ("text_delta", serde_json::json!({ "content": content }))
+        }
+        AcpStreamEvent::ThinkingDelta { content } => {
+            ("thinking_delta", serde_json::json!({ "content": content }))
+        }
         AcpStreamEvent::ToolCall {
             tool_call_id,
             name,
@@ -82,15 +80,18 @@ pub fn emit_stream_event(
                 "outputTokens": output_tokens,
             }),
         ),
-        AcpStreamEvent::Error { message } => (
-            "error",
-            serde_json::json!({ "message": message }),
-        ),
-        AcpStreamEvent::Done { stop_reason } => (
-            "done",
-            serde_json::json!({ "stopReason": stop_reason }),
-        ),
+        AcpStreamEvent::Error { message } => ("error", serde_json::json!({ "message": message })),
+        AcpStreamEvent::Done { stop_reason } => {
+            ("done", serde_json::json!({ "stopReason": stop_reason }))
+        }
     };
 
-    emit_acp_event(run_id, parent_session_id, backend_id, label, event_type, data);
+    emit_acp_event(
+        run_id,
+        parent_session_id,
+        backend_id,
+        label,
+        event_type,
+        data,
+    );
 }

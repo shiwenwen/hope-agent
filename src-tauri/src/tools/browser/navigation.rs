@@ -1,30 +1,33 @@
 use anyhow::Result;
 use serde_json::Value;
 
+use super::{get_str, require_browser};
 use crate::browser_state::get_browser_state;
-use super::{require_browser, get_str};
 
 pub(super) async fn action_navigate(args: &Value) -> Result<String> {
     require_browser().await?;
-    let url = get_str(args, "url")
-        .ok_or_else(|| anyhow::anyhow!("Missing 'url' parameter"))?;
+    let url = get_str(args, "url").ok_or_else(|| anyhow::anyhow!("Missing 'url' parameter"))?;
 
     let state = get_browser_state().lock().await;
     let page = state.get_active_page()?;
 
-    page.goto(url).await
+    page.goto(url)
+        .await
         .map_err(|e| anyhow::anyhow!("Navigation failed: {}", e))?;
 
     // Wait a bit for page load
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
-    let title: String = page.evaluate("document.title")
+    let title: String = page
+        .evaluate("document.title")
         .await
         .ok()
         .and_then(|r| r.into_value().ok())
         .unwrap_or_else(|| "untitled".to_string());
 
-    let current_url = page.url().await
+    let current_url = page
+        .url()
+        .await
         .ok()
         .flatten()
         .unwrap_or_else(|| url.to_string());
@@ -43,12 +46,18 @@ pub(super) async fn action_go_back() -> Result<String> {
     let state = get_browser_state().lock().await;
     let page = state.get_active_page()?;
 
-    page.evaluate("history.back()").await
+    page.evaluate("history.back()")
+        .await
         .map_err(|e| anyhow::anyhow!("Go back failed: {}", e))?;
 
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
-    let url = page.url().await.ok().flatten().unwrap_or_else(|| "unknown".to_string());
+    let url = page
+        .url()
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "unknown".to_string());
 
     drop(state);
     let mut state = get_browser_state().lock().await;
@@ -63,12 +72,18 @@ pub(super) async fn action_go_forward() -> Result<String> {
     let state = get_browser_state().lock().await;
     let page = state.get_active_page()?;
 
-    page.evaluate("history.forward()").await
+    page.evaluate("history.forward()")
+        .await
         .map_err(|e| anyhow::anyhow!("Go forward failed: {}", e))?;
 
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
-    let url = page.url().await.ok().flatten().unwrap_or_else(|| "unknown".to_string());
+    let url = page
+        .url()
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "unknown".to_string());
 
     drop(state);
     let mut state = get_browser_state().lock().await;
@@ -91,7 +106,9 @@ pub(super) async fn action_list_pages() -> Result<String> {
     let mut lines = vec!["Open pages:".to_string()];
 
     for (id, page) in &state.pages {
-        let url = page.url().await
+        let url = page
+            .url()
+            .await
             .ok()
             .flatten()
             .unwrap_or_else(|| "about:blank".to_string());
@@ -107,10 +124,14 @@ pub(super) async fn action_new_page(args: &Value) -> Result<String> {
     let url = get_str(args, "url").unwrap_or("about:blank");
 
     let mut state = get_browser_state().lock().await;
-    let browser = state.browser.as_ref()
+    let browser = state
+        .browser
+        .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Not connected"))?;
 
-    let page = browser.new_page(url).await
+    let page = browser
+        .new_page(url)
+        .await
         .map_err(|e| anyhow::anyhow!("Failed to create new page: {}", e))?;
 
     let target_id = page.target_id().as_ref().to_string();
@@ -124,8 +145,8 @@ pub(super) async fn action_new_page(args: &Value) -> Result<String> {
 
 pub(super) async fn action_select_page(args: &Value) -> Result<String> {
     require_browser().await?;
-    let page_id = get_str(args, "page_id")
-        .ok_or_else(|| anyhow::anyhow!("Missing 'page_id' parameter"))?;
+    let page_id =
+        get_str(args, "page_id").ok_or_else(|| anyhow::anyhow!("Missing 'page_id' parameter"))?;
 
     let mut state = get_browser_state().lock().await;
 
@@ -133,7 +154,8 @@ pub(super) async fn action_select_page(args: &Value) -> Result<String> {
         let available: Vec<&String> = state.pages.keys().collect();
         return Err(anyhow::anyhow!(
             "Page '{}' not found. Available pages: {:?}",
-            page_id, available
+            page_id,
+            available
         ));
     }
 
@@ -146,12 +168,14 @@ pub(super) async fn action_select_page(args: &Value) -> Result<String> {
 
 pub(super) async fn action_close_page(args: &Value) -> Result<String> {
     require_browser().await?;
-    let page_id = get_str(args, "page_id")
-        .ok_or_else(|| anyhow::anyhow!("Missing 'page_id' parameter"))?;
+    let page_id =
+        get_str(args, "page_id").ok_or_else(|| anyhow::anyhow!("Missing 'page_id' parameter"))?;
 
     let mut state = get_browser_state().lock().await;
 
-    let page = state.pages.remove(page_id)
+    let page = state
+        .pages
+        .remove(page_id)
         .ok_or_else(|| anyhow::anyhow!("Page '{}' not found", page_id))?;
 
     let _ = page.close().await;

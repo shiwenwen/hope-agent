@@ -63,7 +63,12 @@ pub trait MemoryBackend: Send + Sync {
     ) -> Result<Vec<MemoryEntry>>;
 
     /// Add a memory with deduplication: skips if very similar, updates if moderately similar.
-    fn add_with_dedup(&self, entry: NewMemory, threshold_high: f32, threshold_merge: f32) -> Result<AddResult>;
+    fn add_with_dedup(
+        &self,
+        entry: NewMemory,
+        threshold_high: f32,
+        threshold_merge: f32,
+    ) -> Result<AddResult>;
 
     // ── Batch operations ──
 
@@ -116,7 +121,9 @@ pub trait EmbeddingProvider: Send + Sync {
 
     /// Whether this provider supports multimodal embedding (image/audio → vector).
     /// Only Gemini embedding-2-preview supports this.
-    fn supports_multimodal(&self) -> bool { false }
+    fn supports_multimodal(&self) -> bool {
+        false
+    }
 
     /// Generate embedding for a multimodal input (text + image/audio file).
     /// Default: falls back to text-only embedding of the label.
@@ -126,12 +133,17 @@ pub trait EmbeddingProvider: Send + Sync {
 
     /// Whether this provider supports the async Batch API (JSONL upload → poll → download).
     /// Used for bulk re-embedding at ~50% lower cost.
-    fn supports_batch_api(&self) -> bool { false }
+    fn supports_batch_api(&self) -> bool {
+        false
+    }
 
     /// Submit a batch embedding job via the async Batch API.
     /// Returns a map of custom_id → embedding vector.
     /// Default: falls back to synchronous embed_batch().
-    fn embed_batch_async(&self, texts: &[(String, String)]) -> Result<std::collections::HashMap<String, Vec<f32>>> {
+    fn embed_batch_async(
+        &self,
+        texts: &[(String, String)],
+    ) -> Result<std::collections::HashMap<String, Vec<f32>>> {
         // Default: synchronous fallback
         let text_strs: Vec<String> = texts.iter().map(|(_, t)| t.clone()).collect();
         let results = self.embed_batch(&text_strs)?;

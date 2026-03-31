@@ -3,10 +3,10 @@
 //! Coordinates spawning, monitoring, and lifecycle management of
 //! external ACP agent runs.
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
-use std::collections::HashMap;
 
 use super::events;
 use super::registry::AcpRuntimeRegistry;
@@ -76,7 +76,10 @@ impl AcpSessionManager {
         };
 
         self.runs.write().await.insert(run_id.clone(), run);
-        self.cancels.write().await.insert(run_id.clone(), cancel.clone());
+        self.cancels
+            .write()
+            .await
+            .insert(run_id.clone(), cancel.clone());
 
         // Emit spawned event
         events::emit_acp_event(
@@ -90,7 +93,13 @@ impl AcpSessionManager {
 
         // Persist to DB
         if let Some(db) = crate::get_session_db() {
-            let _ = db.insert_acp_run(&run_id, parent_session_id, backend_id, task, label.as_deref());
+            let _ = db.insert_acp_run(
+                &run_id,
+                parent_session_id,
+                backend_id,
+                task,
+                label.as_deref(),
+            );
         }
 
         // Background execution
@@ -112,10 +121,20 @@ impl AcpSessionManager {
                 Err(e) => {
                     let error_msg = format!("Failed to create ACP session: {}", e);
                     Self::finalize_run(
-                        &runs, &cancels, &run_id_clone, &parent_sid, &backend_owned,
-                        label_owned.as_deref(), AcpRunStatus::Error, None,
-                        Some(&error_msg), start, None, None,
-                    ).await;
+                        &runs,
+                        &cancels,
+                        &run_id_clone,
+                        &parent_sid,
+                        &backend_owned,
+                        label_owned.as_deref(),
+                        AcpRunStatus::Error,
+                        None,
+                        Some(&error_msg),
+                        start,
+                        None,
+                        None,
+                    )
+                    .await;
                     return;
                 }
             };
@@ -129,10 +148,18 @@ impl AcpSessionManager {
                     run.status = AcpRunStatus::Running;
                 }
             }
-            sessions.write().await.insert(run_id_clone.clone(), session.clone());
+            sessions
+                .write()
+                .await
+                .insert(run_id_clone.clone(), session.clone());
 
             if let Some(db) = crate::get_session_db() {
-                let _ = db.update_acp_run_status(&run_id_clone, "running", session.pid, session.external_session_id.as_deref());
+                let _ = db.update_acp_run_status(
+                    &run_id_clone,
+                    "running",
+                    session.pid,
+                    session.external_session_id.as_deref(),
+                );
             }
 
             // Run the turn
@@ -156,7 +183,11 @@ impl AcpSessionManager {
             });
 
             let cancel_flag = {
-                cancels.read().await.get(&run_id_clone).cloned()
+                cancels
+                    .read()
+                    .await
+                    .get(&run_id_clone)
+                    .cloned()
                     .unwrap_or_else(|| Arc::new(AtomicBool::new(false)))
             };
 
@@ -180,11 +211,20 @@ impl AcpSessionManager {
                     };
 
                     Self::finalize_run(
-                        &runs, &cancels, &run_id_clone, &parent_sid, &backend_owned,
-                        label_owned.as_deref(), AcpRunStatus::Completed,
-                        Some(&truncated), None, start,
-                        result.input_tokens, result.output_tokens,
-                    ).await;
+                        &runs,
+                        &cancels,
+                        &run_id_clone,
+                        &parent_sid,
+                        &backend_owned,
+                        label_owned.as_deref(),
+                        AcpRunStatus::Completed,
+                        Some(&truncated),
+                        None,
+                        start,
+                        result.input_tokens,
+                        result.output_tokens,
+                    )
+                    .await;
                 }
                 Err(e) => {
                     let error_msg = format!("{}", e);
@@ -195,10 +235,20 @@ impl AcpSessionManager {
                     };
 
                     Self::finalize_run(
-                        &runs, &cancels, &run_id_clone, &parent_sid, &backend_owned,
-                        label_owned.as_deref(), status, None,
-                        Some(&error_msg), start, None, None,
-                    ).await;
+                        &runs,
+                        &cancels,
+                        &run_id_clone,
+                        &parent_sid,
+                        &backend_owned,
+                        label_owned.as_deref(),
+                        status,
+                        None,
+                        Some(&error_msg),
+                        start,
+                        None,
+                        None,
+                    )
+                    .await;
                 }
             }
         });
@@ -232,7 +282,10 @@ impl AcpSessionManager {
             .ok_or_else(|| anyhow::anyhow!("Run not found: {}", run_id))?;
 
         if !run.status.is_terminal() {
-            return Err(anyhow::anyhow!("Run is still in progress (status: {})", run.status));
+            return Err(anyhow::anyhow!(
+                "Run is still in progress (status: {})",
+                run.status
+            ));
         }
 
         if let Some(error) = &run.error {
@@ -278,7 +331,10 @@ impl AcpSessionManager {
     /// Kill all active runs for a parent session.
     pub async fn kill_all(&self, parent_session_id: &str) -> anyhow::Result<u32> {
         let run_ids: Vec<String> = {
-            self.runs.read().await.values()
+            self.runs
+                .read()
+                .await
+                .values()
                 .filter(|r| r.parent_session_id == parent_session_id && !r.status.is_terminal())
                 .map(|r| r.run_id.clone())
                 .collect()
@@ -316,7 +372,10 @@ impl AcpSessionManager {
 
     /// Count active (non-terminal) runs.
     pub async fn active_count(&self) -> usize {
-        self.runs.read().await.values()
+        self.runs
+            .read()
+            .await
+            .values()
             .filter(|r| !r.status.is_terminal())
             .count()
     }

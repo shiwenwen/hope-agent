@@ -1,9 +1,9 @@
+use anyhow::Result;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
-use tokio::sync::RwLock;
 use tokio::sync::Mutex as TokioMutex;
-use serde::{Deserialize, Serialize};
-use anyhow::Result;
+use tokio::sync::RwLock;
 
 // ── Plan Mode State ─────────────────────────────────────────────
 
@@ -122,7 +122,9 @@ pub struct PlanMeta {
     pub checkpoint_ref: Option<String>,
 }
 
-fn default_version() -> u32 { 1 }
+fn default_version() -> u32 {
+    1
+}
 
 impl PlanMeta {
     #[allow(dead_code)]
@@ -167,7 +169,9 @@ pub struct PlanQuestion {
     pub template: Option<String>,
 }
 
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
 /// A group of questions sent together
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -196,9 +200,8 @@ static PENDING_PLAN_QUESTIONS: OnceLock<
     TokioMutex<HashMap<String, tokio::sync::oneshot::Sender<Vec<PlanQuestionAnswer>>>>,
 > = OnceLock::new();
 
-fn get_pending_questions()
-    -> &'static TokioMutex<HashMap<String, tokio::sync::oneshot::Sender<Vec<PlanQuestionAnswer>>>>
-{
+fn get_pending_questions(
+) -> &'static TokioMutex<HashMap<String, tokio::sync::oneshot::Sender<Vec<PlanQuestionAnswer>>>> {
     PENDING_PLAN_QUESTIONS.get_or_init(|| TokioMutex::new(HashMap::new()))
 }
 
@@ -252,18 +255,29 @@ impl PlanAgentConfig {
         Self {
             allowed_tools: vec![
                 // Read-only exploration tools
-                "read", "ls", "grep", "find", "glob",
-                "web_search", "web_fetch",
+                "read",
+                "ls",
+                "grep",
+                "find",
+                "glob",
+                "web_search",
+                "web_fetch",
                 // Restricted execution (requires approval)
                 "exec",
                 // Plan-specific tools
-                "plan_question", "submit_plan",
+                "plan_question",
+                "submit_plan",
                 // Path-restricted write tools (only plans/ directory)
-                "write", "edit",
+                "write",
+                "edit",
                 // Memory and delegation
-                "recall_memory", "memory_get",
+                "recall_memory",
+                "memory_get",
                 "subagent",
-            ].into_iter().map(String::from).collect(),
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect(),
             plan_mode_allow_paths: vec!["plans".into()],
             ask_tools: vec!["exec".into()],
         }
@@ -275,12 +289,7 @@ pub const BUILD_AGENT_EXTRA_TOOLS: &[&str] = &["update_plan_step", "amend_plan"]
 
 /// Tools denied in Plan Mode — kept for sub-agent inheritance compatibility.
 /// Derived from PlanAgentConfig: tools NOT in the allow-list.
-pub const PLAN_MODE_DENIED_TOOLS: &[&str] = &[
-    "write",
-    "edit",
-    "apply_patch",
-    "canvas",
-];
+pub const PLAN_MODE_DENIED_TOOLS: &[&str] = &["write", "edit", "apply_patch", "canvas"];
 
 #[allow(dead_code)]
 pub const PLAN_MODE_ASK_TOOLS: &[&str] = &["exec"];
@@ -325,9 +334,8 @@ struct PlanSubagentInfo {
     run_id: String,
 }
 
-static PLAN_SUBAGENT_SESSIONS: OnceLock<
-    Arc<RwLock<HashMap<String, PlanSubagentInfo>>>,
-> = OnceLock::new();
+static PLAN_SUBAGENT_SESSIONS: OnceLock<Arc<RwLock<HashMap<String, PlanSubagentInfo>>>> =
+    OnceLock::new();
 
 fn plan_subagent_store() -> &'static Arc<RwLock<HashMap<String, PlanSubagentInfo>>> {
     PLAN_SUBAGENT_SESSIONS.get_or_init(|| Arc::new(RwLock::new(HashMap::new())))
@@ -336,11 +344,21 @@ fn plan_subagent_store() -> &'static Arc<RwLock<HashMap<String, PlanSubagentInfo
 /// Register a plan sub-agent session mapping.
 pub async fn register_plan_subagent(child_sid: &str, parent_sid: &str, run_id: &str) {
     let mut map = plan_subagent_store().write().await;
-    map.insert(child_sid.to_string(), PlanSubagentInfo {
-        parent_session_id: parent_sid.to_string(),
-        run_id: run_id.to_string(),
-    });
-    app_info!("plan", "subagent", "Registered plan sub-agent: child={} parent={} run={}", child_sid, parent_sid, run_id);
+    map.insert(
+        child_sid.to_string(),
+        PlanSubagentInfo {
+            parent_session_id: parent_sid.to_string(),
+            run_id: run_id.to_string(),
+        },
+    );
+    app_info!(
+        "plan",
+        "subagent",
+        "Registered plan sub-agent: child={} parent={} run={}",
+        child_sid,
+        parent_sid,
+        run_id
+    );
 }
 
 /// Unregister a plan sub-agent session mapping.
@@ -348,7 +366,12 @@ pub async fn register_plan_subagent(child_sid: &str, parent_sid: &str, run_id: &
 pub async fn unregister_plan_subagent(child_sid: &str) {
     let mut map = plan_subagent_store().write().await;
     if map.remove(child_sid).is_some() {
-        app_info!("plan", "subagent", "Unregistered plan sub-agent: child={}", child_sid);
+        app_info!(
+            "plan",
+            "subagent",
+            "Unregistered plan sub-agent: child={}",
+            child_sid
+        );
     }
 }
 
@@ -360,7 +383,12 @@ pub fn try_unregister_plan_subagent_sync(child_sid: &str) {
     tokio::spawn(async move {
         let mut map = store.write().await;
         if map.remove(&sid).is_some() {
-            app_info!("plan", "subagent", "Unregistered plan sub-agent (sync): child={}", sid);
+            app_info!(
+                "plan",
+                "subagent",
+                "Unregistered plan sub-agent (sync): child={}",
+                sid
+            );
         }
     });
 }
@@ -368,7 +396,8 @@ pub fn try_unregister_plan_subagent_sync(child_sid: &str) {
 /// If this session_id belongs to a plan sub-agent, return the parent session_id.
 pub async fn get_plan_owner_session_id(session_id: &str) -> Option<String> {
     let map = plan_subagent_store().read().await;
-    map.get(session_id).map(|info| info.parent_session_id.clone())
+    map.get(session_id)
+        .map(|info| info.parent_session_id.clone())
 }
 
 /// Get the active plan sub-agent run_id for a parent session, if any.
@@ -418,30 +447,37 @@ pub async fn spawn_plan_subagent(
         skip_parent_injection: true,
         extra_system_context: Some(format!(
             "{}\n\n{}",
-            PLAN_MODE_SYSTEM_PROMPT,
-            PLAN_SUBAGENT_CONTEXT_NOTICE
+            PLAN_MODE_SYSTEM_PROMPT, PLAN_SUBAGENT_CONTEXT_NOTICE
         )),
     };
 
-    let run_id = crate::subagent::spawn_subagent(
-        params, session_db.clone(), cancel_registry,
-    ).await?;
+    let run_id =
+        crate::subagent::spawn_subagent(params, session_db.clone(), cancel_registry).await?;
 
     // Get child_session_id from the run record
     if let Ok(Some(run)) = session_db.get_subagent_run(&run_id) {
         register_plan_subagent(&run.child_session_id, parent_session_id, &run_id).await;
     }
 
-    app_info!("plan", "subagent", "Spawned plan sub-agent: run_id={} parent_session={}", run_id, parent_session_id);
+    app_info!(
+        "plan",
+        "subagent",
+        "Spawned plan sub-agent: run_id={} parent_session={}",
+        run_id,
+        parent_session_id
+    );
 
     // Emit status event to frontend
     if let Some(app_handle) = crate::get_app_handle() {
         use tauri::Emitter;
-        let _ = app_handle.emit("plan_subagent_status", serde_json::json!({
-            "sessionId": parent_session_id,
-            "status": "running",
-            "runId": run_id,
-        }));
+        let _ = app_handle.emit(
+            "plan_subagent_status",
+            serde_json::json!({
+                "sessionId": parent_session_id,
+                "status": "running",
+                "runId": run_id,
+            }),
+        );
     }
 
     Ok(run_id)
@@ -651,9 +687,15 @@ pub async fn set_plan_state(session_id: &str, state: PlanModeState) {
         // Record paused_at_step when transitioning to Paused
         if state == PlanModeState::Paused {
             // Find the first in_progress step, or the first pending step
-            let paused_at = meta.steps.iter()
+            let paused_at = meta
+                .steps
+                .iter()
                 .position(|s| s.status == PlanStepStatus::InProgress)
-                .or_else(|| meta.steps.iter().position(|s| s.status == PlanStepStatus::Pending));
+                .or_else(|| {
+                    meta.steps
+                        .iter()
+                        .position(|s| s.status == PlanStepStatus::Pending)
+                });
             meta.paused_at_step = paused_at;
         } else if state == PlanModeState::Executing {
             // Clear paused_at_step when resuming
@@ -666,18 +708,21 @@ pub async fn set_plan_state(session_id: &str, state: PlanModeState) {
         let file_path = plan_file_path(session_id)
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_default();
-        map.insert(session_id.to_string(), PlanMeta {
-            session_id: session_id.to_string(),
-            title: None,
-            file_path,
-            state,
-            steps: Vec::new(),
-            created_at: chrono::Utc::now().to_rfc3339(),
-            updated_at: chrono::Utc::now().to_rfc3339(),
-            paused_at_step: None,
-            version: 1,
-            checkpoint_ref: None,
-        });
+        map.insert(
+            session_id.to_string(),
+            PlanMeta {
+                session_id: session_id.to_string(),
+                title: None,
+                file_path,
+                state,
+                steps: Vec::new(),
+                created_at: chrono::Utc::now().to_rfc3339(),
+                updated_at: chrono::Utc::now().to_rfc3339(),
+                paused_at_step: None,
+                version: 1,
+                checkpoint_ref: None,
+            },
+        );
     }
 }
 
@@ -697,7 +742,12 @@ pub async fn update_plan_steps(session_id: &str, steps: Vec<PlanStep>) {
     persist_steps_to_db(session_id, &steps);
 }
 
-pub async fn update_step_status(session_id: &str, step_index: usize, status: PlanStepStatus, duration_ms: Option<u64>) {
+pub async fn update_step_status(
+    session_id: &str,
+    step_index: usize,
+    status: PlanStepStatus,
+    duration_ms: Option<u64>,
+) {
     let steps_snapshot;
     {
         let mut map = store().write().await;
@@ -763,18 +813,21 @@ pub async fn restore_from_db(session_id: &str, plan_mode_str: &str) {
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_default();
     let mut map = store().write().await;
-    map.insert(session_id.to_string(), PlanMeta {
-        session_id: session_id.to_string(),
-        title: None,
-        file_path,
-        state,
-        steps,
-        created_at: chrono::Utc::now().to_rfc3339(),
-        updated_at: chrono::Utc::now().to_rfc3339(),
-        paused_at_step: None,
-        version: 1,
-        checkpoint_ref: None,
-    });
+    map.insert(
+        session_id.to_string(),
+        PlanMeta {
+            session_id: session_id.to_string(),
+            title: None,
+            file_path,
+            state,
+            steps,
+            created_at: chrono::Utc::now().to_rfc3339(),
+            updated_at: chrono::Utc::now().to_rfc3339(),
+            paused_at_step: None,
+            version: 1,
+            checkpoint_ref: None,
+        },
+    );
 }
 
 // ── Plan File I/O ───────────────────────────────────────────────
@@ -836,7 +889,13 @@ pub fn save_plan_file(session_id: &str, content: &str) -> Result<String> {
         let backup_name = format!("{}-v{}.md", stem, current_version);
         let backup_path = dir.join(&backup_name);
         if let Err(e) = std::fs::copy(&path, &backup_path) {
-            app_warn!("plan", "version", "Failed to backup plan version {}: {}", current_version, e);
+            app_warn!(
+                "plan",
+                "version",
+                "Failed to backup plan version {}: {}",
+                current_version,
+                e
+            );
         }
         // Increment version counter in memory
         tokio::task::block_in_place(|| {
@@ -884,14 +943,22 @@ pub fn delete_plan_file(session_id: &str) -> Result<()> {
 }
 
 /// Save execution result as a separate markdown file.
-pub fn save_result_file(session_id: &str, plan_title: &str, steps: &[PlanStep], summary: &str) -> Result<String> {
+pub fn save_result_file(
+    session_id: &str,
+    plan_title: &str,
+    steps: &[PlanStep],
+    summary: &str,
+) -> Result<String> {
     let dir = plans_dir()?;
     std::fs::create_dir_all(&dir)?;
     let path = result_file_path(session_id)?;
 
     let mut md = String::new();
     md.push_str(&format!("# 执行结果: {}\n\n", plan_title));
-    md.push_str(&format!("> 执行时间: {}\n\n", chrono::Local::now().format("%Y-%m-%d %H:%M:%S")));
+    md.push_str(&format!(
+        "> 执行时间: {}\n\n",
+        chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
+    ));
 
     // Step results
     md.push_str("## 步骤执行情况\n\n");
@@ -908,17 +975,32 @@ pub fn save_result_file(session_id: &str, plan_title: &str, steps: &[PlanStep], 
             PlanStepStatus::InProgress => "🔄",
             PlanStepStatus::Pending => "⭕",
         };
-        let duration = step.duration_ms
+        let duration = step
+            .duration_ms
             .map(|ms| format!(" ({}ms)", ms))
             .unwrap_or_default();
         md.push_str(&format!("- {} {}{}\n", icon, step.title, duration));
     }
 
-    let completed = steps.iter().filter(|s| s.status == PlanStepStatus::Completed).count();
-    let failed = steps.iter().filter(|s| s.status == PlanStepStatus::Failed).count();
-    let skipped = steps.iter().filter(|s| s.status == PlanStepStatus::Skipped).count();
-    md.push_str(&format!("\n## 统计\n\n- 完成: {}\n- 失败: {}\n- 跳过: {}\n- 总计: {}\n",
-        completed, failed, skipped, steps.len()));
+    let completed = steps
+        .iter()
+        .filter(|s| s.status == PlanStepStatus::Completed)
+        .count();
+    let failed = steps
+        .iter()
+        .filter(|s| s.status == PlanStepStatus::Failed)
+        .count();
+    let skipped = steps
+        .iter()
+        .filter(|s| s.status == PlanStepStatus::Skipped)
+        .count();
+    md.push_str(&format!(
+        "\n## 统计\n\n- 完成: {}\n- 失败: {}\n- 跳过: {}\n- 总计: {}\n",
+        completed,
+        failed,
+        skipped,
+        steps.len()
+    ));
 
     if !summary.is_empty() {
         md.push_str(&format!("\n## 总结\n\n{}\n", summary));
@@ -932,14 +1014,19 @@ pub fn save_result_file(session_id: &str, plan_title: &str, steps: &[PlanStep], 
 pub fn list_plan_versions(session_id: &str) -> Result<Vec<PlanVersionInfo>> {
     let dir = plans_dir()?;
     let path = plan_file_path(session_id)?;
-    let stem = path.file_stem().unwrap_or_default().to_string_lossy().to_string();
+    let stem = path
+        .file_stem()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
 
     let mut versions = Vec::new();
 
     // Current version
     if path.exists() {
         let meta = std::fs::metadata(&path)?;
-        let modified = meta.modified()
+        let modified = meta
+            .modified()
             .map(|t| {
                 let dt: chrono::DateTime<chrono::Local> = t.into();
                 dt.to_rfc3339()
@@ -973,7 +1060,8 @@ pub fn list_plan_versions(session_id: &str) -> Result<Vec<PlanVersionInfo>> {
                         .trim_end_matches(".md");
                     if let Ok(v) = version_str.parse::<u32>() {
                         let meta = std::fs::metadata(entry.path()).ok();
-                        let modified = meta.and_then(|m| m.modified().ok())
+                        let modified = meta
+                            .and_then(|m| m.modified().ok())
                             .map(|t| {
                                 let dt: chrono::DateTime<chrono::Local> = t.into();
                                 dt.to_rfc3339()
@@ -1038,7 +1126,10 @@ pub fn parse_plan_steps(markdown: &str) -> Vec<PlanStep> {
 
         // Match checklist items: "- [ ] text" or "- [x] text"
         if let Some(rest) = trimmed.strip_prefix("- [") {
-            let (checked, text) = if let Some(t) = rest.strip_prefix("x] ").or_else(|| rest.strip_prefix("X] ")) {
+            let (checked, text) = if let Some(t) = rest
+                .strip_prefix("x] ")
+                .or_else(|| rest.strip_prefix("X] "))
+            {
                 (true, t)
             } else if let Some(t) = rest.strip_prefix(" ] ") {
                 (false, t)
@@ -1110,11 +1201,20 @@ pub fn create_git_checkpoint(session_id: &str) -> Option<String> {
 
     match result {
         Ok(s) if s.success() => {
-            app_info!("plan", "checkpoint", "Created git checkpoint branch: {}", branch_name);
+            app_info!(
+                "plan",
+                "checkpoint",
+                "Created git checkpoint branch: {}",
+                branch_name
+            );
             Some(branch_name)
         }
         _ => {
-            app_warn!("plan", "checkpoint", "Failed to create git checkpoint branch");
+            app_warn!(
+                "plan",
+                "checkpoint",
+                "Failed to create git checkpoint branch"
+            );
             None
         }
     }
@@ -1140,8 +1240,7 @@ pub async fn get_checkpoint_ref(session_id: &str) -> Option<String> {
 /// This performs a `git reset --hard <checkpoint_branch>` to undo all changes
 /// made during plan execution.
 pub fn rollback_to_checkpoint(checkpoint_ref: &str) -> Result<String> {
-    let git_root = git_repo_root()
-        .ok_or_else(|| anyhow::anyhow!("Not inside a git repository"))?;
+    let git_root = git_repo_root().ok_or_else(|| anyhow::anyhow!("Not inside a git repository"))?;
 
     // Verify the checkpoint branch exists
     let check = std::process::Command::new("git")
@@ -1150,7 +1249,12 @@ pub fn rollback_to_checkpoint(checkpoint_ref: &str) -> Result<String> {
         .output();
     match check {
         Ok(o) if o.status.success() => {}
-        _ => return Err(anyhow::anyhow!("Checkpoint branch '{}' does not exist", checkpoint_ref)),
+        _ => {
+            return Err(anyhow::anyhow!(
+                "Checkpoint branch '{}' does not exist",
+                checkpoint_ref
+            ))
+        }
     }
 
     // Get current HEAD for logging
@@ -1207,7 +1311,12 @@ pub fn cleanup_checkpoint(checkpoint_ref: &str) {
             .status()
     };
     let _ = git_cmd;
-    app_info!("plan", "checkpoint", "Cleaned up checkpoint branch: {}", checkpoint_ref);
+    app_info!(
+        "plan",
+        "checkpoint",
+        "Cleaned up checkpoint branch: {}",
+        checkpoint_ref
+    );
 }
 
 #[cfg(test)]
@@ -1237,9 +1346,15 @@ mod tests {
     fn test_plan_mode_state_roundtrip() {
         assert_eq!(PlanModeState::from_str("planning"), PlanModeState::Planning);
         assert_eq!(PlanModeState::from_str("review"), PlanModeState::Review);
-        assert_eq!(PlanModeState::from_str("executing"), PlanModeState::Executing);
+        assert_eq!(
+            PlanModeState::from_str("executing"),
+            PlanModeState::Executing
+        );
         assert_eq!(PlanModeState::from_str("paused"), PlanModeState::Paused);
-        assert_eq!(PlanModeState::from_str("completed"), PlanModeState::Completed);
+        assert_eq!(
+            PlanModeState::from_str("completed"),
+            PlanModeState::Completed
+        );
         assert_eq!(PlanModeState::from_str("off"), PlanModeState::Off);
         assert_eq!(PlanModeState::from_str("unknown"), PlanModeState::Off);
         assert_eq!(PlanModeState::Planning.as_str(), "planning");

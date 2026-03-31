@@ -2,20 +2,21 @@ use serde_json::Value;
 use std::time::Duration;
 use tokio::time::timeout;
 
+use super::{acp_spawn, browser, cron, memory, notification, subagent, web_fetch, web_search};
 use super::{
-    approval,
-    TOOL_EXEC, TOOL_PROCESS, TOOL_READ, TOOL_WRITE, TOOL_EDIT, TOOL_LS,
-    TOOL_GREP, TOOL_FIND, TOOL_APPLY_PATCH, TOOL_WEB_SEARCH, TOOL_WEB_FETCH,
-    TOOL_SAVE_MEMORY, TOOL_RECALL_MEMORY, TOOL_UPDATE_MEMORY, TOOL_DELETE_MEMORY, TOOL_UPDATE_CORE_MEMORY,
-    TOOL_MANAGE_CRON, TOOL_BROWSER, TOOL_SEND_NOTIFICATION, TOOL_SUBAGENT,
-    TOOL_MEMORY_GET, TOOL_AGENTS_LIST, TOOL_SESSIONS_LIST, TOOL_SESSION_STATUS,
-    TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_SEND, TOOL_IMAGE, TOOL_IMAGE_GENERATE, TOOL_PDF,
-    TOOL_CANVAS, TOOL_ACP_SPAWN, TOOL_UPDATE_PLAN_STEP,
-    TOOL_PLAN_QUESTION, TOOL_SUBMIT_PLAN, TOOL_AMEND_PLAN,
+    agents, amend_plan, canvas, image, image_generate, pdf, plan_question, plan_step, sessions,
+    submit_plan,
 };
-use super::{exec, process, read, write, edit, ls, grep, find, apply_patch};
-use super::{web_search, web_fetch, memory, cron, browser, notification, subagent, acp_spawn};
-use super::{agents, sessions, image, image_generate, pdf, canvas, plan_step, plan_question, submit_plan, amend_plan};
+use super::{apply_patch, edit, exec, find, grep, ls, process, read, write};
+use super::{
+    approval, TOOL_ACP_SPAWN, TOOL_AGENTS_LIST, TOOL_AMEND_PLAN, TOOL_APPLY_PATCH, TOOL_BROWSER,
+    TOOL_CANVAS, TOOL_DELETE_MEMORY, TOOL_EDIT, TOOL_EXEC, TOOL_FIND, TOOL_GREP, TOOL_IMAGE,
+    TOOL_IMAGE_GENERATE, TOOL_LS, TOOL_MANAGE_CRON, TOOL_MEMORY_GET, TOOL_PDF, TOOL_PLAN_QUESTION,
+    TOOL_PROCESS, TOOL_READ, TOOL_RECALL_MEMORY, TOOL_SAVE_MEMORY, TOOL_SEND_NOTIFICATION,
+    TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEND, TOOL_SESSION_STATUS,
+    TOOL_SUBAGENT, TOOL_SUBMIT_PLAN, TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY,
+    TOOL_UPDATE_PLAN_STEP, TOOL_WEB_FETCH, TOOL_WEB_SEARCH, TOOL_WRITE,
+};
 
 /// Default hard timeout (seconds) for a single tool execution.
 /// Acts as a safety net when the inner tool timeout (e.g. reqwest) does not fire
@@ -146,8 +147,7 @@ pub async fn execute_tool_with_context(
         approval::ToolPermissionMode::AskEveryTime => {
             // In ask_every_time mode, all non-internal tools need approval
             // (except reading SKILL.md — pre-authorized by skill system)
-            !super::is_internal_tool(name) && name != TOOL_EXEC
-                && !is_skill_read(name, args)
+            !super::is_internal_tool(name) && name != TOOL_EXEC && !is_skill_read(name, args)
         }
         approval::ToolPermissionMode::Auto => {
             tool_needs_approval(name, args, ctx) && name != TOOL_EXEC
@@ -156,7 +156,11 @@ pub async fn execute_tool_with_context(
     if needs_approval {
         let desc = format!("tool: {} {}", name, {
             let s = args.to_string();
-            if s.len() > 200 { format!("{}...", crate::truncate_utf8(&s, 200)) } else { s }
+            if s.len() > 200 {
+                format!("{}...", crate::truncate_utf8(&s, 200))
+            } else {
+                s
+            }
         });
         let cwd = ctx.home_dir.as_deref().unwrap_or(".");
         match approval::check_and_request_approval(&desc, cwd).await {
@@ -168,19 +172,24 @@ pub async fn execute_tool_with_context(
                     app_info!("tool", "approval", "Tool '{}' approved (always)", name);
                     approval::add_to_allowlist(&desc).await;
                 } else {
-                    app_info!("tool", "approval", "Tool '{}' approved (ask_every_time)", name);
+                    app_info!(
+                        "tool",
+                        "approval",
+                        "Tool '{}' approved (ask_every_time)",
+                        name
+                    );
                 }
             }
             Ok(approval::ApprovalResponse::Deny) => {
-                return Err(anyhow::anyhow!(
-                    "Tool '{}' execution denied by user",
-                    name
-                ));
+                return Err(anyhow::anyhow!("Tool '{}' execution denied by user", name));
             }
             Err(e) => {
-                app_warn!("tool", "approval",
+                app_warn!(
+                    "tool",
+                    "approval",
                     "Tool approval check failed for '{}' ({}), proceeding",
-                    name, e
+                    name,
+                    e
                 );
             }
         }
@@ -190,12 +199,21 @@ pub async fn execute_tool_with_context(
     if let Some(logger) = crate::get_logger() {
         let args_preview = {
             let s = args.to_string();
-            if s.len() > 500 { format!("{}...", crate::truncate_utf8(&s, 500)) } else { s }
+            if s.len() > 500 {
+                format!("{}...", crate::truncate_utf8(&s, 500))
+            } else {
+                s
+            }
         };
-        logger.log("info", "tool", &format!("tools::{}", name),
+        logger.log(
+            "info",
+            "tool",
+            &format!("tools::{}", name),
             &format!("Tool '{}' started", name),
             Some(serde_json::json!({"args": args_preview}).to_string()),
-            None, None);
+            None,
+            None,
+        );
     }
 
     // ── Plan Mode path-based permission check ─────────────────────
@@ -204,7 +222,8 @@ pub async fn execute_tool_with_context(
     if !ctx.plan_mode_allow_paths.is_empty() {
         let is_path_aware = matches!(name, TOOL_WRITE | TOOL_EDIT | TOOL_APPLY_PATCH);
         if is_path_aware {
-            let target_path = args.get("file_path")
+            let target_path = args
+                .get("file_path")
                 .or_else(|| args.get("path"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
@@ -235,7 +254,10 @@ pub async fn execute_tool_with_context(
             TOOL_RECALL_MEMORY => memory::tool_recall_memory(args).await,
             TOOL_UPDATE_MEMORY => memory::tool_update_memory(args).await,
             TOOL_DELETE_MEMORY => memory::tool_delete_memory(args).await,
-            TOOL_UPDATE_CORE_MEMORY => memory::tool_update_core_memory(args, ctx.agent_id.as_deref().unwrap_or("default")).await,
+            TOOL_UPDATE_CORE_MEMORY => {
+                memory::tool_update_core_memory(args, ctx.agent_id.as_deref().unwrap_or("default"))
+                    .await
+            }
             TOOL_MANAGE_CRON => cron::tool_manage_cron(args).await,
             TOOL_BROWSER => browser::tool_browser(args).await,
             TOOL_SEND_NOTIFICATION => notification::tool_send_notification(args, ctx).await,
@@ -264,9 +286,11 @@ pub async fn execute_tool_with_context(
             Ok(inner) => inner,
             Err(_elapsed) => {
                 app_error!(
-                    "tool", "execution",
+                    "tool",
+                    "execution",
                     "Tool '{}' timed out after {}s — forcefully cancelled",
-                    name, hard_timeout.as_secs()
+                    name,
+                    hard_timeout.as_secs()
                 );
                 Err(anyhow::anyhow!(
                     "Tool '{}' execution timed out after {}s. The operation was cancelled. \
@@ -288,17 +312,29 @@ pub async fn execute_tool_with_context(
     if let Some(logger) = crate::get_logger() {
         match &result {
             Ok(output) => {
-                let output_preview = if output.len() > 300 { format!("{}...", crate::truncate_utf8(output, 300)) } else { output.clone() };
+                let output_preview = if output.len() > 300 {
+                    format!("{}...", crate::truncate_utf8(output, 300))
+                } else {
+                    output.clone()
+                };
                 logger.log("info", "tool", &format!("tools::{}", name),
                     &format!("Tool '{}' completed in {}ms", name, duration_ms),
                     Some(serde_json::json!({"duration_ms": duration_ms, "output_preview": output_preview}).to_string()),
                     None, None);
             }
             Err(e) => {
-                logger.log("error", "tool", &format!("tools::{}", name),
+                logger.log(
+                    "error",
+                    "tool",
+                    &format!("tools::{}", name),
                     &format!("Tool '{}' failed in {}ms: {}", name, duration_ms, e),
-                    Some(serde_json::json!({"duration_ms": duration_ms, "error": e.to_string()}).to_string()),
-                    None, None);
+                    Some(
+                        serde_json::json!({"duration_ms": duration_ms, "error": e.to_string()})
+                            .to_string(),
+                    ),
+                    None,
+                    None,
+                );
             }
         }
     }

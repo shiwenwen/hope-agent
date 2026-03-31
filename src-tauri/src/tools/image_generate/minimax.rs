@@ -72,9 +72,7 @@ impl ImageGenProviderImpl for MiniMaxProvider {
             },
             geometry: Some(ImageGenGeometry {
                 sizes: vec![],
-                aspect_ratios: vec![
-                    "1:1", "16:9", "4:3", "3:2", "2:3", "3:4", "9:16", "21:9",
-                ],
+                aspect_ratios: vec!["1:1", "16:9", "4:3", "3:2", "2:3", "3:4", "9:16", "21:9"],
                 resolutions: vec![],
             }),
         }
@@ -113,10 +111,9 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
 
     // Add aspect_ratio if specified
     if let Some(ar) = params.aspect_ratio {
-        body.as_object_mut().unwrap().insert(
-            "aspect_ratio".to_string(),
-            serde_json::json!(ar),
-        );
+        body.as_object_mut()
+            .unwrap()
+            .insert("aspect_ratio".to_string(), serde_json::json!(ar));
     }
 
     // Add reference image as subject_reference for editing
@@ -146,7 +143,10 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
             "image_generate::minimax::request",
             &format!(
                 "MiniMax image gen request: model={}, n={}, edit={}, url={}",
-                params.model, params.n, !params.input_images.is_empty(), url
+                params.model,
+                params.n,
+                !params.input_images.is_empty(),
+                url
             ),
             Some(
                 serde_json::json!({
@@ -187,7 +187,11 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
     // Log response status
     if let Some(logger) = crate::get_logger() {
         logger.log(
-            if status.is_success() { "debug" } else { "error" },
+            if status.is_success() {
+                "debug"
+            } else {
+                "error"
+            },
             "tool",
             "image_generate::minimax::response",
             &format!(
@@ -235,11 +239,7 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
         } else {
             body_text
         };
-        anyhow::bail!(
-            "MiniMax image generation failed ({}): {}",
-            status,
-            preview
-        );
+        anyhow::bail!("MiniMax image generation failed ({}): {}", status, preview);
     }
 
     let response: MiniMaxImageResponse = resp.json().await?;

@@ -1,37 +1,51 @@
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use anyhow::Result;
 use serde_json::json;
 
-use crate::tools::{self, ToolProvider};
 use super::super::api_types::{FunctionCallItem, ReasoningConfig, ResponsesRequest, SseEvent};
 use super::super::config::{build_api_url, clamp_reasoning_effort, get_max_tool_rounds};
 use super::super::content::build_user_content_responses;
 use super::super::events::{
-    emit_text_delta, emit_thinking_delta, emit_tool_call, emit_tool_result, emit_usage, extract_media_urls,
-    build_responses_tool_result,
+    build_responses_tool_result, emit_text_delta, emit_thinking_delta, emit_tool_call,
+    emit_tool_result, emit_usage, extract_media_urls,
 };
 use super::super::types::{AssistantAgent, Attachment, ChatUsage};
+use crate::tools::{self, ToolProvider};
 
 impl AssistantAgent {
     // ── OpenAI Responses API (custom base_url) ────────────────────
 
-    pub(crate) async fn chat_openai_responses(&self, api_key: &str, base_url: &str, model: &str, message: &str, attachments: &[Attachment], reasoning_effort: Option<&str>, cancel: &Arc<AtomicBool>, on_delta: &(impl Fn(&str) + Send)) -> Result<(String, Option<String>)> {
-        let client = crate::provider::apply_proxy(
-            reqwest::Client::builder().user_agent(&self.user_agent)
-        )
-            .build()
-            .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
+    pub(crate) async fn chat_openai_responses(
+        &self,
+        api_key: &str,
+        base_url: &str,
+        model: &str,
+        message: &str,
+        attachments: &[Attachment],
+        reasoning_effort: Option<&str>,
+        cancel: &Arc<AtomicBool>,
+        on_delta: &(impl Fn(&str) + Send),
+    ) -> Result<(String, Option<String>)> {
+        let client =
+            crate::provider::apply_proxy(reqwest::Client::builder().user_agent(&self.user_agent))
+                .build()
+                .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
         let mut tool_schemas = tools::get_tools_for_provider(ToolProvider::OpenAI);
         if self.web_search_enabled {
-            tool_schemas.push(tools::get_web_search_tool().to_provider_schema(ToolProvider::OpenAI));
+            tool_schemas
+                .push(tools::get_web_search_tool().to_provider_schema(ToolProvider::OpenAI));
         }
         if self.notification_enabled {
-            tool_schemas.push(tools::get_notification_tool().to_provider_schema(ToolProvider::OpenAI));
+            tool_schemas
+                .push(tools::get_notification_tool().to_provider_schema(ToolProvider::OpenAI));
         }
         if let Some(ref img_config) = self.image_gen_config {
-            tool_schemas.push(tools::get_image_generate_tool_dynamic(img_config).to_provider_schema(ToolProvider::OpenAI));
+            tool_schemas.push(
+                tools::get_image_generate_tool_dynamic(img_config)
+                    .to_provider_schema(ToolProvider::OpenAI),
+            );
         }
         if self.canvas_enabled {
             tool_schemas.push(tools::get_canvas_tool().to_provider_schema(ToolProvider::OpenAI));
@@ -51,10 +65,14 @@ impl AssistantAgent {
 
         let reasoning = reasoning_effort
             .and_then(|e| clamp_reasoning_effort(model, e))
-            .map(|effort| ReasoningConfig { effort, summary: Some("auto".to_string()) });
+            .map(|effort| ReasoningConfig {
+                effort,
+                summary: Some("auto".to_string()),
+            });
 
         // Normalize history in case previous turns were from a different provider (failover / model switch)
-        let mut input = Self::normalize_history_for_responses(&self.conversation_history.lock().unwrap());
+        let mut input =
+            Self::normalize_history_for_responses(&self.conversation_history.lock().unwrap());
         let user_content = build_user_content_responses(message, attachments);
         Self::push_user_message(&mut input, user_content);
 
@@ -66,19 +84,29 @@ impl AssistantAgent {
         let system_prompt = self.build_full_system_prompt(model, "OpenAIResponses");
 
         // Run context compaction (Tier 1-3) before API call
-        self.run_compaction(&mut input, &system_prompt, 16384, on_delta).await;
+        self.run_compaction(&mut input, &system_prompt, 16384, on_delta)
+            .await;
 
         let max_rounds = get_max_tool_rounds();
-        let max_rounds = if max_rounds == 0 { u32::MAX } else { max_rounds };
+        let max_rounds = if max_rounds == 0 {
+            u32::MAX
+        } else {
+            max_rounds
+        };
         let mut round_count: u32 = 0;
         for round in 0..max_rounds {
-            if cancel.load(Ordering::SeqCst) { break; }
+            if cancel.load(Ordering::SeqCst) {
+                break;
+            }
             round_count = round + 1;
 
             // Drain steer mailbox: inject any pending steer messages as user messages
             if let Some(ref rid) = self.steer_run_id {
                 for msg in crate::subagent::SUBAGENT_MAILBOX.drain(rid) {
-                    Self::push_user_message(&mut input, serde_json::json!(format!("[Steer from parent agent]: {}", msg)));
+                    Self::push_user_message(
+                        &mut input,
+                        serde_json::json!(format!("[Steer from parent agent]: {}", msg)),
+                    );
                 }
             }
 
@@ -88,8 +116,15 @@ impl AssistantAgent {
                 stream: true,
                 instructions: system_prompt.clone(),
                 input: input.clone(),
-                reasoning: reasoning.as_ref().map(|r| ReasoningConfig { effort: r.effort.clone(), summary: Some("auto".to_string()) }),
-                include: if reasoning.is_some() { Some(vec!["reasoning.encrypted_content".to_string()]) } else { None },
+                reasoning: reasoning.as_ref().map(|r| ReasoningConfig {
+                    effort: r.effort.clone(),
+                    summary: Some("auto".to_string()),
+                }),
+                include: if reasoning.is_some() {
+                    Some(vec!["reasoning.encrypted_content".to_string()])
+                } else {
+                    None
+                },
                 tools: Some(tool_schemas.clone()),
                 temperature: self.temperature,
             };
@@ -99,25 +134,42 @@ impl AssistantAgent {
             if let Some(logger) = crate::get_logger() {
                 let body_size = body_str.len();
                 let raw_body = if body_size > 32768 {
-                    format!("{}...(truncated, total {}B)", crate::truncate_utf8(&body_str, 32768), body_size)
+                    format!(
+                        "{}...(truncated, total {}B)",
+                        crate::truncate_utf8(&body_str, 32768),
+                        body_size
+                    )
                 } else {
                     body_str.clone()
                 };
                 let raw_body = crate::logging::redact_sensitive(&raw_body);
-                logger.log("debug", "agent", "agent::chat_openai_responses::request",
-                    &format!("OpenAI Responses API request round {}: {} input items, {} tools, body {}B",
-                        round, input.len(), tool_schemas.len(), body_size),
-                    Some(json!({
-                        "round": round,
-                        "api_url": &api_url,
-                        "model": model,
-                        "input_count": input.len(),
-                        "tool_count": tool_schemas.len(),
-                        "body_size_bytes": body_size,
-                        "reasoning": reasoning.as_ref().map(|r| r.effort.as_str()),
-                        "request_body": raw_body,
-                    }).to_string()),
-                    None, None);
+                logger.log(
+                    "debug",
+                    "agent",
+                    "agent::chat_openai_responses::request",
+                    &format!(
+                        "OpenAI Responses API request round {}: {} input items, {} tools, body {}B",
+                        round,
+                        input.len(),
+                        tool_schemas.len(),
+                        body_size
+                    ),
+                    Some(
+                        json!({
+                            "round": round,
+                            "api_url": &api_url,
+                            "model": model,
+                            "input_count": input.len(),
+                            "tool_count": tool_schemas.len(),
+                            "body_size_bytes": body_size,
+                            "reasoning": reasoning.as_ref().map(|r| r.effort.as_str()),
+                            "request_body": raw_body,
+                        })
+                        .to_string(),
+                    ),
+                    None,
+                    None,
+                );
             }
 
             let mut req = client
@@ -137,7 +189,8 @@ impl AssistantAgent {
             if let Some(logger) = crate::get_logger() {
                 let status = resp.status().as_u16();
                 let headers = resp.headers();
-                let request_id = headers.get("x-request-id")
+                let request_id = headers
+                    .get("x-request-id")
                     .or_else(|| headers.get("request-id"))
                     .and_then(|v| v.to_str().ok())
                     .unwrap_or("-")
@@ -156,32 +209,61 @@ impl AssistantAgent {
                     "openai-version": headers.get("openai-version").and_then(|v| v.to_str().ok()),
                     "retry-after": headers.get("retry-after").and_then(|v| v.to_str().ok()),
                 });
-                logger.log("debug", "agent", "agent::chat_openai_responses::response",
-                    &format!("OpenAI Responses API response: status={}, request_id={}, ttfb={}ms", status, request_id, ttfb_ms),
-                    Some(json!({
-                        "status": status,
-                        "request_id": request_id,
-                        "ttfb_ms": ttfb_ms,
-                        "round": round,
-                        "response_headers": response_headers,
-                    }).to_string()),
-                    None, None);
+                logger.log(
+                    "debug",
+                    "agent",
+                    "agent::chat_openai_responses::response",
+                    &format!(
+                        "OpenAI Responses API response: status={}, request_id={}, ttfb={}ms",
+                        status, request_id, ttfb_ms
+                    ),
+                    Some(
+                        json!({
+                            "status": status,
+                            "request_id": request_id,
+                            "ttfb_ms": ttfb_ms,
+                            "round": round,
+                            "response_headers": response_headers,
+                        })
+                        .to_string(),
+                    ),
+                    None,
+                    None,
+                );
             }
 
             if !resp.status().is_success() {
                 let status = resp.status().as_u16();
                 let error_text = resp.text().await.unwrap_or_default();
                 if let Some(logger) = crate::get_logger() {
-                    let error_preview = if error_text.len() > 500 { format!("{}...", crate::truncate_utf8(&error_text, 500)) } else { error_text.clone() };
-                    logger.log("error", "agent", "agent::chat_openai_responses::error",
+                    let error_preview = if error_text.len() > 500 {
+                        format!("{}...", crate::truncate_utf8(&error_text, 500))
+                    } else {
+                        error_text.clone()
+                    };
+                    logger.log(
+                        "error",
+                        "agent",
+                        "agent::chat_openai_responses::error",
                         &format!("OpenAI Responses API error ({}): {}", status, error_preview),
-                        Some(json!({"status": status, "error": error_text, "round": round}).to_string()),
-                        None, None);
+                        Some(
+                            json!({"status": status, "error": error_text, "round": round})
+                                .to_string(),
+                        ),
+                        None,
+                        None,
+                    );
                 }
-                return Err(anyhow::anyhow!("OpenAI Responses API error ({}): {}", status, error_text));
+                return Err(anyhow::anyhow!(
+                    "OpenAI Responses API error ({}): {}",
+                    status,
+                    error_text
+                ));
             }
 
-            let (text, tool_calls, round_usage, thinking, round_ttft, round_reasoning_items) = self.parse_openai_sse(resp, request_start, cancel, on_delta).await?;
+            let (text, tool_calls, round_usage, thinking, round_ttft, round_reasoning_items) = self
+                .parse_openai_sse(resp, request_start, cancel, on_delta)
+                .await?;
             if first_ttft_ms.is_none() {
                 first_ttft_ms = round_ttft;
             }
@@ -208,40 +290,68 @@ impl AssistantAgent {
             // Log tool loop progress
             if let Some(logger) = crate::get_logger() {
                 let tool_names: Vec<&str> = tool_calls.iter().map(|tc| tc.name.as_str()).collect();
-                logger.log("info", "agent", "agent::chat_openai_responses::tool_loop",
-                    &format!("Tool loop round {}: executing {} tools: {:?}", round, tool_calls.len(), tool_names),
-                    Some(json!({
-                        "round": round,
-                        "tool_count": tool_calls.len(),
-                        "tools": tool_names,
-                    }).to_string()),
-                    None, None);
+                logger.log(
+                    "info",
+                    "agent",
+                    "agent::chat_openai_responses::tool_loop",
+                    &format!(
+                        "Tool loop round {}: executing {} tools: {:?}",
+                        round,
+                        tool_calls.len(),
+                        tool_names
+                    ),
+                    Some(
+                        json!({
+                            "round": round,
+                            "tool_count": tool_calls.len(),
+                            "tools": tool_names,
+                        })
+                        .to_string(),
+                    ),
+                    None,
+                    None,
+                );
             }
 
             for tc in &tool_calls {
                 // Check cancel before each tool execution
-                if cancel.load(Ordering::SeqCst) { break; }
+                if cancel.load(Ordering::SeqCst) {
+                    break;
+                }
 
-                let args: serde_json::Value = serde_json::from_str(&tc.arguments).unwrap_or(json!({}));
+                let args: serde_json::Value =
+                    serde_json::from_str(&tc.arguments).unwrap_or(json!({}));
                 emit_tool_call(on_delta, &tc.call_id, &tc.name, &tc.arguments);
 
                 // Log tool execution input
                 if let Some(logger) = crate::get_logger() {
                     let args_str = tc.arguments.as_str();
                     let args_preview = if args_str.len() > 2048 {
-                        format!("{}...(truncated, total {}B)", crate::truncate_utf8(args_str, 2048), args_str.len())
+                        format!(
+                            "{}...(truncated, total {}B)",
+                            crate::truncate_utf8(args_str, 2048),
+                            args_str.len()
+                        )
                     } else {
                         args_str.to_string()
                     };
-                    logger.log("debug", "agent", "agent::tool_exec::input",
+                    logger.log(
+                        "debug",
+                        "agent",
+                        "agent::tool_exec::input",
                         &format!("Tool exec [{}] id={}", tc.name, tc.call_id),
-                        Some(json!({
-                            "tool_name": tc.name,
-                            "call_id": tc.call_id,
-                            "arguments": args_preview,
-                            "round": round,
-                        }).to_string()),
-                        None, None);
+                        Some(
+                            json!({
+                                "tool_name": tc.name,
+                                "call_id": tc.call_id,
+                                "arguments": args_preview,
+                                "round": round,
+                            })
+                            .to_string(),
+                        ),
+                        None,
+                        None,
+                    );
                 }
 
                 let tool_start = std::time::Instant::now();
@@ -269,28 +379,54 @@ impl AssistantAgent {
                 // Log tool execution output
                 if let Some(logger) = crate::get_logger() {
                     let result_preview = if result.len() > 2048 {
-                        format!("{}...(truncated, total {}B)", crate::truncate_utf8(&result, 2048), result.len())
+                        format!(
+                            "{}...(truncated, total {}B)",
+                            crate::truncate_utf8(&result, 2048),
+                            result.len()
+                        )
                     } else {
                         result.clone()
                     };
                     let is_error = result.starts_with("Tool error:");
-                    logger.log(if is_error { "warn" } else { "debug" }, "agent", "agent::tool_exec::output",
-                        &format!("Tool result [{}] {}B, {}ms{}", tc.name, result.len(), tool_elapsed_ms, if is_error { " (ERROR)" } else { "" }),
-                        Some(json!({
-                            "tool_name": tc.name,
-                            "call_id": tc.call_id,
-                            "result_size_bytes": result.len(),
-                            "elapsed_ms": tool_elapsed_ms,
-                            "is_error": is_error,
-                            "result_preview": result_preview,
-                            "round": round,
-                        }).to_string()),
-                        None, None);
+                    logger.log(
+                        if is_error { "warn" } else { "debug" },
+                        "agent",
+                        "agent::tool_exec::output",
+                        &format!(
+                            "Tool result [{}] {}B, {}ms{}",
+                            tc.name,
+                            result.len(),
+                            tool_elapsed_ms,
+                            if is_error { " (ERROR)" } else { "" }
+                        ),
+                        Some(
+                            json!({
+                                "tool_name": tc.name,
+                                "call_id": tc.call_id,
+                                "result_size_bytes": result.len(),
+                                "elapsed_ms": tool_elapsed_ms,
+                                "is_error": is_error,
+                                "result_preview": result_preview,
+                                "round": round,
+                            })
+                            .to_string(),
+                        ),
+                        None,
+                        None,
+                    );
                 }
 
                 let is_tool_error = result.starts_with("Tool error:");
                 let (clean_result, media_urls) = extract_media_urls(&result);
-                emit_tool_result(on_delta, &tc.call_id, &tc.name, &clean_result, tool_elapsed_ms, is_tool_error, &media_urls);
+                emit_tool_result(
+                    on_delta,
+                    &tc.call_id,
+                    &tc.name,
+                    &clean_result,
+                    tool_elapsed_ms,
+                    is_tool_error,
+                    &media_urls,
+                );
 
                 let (text_output, image_item) = build_responses_tool_result(&clean_result);
 
@@ -312,12 +448,18 @@ impl AssistantAgent {
             }
 
             // Tier 1 quick check: truncate any oversized tool results added this round
-            crate::context_compact::truncate_tool_results(&mut input, self.context_window, &self.compact_config);
+            crate::context_compact::truncate_tool_results(
+                &mut input,
+                self.context_window,
+                &self.compact_config,
+            );
         }
 
         let cancelled = cancel.load(Ordering::SeqCst);
         if collected_text.is_empty() && !cancelled {
-            return Err(anyhow::anyhow!("No content received from OpenAI Responses API"));
+            return Err(anyhow::anyhow!(
+                "No content received from OpenAI Responses API"
+            ));
         }
 
         if !collected_text.is_empty() {
@@ -336,26 +478,43 @@ impl AssistantAgent {
         // Log chat completion summary
         if let Some(logger) = crate::get_logger() {
             let history_len = self.conversation_history.lock().unwrap().len();
-            logger.log("info", "agent", "agent::chat_openai_responses::done",
-                &format!("OpenAI Responses chat complete: {}chars, {} rounds, usage in={}/out={}",
-                    collected_text.len(), round_count, total_usage.input_tokens, total_usage.output_tokens),
-                Some(json!({
-                    "text_length": collected_text.len(),
-                    "total_rounds": round_count,
-                    "history_length": history_len,
-                    "cancelled": cancelled,
-                    "model": model,
-                    "usage": {
-                        "input_tokens": total_usage.input_tokens,
-                        "output_tokens": total_usage.output_tokens,
-                        "cache_creation": total_usage.cache_creation_input_tokens,
-                        "cache_read": total_usage.cache_read_input_tokens,
-                    }
-                }).to_string()),
-                None, None);
+            logger.log(
+                "info",
+                "agent",
+                "agent::chat_openai_responses::done",
+                &format!(
+                    "OpenAI Responses chat complete: {}chars, {} rounds, usage in={}/out={}",
+                    collected_text.len(),
+                    round_count,
+                    total_usage.input_tokens,
+                    total_usage.output_tokens
+                ),
+                Some(
+                    json!({
+                        "text_length": collected_text.len(),
+                        "total_rounds": round_count,
+                        "history_length": history_len,
+                        "cancelled": cancelled,
+                        "model": model,
+                        "usage": {
+                            "input_tokens": total_usage.input_tokens,
+                            "output_tokens": total_usage.output_tokens,
+                            "cache_creation": total_usage.cache_creation_input_tokens,
+                            "cache_read": total_usage.cache_read_input_tokens,
+                        }
+                    })
+                    .to_string(),
+                ),
+                None,
+                None,
+            );
         }
 
-        let thinking_result = if collected_thinking.is_empty() { None } else { Some(collected_thinking) };
+        let thinking_result = if collected_thinking.is_empty() {
+            None
+        } else {
+            Some(collected_thinking)
+        };
         Ok((collected_text, thinking_result))
     }
 
@@ -367,13 +526,21 @@ impl AssistantAgent {
         request_start: std::time::Instant,
         cancel: &Arc<AtomicBool>,
         on_delta: &(impl Fn(&str) + Send),
-    ) -> Result<(String, Vec<FunctionCallItem>, ChatUsage, String, Option<u64>, Vec<serde_json::Value>)> {
+    ) -> Result<(
+        String,
+        Vec<FunctionCallItem>,
+        ChatUsage,
+        String,
+        Option<u64>,
+        Vec<serde_json::Value>,
+    )> {
         use futures_util::StreamExt;
 
         let mut collected_text = String::new();
         let mut collected_thinking = String::new();
         let mut tool_calls: Vec<FunctionCallItem> = Vec::new();
-        let mut pending_calls: std::collections::HashMap<String, FunctionCallItem> = std::collections::HashMap::new();
+        let mut pending_calls: std::collections::HashMap<String, FunctionCallItem> =
+            std::collections::HashMap::new();
         let mut usage = ChatUsage::default();
         let mut first_token_time: Option<u64> = None;
         let mut reasoning_items: Vec<serde_json::Value> = Vec::new();
@@ -415,7 +582,8 @@ impl AssistantAgent {
                         "response.reasoning_summary_text.delta" => {
                             if let Some(delta) = &event.delta {
                                 if first_token_time.is_none() {
-                                    first_token_time = Some(request_start.elapsed().as_millis() as u64);
+                                    first_token_time =
+                                        Some(request_start.elapsed().as_millis() as u64);
                                 }
                                 emit_thinking_delta(on_delta, delta);
                                 collected_thinking.push_str(delta);
@@ -432,7 +600,8 @@ impl AssistantAgent {
                         "response.output_text.delta" => {
                             if let Some(delta) = &event.delta {
                                 if first_token_time.is_none() {
-                                    first_token_time = Some(request_start.elapsed().as_millis() as u64);
+                                    first_token_time =
+                                        Some(request_start.elapsed().as_millis() as u64);
                                 }
                                 emit_text_delta(on_delta, delta);
                                 collected_text.push_str(delta);
@@ -443,15 +612,20 @@ impl AssistantAgent {
                         "response.output_item.added" => {
                             if let Some(item) = &event.item {
                                 if item.item_type.as_deref() == Some("function_call") {
-                                    let call_id = item.id.clone()
+                                    let call_id = item
+                                        .id
+                                        .clone()
                                         .or_else(|| item.call_id.clone())
                                         .unwrap_or_default();
                                     let name = item.name.clone().unwrap_or_default();
-                                    pending_calls.insert(call_id.clone(), FunctionCallItem {
-                                        call_id,
-                                        name,
-                                        arguments: item.arguments.clone().unwrap_or_default(),
-                                    });
+                                    pending_calls.insert(
+                                        call_id.clone(),
+                                        FunctionCallItem {
+                                            call_id,
+                                            name,
+                                            arguments: item.arguments.clone().unwrap_or_default(),
+                                        },
+                                    );
                                 }
                             }
                         }
@@ -462,7 +636,9 @@ impl AssistantAgent {
                                 // Find the pending call to append args to
                                 // The event doesn't always include item_id, try all pending
                                 if let Some(item) = &event.item {
-                                    let call_id = item.id.clone()
+                                    let call_id = item
+                                        .id
+                                        .clone()
                                         .or_else(|| item.call_id.clone())
                                         .unwrap_or_default();
                                     if let Some(tc) = pending_calls.get_mut(&call_id) {
@@ -481,7 +657,9 @@ impl AssistantAgent {
                         "response.function_call_arguments.done" | "response.output_item.done" => {
                             if let Some(item) = &event.item {
                                 if item.item_type.as_deref() == Some("function_call") {
-                                    let call_id = item.id.clone()
+                                    let call_id = item
+                                        .id
+                                        .clone()
                                         .or_else(|| item.call_id.clone())
                                         .unwrap_or_default();
                                     if let Some(mut tc) = pending_calls.remove(&call_id) {
@@ -500,7 +678,9 @@ impl AssistantAgent {
                                 // Capture complete reasoning items for roundtrip
                                 // Lazy raw parse only for reasoning items (preserves encrypted_content)
                                 if item.item_type.as_deref() == Some("reasoning") {
-                                    if let Ok(raw) = serde_json::from_str::<serde_json::Value>(&data) {
+                                    if let Ok(raw) =
+                                        serde_json::from_str::<serde_json::Value>(&data)
+                                    {
                                         if let Some(raw_item) = raw.get("item") {
                                             reasoning_items.push(raw_item.clone());
                                         }
@@ -511,13 +691,16 @@ impl AssistantAgent {
 
                         // Handle errors
                         "error" => {
-                            let msg = event.message.as_deref()
+                            let msg = event
+                                .message
+                                .as_deref()
                                 .or(event.code.as_deref())
                                 .unwrap_or("Unknown error");
                             return Err(anyhow::anyhow!("Codex error: {}", msg));
                         }
                         "response.failed" => {
-                            let msg = event.response
+                            let msg = event
+                                .response
                                 .as_ref()
                                 .and_then(|r| r.error.as_ref())
                                 .and_then(|e| e.message.as_deref())
@@ -561,7 +744,9 @@ impl AssistantAgent {
                                             if item.item_type.as_deref() == Some("message") {
                                                 if let Some(parts) = &item.content {
                                                     for part in parts {
-                                                        if part.part_type.as_deref() == Some("output_text") {
+                                                        if part.part_type.as_deref()
+                                                            == Some("output_text")
+                                                        {
                                                             if let Some(text) = &part.text {
                                                                 collected_text.push_str(text);
                                                             }
@@ -571,13 +756,18 @@ impl AssistantAgent {
                                             }
                                             // Also pick up function_call items from completed response
                                             if item.item_type.as_deref() == Some("function_call") {
-                                                let call_id = item.id.clone()
+                                                let call_id = item
+                                                    .id
+                                                    .clone()
                                                     .or_else(|| item.call_id.clone())
                                                     .unwrap_or_default();
                                                 tool_calls.push(FunctionCallItem {
                                                     call_id,
                                                     name: item.name.clone().unwrap_or_default(),
-                                                    arguments: item.arguments.clone().unwrap_or_default(),
+                                                    arguments: item
+                                                        .arguments
+                                                        .clone()
+                                                        .unwrap_or_default(),
                                                 });
                                             }
                                         }
@@ -600,23 +790,41 @@ impl AssistantAgent {
         // Log SSE stream completion
         if let Some(logger) = crate::get_logger() {
             let tool_names: Vec<&str> = tool_calls.iter().map(|tc| tc.name.as_str()).collect();
-            logger.log("debug", "agent", "agent::parse_openai_sse::done",
-                &format!("OpenAI Responses SSE done: {}chars text, {} tool_calls",
-                    collected_text.len(), tool_calls.len()),
-                Some(json!({
-                    "text_length": collected_text.len(),
-                    "tool_calls": tool_names,
-                    "tool_call_count": tool_calls.len(),
-                    "usage": {
-                        "input_tokens": usage.input_tokens,
-                        "output_tokens": usage.output_tokens,
-                        "cache_creation": usage.cache_creation_input_tokens,
-                        "cache_read": usage.cache_read_input_tokens,
-                    }
-                }).to_string()),
-                None, None);
+            logger.log(
+                "debug",
+                "agent",
+                "agent::parse_openai_sse::done",
+                &format!(
+                    "OpenAI Responses SSE done: {}chars text, {} tool_calls",
+                    collected_text.len(),
+                    tool_calls.len()
+                ),
+                Some(
+                    json!({
+                        "text_length": collected_text.len(),
+                        "tool_calls": tool_names,
+                        "tool_call_count": tool_calls.len(),
+                        "usage": {
+                            "input_tokens": usage.input_tokens,
+                            "output_tokens": usage.output_tokens,
+                            "cache_creation": usage.cache_creation_input_tokens,
+                            "cache_read": usage.cache_read_input_tokens,
+                        }
+                    })
+                    .to_string(),
+                ),
+                None,
+                None,
+            );
         }
 
-        Ok((collected_text, tool_calls, usage, collected_thinking, first_token_time, reasoning_items))
+        Ok((
+            collected_text,
+            tool_calls,
+            usage,
+            collected_thinking,
+            first_token_time,
+            reasoning_items,
+        ))
     }
 }

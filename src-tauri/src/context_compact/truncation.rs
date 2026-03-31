@@ -1,12 +1,12 @@
 // ── Tier 1: Tool Result Truncation ──
 
-use serde_json::Value;
 use super::config::CompactConfig;
-use super::estimation::{is_tool_result, get_tool_result_text, set_tool_result_text};
+use super::estimation::{get_tool_result_text, is_tool_result, set_tool_result_text};
 use super::{
-    CHARS_PER_TOKEN, MAX_TOOL_RESULT_CONTEXT_SHARE, HARD_MAX_TOOL_RESULT_CHARS,
-    MIN_KEEP_CHARS, TRUNCATION_SUFFIX, MIDDLE_OMISSION_MARKER,
+    CHARS_PER_TOKEN, HARD_MAX_TOOL_RESULT_CHARS, MAX_TOOL_RESULT_CONTEXT_SHARE,
+    MIDDLE_OMISSION_MARKER, MIN_KEEP_CHARS, TRUNCATION_SUFFIX,
 };
+use serde_json::Value;
 
 /// Detect if text tail contains important content (errors, JSON closing, results).
 /// Reference: openclaw hasImportantTail()
@@ -17,8 +17,15 @@ fn has_important_tail(text: &str) -> bool {
 
     // Error patterns
     let error_patterns = [
-        "error", "exception", "failed", "fatal", "traceback", "panic",
-        "stack trace", "errno", "exit code",
+        "error",
+        "exception",
+        "failed",
+        "fatal",
+        "traceback",
+        "panic",
+        "stack trace",
+        "errno",
+        "exit code",
     ];
     if error_patterns.iter().any(|p| lower.contains(p)) {
         return true;

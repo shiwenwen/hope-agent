@@ -11,7 +11,10 @@ impl SessionDB {
 
     /// Create the acp_runs table if it does not exist.
     pub fn create_acp_runs_table(&self) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS acp_runs (
                 run_id TEXT PRIMARY KEY,
@@ -48,7 +51,10 @@ impl SessionDB {
         task: &str,
         label: Option<&str>,
     ) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let now = chrono::Utc::now().to_rfc3339();
         conn.execute(
             "INSERT INTO acp_runs (run_id, parent_session_id, backend_id, task, status, started_at, label)
@@ -66,7 +72,10 @@ impl SessionDB {
         pid: Option<u32>,
         external_session_id: Option<&str>,
     ) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         conn.execute(
             "UPDATE acp_runs SET status = ?1, pid = COALESCE(?2, pid),
                 external_session_id = COALESCE(?3, external_session_id)
@@ -86,7 +95,10 @@ impl SessionDB {
         input_tokens: Option<u64>,
         output_tokens: Option<u64>,
     ) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let now = chrono::Utc::now().to_rfc3339();
 
         // Calculate duration from started_at
@@ -130,7 +142,10 @@ impl SessionDB {
 
     /// Get a single ACP run by ID.
     pub fn get_acp_run(&self, run_id: &str) -> Result<Option<AcpRun>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let mut stmt = conn.prepare(
             "SELECT run_id, parent_session_id, backend_id, external_session_id, task,
                     status, result, error, model_used, started_at, finished_at,
@@ -138,16 +153,19 @@ impl SessionDB {
              FROM acp_runs WHERE run_id = ?1",
         )?;
 
-        let run = stmt.query_row(params![run_id], |row| {
-            Ok(row_to_acp_run(row))
-        }).optional()?;
+        let run = stmt
+            .query_row(params![run_id], |row| Ok(row_to_acp_run(row)))
+            .optional()?;
 
         Ok(run)
     }
 
     /// List ACP runs for a parent session.
     pub fn list_acp_runs(&self, parent_session_id: &str) -> Result<Vec<AcpRun>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let mut stmt = conn.prepare(
             "SELECT run_id, parent_session_id, backend_id, external_session_id, task,
                     status, result, error, model_used, started_at, finished_at,
@@ -156,11 +174,10 @@ impl SessionDB {
              ORDER BY started_at DESC",
         )?;
 
-        let runs = stmt.query_map(params![parent_session_id], |row| {
-            Ok(row_to_acp_run(row))
-        })?
-        .filter_map(|r| r.ok())
-        .collect();
+        let runs = stmt
+            .query_map(params![parent_session_id], |row| Ok(row_to_acp_run(row)))?
+            .filter_map(|r| r.ok())
+            .collect();
 
         Ok(runs)
     }
@@ -193,11 +210,27 @@ fn row_to_acp_run(row: &rusqlite::Row) -> AcpRun {
         model_used: row.get(8).ok(),
         started_at: row.get(9).unwrap_or_default(),
         finished_at: row.get(10).ok(),
-        duration_ms: row.get::<_, Option<i64>>(11).ok().flatten().map(|v| v as u64),
-        input_tokens: row.get::<_, Option<i64>>(12).ok().flatten().map(|v| v as u64),
-        output_tokens: row.get::<_, Option<i64>>(13).ok().flatten().map(|v| v as u64),
+        duration_ms: row
+            .get::<_, Option<i64>>(11)
+            .ok()
+            .flatten()
+            .map(|v| v as u64),
+        input_tokens: row
+            .get::<_, Option<i64>>(12)
+            .ok()
+            .flatten()
+            .map(|v| v as u64),
+        output_tokens: row
+            .get::<_, Option<i64>>(13)
+            .ok()
+            .flatten()
+            .map(|v| v as u64),
         label: row.get(14).ok(),
-        pid: row.get::<_, Option<i64>>(15).ok().flatten().map(|v| v as u32),
+        pid: row
+            .get::<_, Option<i64>>(15)
+            .ok()
+            .flatten()
+            .map(|v| v as u32),
     }
 }
 

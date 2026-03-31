@@ -9,19 +9,30 @@ pub(super) fn emit_event(on_delta: &(impl Fn(&str) + Send), event: &serde_json::
 }
 
 pub(super) fn emit_text_delta(on_delta: &(impl Fn(&str) + Send), text: &str) {
-    emit_event(on_delta, &json!({
-        "type": "text_delta",
-        "content": text,
-    }));
+    emit_event(
+        on_delta,
+        &json!({
+            "type": "text_delta",
+            "content": text,
+        }),
+    );
 }
 
-pub(super) fn emit_tool_call(on_delta: &(impl Fn(&str) + Send), call_id: &str, name: &str, arguments: &str) {
-    emit_event(on_delta, &json!({
-        "type": "tool_call",
-        "call_id": call_id,
-        "name": name,
-        "arguments": arguments,
-    }));
+pub(super) fn emit_tool_call(
+    on_delta: &(impl Fn(&str) + Send),
+    call_id: &str,
+    name: &str,
+    arguments: &str,
+) {
+    emit_event(
+        on_delta,
+        &json!({
+            "type": "tool_call",
+            "call_id": call_id,
+            "name": name,
+            "arguments": arguments,
+        }),
+    );
 }
 
 /// Media URL prefix used by tools (e.g. image_generate) to embed file paths in results.
@@ -41,7 +52,15 @@ pub(super) fn extract_media_urls(result: &str) -> (String, Vec<String>) {
     (result.to_string(), Vec::new())
 }
 
-pub(super) fn emit_tool_result(on_delta: &(impl Fn(&str) + Send), call_id: &str, name: &str, result: &str, duration_ms: u64, is_error: bool, media_urls: &[String]) {
+pub(super) fn emit_tool_result(
+    on_delta: &(impl Fn(&str) + Send),
+    call_id: &str,
+    name: &str,
+    result: &str,
+    duration_ms: u64,
+    is_error: bool,
+    media_urls: &[String],
+) {
     let mut event = json!({
         "type": "tool_result",
         "call_id": call_id,
@@ -115,7 +134,11 @@ pub(super) fn build_openai_chat_tool_result_content(result: &str) -> serde_json:
 /// should be appended to the input array as a separate message.
 pub(super) fn build_responses_tool_result(result: &str) -> (String, Option<serde_json::Value>) {
     if let Some((mime, b64, text)) = parse_image_base64_marker(result) {
-        let clean = if text.trim().is_empty() { "Screenshot captured.".to_string() } else { text.trim().to_string() };
+        let clean = if text.trim().is_empty() {
+            "Screenshot captured.".to_string()
+        } else {
+            text.trim().to_string()
+        };
         let data_uri = format!("data:{};base64,{}", mime, b64);
         let image_item = json!({
             "role": "user",
@@ -137,13 +160,21 @@ pub(super) fn build_responses_tool_result(result: &str) -> (String, Option<serde
 }
 
 pub(super) fn emit_thinking_delta(on_delta: &(impl Fn(&str) + Send), text: &str) {
-    emit_event(on_delta, &json!({
-        "type": "thinking_delta",
-        "content": text,
-    }));
+    emit_event(
+        on_delta,
+        &json!({
+            "type": "thinking_delta",
+            "content": text,
+        }),
+    );
 }
 
-pub(super) fn emit_usage(on_delta: &(impl Fn(&str) + Send), usage: &ChatUsage, model: &str, ttft_ms: Option<u64>) {
+pub(super) fn emit_usage(
+    on_delta: &(impl Fn(&str) + Send),
+    usage: &ChatUsage,
+    model: &str,
+    ttft_ms: Option<u64>,
+) {
     let mut event = json!({
         "type": "usage",
         "input_tokens": usage.input_tokens,
@@ -159,15 +190,26 @@ pub(super) fn emit_usage(on_delta: &(impl Fn(&str) + Send), usage: &ChatUsage, m
 
     // Structured logging for LLM usage
     if let Some(logger) = crate::get_logger() {
-        logger.log("info", "agent", "agent::usage",
-            &format!("LLM usage: model={}, in={}, out={}", model, usage.input_tokens, usage.output_tokens),
-            Some(serde_json::json!({
-                "model": model,
-                "input_tokens": usage.input_tokens,
-                "output_tokens": usage.output_tokens,
-                "cache_creation": usage.cache_creation_input_tokens,
-                "cache_read": usage.cache_read_input_tokens,
-            }).to_string()),
-            None, None);
+        logger.log(
+            "info",
+            "agent",
+            "agent::usage",
+            &format!(
+                "LLM usage: model={}, in={}, out={}",
+                model, usage.input_tokens, usage.output_tokens
+            ),
+            Some(
+                serde_json::json!({
+                    "model": model,
+                    "input_tokens": usage.input_tokens,
+                    "output_tokens": usage.output_tokens,
+                    "cache_creation": usage.cache_creation_input_tokens,
+                    "cache_read": usage.cache_read_input_tokens,
+                })
+                .to_string(),
+            ),
+            None,
+            None,
+        );
     }
 }

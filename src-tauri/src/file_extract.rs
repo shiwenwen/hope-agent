@@ -52,13 +52,11 @@ pub fn extract(file_path: &str, file_name: &str, mime_type: &str) -> FileContent
 
     let result = if mime_type == "application/pdf" || lower_name.ends_with(".pdf") {
         extract_pdf(path)
-    } else if mime_type
-        == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    } else if mime_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         || lower_name.ends_with(".docx")
     {
         extract_docx(path)
-    } else if mime_type
-        == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    } else if mime_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         || mime_type == "application/vnd.ms-excel"
         || lower_name.ends_with(".xlsx")
         || lower_name.ends_with(".xls")
@@ -84,7 +82,13 @@ pub fn extract(file_path: &str, file_name: &str, mime_type: &str) -> FileContent
             file_name: file_name.to_string(),
         },
         Err(e) => {
-            app_warn!("tool", "file_extract", "Failed to extract content from '{}': {}", file_name, e);
+            app_warn!(
+                "tool",
+                "file_extract",
+                "Failed to extract content from '{}': {}",
+                file_name,
+                e
+            );
             FileContent {
                 text: Some(format!("[Error extracting content: {}]", e)),
                 images: Vec::new(),
@@ -125,14 +129,26 @@ fn extract_pdf(path: &Path) -> Result<(Option<String>, Vec<ExtractedImage>)> {
             }
         }
         Err(e) => {
-            app_warn!("tool", "file_extract", "PDF text extraction failed for {:?}: {}", path, e);
+            app_warn!(
+                "tool",
+                "file_extract",
+                "PDF text extraction failed for {:?}: {}",
+                path,
+                e
+            );
             None
         }
     };
 
     // 2. Render pages as images via pdfium
     let images = render_pdf_pages(path).unwrap_or_else(|e| {
-        app_warn!("tool", "file_extract", "PDF page rendering failed for {:?}: {}", path, e);
+        app_warn!(
+            "tool",
+            "file_extract",
+            "PDF page rendering failed for {:?}: {}",
+            path,
+            e
+        );
         Vec::new()
     });
 
@@ -179,9 +195,9 @@ fn render_pdf_pages(path: &Path) -> Result<Vec<ExtractedImage>> {
     let mut images = Vec::new();
 
     for i in 0..page_count {
-        let page = pages.get(i).map_err(|e| {
-            anyhow::anyhow!("Failed to get page {}: {:?}", i, e)
-        })?;
+        let page = pages
+            .get(i)
+            .map_err(|e| anyhow::anyhow!("Failed to get page {}: {:?}", i, e))?;
 
         // Calculate render size maintaining aspect ratio
         let width = page.width();
@@ -246,8 +262,8 @@ fn extract_docx(path: &Path) -> Result<(Option<String>, Vec<ExtractedImage>)> {
 fn extract_excel(path: &Path) -> Result<(Option<String>, Vec<ExtractedImage>)> {
     use calamine::{open_workbook_auto, Data, Reader};
 
-    let mut workbook = open_workbook_auto(path)
-        .map_err(|e| anyhow::anyhow!("Failed to open workbook: {}", e))?;
+    let mut workbook =
+        open_workbook_auto(path).map_err(|e| anyhow::anyhow!("Failed to open workbook: {}", e))?;
 
     let sheet_names: Vec<String> = workbook.sheet_names().to_vec();
     let mut output = String::new();
@@ -438,14 +454,64 @@ fn is_text_file(mime_type: &str, lower_name: &str) -> bool {
     }
     // Fallback: check file extension
     let text_extensions = [
-        "txt", "md", "markdown", "html", "htm", "css", "js", "jsx", "ts", "tsx",
-        "json", "xml", "yaml", "yml", "toml", "ini", "cfg", "conf",
-        "sh", "bash", "zsh", "fish", "ps1", "bat", "cmd",
-        "py", "rb", "rs", "go", "java", "kt", "scala", "c", "cpp", "h", "hpp",
-        "cs", "swift", "m", "mm", "r", "lua", "pl", "pm", "php",
-        "sql", "graphql", "proto", "cmake",
-        "csv", "tsv", "log", "env", "gitignore", "dockerignore",
-        "vue", "svelte", "astro",
+        "txt",
+        "md",
+        "markdown",
+        "html",
+        "htm",
+        "css",
+        "js",
+        "jsx",
+        "ts",
+        "tsx",
+        "json",
+        "xml",
+        "yaml",
+        "yml",
+        "toml",
+        "ini",
+        "cfg",
+        "conf",
+        "sh",
+        "bash",
+        "zsh",
+        "fish",
+        "ps1",
+        "bat",
+        "cmd",
+        "py",
+        "rb",
+        "rs",
+        "go",
+        "java",
+        "kt",
+        "scala",
+        "c",
+        "cpp",
+        "h",
+        "hpp",
+        "cs",
+        "swift",
+        "m",
+        "mm",
+        "r",
+        "lua",
+        "pl",
+        "pm",
+        "php",
+        "sql",
+        "graphql",
+        "proto",
+        "cmake",
+        "csv",
+        "tsv",
+        "log",
+        "env",
+        "gitignore",
+        "dockerignore",
+        "vue",
+        "svelte",
+        "astro",
     ];
     if let Some(ext) = lower_name.rsplit('.').next() {
         if text_extensions.iter().any(|e| ext == *e) {

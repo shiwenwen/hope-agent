@@ -1,18 +1,16 @@
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 use std::collections::HashSet;
 use std::sync::LazyLock;
-use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
 
 use super::{
-    ToolProvider,
-    TOOL_EXEC, TOOL_PROCESS, TOOL_READ, TOOL_WRITE, TOOL_EDIT, TOOL_LS,
-    TOOL_GREP, TOOL_FIND, TOOL_APPLY_PATCH, TOOL_WEB_SEARCH, TOOL_WEB_FETCH,
-    TOOL_SAVE_MEMORY, TOOL_RECALL_MEMORY, TOOL_UPDATE_MEMORY, TOOL_DELETE_MEMORY, TOOL_UPDATE_CORE_MEMORY,
-    TOOL_MANAGE_CRON, TOOL_BROWSER, TOOL_SEND_NOTIFICATION, TOOL_SUBAGENT,
-    TOOL_MEMORY_GET, TOOL_AGENTS_LIST, TOOL_SESSIONS_LIST, TOOL_SESSION_STATUS,
-    TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_SEND, TOOL_IMAGE, TOOL_IMAGE_GENERATE, TOOL_PDF,
-    TOOL_CANVAS, TOOL_ACP_SPAWN, TOOL_UPDATE_PLAN_STEP,
-    TOOL_PLAN_QUESTION, TOOL_SUBMIT_PLAN, TOOL_AMEND_PLAN,
+    ToolProvider, TOOL_ACP_SPAWN, TOOL_AGENTS_LIST, TOOL_AMEND_PLAN, TOOL_APPLY_PATCH,
+    TOOL_BROWSER, TOOL_CANVAS, TOOL_DELETE_MEMORY, TOOL_EDIT, TOOL_EXEC, TOOL_FIND, TOOL_GREP,
+    TOOL_IMAGE, TOOL_IMAGE_GENERATE, TOOL_LS, TOOL_MANAGE_CRON, TOOL_MEMORY_GET, TOOL_PDF,
+    TOOL_PLAN_QUESTION, TOOL_PROCESS, TOOL_READ, TOOL_RECALL_MEMORY, TOOL_SAVE_MEMORY,
+    TOOL_SEND_NOTIFICATION, TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEND,
+    TOOL_SESSION_STATUS, TOOL_SUBAGENT, TOOL_SUBMIT_PLAN, TOOL_UPDATE_CORE_MEMORY,
+    TOOL_UPDATE_MEMORY, TOOL_UPDATE_PLAN_STEP, TOOL_WEB_FETCH, TOOL_WEB_SEARCH, TOOL_WRITE,
 };
 
 // ── Tool Definition (provider-agnostic) ───────────────────────────
@@ -33,12 +31,22 @@ pub struct ToolDefinition {
 impl ToolDefinition {
     #[allow(dead_code)]
     fn new(name: &str, description: &str, parameters: Value) -> Self {
-        Self { name: name.into(), description: description.into(), parameters, internal: false }
+        Self {
+            name: name.into(),
+            description: description.into(),
+            parameters,
+            internal: false,
+        }
     }
 
     #[allow(dead_code)]
     fn new_internal(name: &str, description: &str, parameters: Value) -> Self {
-        Self { name: name.into(), description: description.into(), parameters, internal: true }
+        Self {
+            name: name.into(),
+            description: description.into(),
+            parameters,
+            internal: true,
+        }
     }
 
     pub fn to_anthropic_schema(&self) -> Value {
@@ -1010,7 +1018,13 @@ static INTERNAL_TOOL_NAMES: LazyLock<HashSet<String>> = LazyLock::new(|| {
         .map(|t| t.name)
         .collect();
     // Include conditionally-injected tools
-    for t in [get_notification_tool(), get_subagent_tool(), get_image_generate_tool(), get_canvas_tool(), get_acp_spawn_tool()] {
+    for t in [
+        get_notification_tool(),
+        get_subagent_tool(),
+        get_image_generate_tool(),
+        get_canvas_tool(),
+        get_acp_spawn_tool(),
+    ] {
         if t.internal {
             set.insert(t.name);
         }
@@ -1037,18 +1051,23 @@ pub fn get_image_generate_tool() -> ToolDefinition {
 }
 
 /// Returns the image_generate tool definition with dynamic description based on enabled providers.
-pub fn get_image_generate_tool_dynamic(config: &crate::tools::image_generate::ImageGenConfig) -> ToolDefinition {
+pub fn get_image_generate_tool_dynamic(
+    config: &crate::tools::image_generate::ImageGenConfig,
+) -> ToolDefinition {
     use crate::tools::image_generate;
 
     // Build available models list from enabled providers
-    let enabled: Vec<_> = config.providers.iter()
+    let enabled: Vec<_> = config
+        .providers
+        .iter()
         .filter(|p| p.enabled && p.api_key.as_ref().map_or(false, |k| !k.is_empty()))
         .collect();
 
     let models_desc = if enabled.is_empty() {
         "No models configured".to_string()
     } else {
-        enabled.iter()
+        enabled
+            .iter()
             .map(|p| {
                 let model = image_generate::effective_model(p);
                 let display = image_generate::provider_display_name(p);
@@ -1108,14 +1127,14 @@ pub fn get_image_generate_tool_dynamic(config: &crate::tools::image_generate::Im
          Use action='list' to see all providers with detailed capabilities. \
          Images are saved to disk and returned for visual inspection. \
          Default: auto — tries models in order with automatic failover on failure.",
-        models_desc,
-        edit_desc
+        models_desc, edit_desc
     );
 
     let model_param_desc = if enabled.is_empty() {
         "Specify a model. Default: auto.".to_string()
     } else {
-        let model_list = enabled.iter()
+        let model_list = enabled
+            .iter()
             .map(|p| format!("'{}'", image_generate::effective_model(p)))
             .collect::<Vec<_>>()
             .join(", ");

@@ -2,7 +2,7 @@ use anyhow::Result;
 use serde_json::Value;
 
 use crate::process_registry::{
-    ProcessStatus, derive_session_name, format_duration_compact, get_registry, now_ms,
+    derive_session_name, format_duration_compact, get_registry, now_ms, ProcessStatus,
 };
 
 pub(crate) async fn tool_process(args: &Value) -> Result<String> {
@@ -89,8 +89,7 @@ async fn tool_process_list() -> Result<String> {
 async fn tool_process_poll(session_id: &str, timeout_ms: u64) -> Result<String> {
     // Wait for new output or timeout
     if timeout_ms > 0 {
-        let deadline =
-            std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
         loop {
             {
                 let registry = get_registry().lock().await;
@@ -170,8 +169,7 @@ async fn tool_process_log(
     let total = lines.len();
     let default_tail = 200;
 
-    let start =
-        offset.unwrap_or_else(|| total.saturating_sub(limit.unwrap_or(default_tail)));
+    let start = offset.unwrap_or_else(|| total.saturating_sub(limit.unwrap_or(default_tail)));
     let end = limit.map(|l| (start + l).min(total)).unwrap_or(total);
 
     let slice: String = lines[start..end].join("\n");
@@ -200,10 +198,7 @@ async fn tool_process_write(session_id: &str, _data: &str) -> Result<String> {
         .ok_or_else(|| anyhow::anyhow!("No session found for {}", session_id))?;
 
     if session.exited {
-        return Err(anyhow::anyhow!(
-            "Session {} has already exited",
-            session_id
-        ));
+        return Err(anyhow::anyhow!("Session {} has already exited", session_id));
     }
 
     Ok(format!(

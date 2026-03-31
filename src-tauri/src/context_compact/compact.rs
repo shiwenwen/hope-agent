@@ -1,21 +1,21 @@
 // ── Main Entry Point + Tier 4: Emergency Compaction ──
 
-use serde_json::Value;
 use super::config::CompactConfig;
-use super::estimation::{estimate_tokens, estimate_request_tokens, is_tool_result, is_user_message, get_tool_result_text, set_tool_result_text};
-use super::truncation::truncate_tool_results;
+use super::estimation::{
+    estimate_request_tokens, estimate_tokens, get_tool_result_text, is_tool_result,
+    is_user_message, set_tool_result_text,
+};
 use super::pruning::prune_old_context;
-use super::types::{CompactResult, CompactDetails};
+use super::truncation::truncate_tool_results;
+use super::types::{CompactDetails, CompactResult};
+use serde_json::Value;
 
 // ── Tier 4: Emergency Compaction ──
 
 /// Aggressively compact context when ContextOverflow occurs.
 /// 1. Replace ALL tool result contents with placeholders
 /// 2. Keep only the last N user turns
-pub fn emergency_compact(
-    messages: &mut Vec<Value>,
-    config: &CompactConfig,
-) -> CompactResult {
+pub fn emergency_compact(messages: &mut Vec<Value>, config: &CompactConfig) -> CompactResult {
     let tokens_before = messages.iter().map(|m| estimate_tokens(m)).sum::<u32>();
     let mut affected = 0;
 
@@ -133,7 +133,13 @@ pub fn compact_if_needed(
 
     // Tier 2: Context pruning (soft trim + hard clear)
     if ratio_after_t1 >= config.soft_trim_ratio {
-        let prune = prune_old_context(messages, system_prompt, context_window, max_output_tokens, config);
+        let prune = prune_old_context(
+            messages,
+            system_prompt,
+            context_window,
+            max_output_tokens,
+            config,
+        );
         let tokens_after_t2 = estimate_request_tokens(system_prompt, messages, max_output_tokens);
         let ratio_after_t2 = tokens_after_t2 as f64 / context_window as f64;
 

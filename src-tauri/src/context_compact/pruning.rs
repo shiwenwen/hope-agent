@@ -1,14 +1,14 @@
 // ── Tier 2: Context Pruning ──
 
-use serde_json::Value;
 use super::config::CompactConfig;
 use super::estimation::{
-    estimate_message_chars, get_tool_result_text, set_tool_result_text,
-    is_tool_result, is_assistant_message, is_user_message, extract_tool_name, is_tool_denied,
+    estimate_message_chars, extract_tool_name, get_tool_result_text, is_assistant_message,
+    is_tool_denied, is_tool_result, is_user_message, set_tool_result_text,
 };
 use super::truncation::head_tail_truncate;
 use super::types::{PruneResult, ToolResultInfo};
 use super::CHARS_PER_TOKEN;
+use serde_json::Value;
 
 /// Compute prune priority for a tool result (higher = prune first).
 /// Improvement over openclaw: uses age x size instead of pure age.
@@ -57,9 +57,7 @@ fn collect_prunable_tool_results(
                 continue;
             }
         }
-        let content_chars = get_tool_result_text(msg)
-            .map(|t| t.len())
-            .unwrap_or(0);
+        let content_chars = get_tool_result_text(msg).map(|t| t.len()).unwrap_or(0);
         results.push(ToolResultInfo {
             msg_index: i,
             tool_name,
@@ -102,7 +100,10 @@ pub fn prune_old_context(
 
     // Step 3: Calculate current ratio
     let total_chars = system_prompt.len()
-        + messages.iter().map(|m| estimate_message_chars(m)).sum::<usize>()
+        + messages
+            .iter()
+            .map(|m| estimate_message_chars(m))
+            .sum::<usize>()
         + (max_output_tokens as usize * CHARS_PER_TOKEN);
     let ratio = total_chars as f64 / char_window as f64;
 
@@ -111,7 +112,8 @@ pub fn prune_old_context(
     }
 
     // Step 4: Collect prunable tool results, sorted by priority (highest first)
-    let mut prunable = collect_prunable_tool_results(messages, prune_start, cutoff, &config.tools_deny_prune);
+    let mut prunable =
+        collect_prunable_tool_results(messages, prune_start, cutoff, &config.tools_deny_prune);
     let total_msgs = messages.len();
     prunable.sort_by(|a, b| {
         let pa = prune_priority(a.msg_index, total_msgs, a.content_chars);
@@ -151,11 +153,14 @@ pub fn prune_old_context(
         return result;
     }
 
-    let total_prunable_chars: usize = prunable.iter().map(|i| {
-        get_tool_result_text(&messages[i.msg_index])
-            .map(|t| t.len())
-            .unwrap_or(0)
-    }).sum();
+    let total_prunable_chars: usize = prunable
+        .iter()
+        .map(|i| {
+            get_tool_result_text(&messages[i.msg_index])
+                .map(|t| t.len())
+                .unwrap_or(0)
+        })
+        .sum();
 
     if total_prunable_chars < config.min_prunable_tool_chars {
         return result; // Not enough benefit
@@ -171,7 +176,10 @@ pub fn prune_old_context(
             if original_len <= config.hard_clear_placeholder.len() {
                 continue; // Already cleared or too small
             }
-            set_tool_result_text(&mut messages[info.msg_index], &config.hard_clear_placeholder);
+            set_tool_result_text(
+                &mut messages[info.msg_index],
+                &config.hard_clear_placeholder,
+            );
             let freed = original_len - config.hard_clear_placeholder.len();
             current_chars = current_chars.saturating_sub(freed);
             result.hard_cleared += 1;

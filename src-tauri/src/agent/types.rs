@@ -24,7 +24,10 @@ impl Attachment {
         if let Some(ref path) = self.file_path {
             return read_and_encode_base64(path);
         }
-        Err(anyhow::anyhow!("Attachment '{}' has neither data nor file_path", self.name))
+        Err(anyhow::anyhow!(
+            "Attachment '{}' has neither data nor file_path",
+            self.name
+        ))
     }
 }
 
@@ -39,13 +42,29 @@ pub(super) fn read_and_encode_base64(path: &str) -> anyhow::Result<String> {
 /// Supported LLM providers
 pub enum LlmProvider {
     /// Anthropic Messages API
-    Anthropic { api_key: String, base_url: String, model: String },
+    Anthropic {
+        api_key: String,
+        base_url: String,
+        model: String,
+    },
     /// OpenAI Chat Completions API (/v1/chat/completions)
-    OpenAIChat { api_key: String, base_url: String, model: String },
+    OpenAIChat {
+        api_key: String,
+        base_url: String,
+        model: String,
+    },
     /// OpenAI Responses API (/v1/responses)
-    OpenAIResponses { api_key: String, base_url: String, model: String },
+    OpenAIResponses {
+        api_key: String,
+        base_url: String,
+        model: String,
+    },
     /// Built-in Codex OAuth (ChatGPT subscription)
-    Codex { access_token: String, account_id: String, model: String },
+    Codex {
+        access_token: String,
+        account_id: String,
+        model: String,
+    },
 }
 
 /// Dual-agent plan mode: Plan Agent (read-only + planning tools) vs Build Agent (full tools + execution tracking).
@@ -60,9 +79,7 @@ pub enum PlanAgentMode {
         ask_tools: Vec<String>,
     },
     /// Build Agent: full tool access + extra plan execution tools
-    BuildAgent {
-        extra_tools: Vec<String>,
-    },
+    BuildAgent { extra_tools: Vec<String> },
 }
 
 pub struct AssistantAgent {
@@ -119,7 +136,10 @@ pub(super) struct ThinkTagFilter {
 
 impl ThinkTagFilter {
     pub(super) fn new() -> Self {
-        Self { in_thinking: false, tag_buffer: String::new() }
+        Self {
+            in_thinking: false,
+            tag_buffer: String::new(),
+        }
     }
 
     /// Process a chunk of content text. Returns (text_outside_tags, thinking_inside_tags).
@@ -156,7 +176,8 @@ impl ThinkTagFilter {
                 }
 
                 let tag_lower = tag.to_lowercase();
-                let tag_trimmed = tag_lower.trim_matches(|c: char| c == '<' || c == '>' || c.is_whitespace());
+                let tag_trimmed =
+                    tag_lower.trim_matches(|c: char| c == '<' || c == '>' || c.is_whitespace());
                 if tag_trimmed == "think" || tag_trimmed == "thinking" {
                     self.in_thinking = true;
                 } else if tag_trimmed == "/think" || tag_trimmed == "/thinking" {

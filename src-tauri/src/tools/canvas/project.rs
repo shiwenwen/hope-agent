@@ -136,15 +136,13 @@ pub fn restore_version(
     project_id: &str,
     version_number: i64,
 ) -> Result<CanvasProject> {
-    let version = db
-        .get_version(project_id, version_number)?
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "Version {} not found for project '{}'",
-                version_number,
-                project_id
-            )
-        })?;
+    let version = db.get_version(project_id, version_number)?.ok_or_else(|| {
+        anyhow::anyhow!(
+            "Version {} not found for project '{}'",
+            version_number,
+            project_id
+        )
+    })?;
 
     let project = db
         .get_project(project_id)?

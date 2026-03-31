@@ -3,9 +3,14 @@ use crate::paths;
 /// Delete a file if it exists, logging the result.
 fn remove_file_if_exists(path: &std::path::Path, label: &str) -> Result<(), String> {
     if path.exists() {
-        std::fs::remove_file(path)
-            .map_err(|e| format!("Failed to delete {}: {}", label, e))?;
-        app_info!("dev_tools", "clear", "Deleted {}: {}", label, path.display());
+        std::fs::remove_file(path).map_err(|e| format!("Failed to delete {}: {}", label, e))?;
+        app_info!(
+            "dev_tools",
+            "clear",
+            "Deleted {}: {}",
+            label,
+            path.display()
+        );
     }
     // Also remove WAL and SHM files for SQLite databases
     let wal = path.with_extension("db-wal");

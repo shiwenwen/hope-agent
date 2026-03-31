@@ -19,10 +19,9 @@ const PREVIEW_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2)
 
 /// File extensions that should NOT be previewed (media / binary).
 const SKIP_EXTENSIONS: &[&str] = &[
-    "png", "jpg", "jpeg", "gif", "webp", "svg", "ico", "bmp",
-    "mp4", "webm", "mov", "avi", "mp3", "wav", "ogg", "flac",
-    "zip", "tar", "gz", "rar", "7z", "pdf", "doc", "docx",
-    "xls", "xlsx", "ppt", "pptx", "exe", "dmg", "iso",
+    "png", "jpg", "jpeg", "gif", "webp", "svg", "ico", "bmp", "mp4", "webm", "mov", "avi", "mp3",
+    "wav", "ogg", "flac", "zip", "tar", "gz", "rar", "7z", "pdf", "doc", "docx", "xls", "xlsx",
+    "ppt", "pptx", "exe", "dmg", "iso",
 ];
 
 // ── Data Types ──────────────────────────────────────────────────
@@ -76,7 +75,13 @@ fn write_cache(url: String, data: UrlPreviewMeta) {
             }
         }
 
-        cache.insert(url, CacheEntry { data, inserted_at: now });
+        cache.insert(
+            url,
+            CacheEntry {
+                data,
+                inserted_at: now,
+            },
+        );
     }
 }
 
@@ -137,9 +142,8 @@ static RE_OG_SITE_NAME_ALT: Lazy<Regex> = Lazy::new(|| {
 });
 
 // Fallback meta tags
-static RE_TITLE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?is)<title[^>]*>([^<]*)</title>"#).unwrap()
-});
+static RE_TITLE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(?is)<title[^>]*>([^<]*)</title>"#).unwrap());
 static RE_META_DESC: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"(?i)<meta\s+(?:[^>]*?\s)?name\s*=\s*["']description["'][^>]*?\scontent\s*=\s*["']([^"']*?)["']"#).unwrap()
 });
@@ -181,15 +185,23 @@ fn resolve_url(base: &str, href: &str) -> Option<String> {
         .map(|u| u.to_string())
 }
 
-fn parse_head(html: &str, final_url: &str) -> (Option<String>, Option<String>, Option<String>, Option<String>, Option<String>) {
-    let title = extract_og(&RE_OG_TITLE, &RE_OG_TITLE_ALT, html)
-        .or_else(|| {
-            RE_TITLE
-                .captures(html)
-                .and_then(|c| c.get(1))
-                .map(|m| decode_html_entities(m.as_str().trim()))
-                .filter(|s| !s.is_empty())
-        });
+fn parse_head(
+    html: &str,
+    final_url: &str,
+) -> (
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+) {
+    let title = extract_og(&RE_OG_TITLE, &RE_OG_TITLE_ALT, html).or_else(|| {
+        RE_TITLE
+            .captures(html)
+            .and_then(|c| c.get(1))
+            .map(|m| decode_html_entities(m.as_str().trim()))
+            .filter(|s| !s.is_empty())
+    });
 
     let description = extract_og(&RE_OG_DESC, &RE_OG_DESC_ALT, html)
         .or_else(|| extract_og(&RE_META_DESC, &RE_META_DESC_ALT, html));
@@ -207,9 +219,13 @@ fn parse_head(html: &str, final_url: &str) -> (Option<String>, Option<String>, O
         .and_then(|href| resolve_url(final_url, &href))
         .or_else(|| {
             // Default favicon fallback
-            url::Url::parse(final_url)
-                .ok()
-                .map(|u| format!("{}://{}/favicon.ico", u.scheme(), u.host_str().unwrap_or("")))
+            url::Url::parse(final_url).ok().map(|u| {
+                format!(
+                    "{}://{}/favicon.ico",
+                    u.scheme(),
+                    u.host_str().unwrap_or("")
+                )
+            })
         });
 
     (title, description, image, site_name, favicon)
@@ -244,7 +260,10 @@ pub async fn fetch_preview(url_str: &str) -> Result<UrlPreviewMeta> {
         .build()
         .map_err(|e| anyhow::anyhow!("Failed to build HTTP client: {}", e))?;
 
-    let resp = client.get(url_str).send().await
+    let resp = client
+        .get(url_str)
+        .send()
+        .await
         .map_err(|e| anyhow::anyhow!("Request failed: {}", e))?;
 
     let final_url = resp.url().to_string();

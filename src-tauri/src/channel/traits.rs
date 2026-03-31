@@ -81,7 +81,9 @@ pub trait ChannelPlugin: Send + Sync + 'static {
         _message_id: &str,
         _payload: &ReplyPayload,
     ) -> Result<DeliveryResult> {
-        Err(anyhow::anyhow!("edit_message not supported by this channel"))
+        Err(anyhow::anyhow!(
+            "edit_message not supported by this channel"
+        ))
     }
 
     /// Delete an existing message. Not all channels support this.
@@ -91,7 +93,9 @@ pub trait ChannelPlugin: Send + Sync + 'static {
         _chat_id: &str,
         _message_id: &str,
     ) -> Result<()> {
-        Err(anyhow::anyhow!("delete_message not supported by this channel"))
+        Err(anyhow::anyhow!(
+            "delete_message not supported by this channel"
+        ))
     }
 
     // ── Status (OpenClaw StatusAdapter) ──────────────────────────

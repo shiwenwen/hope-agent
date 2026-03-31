@@ -1,17 +1,13 @@
-use tauri::State;
-use crate::AppState;
-use crate::skills;
 use crate::provider;
+use crate::skills;
+use crate::AppState;
+use tauri::State;
 
 #[tauri::command]
-pub async fn get_skills(
-    state: State<'_, AppState>,
-) -> Result<Vec<skills::SkillSummary>, String> {
+pub async fn get_skills(state: State<'_, AppState>) -> Result<Vec<skills::SkillSummary>, String> {
     let store = state.provider_store.lock().await;
-    let entries = skills::load_all_skills_with_budget(
-        &store.extra_skills_dirs,
-        &store.skill_prompt_budget,
-    );
+    let entries =
+        skills::load_all_skills_with_budget(&store.extra_skills_dirs, &store.skill_prompt_budget);
     let disabled = &store.disabled_skills;
     Ok(entries
         .into_iter()
@@ -49,18 +45,13 @@ pub async fn get_skill_detail(
 }
 
 #[tauri::command]
-pub async fn get_extra_skills_dirs(
-    state: State<'_, AppState>,
-) -> Result<Vec<String>, String> {
+pub async fn get_extra_skills_dirs(state: State<'_, AppState>) -> Result<Vec<String>, String> {
     let store = state.provider_store.lock().await;
     Ok(store.extra_skills_dirs.clone())
 }
 
 #[tauri::command]
-pub async fn add_extra_skills_dir(
-    dir: String,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
+pub async fn add_extra_skills_dir(dir: String, state: State<'_, AppState>) -> Result<(), String> {
     let mut store = state.provider_store.lock().await;
     // Avoid duplicates
     if !store.extra_skills_dirs.contains(&dir) {
@@ -101,18 +92,13 @@ pub async fn toggle_skill(
 }
 
 #[tauri::command]
-pub async fn get_skill_env_check(
-    state: State<'_, AppState>,
-) -> Result<bool, String> {
+pub async fn get_skill_env_check(state: State<'_, AppState>) -> Result<bool, String> {
     let store = state.provider_store.lock().await;
     Ok(store.skill_env_check)
 }
 
 #[tauri::command]
-pub async fn set_skill_env_check(
-    enabled: bool,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
+pub async fn set_skill_env_check(enabled: bool, state: State<'_, AppState>) -> Result<(), String> {
     let mut store = state.provider_store.lock().await;
     store.skill_env_check = enabled;
     provider::save_store(&store).map_err(|e| e.to_string())?;
@@ -179,10 +165,8 @@ pub async fn get_skills_env_status(
     state: State<'_, AppState>,
 ) -> Result<std::collections::HashMap<String, std::collections::HashMap<String, bool>>, String> {
     let store = state.provider_store.lock().await;
-    let entries = skills::load_all_skills_with_budget(
-        &store.extra_skills_dirs,
-        &store.skill_prompt_budget,
-    );
+    let entries =
+        skills::load_all_skills_with_budget(&store.extra_skills_dirs, &store.skill_prompt_budget);
     let mut result = std::collections::HashMap::new();
     for entry in &entries {
         if entry.requires.env.is_empty() {
@@ -209,10 +193,8 @@ pub async fn get_skills_status(
     state: State<'_, AppState>,
 ) -> Result<Vec<skills::SkillStatusEntry>, String> {
     let store = state.provider_store.lock().await;
-    let entries = skills::load_all_skills_with_budget(
-        &store.extra_skills_dirs,
-        &store.skill_prompt_budget,
-    );
+    let entries =
+        skills::load_all_skills_with_budget(&store.extra_skills_dirs, &store.skill_prompt_budget);
     Ok(skills::check_all_skills_status(
         &entries,
         &store.disabled_skills,
@@ -230,17 +212,18 @@ pub async fn install_skill_dependency(
     state: State<'_, AppState>,
 ) -> Result<String, String> {
     let store = state.provider_store.lock().await;
-    let entries = skills::load_all_skills_with_budget(
-        &store.extra_skills_dirs,
-        &store.skill_prompt_budget,
-    );
+    let entries =
+        skills::load_all_skills_with_budget(&store.extra_skills_dirs, &store.skill_prompt_budget);
     drop(store); // Release lock before running install
 
-    let skill = entries.into_iter()
+    let skill = entries
+        .into_iter()
         .find(|s| s.name == skill_name)
         .ok_or_else(|| format!("Skill not found: {}", skill_name))?;
 
-    let spec = skill.install.get(spec_index)
+    let spec = skill
+        .install
+        .get(spec_index)
         .ok_or_else(|| format!("Install spec index {} out of range", spec_index))?;
 
     // Check OS constraint
@@ -261,7 +244,9 @@ pub async fn install_skill_dependency(
 
     let output = match spec.kind.as_str() {
         "brew" => {
-            let formula = spec.formula.as_deref()
+            let formula = spec
+                .formula
+                .as_deref()
                 .ok_or("Brew install spec missing 'formula' field")?;
             // Validate formula name (basic safety check)
             if formula.contains("..") || formula.contains('\\') || formula.starts_with('-') {
@@ -270,7 +255,9 @@ pub async fn install_skill_dependency(
             run_install_command("brew", &["install", formula]).await?
         }
         "node" => {
-            let package = spec.package.as_deref()
+            let package = spec
+                .package
+                .as_deref()
                 .ok_or("Node install spec missing 'package' field")?;
             if package.contains("..") || package.contains('\\') {
                 return Err("Invalid npm package name".to_string());
@@ -278,7 +265,9 @@ pub async fn install_skill_dependency(
             run_install_command("npm", &["install", "-g", package]).await?
         }
         "go" => {
-            let module = spec.go_module.as_deref()
+            let module = spec
+                .go_module
+                .as_deref()
                 .ok_or("Go install spec missing 'module' field")?;
             if module.contains("..") || module.contains('\\') {
                 return Err("Invalid go module path".to_string());
@@ -286,7 +275,9 @@ pub async fn install_skill_dependency(
             run_install_command("go", &["install", module]).await?
         }
         "uv" => {
-            let package = spec.package.as_deref()
+            let package = spec
+                .package
+                .as_deref()
                 .ok_or("UV install spec missing 'package' field")?;
             run_install_command("uv", &["tool", "install", package]).await?
         }

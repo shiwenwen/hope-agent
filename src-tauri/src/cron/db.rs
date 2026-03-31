@@ -66,9 +66,7 @@ impl CronDB {
             .prepare("SELECT running_at FROM cron_jobs LIMIT 0")
             .is_ok();
         if !has_running_at {
-            conn.execute_batch(
-                "ALTER TABLE cron_jobs ADD COLUMN running_at TEXT;",
-            )?;
+            conn.execute_batch("ALTER TABLE cron_jobs ADD COLUMN running_at TEXT;")?;
         }
 
         // Migration: add notify_on_complete column if missing (for existing DBs)
@@ -102,8 +100,7 @@ impl CronDB {
         let max_failures = input.max_failures.unwrap_or(5);
 
         // Compute initial next_run_at
-        let next_run = compute_next_run(&input.schedule, &Utc::now())
-            .map(|dt| dt.to_rfc3339());
+        let next_run = compute_next_run(&input.schedule, &Utc::now()).map(|dt| dt.to_rfc3339());
 
         let notify = input.notify_on_complete.unwrap_or(true);
 
@@ -240,8 +237,7 @@ impl CronDB {
                 |row| row.get(0),
             )?;
             let schedule: CronSchedule = serde_json::from_str(&schedule_json)?;
-            let next_run = compute_next_run(&schedule, &Utc::now())
-                .map(|dt| dt.to_rfc3339());
+            let next_run = compute_next_run(&schedule, &Utc::now()).map(|dt| dt.to_rfc3339());
             conn.execute(
                 "UPDATE cron_jobs SET status=?1, next_run_at=?2, consecutive_failures=0, updated_at=?3 WHERE id=?4",
                 params![new_status, next_run, now, id],
@@ -256,12 +252,7 @@ impl CronDB {
     }
 
     /// Update job state after a run (success or failure).
-    pub fn update_after_run(
-        &self,
-        id: &str,
-        success: bool,
-        schedule: &CronSchedule,
-    ) -> Result<()> {
+    pub fn update_after_run(&self, id: &str, success: bool, schedule: &CronSchedule) -> Result<()> {
         let now = Utc::now();
         let now_str = now.to_rfc3339();
 

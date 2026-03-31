@@ -37,11 +37,18 @@ impl AcpRuntimeRegistry {
 
     /// Get a specific backend by ID.
     pub async fn get(&self, backend_id: &str) -> Option<Arc<dyn AcpRuntime>> {
-        self.backends.read().await.get(&backend_id.to_lowercase()).cloned()
+        self.backends
+            .read()
+            .await
+            .get(&backend_id.to_lowercase())
+            .cloned()
     }
 
     /// Get a backend, falling back to the first available one if `backend_id` is empty.
-    pub async fn get_or_first_available(&self, backend_id: Option<&str>) -> Option<Arc<dyn AcpRuntime>> {
+    pub async fn get_or_first_available(
+        &self,
+        backend_id: Option<&str>,
+    ) -> Option<Arc<dyn AcpRuntime>> {
         if let Some(id) = backend_id {
             if !id.is_empty() {
                 return self.get(id).await;
@@ -65,7 +72,9 @@ impl AcpRuntimeRegistry {
     /// Run health checks on all backends and return results.
     pub async fn health_check_all(&self) -> Vec<(String, AcpHealthStatus)> {
         let backends: Vec<(String, Arc<dyn AcpRuntime>)> = {
-            self.backends.read().await
+            self.backends
+                .read()
+                .await
                 .iter()
                 .map(|(k, v)| (k.clone(), Arc::clone(v)))
                 .collect()
@@ -74,7 +83,10 @@ impl AcpRuntimeRegistry {
         let mut results = Vec::with_capacity(backends.len());
         for (id, runtime) in backends {
             let status = runtime.health_check().await;
-            self.health_cache.write().await.insert(id.clone(), status.clone());
+            self.health_cache
+                .write()
+                .await
+                .insert(id.clone(), status.clone());
             results.push((id, status));
         }
         results
@@ -82,7 +94,11 @@ impl AcpRuntimeRegistry {
 
     /// Get the cached health status for a backend.
     pub async fn cached_health(&self, backend_id: &str) -> Option<AcpHealthStatus> {
-        self.health_cache.read().await.get(&backend_id.to_lowercase()).cloned()
+        self.health_cache
+            .read()
+            .await
+            .get(&backend_id.to_lowercase())
+            .cloned()
     }
 
     /// Build a list of `AcpBackendInfo` for the frontend.
@@ -134,10 +150,7 @@ pub fn resolve_binary(name: &str) -> Option<String> {
 }
 
 /// Auto-discover ACP backends from $PATH and from config, then register them.
-pub async fn auto_discover_and_register(
-    registry: &AcpRuntimeRegistry,
-    config: &AcpControlConfig,
-) {
+pub async fn auto_discover_and_register(registry: &AcpRuntimeRegistry, config: &AcpControlConfig) {
     use super::runtime_stdio::StdioAcpRuntime;
 
     // 1. Register from user config

@@ -5,10 +5,11 @@ use crate::cron::{self, CronPayload, CronSchedule, NewCronJob};
 
 /// Tool: manage_cron — create, list, update, delete, and trigger scheduled tasks.
 pub(crate) async fn tool_manage_cron(args: &Value) -> Result<String> {
-    let cron_db = crate::get_cron_db()
-        .ok_or_else(|| anyhow::anyhow!("Cron service not initialized"))?;
+    let cron_db =
+        crate::get_cron_db().ok_or_else(|| anyhow::anyhow!("Cron service not initialized"))?;
 
-    let action = args.get("action")
+    let action = args
+        .get("action")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Missing 'action' parameter"))?;
 
@@ -134,35 +135,44 @@ pub(crate) async fn tool_manage_cron(args: &Value) -> Result<String> {
 
 /// Parse schedule from tool arguments.
 fn parse_schedule(args: &Value) -> Result<CronSchedule> {
-    let schedule_type = args.get("schedule_type")
+    let schedule_type = args
+        .get("schedule_type")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Missing 'schedule_type' parameter (at, every, or cron)"))?;
 
     match schedule_type {
         "at" => {
-            let timestamp = args.get("timestamp")
+            let timestamp = args
+                .get("timestamp")
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| anyhow::anyhow!("Missing 'timestamp' for 'at' schedule"))?;
             // Validate ISO8601
             chrono::DateTime::parse_from_rfc3339(timestamp)
                 .map_err(|e| anyhow::anyhow!("Invalid timestamp: {}", e))?;
-            Ok(CronSchedule::At { timestamp: timestamp.to_string() })
+            Ok(CronSchedule::At {
+                timestamp: timestamp.to_string(),
+            })
         }
         "every" => {
-            let interval_ms = args.get("interval_ms")
+            let interval_ms = args
+                .get("interval_ms")
                 .and_then(|v| v.as_u64())
                 .ok_or_else(|| anyhow::anyhow!("Missing 'interval_ms' for 'every' schedule"))?;
             if interval_ms < 60_000 {
-                return Err(anyhow::anyhow!("Interval must be at least 60000ms (1 minute)"));
+                return Err(anyhow::anyhow!(
+                    "Interval must be at least 60000ms (1 minute)"
+                ));
             }
             Ok(CronSchedule::Every { interval_ms })
         }
         "cron" => {
-            let expression = args.get("cron_expression")
+            let expression = args
+                .get("cron_expression")
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| anyhow::anyhow!("Missing 'cron_expression' for 'cron' schedule"))?;
             cron::validate_cron_expression(expression)?;
-            let timezone = args.get("timezone")
+            let timezone = args
+                .get("timezone")
                 .and_then(|v| v.as_str())
                 .map(String::from);
             Ok(CronSchedule::Cron {
@@ -170,7 +180,10 @@ fn parse_schedule(args: &Value) -> Result<CronSchedule> {
                 timezone,
             })
         }
-        _ => Err(anyhow::anyhow!("Invalid schedule_type: '{}'. Use 'at', 'every', or 'cron'", schedule_type)),
+        _ => Err(anyhow::anyhow!(
+            "Invalid schedule_type: '{}'. Use 'at', 'every', or 'cron'",
+            schedule_type
+        )),
     }
 }
 

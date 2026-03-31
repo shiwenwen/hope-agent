@@ -5,8 +5,7 @@ use std::path::PathBuf;
 
 /// Returns the root directory for all OpenComputer data: ~/.opencomputer/
 pub fn root_dir() -> Result<PathBuf> {
-    let home = dirs::home_dir()
-        .ok_or_else(|| anyhow::anyhow!("Cannot find home directory"))?;
+    let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Cannot find home directory"))?;
     Ok(home.join(".opencomputer"))
 }
 
@@ -191,10 +190,15 @@ pub fn plans_dir() -> Result<PathBuf> {
             if !custom_dir.is_empty() {
                 let expanded = if custom_dir.starts_with('~') {
                     if let Some(home) = dirs::home_dir() {
-                        let suffix = custom_dir.strip_prefix("~/")
+                        let suffix = custom_dir
+                            .strip_prefix("~/")
                             .or_else(|| custom_dir.strip_prefix("~"))
                             .unwrap_or(custom_dir);
-                        if suffix.is_empty() { home } else { home.join(suffix) }
+                        if suffix.is_empty() {
+                            home
+                        } else {
+                            home.join(suffix)
+                        }
                     } else {
                         PathBuf::from(custom_dir)
                     }
@@ -234,5 +238,3 @@ pub fn ensure_dirs() -> Result<()> {
     }
     Ok(())
 }
-
-

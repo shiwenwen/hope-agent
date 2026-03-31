@@ -42,7 +42,9 @@ impl AssistantAgent {
         // Log compaction
         if let Some(logger) = crate::get_logger() {
             logger.log(
-                "info", "context", "compact",
+                "info",
+                "context",
+                "compact",
                 &format!(
                     "Context compacted: tier={}, {} → {} tokens, {} messages affected",
                     compact_result.tier_applied,
@@ -50,13 +52,17 @@ impl AssistantAgent {
                     compact_result.tokens_after,
                     compact_result.messages_affected,
                 ),
-                None, None, None,
+                None,
+                None,
+                None,
             );
         }
 
         // Tier 3: LLM summarization needed
         if compact_result.description == "summarization_needed" {
-            if let Some(split) = context_compact::split_for_summarization(messages, &self.compact_config) {
+            if let Some(split) =
+                context_compact::split_for_summarization(messages, &self.compact_config)
+            {
                 // Memory Flush: extract memories from messages about to be summarized
                 {
                     let flush_enabled = {
@@ -91,19 +97,38 @@ impl AssistantAgent {
                                             tokio::time::timeout(
                                                 std::time::Duration::from_secs(30),
                                                 crate::memory_extract::flush_before_compact(
-                                                    &msgs, &agent_id, &session_id, &prov, &model_id,
+                                                    &msgs,
+                                                    &agent_id,
+                                                    &session_id,
+                                                    &prov,
+                                                    &model_id,
                                                 ),
-                                            ).await
+                                            )
+                                            .await
                                         });
                                         match result {
                                             Ok(Ok(count)) if count > 0 => {
-                                                app_info!("memory", "flush", "Flushed {} memories before compaction", count);
+                                                app_info!(
+                                                    "memory",
+                                                    "flush",
+                                                    "Flushed {} memories before compaction",
+                                                    count
+                                                );
                                             }
                                             Ok(Err(e)) => {
-                                                app_warn!("memory", "flush", "Memory flush failed: {}", e);
+                                                app_warn!(
+                                                    "memory",
+                                                    "flush",
+                                                    "Memory flush failed: {}",
+                                                    e
+                                                );
                                             }
                                             Err(_) => {
-                                                app_warn!("memory", "flush", "Memory flush timed out (30s)");
+                                                app_warn!(
+                                                    "memory",
+                                                    "flush",
+                                                    "Memory flush timed out (30s)"
+                                                );
                                             }
                                             _ => {}
                                         }
@@ -136,7 +161,9 @@ impl AssistantAgent {
                 match tokio::time::timeout(
                     std::time::Duration::from_secs(self.compact_config.summarization_timeout_secs),
                     self.summarize_with_model(&prompt),
-                ).await {
+                )
+                .await
+                {
                     Ok(Ok(summary)) => {
                         context_compact::apply_summary(
                             messages,
@@ -160,18 +187,29 @@ impl AssistantAgent {
                     Ok(Err(e)) => {
                         if let Some(logger) = crate::get_logger() {
                             logger.log(
-                                "warn", "context", "compact",
+                                "warn",
+                                "context",
+                                "compact",
                                 &format!("Tier 3 summarization failed: {}", e),
-                                None, None, None,
+                                None,
+                                None,
+                                None,
                             );
                         }
                     }
                     Err(_) => {
                         if let Some(logger) = crate::get_logger() {
                             logger.log(
-                                "warn", "context", "compact",
-                                &format!("Tier 3 summarization timed out after {}s", self.compact_config.summarization_timeout_secs),
-                                None, None, None,
+                                "warn",
+                                "context",
+                                "compact",
+                                &format!(
+                                    "Tier 3 summarization timed out after {}s",
+                                    self.compact_config.summarization_timeout_secs
+                                ),
+                                None,
+                                None,
+                                None,
                             );
                         }
                     }
@@ -180,7 +218,8 @@ impl AssistantAgent {
         }
 
         // Emit compaction event to frontend
-        let tokens_after = context_compact::estimate_request_tokens(system_prompt, messages, max_tokens);
+        let tokens_after =
+            context_compact::estimate_request_tokens(system_prompt, messages, max_tokens);
         if let Ok(event) = serde_json::to_string(&json!({
             "type": "context_compacted",
             "data": {
@@ -200,14 +239,17 @@ impl AssistantAgent {
     async fn summarize_with_model(&self, prompt: &str) -> Result<String> {
         use crate::context_compact::SUMMARIZATION_SYSTEM_PROMPT;
 
-        let client = crate::provider::apply_proxy(
-            reqwest::Client::builder().user_agent(&self.user_agent)
-        )
-            .build()
-            .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
+        let client =
+            crate::provider::apply_proxy(reqwest::Client::builder().user_agent(&self.user_agent))
+                .build()
+                .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
 
         match &self.provider {
-            LlmProvider::Anthropic { api_key, base_url, model } => {
+            LlmProvider::Anthropic {
+                api_key,
+                base_url,
+                model,
+            } => {
                 let api_url = build_api_url(base_url, "/v1/messages");
                 let body = json!({
                     "model": model,
@@ -215,12 +257,14 @@ impl AssistantAgent {
                     "system": SUMMARIZATION_SYSTEM_PROMPT,
                     "messages": [{ "role": "user", "content": prompt }],
                 });
-                let resp = client.post(&api_url)
+                let resp = client
+                    .post(&api_url)
                     .header("x-api-key", api_key)
                     .header("anthropic-version", ANTHROPIC_API_VERSION)
                     .header("content-type", "application/json")
                     .json(&body)
-                    .send().await
+                    .send()
+                    .await
                     .map_err(|e| anyhow::anyhow!("Summarization request failed: {}", e))?;
 
                 if !resp.status().is_success() {
@@ -228,19 +272,33 @@ impl AssistantAgent {
                     return Err(anyhow::anyhow!("Summarization API error: {}", err));
                 }
 
-                let result: serde_json::Value = resp.json().await
-                    .map_err(|e| anyhow::anyhow!("Failed to parse summarization response: {}", e))?;
+                let result: serde_json::Value = resp.json().await.map_err(|e| {
+                    anyhow::anyhow!("Failed to parse summarization response: {}", e)
+                })?;
 
                 // Extract text from Anthropic response
-                result.get("content")
+                result
+                    .get("content")
                     .and_then(|c| c.as_array())
-                    .and_then(|arr| arr.iter().find(|b| b.get("type").and_then(|t| t.as_str()) == Some("text")))
+                    .and_then(|arr| {
+                        arr.iter()
+                            .find(|b| b.get("type").and_then(|t| t.as_str()) == Some("text"))
+                    })
                     .and_then(|b| b.get("text"))
                     .and_then(|t| t.as_str())
                     .map(|s| s.to_string())
                     .ok_or_else(|| anyhow::anyhow!("No text in summarization response"))
             }
-            LlmProvider::OpenAIChat { api_key, base_url, model } | LlmProvider::OpenAIResponses { api_key, base_url, model } => {
+            LlmProvider::OpenAIChat {
+                api_key,
+                base_url,
+                model,
+            }
+            | LlmProvider::OpenAIResponses {
+                api_key,
+                base_url,
+                model,
+            } => {
                 let api_url = build_api_url(base_url, "/v1/chat/completions");
                 let body = json!({
                     "model": model,
@@ -250,11 +308,13 @@ impl AssistantAgent {
                         { "role": "user", "content": prompt },
                     ],
                 });
-                let resp = client.post(&api_url)
+                let resp = client
+                    .post(&api_url)
                     .header("Authorization", format!("Bearer {}", api_key))
                     .header("content-type", "application/json")
                     .json(&body)
-                    .send().await
+                    .send()
+                    .await
                     .map_err(|e| anyhow::anyhow!("Summarization request failed: {}", e))?;
 
                 if !resp.status().is_success() {
@@ -262,10 +322,12 @@ impl AssistantAgent {
                     return Err(anyhow::anyhow!("Summarization API error: {}", err));
                 }
 
-                let result: serde_json::Value = resp.json().await
-                    .map_err(|e| anyhow::anyhow!("Failed to parse summarization response: {}", e))?;
+                let result: serde_json::Value = resp.json().await.map_err(|e| {
+                    anyhow::anyhow!("Failed to parse summarization response: {}", e)
+                })?;
 
-                result.get("choices")
+                result
+                    .get("choices")
                     .and_then(|c| c.get(0))
                     .and_then(|c| c.get("message"))
                     .and_then(|m| m.get("content"))
@@ -273,7 +335,11 @@ impl AssistantAgent {
                     .map(|s| s.to_string())
                     .ok_or_else(|| anyhow::anyhow!("No text in summarization response"))
             }
-            LlmProvider::Codex { access_token, account_id, model } => {
+            LlmProvider::Codex {
+                access_token,
+                account_id,
+                model,
+            } => {
                 // Codex uses OpenAI-compatible endpoint
                 let api_url = format!("https://chatgpt.com/backend-api/codex/v1/chat/completions");
                 let body = json!({
@@ -284,12 +350,14 @@ impl AssistantAgent {
                         { "role": "user", "content": prompt },
                     ],
                 });
-                let resp = client.post(&api_url)
+                let resp = client
+                    .post(&api_url)
                     .header("Authorization", format!("Bearer {}", access_token))
                     .header("X-Account-ID", account_id.as_str())
                     .header("content-type", "application/json")
                     .json(&body)
-                    .send().await
+                    .send()
+                    .await
                     .map_err(|e| anyhow::anyhow!("Summarization request failed: {}", e))?;
 
                 if !resp.status().is_success() {
@@ -297,10 +365,12 @@ impl AssistantAgent {
                     return Err(anyhow::anyhow!("Summarization API error: {}", err));
                 }
 
-                let result: serde_json::Value = resp.json().await
-                    .map_err(|e| anyhow::anyhow!("Failed to parse summarization response: {}", e))?;
+                let result: serde_json::Value = resp.json().await.map_err(|e| {
+                    anyhow::anyhow!("Failed to parse summarization response: {}", e)
+                })?;
 
-                result.get("choices")
+                result
+                    .get("choices")
                     .and_then(|c| c.get(0))
                     .and_then(|c| c.get("message"))
                     .and_then(|m| m.get("content"))
@@ -313,7 +383,9 @@ impl AssistantAgent {
 
     /// Normalize conversation history for Anthropic Messages API.
     /// Converts foreign format items (Responses API / Chat Completions) to Anthropic format.
-    pub(super) fn normalize_history_for_anthropic(history: &[serde_json::Value]) -> Vec<serde_json::Value> {
+    pub(super) fn normalize_history_for_anthropic(
+        history: &[serde_json::Value],
+    ) -> Vec<serde_json::Value> {
         let mut result = Vec::new();
         for item in history {
             let item_type = item.get("type").and_then(|t| t.as_str()).unwrap_or("");
@@ -324,10 +396,16 @@ impl AssistantAgent {
                 "function_call" | "function_call_output" => continue,
                 // Convert Responses API message format to Anthropic format
                 "message" => {
-                    let role = item.get("role").and_then(|r| r.as_str()).unwrap_or("assistant");
+                    let role = item
+                        .get("role")
+                        .and_then(|r| r.as_str())
+                        .unwrap_or("assistant");
                     if let Some(parts) = item.get("content").and_then(|c| c.as_array()) {
-                        let text: String = parts.iter()
-                            .filter(|p| p.get("type").and_then(|t| t.as_str()) == Some("output_text"))
+                        let text: String = parts
+                            .iter()
+                            .filter(|p| {
+                                p.get("type").and_then(|t| t.as_str()) == Some("output_text")
+                            })
                             .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
                             .collect::<Vec<_>>()
                             .join("");
@@ -341,7 +419,9 @@ impl AssistantAgent {
                     let mut msg = item.clone();
                     if msg.get("reasoning_content").is_some() {
                         // Convert Chat API reasoning_content to Anthropic thinking block
-                        if let Some(reasoning) = msg.get("reasoning_content").and_then(|r| r.as_str()) {
+                        if let Some(reasoning) =
+                            msg.get("reasoning_content").and_then(|r| r.as_str())
+                        {
                             if !reasoning.is_empty() {
                                 if let Some(content) = msg.get("content").and_then(|c| c.as_str()) {
                                     // Convert string content + reasoning to content array with thinking block
@@ -363,7 +443,9 @@ impl AssistantAgent {
 
     /// Normalize conversation history for OpenAI Chat Completions API.
     /// Converts foreign format items (Responses API / Anthropic) to Chat format.
-    pub(super) fn normalize_history_for_chat(history: &[serde_json::Value]) -> Vec<serde_json::Value> {
+    pub(super) fn normalize_history_for_chat(
+        history: &[serde_json::Value],
+    ) -> Vec<serde_json::Value> {
         let mut result = Vec::new();
         for item in history {
             let item_type = item.get("type").and_then(|t| t.as_str()).unwrap_or("");
@@ -374,10 +456,16 @@ impl AssistantAgent {
                 "function_call" | "function_call_output" => continue,
                 // Convert Responses API message format to Chat format
                 "message" => {
-                    let role = item.get("role").and_then(|r| r.as_str()).unwrap_or("assistant");
+                    let role = item
+                        .get("role")
+                        .and_then(|r| r.as_str())
+                        .unwrap_or("assistant");
                     if let Some(parts) = item.get("content").and_then(|c| c.as_array()) {
-                        let text: String = parts.iter()
-                            .filter(|p| p.get("type").and_then(|t| t.as_str()) == Some("output_text"))
+                        let text: String = parts
+                            .iter()
+                            .filter(|p| {
+                                p.get("type").and_then(|t| t.as_str()) == Some("output_text")
+                            })
                             .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
                             .collect::<Vec<_>>()
                             .join("");
@@ -390,9 +478,9 @@ impl AssistantAgent {
                     // Standard role-based messages — handle Anthropic content arrays
                     if let Some(content_arr) = item.get("content").and_then(|c| c.as_array()) {
                         // Anthropic format: content is array of blocks
-                        let has_tool_use = content_arr.iter().any(|b|
-                            b.get("type").and_then(|t| t.as_str()) == Some("tool_use")
-                        );
+                        let has_tool_use = content_arr
+                            .iter()
+                            .any(|b| b.get("type").and_then(|t| t.as_str()) == Some("tool_use"));
                         if has_tool_use {
                             // Pass through Anthropic tool messages as-is (already role-based)
                             result.push(item.clone());
@@ -401,22 +489,29 @@ impl AssistantAgent {
                             let mut thinking = String::new();
                             let mut text = String::new();
                             for block in content_arr {
-                                let block_type = block.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                                let block_type =
+                                    block.get("type").and_then(|t| t.as_str()).unwrap_or("");
                                 match block_type {
                                     "thinking" => {
-                                        if let Some(t) = block.get("thinking").and_then(|t| t.as_str()) {
+                                        if let Some(t) =
+                                            block.get("thinking").and_then(|t| t.as_str())
+                                        {
                                             thinking.push_str(t);
                                         }
                                     }
                                     "text" => {
-                                        if let Some(t) = block.get("text").and_then(|t| t.as_str()) {
+                                        if let Some(t) = block.get("text").and_then(|t| t.as_str())
+                                        {
                                             text.push_str(t);
                                         }
                                     }
                                     _ => {}
                                 }
                             }
-                            let role = item.get("role").and_then(|r| r.as_str()).unwrap_or("assistant");
+                            let role = item
+                                .get("role")
+                                .and_then(|r| r.as_str())
+                                .unwrap_or("assistant");
                             if !text.is_empty() || !thinking.is_empty() {
                                 let content = if text.is_empty() { &thinking } else { &text };
                                 let mut msg = json!({ "role": role, "content": content });
@@ -440,7 +535,9 @@ impl AssistantAgent {
     /// Converts foreign format items (Anthropic / Chat) to Responses input format.
     /// The Responses API is flexible and accepts both `{ "role": "...", "content": "..." }`
     /// and `{ "type": "message", ... }` formats, so we mainly need to strip incompatible items.
-    pub(super) fn normalize_history_for_responses(history: &[serde_json::Value]) -> Vec<serde_json::Value> {
+    pub(super) fn normalize_history_for_responses(
+        history: &[serde_json::Value],
+    ) -> Vec<serde_json::Value> {
         let mut result = Vec::new();
         for item in history {
             let item_type = item.get("type").and_then(|t| t.as_str()).unwrap_or("");
@@ -453,22 +550,26 @@ impl AssistantAgent {
                     // Role-based messages (from Anthropic/Chat)
                     if let Some(content_arr) = item.get("content").and_then(|c| c.as_array()) {
                         // Anthropic format: extract text from content blocks, skip thinking/tool blocks
-                        let has_tool_use = content_arr.iter().any(|b|
-                            b.get("type").and_then(|t| t.as_str()) == Some("tool_use")
-                        );
-                        let has_tool_result = content_arr.iter().any(|b|
-                            b.get("type").and_then(|t| t.as_str()) == Some("tool_result")
-                        );
+                        let has_tool_use = content_arr
+                            .iter()
+                            .any(|b| b.get("type").and_then(|t| t.as_str()) == Some("tool_use"));
+                        let has_tool_result = content_arr
+                            .iter()
+                            .any(|b| b.get("type").and_then(|t| t.as_str()) == Some("tool_result"));
                         if has_tool_use || has_tool_result {
                             // Skip Anthropic tool messages (Responses API uses function_call format)
                             continue;
                         }
-                        let text: String = content_arr.iter()
+                        let text: String = content_arr
+                            .iter()
                             .filter(|b| b.get("type").and_then(|t| t.as_str()) == Some("text"))
                             .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
                             .collect::<Vec<_>>()
                             .join("");
-                        let role = item.get("role").and_then(|r| r.as_str()).unwrap_or("assistant");
+                        let role = item
+                            .get("role")
+                            .and_then(|r| r.as_str())
+                            .unwrap_or("assistant");
                         if !text.is_empty() {
                             result.push(json!({ "role": role, "content": text }));
                         }
@@ -487,7 +588,10 @@ impl AssistantAgent {
 
     /// Push a user message, merging with the last message if it's also a user message.
     /// This avoids consecutive user messages which Anthropic API rejects.
-    pub(super) fn push_user_message(messages: &mut Vec<serde_json::Value>, new_content: serde_json::Value) {
+    pub(super) fn push_user_message(
+        messages: &mut Vec<serde_json::Value>,
+        new_content: serde_json::Value,
+    ) {
         if let Some(last) = messages.last_mut() {
             if last.get("role").and_then(|r| r.as_str()) == Some("user") {
                 // Merge into existing user message
@@ -496,7 +600,10 @@ impl AssistantAgent {
                     (Some(serde_json::Value::String(old)), serde_json::Value::String(new)) => {
                         serde_json::Value::String(format!("{}\n\n{}", old, new))
                     }
-                    (Some(serde_json::Value::Array(mut old_arr)), serde_json::Value::Array(new_arr)) => {
+                    (
+                        Some(serde_json::Value::Array(mut old_arr)),
+                        serde_json::Value::Array(new_arr),
+                    ) => {
                         old_arr.extend(new_arr.iter().cloned());
                         serde_json::Value::Array(old_arr)
                     }

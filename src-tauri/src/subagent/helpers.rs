@@ -11,10 +11,20 @@ use super::INJECTING_SESSIONS;
 pub fn cleanup_orphan_runs(session_db: &SessionDB) {
     match session_db.cleanup_orphan_subagent_runs() {
         Ok(affected) if affected > 0 => {
-            app_warn!("subagent", "startup", "Cleaned up {} orphan sub-agent run(s)", affected);
+            app_warn!(
+                "subagent",
+                "startup",
+                "Cleaned up {} orphan sub-agent run(s)",
+                affected
+            );
         }
         Err(e) => {
-            app_error!("subagent", "startup", "Failed to clean up orphan runs: {}", e);
+            app_error!(
+                "subagent",
+                "startup",
+                "Failed to clean up orphan runs: {}",
+                e
+            );
         }
         _ => {}
     }

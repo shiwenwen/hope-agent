@@ -143,9 +143,7 @@ fn is_env_sensitive(key: &str) -> bool {
     if SAFE_ENV_ALLOWLIST.iter().any(|s| upper == *s) {
         return false;
     }
-    SENSITIVE_ENV_PATTERNS
-        .iter()
-        .any(|pat| upper.contains(pat))
+    SENSITIVE_ENV_PATTERNS.iter().any(|pat| upper.contains(pat))
 }
 
 /// Sanitize environment variables, blocking sensitive keys.
@@ -197,13 +195,9 @@ const BLOCKED_MOUNT_PATHS: &[&str] = &[
 
 /// Validate that a host path is safe to bind-mount into the sandbox.
 fn validate_bind_mount(host_path: &std::path::Path) -> Result<()> {
-    let canonical = host_path.canonicalize().map_err(|e| {
-        anyhow::anyhow!(
-            "Cannot resolve path '{}': {}",
-            host_path.display(),
-            e
-        )
-    })?;
+    let canonical = host_path
+        .canonicalize()
+        .map_err(|e| anyhow::anyhow!("Cannot resolve path '{}': {}", host_path.display(), e))?;
     let path_str = canonical.to_string_lossy();
 
     // Block root filesystem mount
@@ -495,9 +489,7 @@ async fn wait_for_container(docker: &Docker, container_id: &str) -> Result<i64> 
         }
     }
 
-    Err(anyhow::anyhow!(
-        "Container wait stream ended unexpectedly"
-    ))
+    Err(anyhow::anyhow!("Container wait stream ended unexpectedly"))
 }
 
 /// Collect stdout and stderr logs from a container.
@@ -525,12 +517,7 @@ async fn collect_logs(docker: &Docker, container_id: &str) -> Result<(String, St
                 _ => {}
             },
             Err(e) => {
-                app_warn!(
-                    "sandbox",
-                    "docker",
-                    "Error reading container logs: {}",
-                    e
-                );
+                app_warn!("sandbox", "docker", "Error reading container logs: {}", e);
                 break;
             }
         }

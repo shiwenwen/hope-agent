@@ -6,10 +6,7 @@
 
 use serde_json::Value;
 
-use crate::acp::types::{
-    JsonRpcNotification, SessionUpdate, TextContent,
-    ToolCallContent,
-};
+use crate::acp::types::{JsonRpcNotification, SessionUpdate, TextContent, ToolCallContent};
 
 /// Parse an Agent event JSON string and produce an ACP session update notification.
 /// Returns None for events that don't map to ACP updates.
@@ -33,7 +30,10 @@ pub fn map_agent_event(session_id: &str, event_json: &str) -> Option<JsonRpcNoti
         "tool_call" => {
             let call_id = event.get("call_id")?.as_str()?.to_string();
             let name = event.get("name")?.as_str()?.to_string();
-            let args_str = event.get("arguments").and_then(|v| v.as_str()).unwrap_or("{}");
+            let args_str = event
+                .get("arguments")
+                .and_then(|v| v.as_str())
+                .unwrap_or("{}");
             let raw_input = serde_json::from_str::<Value>(args_str).ok();
             let kind = crate::acp::types::infer_tool_kind(&name);
 
@@ -47,8 +47,15 @@ pub fn map_agent_event(session_id: &str, event_json: &str) -> Option<JsonRpcNoti
         }
         "tool_result" => {
             let call_id = event.get("call_id")?.as_str()?.to_string();
-            let result = event.get("result").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let is_error = event.get("is_error").and_then(|v| v.as_bool()).unwrap_or(false);
+            let result = event
+                .get("result")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let is_error = event
+                .get("is_error")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
 
             let status = if is_error { "failed" } else { "completed" };
 
@@ -70,8 +77,14 @@ pub fn map_agent_event(session_id: &str, event_json: &str) -> Option<JsonRpcNoti
             }
         }
         "usage" => {
-            let input_tokens = event.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
-            let output_tokens = event.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+            let input_tokens = event
+                .get("input_tokens")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            let output_tokens = event
+                .get("output_tokens")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
 
             SessionUpdate::UsageUpdate {
                 used: input_tokens + output_tokens,

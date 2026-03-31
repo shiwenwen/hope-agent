@@ -11,29 +11,37 @@ pub fn parse_import_json(json_str: &str) -> Result<Vec<NewMemory>> {
 
     let mut entries = Vec::new();
     for item in items {
-        let content = item.get("content")
+        let content = item
+            .get("content")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Each memory must have a 'content' field"))?;
 
-        let memory_type = item.get("type")
-            .and_then(|v| v.as_str())
-            .unwrap_or("user");
+        let memory_type = item.get("type").and_then(|v| v.as_str()).unwrap_or("user");
 
-        let scope_str = item.get("scope")
+        let scope_str = item
+            .get("scope")
             .and_then(|v| v.as_str())
             .unwrap_or("global");
 
-        let agent_id = item.get("agentId")
+        let agent_id = item
+            .get("agentId")
             .and_then(|v| v.as_str())
             .unwrap_or("default");
 
-        let tags: Vec<String> = item.get("tags")
+        let tags: Vec<String> = item
+            .get("tags")
             .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default();
 
         let scope = if scope_str == "agent" {
-            MemoryScope::Agent { id: agent_id.to_string() }
+            MemoryScope::Agent {
+                id: agent_id.to_string(),
+            }
         } else {
             MemoryScope::Global
         };
@@ -116,7 +124,8 @@ pub fn parse_import_markdown(md_str: &str) -> Result<Vec<NewMemory>> {
             }
             in_entry = true;
         } else if trimmed.starts_with("Tags:") {
-            current_tags = trimmed.trim_start_matches("Tags:")
+            current_tags = trimmed
+                .trim_start_matches("Tags:")
                 .split(',')
                 .map(|t| t.trim().to_string())
                 .filter(|t| !t.is_empty())

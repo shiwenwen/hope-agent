@@ -16,7 +16,11 @@ pub fn auto_title(content: &str) -> String {
         first_line.to_string()
     } else {
         // Find the byte offset of the 47th character boundary
-        let cut = first_line.char_indices().nth(47).map(|(i, _)| i).unwrap_or(first_line.len());
+        let cut = first_line
+            .char_indices()
+            .nth(47)
+            .map(|(i, _)| i)
+            .unwrap_or(first_line.len());
         format!("{}...", &first_line[..cut])
     }
 }

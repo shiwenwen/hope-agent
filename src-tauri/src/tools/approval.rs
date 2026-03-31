@@ -169,7 +169,9 @@ pub(crate) async fn check_and_request_approval(
         handle
             .emit("approval_required", event_data)
             .map_err(|e| anyhow::anyhow!("Failed to emit approval event: {}", e))?;
-        app_info!("tool", "approval",
+        app_info!(
+            "tool",
+            "approval",
             "Approval requested for command: {} (id: {})",
             command,
             request_id
@@ -201,8 +203,15 @@ pub(crate) async fn check_and_request_approval(
         }
         Ok(Err(_)) => {
             if let Some(logger) = crate::get_logger() {
-                logger.log("warn", "tool", "approval::cancelled",
-                    &format!("Approval cancelled for '{}'", command), None, None, None);
+                logger.log(
+                    "warn",
+                    "tool",
+                    "approval::cancelled",
+                    &format!("Approval cancelled for '{}'", command),
+                    None,
+                    None,
+                    None,
+                );
             }
             Err(anyhow::anyhow!("Approval request cancelled"))
         }
@@ -211,8 +220,15 @@ pub(crate) async fn check_and_request_approval(
             let mut pending = get_pending_approvals().lock().await;
             pending.remove(&request_id);
             if let Some(logger) = crate::get_logger() {
-                logger.log("warn", "tool", "approval::timeout",
-                    &format!("Approval timed out for '{}'", command), None, None, None);
+                logger.log(
+                    "warn",
+                    "tool",
+                    "approval::timeout",
+                    &format!("Approval timed out for '{}'", command),
+                    None,
+                    None,
+                    None,
+                );
             }
             Err(anyhow::anyhow!("Approval request timed out (5 min)"))
         }

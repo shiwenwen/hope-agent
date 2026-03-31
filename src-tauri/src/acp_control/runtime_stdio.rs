@@ -167,7 +167,10 @@ impl StdioAcpRuntime {
                                 .unwrap_or("Unknown error");
                             return Err(anyhow::anyhow!("ACP error: {}", error_msg));
                         }
-                        return Ok(msg.get("result").cloned().unwrap_or(serde_json::Value::Null));
+                        return Ok(msg
+                            .get("result")
+                            .cloned()
+                            .unwrap_or(serde_json::Value::Null));
                     }
                 }
                 // Otherwise it's a notification — ignore during handshake
@@ -274,10 +277,7 @@ impl AcpRuntime for StdioAcpRuntime {
             .get_mut(&session.session_id)
             .ok_or_else(|| anyhow::anyhow!("Session not found: {}", session.session_id))?;
 
-        let ext_sid = handle
-            .external_session_id
-            .as_deref()
-            .unwrap_or("unknown");
+        let ext_sid = handle.external_session_id.as_deref().unwrap_or("unknown");
 
         // Send session/prompt
         let prompt_request = serde_json::json!({
@@ -535,11 +535,8 @@ impl AcpRuntime for StdioAcpRuntime {
             }
 
             // Wait briefly, then force kill
-            let _ = tokio::time::timeout(
-                std::time::Duration::from_secs(3),
-                handle.child.wait(),
-            )
-            .await;
+            let _ =
+                tokio::time::timeout(std::time::Duration::from_secs(3), handle.child.wait()).await;
 
             let _ = handle.child.kill().await;
         }

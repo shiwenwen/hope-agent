@@ -141,7 +141,11 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
     // Log response status
     if let Some(logger) = crate::get_logger() {
         logger.log(
-            if status.is_success() { "debug" } else { "error" },
+            if status.is_success() {
+                "debug"
+            } else {
+                "error"
+            },
             "tool",
             "image_generate::openai::response",
             &format!(
@@ -191,11 +195,7 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
         } else {
             body
         };
-        anyhow::bail!(
-            "OpenAI image generation failed ({}): {}",
-            status,
-            preview
-        );
+        anyhow::bail!("OpenAI image generation failed ({}): {}", status, preview);
     }
 
     let body: OpenAIImageResponse = resp.json().await?;

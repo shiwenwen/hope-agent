@@ -9,11 +9,11 @@ use std::sync::Arc;
 use anyhow::Result;
 use serde_json::Value;
 
-use crate::agent::AssistantAgent;
 use crate::acp::event_mapper;
 use crate::acp::protocol::NdJsonTransport;
-use crate::acp::session::{AcpSession, AcpSessionStore, now_epoch_secs};
+use crate::acp::session::{now_epoch_secs, AcpSession, AcpSessionStore};
 use crate::acp::types::*;
+use crate::agent::AssistantAgent;
 use crate::failover;
 use crate::provider;
 use crate::session::{self, SessionDB};
@@ -122,7 +122,9 @@ impl AcpAgent {
     fn do_initialize(&mut self, params: &Value, id: &Value) -> JsonRpcResponse {
         let req: InitializeRequest = match serde_json::from_value(params.clone()) {
             Ok(r) => r,
-            Err(e) => return JsonRpcResponse::error(id.clone(), ERROR_INVALID_PARAMS, e.to_string()),
+            Err(e) => {
+                return JsonRpcResponse::error(id.clone(), ERROR_INVALID_PARAMS, e.to_string())
+            }
         };
 
         if let Some(caps) = req.client_capabilities {
@@ -158,7 +160,10 @@ impl AcpAgent {
     // ── authenticate ────────────────────────────────────────────
 
     fn do_authenticate(&self, id: &Value) -> JsonRpcResponse {
-        JsonRpcResponse::success(id.clone(), serde_json::to_value(&AuthenticateResponse {}).unwrap())
+        JsonRpcResponse::success(
+            id.clone(),
+            serde_json::to_value(&AuthenticateResponse {}).unwrap(),
+        )
     }
 
     // ── session/new ─────────────────────────────────────────────
@@ -166,11 +171,15 @@ impl AcpAgent {
     fn do_new_session(&mut self, params: &Value, id: &Value) -> JsonRpcResponse {
         let req: NewSessionRequest = match serde_json::from_value(params.clone()) {
             Ok(r) => r,
-            Err(e) => return JsonRpcResponse::error(id.clone(), ERROR_INVALID_PARAMS, e.to_string()),
+            Err(e) => {
+                return JsonRpcResponse::error(id.clone(), ERROR_INVALID_PARAMS, e.to_string())
+            }
         };
 
         let meta = parse_session_meta(&req.meta);
-        let agent_id = meta.agent_id.unwrap_or_else(|| self.default_agent_id.clone());
+        let agent_id = meta
+            .agent_id
+            .unwrap_or_else(|| self.default_agent_id.clone());
 
         let session_meta = match self.session_db.create_session(&agent_id) {
             Ok(m) => m,
@@ -217,12 +226,20 @@ impl AcpAgent {
     fn do_load_session(&mut self, params: &Value, id: &Value) -> JsonRpcResponse {
         let req: LoadSessionRequest = match serde_json::from_value(params.clone()) {
             Ok(r) => r,
-            Err(e) => return JsonRpcResponse::error(id.clone(), ERROR_INVALID_PARAMS, e.to_string()),
+            Err(e) => {
+                return JsonRpcResponse::error(id.clone(), ERROR_INVALID_PARAMS, e.to_string())
+            }
         };
 
         let session_meta = match self.session_db.get_session(&req.session_id) {
             Ok(Some(m)) => m,
-            Ok(None) => return JsonRpcResponse::error(id.clone(), ERROR_INVALID_PARAMS, "Session not found"),
+            Ok(None) => {
+                return JsonRpcResponse::error(
+                    id.clone(),
+                    ERROR_INVALID_PARAMS,
+                    "Session not found",
+                )
+            }
             Err(e) => return JsonRpcResponse::error(id.clone(), ERROR_INTERNAL, e.to_string()),
         };
 
@@ -271,7 +288,9 @@ impl AcpAgent {
     fn do_prompt(&mut self, params: &Value, id: &Value) -> JsonRpcResponse {
         let req: PromptRequest = match serde_json::from_value(params.clone()) {
             Ok(r) => r,
-            Err(e) => return JsonRpcResponse::error(id.clone(), ERROR_INVALID_PARAMS, e.to_string()),
+            Err(e) => {
+                return JsonRpcResponse::error(id.clone(), ERROR_INVALID_PARAMS, e.to_string())
+            }
         };
 
         let session_id = req.session_id.clone();
@@ -280,10 +299,20 @@ impl AcpAgent {
         {
             let session = match self.sessions.get_mut(&session_id) {
                 Some(s) => s,
-                None => return JsonRpcResponse::error(id.clone(), ERROR_INVALID_PARAMS, "Session not found"),
+                None => {
+                    return JsonRpcResponse::error(
+                        id.clone(),
+                        ERROR_INVALID_PARAMS,
+                        "Session not found",
+                    )
+                }
             };
             if session.active_prompt {
-                return JsonRpcResponse::error(id.clone(), ERROR_INVALID_REQUEST, "A prompt is already active");
+                return JsonRpcResponse::error(
+                    id.clone(),
+                    ERROR_INVALID_REQUEST,
+                    "A prompt is already active",
+                );
             }
             session.active_prompt = true;
             session.cancel.store(false, Ordering::SeqCst);
@@ -303,7 +332,9 @@ impl AcpAgent {
         let attachments = extract_images_from_prompt(&req.prompt);
 
         // Save user message
-        let _ = self.session_db.append_message(&session_id, &session::NewMessage::user(&text));
+        let _ = self
+            .session_db
+            .append_message(&session_id, &session::NewMessage::user(&text));
 
         // Auto-generate title
         if let Ok(Some(meta)) = self.session_db.get_session(&session_id) {
@@ -319,9 +350,9 @@ impl AcpAgent {
                         "updatedAt": chrono::Utc::now().to_rfc3339(),
                     }
                 });
-                let _ = self.transport.write_notification(
-                    &JsonRpcNotification::new("session/update", notif),
-                );
+                let _ = self
+                    .transport
+                    .write_notification(&JsonRpcNotification::new("session/update", notif));
             }
         }
 
@@ -356,7 +387,9 @@ impl AcpAgent {
     fn do_list_sessions(&self, params: &Value, id: &Value) -> JsonRpcResponse {
         let _req: ListSessionsRequest = match serde_json::from_value(params.clone()) {
             Ok(r) => r,
-            Err(e) => return JsonRpcResponse::error(id.clone(), ERROR_INVALID_PARAMS, e.to_string()),
+            Err(e) => {
+                return JsonRpcResponse::error(id.clone(), ERROR_INVALID_PARAMS, e.to_string())
+            }
         };
 
         let sessions = match self.session_db.list_sessions(None) {
@@ -364,7 +397,8 @@ impl AcpAgent {
             Err(e) => return JsonRpcResponse::error(id.clone(), ERROR_INTERNAL, e.to_string()),
         };
 
-        let summaries: Vec<SessionSummary> = sessions.into_iter()
+        let summaries: Vec<SessionSummary> = sessions
+            .into_iter()
             .filter(|s| !s.is_cron && s.parent_session_id.is_none())
             .take(100)
             .map(|s| SessionSummary {
@@ -388,12 +422,20 @@ impl AcpAgent {
     fn do_set_session_mode(&mut self, params: &Value, id: &Value) -> JsonRpcResponse {
         let req: SetSessionModeRequest = match serde_json::from_value(params.clone()) {
             Ok(r) => r,
-            Err(e) => return JsonRpcResponse::error(id.clone(), ERROR_INVALID_PARAMS, e.to_string()),
+            Err(e) => {
+                return JsonRpcResponse::error(id.clone(), ERROR_INVALID_PARAMS, e.to_string())
+            }
         };
 
         let session = match self.sessions.get_mut(&req.session_id) {
             Some(s) => s,
-            None => return JsonRpcResponse::error(id.clone(), ERROR_INVALID_PARAMS, "Session not found"),
+            None => {
+                return JsonRpcResponse::error(
+                    id.clone(),
+                    ERROR_INVALID_PARAMS,
+                    "Session not found",
+                )
+            }
         };
 
         if let Some(mode_id) = &req.mode_id {
@@ -409,7 +451,10 @@ impl AcpAgent {
             }
         }
 
-        JsonRpcResponse::success(id.clone(), serde_json::to_value(&SetSessionModeResponse {}).unwrap())
+        JsonRpcResponse::success(
+            id.clone(),
+            serde_json::to_value(&SetSessionModeResponse {}).unwrap(),
+        )
     }
 
     // ── session/setConfigOption ─────────────────────────────────
@@ -417,7 +462,9 @@ impl AcpAgent {
     fn do_set_config_option(&mut self, params: &Value, id: &Value) -> JsonRpcResponse {
         let req: SetSessionConfigOptionRequest = match serde_json::from_value(params.clone()) {
             Ok(r) => r,
-            Err(e) => return JsonRpcResponse::error(id.clone(), ERROR_INVALID_PARAMS, e.to_string()),
+            Err(e) => {
+                return JsonRpcResponse::error(id.clone(), ERROR_INVALID_PARAMS, e.to_string())
+            }
         };
 
         if self.sessions.get(&req.session_id).is_none() {
@@ -428,7 +475,9 @@ impl AcpAgent {
             eprintln!("[acp] set config: {}={}", req.config_id, req.value);
         }
 
-        let agent_id = self.sessions.get(&req.session_id)
+        let agent_id = self
+            .sessions
+            .get(&req.session_id)
             .map(|s| s.agent_id.clone())
             .unwrap_or_else(|| self.default_agent_id.clone());
 
@@ -446,7 +495,9 @@ impl AcpAgent {
     fn do_close_session(&mut self, params: &Value, id: &Value) -> JsonRpcResponse {
         let req: CloseSessionRequest = match serde_json::from_value(params.clone()) {
             Ok(r) => r,
-            Err(e) => return JsonRpcResponse::error(id.clone(), ERROR_INVALID_PARAMS, e.to_string()),
+            Err(e) => {
+                return JsonRpcResponse::error(id.clone(), ERROR_INVALID_PARAMS, e.to_string())
+            }
         };
 
         if let Some(session) = self.sessions.get(&req.session_id) {
@@ -454,7 +505,10 @@ impl AcpAgent {
         }
         self.sessions.remove(&req.session_id);
 
-        JsonRpcResponse::success(id.clone(), serde_json::to_value(&CloseSessionResponse {}).unwrap())
+        JsonRpcResponse::success(
+            id.clone(),
+            serde_json::to_value(&CloseSessionResponse {}).unwrap(),
+        )
     }
 
     // ── Internal helpers ────────────────────────────────────────
@@ -473,13 +527,19 @@ impl AcpAgent {
             model_chain.push(p);
         }
         for fb in fallbacks {
-            if !model_chain.iter().any(|m| m.provider_id == fb.provider_id && m.model_id == fb.model_id) {
+            if !model_chain
+                .iter()
+                .any(|m| m.provider_id == fb.provider_id && m.model_id == fb.model_id)
+            {
                 model_chain.push(fb);
             }
         }
 
         if model_chain.is_empty() {
-            return Err(anyhow::anyhow!("No model configured for agent '{}'", agent_id));
+            return Err(anyhow::anyhow!(
+                "No model configured for agent '{}'",
+                agent_id
+            ));
         }
 
         let first = &model_chain[0];
@@ -490,9 +550,13 @@ impl AcpAgent {
         agent.set_agent_id(agent_id);
         agent.set_session_id(session_id);
         agent.set_compact_config(store.compact.clone());
-        agent.set_web_search_enabled(crate::tools::web_search::has_enabled_provider(&store.web_search));
+        agent.set_web_search_enabled(crate::tools::web_search::has_enabled_provider(
+            &store.web_search,
+        ));
         agent.set_notification_enabled(store.notification.enabled);
-        let image_gen_config = if crate::tools::image_generate::has_configured_provider_from_config(&store.image_generate) {
+        let image_gen_config = if crate::tools::image_generate::has_configured_provider_from_config(
+            &store.image_generate,
+        ) {
             let mut cfg = store.image_generate.clone();
             crate::tools::image_generate::backfill_providers(&mut cfg);
             Some(cfg)
@@ -534,7 +598,9 @@ impl AcpAgent {
 
         // Build model chain for failover
         let store = provider::load_store().unwrap_or_default();
-        let agent_id = self.sessions.get(session_id)
+        let agent_id = self
+            .sessions
+            .get(session_id)
             .map(|s| s.agent_id.clone())
             .unwrap_or_else(|| self.default_agent_id.clone());
 
@@ -548,7 +614,10 @@ impl AcpAgent {
             model_chain.push(p);
         }
         for fb in fallbacks {
-            if !model_chain.iter().any(|m| m.provider_id == fb.provider_id && m.model_id == fb.model_id) {
+            if !model_chain
+                .iter()
+                .any(|m| m.provider_id == fb.provider_id && m.model_id == fb.model_id)
+            {
                 model_chain.push(fb);
             }
         }
@@ -587,22 +656,26 @@ impl AcpAgent {
                 let (tx, rx) = std::sync::mpsc::channel::<String>();
 
                 let result = rt.block_on(async {
-                    agent.chat(
-                        &text_owned,
-                        &attachments_owned,
-                        None,
-                        cancel_clone,
-                        move |delta| {
-                            // Map to ACP event
-                            if let Some(notif) = event_mapper::map_agent_event(&sid_for_cb, delta) {
-                                if let Ok(json) = serde_json::to_string(&notif) {
-                                    let _ = tx.send(json);
+                    agent
+                        .chat(
+                            &text_owned,
+                            &attachments_owned,
+                            None,
+                            cancel_clone,
+                            move |delta| {
+                                // Map to ACP event
+                                if let Some(notif) =
+                                    event_mapper::map_agent_event(&sid_for_cb, delta)
+                                {
+                                    if let Ok(json) = serde_json::to_string(&notif) {
+                                        let _ = tx.send(json);
+                                    }
                                 }
-                            }
-                            // Persist tool events
-                            persist_tool_event_inline(&db_for_cb, &sid_for_cb, delta);
-                        },
-                    ).await
+                                // Persist tool events
+                                persist_tool_event_inline(&db_for_cb, &sid_for_cb, delta);
+                            },
+                        )
+                        .await
                 });
 
                 // Flush all queued events to stdout
@@ -618,7 +691,9 @@ impl AcpAgent {
                     Ok((response, thinking)) => {
                         let mut assistant_msg = session::NewMessage::assistant(&response);
                         assistant_msg.thinking = thinking;
-                        let _ = self.session_db.append_message(&session_id_owned, &assistant_msg);
+                        let _ = self
+                            .session_db
+                            .append_message(&session_id_owned, &assistant_msg);
                         save_agent_context(&db_clone, &session_id_owned, &agent);
 
                         let stop = if cancel.load(Ordering::SeqCst) {
@@ -638,8 +713,14 @@ impl AcpAgent {
 
                         if reason.is_retryable() && retry_count < MAX_RETRIES {
                             retry_count += 1;
-                            let delay = failover::retry_delay_ms(retry_count - 1, RETRY_BASE_MS, RETRY_MAX_MS);
-                            rt.block_on(tokio::time::sleep(std::time::Duration::from_millis(delay)));
+                            let delay = failover::retry_delay_ms(
+                                retry_count - 1,
+                                RETRY_BASE_MS,
+                                RETRY_MAX_MS,
+                            );
+                            rt.block_on(tokio::time::sleep(std::time::Duration::from_millis(
+                                delay,
+                            )));
                             continue;
                         }
                         break;
@@ -648,19 +729,23 @@ impl AcpAgent {
             }
         }
 
-        Err(anyhow::anyhow!("All models failed. Last error: {}", last_error))
+        Err(anyhow::anyhow!(
+            "All models failed. Last error: {}",
+            last_error
+        ))
     }
 
     /// Build session modes from available agents
     fn build_modes(&self, current_agent_id: &str) -> SessionModeState {
         let agents = crate::agent_loader::list_agents().unwrap_or_default();
-        let modes: Vec<SessionMode> = agents.iter().map(|a| {
-            SessionMode {
+        let modes: Vec<SessionMode> = agents
+            .iter()
+            .map(|a| SessionMode {
                 id: a.id.clone(),
                 name: a.name.clone(),
                 description: a.description.clone(),
-            }
-        }).collect();
+            })
+            .collect();
 
         SessionModeState {
             current_mode_id: current_agent_id.to_string(),
@@ -670,21 +755,28 @@ impl AcpAgent {
 
     /// Build config options
     fn build_config_options(&self, _agent_id: &str) -> Vec<SessionConfigOption> {
-        vec![
-            SessionConfigOption {
-                option_type: "select".to_string(),
-                id: "reasoning_effort".to_string(),
-                name: "Reasoning Effort".to_string(),
-                category: Some("Model".to_string()),
-                description: "Control how much effort the model puts into reasoning".to_string(),
-                current_value: "medium".to_string(),
-                options: vec![
-                    ConfigOptionValue { value: "low".to_string(), name: "Low".to_string() },
-                    ConfigOptionValue { value: "medium".to_string(), name: "Medium".to_string() },
-                    ConfigOptionValue { value: "high".to_string(), name: "High".to_string() },
-                ],
-            },
-        ]
+        vec![SessionConfigOption {
+            option_type: "select".to_string(),
+            id: "reasoning_effort".to_string(),
+            name: "Reasoning Effort".to_string(),
+            category: Some("Model".to_string()),
+            description: "Control how much effort the model puts into reasoning".to_string(),
+            current_value: "medium".to_string(),
+            options: vec![
+                ConfigOptionValue {
+                    value: "low".to_string(),
+                    name: "Low".to_string(),
+                },
+                ConfigOptionValue {
+                    value: "medium".to_string(),
+                    name: "Medium".to_string(),
+                },
+                ConfigOptionValue {
+                    value: "high".to_string(),
+                    name: "High".to_string(),
+                },
+            ],
+        }]
     }
 
     /// Replay session history as ACP notifications
@@ -721,7 +813,11 @@ impl AcpAgent {
                 session::MessageRole::Tool => {
                     let tool_name = msg.tool_name.as_deref().unwrap_or("unknown");
                     let call_id = msg.tool_call_id.as_deref().unwrap_or("");
-                    let status = if msg.is_error.unwrap_or(false) { "failed" } else { "completed" };
+                    let status = if msg.is_error.unwrap_or(false) {
+                        "failed"
+                    } else {
+                        "completed"
+                    };
 
                     let start_update = serde_json::json!({
                         "sessionId": session_id,
@@ -733,9 +829,10 @@ impl AcpAgent {
                         },
                         "final": true,
                     });
-                    let _ = self.transport.write_notification(
-                        &JsonRpcNotification::new("session/update", start_update),
-                    );
+                    let _ = self.transport.write_notification(&JsonRpcNotification::new(
+                        "session/update",
+                        start_update,
+                    ));
 
                     if let Some(ref result) = msg.tool_result {
                         let truncated = if result.len() > 8192 {
@@ -797,13 +894,19 @@ fn persist_tool_event_inline(db: &Arc<SessionDB>, session_id: &str, delta: &str)
                 let call_id = event.get("call_id").and_then(|v| v.as_str()).unwrap_or("");
                 let result = event.get("result").and_then(|v| v.as_str()).unwrap_or("");
                 let duration_ms = event.get("duration_ms").and_then(|v| v.as_i64());
-                let is_error = event.get("is_error").and_then(|v| v.as_bool()).unwrap_or(false);
+                let is_error = event
+                    .get("is_error")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
                 let _ = db.update_tool_result(session_id, call_id, result, duration_ms, is_error);
             }
             Some("tool_call") => {
                 let call_id = event.get("call_id").and_then(|v| v.as_str()).unwrap_or("");
                 let name = event.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                let arguments = event.get("arguments").and_then(|v| v.as_str()).unwrap_or("");
+                let arguments = event
+                    .get("arguments")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 let tool_msg = session::NewMessage::tool(call_id, name, arguments, "", None, false);
                 let _ = db.append_message(session_id, &tool_msg);
             }

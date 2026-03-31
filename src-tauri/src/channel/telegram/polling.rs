@@ -22,7 +22,12 @@ pub async fn run_polling_loop(
     let mut consecutive_errors: u32 = 0;
     let max_backoff_secs: u64 = 30;
 
-    app_info!("channel", "telegram::polling", "Polling loop started for account '{}'", account_id);
+    app_info!(
+        "channel",
+        "telegram::polling",
+        "Polling loop started for account '{}'",
+        account_id
+    );
 
     loop {
         tokio::select! {
@@ -65,7 +70,12 @@ pub async fn run_polling_loop(
         }
     }
 
-    app_info!("channel", "telegram::polling", "Polling loop stopped for account '{}'", account_id);
+    app_info!(
+        "channel",
+        "telegram::polling",
+        "Polling loop stopped for account '{}'",
+        account_id
+    );
 }
 
 /// Convert a teloxide Update into our MsgContext.
@@ -103,19 +113,17 @@ fn convert_message(
     // Determine chat type
     let chat_type = match msg.chat.kind {
         teloxide::types::ChatKind::Private(_) => ChatType::Dm,
-        teloxide::types::ChatKind::Public(ref public) => {
-            match public.kind {
-                teloxide::types::PublicChatKind::Supergroup(ref sg) => {
-                    if sg.is_forum {
-                        ChatType::Forum
-                    } else {
-                        ChatType::Group
-                    }
+        teloxide::types::ChatKind::Public(ref public) => match public.kind {
+            teloxide::types::PublicChatKind::Supergroup(ref sg) => {
+                if sg.is_forum {
+                    ChatType::Forum
+                } else {
+                    ChatType::Group
                 }
-                teloxide::types::PublicChatKind::Group => ChatType::Group,
-                teloxide::types::PublicChatKind::Channel(_) => ChatType::Channel,
             }
-        }
+            teloxide::types::PublicChatKind::Group => ChatType::Group,
+            teloxide::types::PublicChatKind::Channel(_) => ChatType::Channel,
+        },
     };
 
     // For groups: check if bot was mentioned or replied to

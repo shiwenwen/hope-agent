@@ -1,6 +1,6 @@
+use crate::get_memory_backend;
 use crate::memory;
 use crate::provider;
-use crate::get_memory_backend;
 
 #[tauri::command]
 pub async fn memory_add(entry: memory::NewMemory) -> Result<i64, String> {
@@ -11,7 +11,9 @@ pub async fn memory_add(entry: memory::NewMemory) -> Result<i64, String> {
 #[tauri::command]
 pub async fn memory_update(id: i64, content: String, tags: Vec<String>) -> Result<(), String> {
     let backend = get_memory_backend().ok_or("Memory backend not initialized")?;
-    backend.update(id, &content, &tags).map_err(|e| e.to_string())
+    backend
+        .update(id, &content, &tags)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -51,7 +53,9 @@ pub async fn memory_list(
 }
 
 #[tauri::command]
-pub async fn memory_search(query: memory::MemorySearchQuery) -> Result<Vec<memory::MemoryEntry>, String> {
+pub async fn memory_search(
+    query: memory::MemorySearchQuery,
+) -> Result<Vec<memory::MemoryEntry>, String> {
     let backend = get_memory_backend().ok_or("Memory backend not initialized")?;
     backend.search(&query).map_err(|e| e.to_string())
 }
@@ -65,7 +69,9 @@ pub async fn memory_count(scope: Option<memory::MemoryScope>) -> Result<usize, S
 #[tauri::command]
 pub async fn memory_export(scope: Option<memory::MemoryScope>) -> Result<String, String> {
     let backend = get_memory_backend().ok_or("Memory backend not initialized")?;
-    backend.export_markdown(scope.as_ref()).map_err(|e| e.to_string())
+    backend
+        .export_markdown(scope.as_ref())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -78,7 +84,9 @@ pub async fn memory_find_similar(
     let dedup_cfg = memory::load_dedup_config();
     let threshold = threshold.unwrap_or(dedup_cfg.threshold_merge);
     let limit = limit.unwrap_or(5);
-    backend.find_similar(&content, None, None, threshold, limit).map_err(|e| e.to_string())
+    backend
+        .find_similar(&content, None, None, threshold, limit)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -88,14 +96,20 @@ pub async fn memory_delete_batch(ids: Vec<i64>) -> Result<usize, String> {
 }
 
 #[tauri::command]
-pub async fn memory_import(content: String, format: String, dedup: bool) -> Result<memory::ImportResult, String> {
+pub async fn memory_import(
+    content: String,
+    format: String,
+    dedup: bool,
+) -> Result<memory::ImportResult, String> {
     let entries = match format.as_str() {
         "json" => memory::parse_import_json(&content).map_err(|e| e.to_string())?,
         "markdown" | "md" => memory::parse_import_markdown(&content).map_err(|e| e.to_string())?,
         _ => return Err(format!("Unsupported format: {}", format)),
     };
     let backend = get_memory_backend().ok_or("Memory backend not initialized")?;
-    backend.import_entries(entries, dedup).map_err(|e| e.to_string())
+    backend
+        .import_entries(entries, dedup)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -108,7 +122,9 @@ pub async fn memory_reembed(ids: Option<Vec<i64>>) -> Result<usize, String> {
 }
 
 #[tauri::command]
-pub async fn memory_stats(scope: Option<memory::MemoryScope>) -> Result<memory::MemoryStats, String> {
+pub async fn memory_stats(
+    scope: Option<memory::MemoryScope>,
+) -> Result<memory::MemoryStats, String> {
     let backend = get_memory_backend().ok_or("Memory backend not initialized")?;
     backend.stats(scope.as_ref()).map_err(|e| e.to_string())
 }
@@ -187,7 +203,9 @@ pub async fn get_embedding_cache_config() -> Result<memory::EmbeddingCacheConfig
 }
 
 #[tauri::command]
-pub async fn save_embedding_cache_config(config: memory::EmbeddingCacheConfig) -> Result<(), String> {
+pub async fn save_embedding_cache_config(
+    config: memory::EmbeddingCacheConfig,
+) -> Result<(), String> {
     let mut store = provider::load_store().map_err(|e| e.to_string())?;
     store.embedding_cache = config;
     provider::save_store(&store).map_err(|e| e.to_string())
@@ -226,15 +244,28 @@ pub async fn save_embedding_config(config: memory::EmbeddingConfig) -> Result<()
                 match memory::create_embedding_provider(&config) {
                     Ok(provider) => {
                         backend.set_embedder(provider);
-                        app_info!("memory", "embedding", "Embedding provider applied after config save");
+                        app_info!(
+                            "memory",
+                            "embedding",
+                            "Embedding provider applied after config save"
+                        );
                     }
                     Err(e) => {
-                        app_warn!("memory", "embedding", "Failed to apply embedding provider: {}", e);
+                        app_warn!(
+                            "memory",
+                            "embedding",
+                            "Failed to apply embedding provider: {}",
+                            e
+                        );
                     }
                 }
             } else {
                 backend.clear_embedder();
-                app_info!("memory", "embedding", "Embedding provider cleared after config save");
+                app_info!(
+                    "memory",
+                    "embedding",
+                    "Embedding provider cleared after config save"
+                );
             }
         }
     });
@@ -255,9 +286,13 @@ pub async fn list_local_embedding_models() -> Result<Vec<memory::LocalEmbeddingM
 
 #[tauri::command]
 pub async fn get_global_memory_md() -> Result<Option<String>, String> {
-    let path = crate::paths::root_dir().map_err(|e| e.to_string())?.join("memory.md");
+    let path = crate::paths::root_dir()
+        .map_err(|e| e.to_string())?
+        .join("memory.md");
     if path.exists() {
-        std::fs::read_to_string(&path).map(Some).map_err(|e| e.to_string())
+        std::fs::read_to_string(&path)
+            .map(Some)
+            .map_err(|e| e.to_string())
     } else {
         Ok(None)
     }
@@ -265,15 +300,21 @@ pub async fn get_global_memory_md() -> Result<Option<String>, String> {
 
 #[tauri::command]
 pub async fn save_global_memory_md(content: String) -> Result<(), String> {
-    let path = crate::paths::root_dir().map_err(|e| e.to_string())?.join("memory.md");
+    let path = crate::paths::root_dir()
+        .map_err(|e| e.to_string())?
+        .join("memory.md");
     std::fs::write(&path, content).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn get_agent_memory_md(id: String) -> Result<Option<String>, String> {
-    let path = crate::paths::agent_dir(&id).map_err(|e| e.to_string())?.join("memory.md");
+    let path = crate::paths::agent_dir(&id)
+        .map_err(|e| e.to_string())?
+        .join("memory.md");
     if path.exists() {
-        std::fs::read_to_string(&path).map(Some).map_err(|e| e.to_string())
+        std::fs::read_to_string(&path)
+            .map(Some)
+            .map_err(|e| e.to_string())
     } else {
         Ok(None)
     }

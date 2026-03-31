@@ -1,8 +1,10 @@
 use serde_json::Value;
 
+pub(crate) mod acp_spawn;
 mod agents;
-mod approval;
+mod amend_plan;
 mod apply_patch;
+mod approval;
 pub(crate) mod browser;
 pub(crate) mod canvas;
 mod cron;
@@ -18,24 +20,28 @@ mod ls;
 mod memory;
 mod notification;
 mod pdf;
+mod plan_question;
+mod plan_step;
 mod process;
 pub(crate) mod read;
 mod sessions;
-pub(crate) mod acp_spawn;
 pub(crate) mod subagent;
+mod submit_plan;
 pub(crate) mod web_fetch;
 pub(crate) mod web_search;
 mod write;
-mod plan_step;
-mod plan_question;
-mod submit_plan;
-mod amend_plan;
 
 // ── Public Re-exports ─────────────────────────────────────────────
 
-pub use approval::{ApprovalResponse, ToolPermissionMode, submit_approval_response, set_tool_permission_mode};
-pub use definitions::{get_available_tools, get_subagent_tool, get_notification_tool, get_web_search_tool, get_image_generate_tool_dynamic, get_canvas_tool, get_tools_for_provider, is_internal_tool, get_plan_step_tool, get_plan_question_tool, get_submit_plan_tool, get_amend_plan_tool};
-pub use execution::{ToolExecContext, execute_tool_with_context};
+pub use approval::{
+    set_tool_permission_mode, submit_approval_response, ApprovalResponse, ToolPermissionMode,
+};
+pub use definitions::{
+    get_amend_plan_tool, get_available_tools, get_canvas_tool, get_image_generate_tool_dynamic,
+    get_notification_tool, get_plan_question_tool, get_plan_step_tool, get_subagent_tool,
+    get_submit_plan_tool, get_tools_for_provider, get_web_search_tool, is_internal_tool,
+};
+pub use execution::{execute_tool_with_context, ToolExecContext};
 
 // ── Tool Name Constants ──────────────────────────────────────────
 

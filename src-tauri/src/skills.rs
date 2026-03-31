@@ -45,10 +45,18 @@ pub struct SkillPromptBudget {
     pub max_candidates_per_root: usize,
 }
 
-fn default_max_count() -> usize { DEFAULT_MAX_SKILLS_IN_PROMPT }
-fn default_max_chars() -> usize { DEFAULT_MAX_SKILLS_PROMPT_CHARS }
-fn default_max_file_bytes() -> u64 { DEFAULT_MAX_SKILL_FILE_BYTES }
-fn default_max_candidates() -> usize { DEFAULT_MAX_CANDIDATES_PER_ROOT }
+fn default_max_count() -> usize {
+    DEFAULT_MAX_SKILLS_IN_PROMPT
+}
+fn default_max_chars() -> usize {
+    DEFAULT_MAX_SKILLS_PROMPT_CHARS
+}
+fn default_max_file_bytes() -> u64 {
+    DEFAULT_MAX_SKILL_FILE_BYTES
+}
+fn default_max_candidates() -> usize {
+    DEFAULT_MAX_CANDIDATES_PER_ROOT
+}
 
 impl Default for SkillPromptBudget {
     fn default() -> Self {
@@ -304,15 +312,30 @@ fn parse_frontmatter(content: &str) -> Option<ParsedFrontmatter> {
             name = Some(unquote(rest.trim()));
         } else if let Some(rest) = line_trimmed.strip_prefix("description:") {
             description = Some(unquote(rest.trim()));
-        } else if let Some(rest) = line_trimmed.strip_prefix("skillKey:").or_else(|| line_trimmed.strip_prefix("skill_key:")) {
+        } else if let Some(rest) = line_trimmed
+            .strip_prefix("skillKey:")
+            .or_else(|| line_trimmed.strip_prefix("skill_key:"))
+        {
             skill_key = Some(unquote(rest.trim()));
-        } else if let Some(rest) = line_trimmed.strip_prefix("user-invocable:").or_else(|| line_trimmed.strip_prefix("user_invocable:")) {
+        } else if let Some(rest) = line_trimmed
+            .strip_prefix("user-invocable:")
+            .or_else(|| line_trimmed.strip_prefix("user_invocable:"))
+        {
             user_invocable = parse_bool_value(rest.trim());
-        } else if let Some(rest) = line_trimmed.strip_prefix("disable-model-invocation:").or_else(|| line_trimmed.strip_prefix("disable_model_invocation:")) {
+        } else if let Some(rest) = line_trimmed
+            .strip_prefix("disable-model-invocation:")
+            .or_else(|| line_trimmed.strip_prefix("disable_model_invocation:"))
+        {
             disable_model_invocation = parse_bool_value(rest.trim());
-        } else if let Some(rest) = line_trimmed.strip_prefix("command-dispatch:").or_else(|| line_trimmed.strip_prefix("command_dispatch:")) {
+        } else if let Some(rest) = line_trimmed
+            .strip_prefix("command-dispatch:")
+            .or_else(|| line_trimmed.strip_prefix("command_dispatch:"))
+        {
             command_dispatch = Some(unquote(rest.trim()));
-        } else if let Some(rest) = line_trimmed.strip_prefix("command-tool:").or_else(|| line_trimmed.strip_prefix("command_tool:")) {
+        } else if let Some(rest) = line_trimmed
+            .strip_prefix("command-tool:")
+            .or_else(|| line_trimmed.strip_prefix("command_tool:"))
+        {
             command_tool = Some(unquote(rest.trim()));
         }
     }
@@ -416,7 +439,10 @@ fn parse_requires(yaml_block: &str) -> SkillRequires {
             if let Some(v) = parse_bool_value(rest.trim()) {
                 req.always = v;
             }
-        } else if let Some(rest) = trimmed.strip_prefix("primaryEnv:").or_else(|| trimmed.strip_prefix("primary_env:")) {
+        } else if let Some(rest) = trimmed
+            .strip_prefix("primaryEnv:")
+            .or_else(|| trimmed.strip_prefix("primary_env:"))
+        {
             let val = unquote(rest.trim());
             if !val.is_empty() {
                 req.primary_env = Some(val);
@@ -548,8 +574,18 @@ impl InstallSpecBuilder {
             "package" => self.package = Some(val),
             "module" => self.go_module = Some(val),
             "label" => self.label = Some(val),
-            "bins" => self.bins = parse_yaml_inline_list(&val).into_iter().filter(|s| !s.is_empty()).collect(),
-            "os" => self.os = parse_yaml_inline_list(&val).into_iter().filter(|s| !s.is_empty()).collect(),
+            "bins" => {
+                self.bins = parse_yaml_inline_list(&val)
+                    .into_iter()
+                    .filter(|s| !s.is_empty())
+                    .collect()
+            }
+            "os" => {
+                self.os = parse_yaml_inline_list(&val)
+                    .into_iter()
+                    .filter(|s| !s.is_empty())
+                    .collect()
+            }
             _ => {}
         }
     }
@@ -577,7 +613,10 @@ impl InstallSpecBuilder {
 
 /// Check whether a skill's requirements are satisfied in the current environment.
 /// `configured_env` provides user-configured env var overrides from the settings UI.
-pub fn check_requirements(req: &SkillRequires, configured_env: Option<&HashMap<String, String>>) -> bool {
+pub fn check_requirements(
+    req: &SkillRequires,
+    configured_env: Option<&HashMap<String, String>>,
+) -> bool {
     // always flag: skip all checks
     if req.always {
         return true;
@@ -618,15 +657,19 @@ pub fn check_requirements(req: &SkillRequires, configured_env: Option<&HashMap<S
             .map(|v| !v.is_empty())
             .unwrap_or(false);
         // primary_env: if this key matches primary_env and apiKey is configured, it's satisfied
-        let has_primary = req.primary_env.as_ref()
+        let has_primary = req
+            .primary_env
+            .as_ref()
             .filter(|pe| pe.as_str() == key)
             .is_some()
             && configured_env
                 .and_then(|m| m.get("__apiKey__"))
                 .map(|v| !v.is_empty())
                 .unwrap_or(false);
-        if !has_configured && !has_primary
-           && std::env::var(key).map(|v| v.is_empty()).unwrap_or(true) {
+        if !has_configured
+            && !has_primary
+            && std::env::var(key).map(|v| v.is_empty()).unwrap_or(true)
+        {
             return false;
         }
     }
@@ -635,7 +678,10 @@ pub fn check_requirements(req: &SkillRequires, configured_env: Option<&HashMap<S
 }
 
 /// Detailed requirements check returning missing items.
-pub fn check_requirements_detail(req: &SkillRequires, configured_env: Option<&HashMap<String, String>>) -> RequirementsDetail {
+pub fn check_requirements_detail(
+    req: &SkillRequires,
+    configured_env: Option<&HashMap<String, String>>,
+) -> RequirementsDetail {
     let mut detail = RequirementsDetail::default();
 
     if req.always {
@@ -681,15 +727,19 @@ pub fn check_requirements_detail(req: &SkillRequires, configured_env: Option<&Ha
             .and_then(|m| m.get(key))
             .map(|v| !v.is_empty())
             .unwrap_or(false);
-        let has_primary = req.primary_env.as_ref()
+        let has_primary = req
+            .primary_env
+            .as_ref()
             .filter(|pe| pe.as_str() == key)
             .is_some()
             && configured_env
                 .and_then(|m| m.get("__apiKey__"))
                 .map(|v| !v.is_empty())
                 .unwrap_or(false);
-        if !has_configured && !has_primary
-           && std::env::var(key).map(|v| v.is_empty()).unwrap_or(true) {
+        if !has_configured
+            && !has_primary
+            && std::env::var(key).map(|v| v.is_empty()).unwrap_or(true)
+        {
             detail.missing_env.push(key.clone());
             detail.eligible = false;
         }
@@ -796,7 +846,9 @@ fn load_skills_from_dir(dir: &Path, source: &str, budget: &SkillPromptBudget) ->
     for entry in read_dir.flatten() {
         candidate_count += 1;
         if candidate_count > budget.max_candidates_per_root {
-            app_warn!("skills", "loader",
+            app_warn!(
+                "skills",
+                "loader",
                 "Reached max candidates limit ({}) for directory: {}",
                 budget.max_candidates_per_root,
                 dir.display()
@@ -812,7 +864,8 @@ fn load_skills_from_dir(dir: &Path, source: &str, budget: &SkillPromptBudget) ->
         let skill_md = path.join("SKILL.md");
         if skill_md.is_file() {
             // Direct skill directory
-            if let Some(skill) = load_single_skill(&skill_md, &path, source, budget.max_file_bytes) {
+            if let Some(skill) = load_single_skill(&skill_md, &path, source, budget.max_file_bytes)
+            {
                 entries.push(skill);
             }
         } else {
@@ -829,11 +882,18 @@ fn load_skills_from_dir(dir: &Path, source: &str, budget: &SkillPromptBudget) ->
 }
 
 /// Load a single skill from its SKILL.md file.
-fn load_single_skill(skill_md: &Path, skill_dir: &Path, source: &str, max_file_bytes: u64) -> Option<SkillEntry> {
+fn load_single_skill(
+    skill_md: &Path,
+    skill_dir: &Path,
+    source: &str,
+    max_file_bytes: u64,
+) -> Option<SkillEntry> {
     // Check file size
     if let Ok(meta) = std::fs::metadata(skill_md) {
         if meta.len() > max_file_bytes {
-            app_warn!("skills", "loader",
+            app_warn!(
+                "skills",
+                "loader",
                 "Skipping oversized SKILL.md: {} ({} bytes)",
                 skill_md.display(),
                 meta.len()
@@ -845,7 +905,13 @@ fn load_single_skill(skill_md: &Path, skill_dir: &Path, source: &str, max_file_b
     let content = match std::fs::read_to_string(skill_md) {
         Ok(c) => c,
         Err(e) => {
-            app_warn!("skills", "loader", "Failed to read {}: {}", skill_md.display(), e);
+            app_warn!(
+                "skills",
+                "loader",
+                "Failed to read {}: {}",
+                skill_md.display(),
+                e
+            );
             return None;
         }
     };
@@ -879,7 +945,10 @@ pub fn load_all_skills_with_extra(extra_dirs: &[String]) -> Vec<SkillEntry> {
 }
 
 /// Load all skills with configurable budget limits.
-pub fn load_all_skills_with_budget(extra_dirs: &[String], budget: &SkillPromptBudget) -> Vec<SkillEntry> {
+pub fn load_all_skills_with_budget(
+    extra_dirs: &[String],
+    budget: &SkillPromptBudget,
+) -> Vec<SkillEntry> {
     let mut all: Vec<SkillEntry> = Vec::new();
 
     // Collect from all sources (lowest precedence first)
@@ -890,7 +959,8 @@ pub fn load_all_skills_with_budget(extra_dirs: &[String], budget: &SkillPromptBu
         let path = PathBuf::from(dir);
         if path.is_dir() {
             // Use last path component as label
-            let label = path.file_name()
+            let label = path
+                .file_name()
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_else(|| dir.clone());
             sources.push((path, label));
@@ -986,7 +1056,12 @@ pub fn build_skills_prompt(
     let full_lines: Vec<String> = active
         .iter()
         .map(|s| {
-            format!("- {}: {} (read: {})", s.name, s.description, compact_path(&s.file_path))
+            format!(
+                "- {}: {} (read: {})",
+                s.name,
+                s.description,
+                compact_path(&s.file_path)
+            )
         })
         .collect();
 
@@ -999,9 +1074,7 @@ pub fn build_skills_prompt(
     // Fall back to compact format (no descriptions)
     let compact_lines: Vec<String> = active
         .iter()
-        .map(|s| {
-            format!("- {} (read: {})", s.name, compact_path(&s.file_path))
-        })
+        .map(|s| format!("- {} (read: {})", s.name, compact_path(&s.file_path)))
         .collect();
 
     let compact_text = format!("{}\n{}", header, compact_lines.join("\n"));
@@ -1105,37 +1178,43 @@ pub fn check_all_skills_status(
     skill_env: &HashMap<String, HashMap<String, String>>,
     allow_bundled: &[String],
 ) -> Vec<SkillStatusEntry> {
-    skills.iter().map(|s| {
-        let is_disabled = disabled.contains(&s.name);
-        let blocked_by_allowlist = if !allow_bundled.is_empty() && s.source == "bundled" {
-            let key = s.skill_key.as_deref().unwrap_or(&s.name);
-            !allow_bundled.iter().any(|a| a == key || a == &s.name)
-        } else {
-            false
-        };
+    skills
+        .iter()
+        .map(|s| {
+            let is_disabled = disabled.contains(&s.name);
+            let blocked_by_allowlist = if !allow_bundled.is_empty() && s.source == "bundled" {
+                let key = s.skill_key.as_deref().unwrap_or(&s.name);
+                !allow_bundled.iter().any(|a| a == key || a == &s.name)
+            } else {
+                false
+            };
 
-        let detail = if env_check {
-            check_requirements_detail(&s.requires, skill_env.get(&s.name))
-        } else {
-            RequirementsDetail { eligible: true, ..Default::default() }
-        };
+            let detail = if env_check {
+                check_requirements_detail(&s.requires, skill_env.get(&s.name))
+            } else {
+                RequirementsDetail {
+                    eligible: true,
+                    ..Default::default()
+                }
+            };
 
-        let eligible = !is_disabled && !blocked_by_allowlist && detail.eligible;
+            let eligible = !is_disabled && !blocked_by_allowlist && detail.eligible;
 
-        SkillStatusEntry {
-            name: s.name.clone(),
-            source: s.source.clone(),
-            eligible,
-            disabled: is_disabled,
-            blocked_by_allowlist,
-            missing_bins: detail.missing_bins,
-            missing_any_bins: detail.missing_any_bins,
-            missing_env: detail.missing_env,
-            missing_config: detail.missing_config,
-            has_install: !s.install.is_empty(),
-            always: s.requires.always,
-        }
-    }).collect()
+            SkillStatusEntry {
+                name: s.name.clone(),
+                source: s.source.clone(),
+                eligible,
+                disabled: is_disabled,
+                blocked_by_allowlist,
+                missing_bins: detail.missing_bins,
+                missing_any_bins: detail.missing_any_bins,
+                missing_env: detail.missing_env,
+                missing_config: detail.missing_config,
+                has_install: !s.install.is_empty(),
+                always: s.requires.always,
+            }
+        })
+        .collect()
 }
 
 /// Scan a skill directory for all files/subdirectories.
@@ -1151,14 +1230,16 @@ fn scan_skill_files(base_dir: &str) -> Vec<FileInfo> {
         }
     }
     // Sort: directories first, then alphabetically
-    files.sort_by(|a, b| {
-        b.is_dir.cmp(&a.is_dir).then(a.name.cmp(&b.name))
-    });
+    files.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then(a.name.cmp(&b.name)));
     files
 }
 
 /// Get the full content of a specific skill's SKILL.md.
-pub fn get_skill_content(name: &str, extra_dirs: &[String], disabled: &[String]) -> Option<SkillDetail> {
+pub fn get_skill_content(
+    name: &str,
+    extra_dirs: &[String],
+    disabled: &[String],
+) -> Option<SkillDetail> {
     let skills = load_all_skills_with_extra(extra_dirs);
     let entry = skills.into_iter().find(|s| s.name == name)?;
 
@@ -1323,7 +1404,8 @@ Body
 
     #[test]
     fn test_parse_requires_primary_env() {
-        let yaml = "name: test\ndescription: d\nprimaryEnv: MY_API_KEY\nrequires:\n  env: [MY_API_KEY]\n";
+        let yaml =
+            "name: test\ndescription: d\nprimaryEnv: MY_API_KEY\nrequires:\n  env: [MY_API_KEY]\n";
         let req = parse_requires(yaml);
         assert_eq!(req.primary_env.as_deref(), Some("MY_API_KEY"));
         assert_eq!(req.env, vec!["MY_API_KEY"]);
@@ -1360,13 +1442,34 @@ install:
 
     #[test]
     fn test_build_skills_prompt_empty() {
-        assert_eq!(build_skills_prompt(&[], &[], false, &HashMap::new(), &SkillPromptBudget::default(), &[]), "");
+        assert_eq!(
+            build_skills_prompt(
+                &[],
+                &[],
+                false,
+                &HashMap::new(),
+                &SkillPromptBudget::default(),
+                &[]
+            ),
+            ""
+        );
     }
 
     #[test]
     fn test_build_skills_prompt_full_format() {
-        let skills = vec![make_skill_with_path("github", "GitHub ops", "/home/user/skills/github/SKILL.md")];
-        let prompt = build_skills_prompt(&skills, &[], false, &HashMap::new(), &SkillPromptBudget::default(), &[]);
+        let skills = vec![make_skill_with_path(
+            "github",
+            "GitHub ops",
+            "/home/user/skills/github/SKILL.md",
+        )];
+        let prompt = build_skills_prompt(
+            &skills,
+            &[],
+            false,
+            &HashMap::new(),
+            &SkillPromptBudget::default(),
+            &[],
+        );
         assert!(prompt.contains("- github: GitHub ops (read:"));
         assert!(prompt.contains("SKILL.md"));
         assert!(prompt.contains("read"));
@@ -1375,7 +1478,14 @@ install:
     #[test]
     fn test_build_skills_prompt_disabled() {
         let skills = vec![make_skill("github", "GitHub ops")];
-        let prompt = build_skills_prompt(&skills, &["github".to_string()], false, &HashMap::new(), &SkillPromptBudget::default(), &[]);
+        let prompt = build_skills_prompt(
+            &skills,
+            &["github".to_string()],
+            false,
+            &HashMap::new(),
+            &SkillPromptBudget::default(),
+            &[],
+        );
         assert_eq!(prompt, "");
     }
 
@@ -1384,7 +1494,14 @@ install:
         let mut skill = make_skill("github", "GitHub ops");
         skill.disable_model_invocation = Some(true);
         let skills = vec![skill];
-        let prompt = build_skills_prompt(&skills, &[], false, &HashMap::new(), &SkillPromptBudget::default(), &[]);
+        let prompt = build_skills_prompt(
+            &skills,
+            &[],
+            false,
+            &HashMap::new(),
+            &SkillPromptBudget::default(),
+            &[],
+        );
         assert_eq!(prompt, "");
     }
 
@@ -1421,7 +1538,10 @@ install:
 
         // Only allow "github" from bundled
         let prompt = build_skills_prompt(
-            &skills, &[], false, &HashMap::new(),
+            &skills,
+            &[],
+            false,
+            &HashMap::new(),
             &SkillPromptBudget::default(),
             &["github".to_string()],
         );
@@ -1434,7 +1554,14 @@ install:
     fn test_build_skills_prompt_env_check_no_requires() {
         // Skill with no requires should always pass env_check
         let skills = vec![make_skill("basic", "A basic skill")];
-        let prompt = build_skills_prompt(&skills, &[], true, &HashMap::new(), &SkillPromptBudget::default(), &[]);
+        let prompt = build_skills_prompt(
+            &skills,
+            &[],
+            true,
+            &HashMap::new(),
+            &SkillPromptBudget::default(),
+            &[],
+        );
         assert!(prompt.contains("basic"));
     }
 
@@ -1469,7 +1596,10 @@ install:
     #[test]
     fn test_check_requirements_any_bins_fail() {
         let req = SkillRequires {
-            any_bins: vec!["nonexistent_abc_1".to_string(), "nonexistent_abc_2".to_string()],
+            any_bins: vec![
+                "nonexistent_abc_1".to_string(),
+                "nonexistent_abc_2".to_string(),
+            ],
             ..Default::default()
         };
         assert!(!check_requirements(&req, None));
@@ -1526,7 +1656,10 @@ install:
     fn test_normalize_skill_command_name() {
         assert_eq!(normalize_skill_command_name("github"), "github");
         assert_eq!(normalize_skill_command_name("my-skill"), "my_skill");
-        assert_eq!(normalize_skill_command_name("My Cool Skill!"), "my_cool_skill");
+        assert_eq!(
+            normalize_skill_command_name("My Cool Skill!"),
+            "my_cool_skill"
+        );
         assert_eq!(normalize_skill_command_name("---test---"), "test");
         assert_eq!(normalize_skill_command_name(""), "skill");
         // Long name truncation
@@ -1569,7 +1702,10 @@ install:
         let detail = check_requirements_detail(&req, None);
         assert!(!detail.eligible);
         assert_eq!(detail.missing_bins, vec!["nonexistent_bin_xyz"]);
-        assert_eq!(detail.missing_any_bins, vec!["nonexistent_a", "nonexistent_b"]);
+        assert_eq!(
+            detail.missing_any_bins,
+            vec!["nonexistent_a", "nonexistent_b"]
+        );
         assert_eq!(detail.missing_env, vec!["NONEXISTENT_ENV_XYZ"]);
     }
 

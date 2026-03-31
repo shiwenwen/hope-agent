@@ -183,7 +183,14 @@ impl NewMessage {
     }
 
     /// Create a tool call/result message.
-    pub fn tool(call_id: &str, name: &str, arguments: &str, result: &str, duration_ms: Option<i64>, is_error: bool) -> Self {
+    pub fn tool(
+        call_id: &str,
+        name: &str,
+        arguments: &str,
+        result: &str,
+        duration_ms: Option<i64>,
+        is_error: bool,
+    ) -> Self {
         Self {
             role: MessageRole::Tool,
             content: String::new(),

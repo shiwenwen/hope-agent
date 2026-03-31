@@ -8,7 +8,10 @@ impl SessionDB {
 
     /// Insert a new sub-agent run record.
     pub fn insert_subagent_run(&self, run: &crate::subagent::SubagentRun) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         conn.execute(
             "INSERT INTO subagent_runs (run_id, parent_session_id, parent_agent_id, child_agent_id,
                 child_session_id, task, status, result, error, depth, model_used, started_at, finished_at, duration_ms,
@@ -27,19 +30,30 @@ impl SessionDB {
 
     /// Update a sub-agent run's status, result, error, model_used, and duration.
     pub fn update_subagent_status(
-        &self, run_id: &str, status: crate::subagent::SubagentStatus,
-        result: Option<&str>, error: Option<&str>,
-        model_used: Option<&str>, duration_ms: Option<u64>,
+        &self,
+        run_id: &str,
+        status: crate::subagent::SubagentStatus,
+        result: Option<&str>,
+        error: Option<&str>,
+        model_used: Option<&str>,
+        duration_ms: Option<u64>,
     ) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         conn.execute(
             "UPDATE subagent_runs SET status = ?1, result = COALESCE(?2, result),
                 error = COALESCE(?3, error), model_used = COALESCE(?4, model_used),
                 duration_ms = COALESCE(?5, duration_ms)
              WHERE run_id = ?6",
             params![
-                status.as_str(), result, error, model_used,
-                duration_ms.map(|d| d as i64), run_id,
+                status.as_str(),
+                result,
+                error,
+                model_used,
+                duration_ms.map(|d| d as i64),
+                run_id,
             ],
         )?;
         Ok(())
@@ -47,7 +61,10 @@ impl SessionDB {
 
     /// Set the finished_at timestamp for a sub-agent run.
     pub fn set_subagent_finished_at(&self, run_id: &str, finished_at: &str) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         conn.execute(
             "UPDATE subagent_runs SET finished_at = ?1 WHERE run_id = ?2",
             params![finished_at, run_id],
@@ -57,7 +74,10 @@ impl SessionDB {
 
     /// Get a single sub-agent run by ID.
     pub fn get_subagent_run(&self, run_id: &str) -> Result<Option<crate::subagent::SubagentRun>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let mut stmt = conn.prepare(
             "SELECT run_id, parent_session_id, parent_agent_id, child_agent_id, child_session_id,
                     task, status, result, error, depth, model_used, started_at, finished_at, duration_ms,
@@ -73,8 +93,14 @@ impl SessionDB {
     }
 
     /// List all sub-agent runs for a parent session, ordered by started_at DESC.
-    pub fn list_subagent_runs(&self, parent_session_id: &str) -> Result<Vec<crate::subagent::SubagentRun>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+    pub fn list_subagent_runs(
+        &self,
+        parent_session_id: &str,
+    ) -> Result<Vec<crate::subagent::SubagentRun>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let mut stmt = conn.prepare(
             "SELECT run_id, parent_session_id, parent_agent_id, child_agent_id, child_session_id,
                     task, status, result, error, depth, model_used, started_at, finished_at, duration_ms,
@@ -90,8 +116,14 @@ impl SessionDB {
     }
 
     /// List active (non-terminal) sub-agent runs for a parent session.
-    pub fn list_active_subagent_runs(&self, parent_session_id: &str) -> Result<Vec<crate::subagent::SubagentRun>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+    pub fn list_active_subagent_runs(
+        &self,
+        parent_session_id: &str,
+    ) -> Result<Vec<crate::subagent::SubagentRun>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let mut stmt = conn.prepare(
             "SELECT run_id, parent_session_id, parent_agent_id, child_agent_id, child_session_id,
                     task, status, result, error, depth, model_used, started_at, finished_at, duration_ms,
@@ -110,7 +142,10 @@ impl SessionDB {
 
     /// Count active sub-agent runs for a parent session.
     pub fn count_active_subagent_runs(&self, parent_session_id: &str) -> Result<usize> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let count: i64 = conn.query_row(
             "SELECT COUNT(*) FROM subagent_runs WHERE parent_session_id = ?1 AND status IN ('spawning', 'running')",
             params![parent_session_id],
@@ -121,7 +156,10 @@ impl SessionDB {
 
     /// Mark all non-terminal sub-agent runs as error (orphan cleanup on startup).
     pub fn cleanup_orphan_subagent_runs(&self) -> Result<usize> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let now = chrono::Utc::now().to_rfc3339();
         let affected = conn.execute(
             "UPDATE subagent_runs SET status = 'error', error = 'Orphaned: app restarted before completion', finished_at = ?1
@@ -131,7 +169,9 @@ impl SessionDB {
         Ok(affected)
     }
 
-    pub(crate) fn row_to_subagent_run(row: &rusqlite::Row) -> rusqlite::Result<crate::subagent::SubagentRun> {
+    pub(crate) fn row_to_subagent_run(
+        row: &rusqlite::Row,
+    ) -> rusqlite::Result<crate::subagent::SubagentRun> {
         use crate::subagent::SubagentStatus;
         let duration_val: Option<i64> = row.get(13)?;
         let input_tokens_val: Option<i64> = row.get(16)?;

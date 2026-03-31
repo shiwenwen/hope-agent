@@ -5,48 +5,48 @@ pub(crate) mod acp_control;
 mod agent;
 mod agent_config;
 mod agent_loader;
+pub mod backup;
 mod browser_state;
 mod canvas_db;
 pub mod channel;
+mod chat_engine;
 mod commands;
+mod context_compact;
+pub mod crash_journal;
 mod cron;
+mod dashboard;
 mod dev_tools;
 mod docker;
-mod memory;
-mod memory_extract;
 mod failover;
 mod file_extract;
+mod memory;
+mod memory_extract;
 mod oauth;
 pub mod paths;
+mod permissions;
+mod plan;
 mod process_registry;
 pub mod provider;
 mod sandbox;
+pub mod self_diagnosis;
 pub mod session;
 mod skills;
+mod slash_commands;
 mod subagent;
 mod system_prompt;
-mod permissions;
 mod tools;
-mod user_config;
-mod chat_engine;
-mod context_compact;
-mod dashboard;
-mod slash_commands;
-pub mod crash_journal;
-pub mod backup;
-pub mod self_diagnosis;
-mod plan;
 mod tray;
 mod url_preview;
+mod user_config;
 
 use agent::AssistantAgent;
+use logging::{AppLogger, LogDB};
 use oauth::TokenData;
 use provider::ProviderStore;
-use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
-use tokio::sync::Mutex;
 use session::SessionDB;
-use logging::{LogDB, AppLogger};
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 /// Truncate a string to at most `max_bytes` bytes on a valid UTF-8 char boundary.
 pub fn truncate_utf8(s: &str, max_bytes: usize) -> &str {
@@ -82,12 +82,16 @@ const CHORD_TIMEOUT_MS: u64 = 1500;
 
 static APP_HANDLE: std::sync::OnceLock<tauri::AppHandle> = std::sync::OnceLock::new();
 static APP_LOGGER: std::sync::OnceLock<AppLogger> = std::sync::OnceLock::new();
-static MEMORY_BACKEND: std::sync::OnceLock<Arc<dyn memory::MemoryBackend>> = std::sync::OnceLock::new();
+static MEMORY_BACKEND: std::sync::OnceLock<Arc<dyn memory::MemoryBackend>> =
+    std::sync::OnceLock::new();
 static CRON_DB: std::sync::OnceLock<Arc<cron::CronDB>> = std::sync::OnceLock::new();
 static SESSION_DB: std::sync::OnceLock<Arc<SessionDB>> = std::sync::OnceLock::new();
-static SUBAGENT_CANCELS: std::sync::OnceLock<Arc<subagent::SubagentCancelRegistry>> = std::sync::OnceLock::new();
-static ACP_MANAGER: std::sync::OnceLock<Arc<acp_control::AcpSessionManager>> = std::sync::OnceLock::new();
-static CHANNEL_REGISTRY: std::sync::OnceLock<Arc<channel::ChannelRegistry>> = std::sync::OnceLock::new();
+static SUBAGENT_CANCELS: std::sync::OnceLock<Arc<subagent::SubagentCancelRegistry>> =
+    std::sync::OnceLock::new();
+static ACP_MANAGER: std::sync::OnceLock<Arc<acp_control::AcpSessionManager>> =
+    std::sync::OnceLock::new();
+static CHANNEL_REGISTRY: std::sync::OnceLock<Arc<channel::ChannelRegistry>> =
+    std::sync::OnceLock::new();
 static CHANNEL_DB: std::sync::OnceLock<Arc<channel::ChannelDB>> = std::sync::OnceLock::new();
 
 /// Get stored AppLogger for global logging
@@ -144,7 +148,10 @@ fn auto_start_searxng_docker() {
 
     // Check: docker-managed + SearXNG enabled
     let docker_managed = store.web_search.searxng_docker_managed.unwrap_or(false);
-    let searxng_enabled = store.web_search.providers.iter()
+    let searxng_enabled = store
+        .web_search
+        .providers
+        .iter()
         .any(|e| e.id == tools::web_search::WebSearchProvider::Searxng && e.enabled);
 
     if !docker_managed || !searxng_enabled {
@@ -153,12 +160,21 @@ fn auto_start_searxng_docker() {
 
     // Spawn background task — don't block app startup
     std::thread::spawn(|| {
-        let rt = tokio::runtime::Runtime::new().expect("Failed to create runtime for SearXNG auto-start");
+        let rt = tokio::runtime::Runtime::new()
+            .expect("Failed to create runtime for SearXNG auto-start");
         rt.block_on(async {
             let status = docker::status().await;
             if !status.docker_installed || status.docker_not_running {
                 if let Some(logger) = get_logger() {
-                    logger.log("warn", "docker", "auto_start", "Docker not available, skipping SearXNG auto-start", None, None, None);
+                    logger.log(
+                        "warn",
+                        "docker",
+                        "auto_start",
+                        "Docker not available, skipping SearXNG auto-start",
+                        None,
+                        None,
+                        None,
+                    );
                 }
                 return;
             }
@@ -168,11 +184,27 @@ fn auto_start_searxng_docker() {
             }
             if status.container_exists && !status.container_running {
                 if let Some(logger) = get_logger() {
-                    logger.log("info", "docker", "auto_start", "Auto-starting SearXNG container...", None, None, None);
+                    logger.log(
+                        "info",
+                        "docker",
+                        "auto_start",
+                        "Auto-starting SearXNG container...",
+                        None,
+                        None,
+                        None,
+                    );
                 }
                 if let Err(e) = docker::start().await {
                     if let Some(logger) = get_logger() {
-                        logger.log("error", "docker", "auto_start", "Failed to auto-start SearXNG", Some(e.to_string()), None, None);
+                        logger.log(
+                            "error",
+                            "docker",
+                            "auto_start",
+                            "Failed to auto-start SearXNG",
+                            Some(e.to_string()),
+                            None,
+                            None,
+                        );
                     }
                 }
             }
@@ -188,7 +220,7 @@ pub(crate) struct AppState {
     /// Reasoning effort for Codex models
     pub(crate) reasoning_effort: Mutex<String>,
     /// Store token info so we can rebuild agent when model changes
-    pub(crate) codex_token: Mutex<Option<(String, String)>>,  // (access_token, account_id)
+    pub(crate) codex_token: Mutex<Option<(String, String)>>, // (access_token, account_id)
     /// Currently active agent ID
     pub(crate) current_agent_id: Mutex<String>,
     /// Session database
@@ -207,8 +239,8 @@ pub(crate) struct AppState {
 
 /// Execute a shortcut action by its id (shared by single-combo and chord paths).
 fn execute_shortcut_action(app_handle: &tauri::AppHandle, action_id: &str, _shortcut_str: &str) {
-    use tauri::Manager;
     use tauri::Emitter;
+    use tauri::Manager;
     match action_id {
         "quickChat" => {
             toggle_quickchat_window(app_handle);
@@ -260,12 +292,12 @@ pub(crate) fn toggle_quickchat_window(app_handle: &tauri::AppHandle) {
             #[cfg(target_os = "macos")]
             {
                 let _ = win.with_webview(|webview| unsafe {
-                    let ns_window: &objc2_app_kit::NSWindow =
-                        &*webview.ns_window().cast();
+                    let ns_window: &objc2_app_kit::NSWindow = &*webview.ns_window().cast();
 
                     // Transparent background so CSS border-radius works
-                    let clear_color =
-                        objc2_app_kit::NSColor::colorWithSRGBRed_green_blue_alpha(0.0, 0.0, 0.0, 0.0);
+                    let clear_color = objc2_app_kit::NSColor::colorWithSRGBRed_green_blue_alpha(
+                        0.0, 0.0, 0.0, 0.0,
+                    );
                     ns_window.setBackgroundColor(Some(&clear_color));
 
                     // Highest window level — above almost everything (including other always-on-top windows)
@@ -284,9 +316,15 @@ pub(crate) fn toggle_quickchat_window(app_handle: &tauri::AppHandle) {
         }
         Err(e) => {
             if let Some(logger) = crate::get_logger() {
-                logger.log("error", "shortcut", "toggle_quickchat_window",
+                logger.log(
+                    "error",
+                    "shortcut",
+                    "toggle_quickchat_window",
                     &format!("Failed to create quickchat window: {}", e),
-                    None, None, None);
+                    None,
+                    None,
+                    None,
+                );
             }
         }
     }
@@ -343,16 +381,23 @@ pub fn run() {
                         if let Some(pending) = state.as_ref() {
                             if std::time::Instant::now() < pending.deadline {
                                 // Check if this shortcut matches any expected second part
-                                if let Some((action_id, _second_str)) = pending.completions.iter()
-                                    .find(|(_, s)| s.parse::<tauri_plugin_global_shortcut::Shortcut>()
-                                        .map(|parsed| parsed == *shortcut).unwrap_or(false))
+                                if let Some((action_id, _second_str)) = pending
+                                    .completions
+                                    .iter()
+                                    .find(|(_, s)| {
+                                        s.parse::<tauri_plugin_global_shortcut::Shortcut>()
+                                            .map(|parsed| parsed == *shortcut)
+                                            .unwrap_or(false)
+                                    })
                                     .cloned()
                                 {
                                     let action_id_clone = action_id.clone();
                                     // Unregister temporary second-part shortcuts
                                     let manager = app_handle.global_shortcut();
                                     for (_, s) in &pending.completions {
-                                        if let Ok(sc) = s.parse::<tauri_plugin_global_shortcut::Shortcut>() {
+                                        if let Ok(sc) =
+                                            s.parse::<tauri_plugin_global_shortcut::Shortcut>()
+                                        {
                                             let _ = manager.unregister(sc);
                                         }
                                     }
@@ -360,14 +405,19 @@ pub fn run() {
                                     drop(state);
 
                                     // Execute the chord action
-                                    execute_shortcut_action(app_handle, &action_id_clone, &shortcut_str);
+                                    execute_shortcut_action(
+                                        app_handle,
+                                        &action_id_clone,
+                                        &shortcut_str,
+                                    );
                                     return;
                                 }
                             }
                             // Pending expired or no match — clean up temporary registrations
                             let manager = app_handle.global_shortcut();
                             for (_, s) in &pending.completions {
-                                if let Ok(sc) = s.parse::<tauri_plugin_global_shortcut::Shortcut>() {
+                                if let Ok(sc) = s.parse::<tauri_plugin_global_shortcut::Shortcut>()
+                                {
                                     let _ = manager.unregister(sc);
                                 }
                             }
@@ -376,12 +426,17 @@ pub fn run() {
                     }
 
                     // ── Step 2: Check if this is the first part of any chord binding ──
-                    let chord_matches: Vec<(String, String)> = store.shortcuts.bindings.iter()
+                    let chord_matches: Vec<(String, String)> = store
+                        .shortcuts
+                        .bindings
+                        .iter()
                         .filter(|b| b.enabled && b.is_chord())
                         .filter_map(|b| {
                             let parts = b.chord_parts();
                             if parts.len() == 2 {
-                                if let Ok(first) = parts[0].parse::<tauri_plugin_global_shortcut::Shortcut>() {
+                                if let Ok(first) =
+                                    parts[0].parse::<tauri_plugin_global_shortcut::Shortcut>()
+                                {
                                     if first == *shortcut {
                                         return Some((b.id.clone(), parts[1].to_string()));
                                     }
@@ -395,7 +450,9 @@ pub fn run() {
                         // Register second-part shortcuts temporarily
                         let manager = app_handle.global_shortcut();
                         for (_, second_str) in &chord_matches {
-                            if let Ok(sc) = second_str.parse::<tauri_plugin_global_shortcut::Shortcut>() {
+                            if let Ok(sc) =
+                                second_str.parse::<tauri_plugin_global_shortcut::Shortcut>()
+                            {
                                 let _ = manager.register(sc);
                             }
                         }
@@ -411,12 +468,16 @@ pub fn run() {
                         // Spawn timeout cleanup thread
                         let app_clone = app_handle.clone();
                         std::thread::spawn(move || {
-                            std::thread::sleep(std::time::Duration::from_millis(CHORD_TIMEOUT_MS + 50));
+                            std::thread::sleep(std::time::Duration::from_millis(
+                                CHORD_TIMEOUT_MS + 50,
+                            ));
                             let mut state = chord_state().lock().unwrap();
                             if let Some(pending) = state.take() {
                                 let manager = app_clone.global_shortcut();
                                 for (_, s) in &pending.completions {
-                                    if let Ok(sc) = s.parse::<tauri_plugin_global_shortcut::Shortcut>() {
+                                    if let Ok(sc) =
+                                        s.parse::<tauri_plugin_global_shortcut::Shortcut>()
+                                    {
                                         let _ = manager.unregister(sc);
                                     }
                                 }
@@ -427,11 +488,17 @@ pub fn run() {
                     }
 
                     // ── Step 3: Single-combo binding — look up directly ──
-                    let action_id = store.shortcuts.bindings.iter()
+                    let action_id = store
+                        .shortcuts
+                        .bindings
+                        .iter()
                         .find(|b| {
-                            b.enabled && !b.is_chord()
-                                && b.keys.parse::<tauri_plugin_global_shortcut::Shortcut>()
-                                    .map(|s| s == *shortcut).unwrap_or(false)
+                            b.enabled
+                                && !b.is_chord()
+                                && b.keys
+                                    .parse::<tauri_plugin_global_shortcut::Shortcut>()
+                                    .map(|s| s == *shortcut)
+                                    .unwrap_or(false)
                         })
                         .map(|b| b.id.clone());
 
@@ -467,7 +534,9 @@ pub fn run() {
             // macOS: custom app menu — Cmd+Q hides window instead of quitting
             #[cfg(target_os = "macos")]
             {
-                use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
+                use tauri::menu::{
+                    MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder,
+                };
                 let hide_quit = MenuItemBuilder::with_id("hide_quit", "Hide OpenComputer")
                     .accelerator("CmdOrCtrl+Q")
                     .build(app)?;
@@ -519,8 +588,7 @@ pub fn run() {
                 use tauri::Manager;
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.with_webview(|webview| unsafe {
-                        let ns_window: &objc2_app_kit::NSWindow =
-                            &*webview.ns_window().cast();
+                        let ns_window: &objc2_app_kit::NSWindow = &*webview.ns_window().cast();
                         // Detect system dark mode via appearance name
                         let is_dark = {
                             use objc2_app_kit::NSAppearanceCustomization;
@@ -543,10 +611,7 @@ pub fn run() {
             // Start cron scheduler on dedicated thread with its own tokio runtime
             if let (Some(cron_db), Ok(db_path)) = (CRON_DB.get(), session::db_path()) {
                 if let Ok(session_db) = SessionDB::open(&db_path) {
-                    let _handle = cron::start_scheduler(
-                        cron_db.clone(),
-                        Arc::new(session_db),
-                    );
+                    let _handle = cron::start_scheduler(cron_db.clone(), Arc::new(session_db));
                     // Thread runs until app exits
                 }
             }
@@ -568,9 +633,16 @@ pub fn run() {
                     } else {
                         binding.keys.clone()
                     };
-                    if let Ok(shortcut) = key_to_register.parse::<tauri_plugin_global_shortcut::Shortcut>() {
+                    if let Ok(shortcut) =
+                        key_to_register.parse::<tauri_plugin_global_shortcut::Shortcut>()
+                    {
                         if let Err(e) = app.global_shortcut().register(shortcut) {
-                            log::warn!("Failed to register shortcut '{}' ({}): {}", binding.id, key_to_register, e);
+                            log::warn!(
+                                "Failed to register shortcut '{}' ({}): {}",
+                                binding.id,
+                                key_to_register,
+                                e
+                            );
                         }
                     }
                 }
@@ -581,15 +653,12 @@ pub fn run() {
         .manage({
             // Initialize the SessionDB
             let db_path = session::db_path().expect("Failed to resolve database path");
-            let session_db = Arc::new(
-                SessionDB::open(&db_path).expect("Failed to open session database")
-            );
+            let session_db =
+                Arc::new(SessionDB::open(&db_path).expect("Failed to open session database"));
 
             // Initialize the LogDB and AppLogger
             let log_db_path = logging::db_path().expect("Failed to resolve log database path");
-            let log_db = Arc::new(
-                LogDB::open(&log_db_path).expect("Failed to open log database")
-            );
+            let log_db = Arc::new(LogDB::open(&log_db_path).expect("Failed to open log database"));
 
             // Load log config and cleanup old logs
             let log_config = logging::load_log_config().unwrap_or_default();
@@ -604,9 +673,11 @@ pub fn run() {
             let _ = APP_LOGGER.set(logger.clone());
 
             // Initialize the MemoryDB
-            let memory_db_path = paths::memory_db_path().expect("Failed to resolve memory database path");
+            let memory_db_path =
+                paths::memory_db_path().expect("Failed to resolve memory database path");
             let memory_backend: Arc<dyn memory::MemoryBackend> = Arc::new(
-                memory::SqliteMemoryBackend::open(&memory_db_path).expect("Failed to open memory database")
+                memory::SqliteMemoryBackend::open(&memory_db_path)
+                    .expect("Failed to open memory database"),
             );
             let _ = MEMORY_BACKEND.set(memory_backend);
 
@@ -617,10 +688,26 @@ pub fn run() {
                         match memory::create_embedding_provider(&store.embedding) {
                             Ok(emb_provider) => {
                                 backend.set_embedder(emb_provider);
-                                logger.log("info", "memory", "embedding", "Embedding provider auto-initialized on startup", None, None, None);
+                                logger.log(
+                                    "info",
+                                    "memory",
+                                    "embedding",
+                                    "Embedding provider auto-initialized on startup",
+                                    None,
+                                    None,
+                                    None,
+                                );
                             }
                             Err(e) => {
-                                logger.log("warn", "memory", "embedding", &format!("Failed to auto-initialize embedding provider: {}", e), None, None, None);
+                                logger.log(
+                                    "warn",
+                                    "memory",
+                                    "embedding",
+                                    &format!("Failed to auto-initialize embedding provider: {}", e),
+                                    None,
+                                    None,
+                                    None,
+                                );
                             }
                         }
                     }
@@ -630,13 +717,20 @@ pub fn run() {
 
             // Initialize the CronDB (scheduler started in .setup() where tokio runtime is available)
             let cron_db_path = paths::cron_db_path().expect("Failed to resolve cron database path");
-            let cron_db = Arc::new(
-                cron::CronDB::open(&cron_db_path).expect("Failed to open cron database")
-            );
+            let cron_db =
+                Arc::new(cron::CronDB::open(&cron_db_path).expect("Failed to open cron database"));
             let _ = CRON_DB.set(cron_db.clone());
 
             // Log system startup
-            logger.log("info", "system", "lib::run", "OpenComputer started", None, None, None);
+            logger.log(
+                "info",
+                "system",
+                "lib::run",
+                "OpenComputer started",
+                None,
+                None,
+                None,
+            );
 
             // Send welcome notification on startup
             if let Some(handle) = APP_HANDLE.get() {
@@ -669,15 +763,16 @@ pub fn run() {
 
                 // Run channel DB migration
                 if let Err(e) = channel_db.migrate() {
-                    app_error!("channel", "init", "Failed to run channel DB migration: {}", e);
+                    app_error!(
+                        "channel",
+                        "init",
+                        "Failed to run channel DB migration: {}",
+                        e
+                    );
                 }
 
                 // Spawn the inbound message dispatcher
-                channel::worker::spawn_dispatcher(
-                    registry.clone(),
-                    channel_db.clone(),
-                    inbound_rx,
-                );
+                channel::worker::spawn_dispatcher(registry.clone(), channel_db.clone(), inbound_rx);
 
                 // Auto-start enabled channel accounts
                 let channel_registry_clone = registry.clone();
@@ -685,7 +780,13 @@ pub fn run() {
                 tauri::async_runtime::spawn(async move {
                     for account in store_for_channels.channels.enabled_accounts() {
                         if let Err(e) = channel_registry_clone.start_account(account).await {
-                            app_error!("channel", "init", "Failed to auto-start channel account '{}': {}", account.label, e);
+                            app_error!(
+                                "channel",
+                                "init",
+                                "Failed to auto-start channel account '{}': {}",
+                                account.label,
+                                e
+                            );
                         }
                     }
                 });
@@ -703,7 +804,11 @@ pub fn run() {
                     let acp_config = store.acp_control.clone();
                     // Auto-discover backends in background
                     tokio::spawn(async move {
-                        acp_control::registry::auto_discover_and_register(&registry_clone, &acp_config).await;
+                        acp_control::registry::auto_discover_and_register(
+                            &registry_clone,
+                            &acp_config,
+                        )
+                        .await;
                     });
                     let manager = Arc::new(acp_control::AcpSessionManager::new(registry));
                     let _ = ACP_MANAGER.set(manager);

@@ -1,6 +1,6 @@
-use crate::paths;
-use crate::crash_journal;
 use crate::backup;
+use crate::crash_journal;
+use crate::paths;
 
 #[tauri::command]
 pub async fn get_crash_recovery_info() -> Result<serde_json::Value, String> {
@@ -82,7 +82,8 @@ pub async fn get_guardian_enabled() -> Result<bool, String> {
 pub async fn set_guardian_enabled(enabled: bool) -> Result<(), String> {
     let config_path = paths::config_path().map_err(|e| e.to_string())?;
     let content = std::fs::read_to_string(&config_path).unwrap_or_default();
-    let mut config: serde_json::Value = serde_json::from_str(&content).unwrap_or(serde_json::json!({}));
+    let mut config: serde_json::Value =
+        serde_json::from_str(&content).unwrap_or(serde_json::json!({}));
     config["guardian"] = serde_json::json!({ "enabled": enabled });
     let json_str = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
     std::fs::write(&config_path, json_str).map_err(|e| format!("Failed to save config: {}", e))

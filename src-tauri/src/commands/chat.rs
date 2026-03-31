@@ -1,13 +1,13 @@
-use std::sync::Arc;
-use std::sync::atomic::Ordering;
-use tauri::State;
-use crate::AppState;
 use crate::agent::Attachment;
+use crate::agent_loader;
 use crate::provider::{self, ActiveModel};
 use crate::session::{self, SessionDB};
 use crate::tools;
-use crate::agent_loader;
 use crate::truncate_utf8;
+use crate::AppState;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use tauri::State;
 
 /// Save an attachment file to disk. Uses a temp directory when session_id is empty.
 /// Returns the absolute path to the saved file.
@@ -90,7 +90,9 @@ pub async fn chat(
         Some(id) if !id.is_empty() => id,
         _ => {
             // Auto-create a new session
-            let meta = db.create_session(&current_agent_id).map_err(|e| e.to_string())?;
+            let meta = db
+                .create_session(&current_agent_id)
+                .map_err(|e| e.to_string())?;
             // Emit session_created event so frontend knows
             let event = serde_json::json!({
                 "type": "session_created",
@@ -110,7 +112,8 @@ pub async fn chat(
     let attachments_meta = if !attachments.is_empty() {
         // Ensure session attachments directory exists and move temp files if needed
         let att_dir = crate::paths::attachments_dir(&sid).map_err(|e| e.to_string())?;
-        std::fs::create_dir_all(&att_dir).map_err(|e| format!("Failed to create attachments dir: {}", e))?;
+        std::fs::create_dir_all(&att_dir)
+            .map_err(|e| format!("Failed to create attachments dir: {}", e))?;
 
         let temp_dir = crate::paths::root_dir()
             .map(|r| r.join("attachments").join("_temp"))
@@ -132,7 +135,13 @@ pub async fn chat(
                 let filename = format!("{}_{}", ts, safe_name);
                 let file_path = att_dir.join(&filename);
                 if let Err(e) = std::fs::write(&file_path, &decoded) {
-                    app_warn!("app", "chat", "Failed to save image attachment {}: {}", att.name, e);
+                    app_warn!(
+                        "app",
+                        "chat",
+                        "Failed to save image attachment {}: {}",
+                        att.name,
+                        e
+                    );
                     continue;
                 }
                 meta_list.push(serde_json::json!({
@@ -153,7 +162,14 @@ pub async fn chat(
                         let dest = att_dir.join(fname);
                         if let Err(e) = std::fs::rename(src_path, &dest) {
                             if let Err(e2) = std::fs::copy(src_path, &dest) {
-                                app_warn!("app", "chat", "Failed to move attachment {}: rename={}, copy={}", att.name, e, e2);
+                                app_warn!(
+                                    "app",
+                                    "chat",
+                                    "Failed to move attachment {}: rename={}, copy={}",
+                                    att.name,
+                                    e,
+                                    e2
+                                );
                                 continue;
                             }
                             let _ = std::fs::remove_file(src_path);
@@ -189,10 +205,20 @@ pub async fn chat(
     let _ = db.append_message(&sid, &user_msg);
 
     // Log chat start
-    let msg_preview = if message.len() > 100 { format!("{}...", truncate_utf8(&message, 100)) } else { message.clone() };
-    logger.log("info", "session", "lib::chat", &format!("Chat started: {}", msg_preview),
+    let msg_preview = if message.len() > 100 {
+        format!("{}...", truncate_utf8(&message, 100))
+    } else {
+        message.clone()
+    };
+    logger.log(
+        "info",
+        "session",
+        "lib::chat",
+        &format!("Chat started: {}", msg_preview),
         Some(serde_json::json!({"session_id": &sid, "attachments": attachments.len()}).to_string()),
-        Some(sid.clone()), Some(current_agent_id.clone()));
+        Some(sid.clone()),
+        Some(current_agent_id.clone()),
+    );
 
     // Auto-generate title from first user message if session has no title
     if let Ok(Some(meta)) = db.get_session(&sid) {
@@ -204,10 +230,12 @@ pub async fn chat(
 
     // Resolve model chain and notification config from current agent config
     let agent_def = agent_loader::load_agent(&current_agent_id).ok();
-    let agent_model_config = agent_def.as_ref()
+    let agent_model_config = agent_def
+        .as_ref()
         .map(|def| def.config.model.clone())
         .unwrap_or_default();
-    let agent_notify_on_complete = agent_def.as_ref()
+    let agent_notify_on_complete = agent_def
+        .as_ref()
         .and_then(|def| def.config.notify_on_complete);
 
     // Determine if notification tool should be available for this agent
@@ -219,7 +247,8 @@ pub async fn chat(
 
     let image_gen_config = {
         let store = state.provider_store.lock().await;
-        if crate::tools::image_generate::has_configured_provider_from_config(&store.image_generate) {
+        if crate::tools::image_generate::has_configured_provider_from_config(&store.image_generate)
+        {
             let mut cfg = store.image_generate.clone();
             crate::tools::image_generate::backfill_providers(&mut cfg);
             Some(cfg)
@@ -241,7 +270,8 @@ pub async fn chat(
     // Resolve temperature: session > agent > global
     let resolved_temperature: Option<f64> = {
         let global_temp = state.provider_store.lock().await.temperature;
-        let agent_temp = agent_def.as_ref()
+        let agent_temp = agent_def
+            .as_ref()
             .and_then(|def| def.config.model.temperature);
         // Priority: session (frontend override) > agent > global
         temperature_override.or(agent_temp).or(global_temp)
@@ -273,10 +303,13 @@ pub async fn chat(
             if let Some(run_id) = crate::plan::get_active_plan_run_id(&sid).await {
                 // User sent a message while planning → route as steer to the sub-agent
                 crate::subagent::SUBAGENT_MAILBOX.push(&run_id, message.clone());
-                let _ = on_event.send(serde_json::json!({
-                    "type": "text",
-                    "text": "💬 Message forwarded to planning agent."
-                }).to_string());
+                let _ = on_event.send(
+                    serde_json::json!({
+                        "type": "text",
+                        "text": "💬 Message forwarded to planning agent."
+                    })
+                    .to_string(),
+                );
                 return Ok("Message forwarded to planning agent.".to_string());
             }
 
@@ -286,15 +319,24 @@ pub async fn chat(
                 .cloned()
                 .ok_or_else(|| "Sub-agent cancel registry not initialized".to_string())?;
             match crate::plan::spawn_plan_subagent(
-                &sid, &current_agent_id, &message, &recent_summary,
-                db.clone(), cancel_registry,
-            ).await {
+                &sid,
+                &current_agent_id,
+                &message,
+                &recent_summary,
+                db.clone(),
+                cancel_registry,
+            )
+            .await
+            {
                 Ok(run_id) => {
                     app_info!("plan", "chat", "Plan sub-agent spawned: run_id={}", run_id);
-                    let _ = on_event.send(serde_json::json!({
-                        "type": "text",
-                        "text": "🗂️ Plan creation started..."
-                    }).to_string());
+                    let _ = on_event.send(
+                        serde_json::json!({
+                            "type": "text",
+                            "text": "🗂️ Plan creation started..."
+                        })
+                        .to_string(),
+                    );
                     return Ok(format!("Plan sub-agent spawned: {}", run_id));
                 }
                 Err(e) => {
@@ -340,7 +382,10 @@ pub async fn chat(
     }
     for fb in fallbacks {
         // Avoid duplicates
-        if !model_chain.iter().any(|m| m.provider_id == fb.provider_id && m.model_id == fb.model_id) {
+        if !model_chain
+            .iter()
+            .any(|m| m.provider_id == fb.provider_id && m.model_id == fb.model_id)
+        {
             model_chain.push(fb);
         }
     }
@@ -368,22 +413,48 @@ pub async fn chat(
                 let cancel_clone = cancel.clone();
                 let chat_start = std::time::Instant::now();
                 let on_event_clone = on_event.clone();
-                let captured_usage: Arc<std::sync::Mutex<(Option<i64>, Option<i64>, Option<String>, Option<i64>)>> = Arc::new(std::sync::Mutex::new((None, None, None, None)));
+                let captured_usage: Arc<
+                    std::sync::Mutex<(Option<i64>, Option<i64>, Option<String>, Option<i64>)>,
+                > = Arc::new(std::sync::Mutex::new((None, None, None, None)));
                 let captured_usage_clone = captured_usage.clone();
-                let (result, thinking) = match agent.chat(&message, &attachments, effort_ref, cancel_clone, move |delta| {
-                    if let Ok(event) = serde_json::from_str::<serde_json::Value>(delta) {
-                        if event.get("type").and_then(|t| t.as_str()) == Some("usage") {
-                            if let Ok(mut usage) = captured_usage_clone.lock() {
-                                if let Some(it) = event.get("input_tokens").and_then(|v| v.as_i64()) { usage.0 = Some(it); }
-                                if let Some(ot) = event.get("output_tokens").and_then(|v| v.as_i64()) { usage.1 = Some(ot); }
-                                if let Some(m) = event.get("model").and_then(|v| v.as_str()) { usage.2 = Some(m.to_string()); }
-                                if let Some(ttft) = event.get("ttft_ms").and_then(|v| v.as_i64()) { usage.3 = Some(ttft); }
+                let (result, thinking) = match agent
+                    .chat(
+                        &message,
+                        &attachments,
+                        effort_ref,
+                        cancel_clone,
+                        move |delta| {
+                            if let Ok(event) = serde_json::from_str::<serde_json::Value>(delta) {
+                                if event.get("type").and_then(|t| t.as_str()) == Some("usage") {
+                                    if let Ok(mut usage) = captured_usage_clone.lock() {
+                                        if let Some(it) =
+                                            event.get("input_tokens").and_then(|v| v.as_i64())
+                                        {
+                                            usage.0 = Some(it);
+                                        }
+                                        if let Some(ot) =
+                                            event.get("output_tokens").and_then(|v| v.as_i64())
+                                        {
+                                            usage.1 = Some(ot);
+                                        }
+                                        if let Some(m) = event.get("model").and_then(|v| v.as_str())
+                                        {
+                                            usage.2 = Some(m.to_string());
+                                        }
+                                        if let Some(ttft) =
+                                            event.get("ttft_ms").and_then(|v| v.as_i64())
+                                        {
+                                            usage.3 = Some(ttft);
+                                        }
+                                    }
+                                }
                             }
-                        }
-                    }
-                    crate::chat_engine::persist_tool_event(&db_for_cb, &sid_for_cb, delta);
-                    let _ = on_event_clone.send(delta.to_string());
-                }).await {
+                            crate::chat_engine::persist_tool_event(&db_for_cb, &sid_for_cb, delta);
+                            let _ = on_event_clone.send(delta.to_string());
+                        },
+                    )
+                    .await
+                {
                     Ok((text, thinking)) => (text, thinking),
                     Err(e) => {
                         let err = e.to_string();
@@ -393,7 +464,9 @@ pub async fn chat(
                 };
                 let duration_ms = chat_start.elapsed().as_millis() as u64;
                 let usage_event = serde_json::json!({"type": "usage", "duration_ms": duration_ms});
-                if let Ok(json_str) = serde_json::to_string(&usage_event) { let _ = on_event.send(json_str); }
+                if let Ok(json_str) = serde_json::to_string(&usage_event) {
+                    let _ = on_event.send(json_str);
+                }
                 let mut assistant_msg = session::NewMessage::assistant(&result);
                 assistant_msg.tool_duration_ms = Some(duration_ms as i64);
                 assistant_msg.thinking = thinking;
@@ -440,11 +513,15 @@ pub async fn chat(
         }
         crate::plan::PlanModeState::Executing | crate::plan::PlanModeState::Paused => {
             let mode = crate::agent::PlanAgentMode::BuildAgent {
-                extra_tools: crate::plan::BUILD_AGENT_EXTRA_TOOLS.iter().map(|s| s.to_string()).collect(),
+                extra_tools: crate::plan::BUILD_AGENT_EXTRA_TOOLS
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect(),
             };
             let ctx = if let Ok(Some(plan_content)) = crate::plan::load_plan_file(&sid) {
                 let prefix = if plan_state == crate::plan::PlanModeState::Paused {
-                    let paused_step = crate::plan::get_plan_meta(&sid).await
+                    let paused_step = crate::plan::get_plan_meta(&sid)
+                        .await
                         .and_then(|m| m.paused_at_step)
                         .unwrap_or(0);
                     format!(
@@ -465,15 +542,32 @@ pub async fn chat(
         crate::plan::PlanModeState::Completed => {
             let ctx = if let Ok(Some(plan_content)) = crate::plan::load_plan_file(&sid) {
                 let step_summary = if let Some(meta) = crate::plan::get_plan_meta(&sid).await {
-                    let completed = meta.steps.iter().filter(|s| s.status == crate::plan::PlanStepStatus::Completed).count();
-                    let failed = meta.steps.iter().filter(|s| s.status == crate::plan::PlanStepStatus::Failed).count();
-                    let skipped = meta.steps.iter().filter(|s| s.status == crate::plan::PlanStepStatus::Skipped).count();
+                    let completed = meta
+                        .steps
+                        .iter()
+                        .filter(|s| s.status == crate::plan::PlanStepStatus::Completed)
+                        .count();
+                    let failed = meta
+                        .steps
+                        .iter()
+                        .filter(|s| s.status == crate::plan::PlanStepStatus::Failed)
+                        .count();
+                    let skipped = meta
+                        .steps
+                        .iter()
+                        .filter(|s| s.status == crate::plan::PlanStepStatus::Skipped)
+                        .count();
                     format!("\n\n## Statistics\n- Completed: {}\n- Failed: {}\n- Skipped: {}\n- Total: {}\n",
                         completed, failed, skipped, meta.steps.len())
                 } else {
                     String::new()
                 };
-                Some(format!("{}{}{}", crate::plan::PLAN_COMPLETED_SYSTEM_PROMPT, plan_content, step_summary))
+                Some(format!(
+                    "{}{}{}",
+                    crate::plan::PLAN_COMPLETED_SYSTEM_PROMPT,
+                    plan_content,
+                    step_summary
+                ))
             } else {
                 None
             };
@@ -508,7 +602,9 @@ pub async fn chat(
         cancel: cancel.clone(),
         plan_agent_mode,
         plan_mode_allow_paths: plan_allow_paths,
-        event_sink: Arc::new(crate::chat_engine::ChannelSink { channel: on_event.clone() }),
+        event_sink: Arc::new(crate::chat_engine::ChannelSink {
+            channel: on_event.clone(),
+        }),
     };
 
     match crate::chat_engine::run_chat_engine(engine_params).await {
@@ -524,11 +620,14 @@ pub async fn chat(
                     crate::plan::update_plan_steps(&sid, steps.clone()).await;
                     if let Some(app_handle) = crate::get_app_handle() {
                         use tauri::Emitter;
-                        let _ = app_handle.emit("plan_content_updated", serde_json::json!({
-                            "sessionId": &sid,
-                            "stepCount": steps.len(),
-                            "content": &result.response,
-                        }));
+                        let _ = app_handle.emit(
+                            "plan_content_updated",
+                            serde_json::json!({
+                                "sessionId": &sid,
+                                "stepCount": steps.len(),
+                                "content": &result.response,
+                            }),
+                        );
                     }
                 }
             }
@@ -593,10 +692,7 @@ async fn build_recent_context_summary(db: &Arc<SessionDB>, session_id: &str) -> 
 // ── Command Approval ──────────────────────────────────────────────
 
 #[tauri::command]
-pub async fn respond_to_approval(
-    request_id: String,
-    response: String,
-) -> Result<(), String> {
+pub async fn respond_to_approval(request_id: String, response: String) -> Result<(), String> {
     let approval_response = match response.as_str() {
         "allow_once" => tools::ApprovalResponse::AllowOnce,
         "allow_always" => tools::ApprovalResponse::AllowAlways,

@@ -9,10 +9,10 @@ mod types;
 
 // Re-export public API
 pub use config::{build_api_url, get_codex_models, USER_AGENT};
-pub use types::{Attachment, AssistantAgent, CodexModel, LlmProvider, PlanAgentMode};
+pub use types::{AssistantAgent, Attachment, CodexModel, LlmProvider, PlanAgentMode};
 
-use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 
 use anyhow::Result;
 use serde_json::json;
@@ -32,7 +32,9 @@ impl AssistantAgent {
         Self {
             provider: Anthropic {
                 api_key: api_key.to_string(),
-                base_url: ANTHROPIC_API_URL.trim_end_matches("/v1/messages").to_string(),
+                base_url: ANTHROPIC_API_URL
+                    .trim_end_matches("/v1/messages")
+                    .to_string(),
                 model: ANTHROPIC_MODEL.to_string(),
             },
             user_agent: USER_AGENT.to_string(),
@@ -42,7 +44,9 @@ impl AssistantAgent {
             extra_system_context: None,
             context_window: 200_000,
             compact_config: crate::context_compact::CompactConfig::default(),
-            token_calibrator: std::sync::Mutex::new(crate::context_compact::TokenEstimateCalibrator::new()),
+            token_calibrator: std::sync::Mutex::new(
+                crate::context_compact::TokenEstimateCalibrator::new(),
+            ),
             web_search_enabled: true,
             notification_enabled: false,
             image_gen_config: None,
@@ -72,7 +76,9 @@ impl AssistantAgent {
             extra_system_context: None,
             context_window: 200_000,
             compact_config: crate::context_compact::CompactConfig::default(),
-            token_calibrator: std::sync::Mutex::new(crate::context_compact::TokenEstimateCalibrator::new()),
+            token_calibrator: std::sync::Mutex::new(
+                crate::context_compact::TokenEstimateCalibrator::new(),
+            ),
             web_search_enabled: true,
             notification_enabled: false,
             image_gen_config: None,
@@ -112,7 +118,9 @@ impl AssistantAgent {
             },
         };
         // Look up context_window from the provider's model config
-        let context_window = config.models.iter()
+        let context_window = config
+            .models
+            .iter()
             .find(|m| m.id == model_id)
             .map(|m| m.context_window)
             .unwrap_or(200_000);
@@ -126,7 +134,9 @@ impl AssistantAgent {
             extra_system_context: None,
             context_window,
             compact_config: crate::context_compact::CompactConfig::default(),
-            token_calibrator: std::sync::Mutex::new(crate::context_compact::TokenEstimateCalibrator::new()),
+            token_calibrator: std::sync::Mutex::new(
+                crate::context_compact::TokenEstimateCalibrator::new(),
+            ),
             web_search_enabled: true,
             notification_enabled: false,
             image_gen_config: None,
@@ -162,7 +172,10 @@ impl AssistantAgent {
     }
 
     /// Set image generation config (Some = enabled with dynamic tool description).
-    pub fn set_image_generate_config(&mut self, config: Option<crate::tools::image_generate::ImageGenConfig>) {
+    pub fn set_image_generate_config(
+        &mut self,
+        config: Option<crate::tools::image_generate::ImageGenConfig>,
+    ) {
         self.image_gen_config = config;
     }
 
@@ -213,7 +226,11 @@ impl AssistantAgent {
 
     /// Apply plan-mode tool modifications to a tool schema list.
     /// Called by each provider to inject/filter plan tools without code duplication.
-    pub(crate) fn apply_plan_tools(&self, tool_schemas: &mut Vec<serde_json::Value>, provider: tools::ToolProvider) {
+    pub(crate) fn apply_plan_tools(
+        &self,
+        tool_schemas: &mut Vec<serde_json::Value>,
+        provider: tools::ToolProvider,
+    ) {
         match &self.plan_agent_mode {
             types::PlanAgentMode::PlanAgent { allowed_tools, .. } => {
                 // Add plan-specific tools
@@ -221,10 +238,15 @@ impl AssistantAgent {
                 tool_schemas.push(tools::get_submit_plan_tool().to_provider_schema(provider));
                 // Filter to allow-list only
                 tool_schemas.retain(|t| {
-                    let name = t.get("name")
+                    let name = t
+                        .get("name")
                         .and_then(|v| v.as_str())
                         // OpenAI Responses format: tool.function.name
-                        .or_else(|| t.get("function").and_then(|f| f.get("name")).and_then(|v| v.as_str()))
+                        .or_else(|| {
+                            t.get("function")
+                                .and_then(|f| f.get("name"))
+                                .and_then(|v| v.as_str())
+                        })
                         .unwrap_or("");
                     allowed_tools.iter().any(|a| a == name)
                 });
@@ -233,8 +255,10 @@ impl AssistantAgent {
                 // Add extra plan execution tools
                 for tool_name in extra_tools {
                     match tool_name.as_str() {
-                        "update_plan_step" => tool_schemas.push(tools::get_plan_step_tool().to_provider_schema(provider)),
-                        "amend_plan" => tool_schemas.push(tools::get_amend_plan_tool().to_provider_schema(provider)),
+                        "update_plan_step" => tool_schemas
+                            .push(tools::get_plan_step_tool().to_provider_schema(provider)),
+                        "amend_plan" => tool_schemas
+                            .push(tools::get_amend_plan_tool().to_provider_schema(provider)),
                         _ => {}
                     }
                 }
@@ -305,7 +329,8 @@ impl AssistantAgent {
     /// Build a ToolExecContext with agent home directory and context window.
     pub(crate) fn tool_context(&self) -> tools::ToolExecContext {
         let agent_def = crate::agent_loader::load_agent(&self.agent_id);
-        let mut require_approval = agent_def.as_ref()
+        let mut require_approval = agent_def
+            .as_ref()
             .map(|def| def.config.behavior.require_approval.clone())
             .unwrap_or_default();
         // Merge plan agent ask tools (e.g., exec requires approval during planning)
@@ -316,7 +341,8 @@ impl AssistantAgent {
                 }
             }
         }
-        let force_sandbox = agent_def.as_ref()
+        let force_sandbox = agent_def
+            .as_ref()
             .map(|def| def.config.behavior.sandbox)
             .unwrap_or(false);
         tools::ToolExecContext {
@@ -341,7 +367,14 @@ impl AssistantAgent {
         self.compact_config = config;
     }
 
-    pub async fn chat(&self, message: &str, attachments: &[Attachment], reasoning_effort: Option<&str>, cancel: Arc<AtomicBool>, on_delta: impl Fn(&str) + Send + 'static) -> Result<(String, Option<String>)> {
+    pub async fn chat(
+        &self,
+        message: &str,
+        attachments: &[Attachment],
+        reasoning_effort: Option<&str>,
+        cancel: Arc<AtomicBool>,
+        on_delta: impl Fn(&str) + Send + 'static,
+    ) -> Result<(String, Option<String>)> {
         // Log agent chat dispatch
         if let Some(logger) = crate::get_logger() {
             let (provider_type, model_name) = match &self.provider {
@@ -351,32 +384,103 @@ impl AssistantAgent {
                 LlmProvider::Codex { model, .. } => ("Codex", model.as_str()),
             };
             let history_len = self.conversation_history.lock().unwrap().len();
-            let msg_preview = if message.len() > 200 { format!("{}...", crate::truncate_utf8(message, 200)) } else { message.to_string() };
-            logger.log("info", "agent", "agent::chat",
-                &format!("Agent chat dispatching: provider={}, model={}", provider_type, model_name),
-                Some(json!({
-                    "provider_type": provider_type,
-                    "model": model_name,
-                    "reasoning_effort": reasoning_effort,
-                    "attachments": attachments.len(),
-                    "history_messages": history_len,
-                    "message_preview": msg_preview,
-                }).to_string()),
-                None, None);
+            let msg_preview = if message.len() > 200 {
+                format!("{}...", crate::truncate_utf8(message, 200))
+            } else {
+                message.to_string()
+            };
+            logger.log(
+                "info",
+                "agent",
+                "agent::chat",
+                &format!(
+                    "Agent chat dispatching: provider={}, model={}",
+                    provider_type, model_name
+                ),
+                Some(
+                    json!({
+                        "provider_type": provider_type,
+                        "model": model_name,
+                        "reasoning_effort": reasoning_effort,
+                        "attachments": attachments.len(),
+                        "history_messages": history_len,
+                        "message_preview": msg_preview,
+                    })
+                    .to_string(),
+                ),
+                None,
+                None,
+            );
         }
 
         match &self.provider {
-            LlmProvider::Anthropic { api_key, base_url, model } => {
-                self.chat_anthropic(api_key, base_url, model, message, attachments, reasoning_effort, &cancel, &on_delta).await
+            LlmProvider::Anthropic {
+                api_key,
+                base_url,
+                model,
+            } => {
+                self.chat_anthropic(
+                    api_key,
+                    base_url,
+                    model,
+                    message,
+                    attachments,
+                    reasoning_effort,
+                    &cancel,
+                    &on_delta,
+                )
+                .await
             }
-            LlmProvider::OpenAIChat { api_key, base_url, model } => {
-                self.chat_openai_chat(api_key, base_url, model, message, attachments, reasoning_effort, &cancel, &on_delta).await
+            LlmProvider::OpenAIChat {
+                api_key,
+                base_url,
+                model,
+            } => {
+                self.chat_openai_chat(
+                    api_key,
+                    base_url,
+                    model,
+                    message,
+                    attachments,
+                    reasoning_effort,
+                    &cancel,
+                    &on_delta,
+                )
+                .await
             }
-            LlmProvider::OpenAIResponses { api_key, base_url, model } => {
-                self.chat_openai_responses(api_key, base_url, model, message, attachments, reasoning_effort, &cancel, &on_delta).await
+            LlmProvider::OpenAIResponses {
+                api_key,
+                base_url,
+                model,
+            } => {
+                self.chat_openai_responses(
+                    api_key,
+                    base_url,
+                    model,
+                    message,
+                    attachments,
+                    reasoning_effort,
+                    &cancel,
+                    &on_delta,
+                )
+                .await
             }
-            LlmProvider::Codex { access_token, account_id, model } => {
-                self.chat_openai(access_token, account_id, model, message, attachments, reasoning_effort, &cancel, &on_delta).await
+            LlmProvider::Codex {
+                access_token,
+                account_id,
+                model,
+            } => {
+                self.chat_openai(
+                    access_token,
+                    account_id,
+                    model,
+                    message,
+                    attachments,
+                    reasoning_effort,
+                    &cancel,
+                    &on_delta,
+                )
+                .await
             }
         }
     }

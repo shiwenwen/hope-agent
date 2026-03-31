@@ -163,7 +163,9 @@ pub struct MemoryExtractConfig {
     pub flush_before_compact: bool,
 }
 
-fn default_extract_min_turns() -> usize { 3 }
+fn default_extract_min_turns() -> usize {
+    3
+}
 
 impl Default for MemoryExtractConfig {
     fn default() -> Self {
@@ -180,8 +182,8 @@ impl Default for MemoryExtractConfig {
 // ── Deduplication ───────────────────────────────────────────────
 
 /// Default dedup thresholds (RRF scores)
-pub const DEDUP_THRESHOLD_HIGH: f32 = 0.02;   // Above this → duplicate, skip
-pub const DEDUP_THRESHOLD_MERGE: f32 = 0.012;  // Between merge..high → update existing
+pub const DEDUP_THRESHOLD_HIGH: f32 = 0.02; // Above this → duplicate, skip
+pub const DEDUP_THRESHOLD_MERGE: f32 = 0.012; // Between merge..high → update existing
 
 /// Configurable dedup thresholds, stored in config.json `dedup` field.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -193,8 +195,12 @@ pub struct DedupConfig {
     pub threshold_merge: f32,
 }
 
-fn default_dedup_high() -> f32 { DEDUP_THRESHOLD_HIGH }
-fn default_dedup_merge() -> f32 { DEDUP_THRESHOLD_MERGE }
+fn default_dedup_high() -> f32 {
+    DEDUP_THRESHOLD_HIGH
+}
+fn default_dedup_merge() -> f32 {
+    DEDUP_THRESHOLD_MERGE
+}
 
 impl Default for DedupConfig {
     fn default() -> Self {
@@ -234,9 +240,15 @@ pub struct HybridSearchConfig {
     pub rrf_k: f64,
 }
 
-fn default_vector_weight() -> f32 { 0.6 }
-fn default_text_weight() -> f32 { 0.4 }
-fn default_rrf_k() -> f64 { 60.0 }
+fn default_vector_weight() -> f32 {
+    0.6
+}
+fn default_text_weight() -> f32 {
+    0.4
+}
+fn default_rrf_k() -> f64 {
+    60.0
+}
 
 impl Default for HybridSearchConfig {
     fn default() -> Self {
@@ -263,7 +275,9 @@ pub struct TemporalDecayConfig {
     pub half_life_days: f64,
 }
 
-fn default_half_life_days() -> f64 { 30.0 }
+fn default_half_life_days() -> f64 {
+    30.0
+}
 
 impl Default for TemporalDecayConfig {
     fn default() -> Self {
@@ -288,8 +302,12 @@ pub struct MmrConfig {
     pub lambda: f32,
 }
 
-fn default_true_val() -> bool { true }
-fn default_mmr_lambda() -> f32 { 0.7 }
+fn default_true_val() -> bool {
+    true
+}
+fn default_mmr_lambda() -> f32 {
+    0.7
+}
 
 impl Default for MmrConfig {
     fn default() -> Self {
@@ -314,7 +332,9 @@ pub struct EmbeddingCacheConfig {
     pub max_entries: usize,
 }
 
-fn default_max_cache_entries() -> usize { 10000 }
+fn default_max_cache_entries() -> usize {
+    10000
+}
 
 impl Default for EmbeddingCacheConfig {
     fn default() -> Self {
@@ -329,22 +349,33 @@ impl Default for EmbeddingCacheConfig {
 
 /// Supported modalities for multimodal embedding.
 pub const MULTIMODAL_IMAGE_EXTENSIONS: &[(&str, &str)] = &[
-    ("jpg", "image/jpeg"), ("jpeg", "image/jpeg"),
-    ("png", "image/png"), ("webp", "image/webp"),
-    ("gif", "image/gif"), ("heic", "image/heic"), ("heif", "image/heif"),
+    ("jpg", "image/jpeg"),
+    ("jpeg", "image/jpeg"),
+    ("png", "image/png"),
+    ("webp", "image/webp"),
+    ("gif", "image/gif"),
+    ("heic", "image/heic"),
+    ("heif", "image/heif"),
 ];
 
 pub const MULTIMODAL_AUDIO_EXTENSIONS: &[(&str, &str)] = &[
-    ("mp3", "audio/mpeg"), ("wav", "audio/wav"),
-    ("ogg", "audio/ogg"), ("opus", "audio/opus"),
-    ("m4a", "audio/mp4"), ("aac", "audio/aac"), ("flac", "audio/flac"),
+    ("mp3", "audio/mpeg"),
+    ("wav", "audio/wav"),
+    ("ogg", "audio/ogg"),
+    ("opus", "audio/opus"),
+    ("m4a", "audio/mp4"),
+    ("aac", "audio/aac"),
+    ("flac", "audio/flac"),
 ];
 
 /// Detect MIME type from file extension.
 pub fn mime_from_extension(path: &str) -> Option<String> {
     let lower = path.to_lowercase();
     let ext = lower.rsplit('.').next()?;
-    for (e, mime) in MULTIMODAL_IMAGE_EXTENSIONS.iter().chain(MULTIMODAL_AUDIO_EXTENSIONS.iter()) {
+    for (e, mime) in MULTIMODAL_IMAGE_EXTENSIONS
+        .iter()
+        .chain(MULTIMODAL_AUDIO_EXTENSIONS.iter())
+    {
         if ext == *e {
             return Some(mime.to_string());
         }
@@ -354,9 +385,13 @@ pub fn mime_from_extension(path: &str) -> Option<String> {
 
 /// Get modality label ("image" or "audio") from MIME type.
 pub fn modality_label(mime: &str) -> &'static str {
-    if mime.starts_with("image/") { "image" }
-    else if mime.starts_with("audio/") { "audio" }
-    else { "file" }
+    if mime.starts_with("image/") {
+        "image"
+    } else if mime.starts_with("audio/") {
+        "audio"
+    } else {
+        "file"
+    }
 }
 
 /// Multimodal embedding configuration.
@@ -374,8 +409,12 @@ pub struct MultimodalConfig {
     pub max_file_bytes: u64,
 }
 
-fn default_modalities() -> Vec<String> { vec!["image".to_string(), "audio".to_string()] }
-fn default_max_file_bytes() -> u64 { 10 * 1024 * 1024 } // 10MB
+fn default_modalities() -> Vec<String> {
+    vec!["image".to_string(), "audio".to_string()]
+}
+fn default_max_file_bytes() -> u64 {
+    10 * 1024 * 1024
+} // 10MB
 
 impl Default for MultimodalConfig {
     fn default() -> Self {

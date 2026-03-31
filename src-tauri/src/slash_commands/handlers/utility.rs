@@ -109,9 +109,7 @@ pub fn handle_export(
         return Err("No messages to export".into());
     }
 
-    let session_meta = session_db
-        .get_session(sid)
-        .map_err(|e| e.to_string())?;
+    let session_meta = session_db.get_session(sid).map_err(|e| e.to_string())?;
     let title = session_meta
         .and_then(|m| m.title)
         .unwrap_or_else(|| "Untitled".to_string());

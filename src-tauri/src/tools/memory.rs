@@ -1,37 +1,46 @@
 use anyhow::Result;
 use serde_json::Value;
 
-use crate::memory::{self, MemoryScope, MemoryType, NewMemory, MemorySearchQuery, AddResult};
+use crate::memory::{self, AddResult, MemoryScope, MemorySearchQuery, MemoryType, NewMemory};
 
 /// Tool: save_memory — persist information for future conversations.
 pub(crate) async fn tool_save_memory(args: &Value) -> Result<String> {
-    let content = args.get("content")
+    let content = args
+        .get("content")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Missing 'content' parameter"))?;
 
-    let memory_type = args.get("type")
-        .and_then(|v| v.as_str())
-        .unwrap_or("user");
+    let memory_type = args.get("type").and_then(|v| v.as_str()).unwrap_or("user");
 
-    let scope_str = args.get("scope")
+    let scope_str = args
+        .get("scope")
         .and_then(|v| v.as_str())
         .unwrap_or("global");
 
-    let agent_id = args.get("agent_id")
+    let agent_id = args
+        .get("agent_id")
         .and_then(|v| v.as_str())
         .unwrap_or("default");
 
-    let tags: Vec<String> = args.get("tags")
+    let tags: Vec<String> = args
+        .get("tags")
         .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default();
 
-    let pinned = args.get("pinned")
+    let pinned = args
+        .get("pinned")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
     let scope = if scope_str == "agent" {
-        MemoryScope::Agent { id: agent_id.to_string() }
+        MemoryScope::Agent {
+            id: agent_id.to_string(),
+        }
     } else {
         MemoryScope::Global
     };
@@ -58,17 +67,22 @@ pub(crate) async fn tool_save_memory(args: &Value) -> Result<String> {
 
         let dedup = memory::load_dedup_config();
         match backend.add_with_dedup(entry, dedup.threshold_high, dedup.threshold_merge)? {
-            AddResult::Created { id } => {
-                Ok(format!("Memory saved (id: {}, type: {}, scope: {})", id, memory_type, scope_str))
-            }
-            AddResult::Duplicate { existing_id, score } => {
-                Ok(format!("Similar memory already exists (id: {}, similarity: {:.1}%). Not saved.", existing_id, score * 100.0))
-            }
-            AddResult::Updated { id } => {
-                Ok(format!("Merged with existing memory (id: {}, type: {}, scope: {})", id, memory_type, scope_str))
-            }
+            AddResult::Created { id } => Ok(format!(
+                "Memory saved (id: {}, type: {}, scope: {})",
+                id, memory_type, scope_str
+            )),
+            AddResult::Duplicate { existing_id, score } => Ok(format!(
+                "Similar memory already exists (id: {}, similarity: {:.1}%). Not saved.",
+                existing_id,
+                score * 100.0
+            )),
+            AddResult::Updated { id } => Ok(format!(
+                "Merged with existing memory (id: {}, type: {}, scope: {})",
+                id, memory_type, scope_str
+            )),
         }
-    }).await??;
+    })
+    .await??;
 
     Ok(result)
 }
@@ -76,24 +90,26 @@ pub(crate) async fn tool_save_memory(args: &Value) -> Result<String> {
 /// Tool: recall_memory — search persistent memories by keyword or semantic query.
 /// Optionally also searches past conversation history (include_history=true).
 pub(crate) async fn tool_recall_memory(args: &Value) -> Result<String> {
-    let query_text = args.get("query")
+    let query_text = args
+        .get("query")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Missing 'query' parameter"))?
         .to_string();
 
-    let limit = args.get("limit")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(10) as usize;
+    let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
 
-    let type_filter = args.get("type")
+    let type_filter = args
+        .get("type")
         .and_then(|v| v.as_str())
         .map(|t| vec![MemoryType::from_str(t)]);
 
-    let agent_id = args.get("agent_id")
+    let agent_id = args
+        .get("agent_id")
         .and_then(|v| v.as_str())
         .map(String::from);
 
-    let include_history = args.get("include_history")
+    let include_history = args
+        .get("include_history")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
@@ -126,7 +142,11 @@ pub(crate) async fn tool_recall_memory(args: &Value) -> Result<String> {
                     MemoryScope::Agent { id } => format!("agent:{}", id),
                 };
                 let pin_marker = if mem.pinned { "★ " } else { "" };
-                let tags_str = if mem.tags.is_empty() { String::new() } else { format!(" [{}]", mem.tags.join(", ")) };
+                let tags_str = if mem.tags.is_empty() {
+                    String::new()
+                } else {
+                    format!(" [{}]", mem.tags.join(", "))
+                };
                 output.push_str(&format!(
                     "{}. {}(id: {}) [{}|{}]{}\n{}\n\n",
                     i + 1,
@@ -143,14 +163,15 @@ pub(crate) async fn tool_recall_memory(args: &Value) -> Result<String> {
         // Search conversation history if requested
         if include_history {
             if let Some(session_db) = crate::get_session_db() {
-                let history_results = session_db.search_messages(
-                    &query_text_clone,
-                    agent_id_clone.as_deref(),
-                    5,
-                ).unwrap_or_default();
+                let history_results = session_db
+                    .search_messages(&query_text_clone, agent_id_clone.as_deref(), 5)
+                    .unwrap_or_default();
 
                 if !history_results.is_empty() {
-                    output.push_str(&format!("\n--- Conversation History ({} matches) ---\n\n", history_results.len()));
+                    output.push_str(&format!(
+                        "\n--- Conversation History ({} matches) ---\n\n",
+                        history_results.len()
+                    ));
                     for (i, hit) in history_results.iter().enumerate() {
                         let session_label = hit.session_title.as_deref().unwrap_or("Untitled");
                         output.push_str(&format!(
@@ -172,25 +193,33 @@ pub(crate) async fn tool_recall_memory(args: &Value) -> Result<String> {
         }
 
         Ok(output)
-    }).await??;
+    })
+    .await??;
 
     Ok(result)
 }
 
 /// Tool: update_memory — update an existing memory's content and/or tags.
 pub(crate) async fn tool_update_memory(args: &Value) -> Result<String> {
-    let id = args.get("id")
+    let id = args
+        .get("id")
         .and_then(|v| v.as_i64())
         .ok_or_else(|| anyhow::anyhow!("Missing 'id' parameter (integer)"))?;
 
-    let content = args.get("content")
+    let content = args
+        .get("content")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Missing 'content' parameter"))?
         .to_string();
 
-    let tags: Vec<String> = args.get("tags")
+    let tags: Vec<String> = args
+        .get("tags")
         .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default();
 
     // Run blocking backend operations on a blocking thread.
@@ -206,14 +235,16 @@ pub(crate) async fn tool_update_memory(args: &Value) -> Result<String> {
         backend.update(id, &content, &tags)?;
 
         Ok(format!("Memory updated (id: {}).", id))
-    }).await??;
+    })
+    .await??;
 
     Ok(result)
 }
 
 /// Tool: delete_memory — remove a memory by its ID.
 pub(crate) async fn tool_delete_memory(args: &Value) -> Result<String> {
-    let id = args.get("id")
+    let id = args
+        .get("id")
         .and_then(|v| v.as_i64())
         .ok_or_else(|| anyhow::anyhow!("Missing 'id' parameter (integer)"))?;
 
@@ -230,14 +261,16 @@ pub(crate) async fn tool_delete_memory(args: &Value) -> Result<String> {
         backend.delete(id)?;
 
         Ok(format!("Memory deleted (id: {}).", id))
-    }).await??;
+    })
+    .await??;
 
     Ok(result)
 }
 
 /// Tool: memory_get — retrieve a specific memory entry by ID with full content and metadata.
 pub(crate) async fn tool_memory_get(args: &Value) -> Result<String> {
-    let id = args.get("id")
+    let id = args
+        .get("id")
         .and_then(|v| v.as_i64())
         .ok_or_else(|| anyhow::anyhow!("Missing 'id' parameter (integer)"))?;
 
@@ -270,7 +303,8 @@ pub(crate) async fn tool_memory_get(args: &Value) -> Result<String> {
             }
             None => Ok(format!("Memory with id {} not found.", id)),
         }
-    }).await??;
+    })
+    .await??;
 
     Ok(result)
 }
@@ -278,15 +312,18 @@ pub(crate) async fn tool_memory_get(args: &Value) -> Result<String> {
 /// Tool: update_core_memory — update the core memory file (memory.md) that is always visible
 /// in the system prompt. Used for persistent rules, preferences, and standing instructions.
 pub(crate) async fn tool_update_core_memory(args: &Value, agent_id: &str) -> Result<String> {
-    let action = args.get("action")
+    let action = args
+        .get("action")
         .and_then(|v| v.as_str())
         .unwrap_or("append");
 
-    let scope = args.get("scope")
+    let scope = args
+        .get("scope")
         .and_then(|v| v.as_str())
         .unwrap_or("agent");
 
-    let content = args.get("content")
+    let content = args
+        .get("content")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Missing 'content' parameter"))?;
 
@@ -328,14 +365,21 @@ pub(crate) async fn tool_update_core_memory(args: &Value, agent_id: &str) -> Res
         // Emit event to notify frontend
         if let Some(handle) = crate::get_app_handle() {
             use tauri::Emitter;
-            let _ = handle.emit("core_memory_updated", serde_json::json!({
-                "agentId": agent_id_owned,
-                "scope": scope_owned,
-            }));
+            let _ = handle.emit(
+                "core_memory_updated",
+                serde_json::json!({
+                    "agentId": agent_id_owned,
+                    "scope": scope_owned,
+                }),
+            );
         }
 
-        Ok(format!("Core memory updated (action: {}, scope: {})", action_owned, scope_owned))
-    }).await??;
+        Ok(format!(
+            "Core memory updated (action: {}, scope: {})",
+            action_owned, scope_owned
+        ))
+    })
+    .await??;
 
     Ok(result)
 }

@@ -50,15 +50,20 @@ pub fn compute_next_run(schedule: &CronSchedule, after: &DateTime<Utc>) -> Optio
     match schedule {
         CronSchedule::At { timestamp } => {
             let ts = parse_flexible_timestamp(timestamp)?;
-            if ts > *after { Some(ts) } else { None }
+            if ts > *after {
+                Some(ts)
+            } else {
+                None
+            }
         }
         CronSchedule::Every { interval_ms } => {
             let dur = Duration::milliseconds(*interval_ms as i64);
             Some(*after + dur)
         }
-        CronSchedule::Cron { expression, timezone } => {
-            compute_next_cron(expression, timezone.as_deref(), after)
-        }
+        CronSchedule::Cron {
+            expression,
+            timezone,
+        } => compute_next_cron(expression, timezone.as_deref(), after),
     }
 }
 

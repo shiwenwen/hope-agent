@@ -154,7 +154,11 @@ impl ImageGenProviderImpl for FalProvider {
             },
             geometry: Some(ImageGenGeometry {
                 sizes: vec![
-                    "1024x1024", "1024x1536", "1536x1024", "1024x1792", "1792x1024",
+                    "1024x1024",
+                    "1024x1536",
+                    "1536x1024",
+                    "1024x1792",
+                    "1792x1024",
                 ],
                 aspect_ratios: vec!["1:1", "4:3", "3:4", "16:9", "9:16"],
                 resolutions: vec!["1K", "2K", "4K"],
@@ -216,10 +220,10 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
         let input = &params.input_images[0];
         let b64 = base64::engine::general_purpose::STANDARD.encode(&input.data);
         let data_uri = format!("data:{};base64,{}", input.mime, b64);
-        request_body.as_object_mut().unwrap().insert(
-            "image_url".to_string(),
-            serde_json::json!(data_uri),
-        );
+        request_body
+            .as_object_mut()
+            .unwrap()
+            .insert("image_url".to_string(), serde_json::json!(data_uri));
     }
 
     // Log image generation request
@@ -279,7 +283,11 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
     // Log response status
     if let Some(logger) = crate::get_logger() {
         logger.log(
-            if status.is_success() { "debug" } else { "error" },
+            if status.is_success() {
+                "debug"
+            } else {
+                "error"
+            },
             "tool",
             "image_generate::fal::response",
             &format!(
@@ -339,7 +347,10 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
     // Log API response metadata (image URLs and content types)
     if let Some(logger) = crate::get_logger() {
         let urls: Vec<&str> = items.iter().filter_map(|i| i.url.as_deref()).collect();
-        let types: Vec<&str> = items.iter().filter_map(|i| i.content_type.as_deref()).collect();
+        let types: Vec<&str> = items
+            .iter()
+            .filter_map(|i| i.content_type.as_deref())
+            .collect();
         logger.log(
             "debug",
             "tool",
@@ -373,16 +384,10 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
 
             let dl_status = img_resp.status();
             if !dl_status.is_success() {
-                anyhow::bail!(
-                    "Fal image download failed ({}): {}",
-                    dl_status,
-                    img_url
-                );
+                anyhow::bail!("Fal image download failed ({}): {}", dl_status, img_url);
             }
 
-            let mime = item
-                .content_type
-                .unwrap_or_else(|| "image/png".to_string());
+            let mime = item.content_type.unwrap_or_else(|| "image/png".to_string());
             let data = img_resp.bytes().await?.to_vec();
             let dl_ms = dl_start.elapsed().as_millis() as u64;
 
@@ -393,7 +398,10 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
                     "image_generate::fal::download",
                     &format!(
                         "Fal image #{} downloaded: {} bytes, {}ms, mime={}",
-                        i, data.len(), dl_ms, mime
+                        i,
+                        data.len(),
+                        dl_ms,
+                        mime
                     ),
                     Some(
                         serde_json::json!({

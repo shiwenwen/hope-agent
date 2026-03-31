@@ -26,42 +26,41 @@ pub async fn probe_binary(binary_path: &str) -> AcpHealthStatus {
         .stderr(std::process::Stdio::piped())
         .spawn()
     {
-        Ok(child) => match tokio::time::timeout(
-            std::time::Duration::from_secs(10),
-            child.wait_with_output(),
-        )
-        .await
-        {
-            Ok(Ok(output)) => {
-                let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-                let version_text = if stdout.is_empty() { &stderr } else { &stdout };
-                // Try to extract a version-like substring
-                let version = extract_version(version_text);
-                build_health_status(
-                    output.status.success(),
+        Ok(child) => {
+            match tokio::time::timeout(std::time::Duration::from_secs(10), child.wait_with_output())
+                .await
+            {
+                Ok(Ok(output)) => {
+                    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                    let version_text = if stdout.is_empty() { &stderr } else { &stdout };
+                    // Try to extract a version-like substring
+                    let version = extract_version(version_text);
+                    build_health_status(
+                        output.status.success(),
+                        Some(binary_path.to_string()),
+                        version,
+                        if output.status.success() {
+                            None
+                        } else {
+                            Some(format!("Exit code {}", output.status.code().unwrap_or(-1)))
+                        },
+                    )
+                }
+                Ok(Err(e)) => build_health_status(
+                    false,
                     Some(binary_path.to_string()),
-                    version,
-                    if output.status.success() {
-                        None
-                    } else {
-                        Some(format!("Exit code {}", output.status.code().unwrap_or(-1)))
-                    },
-                )
+                    None,
+                    Some(format!("Failed to run: {}", e)),
+                ),
+                Err(_) => build_health_status(
+                    false,
+                    Some(binary_path.to_string()),
+                    None,
+                    Some("Timed out after 10s".into()),
+                ),
             }
-            Ok(Err(e)) => build_health_status(
-                false,
-                Some(binary_path.to_string()),
-                None,
-                Some(format!("Failed to run: {}", e)),
-            ),
-            Err(_) => build_health_status(
-                false,
-                Some(binary_path.to_string()),
-                None,
-                Some("Timed out after 10s".into()),
-            ),
-        },
+        }
         Err(e) => build_health_status(
             false,
             Some(binary_path.to_string()),

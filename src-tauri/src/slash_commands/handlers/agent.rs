@@ -5,10 +5,7 @@ use crate::slash_commands::types::{CommandAction, CommandResult};
 use std::sync::Arc;
 
 /// /agent <name> — Switch to a different agent.
-pub fn handle_agent(
-    session_db: &Arc<SessionDB>,
-    args: &str,
-) -> Result<CommandResult, String> {
+pub fn handle_agent(session_db: &Arc<SessionDB>, args: &str) -> Result<CommandResult, String> {
     let query = args.trim();
     if query.is_empty() {
         return Err("Usage: /agent <name>".into());
@@ -76,9 +73,7 @@ fn fuzzy_match_agent(agents: &[AgentSummary], query: &str) -> Result<AgentSummar
     // Prefix match
     let prefix: Vec<_> = agents
         .iter()
-        .filter(|a| {
-            a.name.to_lowercase().starts_with(&q) || a.id.to_lowercase().starts_with(&q)
-        })
+        .filter(|a| a.name.to_lowercase().starts_with(&q) || a.id.to_lowercase().starts_with(&q))
         .collect();
     if prefix.len() == 1 {
         return Ok(prefix[0].clone());
@@ -87,9 +82,7 @@ fn fuzzy_match_agent(agents: &[AgentSummary], query: &str) -> Result<AgentSummar
     // Contains match
     let contains: Vec<_> = agents
         .iter()
-        .filter(|a| {
-            a.name.to_lowercase().contains(&q) || a.id.to_lowercase().contains(&q)
-        })
+        .filter(|a| a.name.to_lowercase().contains(&q) || a.id.to_lowercase().contains(&q))
         .collect();
     if contains.len() == 1 {
         return Ok(contains[0].clone());

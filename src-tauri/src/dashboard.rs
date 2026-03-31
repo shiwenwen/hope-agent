@@ -468,12 +468,16 @@ pub fn query_overview(
     cron_db: &Arc<CronDB>,
     filter: &DashboardFilter,
 ) -> Result<OverviewStats> {
-    let sess_conn = session_db.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+    let sess_conn = session_db
+        .conn
+        .lock()
+        .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
     // Session count
     let f = build_session_filter(filter, "s", None);
     let sql = format!("SELECT COUNT(*) FROM sessions s {}", f.where_sql);
-    let total_sessions: u64 = sess_conn.query_row(&sql, params_ref(&f.params).as_slice(), |r| r.get(0))?;
+    let total_sessions: u64 =
+        sess_conn.query_row(&sql, params_ref(&f.params).as_slice(), |r| r.get(0))?;
 
     // Message count + token sums + tool calls + errors
     let f = build_session_filter(filter, "s", Some("m"));
@@ -485,7 +489,8 @@ pub fn query_overview(
                 COALESCE(SUM(CASE WHEN m.is_error = 1 THEN 1 ELSE 0 END), 0)
          FROM messages m
          JOIN sessions s ON s.id = m.session_id
-         {}", f.where_sql
+         {}",
+        f.where_sql
     );
     let (total_messages, total_input_tokens, total_output_tokens, total_tool_calls, total_errors): (u64, u64, u64, u64, u64) =
         sess_conn.query_row(&sql, params_ref(&f.params).as_slice(), |r| {
@@ -494,8 +499,12 @@ pub fn query_overview(
 
     // Active agents (distinct agent_ids in sessions within filter period)
     let f = build_session_filter(filter, "s", None);
-    let sql = format!("SELECT COUNT(DISTINCT s.agent_id) FROM sessions s {}", f.where_sql);
-    let active_agents: u64 = sess_conn.query_row(&sql, params_ref(&f.params).as_slice(), |r| r.get(0))?;
+    let sql = format!(
+        "SELECT COUNT(DISTINCT s.agent_id) FROM sessions s {}",
+        f.where_sql
+    );
+    let active_agents: u64 =
+        sess_conn.query_row(&sql, params_ref(&f.params).as_slice(), |r| r.get(0))?;
 
     // Query average TTFT
     let f = build_session_filter(filter, "s", Some("m"));
@@ -504,14 +513,23 @@ pub fn query_overview(
          FROM messages m
          JOIN sessions s ON s.id = m.session_id
          {} AND m.ttft_ms IS NOT NULL AND m.role = 'assistant'",
-        if f.where_sql.is_empty() { "WHERE 1=1".to_string() } else { f.where_sql }
+        if f.where_sql.is_empty() {
+            "WHERE 1=1".to_string()
+        } else {
+            f.where_sql
+        }
     );
-    let avg_ttft_ms: Option<f64> = sess_conn.query_row(&sql, params_ref(&f.params).as_slice(), |r| r.get(0)).ok();
+    let avg_ttft_ms: Option<f64> = sess_conn
+        .query_row(&sql, params_ref(&f.params).as_slice(), |r| r.get(0))
+        .ok();
 
     drop(sess_conn);
 
     // Active cron jobs
-    let cron_conn = cron_db.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+    let cron_conn = cron_db
+        .conn
+        .lock()
+        .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
     let active_cron_jobs: u64 = cron_conn.query_row(
         "SELECT COUNT(*) FROM cron_jobs WHERE status = 'active'",
         [],
@@ -520,7 +538,10 @@ pub fn query_overview(
     drop(cron_conn);
 
     // Estimate cost by querying per-model token usage
-    let sess_conn = session_db.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+    let sess_conn = session_db
+        .conn
+        .lock()
+        .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
     let f = build_session_filter(filter, "s", Some("m"));
     let sql = format!(
         "SELECT COALESCE(s.model_id, 'unknown'),
@@ -534,7 +555,11 @@ pub fn query_overview(
     );
     let mut stmt = sess_conn.prepare(&sql)?;
     let rows = stmt.query_map(params_ref(&f.params).as_slice(), |r| {
-        Ok((r.get::<_, String>(0)?, r.get::<_, u64>(1)?, r.get::<_, u64>(2)?))
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, u64>(1)?,
+            r.get::<_, u64>(2)?,
+        ))
     })?;
     let mut estimated_cost_usd = 0.0;
     for row in rows {
@@ -561,7 +586,10 @@ pub fn query_token_usage(
     session_db: &Arc<SessionDB>,
     filter: &DashboardFilter,
 ) -> Result<DashboardTokenData> {
-    let conn = session_db.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+    let conn = session_db
+        .conn
+        .lock()
+        .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
     // Daily trend (with avg TTFT)
     let f = build_session_filter(filter, "s", Some("m"));
@@ -635,7 +663,10 @@ pub fn query_tool_usage(
     session_db: &Arc<SessionDB>,
     filter: &DashboardFilter,
 ) -> Result<Vec<ToolUsageStats>> {
-    let conn = session_db.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+    let conn = session_db
+        .conn
+        .lock()
+        .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
     let f = build_session_filter(filter, "s", Some("m"));
     let sql = format!(
@@ -662,7 +693,8 @@ pub fn query_tool_usage(
             total_duration_ms: r.get(4)?,
         })
     })?;
-    rows.collect::<std::result::Result<_, _>>().map_err(Into::into)
+    rows.collect::<std::result::Result<_, _>>()
+        .map_err(Into::into)
 }
 
 /// Session stats: daily trend and breakdown by agent.
@@ -670,7 +702,10 @@ pub fn query_sessions(
     session_db: &Arc<SessionDB>,
     filter: &DashboardFilter,
 ) -> Result<DashboardSessionData> {
-    let conn = session_db.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+    let conn = session_db
+        .conn
+        .lock()
+        .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
     // Daily trend (join-based for performance)
     let f = build_session_filter(filter, "s", None);
@@ -724,11 +759,11 @@ pub fn query_sessions(
 }
 
 /// Error/warning stats from the logs database.
-pub fn query_errors(
-    log_db: &Arc<LogDB>,
-    filter: &DashboardFilter,
-) -> Result<DashboardErrorData> {
-    let conn = log_db.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+pub fn query_errors(log_db: &Arc<LogDB>, filter: &DashboardFilter) -> Result<DashboardErrorData> {
+    let conn = log_db
+        .conn
+        .lock()
+        .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
     // Daily trend
     let base_filter = build_log_filter(filter);
@@ -815,13 +850,13 @@ pub fn query_tasks(
     filter: &DashboardFilter,
 ) -> Result<DashboardTaskData> {
     // ── Cron stats ──
-    let cron_conn = cron_db.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+    let cron_conn = cron_db
+        .conn
+        .lock()
+        .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
-    let total_jobs: u64 = cron_conn.query_row(
-        "SELECT COUNT(*) FROM cron_jobs",
-        [],
-        |r| r.get(0),
-    )?;
+    let total_jobs: u64 =
+        cron_conn.query_row("SELECT COUNT(*) FROM cron_jobs", [], |r| r.get(0))?;
     let active_jobs: u64 = cron_conn.query_row(
         "SELECT COUNT(*) FROM cron_jobs WHERE status = 'active'",
         [],
@@ -858,8 +893,8 @@ pub fn query_tasks(
          {}",
         where_sql
     );
-    let (total_runs, success_runs, failed_runs, avg_duration_ms): (u64, u64, u64, f64) =
-        cron_conn.query_row(&sql, params_ref(&cron_params).as_slice(), |r| {
+    let (total_runs, success_runs, failed_runs, avg_duration_ms): (u64, u64, u64, f64) = cron_conn
+        .query_row(&sql, params_ref(&cron_params).as_slice(), |r| {
             Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
         })?;
 
@@ -875,7 +910,10 @@ pub fn query_tasks(
     };
 
     // ── Subagent stats ──
-    let sess_conn = session_db.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+    let sess_conn = session_db
+        .conn
+        .lock()
+        .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
     let mut clauses: Vec<String> = Vec::new();
     let mut sub_params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
@@ -952,7 +990,8 @@ pub fn query_system_metrics() -> Result<SystemMetrics> {
 
     let cpu_count = sys.cpus().len();
 
-    let process = sys.process(current_pid)
+    let process = sys
+        .process(current_pid)
         .ok_or_else(|| anyhow::anyhow!("Current process not found"))?;
 
     let process_cpu = process.cpu_usage();
@@ -1004,7 +1043,10 @@ pub fn query_session_list(
     session_db: &Arc<SessionDB>,
     filter: &DashboardFilter,
 ) -> Result<Vec<DashboardSessionItem>> {
-    let conn = session_db.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+    let conn = session_db
+        .conn
+        .lock()
+        .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
     let f = build_session_filter(filter, "s", None);
     let sql = format!(
@@ -1031,7 +1073,8 @@ pub fn query_session_list(
             updated_at: r.get(7)?,
         })
     })?;
-    rows.collect::<std::result::Result<_, _>>().map_err(Into::into)
+    rows.collect::<std::result::Result<_, _>>()
+        .map_err(Into::into)
 }
 
 /// List recent messages across all sessions.
@@ -1039,7 +1082,10 @@ pub fn query_message_list(
     session_db: &Arc<SessionDB>,
     filter: &DashboardFilter,
 ) -> Result<Vec<DashboardMessageItem>> {
-    let conn = session_db.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+    let conn = session_db
+        .conn
+        .lock()
+        .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
     let f = build_session_filter(filter, "s", Some("m"));
     let sql = format!(
@@ -1068,7 +1114,8 @@ pub fn query_message_list(
             timestamp: r.get(7)?,
         })
     })?;
-    rows.collect::<std::result::Result<_, _>>().map_err(Into::into)
+    rows.collect::<std::result::Result<_, _>>()
+        .map_err(Into::into)
 }
 
 /// List recent tool calls across all sessions.
@@ -1076,13 +1123,19 @@ pub fn query_tool_call_list(
     session_db: &Arc<SessionDB>,
     filter: &DashboardFilter,
 ) -> Result<Vec<DashboardToolCallItem>> {
-    let conn = session_db.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+    let conn = session_db
+        .conn
+        .lock()
+        .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
     let f = build_session_filter(filter, "s", Some("m"));
     let extra = if f.where_sql.is_empty() {
         "WHERE m.tool_name IS NOT NULL AND m.tool_name != ''".to_string()
     } else {
-        format!("{} AND m.tool_name IS NOT NULL AND m.tool_name != ''", f.where_sql)
+        format!(
+            "{} AND m.tool_name IS NOT NULL AND m.tool_name != ''",
+            f.where_sql
+        )
     };
     let sql = format!(
         "SELECT m.id, m.session_id, s.title, m.tool_name,
@@ -1108,7 +1161,8 @@ pub fn query_tool_call_list(
             timestamp: r.get(6)?,
         })
     })?;
-    rows.collect::<std::result::Result<_, _>>().map_err(Into::into)
+    rows.collect::<std::result::Result<_, _>>()
+        .map_err(Into::into)
 }
 
 /// List recent error/warning log entries.
@@ -1116,7 +1170,10 @@ pub fn query_error_list(
     log_db: &Arc<LogDB>,
     filter: &DashboardFilter,
 ) -> Result<Vec<DashboardErrorItem>> {
-    let conn = log_db.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+    let conn = log_db
+        .conn
+        .lock()
+        .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
     let base = build_log_filter(filter);
     let condition = if base.where_sql.is_empty() {
@@ -1144,7 +1201,8 @@ pub fn query_error_list(
             timestamp: r.get(6)?,
         })
     })?;
-    rows.collect::<std::result::Result<_, _>>().map_err(Into::into)
+    rows.collect::<std::result::Result<_, _>>()
+        .map_err(Into::into)
 }
 
 /// List agents with session counts and token totals.
@@ -1152,7 +1210,10 @@ pub fn query_agent_list(
     session_db: &Arc<SessionDB>,
     filter: &DashboardFilter,
 ) -> Result<Vec<DashboardAgentItem>> {
-    let conn = session_db.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+    let conn = session_db
+        .conn
+        .lock()
+        .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
     let f = build_session_filter(filter, "s", None);
     let sql = format!(
@@ -1178,5 +1239,6 @@ pub fn query_agent_list(
             last_active_at: r.get(4)?,
         })
     })?;
-    rows.collect::<std::result::Result<_, _>>().map_err(Into::into)
+    rows.collect::<std::result::Result<_, _>>()
+        .map_err(Into::into)
 }

@@ -184,7 +184,12 @@ fn run_callback_server(expected_state: &str, code_verifier: &str) -> Result<Toke
     let server = tiny_http::Server::http(&addr)
         .map_err(|e| anyhow!("Failed to start callback server on {}: {}", addr, e))?;
 
-    app_info!("auth", "oauth", "OAuth callback server listening on {}", addr);
+    app_info!(
+        "auth",
+        "oauth",
+        "OAuth callback server listening on {}",
+        addr
+    );
 
     // Wait for the callback request (with a timeout)
     let timeout = std::time::Duration::from_secs(300); // 5 minutes
@@ -202,8 +207,8 @@ fn run_callback_server(expected_state: &str, code_verifier: &str) -> Result<Toke
 
                 // Check if this is our callback
                 if !url.starts_with("/auth/callback") {
-                    let response = tiny_http::Response::from_string("Not found")
-                        .with_status_code(404);
+                    let response =
+                        tiny_http::Response::from_string("Not found").with_status_code(404);
                     let _ = request.respond(response);
                     continue;
                 }
@@ -232,14 +237,16 @@ fn run_callback_server(expected_state: &str, code_verifier: &str) -> Result<Toke
                 // Check for errors
                 if let Some(error) = params.get("error") {
                     let desc = params.get("error_description").cloned().unwrap_or_default();
-                    let response = tiny_http::Response::from_string(format!("Error: {} - {}", error, desc))
-                        .with_status_code(400);
+                    let response =
+                        tiny_http::Response::from_string(format!("Error: {} - {}", error, desc))
+                            .with_status_code(400);
                     let _ = request.respond(response);
                     return Err(anyhow!("OAuth error: {} - {}", error, desc));
                 }
 
                 // Get the authorization code
-                let code = params.get("code")
+                let code = params
+                    .get("code")
                     .ok_or_else(|| anyhow!("No authorization code in callback"))?
                     .clone();
 
@@ -258,8 +265,11 @@ fn run_callback_server(expected_state: &str, code_verifier: &str) -> Result<Toke
   <p>你可以关闭此页面，回到 OpenComputer 应用。</p>
 </div></body></html>"#;
 
-                let response = tiny_http::Response::from_string(html)
-                    .with_header("Content-Type: text/html; charset=utf-8".parse::<tiny_http::Header>().unwrap());
+                let response = tiny_http::Response::from_string(html).with_header(
+                    "Content-Type: text/html; charset=utf-8"
+                        .parse::<tiny_http::Header>()
+                        .unwrap(),
+                );
                 let _ = request.respond(response);
 
                 // Exchange the code for tokens
@@ -350,7 +360,5 @@ pub async fn refresh_access_token(refresh_token: &str) -> Result<TokenData> {
 
 /// Simple URL encoding for known safe strings
 fn urlencoding(s: &str) -> String {
-    s.replace(' ', "+")
-        .replace(':', "%3A")
-        .replace('/', "%2F")
+    s.replace(' ', "+").replace(':', "%3A").replace('/', "%2F")
 }

@@ -41,7 +41,8 @@ impl SubagentCancelRegistry {
 
     /// Cancel all active runs for a given parent session.
     pub fn cancel_all_for_session(&self, parent_session_id: &str, db: &SessionDB) -> u32 {
-        let run_ids: Vec<String> = db.list_active_subagent_runs(parent_session_id)
+        let run_ids: Vec<String> = db
+            .list_active_subagent_runs(parent_session_id)
             .unwrap_or_default()
             .into_iter()
             .map(|r| r.run_id)

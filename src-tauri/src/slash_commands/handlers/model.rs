@@ -81,10 +81,7 @@ fn fuzzy_match_model(models: &[AvailableModel], query: &str) -> Result<Available
     }
 
     // Try exact match on model_name
-    if let Some(m) = models
-        .iter()
-        .find(|m| m.model_name.to_lowercase() == query)
-    {
+    if let Some(m) = models.iter().find(|m| m.model_name.to_lowercase() == query) {
         return Ok(m.clone());
     }
 
@@ -105,8 +102,7 @@ fn fuzzy_match_model(models: &[AvailableModel], query: &str) -> Result<Available
     let contains_matches: Vec<_> = models
         .iter()
         .filter(|m| {
-            m.model_name.to_lowercase().contains(query)
-                || m.model_id.to_lowercase().contains(query)
+            m.model_name.to_lowercase().contains(query) || m.model_id.to_lowercase().contains(query)
         })
         .collect();
 

@@ -173,12 +173,18 @@ impl Default for AgentAcpConfig {
 impl AgentAcpConfig {
     /// Check if a backend is allowed by this agent's policy.
     pub fn is_backend_allowed(&self, backend_id: &str) -> bool {
-        if self.denied_backends.iter().any(|d| d.eq_ignore_ascii_case(backend_id)) {
+        if self
+            .denied_backends
+            .iter()
+            .any(|d| d.eq_ignore_ascii_case(backend_id))
+        {
             return false;
         }
         if self.allowed_backends.is_empty() {
             return true;
         }
-        self.allowed_backends.iter().any(|a| a.eq_ignore_ascii_case(backend_id))
+        self.allowed_backends
+            .iter()
+            .any(|a| a.eq_ignore_ascii_case(backend_id))
     }
 }

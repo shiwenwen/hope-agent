@@ -58,54 +58,90 @@ struct DefaultMeta {
 
 fn default_meta(locale: &str) -> DefaultMeta {
     match locale {
-        "zh"    => DefaultMeta { name: "助手",        description: "通用 AI 助手" },
-        "zh-TW" => DefaultMeta { name: "助手",        description: "通用 AI 助手" },
-        "ja"    => DefaultMeta { name: "アシスタント",    description: "汎用 AI アシスタント" },
-        "ko"    => DefaultMeta { name: "어시스턴트",     description: "범용 AI 어시스턴트" },
-        "es"    => DefaultMeta { name: "Asistente",    description: "Asistente de IA de propósito general" },
-        "pt"    => DefaultMeta { name: "Assistente",   description: "Assistente de IA de propósito geral" },
-        "ru"    => DefaultMeta { name: "Ассистент",    description: "Универсальный ИИ-ассистент" },
-        "ar"    => DefaultMeta { name: "المساعد",      description: "مساعد ذكاء اصطناعي متعدد الأغراض" },
-        "tr"    => DefaultMeta { name: "Asistan",      description: "Genel amaçlı yapay zeka asistanı" },
-        "vi"    => DefaultMeta { name: "Trợ lý",       description: "Trợ lý AI đa năng" },
-        "ms"    => DefaultMeta { name: "Pembantu",     description: "Pembantu AI pelbagai guna" },
-        _       => DefaultMeta { name: "Assistant",    description: "General-purpose AI assistant" },
+        "zh" => DefaultMeta {
+            name: "助手",
+            description: "通用 AI 助手",
+        },
+        "zh-TW" => DefaultMeta {
+            name: "助手",
+            description: "通用 AI 助手",
+        },
+        "ja" => DefaultMeta {
+            name: "アシスタント",
+            description: "汎用 AI アシスタント",
+        },
+        "ko" => DefaultMeta {
+            name: "어시스턴트",
+            description: "범용 AI 어시스턴트",
+        },
+        "es" => DefaultMeta {
+            name: "Asistente",
+            description: "Asistente de IA de propósito general",
+        },
+        "pt" => DefaultMeta {
+            name: "Assistente",
+            description: "Assistente de IA de propósito geral",
+        },
+        "ru" => DefaultMeta {
+            name: "Ассистент",
+            description: "Универсальный ИИ-ассистент",
+        },
+        "ar" => DefaultMeta {
+            name: "المساعد",
+            description: "مساعد ذكاء اصطناعي متعدد الأغراض",
+        },
+        "tr" => DefaultMeta {
+            name: "Asistan",
+            description: "Genel amaçlı yapay zeka asistanı",
+        },
+        "vi" => DefaultMeta {
+            name: "Trợ lý",
+            description: "Trợ lý AI đa năng",
+        },
+        "ms" => DefaultMeta {
+            name: "Pembantu",
+            description: "Pembantu AI pelbagai guna",
+        },
+        _ => DefaultMeta {
+            name: "Assistant",
+            description: "General-purpose AI assistant",
+        },
     }
 }
 
 /// Agent.md template per locale (embedded at compile time).
 fn default_agent_md(locale: &str) -> &'static str {
     match locale {
-        "zh"    => include_str!("../templates/agent.zh.md"),
+        "zh" => include_str!("../templates/agent.zh.md"),
         "zh-TW" => include_str!("../templates/agent.zh-TW.md"),
-        "ja"    => include_str!("../templates/agent.ja.md"),
-        "ko"    => include_str!("../templates/agent.ko.md"),
-        "es"    => include_str!("../templates/agent.es.md"),
-        "pt"    => include_str!("../templates/agent.pt.md"),
-        "ru"    => include_str!("../templates/agent.ru.md"),
-        "ar"    => include_str!("../templates/agent.ar.md"),
-        "tr"    => include_str!("../templates/agent.tr.md"),
-        "vi"    => include_str!("../templates/agent.vi.md"),
-        "ms"    => include_str!("../templates/agent.ms.md"),
-        _       => include_str!("../templates/agent.en.md"),
+        "ja" => include_str!("../templates/agent.ja.md"),
+        "ko" => include_str!("../templates/agent.ko.md"),
+        "es" => include_str!("../templates/agent.es.md"),
+        "pt" => include_str!("../templates/agent.pt.md"),
+        "ru" => include_str!("../templates/agent.ru.md"),
+        "ar" => include_str!("../templates/agent.ar.md"),
+        "tr" => include_str!("../templates/agent.tr.md"),
+        "vi" => include_str!("../templates/agent.vi.md"),
+        "ms" => include_str!("../templates/agent.ms.md"),
+        _ => include_str!("../templates/agent.en.md"),
     }
 }
 
 /// Persona.md template per locale (embedded at compile time).
 fn default_persona_md(locale: &str) -> &'static str {
     match locale {
-        "zh"    => include_str!("../templates/persona.zh.md"),
+        "zh" => include_str!("../templates/persona.zh.md"),
         "zh-TW" => include_str!("../templates/persona.zh-TW.md"),
-        "ja"    => include_str!("../templates/persona.ja.md"),
-        "ko"    => include_str!("../templates/persona.ko.md"),
-        "es"    => include_str!("../templates/persona.es.md"),
-        "pt"    => include_str!("../templates/persona.pt.md"),
-        "ru"    => include_str!("../templates/persona.ru.md"),
-        "ar"    => include_str!("../templates/persona.ar.md"),
-        "tr"    => include_str!("../templates/persona.tr.md"),
-        "vi"    => include_str!("../templates/persona.vi.md"),
-        "ms"    => include_str!("../templates/persona.ms.md"),
-        _       => include_str!("../templates/persona.en.md"),
+        "ja" => include_str!("../templates/persona.ja.md"),
+        "ko" => include_str!("../templates/persona.ko.md"),
+        "es" => include_str!("../templates/persona.es.md"),
+        "pt" => include_str!("../templates/persona.pt.md"),
+        "ru" => include_str!("../templates/persona.ru.md"),
+        "ar" => include_str!("../templates/persona.ar.md"),
+        "tr" => include_str!("../templates/persona.tr.md"),
+        "vi" => include_str!("../templates/persona.vi.md"),
+        "ms" => include_str!("../templates/persona.ms.md"),
+        _ => include_str!("../templates/persona.en.md"),
     }
 }
 
@@ -114,9 +150,9 @@ fn default_persona_md(locale: &str) -> &'static str {
 /// `locale`: language code like "zh", "en", "ja" etc.
 pub fn get_template(name: &str, locale: &str) -> Option<String> {
     match name {
-        "agent"   => Some(default_agent_md(locale).to_string()),
+        "agent" => Some(default_agent_md(locale).to_string()),
         "persona" => Some(default_persona_md(locale).to_string()),
-        _         => None,
+        _ => None,
     }
 }
 
@@ -187,8 +223,10 @@ pub fn load_agent(id: &str) -> Result<AgentDefinition> {
     let global_memory_md = {
         let global_path = paths::root_dir()?.join(MEMORY_MD);
         if global_path.exists() {
-            Some(std::fs::read_to_string(&global_path)
-                .with_context(|| format!("Failed to read {}", global_path.display()))?)
+            Some(
+                std::fs::read_to_string(&global_path)
+                    .with_context(|| format!("Failed to read {}", global_path.display()))?,
+            )
         } else {
             None
         }
@@ -264,7 +302,8 @@ pub fn list_agents() -> Result<Vec<AgentSummary>> {
         // Count memories for this agent
         let memory_count = crate::get_memory_backend()
             .and_then(|b| {
-                b.count(Some(&crate::memory::MemoryScope::Agent { id: id.clone() })).ok()
+                b.count(Some(&crate::memory::MemoryScope::Agent { id: id.clone() }))
+                    .ok()
             })
             .unwrap_or(0);
 

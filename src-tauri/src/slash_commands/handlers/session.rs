@@ -21,9 +21,7 @@ pub fn handle_clear(
     session_id: Option<&str>,
 ) -> Result<CommandResult, String> {
     let sid = session_id.ok_or("No active session to clear")?;
-    session_db
-        .delete_session(sid)
-        .map_err(|e| e.to_string())?;
+    session_db.delete_session(sid).map_err(|e| e.to_string())?;
     Ok(CommandResult {
         content: "Session cleared.".into(),
         action: Some(CommandAction::SessionCleared),

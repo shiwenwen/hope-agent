@@ -1,6 +1,6 @@
 use crate::plan::{self, PlanModeState};
 use crate::session::SessionDB;
-use crate::slash_commands::types::{CommandResult, CommandAction};
+use crate::slash_commands::types::{CommandAction, CommandResult};
 
 pub async fn handle_plan(
     db: &SessionDB,
@@ -12,7 +12,8 @@ pub async fn handle_plan(
     match args.trim() {
         "" | "enter" => {
             plan::set_plan_state(sid, PlanModeState::Planning).await;
-            db.update_session_plan_mode(sid, "planning").map_err(|e| e.to_string())?;
+            db.update_session_plan_mode(sid, "planning")
+                .map_err(|e| e.to_string())?;
             Ok(CommandResult {
                 content: String::new(),
                 action: Some(CommandAction::EnterPlanMode),
@@ -25,7 +26,8 @@ pub async fn handle_plan(
                 plan::cleanup_checkpoint(&ref_name);
             }
             plan::set_plan_state(sid, PlanModeState::Off).await;
-            db.update_session_plan_mode(sid, "off").map_err(|e| e.to_string())?;
+            db.update_session_plan_mode(sid, "off")
+                .map_err(|e| e.to_string())?;
             Ok(CommandResult {
                 content: String::new(),
                 action: Some(CommandAction::ExitPlanMode { plan_content }),
@@ -34,7 +36,8 @@ pub async fn handle_plan(
         "approve" => {
             let plan_content = plan::load_plan_file(sid).ok().flatten();
             plan::set_plan_state(sid, PlanModeState::Executing).await;
-            db.update_session_plan_mode(sid, "executing").map_err(|e| e.to_string())?;
+            db.update_session_plan_mode(sid, "executing")
+                .map_err(|e| e.to_string())?;
             // Create git checkpoint AFTER PlanMeta entry exists in the store
             plan::create_checkpoint_for_session(sid).await;
             Ok(CommandResult {
@@ -58,7 +61,8 @@ pub async fn handle_plan(
                 return Err("Can only pause when plan is executing".to_string());
             }
             plan::set_plan_state(sid, PlanModeState::Paused).await;
-            db.update_session_plan_mode(sid, "paused").map_err(|e| e.to_string())?;
+            db.update_session_plan_mode(sid, "paused")
+                .map_err(|e| e.to_string())?;
             Ok(CommandResult {
                 content: String::new(),
                 action: Some(CommandAction::PausePlan),
@@ -70,7 +74,8 @@ pub async fn handle_plan(
                 return Err("Can only resume when plan is paused".to_string());
             }
             plan::set_plan_state(sid, PlanModeState::Executing).await;
-            db.update_session_plan_mode(sid, "executing").map_err(|e| e.to_string())?;
+            db.update_session_plan_mode(sid, "executing")
+                .map_err(|e| e.to_string())?;
             Ok(CommandResult {
                 content: String::new(),
                 action: Some(CommandAction::ResumePlan),

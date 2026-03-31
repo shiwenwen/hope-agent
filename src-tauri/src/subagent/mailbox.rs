@@ -1,6 +1,6 @@
 use std::collections::HashMap;
-use std::sync::Mutex;
 use std::sync::atomic::Ordering;
+use std::sync::Mutex;
 
 use super::injection::flush_pending_injections;
 use super::ACTIVE_CHAT_SESSIONS;
@@ -17,7 +17,9 @@ pub struct SubagentMailbox {
 
 impl SubagentMailbox {
     pub fn new() -> Self {
-        Self { messages: Mutex::new(HashMap::new()) }
+        Self {
+            messages: Mutex::new(HashMap::new()),
+        }
     }
 
     /// Push a steer message for the given run. Returns Err if run_id not registered.
@@ -79,7 +81,9 @@ impl ChatSessionGuard {
                 cancel.store(true, Ordering::SeqCst);
             }
         }
-        Self { session_id: session_id.to_string() }
+        Self {
+            session_id: session_id.to_string(),
+        }
     }
 }
 

@@ -4,7 +4,10 @@ use serde_json::Value;
 /// Send a native desktop notification to the user via Tauri event.
 /// The frontend handles the actual macOS notification dispatch, ensuring
 /// consistent permission checks and global toggle enforcement.
-pub(crate) async fn tool_send_notification(args: &Value, _ctx: &super::ToolExecContext) -> Result<String> {
+pub(crate) async fn tool_send_notification(
+    args: &Value,
+    _ctx: &super::ToolExecContext,
+) -> Result<String> {
     let title = args
         .get("title")
         .and_then(|v| v.as_str())

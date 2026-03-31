@@ -61,7 +61,11 @@ fn jaccard_similarity(a: &HashSet<String>, b: &HashSet<String>) -> f32 {
     }
     let intersection = a.intersection(b).count();
     let union = a.union(b).count();
-    if union == 0 { 0.0 } else { intersection as f32 / union as f32 }
+    if union == 0 {
+        0.0
+    } else {
+        intersection as f32 / union as f32
+    }
 }
 
 /// MMR reranking: from `candidates`, iteratively select `k` results
@@ -72,11 +76,7 @@ fn jaccard_similarity(a: &HashSet<String>, b: &HashSet<String>) -> f32 {
 /// - `lambda`: 0.0 = pure diversity, 1.0 = pure relevance
 ///
 /// Returns (id, adjusted_score) pairs in selected order.
-pub fn mmr_rerank(
-    candidates: &[(i64, f32, &str)],
-    k: usize,
-    lambda: f32,
-) -> Vec<(i64, f32)> {
+pub fn mmr_rerank(candidates: &[(i64, f32, &str)], k: usize, lambda: f32) -> Vec<(i64, f32)> {
     if candidates.is_empty() || k == 0 {
         return Vec::new();
     }
@@ -84,17 +84,27 @@ pub fn mmr_rerank(
     let k = k.min(candidates.len());
 
     // Pre-tokenize all candidates
-    let token_sets: Vec<HashSet<String>> = candidates.iter()
+    let token_sets: Vec<HashSet<String>> = candidates
+        .iter()
         .map(|(_, _, content)| tokenize(content))
         .collect();
 
     // Normalize relevance scores to [0, 1]
-    let max_score = candidates.iter().map(|(_, s, _)| *s).fold(f32::NEG_INFINITY, f32::max);
-    let min_score = candidates.iter().map(|(_, s, _)| *s).fold(f32::INFINITY, f32::min);
+    let max_score = candidates
+        .iter()
+        .map(|(_, s, _)| *s)
+        .fold(f32::NEG_INFINITY, f32::max);
+    let min_score = candidates
+        .iter()
+        .map(|(_, s, _)| *s)
+        .fold(f32::INFINITY, f32::min);
     let score_range = max_score - min_score;
 
     let normalized_scores: Vec<f32> = if score_range > 1e-10 {
-        candidates.iter().map(|(_, s, _)| (s - min_score) / score_range).collect()
+        candidates
+            .iter()
+            .map(|(_, s, _)| (s - min_score) / score_range)
+            .collect()
     } else {
         vec![1.0; candidates.len()]
     };
@@ -118,7 +128,8 @@ pub fn mmr_rerank(
             let max_sim = if selected.is_empty() {
                 0.0
             } else {
-                selected.iter()
+                selected
+                    .iter()
                     .map(|&si| jaccard_similarity(&token_sets[ci], &token_sets[si]))
                     .fold(0.0_f32, f32::max)
             };

@@ -11,10 +11,17 @@ pub async fn searxng_docker_status() -> Result<docker::SearxngDockerStatus, Stri
 pub async fn searxng_docker_deploy(channel: tauri::ipc::Channel<String>) -> Result<String, String> {
     let url = docker::deploy(|step| {
         let _ = channel.send(step.to_string());
-    }).await.map_err(|e| e.to_string())?;
+    })
+    .await
+    .map_err(|e| e.to_string())?;
     // Auto-save the URL into the SearXNG provider entry and mark as docker-managed
     if let Ok(mut store) = provider::load_store() {
-        if let Some(entry) = store.web_search.providers.iter_mut().find(|e| e.id == tools::web_search::WebSearchProvider::Searxng) {
+        if let Some(entry) = store
+            .web_search
+            .providers
+            .iter_mut()
+            .find(|e| e.id == tools::web_search::WebSearchProvider::Searxng)
+        {
             entry.base_url = Some(url.clone());
             entry.enabled = true;
         }

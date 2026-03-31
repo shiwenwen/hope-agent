@@ -40,7 +40,10 @@ impl SubagentStatus {
 
     /// Whether this status represents a terminal (finished) state.
     pub fn is_terminal(&self) -> bool {
-        matches!(self, Self::Completed | Self::Error | Self::Timeout | Self::Killed)
+        matches!(
+            self,
+            Self::Completed | Self::Error | Self::Timeout | Self::Killed
+        )
     }
 }
 
@@ -101,12 +104,12 @@ pub struct SpawnParams {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ParentAgentStreamEvent {
-    pub event_type: String,             // "started" | "delta" | "done" | "error"
+    pub event_type: String, // "started" | "delta" | "done" | "error"
     pub parent_session_id: String,
     pub run_id: String,
-    pub push_message: Option<String>,   // only for "started"
-    pub delta: Option<String>,          // raw JSON delta string, only for "delta"
-    pub error: Option<String>,          // only for "error"
+    pub push_message: Option<String>, // only for "started"
+    pub delta: Option<String>,        // raw JSON delta string, only for "delta"
+    pub error: Option<String>,        // only for "error"
 }
 
 /// Event payload emitted to the frontend via Tauri events.
@@ -137,4 +140,3 @@ pub struct SubagentEvent {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result_full: Option<String>,
 }
-

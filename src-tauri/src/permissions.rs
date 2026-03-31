@@ -16,9 +16,15 @@ const CHECK_TIMEOUT: Duration = Duration::from_secs(3);
 /// "unknown" = cannot be programmatically detected, user must verify in System Settings.
 pub type PermState = String;
 
-pub fn granted() -> PermState { "granted".into() }
-pub fn not_granted() -> PermState { "not_granted".into() }
-pub fn unknown() -> PermState { "unknown".into() }
+pub fn granted() -> PermState {
+    "granted".into()
+}
+pub fn not_granted() -> PermState {
+    "not_granted".into()
+}
+pub fn unknown() -> PermState {
+    "unknown".into()
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct PermissionStatus {
@@ -63,7 +69,11 @@ mod platform {
     // ── Helpers ──
 
     fn bool_to_state(b: bool) -> PermState {
-        if b { granted() } else { not_granted() }
+        if b {
+            granted()
+        } else {
+            not_granted()
+        }
     }
 
     fn run_osascript(args: &[&str]) -> Option<std::process::Output> {
@@ -151,10 +161,9 @@ mod platform {
     // ── 5. Full Disk Access ── (filesystem heuristic)
 
     pub fn check_full_disk_access() -> PermState {
-        bool_to_state(
-            dirs::home_dir()
-                .map_or(false, |h| std::fs::metadata(h.join("Library/Safari/Bookmarks.plist")).is_ok()),
-        )
+        bool_to_state(dirs::home_dir().map_or(false, |h| {
+            std::fs::metadata(h.join("Library/Safari/Bookmarks.plist")).is_ok()
+        }))
     }
 
     pub fn request_full_disk_access() -> PermState {
@@ -169,7 +178,7 @@ mod platform {
             jxa("ObjC.import('CoreLocation'); \
                  var s = $.CLLocationManager.authorizationStatus; \
                  s === 3 || s === 4")
-                .map_or(false, |s| s == "true"),
+            .map_or(false, |s| s == "true"),
         )
     }
 
@@ -281,7 +290,7 @@ mod platform {
             jxa("ObjC.import('CoreBluetooth'); \
                  var auth = $.CBCentralManager.authorization; \
                  auth === 3")
-                .map_or(false, |s| s == "true"),
+            .map_or(false, |s| s == "true"),
         )
     }
 
@@ -293,13 +302,11 @@ mod platform {
     // ── 15. Files & Folders ── (filesystem, instant)
 
     pub fn check_files_and_folders() -> PermState {
-        bool_to_state(
-            dirs::home_dir().map_or(false, |home| {
-                std::fs::read_dir(home.join("Desktop")).is_ok()
-                    && std::fs::read_dir(home.join("Documents")).is_ok()
-                    && std::fs::read_dir(home.join("Downloads")).is_ok()
-            }),
-        )
+        bool_to_state(dirs::home_dir().map_or(false, |home| {
+            std::fs::read_dir(home.join("Desktop")).is_ok()
+                && std::fs::read_dir(home.join("Documents")).is_ok()
+                && std::fs::read_dir(home.join("Downloads")).is_ok()
+        }))
     }
 
     pub fn request_files_and_folders() -> PermState {
@@ -312,36 +319,96 @@ mod platform {
 mod platform {
     use super::*;
 
-    pub fn check_accessibility() -> PermState { granted() }
-    pub fn request_accessibility() -> PermState { granted() }
-    pub fn check_screen_recording() -> PermState { granted() }
-    pub fn request_screen_recording() -> PermState { granted() }
-    pub fn check_automation() -> PermState { granted() }
-    pub fn request_automation() -> PermState { granted() }
-    pub fn check_app_management() -> PermState { granted() }
-    pub fn request_app_management() -> PermState { granted() }
-    pub fn check_full_disk_access() -> PermState { granted() }
-    pub fn request_full_disk_access() -> PermState { granted() }
-    pub fn check_location() -> PermState { granted() }
-    pub fn request_location() -> PermState { granted() }
-    pub fn check_contacts() -> PermState { granted() }
-    pub fn request_contacts() -> PermState { granted() }
-    pub fn check_calendar() -> PermState { granted() }
-    pub fn request_calendar() -> PermState { granted() }
-    pub fn check_reminders() -> PermState { granted() }
-    pub fn request_reminders() -> PermState { granted() }
-    pub fn check_photos() -> PermState { granted() }
-    pub fn request_photos() -> PermState { granted() }
-    pub fn check_camera() -> PermState { granted() }
-    pub fn request_camera() -> PermState { granted() }
-    pub fn check_microphone() -> PermState { granted() }
-    pub fn request_microphone() -> PermState { granted() }
-    pub fn check_local_network() -> PermState { granted() }
-    pub fn request_local_network() -> PermState { granted() }
-    pub fn check_bluetooth() -> PermState { granted() }
-    pub fn request_bluetooth() -> PermState { granted() }
-    pub fn check_files_and_folders() -> PermState { granted() }
-    pub fn request_files_and_folders() -> PermState { granted() }
+    pub fn check_accessibility() -> PermState {
+        granted()
+    }
+    pub fn request_accessibility() -> PermState {
+        granted()
+    }
+    pub fn check_screen_recording() -> PermState {
+        granted()
+    }
+    pub fn request_screen_recording() -> PermState {
+        granted()
+    }
+    pub fn check_automation() -> PermState {
+        granted()
+    }
+    pub fn request_automation() -> PermState {
+        granted()
+    }
+    pub fn check_app_management() -> PermState {
+        granted()
+    }
+    pub fn request_app_management() -> PermState {
+        granted()
+    }
+    pub fn check_full_disk_access() -> PermState {
+        granted()
+    }
+    pub fn request_full_disk_access() -> PermState {
+        granted()
+    }
+    pub fn check_location() -> PermState {
+        granted()
+    }
+    pub fn request_location() -> PermState {
+        granted()
+    }
+    pub fn check_contacts() -> PermState {
+        granted()
+    }
+    pub fn request_contacts() -> PermState {
+        granted()
+    }
+    pub fn check_calendar() -> PermState {
+        granted()
+    }
+    pub fn request_calendar() -> PermState {
+        granted()
+    }
+    pub fn check_reminders() -> PermState {
+        granted()
+    }
+    pub fn request_reminders() -> PermState {
+        granted()
+    }
+    pub fn check_photos() -> PermState {
+        granted()
+    }
+    pub fn request_photos() -> PermState {
+        granted()
+    }
+    pub fn check_camera() -> PermState {
+        granted()
+    }
+    pub fn request_camera() -> PermState {
+        granted()
+    }
+    pub fn check_microphone() -> PermState {
+        granted()
+    }
+    pub fn request_microphone() -> PermState {
+        granted()
+    }
+    pub fn check_local_network() -> PermState {
+        granted()
+    }
+    pub fn request_local_network() -> PermState {
+        granted()
+    }
+    pub fn check_bluetooth() -> PermState {
+        granted()
+    }
+    pub fn request_bluetooth() -> PermState {
+        granted()
+    }
+    pub fn check_files_and_folders() -> PermState {
+        granted()
+    }
+    pub fn request_files_and_folders() -> PermState {
+        granted()
+    }
 
     pub fn open_privacy_pane(_: &str) {}
 }

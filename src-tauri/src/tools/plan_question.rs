@@ -1,6 +1,6 @@
-use serde_json::Value;
-use crate::plan::{self, PlanQuestion, PlanQuestionOption, PlanQuestionGroup, PlanQuestionAnswer};
+use crate::plan::{self, PlanQuestion, PlanQuestionAnswer, PlanQuestionGroup, PlanQuestionOption};
 use crate::process_registry::create_session_id;
+use serde_json::Value;
 
 /// Execute the plan_question tool.
 /// Sends structured questions to the user and blocks until they respond.
@@ -16,7 +16,10 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
         None => return "Error: questions parameter is required (array)".to_string(),
     };
 
-    let context = args.get("context").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let context = args
+        .get("context")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
 
     let mut questions = Vec::new();
     for (i, q) in questions_val.iter().enumerate() {
@@ -25,28 +28,52 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
             None => return format!("Error: questions[{}].text is required", i),
         };
 
-        let options = q.get("options")
+        let options = q
+            .get("options")
             .and_then(|v| v.as_array())
             .map(|arr| {
-                arr.iter().filter_map(|opt| {
-                    let value = opt.get("value").and_then(|v| v.as_str())?.to_string();
-                    let label = opt.get("label").and_then(|v| v.as_str())?.to_string();
-                    let description = opt.get("description").and_then(|v| v.as_str()).map(|s| s.to_string());
-                    let recommended = opt.get("recommended").and_then(|v| v.as_bool()).unwrap_or(false);
-                    Some(PlanQuestionOption { value, label, description, recommended })
-                }).collect::<Vec<_>>()
+                arr.iter()
+                    .filter_map(|opt| {
+                        let value = opt.get("value").and_then(|v| v.as_str())?.to_string();
+                        let label = opt.get("label").and_then(|v| v.as_str())?.to_string();
+                        let description = opt
+                            .get("description")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
+                        let recommended = opt
+                            .get("recommended")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
+                        Some(PlanQuestionOption {
+                            value,
+                            label,
+                            description,
+                            recommended,
+                        })
+                    })
+                    .collect::<Vec<_>>()
             })
             .unwrap_or_default();
 
-        let allow_custom = q.get("allow_custom").and_then(|v| v.as_bool()).unwrap_or(true);
-        let multi_select = q.get("multi_select").and_then(|v| v.as_bool()).unwrap_or(false);
+        let allow_custom = q
+            .get("allow_custom")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+        let multi_select = q
+            .get("multi_select")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
-        let question_id = q.get("question_id")
+        let question_id = q
+            .get("question_id")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string())
             .unwrap_or_else(|| format!("q_{}", i));
 
-        let template = q.get("template").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let template = q
+            .get("template")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
 
         questions.push(PlanQuestion {
             question_id,
@@ -65,7 +92,8 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
     let request_id = create_session_id();
 
     // Route to parent session if this is a plan sub-agent
-    let effective_sid = plan::get_plan_owner_session_id(sid).await
+    let effective_sid = plan::get_plan_owner_session_id(sid)
+        .await
         .unwrap_or_else(|| sid.to_string());
 
     let group = PlanQuestionGroup {
@@ -87,9 +115,12 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
         match serde_json::to_string(&group) {
             Ok(event_data) => {
                 let _ = app_handle.emit("plan_question_request", event_data);
-                app_info!("plan", "plan_question",
+                app_info!(
+                    "plan",
+                    "plan_question",
                     "Plan question sent to frontend (id: {}, {} questions)",
-                    request_id, questions.len()
+                    request_id,
+                    questions.len()
                 );
             }
             Err(e) => {
@@ -109,12 +140,22 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
             format_answers_for_llm(&questions, &answers, context.as_deref())
         }
         Ok(Err(_)) => {
-            app_warn!("plan", "plan_question", "Plan question cancelled (id: {})", request_id);
+            app_warn!(
+                "plan",
+                "plan_question",
+                "Plan question cancelled (id: {})",
+                request_id
+            );
             "The user cancelled the questions without answering.".to_string()
         }
         Err(_) => {
             plan::cancel_pending_plan_question(&request_id).await;
-            app_warn!("plan", "plan_question", "Plan question timed out (id: {})", request_id);
+            app_warn!(
+                "plan",
+                "plan_question",
+                "Plan question timed out (id: {})",
+                request_id
+            );
             "The questions timed out after 10 minutes without a response.".to_string()
         }
     }
@@ -131,9 +172,14 @@ fn format_answers_for_llm(
         let mut selected_labels = Vec::new();
         let mut custom_input: Option<String> = None;
 
-        if let Some(answer) = answers.iter().find(|a| a.question_id == question.question_id) {
+        if let Some(answer) = answers
+            .iter()
+            .find(|a| a.question_id == question.question_id)
+        {
             for sel in &answer.selected {
-                let label = question.options.iter()
+                let label = question
+                    .options
+                    .iter()
                     .find(|o| o.value == *sel)
                     .map(|o| o.label.clone())
                     .unwrap_or_else(|| sel.clone());

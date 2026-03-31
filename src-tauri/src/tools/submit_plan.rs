@@ -1,5 +1,5 @@
-use serde_json::Value;
 use crate::plan::{self, PlanModeState};
+use serde_json::Value;
 
 /// Execute the submit_plan tool.
 /// LLM calls this to submit the final plan after interactive Q&A.
@@ -10,7 +10,8 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
     };
 
     // Route to parent session if this is a plan sub-agent
-    let effective_sid = plan::get_plan_owner_session_id(sid).await
+    let effective_sid = plan::get_plan_owner_session_id(sid)
+        .await
         .unwrap_or_else(|| sid.to_string());
 
     let title = match args.get("title").and_then(|v| v.as_str()) {
@@ -32,9 +33,13 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
     // Save plan file under the effective (parent) session
     match plan::save_plan_file(&effective_sid, &content) {
         Ok(file_path) => {
-            app_info!("plan", "submit_plan",
+            app_info!(
+                "plan",
+                "submit_plan",
                 "Plan saved: '{}' ({} steps) → {}",
-                title, steps.len(), file_path
+                title,
+                steps.len(),
+                file_path
             );
         }
         Err(e) => {
@@ -80,20 +85,26 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
             phases.len()
         };
 
-        let _ = app_handle.emit("plan_submitted", serde_json::json!({
-            "sessionId": effective_sid,
-            "title": title,
-            "stepCount": steps.len(),
-            "phaseCount": phase_count,
-            "steps": steps,
-        }));
+        let _ = app_handle.emit(
+            "plan_submitted",
+            serde_json::json!({
+                "sessionId": effective_sid,
+                "title": title,
+                "stepCount": steps.len(),
+                "phaseCount": phase_count,
+                "steps": steps,
+            }),
+        );
 
         // Also emit plan_mode_changed
-        let _ = app_handle.emit("plan_mode_changed", serde_json::json!({
-            "sessionId": effective_sid,
-            "state": "review",
-            "reason": "plan_submitted",
-        }));
+        let _ = app_handle.emit(
+            "plan_mode_changed",
+            serde_json::json!({
+                "sessionId": effective_sid,
+                "state": "review",
+                "reason": "plan_submitted",
+            }),
+        );
     }
 
     let phase_count = {
@@ -110,6 +121,8 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
         "Plan '{}' submitted successfully ({} phases, {} steps). The plan is now in Review mode. \
          The user can see the plan card in the chat and the Plan panel on the right side. \
          They can approve and start execution when ready.",
-        title, phase_count, steps.len()
+        title,
+        phase_count,
+        steps.len()
     )
 }

@@ -4,8 +4,8 @@ use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-use crate::agent::AssistantAgent;
 use crate::acp::types::ClientCapabilities;
+use crate::agent::AssistantAgent;
 
 /// A single ACP session tracked by the server
 pub struct AcpSession {
@@ -62,14 +62,19 @@ impl AcpSessionStore {
     pub fn insert(&mut self, session: AcpSession) -> anyhow::Result<()> {
         if self.sessions.len() >= self.max_sessions {
             // Evict oldest idle session
-            let oldest = self.sessions.iter()
+            let oldest = self
+                .sessions
+                .iter()
                 .filter(|(_, s)| !s.active_prompt)
                 .min_by_key(|(_, s)| s.last_activity_at)
                 .map(|(id, _)| id.clone());
             if let Some(id) = oldest {
                 self.sessions.remove(&id);
             } else {
-                anyhow::bail!("Maximum concurrent sessions ({}) exceeded", self.max_sessions);
+                anyhow::bail!(
+                    "Maximum concurrent sessions ({}) exceeded",
+                    self.max_sessions
+                );
             }
         }
         self.sessions.insert(session.session_id.clone(), session);

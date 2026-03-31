@@ -1,9 +1,9 @@
 use anyhow::Result;
-use rusqlite::{Connection, params};
+use rusqlite::{params, Connection};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use super::types::{SessionMeta, SessionMessage, MessageRole, NewMessage, ChannelSessionInfo};
+use super::types::{ChannelSessionInfo, MessageRole, NewMessage, SessionMessage, SessionMeta};
 
 // ── Database Manager ─────────────────────────────────────────────
 
@@ -117,9 +117,7 @@ impl SessionDB {
         )?;
 
         // Migration: add is_cron column if missing
-        let has_is_cron = conn
-            .prepare("SELECT is_cron FROM sessions LIMIT 1")
-            .is_ok();
+        let has_is_cron = conn.prepare("SELECT is_cron FROM sessions LIMIT 1").is_ok();
         if !has_is_cron {
             conn.execute_batch(
                 "ALTER TABLE sessions ADD COLUMN is_cron INTEGER NOT NULL DEFAULT 0;",
@@ -131,15 +129,11 @@ impl SessionDB {
             .prepare("SELECT thinking FROM messages LIMIT 1")
             .is_ok();
         if !has_thinking {
-            conn.execute_batch(
-                "ALTER TABLE messages ADD COLUMN thinking TEXT;",
-            )?;
+            conn.execute_batch("ALTER TABLE messages ADD COLUMN thinking TEXT;")?;
         }
 
         // Migration: create acp_runs table if missing
-        let has_acp_runs = conn
-            .prepare("SELECT run_id FROM acp_runs LIMIT 1")
-            .is_ok();
+        let has_acp_runs = conn.prepare("SELECT run_id FROM acp_runs LIMIT 1").is_ok();
         if !has_acp_runs {
             conn.execute_batch(
                 "CREATE TABLE IF NOT EXISTS acp_runs (
@@ -166,13 +160,9 @@ impl SessionDB {
         }
 
         // Migration: add ttft_ms column to messages if missing
-        let has_ttft_ms = conn
-            .prepare("SELECT ttft_ms FROM messages LIMIT 1")
-            .is_ok();
+        let has_ttft_ms = conn.prepare("SELECT ttft_ms FROM messages LIMIT 1").is_ok();
         if !has_ttft_ms {
-            conn.execute_batch(
-                "ALTER TABLE messages ADD COLUMN ttft_ms INTEGER;",
-            )?;
+            conn.execute_batch("ALTER TABLE messages ADD COLUMN ttft_ms INTEGER;")?;
         }
 
         // Migration: fix FTS delete trigger — must match INSERT trigger's WHEN clause
@@ -195,9 +185,7 @@ impl SessionDB {
             .prepare("SELECT plan_mode FROM sessions LIMIT 1")
             .is_ok();
         if !has_plan_mode {
-            conn.execute_batch(
-                "ALTER TABLE sessions ADD COLUMN plan_mode TEXT DEFAULT 'off';",
-            )?;
+            conn.execute_batch("ALTER TABLE sessions ADD COLUMN plan_mode TEXT DEFAULT 'off';")?;
         }
 
         // Migration: add plan_steps column for step progress persistence (crash recovery)
@@ -205,12 +193,12 @@ impl SessionDB {
             .prepare("SELECT plan_steps FROM sessions LIMIT 1")
             .is_ok();
         if !has_plan_steps {
-            conn.execute_batch(
-                "ALTER TABLE sessions ADD COLUMN plan_steps TEXT;",
-            )?;
+            conn.execute_batch("ALTER TABLE sessions ADD COLUMN plan_steps TEXT;")?;
         }
 
-        Ok(Self { conn: Mutex::new(conn) })
+        Ok(Self {
+            conn: Mutex::new(conn),
+        })
     }
 
     // ── Session CRUD ─────────────────────────────────────────────
@@ -221,11 +209,18 @@ impl SessionDB {
     }
 
     /// Create a new session with an optional parent session ID (for sub-agent sessions).
-    pub fn create_session_with_parent(&self, agent_id: &str, parent_session_id: Option<&str>) -> Result<SessionMeta> {
+    pub fn create_session_with_parent(
+        &self,
+        agent_id: &str,
+        parent_session_id: Option<&str>,
+    ) -> Result<SessionMeta> {
         let id = uuid::Uuid::new_v4().to_string();
         let now = chrono::Utc::now().to_rfc3339();
 
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         conn.execute(
             "INSERT INTO sessions (id, agent_id, created_at, updated_at, parent_session_id) VALUES (?1, ?2, ?3, ?4, ?5)",
             params![id, agent_id, now, now, parent_session_id],
@@ -264,7 +259,10 @@ impl SessionDB {
         limit: Option<u32>,
         offset: Option<u32>,
     ) -> Result<(Vec<SessionMeta>, u32)> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
         let base_sql = "SELECT s.id, s.title, s.agent_id, s.provider_id, s.provider_name, s.model_id,
                         s.created_at, s.updated_at,
@@ -301,7 +299,9 @@ impl SessionDB {
                 unread_count: row.get(9)?,
                 is_cron: row.get::<_, i64>(10).unwrap_or(0) != 0,
                 parent_session_id: row.get(11)?,
-                plan_mode: row.get::<_, String>(12).unwrap_or_else(|_| "off".to_string()),
+                plan_mode: row
+                    .get::<_, String>(12)
+                    .unwrap_or_else(|_| "off".to_string()),
                 channel_info,
             })
         };
@@ -318,7 +318,10 @@ impl SessionDB {
             let count_sql = format!("{} WHERE s.agent_id = ?1", count_base);
             total = conn.query_row(&count_sql, params![agent_id], |r| r.get::<_, u32>(0))?;
 
-            let sql = format!("{} WHERE s.agent_id = ?1 ORDER BY s.updated_at DESC{}", base_sql, pagination_clause);
+            let sql = format!(
+                "{} WHERE s.agent_id = ?1 ORDER BY s.updated_at DESC{}",
+                base_sql, pagination_clause
+            );
             let mut stmt = conn.prepare(&sql)?;
             let rows = stmt.query_map(params![agent_id], row_mapper)?;
             for row in rows {
@@ -327,7 +330,10 @@ impl SessionDB {
         } else {
             total = conn.query_row(count_base, [], |r| r.get::<_, u32>(0))?;
 
-            let sql = format!("{} ORDER BY s.updated_at DESC{}", base_sql, pagination_clause);
+            let sql = format!(
+                "{} ORDER BY s.updated_at DESC{}",
+                base_sql, pagination_clause
+            );
             let mut stmt = conn.prepare(&sql)?;
             let rows = stmt.query_map([], row_mapper)?;
             for row in rows {
@@ -340,7 +346,10 @@ impl SessionDB {
 
     /// Load all messages for a session.
     pub fn load_session_messages(&self, session_id: &str) -> Result<Vec<SessionMessage>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
         let mut stmt = conn.prepare(
             "SELECT id, session_id, role, content, timestamp,
@@ -349,12 +358,10 @@ impl SessionDB {
                     tool_duration_ms, is_error, thinking, ttft_ms
              FROM messages
              WHERE session_id = ?1
-             ORDER BY id ASC"
+             ORDER BY id ASC",
         )?;
 
-        let rows = stmt.query_map(params![session_id], |row| {
-            Self::row_to_session_message(row)
-        })?;
+        let rows = stmt.query_map(params![session_id], |row| Self::row_to_session_message(row))?;
 
         let mut messages = Vec::new();
         for row in rows {
@@ -365,8 +372,15 @@ impl SessionDB {
 
     /// Load the latest N messages for a session (for initial page load).
     /// Returns (messages_in_asc_order, total_count).
-    pub fn load_session_messages_latest(&self, session_id: &str, limit: u32) -> Result<(Vec<SessionMessage>, u32)> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+    pub fn load_session_messages_latest(
+        &self,
+        session_id: &str,
+        limit: u32,
+    ) -> Result<(Vec<SessionMessage>, u32)> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
         let total: u32 = conn.query_row(
             "SELECT COUNT(*) FROM messages WHERE session_id = ?1",
@@ -382,7 +396,7 @@ impl SessionDB {
              FROM messages
              WHERE session_id = ?1
              ORDER BY id DESC
-             LIMIT ?2"
+             LIMIT ?2",
         )?;
 
         let rows = stmt.query_map(params![session_id, limit], |row| {
@@ -400,8 +414,16 @@ impl SessionDB {
 
     /// Load messages before a given message id (for "load more" / scroll up).
     /// Returns messages in ASC order.
-    pub fn load_session_messages_before(&self, session_id: &str, before_id: i64, limit: u32) -> Result<Vec<SessionMessage>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+    pub fn load_session_messages_before(
+        &self,
+        session_id: &str,
+        before_id: i64,
+        limit: u32,
+    ) -> Result<Vec<SessionMessage>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
         let mut stmt = conn.prepare(
             "SELECT id, session_id, role, content, timestamp,
@@ -411,7 +433,7 @@ impl SessionDB {
              FROM messages
              WHERE session_id = ?1 AND id < ?2
              ORDER BY id DESC
-             LIMIT ?3"
+             LIMIT ?3",
         )?;
 
         let rows = stmt.query_map(params![session_id, before_id, limit], |row| {
@@ -452,9 +474,16 @@ impl SessionDB {
 
     /// Append a message to a session and update the session's updated_at.
     pub fn append_message(&self, session_id: &str, msg: &NewMessage) -> Result<i64> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let now = chrono::Utc::now().to_rfc3339();
-        let timestamp = if msg.timestamp.is_empty() { &now } else { &msg.timestamp };
+        let timestamp = if msg.timestamp.is_empty() {
+            &now
+        } else {
+            &msg.timestamp
+        };
 
         conn.execute(
             "INSERT INTO messages (session_id, role, content, timestamp,
@@ -496,19 +525,38 @@ impl SessionDB {
 
     /// Update an existing tool_call message with result, duration, and is_error.
     /// Matches by session_id + tool_call_id to find the original tool_call record.
-    pub fn update_tool_result(&self, session_id: &str, call_id: &str, result: &str, duration_ms: Option<i64>, is_error: bool) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+    pub fn update_tool_result(
+        &self,
+        session_id: &str,
+        call_id: &str,
+        result: &str,
+        duration_ms: Option<i64>,
+        is_error: bool,
+    ) -> Result<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         conn.execute(
             "UPDATE messages SET tool_result = ?1, tool_duration_ms = ?2, is_error = ?3
              WHERE session_id = ?4 AND tool_call_id = ?5",
-            params![result, duration_ms, if is_error { 1i64 } else { 0i64 }, session_id, call_id],
+            params![
+                result,
+                duration_ms,
+                if is_error { 1i64 } else { 0i64 },
+                session_id,
+                call_id
+            ],
         )?;
         Ok(())
     }
 
     /// Update session title.
     pub fn update_session_title(&self, session_id: &str, title: &str) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         conn.execute(
             "UPDATE sessions SET title = ?1 WHERE id = ?2",
             params![title, session_id],
@@ -518,7 +566,10 @@ impl SessionDB {
 
     /// Mark a session as a cron-triggered session.
     pub fn mark_session_cron(&self, session_id: &str) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         conn.execute(
             "UPDATE sessions SET is_cron = 1 WHERE id = ?1",
             params![session_id],
@@ -527,8 +578,17 @@ impl SessionDB {
     }
 
     /// Update session's provider/model info.
-    pub fn update_session_model(&self, session_id: &str, provider_id: Option<&str>, provider_name: Option<&str>, model_id: Option<&str>) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+    pub fn update_session_model(
+        &self,
+        session_id: &str,
+        provider_id: Option<&str>,
+        provider_name: Option<&str>,
+        model_id: Option<&str>,
+    ) -> Result<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         conn.execute(
             "UPDATE sessions SET provider_id = ?1, provider_name = ?2, model_id = ?3 WHERE id = ?4",
             params![provider_id, provider_name, model_id, session_id],
@@ -538,7 +598,10 @@ impl SessionDB {
 
     /// Update the plan mode state for a session.
     pub fn update_session_plan_mode(&self, session_id: &str, plan_mode: &str) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         conn.execute(
             "UPDATE sessions SET plan_mode = ?1 WHERE id = ?2",
             params![plan_mode, session_id],
@@ -548,7 +611,10 @@ impl SessionDB {
 
     /// Persist plan step statuses to DB for crash recovery.
     pub fn save_plan_steps(&self, session_id: &str, steps_json: &str) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         conn.execute(
             "UPDATE sessions SET plan_steps = ?1 WHERE id = ?2",
             params![steps_json, session_id],
@@ -558,25 +624,35 @@ impl SessionDB {
 
     /// Load persisted plan step statuses from DB.
     pub fn load_plan_steps(&self, session_id: &str) -> Result<Option<String>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let mut stmt = conn.prepare("SELECT plan_steps FROM sessions WHERE id = ?1")?;
-        let result = stmt.query_row(params![session_id], |row| {
-            row.get::<_, Option<String>>(0)
-        })?;
+        let result = stmt.query_row(params![session_id], |row| row.get::<_, Option<String>>(0))?;
         Ok(result)
     }
 
     /// Delete a session and all its messages (CASCADE) and attachments.
     pub fn delete_session(&self, session_id: &str) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
         // Try direct delete (CASCADE will handle messages + FTS trigger)
         match conn.execute("DELETE FROM sessions WHERE id = ?1", params![session_id]) {
             Ok(_) => {}
             Err(e) => {
                 // FTS index corrupted — rebuild and retry
-                app_warn!("session", "db", "delete_session failed ({}), rebuilding FTS and retrying", e);
-                let _ = conn.execute_batch("INSERT INTO messages_fts(messages_fts) VALUES('rebuild');");
+                app_warn!(
+                    "session",
+                    "db",
+                    "delete_session failed ({}), rebuilding FTS and retrying",
+                    e
+                );
+                let _ =
+                    conn.execute_batch("INSERT INTO messages_fts(messages_fts) VALUES('rebuild');");
                 conn.execute("DELETE FROM sessions WHERE id = ?1", params![session_id])?;
             }
         }
@@ -596,7 +672,10 @@ impl SessionDB {
 
     /// Save the agent's conversation_history JSON for a session.
     pub fn save_context(&self, session_id: &str, context_json: &str) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         conn.execute(
             "UPDATE sessions SET context_json = ?1 WHERE id = ?2",
             params![context_json, session_id],
@@ -607,19 +686,24 @@ impl SessionDB {
     /// Load the agent's conversation_history JSON for a session.
     /// Returns None if the session has no saved context.
     pub fn load_context(&self, session_id: &str) -> Result<Option<String>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        let mut stmt = conn.prepare(
-            "SELECT context_json FROM sessions WHERE id = ?1"
-        )?;
-        let result = stmt.query_row(params![session_id], |row| {
-            row.get::<_, Option<String>>(0)
-        }).ok().flatten();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare("SELECT context_json FROM sessions WHERE id = ?1")?;
+        let result = stmt
+            .query_row(params![session_id], |row| row.get::<_, Option<String>>(0))
+            .ok()
+            .flatten();
         Ok(result)
     }
 
     /// Get a single session's metadata.
     pub fn get_session(&self, session_id: &str) -> Result<Option<SessionMeta>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let mut stmt = conn.prepare(
             "SELECT s.id, s.title, s.agent_id, s.provider_id, s.provider_name, s.model_id,
                     s.created_at, s.updated_at,
@@ -656,7 +740,9 @@ impl SessionDB {
                 unread_count: row.get(9)?,
                 is_cron: row.get::<_, i64>(10).unwrap_or(0) != 0,
                 parent_session_id: row.get(11)?,
-                plan_mode: row.get::<_, String>(12).unwrap_or_else(|_| "off".to_string()),
+                plan_mode: row
+                    .get::<_, String>(12)
+                    .unwrap_or_else(|_| "off".to_string()),
                 channel_info,
             })
         })?;
@@ -671,7 +757,10 @@ impl SessionDB {
     /// Mark all messages in a session as read by updating last_read_message_id
     /// to the current maximum message id.
     pub fn mark_session_read(&self, session_id: &str) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         conn.execute(
             "UPDATE sessions SET last_read_message_id = (SELECT COALESCE(MAX(id), 0) FROM messages WHERE session_id = ?1) WHERE id = ?1",
             params![session_id],
@@ -684,7 +773,10 @@ impl SessionDB {
         if session_ids.is_empty() {
             return Ok(());
         }
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let mut stmt = conn.prepare(
             "UPDATE sessions SET last_read_message_id = (SELECT COALESCE(MAX(id), 0) FROM messages WHERE session_id = ?1) WHERE id = ?1"
         )?;
@@ -696,7 +788,10 @@ impl SessionDB {
 
     /// Mark all sessions as read.
     pub fn mark_all_sessions_read(&self) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         conn.execute_batch(
             "UPDATE sessions SET last_read_message_id = (SELECT COALESCE(MAX(id), 0) FROM messages WHERE messages.session_id = sessions.id)"
         )?;
@@ -713,7 +808,10 @@ impl SessionDB {
         agent_id: Option<&str>,
         limit: usize,
     ) -> Result<Vec<SessionSearchResult>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
         let fts_query = sanitize_fts_query(query);
         if fts_query.is_empty() {
@@ -747,7 +845,8 @@ impl SessionDB {
         if let Some(aid) = agent_param {
             params_vec.push(Box::new(aid));
         }
-        let param_refs: Vec<&dyn rusqlite::types::ToSql> = params_vec.iter().map(|p| p.as_ref()).collect();
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params_vec.iter().map(|p| p.as_ref()).collect();
 
         let rows = stmt.query_map(param_refs.as_slice(), |row| {
             Ok(SessionSearchResult {

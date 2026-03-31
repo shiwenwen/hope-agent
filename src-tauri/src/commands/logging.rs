@@ -1,6 +1,6 @@
-use tauri::State;
-use crate::AppState;
 use crate::logging;
+use crate::AppState;
+use tauri::State;
 
 #[tauri::command]
 pub async fn query_logs_cmd(
@@ -9,15 +9,20 @@ pub async fn query_logs_cmd(
     page_size: u32,
     state: State<'_, AppState>,
 ) -> Result<logging::LogQueryResult, String> {
-    let ps = if page_size == 0 { 50 } else { page_size.min(500) };
+    let ps = if page_size == 0 {
+        50
+    } else {
+        page_size.min(500)
+    };
     let pg = if page == 0 { 1 } else { page };
-    state.log_db.query(&filter, pg, ps).map_err(|e| e.to_string())
+    state
+        .log_db
+        .query(&filter, pg, ps)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn get_log_stats_cmd(
-    state: State<'_, AppState>,
-) -> Result<logging::LogStats, String> {
+pub async fn get_log_stats_cmd(state: State<'_, AppState>) -> Result<logging::LogStats, String> {
     let db_path = logging::db_path().map_err(|e| e.to_string())?;
     state.log_db.get_stats(&db_path).map_err(|e| e.to_string())
 }
@@ -27,13 +32,14 @@ pub async fn clear_logs_cmd(
     before_date: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<u64, String> {
-    state.log_db.clear(before_date.as_deref()).map_err(|e| e.to_string())
+    state
+        .log_db
+        .clear(before_date.as_deref())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn get_log_config_cmd(
-    state: State<'_, AppState>,
-) -> Result<logging::LogConfig, String> {
+pub async fn get_log_config_cmd(state: State<'_, AppState>) -> Result<logging::LogConfig, String> {
     Ok(state.logger.get_config())
 }
 
@@ -78,16 +84,14 @@ pub async fn frontend_log(
 ) -> Result<(), String> {
     // Validate level
     let valid_levels = ["error", "warn", "info", "debug"];
-    let level = if valid_levels.contains(&level.as_str()) { level } else { "info".to_string() };
+    let level = if valid_levels.contains(&level.as_str()) {
+        level
+    } else {
+        "info".to_string()
+    };
 
     state.logger.log(
-        &level,
-        &category,
-        &source,
-        &message,
-        details,
-        session_id,
-        None,
+        &level, &category, &source, &message, details, session_id, None,
     );
     Ok(())
 }
@@ -100,15 +104,36 @@ pub async fn frontend_log_batch(
 ) -> Result<(), String> {
     let valid_levels = ["error", "warn", "info", "debug"];
     for entry in entries {
-        let level = entry.get("level").and_then(|v| v.as_str()).unwrap_or("info");
-        let level = if valid_levels.contains(&level) { level } else { "info" };
-        let category = entry.get("category").and_then(|v| v.as_str()).unwrap_or("frontend");
-        let source = entry.get("source").and_then(|v| v.as_str()).unwrap_or("frontend");
+        let level = entry
+            .get("level")
+            .and_then(|v| v.as_str())
+            .unwrap_or("info");
+        let level = if valid_levels.contains(&level) {
+            level
+        } else {
+            "info"
+        };
+        let category = entry
+            .get("category")
+            .and_then(|v| v.as_str())
+            .unwrap_or("frontend");
+        let source = entry
+            .get("source")
+            .and_then(|v| v.as_str())
+            .unwrap_or("frontend");
         let message = entry.get("message").and_then(|v| v.as_str()).unwrap_or("");
-        let details = entry.get("details").and_then(|v| v.as_str()).map(|s| s.to_string());
-        let session_id = entry.get("sessionId").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let details = entry
+            .get("details")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let session_id = entry
+            .get("sessionId")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
 
-        state.logger.log(level, category, source, message, details, session_id, None);
+        state
+            .logger
+            .log(level, category, source, message, details, session_id, None);
     }
     Ok(())
 }
@@ -122,7 +147,8 @@ pub async fn export_logs_cmd(
     let logs = state.log_db.export(&filter).map_err(|e| e.to_string())?;
     match format.as_str() {
         "csv" => {
-            let mut csv = String::from("id,timestamp,level,category,source,message,session_id,agent_id\n");
+            let mut csv =
+                String::from("id,timestamp,level,category,source,message,session_id,agent_id\n");
             for log in &logs {
                 csv.push_str(&format!(
                     "{},{},{},{},{},\"{}\",{},{}\n",
@@ -138,8 +164,6 @@ pub async fn export_logs_cmd(
             }
             Ok(csv)
         }
-        _ => {
-            serde_json::to_string_pretty(&logs).map_err(|e| e.to_string())
-        }
+        _ => serde_json::to_string_pretty(&logs).map_err(|e| e.to_string()),
     }
 }

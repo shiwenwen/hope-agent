@@ -1,4 +1,6 @@
-use crate::plan::{self, PlanModeState, PlanStep, PlanStepStatus, PlanQuestionAnswer, PlanVersionInfo};
+use crate::plan::{
+    self, PlanModeState, PlanQuestionAnswer, PlanStep, PlanStepStatus, PlanVersionInfo,
+};
 
 #[tauri::command]
 pub async fn get_plan_mode(
@@ -41,7 +43,12 @@ pub async fn set_plan_mode(
         if let Some(run_id) = plan::get_active_plan_run_id(&session_id).await {
             if let Some(cancels) = crate::get_subagent_cancels() {
                 cancels.cancel(&run_id);
-                app_info!("plan", "set_plan_mode", "Cancelled plan sub-agent: {}", run_id);
+                app_info!(
+                    "plan",
+                    "set_plan_mode",
+                    "Cancelled plan sub-agent: {}",
+                    run_id
+                );
             }
         }
     }
@@ -109,11 +116,14 @@ pub async fn update_plan_step_status(
     // Emit Tauri global event for frontend real-time update
     if let Some(app_handle) = crate::get_app_handle() {
         use tauri::Emitter;
-        let _ = app_handle.emit("plan_step_updated", serde_json::json!({
-            "sessionId": session_id,
-            "stepIndex": step_index,
-            "status": status,
-        }));
+        let _ = app_handle.emit(
+            "plan_step_updated",
+            serde_json::json!({
+                "sessionId": session_id,
+                "stepIndex": step_index,
+                "status": status,
+            }),
+        );
     }
 
     // Check if all steps are terminal → auto-transition to Completed
@@ -130,11 +140,14 @@ pub async fn update_plan_step_status(
             }
             if let Some(app_handle) = crate::get_app_handle() {
                 use tauri::Emitter;
-                let _ = app_handle.emit("plan_mode_changed", serde_json::json!({
-                    "sessionId": session_id,
-                    "state": "completed",
-                    "reason": "all_steps_completed",
-                }));
+                let _ = app_handle.emit(
+                    "plan_mode_changed",
+                    serde_json::json!({
+                        "sessionId": session_id,
+                        "state": "completed",
+                        "reason": "all_steps_completed",
+                    }),
+                );
             }
         }
     }
@@ -173,7 +186,8 @@ pub async fn restore_plan_version(session_id: String, file_path: String) -> Resu
 
 #[tauri::command]
 pub async fn plan_rollback(session_id: String) -> Result<String, String> {
-    let checkpoint = plan::get_checkpoint_ref(&session_id).await
+    let checkpoint = plan::get_checkpoint_ref(&session_id)
+        .await
         .ok_or_else(|| "No git checkpoint found for this plan execution".to_string())?;
 
     let msg = plan::rollback_to_checkpoint(&checkpoint).map_err(|e| e.to_string())?;
@@ -207,7 +221,12 @@ pub async fn cancel_plan_subagent(session_id: String) -> Result<(), String> {
     if let Some(run_id) = plan::get_active_plan_run_id(&session_id).await {
         if let Some(cancels) = crate::get_subagent_cancels() {
             cancels.cancel(&run_id);
-            app_info!("plan", "cancel_plan_subagent", "Cancelled plan sub-agent: {}", run_id);
+            app_info!(
+                "plan",
+                "cancel_plan_subagent",
+                "Cancelled plan sub-agent: {}",
+                run_id
+            );
             Ok(())
         } else {
             Err("Cancel registry not initialized".to_string())

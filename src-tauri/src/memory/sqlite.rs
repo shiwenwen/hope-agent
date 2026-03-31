@@ -2,7 +2,9 @@ use anyhow::{Context, Result};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::sync::{Arc, Mutex};
 
-use super::helpers::{expand_query, load_dedup_config, load_hybrid_search_config, load_temporal_decay_config};
+use super::helpers::{
+    expand_query, load_dedup_config, load_hybrid_search_config, load_temporal_decay_config,
+};
 use super::traits::{EmbeddingProvider, MemoryBackend};
 use super::types::*;
 
@@ -131,10 +133,13 @@ impl SqliteMemoryBackend {
         )?;
 
         // Migration: add attachment columns for multimodal embedding
-        if conn.prepare("SELECT attachment_path FROM memories LIMIT 0").is_err() {
+        if conn
+            .prepare("SELECT attachment_path FROM memories LIMIT 0")
+            .is_err()
+        {
             let _ = conn.execute_batch(
                 "ALTER TABLE memories ADD COLUMN attachment_path TEXT;
-                 ALTER TABLE memories ADD COLUMN attachment_mime TEXT;"
+                 ALTER TABLE memories ADD COLUMN attachment_mime TEXT;",
             );
         }
 
@@ -187,7 +192,8 @@ impl SqliteMemoryBackend {
 
             if let Some(bytes) = cached {
                 // Deserialize f32 bytes
-                let floats: Vec<f32> = bytes.chunks_exact(4)
+                let floats: Vec<f32> = bytes
+                    .chunks_exact(4)
                     .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
                     .collect();
                 if !floats.is_empty() {
@@ -211,11 +217,12 @@ impl SqliteMemoryBackend {
 
             // Prune cache if over limit
             if cache_cfg.max_entries > 0 {
-                let count: i64 = conn.query_row(
-                    "SELECT COUNT(*) FROM embedding_cache", [], |row| row.get(0),
-                ).unwrap_or(0);
+                let count: i64 = conn
+                    .query_row("SELECT COUNT(*) FROM embedding_cache", [], |row| row.get(0))
+                    .unwrap_or(0);
                 if count as usize > cache_cfg.max_entries {
-                    let to_delete = count as usize - cache_cfg.max_entries + cache_cfg.max_entries / 10;
+                    let to_delete =
+                        count as usize - cache_cfg.max_entries + cache_cfg.max_entries / 10;
                     let _ = conn.execute(
                         &format!("DELETE FROM embedding_cache WHERE rowid IN (SELECT rowid FROM embedding_cache ORDER BY created_at ASC LIMIT {})", to_delete),
                         [],
@@ -229,7 +236,12 @@ impl SqliteMemoryBackend {
 
     /// Generate multimodal embedding for a file attachment + text label.
     /// Falls back to text-only if provider doesn't support multimodal or file is invalid.
-    fn generate_multimodal_embedding(&self, label: &str, file_path: &str, mime_type: &str) -> Option<Vec<f32>> {
+    fn generate_multimodal_embedding(
+        &self,
+        label: &str,
+        file_path: &str,
+        mime_type: &str,
+    ) -> Option<Vec<f32>> {
         let guard = self.embedder.read().unwrap();
         let embedder = guard.as_ref()?;
 
@@ -241,9 +253,15 @@ impl SqliteMemoryBackend {
 
         if !embedder.supports_multimodal() {
             if let Some(logger) = crate::get_logger() {
-                logger.log("info", "memory", "embedding::multimodal",
+                logger.log(
+                    "info",
+                    "memory",
+                    "embedding::multimodal",
                     "Embedding provider does not support multimodal, falling back to text-only",
-                    None, None, None);
+                    None,
+                    None,
+                    None,
+                );
             }
             return embedder.embed(label).ok();
         }
@@ -252,9 +270,15 @@ impl SqliteMemoryBackend {
         let path = std::path::Path::new(file_path);
         if !path.exists() {
             if let Some(logger) = crate::get_logger() {
-                logger.log("warn", "memory", "embedding::multimodal",
+                logger.log(
+                    "warn",
+                    "memory",
+                    "embedding::multimodal",
                     &format!("Attachment file not found: {}", file_path),
-                    None, None, None);
+                    None,
+                    None,
+                    None,
+                );
             }
             return embedder.embed(label).ok();
         }
@@ -262,9 +286,19 @@ impl SqliteMemoryBackend {
         let metadata = std::fs::metadata(path).ok()?;
         if metadata.len() > mm_cfg.max_file_bytes {
             if let Some(logger) = crate::get_logger() {
-                logger.log("warn", "memory", "embedding::multimodal",
-                    &format!("Attachment too large: {} bytes > {} max", metadata.len(), mm_cfg.max_file_bytes),
-                    None, None, None);
+                logger.log(
+                    "warn",
+                    "memory",
+                    "embedding::multimodal",
+                    &format!(
+                        "Attachment too large: {} bytes > {} max",
+                        metadata.len(),
+                        mm_cfg.max_file_bytes
+                    ),
+                    None,
+                    None,
+                    None,
+                );
             }
             return embedder.embed(label).ok();
         }
@@ -280,9 +314,15 @@ impl SqliteMemoryBackend {
             Ok(emb) => Some(emb),
             Err(e) => {
                 if let Some(logger) = crate::get_logger() {
-                    logger.log("warn", "memory", "embedding::multimodal",
+                    logger.log(
+                        "warn",
+                        "memory",
+                        "embedding::multimodal",
                         &format!("Multimodal embedding failed, falling back to text: {}", e),
-                        None, None, None);
+                        None,
+                        None,
+                        None,
+                    );
                 }
                 embedder.embed(label).ok()
             }
@@ -291,8 +331,13 @@ impl SqliteMemoryBackend {
 
     /// Re-generate embeddings for a set of entries and update the DB.
     fn reembed_entries(&self, entries: &[MemoryEntry]) -> Result<usize> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        let dims = self.embedding_dims.load(std::sync::atomic::Ordering::Relaxed);
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let dims = self
+            .embedding_dims
+            .load(std::sync::atomic::Ordering::Relaxed);
         if dims == 0 {
             return Err(anyhow::anyhow!("No embedding provider configured"));
         }
@@ -300,21 +345,29 @@ impl SqliteMemoryBackend {
 
         // Try async Batch API for bulk re-embedding (cheaper + faster for large batches)
         let guard = self.embedder.read().unwrap();
-        let use_batch = guard.as_ref().map_or(false, |e| e.supports_batch_api()) && entries.len() >= 10;
+        let use_batch =
+            guard.as_ref().map_or(false, |e| e.supports_batch_api()) && entries.len() >= 10;
         drop(guard);
 
         if use_batch {
             // Collect text-only entries (skip multimodal for batch)
-            let batch_items: Vec<(String, String)> = entries.iter()
+            let batch_items: Vec<(String, String)> = entries
+                .iter()
                 .filter(|e| e.attachment_path.is_none())
                 .map(|e| (e.id.to_string(), e.content.clone()))
                 .collect();
 
             if !batch_items.is_empty() {
                 if let Some(logger) = crate::get_logger() {
-                    logger.log("info", "memory", "embedding::reembed",
+                    logger.log(
+                        "info",
+                        "memory",
+                        "embedding::reembed",
                         &format!("Using async Batch API for {} entries", batch_items.len()),
-                        None, None, None);
+                        None,
+                        None,
+                        None,
+                    );
                 }
 
                 let guard = self.embedder.read().unwrap();
@@ -324,11 +377,23 @@ impl SqliteMemoryBackend {
                             let mut count = 0usize;
                             for (id_str, emb) in &results {
                                 let id: i64 = id_str.parse().unwrap_or(0);
-                                if id == 0 { continue; }
-                                let emb_bytes: Vec<u8> = emb.iter().flat_map(|f| f.to_le_bytes()).collect();
-                                let _ = conn.execute("UPDATE memories SET embedding = ?1 WHERE id = ?2", params![emb_bytes, id]);
-                                let _ = conn.execute("DELETE FROM memories_vec WHERE rowid = ?1", params![id]);
-                                let _ = conn.execute("INSERT INTO memories_vec(rowid, embedding) VALUES (?1, ?2)", params![id, emb_bytes]);
+                                if id == 0 {
+                                    continue;
+                                }
+                                let emb_bytes: Vec<u8> =
+                                    emb.iter().flat_map(|f| f.to_le_bytes()).collect();
+                                let _ = conn.execute(
+                                    "UPDATE memories SET embedding = ?1 WHERE id = ?2",
+                                    params![emb_bytes, id],
+                                );
+                                let _ = conn.execute(
+                                    "DELETE FROM memories_vec WHERE rowid = ?1",
+                                    params![id],
+                                );
+                                let _ = conn.execute(
+                                    "INSERT INTO memories_vec(rowid, embedding) VALUES (?1, ?2)",
+                                    params![id, emb_bytes],
+                                );
                                 count += 1;
                             }
 
@@ -339,9 +404,16 @@ impl SqliteMemoryBackend {
                                     entry.attachment_path.as_deref().unwrap_or(""),
                                     entry.attachment_mime.as_deref().unwrap_or(""),
                                 ) {
-                                    let emb_bytes: Vec<u8> = emb.iter().flat_map(|f| f.to_le_bytes()).collect();
-                                    let _ = conn.execute("UPDATE memories SET embedding = ?1 WHERE id = ?2", params![emb_bytes, entry.id]);
-                                    let _ = conn.execute("DELETE FROM memories_vec WHERE rowid = ?1", params![entry.id]);
+                                    let emb_bytes: Vec<u8> =
+                                        emb.iter().flat_map(|f| f.to_le_bytes()).collect();
+                                    let _ = conn.execute(
+                                        "UPDATE memories SET embedding = ?1 WHERE id = ?2",
+                                        params![emb_bytes, entry.id],
+                                    );
+                                    let _ = conn.execute(
+                                        "DELETE FROM memories_vec WHERE rowid = ?1",
+                                        params![entry.id],
+                                    );
                                     let _ = conn.execute("INSERT INTO memories_vec(rowid, embedding) VALUES (?1, ?2)", params![entry.id, emb_bytes]);
                                     count += 1;
                                 }
@@ -351,9 +423,18 @@ impl SqliteMemoryBackend {
                         }
                         Err(e) => {
                             if let Some(logger) = crate::get_logger() {
-                                logger.log("warn", "memory", "embedding::reembed",
-                                    &format!("Batch API failed, falling back to synchronous: {}", e),
-                                    None, None, None);
+                                logger.log(
+                                    "warn",
+                                    "memory",
+                                    "embedding::reembed",
+                                    &format!(
+                                        "Batch API failed, falling back to synchronous: {}",
+                                        e
+                                    ),
+                                    None,
+                                    None,
+                                    None,
+                                );
                             }
                             // Fall through to synchronous path
                         }
@@ -365,7 +446,9 @@ impl SqliteMemoryBackend {
         // Synchronous fallback: embed one by one
         let mut count = 0usize;
         for entry in entries {
-            let emb = if let (Some(ref att_path), Some(ref att_mime)) = (&entry.attachment_path, &entry.attachment_mime) {
+            let emb = if let (Some(ref att_path), Some(ref att_mime)) =
+                (&entry.attachment_path, &entry.attachment_mime)
+            {
                 self.generate_multimodal_embedding(&entry.content, att_path, att_mime)
             } else {
                 self.generate_embedding(&entry.content)
@@ -376,8 +459,14 @@ impl SqliteMemoryBackend {
                     "UPDATE memories SET embedding = ?1 WHERE id = ?2",
                     params![emb_bytes, entry.id],
                 )?;
-                let _ = conn.execute("DELETE FROM memories_vec WHERE rowid = ?1", params![entry.id]);
-                let _ = conn.execute("INSERT INTO memories_vec(rowid, embedding) VALUES (?1, ?2)", params![entry.id, emb_bytes]);
+                let _ = conn.execute(
+                    "DELETE FROM memories_vec WHERE rowid = ?1",
+                    params![entry.id],
+                );
+                let _ = conn.execute(
+                    "INSERT INTO memories_vec(rowid, embedding) VALUES (?1, ?2)",
+                    params![entry.id, emb_bytes],
+                );
                 count += 1;
             }
         }
@@ -395,10 +484,7 @@ pub(crate) fn scope_where(
 ) -> (String, Vec<Box<dyn rusqlite::types::ToSql>>) {
     if let Some(scope) = scope {
         match scope {
-            MemoryScope::Global => (
-                "scope_type = 'global'".to_string(),
-                Vec::new(),
-            ),
+            MemoryScope::Global => ("scope_type = 'global'".to_string(), Vec::new()),
             MemoryScope::Agent { id } => (
                 "scope_type = 'agent' AND scope_agent_id = ?".to_string(),
                 vec![Box::new(id.clone()) as Box<dyn rusqlite::types::ToSql>],
@@ -454,7 +540,10 @@ pub(crate) fn row_to_entry(row: &rusqlite::Row) -> rusqlite::Result<MemoryEntry>
 
 impl MemoryBackend for SqliteMemoryBackend {
     fn add(&self, entry: NewMemory) -> Result<i64> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let now = chrono::Utc::now().to_rfc3339();
         let tags_json = serde_json::to_string(&entry.tags)?;
 
@@ -464,14 +553,16 @@ impl MemoryBackend for SqliteMemoryBackend {
         };
 
         // Generate embedding: multimodal if attachment present + supported, else text-only
-        let embedding = if let (Some(ref att_path), Some(ref att_mime)) = (&entry.attachment_path, &entry.attachment_mime) {
+        let embedding = if let (Some(ref att_path), Some(ref att_mime)) =
+            (&entry.attachment_path, &entry.attachment_mime)
+        {
             self.generate_multimodal_embedding(&entry.content, att_path, att_mime)
         } else {
             self.generate_embedding(&entry.content)
         };
-        let embedding_bytes: Option<Vec<u8>> = embedding.as_ref().map(|v| {
-            v.iter().flat_map(|f| f.to_le_bytes()).collect()
-        });
+        let embedding_bytes: Option<Vec<u8>> = embedding
+            .as_ref()
+            .map(|v| v.iter().flat_map(|f| f.to_le_bytes()).collect());
 
         conn.execute(
             "INSERT INTO memories (memory_type, scope_type, scope_agent_id, content, tags, source, source_session_id, embedding, pinned, created_at, updated_at, attachment_path, attachment_mime)
@@ -497,7 +588,9 @@ impl MemoryBackend for SqliteMemoryBackend {
 
         // Insert into vec0 table if embedding was generated
         if let Some(ref emb_bytes) = embedding_bytes {
-            let dims = self.embedding_dims.load(std::sync::atomic::Ordering::Relaxed);
+            let dims = self
+                .embedding_dims
+                .load(std::sync::atomic::Ordering::Relaxed);
             if dims > 0 {
                 let _ = self.ensure_vec_table(&conn, dims);
                 let _ = conn.execute(
@@ -511,15 +604,18 @@ impl MemoryBackend for SqliteMemoryBackend {
     }
 
     fn update(&self, id: i64, content: &str, tags: &[String]) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let now = chrono::Utc::now().to_rfc3339();
         let tags_json = serde_json::to_string(tags)?;
 
         // Regenerate embedding if provider is configured
         let embedding = self.generate_embedding(content);
-        let embedding_bytes: Option<Vec<u8>> = embedding.as_ref().map(|v| {
-            v.iter().flat_map(|f| f.to_le_bytes()).collect()
-        });
+        let embedding_bytes: Option<Vec<u8>> = embedding
+            .as_ref()
+            .map(|v| v.iter().flat_map(|f| f.to_le_bytes()).collect());
 
         let affected = conn.execute(
             "UPDATE memories SET content = ?1, tags = ?2, embedding = ?3, updated_at = ?4 WHERE id = ?5",
@@ -532,7 +628,9 @@ impl MemoryBackend for SqliteMemoryBackend {
 
         // Update vec0 table
         if let Some(ref emb_bytes) = embedding_bytes {
-            let dims = self.embedding_dims.load(std::sync::atomic::Ordering::Relaxed);
+            let dims = self
+                .embedding_dims
+                .load(std::sync::atomic::Ordering::Relaxed);
             if dims > 0 {
                 let _ = self.ensure_vec_table(&conn, dims);
                 // Delete old vector + insert new
@@ -548,7 +646,10 @@ impl MemoryBackend for SqliteMemoryBackend {
     }
 
     fn toggle_pin(&self, id: i64, pinned: bool) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let now = chrono::Utc::now().to_rfc3339();
         let affected = conn.execute(
             "UPDATE memories SET pinned = ?1, updated_at = ?2 WHERE id = ?3",
@@ -561,7 +662,10 @@ impl MemoryBackend for SqliteMemoryBackend {
     }
 
     fn delete(&self, id: i64) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         // Delete from vec0 first (if table exists)
         let _ = conn.execute("DELETE FROM memories_vec WHERE rowid = ?1", params![id]);
         conn.execute("DELETE FROM memories WHERE id = ?1", params![id])?;
@@ -569,15 +673,16 @@ impl MemoryBackend for SqliteMemoryBackend {
     }
 
     fn get(&self, id: i64) -> Result<Option<MemoryEntry>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let mut stmt = conn.prepare(
             "SELECT id, memory_type, scope_type, scope_agent_id, content, tags, source, source_session_id, pinned, created_at, updated_at
              FROM memories WHERE id = ?1",
         )?;
 
-        let entry = stmt
-            .query_row(params![id], row_to_entry)
-            .optional()?;
+        let entry = stmt.query_row(params![id], row_to_entry).optional()?;
         Ok(entry)
     }
 
@@ -588,7 +693,10 @@ impl MemoryBackend for SqliteMemoryBackend {
         limit: usize,
         offset: usize,
     ) -> Result<Vec<MemoryEntry>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
         let (scope_clause, mut scope_params) = scope_where(scope, None);
 
@@ -625,7 +733,8 @@ impl MemoryBackend for SqliteMemoryBackend {
         all_params.push(Box::new(limit as i64));
         all_params.push(Box::new(offset as i64));
 
-        let param_refs: Vec<&dyn rusqlite::types::ToSql> = all_params.iter().map(|p| p.as_ref()).collect();
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            all_params.iter().map(|p| p.as_ref()).collect();
 
         let entries = stmt
             .query_map(param_refs.as_slice(), row_to_entry)?
@@ -636,7 +745,10 @@ impl MemoryBackend for SqliteMemoryBackend {
     }
 
     fn search(&self, query: &MemorySearchQuery) -> Result<Vec<MemoryEntry>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let limit = query.limit.unwrap_or(20);
 
         // Load configurable search parameters
@@ -655,7 +767,7 @@ impl MemoryBackend for SqliteMemoryBackend {
             let mut stmt = conn.prepare(
                 "SELECT fts.rowid, rank FROM memories_fts fts
                  WHERE memories_fts MATCH ?1
-                 ORDER BY rank LIMIT ?2"
+                 ORDER BY rank LIMIT ?2",
             )?;
             let rows = stmt.query_map(params![fts_query, limit * 3], |row| {
                 Ok((row.get::<_, i64>(0)?, row.get::<_, f64>(1)?))
@@ -673,7 +785,7 @@ impl MemoryBackend for SqliteMemoryBackend {
             if let Ok(mut stmt) = conn.prepare(
                 "SELECT rowid, distance FROM memories_vec
                  WHERE embedding MATCH ?1
-                 ORDER BY distance LIMIT ?2"
+                 ORDER BY distance LIMIT ?2",
             ) {
                 let rows = stmt.query_map(params![emb_bytes, limit * 3], |row| {
                     Ok((row.get::<_, i64>(0)?, row.get::<_, f64>(1)?))
@@ -693,12 +805,14 @@ impl MemoryBackend for SqliteMemoryBackend {
         let mut scores: HashMap<i64, f64> = HashMap::new();
 
         for (rank, (id, _)) in fts_results.iter().enumerate() {
-            *scores.entry(*id).or_insert(0.0) += hybrid_cfg.text_weight as f64 / (k + rank as f64 + 1.0);
+            *scores.entry(*id).or_insert(0.0) +=
+                hybrid_cfg.text_weight as f64 / (k + rank as f64 + 1.0);
         }
 
         if has_vec {
             for (rank, (id, _)) in vec_results.iter().enumerate() {
-                *scores.entry(*id).or_insert(0.0) += hybrid_cfg.vector_weight as f64 / (k + rank as f64 + 1.0);
+                *scores.entry(*id).or_insert(0.0) +=
+                    hybrid_cfg.vector_weight as f64 / (k + rank as f64 + 1.0);
             }
         }
 
@@ -711,19 +825,31 @@ impl MemoryBackend for SqliteMemoryBackend {
             if !ids.is_empty() {
                 let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
                 let sql = format!(
-                    "SELECT id, updated_at, pinned FROM memories WHERE id IN ({})", placeholders
+                    "SELECT id, updated_at, pinned FROM memories WHERE id IN ({})",
+                    placeholders
                 );
-                let params: Vec<Box<dyn rusqlite::types::ToSql>> = ids.iter().map(|id| Box::new(*id) as Box<dyn rusqlite::types::ToSql>).collect();
-                let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+                let params: Vec<Box<dyn rusqlite::types::ToSql>> = ids
+                    .iter()
+                    .map(|id| Box::new(*id) as Box<dyn rusqlite::types::ToSql>)
+                    .collect();
+                let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+                    params.iter().map(|p| p.as_ref()).collect();
                 let mut stmt = conn.prepare(&sql)?;
                 let rows = stmt.query_map(param_refs.as_slice(), |row| {
-                    Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, bool>(2)?))
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, bool>(2)?,
+                    ))
                 })?;
                 for r in rows.flatten() {
                     let (id, updated_at, pinned) = r;
-                    if pinned { continue; } // Pinned memories are evergreen
+                    if pinned {
+                        continue;
+                    } // Pinned memories are evergreen
                     if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&updated_at) {
-                        let age_days = (now - dt.with_timezone(&chrono::Utc)).num_seconds() as f64 / 86400.0;
+                        let age_days =
+                            (now - dt.with_timezone(&chrono::Utc)).num_seconds() as f64 / 86400.0;
                         if age_days > 0.0 {
                             if let Some(score) = scores.get_mut(&id) {
                                 *score *= (-lambda * age_days).exp();
@@ -748,10 +874,8 @@ impl MemoryBackend for SqliteMemoryBackend {
         let placeholders = id_list.iter().map(|_| "?").collect::<Vec<_>>().join(",");
 
         // Apply scope and type filters
-        let (scope_clause, mut scope_params) = scope_where(
-            query.scope.as_ref(),
-            query.agent_id.as_deref(),
-        );
+        let (scope_clause, mut scope_params) =
+            scope_where(query.scope.as_ref(), query.agent_id.as_deref());
         let type_clause = if let Some(ref types) = query.types {
             if types.is_empty() {
                 "1=1".to_string()
@@ -782,7 +906,8 @@ impl MemoryBackend for SqliteMemoryBackend {
             }
         }
 
-        let param_refs: Vec<&dyn rusqlite::types::ToSql> = all_params.iter().map(|p| p.as_ref()).collect();
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            all_params.iter().map(|p| p.as_ref()).collect();
         let mut stmt = conn.prepare(&sql)?;
 
         let score_map: HashMap<i64, f64> = scored_ids.into_iter().collect();
@@ -797,22 +922,27 @@ impl MemoryBackend for SqliteMemoryBackend {
 
         // Sort by relevance score (descending)
         entries.sort_by(|a, b| {
-            b.relevance_score.unwrap_or(0.0).partial_cmp(&a.relevance_score.unwrap_or(0.0))
+            b.relevance_score
+                .unwrap_or(0.0)
+                .partial_cmp(&a.relevance_score.unwrap_or(0.0))
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
 
         // ── Step 5: MMR diversity reranking ──
         let mmr_cfg = super::helpers::load_mmr_config();
         if mmr_cfg.enabled && entries.len() > 1 {
-            let candidates: Vec<(i64, f32, &str)> = entries.iter()
+            let candidates: Vec<(i64, f32, &str)> = entries
+                .iter()
                 .map(|e| (e.id, e.relevance_score.unwrap_or(0.0), e.content.as_str()))
                 .collect();
             let reranked = super::mmr::mmr_rerank(&candidates, limit, mmr_cfg.lambda);
 
             // Rebuild entries in MMR order
             let id_order: Vec<i64> = reranked.iter().map(|(id, _)| *id).collect();
-            let entry_map: HashMap<i64, MemoryEntry> = entries.into_iter().map(|e| (e.id, e)).collect();
-            entries = id_order.into_iter()
+            let entry_map: HashMap<i64, MemoryEntry> =
+                entries.into_iter().map(|e| (e.id, e)).collect();
+            entries = id_order
+                .into_iter()
                 .filter_map(|id| entry_map.get(&id).cloned())
                 .collect();
         }
@@ -821,11 +951,15 @@ impl MemoryBackend for SqliteMemoryBackend {
     }
 
     fn count(&self, scope: Option<&MemoryScope>) -> Result<usize> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let (scope_clause, scope_params) = scope_where(scope, None);
 
         let sql = format!("SELECT COUNT(*) FROM memories WHERE {}", scope_clause);
-        let param_refs: Vec<&dyn rusqlite::types::ToSql> = scope_params.iter().map(|p| p.as_ref()).collect();
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            scope_params.iter().map(|p| p.as_ref()).collect();
 
         let count: i64 = conn.query_row(&sql, param_refs.as_slice(), |row| row.get(0))?;
         Ok(count as usize)
@@ -838,7 +972,9 @@ impl MemoryBackend for SqliteMemoryBackend {
         let mut all_memories = Vec::new();
 
         // Agent-scoped memories
-        let agent_scope = MemoryScope::Agent { id: agent_id.to_string() };
+        let agent_scope = MemoryScope::Agent {
+            id: agent_id.to_string(),
+        };
         let agent_mems = self.list(Some(&agent_scope), None, 200, 0)?;
         all_memories.extend(agent_mems);
 
@@ -855,7 +991,12 @@ impl MemoryBackend for SqliteMemoryBackend {
         // Build result with per-entry budget tracking to avoid mid-line truncation.
         // Group by type (User → Feedback → Project → Reference), each type's entries
         // are already sorted by updated_at DESC from list().
-        let type_order = [MemoryType::User, MemoryType::Feedback, MemoryType::Project, MemoryType::Reference];
+        let type_order = [
+            MemoryType::User,
+            MemoryType::Feedback,
+            MemoryType::Project,
+            MemoryType::Reference,
+        ];
         let header = "# Memory\n\n";
         let truncated_marker = "\n\n[... truncated ...]";
         let mut result = header.to_string();
@@ -874,7 +1015,8 @@ impl MemoryBackend for SqliteMemoryBackend {
                 .filter(|m| &m.memory_type == mem_type)
                 .collect();
             entries.sort_by(|a, b| {
-                b.pinned.cmp(&a.pinned)
+                b.pinned
+                    .cmp(&a.pinned)
                     .then_with(|| b.updated_at.cmp(&a.updated_at))
             });
 
@@ -941,7 +1083,12 @@ impl MemoryBackend for SqliteMemoryBackend {
 
         let mut md = "# Memories\n\n".to_string();
 
-        let type_order = [MemoryType::User, MemoryType::Feedback, MemoryType::Project, MemoryType::Reference];
+        let type_order = [
+            MemoryType::User,
+            MemoryType::Feedback,
+            MemoryType::Project,
+            MemoryType::Reference,
+        ];
 
         for mem_type in &type_order {
             let type_entries: Vec<&MemoryEntry> = entries
@@ -956,7 +1103,10 @@ impl MemoryBackend for SqliteMemoryBackend {
             md.push_str(&format!("## {}\n\n", mem_type.heading()));
 
             for entry in type_entries {
-                md.push_str(&format!("### {}\n", entry.content.lines().next().unwrap_or("Untitled")));
+                md.push_str(&format!(
+                    "### {}\n",
+                    entry.content.lines().next().unwrap_or("Untitled")
+                ));
                 if !entry.tags.is_empty() {
                     md.push_str(&format!("Tags: {}\n", entry.tags.join(", ")));
                 }
@@ -964,7 +1114,10 @@ impl MemoryBackend for SqliteMemoryBackend {
                     MemoryScope::Global => "global".to_string(),
                     MemoryScope::Agent { id } => format!("agent:{}", id),
                 };
-                md.push_str(&format!("Scope: {} | Source: {} | Updated: {}\n\n", scope_label, entry.source, entry.updated_at));
+                md.push_str(&format!(
+                    "Scope: {} | Source: {} | Updated: {}\n\n",
+                    scope_label, entry.source, entry.updated_at
+                ));
                 md.push_str(&entry.content);
                 md.push_str("\n\n---\n\n");
             }
@@ -974,7 +1127,10 @@ impl MemoryBackend for SqliteMemoryBackend {
     }
 
     fn stats(&self, scope: Option<&MemoryScope>) -> Result<MemoryStats> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let (scope_clause, scope_params) = scope_where(scope, None);
 
         // Total count
@@ -989,7 +1145,8 @@ impl MemoryBackend for SqliteMemoryBackend {
         {
             let (sc, sp) = scope_where(scope, None);
             let mut stmt = conn.prepare(&format!(
-                "SELECT memory_type, COUNT(*) FROM memories WHERE {} GROUP BY memory_type", sc
+                "SELECT memory_type, COUNT(*) FROM memories WHERE {} GROUP BY memory_type",
+                sc
             ))?;
             let rows = stmt.query_map(rusqlite::params_from_iter(sp.iter()), |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, usize>(1)?))
@@ -1016,21 +1173,33 @@ impl MemoryBackend for SqliteMemoryBackend {
         // Oldest and newest
         let (oldest, newest) = {
             let (sc, sp) = scope_where(scope, None);
-            let oldest: Option<String> = conn.query_row(
-                &format!("SELECT MIN(created_at) FROM memories WHERE {}", sc),
-                rusqlite::params_from_iter(sp.iter()),
-                |row| row.get(0),
-            ).ok().flatten();
+            let oldest: Option<String> = conn
+                .query_row(
+                    &format!("SELECT MIN(created_at) FROM memories WHERE {}", sc),
+                    rusqlite::params_from_iter(sp.iter()),
+                    |row| row.get(0),
+                )
+                .ok()
+                .flatten();
             let (sc2, sp2) = scope_where(scope, None);
-            let newest: Option<String> = conn.query_row(
-                &format!("SELECT MAX(created_at) FROM memories WHERE {}", sc2),
-                rusqlite::params_from_iter(sp2.iter()),
-                |row| row.get(0),
-            ).ok().flatten();
+            let newest: Option<String> = conn
+                .query_row(
+                    &format!("SELECT MAX(created_at) FROM memories WHERE {}", sc2),
+                    rusqlite::params_from_iter(sp2.iter()),
+                    |row| row.get(0),
+                )
+                .ok()
+                .flatten();
             (oldest, newest)
         };
 
-        Ok(MemoryStats { total, by_type, with_embedding, oldest, newest })
+        Ok(MemoryStats {
+            total,
+            by_type,
+            with_embedding,
+            oldest,
+            newest,
+        })
     }
 
     fn find_similar(
@@ -1060,7 +1229,12 @@ impl MemoryBackend for SqliteMemoryBackend {
             .collect())
     }
 
-    fn add_with_dedup(&self, entry: NewMemory, threshold_high: f32, threshold_merge: f32) -> Result<AddResult> {
+    fn add_with_dedup(
+        &self,
+        entry: NewMemory,
+        threshold_high: f32,
+        threshold_merge: f32,
+    ) -> Result<AddResult> {
         // Find similar entries of the same type and scope
         let similar = self.find_similar(
             &entry.content,
@@ -1100,17 +1274,32 @@ impl MemoryBackend for SqliteMemoryBackend {
         if ids.is_empty() {
             return Ok(0);
         }
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let placeholders: Vec<String> = ids.iter().map(|_| "?".to_string()).collect();
-        let sql = format!("DELETE FROM memories WHERE id IN ({})", placeholders.join(","));
-        let params: Vec<Box<dyn rusqlite::types::ToSql>> = ids.iter().map(|id| Box::new(*id) as Box<dyn rusqlite::types::ToSql>).collect();
-        let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        let sql = format!(
+            "DELETE FROM memories WHERE id IN ({})",
+            placeholders.join(",")
+        );
+        let params: Vec<Box<dyn rusqlite::types::ToSql>> = ids
+            .iter()
+            .map(|id| Box::new(*id) as Box<dyn rusqlite::types::ToSql>)
+            .collect();
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params.iter().map(|p| p.as_ref()).collect();
         let deleted = conn.execute(&sql, param_refs.as_slice())?;
 
         // Also clean vec0 table
-        let dims = self.embedding_dims.load(std::sync::atomic::Ordering::Relaxed);
+        let dims = self
+            .embedding_dims
+            .load(std::sync::atomic::Ordering::Relaxed);
         if dims > 0 {
-            let vec_sql = format!("DELETE FROM memories_vec WHERE rowid IN ({})", placeholders.join(","));
+            let vec_sql = format!(
+                "DELETE FROM memories_vec WHERE rowid IN ({})",
+                placeholders.join(",")
+            );
             let _ = conn.execute(&vec_sql, param_refs.as_slice());
         }
 
@@ -1128,7 +1317,11 @@ impl MemoryBackend for SqliteMemoryBackend {
         let dedup_cfg = load_dedup_config();
         for entry in entries {
             if dedup {
-                match self.add_with_dedup(entry, dedup_cfg.threshold_high, dedup_cfg.threshold_merge) {
+                match self.add_with_dedup(
+                    entry,
+                    dedup_cfg.threshold_high,
+                    dedup_cfg.threshold_merge,
+                ) {
                     Ok(AddResult::Created { .. }) => result.created += 1,
                     Ok(AddResult::Duplicate { .. }) => result.skipped_duplicate += 1,
                     Ok(AddResult::Updated { .. }) => result.created += 1, // count merge as created
@@ -1168,7 +1361,8 @@ impl MemoryBackend for SqliteMemoryBackend {
 
     fn set_embedder(&self, provider: Arc<dyn EmbeddingProvider>) {
         let dims = provider.dimensions();
-        self.embedding_dims.store(dims, std::sync::atomic::Ordering::Relaxed);
+        self.embedding_dims
+            .store(dims, std::sync::atomic::Ordering::Relaxed);
         if let Ok(conn) = self.conn.lock() {
             let _ = self.ensure_vec_table(&conn, dims);
         }
@@ -1177,7 +1371,8 @@ impl MemoryBackend for SqliteMemoryBackend {
 
     fn clear_embedder(&self) {
         *self.embedder.write().unwrap() = None;
-        self.embedding_dims.store(0, std::sync::atomic::Ordering::Relaxed);
+        self.embedding_dims
+            .store(0, std::sync::atomic::Ordering::Relaxed);
     }
 
     fn has_embedder(&self) -> bool {

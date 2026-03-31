@@ -8,15 +8,16 @@ const DEFAULT_MAX_CHARS: usize = 50_000;
 
 /// Tool: pdf — extract text content from PDF documents.
 pub(crate) async fn tool_pdf(args: &Value) -> Result<String> {
-    let path_raw = args.get("path")
+    let path_raw = args
+        .get("path")
         .and_then(|v| v.as_str())
         .or_else(|| args.get("file_path").and_then(|v| v.as_str()))
         .ok_or_else(|| anyhow::anyhow!("Missing 'path' parameter"))?;
 
-    let pages_spec = args.get("pages")
-        .and_then(|v| v.as_str());
+    let pages_spec = args.get("pages").and_then(|v| v.as_str());
 
-    let max_chars = args.get("max_chars")
+    let max_chars = args
+        .get("max_chars")
         .and_then(|v| v.as_u64())
         .unwrap_or(DEFAULT_MAX_CHARS as u64) as usize;
 
@@ -27,9 +28,7 @@ pub(crate) async fn tool_pdf(args: &Value) -> Result<String> {
         return Ok(format!("Error: File not found: {}", path));
     }
 
-    let file_size = std::fs::metadata(file_path)
-        .map(|m| m.len())
-        .unwrap_or(0);
+    let file_size = std::fs::metadata(file_path).map(|m| m.len()).unwrap_or(0);
 
     // Extract text
     let full_text = match pdf_extract::extract_text(file_path) {
@@ -132,13 +131,20 @@ fn parse_page_range(spec: &str, total_pages: usize) -> Result<Vec<usize>> {
         }
 
         if let Some((start_str, end_str)) = part.split_once('-') {
-            let start: usize = start_str.trim().parse()
+            let start: usize = start_str
+                .trim()
+                .parse()
                 .map_err(|_| anyhow::anyhow!("Invalid page range: '{}'", part))?;
-            let end: usize = end_str.trim().parse()
+            let end: usize = end_str
+                .trim()
+                .parse()
                 .map_err(|_| anyhow::anyhow!("Invalid page range: '{}'", part))?;
 
             if start == 0 || end == 0 || start > end {
-                return Err(anyhow::anyhow!("Invalid page range: '{}' (pages are 1-indexed)", part));
+                return Err(anyhow::anyhow!(
+                    "Invalid page range: '{}' (pages are 1-indexed)",
+                    part
+                ));
             }
 
             for p in start..=end.min(total_pages) {
@@ -147,7 +153,8 @@ fn parse_page_range(spec: &str, total_pages: usize) -> Result<Vec<usize>> {
                 }
             }
         } else {
-            let p: usize = part.parse()
+            let p: usize = part
+                .parse()
                 .map_err(|_| anyhow::anyhow!("Invalid page number: '{}'", part))?;
             if p == 0 {
                 return Err(anyhow::anyhow!("Page numbers are 1-indexed, got 0"));
@@ -159,7 +166,11 @@ fn parse_page_range(spec: &str, total_pages: usize) -> Result<Vec<usize>> {
     }
 
     if pages.is_empty() {
-        return Err(anyhow::anyhow!("No valid pages in range '{}' (document has {} pages)", spec, total_pages));
+        return Err(anyhow::anyhow!(
+            "No valid pages in range '{}' (document has {} pages)",
+            spec,
+            total_pages
+        ));
     }
 
     pages.sort();

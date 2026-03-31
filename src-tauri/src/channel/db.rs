@@ -2,8 +2,8 @@ use anyhow::Result;
 use rusqlite::params;
 use std::sync::Arc;
 
-use crate::session::SessionDB;
 use super::types::ChatType;
+use crate::session::SessionDB;
 
 /// Manages the `channel_conversations` table that maps IM conversations to sessions.
 pub struct ChannelDB {
@@ -34,7 +34,10 @@ impl ChannelDB {
     /// Run the migration to create channel_conversations table.
     /// Called once during app startup.
     pub fn migrate(&self) -> Result<()> {
-        let conn = self.session_db.conn.lock()
+        let conn = self
+            .session_db
+            .conn
+            .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
         let has_table = conn
@@ -84,7 +87,10 @@ impl ChannelDB {
         if let Some(existing) = self.get_session(channel_id, account_id, chat_id, thread_id)? {
             // Update timestamp and sender info
             let now = chrono::Utc::now().to_rfc3339();
-            let conn = self.session_db.conn.lock()
+            let conn = self
+                .session_db
+                .conn
+                .lock()
                 .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
             conn.execute(
                 "UPDATE channel_conversations SET updated_at = ?1, sender_id = COALESCE(?2, sender_id), sender_name = COALESCE(?3, sender_name) WHERE session_id = ?4",
@@ -111,7 +117,10 @@ impl ChannelDB {
                 "senderName": sender_name,
             }
         });
-        let conn = self.session_db.conn.lock()
+        let conn = self
+            .session_db
+            .conn
+            .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         conn.execute(
             "UPDATE sessions SET context_json = ?1 WHERE id = ?2",
@@ -142,7 +151,10 @@ impl ChannelDB {
         chat_id: &str,
         thread_id: Option<&str>,
     ) -> Result<Option<String>> {
-        let conn = self.session_db.conn.lock()
+        let conn = self
+            .session_db
+            .conn
+            .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
         let result = if let Some(tid) = thread_id {
@@ -172,35 +184,46 @@ impl ChannelDB {
         channel_id: &str,
         account_id: &str,
     ) -> Result<Vec<ChannelConversation>> {
-        let conn = self.session_db.conn.lock()
+        let conn = self
+            .session_db
+            .conn
+            .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
         let mut stmt = conn.prepare(
             "SELECT id, channel_id, account_id, chat_id, thread_id, session_id, sender_id, sender_name, chat_type, created_at, updated_at FROM channel_conversations WHERE channel_id = ?1 AND account_id = ?2 ORDER BY updated_at DESC"
         )?;
 
-        let rows = stmt.query_map(params![channel_id, account_id], |row| {
-            Ok(ChannelConversation {
-                id: row.get(0)?,
-                channel_id: row.get(1)?,
-                account_id: row.get(2)?,
-                chat_id: row.get(3)?,
-                thread_id: row.get(4)?,
-                session_id: row.get(5)?,
-                sender_id: row.get(6)?,
-                sender_name: row.get(7)?,
-                chat_type: row.get(8)?,
-                created_at: row.get(9)?,
-                updated_at: row.get(10)?,
-            })
-        })?.collect::<std::result::Result<Vec<_>, _>>()?;
+        let rows = stmt
+            .query_map(params![channel_id, account_id], |row| {
+                Ok(ChannelConversation {
+                    id: row.get(0)?,
+                    channel_id: row.get(1)?,
+                    account_id: row.get(2)?,
+                    chat_id: row.get(3)?,
+                    thread_id: row.get(4)?,
+                    session_id: row.get(5)?,
+                    sender_id: row.get(6)?,
+                    sender_name: row.get(7)?,
+                    chat_type: row.get(8)?,
+                    created_at: row.get(9)?,
+                    updated_at: row.get(10)?,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
 
         Ok(rows)
     }
 
     /// Look up a channel conversation by its linked session ID.
-    pub fn get_conversation_by_session(&self, session_id: &str) -> Result<Option<ChannelConversation>> {
-        let conn = self.session_db.conn.lock()
+    pub fn get_conversation_by_session(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<ChannelConversation>> {
+        let conn = self
+            .session_db
+            .conn
+            .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
         let result = conn.query_row(

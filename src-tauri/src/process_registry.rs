@@ -72,25 +72,25 @@ impl ProcessRegistry {
 
     #[allow(dead_code)]
     pub fn list_running(&self) -> Vec<&ProcessSession> {
-        self.sessions
-            .values()
-            .filter(|s| !s.exited)
-            .collect()
+        self.sessions.values().filter(|s| !s.exited).collect()
     }
 
     #[allow(dead_code)]
     pub fn list_finished(&self) -> Vec<&ProcessSession> {
-        self.sessions
-            .values()
-            .filter(|s| s.exited)
-            .collect()
+        self.sessions.values().filter(|s| s.exited).collect()
     }
 
     pub fn list_all(&self) -> Vec<&ProcessSession> {
         self.sessions.values().collect()
     }
 
-    pub fn mark_exited(&mut self, id: &str, exit_code: Option<i32>, exit_signal: Option<String>, status: ProcessStatus) {
+    pub fn mark_exited(
+        &mut self,
+        id: &str,
+        exit_code: Option<i32>,
+        exit_signal: Option<String>,
+        status: ProcessStatus,
+    ) {
         if let Some(session) = self.sessions.get_mut(id) {
             session.exited = true;
             session.exit_code = exit_code;

@@ -1,7 +1,7 @@
 use serde_json::json;
 
-use crate::provider::ThinkingStyle;
 use super::types::CodexModel;
+use crate::provider::ThinkingStyle;
 
 pub(super) const CODEX_API_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
 #[allow(dead_code)]
@@ -52,14 +52,38 @@ pub(super) fn get_max_tool_rounds() -> u32 {
 
 pub fn get_codex_models() -> Vec<CodexModel> {
     vec![
-        CodexModel { id: "gpt-5.4".into(), name: "GPT-5.4".into() },
-        CodexModel { id: "gpt-5.3-codex".into(), name: "GPT-5.3 Codex".into() },
-        CodexModel { id: "gpt-5.3-codex-spark".into(), name: "GPT-5.3 Codex Spark".into() },
-        CodexModel { id: "gpt-5.2".into(), name: "GPT-5.2".into() },
-        CodexModel { id: "gpt-5.2-codex".into(), name: "GPT-5.2 Codex".into() },
-        CodexModel { id: "gpt-5.1".into(), name: "GPT-5.1".into() },
-        CodexModel { id: "gpt-5.1-codex-max".into(), name: "GPT-5.1 Codex Max".into() },
-        CodexModel { id: "gpt-5.1-codex-mini".into(), name: "GPT-5.1 Codex Mini".into() },
+        CodexModel {
+            id: "gpt-5.4".into(),
+            name: "GPT-5.4".into(),
+        },
+        CodexModel {
+            id: "gpt-5.3-codex".into(),
+            name: "GPT-5.3 Codex".into(),
+        },
+        CodexModel {
+            id: "gpt-5.3-codex-spark".into(),
+            name: "GPT-5.3 Codex Spark".into(),
+        },
+        CodexModel {
+            id: "gpt-5.2".into(),
+            name: "GPT-5.2".into(),
+        },
+        CodexModel {
+            id: "gpt-5.2-codex".into(),
+            name: "GPT-5.2 Codex".into(),
+        },
+        CodexModel {
+            id: "gpt-5.1".into(),
+            name: "GPT-5.1".into(),
+        },
+        CodexModel {
+            id: "gpt-5.1-codex-max".into(),
+            name: "GPT-5.1 Codex Max".into(),
+        },
+        CodexModel {
+            id: "gpt-5.1-codex-mini".into(),
+            name: "GPT-5.1 Codex Mini".into(),
+        },
     ]
 }
 
@@ -92,7 +116,10 @@ pub fn clamp_reasoning_effort(model: &str, effort: &str) -> Option<String> {
 /// Map reasoning effort to Anthropic/ZAI thinking parameter.
 /// Anthropic/ZAI uses `thinking: { type: "enabled", budget_tokens: N }` format.
 /// Returns None if thinking should be disabled.
-pub(super) fn map_think_anthropic_style(effort: Option<&str>, max_tokens: u32) -> Option<serde_json::Value> {
+pub(super) fn map_think_anthropic_style(
+    effort: Option<&str>,
+    max_tokens: u32,
+) -> Option<serde_json::Value> {
     let effort = effort?;
     if effort == "none" {
         return None;
@@ -189,7 +216,13 @@ pub(super) fn build_system_prompt(agent_id: &str, model: &str, provider: &str) -
         let agent_home = crate::paths::agent_home_dir(agent_id)
             .ok()
             .map(|p| p.to_string_lossy().to_string());
-        return crate::system_prompt::build(&definition, Some(model), Some(provider), memory_context.as_deref(), agent_home.as_deref());
+        return crate::system_prompt::build(
+            &definition,
+            Some(model),
+            Some(provider),
+            memory_context.as_deref(),
+            agent_home.as_deref(),
+        );
     }
     // Fallback: legacy prompt
     crate::system_prompt::build_legacy(Some(model), Some(provider))

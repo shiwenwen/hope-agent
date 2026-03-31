@@ -1,10 +1,10 @@
 use anyhow::Result;
-use rusqlite::{Connection, params};
+use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
-use std::sync::Mutex;
 use std::collections::HashMap;
 use std::io::Write;
+use std::path::PathBuf;
+use std::sync::Mutex;
 
 // ── Data Structures ──────────────────────────────────────────────
 
@@ -51,8 +51,12 @@ pub struct LogConfig {
     pub file_max_size_mb: u32,
 }
 
-fn default_true() -> bool { true }
-fn default_file_max_size() -> u32 { 10 }
+fn default_true() -> bool {
+    true
+}
+fn default_file_max_size() -> u32 {
+    10
+}
 
 impl Default for LogConfig {
     fn default() -> Self {
@@ -132,10 +136,12 @@ impl LogDB {
             CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON logs(timestamp DESC);
             CREATE INDEX IF NOT EXISTS idx_logs_level ON logs(level);
             CREATE INDEX IF NOT EXISTS idx_logs_category ON logs(category);
-            CREATE INDEX IF NOT EXISTS idx_logs_session_id ON logs(session_id);"
+            CREATE INDEX IF NOT EXISTS idx_logs_session_id ON logs(session_id);",
         )?;
 
-        Ok(Self { conn: Mutex::new(conn) })
+        Ok(Self {
+            conn: Mutex::new(conn),
+        })
     }
 
     pub fn insert(
@@ -148,7 +154,10 @@ impl LogDB {
         session_id: Option<&str>,
         agent_id: Option<&str>,
     ) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let now = chrono::Utc::now().to_rfc3339();
         conn.execute(
             "INSERT INTO logs (timestamp, level, category, source, message, details, session_id, agent_id)
@@ -159,7 +168,10 @@ impl LogDB {
     }
 
     pub fn batch_insert(&self, entries: &[PendingLog]) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let tx = conn.unchecked_transaction()?;
         {
             let mut stmt = tx.prepare_cached(
@@ -184,14 +196,19 @@ impl LogDB {
     }
 
     pub fn query(&self, filter: &LogFilter, page: u32, page_size: u32) -> Result<LogQueryResult> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
         let mut where_clauses: Vec<String> = Vec::new();
         let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
         if let Some(ref levels) = filter.levels {
             if !levels.is_empty() {
-                let placeholders: Vec<String> = levels.iter().enumerate()
+                let placeholders: Vec<String> = levels
+                    .iter()
+                    .enumerate()
                     .map(|(_, _)| "?".to_string())
                     .collect();
                 where_clauses.push(format!("level IN ({})", placeholders.join(",")));
@@ -203,7 +220,9 @@ impl LogDB {
 
         if let Some(ref categories) = filter.categories {
             if !categories.is_empty() {
-                let placeholders: Vec<String> = categories.iter().enumerate()
+                let placeholders: Vec<String> = categories
+                    .iter()
+                    .enumerate()
                     .map(|(_, _)| "?".to_string())
                     .collect();
                 where_clauses.push(format!("category IN ({})", placeholders.join(",")));
@@ -249,7 +268,8 @@ impl LogDB {
 
         // Count total
         let count_sql = format!("SELECT COUNT(*) FROM logs {}", where_sql);
-        let params_ref: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|p| p.as_ref()).collect();
+        let params_ref: Vec<&dyn rusqlite::types::ToSql> =
+            param_values.iter().map(|p| p.as_ref()).collect();
         let total: u64 = conn.query_row(&count_sql, params_ref.as_slice(), |row| row.get(0))?;
 
         // Query page
@@ -259,7 +279,8 @@ impl LogDB {
              FROM logs {} ORDER BY id DESC LIMIT ? OFFSET ?",
             where_sql
         );
-        let mut all_params: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|p| p.as_ref()).collect();
+        let mut all_params: Vec<&dyn rusqlite::types::ToSql> =
+            param_values.iter().map(|p| p.as_ref()).collect();
         let limit_val = page_size as i64;
         let offset_val = offset as i64;
         all_params.push(&limit_val);
@@ -289,7 +310,10 @@ impl LogDB {
     }
 
     pub fn get_stats(&self, db_path: &PathBuf) -> Result<LogStats> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
         let total: u64 = conn.query_row("SELECT COUNT(*) FROM logs", [], |row| row.get(0))?;
 
@@ -319,11 +343,19 @@ impl LogDB {
 
         let db_size_bytes = std::fs::metadata(db_path).map(|m| m.len()).unwrap_or(0);
 
-        Ok(LogStats { total, by_level, by_category, db_size_bytes })
+        Ok(LogStats {
+            total,
+            by_level,
+            by_category,
+            db_size_bytes,
+        })
     }
 
     pub fn clear(&self, before_date: Option<&str>) -> Result<u64> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let deleted = if let Some(date) = before_date {
             conn.execute("DELETE FROM logs WHERE timestamp < ?1", params![date])?
         } else {
@@ -393,14 +425,21 @@ impl LogFileWriter {
             let line = if let Some(ref details) = entry.details {
                 format!(
                     "[{}] {} [{}] {} — {} | {}\n",
-                    entry.timestamp, entry.level.to_uppercase(), entry.category,
-                    entry.source, entry.message, details
+                    entry.timestamp,
+                    entry.level.to_uppercase(),
+                    entry.category,
+                    entry.source,
+                    entry.message,
+                    details
                 )
             } else {
                 format!(
                     "[{}] {} [{}] {} — {}\n",
-                    entry.timestamp, entry.level.to_uppercase(), entry.category,
-                    entry.source, entry.message
+                    entry.timestamp,
+                    entry.level.to_uppercase(),
+                    entry.category,
+                    entry.source,
+                    entry.message
                 )
             };
             let bytes = line.as_bytes();
@@ -425,7 +464,9 @@ impl LogFileWriter {
                 // Find next available numbered file
                 let mut n = 1u32;
                 loop {
-                    let numbered = self.logs_dir.join(format!("opencomputer-{}.{}.log", date, n));
+                    let numbered = self
+                        .logs_dir
+                        .join(format!("opencomputer-{}.{}.log", date, n));
                     if !numbered.exists() {
                         break (numbered, 0);
                     }
@@ -537,7 +578,8 @@ impl AppLogger {
                 let _ = db.batch_insert(&buffer);
 
                 // Dual-write to log file
-                let (file_enabled, file_max_mb) = config.read()
+                let (file_enabled, file_max_mb) = config
+                    .read()
                     .map(|c| (c.file_enabled, c.file_max_size_mb))
                     .unwrap_or((true, 10));
                 if file_enabled {
@@ -706,7 +748,8 @@ pub fn list_log_files() -> Result<Vec<LogFileInfo>> {
         let path = entry.path();
         if path.extension().and_then(|e| e.to_str()) == Some("log") {
             let meta = std::fs::metadata(&path)?;
-            let modified = meta.modified()
+            let modified = meta
+                .modified()
                 .map(|t| {
                     let dt: chrono::DateTime<chrono::Utc> = t.into();
                     dt.to_rfc3339()
@@ -785,21 +828,25 @@ pub fn current_log_file_path() -> Result<String> {
 /// Redact potentially sensitive values from a JSON string for logging.
 pub fn redact_sensitive(input: &str) -> String {
     let sensitive_keys = [
-        "api_key", "apiKey", "api-key",
-        "access_token", "accessToken",
-        "refresh_token", "refreshToken",
-        "authorization", "Authorization",
-        "x-api-key", "bearer",
-        "password", "secret",
+        "api_key",
+        "apiKey",
+        "api-key",
+        "access_token",
+        "accessToken",
+        "refresh_token",
+        "refreshToken",
+        "authorization",
+        "Authorization",
+        "x-api-key",
+        "bearer",
+        "password",
+        "secret",
     ];
 
     let mut result = input.to_string();
     for key in &sensitive_keys {
         // Simple pattern: "key":"value" or "key": "value"
-        let patterns = [
-            format!("\"{}\":\"", key),
-            format!("\"{}\": \"", key),
-        ];
+        let patterns = [format!("\"{}\":\"", key), format!("\"{}\": \"", key)];
         for pattern in &patterns {
             if let Some(start) = result.find(pattern) {
                 let value_start = start + pattern.len();

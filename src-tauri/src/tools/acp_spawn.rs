@@ -8,10 +8,7 @@ use super::ToolExecContext;
 use crate::acp_control::types::AcpCreateParams;
 
 pub(crate) async fn tool_acp_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
-    let action = args
-        .get("action")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let action = args.get("action").and_then(|v| v.as_str()).unwrap_or("");
 
     match action {
         "spawn" => action_spawn(args, ctx).await,
@@ -40,19 +37,23 @@ async fn action_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("'task' is required for spawn action"))?;
 
-    let parent_session_id = ctx
-        .session_id
-        .as_deref()
-        .ok_or_else(|| anyhow::anyhow!("No session context — cannot spawn ACP agent outside a chat session"))?;
+    let parent_session_id = ctx.session_id.as_deref().ok_or_else(|| {
+        anyhow::anyhow!("No session context — cannot spawn ACP agent outside a chat session")
+    })?;
 
     // Check agent-level ACP permission
     let parent_agent_id = ctx.agent_id.as_deref().unwrap_or("default");
     if let Ok(def) = crate::agent_loader::load_agent(parent_agent_id) {
         if !def.config.acp.enabled {
-            return Err(anyhow::anyhow!("ACP external agent delegation is disabled for this agent"));
+            return Err(anyhow::anyhow!(
+                "ACP external agent delegation is disabled for this agent"
+            ));
         }
         if !def.config.acp.is_backend_allowed(backend) {
-            return Err(anyhow::anyhow!("ACP backend '{}' is not allowed for this agent", backend));
+            return Err(anyhow::anyhow!(
+                "ACP backend '{}' is not allowed for this agent",
+                backend
+            ));
         }
     }
 
@@ -62,13 +63,27 @@ async fn action_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
     // Check global config
     let store = crate::provider::load_store().unwrap_or_default();
     if !store.acp_control.enabled {
-        return Err(anyhow::anyhow!("ACP control plane is disabled. Enable it in Settings → ACP."));
+        return Err(anyhow::anyhow!(
+            "ACP control plane is disabled. Enable it in Settings → ACP."
+        ));
     }
 
-    let cwd = args.get("cwd").and_then(|v| v.as_str()).map(|s| s.to_string());
-    let model = args.get("model").and_then(|v| v.as_str()).map(|s| s.to_string());
-    let timeout_secs = args.get("timeout_secs").and_then(|v| v.as_u64()).map(|t| t.min(3600));
-    let label = args.get("label").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let cwd = args
+        .get("cwd")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let model = args
+        .get("model")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let timeout_secs = args
+        .get("timeout_secs")
+        .and_then(|v| v.as_u64())
+        .map(|t| t.min(3600));
+    let label = args
+        .get("label")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
 
     let params = AcpCreateParams {
         cwd,
@@ -78,7 +93,9 @@ async fn action_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
         resume_session_id: None,
     };
 
-    let run_id = manager.spawn_run(backend, task, params, parent_session_id, label).await?;
+    let run_id = manager
+        .spawn_run(backend, task, params, parent_session_id, label)
+        .await?;
 
     Ok(serde_json::json!({
         "status": "accepted",
@@ -118,7 +135,10 @@ async fn action_check(args: &Value) -> Result<String> {
             }
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
         }
-        return Err(anyhow::anyhow!("Timed out waiting for run {} to complete", run_id));
+        return Err(anyhow::anyhow!(
+            "Timed out waiting for run {} to complete",
+            run_id
+        ));
     }
 
     if let Some(run) = manager.check_run(run_id).await {
@@ -138,9 +158,7 @@ async fn action_list(ctx: &ToolExecContext) -> Result<String> {
     let manager = crate::get_acp_manager()
         .ok_or_else(|| anyhow::anyhow!("ACP control plane not initialized"))?;
 
-    let runs = manager
-        .list_runs(ctx.session_id.as_deref())
-        .await;
+    let runs = manager.list_runs(ctx.session_id.as_deref()).await;
 
     Ok(serde_json::to_string(&runs)?)
 }

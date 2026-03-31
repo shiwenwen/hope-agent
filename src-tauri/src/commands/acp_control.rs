@@ -59,7 +59,8 @@ pub async fn acp_refresh_backends() -> Result<(), String> {
     if let Some(manager) = crate::get_acp_manager() {
         let store = crate::provider::load_store().map_err(|e| e.to_string())?;
         let registry = std::sync::Arc::new(crate::acp_control::AcpRuntimeRegistry::new());
-        crate::acp_control::registry::auto_discover_and_register(&registry, &store.acp_control).await;
+        crate::acp_control::registry::auto_discover_and_register(&registry, &store.acp_control)
+            .await;
         let _ = manager; // Manager uses separate registry instance for now
     }
     Ok(())
@@ -85,16 +86,14 @@ pub async fn acp_list_runs(parent_session_id: Option<String>) -> Result<Vec<AcpR
 /// Kill a specific ACP run.
 #[tauri::command]
 pub async fn acp_kill_run(run_id: String) -> Result<(), String> {
-    let manager = crate::get_acp_manager()
-        .ok_or("ACP control plane not initialized")?;
+    let manager = crate::get_acp_manager().ok_or("ACP control plane not initialized")?;
     manager.kill_run(&run_id).await.map_err(|e| e.to_string())
 }
 
 /// Get the full result of an ACP run.
 #[tauri::command]
 pub async fn acp_get_run_result(run_id: String) -> Result<String, String> {
-    let manager = crate::get_acp_manager()
-        .ok_or("ACP control plane not initialized")?;
+    let manager = crate::get_acp_manager().ok_or("ACP control plane not initialized")?;
     manager.get_result(&run_id).await.map_err(|e| e.to_string())
 }
 

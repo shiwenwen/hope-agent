@@ -319,7 +319,13 @@ For example, if asked to change \"methodName\" to snake case, find the method in
 /// ⑪ Sandbox mode (conditional)
 /// ⑫ (reserved for project context — not yet implemented)
 /// ⑬ ACP external agents (conditional)
-pub fn build(definition: &AgentDefinition, model: Option<&str>, provider: Option<&str>, memory_context: Option<&str>, agent_home: Option<&str>) -> String {
+pub fn build(
+    definition: &AgentDefinition,
+    model: Option<&str>,
+    provider: Option<&str>,
+    memory_context: Option<&str>,
+    agent_home: Option<&str>,
+) -> String {
     let mut sections: Vec<String> = Vec::new();
 
     let os = std::env::consts::OS;
@@ -335,19 +341,30 @@ pub fn build(definition: &AgentDefinition, model: Option<&str>, provider: Option
         ));
 
         // agent.md — custom identity / instructions
-        if let Some(md) = definition.agent_md.as_deref().filter(|s| !s.trim().is_empty()) {
+        if let Some(md) = definition
+            .agent_md
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+        {
             sections.push(truncate(md, MAX_FILE_CHARS));
         }
 
         // persona.md — custom personality
-        if let Some(persona) = definition.persona.as_deref().filter(|s| !s.trim().is_empty()) {
+        if let Some(persona) = definition
+            .persona
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+        {
             sections.push(truncate(persona, MAX_FILE_CHARS));
         }
     } else {
         // ── Structured mode: assemble from config fields + optional supplements ──
 
         // ① Identity
-        let role_suffix = definition.config.personality.role
+        let role_suffix = definition
+            .config
+            .personality
+            .role
             .as_deref()
             .filter(|r| !r.is_empty())
             .map(|r| format!(", a {}", r))
@@ -364,12 +381,20 @@ pub fn build(definition: &AgentDefinition, model: Option<&str>, provider: Option
         }
 
         // ③ agent.md — supplementary identity notes
-        if let Some(md) = definition.agent_md.as_deref().filter(|s| !s.trim().is_empty()) {
+        if let Some(md) = definition
+            .agent_md
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+        {
             sections.push(truncate(md, MAX_FILE_CHARS));
         }
 
         // ④ persona.md — supplementary personality notes
-        if let Some(persona) = definition.persona.as_deref().filter(|s| !s.trim().is_empty()) {
+        if let Some(persona) = definition
+            .persona
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+        {
             sections.push(truncate(persona, MAX_FILE_CHARS));
         }
     }
@@ -390,7 +415,10 @@ pub fn build(definition: &AgentDefinition, model: Option<&str>, provider: Option
     sections.push(build_tools_section(&definition.config.tools));
 
     // ⑦ Skills (filtered by agent config)
-    sections.push(build_skills_section(&definition.config.skills, definition.config.behavior.skill_env_check));
+    sections.push(build_skills_section(
+        &definition.config.skills,
+        definition.config.behavior.skill_env_check,
+    ));
 
     // ⑦b Behavior guidance (output efficiency, action safety, task execution)
     sections.push(build_behavior_section());
@@ -456,7 +484,8 @@ pub fn build(definition: &AgentDefinition, model: Option<&str>, provider: Option
 
     // ⑩ Sub-agent delegation (conditionally injected)
     if definition.config.subagents.enabled {
-        let subagent_section = build_subagent_section(&definition.config.subagents, &definition.id, 0);
+        let subagent_section =
+            build_subagent_section(&definition.config.subagents, &definition.id, 0);
         if !subagent_section.is_empty() {
             sections.push(subagent_section);
         }
@@ -500,16 +529,28 @@ pub fn build(definition: &AgentDefinition, model: Option<&str>, provider: Option
 
     // Log system prompt build result
     if let Some(logger) = crate::get_logger() {
-        logger.log("debug", "agent", "system_prompt::build",
-            &format!("System prompt built: {} chars, {} sections", prompt.len(), section_lengths.len()),
-            Some(serde_json::json!({
-                "total_length": prompt.len(),
-                "section_count": section_lengths.len(),
-                "section_lengths": section_lengths,
-                "agent_name": &definition.config.name,
-                "custom_prompt_mode": definition.config.use_custom_prompt,
-            }).to_string()),
-            None, None);
+        logger.log(
+            "debug",
+            "agent",
+            "system_prompt::build",
+            &format!(
+                "System prompt built: {} chars, {} sections",
+                prompt.len(),
+                section_lengths.len()
+            ),
+            Some(
+                serde_json::json!({
+                    "total_length": prompt.len(),
+                    "section_count": section_lengths.len(),
+                    "section_lengths": section_lengths,
+                    "agent_name": &definition.config.name,
+                    "custom_prompt_mode": definition.config.use_custom_prompt,
+                })
+                .to_string(),
+            ),
+            None,
+            None,
+        );
     }
 
     prompt
@@ -519,10 +560,8 @@ pub fn build(definition: &AgentDefinition, model: Option<&str>, provider: Option
 /// This preserves backward compatibility during the transition.
 pub fn build_legacy(model: Option<&str>, provider: Option<&str>) -> String {
     let store = crate::provider::load_store().unwrap_or_default();
-    let available_skills = skills::load_all_skills_with_budget(
-        &store.extra_skills_dirs,
-        &store.skill_prompt_budget,
-    );
+    let available_skills =
+        skills::load_all_skills_with_budget(&store.extra_skills_dirs, &store.skill_prompt_budget);
     let skills_section = skills::build_skills_prompt(
         &available_skills,
         &store.disabled_skills,
@@ -598,19 +637,15 @@ fn build_all_tools_description() -> String {
 fn build_behavior_section() -> String {
     format!(
         "{}\n\n{}\n\n{}",
-        BEHAVIOR_OUTPUT_EFFICIENCY,
-        BEHAVIOR_ACTION_SAFETY,
-        BEHAVIOR_DOING_TASKS,
+        BEHAVIOR_OUTPUT_EFFICIENCY, BEHAVIOR_ACTION_SAFETY, BEHAVIOR_DOING_TASKS,
     )
 }
 
 /// Build skills section, filtered by agent config.
 fn build_skills_section(filter: &FilterConfig, env_check: bool) -> String {
     let store = crate::provider::load_store().unwrap_or_default();
-    let all_skills = skills::load_all_skills_with_budget(
-        &store.extra_skills_dirs,
-        &store.skill_prompt_budget,
-    );
+    let all_skills =
+        skills::load_all_skills_with_budget(&store.extra_skills_dirs, &store.skill_prompt_budget);
 
     // Start with globally disabled skills
     let disabled = store.disabled_skills.clone();
@@ -668,7 +703,11 @@ fn build_personality_section(p: &PersonalityConfig) -> String {
 }
 
 /// Build runtime information section.
-fn build_runtime_section(model: Option<&str>, provider: Option<&str>, agent_home: Option<&str>) -> String {
+fn build_runtime_section(
+    model: Option<&str>,
+    provider: Option<&str>,
+    agent_home: Option<&str>,
+) -> String {
     let now = current_date();
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "unknown".to_string());
     let os = format!("{} {}", std::env::consts::OS, os_version());
@@ -676,13 +715,11 @@ fn build_runtime_section(model: Option<&str>, provider: Option<&str>, agent_home
     let hostname = hostname();
 
     // Working directory: agent home if set, otherwise process cwd
-    let working_dir = agent_home
-        .map(|h| h.to_string())
-        .unwrap_or_else(|| {
-            std::env::current_dir()
-                .map(|p| p.to_string_lossy().to_string())
-                .unwrap_or_else(|_| "unknown".to_string())
-        });
+    let working_dir = agent_home.map(|h| h.to_string()).unwrap_or_else(|| {
+        std::env::current_dir()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|_| "unknown".to_string())
+    });
     let git_root = find_git_root(&working_dir);
 
     // Shared directory for cross-agent data
@@ -699,7 +736,10 @@ fn build_runtime_section(model: Option<&str>, provider: Option<&str>, agent_home
     ];
 
     if let Some(ref shared) = shared_dir {
-        lines.push(format!("- Shared directory: {} (shared across all agents — use for cross-agent data exchange)", shared));
+        lines.push(format!(
+            "- Shared directory: {} (shared across all agents — use for cross-agent data exchange)",
+            shared
+        ));
     }
 
     if let Some(root) = &git_root {
@@ -767,8 +807,15 @@ fn current_date() -> String {
 
 /// Build sub-agent delegation section.
 /// Only included when `SubagentConfig.enabled == true` and `depth < MAX_DEPTH`.
-fn build_subagent_section(config: &crate::agent_config::SubagentConfig, current_agent_id: &str, depth: u32) -> String {
-    let effective_max = config.max_spawn_depth.map(|d| d.clamp(1, 5)).unwrap_or(crate::subagent::max_depth());
+fn build_subagent_section(
+    config: &crate::agent_config::SubagentConfig,
+    current_agent_id: &str,
+    depth: u32,
+) -> String {
+    let effective_max = config
+        .max_spawn_depth
+        .map(|d| d.clamp(1, 5))
+        .unwrap_or(crate::subagent::max_depth());
     if depth >= effective_max {
         return String::new();
     }
@@ -781,7 +828,8 @@ fn build_subagent_section(config: &crate::agent_config::SubagentConfig, current_
 
     // List available agents for delegation
     let agents = crate::agent_loader::list_agents().unwrap_or_default();
-    let available: Vec<_> = agents.iter()
+    let available: Vec<_> = agents
+        .iter()
         .filter(|a| a.id != current_agent_id) // Don't delegate to self
         .filter(|a| config.is_agent_allowed(&a.id))
         .collect();
@@ -798,8 +846,14 @@ fn build_subagent_section(config: &crate::agent_config::SubagentConfig, current_
 
     lines.push(String::new());
     lines.push("## How it works".to_string());
-    lines.push("1. Call `subagent(action=\"spawn\", task=\"...\", agent_id=\"...\")` to delegate a task".to_string());
-    lines.push("2. The sub-agent runs **asynchronously** — you can continue working on other things".to_string());
+    lines.push(
+        "1. Call `subagent(action=\"spawn\", task=\"...\", agent_id=\"...\")` to delegate a task"
+            .to_string(),
+    );
+    lines.push(
+        "2. The sub-agent runs **asynchronously** — you can continue working on other things"
+            .to_string(),
+    );
     lines.push("3. When the sub-agent completes, its result is **automatically pushed** to you as a new message".to_string());
     lines.push("4. If you need to actively wait: `subagent(action=\"check\", run_id=\"...\", wait=true)` blocks until done (fallback)".to_string());
     lines.push(String::new());
@@ -807,13 +861,17 @@ fn build_subagent_section(config: &crate::agent_config::SubagentConfig, current_
     lines.push("- `subagent(action=\"steer\", run_id=\"...\", message=\"...\")` — inject a message to redirect a running sub-agent without killing it".to_string());
     lines.push(String::new());
     lines.push("## Other actions".to_string());
-    lines.push("- `subagent(action=\"check\", run_id=\"...\")` — quick status check (non-blocking)".to_string());
+    lines.push(
+        "- `subagent(action=\"check\", run_id=\"...\")` — quick status check (non-blocking)"
+            .to_string(),
+    );
     lines.push("- `subagent(action=\"list\")` — list all sub-agent runs".to_string());
     lines.push("- `subagent(action=\"kill\", run_id=\"...\")` — terminate a sub-agent".to_string());
     lines.push(String::new());
     lines.push("## Spawn options".to_string());
     lines.push("- `label`: display label for tracking (e.g., `label=\"research\"`)".to_string());
-    lines.push("- `files`: file attachments `[{name, content, mime_type?, encoding?}]`".to_string());
+    lines
+        .push("- `files`: file attachments `[{name, content, mime_type?, encoding?}]`".to_string());
     lines.push("- `model`: model override `\"provider_id/model_id\"`".to_string());
     lines.push(String::new());
     lines.push("Sub-agents run in isolated sessions with their own tools and context.".to_string());
@@ -824,7 +882,11 @@ fn build_subagent_section(config: &crate::agent_config::SubagentConfig, current_
 
 /// Build sub-agent section with explicit depth (called from subagent execution context).
 #[allow(dead_code)]
-pub fn build_subagent_section_with_depth(config: &crate::agent_config::SubagentConfig, current_agent_id: &str, depth: u32) -> String {
+pub fn build_subagent_section_with_depth(
+    config: &crate::agent_config::SubagentConfig,
+    current_agent_id: &str,
+    depth: u32,
+) -> String {
     build_subagent_section(config, current_agent_id, depth)
 }
 

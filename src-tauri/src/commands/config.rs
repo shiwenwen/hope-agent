@@ -1,10 +1,10 @@
-use crate::AppState;
-use crate::provider;
-use crate::tools;
+use crate::chat_engine::save_agent_context;
 use crate::context_compact;
 use crate::paths;
+use crate::provider;
+use crate::tools;
 use crate::user_config;
-use crate::chat_engine::save_agent_context;
+use crate::AppState;
 
 #[tauri::command]
 pub async fn get_web_search_config() -> Result<tools::web_search::WebSearchConfig, String> {
@@ -15,7 +15,9 @@ pub async fn get_web_search_config() -> Result<tools::web_search::WebSearchConfi
 }
 
 #[tauri::command]
-pub async fn save_web_search_config(config: tools::web_search::WebSearchConfig) -> Result<(), String> {
+pub async fn save_web_search_config(
+    config: tools::web_search::WebSearchConfig,
+) -> Result<(), String> {
     let mut store = provider::load_store().map_err(|e| e.to_string())?;
     store.web_search = config;
     provider::save_store(&store).map_err(|e| e.to_string())
@@ -69,7 +71,9 @@ pub async fn get_image_generate_config() -> Result<tools::image_generate::ImageG
 }
 
 #[tauri::command]
-pub async fn save_image_generate_config(config: tools::image_generate::ImageGenConfig) -> Result<(), String> {
+pub async fn save_image_generate_config(
+    config: tools::image_generate::ImageGenConfig,
+) -> Result<(), String> {
     let mut store = provider::load_store().map_err(|e| e.to_string())?;
     store.image_generate = config;
     provider::save_store(&store).map_err(|e| e.to_string())
@@ -131,10 +135,20 @@ pub async fn compact_context_now(
             save_agent_context(&state.session_db, &session_id, agent);
 
             if let Some(logger) = crate::get_logger() {
-                logger.log("info", "context", "compact::manual",
-                    &format!("Manual compaction: {} → {} tokens, {} affected",
-                        forced_result.tokens_before, forced_result.tokens_after, forced_result.messages_affected),
-                    None, None, None);
+                logger.log(
+                    "info",
+                    "context",
+                    "compact::manual",
+                    &format!(
+                        "Manual compaction: {} → {} tokens, {} affected",
+                        forced_result.tokens_before,
+                        forced_result.tokens_after,
+                        forced_result.messages_affected
+                    ),
+                    None,
+                    None,
+                    None,
+                );
             }
         }
         return Ok(forced_result);
@@ -144,10 +158,21 @@ pub async fn compact_context_now(
     save_agent_context(&state.session_db, &session_id, agent);
 
     if let Some(logger) = crate::get_logger() {
-        logger.log("info", "context", "compact::manual",
-            &format!("Manual compaction: tier={}, {} → {} tokens, {} affected",
-                result.tier_applied, result.tokens_before, result.tokens_after, result.messages_affected),
-            None, None, None);
+        logger.log(
+            "info",
+            "context",
+            "compact::manual",
+            &format!(
+                "Manual compaction: tier={}, {} → {} tokens, {} affected",
+                result.tier_applied,
+                result.tokens_before,
+                result.tokens_after,
+                result.messages_affected
+            ),
+            None,
+            None,
+            None,
+        );
     }
 
     Ok(result)
@@ -179,7 +204,8 @@ pub async fn set_shortcuts_paused(app: tauri::AppHandle, paused: bool) -> Result
             } else {
                 binding.keys.clone()
             };
-            if let Ok(shortcut) = key_to_register.parse::<tauri_plugin_global_shortcut::Shortcut>() {
+            if let Ok(shortcut) = key_to_register.parse::<tauri_plugin_global_shortcut::Shortcut>()
+            {
                 let _ = manager.register(shortcut);
             }
         }
@@ -194,12 +220,20 @@ pub async fn get_shortcut_config() -> Result<provider::ShortcutConfig, String> {
 }
 
 #[tauri::command]
-pub async fn save_shortcut_config(app: tauri::AppHandle, config: provider::ShortcutConfig) -> Result<(), String> {
+pub async fn save_shortcut_config(
+    app: tauri::AppHandle,
+    config: provider::ShortcutConfig,
+) -> Result<(), String> {
     // Validate all key combinations first
     for binding in &config.bindings {
-        if binding.keys.is_empty() { continue; }
+        if binding.keys.is_empty() {
+            continue;
+        }
         for part in binding.chord_parts() {
-            if part.parse::<tauri_plugin_global_shortcut::Shortcut>().is_err() {
+            if part
+                .parse::<tauri_plugin_global_shortcut::Shortcut>()
+                .is_err()
+            {
                 return Err(format!("Invalid shortcut key combination: {}", part));
             }
         }
@@ -231,9 +265,18 @@ pub async fn save_shortcut_config(app: tauri::AppHandle, config: provider::Short
         if let Ok(shortcut) = key_to_register.parse::<tauri_plugin_global_shortcut::Shortcut>() {
             if let Err(e) = manager.register(shortcut) {
                 if let Some(logger) = crate::get_logger() {
-                    logger.log("warn", "shortcut", "save_shortcut_config",
-                        &format!("Failed to register shortcut '{}' ({}): {}", binding.id, key_to_register, e),
-                        None, None, None);
+                    logger.log(
+                        "warn",
+                        "shortcut",
+                        "save_shortcut_config",
+                        &format!(
+                            "Failed to register shortcut '{}' ({}): {}",
+                            binding.id, key_to_register, e
+                        ),
+                        None,
+                        None,
+                        None,
+                    );
                 }
             }
         }
@@ -263,7 +306,9 @@ pub async fn test_proxy(config: provider::ProxyConfig) -> Result<String, String>
         .connect_timeout(std::time::Duration::from_secs(10))
         .timeout(std::time::Duration::from_secs(15));
     builder = provider::apply_proxy_from_config(builder, &config);
-    let client = builder.build().map_err(|e| format!("Failed to build client: {}", e))?;
+    let client = builder
+        .build()
+        .map_err(|e| format!("Failed to build client: {}", e))?;
 
     let start = std::time::Instant::now();
     let resp = client

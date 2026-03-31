@@ -8,7 +8,9 @@ pub async fn fetch_url_preview(url: String) -> Result<url_preview::UrlPreviewMet
 }
 
 #[tauri::command]
-pub async fn fetch_url_previews(urls: Vec<String>) -> Result<Vec<url_preview::UrlPreviewMeta>, String> {
+pub async fn fetch_url_previews(
+    urls: Vec<String>,
+) -> Result<Vec<url_preview::UrlPreviewMeta>, String> {
     let handles: Vec<_> = urls
         .into_iter()
         .map(|url| tokio::spawn(async move { url_preview::fetch_preview(&url).await }))

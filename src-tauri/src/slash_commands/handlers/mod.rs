@@ -1,13 +1,13 @@
-pub mod session;
-pub mod model;
-pub mod memory;
 pub mod agent;
-pub mod utility;
+pub mod memory;
+pub mod model;
 pub mod plan;
+pub mod session;
+pub mod utility;
 
-use crate::AppState;
 use crate::get_memory_backend;
 use crate::slash_commands::types::CommandResult;
+use crate::AppState;
 
 /// Dispatch a parsed command to the appropriate handler.
 pub async fn dispatch(
@@ -89,16 +89,14 @@ async fn handle_skill_command(
     args: &str,
 ) -> Option<Result<CommandResult, String>> {
     let store = state.provider_store.lock().await;
-    let skills = crate::skills::get_invocable_skills(
-        &store.extra_skills_dirs,
-        &store.disabled_skills,
-    );
+    let skills =
+        crate::skills::get_invocable_skills(&store.extra_skills_dirs, &store.disabled_skills);
     drop(store);
 
     // Find a skill whose normalized name matches the command
-    let matched = skills.into_iter().find(|s| {
-        crate::skills::normalize_skill_command_name(&s.name) == command
-    })?;
+    let matched = skills
+        .into_iter()
+        .find(|s| crate::skills::normalize_skill_command_name(&s.name) == command)?;
 
     // If skill has command_dispatch == "tool" with a command_tool, dispatch to that tool
     if matched.command_dispatch.as_deref() == Some("tool") {
@@ -106,13 +104,14 @@ async fn handle_skill_command(
             let message = if args.is_empty() {
                 format!("Use the {} tool for skill '{}'.", tool_name, matched.name)
             } else {
-                format!("Use the {} tool for skill '{}' with: {}", tool_name, matched.name, args)
+                format!(
+                    "Use the {} tool for skill '{}' with: {}",
+                    tool_name, matched.name, args
+                )
             };
             return Some(Ok(CommandResult {
                 content: format!("Dispatching to tool `{}`...", tool_name),
-                action: Some(crate::slash_commands::types::CommandAction::PassThrough {
-                    message,
-                }),
+                action: Some(crate::slash_commands::types::CommandAction::PassThrough { message }),
             }));
         }
     }
@@ -132,8 +131,6 @@ async fn handle_skill_command(
 
     Some(Ok(CommandResult {
         content: format!("Invoking skill **{}**...", matched.name),
-        action: Some(crate::slash_commands::types::CommandAction::PassThrough {
-            message,
-        }),
+        action: Some(crate::slash_commands::types::CommandAction::PassThrough { message }),
     }))
 }

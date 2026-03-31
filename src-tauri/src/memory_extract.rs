@@ -3,16 +3,14 @@
 //! After a chat completion, this module can extract valuable information
 //! (user facts, preferences, project context) and save them as memories.
 
-use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 
 use anyhow::Result;
 use serde_json::Value;
 
 use crate::agent::AssistantAgent;
-use crate::memory::{
-    AddResult, MemoryScope, MemoryType, NewMemory,
-};
+use crate::memory::{AddResult, MemoryScope, MemoryType, NewMemory};
 
 // ── Extraction Prompt ───────────────────────────────────────────
 
@@ -64,11 +62,13 @@ async fn do_extraction(
         .ok_or_else(|| anyhow::anyhow!("Memory backend not initialized"))?;
 
     // Get existing memory summary to avoid re-extracting known info
-    let existing_summary = backend.build_prompt_summary(agent_id, true, 2000)
+    let existing_summary = backend
+        .build_prompt_summary(agent_id, true, 2000)
         .unwrap_or_default();
 
     // Format recent messages (last 6) into a compact representation
-    let recent: Vec<String> = messages.iter()
+    let recent: Vec<String> = messages
+        .iter()
         .rev()
         .take(6)
         .collect::<Vec<_>>()
@@ -114,14 +114,21 @@ async fn do_extraction(
     let extracted = parse_extraction_response(&response)?;
 
     if extracted.is_empty() {
-        app_info!("memory", "auto_extract", "No new memories extracted from session {}", session_id);
+        app_info!(
+            "memory",
+            "auto_extract",
+            "No new memories extracted from session {}",
+            session_id
+        );
         return Ok(());
     }
 
     // Save each extracted memory with dedup
     let mut saved_count = 0usize;
     for item in &extracted {
-        let scope = MemoryScope::Agent { id: agent_id.to_string() };
+        let scope = MemoryScope::Agent {
+            id: agent_id.to_string(),
+        };
         let entry = NewMemory {
             memory_type: item.memory_type.clone(),
             scope,
@@ -140,7 +147,12 @@ async fn do_extraction(
             Ok(AddResult::Updated { .. }) => saved_count += 1,
             Ok(AddResult::Duplicate { .. }) => {}
             Err(e) => {
-                app_warn!("memory", "auto_extract", "Failed to save extracted memory: {}", e);
+                app_warn!(
+                    "memory",
+                    "auto_extract",
+                    "Failed to save extracted memory: {}",
+                    e
+                );
             }
         }
     }
@@ -158,11 +170,14 @@ async fn do_extraction(
     if saved_count > 0 {
         if let Some(handle) = crate::get_app_handle() {
             use tauri::Emitter;
-            let _ = handle.emit("memory_extracted", serde_json::json!({
-                "count": saved_count,
-                "agentId": agent_id,
-                "sessionId": session_id,
-            }));
+            let _ = handle.emit(
+                "memory_extracted",
+                serde_json::json!({
+                    "count": saved_count,
+                    "agentId": agent_id,
+                    "sessionId": session_id,
+                }),
+            );
         }
     }
 
@@ -207,13 +222,15 @@ pub async fn flush_before_compact(
     let backend = crate::get_memory_backend()
         .ok_or_else(|| anyhow::anyhow!("Memory backend not initialized"))?;
 
-    let existing_summary = backend.build_prompt_summary(agent_id, true, 2000)
+    let existing_summary = backend
+        .build_prompt_summary(agent_id, true, 2000)
         .unwrap_or_default();
 
     // Format all messages to be discarded (more generous than auto_extract's 6-message limit)
     let mut total_chars = 0usize;
     let max_chars = 8000;
-    let formatted: Vec<String> = messages_to_discard.iter()
+    let formatted: Vec<String> = messages_to_discard
+        .iter()
         .filter_map(|msg| {
             if total_chars >= max_chars {
                 return None;
@@ -257,7 +274,9 @@ pub async fn flush_before_compact(
 
     let mut saved_count = 0usize;
     for item in &extracted {
-        let scope = MemoryScope::Agent { id: agent_id.to_string() };
+        let scope = MemoryScope::Agent {
+            id: agent_id.to_string(),
+        };
         let entry = NewMemory {
             memory_type: item.memory_type.clone(),
             scope,
@@ -302,13 +321,16 @@ fn parse_extraction_response(response: &str) -> Result<Vec<ExtractedMemory>> {
             _ => continue,
         };
 
-        let memory_type = item.get("type")
-            .and_then(|v| v.as_str())
-            .unwrap_or("user");
+        let memory_type = item.get("type").and_then(|v| v.as_str()).unwrap_or("user");
 
-        let tags: Vec<String> = item.get("tags")
+        let tags: Vec<String> = item
+            .get("tags")
             .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default();
 
         result.push(ExtractedMemory {
@@ -366,7 +388,8 @@ fn extract_text_content(msg: &Value) -> Option<String> {
     }
     // Handle array content (Anthropic format / Responses API message format)
     if let Some(arr) = msg.get("content").and_then(|v| v.as_array()) {
-        let texts: Vec<&str> = arr.iter()
+        let texts: Vec<&str> = arr
+            .iter()
             .filter_map(|block| {
                 let block_type = block.get("type").and_then(|t| t.as_str()).unwrap_or("");
                 match block_type {

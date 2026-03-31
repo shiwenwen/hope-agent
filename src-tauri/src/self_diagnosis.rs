@@ -1,6 +1,6 @@
 use crate::crash_journal::{CrashJournal, DiagnosisResult};
-use crate::provider::{ApiType, ProviderConfig};
 use crate::paths;
+use crate::provider::{ApiType, ProviderConfig};
 use std::time::Duration;
 
 const REQUEST_TIMEOUT_SECS: u64 = 30;
@@ -71,7 +71,10 @@ pub fn auto_fix(result: &DiagnosisResult) -> Vec<String> {
     }
 
     // Check if logs.db is corrupted (basic check: can we open it?)
-    if result.cause.contains("database") || result.cause.contains("sqlite") || result.cause.contains("SQLite") {
+    if result.cause.contains("database")
+        || result.cause.contains("sqlite")
+        || result.cause.contains("SQLite")
+    {
         if let Ok(logs_path) = paths::logs_db_path() {
             if logs_path.exists() {
                 match rusqlite::Connection::open(&logs_path) {
@@ -84,13 +87,19 @@ pub fn auto_fix(result: &DiagnosisResult) -> Vec<String> {
                         if !integrity_ok {
                             drop(conn);
                             if std::fs::remove_file(&logs_path).is_ok() {
-                                fixes.push("Removed corrupted logs.db (will be recreated on restart)".to_string());
+                                fixes.push(
+                                    "Removed corrupted logs.db (will be recreated on restart)"
+                                        .to_string(),
+                                );
                             }
                         }
                     }
                     Err(_) => {
                         if std::fs::remove_file(&logs_path).is_ok() {
-                            fixes.push("Removed corrupted logs.db (will be recreated on restart)".to_string());
+                            fixes.push(
+                                "Removed corrupted logs.db (will be recreated on restart)"
+                                    .to_string(),
+                            );
                         }
                     }
                 }
@@ -99,7 +108,10 @@ pub fn auto_fix(result: &DiagnosisResult) -> Vec<String> {
     }
 
     // Check compact config for problematic values
-    if result.cause.contains("context") || result.cause.contains("compact") || result.cause.contains("overflow") {
+    if result.cause.contains("context")
+        || result.cause.contains("compact")
+        || result.cause.contains("overflow")
+    {
         if let Ok(config_path) = paths::config_path() {
             if let Ok(content) = std::fs::read_to_string(&config_path) {
                 if let Ok(mut config) = serde_json::from_str::<serde_json::Value>(&content) {
@@ -163,9 +175,19 @@ fn load_candidate_providers() -> Vec<ProviderConfig> {
 
     // Sort by cheapest model cost (prefer low-cost for diagnosis)
     candidates.sort_by(|a, b| {
-        let cost_a = a.models.iter().map(|m| m.cost_input + m.cost_output).fold(f64::MAX, f64::min);
-        let cost_b = b.models.iter().map(|m| m.cost_input + m.cost_output).fold(f64::MAX, f64::min);
-        cost_a.partial_cmp(&cost_b).unwrap_or(std::cmp::Ordering::Equal)
+        let cost_a = a
+            .models
+            .iter()
+            .map(|m| m.cost_input + m.cost_output)
+            .fold(f64::MAX, f64::min);
+        let cost_b = b
+            .models
+            .iter()
+            .map(|m| m.cost_input + m.cost_output)
+            .fold(f64::MAX, f64::min);
+        cost_a
+            .partial_cmp(&cost_b)
+            .unwrap_or(std::cmp::Ordering::Equal)
     });
 
     candidates
@@ -186,11 +208,10 @@ fn call_llm(provider: &ProviderConfig, prompt: &str) -> Result<DiagnosisResult, 
         .ok_or_else(|| "No models available".to_string())?;
 
     let client = crate::provider::apply_proxy_blocking(
-        reqwest::blocking::Client::builder()
-            .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
+        reqwest::blocking::Client::builder().timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS)),
     )
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+    .build()
+    .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
     let response_text = match provider.api_type {
         ApiType::Anthropic => call_anthropic(&client, provider, &model.id, prompt)?,
@@ -229,7 +250,11 @@ fn call_anthropic(
         .map_err(|e| format!("Anthropic request failed: {}", e))?;
 
     if !resp.status().is_success() {
-        return Err(format!("Anthropic API error: {} {}", resp.status(), resp.text().unwrap_or_default()));
+        return Err(format!(
+            "Anthropic API error: {} {}",
+            resp.status(),
+            resp.text().unwrap_or_default()
+        ));
     }
 
     let resp_json: serde_json::Value = resp.json().map_err(|e| format!("Parse error: {}", e))?;
@@ -266,7 +291,11 @@ fn call_openai(
         .map_err(|e| format!("OpenAI request failed: {}", e))?;
 
     if !resp.status().is_success() {
-        return Err(format!("OpenAI API error: {} {}", resp.status(), resp.text().unwrap_or_default()));
+        return Err(format!(
+            "OpenAI API error: {} {}",
+            resp.status(),
+            resp.text().unwrap_or_default()
+        ));
     }
 
     let resp_json: serde_json::Value = resp.json().map_err(|e| format!("Parse error: {}", e))?;
@@ -408,17 +437,25 @@ fn basic_analysis(journal: &CrashJournal) -> DiagnosisResult {
     let recent = &journal.crashes[journal.crashes.len().saturating_sub(5)..];
 
     // Analyze crash patterns
-    let has_segfault = recent.iter().any(|c| c.exit_code == 139 || c.signal.as_deref() == Some("SIGSEGV"));
-    let has_oom = recent.iter().any(|c| c.exit_code == 137 || c.signal.as_deref() == Some("SIGKILL"));
-    let has_abort = recent.iter().any(|c| c.exit_code == 134 || c.signal.as_deref() == Some("SIGABRT"));
-    let all_same_code = recent.len() > 1 && recent.iter().all(|c| c.exit_code == recent[0].exit_code);
+    let has_segfault = recent
+        .iter()
+        .any(|c| c.exit_code == 139 || c.signal.as_deref() == Some("SIGSEGV"));
+    let has_oom = recent
+        .iter()
+        .any(|c| c.exit_code == 137 || c.signal.as_deref() == Some("SIGKILL"));
+    let has_abort = recent
+        .iter()
+        .any(|c| c.exit_code == 134 || c.signal.as_deref() == Some("SIGABRT"));
+    let all_same_code =
+        recent.len() > 1 && recent.iter().all(|c| c.exit_code == recent[0].exit_code);
 
     let (cause, severity, recommendations) = if has_segfault {
         (
             "Segmentation fault (SIGSEGV) - memory access violation".to_string(),
             "critical".to_string(),
             vec![
-                "This is likely a code bug. Check for null pointer dereferences or use-after-free.".to_string(),
+                "This is likely a code bug. Check for null pointer dereferences or use-after-free."
+                    .to_string(),
                 "Try updating the app to the latest version.".to_string(),
                 "If persists, report this issue with your crash logs.".to_string(),
             ],
@@ -454,7 +491,10 @@ fn basic_analysis(journal: &CrashJournal) -> DiagnosisResult {
         )
     } else {
         (
-            format!("Multiple crashes with varying exit codes (total: {})", journal.total_crashes),
+            format!(
+                "Multiple crashes with varying exit codes (total: {})",
+                journal.total_crashes
+            ),
             "medium".to_string(),
             vec![
                 "The app has been crashing intermittently.".to_string(),

@@ -1,5 +1,5 @@
-use serde_json::Value;
 use crate::plan::{self, PlanModeState, PlanStep, PlanStepStatus};
+use serde_json::Value;
 
 /// Execute the amend_plan tool.
 /// Allows modifying the plan during execution (insert/delete/update steps).
@@ -17,19 +17,25 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
 
     let action = match args.get("action").and_then(|v| v.as_str()) {
         Some(a) => a,
-        None => return "Error: 'action' parameter is required (insert, delete, update)".to_string(),
+        None => {
+            return "Error: 'action' parameter is required (insert, delete, update)".to_string()
+        }
     };
 
     match action {
         "insert" => action_insert(args, sid).await,
         "delete" => action_delete(args, sid).await,
         "update" => action_update(args, sid).await,
-        _ => format!("Error: unknown action '{}'. Use 'insert', 'delete', or 'update'.", action),
+        _ => format!(
+            "Error: unknown action '{}'. Use 'insert', 'delete', or 'update'.",
+            action
+        ),
     }
 }
 
 async fn action_insert(args: &Value, session_id: &str) -> String {
-    let after_index = args.get("after_index")
+    let after_index = args
+        .get("after_index")
         .and_then(|v| v.as_u64())
         .map(|v| v as usize);
 
@@ -38,11 +44,15 @@ async fn action_insert(args: &Value, session_id: &str) -> String {
         None => return "Error: 'title' is required for insert action".to_string(),
     };
 
-    let phase = args.get("phase").and_then(|v| v.as_str())
+    let phase = args
+        .get("phase")
+        .and_then(|v| v.as_str())
         .unwrap_or("Amended")
         .to_string();
 
-    let description = args.get("description").and_then(|v| v.as_str())
+    let description = args
+        .get("description")
+        .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
 
@@ -81,7 +91,12 @@ async fn action_insert(args: &Value, session_id: &str) -> String {
     // Emit event
     emit_plan_amended(session_id, &steps);
 
-    format!("Step '{}' inserted at index {}. Plan now has {} steps.", title, insert_at, steps.len())
+    format!(
+        "Step '{}' inserted at index {}. Plan now has {} steps.",
+        title,
+        insert_at,
+        steps.len()
+    )
 }
 
 async fn action_delete(args: &Value, session_id: &str) -> String {
@@ -98,7 +113,11 @@ async fn action_delete(args: &Value, session_id: &str) -> String {
     let mut steps = meta.steps;
 
     if step_index >= steps.len() {
-        return format!("Error: step_index {} is out of range (total: {})", step_index, steps.len());
+        return format!(
+            "Error: step_index {} is out of range (total: {})",
+            step_index,
+            steps.len()
+        );
     }
 
     // Don't allow deleting completed steps
@@ -118,7 +137,12 @@ async fn action_delete(args: &Value, session_id: &str) -> String {
     update_plan_file(session_id, &steps).await;
     emit_plan_amended(session_id, &steps);
 
-    format!("Step '{}' (index {}) deleted. Plan now has {} steps.", removed_title, step_index, steps.len())
+    format!(
+        "Step '{}' (index {}) deleted. Plan now has {} steps.",
+        removed_title,
+        step_index,
+        steps.len()
+    )
 }
 
 async fn action_update(args: &Value, session_id: &str) -> String {
@@ -135,7 +159,11 @@ async fn action_update(args: &Value, session_id: &str) -> String {
     let mut steps = meta.steps;
 
     if step_index >= steps.len() {
-        return format!("Error: step_index {} is out of range (total: {})", step_index, steps.len());
+        return format!(
+            "Error: step_index {} is out of range (total: {})",
+            step_index,
+            steps.len()
+        );
     }
 
     // Only allow updating pending/in_progress steps
@@ -172,7 +200,11 @@ async fn update_plan_file(session_id: &str, steps: &[PlanStep]) {
             current_phase = step.phase.clone();
             md.push_str(&format!("\n### {}\n", current_phase));
         }
-        let checkbox = if step.status == PlanStepStatus::Completed { "x" } else { " " };
+        let checkbox = if step.status == PlanStepStatus::Completed {
+            "x"
+        } else {
+            " "
+        };
         md.push_str(&format!("- [{}] {}\n", checkbox, step.title));
         if !step.description.is_empty() {
             // Indent description as continuation of the list item
@@ -189,10 +221,13 @@ async fn update_plan_file(session_id: &str, steps: &[PlanStep]) {
 fn emit_plan_amended(session_id: &str, steps: &[PlanStep]) {
     if let Some(app_handle) = crate::get_app_handle() {
         use tauri::Emitter;
-        let _ = app_handle.emit("plan_amended", serde_json::json!({
-            "sessionId": session_id,
-            "steps": steps,
-            "stepCount": steps.len(),
-        }));
+        let _ = app_handle.emit(
+            "plan_amended",
+            serde_json::json!({
+                "sessionId": session_id,
+                "steps": steps,
+                "stepCount": steps.len(),
+            }),
+        );
     }
 }

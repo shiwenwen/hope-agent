@@ -1,8 +1,8 @@
 use anyhow::Result;
 use serde_json::Value;
 
+use super::{get_bool, get_i64, get_str, get_u32, require_browser};
 use crate::browser_state::get_browser_state;
-use super::{require_browser, get_str, get_u32, get_i64, get_bool};
 
 pub(super) async fn action_evaluate(args: &Value) -> Result<String> {
     require_browser().await?;
@@ -12,12 +12,13 @@ pub(super) async fn action_evaluate(args: &Value) -> Result<String> {
     let state = get_browser_state().lock().await;
     let page = state.get_active_page()?;
 
-    let result = page.evaluate(expression).await
+    let result = page
+        .evaluate(expression)
+        .await
         .map_err(|e| anyhow::anyhow!("Script evaluation failed: {}", e))?;
 
     // Try to extract as string, then fall back to JSON
-    let value: serde_json::Value = result.into_value()
-        .unwrap_or(serde_json::Value::Null);
+    let value: serde_json::Value = result.into_value().unwrap_or(serde_json::Value::Null);
 
     let display = if value.is_string() {
         value.as_str().unwrap_or("").to_string()
@@ -32,13 +33,14 @@ pub(super) async fn action_evaluate(args: &Value) -> Result<String> {
 
 pub(super) async fn action_wait_for(args: &Value) -> Result<String> {
     require_browser().await?;
-    let text = get_str(args, "text")
-        .ok_or_else(|| anyhow::anyhow!("Missing 'text' parameter"))?;
+    let text = get_str(args, "text").ok_or_else(|| anyhow::anyhow!("Missing 'text' parameter"))?;
     let timeout_ms = get_u32(args, "timeout").unwrap_or(30000) as u64;
 
     let check_js = format!(
         "document.body.innerText.includes('{}')",
-        text.replace('\\', "\\\\").replace('\'', "\\'").replace('\n', "\\n")
+        text.replace('\\', "\\\\")
+            .replace('\'', "\\'")
+            .replace('\n', "\\n")
     );
 
     let start = std::time::Instant::now();
@@ -49,7 +51,9 @@ pub(super) async fn action_wait_for(args: &Value) -> Result<String> {
             let state = get_browser_state().lock().await;
             let page = state.get_active_page()?;
 
-            let found: bool = page.evaluate(check_js.as_str()).await
+            let found: bool = page
+                .evaluate(check_js.as_str())
+                .await
                 .ok()
                 .and_then(|r| r.into_value().ok())
                 .unwrap_or(false);
@@ -62,7 +66,8 @@ pub(super) async fn action_wait_for(args: &Value) -> Result<String> {
         if start.elapsed().as_millis() as u64 >= timeout_ms {
             return Err(anyhow::anyhow!(
                 "Timeout after {}ms waiting for text \"{}\"",
-                timeout_ms, text
+                timeout_ms,
+                text
             ));
         }
 
@@ -72,8 +77,9 @@ pub(super) async fn action_wait_for(args: &Value) -> Result<String> {
 
 pub(super) async fn action_handle_dialog(args: &Value) -> Result<String> {
     require_browser().await?;
-    let accept = get_bool(args, "accept")
-        .ok_or_else(|| anyhow::anyhow!("Missing 'accept' parameter (true to accept, false to dismiss)"))?;
+    let accept = get_bool(args, "accept").ok_or_else(|| {
+        anyhow::anyhow!("Missing 'accept' parameter (true to accept, false to dismiss)")
+    })?;
     let dialog_text = get_str(args, "dialog_text");
 
     let state = get_browser_state().lock().await;
@@ -86,20 +92,23 @@ pub(super) async fn action_handle_dialog(args: &Value) -> Result<String> {
         params.prompt_text = Some(text.to_string());
     }
 
-    page.execute(params).await
+    page.execute(params)
+        .await
         .map_err(|e| anyhow::anyhow!("Handle dialog failed: {}. Is there a dialog open?", e))?;
 
     Ok(format!(
         "Dialog {}.{}",
         if accept { "accepted" } else { "dismissed" },
-        dialog_text.map(|t| format!(" Prompt text: \"{}\"", t)).unwrap_or_default()
+        dialog_text
+            .map(|t| format!(" Prompt text: \"{}\"", t))
+            .unwrap_or_default()
     ))
 }
 
 pub(super) async fn action_resize(args: &Value) -> Result<String> {
     require_browser().await?;
-    let width = get_u32(args, "width")
-        .ok_or_else(|| anyhow::anyhow!("Missing 'width' parameter"))? as i64;
+    let width =
+        get_u32(args, "width").ok_or_else(|| anyhow::anyhow!("Missing 'width' parameter"))? as i64;
     let height = get_u32(args, "height")
         .ok_or_else(|| anyhow::anyhow!("Missing 'height' parameter"))? as i64;
 
@@ -109,7 +118,8 @@ pub(super) async fn action_resize(args: &Value) -> Result<String> {
     use chromiumoxide::cdp::browser_protocol::emulation::SetDeviceMetricsOverrideParams;
 
     let params = SetDeviceMetricsOverrideParams::new(width, height, 1.0, false);
-    page.execute(params).await
+    page.execute(params)
+        .await
         .map_err(|e| anyhow::anyhow!("Resize failed: {}", e))?;
 
     Ok(format!("Viewport resized to {}x{}", width, height))
@@ -128,11 +138,17 @@ pub(super) async fn action_scroll(args: &Value) -> Result<String> {
         "down" => (0, amount),
         "left" => (-amount, 0),
         "right" => (amount, 0),
-        _ => return Err(anyhow::anyhow!("Invalid direction: '{}'. Use: up, down, left, right", direction)),
+        _ => {
+            return Err(anyhow::anyhow!(
+                "Invalid direction: '{}'. Use: up, down, left, right",
+                direction
+            ))
+        }
     };
 
     let js = format!("window.scrollBy({}, {})", dx, dy);
-    page.evaluate(js).await
+    page.evaluate(js)
+        .await
         .map_err(|e| anyhow::anyhow!("Scroll failed: {}", e))?;
 
     Ok(format!("Scrolled {} by {} pixels", direction, amount.abs()))
@@ -157,9 +173,12 @@ pub(super) async fn action_save_pdf(args: &Value) -> Result<String> {
             "letter" => (8.5, 11.0),
             "legal" => (8.5, 14.0),
             "tabloid" => (11.0, 17.0),
-            _ => return Err(anyhow::anyhow!(
-                "Unknown paper_format: '{}'. Options: a3, a4, a5, letter, legal, tabloid", paper
-            )),
+            _ => {
+                return Err(anyhow::anyhow!(
+                    "Unknown paper_format: '{}'. Options: a3, a4, a5, letter, legal, tabloid",
+                    paper
+                ))
+            }
         };
         params.paper_width = Some(w);
         params.paper_height = Some(h);
@@ -196,7 +215,9 @@ pub(super) async fn action_save_pdf(args: &Value) -> Result<String> {
 
     std::fs::write(&output_path, &pdf_bytes)?;
 
-    let url = page.url().await
+    let url = page
+        .url()
+        .await
         .ok()
         .flatten()
         .unwrap_or_else(|| "unknown".to_string());
@@ -237,7 +258,11 @@ pub(super) async fn action_list_profiles() -> Result<String> {
 
     let mut lines = vec![format!("Browser profiles ({}):", profiles.len())];
     for name in &profiles {
-        let marker = if active_profile == Some(name.as_str()) { " [active]" } else { "" };
+        let marker = if active_profile == Some(name.as_str()) {
+            " [active]"
+        } else {
+            ""
+        };
         lines.push(format!("  - {}{}", name, marker));
     }
 

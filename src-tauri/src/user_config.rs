@@ -62,7 +62,9 @@ pub struct UserConfig {
 }
 
 #[allow(dead_code)]
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
 // ── Persistence ──────────────────────────────────────────────────
 

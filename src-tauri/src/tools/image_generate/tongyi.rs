@@ -76,9 +76,7 @@ impl ImageGenProviderImpl for TongyiProvider {
                 supports_resolution: false,
             },
             geometry: Some(ImageGenGeometry {
-                sizes: vec![
-                    "1024x1024", "720x1280", "1280x720",
-                ],
+                sizes: vec!["1024x1024", "720x1280", "1280x720"],
                 aspect_ratios: vec![],
                 resolutions: vec![],
             }),
@@ -158,7 +156,11 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
             "image_generate::tongyi::request",
             &format!(
                 "Tongyi image gen request: model={}, edit={}, url={}",
-                if has_input_images { EDIT_MODEL } else { params.model },
+                if has_input_images {
+                    EDIT_MODEL
+                } else {
+                    params.model
+                },
                 has_input_images,
                 submit_url
             ),
@@ -203,10 +205,18 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
 
     if let Some(logger) = crate::get_logger() {
         logger.log(
-            if status.is_success() { "debug" } else { "error" },
+            if status.is_success() {
+                "debug"
+            } else {
+                "error"
+            },
             "tool",
             "image_generate::tongyi::submit_response",
-            &format!("Tongyi submit response: status={}, ttfb={}ms", status.as_u16(), ttfb_ms),
+            &format!(
+                "Tongyi submit response: status={}, ttfb={}ms",
+                status.as_u16(),
+                ttfb_ms
+            ),
             Some(serde_json::json!({"status": status.as_u16(), "ttfb_ms": ttfb_ms}).to_string()),
             None,
             None,
@@ -220,12 +230,20 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
         } else {
             body_text
         };
-        anyhow::bail!("Tongyi Wanxiang task submit failed ({}): {}", status, preview);
+        anyhow::bail!(
+            "Tongyi Wanxiang task submit failed ({}): {}",
+            status,
+            preview
+        );
     }
 
     let submit_resp: TongyiSubmitResponse = resp.json().await?;
-    let output = submit_resp.output.ok_or_else(|| anyhow::anyhow!("Tongyi Wanxiang: missing output in submit response"))?;
-    let task_id = output.task_id.ok_or_else(|| anyhow::anyhow!("Tongyi Wanxiang: missing task_id in submit response"))?;
+    let output = submit_resp
+        .output
+        .ok_or_else(|| anyhow::anyhow!("Tongyi Wanxiang: missing output in submit response"))?;
+    let task_id = output
+        .task_id
+        .ok_or_else(|| anyhow::anyhow!("Tongyi Wanxiang: missing task_id in submit response"))?;
 
     app_info!(
         "tool",
@@ -266,9 +284,9 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
         }
 
         let task_resp: TongyiTaskResponse = poll_resp.json().await?;
-        let task_output = task_resp.output.ok_or_else(|| {
-            anyhow::anyhow!("Tongyi Wanxiang: missing output in poll response")
-        })?;
+        let task_output = task_resp
+            .output
+            .ok_or_else(|| anyhow::anyhow!("Tongyi Wanxiang: missing output in poll response"))?;
 
         let task_status = task_output.task_status.as_deref().unwrap_or("UNKNOWN");
 
@@ -303,10 +321,7 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
                             })?;
 
                         if !img_resp.status().is_success() {
-                            anyhow::bail!(
-                                "Tongyi image download failed ({})",
-                                img_resp.status()
-                            );
+                            anyhow::bail!("Tongyi image download failed ({})", img_resp.status());
                         }
 
                         let content_type = img_resp
@@ -329,7 +344,9 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
                                 "image_generate::tongyi::download",
                                 &format!(
                                     "Tongyi image #{} downloaded: {} bytes, {}ms",
-                                    i, data.len(), dl_ms
+                                    i,
+                                    data.len(),
+                                    dl_ms
                                 ),
                                 Some(
                                     serde_json::json!({

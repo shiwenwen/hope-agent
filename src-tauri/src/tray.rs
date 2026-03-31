@@ -1,6 +1,6 @@
 use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem};
-use tauri::tray::{TrayIconBuilder, TrayIconEvent, MouseButton, MouseButtonState};
-use tauri::{Manager, Emitter};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::{Emitter, Manager};
 
 /// Show and focus the main window if it already exists.
 fn show_main_window(app_handle: &tauri::AppHandle) {
@@ -130,8 +130,15 @@ fn resolve_language() -> String {
         .and_then(|s| {
             // Parse plist array: extract first entry like "zh-Hans-CN"
             s.lines()
-                .find(|l| l.trim().starts_with('"') || (l.trim().len() > 0 && !l.contains('(') && !l.contains(')')))
-                .map(|l| l.trim().trim_matches(|c: char| c == '"' || c == ',' || c.is_whitespace()).to_string())
+                .find(|l| {
+                    l.trim().starts_with('"')
+                        || (l.trim().len() > 0 && !l.contains('(') && !l.contains(')'))
+                })
+                .map(|l| {
+                    l.trim()
+                        .trim_matches(|c: char| c == '"' || c == ',' || c.is_whitespace())
+                        .to_string()
+                })
         })
         .or_else(|| std::env::var("LANG").ok())
         .unwrap_or_else(|| "en".to_string());
@@ -174,18 +181,13 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let labels = tray_labels(&lang);
 
     // Build menu items
-    let show_main = MenuItemBuilder::with_id("show_main", labels.show_main)
-        .build(app)?;
-    let quick_chat = MenuItemBuilder::with_id("quick_chat", labels.quick_chat)
-        .build(app)?;
+    let show_main = MenuItemBuilder::with_id("show_main", labels.show_main).build(app)?;
+    let quick_chat = MenuItemBuilder::with_id("quick_chat", labels.quick_chat).build(app)?;
     let sep1 = PredefinedMenuItem::separator(app)?;
-    let new_session = MenuItemBuilder::with_id("new_session", labels.new_session)
-        .build(app)?;
-    let open_settings = MenuItemBuilder::with_id("open_settings", labels.settings)
-        .build(app)?;
+    let new_session = MenuItemBuilder::with_id("new_session", labels.new_session).build(app)?;
+    let open_settings = MenuItemBuilder::with_id("open_settings", labels.settings).build(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
-    let quit_app = MenuItemBuilder::with_id("quit_app", labels.quit)
-        .build(app)?;
+    let quit_app = MenuItemBuilder::with_id("quit_app", labels.quit).build(app)?;
 
     let menu = MenuBuilder::new(app)
         .items(&[
@@ -202,9 +204,11 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     // Read icon config from tauri.conf.json trayIcon section.
     let (icon, icon_as_template, show_menu_on_left_click) = match &app.config().app.tray_icon {
         Some(tc) => {
-            let icon_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(&tc.icon_path);
+            let icon_path =
+                std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(&tc.icon_path);
             let img = tauri::image::Image::from_path(&icon_path).unwrap_or_else(|_| {
-                tauri::image::Image::from_bytes(include_bytes!("../icons/menuIconTray.png")).unwrap()
+                tauri::image::Image::from_bytes(include_bytes!("../icons/menuIconTray.png"))
+                    .unwrap()
             });
             (img, tc.icon_as_template, tc.show_menu_on_left_click)
         }
@@ -222,7 +226,12 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .show_menu_on_left_click(show_menu_on_left_click)
         .menu(&menu)
         .on_menu_event(|app_handle, event| {
-            app_debug!("tray", "menu", "Tray menu item clicked: {}", event.id().as_ref());
+            app_debug!(
+                "tray",
+                "menu",
+                "Tray menu item clicked: {}",
+                event.id().as_ref()
+            );
             match event.id().as_ref() {
                 "show_main" => {
                     show_main_window(app_handle);

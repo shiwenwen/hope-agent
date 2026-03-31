@@ -8,7 +8,8 @@ const MAX_BACKUPS: usize = 5;
 /// Returns the backup directory path on success.
 pub fn create_backup() -> Result<String, String> {
     let root = paths::root_dir().map_err(|e| format!("Cannot resolve root dir: {}", e))?;
-    let backups_dir = paths::backups_dir().map_err(|e| format!("Cannot resolve backups dir: {}", e))?;
+    let backups_dir =
+        paths::backups_dir().map_err(|e| format!("Cannot resolve backups dir: {}", e))?;
 
     // Create backups directory if it doesn't exist
     std::fs::create_dir_all(&backups_dir)
@@ -17,8 +18,7 @@ pub fn create_backup() -> Result<String, String> {
     // Generate timestamped backup directory name
     let timestamp = chrono::Utc::now().format("%Y-%m-%dT%H-%M-%S").to_string();
     let backup_dir = backups_dir.join(format!("backup_{}", timestamp));
-    std::fs::create_dir_all(&backup_dir)
-        .map_err(|e| format!("Cannot create backup dir: {}", e))?;
+    std::fs::create_dir_all(&backup_dir).map_err(|e| format!("Cannot create backup dir: {}", e))?;
 
     // Backup individual files
     let files_to_backup = ["config.json", "user.json"];
@@ -38,7 +38,10 @@ pub fn create_backup() -> Result<String, String> {
         let cred_dst_dir = backup_dir.join("credentials");
         let _ = std::fs::create_dir_all(&cred_dst_dir);
         if let Err(e) = std::fs::copy(&cred_src, cred_dst_dir.join("auth.json")) {
-            eprintln!("[Backup] Warning: failed to copy credentials/auth.json: {}", e);
+            eprintln!(
+                "[Backup] Warning: failed to copy credentials/auth.json: {}",
+                e
+            );
         }
     }
 
@@ -73,7 +76,9 @@ pub fn list_backups() -> Result<Vec<BackupInfo>, String> {
             let name = entry.file_name().to_string_lossy().to_string();
             if name.starts_with("backup_") && entry.path().is_dir() {
                 let metadata = entry.metadata().ok()?;
-                let created = metadata.created().ok()
+                let created = metadata
+                    .created()
+                    .ok()
                     .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                     .map(|d| d.as_secs())
                     .unwrap_or(0);
@@ -109,8 +114,7 @@ pub fn restore_backup(backup_name: &str) -> Result<(), String> {
         let src = backup_dir.join(file);
         if src.exists() {
             let dst = root.join(file);
-            std::fs::copy(&src, &dst)
-                .map_err(|e| format!("Failed to restore {}: {}", file, e))?;
+            std::fs::copy(&src, &dst).map_err(|e| format!("Failed to restore {}: {}", file, e))?;
         }
     }
 
@@ -161,7 +165,10 @@ fn rotate_backups_internal(backups_dir: &Path, keep: usize) -> Result<(), String
         let to_remove = entries.len() - keep;
         for path in entries.iter().take(to_remove) {
             if let Err(e) = std::fs::remove_dir_all(path) {
-                eprintln!("[Backup] Warning: failed to remove old backup {:?}: {}", path, e);
+                eprintln!(
+                    "[Backup] Warning: failed to remove old backup {:?}: {}",
+                    path, e
+                );
             }
         }
     }

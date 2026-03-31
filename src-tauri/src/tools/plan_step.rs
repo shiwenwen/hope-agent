@@ -1,5 +1,5 @@
-use serde_json::Value;
 use crate::plan::{self, PlanStepStatus};
+use serde_json::Value;
 
 /// Execute the update_plan_step tool.
 /// Parameters: step_index (number), status ("in_progress"|"completed"|"skipped"|"failed")
@@ -25,11 +25,14 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
     // Emit Tauri global event for frontend real-time update
     if let Some(app_handle) = crate::get_app_handle() {
         use tauri::Emitter;
-        let _ = app_handle.emit("plan_step_updated", serde_json::json!({
-            "sessionId": sid,
-            "stepIndex": step_index,
-            "status": status_str,
-        }));
+        let _ = app_handle.emit(
+            "plan_step_updated",
+            serde_json::json!({
+                "sessionId": sid,
+                "stepIndex": step_index,
+                "status": status_str,
+            }),
+        );
     }
 
     // Check if all steps completed → auto-transition + save result file
@@ -44,10 +47,20 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
             let summary_text = args.get("summary").and_then(|v| v.as_str()).unwrap_or("");
             match plan::save_result_file(sid, plan_title, &meta.steps, summary_text) {
                 Ok(result_path) => {
-                    app_info!("plan", "plan_step", "Execution result saved to {}", result_path);
+                    app_info!(
+                        "plan",
+                        "plan_step",
+                        "Execution result saved to {}",
+                        result_path
+                    );
                 }
                 Err(e) => {
-                    app_warn!("plan", "plan_step", "Failed to save execution result: {}", e);
+                    app_warn!(
+                        "plan",
+                        "plan_step",
+                        "Failed to save execution result: {}",
+                        e
+                    );
                 }
             }
 
@@ -57,13 +70,19 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
             }
             if let Some(app_handle) = crate::get_app_handle() {
                 use tauri::Emitter;
-                let _ = app_handle.emit("plan_mode_changed", serde_json::json!({
-                    "sessionId": sid,
-                    "state": "completed",
-                    "reason": "all_steps_completed",
-                }));
+                let _ = app_handle.emit(
+                    "plan_mode_changed",
+                    serde_json::json!({
+                        "sessionId": sid,
+                        "state": "completed",
+                        "reason": "all_steps_completed",
+                    }),
+                );
             }
-            return format!("Step {} marked as {}. All plan steps completed! Plan execution finished.", step_index, status_str);
+            return format!(
+                "Step {} marked as {}. All plan steps completed! Plan execution finished.",
+                step_index, status_str
+            );
         }
     }
 

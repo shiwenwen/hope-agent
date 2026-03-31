@@ -5,15 +5,15 @@
 //! This avoids duplicating the core Agent execution logic (streaming, failover,
 //! tool persistence, context compaction, memory extraction).
 
-use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 
 use crate::agent::{AssistantAgent, PlanAgentMode};
 use crate::context_compact::CompactConfig;
 use crate::provider::{self, ActiveModel, ApiType, ProviderConfig};
 use crate::session::{self, SessionDB};
 use crate::tools::image_generate::ImageGenConfig;
-use crate::{context_compact, failover, memory, memory_extract, agent_loader};
+use crate::{agent_loader, context_compact, failover, memory, memory_extract};
 
 // ── Shared Types ────────────────────────────────────────────────────
 
@@ -56,7 +56,10 @@ pub struct ChannelStreamSink {
 
 impl ChannelStreamSink {
     pub fn new(session_id: String, event_tx: tokio::sync::mpsc::UnboundedSender<String>) -> Self {
-        Self { session_id, event_tx }
+        Self {
+            session_id,
+            event_tx,
+        }
     }
 }
 
@@ -65,10 +68,13 @@ impl EventSink for ChannelStreamSink {
         // 1. Emit to frontend for real-time streaming display
         if let Some(handle) = crate::get_app_handle() {
             use tauri::Emitter;
-            let _ = handle.emit("channel:stream_delta", serde_json::json!({
-                "sessionId": &self.session_id,
-                "event": event,
-            }));
+            let _ = handle.emit(
+                "channel:stream_delta",
+                serde_json::json!({
+                    "sessionId": &self.session_id,
+                    "event": event,
+                }),
+            );
         }
         // 2. Forward to background task for progressive IM channel delivery
         let _ = self.event_tx.send(event.to_string());
@@ -111,7 +117,6 @@ pub struct ChatEngineParams {
 
     // Output
     pub event_sink: Arc<dyn EventSink>,
-
 }
 
 /// Result returned by the chat engine.
@@ -147,17 +152,18 @@ fn build_agent_from_snapshot(
 // ── Helper functions (moved from commands/chat.rs) ──────────────────
 
 /// Restore conversation history from DB into the agent.
-pub(crate) fn restore_agent_context(
-    db: &Arc<SessionDB>,
-    session_id: &str,
-    agent: &AssistantAgent,
-) {
+pub(crate) fn restore_agent_context(db: &Arc<SessionDB>, session_id: &str, agent: &AssistantAgent) {
     if let Ok(Some(json_str)) = db.load_context(session_id) {
         if let Ok(history) = serde_json::from_str::<Vec<serde_json::Value>>(&json_str) {
             if !history.is_empty() {
-                app_debug!("session", "chat_engine",
+                app_debug!(
+                    "session",
+                    "chat_engine",
                     "Restored {} messages for session {} ({}B JSON)",
-                    history.len(), session_id, json_str.len());
+                    history.len(),
+                    session_id,
+                    json_str.len()
+                );
                 agent.set_conversation_history(history);
             }
         }
@@ -165,11 +171,7 @@ pub(crate) fn restore_agent_context(
 }
 
 /// Save the agent's conversation history to DB.
-pub(crate) fn save_agent_context(
-    db: &Arc<SessionDB>,
-    session_id: &str,
-    agent: &AssistantAgent,
-) {
+pub(crate) fn save_agent_context(db: &Arc<SessionDB>, session_id: &str, agent: &AssistantAgent) {
     let history = agent.get_conversation_history();
     if let Ok(json_str) = serde_json::to_string(&history) {
         let _ = db.save_context(session_id, &json_str);
@@ -184,16 +186,20 @@ pub(crate) fn persist_tool_event(db: &Arc<SessionDB>, session_id: &str, delta: &
                 let call_id = event.get("call_id").and_then(|v| v.as_str()).unwrap_or("");
                 let result = event.get("result").and_then(|v| v.as_str()).unwrap_or("");
                 let duration_ms = event.get("duration_ms").and_then(|v| v.as_i64());
-                let is_error = event.get("is_error").and_then(|v| v.as_bool()).unwrap_or(false);
+                let is_error = event
+                    .get("is_error")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
                 let _ = db.update_tool_result(session_id, call_id, result, duration_ms, is_error);
             }
             Some("tool_call") => {
                 let call_id = event.get("call_id").and_then(|v| v.as_str()).unwrap_or("");
                 let name = event.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                let arguments = event.get("arguments").and_then(|v| v.as_str()).unwrap_or("");
-                let tool_msg = session::NewMessage::tool(
-                    call_id, name, arguments, "", None, false,
-                );
+                let arguments = event
+                    .get("arguments")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let tool_msg = session::NewMessage::tool(call_id, name, arguments, "", None, false);
                 let _ = db.append_message(session_id, &tool_msg);
             }
             _ => {}
@@ -238,8 +244,17 @@ pub(crate) async fn relay_to_channel(session_id: &str, response: &str) {
             thread_id: conv.thread_id.clone(),
             ..crate::channel::types::ReplyPayload::text("")
         };
-        if let Err(e) = plugin.send_message(&account.id, &conv.chat_id, &payload).await {
-            app_error!("channel", "relay", "Failed to relay to {}: {}", conv.channel_id, e);
+        if let Err(e) = plugin
+            .send_message(&account.id, &conv.chat_id, &payload)
+            .await
+        {
+            app_error!(
+                "channel",
+                "relay",
+                "Failed to relay to {}: {}",
+                conv.channel_id,
+                e
+            );
         }
     }
 }
@@ -284,7 +299,8 @@ fn spawn_memory_extraction(
                     &extract_session_id,
                     prov,
                     &extract_model_id,
-                ).await;
+                )
+                .await;
             }
         });
     }
@@ -330,7 +346,8 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
     // Build primary model display name for fallback events
     let primary_display = {
         let first = &model_chain[0];
-        let prov_name = providers.iter()
+        let prov_name = providers
+            .iter()
             .find(|p| p.id == first.provider_id)
             .map(|p| p.name.as_str())
             .unwrap_or(&first.provider_id);
@@ -340,18 +357,17 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
     let effort_str = reasoning_effort.clone();
 
     for (idx, model_ref) in model_chain.iter().enumerate() {
-        let mut agent = match build_agent_from_snapshot(
-            model_ref, &providers, &codex_token, &compact_config,
-        ) {
-            Some(a) => a,
-            None => {
-                last_error = Some(format!(
-                    "Cannot build agent for {}::{}",
-                    model_ref.provider_id, model_ref.model_id
-                ));
-                continue;
-            }
-        };
+        let mut agent =
+            match build_agent_from_snapshot(model_ref, &providers, &codex_token, &compact_config) {
+                Some(a) => a,
+                None => {
+                    last_error = Some(format!(
+                        "Cannot build agent for {}::{}",
+                        model_ref.provider_id, model_ref.model_id
+                    ));
+                    continue;
+                }
+            };
         agent.set_agent_id(&agent_id);
         agent.set_session_id(&session_id);
         agent.set_web_search_enabled(web_search_enabled);
@@ -375,7 +391,8 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
 
         // Update session with current model info
         {
-            let provider_name = providers.iter()
+            let provider_name = providers
+                .iter()
                 .find(|p| p.id == model_ref.provider_id)
                 .map(|p| p.name.as_str());
             let _ = db.update_session_model(
@@ -395,13 +412,15 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
             // Emit fallback event if this is not the first model
             if idx > 0 && retry_count == 0 {
                 let display = {
-                    let prov_name = providers.iter()
+                    let prov_name = providers
+                        .iter()
                         .find(|p| p.id == model_ref.provider_id)
                         .map(|p| p.name.as_str())
                         .unwrap_or(&model_ref.provider_id);
                     format!("{} / {}", prov_name, model_ref.model_id)
                 };
-                let reason_str = last_error.as_deref()
+                let reason_str = last_error
+                    .as_deref()
                     .map(|e| failover::classify_error(e))
                     .unwrap_or(failover::FailoverReason::Unknown);
                 let event = serde_json::json!({
@@ -425,16 +444,19 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
             let cancel_clone = cancel.clone();
 
             // Shared state for capturing usage/TTFT from on_delta
-            let captured_usage: Arc<std::sync::Mutex<CapturedUsage>>
-                = Arc::new(std::sync::Mutex::new(CapturedUsage::default()));
+            let captured_usage: Arc<std::sync::Mutex<CapturedUsage>> =
+                Arc::new(std::sync::Mutex::new(CapturedUsage::default()));
             let captured_usage_clone = captured_usage.clone();
 
             // Accumulate text_delta / thinking_delta for ordering preservation
-            let pending_text: Arc<std::sync::Mutex<String>> = Arc::new(std::sync::Mutex::new(String::new()));
+            let pending_text: Arc<std::sync::Mutex<String>> =
+                Arc::new(std::sync::Mutex::new(String::new()));
             let pending_text_clone = pending_text.clone();
-            let pending_thinking: Arc<std::sync::Mutex<String>> = Arc::new(std::sync::Mutex::new(String::new()));
+            let pending_thinking: Arc<std::sync::Mutex<String>> =
+                Arc::new(std::sync::Mutex::new(String::new()));
             let pending_thinking_clone = pending_thinking.clone();
-            let had_thinking_blocks: Arc<std::sync::atomic::AtomicBool> = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let had_thinking_blocks: Arc<std::sync::atomic::AtomicBool> =
+                Arc::new(std::sync::atomic::AtomicBool::new(false));
             let had_thinking_blocks_clone = had_thinking_blocks.clone();
 
             let db_for_cb = db.clone();
@@ -442,57 +464,74 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
             let event_sink_clone = event_sink.clone();
 
             let chat_start = std::time::Instant::now();
-            match agent.chat(&message, &[], effort_ref, cancel_clone, move |delta| {
-                // Intercept usage events
-                if let Ok(event) = serde_json::from_str::<serde_json::Value>(delta) {
-                    match event.get("type").and_then(|t| t.as_str()) {
-                        Some("usage") => {
-                            if let Ok(mut u) = captured_usage_clone.lock() {
-                                if let Some(v) = event.get("input_tokens").and_then(|v| v.as_i64()) { u.input_tokens = Some(v); }
-                                if let Some(v) = event.get("output_tokens").and_then(|v| v.as_i64()) { u.output_tokens = Some(v); }
-                                if let Some(v) = event.get("model").and_then(|v| v.as_str()) { u.model = Some(v.to_string()); }
-                                if let Some(v) = event.get("ttft_ms").and_then(|v| v.as_i64()) { u.ttft_ms = Some(v); }
+            match agent
+                .chat(&message, &[], effort_ref, cancel_clone, move |delta| {
+                    // Intercept usage events
+                    if let Ok(event) = serde_json::from_str::<serde_json::Value>(delta) {
+                        match event.get("type").and_then(|t| t.as_str()) {
+                            Some("usage") => {
+                                if let Ok(mut u) = captured_usage_clone.lock() {
+                                    if let Some(v) =
+                                        event.get("input_tokens").and_then(|v| v.as_i64())
+                                    {
+                                        u.input_tokens = Some(v);
+                                    }
+                                    if let Some(v) =
+                                        event.get("output_tokens").and_then(|v| v.as_i64())
+                                    {
+                                        u.output_tokens = Some(v);
+                                    }
+                                    if let Some(v) = event.get("model").and_then(|v| v.as_str()) {
+                                        u.model = Some(v.to_string());
+                                    }
+                                    if let Some(v) = event.get("ttft_ms").and_then(|v| v.as_i64()) {
+                                        u.ttft_ms = Some(v);
+                                    }
+                                }
                             }
-                        }
-                        Some("thinking_delta") => {
-                            if let Some(text) = event.get("content").and_then(|t| t.as_str()) {
+                            Some("thinking_delta") => {
+                                if let Some(text) = event.get("content").and_then(|t| t.as_str()) {
+                                    if let Ok(mut pk) = pending_thinking_clone.lock() {
+                                        pk.push_str(text);
+                                    }
+                                }
+                            }
+                            Some("text_delta") => {
+                                if let Some(text) = event.get("text").and_then(|t| t.as_str()) {
+                                    if let Ok(mut pt) = pending_text_clone.lock() {
+                                        pt.push_str(text);
+                                    }
+                                }
+                            }
+                            Some("tool_call") => {
+                                // Flush accumulated thinking before tool_call
                                 if let Ok(mut pk) = pending_thinking_clone.lock() {
-                                    pk.push_str(text);
+                                    if !pk.is_empty() {
+                                        let thinking_msg = session::NewMessage::thinking_block(&pk);
+                                        let _ =
+                                            db_for_cb.append_message(&sid_for_cb, &thinking_msg);
+                                        pk.clear();
+                                        had_thinking_blocks_clone
+                                            .store(true, std::sync::atomic::Ordering::SeqCst);
+                                    }
                                 }
-                            }
-                        }
-                        Some("text_delta") => {
-                            if let Some(text) = event.get("text").and_then(|t| t.as_str()) {
+                                // Flush accumulated text before tool_call
                                 if let Ok(mut pt) = pending_text_clone.lock() {
-                                    pt.push_str(text);
+                                    if !pt.is_empty() {
+                                        let text_msg = session::NewMessage::text_block(&pt);
+                                        let _ = db_for_cb.append_message(&sid_for_cb, &text_msg);
+                                        pt.clear();
+                                    }
                                 }
                             }
+                            _ => {}
                         }
-                        Some("tool_call") => {
-                            // Flush accumulated thinking before tool_call
-                            if let Ok(mut pk) = pending_thinking_clone.lock() {
-                                if !pk.is_empty() {
-                                    let thinking_msg = session::NewMessage::thinking_block(&pk);
-                                    let _ = db_for_cb.append_message(&sid_for_cb, &thinking_msg);
-                                    pk.clear();
-                                    had_thinking_blocks_clone.store(true, std::sync::atomic::Ordering::SeqCst);
-                                }
-                            }
-                            // Flush accumulated text before tool_call
-                            if let Ok(mut pt) = pending_text_clone.lock() {
-                                if !pt.is_empty() {
-                                    let text_msg = session::NewMessage::text_block(&pt);
-                                    let _ = db_for_cb.append_message(&sid_for_cb, &text_msg);
-                                    pt.clear();
-                                }
-                            }
-                        }
-                        _ => {}
                     }
-                }
-                persist_tool_event(&db_for_cb, &sid_for_cb, delta);
-                event_sink_clone.send(delta);
-            }).await {
+                    persist_tool_event(&db_for_cb, &sid_for_cb, delta);
+                    event_sink_clone.send(delta);
+                })
+                .await
+            {
                 Ok((result, thinking)) => {
                     let duration_ms = chat_start.elapsed().as_millis() as u64;
 
@@ -514,7 +553,8 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                             had_thinking_blocks.store(true, std::sync::atomic::Ordering::SeqCst);
                         }
                     }
-                    let has_thinking_blocks = had_thinking_blocks.load(std::sync::atomic::Ordering::SeqCst);
+                    let has_thinking_blocks =
+                        had_thinking_blocks.load(std::sync::atomic::Ordering::SeqCst);
 
                     // Save assistant reply with metadata
                     let mut assistant_msg = session::NewMessage::assistant(&result);
@@ -546,20 +586,31 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     let error_msg = e.to_string();
                     let reason = failover::classify_error(&error_msg);
 
-                    app_warn!("provider", "failover",
+                    app_warn!(
+                        "provider",
+                        "failover",
                         "Model {}::{} failed (attempt {}/{}, retry {}, reason {:?}): {}",
-                        model_ref.provider_id, model_ref.model_id,
-                        idx + 1, total_models, retry_count, reason, error_msg
+                        model_ref.provider_id,
+                        model_ref.model_id,
+                        idx + 1,
+                        total_models,
+                        retry_count,
+                        reason,
+                        error_msg
                     );
 
                     // Context overflow — try emergency compaction, then retry once
                     if reason.needs_compaction() && retry_count == 0 {
-                        app_info!("context", "compact",
+                        app_info!(
+                            "context",
+                            "compact",
                             "Context overflow on {}::{}, attempting emergency compaction",
-                            model_ref.provider_id, model_ref.model_id
+                            model_ref.provider_id,
+                            model_ref.model_id
                         );
                         let mut history = agent.get_conversation_history();
-                        let compact_result = context_compact::emergency_compact(&mut history, &compact_config);
+                        let compact_result =
+                            context_compact::emergency_compact(&mut history, &compact_config);
                         agent.set_conversation_history(history);
                         save_agent_context(&db, &session_id, &agent);
 
@@ -577,18 +628,25 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     // Terminal errors — surface immediately
                     if reason.is_terminal() || reason.needs_compaction() {
                         save_agent_context(&db, &session_id, &agent);
-                        let _ = db.append_message(&session_id, &session::NewMessage::event(&error_msg));
+                        let _ =
+                            db.append_message(&session_id, &session::NewMessage::event(&error_msg));
                         return Err(error_msg);
                     }
 
                     // Retryable errors — retry same model with backoff
                     if reason.is_retryable() && retry_count < MAX_RETRIES {
                         retry_count += 1;
-                        let delay = failover::retry_delay_ms(retry_count - 1, RETRY_BASE_MS, RETRY_MAX_MS);
-                        app_info!("provider", "failover",
+                        let delay =
+                            failover::retry_delay_ms(retry_count - 1, RETRY_BASE_MS, RETRY_MAX_MS);
+                        app_info!(
+                            "provider",
+                            "failover",
                             "Retrying {}::{} in {}ms (retry {}/{})",
-                            model_ref.provider_id, model_ref.model_id,
-                            delay, retry_count, MAX_RETRIES
+                            model_ref.provider_id,
+                            model_ref.model_id,
+                            delay,
+                            retry_count,
+                            MAX_RETRIES
                         );
                         tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
                         continue;
@@ -596,7 +654,8 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
 
                     // Emit codex_auth_expired when a Codex provider gets an Auth error
                     if matches!(reason, failover::FailoverReason::Auth) {
-                        let is_codex = providers.iter()
+                        let is_codex = providers
+                            .iter()
                             .find(|p| p.id == model_ref.provider_id)
                             .map(|p| p.api_type == ApiType::Codex)
                             .unwrap_or(false);
@@ -618,7 +677,8 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         }
     }
 
-    let final_error = last_error.unwrap_or_else(|| "All models in the fallback chain failed.".to_string());
+    let final_error =
+        last_error.unwrap_or_else(|| "All models in the fallback chain failed.".to_string());
     let _ = db.append_message(&session_id, &session::NewMessage::event(&final_error));
     Err(final_error)
 }

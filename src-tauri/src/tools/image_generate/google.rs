@@ -76,7 +76,11 @@ impl ImageGenProviderImpl for GoogleProvider {
             },
             geometry: Some(ImageGenGeometry {
                 sizes: vec![
-                    "1024x1024", "1024x1536", "1536x1024", "1024x1792", "1792x1024",
+                    "1024x1024",
+                    "1024x1536",
+                    "1536x1024",
+                    "1024x1792",
+                    "1792x1024",
                 ],
                 aspect_ratios: vec![
                     "1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9",
@@ -185,7 +189,10 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
             "image_generate::google::request",
             &format!(
                 "Google image gen request: model={}, thinking={}, edit={}, url={}",
-                params.model, thinking_level, !params.input_images.is_empty(), url
+                params.model,
+                thinking_level,
+                !params.input_images.is_empty(),
+                url
             ),
             Some(
                 serde_json::json!({
@@ -233,7 +240,11 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
     // Log response status
     if let Some(logger) = crate::get_logger() {
         logger.log(
-            if status.is_success() { "debug" } else { "error" },
+            if status.is_success() {
+                "debug"
+            } else {
+                "error"
+            },
             "tool",
             "image_generate::google::response",
             &format!(
@@ -281,11 +292,7 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
         } else {
             body
         };
-        anyhow::bail!(
-            "Google image generation failed ({}): {}",
-            status,
-            preview
-        );
+        anyhow::bail!("Google image generation failed ({}): {}", status, preview);
     }
 
     let body: GoogleResponse = resp.json().await?;
@@ -305,11 +312,10 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
                         }
                         if let Some(inline) = part.inline_data {
                             if let Some(b64_data) = inline.data {
-                                let mime = inline
-                                    .mime_type
-                                    .unwrap_or_else(|| "image/png".to_string());
-                                let data = base64::engine::general_purpose::STANDARD
-                                    .decode(&b64_data)?;
+                                let mime =
+                                    inline.mime_type.unwrap_or_else(|| "image/png".to_string());
+                                let data =
+                                    base64::engine::general_purpose::STANDARD.decode(&b64_data)?;
                                 images.push(GeneratedImage {
                                     data,
                                     mime,

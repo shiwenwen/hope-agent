@@ -54,18 +54,14 @@ pub struct CommandResult {
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum CommandAction {
     /// A new session was created.
-    NewSession {
-        session_id: String,
-    },
+    NewSession { session_id: String },
     /// Model was switched.
     SwitchModel {
         provider_id: String,
         model_id: String,
     },
     /// Reasoning effort was changed.
-    SetEffort {
-        effort: String,
-    },
+    SetEffort { effort: String },
     /// Agent was switched (new session created).
     SwitchAgent {
         agent_id: String,
@@ -78,34 +74,21 @@ pub enum CommandAction {
     /// Session messages were cleared.
     SessionCleared,
     /// Do not intercept — pass message through to LLM as a normal user message.
-    PassThrough {
-        message: String,
-    },
+    PassThrough { message: String },
     /// Export: content is the file data, filename is the suggested name.
-    ExportFile {
-        content: String,
-        filename: String,
-    },
+    ExportFile { content: String, filename: String },
     /// Set tool permission mode for current session.
-    SetToolPermission {
-        mode: String,
-    },
+    SetToolPermission { mode: String },
     /// No side-effect, just display the `content` field.
     DisplayOnly,
     /// Enter plan mode for the current session.
     EnterPlanMode,
     /// Exit plan mode (optionally with plan content).
-    ExitPlanMode {
-        plan_content: Option<String>,
-    },
+    ExitPlanMode { plan_content: Option<String> },
     /// Approve plan and start execution.
-    ApprovePlan {
-        plan_content: Option<String>,
-    },
+    ApprovePlan { plan_content: Option<String> },
     /// Show plan content in the plan panel.
-    ShowPlan {
-        plan_content: String,
-    },
+    ShowPlan { plan_content: String },
     /// Pause plan execution.
     PausePlan,
     /// Resume plan execution.

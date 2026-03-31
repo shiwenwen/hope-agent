@@ -58,8 +58,14 @@ impl ImageGenProviderImpl for SiliconFlowProvider {
             },
             geometry: Some(ImageGenGeometry {
                 sizes: vec![
-                    "1024x1024", "1328x1328", "1664x928", "928x1664",
-                    "1472x1140", "1140x1472", "1584x1056", "1056x1584",
+                    "1024x1024",
+                    "1328x1328",
+                    "1664x928",
+                    "928x1664",
+                    "1472x1140",
+                    "1140x1472",
+                    "1584x1056",
+                    "1056x1584",
                 ],
                 aspect_ratios: vec![],
                 resolutions: vec![],
@@ -102,24 +108,21 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
 
     // Add inference steps (different defaults for generate vs edit)
     let steps = if has_input_images { 20 } else { 50 };
-    body.as_object_mut().unwrap().insert(
-        "num_inference_steps".to_string(),
-        serde_json::json!(steps),
-    );
+    body.as_object_mut()
+        .unwrap()
+        .insert("num_inference_steps".to_string(), serde_json::json!(steps));
 
     // Add reference image for editing
     if has_input_images {
         let input = &params.input_images[0];
         let b64 = base64::engine::general_purpose::STANDARD.encode(&input.data);
         let data_uri = format!("data:{};base64,{}", input.mime, b64);
-        body.as_object_mut().unwrap().insert(
-            "image".to_string(),
-            serde_json::json!(data_uri),
-        );
-        body.as_object_mut().unwrap().insert(
-            "guidance_scale".to_string(),
-            serde_json::json!(7.5),
-        );
+        body.as_object_mut()
+            .unwrap()
+            .insert("image".to_string(), serde_json::json!(data_uri));
+        body.as_object_mut()
+            .unwrap()
+            .insert("guidance_scale".to_string(), serde_json::json!(7.5));
     }
 
     // Log request
@@ -176,12 +179,17 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
 
     if let Some(logger) = crate::get_logger() {
         logger.log(
-            if status.is_success() { "debug" } else { "error" },
+            if status.is_success() {
+                "debug"
+            } else {
+                "error"
+            },
             "tool",
             "image_generate::siliconflow::response",
             &format!(
                 "SiliconFlow image gen response: status={}, ttfb={}ms",
-                status.as_u16(), ttfb_ms
+                status.as_u16(),
+                ttfb_ms
             ),
             Some(serde_json::json!({"status": status.as_u16(), "ttfb_ms": ttfb_ms}).to_string()),
             None,
@@ -196,8 +204,15 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
                 "error",
                 "tool",
                 "image_generate::siliconflow::error",
-                &format!("SiliconFlow error ({}): {}", status.as_u16(), crate::truncate_utf8(&body_text, 500)),
-                Some(serde_json::json!({"status": status.as_u16(), "error_body": &body_text}).to_string()),
+                &format!(
+                    "SiliconFlow error ({}): {}",
+                    status.as_u16(),
+                    crate::truncate_utf8(&body_text, 500)
+                ),
+                Some(
+                    serde_json::json!({"status": status.as_u16(), "error_body": &body_text})
+                        .to_string(),
+                ),
                 None,
                 None,
             );
@@ -207,7 +222,11 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
         } else {
             body_text
         };
-        anyhow::bail!("SiliconFlow image generation failed ({}): {}", status, preview);
+        anyhow::bail!(
+            "SiliconFlow image generation failed ({}): {}",
+            status,
+            preview
+        );
     }
 
     let response: SiliconFlowResponse = resp.json().await?;

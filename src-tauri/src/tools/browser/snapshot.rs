@@ -1,8 +1,8 @@
 use anyhow::Result;
 use serde_json::Value;
 
-use crate::browser_state::{ElementRef, get_browser_state};
-use super::{require_browser, get_str, get_bool, IMAGE_BASE64_PREFIX};
+use super::{get_bool, get_str, require_browser, IMAGE_BASE64_PREFIX};
+use crate::browser_state::{get_browser_state, ElementRef};
 
 /// JavaScript injected into the page to extract an accessibility-like element tree
 const SNAPSHOT_JS: &str = r#"(() => {
@@ -156,7 +156,8 @@ pub(super) async fn action_take_snapshot() -> Result<String> {
     let state = get_browser_state().lock().await;
     let page = state.get_active_page()?;
 
-    let json_str: String = page.evaluate(SNAPSHOT_JS)
+    let json_str: String = page
+        .evaluate(SNAPSHOT_JS)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to take snapshot: {}", e))?
         .into_value()
@@ -165,11 +166,28 @@ pub(super) async fn action_take_snapshot() -> Result<String> {
     let data: serde_json::Value = serde_json::from_str(&json_str)
         .map_err(|e| anyhow::anyhow!("Failed to parse snapshot: {}", e))?;
 
-    let url = data.get("url").and_then(|v| v.as_str()).unwrap_or("unknown");
-    let title = data.get("title").and_then(|v| v.as_str()).unwrap_or("untitled");
-    let viewport_w = data.get("viewport").and_then(|v| v.get("w")).and_then(|v| v.as_i64()).unwrap_or(0);
-    let viewport_h = data.get("viewport").and_then(|v| v.get("h")).and_then(|v| v.as_i64()).unwrap_or(0);
-    let truncated = data.get("truncated").and_then(|v| v.as_bool()).unwrap_or(false);
+    let url = data
+        .get("url")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
+    let title = data
+        .get("title")
+        .and_then(|v| v.as_str())
+        .unwrap_or("untitled");
+    let viewport_w = data
+        .get("viewport")
+        .and_then(|v| v.get("w"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    let viewport_h = data
+        .get("viewport")
+        .and_then(|v| v.get("h"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    let truncated = data
+        .get("truncated")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     let elements = data.get("elements").and_then(|v| v.as_array());
 
     let mut output = format!(
@@ -243,7 +261,9 @@ pub(super) async fn action_take_snapshot() -> Result<String> {
     }
 
     if truncated {
-        output.push_str("\n[Truncated: max 300 elements reached. Use 'evaluate' to query specific areas.]\n");
+        output.push_str(
+            "\n[Truncated: max 300 elements reached. Use 'evaluate' to query specific areas.]\n",
+        );
     }
 
     drop(state);
@@ -266,8 +286,8 @@ pub(super) async fn action_take_screenshot(args: &Value) -> Result<String> {
     let state = get_browser_state().lock().await;
     let page = state.get_active_page()?;
 
-    use chromiumoxide::page::ScreenshotParams;
     use chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotFormat;
+    use chromiumoxide::page::ScreenshotParams;
 
     let cdp_format = match format {
         "jpeg" | "jpg" => CaptureScreenshotFormat::Jpeg,
@@ -279,7 +299,9 @@ pub(super) async fn action_take_screenshot(args: &Value) -> Result<String> {
         .full_page(full_page)
         .build();
 
-    let screenshot_bytes = page.screenshot(params).await
+    let screenshot_bytes = page
+        .screenshot(params)
+        .await
         .map_err(|e| anyhow::anyhow!("Screenshot failed: {}", e))?;
 
     let b64_data = base64::Engine::encode(
@@ -287,7 +309,9 @@ pub(super) async fn action_take_screenshot(args: &Value) -> Result<String> {
         &screenshot_bytes,
     );
 
-    let url = page.url().await
+    let url = page
+        .url()
+        .await
         .ok()
         .flatten()
         .unwrap_or_else(|| "unknown".to_string());
@@ -300,8 +324,11 @@ pub(super) async fn action_take_screenshot(args: &Value) -> Result<String> {
 
     Ok(format!(
         "{}{}__{}__\nScreenshot captured (url: {}, format: {}{})",
-        IMAGE_BASE64_PREFIX, mime, b64_data,
-        url, format,
+        IMAGE_BASE64_PREFIX,
+        mime,
+        b64_data,
+        url,
+        format,
         if full_page { ", full page" } else { "" }
     ))
 }

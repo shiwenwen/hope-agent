@@ -29,12 +29,24 @@ pub struct CanvasConfig {
     pub panel_width: u32,
 }
 
-fn default_enabled() -> bool { true }
-fn default_auto_show() -> bool { true }
-fn default_content_type() -> String { "html".to_string() }
-fn default_max_projects() -> u32 { 100 }
-fn default_max_versions() -> i64 { 50 }
-fn default_panel_width() -> u32 { 480 }
+fn default_enabled() -> bool {
+    true
+}
+fn default_auto_show() -> bool {
+    true
+}
+fn default_content_type() -> String {
+    "html".to_string()
+}
+fn default_max_projects() -> u32 {
+    100
+}
+fn default_max_versions() -> i64 {
+    50
+}
+fn default_panel_width() -> u32 {
+    480
+}
 
 impl Default for CanvasConfig {
     fn default() -> Self {
@@ -92,7 +104,10 @@ fn build_show_payload(project_id: &str, title: &str, content_type: &str) -> Valu
 
 // ── Tool Entry Point ───────────────────────────────────────────────
 
-pub(crate) async fn tool_canvas(args: &Value, ctx: &super::execution::ToolExecContext) -> Result<String> {
+pub(crate) async fn tool_canvas(
+    args: &Value,
+    ctx: &super::execution::ToolExecContext,
+) -> Result<String> {
     let action = args
         .get("action")
         .and_then(|v| v.as_str())
@@ -392,7 +407,8 @@ async fn action_snapshot(args: &Value) -> Result<String> {
                 return Ok(serde_json::json!({
                     "status": "error",
                     "message": format!("Snapshot failed: {}", error)
-                }).to_string());
+                })
+                .to_string());
             }
             if let Some(data_url) = snapshot_data.data_url {
                 // Parse data URL: data:image/png;base64,xxxxx
@@ -405,7 +421,9 @@ async fn action_snapshot(args: &Value) -> Result<String> {
                     let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
                     let save_dir = paths::canvas_project_dir(project_id)?;
                     let snapshot_path = save_dir.join(format!("snapshot_{}.png", timestamp));
-                    if let Ok(bytes) = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, b64) {
+                    if let Ok(bytes) =
+                        base64::Engine::decode(&base64::engine::general_purpose::STANDARD, b64)
+                    {
                         let _ = std::fs::write(&snapshot_path, &bytes);
                     }
 
@@ -418,14 +436,14 @@ async fn action_snapshot(args: &Value) -> Result<String> {
             Ok(serde_json::json!({
                 "status": "error",
                 "message": "Snapshot returned invalid data"
-            }).to_string())
+            })
+            .to_string())
         }
-        Ok(Err(_)) => {
-            Ok(serde_json::json!({
-                "status": "error",
-                "message": "Snapshot request was cancelled"
-            }).to_string())
-        }
+        Ok(Err(_)) => Ok(serde_json::json!({
+            "status": "error",
+            "message": "Snapshot request was cancelled"
+        })
+        .to_string()),
         Err(_) => {
             // Cleanup
             let mut pending = PENDING_SNAPSHOTS.lock().unwrap();
@@ -475,12 +493,14 @@ async fn action_eval_js(args: &Value) -> Result<String> {
                     "status": "error",
                     "error": error,
                     "message": format!("JavaScript execution error: {}", error)
-                }).to_string())
+                })
+                .to_string())
             } else {
                 Ok(serde_json::json!({
                     "status": "ok",
                     "result": eval_result.result.unwrap_or_default(),
-                }).to_string())
+                })
+                .to_string())
             }
         }
         Ok(Err(_)) => Ok(r#"{"status":"error","message":"Eval request cancelled"}"#.to_string()),
@@ -519,7 +539,8 @@ async fn action_export(args: &Value) -> Result<String> {
                 "path": html_path.to_string_lossy(),
                 "content_length": content.len(),
                 "message": format!("HTML export ready at: {}", html_path.display())
-            }).to_string())
+            })
+            .to_string())
         }
         "markdown" => {
             // Find content.md if exists
@@ -531,7 +552,8 @@ async fn action_export(args: &Value) -> Result<String> {
                     "format": "markdown",
                     "path": md_path.to_string_lossy(),
                     "content": content,
-                }).to_string())
+                })
+                .to_string())
             } else {
                 Ok(serde_json::json!({
                     "status": "error",
@@ -539,9 +561,10 @@ async fn action_export(args: &Value) -> Result<String> {
                 }).to_string())
             }
         }
-        _ => {
-            Err(anyhow::anyhow!("Unsupported export format '{}'. Supported: html, markdown", format))
-        }
+        _ => Err(anyhow::anyhow!(
+            "Unsupported export format '{}'. Supported: html, markdown",
+            format
+        )),
     }
 }
 
@@ -562,11 +585,13 @@ pub struct EvalResult {
 
 use std::sync::LazyLock;
 
-static PENDING_SNAPSHOTS: LazyLock<StdMutex<HashMap<String, tokio::sync::oneshot::Sender<SnapshotData>>>> =
-    LazyLock::new(|| StdMutex::new(HashMap::new()));
+static PENDING_SNAPSHOTS: LazyLock<
+    StdMutex<HashMap<String, tokio::sync::oneshot::Sender<SnapshotData>>>,
+> = LazyLock::new(|| StdMutex::new(HashMap::new()));
 
-static PENDING_EVALS: LazyLock<StdMutex<HashMap<String, tokio::sync::oneshot::Sender<EvalResult>>>> =
-    LazyLock::new(|| StdMutex::new(HashMap::new()));
+static PENDING_EVALS: LazyLock<
+    StdMutex<HashMap<String, tokio::sync::oneshot::Sender<EvalResult>>>,
+> = LazyLock::new(|| StdMutex::new(HashMap::new()));
 
 /// Called from Tauri command when frontend submits a snapshot result.
 pub fn submit_snapshot(request_id: &str, data_url: Option<String>, error: Option<String>) {

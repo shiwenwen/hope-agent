@@ -3,12 +3,11 @@ use serde_json::Value;
 
 use crate::browser_state;
 
-
+mod advanced;
 mod connection;
+mod interaction;
 mod navigation;
 mod snapshot;
-mod interaction;
-mod advanced;
 
 /// Image base64 prefix marker — detected by agent.rs for multimodal content
 pub const IMAGE_BASE64_PREFIX: &str = "__IMAGE_BASE64__";
@@ -61,7 +60,8 @@ async fn require_browser() -> Result<()> {
 
 fn get_str<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
     args.get(key).and_then(|v| {
-        v.as_str().or_else(|| v.get("text").and_then(|t| t.as_str()))
+        v.as_str()
+            .or_else(|| v.get("text").and_then(|t| t.as_str()))
     })
 }
 

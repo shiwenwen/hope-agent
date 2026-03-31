@@ -6,11 +6,13 @@ use crate::session::{MessageRole, NewMessage};
 /// Tool: sessions_list — list all chat sessions with metadata.
 pub(crate) async fn tool_sessions_list(args: &Value) -> Result<String> {
     let agent_id = args.get("agent_id").and_then(|v| v.as_str());
-    let limit = args.get("limit")
+    let limit = args
+        .get("limit")
         .and_then(|v| v.as_u64())
         .unwrap_or(20)
         .min(100) as usize;
-    let include_cron = args.get("include_cron")
+    let include_cron = args
+        .get("include_cron")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
@@ -19,7 +21,8 @@ pub(crate) async fn tool_sessions_list(args: &Value) -> Result<String> {
 
     let sessions = db.list_sessions(agent_id)?;
 
-    let filtered: Vec<_> = sessions.into_iter()
+    let filtered: Vec<_> = sessions
+        .into_iter()
         .filter(|s| include_cron || !s.is_cron)
         .take(limit)
         .collect();
@@ -51,7 +54,8 @@ pub(crate) async fn tool_sessions_list(args: &Value) -> Result<String> {
 
 /// Tool: session_status — query detailed status of a specific session.
 pub(crate) async fn tool_session_status(args: &Value) -> Result<String> {
-    let session_id = args.get("session_id")
+    let session_id = args
+        .get("session_id")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Missing 'session_id' parameter"))?;
 
@@ -75,10 +79,17 @@ pub(crate) async fn tool_session_status(args: &Value) -> Result<String> {
                  Updated: {}\n\
                  Is Cron: {}\n\
                  Parent Session: {}",
-                s.id, title, s.agent_id, provider, model,
-                s.message_count, s.unread_count,
-                s.created_at, s.updated_at,
-                s.is_cron, parent,
+                s.id,
+                title,
+                s.agent_id,
+                provider,
+                model,
+                s.message_count,
+                s.unread_count,
+                s.created_at,
+                s.updated_at,
+                s.is_cron,
+                parent,
             ))
         }
         None => Ok(format!("Session '{}' not found.", session_id)),
@@ -87,19 +98,21 @@ pub(crate) async fn tool_session_status(args: &Value) -> Result<String> {
 
 /// Tool: sessions_history — get paginated chat history from a session.
 pub(crate) async fn tool_sessions_history(args: &Value) -> Result<String> {
-    let session_id = args.get("session_id")
+    let session_id = args
+        .get("session_id")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Missing 'session_id' parameter"))?;
 
-    let limit = args.get("limit")
+    let limit = args
+        .get("limit")
         .and_then(|v| v.as_u64())
         .unwrap_or(50)
         .min(200) as u32;
 
-    let before_id = args.get("before_id")
-        .and_then(|v| v.as_i64());
+    let before_id = args.get("before_id").and_then(|v| v.as_i64());
 
-    let include_tools = args.get("include_tools")
+    let include_tools = args
+        .get("include_tools")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
@@ -107,7 +120,8 @@ pub(crate) async fn tool_sessions_history(args: &Value) -> Result<String> {
         .ok_or_else(|| anyhow::anyhow!("Session database not initialized"))?;
 
     // Verify session exists
-    let session = db.get_session(session_id)?
+    let session = db
+        .get_session(session_id)?
         .ok_or_else(|| anyhow::anyhow!("Session '{}' not found", session_id))?;
 
     let (messages, total) = if let Some(bid) = before_id {
@@ -119,9 +133,12 @@ pub(crate) async fn tool_sessions_history(args: &Value) -> Result<String> {
     };
 
     // Filter tool/text_block messages unless requested
-    let filtered: Vec<_> = messages.into_iter()
+    let filtered: Vec<_> = messages
+        .into_iter()
         .filter(|m| {
-            if include_tools { return true; }
+            if include_tools {
+                return true;
+            }
             !matches!(m.role, MessageRole::Tool | MessageRole::TextBlock)
         })
         .collect();
@@ -129,7 +146,9 @@ pub(crate) async fn tool_sessions_history(args: &Value) -> Result<String> {
     let title = session.title.as_deref().unwrap_or("(untitled)");
     let mut output = format!(
         "Session \"{}\" — {} messages (total: {}):\n",
-        title, filtered.len(), total,
+        title,
+        filtered.len(),
+        total,
     );
 
     const MAX_OUTPUT_BYTES: usize = 80 * 1024; // 80KB cap
@@ -144,29 +163,61 @@ pub(crate) async fn tool_sessions_history(args: &Value) -> Result<String> {
             }
             MessageRole::Assistant => {
                 let model_str = msg.model.as_deref().unwrap_or("");
-                let model_suffix = if model_str.is_empty() { String::new() } else { format!(" [{}]", model_str) };
+                let model_suffix = if model_str.is_empty() {
+                    String::new()
+                } else {
+                    format!(" [{}]", model_str)
+                };
                 let content = truncate_str(&msg.content, 4000);
-                format!("\n[#{}] assistant ({}){}:\n  {}\n", msg.id, msg.timestamp, model_suffix, content)
+                format!(
+                    "\n[#{}] assistant ({}){}:\n  {}\n",
+                    msg.id, msg.timestamp, model_suffix, content
+                )
             }
             MessageRole::Tool => {
                 let name = msg.tool_name.as_deref().unwrap_or("unknown");
-                let duration = msg.tool_duration_ms.map(|d| format!(" [{}ms]", d)).unwrap_or_default();
-                let args_str = msg.tool_arguments.as_deref()
+                let duration = msg
+                    .tool_duration_ms
+                    .map(|d| format!(" [{}ms]", d))
+                    .unwrap_or_default();
+                let args_str = msg
+                    .tool_arguments
+                    .as_deref()
                     .map(|a| format!("\n  Args: {}", truncate_str(a, TOOL_ARGS_MAX)))
                     .unwrap_or_default();
-                let result_str = msg.tool_result.as_deref()
+                let result_str = msg
+                    .tool_result
+                    .as_deref()
                     .map(|r| format!("\n  Result: {}", truncate_str(r, TOOL_RESULT_MAX)))
                     .unwrap_or_default();
-                format!("\n[#{}] tool: {} ({}){}{}{}\n", msg.id, name, msg.timestamp, duration, args_str, result_str)
+                format!(
+                    "\n[#{}] tool: {} ({}){}{}{}\n",
+                    msg.id, name, msg.timestamp, duration, args_str, result_str
+                )
             }
             MessageRole::Event => {
-                format!("\n[#{}] event ({}): {}\n", msg.id, msg.timestamp, truncate_str(&msg.content, 500))
+                format!(
+                    "\n[#{}] event ({}): {}\n",
+                    msg.id,
+                    msg.timestamp,
+                    truncate_str(&msg.content, 500)
+                )
             }
             MessageRole::TextBlock => {
-                format!("\n[#{}] text ({}):\n  {}\n", msg.id, msg.timestamp, truncate_str(&msg.content, 2000))
+                format!(
+                    "\n[#{}] text ({}):\n  {}\n",
+                    msg.id,
+                    msg.timestamp,
+                    truncate_str(&msg.content, 2000)
+                )
             }
             MessageRole::ThinkingBlock => {
-                format!("\n[#{}] thinking ({}):\n  {}\n", msg.id, msg.timestamp, truncate_str(&msg.content, 2000))
+                format!(
+                    "\n[#{}] thinking ({}):\n  {}\n",
+                    msg.id,
+                    msg.timestamp,
+                    truncate_str(&msg.content, 2000)
+                )
             }
         };
 
@@ -185,20 +236,24 @@ pub(crate) async fn tool_sessions_history(args: &Value) -> Result<String> {
 }
 
 /// Tool: sessions_send — send a message to another session.
-pub(crate) async fn tool_sessions_send(args: &Value, ctx: &super::execution::ToolExecContext) -> Result<String> {
-    let target_session_id = args.get("session_id")
+pub(crate) async fn tool_sessions_send(
+    args: &Value,
+    ctx: &super::execution::ToolExecContext,
+) -> Result<String> {
+    let target_session_id = args
+        .get("session_id")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Missing 'session_id' parameter"))?;
 
-    let message = args.get("message")
+    let message = args
+        .get("message")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Missing 'message' parameter"))?;
 
-    let wait = args.get("wait")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
+    let wait = args.get("wait").and_then(|v| v.as_bool()).unwrap_or(false);
 
-    let timeout_secs = args.get("timeout_secs")
+    let timeout_secs = args
+        .get("timeout_secs")
         .and_then(|v| v.as_u64())
         .unwrap_or(60)
         .min(300);
@@ -206,7 +261,10 @@ pub(crate) async fn tool_sessions_send(args: &Value, ctx: &super::execution::Too
     // Prevent sending to self (infinite loop)
     if let Some(ref self_session) = ctx.session_id {
         if self_session == target_session_id {
-            return Ok("Error: Cannot send a message to your own session (would create a loop).".to_string());
+            return Ok(
+                "Error: Cannot send a message to your own session (would create a loop)."
+                    .to_string(),
+            );
         }
     }
 
@@ -214,7 +272,8 @@ pub(crate) async fn tool_sessions_send(args: &Value, ctx: &super::execution::Too
         .ok_or_else(|| anyhow::anyhow!("Session database not initialized"))?;
 
     // Verify target session exists
-    let session = db.get_session(target_session_id)?
+    let session = db
+        .get_session(target_session_id)?
         .ok_or_else(|| anyhow::anyhow!("Target session '{}' not found", target_session_id))?;
 
     // Append user message to target session
@@ -225,9 +284,12 @@ pub(crate) async fn tool_sessions_send(args: &Value, ctx: &super::execution::Too
         // Non-blocking: emit event for frontend to pick up, return immediately
         if let Some(app) = crate::get_app_handle() {
             use tauri::Emitter;
-            let _ = app.emit("session_message_injected", serde_json::json!({
-                "session_id": target_session_id,
-            }));
+            let _ = app.emit(
+                "session_message_injected",
+                serde_json::json!({
+                    "session_id": target_session_id,
+                }),
+            );
         }
 
         return Ok(format!(
@@ -246,30 +308,22 @@ pub(crate) async fn tool_sessions_send(args: &Value, ctx: &super::execution::Too
 
     let agent_task = run_agent_for_session(&agent_id, &message_owned, &session_id_owned);
 
-    let response = tokio::time::timeout(
-        std::time::Duration::from_secs(timeout_secs),
-        agent_task,
-    ).await;
+    let response =
+        tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), agent_task).await;
 
     match response {
-        Ok(Ok(reply)) => {
-            Ok(format!(
-                "Message sent to session [{}]. Agent response:\n\n{}",
-                target_session_id, reply,
-            ))
-        }
-        Ok(Err(e)) => {
-            Ok(format!(
-                "Message delivered to session [{}], but agent execution failed: {}",
-                target_session_id, e,
-            ))
-        }
-        Err(_) => {
-            Ok(format!(
-                "Message delivered to session [{}], but agent did not respond within {} seconds.",
-                target_session_id, timeout_secs,
-            ))
-        }
+        Ok(Ok(reply)) => Ok(format!(
+            "Message sent to session [{}]. Agent response:\n\n{}",
+            target_session_id, reply,
+        )),
+        Ok(Err(e)) => Ok(format!(
+            "Message delivered to session [{}], but agent execution failed: {}",
+            target_session_id, e,
+        )),
+        Err(_) => Ok(format!(
+            "Message delivered to session [{}], but agent did not respond within {} seconds.",
+            target_session_id, timeout_secs,
+        )),
     }
 }
 
@@ -281,8 +335,8 @@ async fn run_agent_for_session(agent_id: &str, message: &str, session_id: &str) 
     use crate::agent::AssistantAgent;
     use crate::failover;
     use crate::provider;
-    use std::sync::Arc;
     use std::sync::atomic::AtomicBool;
+    use std::sync::Arc;
 
     let store = provider::load_store().unwrap_or_default();
     let agent_model_config = crate::agent_loader::load_agent(agent_id)
@@ -296,13 +350,19 @@ async fn run_agent_for_session(agent_id: &str, message: &str, session_id: &str) 
         model_chain.push(p);
     }
     for fb in fallbacks {
-        if !model_chain.iter().any(|m| m.provider_id == fb.provider_id && m.model_id == fb.model_id) {
+        if !model_chain
+            .iter()
+            .any(|m| m.provider_id == fb.provider_id && m.model_id == fb.model_id)
+        {
             model_chain.push(fb);
         }
     }
 
     if model_chain.is_empty() {
-        return Err(anyhow::anyhow!("No model configured for agent '{}'", agent_id));
+        return Err(anyhow::anyhow!(
+            "No model configured for agent '{}'",
+            agent_id
+        ));
     }
 
     let mut last_error = String::new();
@@ -331,7 +391,12 @@ async fn run_agent_for_session(agent_id: &str, message: &str, session_id: &str) 
             match agent.chat(message, &[], None, cancel, |_delta| {}).await {
                 Ok((response, _thinking)) => {
                     if idx > 0 {
-                        app_info!("tool", "sessions_send", "Fallback model {} succeeded", model_label);
+                        app_info!(
+                            "tool",
+                            "sessions_send",
+                            "Fallback model {} succeeded",
+                            model_label
+                        );
                     }
                     return Ok(response);
                 }
@@ -356,7 +421,10 @@ async fn run_agent_for_session(agent_id: &str, message: &str, session_id: &str) 
         }
     }
 
-    Err(anyhow::anyhow!("All models failed. Last error: {}", last_error))
+    Err(anyhow::anyhow!(
+        "All models failed. Last error: {}",
+        last_error
+    ))
 }
 
 fn truncate_str(s: &str, max: usize) -> &str {

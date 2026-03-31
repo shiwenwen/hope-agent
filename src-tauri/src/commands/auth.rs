@@ -1,15 +1,12 @@
-use tauri::State;
-use serde::Serialize;
-use crate::AppState;
 use crate::agent::{self, AssistantAgent};
 use crate::oauth;
 use crate::provider::{self, ActiveModel, ApiType, ModelConfig, ProviderConfig};
+use crate::AppState;
+use serde::Serialize;
+use tauri::State;
 
 #[tauri::command]
-pub async fn initialize_agent(
-    api_key: String,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
+pub async fn initialize_agent(api_key: String, state: State<'_, AppState>) -> Result<(), String> {
     let mut store = state.provider_store.lock().await;
 
     // Create an Anthropic provider
@@ -47,9 +44,7 @@ pub async fn initialize_agent(
 // ── Codex OAuth Auth ──────────────────────────────────────────────
 
 #[tauri::command]
-pub async fn start_codex_auth(
-    state: State<'_, AppState>,
-) -> Result<(), String> {
+pub async fn start_codex_auth(state: State<'_, AppState>) -> Result<(), String> {
     {
         let mut lock = state.auth_result.lock().await;
         *lock = None;
@@ -61,21 +56,26 @@ pub async fn start_codex_auth(
 }
 
 #[tauri::command]
-pub async fn check_auth_status(
-    state: State<'_, AppState>,
-) -> Result<oauth::AuthStatus, String> {
+pub async fn check_auth_status(state: State<'_, AppState>) -> Result<oauth::AuthStatus, String> {
     let lock = state.auth_result.lock().await;
     match lock.as_ref() {
-        None => Ok(oauth::AuthStatus { authenticated: false, error: None }),
-        Some(Ok(_)) => Ok(oauth::AuthStatus { authenticated: true, error: None }),
-        Some(Err(e)) => Ok(oauth::AuthStatus { authenticated: false, error: Some(e.to_string()) }),
+        None => Ok(oauth::AuthStatus {
+            authenticated: false,
+            error: None,
+        }),
+        Some(Ok(_)) => Ok(oauth::AuthStatus {
+            authenticated: true,
+            error: None,
+        }),
+        Some(Err(e)) => Ok(oauth::AuthStatus {
+            authenticated: false,
+            error: Some(e.to_string()),
+        }),
     }
 }
 
 #[tauri::command]
-pub async fn finalize_codex_auth(
-    state: State<'_, AppState>,
-) -> Result<(), String> {
+pub async fn finalize_codex_auth(state: State<'_, AppState>) -> Result<(), String> {
     let token = {
         let mut lock = state.auth_result.lock().await;
         match lock.take() {
@@ -85,7 +85,8 @@ pub async fn finalize_codex_auth(
         }
     };
 
-    let account_id = token.account_id
+    let account_id = token
+        .account_id
         .clone()
         .or_else(|| oauth::extract_account_id(&token.access_token))
         .ok_or_else(|| "Failed to extract account ID from token".to_string())?;
@@ -110,9 +111,7 @@ pub async fn finalize_codex_auth(
 }
 
 #[tauri::command]
-pub async fn try_restore_session(
-    state: State<'_, AppState>,
-) -> Result<bool, String> {
+pub async fn try_restore_session(state: State<'_, AppState>) -> Result<bool, String> {
     // First, load provider store from disk
     {
         let mut store = state.provider_store.lock().await;
@@ -126,7 +125,11 @@ pub async fn try_restore_session(
     match oauth::load_token() {
         Ok(Some(mut token)) => {
             if oauth::is_token_expired(&token) {
-                app_info!("app", "session", "Saved token is expired, attempting refresh...");
+                app_info!(
+                    "app",
+                    "session",
+                    "Saved token is expired, attempting refresh..."
+                );
                 if let Some(refresh_token) = &token.refresh_token {
                     match oauth::refresh_access_token(refresh_token).await {
                         Ok(new_token) => {
@@ -134,19 +137,29 @@ pub async fn try_restore_session(
                             token = new_token;
                         }
                         Err(e) => {
-                            app_warn!("app", "session", "Token refresh failed: {}, clearing saved session", e);
+                            app_warn!(
+                                "app",
+                                "session",
+                                "Token refresh failed: {}, clearing saved session",
+                                e
+                            );
                             let _ = oauth::clear_token();
                             return Ok(try_restore_non_codex_session(&state).await);
                         }
                     }
                 } else {
-                    app_warn!("app", "session", "Token expired and no refresh_token available");
+                    app_warn!(
+                        "app",
+                        "session",
+                        "Token expired and no refresh_token available"
+                    );
                     let _ = oauth::clear_token();
                     return Ok(try_restore_non_codex_session(&state).await);
                 }
             }
 
-            let account_id = token.account_id
+            let account_id = token
+                .account_id
                 .clone()
                 .or_else(|| oauth::extract_account_id(&token.access_token));
 
@@ -155,7 +168,7 @@ pub async fn try_restore_session(
                     // Ensure Codex provider exists
                     let model_id;
                     {
-                    let mut store = state.provider_store.lock().await;
+                        let mut store = state.provider_store.lock().await;
                         let codex_provider_id = provider::ensure_codex_provider(&mut store);
 
                         // Determine which model to activate:
@@ -177,13 +190,21 @@ pub async fn try_restore_session(
                     {
                         let store = state.provider_store.lock().await;
                         if let Some(ref active) = store.active_model {
-                            let active_provider = store.providers.iter().find(|p| p.id == active.provider_id);
+                            let active_provider =
+                                store.providers.iter().find(|p| p.id == active.provider_id);
                             if let Some(provider) = active_provider {
                                 if provider.api_type == ApiType::Codex {
-                                    let agent = AssistantAgent::new_openai(&token.access_token, &id, &active.model_id);
+                                    let agent = AssistantAgent::new_openai(
+                                        &token.access_token,
+                                        &id,
+                                        &active.model_id,
+                                    );
                                     *state.agent.lock().await = Some(agent);
                                 } else {
-                                    let agent = AssistantAgent::new_from_provider(provider, &active.model_id);
+                                    let agent = AssistantAgent::new_from_provider(
+                                        provider,
+                                        &active.model_id,
+                                    );
                                     *state.agent.lock().await = Some(agent);
                                 }
                             }
@@ -193,7 +214,11 @@ pub async fn try_restore_session(
                     Ok(true)
                 }
                 None => {
-                    app_warn!("app", "session", "Failed to extract account_id from saved token");
+                    app_warn!(
+                        "app",
+                        "session",
+                        "Failed to extract account_id from saved token"
+                    );
                     let _ = oauth::clear_token();
                     Ok(try_restore_non_codex_session(&state).await)
                 }
@@ -211,7 +236,11 @@ pub async fn try_restore_session(
 pub(crate) async fn try_restore_non_codex_session(state: &State<'_, AppState>) -> bool {
     let store = state.provider_store.lock().await;
     if let Some(ref active) = store.active_model {
-        if let Some(provider) = store.providers.iter().find(|p| p.id == active.provider_id && p.enabled) {
+        if let Some(provider) = store
+            .providers
+            .iter()
+            .find(|p| p.id == active.provider_id && p.enabled)
+        {
             if provider.api_type != ApiType::Codex {
                 // Need to drop store lock before acquiring agent lock
                 let provider_clone = provider.clone();
@@ -227,9 +256,7 @@ pub(crate) async fn try_restore_non_codex_session(state: &State<'_, AppState>) -
 }
 
 #[tauri::command]
-pub async fn logout_codex(
-    state: State<'_, AppState>,
-) -> Result<(), String> {
+pub async fn logout_codex(state: State<'_, AppState>) -> Result<(), String> {
     *state.agent.lock().await = None;
     *state.codex_token.lock().await = None;
 
@@ -264,11 +291,10 @@ pub async fn get_codex_models() -> Result<Vec<agent::CodexModel>, String> {
 }
 
 #[tauri::command]
-pub async fn get_current_settings(
-    state: State<'_, AppState>,
-) -> Result<CurrentSettings, String> {
+pub async fn get_current_settings(state: State<'_, AppState>) -> Result<CurrentSettings, String> {
     let store = state.provider_store.lock().await;
-    let model = store.active_model
+    let model = store
+        .active_model
         .as_ref()
         .map(|am| am.model_id.clone())
         .unwrap_or_else(|| "gpt-5.4".to_string());
@@ -280,10 +306,7 @@ pub async fn get_current_settings(
 }
 
 #[tauri::command]
-pub async fn set_codex_model(
-    model: String,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
+pub async fn set_codex_model(model: String, state: State<'_, AppState>) -> Result<(), String> {
     let valid = agent::get_codex_models().iter().any(|m| m.id == model);
     if !valid {
         return Err(format!("Unknown model: {}", model));
@@ -315,7 +338,10 @@ pub async fn set_reasoning_effort(
 ) -> Result<(), String> {
     let valid = ["none", "low", "medium", "high", "xhigh"];
     if !valid.contains(&effort.as_str()) {
-        return Err(format!("Invalid reasoning effort: {}. Valid: {:?}", effort, valid));
+        return Err(format!(
+            "Invalid reasoning effort: {}. Valid: {:?}",
+            effort, valid
+        ));
     }
     *state.reasoning_effort.lock().await = effort;
     Ok(())

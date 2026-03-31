@@ -83,7 +83,9 @@ impl CanvasDB {
                 ON canvas_versions(project_id, version_number DESC);",
         )?;
 
-        Ok(Self { conn: Mutex::new(conn) })
+        Ok(Self {
+            conn: Mutex::new(conn),
+        })
     }
 
     // ── Projects ───────────────────────────────────────────────────
@@ -156,7 +158,13 @@ impl CanvasDB {
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
     }
 
-    pub fn update_project_meta(&self, id: &str, title: Option<&str>, updated_at: &str, version_count: i64) -> Result<()> {
+    pub fn update_project_meta(
+        &self,
+        id: &str,
+        title: Option<&str>,
+        updated_at: &str,
+        version_count: i64,
+    ) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         if let Some(t) = title {
             conn.execute(
@@ -174,7 +182,10 @@ impl CanvasDB {
 
     pub fn delete_project(&self, id: &str) -> Result<()> {
         let conn = self.conn.lock().unwrap();
-        conn.execute("DELETE FROM canvas_projects WHERE id = ?1", rusqlite::params![id])?;
+        conn.execute(
+            "DELETE FROM canvas_projects WHERE id = ?1",
+            rusqlite::params![id],
+        )?;
         Ok(())
     }
 
@@ -221,7 +232,11 @@ impl CanvasDB {
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
     }
 
-    pub fn get_version(&self, project_id: &str, version_number: i64) -> Result<Option<CanvasVersion>> {
+    pub fn get_version(
+        &self,
+        project_id: &str,
+        version_number: i64,
+    ) -> Result<Option<CanvasVersion>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, project_id, version_number, message, html, css, js, content, created_at

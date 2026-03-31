@@ -1,7 +1,7 @@
 // ── Token Estimation ──
 
-use serde_json::Value;
 use super::{CHARS_PER_TOKEN, IMAGE_CHAR_ESTIMATE};
+use serde_json::Value;
 
 /// Estimate token count for a JSON value using char/4 heuristic.
 pub fn estimate_tokens(value: &Value) -> u32 {
@@ -89,12 +89,18 @@ pub(super) fn get_tool_result_text(msg: &Value) -> Option<String> {
 
     // OpenAI Chat: role=tool, content is string
     if role == Some("tool") {
-        return msg.get("content").and_then(|c| c.as_str()).map(|s| s.to_string());
+        return msg
+            .get("content")
+            .and_then(|c| c.as_str())
+            .map(|s| s.to_string());
     }
 
     // OpenAI Responses: type=function_call_output, output is string
     if msg_type == Some("function_call_output") {
-        return msg.get("output").and_then(|o| o.as_str()).map(|s| s.to_string());
+        return msg
+            .get("output")
+            .and_then(|o| o.as_str())
+            .map(|s| s.to_string());
     }
 
     // Anthropic: role=user with content array containing tool_result blocks
@@ -135,7 +141,10 @@ pub(super) fn get_tool_result_text(msg: &Value) -> Option<String> {
 
 /// Set the text content of a tool result message, format-agnostic.
 pub(super) fn set_tool_result_text(msg: &mut Value, new_text: &str) {
-    let role = msg.get("role").and_then(|r| r.as_str()).map(|s| s.to_string());
+    let role = msg
+        .get("role")
+        .and_then(|r| r.as_str())
+        .map(|s| s.to_string());
     let msg_type = msg
         .get("type")
         .and_then(|t| t.as_str())

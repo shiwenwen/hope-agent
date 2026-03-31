@@ -386,13 +386,9 @@ pub struct AuthenticateResponse {}
 #[serde(tag = "sessionUpdate")]
 pub enum SessionUpdate {
     #[serde(rename = "agent_message_chunk")]
-    AgentMessageChunk {
-        content: TextContent,
-    },
+    AgentMessageChunk { content: TextContent },
     #[serde(rename = "agent_thought_chunk")]
-    AgentThoughtChunk {
-        content: TextContent,
-    },
+    AgentThoughtChunk { content: TextContent },
     #[serde(rename = "tool_call")]
     ToolCall {
         #[serde(rename = "toolCallId")]
@@ -413,10 +409,7 @@ pub enum SessionUpdate {
         content: Option<Vec<ToolCallContent>>,
     },
     #[serde(rename = "usage_update")]
-    UsageUpdate {
-        used: u64,
-        size: u64,
-    },
+    UsageUpdate { used: u64, size: u64 },
     #[serde(rename = "session_info_update")]
     SessionInfoUpdate {
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -441,9 +434,7 @@ pub enum SessionUpdate {
     },
     /// User message replay (for loadSession)
     #[serde(rename = "user_message_chunk")]
-    UserMessageChunk {
-        content: TextContent,
-    },
+    UserMessageChunk { content: TextContent },
 }
 
 #[derive(Debug, Serialize)]
@@ -485,9 +476,18 @@ pub fn parse_session_meta(meta: &Option<Value>) -> SessionMeta {
         None => return SessionMeta::default(),
     };
     SessionMeta {
-        agent_id: meta.get("agentId").and_then(|v| v.as_str()).map(String::from),
-        session_key: meta.get("sessionKey").and_then(|v| v.as_str()).map(String::from),
-        reset_session: meta.get("resetSession").and_then(|v| v.as_bool()).unwrap_or(false),
+        agent_id: meta
+            .get("agentId")
+            .and_then(|v| v.as_str())
+            .map(String::from),
+        session_key: meta
+            .get("sessionKey")
+            .and_then(|v| v.as_str())
+            .map(String::from),
+        reset_session: meta
+            .get("resetSession")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
     }
 }
 
@@ -511,11 +511,12 @@ pub fn extract_text_from_prompt(prompt: &[ContentBlock]) -> anyhow::Result<Strin
     for block in prompt {
         let text = match block {
             ContentBlock::Text { text } => Some(text.clone()),
-            ContentBlock::Resource { resource } => {
-                resource.as_ref().and_then(|r| r.text.clone())
-            }
+            ContentBlock::Resource { resource } => resource.as_ref().and_then(|r| r.text.clone()),
             ContentBlock::ResourceLink { uri, title } => {
-                let title_part = title.as_deref().map(|t| format!(" ({t})")).unwrap_or_default();
+                let title_part = title
+                    .as_deref()
+                    .map(|t| format!(" ({t})"))
+                    .unwrap_or_default();
                 let uri_part = uri.as_deref().unwrap_or("");
                 Some(format!("[Resource link{title_part}] {uri_part}"))
             }
@@ -524,7 +525,10 @@ pub fn extract_text_from_prompt(prompt: &[ContentBlock]) -> anyhow::Result<Strin
         if let Some(t) = text {
             total_bytes += t.len() + if parts.is_empty() { 0 } else { 1 };
             if total_bytes > MAX_PROMPT_BYTES {
-                anyhow::bail!("Prompt exceeds maximum allowed size of {} bytes", MAX_PROMPT_BYTES);
+                anyhow::bail!(
+                    "Prompt exceeds maximum allowed size of {} bytes",
+                    MAX_PROMPT_BYTES
+                );
             }
             parts.push(t);
         }
@@ -536,7 +540,11 @@ pub fn extract_text_from_prompt(prompt: &[ContentBlock]) -> anyhow::Result<Strin
 pub fn extract_images_from_prompt(prompt: &[ContentBlock]) -> Vec<crate::agent::Attachment> {
     let mut attachments = Vec::new();
     for block in prompt {
-        if let ContentBlock::Image { data: Some(data), mime_type } = block {
+        if let ContentBlock::Image {
+            data: Some(data),
+            mime_type,
+        } = block
+        {
             attachments.push(crate::agent::Attachment {
                 name: "image".to_string(),
                 mime_type: mime_type.clone().unwrap_or_else(|| "image/png".to_string()),
@@ -551,11 +559,23 @@ pub fn extract_images_from_prompt(prompt: &[ContentBlock]) -> Vec<crate::agent::
 /// Infer tool kind from tool name
 pub fn infer_tool_kind(name: &str) -> &'static str {
     let n = name.to_lowercase();
-    if n.contains("read") { return "read"; }
-    if n.contains("write") || n.contains("edit") { return "edit"; }
-    if n.contains("delete") || n.contains("remove") { return "delete"; }
-    if n.contains("search") || n.contains("find") { return "search"; }
-    if n.contains("exec") || n.contains("run") || n.contains("bash") { return "execute"; }
-    if n.contains("fetch") || n.contains("http") { return "fetch"; }
+    if n.contains("read") {
+        return "read";
+    }
+    if n.contains("write") || n.contains("edit") {
+        return "edit";
+    }
+    if n.contains("delete") || n.contains("remove") {
+        return "delete";
+    }
+    if n.contains("search") || n.contains("find") {
+        return "search";
+    }
+    if n.contains("exec") || n.contains("run") || n.contains("bash") {
+        return "execute";
+    }
+    if n.contains("fetch") || n.contains("http") {
+        return "fetch";
+    }
     "other"
 }

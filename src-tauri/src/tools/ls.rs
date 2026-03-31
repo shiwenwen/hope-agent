@@ -23,7 +23,13 @@ pub(crate) async fn tool_ls(args: &Value, ctx: &super::ToolExecContext) -> Resul
         .map(|v| v as usize)
         .unwrap_or(LS_DEFAULT_LIMIT);
 
-    app_info!("tool", "ls", "Listing directory: {} (limit={})", path, limit);
+    app_info!(
+        "tool",
+        "ls",
+        "Listing directory: {} (limit={})",
+        path,
+        limit
+    );
 
     // Validate path exists and is a directory
     let meta = tokio::fs::metadata(&path)

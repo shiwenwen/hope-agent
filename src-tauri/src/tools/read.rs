@@ -50,7 +50,10 @@ const IMAGE_MAX_BYTES: usize = 5 * 1024 * 1024; // 5 MB
 
 /// Resize an image buffer if it exceeds dimension or byte limits.
 /// Returns (base64_data, mime_type).
-pub(crate) fn resize_image_if_needed(data: &[u8], original_mime: &str) -> Result<(String, &'static str)> {
+pub(crate) fn resize_image_if_needed(
+    data: &[u8],
+    original_mime: &str,
+) -> Result<(String, &'static str)> {
     use image::ImageReader;
     use std::io::Cursor;
 
@@ -67,8 +70,7 @@ pub(crate) fn resize_image_if_needed(data: &[u8], original_mime: &str) -> Result
 
     if !needs_resize {
         // Return original data as base64
-        let b64 =
-            base64::Engine::encode(&base64::engine::general_purpose::STANDARD, data);
+        let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, data);
         // Keep original mime, but map to static str
         let mime: &'static str = match original_mime {
             "image/png" => "image/png",
@@ -98,10 +100,8 @@ pub(crate) fn resize_image_if_needed(data: &[u8], original_mime: &str) -> Result
             .map_err(|e| anyhow::anyhow!("Failed to encode resized image: {}", e))?;
         let jpeg_bytes = buf.into_inner();
         if jpeg_bytes.len() <= IMAGE_MAX_BYTES {
-            let b64 = base64::Engine::encode(
-                &base64::engine::general_purpose::STANDARD,
-                &jpeg_bytes,
-            );
+            let b64 =
+                base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &jpeg_bytes);
             return Ok((b64, "image/jpeg"));
         }
     }
@@ -203,10 +203,7 @@ fn read_text_page(
     (output, selected.len(), truncated, total_lines)
 }
 
-pub(crate) async fn tool_read_file(
-    args: &Value,
-    ctx: &super::ToolExecContext,
-) -> Result<String> {
+pub(crate) async fn tool_read_file(args: &Value, ctx: &super::ToolExecContext) -> Result<String> {
     // Accept both "path" and "file_path", with structured content support
     let raw_path = args
         .get("path")
@@ -226,7 +223,9 @@ pub(crate) async fn tool_read_file(
         .and_then(|v| v.as_u64())
         .map(|v| v as usize);
 
-    app_info!("tool", "read",
+    app_info!(
+        "tool",
+        "read",
         "Reading file: {} (offset={}, limit={:?})",
         path,
         offset,
@@ -241,7 +240,13 @@ pub(crate) async fn tool_read_file(
     // Check if file is an image via magic bytes
     let mime = detect_image_mime(&data);
     if let Some(mime_type) = mime {
-        app_info!("tool", "read", "Detected image file: {} ({})", path, mime_type);
+        app_info!(
+            "tool",
+            "read",
+            "Detected image file: {} ({})",
+            path,
+            mime_type
+        );
         match resize_image_if_needed(&data, mime_type) {
             Ok((b64, declared_mime)) => {
                 // Secondary MIME verification: decode base64 header and re-sniff

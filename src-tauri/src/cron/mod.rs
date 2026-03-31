@@ -5,9 +5,7 @@ mod scheduler;
 mod types;
 
 // Re-export all public types
-pub use types::{
-    CalendarEvent, CronJob, CronPayload, CronRunLog, CronSchedule, NewCronJob,
-};
+pub use types::{CalendarEvent, CronJob, CronPayload, CronRunLog, CronSchedule, NewCronJob};
 
 // Re-export DB layer
 pub use db::CronDB;

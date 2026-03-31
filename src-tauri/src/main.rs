@@ -156,7 +156,10 @@ fn run_guardian() {
             }
             EXIT_CODE_RESTART => {
                 // Restart requested (e.g., after self-fix)
-                eprintln!("[Guardian] Restart requested (exit code {}), restarting immediately.", EXIT_CODE_RESTART);
+                eprintln!(
+                    "[Guardian] Restart requested (exit code {}), restarting immediately.",
+                    EXIT_CODE_RESTART
+                );
                 crash_count = 0;
                 last_crash_time = None;
                 continue;
@@ -184,7 +187,9 @@ fn run_guardian() {
 
                 // Trigger backup + self-diagnosis at threshold
                 if crash_count == DIAGNOSIS_THRESHOLD {
-                    eprintln!("[Guardian] Crash threshold reached, running backup and self-diagnosis...");
+                    eprintln!(
+                        "[Guardian] Crash threshold reached, running backup and self-diagnosis..."
+                    );
                     run_recovery(journal_path.as_ref());
                 }
 
@@ -349,7 +354,10 @@ fn run_acp_server(args: &[String]) {
     }
 
     if verbose {
-        eprintln!("[acp] Starting OpenComputer ACP server v{}", env!("CARGO_PKG_VERSION"));
+        eprintln!(
+            "[acp] Starting OpenComputer ACP server v{}",
+            env!("CARGO_PKG_VERSION")
+        );
         eprintln!("[acp] Agent ID: {}", agent_id);
         eprintln!("[acp] Protocol: NDJSON over stdio");
     }

@@ -56,8 +56,12 @@ impl ImageGenProviderImpl for ZhipuProvider {
             },
             geometry: Some(ImageGenGeometry {
                 sizes: vec![
-                    "1024x1024", "1024x1536", "1536x1024",
-                    "1024x1792", "1792x1024", "2048x2048",
+                    "1024x1024",
+                    "1024x1536",
+                    "1536x1024",
+                    "1024x1792",
+                    "1792x1024",
+                    "2048x2048",
                 ],
                 aspect_ratios: vec![],
                 resolutions: vec![],
@@ -138,10 +142,18 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
 
     if let Some(logger) = crate::get_logger() {
         logger.log(
-            if status.is_success() { "debug" } else { "error" },
+            if status.is_success() {
+                "debug"
+            } else {
+                "error"
+            },
             "tool",
             "image_generate::zhipu::response",
-            &format!("ZhipuAI response: status={}, ttfb={}ms", status.as_u16(), ttfb_ms),
+            &format!(
+                "ZhipuAI response: status={}, ttfb={}ms",
+                status.as_u16(),
+                ttfb_ms
+            ),
             Some(serde_json::json!({"status": status.as_u16(), "ttfb_ms": ttfb_ms}).to_string()),
             None,
             None,
@@ -155,8 +167,14 @@ async fn generate_impl(params: ImageGenParams<'_>) -> Result<ImageGenResult> {
                 "error",
                 "tool",
                 "image_generate::zhipu::error",
-                &format!("ZhipuAI error ({}): {}", status.as_u16(), crate::truncate_utf8(&body, 500)),
-                Some(serde_json::json!({"status": status.as_u16(), "error_body": &body}).to_string()),
+                &format!(
+                    "ZhipuAI error ({}): {}",
+                    status.as_u16(),
+                    crate::truncate_utf8(&body, 500)
+                ),
+                Some(
+                    serde_json::json!({"status": status.as_u16(), "error_body": &body}).to_string(),
+                ),
                 None,
                 None,
             );

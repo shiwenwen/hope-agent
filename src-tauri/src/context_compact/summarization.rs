@@ -1,13 +1,13 @@
 // ── Tier 3: Summarization Helpers (used by agent.rs) ──
 
-use serde_json::Value;
 use super::config::CompactConfig;
-use super::estimation::{estimate_tokens, is_tool_result, is_user_message, get_tool_result_text};
+use super::estimation::{estimate_tokens, get_tool_result_text, is_tool_result, is_user_message};
 use super::types::SummarizationSplit;
 use super::{
-    SAFETY_MARGIN, BASE_CHUNK_RATIO, MIN_CHUNK_RATIO, MAX_COMPACTION_SUMMARY_CHARS,
-    SUMMARY_TRUNCATED_MARKER, IDENTIFIER_PRESERVATION_INSTRUCTIONS,
+    BASE_CHUNK_RATIO, IDENTIFIER_PRESERVATION_INSTRUCTIONS, MAX_COMPACTION_SUMMARY_CHARS,
+    MIN_CHUNK_RATIO, SAFETY_MARGIN, SUMMARY_TRUNCATED_MARKER,
 };
+use serde_json::Value;
 
 /// System prompt for context summarization (Tier 3)
 #[allow(dead_code)]
@@ -100,8 +100,14 @@ pub fn build_summarization_prompt(
 
         // Responses API function_call → readable tool call
         if msg_type == "function_call" {
-            let name = msg.get("name").and_then(|n| n.as_str()).unwrap_or("unknown");
-            let args = msg.get("arguments").and_then(|a| a.as_str()).unwrap_or("{}");
+            let name = msg
+                .get("name")
+                .and_then(|n| n.as_str())
+                .unwrap_or("unknown");
+            let args = msg
+                .get("arguments")
+                .and_then(|a| a.as_str())
+                .unwrap_or("{}");
             let args_preview = if args.len() > 200 {
                 format!("{}...", crate::truncate_utf8(args, 200))
             } else {
@@ -115,7 +121,11 @@ pub fn build_summarization_prompt(
         if msg_type == "function_call_output" {
             let output = msg.get("output").and_then(|o| o.as_str()).unwrap_or("");
             let preview = if output.len() > 500 {
-                format!("{}... [{}+ chars]", crate::truncate_utf8(output, 500), output.len())
+                format!(
+                    "{}... [{}+ chars]",
+                    crate::truncate_utf8(output, 500),
+                    output.len()
+                )
             } else {
                 output.to_string()
             };
@@ -131,7 +141,11 @@ pub fn build_summarization_prompt(
         if is_tool_result(msg) {
             if let Some(text) = get_tool_result_text(msg) {
                 let preview = if text.len() > 500 {
-                    format!("{}... [{}+ chars]", crate::truncate_utf8(&text, 500), text.len())
+                    format!(
+                        "{}... [{}+ chars]",
+                        crate::truncate_utf8(&text, 500),
+                        text.len()
+                    )
                 } else {
                     text
                 };
@@ -279,10 +293,7 @@ pub fn compute_adaptive_chunk_ratio(messages: &[Value], context_window: u32) -> 
 
 /// Split messages into chunks by token share.
 #[allow(dead_code)]
-pub fn split_messages_by_token_share(
-    messages: &[Value],
-    parts: usize,
-) -> Vec<Vec<Value>> {
+pub fn split_messages_by_token_share(messages: &[Value], parts: usize) -> Vec<Vec<Value>> {
     if messages.is_empty() {
         return vec![];
     }

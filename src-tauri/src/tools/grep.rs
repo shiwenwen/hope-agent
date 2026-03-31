@@ -36,16 +36,15 @@ pub(crate) async fn tool_grep(args: &Value, ctx: &super::ToolExecContext) -> Res
         .get("literal")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    let context_lines = args
-        .get("context")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0) as usize;
+    let context_lines = args.get("context").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
     let limit = args
         .get("limit")
         .and_then(|v| v.as_u64())
         .unwrap_or(GREP_DEFAULT_LIMIT as u64) as usize;
 
-    app_info!("tool", "grep",
+    app_info!(
+        "tool",
+        "grep",
         "Grep: pattern='{}', path='{}', glob={:?}, limit={}",
         pattern_str,
         search_path,
@@ -113,9 +112,7 @@ pub(crate) async fn tool_grep(args: &Value, ctx: &super::ToolExecContext) -> Res
 
         // Apply glob filter
         if let Some(ref gm) = glob_matcher {
-            let rel = entry_path
-                .strip_prefix(search_base)
-                .unwrap_or(entry_path);
+            let rel = entry_path.strip_prefix(search_base).unwrap_or(entry_path);
             let rel_str = rel.to_string_lossy();
             let file_name = entry_path
                 .file_name()
