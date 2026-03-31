@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 // ── Channel ID ───────────────────────────────────────────────────
 // Matches OpenClaw CHAT_CHANNEL_ORDER exactly.
@@ -82,6 +83,98 @@ impl Default for DmPolicy {
     }
 }
 
+// ── Group Policy ─────────────────────────────────────────────────
+// Compatible with OpenClaw's groupPolicy config.
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GroupPolicy {
+    /// Groups bypass allowlist check, only mention-gating applies
+    Open,
+    /// Only allow groups explicitly listed in `groups` config
+    Allowlist,
+    /// Block all group messages entirely
+    Disabled,
+}
+
+impl Default for GroupPolicy {
+    fn default() -> Self {
+        GroupPolicy::Open
+    }
+}
+
+// ── Telegram Group Config ────────────────────────────────────────
+// Per-group configuration, compatible with OpenClaw's TelegramGroupConfig.
+
+/// Per-topic configuration within a group or DM.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TelegramTopicConfig {
+    /// If true, bot only responds when @mentioned or replied to.
+    /// None = inherit from parent group/account default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub require_mention: Option<bool>,
+    /// If false, disable the bot for this topic.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    /// Optional allowlist for topic senders (Telegram user IDs).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allow_from: Vec<String>,
+    /// Route this topic to a specific agent (overrides group-level).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+    /// Optional system prompt snippet for this topic.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_prompt: Option<String>,
+}
+
+/// Per-group configuration.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TelegramGroupConfig {
+    /// If true, bot only responds when @mentioned or replied to.
+    /// None = default to true (require mention).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub require_mention: Option<bool>,
+    /// Per-group override for group policy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_policy: Option<GroupPolicy>,
+    /// If false, disable the bot for this group.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    /// Optional allowlist for group senders (Telegram user IDs).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allow_from: Vec<String>,
+    /// Route this group to a specific agent (overrides account-level).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+    /// Optional system prompt snippet for this group.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_prompt: Option<String>,
+    /// Per-topic configuration (key is message_thread_id as string).
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub topics: HashMap<String, TelegramTopicConfig>,
+}
+
+/// Per-channel (Telegram Channel broadcast) configuration.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TelegramChannelConfig {
+    /// If true, bot only responds when @mentioned or replied to.
+    /// None = default to true.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub require_mention: Option<bool>,
+    /// If false, ignore messages from this channel.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    /// Route this channel to a specific agent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+    /// Optional system prompt for this channel.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_prompt: Option<String>,
+}
+
 // ── Parse Mode ───────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -153,6 +246,9 @@ pub struct MsgContext {
     pub media: Vec<InboundMedia>,
     pub reply_to_message_id: Option<String>,
     pub timestamp: chrono::DateTime<chrono::Utc>,
+    /// Whether the bot was @mentioned or replied to in this message.
+    #[serde(default)]
+    pub was_mentioned: bool,
     /// Raw platform-specific payload for debugging.
     #[serde(default)]
     pub raw: serde_json::Value,
@@ -234,12 +330,25 @@ pub struct InlineButton {
 pub struct SecurityConfig {
     #[serde(default)]
     pub dm_policy: DmPolicy,
+    /// Legacy group allowlist (by chat_id). Kept for backward compatibility.
     #[serde(default)]
     pub group_allowlist: Vec<String>,
     #[serde(default)]
     pub user_allowlist: Vec<String>,
     #[serde(default)]
     pub admin_ids: Vec<String>,
+
+    // ── New layered group/channel config (OpenClaw-compatible) ────
+
+    /// Account-level group policy (open | allowlist | disabled).
+    #[serde(default)]
+    pub group_policy: GroupPolicy,
+    /// Per-group configuration (key is chat_id string; "*" = wildcard default).
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub groups: HashMap<String, TelegramGroupConfig>,
+    /// Per-channel (Telegram Channel) configuration (key is chat_id string).
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub channels: HashMap<String, TelegramChannelConfig>,
 }
 
 // ── Channel Account Config ───────────────────────────────────────

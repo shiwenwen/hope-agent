@@ -128,12 +128,82 @@ async fn handle_inbound_message(
         return Ok(());
     }
 
-    // 3. Resolve agent_id: per-account binding > global default
-    let agent_id = account
+    // 2b. Resolve group/topic/channel config for mention gating & agent routing
+    let security = &account.security;
+    let group_config = security.groups.get(&msg.chat_id);
+    let wildcard_config = security.groups.get("*");
+    let effective_group_config = group_config.or(wildcard_config);
+    let topic_config = effective_group_config
+        .and_then(|g| msg.thread_id.as_ref().and_then(|tid| g.topics.get(tid)));
+    let channel_config = security.channels.get(&msg.chat_id);
+
+    // 2c. Mention gating (for groups/forums/channels)
+    if matches!(msg.chat_type, ChatType::Group | ChatType::Forum) {
+        let require_mention = topic_config
+            .and_then(|t| t.require_mention)
+            .or_else(|| effective_group_config.and_then(|g| g.require_mention))
+            .unwrap_or(true); // default: require mention
+
+        if require_mention && !msg.was_mentioned {
+            app_debug!(
+                "channel",
+                "worker",
+                "[{}] Skipping non-mentioned message in {} (requireMention=true)",
+                channel_id_str,
+                msg.chat_id
+            );
+            return Ok(());
+        }
+    } else if matches!(msg.chat_type, ChatType::Channel) {
+        let require_mention = channel_config
+            .and_then(|c| c.require_mention)
+            .unwrap_or(true);
+
+        if require_mention && !msg.was_mentioned {
+            app_debug!(
+                "channel",
+                "worker",
+                "[{}] Skipping non-mentioned channel message in {} (requireMention=true)",
+                channel_id_str,
+                msg.chat_id
+            );
+            return Ok(());
+        }
+    }
+
+    // 3. Resolve agent_id: topic > group > channel > per-account > global default
+    let base_agent_id = account
         .agent_id
         .as_deref()
-        .unwrap_or_else(|| store.channels.agent_id())
-        .to_string();
+        .unwrap_or_else(|| store.channels.agent_id());
+
+    let resolved_agent_id = match msg.chat_type {
+        ChatType::Group | ChatType::Forum => {
+            topic_config
+                .and_then(|t| t.agent_id.as_deref())
+                .or_else(|| effective_group_config.and_then(|g| g.agent_id.as_deref()))
+                .unwrap_or(base_agent_id)
+        }
+        ChatType::Channel => {
+            channel_config
+                .and_then(|c| c.agent_id.as_deref())
+                .unwrap_or(base_agent_id)
+        }
+        ChatType::Dm => base_agent_id,
+    };
+    let agent_id = resolved_agent_id.to_string();
+
+    // 3b. Resolve extra system prompt from group/topic/channel config
+    let config_system_prompt = match msg.chat_type {
+        ChatType::Group | ChatType::Forum => {
+            topic_config
+                .and_then(|t| t.system_prompt.as_deref())
+                .or_else(|| effective_group_config.and_then(|g| g.system_prompt.as_deref()))
+        }
+        ChatType::Channel => channel_config.and_then(|c| c.system_prompt.as_deref()),
+        ChatType::Dm => None,
+    };
+
     let session_id = channel_db.resolve_or_create_session(
         &channel_id_str,
         &msg.account_id,
@@ -277,6 +347,10 @@ async fn handle_inbound_message(
          The message comes through an IM channel but your capabilities and personality remain the same. \
          Keep responses concise and suitable for IM format."
     );
+    // Inject per-group/topic/channel system prompt if configured
+    if let Some(prompt) = config_system_prompt {
+        channel_context.push_str(&format!("\n\n## Additional Context\n{}", prompt));
+    }
 
     // 7. Build ChatEngineParams — load config from disk (no State dependency)
     let agent_def = crate::agent_loader::load_agent(&agent_id).ok();

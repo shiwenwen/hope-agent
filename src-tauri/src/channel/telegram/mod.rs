@@ -346,21 +346,87 @@ impl ChannelPlugin for TelegramPlugin {
                     }
                 }
             }
-            ChatType::Group | ChatType::Forum | ChatType::Channel => {
-                // Check group allowlist (by chat_id)
+            ChatType::Group | ChatType::Forum => {
+                // 1. Check group_policy: disabled → deny all
+                if security.group_policy == GroupPolicy::Disabled {
+                    return false;
+                }
+
+                // 2. Resolve group config: exact match → wildcard "*" → None
+                let group_config = security.groups.get(&msg.chat_id);
+                let wildcard_config = security.groups.get("*");
+                let effective_group_config = group_config.or(wildcard_config);
+
+                // 3. Allowlist mode: group must be explicitly configured (or have wildcard)
+                if security.group_policy == GroupPolicy::Allowlist {
+                    // If no groups map at all, fall back to legacy group_allowlist
+                    if security.groups.is_empty() {
+                        if !security.group_allowlist.is_empty()
+                            && !security.group_allowlist.contains(&msg.chat_id)
+                        {
+                            return false;
+                        }
+                    } else if effective_group_config.is_none() {
+                        return false;
+                    }
+                }
+
+                // Legacy group_allowlist backward compatibility (for "open" policy too)
                 if !security.group_allowlist.is_empty()
+                    && security.groups.is_empty()
                     && !security.group_allowlist.contains(&msg.chat_id)
                 {
                     return false;
                 }
-                // Check user allowlist within the group
+
+                // 4. Check group-level enabled flag
+                if let Some(cfg) = effective_group_config {
+                    if cfg.enabled == Some(false) {
+                        return false;
+                    }
+
+                    // 5. Check topic-level enabled flag (if thread_id present)
+                    if let Some(ref thread_id) = msg.thread_id {
+                        if let Some(topic_cfg) = cfg.topics.get(thread_id) {
+                            if topic_cfg.enabled == Some(false) {
+                                return false;
+                            }
+                            // Topic-level sender allowlist
+                            if !topic_cfg.allow_from.is_empty()
+                                && !topic_cfg.allow_from.contains(&msg.sender_id)
+                                && !security.admin_ids.contains(&msg.sender_id)
+                            {
+                                return false;
+                            }
+                        }
+                    }
+
+                    // 6. Group-level sender allowlist
+                    if !cfg.allow_from.is_empty()
+                        && !cfg.allow_from.contains(&msg.sender_id)
+                        && !security.admin_ids.contains(&msg.sender_id)
+                    {
+                        return false;
+                    }
+                }
+
+                // 7. Account-level user allowlist (if set)
                 if !security.user_allowlist.is_empty()
                     && !security.user_allowlist.contains(&msg.sender_id)
                     && !security.admin_ids.contains(&msg.sender_id)
                 {
                     return false;
                 }
+
                 true
+            }
+            ChatType::Channel => {
+                // Channels default to disabled unless explicitly configured
+                let channel_config = security.channels.get(&msg.chat_id);
+                match channel_config {
+                    Some(cfg) => cfg.enabled != Some(false),
+                    None => false, // Not configured → ignore
+                }
             }
         }
     }

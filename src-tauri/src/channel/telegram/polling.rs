@@ -133,12 +133,15 @@ fn convert_message(
         },
     };
 
-    // For groups: check if bot was mentioned or replied to
-    if matches!(chat_type, ChatType::Group | ChatType::Forum) {
-        if !is_bot_addressed(msg, bot_id, bot_username) {
-            return None;
+    // Check if bot was mentioned or replied to (for groups).
+    // Instead of filtering here, we pass the flag downstream so the worker
+    // can decide based on per-group `requireMention` configuration.
+    let was_mentioned = match chat_type {
+        ChatType::Dm => true, // DMs are always "addressed"
+        ChatType::Group | ChatType::Forum | ChatType::Channel => {
+            is_bot_addressed(msg, bot_id, bot_username)
         }
-    }
+    };
 
     // Extract text
     let text = msg.text().map(|t| t.to_string());
@@ -196,6 +199,7 @@ fn convert_message(
         media,
         reply_to_message_id: reply_to,
         timestamp: msg.date,
+        was_mentioned,
         raw: serde_json::json!({ "update_id": 0 }), // minimal raw payload
     })
 }
@@ -233,7 +237,12 @@ fn is_bot_addressed(msg: &teloxide::types::Message, bot_id: i64, bot_username: &
         for entity in entities {
             if let teloxide::types::MessageEntityKind::Mention = entity.kind {
                 if let Some(text) = msg.text() {
-                    let mention_text = &text[entity.offset..entity.offset + entity.length];
+                    // Safe UTF-8 extraction: use char boundaries instead of byte offsets
+                    let mention_text: String = text
+                        .chars()
+                        .skip(entity.offset)
+                        .take(entity.length)
+                        .collect();
                     if mention_text.eq_ignore_ascii_case(&format!("@{}", bot_username)) {
                         return true;
                     }
