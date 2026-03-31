@@ -59,6 +59,23 @@ pub struct UserConfig {
     /// Whether thinking blocks auto-expand in chat bubbles (default: true)
     #[serde(default = "default_true")]
     pub auto_expand_thinking: bool,
+
+    // ── Weather / Location settings ──
+    /// Whether to inject weather info into system prompt (default: true)
+    #[serde(default = "default_true")]
+    pub weather_enabled: bool,
+
+    /// City name for weather lookup
+    #[serde(default)]
+    pub weather_city: Option<String>,
+
+    /// Latitude for weather lookup
+    #[serde(default)]
+    pub weather_latitude: Option<f64>,
+
+    /// Longitude for weather lookup
+    #[serde(default)]
+    pub weather_longitude: Option<f64>,
 }
 
 #[allow(dead_code)]

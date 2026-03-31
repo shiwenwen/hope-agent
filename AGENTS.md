@@ -28,9 +28,10 @@ src/                    前端（React + TypeScript）
   types/chat.ts         共享类型定义
 src-tauri/src/          后端（Rust）
   lib.rs                Tauri 命令注册 & AppState
+  weather.rs            天气缓存系统与 Open-Meteo API
   agent/                AssistantAgent（多 Provider + Tool Loop）
     providers/          Anthropic / OpenAI Chat / OpenAI Responses / Codex
-  tools/                30 个内置工具（按工具拆分子模块）
+  tools/                31 个内置工具（按工具拆分子模块）
   skills.rs             技能系统（SKILL.md 发现 + 懒加载）
   slash_commands/       斜杠命令系统
   plan.rs               Plan Mode（子 Agent 制定计划 + 主 Agent 执行，六态状态机）

@@ -38,6 +38,7 @@ mod tools;
 mod tray;
 mod url_preview;
 mod user_config;
+mod weather;
 
 use agent::AssistantAgent;
 use logging::{AppLogger, LogDB};
@@ -619,6 +620,9 @@ pub fn run() {
             // Auto-start Docker SearXNG if previously configured
             auto_start_searxng_docker();
 
+            // Start background weather cache refresh
+            weather::start_background_refresh();
+
             // Register global shortcuts from config (chord-aware: only first parts for chords)
             {
                 use tauri_plugin_global_shortcut::GlobalShortcutExt;
@@ -974,6 +978,11 @@ pub fn run() {
             commands::config::get_shortcut_config,
             commands::config::save_shortcut_config,
             commands::config::set_shortcuts_paused,
+            // Weather
+            commands::config::geocode_search,
+            commands::config::preview_weather,
+            commands::config::get_current_weather,
+            commands::config::refresh_weather,
             // Autostart
             commands::config::get_autostart_enabled,
             commands::config::set_autostart_enabled,

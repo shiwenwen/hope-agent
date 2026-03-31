@@ -8,7 +8,8 @@ mod providers;
 mod types;
 
 // Re-export public API
-pub use config::{build_api_url, build_system_prompt, get_codex_models, USER_AGENT};
+pub use config::{build_api_url, get_codex_models, USER_AGENT};
+pub(crate) use config::build_system_prompt;
 pub use types::{AssistantAgent, Attachment, CodexModel, LlmProvider, PlanAgentMode};
 
 use std::sync::atomic::AtomicBool;

@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { AvatarCropDialog } from "@/components/settings/AvatarCropDialog"
+
 import { Camera, Check, Loader2, Monitor } from "lucide-react"
 
 interface UserConfig {
@@ -29,6 +30,10 @@ interface UserConfig {
   aiExperience?: string | null
   responseStyle?: string | null
   customInfo?: string | null
+  weatherEnabled?: boolean
+  weatherCity?: string | null
+  weatherLatitude?: number | null
+  weatherLongitude?: number | null
 }
 
 const GENDER_PRESETS = ["male", "female"]

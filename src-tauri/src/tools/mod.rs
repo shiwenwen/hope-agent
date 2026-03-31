@@ -29,6 +29,7 @@ pub(crate) mod subagent;
 mod submit_plan;
 pub(crate) mod web_fetch;
 pub(crate) mod web_search;
+mod weather;
 mod write;
 
 // ── Public Re-exports ─────────────────────────────────────────────
@@ -76,6 +77,7 @@ pub const TOOL_IMAGE_GENERATE: &str = "image_generate";
 pub const TOOL_PDF: &str = "pdf";
 pub const TOOL_CANVAS: &str = "canvas";
 pub const TOOL_ACP_SPAWN: &str = "acp_spawn";
+pub const TOOL_GET_WEATHER: &str = "get_weather";
 pub const TOOL_UPDATE_PLAN_STEP: &str = "update_plan_step";
 pub const TOOL_PLAN_QUESTION: &str = "plan_question";
 pub const TOOL_SUBMIT_PLAN: &str = "submit_plan";

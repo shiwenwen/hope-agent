@@ -5,12 +5,13 @@ use std::sync::LazyLock;
 
 use super::{
     ToolProvider, TOOL_ACP_SPAWN, TOOL_AGENTS_LIST, TOOL_AMEND_PLAN, TOOL_APPLY_PATCH,
-    TOOL_BROWSER, TOOL_CANVAS, TOOL_DELETE_MEMORY, TOOL_EDIT, TOOL_EXEC, TOOL_FIND, TOOL_GREP,
-    TOOL_IMAGE, TOOL_IMAGE_GENERATE, TOOL_LS, TOOL_MANAGE_CRON, TOOL_MEMORY_GET, TOOL_PDF,
-    TOOL_PLAN_QUESTION, TOOL_PROCESS, TOOL_READ, TOOL_RECALL_MEMORY, TOOL_SAVE_MEMORY,
-    TOOL_SEND_NOTIFICATION, TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEND,
-    TOOL_SESSION_STATUS, TOOL_SUBAGENT, TOOL_SUBMIT_PLAN, TOOL_UPDATE_CORE_MEMORY,
-    TOOL_UPDATE_MEMORY, TOOL_UPDATE_PLAN_STEP, TOOL_WEB_FETCH, TOOL_WEB_SEARCH, TOOL_WRITE,
+    TOOL_BROWSER, TOOL_CANVAS, TOOL_DELETE_MEMORY, TOOL_EDIT, TOOL_EXEC, TOOL_FIND,
+    TOOL_GET_WEATHER, TOOL_GREP, TOOL_IMAGE, TOOL_IMAGE_GENERATE, TOOL_LS, TOOL_MANAGE_CRON,
+    TOOL_MEMORY_GET, TOOL_PDF, TOOL_PLAN_QUESTION, TOOL_PROCESS, TOOL_READ, TOOL_RECALL_MEMORY,
+    TOOL_SAVE_MEMORY, TOOL_SEND_NOTIFICATION, TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST,
+    TOOL_SESSIONS_SEND, TOOL_SESSION_STATUS, TOOL_SUBAGENT, TOOL_SUBMIT_PLAN,
+    TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY, TOOL_UPDATE_PLAN_STEP, TOOL_WEB_FETCH,
+    TOOL_WEB_SEARCH, TOOL_WRITE,
 };
 
 // ── Tool Definition (provider-agnostic) ───────────────────────────
@@ -855,6 +856,27 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     }
                 },
                 "required": ["path"],
+                "additionalProperties": false
+            }),
+        },
+        // ── Weather ─────────────────────────────────────────────
+        ToolDefinition {
+            name: TOOL_GET_WEATHER.into(),
+            description: "Get current weather and forecast for a location. Uses Open-Meteo API (free, no API key required). Defaults to the user's configured location if no location parameter is provided.".into(),
+            internal: true,
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "location": {
+                        "type": "string",
+                        "description": "City name (e.g. 'Shanghai', 'New York') or 'latitude,longitude' (e.g. '31.23,121.47'). If omitted, uses the user's configured location."
+                    },
+                    "forecast_days": {
+                        "type": "integer",
+                        "description": "Number of forecast days (1-16, default 1). Use 1 for current weather only."
+                    }
+                },
+                "required": [],
                 "additionalProperties": false
             }),
         },

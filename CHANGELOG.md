@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **内置天气查询能力 (weather)**：Agent 可通过 `get_weather` 工具查询实时天气，支持在系统提示词中动态注入天气上下文
+  - **Open-Meteo 集成**：使用免费无 Key 的 Open-Meteo API 获取天气和地理编码，免除用户配置成本
+  - **位置与天气设置**：设置页新增「位置与天气」控制面板，支持城市搜索和手动输入经纬度坐标
+  - **智能刷新与缓存**：天气数据 30 分钟缓存（并发安全），支持后台定时刷新（Tauri tick）和前端主动刷新
+  - **上下文动态注入**：Agent 系统提示词自动注入当前位置和天气，且仅当天气发生变化（温度/状态码哈希检测）时才更新提示词，保证长期会话的 Prompt Cache 命中率
+  - 2 个新 Tauri 命令：`geocode_search`（城市联想），`refresh_weather`（主动刷新）
 - **系统提示词查看功能**
   - 新增 `/prompts` 斜杠命令，可在对话中快速查看当前会话的完整系统提示词
   - 对话界面右上角状态面板新增「查看系统提示词」按钮入口

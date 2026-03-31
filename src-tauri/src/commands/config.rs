@@ -469,3 +469,44 @@ pub async fn set_plan_subagent(enabled: bool) -> Result<(), String> {
     store.plan_subagent = enabled;
     provider::save_store(&store).map_err(|e| e.to_string())
 }
+
+// ── Weather ─────────────────────────────────────────────────────
+
+/// Search cities by name using Open-Meteo Geocoding API.
+#[tauri::command]
+pub async fn geocode_search(
+    query: String,
+    language: Option<String>,
+) -> Result<Vec<crate::weather::GeoResult>, String> {
+    let lang = language.as_deref().unwrap_or("zh");
+    crate::weather::geocode_search(&query, lang)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Fetch real-time weather preview explicitly for the provided settings, bypassing config layout.
+#[tauri::command]
+pub async fn preview_weather(
+    lat: f64,
+    lon: f64,
+    city: String,
+) -> Result<crate::weather::WeatherData, String> {
+    crate::weather::fetch_weather(lat, lon, &city, 1)
+        .await
+        .map(|w| w.current)
+        .map_err(|e| e.to_string())
+}
+
+/// Get the currently cached weather data for frontend preview.
+#[tauri::command]
+pub async fn get_current_weather() -> Result<Option<crate::weather::WeatherData>, String> {
+    Ok(crate::weather::get_cached_weather().await)
+}
+
+/// Force refresh weather cache and return fresh data.
+#[tauri::command]
+pub async fn refresh_weather() -> Result<Option<crate::weather::WeatherData>, String> {
+    crate::weather::force_refresh_weather()
+        .await
+        .map_err(|e| e.to_string())
+}

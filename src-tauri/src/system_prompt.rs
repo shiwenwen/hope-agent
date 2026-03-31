@@ -200,6 +200,12 @@ const TOOL_DESC_ACP_SPAWN: &str = "\
   - Similar to subagent but for external processes with their own tools and capabilities\n\
   - Actions: spawn, check, list, result, kill, kill_all, steer, backends";
 
+const TOOL_DESC_GET_WEATHER: &str = "\
+- get_weather: Get current weather and forecast for a location.\n\
+  - Uses Open-Meteo API (free, no key required)\n\
+  - Params: location (city name or lat,lon, optional — defaults to user's location), forecast_days (1-16)\n\
+  - Returns current temperature, humidity, wind, weather conditions, and daily forecast";
+
 /// Tool name → description mapping for dynamic assembly.
 const TOOL_DESCRIPTIONS: &[(&str, &str)] = &[
     ("exec", TOOL_DESC_EXEC),
@@ -233,6 +239,7 @@ const TOOL_DESCRIPTIONS: &[(&str, &str)] = &[
     ("pdf", TOOL_DESC_PDF),
     ("canvas", TOOL_DESC_CANVAS),
     ("acp_spawn", TOOL_DESC_ACP_SPAWN),
+    ("get_weather", TOOL_DESC_GET_WEATHER),
 ];
 
 // ── Behavior Guidance ───────────────────────────────────────────
@@ -519,6 +526,11 @@ pub fn build(
 
     // ⑫ Project context — not yet implemented
 
+    // ⑭ Weather context (from cached weather data)
+    if let Some(weather_text) = crate::weather::get_weather_for_prompt() {
+        sections.push(weather_text);
+    }
+
     // Join all non-empty sections
     let section_lengths: Vec<usize> = sections.iter().map(|s| s.len()).collect();
     let prompt = sections
@@ -600,6 +612,11 @@ pub fn build_legacy(model: Option<&str>, provider: Option<&str>) -> String {
 
     // Behavior guidance
     sections.push(build_behavior_section());
+
+    // Weather context
+    if let Some(weather_text) = crate::weather::get_weather_for_prompt() {
+        sections.push(weather_text);
+    }
 
     // Runtime (legacy mode has no agent home)
     sections.push(build_runtime_section(model, provider, None));
