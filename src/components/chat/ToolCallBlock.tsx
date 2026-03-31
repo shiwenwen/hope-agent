@@ -193,16 +193,6 @@ export default function ToolCallBlock({ tool }: { tool: ToolCall }) {
     }
   }, [tool.name, tool.arguments, tool.result])
 
-  if (subagentSpawn?.runId) {
-    return (
-      <SubagentBlock
-        runId={subagentSpawn.runId}
-        agentId={subagentSpawn.agentId}
-        task={subagentSpawn.task}
-      />
-    )
-  }
-
   const skillName = getSkillName(tool.name, tool.arguments)
   const Icon = skillName ? FileCode : (TOOL_ICONS[tool.name] || Terminal)
   const toolLabel = skillName
@@ -243,6 +233,16 @@ export default function ToolCallBlock({ tool }: { tool: ToolCall }) {
       // Project may have been deleted
     }
   }, [canvasInfo])
+
+  if (subagentSpawn?.runId) {
+    return (
+      <SubagentBlock
+        runId={subagentSpawn.runId}
+        agentId={subagentSpawn.agentId}
+        task={subagentSpawn.task}
+      />
+    )
+  }
 
   return (
     <div className="my-1 text-xs">

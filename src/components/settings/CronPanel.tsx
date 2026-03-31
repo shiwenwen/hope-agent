@@ -8,8 +8,8 @@ import { Input } from "@/components/ui/input"
 import { Plus, Search, Play, Pause, Trash2, Zap, Pencil, ChevronRight } from "lucide-react"
 import CronJobForm from "@/components/cron/CronJobForm"
 import CronJobDetail from "@/components/cron/CronJobDetail"
-import type { CronJob } from "@/components/cron/CronJobForm"
-import { statusColor, formatSchedule } from "@/components/cron/CronJobForm"
+import type { CronJob } from "@/components/cron/CronJobForm.types"
+import { statusColor, formatSchedule } from "@/components/cron/cronHelpers"
 
 export default function CronPanel() {
   const { t } = useTranslation()

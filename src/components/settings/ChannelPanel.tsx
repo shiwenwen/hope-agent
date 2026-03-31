@@ -25,7 +25,6 @@ import {
   Play,
   Square,
   Trash2,
-  RefreshCw,
   Check,
   Loader2,
   AlertCircle,

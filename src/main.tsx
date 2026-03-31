@@ -8,14 +8,14 @@ import PlanDetachedWindow from "./PlanDetachedWindow.tsx"
 
 const windowType = new URLSearchParams(window.location.search).get("window")
 
-const Root = windowType === "quickchat"
-  ? QuickChatWindow
-  : windowType === "plan"
-    ? PlanDetachedWindow
-    : App
-
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <Root />
+    {windowType === "quickchat" ? (
+      <QuickChatWindow />
+    ) : windowType === "plan" ? (
+      <PlanDetachedWindow />
+    ) : (
+      <App />
+    )}
   </StrictMode>,
 )

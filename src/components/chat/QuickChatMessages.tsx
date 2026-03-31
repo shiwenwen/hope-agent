@@ -19,11 +19,12 @@ export default function QuickChatMessages({
 }: QuickChatMessagesProps) {
   const { t } = useTranslation()
   const bottomRef = useRef<HTMLDivElement>(null)
+  const lastMessageContent = messages[messages.length - 1]?.content ?? ""
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [messages.length, messages[messages.length - 1]?.content])
+  }, [messages.length, lastMessageContent])
 
   if (messages.length === 0) {
     return null

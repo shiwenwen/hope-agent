@@ -1,4 +1,4 @@
-import React, { useMemo } from "react"
+import React from "react"
 import { useTranslation } from "react-i18next"
 import {
   AreaChart,
@@ -51,12 +51,9 @@ const TokenUsageSection = React.memo(function TokenUsageSection({
 }: TokenUsageSectionProps) {
   const { t } = useTranslation()
 
-  const ttftData = useMemo(() => {
-    if (!data?.trend) return []
-    return data.trend.filter((t) => t.avgTtftMs != null)
-  }, [data?.trend])
+  const ttftData = !data?.trend ? [] : data.trend.filter((t) => t.avgTtftMs != null)
 
-  const pieData = useMemo(() => {
+  const pieData = (() => {
     if (!data?.byModel) return []
     const sorted = [...data.byModel].sort(
       (a, b) => b.inputTokens + b.outputTokens - (a.inputTokens + a.outputTokens),
@@ -74,7 +71,7 @@ const TokenUsageSection = React.memo(function TokenUsageSection({
       })
     }
     return result
-  }, [data?.byModel, t])
+  })()
 
   if (loading && !data) {
     return (

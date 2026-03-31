@@ -32,7 +32,6 @@ import {
   Pencil,
   Network,
   CheckCheck,
-  MessageCircle,
 } from "lucide-react"
 import type { SessionMeta, AgentSummaryForSidebar } from "@/types/chat"
 import ChannelIcon from "@/components/common/ChannelIcon"

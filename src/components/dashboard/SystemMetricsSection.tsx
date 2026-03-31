@@ -98,19 +98,6 @@ const SystemMetricsSection = React.memo(function SystemMetricsSection({
 }: SystemMetricsSectionProps) {
   const { t } = useTranslation()
 
-  const cpuBarData = useMemo(() => {
-    if (!data) return []
-    // Normalize: process CPU can exceed 100% on multi-core
-    const normalizedCpu = Math.min(data.processCpuPercent, data.cpuCount * 100)
-    return [
-      {
-        name: "OpenComputer",
-        usage: Math.round(normalizedCpu * 10) / 10,
-        fill: getCpuColor(normalizedCpu / data.cpuCount),
-      },
-    ]
-  }, [data])
-
   const memPieData = useMemo(() => {
     if (!data) return []
     return [

@@ -62,22 +62,24 @@ export default function DashboardFilter({ filter, onChange }: DashboardFilterPro
   const [customStart, setCustomStart] = useState("")
   const [customEnd, setCustomEnd] = useState("")
 
-  const loadOptions = useCallback(async () => {
-    try {
-      const [agentList, providerList] = await Promise.all([
-        invoke<Agent[]>("list_agents"),
-        invoke<Provider[]>("get_providers"),
-      ])
-      setAgents(agentList)
-      setProviders(providerList)
-    } catch {
-      // ignore - lists may be empty
+  useEffect(() => {
+    let alive = true
+    Promise.all([
+      invoke<Agent[]>("list_agents"),
+      invoke<Provider[]>("get_providers"),
+    ])
+      .then(([agentList, providerList]) => {
+        if (!alive) return
+        setAgents(agentList)
+        setProviders(providerList)
+      })
+      .catch(() => {
+        // ignore - lists may be empty
+      })
+    return () => {
+      alive = false
     }
   }, [])
-
-  useEffect(() => {
-    loadOptions()
-  }, [loadOptions])
 
   const handleRangeChange = useCallback(
     (key: RangeKey) => {

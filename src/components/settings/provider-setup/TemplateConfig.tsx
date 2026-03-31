@@ -40,7 +40,7 @@ import {
   Settings2,
 } from "lucide-react"
 import { SortableModelEditor } from "./ModelEditor"
-import type { ApiType, ModelConfig, ProviderConfig, ProviderTemplate, ThinkingStyleType } from "./types"
+import type { ApiType, ModelConfig, ProviderTemplate, ThinkingStyleType } from "./types"
 
 interface TemplateConfigProps {
   selectedTemplate: ProviderTemplate

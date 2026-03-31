@@ -1,4 +1,4 @@
-import React, { useMemo } from "react"
+import React from "react"
 import { useTranslation } from "react-i18next"
 import {
   LineChart,
@@ -53,17 +53,16 @@ const SessionSection = React.memo(function SessionSection({
   const resolveAgent = (id: string) => agentNameMap[id] || id
   const { t } = useTranslation()
 
-  const pieData = useMemo(() => {
-    if (!data?.byAgent) return []
-    return [...data.byAgent]
-      .sort((a, b) => b.sessionCount - a.sessionCount)
-      .slice(0, 9)
-      .map((a) => ({
-        name: resolveAgent(a.agentId),
-        agentId: a.agentId,
-        value: a.sessionCount,
-      }))
-  }, [data?.byAgent, agentNameMap]) // eslint-disable-line react-hooks/exhaustive-deps
+  const pieData = !data?.byAgent
+    ? []
+    : [...data.byAgent]
+        .sort((a, b) => b.sessionCount - a.sessionCount)
+        .slice(0, 9)
+        .map((a) => ({
+          name: resolveAgent(a.agentId),
+          agentId: a.agentId,
+          value: a.sessionCount,
+        }))
 
   if (loading && !data) {
     return (
