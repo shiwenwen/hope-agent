@@ -202,11 +202,14 @@ async fn handle_inbound_message(
                 new_session_id,
             }) => {
                 let effective_sid = new_session_id.as_deref().unwrap_or(&session_id);
-                // Persist assistant reply in session history
-                let _ = session_db.append_message(
-                    effective_sid,
-                    &crate::session::NewMessage::assistant(&content),
-                );
+                // Only persist reply to the OLD session; skip for new sessions
+                // (e.g. /new) so auto_title can work on the first real message.
+                if new_session_id.is_none() {
+                    let _ = session_db.append_message(
+                        effective_sid,
+                        &crate::session::NewMessage::event(&content),
+                    );
+                }
                 // Send reply to the IM channel
                 let native_text = plugin.markdown_to_native(&content);
                 let payload = ReplyPayload {

@@ -86,21 +86,15 @@ pub async fn chat(
         }
         None => state.current_agent_id.lock().await.clone(),
     };
+    let mut new_session_created: Option<String> = None;
     let sid = match session_id {
         Some(id) if !id.is_empty() => id,
         _ => {
-            // Auto-create a new session
+            // Auto-create a new session; emit session_created after auto_title is set
             let meta = db
                 .create_session(&current_agent_id)
                 .map_err(|e| e.to_string())?;
-            // Emit session_created event so frontend knows
-            let event = serde_json::json!({
-                "type": "session_created",
-                "session_id": &meta.id,
-            });
-            if let Ok(json_str) = serde_json::to_string(&event) {
-                let _ = on_event.send(json_str);
-            }
+            new_session_created = Some(meta.id.clone());
             meta.id
         }
     };
@@ -225,6 +219,17 @@ pub async fn chat(
         if meta.title.is_none() && meta.message_count <= 1 {
             let title = session::auto_title(&message);
             let _ = db.update_session_title(&sid, &title);
+        }
+    }
+
+    // Emit session_created now that title is set, so frontend's reloadSessions() gets the title
+    if let Some(ref new_sid) = new_session_created {
+        let event = serde_json::json!({
+            "type": "session_created",
+            "session_id": new_sid,
+        });
+        if let Ok(json_str) = serde_json::to_string(&event) {
+            let _ = on_event.send(json_str);
         }
     }
 
