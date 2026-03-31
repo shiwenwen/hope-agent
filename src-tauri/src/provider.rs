@@ -167,12 +167,18 @@ impl ProviderConfig {
 
     /// Return a copy with the API key masked for frontend display
     pub fn masked(&self) -> Self {
-        let masked_key = if self.api_key.len() > 8 {
-            format!(
-                "{}...{}",
-                &self.api_key[..4],
-                &self.api_key[self.api_key.len() - 4..]
-            )
+        let masked_key = if self.api_key.chars().count() > 8 {
+            let prefix: String = self.api_key.chars().take(4).collect();
+            let suffix: String = self
+                .api_key
+                .chars()
+                .rev()
+                .take(4)
+                .collect::<String>()
+                .chars()
+                .rev()
+                .collect();
+            format!("{}...{}", prefix, suffix)
         } else if !self.api_key.is_empty() {
             "****".to_string()
         } else {
@@ -182,6 +188,24 @@ impl ProviderConfig {
             api_key: masked_key,
             ..self.clone()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ApiType, ProviderConfig};
+
+    #[test]
+    fn masked_api_key_keeps_utf8_boundaries() {
+        let cfg = ProviderConfig::new(
+            "t".to_string(),
+            ApiType::OpenAI,
+            "https://api.openai.com".to_string(),
+            "密钥🔑abcdef".to_string(),
+        );
+        let masked = cfg.masked();
+        assert!(masked.api_key.contains("..."));
+        assert_ne!(masked.api_key, cfg.api_key);
     }
 }
 
