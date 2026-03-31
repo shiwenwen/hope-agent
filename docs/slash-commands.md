@@ -1,6 +1,6 @@
 # 斜杠命令系统 (Slash Commands)
 
-OpenComputer 内置斜杠命令系统，用户在聊天输入框中输入 `/` 前缀即可触发。命令按类别分组，支持参数、模糊匹配和动态技能扩展。
+OpenComputer 内置斜杠命令系统，用户在**聊天输入框**或**任意 IM 渠道**（Telegram 等）中输入 `/` 前缀即可触发。命令按类别分组，支持参数、模糊匹配和动态技能扩展。
 
 ## 架构概述
 
@@ -21,6 +21,10 @@ src-tauri/src/slash_commands/
 ```
 
 ### 处理流程
+
+斜杠命令有两条分发路径，共用同一套 `handlers::dispatch()`：
+
+**路径 A — UI 前端（聊天输入框）**
 
 ```mermaid
 sequenceDiagram
@@ -43,7 +47,32 @@ sequenceDiagram
     F->>F: 根据 action 执行副作用（SwitchModel）
 ```
 
-### 前端通信
+**路径 B — IM 渠道（Telegram 等）**
+
+```mermaid
+sequenceDiagram
+    participant U as IM 用户
+    participant W as channel/worker.rs
+    participant SC as dispatch_slash_for_channel()
+    participant D as handlers::dispatch()
+    participant CH as IM Channel (Telegram)
+
+    U->>W: 发送消息 "/help"
+    W->>W: parser::is_command() → true
+    W->>SC: dispatch_slash_for_channel(session_id, agent_id, "/help")
+    SC->>D: handlers::dispatch(state, ...)
+    D-->>SC: CommandResult { content, action }
+    alt action = PassThrough
+        SC-->>W: PassThrough(engine_message)
+        Note over W: 继续调用 LLM (engine_message 替换原始文本)
+    else 其他 action (Reply 类)
+        SC-->>W: Reply { content }
+        W->>CH: send_message(content)
+        CH-->>U: 显示命令结果
+    end
+```
+
+### 前端通信（UI 路径专用）
 
 | Tauri 命令 | 功能 |
 |---|---|
@@ -165,25 +194,27 @@ stateDiagram-v2
 
 `CommandResult.action` 字段告诉前端需要执行什么副作用：
 
-| Action | 说明 | 触发命令 |
-|---|---|---|
-| `NewSession` | 切换到新创建的会话 | `/new` |
-| `SessionCleared` | 会话消息已清空 | `/clear` |
-| `StopStream` | 停止流式输出 | `/stop` |
-| `Compact` | 触发上下文压缩 | `/compact` |
-| `SwitchModel` | 切换活跃模型 | `/model <name>` |
-| `SetEffort` | 设置推理强度 | `/think <level>` |
-| `SwitchAgent` | 切换 Agent 并创建新会话 | `/agent <name>` |
-| `SetToolPermission` | 设置工具权限模式 | `/permission <mode>` |
-| `ExportFile` | 下载导出文件 | `/export` |
-| `PassThrough` | 将消息传递给 LLM 处理 | `/search`, 技能命令 |
-| `DisplayOnly` | 仅显示内容，无副作用 | `/help`, `/status`, `/usage`, `/memories` 等 |
-| `EnterPlanMode` | 进入计划模式 | `/plan` |
-| `ExitPlanMode` | 退出计划模式 | `/plan exit` |
-| `ApprovePlan` | 批准并开始执行计划 | `/plan approve` |
-| `ShowPlan` | 在面板中显示计划 | `/plan show` |
-| `PausePlan` | 暂停计划执行 | `/plan pause` |
-| `ResumePlan` | 恢复计划执行 | `/plan resume` |
+| Action | 说明 | 触发命令 | IM 渠道行为 |
+|---|---|---|---|
+| `NewSession` | 切换到新创建的会话 | `/new` | ✅ 更新 channel_db 映射到新 session |
+| `SessionCleared` | 会话消息已清空 | `/clear` | ✅ 直接回复提示文本 |
+| `SwitchAgent` | 切换 Agent 并创建新会话 | `/agent <name>` | ✅ 更新 channel_db 映射到新 session |
+| `PassThrough` | 将消息传递给 LLM 处理 | `/search`, 技能命令 | ✅ 以转换后的指令作为 LLM 输入 |
+| `DisplayOnly` | 仅显示内容，无副作用 | `/help`, `/status`, `/usage`, `/memories` 等 | ✅ 直接回复 content |
+| `SwitchModel` | 切换活跃模型 | `/model <name>` | ⚠️ 仅回复 content（不实际切换）|
+| `SetEffort` | 设置推理强度 | `/think <level>` | ⚠️ 仅回复 content（不实际切换）|
+| `SetToolPermission` | 设置工具权限模式 | `/permission <mode>` | ⚠️ 仅回复 content |
+| `ExportFile` | 下载导出文件 | `/export` | ⚠️ 仅回复 content（不发送文件）|
+| `StopStream` | 停止流式输出 | `/stop` | ⚠️ 仅回复 content（无流可停）|
+| `Compact` | 触发上下文压缩 | `/compact` | ⚠️ 仅回复 content（无 UI 触发）|
+| `EnterPlanMode` | 进入计划模式 | `/plan` | ⚠️ 仅回复 content（UI-only）|
+| `ExitPlanMode` | 退出计划模式 | `/plan exit` | ⚠️ 仅回复 content（UI-only）|
+| `ApprovePlan` | 批准并开始执行计划 | `/plan approve` | ⚠️ 仅回复 content（UI-only）|
+| `ShowPlan` | 在面板中显示计划 | `/plan show` | ⚠️ 仅回复 content（UI-only）|
+| `PausePlan` | 暂停计划执行 | `/plan pause` | ⚠️ 仅回复 content（UI-only）|
+| `ResumePlan` | 恢复计划执行 | `/plan resume` | ⚠️ 仅回复 content（UI-only）|
+
+> **⚠️ IM 渠道行为说明**：标注 ⚠️ 的 Action 在 IM 渠道中只将 `content` 文本发回给用户，不执行对应的 UI 副作用。后续可根据需要为这些 Action 实现专用的 IM 侧处理逻辑。
 
 ---
 
