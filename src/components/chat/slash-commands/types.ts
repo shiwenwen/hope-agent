@@ -30,6 +30,7 @@ export type CommandAction =
   | { type: "exitPlanMode"; planContent?: string }
   | { type: "approvePlan"; planContent?: string }
   | { type: "showPlan"; planContent: string }
+  | { type: "viewSystemPrompt" }
 
 /** Matches Rust CommandResult struct */
 export interface CommandResult {

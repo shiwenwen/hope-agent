@@ -185,6 +185,15 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
             arg_options: None,
             description_raw: None,
         },
+        SlashCommandDef {
+            name: "prompts".into(),
+            category: CommandCategory::Utility,
+            description_key: "slashCommands.prompts.description".into(),
+            has_args: false,
+            arg_placeholder: None,
+            arg_options: None,
+            description_raw: None,
+        },
     ]
 }
 

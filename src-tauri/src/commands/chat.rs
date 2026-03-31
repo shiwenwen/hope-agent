@@ -709,6 +709,40 @@ pub async fn respond_to_approval(request_id: String, response: String) -> Result
         .map_err(|e| e.to_string())
 }
 
+// ── System Prompt ────────────────────────────────────────────────
+
+/// Return the assembled system prompt for the current agent + model.
+#[tauri::command]
+pub async fn get_system_prompt(
+    agent_id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let aid = match agent_id {
+        Some(id) => id,
+        None => state.current_agent_id.lock().await.clone(),
+    };
+
+    // Resolve model and provider name from active model
+    let (model, provider) = {
+        let store = state.provider_store.lock().await;
+        if let Some(ref active) = store.active_model {
+            let prov = store
+                .providers
+                .iter()
+                .find(|p| p.id == active.provider_id);
+            let model_id = active.model_id.clone();
+            let provider_name = prov
+                .map(|p| p.api_type.display_name().to_string())
+                .unwrap_or_else(|| "Unknown".to_string());
+            (model_id, provider_name)
+        } else {
+            ("unknown".to_string(), "Unknown".to_string())
+        }
+    };
+
+    Ok(crate::agent::build_system_prompt(&aid, &model, &provider))
+}
+
 // ── Tools Info Commands ───────────────────────────────────────────
 
 #[tauri::command]

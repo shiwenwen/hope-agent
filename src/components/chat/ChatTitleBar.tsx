@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { IconTip } from "@/components/ui/tooltip"
-import { Settings, Copy, BarChart3, Pencil, Zap, Check, X } from "lucide-react"
+import { Settings, Copy, BarChart3, Pencil, Zap, Check, X, FileText, Loader2 } from "lucide-react"
 import ChannelIcon from "@/components/common/ChannelIcon"
 import { formatMessageTime } from "./chatUtils"
 import { logger } from "@/lib/logger"
@@ -23,6 +23,8 @@ interface ChatTitleBarProps {
   setCompacting: (v: boolean) => void
   onOpenAgentSettings?: (agentId: string) => void
   onRenameSession?: (sessionId: string, title: string) => void
+  onViewSystemPrompt?: () => void
+  systemPromptLoading?: boolean
 }
 
 export default function ChatTitleBar({
@@ -39,6 +41,8 @@ export default function ChatTitleBar({
   setCompacting,
   onRenameSession,
   onOpenAgentSettings,
+  onViewSystemPrompt,
+  systemPromptLoading,
 }: ChatTitleBarProps) {
   const { t } = useTranslation()
   const [showStatus, setShowStatus] = useState(false)
@@ -422,6 +426,27 @@ export default function ChatTitleBar({
                       </div>
                     )
                   })()}
+                {/* View System Prompt */}
+                {onViewSystemPrompt && (
+                  <>
+                    <div className="border-t border-border" />
+                    <button
+                      className="w-full px-2 py-1 text-[11px] rounded-md border border-border/50 text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
+                      disabled={systemPromptLoading}
+                      onClick={() => {
+                        onViewSystemPrompt()
+                        setShowStatus(false)
+                      }}
+                    >
+                      {systemPromptLoading ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <FileText className="h-3 w-3" />
+                      )}
+                      {t("chat.viewSystemPrompt")}
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </div>

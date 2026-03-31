@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **系统提示词查看功能**
+  - 新增 `/prompts` 斜杠命令，可在对话中快速查看当前会话的完整系统提示词
+  - 对话界面右上角状态面板新增「查看系统提示词」按钮入口
+  - 系统提示词以弹窗形式展示，支持一键复制
+  - 新增 `get_system_prompt` Tauri 命令，根据当前 Agent 和模型动态构建并返回系统提示词
+
 ### Changed
 
 - **System Prompt 工具描述重构 + 行为指导增强**（参考 Claude Code System Prompts）

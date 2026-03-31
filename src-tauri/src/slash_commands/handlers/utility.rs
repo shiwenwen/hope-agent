@@ -210,6 +210,14 @@ pub fn handle_search(args: &str) -> Result<CommandResult, String> {
     })
 }
 
+/// /prompts — Open the system prompt viewer.
+pub fn handle_prompts() -> CommandResult {
+    CommandResult {
+        content: String::new(),
+        action: Some(CommandAction::ViewSystemPrompt),
+    }
+}
+
 /// Simple filename sanitization.
 fn sanitize_filename(name: &str) -> String {
     name.chars()
