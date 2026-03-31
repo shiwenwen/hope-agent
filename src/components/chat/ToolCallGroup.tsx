@@ -16,7 +16,7 @@ import type { ToolCall } from "@/types/chat"
 import { IconTip } from "@/components/ui/tooltip"
 
 /** Grouping categories */
-export type ToolCategory = "browse" | "edit" | "search" | "web" | "memory" | "other"
+type ToolCategory = "browse" | "edit" | "search" | "web" | "memory" | "other"
 
 const CATEGORY_MAP: Record<string, ToolCategory> = {
   read: "browse",
@@ -37,7 +37,7 @@ const CATEGORY_MAP: Record<string, ToolCategory> = {
   pdf: "browse",
 }
 
-export function getToolCategory(name: string): ToolCategory {
+function getToolCategory(name: string): ToolCategory {
   return CATEGORY_MAP[name] || "other"
 }
 
@@ -75,14 +75,6 @@ function getFullTarget(tool: ToolCall): string {
   } catch {
     return tool.name
   }
-}
-
-/** Extract a short filename from a full path */
-function getShortName(full: string): string {
-  if (full.includes("/")) {
-    return full.split("/").pop() || full
-  }
-  return full
 }
 
 /** Get a one-line result preview (first non-empty line, truncated) */
@@ -140,7 +132,7 @@ function buildSummaryLabel(
 }
 
 /** Get the icon for the most frequent category in a mixed group */
-function getPrimaryIcon(tools: ToolCall[]): React.ComponentType<{ className?: string }> {
+function getPrimaryCategory(tools: ToolCall[]): ToolCategory {
   const counts = new Map<ToolCategory, number>()
   for (const tool of tools) {
     const cat = getToolCategory(tool.name)
@@ -154,7 +146,7 @@ function getPrimaryIcon(tools: ToolCall[]): React.ComponentType<{ className?: st
       maxCount = count
     }
   }
-  return CATEGORY_ICONS[maxCat]
+  return maxCat
 }
 
 /** Single item inside a group — shows label + expandable result */
@@ -249,7 +241,8 @@ export default function ToolCallGroup({ tools }: ToolCallGroupProps) {
   const [expanded, setExpanded] = useState(false)
   const anyRunning = tools.some((tc) => tc.result === undefined)
 
-  const Icon = getPrimaryIcon(tools)
+  const primaryCategory = getPrimaryCategory(tools)
+  const HeaderIcon = CATEGORY_ICONS[primaryCategory]
   const label = buildSummaryLabel(tools, t)
 
   return (
@@ -266,7 +259,7 @@ export default function ToolCallGroup({ tools }: ToolCallGroupProps) {
         ) : (
           <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
         )}
-        <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <HeaderIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         <span className="text-muted-foreground font-medium">{label}</span>
       </button>
 

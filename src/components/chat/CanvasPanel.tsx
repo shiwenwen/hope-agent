@@ -36,6 +36,41 @@ export default function CanvasPanel({ panelWidth = 480, onPanelWidthChange }: Ca
   const [refreshKey, setRefreshKey] = useState(0)
   const detachedWindowRef = useRef<WebviewWindow | null>(null)
 
+  const handleSnapshotRequest = useCallback((requestId: string) => {
+    const iframe = iframeRef.current
+    if (!iframe?.contentWindow) {
+      invoke("canvas_submit_snapshot", {
+        requestId,
+        dataUrl: null,
+        error: "Canvas panel is not open or iframe not loaded",
+      }).catch(() => {})
+      return
+    }
+    iframe.contentWindow.postMessage(
+      { type: "canvas_snapshot", requestId },
+      "*",
+    )
+  }, [])
+
+  const handleEvalRequest = useCallback(
+    (requestId: string, code: string) => {
+      const iframe = iframeRef.current
+      if (!iframe?.contentWindow) {
+        invoke("canvas_submit_eval_result", {
+          requestId,
+          result: null,
+          error: "Canvas panel is not open or iframe not loaded",
+        }).catch(() => {})
+        return
+      }
+      iframe.contentWindow.postMessage(
+        { type: "canvas_eval", requestId, code },
+        "*",
+      )
+    },
+    [],
+  )
+
   // Dynamically adjust window min width when canvas is shown/hidden
   useEffect(() => {
     const win = getCurrentWindow()
@@ -130,7 +165,7 @@ export default function CanvasPanel({ panelWidth = 480, onPanelWidthChange }: Ca
     return () => {
       unlisteners.forEach((u) => u())
     }
-  }, [])
+  }, [handleEvalRequest, handleSnapshotRequest])
 
   // Handle messages from iframe (eval results, snapshot results)
   useEffect(() => {
@@ -163,44 +198,9 @@ export default function CanvasPanel({ panelWidth = 480, onPanelWidthChange }: Ca
     if (!canvas && detachedWindowRef.current) {
       detachedWindowRef.current.close().catch(() => {})
       detachedWindowRef.current = null
-      setDetached(false)
+      queueMicrotask(() => setDetached(false))
     }
   }, [canvas])
-
-  const handleSnapshotRequest = useCallback((requestId: string) => {
-    const iframe = iframeRef.current
-    if (!iframe?.contentWindow) {
-      invoke("canvas_submit_snapshot", {
-        requestId,
-        dataUrl: null,
-        error: "Canvas panel is not open or iframe not loaded",
-      }).catch(() => {})
-      return
-    }
-    iframe.contentWindow.postMessage(
-      { type: "canvas_snapshot", requestId },
-      "*",
-    )
-  }, [])
-
-  const handleEvalRequest = useCallback(
-    (requestId: string, code: string) => {
-      const iframe = iframeRef.current
-      if (!iframe?.contentWindow) {
-        invoke("canvas_submit_eval_result", {
-          requestId,
-          result: null,
-          error: "Canvas panel is not open or iframe not loaded",
-        }).catch(() => {})
-        return
-      }
-      iframe.contentWindow.postMessage(
-        { type: "canvas_eval", requestId, code },
-        "*",
-      )
-    },
-    [],
-  )
 
   const handleClose = useCallback(() => {
     // Close detached window if exists

@@ -93,7 +93,9 @@ export function usePlanMode(
     setPlanState("off")
     setShowPanel(false)
     setPlanCardInfo(null)
-    setPendingQuestionGroup(null)
+    queueMicrotask(() => {
+      setPendingQuestionGroup(null)
+    })
   }, [currentSessionId, setPlanState])
 
   // Approve and start execution
@@ -131,7 +133,9 @@ export function usePlanMode(
 
   // Sync state when session changes
   const planStateRef = useRef(planState)
-  planStateRef.current = planState
+  useEffect(() => {
+    planStateRef.current = planState
+  }, [planState])
 
   useEffect(() => {
     if (!currentSessionId) {
@@ -139,10 +143,12 @@ export function usePlanMode(
       // in this no-session context (pre-session plan mode)
       if (!preSessionPlanRef.current) {
         setPlanState("off")
-        setPlanSteps([])
-        setPlanContent("")
-        setShowPanel(false)
-        setPlanCardInfo(null)
+        queueMicrotask(() => {
+          setPlanSteps([])
+          setPlanContent("")
+          setShowPanel(false)
+          setPlanCardInfo(null)
+        })
       }
       return
     }
@@ -151,7 +157,9 @@ export function usePlanMode(
     preSessionPlanRef.current = false
 
     // Always clear stale question UI on session switch
-    setPendingQuestionGroup(null)
+    queueMicrotask(() => {
+      setPendingQuestionGroup(null)
+    })
 
     // If frontend already has a non-off plan state (entered before session existed),
     // sync it TO the backend instead of reading FROM backend
@@ -340,7 +348,9 @@ export function usePlanMode(
   // Also clear planSubagentRunning when plan state transitions away from planning
   useEffect(() => {
     if (planState !== "planning") {
-      setPlanSubagentRunning(false)
+      queueMicrotask(() => {
+        setPlanSubagentRunning(false)
+      })
     }
   }, [planState])
 

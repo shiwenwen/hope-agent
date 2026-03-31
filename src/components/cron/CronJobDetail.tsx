@@ -15,8 +15,8 @@ import {
   Clock,
   ExternalLink,
 } from "lucide-react"
-import type { CronJob, CronRunLog } from "./CronJobForm"
-import { statusColor, formatSchedule } from "./CronJobForm"
+import type { CronJob, CronRunLog } from "./CronJobForm.types"
+import { statusColor, formatSchedule } from "./cronHelpers"
 
 interface CronJobDetailProps {
   jobId: string

@@ -128,17 +128,23 @@ export default function DashboardView({ onBack }: { onBack: () => void }) {
         logger.error("dashboard", "loadTabData", `Failed loading ${tab}: ${e}`)
       }
     },
-    [filter, granularity],
+    [filter],
   )
 
   useEffect(() => {
-    setLoading(true)
-    Promise.all([loadOverview(), loadTabData(activeTab)]).finally(() => setLoading(false))
-  }, [filter]) // eslint-disable-line react-hooks/exhaustive-deps
+    const timer = setTimeout(() => {
+      setLoading(true)
+      Promise.all([loadOverview(), loadTabData(activeTab)]).finally(() => setLoading(false))
+    }, 0)
+    return () => clearTimeout(timer)
+  }, [filter, loadOverview, loadTabData, activeTab])
 
   useEffect(() => {
-    loadTabData(activeTab)
-  }, [activeTab, granularity]) // eslint-disable-line react-hooks/exhaustive-deps
+    const timer = setTimeout(() => {
+      loadTabData(activeTab)
+    }, 0)
+    return () => clearTimeout(timer)
+  }, [activeTab, granularity, loadTabData])
 
   const handleCardClick = useCallback((action: CardAction) => {
     if (action.type === "tab") {

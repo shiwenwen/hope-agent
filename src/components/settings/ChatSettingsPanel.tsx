@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { Switch } from "@/components/ui/switch"
 import ContextCompactPanel from "@/components/settings/ContextCompactPanel"
-import { invalidateThinkingExpandCache } from "@/components/chat/ThinkingBlock"
+import { invalidateThinkingExpandCache } from "@/components/chat/thinkingCache"
 
 interface ChatConfig {
   autoSendPending: boolean

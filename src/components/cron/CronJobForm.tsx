@@ -23,10 +23,6 @@ import {
   toLocalDatetimeString,
 } from "./cronHelpers"
 
-// Re-export types and helpers for backward compatibility
-export type { CronSchedule, CronPayload, CronJob, CronRunLog, CalendarEvent } from "./CronJobForm.types"
-export { statusColor, formatSchedule } from "./cronHelpers"
-
 interface AgentInfo {
   id: string
   name: string

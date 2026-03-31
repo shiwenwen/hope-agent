@@ -32,6 +32,23 @@ function SectionSkeleton({ height }: { height: number }) {
   )
 }
 
+function SortIndicator({
+  column,
+  sortKey,
+  sortDir,
+}: {
+  column: SortKey
+  sortKey: SortKey
+  sortDir: SortDir
+}) {
+  if (sortKey !== column) return <ArrowUpDown className="h-3 w-3 ml-1 opacity-40" />
+  return sortDir === "asc" ? (
+    <ChevronUp className="h-3 w-3 ml-1" />
+  ) : (
+    <ChevronDown className="h-3 w-3 ml-1" />
+  )
+}
+
 const ToolUsageSection = React.memo(function ToolUsageSection({
   data,
   loading,
@@ -102,15 +119,6 @@ const ToolUsageSection = React.memo(function ToolUsageSection({
       <div className="flex items-center justify-center h-[300px] text-sm text-muted-foreground mt-4">
         {t("dashboard.noData")}
       </div>
-    )
-  }
-
-  const SortIcon = ({ column }: { column: SortKey }) => {
-    if (sortKey !== column) return <ArrowUpDown className="h-3 w-3 ml-1 opacity-40" />
-    return sortDir === "asc" ? (
-      <ChevronUp className="h-3 w-3 ml-1" />
-    ) : (
-      <ChevronDown className="h-3 w-3 ml-1" />
     )
   }
 
@@ -237,21 +245,21 @@ const ToolUsageSection = React.memo(function ToolUsageSection({
                 onClick={() => handleSort("toolName")}
               >
                 {t("dashboard.tool.name")}
-                <SortIcon column="toolName" />
+                <SortIndicator column="toolName" sortKey={sortKey} sortDir={sortDir} />
               </button>
               <button
                 className="flex items-center justify-end"
                 onClick={() => handleSort("callCount")}
               >
                 {t("dashboard.tool.calls")}
-                <SortIcon column="callCount" />
+                <SortIndicator column="callCount" sortKey={sortKey} sortDir={sortDir} />
               </button>
               <button
                 className="flex items-center justify-end"
                 onClick={() => handleSort("errorCount")}
               >
                 {t("dashboard.tool.errors")}
-                <SortIcon column="errorCount" />
+                <SortIndicator column="errorCount" sortKey={sortKey} sortDir={sortDir} />
               </button>
               <div className="text-right">{t("dashboard.tool.errorRate")}</div>
               <button
@@ -259,14 +267,14 @@ const ToolUsageSection = React.memo(function ToolUsageSection({
                 onClick={() => handleSort("avgDurationMs")}
               >
                 {t("dashboard.tool.avgMs")}
-                <SortIcon column="avgDurationMs" />
+                <SortIndicator column="avgDurationMs" sortKey={sortKey} sortDir={sortDir} />
               </button>
               <button
                 className="flex items-center justify-end"
                 onClick={() => handleSort("totalDurationMs")}
               >
                 {t("dashboard.tool.totalMs")}
-                <SortIcon column="totalDurationMs" />
+                <SortIndicator column="totalDurationMs" sortKey={sortKey} sortDir={sortDir} />
               </button>
             </div>
 

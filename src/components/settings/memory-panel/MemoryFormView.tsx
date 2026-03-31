@@ -14,15 +14,14 @@ type MemoryData = ReturnType<typeof useMemoryData>
 
 interface MemoryFormViewProps {
   data: MemoryData
-  isAgentMode: boolean
 }
 
-export default function MemoryFormView({ data, isAgentMode }: MemoryFormViewProps) {
+export default function MemoryFormView({ data }: MemoryFormViewProps) {
   const { t } = useTranslation()
 
   const {
     view, setView,
-    editingMemory, setEditingMemory,
+    setEditingMemory,
     formContent, setFormContent,
     formType, setFormType,
     formTags, setFormTags,

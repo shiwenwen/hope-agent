@@ -6,8 +6,8 @@ import { Button } from "@/components/ui/button"
 import { ChevronLeft, ChevronRight, Plus, CalendarDays } from "lucide-react"
 import CronJobForm from "./CronJobForm"
 import CronJobDetail from "./CronJobDetail"
-import type { CronJob, CalendarEvent } from "./CronJobForm"
-import { statusColor } from "./CronJobForm"
+import type { CronJob, CalendarEvent } from "./CronJobForm.types"
+import { statusColor } from "./cronHelpers"
 
 interface CronCalendarViewProps {
   onBack: () => void

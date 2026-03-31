@@ -24,7 +24,7 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
 
   // ── Add / Edit View ──
   if (data.view === "add" || data.view === "edit") {
-    return <MemoryFormView data={data} isAgentMode={isAgentMode} />
+    return <MemoryFormView data={data} />
   }
 
   // ── List View (default) ──

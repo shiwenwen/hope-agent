@@ -317,7 +317,7 @@ export function useChatSession({
     }).then((fn) => unlisteners.push(fn))
 
     return () => { unlisteners.forEach((fn) => fn()) }
-  }, [setLoading, setLoadingSessionIds])
+  }, [setLoading, setLoadingSessionIds, reloadSessions])
 
   // Listen for channel streaming events — full event processing (mirrors useChatStream)
   useEffect(() => {

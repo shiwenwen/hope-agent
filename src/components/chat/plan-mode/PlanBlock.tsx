@@ -1,11 +1,11 @@
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useMemo, useCallback } from "react"
 import { ChevronRight, ClipboardList, PanelRightOpen } from "lucide-react"
 import { invoke } from "@tauri-apps/api/core"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
 import { useTranslation } from "react-i18next"
-import { detectPlanContent, type ParsedPlanStep } from "./planParser"
+import { detectPlanContent } from "./planParser"
 import { PlanStepItem } from "./PlanStepItem"
 import type { PlanModeState, PlanStep } from "./usePlanMode"
 
@@ -31,14 +31,9 @@ export function PlanBlock({
 }: PlanBlockProps) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(true)
-  const [parsedSteps, setParsedSteps] = useState<ParsedPlanStep[]>([])
-  const [planTitle, setPlanTitle] = useState<string>("")
-
-  useEffect(() => {
-    const { steps, title } = detectPlanContent(content)
-    setParsedSteps(steps)
-    setPlanTitle(title || t("planMode.plan"))
-  }, [content, t])
+  const parsedPlan = useMemo(() => detectPlanContent(content), [content])
+  const parsedSteps = parsedPlan.steps
+  const planTitle = parsedPlan.title || t("planMode.plan")
 
   // Save plan content to backend when detected
   useEffect(() => {

@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
-import type { ModelConfig } from "@/components/settings/ProviderSetup"
+import type { ModelConfig } from "@/components/settings/provider-setup"
 import ProviderIcon from "@/components/common/ProviderIcon"
 import {
   DndContext,

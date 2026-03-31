@@ -200,9 +200,11 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
   // Re-init when dialog opens
   useEffect(() => {
     if (open) {
-      initSession()
+      queueMicrotask(() => {
+        initSession()
+      })
     }
-  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open, initSession])
 
   // Create new chat session
   const handleNewChat = useCallback(async () => {

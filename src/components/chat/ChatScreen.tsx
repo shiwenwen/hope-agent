@@ -141,32 +141,36 @@ export default function ChatScreen({
     () => session.sessions.find((s) => s.id === session.currentSessionId)?.isCron ?? false,
     [session.sessions, session.currentSessionId],
   )
+  const reloadSessions = session.reloadSessions
+  const currentAgentId = session.currentAgentId
+  const handleNewChat = session.handleNewChat
+  const currentSessionId = session.currentSessionId
 
   // Rename session handler
   const handleRenameSession = useCallback(async (sessionId: string, title: string) => {
     try {
       await invoke("rename_session_cmd", { sessionId, title })
-      session.reloadSessions()
+      reloadSessions()
     } catch (err) {
       logger.error("chat", "ChatScreen::renameSession", "Failed to rename session", err)
     }
-  }, [session.reloadSessions])
+  }, [reloadSessions])
 
   // Reload sessions when external trigger changes (e.g. mark-all-read from IconSidebar)
   useEffect(() => {
     if (sessionsRefreshTrigger) {
-      session.reloadSessions()
+      reloadSessions()
     }
-  }, [sessionsRefreshTrigger])
+  }, [sessionsRefreshTrigger, reloadSessions])
 
   // Listen for tray "new-session" event to trigger new chat
   useEffect(() => {
     let unlisten: UnlistenFn | undefined
     listen("new-session", () => {
-      session.handleNewChat(session.currentAgentId)
+      handleNewChat(currentAgentId)
     }).then((fn) => { unlisten = fn })
     return () => { unlisten?.() }
-  }, [session.handleNewChat, session.currentAgentId])
+  }, [handleNewChat, currentAgentId])
 
   // Fetch models and current settings on mount
   useEffect(() => {
@@ -221,6 +225,8 @@ export default function ChatScreen({
 
   // ── Plan Mode Hook ─────────────────────────────────────────
   const planMode = usePlanMode(session.currentSessionId, planModeState, setPlanModeState)
+  const setPlanState = planMode.setPlanState
+  const sendMessage = stream.handleSend
 
   // ── Auto-scroll Hook ───────────────────────────────────────
   const { scrollContainerRef, bottomRef } = useAutoScroll({
@@ -381,13 +387,13 @@ export default function ChatScreen({
   const handleRequestChanges = useCallback(
     (feedback: string) => {
       // Send feedback back to LLM, which will revise the plan
-      planMode.setPlanState("planning")
-      if (session.currentSessionId) {
-        invoke("set_plan_mode", { sessionId: session.currentSessionId, state: "planning" }).catch(() => {})
+      setPlanState("planning")
+      if (currentSessionId) {
+        invoke("set_plan_mode", { sessionId: currentSessionId, state: "planning" }).catch(() => {})
       }
-      stream.handleSend(feedback)
+      sendMessage(feedback)
     },
-    [planMode.setPlanState, stream.handleSend, session.currentSessionId]
+    [setPlanState, sendMessage, currentSessionId]
   )
 
   return (

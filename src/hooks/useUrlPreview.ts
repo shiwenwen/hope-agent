@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react"
+import { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { extractUrls } from "@/lib/urlDetect"
 import type { UrlPreviewData } from "@/components/chat/UrlPreviewCard"
@@ -26,6 +26,7 @@ export function useUrlPreview(
   const cacheRef = useRef<Map<string, UrlPreviewData>>(new Map())
   const pendingRef = useRef<Set<string>>(new Set())
   const activeRef = useRef(0)
+  const urls = useMemo(() => (enabled ? extractUrls(text) : []), [enabled, text])
 
   const dismiss = useCallback((url: string) => {
     setDismissedUrls((prev) => new Set(prev).add(url))
@@ -37,14 +38,8 @@ export function useUrlPreview(
   }, [])
 
   useEffect(() => {
-    if (!enabled || !text.trim()) {
-      setPreviews(new Map())
-      return
-    }
-
     const timer = setTimeout(() => {
-      const urls = extractUrls(text)
-      if (urls.length === 0) {
+      if (!enabled || !text.trim() || urls.length === 0) {
         setPreviews(new Map())
         return
       }
@@ -67,8 +62,12 @@ export function useUrlPreview(
       setPreviews(newPreviews)
 
       // Fetch new URLs with concurrency limit
-      for (const url of toFetch) {
-        if (activeRef.current >= MAX_CONCURRENT) break
+      const queue = [...toFetch]
+      const startNext = () => {
+        if (queue.length === 0 || activeRef.current >= MAX_CONCURRENT) return
+        const url = queue.shift()
+        if (!url) return
+
         pendingRef.current.add(url)
         activeRef.current++
 
@@ -92,12 +91,17 @@ export function useUrlPreview(
           .finally(() => {
             pendingRef.current.delete(url)
             activeRef.current--
+            startNext()
           })
+
+        startNext()
       }
+
+      startNext()
     }, debounceMs)
 
     return () => clearTimeout(timer)
-  }, [text, enabled, debounceMs])
+  }, [text, enabled, debounceMs, urls])
 
   return { previews, dismissedUrls, dismiss, reset }
 }
