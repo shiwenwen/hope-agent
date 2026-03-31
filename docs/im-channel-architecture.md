@@ -323,6 +323,11 @@ Worker Dispatcher (worker.rs)
     ├── 3. resolve_or_create_session() 查找/创建会话
     ├── 4. append_message(user_msg) 保存用户消息
     ├── 5. send_typing() 发送输入中指示器
+    ├── 5a. [斜杠命令拦截] is_slash_command(user_text)?
+    │       ├── YES → dispatch_slash_for_channel()
+    │       │           ├── Reply 类 (help/status/new/clear/...) → 直接回复，跳过 LLM，return
+    │       │           └── PassThrough 类 (技能调用/search) → 替换为转换后指令，继续 ↓
+    │       └── NO  → 继续 ↓
     ├── 6. chat_engine::run_chat_engine() 共享聊天引擎
     │       ├── 构建 Agent（model chain + failover）
     │       ├── 恢复会话历史 (restore_agent_context)
@@ -390,6 +395,18 @@ sequenceDiagram
     Worker->>DB: append_message(user_msg)
     Worker->>Plugin: send_typing(chat_id)
     Plugin->>TG: sendChatAction("typing")
+
+    alt 斜杠命令 (/help, /new, /model, /skill, ...)
+        Worker->>Worker: dispatch_slash_for_channel()
+        alt Reply 类 (直接回复，不调用 LLM)
+            Worker->>DB: append_message(assistant_reply)
+            Worker->>Plugin: send_message(slash_reply)
+            Plugin->>TG: sendMessage(reply)
+            TG-->>User: 显示命令结果
+        else PassThrough 类 (技能/search，转换后交给 LLM)
+            Note over Worker: engine_message = 转换后的指令
+        end
+    end
 
     Worker->>Agent: chat_engine::run_chat_engine()
     Agent->>LLM: API 请求 (流式 + tool loop)
@@ -520,13 +537,13 @@ CREATE TABLE channel_conversations (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
-    UNIQUE (channel_id, account_id, chat_id, thread_id)
+    UNIQUE (channel_id, account_id, chat_id, thread_id, session_id)
 );
 ```
 
 ### 会话映射策略
 
-每个唯一的 `(channel_id, account_id, chat_id, thread_id)` 元组对应一个会话：
+每个唯一的 `(channel_id, account_id, chat_id, thread_id)` 元组对应**最新的**一个会话（`updated_at DESC LIMIT 1` 查询）：
 
 | 场景 | 映射 |
 |------|------|
@@ -534,6 +551,8 @@ CREATE TABLE channel_conversations (
 | 用户 B 私聊 Bot | `(telegram, bot1, user_b_id, NULL)` → session_2 |
 | 群组 G 中的消息 | `(telegram, bot1, group_g_id, NULL)` → session_3 |
 | 群组 G 话题 T 中的消息 | `(telegram, bot1, group_g_id, topic_t_id)` → session_4 |
+
+**`/new` 和 `/agent` 命令的会话重置：** UNIQUE 约束包含 `session_id`，因此同一对话可以有多行记录（每次 `/new` 新增一行）。`update_session()` 通过 `INSERT OR IGNORE ... SELECT` 复制频道元数据并指向新 session_id，旧 session 的历史记录保持不变、在桌面端仍可查看。
 
 会话的 `context_json` 字段存储渠道元信息：
 
@@ -574,6 +593,7 @@ pub fn spawn_dispatcher(
 **关键设计决策：**
 
 - **并发处理**：每条入站消息在独立 `tokio::spawn` 中处理，不阻塞其他消息
+- **斜杠命令拦截**：在调用 LLM 之前，`dispatch_slash_for_channel()` 检测以 `/` 开头的消息并转发给 `slash_commands::handlers::dispatch()`。`Reply` 类命令（`/help`、`/new`、`/clear`、`/model`、`/status` 等）直接回复并跳过 LLM；`PassThrough` 类命令（技能调用、`/search`）将转换后的指令作为 `engine_message` 交给 LLM
 - **共享 ChatEngine**：调用 `chat_engine::run_chat_engine()` — 与 UI 聊天使用完全相同的 Agent 执行引擎，拥有相同的能力：流式输出、会话历史恢复、工具事件持久化、Failover 降级、Context compaction、Token 跟踪、异步记忆提取
 - **EventSink 抽象**：UI 聊天通过 `ChannelSink`（Tauri Channel）推流，IM 聊天通过 `EmitSink`（Tauri emit）推流到前端 + 累积 text_delta 发送 `channel:stream_delta` 事件
 - **每个渠道可绑定独立 Agent**：`ChannelAccountConfig.agent_id` 字段支持每个渠道账户绑定不同 Agent，未设置时回退到全局默认
