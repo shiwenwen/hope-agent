@@ -1,4 +1,5 @@
 use anyhow::Result;
+use std::time::Duration;
 use teloxide::prelude::*;
 use teloxide::types::{
     ChatAction, ChatId, InputFile, Me, MessageId, ParseMode as TgParseMode, ReplyParameters,
@@ -15,25 +16,25 @@ pub struct TelegramBotApi {
 impl TelegramBotApi {
     /// Create a new Telegram Bot API client.
     ///
-    /// If `proxy_url` is provided, it's set via `HTTPS_PROXY` env before creating
-    /// the client (teloxide reads proxy from env via `client_from_env()`).
+    /// Uses a custom reqwest client with proper timeouts to prevent long-polling
+    /// requests from hanging indefinitely on network issues.
     pub fn new(token: &str, proxy_url: Option<&str>, _api_root: Option<&str>) -> Self {
-        // Teloxide's Bot::new() uses `client_from_env()` which reads HTTPS_PROXY.
-        // For a per-account proxy, we temporarily set the env var.
-        // This is safe because bot creation is synchronous.
-        let bot = if let Some(proxy) = proxy_url {
-            let prev = std::env::var("HTTPS_PROXY").ok();
-            std::env::set_var("HTTPS_PROXY", proxy);
-            let bot = Bot::new(token);
-            // Restore previous value
-            match prev {
-                Some(val) => std::env::set_var("HTTPS_PROXY", val),
-                None => std::env::remove_var("HTTPS_PROXY"),
+        // Build a custom reqwest client with timeouts.
+        // connect_timeout: fail fast if the server is unreachable (10s)
+        // timeout: overall request timeout, must be longer than long-poll timeout (30s)
+        //          to allow the server to hold the connection. Set to 60s.
+        let mut client_builder = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(60));
+
+        if let Some(proxy) = proxy_url {
+            if let Ok(p) = reqwest::Proxy::all(proxy) {
+                client_builder = client_builder.proxy(p);
             }
-            bot
-        } else {
-            Bot::new(token)
-        };
+        }
+
+        let client = client_builder.build().unwrap_or_else(|_| reqwest::Client::new());
+        let bot = Bot::with_client(token, client);
 
         Self {
             bot,

@@ -56,9 +56,16 @@ pub async fn run_polling_loop(
                             (2u64.pow(consecutive_errors.min(5))) as u64,
                             max_backoff_secs,
                         );
-                        app_warn!("channel", "telegram::polling",
-                            "Poll error (attempt {}): {}. Retrying in {}s",
-                            consecutive_errors, e, backoff);
+                        // Log first 3 errors as warn, then only every 10th to avoid spam
+                        if consecutive_errors <= 3 || consecutive_errors % 10 == 0 {
+                            app_warn!("channel", "telegram::polling",
+                                "Poll error (attempt {}): {}. Retrying in {}s",
+                                consecutive_errors, e, backoff);
+                        } else {
+                            app_debug!("channel", "telegram::polling",
+                                "Poll error (attempt {}): {}. Retrying in {}s",
+                                consecutive_errors, e, backoff);
+                        }
 
                         tokio::select! {
                             _ = cancel.cancelled() => break,
