@@ -59,7 +59,7 @@ impl ChannelDB {
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
-                    UNIQUE (channel_id, account_id, chat_id, thread_id)
+                    UNIQUE (channel_id, account_id, chat_id, thread_id, session_id)
                 );
                 CREATE INDEX IF NOT EXISTS idx_channel_conv_session ON channel_conversations(session_id);
                 CREATE INDEX IF NOT EXISTS idx_channel_conv_lookup ON channel_conversations(channel_id, account_id, chat_id);"
@@ -159,13 +159,13 @@ impl ChannelDB {
 
         let result = if let Some(tid) = thread_id {
             conn.query_row(
-                "SELECT session_id FROM channel_conversations WHERE channel_id = ?1 AND account_id = ?2 AND chat_id = ?3 AND thread_id = ?4",
+                "SELECT session_id FROM channel_conversations WHERE channel_id = ?1 AND account_id = ?2 AND chat_id = ?3 AND thread_id = ?4 ORDER BY updated_at DESC LIMIT 1",
                 params![channel_id, account_id, chat_id, tid],
                 |row| row.get::<_, String>(0),
             )
         } else {
             conn.query_row(
-                "SELECT session_id FROM channel_conversations WHERE channel_id = ?1 AND account_id = ?2 AND chat_id = ?3 AND thread_id IS NULL",
+                "SELECT session_id FROM channel_conversations WHERE channel_id = ?1 AND account_id = ?2 AND chat_id = ?3 AND thread_id IS NULL ORDER BY updated_at DESC LIMIT 1",
                 params![channel_id, account_id, chat_id],
                 |row| row.get::<_, String>(0),
             )
@@ -253,9 +253,9 @@ impl ChannelDB {
         }
     }
 
-    /// Remap an existing channel conversation to a different session_id.
-    /// Used when a slash command (/new, /agent) creates a new session for this conversation.
-    /// Returns true if a row was updated, false if no mapping existed.
+    /// Add a new session mapping for this channel conversation (used by /new, /agent).
+    /// The old session keeps its row and retains its channel_info in the UI.
+    /// Returns true if a new row was inserted, false if no existing mapping was found to copy from.
     pub fn update_session(
         &self,
         channel_id: &str,
@@ -271,14 +271,26 @@ impl ChannelDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
+        // Copy channel metadata from the most recent row for this conversation,
+        // inserting a new row for new_session_id so the old session keeps its row.
         let rows = if let Some(tid) = thread_id {
             conn.execute(
-                "UPDATE channel_conversations SET session_id = ?1, updated_at = ?2 WHERE channel_id = ?3 AND account_id = ?4 AND chat_id = ?5 AND thread_id = ?6",
+                "INSERT OR IGNORE INTO channel_conversations \
+                    (channel_id, account_id, chat_id, thread_id, session_id, sender_id, sender_name, chat_type, created_at, updated_at) \
+                 SELECT channel_id, account_id, chat_id, thread_id, ?1, sender_id, sender_name, chat_type, ?2, ?2 \
+                 FROM channel_conversations \
+                 WHERE channel_id = ?3 AND account_id = ?4 AND chat_id = ?5 AND thread_id = ?6 \
+                 ORDER BY updated_at DESC LIMIT 1",
                 params![new_session_id, now, channel_id, account_id, chat_id, tid],
             )?
         } else {
             conn.execute(
-                "UPDATE channel_conversations SET session_id = ?1, updated_at = ?2 WHERE channel_id = ?3 AND account_id = ?4 AND chat_id = ?5 AND thread_id IS NULL",
+                "INSERT OR IGNORE INTO channel_conversations \
+                    (channel_id, account_id, chat_id, thread_id, session_id, sender_id, sender_name, chat_type, created_at, updated_at) \
+                 SELECT channel_id, account_id, chat_id, thread_id, ?1, sender_id, sender_name, chat_type, ?2, ?2 \
+                 FROM channel_conversations \
+                 WHERE channel_id = ?3 AND account_id = ?4 AND chat_id = ?5 AND thread_id IS NULL \
+                 ORDER BY updated_at DESC LIMIT 1",
                 params![new_session_id, now, channel_id, account_id, chat_id],
             )?
         };

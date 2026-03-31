@@ -269,7 +269,8 @@ export default function ChatScreen({
       const action = result.action
 
       // Show command output as an event message (if content is not empty)
-      if (result.content) {
+      // Skip for newSession: we immediately reset to a blank state so the message would be lost anyway
+      if (result.content && action?.type !== "newSession") {
         const eventMsg: Message = {
           role: "event",
           content: result.content,
@@ -282,7 +283,14 @@ export default function ChatScreen({
 
       switch (action.type) {
         case "newSession":
-          if (action.sessionId) session.handleSwitchSession(action.sessionId)
+          // Behave like the "New Chat" button: clear immediately without showing an empty session
+          // in the sidebar. The backend-created session is deleted to avoid DB clutter.
+          session.handleNewChat(session.currentAgentId)
+          if (action.sessionId) {
+            invoke("delete_session_cmd", { sessionId: action.sessionId })
+              .then(() => session.reloadSessions())
+              .catch(() => {})
+          }
           break
         case "switchModel":
           handleModelChange(`${action.providerId}::${action.modelId}`)
