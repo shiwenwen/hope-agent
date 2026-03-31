@@ -102,12 +102,16 @@ impl ProcessRegistry {
     pub fn append_output(&mut self, id: &str, stream: &str, data: &str) {
         if let Some(session) = self.sessions.get_mut(id) {
             // Accumulate to aggregated output
-            if session.aggregated_output.len() < session.max_output_chars {
-                let remaining = session.max_output_chars - session.aggregated_output.len();
-                if data.len() <= remaining {
+            let current_chars = session.aggregated_output.chars().count();
+            if current_chars < session.max_output_chars {
+                let remaining_chars = session.max_output_chars - current_chars;
+                let data_chars = data.chars().count();
+                if data_chars <= remaining_chars {
                     session.aggregated_output.push_str(data);
                 } else {
-                    session.aggregated_output.push_str(&data[..remaining]);
+                    session
+                        .aggregated_output
+                        .push_str(prefix_chars(data, remaining_chars));
                     session.truncated = true;
                 }
             }
@@ -115,9 +119,10 @@ impl ProcessRegistry {
             // Update tail (keep last 2000 chars)
             session.tail.push_str(data);
             const MAX_TAIL: usize = 2000;
-            if session.tail.len() > MAX_TAIL {
-                let start = session.tail.len() - MAX_TAIL;
-                session.tail = session.tail[start..].to_string();
+            let tail_chars = session.tail.chars().count();
+            if tail_chars > MAX_TAIL {
+                let drop_chars = tail_chars - MAX_TAIL;
+                session.tail = drop_prefix_chars(&session.tail, drop_chars).to_string();
             }
 
             // Accumulate to pending for drain
@@ -162,6 +167,41 @@ impl ProcessRegistry {
         for id in to_remove {
             self.sessions.remove(&id);
         }
+    }
+}
+
+fn prefix_chars(s: &str, max_chars: usize) -> &str {
+    match s.char_indices().nth(max_chars) {
+        Some((idx, _)) => &s[..idx],
+        None => s,
+    }
+}
+
+fn drop_prefix_chars(s: &str, count: usize) -> &str {
+    match s.char_indices().nth(count) {
+        Some((idx, _)) => &s[idx..],
+        None => "",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{drop_prefix_chars, prefix_chars};
+
+    #[test]
+    fn prefix_chars_respects_utf8_boundaries() {
+        let s = "ab好cd";
+        assert_eq!(prefix_chars(s, 0), "");
+        assert_eq!(prefix_chars(s, 3), "ab好");
+        assert_eq!(prefix_chars(s, 10), s);
+    }
+
+    #[test]
+    fn drop_prefix_chars_respects_utf8_boundaries() {
+        let s = "ab好cd";
+        assert_eq!(drop_prefix_chars(s, 0), s);
+        assert_eq!(drop_prefix_chars(s, 2), "好cd");
+        assert_eq!(drop_prefix_chars(s, 5), "");
     }
 }
 

@@ -143,6 +143,29 @@ pub(crate) fn is_private_ip(ip: &IpAddr) -> bool {
     }
 }
 
+fn is_blocked_host(host: &str) -> bool {
+    if host.eq_ignore_ascii_case("localhost") || host.ends_with(".localhost") {
+        return true;
+    }
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        return is_private_ip(&ip);
+    }
+    false
+}
+
+fn validate_fetch_url(url: &str) -> Result<url::Url> {
+    let parsed = url::Url::parse(url).map_err(|e| anyhow::anyhow!("Invalid URL: {}", e))?;
+    match parsed.scheme() {
+        "http" | "https" => {}
+        _ => {
+            return Err(anyhow::anyhow!(
+                "Invalid URL: only http:// and https:// are supported"
+            ))
+        }
+    }
+    Ok(parsed)
+}
+
 // ── Web Fetch Cache ─────────────────────────────────────────────
 
 struct CacheEntry {
@@ -254,38 +277,60 @@ fn extract_content(
 /// Basic HTML text extraction — strips tags, scripts, styles; normalizes whitespace.
 /// Kept as fallback when Readability fails.
 fn extract_readable_text_basic(html: &str) -> String {
-    let mut pos = 0;
-    let lower = html.to_lowercase();
     let mut cleaned = String::with_capacity(html.len());
+    let mut chars = html.chars().peekable();
+    let mut skip_tag: Option<String> = None;
 
-    while pos < html.len() {
-        let remaining_lower = &lower[pos..];
-        if remaining_lower.starts_with("<script") {
-            if let Some(end) = lower[pos..].find("</script>") {
-                pos += end + 9;
-                continue;
+    while let Some(ch) = chars.next() {
+        if ch != '<' {
+            if skip_tag.is_none() {
+                cleaned.push(ch);
             }
+            continue;
         }
-        if remaining_lower.starts_with("<style") {
-            if let Some(end) = lower[pos..].find("</style>") {
-                pos += end + 8;
-                continue;
+
+        let mut tag_content = String::new();
+        let mut reached_end = false;
+        for c in chars.by_ref() {
+            if c == '>' {
+                reached_end = true;
+                break;
             }
+            tag_content.push(c);
         }
-        if remaining_lower.starts_with("<noscript") {
-            if let Some(end) = lower[pos..].find("</noscript>") {
-                pos += end + 11;
-                continue;
+        if !reached_end {
+            break;
+        }
+
+        let trimmed = tag_content.trim_start();
+        let is_closing = trimmed.starts_with('/');
+        let name_src = if is_closing { &trimmed[1..] } else { trimmed };
+        let tag_name: String = name_src
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+            .map(|c| c.to_ascii_lowercase())
+            .collect();
+
+        if tag_name.is_empty() {
+            if skip_tag.is_none() {
+                cleaned.push(' ');
             }
+            continue;
         }
-        if remaining_lower.starts_with("<nav") {
-            if let Some(end) = lower[pos..].find("</nav>") {
-                pos += end + 6;
-                continue;
+
+        if let Some(current_skip) = skip_tag.as_deref() {
+            if is_closing && current_skip == tag_name {
+                skip_tag = None;
             }
+            continue;
         }
-        cleaned.push(html.as_bytes()[pos] as char);
-        pos += 1;
+
+        if matches!(tag_name.as_str(), "script" | "style" | "noscript" | "nav") && !is_closing {
+            skip_tag = Some(tag_name);
+            continue;
+        }
+
+        cleaned.push(' ');
     }
 
     let mut result = String::with_capacity(cleaned.len() / 2);
@@ -330,6 +375,19 @@ fn extract_readable_text_basic(html: &str) -> String {
     }
 
     html_decode(result.trim())
+}
+
+fn truncate_to_char_count(s: &str, max_chars: usize) -> &str {
+    if s.chars().count() <= max_chars {
+        return s;
+    }
+
+    let cut = s
+        .char_indices()
+        .nth(max_chars)
+        .map(|(idx, _)| idx)
+        .unwrap_or(s.len());
+    &s[..cut]
 }
 
 fn html_decode(s: &str) -> String {
@@ -380,11 +438,7 @@ pub(crate) async fn tool_web_fetch(args: &Value) -> Result<String> {
         max_chars
     );
 
-    if !url.starts_with("http://") && !url.starts_with("https://") {
-        return Err(anyhow::anyhow!(
-            "Invalid URL: must start with http:// or https://"
-        ));
-    }
+    let parsed_url = validate_fetch_url(url)?;
 
     // Check cache
     let ck = cache_key(url, extract_mode);
@@ -399,17 +453,33 @@ pub(crate) async fn tool_web_fetch(args: &Value) -> Result<String> {
     }
 
     // Build HTTP client with config
+    let max_redirects = config.max_redirects;
+    let ssrf_protection = config.ssrf_protection;
+    let redirect_policy = reqwest::redirect::Policy::custom(move |attempt| {
+        if attempt.previous().len() >= max_redirects {
+            return attempt.error("too many redirects");
+        }
+        if ssrf_protection {
+            if let Some(host) = attempt.url().host_str() {
+                if is_blocked_host(host) {
+                    return attempt.stop();
+                }
+            }
+        }
+        attempt.follow()
+    });
+
     let client = crate::provider::apply_proxy(
         reqwest::Client::builder()
             .user_agent(&config.user_agent)
             .timeout(std::time::Duration::from_secs(config.timeout_seconds))
-            .redirect(reqwest::redirect::Policy::limited(config.max_redirects)),
+            .redirect(redirect_policy),
     )
     .build()
     .map_err(|e| anyhow::anyhow!("Failed to create HTTP client: {}", e))?;
 
     let resp = client
-        .get(url)
+        .get(parsed_url)
         .header("Accept", "text/html,application/json,text/plain,*/*")
         .send()
         .await
@@ -464,10 +534,10 @@ pub(crate) async fn tool_web_fetch(args: &Value) -> Result<String> {
     };
 
     // Truncate content
-    let total_chars = text.len();
-    let truncated = body_truncated || text.len() > max_chars;
-    if text.len() > max_chars {
-        text.truncate(max_chars);
+    let total_chars = text.chars().count();
+    let truncated = body_truncated || total_chars > max_chars;
+    if total_chars > max_chars {
+        text = truncate_to_char_count(&text, max_chars).to_string();
     }
 
     let took_ms = start_time.elapsed().as_millis() as u64;
@@ -500,4 +570,44 @@ pub(crate) async fn tool_web_fetch(args: &Value) -> Result<String> {
     write_cache(ck, result.clone(), config.cache_ttl_minutes);
 
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        extract_readable_text_basic, is_blocked_host, truncate_to_char_count, validate_fetch_url,
+    };
+
+    #[test]
+    fn extract_text_handles_unicode_without_panicking() {
+        let html = r#"<div>你好<script>bad()</script><p>世界🌍</p></div>"#;
+        let out = extract_readable_text_basic(html);
+        assert!(out.contains("你好"));
+        assert!(out.contains("世界🌍"));
+        assert!(!out.contains("bad()"));
+    }
+
+    #[test]
+    fn truncate_to_char_count_preserves_utf8_boundary() {
+        let s = "ab好c";
+        assert_eq!(truncate_to_char_count(s, 0), "");
+        assert_eq!(truncate_to_char_count(s, 2), "ab");
+        assert_eq!(truncate_to_char_count(s, 3), "ab好");
+        assert_eq!(truncate_to_char_count(s, 10), s);
+    }
+
+    #[test]
+    fn validate_fetch_url_rejects_non_http_schemes() {
+        assert!(validate_fetch_url("https://example.com").is_ok());
+        assert!(validate_fetch_url("file:///etc/passwd").is_err());
+        assert!(validate_fetch_url("javascript:alert(1)").is_err());
+    }
+
+    #[test]
+    fn blocked_host_detection_covers_local_targets() {
+        assert!(is_blocked_host("localhost"));
+        assert!(is_blocked_host("127.0.0.1"));
+        assert!(is_blocked_host("::1"));
+        assert!(!is_blocked_host("example.com"));
+    }
 }

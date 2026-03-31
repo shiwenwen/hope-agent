@@ -30,6 +30,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **web_fetch 稳定性与性能优化**：重写 HTML 基础提取的标签跳过逻辑，移除基于字节索引的字符串切片，避免多字节 UTF-8 页面触发 panic；同时减少整页 `to_lowercase()` 复制带来的额外内存开销，并将 `max_chars` 截断改为按字符边界处理，防止截断时破坏 UTF-8 有效性
+- **后端 UTF-8 截断稳定性加固**：修复多个输出截断路径的字节切片风险，统一改为 UTF-8 安全边界处理
+  - `process_registry` 的 `aggregated_output` 与 `tail` 维护改为按字符数限制，避免多字节输出触发 panic，并新增 UTF-8 边界单测
+  - Embedding Provider 测试失败信息 `detail` 截断改为 `truncate_utf8`，避免错误响应包含多字节字符时崩溃
+- **web_fetch 安全校验增强**：新增 URL 解析与 scheme 白名单校验（仅允许 HTTP/HTTPS），并在重定向阶段增加本地/私网目标拦截（如 `localhost`、`127.0.0.1`、`::1`），降低 SSRF 绕过风险
+- **Provider API Key 掩码安全性增强**：`masked()` 改为按字符而非字节截断，避免多字节字符导致 panic，并新增单元测试覆盖
 - **Telegram 流式回复修复**：修正 `text_delta` 字段解析与 `sendMessageDraft` 调用参数，私聊优先使用 Telegram 官方 draft streaming，群聊/论坛自动回退到 `sendMessage` + `editMessageText` 预览链路，不再只在最后收到整条消息
 - **系统托盘交互修复**：菜单栏图标恢复预期点击行为，左键显示主窗口、右键弹出菜单
   - `TrayIconBuilder` 现在显式关闭 `show_menu_on_left_click`，避免和自定义左键打开主窗口逻辑互相打架

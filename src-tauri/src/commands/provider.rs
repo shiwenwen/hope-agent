@@ -621,7 +621,7 @@ pub async fn test_embedding(config: memory::EmbeddingConfig) -> Result<String, S
                             "url": display_url,
                             "status": status,
                             "latencyMs": latency,
-                            "detail": &resp_text[..resp_text.len().min(500)],
+                            "detail": crate::truncate_utf8(&resp_text, 500),
                         }))
                         .unwrap_or_default())
                     }
@@ -706,7 +706,7 @@ pub async fn test_embedding(config: memory::EmbeddingConfig) -> Result<String, S
                         }))
                         .unwrap_or_default())
                     } else if status == 401 || status == 403 {
-                        let detail = &resp_text[..resp_text.len().min(500)];
+                        let detail = crate::truncate_utf8(&resp_text, 500);
                         Err(serde_json::to_string(&serde_json::json!({
                             "success": false,
                             "message": format!("认证失败 ({})", status),
@@ -718,7 +718,7 @@ pub async fn test_embedding(config: memory::EmbeddingConfig) -> Result<String, S
                         }))
                         .unwrap_or_default())
                     } else {
-                        let detail = &resp_text[..resp_text.len().min(500)];
+                        let detail = crate::truncate_utf8(&resp_text, 500);
                         Err(serde_json::to_string(&serde_json::json!({
                             "success": false,
                             "message": format!("API 错误 ({})", status),
