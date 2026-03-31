@@ -868,6 +868,32 @@ async fn dispatch_slash_for_channel(
             })
         }
 
+        // ViewSystemPrompt — build and return the system prompt text directly.
+        Some(CommandAction::ViewSystemPrompt) => {
+            let (model, provider) = {
+                let store = app_state.provider_store.lock().await;
+                if let Some(ref active) = store.active_model {
+                    let prov = store
+                        .providers
+                        .iter()
+                        .find(|p| p.id == active.provider_id);
+                    let model_id = active.model_id.clone();
+                    let provider_name = prov
+                        .map(|p| p.api_type.display_name().to_string())
+                        .unwrap_or_else(|| "Unknown".to_string());
+                    (model_id, provider_name)
+                } else {
+                    ("unknown".to_string(), "Unknown".to_string())
+                }
+            };
+            let prompt =
+                crate::agent::build_system_prompt(agent_id, &model, &provider);
+            Ok(ChannelSlashOutcome::Reply {
+                content: format!("**System Prompt**\n\n```\n{}\n```", prompt),
+                new_session_id: None,
+            })
+        }
+
         // All other actions (DisplayOnly, SwitchModel, SetEffort, SessionCleared,
         // Compact, StopStream, EnterPlanMode, ExitPlanMode, ...) are UI-side only
         // or not applicable in an IM context — just return the content as a reply.
