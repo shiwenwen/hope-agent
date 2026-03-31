@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, memo } from "react"
+import { useEffect, useMemo, useRef, useState, memo } from "react"
 
 /**
  * StarrySky — subtle starry background for dark mode.
@@ -7,11 +7,16 @@ import { useEffect, useRef, useState, memo } from "react"
  */
 
 // Generate deterministic star positions via box-shadow strings
-function generateStars(count: number, maxX: number, maxY: number): string {
+function generateStars(count: number, maxX: number, maxY: number, seed = 1): string {
+  let state = seed
+  const next = () => {
+    state = (state * 1664525 + 1013904223) >>> 0
+    return state / 0xffffffff
+  }
   const shadows: string[] = []
   for (let i = 0; i < count; i++) {
-    const x = Math.round(Math.random() * maxX)
-    const y = Math.round(Math.random() * maxY)
+    const x = Math.round(next() * maxX)
+    const y = Math.round(next() * maxY)
     shadows.push(`${x}px ${y}px currentColor`)
   }
   return shadows.join(", ")
@@ -19,22 +24,29 @@ function generateStars(count: number, maxX: number, maxY: number): string {
 
 // Shooting star component with random position and delay
 function ShootingStar({ id, onDone }: { id: number; onDone: (id: number) => void }) {
-  const top = Math.random() * 40 // top 0-40%
-  const left = 50 + Math.random() * 50 // right half of screen
-  const duration = 0.8 + Math.random() * 0.6 // 0.8-1.4s
-  const trailWidth = 120 + Math.random() * 180 // 120-300px trail length
-  const travelDistance = trailWidth * 2.5 // travel proportional to trail
+  const style = useMemo(() => {
+    const seeded = (offset: number) => {
+      const value = Math.sin((id + 1) * 12.9898 + offset * 78.233) * 43758.5453
+      return value - Math.floor(value)
+    }
+    const top = seeded(1) * 40 // top 0-40%
+    const left = 50 + seeded(2) * 50 // right half of screen
+    const duration = 0.8 + seeded(3) * 0.6 // 0.8-1.4s
+    const trailWidth = 120 + seeded(4) * 180 // 120-300px trail length
+    const travelDistance = trailWidth * 2.5 // travel proportional to trail
+    return {
+      top: `${top}%`,
+      left: `${left}%`,
+      animationDuration: `${duration}s`,
+      width: `${trailWidth}px`,
+      ["--travel" as string]: `-${travelDistance}px`,
+    }
+  }, [id])
 
   return (
     <div
       className="starry-shooting-star"
-      style={{
-        top: `${top}%`,
-        left: `${left}%`,
-        animationDuration: `${duration}s`,
-        width: `${trailWidth}px`,
-        ["--travel" as string]: `-${travelDistance}px`,
-      }}
+      style={style}
       onAnimationEnd={() => onDone(id)}
     />
   )
@@ -48,9 +60,9 @@ function StarrySkyInner() {
 
   // Stars are generated once (large virtual canvas, tiled via CSS)
   const [stars] = useState(() => ({
-    small: generateStars(200, 2000, 2000),
-    medium: generateStars(80, 2000, 2000),
-    large: generateStars(30, 2000, 2000),
+    small: generateStars(200, 2000, 2000, 11),
+    medium: generateStars(80, 2000, 2000, 29),
+    large: generateStars(30, 2000, 2000, 47),
   }))
 
   // Watch for .dark class changes on <html>
@@ -65,10 +77,11 @@ function StarrySkyInner() {
   }, [])
 
   // Reduced motion preference
-  const [reducedMotion, setReducedMotion] = useState(false)
+  const [reducedMotion, setReducedMotion] = useState(() =>
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+  )
   useEffect(() => {
     const mq = window.matchMedia("(prefers-reduced-motion: reduce)")
-    setReducedMotion(mq.matches)
     const handler = (e: MediaQueryListEvent) => setReducedMotion(e.matches)
     mq.addEventListener("change", handler)
     return () => mq.removeEventListener("change", handler)
