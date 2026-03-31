@@ -252,4 +252,37 @@ impl ChannelDB {
             Err(e) => Err(e.into()),
         }
     }
+
+    /// Remap an existing channel conversation to a different session_id.
+    /// Used when a slash command (/new, /agent) creates a new session for this conversation.
+    /// Returns true if a row was updated, false if no mapping existed.
+    pub fn update_session(
+        &self,
+        channel_id: &str,
+        account_id: &str,
+        chat_id: &str,
+        thread_id: Option<&str>,
+        new_session_id: &str,
+    ) -> Result<bool> {
+        let now = chrono::Utc::now().to_rfc3339();
+        let conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+
+        let rows = if let Some(tid) = thread_id {
+            conn.execute(
+                "UPDATE channel_conversations SET session_id = ?1, updated_at = ?2 WHERE channel_id = ?3 AND account_id = ?4 AND chat_id = ?5 AND thread_id = ?6",
+                params![new_session_id, now, channel_id, account_id, chat_id, tid],
+            )?
+        } else {
+            conn.execute(
+                "UPDATE channel_conversations SET session_id = ?1, updated_at = ?2 WHERE channel_id = ?3 AND account_id = ?4 AND chat_id = ?5 AND thread_id IS NULL",
+                params![new_session_id, now, channel_id, account_id, chat_id],
+            )?
+        };
+
+        Ok(rows > 0)
+    }
 }

@@ -1,6 +1,7 @@
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tauri::Emitter;
+use tauri::Manager;
 use tokio::sync::mpsc;
 
 use super::db::ChannelDB;
@@ -179,6 +180,70 @@ async fn handle_inbound_message(
     // 5. Send typing indicator
     let _ = plugin.send_typing(&account.id, &msg.chat_id).await;
 
+    // 5a. Intercept slash commands — dispatch and send reply directly, skip LLM.
+    // For PassThrough commands (e.g. skill invocations), use the transformed message as the
+    // engine input so the LLM receives the skill instruction rather than the raw "/" text.
+    let engine_message: String;
+    if crate::slash_commands::parser::is_command(user_text) {
+        match dispatch_slash_for_channel(
+            channel_db,
+            &channel_id_str,
+            &msg.account_id,
+            &msg.chat_id,
+            msg.thread_id.as_deref(),
+            &session_id,
+            &agent_id,
+            user_text,
+        )
+        .await
+        {
+            Ok(ChannelSlashOutcome::Reply {
+                content,
+                new_session_id,
+            }) => {
+                let effective_sid = new_session_id.as_deref().unwrap_or(&session_id);
+                // Persist assistant reply in session history
+                let _ = session_db.append_message(
+                    effective_sid,
+                    &crate::session::NewMessage::assistant(&content),
+                );
+                // Send reply to the IM channel
+                let native_text = plugin.markdown_to_native(&content);
+                let payload = ReplyPayload {
+                    text: Some(native_text),
+                    reply_to_message_id: Some(msg.message_id.clone()),
+                    thread_id: msg.thread_id.clone(),
+                    parse_mode: Some(ParseMode::Html),
+                    ..ReplyPayload::text("")
+                };
+                let _ = plugin.send_message(&account.id, &msg.chat_id, &payload).await;
+                emit_channel_update(effective_sid);
+                emit_stream_lifecycle("channel:stream_end", effective_sid);
+                return Ok(());
+            }
+            Ok(ChannelSlashOutcome::PassThrough(message)) => {
+                // Fall through to LLM with the transformed message
+                engine_message = message;
+            }
+            Err(e) => {
+                let error_reply = format!("⚠️ {}", e);
+                let native_text = plugin.markdown_to_native(&error_reply);
+                let payload = ReplyPayload {
+                    text: Some(native_text),
+                    reply_to_message_id: Some(msg.message_id.clone()),
+                    thread_id: msg.thread_id.clone(),
+                    parse_mode: Some(ParseMode::Html),
+                    ..ReplyPayload::text("")
+                };
+                let _ = plugin.send_message(&account.id, &msg.chat_id, &payload).await;
+                emit_stream_lifecycle("channel:stream_end", &session_id);
+                return Ok(());
+            }
+        }
+    } else {
+        engine_message = user_text.to_string();
+    }
+
     // 6. Build channel context for prompt injection
     let chat_type_label = match msg.chat_type {
         ChatType::Dm => "direct message",
@@ -278,7 +343,7 @@ async fn handle_inbound_message(
     let engine_params = crate::chat_engine::ChatEngineParams {
         session_id: session_id.clone(),
         agent_id: agent_id.clone(),
-        message: user_text.to_string(),
+        message: engine_message,
         session_db: session_db.clone(),
         model_chain,
         providers: store.providers.clone(),
@@ -698,6 +763,115 @@ async fn send_stream_preview(
         StreamPreviewTransport::Message => {
             send_message_preview(plugin, account_id, chat_id, &payload, preview_message_id).await;
         }
+    }
+}
+
+// ── Slash Command Dispatch for IM Channels ─────────────────────────
+
+/// Outcome of dispatching a slash command from an IM channel message.
+enum ChannelSlashOutcome {
+    /// Send `content` as a direct reply; no LLM call needed.
+    /// `new_session_id` is set when the command created a fresh session that should
+    /// replace the current channel → session mapping.
+    Reply {
+        content: String,
+        new_session_id: Option<String>,
+    },
+    /// The command (e.g. a skill invocation) asks to pass a transformed message
+    /// through to the LLM instead of the original "/" text.
+    PassThrough(String),
+}
+
+/// Dispatch a slash command received via an IM channel.
+///
+/// Returns a `ChannelSlashOutcome` describing what to do next:
+///   - `Reply`       → send the content as a direct reply and skip the LLM.
+///   - `PassThrough` → forward the (possibly rewritten) message to the LLM.
+async fn dispatch_slash_for_channel(
+    channel_db: &ChannelDB,
+    channel_id: &str,
+    account_id: &str,
+    chat_id: &str,
+    thread_id: Option<&str>,
+    session_id: &str,
+    agent_id: &str,
+    text: &str,
+) -> Result<ChannelSlashOutcome, anyhow::Error> {
+    use crate::slash_commands::{handlers, parser};
+
+    let (name, args) = parser::parse(text).map_err(|e| anyhow::anyhow!(e))?;
+
+    // Obtain a reference to the global AppState so we can reuse the shared handlers.
+    let app_handle = crate::get_app_handle()
+        .ok_or_else(|| anyhow::anyhow!("App handle not initialized"))?;
+    let state = app_handle.state::<crate::AppState>();
+    let app_state: &crate::AppState = &state;
+
+    let result = handlers::dispatch(app_state, Some(session_id), agent_id, &name, &args)
+        .await
+        .map_err(|e| anyhow::anyhow!(e))?;
+
+    use crate::slash_commands::types::CommandAction;
+    match result.action {
+        // Pass transformed message to the LLM (skill commands, /search, etc.)
+        Some(CommandAction::PassThrough { message }) => {
+            Ok(ChannelSlashOutcome::PassThrough(message))
+        }
+
+        // A new session was created — remap the channel conversation to it.
+        Some(CommandAction::NewSession { session_id: new_sid }) => {
+            if let Err(e) = channel_db.update_session(
+                channel_id,
+                account_id,
+                chat_id,
+                thread_id,
+                &new_sid,
+            ) {
+                app_warn!(
+                    "channel",
+                    "worker",
+                    "Failed to remap channel session after /new: {}",
+                    e
+                );
+            }
+            Ok(ChannelSlashOutcome::Reply {
+                content: result.content,
+                new_session_id: Some(new_sid),
+            })
+        }
+
+        // Agent switch also creates a new session.
+        Some(CommandAction::SwitchAgent {
+            session_id: new_sid,
+            ..
+        }) => {
+            if let Err(e) = channel_db.update_session(
+                channel_id,
+                account_id,
+                chat_id,
+                thread_id,
+                &new_sid,
+            ) {
+                app_warn!(
+                    "channel",
+                    "worker",
+                    "Failed to remap channel session after /agent: {}",
+                    e
+                );
+            }
+            Ok(ChannelSlashOutcome::Reply {
+                content: result.content,
+                new_session_id: Some(new_sid),
+            })
+        }
+
+        // All other actions (DisplayOnly, SwitchModel, SetEffort, SessionCleared,
+        // Compact, StopStream, EnterPlanMode, ExitPlanMode, ...) are UI-side only
+        // or not applicable in an IM context — just return the content as a reply.
+        _ => Ok(ChannelSlashOutcome::Reply {
+            content: result.content,
+            new_session_id: None,
+        }),
     }
 }
 
