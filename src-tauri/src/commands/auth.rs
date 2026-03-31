@@ -331,18 +331,27 @@ pub async fn set_codex_model(model: String, state: State<'_, AppState>) -> Resul
     Ok(())
 }
 
-#[tauri::command]
-pub async fn set_reasoning_effort(
-    effort: String,
-    state: State<'_, AppState>,
+/// Core logic for setting reasoning effort. Usable from both Tauri commands
+/// and internal callers (e.g. channel worker).
+pub(crate) async fn set_reasoning_effort_core(
+    effort: &str,
+    state: &AppState,
 ) -> Result<(), String> {
     let valid = ["none", "low", "medium", "high", "xhigh"];
-    if !valid.contains(&effort.as_str()) {
+    if !valid.contains(&effort) {
         return Err(format!(
             "Invalid reasoning effort: {}. Valid: {:?}",
             effort, valid
         ));
     }
-    *state.reasoning_effort.lock().await = effort;
+    *state.reasoning_effort.lock().await = effort.to_string();
     Ok(())
+}
+
+#[tauri::command]
+pub async fn set_reasoning_effort(
+    effort: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    set_reasoning_effort_core(&effort, &state).await
 }

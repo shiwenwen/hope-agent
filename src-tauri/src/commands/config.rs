@@ -79,12 +79,11 @@ pub async fn save_image_generate_config(
     provider::save_store(&store).map_err(|e| e.to_string())
 }
 
-/// Manually trigger context compaction on the current session.
-/// Returns the compaction result for frontend display.
-#[tauri::command]
-pub async fn compact_context_now(
-    session_id: String,
-    state: tauri::State<'_, AppState>,
+/// Core logic for manual context compaction. Usable from both Tauri commands
+/// and internal callers (e.g. channel worker).
+pub(crate) async fn compact_context_now_core(
+    session_id: &str,
+    state: &AppState,
 ) -> Result<context_compact::CompactResult, String> {
     let agent = state.agent.lock().await;
     let agent = agent.as_ref().ok_or("No active agent")?;
@@ -132,7 +131,7 @@ pub async fn compact_context_now(
 
         if forced_result.messages_affected > 0 {
             agent.set_conversation_history(history);
-            save_agent_context(&state.session_db, &session_id, agent);
+            save_agent_context(&state.session_db, session_id, agent);
 
             if let Some(logger) = crate::get_logger() {
                 logger.log(
@@ -155,7 +154,7 @@ pub async fn compact_context_now(
     }
 
     agent.set_conversation_history(history);
-    save_agent_context(&state.session_db, &session_id, agent);
+    save_agent_context(&state.session_db, session_id, agent);
 
     if let Some(logger) = crate::get_logger() {
         logger.log(
@@ -176,6 +175,16 @@ pub async fn compact_context_now(
     }
 
     Ok(result)
+}
+
+/// Manually trigger context compaction on the current session.
+/// Returns the compaction result for frontend display.
+#[tauri::command]
+pub async fn compact_context_now(
+    session_id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<context_compact::CompactResult, String> {
+    compact_context_now_core(&session_id, &state).await
 }
 
 // ── Shortcuts ────────────────────────────────────────────────────

@@ -235,6 +235,8 @@ pub(crate) struct AppState {
     pub(crate) cron_db: Arc<cron::CronDB>,
     /// Sub-agent cancel registry
     pub(crate) subagent_cancels: Arc<subagent::SubagentCancelRegistry>,
+    /// Channel stream cancel registry
+    pub(crate) channel_cancels: Arc<channel::ChannelCancelRegistry>,
 }
 
 /// Execute a shortcut action by its id (shared by single-combo and chord paths).
@@ -748,6 +750,9 @@ pub fn run() {
             let _ = SUBAGENT_CANCELS.set(subagent_cancels.clone());
             let _ = SESSION_DB.set(session_db.clone());
 
+            // Initialize channel cancel registry
+            let channel_cancels = Arc::new(channel::ChannelCancelRegistry::new());
+
             // Clean up orphan sub-agent runs from previous app session
             subagent::cleanup_orphan_runs(&session_db);
 
@@ -828,6 +833,7 @@ pub fn run() {
                 logger,
                 cron_db,
                 subagent_cancels,
+                channel_cancels,
             }
         })
         .invoke_handler(tauri::generate_handler![

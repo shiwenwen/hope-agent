@@ -358,8 +358,25 @@ async fn handle_inbound_message(
         canvas_enabled,
         compact_config: store.compact.clone(),
         extra_system_context: Some(channel_context),
-        reasoning_effort: None,
-        cancel: Arc::new(AtomicBool::new(false)),
+        reasoning_effort: {
+            let app_handle = crate::get_app_handle();
+            if let Some(ref h) = app_handle {
+                let st = h.state::<crate::AppState>();
+                let eff = st.reasoning_effort.lock().await.clone();
+                if eff == "none" { None } else { Some(eff) }
+            } else {
+                None
+            }
+        },
+        cancel: {
+            let app_handle = crate::get_app_handle();
+            if let Some(ref h) = app_handle {
+                let st = h.state::<crate::AppState>();
+                st.channel_cancels.register(&session_id)
+            } else {
+                Arc::new(AtomicBool::new(false))
+            }
+        },
         plan_agent_mode: None,
         plan_mode_allow_paths: None,
         event_sink: Arc::new(crate::chat_engine::ChannelStreamSink::new(
@@ -373,6 +390,12 @@ async fn handle_inbound_message(
 
     // 9. Run shared chat engine (streaming, failover, tool persistence, etc.)
     let result = crate::chat_engine::run_chat_engine(engine_params).await;
+
+    // Remove cancel handle now that engine is done
+    if let Some(ref h) = crate::get_app_handle() {
+        let st = h.state::<crate::AppState>();
+        st.channel_cancels.remove(&session_id);
+    }
 
     // Drop the sink's sender is implicit — engine_params is consumed.
     // Wait for the streaming background task to finish.
@@ -894,9 +917,150 @@ async fn dispatch_slash_for_channel(
             })
         }
 
-        // All other actions (DisplayOnly, SwitchModel, SetEffort, SessionCleared,
-        // Compact, StopStream, EnterPlanMode, ExitPlanMode, ...) are UI-side only
-        // or not applicable in an IM context — just return the content as a reply.
+        // ── Model switch — persist + notify frontend ──
+        Some(CommandAction::SwitchModel {
+            provider_id,
+            model_id,
+        }) => {
+            if let Err(e) = crate::commands::provider::set_active_model_core(
+                &provider_id,
+                &model_id,
+                app_state,
+            )
+            .await
+            {
+                app_warn!("channel", "worker", "Failed to switch model: {}", e);
+            } else if let Some(handle) = crate::get_app_handle() {
+                let _ = handle.emit(
+                    "slash:model_switched",
+                    serde_json::json!({
+                        "providerId": provider_id,
+                        "modelId": model_id,
+                    }),
+                );
+            }
+            Ok(ChannelSlashOutcome::Reply {
+                content: result.content,
+                new_session_id: None,
+            })
+        }
+
+        // ── Reasoning effort — persist + notify frontend ──
+        Some(CommandAction::SetEffort { effort }) => {
+            if let Err(e) =
+                crate::commands::auth::set_reasoning_effort_core(&effort, app_state).await
+            {
+                app_warn!("channel", "worker", "Failed to set effort: {}", e);
+            } else if let Some(handle) = crate::get_app_handle() {
+                let _ = handle.emit("slash:effort_changed", &effort);
+            }
+            Ok(ChannelSlashOutcome::Reply {
+                content: result.content,
+                new_session_id: None,
+            })
+        }
+
+        // ── Stop stream — cancel via registry ──
+        Some(CommandAction::StopStream) => {
+            let cancelled = app_state.channel_cancels.cancel(session_id);
+            let msg = if cancelled {
+                "Stopping current stream...".to_string()
+            } else {
+                "No active stream to stop.".to_string()
+            };
+            Ok(ChannelSlashOutcome::Reply {
+                content: msg,
+                new_session_id: None,
+            })
+        }
+
+        // ── Compact — run compaction ──
+        Some(CommandAction::Compact) => {
+            match crate::commands::config::compact_context_now_core(session_id, app_state).await {
+                Ok(r) => {
+                    let msg = format!(
+                        "Compacted: {} → {} tokens ({} messages affected)",
+                        r.tokens_before, r.tokens_after, r.messages_affected
+                    );
+                    Ok(ChannelSlashOutcome::Reply {
+                        content: msg,
+                        new_session_id: None,
+                    })
+                }
+                Err(e) => Ok(ChannelSlashOutcome::Reply {
+                    content: format!("Compaction failed: {}", e),
+                    new_session_id: None,
+                }),
+            }
+        }
+
+        // ── Session cleared — notify frontend ──
+        Some(CommandAction::SessionCleared) => {
+            if let Some(handle) = crate::get_app_handle() {
+                let _ = handle.emit("slash:session_cleared", session_id);
+            }
+            Ok(ChannelSlashOutcome::Reply {
+                content: result.content,
+                new_session_id: None,
+            })
+        }
+
+        // ── Export — write to file ──
+        Some(CommandAction::ExportFile { content, filename }) => {
+            let msg = match crate::paths::root_dir() {
+                Ok(root) => {
+                    let export_dir = root.join("exports");
+                    let _ = std::fs::create_dir_all(&export_dir);
+                    let path = export_dir.join(&filename);
+                    match std::fs::write(&path, &content) {
+                        Ok(_) => format!("Exported to `{}`", path.display()),
+                        Err(e) => format!("Export failed: {}", e),
+                    }
+                }
+                Err(e) => format!("Export failed: {}", e),
+            };
+            Ok(ChannelSlashOutcome::Reply {
+                content: msg,
+                new_session_id: None,
+            })
+        }
+
+        // ── Tool permission — not applicable in channel context ──
+        Some(CommandAction::SetToolPermission { mode }) => Ok(ChannelSlashOutcome::Reply {
+            content: format!(
+                "Tool permission `{}` is not applicable in channel context (auto-approve).",
+                mode
+            ),
+            new_session_id: None,
+        }),
+
+        // ── Plan: show plan content ──
+        Some(CommandAction::ShowPlan { plan_content }) => {
+            if let Some(handle) = crate::get_app_handle() {
+                let _ = handle.emit("slash:plan_changed", session_id);
+            }
+            Ok(ChannelSlashOutcome::Reply {
+                content: format!("**Current Plan**\n\n{}", plan_content),
+                new_session_id: None,
+            })
+        }
+
+        // ── Plan: state transitions (DB already persisted by handler) ──
+        Some(CommandAction::EnterPlanMode)
+        | Some(CommandAction::ExitPlanMode { .. })
+        | Some(CommandAction::ApprovePlan { .. })
+        | Some(CommandAction::PausePlan)
+        | Some(CommandAction::ResumePlan) => {
+            if let Some(handle) = crate::get_app_handle() {
+                let _ = handle.emit("slash:plan_changed", session_id);
+            }
+            Ok(ChannelSlashOutcome::Reply {
+                content: result.content,
+                new_session_id: None,
+            })
+        }
+
+        // ── DisplayOnly and any unhandled actions — just return text ──
         _ => Ok(ChannelSlashOutcome::Reply {
             content: result.content,
             new_session_id: None,

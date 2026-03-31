@@ -940,11 +940,12 @@ pub async fn get_active_model(state: State<'_, AppState>) -> Result<Option<Activ
     Ok(store.active_model.clone())
 }
 
-#[tauri::command]
-pub async fn set_active_model(
-    provider_id: String,
-    model_id: String,
-    state: State<'_, AppState>,
+/// Core logic for switching the active model. Usable from both Tauri commands
+/// and internal callers (e.g. channel worker).
+pub(crate) async fn set_active_model_core(
+    provider_id: &str,
+    model_id: &str,
+    state: &AppState,
 ) -> Result<(), String> {
     let mut store = state.provider_store.lock().await;
 
@@ -964,21 +965,30 @@ pub async fn set_active_model(
     if provider.api_type == ApiType::Codex {
         let token_info = state.codex_token.lock().await.clone();
         if let Some((access_token, account_id)) = token_info {
-            let agent = AssistantAgent::new_openai(&access_token, &account_id, &model_id);
+            let agent = AssistantAgent::new_openai(&access_token, &account_id, model_id);
             *state.agent.lock().await = Some(agent);
         }
     } else {
         // For other providers, create agent from config
-        let agent = AssistantAgent::new_from_provider(provider, &model_id);
+        let agent = AssistantAgent::new_from_provider(provider, model_id);
         *state.agent.lock().await = Some(agent);
     }
 
     store.active_model = Some(ActiveModel {
-        provider_id,
-        model_id,
+        provider_id: provider_id.to_string(),
+        model_id: model_id.to_string(),
     });
     provider::save_store(&store).map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[tauri::command]
+pub async fn set_active_model(
+    provider_id: String,
+    model_id: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    set_active_model_core(&provider_id, &model_id, &state).await
 }
 
 #[tauri::command]

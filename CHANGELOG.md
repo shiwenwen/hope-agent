@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **对齐斜杠命令在 Channel 对话中的执行行为**
+  - `/model`、`/think` 在 Channel 中执行后实际切换模型/推理强度，并通过 `slash:model_switched`、`slash:effort_changed` 事件同步前端 UI
+  - `/stop` 支持通过 `ChannelCancelRegistry` 取消 Channel 中正在进行的流式输出
+  - `/compact` 在 Channel 中直接执行上下文压缩（之前仅返回文本不执行）
+  - `/clear` 执行后 emit `slash:session_cleared` 事件，前端消息列表和侧边栏同步刷新
+  - `/export` 在 Channel 中自动写入 `~/.opencomputer/exports/` 目录并返回路径
+  - `/permission` 在 Channel 中返回"不适用"提示（Channel 固定 auto-approve）
+  - `/plan` 系列命令执行后 emit `slash:plan_changed` 事件同步前端 plan 状态
+  - Channel worker 的 `reasoning_effort` 改为从 `AppState` 读取（之前硬编码 `None`）
+  - 提取 `set_active_model_core`、`set_reasoning_effort_core`、`compact_context_now_core` 三个 core 函数供 Channel worker 复用
+
 ### Added
 
 - **系统提示词查看功能**
