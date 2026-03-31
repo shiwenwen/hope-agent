@@ -865,6 +865,8 @@ pub fn run() {
             commands::chat::stop_chat,
             // Command approval
             commands::chat::respond_to_approval,
+            // System prompt
+            commands::chat::get_system_prompt,
             // Tools info
             commands::chat::list_builtin_tools,
             // Skills

@@ -69,6 +69,7 @@ pub async fn dispatch(
         "export" => utility::handle_export(&state.session_db, session_id),
         "usage" => utility::handle_usage(&state.session_db, session_id),
         "search" => utility::handle_search(args),
+        "prompts" => Ok(utility::handle_prompts()),
 
         _ => {
             // Check if it matches a user-invocable skill command

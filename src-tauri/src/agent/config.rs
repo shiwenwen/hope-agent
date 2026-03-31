@@ -196,7 +196,7 @@ pub(super) fn apply_thinking_to_chat_body(
 /// Build the full system prompt.
 /// Uses the new system_prompt module with AgentDefinition if available,
 /// otherwise falls back to legacy behavior for backward compatibility.
-pub(super) fn build_system_prompt(agent_id: &str, model: &str, provider: &str) -> String {
+pub(crate) fn build_system_prompt(agent_id: &str, model: &str, provider: &str) -> String {
     // Try loading the agent definition
     if let Ok(definition) = crate::agent_loader::load_agent(agent_id) {
         // Build memory context if enabled

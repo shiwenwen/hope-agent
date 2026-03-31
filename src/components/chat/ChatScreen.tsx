@@ -29,6 +29,7 @@ import { useChatSession } from "./useChatSession"
 import { useChatStream } from "./useChatStream"
 import { useAutoScroll } from "./useAutoScroll"
 import { usePlanMode } from "./plan-mode/usePlanMode"
+import SystemPromptDialog from "./SystemPromptDialog"
 import { PlanPanel } from "./plan-mode/PlanPanel"
 
 interface ChatScreenProps {
@@ -66,6 +67,11 @@ export default function ChatScreen({
 
   // Context compact state
   const [compacting, setCompacting] = useState(false)
+
+  // System prompt viewer state
+  const [showSystemPrompt, setShowSystemPrompt] = useState(false)
+  const [systemPromptContent, setSystemPromptContent] = useState("")
+  const [systemPromptLoading, setSystemPromptLoading] = useState(false)
 
   // Plan mode state (declared early so useChatStream can access it)
   const [planModeState, setPlanModeState] = useState<"off" | "planning" | "review" | "executing" | "paused" | "completed">("off")
@@ -263,6 +269,22 @@ export default function ChatScreen({
     return () => el.removeEventListener("scroll", onScroll)
   }, [session.handleLoadMore]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Load system prompt ──────────────────────────────────────────
+  const loadSystemPrompt = useCallback(async () => {
+    setSystemPromptLoading(true)
+    try {
+      const prompt = await invoke<string>("get_system_prompt", {
+        agentId: session.currentAgentId,
+      })
+      setSystemPromptContent(prompt)
+      setShowSystemPrompt(true)
+    } catch (e) {
+      logger.error("ui", "ChatScreen::loadSystemPrompt", "Failed to load system prompt", e)
+    } finally {
+      setSystemPromptLoading(false)
+    }
+  }, [session.currentAgentId])
+
   // ── Slash Command Action Handler ──────────────────────────────
   const handleCommandAction = useCallback(
     async (result: CommandResult) => {
@@ -370,9 +392,12 @@ export default function ChatScreen({
           planMode.resumeExecution()
           planMode.setShowPanel(true)
           break
+        case "viewSystemPrompt":
+          loadSystemPrompt()
+          break
       }
     },
-    [session, stream, handleModelChange, handleEffortChange, compacting, planMode], // eslint-disable-line react-hooks/exhaustive-deps
+    [session, stream, handleModelChange, handleEffortChange, compacting, planMode, loadSystemPrompt], // eslint-disable-line react-hooks/exhaustive-deps
   )
 
   // ── Plan Approve Handler ───────────────────────────────────────
@@ -451,6 +476,13 @@ export default function ChatScreen({
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* System Prompt Viewer Dialog */}
+      <SystemPromptDialog
+        open={showSystemPrompt}
+        onOpenChange={setShowSystemPrompt}
+        content={systemPromptContent}
+      />
+
       {/* Chat Area */}
       <div className="flex-1 flex flex-col min-w-0">
         <ChatTitleBar
@@ -467,6 +499,8 @@ export default function ChatScreen({
           setCompacting={setCompacting}
           onOpenAgentSettings={onOpenAgentSettings}
           onRenameSession={handleRenameSession}
+          onViewSystemPrompt={loadSystemPrompt}
+          systemPromptLoading={systemPromptLoading}
         />
 
         <CrashRecoveryBanner />

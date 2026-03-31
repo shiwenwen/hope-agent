@@ -93,4 +93,6 @@ pub enum CommandAction {
     PausePlan,
     /// Resume plan execution.
     ResumePlan,
+    /// Open system prompt viewer.
+    ViewSystemPrompt,
 }
