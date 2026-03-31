@@ -1,8 +1,8 @@
 use anyhow::Result;
 use teloxide::prelude::*;
 use teloxide::types::{
-    ChatAction, ChatId, InputFile, Me, MessageId, ParseMode as TgParseMode,
-    ReplyParameters, ThreadId,
+    ChatAction, ChatId, InputFile, Me, MessageId, ParseMode as TgParseMode, ReplyParameters,
+    ThreadId,
 };
 
 /// Thin wrapper around teloxide's `Bot` to isolate framework details.
@@ -35,7 +35,10 @@ impl TelegramBotApi {
             Bot::new(token)
         };
 
-        Self { bot, proxy_url: proxy_url.map(|s| s.to_string()) }
+        Self {
+            bot,
+            proxy_url: proxy_url.map(|s| s.to_string()),
+        }
     }
 
     /// Get the underlying teloxide Bot reference.
@@ -45,7 +48,10 @@ impl TelegramBotApi {
 
     /// Verify the bot token and return bot info.
     pub async fn get_me(&self) -> Result<Me> {
-        self.bot.get_me().await.map_err(|e| anyhow::anyhow!("getMe failed: {}", e))
+        self.bot
+            .get_me()
+            .await
+            .map_err(|e| anyhow::anyhow!("getMe failed: {}", e))
     }
 
     /// Send a text message.
@@ -69,7 +75,8 @@ impl TelegramBotApi {
             req = req.message_thread_id(ThreadId(teloxide::types::MessageId(tid)));
         }
 
-        req.await.map_err(|e| anyhow::anyhow!("sendMessage failed: {}", e))
+        req.await
+            .map_err(|e| anyhow::anyhow!("sendMessage failed: {}", e))
     }
 
     /// Send a text message, falling back to plain text if parse mode fails.
@@ -81,12 +88,16 @@ impl TelegramBotApi {
         thread_id: Option<i32>,
     ) -> Result<teloxide::types::Message> {
         // Try with HTML first
-        match self.send_text(chat_id, text, Some(TgParseMode::Html), reply_to, thread_id).await {
+        match self
+            .send_text(chat_id, text, Some(TgParseMode::Html), reply_to, thread_id)
+            .await
+        {
             Ok(msg) => Ok(msg),
             Err(_) => {
                 // Fallback: strip HTML tags and send as plain text
                 let plain = strip_html_tags(text);
-                self.send_text(chat_id, &plain, None, reply_to, thread_id).await
+                self.send_text(chat_id, &plain, None, reply_to, thread_id)
+                    .await
             }
         }
     }
@@ -108,11 +119,14 @@ impl TelegramBotApi {
         text: &str,
         parse_mode: Option<TgParseMode>,
     ) -> Result<()> {
-        let mut req = self.bot.edit_message_text(ChatId(chat_id), MessageId(message_id), text);
+        let mut req = self
+            .bot
+            .edit_message_text(ChatId(chat_id), MessageId(message_id), text);
         if let Some(pm) = parse_mode {
             req = req.parse_mode(pm);
         }
-        req.await.map_err(|e| anyhow::anyhow!("editMessageText failed: {}", e))?;
+        req.await
+            .map_err(|e| anyhow::anyhow!("editMessageText failed: {}", e))?;
         Ok(())
     }
 
@@ -138,7 +152,7 @@ impl TelegramBotApi {
         chat_id: i64,
         text: &str,
         draft_id: i64,
-        reply_to: Option<i32>,
+        parse_mode: Option<&str>,
         thread_id: Option<i32>,
     ) -> Result<()> {
         let token = self.bot.token();
@@ -147,26 +161,15 @@ impl TelegramBotApi {
         let api_url = api_url_owned.as_str().trim_end_matches('/');
         let url = format!("{}/bot{}/sendMessageDraft", api_url, token);
 
-        let mut body = serde_json::json!({
-            "chat_id": chat_id,
-            "text": text,
-            "draft_id": draft_id,
-        });
-
-        if let Some(reply_id) = reply_to {
-            body["reply_parameters"] = serde_json::json!({
-                "message_id": reply_id,
-            });
-        }
-        if let Some(tid) = thread_id {
-            body["message_thread_id"] = serde_json::json!(tid);
-        }
+        let body = build_send_message_draft_body(chat_id, text, draft_id, parse_mode, thread_id);
 
         // Build reqwest client with proxy if configured (same proxy as the Bot)
         let client = if let Some(ref proxy) = self.proxy_url {
             reqwest::Client::builder()
-                .proxy(reqwest::Proxy::all(proxy)
-                    .map_err(|e| anyhow::anyhow!("Invalid proxy URL: {}", e))?)
+                .proxy(
+                    reqwest::Proxy::all(proxy)
+                        .map_err(|e| anyhow::anyhow!("Invalid proxy URL: {}", e))?,
+                )
                 .build()
                 .map_err(|e| anyhow::anyhow!("Failed to build HTTP client: {}", e))?
         } else {
@@ -182,7 +185,11 @@ impl TelegramBotApi {
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
-            anyhow::bail!("sendMessageDraft failed ({}): {}", status, crate::truncate_utf8(&text, 200));
+            anyhow::bail!(
+                "sendMessageDraft failed ({}): {}",
+                status,
+                crate::truncate_utf8(&text, 200)
+            );
         }
 
         Ok(())
@@ -215,7 +222,8 @@ impl TelegramBotApi {
             req = req.allowed_updates(updates);
         }
 
-        req.await.map_err(|e| anyhow::anyhow!("getUpdates failed: {}", e))
+        req.await
+            .map_err(|e| anyhow::anyhow!("getUpdates failed: {}", e))
     }
 
     /// Download a file by file_id (returns the file path on Telegram servers).
@@ -242,7 +250,8 @@ impl TelegramBotApi {
         if let Some(tid) = thread_id {
             req = req.message_thread_id(ThreadId(teloxide::types::MessageId(tid)));
         }
-        req.await.map_err(|e| anyhow::anyhow!("sendPhoto failed: {}", e))
+        req.await
+            .map_err(|e| anyhow::anyhow!("sendPhoto failed: {}", e))
     }
 
     /// Send a document (file).
@@ -260,8 +269,32 @@ impl TelegramBotApi {
         if let Some(tid) = thread_id {
             req = req.message_thread_id(ThreadId(teloxide::types::MessageId(tid)));
         }
-        req.await.map_err(|e| anyhow::anyhow!("sendDocument failed: {}", e))
+        req.await
+            .map_err(|e| anyhow::anyhow!("sendDocument failed: {}", e))
     }
+}
+
+fn build_send_message_draft_body(
+    chat_id: i64,
+    text: &str,
+    draft_id: i64,
+    parse_mode: Option<&str>,
+    thread_id: Option<i32>,
+) -> serde_json::Value {
+    let mut body = serde_json::json!({
+        "chat_id": chat_id,
+        "text": text,
+        "draft_id": draft_id,
+    });
+
+    if let Some(mode) = parse_mode.filter(|mode| !mode.is_empty()) {
+        body["parse_mode"] = serde_json::json!(mode);
+    }
+    if let Some(tid) = thread_id {
+        body["message_thread_id"] = serde_json::json!(tid);
+    }
+
+    body
 }
 
 /// Strip HTML tags from text (simple implementation for fallback).
@@ -277,4 +310,21 @@ fn strip_html_tags(html: &str) -> String {
         }
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_send_message_draft_body;
+
+    #[test]
+    fn send_message_draft_body_only_uses_supported_fields() {
+        let body = build_send_message_draft_body(123, "<b>hi</b>", 42, Some("HTML"), Some(7));
+
+        assert_eq!(body["chat_id"], 123);
+        assert_eq!(body["text"], "<b>hi</b>");
+        assert_eq!(body["draft_id"], 42);
+        assert_eq!(body["parse_mode"], "HTML");
+        assert_eq!(body["message_thread_id"], 7);
+        assert!(body.get("reply_parameters").is_none());
+    }
 }

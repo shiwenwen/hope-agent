@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Telegram 流式回复修复**：修正 `text_delta` 字段解析与 `sendMessageDraft` 调用参数，私聊优先使用 Telegram 官方 draft streaming，群聊/论坛自动回退到 `sendMessage` + `editMessageText` 预览链路，不再只在最后收到整条消息
 - **系统托盘交互修复**：菜单栏图标恢复预期点击行为，左键显示主窗口、右键弹出菜单
   - `TrayIconBuilder` 现在显式关闭 `show_menu_on_left_click`，避免和自定义左键打开主窗口逻辑互相打架
   - tray icon 改为专用小图 `menuIconTray.png`，不再把 `1830x1830` 的大 PNG 直接嵌入 Tauri 二进制

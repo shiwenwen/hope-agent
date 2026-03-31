@@ -3,10 +3,10 @@ pub mod format;
 pub mod media;
 pub mod polling;
 
-use std::collections::HashMap;
-use std::sync::Arc;
 use anyhow::Result;
 use async_trait::async_trait;
+use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
 
@@ -118,31 +118,40 @@ impl ChannelPlugin for TelegramPlugin {
     ) -> Result<()> {
         let token = Self::extract_token(&account.credentials)?;
         let proxy = Self::extract_proxy(&account.settings);
-        let api_root = account.settings.get("apiRoot").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let api_root = account
+            .settings
+            .get("apiRoot")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
 
-        let api = TelegramBotApi::new(
-            &token,
-            proxy.as_deref(),
-            api_root.as_deref(),
-        );
+        let api = TelegramBotApi::new(&token, proxy.as_deref(), api_root.as_deref());
 
         // Validate token by calling getMe
         let me = api.get_me().await?;
         let bot_id = me.id.0 as i64;
         let bot_username = me.username().to_string();
 
-        app_info!("channel", "telegram", "Bot authenticated: @{} (id={})", bot_username, bot_id);
+        app_info!(
+            "channel",
+            "telegram",
+            "Bot authenticated: @{} (id={})",
+            bot_username,
+            bot_id
+        );
 
         let api = Arc::new(api);
 
         // Store running account state
         {
             let mut accounts = self.accounts.lock().await;
-            accounts.insert(account.id.clone(), RunningAccount {
-                api: api.clone(),
-                bot_id,
-                bot_username: bot_username.clone(),
-            });
+            accounts.insert(
+                account.id.clone(),
+                RunningAccount {
+                    api: api.clone(),
+                    bot_id,
+                    bot_username: bot_username.clone(),
+                },
+            );
         }
 
         // Spawn polling loop
@@ -172,14 +181,14 @@ impl ChannelPlugin for TelegramPlugin {
         payload: &ReplyPayload,
     ) -> Result<DeliveryResult> {
         let api = self.get_api(account_id).await?;
-        let chat_id_num: i64 = chat_id.parse()
+        let chat_id_num: i64 = chat_id
+            .parse()
             .map_err(|_| anyhow::anyhow!("Invalid chat_id: {}", chat_id))?;
 
-        let thread_id: Option<i32> = payload.thread_id
-            .as_ref()
-            .and_then(|t| t.parse().ok());
+        let thread_id: Option<i32> = payload.thread_id.as_ref().and_then(|t| t.parse().ok());
 
-        let reply_to: Option<i32> = payload.reply_to_message_id
+        let reply_to: Option<i32> = payload
+            .reply_to_message_id
             .as_ref()
             .and_then(|r| r.parse().ok());
 
@@ -189,12 +198,9 @@ impl ChannelPlugin for TelegramPlugin {
                 return Ok(DeliveryResult::ok("empty"));
             }
 
-            let msg = api.send_text_with_fallback(
-                chat_id_num,
-                text,
-                reply_to,
-                thread_id,
-            ).await?;
+            let msg = api
+                .send_text_with_fallback(chat_id_num, text, reply_to, thread_id)
+                .await?;
 
             return Ok(DeliveryResult::ok(msg.id.0.to_string()));
         }
@@ -204,21 +210,15 @@ impl ChannelPlugin for TelegramPlugin {
             let input_file = media::media_data_to_input_file(&m.data);
             match m.media_type {
                 MediaType::Photo => {
-                    let msg = api.send_photo(
-                        chat_id_num,
-                        input_file,
-                        m.caption.as_deref(),
-                        thread_id,
-                    ).await?;
+                    let msg = api
+                        .send_photo(chat_id_num, input_file, m.caption.as_deref(), thread_id)
+                        .await?;
                     return Ok(DeliveryResult::ok(msg.id.0.to_string()));
                 }
                 _ => {
-                    let msg = api.send_document(
-                        chat_id_num,
-                        input_file,
-                        m.caption.as_deref(),
-                        thread_id,
-                    ).await?;
+                    let msg = api
+                        .send_document(chat_id_num, input_file, m.caption.as_deref(), thread_id)
+                        .await?;
                     return Ok(DeliveryResult::ok(msg.id.0.to_string()));
                 }
             }
@@ -229,7 +229,8 @@ impl ChannelPlugin for TelegramPlugin {
 
     async fn send_typing(&self, account_id: &str, chat_id: &str) -> Result<()> {
         let api = self.get_api(account_id).await?;
-        let chat_id_num: i64 = chat_id.parse()
+        let chat_id_num: i64 = chat_id
+            .parse()
             .map_err(|_| anyhow::anyhow!("Invalid chat_id: {}", chat_id))?;
         api.send_typing(chat_id_num).await
     }
@@ -241,21 +242,21 @@ impl ChannelPlugin for TelegramPlugin {
         payload: &ReplyPayload,
     ) -> Result<()> {
         let api = self.get_api(account_id).await?;
-        let chat_id_num: i64 = chat_id.parse()
+        let chat_id_num: i64 = chat_id
+            .parse()
             .map_err(|_| anyhow::anyhow!("Invalid chat_id: {}", chat_id))?;
 
-        let thread_id: Option<i32> = payload.thread_id
-            .as_ref()
-            .and_then(|t| t.parse().ok());
-
-        let reply_to: Option<i32> = payload.reply_to_message_id
-            .as_ref()
-            .and_then(|r| r.parse().ok());
+        let thread_id: Option<i32> = payload.thread_id.as_ref().and_then(|t| t.parse().ok());
 
         let draft_id = payload.draft_id.unwrap_or(1);
+        let parse_mode = match payload.parse_mode {
+            Some(ParseMode::Html) => Some("HTML"),
+            _ => None,
+        };
 
         let text = payload.text.as_deref().unwrap_or("");
-        api.send_message_draft(chat_id_num, text, draft_id, reply_to, thread_id).await
+        api.send_message_draft(chat_id_num, text, draft_id, parse_mode, thread_id)
+            .await
     }
 
     async fn edit_message(
@@ -266,9 +267,11 @@ impl ChannelPlugin for TelegramPlugin {
         payload: &ReplyPayload,
     ) -> Result<DeliveryResult> {
         let api = self.get_api(account_id).await?;
-        let chat_id_num: i64 = chat_id.parse()
+        let chat_id_num: i64 = chat_id
+            .parse()
             .map_err(|_| anyhow::anyhow!("Invalid chat_id: {}", chat_id))?;
-        let msg_id: i32 = message_id.parse()
+        let msg_id: i32 = message_id
+            .parse()
             .map_err(|_| anyhow::anyhow!("Invalid message_id: {}", message_id))?;
 
         if let Some(ref text) = payload.text {
@@ -277,7 +280,8 @@ impl ChannelPlugin for TelegramPlugin {
                 msg_id,
                 text,
                 Some(teloxide::types::ParseMode::Html),
-            ).await?;
+            )
+            .await?;
         }
 
         Ok(DeliveryResult::ok(message_id.to_string()))
@@ -290,9 +294,11 @@ impl ChannelPlugin for TelegramPlugin {
         message_id: &str,
     ) -> Result<()> {
         let api = self.get_api(account_id).await?;
-        let chat_id_num: i64 = chat_id.parse()
+        let chat_id_num: i64 = chat_id
+            .parse()
             .map_err(|_| anyhow::anyhow!("Invalid chat_id: {}", chat_id))?;
-        let msg_id: i32 = message_id.parse()
+        let msg_id: i32 = message_id
+            .parse()
             .map_err(|_| anyhow::anyhow!("Invalid message_id: {}", message_id))?;
         api.delete_message(chat_id_num, msg_id).await
     }
