@@ -124,4 +124,3 @@ src-tauri/src/          后端（Rust）
 | 技术栈/架构/规范变更      | `AGENTS.md`                 |
 
 - `CHANGELOG.md`：[Keep a Changelog](https://keepachangelog.com/) 格式
-- `AGENTS.md`保持与 `CLAUDE.md` 及 `.agent/rules/default.md` 一致，当任意一个文件更新时，其他两个文件也需要更新
