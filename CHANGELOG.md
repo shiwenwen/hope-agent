@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **PDF 工具视觉分析增强**
+  - 三种处理模式：`auto`（默认，智能检测扫描件自动切换）、`text`（纯文本提取）、`vision`（页面渲染为图片直达模型）
+  - Vision 模式通过 pdfium 将 PDF 页面渲染为 PNG 图片，以 `__IMAGE_BASE64__` marker 输出，全 4 种 Provider（Anthropic/OpenAI Chat/OpenAI Responses/Codex）均支持视觉分析
+  - URL 支持：可直接分析远程 PDF（HTTP/HTTPS），含 SSRF 防护 + PDF 格式校验
+  - 多 PDF 支持：`pdfs` 数组参数，单次最多 10 份 PDF
+  - Auto 模式：先尝试文本提取，若文本少于 200 字符（扫描件/纯图 PDF）自动切换为 vision 渲染
+  - 向后兼容：`path` 参数依然正常工作，行为不变
+
+- **微信 IM 渠道（WeChat Channel）**
+  - 后端新增原生 `wechat` Channel 插件，直接兼容 OpenClaw Weixin 使用的 iLink HTTP 协议，不依赖 OpenClaw 宿主
+  - 支持二维码登录流程：前端设置面板可发起扫码、轮询登录状态并保存返回的 token / baseUrl
+  - 支持 WeChat 私聊长轮询收消息、`context_token` 持久化、会话恢复后继续回复
+  - WeChat 账号纳入现有 ChannelRegistry / SessionDB / Channel worker 流水线，与 Telegram 共用 Agent、Slash Command、会话映射与上下文
+  - 新增 `~/.opencomputer/channels/` 渠道状态目录，保存 WeChat `get_updates_buf` 和上下文 token 缓存
+  - 支持 WeChat typing 指示器：完整生命周期（24h TTL 缓存 + 指数退避重试 + 5 秒心跳 keepalive + 回复时自动 cancel）
+  - 支持 WeChat 出站媒体发送（图片/视频/语音/文件）：AES-128-ECB 加密上传至微信 CDN，CDN 5xx 重试 3 次，100MB 体积限制
+  - 支持 WeChat 入站媒体接收：自动下载并解密入站图片/视频/语音/文件，转为 `Attachment` 传递给 LLM（支持多模态图片识别）
+  - 会话过期处理（errcode -14）：自动暂停 API 调用 1 小时，避免无效重试风暴
+  - 二维码登录改进：TTL 延长至 8 分钟，过期后自动刷新（最多 3 次），返回新 QR URL
+
+- **IM Channel 入站媒体管道打通**
+  - `ChatEngineParams` 新增 `attachments` 字段，`run_chat_engine()` 将附件传递到 `agent.chat()` 的多模态接口
+  - Channel worker 自动将入站 `InboundMedia`（图片读取为 base64，文件传路径）转换为 `Attachment` 送入 LLM
+  - 修复 UI 聊天在有 model_chain 时通过 ChatEngineParams 丢失 attachments 的 bug
+
 - **斜杠命令参数选项 (arg_options) 交互增强**
   - `/think` 新增 `xhigh` 超高强度思考等级
   - `/plan` 注册表补齐 `pause`、`resume` 选项

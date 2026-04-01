@@ -15,26 +15,43 @@ interface UserConfig {
   weatherLongitude?: number | null
 }
 
+interface ToolLimitsConfig {
+  maxImages: number
+  maxPdfs: number
+  maxVisionPages: number
+}
+
+const DEFAULT_LIMITS: ToolLimitsConfig = {
+  maxImages: 10,
+  maxPdfs: 5,
+  maxVisionPages: 10,
+}
+
 export default function ToolGeneralPanel() {
   const { t } = useTranslation()
   const [toolTimeout, setToolTimeout] = useState(300)
   const [savedTimeout, setSavedTimeout] = useState(300)
-  
+
+  const [limits, setLimits] = useState<ToolLimitsConfig>(DEFAULT_LIMITS)
+  const [savedLimitsSnapshot, setSavedLimitsSnapshot] = useState("")
+
   const [config, setConfig] = useState<UserConfig>({})
   const [savedConfigSnapshot, setSavedConfigSnapshot] = useState<string>("")
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
 
   const isConfigDirty = JSON.stringify(config) !== savedConfigSnapshot
+  const isLimitsDirty = JSON.stringify(limits) !== savedLimitsSnapshot
+  const isDirty = isConfigDirty || isLimitsDirty
 
   useEffect(() => {
     let cancelled = false
-    
+
     // Load tool timeout
     invoke<number>("get_tool_timeout")
       .then((v) => { if (!cancelled) { setToolTimeout(v); setSavedTimeout(v); } })
       .catch((e) => logger.error("settings", "ToolGeneralPanel::load", "Failed to load tool timeout", e))
-      
+
     // Load user config
     invoke<UserConfig>("get_user_config")
       .then((cfg) => {
@@ -44,7 +61,17 @@ export default function ToolGeneralPanel() {
         }
       })
       .catch((e) => logger.error("settings", "ToolGeneralPanel::load", "Failed to load user config", e))
-      
+
+    // Load tool limits
+    invoke<ToolLimitsConfig>("get_tool_limits")
+      .then((cfg) => {
+        if (!cancelled) {
+          setLimits(cfg)
+          setSavedLimitsSnapshot(JSON.stringify(cfg))
+        }
+      })
+      .catch((e) => logger.error("settings", "ToolGeneralPanel::load", "Failed to load tool limits", e))
+
     return () => { cancelled = true }
   }, [])
 
@@ -58,15 +85,23 @@ export default function ToolGeneralPanel() {
     }
   }, [savedTimeout])
 
-  const saveConfig = async () => {
+  const saveAll = async () => {
     setSaving(true)
     try {
-      await invoke("save_user_config", { config })
+      const promises: Promise<void>[] = []
+      if (isConfigDirty) {
+        promises.push(invoke("save_user_config", { config }))
+      }
+      if (isLimitsDirty) {
+        promises.push(invoke("set_tool_limits", { config: limits }))
+      }
+      await Promise.all(promises)
       setSavedConfigSnapshot(JSON.stringify(config))
+      setSavedLimitsSnapshot(JSON.stringify(limits))
       setSaveStatus("saved")
       setTimeout(() => setSaveStatus("idle"), 2000)
     } catch (e) {
-      logger.error("settings", "ToolGeneralPanel::saveConfig", "Failed to save user config", e)
+      logger.error("settings", "ToolGeneralPanel::saveAll", "Failed to save", e)
       setSaveStatus("failed")
       setTimeout(() => setSaveStatus("idle"), 2000)
     } finally {
@@ -76,6 +111,10 @@ export default function ToolGeneralPanel() {
 
   const update = (key: string, value: any) => {
     setConfig((prev) => ({ ...prev, [key]: value }))
+  }
+
+  const updateLimit = (key: keyof ToolLimitsConfig, value: number) => {
+    setLimits((prev) => ({ ...prev, [key]: value }))
   }
 
   return (
@@ -105,19 +144,83 @@ export default function ToolGeneralPanel() {
               <span className="text-xs text-muted-foreground whitespace-nowrap">{t("settings.seconds")}</span>
             </div>
           </div>
-          
+
           <div className="border-t border-border/50" />
-          
+
+          {/* Tool Limits */}
+          <div className="space-y-1 px-3">
+            <div className="text-sm font-medium">{t("settings.toolLimits")}</div>
+          </div>
+
+          <div className="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-secondary/40 transition-colors">
+            <div className="space-y-0.5">
+              <div className="text-sm font-medium">{t("settings.maxImages")}</div>
+              <div className="text-xs text-muted-foreground">{t("settings.maxImagesDesc")}</div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                min={1}
+                max={20}
+                value={limits.maxImages}
+                onChange={(e) => updateLimit("maxImages", Number(e.target.value))}
+                onBlur={() => updateLimit("maxImages", Math.max(1, Math.min(20, Math.round(limits.maxImages))))}
+                className="w-24 h-8 text-sm text-right"
+              />
+              <span className="text-xs text-muted-foreground whitespace-nowrap">{t("settings.items")}</span>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-secondary/40 transition-colors">
+            <div className="space-y-0.5">
+              <div className="text-sm font-medium">{t("settings.maxPdfs")}</div>
+              <div className="text-xs text-muted-foreground">{t("settings.maxPdfsDesc")}</div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                min={1}
+                max={10}
+                value={limits.maxPdfs}
+                onChange={(e) => updateLimit("maxPdfs", Number(e.target.value))}
+                onBlur={() => updateLimit("maxPdfs", Math.max(1, Math.min(10, Math.round(limits.maxPdfs))))}
+                className="w-24 h-8 text-sm text-right"
+              />
+              <span className="text-xs text-muted-foreground whitespace-nowrap">{t("settings.items")}</span>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-secondary/40 transition-colors">
+            <div className="space-y-0.5">
+              <div className="text-sm font-medium">{t("settings.maxVisionPages")}</div>
+              <div className="text-xs text-muted-foreground">{t("settings.maxVisionPagesDesc")}</div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                min={1}
+                max={50}
+                value={limits.maxVisionPages}
+                onChange={(e) => updateLimit("maxVisionPages", Number(e.target.value))}
+                onBlur={() => updateLimit("maxVisionPages", Math.max(1, Math.min(50, Math.round(limits.maxVisionPages))))}
+                className="w-24 h-8 text-sm text-right"
+              />
+              <span className="text-xs text-muted-foreground whitespace-nowrap">{t("settings.pages")}</span>
+            </div>
+          </div>
+
+          <div className="border-t border-border/50" />
+
           {/* Weather Settings */}
           <WeatherSection config={config} update={update} />
         </div>
       </div>
-      
+
       {/* Save — fixed bottom */}
       <div className="shrink-0 flex justify-end px-6 py-3 border-t border-border/30">
         <Button
-          onClick={saveConfig}
-          disabled={(!isConfigDirty && saveStatus === "idle") || saving}
+          onClick={saveAll}
+          disabled={(!isDirty && saveStatus === "idle") || saving}
           className={cn(
             saveStatus === "saved" && "bg-green-500/10 text-green-600 hover:bg-green-500/20",
             saveStatus === "failed" && "bg-destructive/10 text-destructive hover:bg-destructive/20",

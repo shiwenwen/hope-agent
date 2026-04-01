@@ -599,6 +599,12 @@ pub struct ProviderStore {
     /// Canvas tool configuration
     #[serde(default)]
     pub canvas: crate::tools::canvas::CanvasConfig,
+    /// Image tool configuration (max images per call, etc.)
+    #[serde(default)]
+    pub image: crate::tools::image::ImageToolConfig,
+    /// PDF tool configuration (max PDFs, max vision pages, etc.)
+    #[serde(default)]
+    pub pdf: crate::tools::pdf::PdfToolConfig,
     /// Global hard timeout (seconds) for a single tool execution.
     /// Safety net for when inner tool timeouts don't fire (network issues, etc.).
     /// Default 300 (5 min). Set to 0 to disable.
@@ -690,6 +696,8 @@ impl Default for ProviderStore {
             notification: NotificationConfig::default(),
             image_generate: crate::tools::image_generate::ImageGenConfig::default(),
             canvas: crate::tools::canvas::CanvasConfig::default(),
+            image: crate::tools::image::ImageToolConfig::default(),
+            pdf: crate::tools::pdf::PdfToolConfig::default(),
             tool_timeout: default_tool_timeout(),
             theme: default_theme(),
             language: default_language(),
@@ -746,6 +754,21 @@ pub fn save_store(store: &ProviderStore) -> Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
+    // Debug: log channel account IDs on every save to detect accidental overwrite
+    let account_ids: Vec<&str> = store
+        .channels
+        .accounts
+        .iter()
+        .map(|a| a.id.as_str())
+        .collect();
+    app_info!(
+        "provider",
+        "save_store",
+        "Saving config with {} channel account(s): {:?} — caller: {}",
+        account_ids.len(),
+        account_ids,
+        std::backtrace::Backtrace::force_capture()
+    );
     let data = serde_json::to_string_pretty(store)?;
     std::fs::write(&path, data)?;
     Ok(())

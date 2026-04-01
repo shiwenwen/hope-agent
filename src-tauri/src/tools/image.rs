@@ -1,17 +1,52 @@
 use anyhow::{anyhow, Result};
 use base64::Engine;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::browser::IMAGE_BASE64_PREFIX;
 use super::expand_tilde;
 use super::read::{detect_image_mime, resize_image_if_needed};
 
-/// Maximum number of images per single tool call.
-const MAX_IMAGES: usize = 10;
+/// Default maximum number of images per single tool call.
+const DEFAULT_MAX_IMAGES: usize = 10;
+/// Hard cap on max images (user cannot exceed this).
+const CAP_MAX_IMAGES: usize = 20;
 /// Maximum bytes to download for a remote image (10 MB).
 const IMAGE_MAX_FETCH_BYTES: usize = 10 * 1024 * 1024;
 /// HTTP timeout for fetching remote images.
 const FETCH_TIMEOUT_SECS: u64 = 30;
+
+// ── Image Tool Config ───────────────────────────────────────────
+
+/// Persistent image tool configuration, stored in config.json
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageToolConfig {
+    /// Maximum number of images per single tool call
+    #[serde(default = "default_max_images")]
+    pub max_images: usize,
+}
+
+fn default_max_images() -> usize {
+    DEFAULT_MAX_IMAGES
+}
+
+impl Default for ImageToolConfig {
+    fn default() -> Self {
+        Self {
+            max_images: DEFAULT_MAX_IMAGES,
+        }
+    }
+}
+
+/// Load image tool config from the global config store, clamped to hard caps.
+fn load_image_config() -> ImageToolConfig {
+    let mut cfg = crate::provider::load_store()
+        .map(|s| s.image)
+        .unwrap_or_default();
+    cfg.max_images = cfg.max_images.min(CAP_MAX_IMAGES);
+    cfg
+}
 
 // ── Image Source Types ───────────────────────────────────────────────
 
@@ -25,7 +60,7 @@ enum ImageSource {
 
 /// Parse tool arguments into a list of image sources.
 /// Supports: `images` array, `path` shorthand, `url` shorthand.
-fn normalize_sources(args: &Value) -> Result<Vec<ImageSource>> {
+fn normalize_sources(args: &Value, max_images: usize) -> Result<Vec<ImageSource>> {
     let mut sources = Vec::new();
 
     // 1. Check `images` array parameter
@@ -95,11 +130,11 @@ fn normalize_sources(args: &Value) -> Result<Vec<ImageSource>> {
             "At least one image source is required (use 'path', 'url', or 'images' parameter)"
         ));
     }
-    if sources.len() > MAX_IMAGES {
+    if sources.len() > max_images {
         return Err(anyhow!(
             "Too many images: {} provided, maximum is {}",
             sources.len(),
-            MAX_IMAGES
+            max_images
         ));
     }
 
@@ -260,7 +295,8 @@ fn resolve_screenshot(monitor_index: Option<usize>) -> Result<(Vec<u8>, String)>
 /// Tool: image — analyze one or more images from files, URLs, clipboard, or screenshot.
 /// Returns base64-encoded image markers for LLM vision.
 pub(crate) async fn tool_image(args: &Value) -> Result<String> {
-    let sources = normalize_sources(args)?;
+    let config = load_image_config();
+    let sources = normalize_sources(args, config.max_images)?;
     let prompt = args.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
     let total = sources.len();
     let mut result_parts: Vec<String> = Vec::new();

@@ -865,17 +865,32 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                 "additionalProperties": false
             }),
         },
-        // ── PDF Extraction ──────────────────────────────────────
+        // ── PDF Extraction / Vision ─────────────────────────────
         ToolDefinition {
             name: TOOL_PDF.into(),
-            description: "Extract text content from a PDF document. Supports page-range filtering and character limit. Use for reading documents, reports, and papers. Returns extracted text organized by page.".into(),
+            description: "Analyze PDF documents with text extraction or visual page rendering. Modes: 'auto' (default) extracts text, falls back to vision for scanned/image PDFs; 'text' for pure text extraction; 'vision' renders pages as images for the model to see directly. Supports local files, URLs, and multiple PDFs.".into(),
             internal: true,
             parameters: json!({
                 "type": "object",
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "PDF file path (supports ~ expansion)"
+                        "description": "PDF file path (supports ~ expansion). Shorthand for a single local PDF."
+                    },
+                    "url": {
+                        "type": "string",
+                        "description": "PDF URL (http/https). Shorthand for a single remote PDF."
+                    },
+                    "pdfs": {
+                        "type": "array",
+                        "description": "Multiple PDF sources (default max 5, configurable up to 10). Each item: {type:'file',path:'...'} or {type:'url',url:'...'}, or a bare string (auto-detect).",
+                        "items": {},
+                        "maxItems": 10
+                    },
+                    "mode": {
+                        "type": "string",
+                        "enum": ["auto", "text", "vision"],
+                        "description": "Processing mode. 'auto' (default): text extraction, auto-fallback to vision for scanned PDFs. 'text': pure text extraction. 'vision': render pages as images for visual analysis."
                     },
                     "pages": {
                         "type": "string",
@@ -883,10 +898,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     },
                     "max_chars": {
                         "type": "integer",
-                        "description": "Max output characters (default 50000)"
+                        "description": "Max output characters for text mode (default 50000)"
                     }
                 },
-                "required": ["path"],
                 "additionalProperties": false
             }),
         },

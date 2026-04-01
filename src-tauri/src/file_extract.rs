@@ -155,37 +155,67 @@ fn extract_pdf(path: &Path) -> Result<(Option<String>, Vec<ExtractedImage>)> {
     Ok((text, images))
 }
 
-/// Render PDF pages to PNG images using pdfium-render.
-fn render_pdf_pages(path: &Path) -> Result<Vec<ExtractedImage>> {
+/// Bind to the system pdfium library.
+fn bind_pdfium() -> Result<pdfium_render::prelude::Pdfium> {
     use pdfium_render::prelude::*;
 
-    // Try to bind to system pdfium library
-    let pdfium = Pdfium::new(
-        Pdfium::bind_to_system_library()
-            .or_else(|_| {
-                // Try common locations
-                #[cfg(target_os = "macos")]
-                {
-                    Pdfium::bind_to_library("/usr/local/lib/libpdfium.dylib")
-                        .or_else(|_| Pdfium::bind_to_library("/opt/homebrew/lib/libpdfium.dylib"))
-                }
-                #[cfg(target_os = "linux")]
-                {
-                    Pdfium::bind_to_library("/usr/lib/libpdfium.so")
-                        .or_else(|_| Pdfium::bind_to_library("/usr/local/lib/libpdfium.so"))
-                }
-                #[cfg(target_os = "windows")]
-                {
-                    Pdfium::bind_to_library("pdfium.dll")
-                }
-                #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
-                {
-                    Err(PdfiumError::NoBindingsAvailable)
-                }
-            })
-            .map_err(|e| anyhow::anyhow!("PDFium library not found: {:?}", e))?,
-    );
+    let bindings = Pdfium::bind_to_system_library()
+        .or_else(|_| {
+            #[cfg(target_os = "macos")]
+            {
+                Pdfium::bind_to_library("/usr/local/lib/libpdfium.dylib")
+                    .or_else(|_| Pdfium::bind_to_library("/opt/homebrew/lib/libpdfium.dylib"))
+            }
+            #[cfg(target_os = "linux")]
+            {
+                Pdfium::bind_to_library("/usr/lib/libpdfium.so")
+                    .or_else(|_| Pdfium::bind_to_library("/usr/local/lib/libpdfium.so"))
+            }
+            #[cfg(target_os = "windows")]
+            {
+                Pdfium::bind_to_library("pdfium.dll")
+            }
+            #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+            {
+                Err(PdfiumError::NoBindingsAvailable)
+            }
+        })
+        .map_err(|e| anyhow::anyhow!("PDFium library not found: {:?}", e))?;
 
+    Ok(Pdfium::new(bindings))
+}
+
+/// Render a single PDF page to a base64 PNG string.
+fn render_page_to_b64(
+    page: &pdfium_render::prelude::PdfPage,
+    render_width: u32,
+) -> Result<String> {
+    use pdfium_render::prelude::*;
+
+    let width = page.width();
+    let height = page.height();
+    let scale = render_width as f32 / width.value;
+    let render_height = (height.value * scale) as u32;
+
+    let bitmap = page
+        .render_with_config(
+            &PdfRenderConfig::new()
+                .set_target_width(render_width as i32)
+                .set_target_height(render_height as i32),
+        )
+        .map_err(|e| anyhow::anyhow!("Failed to render page: {:?}", e))?;
+
+    let img = bitmap.as_image();
+    let mut buf = std::io::Cursor::new(Vec::new());
+    img.write_to(&mut buf, image::ImageFormat::Png)
+        .map_err(|e| anyhow::anyhow!("Failed to encode page as PNG: {}", e))?;
+
+    Ok(base64::engine::general_purpose::STANDARD.encode(buf.into_inner()))
+}
+
+/// Render PDF pages to PNG images using pdfium-render.
+fn render_pdf_pages(path: &Path) -> Result<Vec<ExtractedImage>> {
+    let pdfium = bind_pdfium()?;
     let document = pdfium
         .load_pdf_from_file(path, None)
         .map_err(|e| anyhow::anyhow!("Failed to load PDF: {:?}", e))?;
@@ -199,26 +229,7 @@ fn render_pdf_pages(path: &Path) -> Result<Vec<ExtractedImage>> {
             .get(i)
             .map_err(|e| anyhow::anyhow!("Failed to get page {}: {:?}", i, e))?;
 
-        // Calculate render size maintaining aspect ratio
-        let width = page.width();
-        let height = page.height();
-        let scale = PDF_RENDER_WIDTH as f32 / width.value;
-        let render_height = (height.value * scale) as u32;
-
-        let bitmap = page
-            .render_with_config(
-                &PdfRenderConfig::new()
-                    .set_target_width(PDF_RENDER_WIDTH as i32)
-                    .set_target_height(render_height as i32),
-            )
-            .map_err(|e| anyhow::anyhow!("Failed to render page {}: {:?}", i, e))?;
-
-        let img = bitmap.as_image();
-        let mut buf = std::io::Cursor::new(Vec::new());
-        img.write_to(&mut buf, image::ImageFormat::Png)
-            .map_err(|e| anyhow::anyhow!("Failed to encode page {} as PNG: {}", i, e))?;
-
-        let b64 = base64::engine::general_purpose::STANDARD.encode(buf.into_inner());
+        let b64 = render_page_to_b64(&page, PDF_RENDER_WIDTH)?;
         images.push(ExtractedImage {
             data: b64,
             mime_type: "image/png".to_string(),
@@ -227,6 +238,42 @@ fn render_pdf_pages(path: &Path) -> Result<Vec<ExtractedImage>> {
     }
 
     Ok(images)
+}
+
+/// Render specific PDF pages from raw bytes to base64 PNG images.
+/// `page_indices` is 0-indexed. If `None`, renders all pages up to `max_pages`.
+/// Returns `(total_page_count, Vec<(page_number_1indexed, base64_png)>)`.
+pub(crate) fn render_pdf_bytes(
+    data: &[u8],
+    page_indices: Option<&[usize]>,
+    max_pages: usize,
+    render_width: u32,
+) -> Result<(usize, Vec<(usize, String)>)> {
+    let pdfium = bind_pdfium()?;
+    let document = pdfium
+        .load_pdf_from_byte_slice(data, None)
+        .map_err(|e| anyhow::anyhow!("Failed to load PDF: {:?}", e))?;
+
+    let pages = document.pages();
+    let total = pages.len() as usize;
+    let mut results = Vec::new();
+
+    let indices_to_render: Vec<usize> = if let Some(indices) = page_indices {
+        indices.iter().copied().filter(|&i| i < total).take(max_pages).collect()
+    } else {
+        (0..total.min(max_pages)).collect()
+    };
+
+    for i in indices_to_render {
+        let page = pages
+            .get(i as u16)
+            .map_err(|e| anyhow::anyhow!("Failed to get page {}: {:?}", i + 1, e))?;
+
+        let b64 = render_page_to_b64(&page, render_width)?;
+        results.push((i + 1, b64)); // 1-indexed page number
+    }
+
+    Ok((total, results))
 }
 
 // ---------------------------------------------------------------------------

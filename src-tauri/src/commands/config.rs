@@ -446,6 +446,35 @@ pub async fn set_tool_timeout(seconds: u64) -> Result<(), String> {
     provider::save_store(&store).map_err(|e| e.to_string())
 }
 
+// ── Tool Limits ────────────────────────────────────────────────
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolLimitsConfig {
+    pub max_images: usize,
+    pub max_pdfs: usize,
+    pub max_vision_pages: usize,
+}
+
+#[tauri::command]
+pub async fn get_tool_limits() -> Result<ToolLimitsConfig, String> {
+    let store = provider::load_store().map_err(|e| e.to_string())?;
+    Ok(ToolLimitsConfig {
+        max_images: store.image.max_images,
+        max_pdfs: store.pdf.max_pdfs,
+        max_vision_pages: store.pdf.max_vision_pages,
+    })
+}
+
+#[tauri::command]
+pub async fn set_tool_limits(config: ToolLimitsConfig) -> Result<(), String> {
+    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    store.image.max_images = config.max_images;
+    store.pdf.max_pdfs = config.max_pdfs;
+    store.pdf.max_vision_pages = config.max_vision_pages;
+    provider::save_store(&store).map_err(|e| e.to_string())
+}
+
 // ── Temperature ─────────────────────────────────────────────────
 
 #[tauri::command]

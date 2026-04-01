@@ -766,6 +766,7 @@ pub fn run() {
 
                 // Register built-in channel plugins
                 registry.register_plugin(Arc::new(channel::telegram::TelegramPlugin::new()));
+                registry.register_plugin(Arc::new(channel::wechat::WeChatPlugin::new()));
 
                 let registry = Arc::new(registry);
                 let channel_db = Arc::new(channel::ChannelDB::new(session_db.clone()));
@@ -975,6 +976,9 @@ pub fn run() {
             // Tool timeout
             commands::config::get_tool_timeout,
             commands::config::set_tool_timeout,
+            // Tool limits (image/pdf)
+            commands::config::get_tool_limits,
+            commands::config::set_tool_limits,
             // Temperature
             commands::config::get_global_temperature,
             commands::config::set_global_temperature,
@@ -1122,6 +1126,8 @@ pub fn run() {
             commands::channel::channel_validate_credentials,
             commands::channel::channel_send_test_message,
             commands::channel::channel_list_sessions,
+            commands::channel::channel_wechat_start_login,
+            commands::channel::channel_wechat_wait_login,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
