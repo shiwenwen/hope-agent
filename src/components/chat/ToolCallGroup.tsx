@@ -265,11 +265,39 @@ interface ToolCallGroupProps {
 export default function ToolCallGroup({ tools }: ToolCallGroupProps) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
+  const [now, setNow] = useState(() => Date.now())
   const anyRunning = tools.some((tc) => tc.result === undefined)
 
   const primaryCategory = getPrimaryCategory(tools)
   const HeaderIcon = CATEGORY_ICONS[primaryCategory]
   const label = buildSummaryLabel(tools, t)
+
+  // Calculate total elapsed time across all tools in the group
+  const totalElapsedMs = useMemo(() => {
+    let total = 0
+    let hasAny = false
+    for (const tool of tools) {
+      const isRunning = tool.result === undefined
+      const ms = tool.durationMs ?? (isRunning && tool.startedAtMs ? now - tool.startedAtMs : undefined)
+      if (ms != null && ms >= 0) {
+        total += ms
+        hasAny = true
+      }
+    }
+    return hasAny ? total : undefined
+  }, [tools, now])
+
+  const totalElapsedText = useMemo(
+    () => (totalElapsedMs != null ? formatElapsed(totalElapsedMs) : null),
+    [totalElapsedMs],
+  )
+
+  // Live-update timer while any tool is still running
+  useEffect(() => {
+    if (!anyRunning) return
+    const timer = window.setInterval(() => setNow(Date.now()), 100)
+    return () => window.clearInterval(timer)
+  }, [anyRunning])
 
   return (
     <div className="my-1 text-xs">
@@ -287,6 +315,11 @@ export default function ToolCallGroup({ tools }: ToolCallGroupProps) {
         )}
         <HeaderIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         <span className="text-muted-foreground font-medium">{label}</span>
+        {totalElapsedText && (
+          <span className="ml-auto shrink-0 text-[10px] text-muted-foreground/60 tabular-nums">
+            {t("tools.elapsed", { time: totalElapsedText })}
+          </span>
+        )}
       </button>
 
       {/* Expanded: show each item with inline result access */}

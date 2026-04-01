@@ -17,6 +17,7 @@ import FileAttachments from "@/components/chat/FileAttachments"
 import UrlPreviewCard, { type UrlPreviewData } from "@/components/chat/UrlPreviewCard"
 import { extractUrls } from "@/lib/urlDetect"
 import type { Message, AgentSummaryForSidebar } from "@/types/chat"
+import ModelPickerCard from "@/components/chat/ModelPickerCard"
 
 /** Renders URL preview cards for a message's content */
 function MessageUrlPreviews({ content, isStreaming }: { content: string; isStreaming: boolean }) {
@@ -64,6 +65,8 @@ interface MessageBubbleProps {
   // Plan mode
   sessionId?: string | null
   onOpenPlanPanel?: () => void
+  // Model switching
+  onSwitchModel?: (providerId: string, modelId: string) => void
 }
 
 /** Collapsible Q&A summary for plan_question tool results */
@@ -208,6 +211,7 @@ export default function MessageBubble({
   onCopy,
   sessionId,
   onOpenPlanPanel,
+  onSwitchModel,
 }: MessageBubbleProps) {
   const { t } = useTranslation()
   const [detailsIndex, setDetailsIndex] = useState<number | null>(null)
@@ -223,9 +227,18 @@ export default function MessageBubble({
   const fromAgent = msg.fromAgentId ? agents.find((a) => a.id === msg.fromAgentId) : undefined
 
   if (msg.role === "event") {
+    // Interactive model picker card
+    if (msg.modelPickerData) {
+      return (
+        <ModelPickerCard
+          data={msg.modelPickerData}
+          onSelect={(providerId, modelId) => onSwitchModel?.(providerId, modelId)}
+        />
+      )
+    }
     return (
-      <div className="max-w-[80%] px-3 py-1.5 rounded-lg text-xs text-muted-foreground bg-muted/50 border border-border/50 text-center">
-        {msg.content}
+      <div className="max-w-[80%] px-3 py-1.5 rounded-lg text-xs text-muted-foreground bg-muted/50 border border-border/50 text-center [&_p]:m-0">
+        <MarkdownRenderer content={msg.content} />
       </div>
     )
   }
@@ -328,6 +341,7 @@ export default function MessageBubble({
                       key={i}
                       content={block.content}
                       isStreaming={loading && isLast && isLastBlock && !msg.content.trim()}
+                      durationMs={block.durationMs}
                     />,
                   )
                   i++

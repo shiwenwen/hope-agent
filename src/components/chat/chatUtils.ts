@@ -189,7 +189,7 @@ export function parseSessionMessages(
     } else if (msg.role === "thinking_block") {
       // Intermediate thinking emitted before tool calls — preserve multi-round thinking ordering
       if (msg.content) {
-        pendingBlocks.push({ type: "thinking", content: msg.content })
+        pendingBlocks.push({ type: "thinking", content: msg.content, durationMs: msg.toolDurationMs || undefined })
       }
     } else if (msg.role === "text_block") {
       // Intermediate text emitted before tool calls — preserve ordering

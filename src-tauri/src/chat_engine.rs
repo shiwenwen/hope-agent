@@ -455,6 +455,9 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
             let pending_thinking: Arc<std::sync::Mutex<String>> =
                 Arc::new(std::sync::Mutex::new(String::new()));
             let pending_thinking_clone = pending_thinking.clone();
+            let thinking_start_time: Arc<std::sync::Mutex<Option<std::time::Instant>>> =
+                Arc::new(std::sync::Mutex::new(None));
+            let thinking_start_clone = thinking_start_time.clone();
             let had_thinking_blocks: Arc<std::sync::atomic::AtomicBool> =
                 Arc::new(std::sync::atomic::AtomicBool::new(false));
             let had_thinking_blocks_clone = had_thinking_blocks.clone();
@@ -491,6 +494,12 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                             }
                             Some("thinking_delta") => {
                                 if let Some(text) = event.get("content").and_then(|t| t.as_str()) {
+                                    // Record start time on first thinking_delta
+                                    if let Ok(mut ts) = thinking_start_clone.lock() {
+                                        if ts.is_none() {
+                                            *ts = Some(std::time::Instant::now());
+                                        }
+                                    }
                                     if let Ok(mut pk) = pending_thinking_clone.lock() {
                                         pk.push_str(text);
                                     }
@@ -507,7 +516,10 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                                 // Flush accumulated thinking before tool_call
                                 if let Ok(mut pk) = pending_thinking_clone.lock() {
                                     if !pk.is_empty() {
-                                        let thinking_msg = session::NewMessage::thinking_block(&pk);
+                                        let duration = thinking_start_clone.lock().ok()
+                                            .and_then(|mut ts| ts.take())
+                                            .map(|t| t.elapsed().as_millis() as i64);
+                                        let thinking_msg = session::NewMessage::thinking_block_with_duration(&pk, duration);
                                         let _ =
                                             db_for_cb.append_message(&sid_for_cb, &thinking_msg);
                                         pk.clear();
@@ -547,7 +559,10 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     // Flush remaining pending thinking
                     if let Ok(mut pk) = pending_thinking.lock() {
                         if !pk.is_empty() {
-                            let thinking_msg = session::NewMessage::thinking_block(&pk);
+                            let duration = thinking_start_time.lock().ok()
+                                .and_then(|mut ts| ts.take())
+                                .map(|t| t.elapsed().as_millis() as i64);
+                            let thinking_msg = session::NewMessage::thinking_block_with_duration(&pk, duration);
                             let _ = db.append_message(&session_id, &thinking_msg);
                             pk.clear();
                             had_thinking_blocks.store(true, std::sync::atomic::Ordering::SeqCst);

@@ -18,7 +18,7 @@ export interface MessageUsage {
 
 /** Ordered content block within an assistant message */
 export type ContentBlock =
-  | { type: "thinking"; content: string }
+  | { type: "thinking"; content: string; durationMs?: number }
   | { type: "text"; content: string }
   | { type: "tool_call"; tool: ToolCall }
 
@@ -46,6 +46,12 @@ export interface Message {
   channelInbound?: {
     channelId: string
     senderName?: string
+  }
+  /** Model picker data for rendering interactive model selection cards */
+  modelPickerData?: {
+    models: { providerId: string; providerName: string; modelId: string; modelName: string }[]
+    activeProviderId?: string
+    activeModelId?: string
   }
   /** Database row ID, used for deduplication during streaming append */
   dbId?: number

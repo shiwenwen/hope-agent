@@ -8,9 +8,11 @@ import { getAutoExpandThinking, getCachedAutoExpandThinking } from "./thinkingCa
 interface ThinkingBlockProps {
   content: string
   isStreaming?: boolean
+  /** Persisted duration from DB (ms), used to display elapsed time after restart */
+  durationMs?: number
 }
 
-export default function ThinkingBlock({ content, isStreaming }: ThinkingBlockProps) {
+export default function ThinkingBlock({ content, isStreaming, durationMs }: ThinkingBlockProps) {
   const { t } = useTranslation()
   const [autoExpand, setAutoExpand] = useState(getCachedAutoExpandThinking() ?? true)
   const [manualOpen, setManualOpen] = useState<boolean | null>(null)
@@ -87,8 +89,8 @@ export default function ThinkingBlock({ content, isStreaming }: ThinkingBlockPro
           className={cn("h-3.5 w-3.5", isStreaming && "animate-pulse text-purple-400")}
         />
         <span>{t("thinking.label")}</span>
-        {(isStreaming || elapsedMs > 0) && (
-          <span className="text-[10px] text-muted-foreground/70">{t("thinking.elapsed", { time: formatElapsed(elapsedMs) })}</span>
+        {(isStreaming || elapsedMs > 0 || (durationMs != null && durationMs > 0)) && (
+          <span className="text-[10px] text-muted-foreground/70">{t("thinking.elapsed", { time: formatElapsed(elapsedMs > 0 ? elapsedMs : (durationMs || 0)) })}</span>
         )}
         {isStreaming && <span className="text-[10px] text-purple-400 animate-pulse">···</span>}
       </button>

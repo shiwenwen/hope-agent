@@ -235,6 +235,11 @@ impl NewMessage {
 
     /// Create a thinking_block message (intermediate thinking before tool calls).
     pub fn thinking_block(content: &str) -> Self {
+        Self::thinking_block_with_duration(content, None)
+    }
+
+    /// Create a thinking_block message with an optional duration in milliseconds.
+    pub fn thinking_block_with_duration(content: &str, duration_ms: Option<i64>) -> Self {
         Self {
             role: MessageRole::ThinkingBlock,
             content: content.to_string(),
@@ -248,7 +253,7 @@ impl NewMessage {
             tool_name: None,
             tool_arguments: None,
             tool_result: None,
-            tool_duration_ms: None,
+            tool_duration_ms: duration_ms,
             is_error: None,
             thinking: None,
             ttft_ms: None,
