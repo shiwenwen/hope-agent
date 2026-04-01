@@ -382,7 +382,7 @@ pub fn run() {
 
                     // ── Step 1: Check if this completes a pending chord ──
                     {
-                        let mut state = chord_state().lock().unwrap();
+                        let mut state = chord_state().lock().unwrap_or_else(|e| e.into_inner());
                         if let Some(pending) = state.as_ref() {
                             if std::time::Instant::now() < pending.deadline {
                                 // Check if this shortcut matches any expected second part
@@ -464,7 +464,7 @@ pub fn run() {
                         // Set pending state
                         let deadline = std::time::Instant::now()
                             + std::time::Duration::from_millis(CHORD_TIMEOUT_MS);
-                        *chord_state().lock().unwrap() = Some(ChordPending {
+                        *chord_state().lock().unwrap_or_else(|e| e.into_inner()) = Some(ChordPending {
                             completions: chord_matches.clone(),
                             deadline,
                         });
@@ -476,7 +476,7 @@ pub fn run() {
                             std::thread::sleep(std::time::Duration::from_millis(
                                 CHORD_TIMEOUT_MS + 50,
                             ));
-                            let mut state = chord_state().lock().unwrap();
+                            let mut state = chord_state().lock().unwrap_or_else(|e| e.into_inner());
                             if let Some(pending) = state.take() {
                                 let manager = app_clone.global_shortcut();
                                 for (_, s) in &pending.completions {

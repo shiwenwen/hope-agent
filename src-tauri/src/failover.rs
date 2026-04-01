@@ -175,12 +175,25 @@ pub fn retry_delay_ms(attempt: u32, base_ms: u64, max_ms: u64) -> u64 {
 }
 
 /// Simple pseudo-random number (no external crate needed).
+/// Uses both nanos and a thread-local counter to avoid bias from
+/// rapid successive calls that may share the same nanosecond value.
 fn rand_simple() -> u64 {
+    use std::cell::Cell;
     use std::time::SystemTime;
-    SystemTime::now()
+    thread_local! {
+        static COUNTER: Cell<u64> = const { Cell::new(0) };
+    }
+    let nanos = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap_or_default()
-        .subsec_nanos() as u64
+        .subsec_nanos() as u64;
+    let count = COUNTER.with(|c| {
+        let v = c.get().wrapping_add(1);
+        c.set(v);
+        v
+    });
+    // Mix nanos with counter using a simple hash-like operation
+    nanos ^ (count.wrapping_mul(6364136223846793005))
 }
 
 #[cfg(test)]

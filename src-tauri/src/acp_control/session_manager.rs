@@ -163,7 +163,7 @@ impl AcpSessionManager {
             }
 
             // Run the turn
-            let (event_tx, mut event_rx) = mpsc::unbounded_channel::<AcpStreamEvent>();
+            let (event_tx, mut event_rx) = mpsc::channel::<AcpStreamEvent>(256);
 
             // Forward events to Tauri in a separate task
             let run_id_for_events = run_id_clone.clone();
@@ -363,7 +363,7 @@ impl AcpSessionManager {
             .await
             .ok_or_else(|| anyhow::anyhow!("Backend not found: {}", session.backend_id))?;
 
-        let (tx, _rx) = mpsc::unbounded_channel();
+        let (tx, _rx) = mpsc::channel(256);
         let cancel = Arc::new(AtomicBool::new(false));
 
         runtime.run_turn(&session, message, tx, cancel).await?;

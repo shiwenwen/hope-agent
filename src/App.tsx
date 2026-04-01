@@ -1,17 +1,20 @@
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, lazy, Suspense } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { listen } from "@tauri-apps/api/event"
 import { logger } from "@/lib/logger"
 import { initLanguageFromConfig } from "@/i18n/i18n"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { LightboxProvider } from "@/components/common/ImageLightbox"
+import ErrorBoundary from "@/components/common/ErrorBoundary"
 import ProviderSetup from "@/components/settings/ProviderSetup"
 import SettingsView from "@/components/settings/SettingsView"
 import IconSidebar from "@/components/common/IconSidebar"
 import ChatScreen from "@/components/chat/ChatScreen"
-import CronCalendarView from "@/components/cron/CronCalendarView"
-import DashboardView from "@/components/dashboard/DashboardView"
 import StarrySky from "@/components/common/StarrySky"
+
+// Lazy-loaded views (heavy dependencies: recharts, cron UI)
+const DashboardView = lazy(() => import("@/components/dashboard/DashboardView"))
+const CronCalendarView = lazy(() => import("@/components/cron/CronCalendarView"))
 
 export default function App() {
   const [view, setView] = useState<
@@ -141,6 +144,7 @@ export default function App() {
   }
 
   return (
+    <ErrorBoundary>
     <TooltipProvider>
     <LightboxProvider>
     <div className="flex h-screen overflow-hidden bg-background">
@@ -225,16 +229,20 @@ export default function App() {
         />
       )}
       {view === "calendar" && (
-        <CronCalendarView
-          onBack={() => setView("chat")}
-          onNavigateToSession={(sessionId) => {
-            setPendingSessionId(sessionId)
-            setView("chat")
-          }}
-        />
+        <Suspense fallback={<div className="flex-1 flex items-center justify-center"><div className="animate-spin h-6 w-6 border-2 border-foreground border-t-transparent rounded-full" /></div>}>
+          <CronCalendarView
+            onBack={() => setView("chat")}
+            onNavigateToSession={(sessionId) => {
+              setPendingSessionId(sessionId)
+              setView("chat")
+            }}
+          />
+        </Suspense>
       )}
       {view === "dashboard" && (
-        <DashboardView onBack={() => setView("chat")} />
+        <Suspense fallback={<div className="flex-1 flex items-center justify-center"><div className="animate-spin h-6 w-6 border-2 border-foreground border-t-transparent rounded-full" /></div>}>
+          <DashboardView onBack={() => setView("chat")} />
+        </Suspense>
       )}
       <div className={view === "chat" ? "flex-1 flex overflow-hidden" : "hidden"}>
         <ChatScreen
@@ -252,5 +260,6 @@ export default function App() {
     </div>
     </LightboxProvider>
     </TooltipProvider>
+    </ErrorBoundary>
   )
 }

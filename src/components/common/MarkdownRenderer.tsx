@@ -1,13 +1,60 @@
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useMemo } from "react"
 import { Streamdown, type AnimateOptions } from "streamdown"
 import { code } from "@streamdown/code"
 import { cjk } from "@streamdown/cjk"
-import { math } from "@streamdown/math"
-import { mermaid } from "@streamdown/mermaid"
-import "katex/dist/katex.min.css"
 import "streamdown/styles.css"
 
-const plugins = { code, cjk, math, mermaid }
+// Math and mermaid plugins are lazy-loaded on first use to reduce initial bundle size.
+// KaTeX (~300KB) and Mermaid (~200KB) are only loaded when content requires them.
+type PluginFn = (typeof code)
+let cachedMath: PluginFn | null = null
+let cachedMermaid: PluginFn | null = null
+let mathLoading = false
+let mermaidLoading = false
+
+const HAS_MATH = /\$\$|\\[\[\(]|\$[^$\n]+\$/
+const HAS_MERMAID = /```mermaid/
+
+function useHeavyPlugins(content: string) {
+  const [, forceUpdate] = useState(0)
+  const needMath = HAS_MATH.test(content)
+  const needMermaid = HAS_MERMAID.test(content)
+
+  useEffect(() => {
+    let changed = false
+    if (needMath && !cachedMath && !mathLoading) {
+      mathLoading = true
+      Promise.all([
+        import("@streamdown/math"),
+        import("katex/dist/katex.min.css"),
+      ]).then(([mod]) => {
+        cachedMath = mod.math
+        mathLoading = false
+        changed = true
+        forceUpdate((n) => n + 1)
+      })
+    }
+    if (needMermaid && !cachedMermaid && !mermaidLoading) {
+      mermaidLoading = true
+      import("@streamdown/mermaid").then((mod) => {
+        cachedMermaid = mod.mermaid
+        mermaidLoading = false
+        if (!changed) forceUpdate((n) => n + 1)
+      })
+    }
+  }, [needMath, needMermaid])
+
+  return useMemo(() => {
+    const p: Record<string, PluginFn> = { code, cjk }
+    if (cachedMath) p.math = cachedMath
+    if (cachedMermaid) p.mermaid = cachedMermaid
+    return p
+  }, [
+    // Re-memo when plugins become available
+    cachedMath !== null, // eslint-disable-line react-hooks/exhaustive-deps
+    cachedMermaid !== null, // eslint-disable-line react-hooks/exhaustive-deps
+  ])
+}
 
 /** Word-level blurIn: each completed word gets a blur-to-clear entrance */
 const streamingAnimation: AnimateOptions = {
@@ -28,6 +75,7 @@ interface MarkdownRendererProps {
 }
 
 export default function MarkdownRenderer({ content, isStreaming = false }: MarkdownRendererProps) {
+  const plugins = useHeavyPlugins(content)
   const [displayLen, setDisplayLen] = useState(() => (isStreaming ? 0 : content.length))
 
   const cursorRef = useRef(isStreaming ? 0 : content.length)

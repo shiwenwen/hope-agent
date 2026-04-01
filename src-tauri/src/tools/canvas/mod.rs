@@ -386,7 +386,7 @@ async fn action_snapshot(args: &Value) -> Result<String> {
     // Register a pending snapshot request
     let rx = {
         let (tx, rx) = tokio::sync::oneshot::channel();
-        let mut pending = PENDING_SNAPSHOTS.lock().unwrap();
+        let mut pending = PENDING_SNAPSHOTS.lock().unwrap_or_else(|e| e.into_inner());
         pending.insert(request_id.clone(), tx);
         rx
     }; // MutexGuard dropped here before any .await
@@ -446,7 +446,7 @@ async fn action_snapshot(args: &Value) -> Result<String> {
         .to_string()),
         Err(_) => {
             // Cleanup
-            let mut pending = PENDING_SNAPSHOTS.lock().unwrap();
+            let mut pending = PENDING_SNAPSHOTS.lock().unwrap_or_else(|e| e.into_inner());
             pending.remove(&request_id);
             Ok(serde_json::json!({
                 "status": "error",
@@ -470,7 +470,7 @@ async fn action_eval_js(args: &Value) -> Result<String> {
     let request_id = uuid::Uuid::new_v4().to_string();
     let rx = {
         let (tx, rx) = tokio::sync::oneshot::channel::<EvalResult>();
-        let mut pending = PENDING_EVALS.lock().unwrap();
+        let mut pending = PENDING_EVALS.lock().unwrap_or_else(|e| e.into_inner());
         pending.insert(request_id.clone(), tx);
         rx
     }; // MutexGuard dropped here before any .await
@@ -505,7 +505,7 @@ async fn action_eval_js(args: &Value) -> Result<String> {
         }
         Ok(Err(_)) => Ok(r#"{"status":"error","message":"Eval request cancelled"}"#.to_string()),
         Err(_) => {
-            let mut pending = PENDING_EVALS.lock().unwrap();
+            let mut pending = PENDING_EVALS.lock().unwrap_or_else(|e| e.into_inner());
             pending.remove(&request_id);
             Ok(r#"{"status":"error","message":"Eval timed out (10s). Make sure the canvas panel is open."}"#.to_string())
         }
@@ -595,7 +595,7 @@ static PENDING_EVALS: LazyLock<
 
 /// Called from Tauri command when frontend submits a snapshot result.
 pub fn submit_snapshot(request_id: &str, data_url: Option<String>, error: Option<String>) {
-    let mut pending = PENDING_SNAPSHOTS.lock().unwrap();
+    let mut pending = PENDING_SNAPSHOTS.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(tx) = pending.remove(request_id) {
         let _ = tx.send(SnapshotData { data_url, error });
     }
@@ -603,7 +603,7 @@ pub fn submit_snapshot(request_id: &str, data_url: Option<String>, error: Option
 
 /// Called from Tauri command when frontend submits an eval result.
 pub fn submit_eval_result(request_id: &str, result: Option<String>, error: Option<String>) {
-    let mut pending = PENDING_EVALS.lock().unwrap();
+    let mut pending = PENDING_EVALS.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(tx) = pending.remove(request_id) {
         let _ = tx.send(EvalResult { result, error });
     }

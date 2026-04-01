@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Mutex 中毒防护**：修复 52 处 `.lock().unwrap()` 调用（分布在 cron/db.rs、canvas_db.rs、agent providers 等 12 个文件），改用 `map_err` 错误传播或 `unwrap_or_else(|e| e.into_inner())` 恢复，防止 panic 导致的级联 mutex 中毒崩溃
+- **无界 Channel 改有界**：将 logging.rs、acp_control/session_manager.rs、channel/worker.rs、chat_engine.rs 中的 4 处 `unbounded_channel` 改为有界 channel（10000/256/512），防止高负载 OOM
+- **异步阻塞修复**：tools/cron.rs 中 `spawn_blocking` + `block_on` 改为纯 `tokio::spawn` async，避免阻塞线程池并添加 DB 打开错误处理
+- **Channel 轮询超时**：为 Telegram 和 WeChat 长轮询添加 `tokio::time::timeout` 包裹（poll_timeout + 15s），防止服务器无响应时永久阻塞
+- **Docker 容器泄漏**：sandbox.rs 中容器启动失败时改为同步等待清理完成后返回错误，避免后台清理任务未执行导致的容器残留
+- **Failover Jitter 均匀化**：改进 `rand_simple()` 使用 thread-local counter + XOR 混合，避免快速连续调用时 nanos 相同导致的 jitter 偏差
+- **Session 切换竞态**：useChatSession.ts 添加 `switchVersionRef` 版本计数器，快速切换 session 时丢弃过期异步响应
+- **Asset Protocol 范围收窄**：tauri.conf.json 的 assetProtocol scope 从 `["**", "$HOME/**"]` 收窄至 `["$RESOURCE/**", "$HOME/.opencomputer/**"]`
+- **Memory 批量写入优化**：memory/sqlite.rs 中 embedding 更新操作包裹在 SQLite 事务中，显著减少大量记忆重新嵌入时的磁盘 I/O
+- **前端日志丢失修复**：main.tsx 添加 `beforeunload` 事件监听，确保 logger 缓冲区在页面卸载前刷新
+
+### Added
+
+- **React Error Boundary**：新增 `ErrorBoundary` 组件包裹整个 App，任何子组件渲染错误不再导致白屏，提供友好的错误恢复 UI
+- **MessageBubble 性能优化**：使用 `React.memo` 包裹 MessageBubble 组件，避免流式输出时 50+ 条消息的不必要重渲染
+- **Memory SQLite 连接池**：将单连接 `Mutex<Connection>` 改为写连接 + 4 个只读连接池（round-robin），WAL 模式下读操作不再阻塞写入，search/list/count 等查询可并发执行
+- **前端 Bundle Code-Splitting**：DashboardView 和 CronCalendarView 改为 `React.lazy()` 动态导入，减少首屏加载体积
+- **Streamdown 插件懒加载**：math（KaTeX ~300KB）和 mermaid（~200KB）插件改为按需动态导入，仅在消息内容包含数学公式或 Mermaid 图表时加载
+
 ### Added
 
 - **Telegram 斜杠命令菜单同步**

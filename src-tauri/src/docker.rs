@@ -44,7 +44,7 @@ fn get_deploy_progress() -> (bool, Option<String>, Vec<String>) {
     if !deploying {
         return (false, None, vec![]);
     }
-    let guard = DEPLOY_PROGRESS.lock().unwrap();
+    let guard = DEPLOY_PROGRESS.lock().unwrap_or_else(|e| e.into_inner());
     (true, guard.step.clone(), guard.logs.clone())
 }
 

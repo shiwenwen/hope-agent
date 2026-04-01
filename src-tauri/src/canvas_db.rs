@@ -91,7 +91,7 @@ impl CanvasDB {
     // ── Projects ───────────────────────────────────────────────────
 
     pub fn create_project(&self, project: &CanvasProject) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("CanvasDB lock poisoned: {e}"))?;
         conn.execute(
             "INSERT INTO canvas_projects (id, title, content_type, session_id, agent_id, created_at, updated_at, version_count, metadata)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
@@ -111,7 +111,7 @@ impl CanvasDB {
     }
 
     pub fn get_project(&self, id: &str) -> Result<Option<CanvasProject>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("CanvasDB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
             "SELECT id, title, content_type, session_id, agent_id, created_at, updated_at, version_count, metadata
              FROM canvas_projects WHERE id = ?1",
@@ -137,7 +137,7 @@ impl CanvasDB {
     }
 
     pub fn list_projects(&self) -> Result<Vec<CanvasProject>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("CanvasDB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
             "SELECT id, title, content_type, session_id, agent_id, created_at, updated_at, version_count, metadata
              FROM canvas_projects ORDER BY updated_at DESC",
@@ -165,7 +165,7 @@ impl CanvasDB {
         updated_at: &str,
         version_count: i64,
     ) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("CanvasDB lock poisoned: {e}"))?;
         if let Some(t) = title {
             conn.execute(
                 "UPDATE canvas_projects SET title = ?1, updated_at = ?2, version_count = ?3 WHERE id = ?4",
@@ -181,7 +181,7 @@ impl CanvasDB {
     }
 
     pub fn delete_project(&self, id: &str) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("CanvasDB lock poisoned: {e}"))?;
         conn.execute(
             "DELETE FROM canvas_projects WHERE id = ?1",
             rusqlite::params![id],
@@ -192,7 +192,7 @@ impl CanvasDB {
     // ── Versions ───────────────────────────────────────────────────
 
     pub fn create_version(&self, version: &CanvasVersion) -> Result<i64> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("CanvasDB lock poisoned: {e}"))?;
         conn.execute(
             "INSERT INTO canvas_versions (project_id, version_number, message, html, css, js, content, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
@@ -211,7 +211,7 @@ impl CanvasDB {
     }
 
     pub fn list_versions(&self, project_id: &str) -> Result<Vec<CanvasVersion>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("CanvasDB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
             "SELECT id, project_id, version_number, message, html, css, js, content, created_at
              FROM canvas_versions WHERE project_id = ?1 ORDER BY version_number DESC",
@@ -237,7 +237,7 @@ impl CanvasDB {
         project_id: &str,
         version_number: i64,
     ) -> Result<Option<CanvasVersion>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("CanvasDB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
             "SELECT id, project_id, version_number, message, html, css, js, content, created_at
              FROM canvas_versions WHERE project_id = ?1 AND version_number = ?2",
@@ -264,7 +264,7 @@ impl CanvasDB {
 
     /// Cleanup old versions, keeping the latest `keep` versions per project.
     pub fn cleanup_old_versions(&self, project_id: &str, keep: i64) -> Result<u64> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("CanvasDB lock poisoned: {e}"))?;
         let deleted = conn.execute(
             "DELETE FROM canvas_versions WHERE project_id = ?1 AND version_number NOT IN (
                 SELECT version_number FROM canvas_versions WHERE project_id = ?1

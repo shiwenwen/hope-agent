@@ -419,7 +419,7 @@ async fn handle_inbound_message(
     let canvas_enabled = store.canvas.enabled;
 
     // 8. Create ChannelStreamSink + spawn streaming background task
-    let (event_tx, event_rx) = mpsc::unbounded_channel::<String>();
+    let (event_tx, event_rx) = mpsc::channel::<String>(512);
 
     let capabilities = plugin.capabilities();
     let preview_transport = select_stream_preview_transport(&msg.chat_type, &capabilities);
@@ -670,7 +670,7 @@ async fn send_final_reply(
 /// For channels without any preview transport, events are simply drained while the
 /// frontend still receives `channel:stream_delta` events.
 fn spawn_channel_stream_task(
-    mut event_rx: mpsc::UnboundedReceiver<String>,
+    mut event_rx: mpsc::Receiver<String>,
     plugin: Arc<dyn ChannelPlugin>,
     account_id: String,
     chat_id: String,

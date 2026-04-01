@@ -509,13 +509,13 @@ pub struct PendingLog {
 
 #[derive(Clone)]
 pub struct AppLogger {
-    sender: tokio::sync::mpsc::UnboundedSender<PendingLog>,
+    sender: tokio::sync::mpsc::Sender<PendingLog>,
     config: std::sync::Arc<std::sync::RwLock<LogConfig>>,
 }
 
 impl AppLogger {
     pub fn new(db: std::sync::Arc<LogDB>, logs_dir: PathBuf) -> Self {
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, rx) = tokio::sync::mpsc::channel(10000);
         let config = std::sync::Arc::new(std::sync::RwLock::new(LogConfig::default()));
         let config_clone = config.clone();
 
@@ -531,7 +531,7 @@ impl AppLogger {
     }
 
     async fn writer_loop(
-        mut rx: tokio::sync::mpsc::UnboundedReceiver<PendingLog>,
+        mut rx: tokio::sync::mpsc::Receiver<PendingLog>,
         db: std::sync::Arc<LogDB>,
         logs_dir: PathBuf,
         config: std::sync::Arc<std::sync::RwLock<LogConfig>>,
@@ -637,7 +637,9 @@ impl AppLogger {
             session_id,
             agent_id,
         };
-        let _ = self.sender.send(entry);
+        if self.sender.try_send(entry).is_err() {
+            eprintln!("[LOG] Warning: log channel full, dropping entry");
+        }
     }
 
     pub fn update_config(&self, config: LogConfig) {

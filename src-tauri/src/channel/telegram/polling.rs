@@ -35,41 +35,50 @@ pub async fn run_polling_loop(
                 app_info!("channel", "telegram::polling", "Polling cancelled for account '{}'", account_id);
                 break;
             }
-            result = api.get_updates(offset, poll_timeout, &["message", "edited_message", "callback_query"]) => {
+            result = tokio::time::timeout(
+                std::time::Duration::from_secs(poll_timeout as u64 + 15),
+                api.get_updates(offset, poll_timeout, &["message", "edited_message", "callback_query"])
+            ) => {
                 match result {
-                    Ok(updates) => {
-                        consecutive_errors = 0;
+                    Err(_timeout) => {
+                        app_warn!("channel", "telegram::polling", "Poll timed out for account '{}', reconnecting", account_id);
+                        continue;
+                    }
+                    Ok(result) => match result {
+                        Ok(updates) => {
+                            consecutive_errors = 0;
 
-                        for update in updates {
-                            offset = update.id.0 as i32 + 1;
+                            for update in updates {
+                                offset = update.id.0 as i32 + 1;
 
-                            if let Some(msg_ctx) = convert_update(&update, &account_id, bot_id, &bot_username) {
-                                if let Err(e) = inbound_tx.send(msg_ctx).await {
-                                    app_error!("channel", "telegram::polling", "Failed to send inbound message: {}", e);
+                                if let Some(msg_ctx) = convert_update(&update, &account_id, bot_id, &bot_username) {
+                                    if let Err(e) = inbound_tx.send(msg_ctx).await {
+                                        app_error!("channel", "telegram::polling", "Failed to send inbound message: {}", e);
+                                    }
                                 }
                             }
                         }
-                    }
-                    Err(e) => {
-                        consecutive_errors += 1;
-                        let backoff = std::cmp::min(
-                            (2u64.pow(consecutive_errors.min(5))) as u64,
-                            max_backoff_secs,
-                        );
-                        // Log first 3 errors as warn, then only every 10th to avoid spam
-                        if consecutive_errors <= 3 || consecutive_errors % 10 == 0 {
-                            app_warn!("channel", "telegram::polling",
-                                "Poll error (attempt {}): {}. Retrying in {}s",
-                                consecutive_errors, e, backoff);
-                        } else {
-                            app_debug!("channel", "telegram::polling",
-                                "Poll error (attempt {}): {}. Retrying in {}s",
-                                consecutive_errors, e, backoff);
-                        }
+                        Err(e) => {
+                            consecutive_errors += 1;
+                            let backoff = std::cmp::min(
+                                (2u64.pow(consecutive_errors.min(5))) as u64,
+                                max_backoff_secs,
+                            );
+                            // Log first 3 errors as warn, then only every 10th to avoid spam
+                            if consecutive_errors <= 3 || consecutive_errors % 10 == 0 {
+                                app_warn!("channel", "telegram::polling",
+                                    "Poll error (attempt {}): {}. Retrying in {}s",
+                                    consecutive_errors, e, backoff);
+                            } else {
+                                app_debug!("channel", "telegram::polling",
+                                    "Poll error (attempt {}): {}. Retrying in {}s",
+                                    consecutive_errors, e, backoff);
+                            }
 
-                        tokio::select! {
-                            _ = cancel.cancelled() => break,
-                            _ = tokio::time::sleep(std::time::Duration::from_secs(backoff)) => {}
+                            tokio::select! {
+                                _ = cancel.cancelled() => break,
+                                _ = tokio::time::sleep(std::time::Duration::from_secs(backoff)) => {}
+                            }
                         }
                     }
                 }

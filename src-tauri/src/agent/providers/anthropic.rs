@@ -69,7 +69,7 @@ impl AssistantAgent {
         // Build messages from conversation history + new user message (with optional image attachments)
         // Normalize history in case previous turns were from a different provider (failover / model switch)
         let mut messages =
-            Self::normalize_history_for_anthropic(&self.conversation_history.lock().unwrap());
+            Self::normalize_history_for_anthropic(&self.conversation_history.lock().unwrap_or_else(|e| e.into_inner()));
         let user_content = build_user_content_anthropic(message, attachments);
         Self::push_user_message(&mut messages, user_content);
 
@@ -495,14 +495,14 @@ impl AssistantAgent {
                 messages.push(json!({ "role": "assistant", "content": final_content }));
             }
         }
-        *self.conversation_history.lock().unwrap() = messages;
+        *self.conversation_history.lock().unwrap_or_else(|e| e.into_inner()) = messages;
 
         // Emit accumulated usage (with TTFT)
         emit_usage(on_delta, &total_usage, model, first_ttft_ms);
 
         // Log chat completion summary
         if let Some(logger) = crate::get_logger() {
-            let history_len = self.conversation_history.lock().unwrap().len();
+            let history_len = self.conversation_history.lock().unwrap_or_else(|e| e.into_inner()).len();
             logger.log(
                 "info",
                 "agent",

@@ -41,7 +41,7 @@ pub trait AcpRuntime: Send + Sync {
         &self,
         session: &AcpExternalSession,
         prompt: &str,
-        event_tx: mpsc::UnboundedSender<AcpStreamEvent>,
+        event_tx: mpsc::Sender<AcpStreamEvent>,
         cancel: Arc<AtomicBool>,
     ) -> anyhow::Result<AcpTurnResult>;
 
