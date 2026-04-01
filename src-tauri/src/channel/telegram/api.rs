@@ -1,7 +1,9 @@
 use crate::channel::types::InlineButton;
 use anyhow::Result;
+use std::path::Path;
 use std::time::Duration;
 use teloxide::prelude::*;
+use teloxide::net::Download;
 use teloxide::types::{
     BotCommand, ChatAction, ChatId, InlineKeyboardButton, InlineKeyboardMarkup, InputFile, Me,
     MessageId, ParseMode as TgParseMode, ReplyParameters, ThreadId,
@@ -259,6 +261,20 @@ impl TelegramBotApi {
             .get_file(FileId(file_id.to_string()))
             .await
             .map_err(|e| anyhow::anyhow!("getFile failed: {}", e))
+    }
+
+    /// Download file bytes by file_id and save them to a local path.
+    pub async fn download_file_to_path(&self, file_id: &str, path: &Path) -> Result<()> {
+        let file = self.get_file(file_id).await?;
+        if let Some(parent) = path.parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+        let mut dst = tokio::fs::File::create(path).await?;
+        self.bot
+            .download_file(&file.path, &mut dst)
+            .await
+            .map_err(|e| anyhow::anyhow!("downloadFile failed: {}", e))?;
+        Ok(())
     }
 
     /// Send a photo.
