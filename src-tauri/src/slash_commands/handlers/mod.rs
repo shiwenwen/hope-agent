@@ -77,7 +77,9 @@ pub async fn dispatch(
 
         _ => {
             // Check if it matches a user-invocable skill command
-            if let Some(result) = handle_skill_command(state, command, args).await {
+            if let Some(result) =
+                handle_skill_command(state, command, args, session_id, agent_id).await
+            {
                 result
             } else {
                 Err(format!("Unknown command: /{}", command))
@@ -86,12 +88,33 @@ pub async fn dispatch(
     }
 }
 
+/// Expand a prompt template, replacing `$ARGUMENTS` with the user's args.
+/// If the template doesn't contain `$ARGUMENTS` and args are provided,
+/// appends them as a "User input:" section.
+fn expand_prompt_template(template: &str, args: &str) -> String {
+    let normalized = args.trim();
+    if template.contains("$ARGUMENTS") {
+        template.replace("$ARGUMENTS", normalized)
+    } else if !normalized.is_empty() {
+        format!("{}\n\nUser input:\n{}", template.trim(), normalized)
+    } else {
+        template.trim().to_string()
+    }
+}
+
 /// Try to handle a command as a skill slash command.
 /// Returns None if no matching skill found.
+///
+/// Supports three dispatch modes:
+/// - `"tool"`: Execute the tool directly in the backend (zero LLM round-trip).
+/// - `"prompt"`: Expand a prompt template and pass through to LLM.
+/// - Default: Pass skill context to LLM, or use prompt template if available.
 async fn handle_skill_command(
     state: &AppState,
     command: &str,
     args: &str,
+    session_id: Option<&str>,
+    agent_id: &str,
 ) -> Option<Result<CommandResult, String>> {
     let store = state.provider_store.lock().await;
     let skills =
@@ -103,39 +126,95 @@ async fn handle_skill_command(
         .into_iter()
         .find(|s| crate::skills::normalize_skill_command_name(&s.name) == command)?;
 
-    // If skill has command_dispatch == "tool" with a command_tool, dispatch to that tool
-    if matched.command_dispatch.as_deref() == Some("tool") {
-        if let Some(tool_name) = &matched.command_tool {
-            let message = if args.is_empty() {
-                format!("Use the {} tool for skill '{}'.", tool_name, matched.name)
-            } else {
-                format!(
-                    "Use the {} tool for skill '{}' with: {}",
-                    tool_name, matched.name, args
-                )
-            };
-            return Some(Ok(CommandResult {
-                content: format!("Dispatching to tool `{}`...", tool_name),
-                action: Some(crate::slash_commands::types::CommandAction::PassThrough { message }),
-            }));
-        }
-    }
+    use crate::slash_commands::types::CommandAction;
 
-    // Default: pass through to LLM with skill context
-    let message = if args.is_empty() {
-        format!(
-            "Use the skill '{}'. Read the skill file at {} for instructions.",
-            matched.name, matched.file_path
-        )
-    } else {
-        format!(
-            "Use the skill '{}' to: {}. Read the skill file at {} for instructions.",
-            matched.name, args, matched.file_path
-        )
+    let result = match matched.command_dispatch.as_deref() {
+        // ── Path 1: Direct tool execution (zero LLM round-trip) ──
+        Some("tool") => {
+            let tool_name = match &matched.command_tool {
+                Some(t) => t.clone(),
+                None => {
+                    return Some(Err(format!(
+                        "❌ Skill '{}': command-dispatch is 'tool' but command-tool is not set",
+                        matched.name
+                    )));
+                }
+            };
+
+            // Build tool arguments as JSON
+            let tool_args = if matched.command_arg_mode.as_deref() == Some("raw") {
+                serde_json::json!({ "command": args.trim() })
+            } else {
+                // Try to parse as JSON; fall back to wrapping in {"query": ...}
+                serde_json::from_str(args.trim()).unwrap_or_else(|_| {
+                    serde_json::json!({ "query": args.trim() })
+                })
+            };
+
+            // Build execution context
+            let ctx = crate::tools::ToolExecContext {
+                session_id: session_id.map(String::from),
+                agent_id: Some(agent_id.to_string()),
+                home_dir: dirs::home_dir().map(|p| p.to_string_lossy().to_string()),
+                require_approval: vec![], // Skill-triggered tools auto-approve
+                ..Default::default()
+            };
+
+            match crate::tools::execute_tool_with_context(&tool_name, &tool_args, &ctx).await {
+                Ok(output) => {
+                    let display = crate::truncate_utf8(&output, 4096);
+                    Ok(CommandResult {
+                        content: format!(
+                            "**{}** → `{}`\n\n{}",
+                            matched.name, tool_name, display
+                        ),
+                        action: Some(CommandAction::DisplayOnly),
+                    })
+                }
+                Err(e) => Ok(CommandResult {
+                    content: format!("❌ Tool `{}` failed: {}", tool_name, e),
+                    action: Some(CommandAction::DisplayOnly),
+                }),
+            }
+        }
+
+        // ── Path 2: Prompt template expansion ──
+        Some("prompt") => {
+            let template = matched.command_prompt_template.as_deref().unwrap_or("");
+            let message = expand_prompt_template(template, args);
+            Ok(CommandResult {
+                content: format!("Using skill **{}**...", matched.name),
+                action: Some(CommandAction::PassThrough { message }),
+            })
+        }
+
+        // ── Path 3: Default — template if available, otherwise skill context ──
+        _ => {
+            if let Some(template) = &matched.command_prompt_template {
+                let message = expand_prompt_template(template, args);
+                Ok(CommandResult {
+                    content: format!("Using skill **{}**...", matched.name),
+                    action: Some(CommandAction::PassThrough { message }),
+                })
+            } else {
+                let message = if args.is_empty() {
+                    format!(
+                        "Use the skill '{}'. Read the skill file at {} for instructions.",
+                        matched.name, matched.file_path
+                    )
+                } else {
+                    format!(
+                        "Use the skill '{}' to: {}. Read the skill file at {} for instructions.",
+                        matched.name, args, matched.file_path
+                    )
+                };
+                Ok(CommandResult {
+                    content: format!("Invoking skill **{}**...", matched.name),
+                    action: Some(CommandAction::PassThrough { message }),
+                })
+            }
+        }
     };
 
-    Some(Ok(CommandResult {
-        content: format!("Invoking skill **{}**...", matched.name),
-        action: Some(crate::slash_commands::types::CommandAction::PassThrough { message }),
-    }))
+    Some(result)
 }

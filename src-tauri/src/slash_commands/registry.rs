@@ -151,7 +151,14 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
             has_args: true,
             args_optional: false,
             arg_placeholder: Some("[enter|exit|show|approve|pause|resume]".into()),
-            arg_options: Some(vec!["enter".into(), "exit".into(), "show".into(), "approve".into(), "pause".into(), "resume".into()]),
+            arg_options: Some(vec![
+                "enter".into(),
+                "exit".into(),
+                "show".into(),
+                "approve".into(),
+                "pause".into(),
+                "resume".into(),
+            ]),
             description_raw: None,
         },
         // ── Utility ──

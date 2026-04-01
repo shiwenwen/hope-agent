@@ -46,10 +46,13 @@ pub async fn list_slash_commands(
             description_key: String::new(), // No i18n key — use raw description
             has_args: true,
             args_optional: true,
-            arg_placeholder: Some("[args]".into()),
-            arg_options: None,
-            // Carry the raw description for frontend display
-            description_raw: Some(skill.description.clone()),
+            arg_placeholder: skill
+                .command_arg_placeholder
+                .clone()
+                .or_else(|| Some("[args]".into())),
+            arg_options: skill.command_arg_options.clone(),
+            // Carry the raw description for frontend display (truncated to 100 chars)
+            description_raw: Some(truncate_description(&skill.description, 100)),
         });
     }
 
@@ -101,4 +104,13 @@ pub async fn execute_slash_command(
 #[tauri::command]
 pub fn is_slash_command(text: String) -> bool {
     parser::is_command(&text)
+}
+
+/// Truncate a description to `max_chars` characters, appending "…" if truncated.
+fn truncate_description(s: &str, max_chars: usize) -> String {
+    if s.chars().count() <= max_chars {
+        return s.to_string();
+    }
+    let truncated: String = s.chars().take(max_chars - 1).collect();
+    format!("{}…", truncated)
 }

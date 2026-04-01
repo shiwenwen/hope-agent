@@ -196,28 +196,22 @@ async fn handle_inbound_message(
         .unwrap_or_else(|| store.channels.agent_id());
 
     let resolved_agent_id = match msg.chat_type {
-        ChatType::Group | ChatType::Forum => {
-            topic_config
-                .and_then(|t| t.agent_id.as_deref())
-                .or_else(|| effective_group_config.and_then(|g| g.agent_id.as_deref()))
-                .unwrap_or(base_agent_id)
-        }
-        ChatType::Channel => {
-            channel_config
-                .and_then(|c| c.agent_id.as_deref())
-                .unwrap_or(base_agent_id)
-        }
+        ChatType::Group | ChatType::Forum => topic_config
+            .and_then(|t| t.agent_id.as_deref())
+            .or_else(|| effective_group_config.and_then(|g| g.agent_id.as_deref()))
+            .unwrap_or(base_agent_id),
+        ChatType::Channel => channel_config
+            .and_then(|c| c.agent_id.as_deref())
+            .unwrap_or(base_agent_id),
         ChatType::Dm => base_agent_id,
     };
     let agent_id = resolved_agent_id.to_string();
 
     // 3b. Resolve extra system prompt from group/topic/channel config
     let config_system_prompt = match msg.chat_type {
-        ChatType::Group | ChatType::Forum => {
-            topic_config
-                .and_then(|t| t.system_prompt.as_deref())
-                .or_else(|| effective_group_config.and_then(|g| g.system_prompt.as_deref()))
-        }
+        ChatType::Group | ChatType::Forum => topic_config
+            .and_then(|t| t.system_prompt.as_deref())
+            .or_else(|| effective_group_config.and_then(|g| g.system_prompt.as_deref())),
         ChatType::Channel => channel_config.and_then(|c| c.system_prompt.as_deref()),
         ChatType::Dm => None,
     };
@@ -309,7 +303,9 @@ async fn handle_inbound_message(
                     buttons,
                     ..ReplyPayload::text("")
                 };
-                let _ = plugin.send_message(&account.id, &msg.chat_id, &payload).await;
+                let _ = plugin
+                    .send_message(&account.id, &msg.chat_id, &payload)
+                    .await;
                 emit_channel_update(effective_sid);
                 emit_stream_lifecycle("channel:stream_end", effective_sid);
                 return Ok(());
@@ -328,7 +324,9 @@ async fn handle_inbound_message(
                     parse_mode: Some(ParseMode::Html),
                     ..ReplyPayload::text("")
                 };
-                let _ = plugin.send_message(&account.id, &msg.chat_id, &payload).await;
+                let _ = plugin
+                    .send_message(&account.id, &msg.chat_id, &payload)
+                    .await;
                 emit_stream_lifecycle("channel:stream_end", &session_id);
                 return Ok(());
             }
@@ -461,7 +459,11 @@ async fn handle_inbound_message(
             if let Some(ref h) = app_handle {
                 let st = h.state::<crate::AppState>();
                 let eff = st.reasoning_effort.lock().await.clone();
-                if eff == "none" { None } else { Some(eff) }
+                if eff == "none" {
+                    None
+                } else {
+                    Some(eff)
+                }
             } else {
                 None
             }
@@ -894,9 +896,7 @@ async fn send_stream_preview(
 
 /// Convert channel inbound media items to agent Attachment structs
 /// so the LLM can see images/files sent by users.
-fn convert_inbound_media_to_attachments(
-    media: &[InboundMedia],
-) -> Vec<crate::agent::Attachment> {
+fn convert_inbound_media_to_attachments(media: &[InboundMedia]) -> Vec<crate::agent::Attachment> {
     let mut attachments = Vec::new();
     for m in media {
         let Some(ref file_url) = m.file_url else {
@@ -916,9 +916,7 @@ fn convert_inbound_media_to_attachments(
                     attachments.push(crate::agent::Attachment {
                         name: m.file_id.clone(),
                         mime_type: mime,
-                        data: Some(
-                            base64::engine::general_purpose::STANDARD.encode(&data),
-                        ),
+                        data: Some(base64::engine::general_purpose::STANDARD.encode(&data)),
                         file_path: None,
                     });
                 }
@@ -982,37 +980,57 @@ async fn dispatch_slash_for_channel(
 
     let (name, args) = parser::parse(text).map_err(|e| anyhow::anyhow!(e))?;
 
-    // For commands with fixed arg_options and no args provided, return inline buttons
-    // so IM channel users (e.g. Telegram) can tap to select an option.
-    if args.trim().is_empty() {
-        use crate::slash_commands::registry;
-        let commands = registry::all_commands();
-        if let Some(cmd) = commands.iter().find(|c| c.name == name) {
-            if let Some(ref options) = cmd.arg_options {
-                let buttons: Vec<Vec<crate::channel::types::InlineButton>> = options
-                    .iter()
-                    .map(|opt| {
-                        vec![crate::channel::types::InlineButton {
-                            text: opt.clone(),
-                            callback_data: Some(format!("slash:{} {}", name, opt)),
-                            url: None,
-                        }]
-                    })
-                    .collect();
-                return Ok(ChannelSlashOutcome::Reply {
-                    content: format!("Select an option for /{}:", name),
-                    new_session_id: None,
-                    buttons,
-                });
-            }
-        }
-    }
-
     // Obtain a reference to the global AppState so we can reuse the shared handlers.
-    let app_handle = crate::get_app_handle()
-        .ok_or_else(|| anyhow::anyhow!("App handle not initialized"))?;
+    let app_handle =
+        crate::get_app_handle().ok_or_else(|| anyhow::anyhow!("App handle not initialized"))?;
     let state = app_handle.state::<crate::AppState>();
     let app_state: &crate::AppState = &state;
+
+    // For commands with fixed arg_options and no args provided, return inline buttons
+    // so IM channel users (e.g. Telegram) can tap to select an option.
+    // Checks both built-in commands AND dynamic skill commands.
+    if args.trim().is_empty() {
+        use crate::slash_commands::registry;
+
+        // First check built-in commands
+        let commands = registry::all_commands();
+        let mut options_found: Option<Vec<String>> = commands
+            .iter()
+            .find(|c| c.name == name)
+            .and_then(|c| c.arg_options.clone());
+
+        // If not found in built-in, check dynamic skill commands
+        if options_found.is_none() {
+            let store = app_state.provider_store.lock().await;
+            let skills = crate::skills::get_invocable_skills(
+                &store.extra_skills_dirs,
+                &store.disabled_skills,
+            );
+            drop(store);
+            options_found = skills
+                .into_iter()
+                .find(|s| crate::skills::normalize_skill_command_name(&s.name) == name)
+                .and_then(|s| s.command_arg_options);
+        }
+
+        if let Some(options) = options_found {
+            let buttons: Vec<Vec<crate::channel::types::InlineButton>> = options
+                .iter()
+                .map(|opt| {
+                    vec![crate::channel::types::InlineButton {
+                        text: opt.clone(),
+                        callback_data: Some(format!("slash:{} {}", name, opt)),
+                        url: None,
+                    }]
+                })
+                .collect();
+            return Ok(ChannelSlashOutcome::Reply {
+                content: format!("Select an option for /{}:", name),
+                new_session_id: None,
+                buttons,
+            });
+        }
+    }
 
     let result = handlers::dispatch(app_state, Some(session_id), agent_id, &name, &args)
         .await
@@ -1026,14 +1044,12 @@ async fn dispatch_slash_for_channel(
         }
 
         // A new session was created — remap the channel conversation to it.
-        Some(CommandAction::NewSession { session_id: new_sid }) => {
-            if let Err(e) = channel_db.update_session(
-                channel_id,
-                account_id,
-                chat_id,
-                thread_id,
-                &new_sid,
-            ) {
+        Some(CommandAction::NewSession {
+            session_id: new_sid,
+        }) => {
+            if let Err(e) =
+                channel_db.update_session(channel_id, account_id, chat_id, thread_id, &new_sid)
+            {
                 app_warn!(
                     "channel",
                     "worker",
@@ -1053,13 +1069,9 @@ async fn dispatch_slash_for_channel(
             session_id: new_sid,
             ..
         }) => {
-            if let Err(e) = channel_db.update_session(
-                channel_id,
-                account_id,
-                chat_id,
-                thread_id,
-                &new_sid,
-            ) {
+            if let Err(e) =
+                channel_db.update_session(channel_id, account_id, chat_id, thread_id, &new_sid)
+            {
                 app_warn!(
                     "channel",
                     "worker",
@@ -1079,10 +1091,7 @@ async fn dispatch_slash_for_channel(
             let (model, provider) = {
                 let store = app_state.provider_store.lock().await;
                 if let Some(ref active) = store.active_model {
-                    let prov = store
-                        .providers
-                        .iter()
-                        .find(|p| p.id == active.provider_id);
+                    let prov = store.providers.iter().find(|p| p.id == active.provider_id);
                     let model_id = active.model_id.clone();
                     let provider_name = prov
                         .map(|p| p.api_type.display_name().to_string())
@@ -1092,8 +1101,7 @@ async fn dispatch_slash_for_channel(
                     ("unknown".to_string(), "Unknown".to_string())
                 }
             };
-            let prompt =
-                crate::agent::build_system_prompt(agent_id, &model, &provider);
+            let prompt = crate::agent::build_system_prompt(agent_id, &model, &provider);
             Ok(ChannelSlashOutcome::Reply {
                 content: format!("**System Prompt**\n\n```\n{}\n```", prompt),
                 new_session_id: None,
@@ -1106,12 +1114,9 @@ async fn dispatch_slash_for_channel(
             provider_id,
             model_id,
         }) => {
-            if let Err(e) = crate::commands::provider::set_active_model_core(
-                &provider_id,
-                &model_id,
-                app_state,
-            )
-            .await
+            if let Err(e) =
+                crate::commands::provider::set_active_model_core(&provider_id, &model_id, app_state)
+                    .await
             {
                 app_warn!("channel", "worker", "Failed to switch model: {}", e);
             } else if let Some(handle) = crate::get_app_handle() {
@@ -1260,7 +1265,8 @@ async fn dispatch_slash_for_channel(
             active_provider_id,
             active_model_id,
         }) => {
-            let buttons = build_model_buttons_from_items(&models, &active_provider_id, &active_model_id);
+            let buttons =
+                build_model_buttons_from_items(&models, &active_provider_id, &active_model_id);
             Ok(ChannelSlashOutcome::Reply {
                 content: "Select a model:".into(),
                 new_session_id: None,

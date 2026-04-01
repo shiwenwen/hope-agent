@@ -152,6 +152,18 @@ pub struct SkillEntry {
     /// Tool name to bind when command_dispatch is "tool".
     #[serde(default)]
     pub command_tool: Option<String>,
+    /// Argument passing mode (e.g. "raw" for direct forwarding to tool).
+    #[serde(default)]
+    pub command_arg_mode: Option<String>,
+    /// Custom argument placeholder for UI display (e.g. "<query>").
+    #[serde(default)]
+    pub command_arg_placeholder: Option<String>,
+    /// Fixed argument choices for UI hints (e.g. ["on", "off"]).
+    #[serde(default)]
+    pub command_arg_options: Option<Vec<String>>,
+    /// Prompt template supporting $ARGUMENTS expansion.
+    #[serde(default)]
+    pub command_prompt_template: Option<String>,
     /// Installation specs for dependencies.
     #[serde(default)]
     pub install: Vec<SkillInstallSpec>,
@@ -275,6 +287,10 @@ struct ParsedFrontmatter {
     disable_model_invocation: Option<bool>,
     command_dispatch: Option<String>,
     command_tool: Option<String>,
+    command_arg_mode: Option<String>,
+    command_arg_placeholder: Option<String>,
+    command_arg_options: Option<Vec<String>>,
+    command_prompt_template: Option<String>,
     install: Vec<SkillInstallSpec>,
 }
 
@@ -297,6 +313,10 @@ fn parse_frontmatter(content: &str) -> Option<ParsedFrontmatter> {
     let mut disable_model_invocation: Option<bool> = None;
     let mut command_dispatch: Option<String> = None;
     let mut command_tool: Option<String> = None;
+    let mut command_arg_mode: Option<String> = None;
+    let mut command_arg_placeholder: Option<String> = None;
+    let mut command_arg_options: Option<Vec<String>> = None;
+    let mut command_prompt_template: Option<String> = None;
 
     let requires = parse_requires(yaml_block);
     let install = parse_install_specs(yaml_block);
@@ -337,11 +357,42 @@ fn parse_frontmatter(content: &str) -> Option<ParsedFrontmatter> {
             .or_else(|| line_trimmed.strip_prefix("command_tool:"))
         {
             command_tool = Some(unquote(rest.trim()));
+        } else if let Some(rest) = line_trimmed
+            .strip_prefix("command-arg-mode:")
+            .or_else(|| line_trimmed.strip_prefix("command_arg_mode:"))
+        {
+            command_arg_mode = Some(unquote(rest.trim()));
+        } else if let Some(rest) = line_trimmed
+            .strip_prefix("command-arg-placeholder:")
+            .or_else(|| line_trimmed.strip_prefix("command_arg_placeholder:"))
+        {
+            command_arg_placeholder = Some(unquote(rest.trim()));
+        } else if let Some(rest) = line_trimmed
+            .strip_prefix("command-arg-options:")
+            .or_else(|| line_trimmed.strip_prefix("command_arg_options:"))
+        {
+            command_arg_options = parse_inline_string_array(rest.trim());
+        } else if let Some(rest) = line_trimmed
+            .strip_prefix("command-prompt-template:")
+            .or_else(|| line_trimmed.strip_prefix("command_prompt_template:"))
+        {
+            let val = unquote(rest.trim());
+            if !val.is_empty() {
+                command_prompt_template = Some(val);
+            }
         }
     }
 
     let name = name.filter(|n| !n.is_empty())?;
     let description = description.unwrap_or_default();
+
+    // For "prompt" dispatch, use body as template if no explicit template was set
+    if command_dispatch.as_deref() == Some("prompt") && command_prompt_template.is_none() {
+        let body_trimmed = body.trim();
+        if !body_trimmed.is_empty() {
+            command_prompt_template = Some(body_trimmed.to_string());
+        }
+    }
 
     Some(ParsedFrontmatter {
         name,
@@ -353,6 +404,10 @@ fn parse_frontmatter(content: &str) -> Option<ParsedFrontmatter> {
         disable_model_invocation,
         command_dispatch,
         command_tool,
+        command_arg_mode,
+        command_arg_placeholder,
+        command_arg_options,
+        command_prompt_template,
         install,
     })
 }
@@ -801,6 +856,23 @@ fn binary_in_path(name: &str) -> bool {
 }
 
 /// Remove surrounding quotes from a YAML string value.
+/// Parse an inline YAML array like `[opt1, opt2, "opt 3"]` into `Some(Vec<String>)`.
+/// Returns `None` if the input doesn't look like an array.
+fn parse_inline_string_array(s: &str) -> Option<Vec<String>> {
+    let s = s.trim();
+    let inner = s.strip_prefix('[')?.strip_suffix(']')?;
+    let items: Vec<String> = inner
+        .split(',')
+        .map(|item| unquote(item.trim()))
+        .filter(|item| !item.is_empty())
+        .collect();
+    if items.is_empty() {
+        None
+    } else {
+        Some(items)
+    }
+}
+
 fn unquote(s: &str) -> String {
     let s = s.trim();
     if (s.starts_with('"') && s.ends_with('"')) || (s.starts_with('\'') && s.ends_with('\'')) {
@@ -930,6 +1002,10 @@ fn load_single_skill(
         disable_model_invocation: parsed.disable_model_invocation,
         command_dispatch: parsed.command_dispatch,
         command_tool: parsed.command_tool,
+        command_arg_mode: parsed.command_arg_mode,
+        command_arg_placeholder: parsed.command_arg_placeholder,
+        command_arg_options: parsed.command_arg_options,
+        command_prompt_template: parsed.command_prompt_template,
         install: parsed.install,
     })
 }
