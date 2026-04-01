@@ -55,17 +55,25 @@ sequenceDiagram
     participant W as channel/worker.rs
     participant SC as dispatch_slash_for_channel()
     participant D as handlers::dispatch()
+    participant Core as core 函数
     participant CH as IM Channel (Telegram)
+    participant FE as 前端 (Tauri emit)
 
-    U->>W: 发送消息 "/help"
+    U->>W: 发送消息 "/model gpt-4o"
     W->>W: parser::is_command() → true
-    W->>SC: dispatch_slash_for_channel(session_id, agent_id, "/help")
+    W->>SC: dispatch_slash_for_channel(session_id, agent_id, "/model gpt-4o")
     SC->>D: handlers::dispatch(state, ...)
-    D-->>SC: CommandResult { content, action }
+    D-->>SC: CommandResult { content, action: SwitchModel }
     alt action = PassThrough
         SC-->>W: PassThrough(engine_message)
         Note over W: 继续调用 LLM (engine_message 替换原始文本)
-    else 其他 action (Reply 类)
+    else action = 状态变更 (SwitchModel/SetEffort/Compact 等)
+        SC->>Core: 执行 core 函数 (set_active_model_core 等)
+        SC->>FE: emit("slash:model_switched", ...)
+        SC-->>W: Reply { content }
+        W->>CH: send_message(content)
+        CH-->>U: 显示命令结果
+    else action = Reply 类 (NewSession/SwitchAgent/DisplayOnly 等)
         SC-->>W: Reply { content }
         W->>CH: send_message(content)
         CH-->>U: 显示命令结果
@@ -194,27 +202,30 @@ stateDiagram-v2
 
 `CommandResult.action` 字段告诉前端需要执行什么副作用：
 
-| Action | 说明 | 触发命令 | IM 渠道行为 |
-|---|---|---|---|
-| `NewSession` | 切换到新创建的会话 | `/new` | ✅ 更新 channel_db 映射到新 session |
-| `SessionCleared` | 会话消息已清空 | `/clear` | ✅ 直接回复提示文本 |
-| `SwitchAgent` | 切换 Agent 并创建新会话 | `/agent <name>` | ✅ 更新 channel_db 映射到新 session |
-| `PassThrough` | 将消息传递给 LLM 处理 | `/search`, 技能命令 | ✅ 以转换后的指令作为 LLM 输入 |
-| `DisplayOnly` | 仅显示内容，无副作用 | `/help`, `/status`, `/usage`, `/memories` 等 | ✅ 直接回复 content |
-| `SwitchModel` | 切换活跃模型 | `/model <name>` | ⚠️ 仅回复 content（不实际切换）|
-| `SetEffort` | 设置推理强度 | `/think <level>` | ⚠️ 仅回复 content（不实际切换）|
-| `SetToolPermission` | 设置工具权限模式 | `/permission <mode>` | ⚠️ 仅回复 content |
-| `ExportFile` | 下载导出文件 | `/export` | ⚠️ 仅回复 content（不发送文件）|
-| `StopStream` | 停止流式输出 | `/stop` | ⚠️ 仅回复 content（无流可停）|
-| `Compact` | 触发上下文压缩 | `/compact` | ⚠️ 仅回复 content（无 UI 触发）|
-| `EnterPlanMode` | 进入计划模式 | `/plan` | ⚠️ 仅回复 content（UI-only）|
-| `ExitPlanMode` | 退出计划模式 | `/plan exit` | ⚠️ 仅回复 content（UI-only）|
-| `ApprovePlan` | 批准并开始执行计划 | `/plan approve` | ⚠️ 仅回复 content（UI-only）|
-| `ShowPlan` | 在面板中显示计划 | `/plan show` | ⚠️ 仅回复 content（UI-only）|
-| `PausePlan` | 暂停计划执行 | `/plan pause` | ⚠️ 仅回复 content（UI-only）|
-| `ResumePlan` | 恢复计划执行 | `/plan resume` | ⚠️ 仅回复 content（UI-only）|
+| Action | 说明 | 触发命令 | IM 渠道行为 | 前端事件 |
+|---|---|---|---|---|
+| `NewSession` | 切换到新创建的会话 | `/new` | ✅ 更新 channel_db 映射到新 session | — |
+| `SessionCleared` | 会话消息已清空 | `/clear` | ✅ DB 已清理 + 回复确认 | `slash:session_cleared` |
+| `SwitchAgent` | 切换 Agent 并创建新会话 | `/agent <name>` | ✅ 更新 channel_db 映射到新 session | — |
+| `PassThrough` | 将消息传递给 LLM 处理 | `/search`, 技能命令 | ✅ 以转换后的指令作为 LLM 输入 | — |
+| `DisplayOnly` | 仅显示内容，无副作用 | `/help`, `/status`, `/usage`, `/memories` 等 | ✅ 直接回复 content | — |
+| `SwitchModel` | 切换活跃模型 | `/model <name>` | ✅ 调用 `set_active_model_core` 持久化切换 | `slash:model_switched` |
+| `SetEffort` | 设置推理强度 | `/think <level>` | ✅ 调用 `set_reasoning_effort_core` 写入 AppState | `slash:effort_changed` |
+| `SetToolPermission` | 设置工具权限模式 | `/permission <mode>` | ⚡ 返回"不适用"提示（Channel 固定 auto-approve） | — |
+| `ExportFile` | 下载导出文件 | `/export` | ✅ 自动写入 `~/.opencomputer/exports/` 并回复路径 | — |
+| `StopStream` | 停止流式输出 | `/stop` | ✅ 通过 `ChannelCancelRegistry` 取消活跃流 | — |
+| `Compact` | 触发上下文压缩 | `/compact` | ✅ 调用 `compact_context_now_core` 执行压缩 | — |
+| `ViewSystemPrompt` | 查看系统提示词 | `/prompts` | ✅ 构建完整 system prompt 作为回复返回 | — |
+| `EnterPlanMode` | 进入计划模式 | `/plan` | ✅ DB 状态已持久化 + 回复确认 | `slash:plan_changed` |
+| `ExitPlanMode` | 退出计划模式 | `/plan exit` | ✅ DB 状态已持久化 + Git 检查点清理 | `slash:plan_changed` |
+| `ApprovePlan` | 批准并开始执行计划 | `/plan approve` | ✅ DB 状态已持久化 + Git 检查点创建 | `slash:plan_changed` |
+| `ShowPlan` | 在面板中显示计划 | `/plan show` | ✅ 将 plan 内容作为回复返回 | `slash:plan_changed` |
+| `PausePlan` | 暂停计划执行 | `/plan pause` | ✅ DB 状态已持久化 + 回复确认 | `slash:plan_changed` |
+| `ResumePlan` | 恢复计划执行 | `/plan resume` | ✅ DB 状态已持久化 + 回复确认 | `slash:plan_changed` |
 
-> **⚠️ IM 渠道行为说明**：标注 ⚠️ 的 Action 在 IM 渠道中只将 `content` 文本发回给用户，不执行对应的 UI 副作用。后续可根据需要为这些 Action 实现专用的 IM 侧处理逻辑。
+> **前端事件说明**：Channel 执行状态变更类命令后，会通过 Tauri `emit()` 发送 `slash:*` 事件通知前端 UI 同步更新（如模型选择器、effort 指示器、消息列表等）。前端在 `ChatScreen.tsx` 中统一监听这些事件。
+>
+> **⚡ 标注说明**：`/permission` 在 Channel 中不适用，因为 Channel 对话固定使用 auto-approve 模式，不需要交互式权限审批。
 
 ---
 
