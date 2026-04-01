@@ -55,14 +55,14 @@ pub fn handle_model(store: &ProviderStore, args: &str) -> Result<CommandResult, 
 /// /think <level> — Set reasoning effort.
 pub fn handle_think(args: &str) -> Result<CommandResult, String> {
     let level = args.trim().to_lowercase();
-    let valid = ["off", "none", "low", "medium", "high"];
+    let valid = ["off", "none", "low", "medium", "high", "xhigh"];
     let effort = if level == "off" || level == "none" {
         "none".to_string()
     } else if valid.contains(&level.as_str()) {
         level
     } else {
         return Err(format!(
-            "Invalid thinking level: `{}`. Use: off, low, medium, high",
+            "Invalid thinking level: `{}`. Use: off, low, medium, high, xhigh",
             args.trim()
         ));
     };

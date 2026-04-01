@@ -195,9 +195,13 @@ export default function ChatInput({
           {/* Slash Command Menu */}
           {slash.isOpen && (
             <SlashCommandMenu
-              commands={slash.filteredCommands}
+              commands={slash.expandedCmd ? [] : slash.filteredCommands}
               selectedIndex={slash.selectedIndex}
               onSelect={slash.executeCommand}
+              expandedCmd={slash.expandedCmd}
+              filteredOptions={slash.filteredOptions}
+              selectedOptionIndex={slash.selectedOptionIndex}
+              onSelectOption={slash.executeOption}
             />
           )}
           {/* Attached files preview */}

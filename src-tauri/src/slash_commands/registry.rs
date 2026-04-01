@@ -70,6 +70,7 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
                 "low".into(),
                 "medium".into(),
                 "high".into(),
+                "xhigh".into(),
             ]),
             description_raw: None,
         },
@@ -126,8 +127,8 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
             category: CommandCategory::Session,
             description_key: "slashCommands.plan.description".into(),
             has_args: true,
-            arg_placeholder: Some("[exit|show|approve]".into()),
-            arg_options: Some(vec!["exit".into(), "show".into(), "approve".into()]),
+            arg_placeholder: Some("[enter|exit|show|approve|pause|resume]".into()),
+            arg_options: Some(vec!["enter".into(), "exit".into(), "show".into(), "approve".into(), "pause".into(), "resume".into()]),
             description_raw: None,
         },
         // ── Utility ──

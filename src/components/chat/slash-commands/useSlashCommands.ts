@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import type { SlashCommandDef, CommandResult } from "./types"
 import { CATEGORY_ORDER } from "./types"
@@ -29,6 +29,14 @@ export interface UseSlashCommandsReturn {
   executeCommand: (cmd: SlashCommandDef) => void
   /** Whether a command is currently executing */
   executing: boolean
+  /** Currently expanded command (showing arg options submenu) */
+  expandedCmd: SlashCommandDef | null
+  /** Filtered options for the expanded command */
+  filteredOptions: string[]
+  /** Selected option index in the submenu */
+  selectedOptionIndex: number
+  /** Execute a specific option from the submenu */
+  executeOption: (cmd: SlashCommandDef, option: string) => void
 }
 
 export function useSlashCommands(
@@ -41,6 +49,8 @@ export function useSlashCommands(
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [executing, setExecuting] = useState(false)
   const [forceOpen, setForceOpen] = useState(false)
+  const [expandedCmd, setExpandedCmd] = useState<SlashCommandDef | null>(null)
+  const [selectedOptionIndex, setSelectedOptionIndex] = useState(0)
   const actionsRef = useRef(actions)
   actionsRef.current = actions
 
@@ -101,17 +111,56 @@ export function useSlashCommands(
     })
   }, [commands, getFilterText, input, forceOpen])()
 
+  // Detect if input matches a command with argOptions (for auto-expanding submenu)
+  const inputMatchCmd = useMemo(() => {
+    if (!input.startsWith("/")) return null
+    const spaceIdx = input.indexOf(" ")
+    if (spaceIdx < 0) return null
+    const name = input.slice(1, spaceIdx)
+    return commands.find((c) => c.name === name && c.argOptions?.length) ?? null
+  }, [input, commands])
+
+  // Filter options for the expanded command based on typed input
+  const filteredOptions = useMemo(() => {
+    const cmd = expandedCmd ?? inputMatchCmd
+    if (!cmd?.argOptions) return []
+    const prefix = `/${cmd.name} `
+    if (!input.startsWith(prefix)) return cmd.argOptions
+    const typed = input.slice(prefix.length).toLowerCase()
+    if (!typed) return cmd.argOptions
+    return cmd.argOptions.filter((o) => o.startsWith(typed))
+  }, [expandedCmd, inputMatchCmd, input])
+
+  // Auto-expand submenu when user types "/<cmd-with-options> "
+  useEffect(() => {
+    if (inputMatchCmd && !expandedCmd) {
+      setExpandedCmd(inputMatchCmd)
+      setSelectedOptionIndex(0)
+      setIsOpen(true)
+    } else if (!inputMatchCmd && expandedCmd) {
+      // Input no longer matches — close submenu
+      setExpandedCmd(null)
+    }
+  }, [inputMatchCmd]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Reset option index when filtered options change
+  useEffect(() => {
+    setSelectedOptionIndex(0)
+  }, [filteredOptions.length])
+
   // Determine if menu should be open
   const shouldBeOpen =
     forceOpen ||
+    expandedCmd != null ||
+    inputMatchCmd != null ||
     (input.startsWith("/") && input.indexOf(" ") < 0 && filteredCommands.length > 0)
 
   useEffect(() => {
     setIsOpen(shouldBeOpen)
-    if (shouldBeOpen) {
+    if (shouldBeOpen && !expandedCmd && !inputMatchCmd) {
       setSelectedIndex(0)
     }
-  }, [shouldBeOpen])
+  }, [shouldBeOpen]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const executeCommandInner = useCallback(
     async (cmd: SlashCommandDef) => {
@@ -124,6 +173,7 @@ export function useSlashCommands(
       setInput("")
       setIsOpen(false)
       setForceOpen(false)
+      setExpandedCmd(null)
       setExecuting(true)
 
       try {
@@ -145,16 +195,54 @@ export function useSlashCommands(
     [input, setInput],
   )
 
+  const executeOption = useCallback(
+    (cmd: SlashCommandDef, option: string) => {
+      setInput(`/${cmd.name} ${option}`)
+      setExpandedCmd(null)
+      setIsOpen(false)
+      setForceOpen(false)
+      setExecuting(true)
+
+      const commandText = `/${cmd.name} ${option}`
+      invoke<CommandResult>("execute_slash_command", {
+        sessionId: actionsRef.current.sessionId,
+        agentId: actionsRef.current.agentId,
+        commandText,
+      })
+        .then((result) => actionsRef.current.onCommandAction(result))
+        .catch((err) =>
+          actionsRef.current.onCommandAction({
+            content: `Error: ${err}`,
+            action: { type: "displayOnly" },
+          }),
+        )
+        .finally(() => {
+          setInput("")
+          setExecuting(false)
+        })
+    },
+    [setInput],
+  )
+
   const executeSelected = useCallback(() => {
+    if (expandedCmd && filteredOptions.length > 0) {
+      executeOption(expandedCmd, filteredOptions[selectedOptionIndex])
+      return
+    }
     if (filteredCommands.length > 0 && selectedIndex < filteredCommands.length) {
       executeCommandInner(filteredCommands[selectedIndex])
     }
-  }, [filteredCommands, selectedIndex, executeCommandInner])
+  }, [filteredCommands, selectedIndex, executeCommandInner, expandedCmd, filteredOptions, selectedOptionIndex, executeOption])
 
   const executeCommand = useCallback(
     (cmd: SlashCommandDef) => {
-      if (cmd.hasArgs) {
-        // For commands with args, fill in the command and let user type args
+      if (cmd.argOptions?.length) {
+        // Has built-in options: expand submenu
+        setExpandedCmd(cmd)
+        setSelectedOptionIndex(0)
+        setInput(`/${cmd.name} `)
+      } else if (cmd.hasArgs) {
+        // Has args but no built-in options: fill in command and let user type
         setInput(`/${cmd.name} `)
         setIsOpen(false)
         setForceOpen(false)
@@ -169,6 +257,38 @@ export function useSlashCommands(
     (e: React.KeyboardEvent): boolean => {
       if (!isOpen) return false
 
+      // When submenu is expanded, handle option navigation
+      if (expandedCmd && filteredOptions.length > 0) {
+        switch (e.key) {
+          case "ArrowUp":
+            e.preventDefault()
+            setSelectedOptionIndex((prev) =>
+              prev <= 0 ? filteredOptions.length - 1 : prev - 1,
+            )
+            return true
+          case "ArrowDown":
+            e.preventDefault()
+            setSelectedOptionIndex((prev) =>
+              prev >= filteredOptions.length - 1 ? 0 : prev + 1,
+            )
+            return true
+          case "Tab":
+          case "Enter":
+            e.preventDefault()
+            executeOption(expandedCmd, filteredOptions[selectedOptionIndex])
+            return true
+          case "Escape":
+          case "ArrowLeft":
+            e.preventDefault()
+            setExpandedCmd(null)
+            setInput("/")
+            return true
+          default:
+            return false
+        }
+      }
+
+      // Normal command list navigation
       switch (e.key) {
         case "ArrowUp":
           e.preventDefault()
@@ -197,6 +317,7 @@ export function useSlashCommands(
         case "Escape":
           e.preventDefault()
           setIsOpen(false)
+          setExpandedCmd(null)
           // Only clear input if it was typed (starts with "/"), not button-triggered
           if (!forceOpen && input.startsWith("/")) {
             setInput("")
@@ -208,16 +329,18 @@ export function useSlashCommands(
           return false
       }
     },
-    [isOpen, filteredCommands, selectedIndex, executeCommand, setInput, forceOpen, input],
+    [isOpen, filteredCommands, selectedIndex, executeCommand, setInput, forceOpen, input, expandedCmd, filteredOptions, selectedOptionIndex, executeOption],
   )
 
   const setOpen = useCallback(
     (open: boolean) => {
       if (open) {
         setForceOpen(true)
+        setExpandedCmd(null)
       } else {
         setForceOpen(false)
         setIsOpen(false)
+        setExpandedCmd(null)
       }
     },
     [],
@@ -232,5 +355,9 @@ export function useSlashCommands(
     executeSelected,
     executeCommand,
     executing,
+    expandedCmd,
+    filteredOptions,
+    selectedOptionIndex,
+    executeOption,
   }
 }
