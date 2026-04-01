@@ -106,7 +106,7 @@ export default function QuickChatWindow() {
 
   return (
     <TooltipProvider>
-      <div className="flex flex-col h-screen rounded-2xl bg-background/70 dark:bg-background/60 backdrop-blur-2xl backdrop-saturate-150 shadow-2xl [clip-path:inset(0_round_16px)]">
+      <div className="flex flex-col h-screen rounded-2xl border border-border/60 bg-background/95 shadow-2xl [clip-path:inset(0_round_16px)]">
         {/* ── Title bar (draggable) ─────────────── */}
         <div
           className="flex items-center gap-2 px-4 py-2 shrink-0 select-none"
