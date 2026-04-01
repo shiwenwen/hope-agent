@@ -2,9 +2,10 @@ use anyhow::Result;
 use std::time::Duration;
 use teloxide::prelude::*;
 use teloxide::types::{
-    ChatAction, ChatId, InputFile, Me, MessageId, ParseMode as TgParseMode, ReplyParameters,
-    ThreadId,
+    ChatAction, ChatId, InlineKeyboardButton, InlineKeyboardMarkup, InputFile, Me, MessageId,
+    ParseMode as TgParseMode, ReplyParameters, ThreadId,
 };
+use crate::channel::types::InlineButton;
 
 /// Thin wrapper around teloxide's `Bot` to isolate framework details.
 pub struct TelegramBotApi {
@@ -55,7 +56,7 @@ impl TelegramBotApi {
             .map_err(|e| anyhow::anyhow!("getMe failed: {}", e))
     }
 
-    /// Send a text message.
+    /// Send a text message, optionally with inline keyboard buttons.
     pub async fn send_text(
         &self,
         chat_id: i64,
@@ -63,6 +64,7 @@ impl TelegramBotApi {
         parse_mode: Option<TgParseMode>,
         reply_to: Option<i32>,
         thread_id: Option<i32>,
+        buttons: &[Vec<InlineButton>],
     ) -> Result<teloxide::types::Message> {
         let mut req = self.bot.send_message(ChatId(chat_id), text);
 
@@ -75,29 +77,34 @@ impl TelegramBotApi {
         if let Some(tid) = thread_id {
             req = req.message_thread_id(ThreadId(teloxide::types::MessageId(tid)));
         }
+        if !buttons.is_empty() {
+            let keyboard = build_inline_keyboard(buttons);
+            req = req.reply_markup(keyboard);
+        }
 
         req.await
             .map_err(|e| anyhow::anyhow!("sendMessage failed: {}", e))
     }
 
-    /// Send a text message, falling back to plain text if parse mode fails.
+    /// Send a text message with optional inline buttons, falling back to plain text if parse mode fails.
     pub async fn send_text_with_fallback(
         &self,
         chat_id: i64,
         text: &str,
         reply_to: Option<i32>,
         thread_id: Option<i32>,
+        buttons: &[Vec<InlineButton>],
     ) -> Result<teloxide::types::Message> {
         // Try with HTML first
         match self
-            .send_text(chat_id, text, Some(TgParseMode::Html), reply_to, thread_id)
+            .send_text(chat_id, text, Some(TgParseMode::Html), reply_to, thread_id, buttons)
             .await
         {
             Ok(msg) => Ok(msg),
             Err(_) => {
                 // Fallback: strip HTML tags and send as plain text
                 let plain = strip_html_tags(text);
-                self.send_text(chat_id, &plain, None, reply_to, thread_id)
+                self.send_text(chat_id, &plain, None, reply_to, thread_id, buttons)
                     .await
             }
         }
@@ -296,6 +303,32 @@ fn build_send_message_draft_body(
     }
 
     body
+}
+
+/// Convert our `InlineButton` rows into teloxide's `InlineKeyboardMarkup`.
+fn build_inline_keyboard(buttons: &[Vec<InlineButton>]) -> InlineKeyboardMarkup {
+    let rows: Vec<Vec<InlineKeyboardButton>> = buttons
+        .iter()
+        .map(|row| {
+            row.iter()
+                .map(|b| {
+                    if let Some(ref url) = b.url {
+                        InlineKeyboardButton::url(
+                            b.text.clone(),
+                            url.parse().unwrap_or_else(|_| "https://example.com".parse().unwrap()),
+                        )
+                    } else {
+                        let cb = b
+                            .callback_data
+                            .clone()
+                            .unwrap_or_else(|| b.text.clone());
+                        InlineKeyboardButton::callback(b.text.clone(), cb)
+                    }
+                })
+                .collect()
+        })
+        .collect();
+    InlineKeyboardMarkup::new(rows)
 }
 
 /// Strip HTML tags from text (simple implementation for fallback).

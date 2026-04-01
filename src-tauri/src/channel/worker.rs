@@ -200,6 +200,7 @@ async fn handle_inbound_message(
             Ok(ChannelSlashOutcome::Reply {
                 content,
                 new_session_id,
+                buttons,
             }) => {
                 let effective_sid = new_session_id.as_deref().unwrap_or(&session_id);
                 // Only persist reply to the OLD session; skip for new sessions
@@ -217,6 +218,7 @@ async fn handle_inbound_message(
                     reply_to_message_id: Some(msg.message_id.clone()),
                     thread_id: msg.thread_id.clone(),
                     parse_mode: Some(ParseMode::Html),
+                    buttons,
                     ..ReplyPayload::text("")
                 };
                 let _ = plugin.send_message(&account.id, &msg.chat_id, &payload).await;
@@ -799,9 +801,11 @@ enum ChannelSlashOutcome {
     /// Send `content` as a direct reply; no LLM call needed.
     /// `new_session_id` is set when the command created a fresh session that should
     /// replace the current channel → session mapping.
+    /// `buttons` provides optional inline keyboard buttons for IM channels that support them.
     Reply {
         content: String,
         new_session_id: Option<String>,
+        buttons: Vec<Vec<crate::channel::types::InlineButton>>,
     },
     /// The command (e.g. a skill invocation) asks to pass a transformed message
     /// through to the LLM instead of the original "/" text.
@@ -826,6 +830,32 @@ async fn dispatch_slash_for_channel(
     use crate::slash_commands::{handlers, parser};
 
     let (name, args) = parser::parse(text).map_err(|e| anyhow::anyhow!(e))?;
+
+    // For commands with fixed arg_options and no args provided, return inline buttons
+    // so IM channel users (e.g. Telegram) can tap to select an option.
+    if args.trim().is_empty() {
+        use crate::slash_commands::registry;
+        let commands = registry::all_commands();
+        if let Some(cmd) = commands.iter().find(|c| c.name == name) {
+            if let Some(ref options) = cmd.arg_options {
+                let buttons: Vec<Vec<crate::channel::types::InlineButton>> = options
+                    .iter()
+                    .map(|opt| {
+                        vec![crate::channel::types::InlineButton {
+                            text: opt.clone(),
+                            callback_data: Some(format!("slash:{} {}", name, opt)),
+                            url: None,
+                        }]
+                    })
+                    .collect();
+                return Ok(ChannelSlashOutcome::Reply {
+                    content: format!("Select an option for /{}:", name),
+                    new_session_id: None,
+                    buttons,
+                });
+            }
+        }
+    }
 
     // Obtain a reference to the global AppState so we can reuse the shared handlers.
     let app_handle = crate::get_app_handle()
@@ -863,6 +893,7 @@ async fn dispatch_slash_for_channel(
             Ok(ChannelSlashOutcome::Reply {
                 content: result.content,
                 new_session_id: Some(new_sid),
+                buttons: vec![],
             })
         }
 
@@ -888,6 +919,7 @@ async fn dispatch_slash_for_channel(
             Ok(ChannelSlashOutcome::Reply {
                 content: result.content,
                 new_session_id: Some(new_sid),
+                buttons: vec![],
             })
         }
 
@@ -914,6 +946,7 @@ async fn dispatch_slash_for_channel(
             Ok(ChannelSlashOutcome::Reply {
                 content: format!("**System Prompt**\n\n```\n{}\n```", prompt),
                 new_session_id: None,
+                buttons: vec![],
             })
         }
 
@@ -942,6 +975,7 @@ async fn dispatch_slash_for_channel(
             Ok(ChannelSlashOutcome::Reply {
                 content: result.content,
                 new_session_id: None,
+                buttons: vec![],
             })
         }
 
@@ -957,6 +991,7 @@ async fn dispatch_slash_for_channel(
             Ok(ChannelSlashOutcome::Reply {
                 content: result.content,
                 new_session_id: None,
+                buttons: vec![],
             })
         }
 
@@ -971,6 +1006,7 @@ async fn dispatch_slash_for_channel(
             Ok(ChannelSlashOutcome::Reply {
                 content: msg,
                 new_session_id: None,
+                buttons: vec![],
             })
         }
 
@@ -985,11 +1021,13 @@ async fn dispatch_slash_for_channel(
                     Ok(ChannelSlashOutcome::Reply {
                         content: msg,
                         new_session_id: None,
+                        buttons: vec![],
                     })
                 }
                 Err(e) => Ok(ChannelSlashOutcome::Reply {
                     content: format!("Compaction failed: {}", e),
                     new_session_id: None,
+                    buttons: vec![],
                 }),
             }
         }
@@ -1002,6 +1040,7 @@ async fn dispatch_slash_for_channel(
             Ok(ChannelSlashOutcome::Reply {
                 content: result.content,
                 new_session_id: None,
+                buttons: vec![],
             })
         }
 
@@ -1022,6 +1061,7 @@ async fn dispatch_slash_for_channel(
             Ok(ChannelSlashOutcome::Reply {
                 content: msg,
                 new_session_id: None,
+                buttons: vec![],
             })
         }
 
@@ -1032,6 +1072,7 @@ async fn dispatch_slash_for_channel(
                 mode
             ),
             new_session_id: None,
+            buttons: vec![],
         }),
 
         // ── Plan: show plan content ──
@@ -1042,6 +1083,7 @@ async fn dispatch_slash_for_channel(
             Ok(ChannelSlashOutcome::Reply {
                 content: format!("**Current Plan**\n\n{}", plan_content),
                 new_session_id: None,
+                buttons: vec![],
             })
         }
 
@@ -1057,6 +1099,17 @@ async fn dispatch_slash_for_channel(
             Ok(ChannelSlashOutcome::Reply {
                 content: result.content,
                 new_session_id: None,
+                buttons: vec![],
+            })
+        }
+
+        // ── DisplayOnly: for /model with no args, attach model list as inline buttons ──
+        Some(CommandAction::DisplayOnly) if name == "model" && args.trim().is_empty() => {
+            let model_buttons = build_model_buttons(app_state).await;
+            Ok(ChannelSlashOutcome::Reply {
+                content: result.content,
+                new_session_id: None,
+                buttons: model_buttons,
             })
         }
 
@@ -1064,8 +1117,56 @@ async fn dispatch_slash_for_channel(
         _ => Ok(ChannelSlashOutcome::Reply {
             content: result.content,
             new_session_id: None,
+            buttons: vec![],
         }),
     }
+}
+
+/// Build inline keyboard buttons for the model list.
+/// Each available model gets a button with callback_data `slash:model <model_name>`.
+/// Telegram limits inline keyboard callback_data to 64 bytes, so we use model_name
+/// (the display name the fuzzy matcher accepts) rather than model_id.
+async fn build_model_buttons(
+    app_state: &crate::AppState,
+) -> Vec<Vec<crate::channel::types::InlineButton>> {
+    let store = app_state.provider_store.lock().await;
+    let models = crate::provider::build_available_models(&store.providers);
+
+    // Group up to 2 models per row, max 20 buttons (Telegram limit is 100 but keep it tidy)
+    let mut rows: Vec<Vec<crate::channel::types::InlineButton>> = Vec::new();
+    let mut row: Vec<crate::channel::types::InlineButton> = Vec::new();
+
+    for m in models.iter().take(20) {
+        let is_active = store
+            .active_model
+            .as_ref()
+            .map(|a| a.provider_id == m.provider_id && a.model_id == m.model_id)
+            .unwrap_or(false);
+        let label = if is_active {
+            format!("✓ {}", m.model_name)
+        } else {
+            m.model_name.clone()
+        };
+        // Telegram callback_data max is 64 bytes; truncate if needed
+        let cb = format!("slash:model {}", m.model_name);
+        let cb = if cb.len() > 64 {
+            format!("slash:model {}", &m.model_id)
+        } else {
+            cb
+        };
+        row.push(crate::channel::types::InlineButton {
+            text: label,
+            callback_data: Some(cb),
+            url: None,
+        });
+        if row.len() >= 2 {
+            rows.push(std::mem::take(&mut row));
+        }
+    }
+    if !row.is_empty() {
+        rows.push(row);
+    }
+    rows
 }
 
 #[cfg(test)]

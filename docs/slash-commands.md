@@ -120,6 +120,7 @@ sequenceDiagram
 | `low` | 低强度思考 |
 | `medium` | 中等强度思考 |
 | `high` | 高强度思考 |
+| `xhigh` | 超高强度思考 |
 
 ### 🧠 Memory — 记忆管理
 
@@ -226,6 +227,45 @@ stateDiagram-v2
 > **前端事件说明**：Channel 执行状态变更类命令后，会通过 Tauri `emit()` 发送 `slash:*` 事件通知前端 UI 同步更新（如模型选择器、effort 指示器、消息列表等）。前端在 `ChatScreen.tsx` 中统一监听这些事件。
 >
 > **⚡ 标注说明**：`/permission` 在 Channel 中不适用，因为 Channel 对话固定使用 auto-approve 模式，不需要交互式权限审批。
+
+---
+
+## 参数选项 (arg_options)
+
+部分命令定义了 `arg_options`——预设的可选参数列表。在不同端有不同的交互方式：
+
+### 前端 UI
+
+`SlashCommandMenu` 对 `arg_options` 命令渲染可展开子菜单：
+
+- 用户输入 `/<cmd>` 后回车或点击命令 → 展开选项子菜单
+- 键盘方向键在选项间导航，回车执行选定选项
+- Escape / 左箭头 返回命令列表
+- 仍可手动输入参数（如 `/think high`）跳过子菜单
+
+### IM 渠道 (Telegram)
+
+Channel 对有 `arg_options` 的命令提供 inline keyboard 按钮：
+
+- 用户发送无参数的命令（如 `/think`）→ 返回选项按钮，每个选项一行
+- 按钮 `callback_data` 格式：`slash:<command> <option>`（如 `slash:think high`）
+- 用户点击按钮 → Telegram 发送 `CallbackQuery` → `polling.rs` 转换为 `/<command> <option>` 文本
+- `dispatch_slash_for_channel` 正常执行命令
+
+**特殊处理 — `/model` 无参数**：
+
+- 返回所有可用模型的 inline keyboard 按钮（每行最多 2 个）
+- 当前活跃模型标记 `✓` 前缀
+- 按钮 `callback_data` 格式：`slash:model <model_name>`
+- 最多展示 20 个模型
+
+### 有 arg_options 的命令
+
+| 命令 | 选项 |
+|---|---|
+| `/think` | `off`, `low`, `medium`, `high`, `xhigh` |
+| `/plan` | `enter`, `exit`, `show`, `approve`, `pause`, `resume` |
+| `/permission` | `auto`, `ask`, `full` |
 
 ---
 

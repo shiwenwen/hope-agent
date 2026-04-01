@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **斜杠命令参数选项 (arg_options) 交互增强**
+  - `/think` 新增 `xhigh` 超高强度思考等级
+  - `/plan` 注册表补齐 `pause`、`resume` 选项
+  - 前端 `SlashCommandMenu` 新增可展开子菜单，命令有 `arg_options` 时点击或回车可展开选项列表，键盘导航选择
+  - Telegram 等 IM 渠道：无参数发送有 `arg_options` 的命令时返回 inline keyboard 按钮，用户可直接点选
+  - `/model` 无参数时在 Telegram 返回所有可用模型的 inline keyboard 按钮（当前模型标记 ✓），点击即切换
+  - Telegram polling 新增 `CallbackQuery` 处理，将 `slash:<cmd> <arg>` 格式的回调数据转换为标准斜杠命令执行
+
 ### Fixed
 
 - **对齐斜杠命令在 Channel 对话中的执行行为**

@@ -98,6 +98,7 @@ fn convert_update(
     match &update.kind {
         UpdateKind::Message(msg) => convert_message(msg, account_id, bot_id, bot_username),
         UpdateKind::EditedMessage(msg) => convert_message(msg, account_id, bot_id, bot_username),
+        UpdateKind::CallbackQuery(cb) => convert_callback_query(cb, account_id),
         _ => None,
     }
 }
@@ -197,6 +198,71 @@ fn convert_message(
         reply_to_message_id: reply_to,
         timestamp: msg.date,
         raw: serde_json::json!({ "update_id": 0 }), // minimal raw payload
+    })
+}
+
+/// Convert a Telegram CallbackQuery (inline button click) into a MsgContext.
+///
+/// Callback data with format "slash:<command> <arg>" is converted to "/<command> <arg>"
+/// so the worker processes it as a normal slash command.
+fn convert_callback_query(
+    cb: &teloxide::types::CallbackQuery,
+    account_id: &str,
+) -> Option<MsgContext> {
+    let data = cb.data.as_ref()?;
+    let msg = cb.message.as_ref()?.regular_message()?;
+
+    // Convert "slash:think high" → "/think high"
+    let text = if let Some(rest) = data.strip_prefix("slash:") {
+        format!("/{}", rest)
+    } else {
+        return None; // Unknown callback format, ignore
+    };
+
+    let from = &cb.from;
+
+    let chat_type = match msg.chat.kind {
+        teloxide::types::ChatKind::Private(_) => ChatType::Dm,
+        teloxide::types::ChatKind::Public(ref public) => match public.kind {
+            teloxide::types::PublicChatKind::Supergroup(ref sg) => {
+                if sg.is_forum {
+                    ChatType::Forum
+                } else {
+                    ChatType::Group
+                }
+            }
+            teloxide::types::PublicChatKind::Group => ChatType::Group,
+            teloxide::types::PublicChatKind::Channel(_) => ChatType::Channel,
+        },
+    };
+
+    let thread_id = msg.thread_id.map(|tid| tid.to_string());
+
+    let sender_name = {
+        let mut name = from.first_name.clone();
+        if let Some(ref last) = from.last_name {
+            name.push(' ');
+            name.push_str(last);
+        }
+        name
+    };
+
+    Some(MsgContext {
+        channel_id: ChannelId::Telegram,
+        account_id: account_id.to_string(),
+        sender_id: from.id.0.to_string(),
+        sender_name: Some(sender_name),
+        sender_username: from.username.clone(),
+        chat_id: msg.chat.id.0.to_string(),
+        chat_type,
+        chat_title: msg.chat.title().map(|t| t.to_string()),
+        thread_id,
+        message_id: msg.id.0.to_string(),
+        text: Some(text),
+        media: Vec::new(),
+        reply_to_message_id: None,
+        timestamp: msg.date,
+        raw: serde_json::json!({ "callback_query_id": cb.id }),
     })
 }
 

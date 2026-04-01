@@ -199,7 +199,7 @@ impl ChannelPlugin for TelegramPlugin {
             }
 
             let msg = api
-                .send_text_with_fallback(chat_id_num, text, reply_to, thread_id)
+                .send_text_with_fallback(chat_id_num, text, reply_to, thread_id, &payload.buttons)
                 .await?;
 
             return Ok(DeliveryResult::ok(msg.id.0.to_string()));
