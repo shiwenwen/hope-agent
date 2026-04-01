@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react"
+import { useState, useMemo, useCallback, useEffect } from "react"
 import { useTranslation } from "react-i18next"
 import { invoke, convertFileSrc } from "@tauri-apps/api/core"
 import {
@@ -170,7 +170,24 @@ export default function ToolCallBlock({ tool }: { tool: ToolCall }) {
   const { openLightbox } = useLightbox()
   const [expanded, setExpanded] = useState(false)
   const [showRaw, setShowRaw] = useState(false)
+  const [now, setNow] = useState(() => Date.now())
   const isRunning = tool.result === undefined
+  const startedAtMs = tool.startedAtMs || 0
+  const elapsedMs = tool.durationMs ?? (isRunning && startedAtMs ? now - startedAtMs : undefined)
+  const elapsedText = useMemo(() => {
+    if (elapsedMs == null || elapsedMs < 0) return null
+    if (elapsedMs < 60_000) return `${(elapsedMs / 1000).toFixed(1)}s`
+    const totalSeconds = Math.floor(elapsedMs / 1000)
+    const minutes = Math.floor(totalSeconds / 60)
+    const seconds = totalSeconds % 60
+    return `${minutes}m ${seconds}s`
+  }, [elapsedMs])
+
+  useEffect(() => {
+    if (!isRunning || !startedAtMs) return
+    const timer = window.setInterval(() => setNow(Date.now()), 100)
+    return () => window.clearInterval(timer)
+  }, [isRunning, startedAtMs])
 
   // Detect subagent spawn — render SubagentBlock instead
   const subagentSpawn = useMemo(() => {
@@ -265,11 +282,16 @@ export default function ToolCallBlock({ tool }: { tool: ToolCall }) {
         <span className="text-muted-foreground/60 truncate font-mono text-[11px]">
           {displayArgs}
         </span>
+        {elapsedText && (
+          <span className="ml-auto shrink-0 text-[10px] text-muted-foreground/60 tabular-nums">
+            {t("tools.elapsed", { time: elapsedText })}
+          </span>
+        )}
 
         <IconTip label={t("tools.rawCall", "查看原始调用")}>
           <span
             role="button"
-            className="ml-auto shrink-0 p-0.5 rounded hover:bg-secondary text-muted-foreground/40 hover:text-muted-foreground/80 transition-colors opacity-0 group-hover:opacity-100"
+            className="shrink-0 p-0.5 rounded hover:bg-secondary text-muted-foreground/40 hover:text-muted-foreground/80 transition-colors opacity-0 group-hover:opacity-100"
             onClick={(e) => {
               e.stopPropagation()
               setShowRaw(!showRaw)

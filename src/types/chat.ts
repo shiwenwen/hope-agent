@@ -4,6 +4,8 @@ export interface ToolCall {
   arguments: string
   result?: string
   mediaUrls?: string[]
+  durationMs?: number
+  startedAtMs?: number
 }
 
 export interface MessageUsage {
