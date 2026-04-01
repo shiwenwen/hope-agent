@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react"
+import React, { useState, useEffect, useRef, useMemo } from "react"
 import { convertFileSrc } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
@@ -198,7 +198,7 @@ function CronTriggerBubble({ msg, t }: { msg: Message; t: (key: string) => strin
   )
 }
 
-export default function MessageBubble({
+function MessageBubbleInner({
   msg,
   index,
   isLast,
@@ -571,3 +571,6 @@ export default function MessageBubble({
     </div>
   )
 }
+
+const MessageBubble = React.memo(MessageBubbleInner)
+export default MessageBubble

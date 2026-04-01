@@ -403,18 +403,14 @@ pub async fn exec_in_sandbox(
     let container_id = container.id.clone();
 
     // Start container
-    docker
+    if let Err(e) = docker
         .start_container::<String>(&container_id, None)
         .await
-        .map_err(|e| {
-            // Schedule cleanup on start failure
-            let docker_clone = docker.clone();
-            let cid = container_id.clone();
-            tokio::spawn(async move {
-                let _ = cleanup_container(&docker_clone, &cid).await;
-            });
-            anyhow::anyhow!("Failed to start container: {}", e)
-        })?;
+    {
+        // Synchronously clean up the failed container before returning error
+        let _ = cleanup_container(&docker, &container_id).await;
+        return Err(anyhow::anyhow!("Failed to start container: {}", e));
+    }
 
     app_info!(
         "sandbox",

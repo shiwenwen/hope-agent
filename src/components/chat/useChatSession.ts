@@ -96,6 +96,7 @@ export function useChatSession({
   const [loadingMoreSessions, setLoadingMoreSessions] = useState(false)
 
   const currentSessionIdRef = useRef<string | null>(null)
+  const switchVersionRef = useRef(0)
   const sessionCacheRef = useRef<Map<string, Message[]>>(new Map())
   const loadingSessionsRef = useRef<Set<string>>(new Set())
   const hasMoreRef = useRef<Map<string, boolean>>(new Map())
@@ -576,6 +577,8 @@ export function useChatSession({
     async (sessionId: string) => {
       if (!sessionId || sessionId === currentSessionIdRef.current) return
 
+      const version = ++switchVersionRef.current
+
       // Save current session's messages to cache
       const curSid = currentSessionIdRef.current
       if (curSid) {
@@ -602,6 +605,7 @@ export function useChatSession({
           const parentSession = sessionMeta?.parentSessionId
             ? currentSessions.find((s) => s.id === sessionMeta.parentSessionId)
             : undefined
+          if (switchVersionRef.current !== version) return // stale switch
           const displayMessages = parseSessionMessages(msgs, parentSession?.agentId)
           sessionCacheRef.current.set(sessionId, displayMessages)
           const moreAvailable = msgs.length < total
@@ -621,6 +625,8 @@ export function useChatSession({
           return
         }
       }
+
+      if (switchVersionRef.current !== version) return // stale switch
 
       // Use fresh sessions list for session lookup
       const [currentSessions] = await invoke<[SessionMeta[], number]>("list_sessions_cmd", {}).catch(

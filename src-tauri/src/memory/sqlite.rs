@@ -375,6 +375,8 @@ impl SqliteMemoryBackend {
                     match embedder.embed_batch_async(&batch_items) {
                         Ok(results) => {
                             let mut count = 0usize;
+                            // Use a transaction for batch embedding updates (significant perf improvement)
+                            let _ = conn.execute_batch("BEGIN");
                             for (id_str, emb) in &results {
                                 let id: i64 = id_str.parse().unwrap_or(0);
                                 if id == 0 {
@@ -418,6 +420,7 @@ impl SqliteMemoryBackend {
                                     count += 1;
                                 }
                             }
+                            let _ = conn.execute_batch("COMMIT");
 
                             return Ok(count);
                         }

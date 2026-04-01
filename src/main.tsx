@@ -5,6 +5,12 @@ import "./i18n/i18n"
 import App from "./App.tsx"
 import QuickChatWindow from "./QuickChatWindow.tsx"
 import PlanDetachedWindow from "./PlanDetachedWindow.tsx"
+import { logger } from "./lib/logger"
+
+// Flush buffered logs before page unload to prevent data loss
+window.addEventListener("beforeunload", () => {
+  logger.flush()
+})
 
 const windowType = new URLSearchParams(window.location.search).get("window")
 

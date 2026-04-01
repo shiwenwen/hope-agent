@@ -384,7 +384,7 @@ impl AssistantAgent {
                 LlmProvider::OpenAIResponses { model, .. } => ("OpenAIResponses", model.as_str()),
                 LlmProvider::Codex { model, .. } => ("Codex", model.as_str()),
             };
-            let history_len = self.conversation_history.lock().unwrap().len();
+            let history_len = self.conversation_history.lock().unwrap_or_else(|e| e.into_inner()).len();
             let msg_preview = if message.len() > 200 {
                 format!("{}...", crate::truncate_utf8(message, 200))
             } else {

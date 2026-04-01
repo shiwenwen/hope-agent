@@ -117,14 +117,16 @@ pub(crate) async fn tool_manage_cron(args: &Value) -> Result<String> {
             let job_clone = job;
             let session_db_path = crate::session::db_path()?;
 
-            tokio::task::spawn_blocking(move || {
-                let session_db = std::sync::Arc::new(
-                    crate::session::SessionDB::open(&session_db_path).unwrap()
-                );
-                let rt = tokio::runtime::Handle::current();
-                rt.block_on(async {
-                    cron::execute_job_public(&db, &session_db, &job_clone).await;
-                });
+            tokio::spawn(async move {
+                match crate::session::SessionDB::open(&session_db_path) {
+                    Ok(session_db) => {
+                        let session_db = std::sync::Arc::new(session_db);
+                        cron::execute_job_public(&db, &session_db, &job_clone).await;
+                    }
+                    Err(e) => {
+                        app_error!("cron", "tool", "Failed to open session DB for cron run_now: {}", e);
+                    }
+                }
             });
             Ok(format!("Triggered immediate execution of '{}'.", id))
         }

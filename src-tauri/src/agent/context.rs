@@ -7,12 +7,12 @@ use super::types::{AssistantAgent, LlmProvider};
 impl AssistantAgent {
     /// Replace the conversation history (used to restore context from DB).
     pub fn set_conversation_history(&self, history: Vec<serde_json::Value>) {
-        *self.conversation_history.lock().unwrap() = history;
+        *self.conversation_history.lock().unwrap_or_else(|e| e.into_inner()) = history;
     }
 
     /// Get a clone of the current conversation history (used to persist context to DB).
     pub fn get_conversation_history(&self) -> Vec<serde_json::Value> {
-        self.conversation_history.lock().unwrap().clone()
+        self.conversation_history.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     /// Run context compaction (Tier 1-3) on messages before API call.

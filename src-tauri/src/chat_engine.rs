@@ -51,11 +51,11 @@ impl EventSink for ChannelSink {
 pub struct ChannelStreamSink {
     pub session_id: String,
     /// Forwards raw events to the channel streaming background task.
-    pub event_tx: tokio::sync::mpsc::UnboundedSender<String>,
+    pub event_tx: tokio::sync::mpsc::Sender<String>,
 }
 
 impl ChannelStreamSink {
-    pub fn new(session_id: String, event_tx: tokio::sync::mpsc::UnboundedSender<String>) -> Self {
+    pub fn new(session_id: String, event_tx: tokio::sync::mpsc::Sender<String>) -> Self {
         Self {
             session_id,
             event_tx,
@@ -77,7 +77,7 @@ impl EventSink for ChannelStreamSink {
             );
         }
         // 2. Forward to background task for progressive IM channel delivery
-        let _ = self.event_tx.send(event.to_string());
+        let _ = self.event_tx.try_send(event.to_string());
     }
 }
 

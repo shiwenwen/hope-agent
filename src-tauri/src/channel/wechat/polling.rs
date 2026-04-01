@@ -47,7 +47,16 @@ pub(crate) async fn run_polling_loop(
                 );
                 break;
             }
-            result = api.get_updates(&sync_buf, Some(next_timeout_ms)) => result,
+            result = tokio::time::timeout(
+                std::time::Duration::from_millis(next_timeout_ms as u64 + 15_000),
+                api.get_updates(&sync_buf, Some(next_timeout_ms))
+            ) => match result {
+                Ok(inner) => inner,
+                Err(_timeout) => {
+                    app_warn!("channel", "wechat::polling", "WeChat poll timed out for '{}', reconnecting", account_id);
+                    continue;
+                }
+            },
         };
 
         match response {
