@@ -20,22 +20,22 @@
 
 | 工具        | OpenComputer  | OpenClaw                     | 功能差异                                                                                                                     |
 | ----------- | ------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| read        | `read`        | `read`（pi-coding-agent）    | OC 支持图片 base64 读取；OpenClaw 通过 `createOpenClawReadTool` 包装，支持 image sanitization + context window 自适应输出    |
-| write       | `write`       | `write`（pi-coding-agent）   | OpenClaw 多 sandbox/host workspace 双模式，支持 memory flush append-only 写入                                                |
-| edit        | `edit`        | `edit`（pi-coding-agent）    | OC 支持更多参数别名（old_string/oldText 等）；OpenClaw 多 sandbox/host 双模式                                                |
-| apply_patch | `apply_patch` | `apply_patch`（自研）        | OpenClaw 仅 OpenAI provider + 白名单模型启用；OC 始终可用                                                                    |
+| read        | `read`        | `read`（pi-coding-agent）    | OC 支持图片 base64 读取；🔻待追：OpenClaw 支持 context window 自适应输出（根据剩余 token 动态截断）    |
+| write       | `write`       | `write`（pi-coding-agent）   | 基本一致；OpenClaw 多 sandbox 双模式（与 OC 定位不同，不需追）                                                |
+| edit        | `edit`        | `edit`（pi-coding-agent）    | OC 支持更多参数别名（old_string/oldText 等）；基本对齐                                                |
+| apply_patch | `apply_patch` | `apply_patch`（自研）        | OC 始终可用；OpenClaw 仅 OpenAI provider + 白名单模型启用                                                                    |
 | ls          | `ls`          | `ls`（pi-coding-agent）      | 基本一致                                                                                                                     |
 | grep        | `grep`        | `grep`（pi-coding-agent）    | 基本一致，都遵守 .gitignore                                                                                                  |
 | find        | `find`        | `find`（pi-coding-agent）    | 基本一致                                                                                                                     |
-| exec        | `exec`        | `exec`（自研 bash-tools）    | OC 多 `pty`、Docker `sandbox` 参数；OpenClaw 多 host 远程执行、safe-bin 策略、sandbox 容器执行、approval 机制、node 远程分发 |
-| process     | `process`     | `process`（自研 bash-tools） | OC 更多 action（log/write/clear/remove）；OpenClaw 有 scopeKey 隔离防跨 session 可见                                         |
+| exec        | `exec`        | `exec`（自研 bash-tools）    | OC 多 `pty`、Docker `sandbox` 参数；🔻待追：OpenClaw 的 approval 机制（敏感命令审批）、scopeKey 隔离 |
+| process     | `process`     | `process`（自研 bash-tools） | OC 更多 action（log/write/clear/remove）；🔻待追：OpenClaw 的 scopeKey 隔离防跨 session 可见                                         |
 
 ### Web & 信息
 
 | 工具       | OpenComputer | OpenClaw     | 功能差异                                                         |
 | ---------- | ------------ | ------------ | ---------------------------------------------------------------- |
-| web_search | `web_search` | `web_search` | 都支持多搜索引擎，基本一致；OpenClaw 额外支持 runtime 动态切换   |
-| web_fetch  | `web_fetch`  | `web_fetch`  | 都用 Readability + Markdown；OpenClaw 额外支持 Firecrawl runtime |
+| web_search | `web_search` | `web_search` | 都支持多搜索引擎，基本一致；🔻待追：OpenClaw 支持 runtime 动态切换（运行时切换搜索引擎） |
+| web_fetch  | `web_fetch`  | `web_fetch`  | 都用 Readability + Markdown；🔻待追：OpenClaw 额外支持 Firecrawl runtime（更好的 JS 渲染页面抓取） |
 
 ### 记忆
 
@@ -62,7 +62,7 @@
 | -------------- | ---------------- | ---------------- | ---------------------------------------------------------------------------------------- |
 | image          | `image`          | `image`          | **OC 领先**：多图（10 张原始视觉数据直达模型）+ URL + 剪贴板 + 截屏；OpenClaw 多图（20 张）但仅生成文字描述，丢失视觉细节 |
 | image_generate | `image_generate` | `image_generate` | OC 支持 OpenAI/Google/Fal 三 Provider；OpenClaw 按配置推断 Provider                      |
-| pdf            | `pdf`            | `pdf`            | OC 用 pdf-extract 文本提取；OpenClaw 支持 Anthropic/Google 原生 PDF 分析 + 文本/图像回退 |
+| pdf            | `pdf`            | `pdf`            | 🔻待追：OC 仅 pdf-extract 文本提取；OpenClaw 支持 Anthropic/Google 原生 PDF 分析（视觉理解）+ 文本/图像回退 |
 
 ### Canvas
 
@@ -139,20 +139,29 @@
 - **Canvas**：11 个 action + 7 种内容类型 + 版本历史，比 OpenClaw 更丰富
 - **Image 视觉分析**：多图（10 张）+ URL + 剪贴板 + 截屏，且图片作为原始视觉数据直达模型（OpenClaw 经二次模型转述丢失细节）
 
-### OpenClaw 领先的领域
+### OpenClaw 领先的领域（🔻待追清单）
 
-- **多渠道消息**：`message` 工具支持 Slack/Discord/Telegram/WhatsApp 等多渠道，auto-threading、group 路由
-- **语音输出**：`tts` 文字转语音
-- **设备控制**：`nodes` 工具支持 IoT 远程设备（摄像头/截屏/定位）
-- **PDF 分析**：支持 Anthropic/Google 原生 PDF 理解，不仅仅是文本提取
-- **网关运维**：`gateway` 平台级配置管理
-- ~~**Image 多图 + URL**~~ → 已被 OC 超越（OC 多图 + URL + 剪贴板 + 截屏 + 原始视觉数据）
+- 🔻 **多渠道消息**：`message` 工具支持 Slack/Discord/Telegram/WhatsApp 等多渠道，auto-threading、group 路由
+- 🔻 **语音输出**：`tts` 文字转语音
+- 🔻 **PDF 原生视觉分析**：支持 Anthropic/Google 原生 PDF 理解，不仅仅是文本提取
+- 🔻 **read 自适应输出**：根据剩余 context window 动态截断输出
+- 🔻 **exec approval 机制**：敏感命令审批 + scopeKey 隔离
+- 🔻 **web_search runtime 切换**：运行时动态切换搜索引擎
+- 🔻 **web_fetch Firecrawl**：JS 渲染页面更好的抓取能力
+- **设备控制**：`nodes` 工具支持 IoT 远程设备（与桌面端定位不同，低优先级）
+- **网关运维**：`gateway` 平台级配置管理（桌面端不适用）
+- ~~**Image 多图 + URL**~~ → 已被 OC 超越
 
-### 尚未补齐的 OpenClaw 工具
+### 🔻 待追优先级汇总
 
-| 优先级 | 工具      | 理由                         |
-| ------ | --------- | ---------------------------- |
-| P2     | `message` | 需设计通道抽象层，工程量较大 |
-| P3     | `tts`     | 语音场景在桌面端需求有限     |
-| P3     | `nodes`   | IoT 场景与桌面端定位不同     |
-| P4     | `gateway` | 平台运维能力，桌面端不适用   |
+| 优先级 | 类型     | 项目                           | 说明                                                       |
+| ------ | -------- | ------------------------------ | ---------------------------------------------------------- |
+| P1     | 工具增强 | `pdf` 原生视觉分析             | 接入 Anthropic/Google 原生 PDF API，支持图表/排版理解      |
+| P1     | 工具增强 | `read` context window 自适应   | 根据剩余 token 动态截断，避免大文件撑爆上下文              |
+| P2     | 新工具   | `message` 多渠道消息           | 需设计通道抽象层，工程量较大                               |
+| P2     | 工具增强 | `exec` approval + scopeKey     | 敏感命令审批机制 + 跨 session 隔离                         |
+| P2     | 工具增强 | `web_fetch` Firecrawl          | JS 渲染页面抓取能力增强                                    |
+| P3     | 工具增强 | `web_search` runtime 动态切换  | 运行时切换搜索引擎                                         |
+| P3     | 新工具   | `tts` 语音输出                 | 语音场景在桌面端需求有限                                   |
+| P4     | 新工具   | `nodes` 设备控制               | IoT 场景与桌面端定位不同                                   |
+| P4     | 新工具   | `gateway` 网关运维             | 平台运维能力，桌面端不适用                                 |
