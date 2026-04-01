@@ -59,7 +59,7 @@ export default function ChatScreen({
   const globalActiveModelRef = useRef<ActiveModel | null>(null)
 
   // Sidebar panel width
-  const [panelWidth, setPanelWidth] = useState(256)
+  const [panelWidth, setPanelWidth] = useState(288)
 
   // Right panel widths (resizable)
   const [planPanelWidth, setPlanPanelWidth] = useState(400)

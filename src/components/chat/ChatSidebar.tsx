@@ -288,7 +288,7 @@ export default function ChatSidebar({
           </div>
 
           <div
-            className="flex-1 overflow-y-auto"
+            className="flex-1 overflow-y-auto overflow-x-hidden"
             onScroll={(e) => {
               if (!hasMoreSessions || loadingMoreSessions || !onLoadMoreSessions) return
               const el = e.currentTarget
@@ -426,7 +426,7 @@ export default function ChatSidebar({
             </div>
 
             {/* Session type filter tabs */}
-            <div className="flex items-center gap-0.5 px-3 py-1.5 border-b border-border/40">
+            <div className="flex items-center gap-0.5 px-3 py-1.5 border-b border-border/40 overflow-x-auto scrollbar-none">
               {(["all", "session", "channel", "cron", "subagent"] as const).map((filter) => {
                 const label = {
                   all: t("chat.filterAll"),
