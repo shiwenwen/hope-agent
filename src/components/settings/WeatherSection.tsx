@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
-import { MapPin, Search, Cloud, RefreshCw, CircleAlert, Loader2 } from "lucide-react"
+import { MapPin, Search, Cloud, RefreshCw, CircleAlert, Loader2, LocateFixed } from "lucide-react"
 
 interface UserConfig {
   weatherEnabled?: boolean
@@ -55,6 +55,9 @@ export function WeatherSection({ config, update }: WeatherSectionProps) {
   const [isLoadingWeather, setIsLoadingWeather] = useState(false)
   const [weatherError, setWeatherError] = useState(false)
   
+  const [isLocating, setIsLocating] = useState(false)
+  const [locateMessage, setLocateMessage] = useState<{ text: string; type: "info" | "error" } | null>(null)
+
   const searchRef = useRef<HTMLDivElement>(null)
 
   // Sync loaded config city into search query
@@ -142,6 +145,39 @@ export function WeatherSection({ config, update }: WeatherSectionProps) {
     }
   }
 
+  const handleDetectLocation = async () => {
+    setIsLocating(true)
+    setLocateMessage(null)
+    try {
+      const result: {
+        latitude: number
+        longitude: number
+        city?: string | null
+        admin1?: string | null
+        country?: string | null
+        source: string
+      } = await invoke("detect_location")
+
+      update("weatherLatitude", result.latitude)
+      update("weatherLongitude", result.longitude)
+      if (result.city) {
+        update("weatherCity", result.city)
+        setSearchQuery(result.city)
+      }
+
+      if (result.source === "ip") {
+        setLocateMessage({ text: t("settings.weatherNetworkLocation"), type: "info" })
+        setTimeout(() => setLocateMessage(null), 4000)
+      }
+    } catch (e) {
+      logger.error("api", "detect_location", "Failed to detect location", { error: e })
+      setLocateMessage({ text: t("settings.weatherLocationFailed"), type: "error" })
+      setTimeout(() => setLocateMessage(null), 4000)
+    } finally {
+      setIsLocating(false)
+    }
+  }
+
   const handleSelectCity = (result: GeocodeResult) => {
     setSearchQuery(result.name)
     setShowDropdown(false)
@@ -178,20 +214,36 @@ export function WeatherSection({ config, update }: WeatherSectionProps) {
             {/* City Search */}
             <div className="space-y-1 relative" ref={searchRef}>
               <Label className="text-xs">{t("settings.weatherCity")}</Label>
-              <div className="relative">
-                <Input 
-                  placeholder={t("settings.weatherCityPlaceholder")}
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  onFocus={() => {
-                    if (searchResults.length > 0) setShowDropdown(true)
-                  }}
-                  className="pl-9"
-                />
-                <Search className="w-4 h-4 text-muted-foreground absolute left-3 top-2.5" />
-                {isSearching && (
-                  <Loader2 className="w-3.5 h-3.5 absolute right-3 top-3 animate-spin text-muted-foreground" />
-                )}
+              <div className="relative flex gap-1.5">
+                <div className="relative flex-1">
+                  <Input
+                    placeholder={t("settings.weatherCityPlaceholder")}
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onFocus={() => {
+                      if (searchResults.length > 0) setShowDropdown(true)
+                    }}
+                    className="pl-9"
+                  />
+                  <Search className="w-4 h-4 text-muted-foreground absolute left-3 top-2.5" />
+                  {isSearching && (
+                    <Loader2 className="w-3.5 h-3.5 absolute right-3 top-3 animate-spin text-muted-foreground" />
+                  )}
+                </div>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-9 w-9 shrink-0"
+                  title={t("settings.weatherDetectLocation")}
+                  onClick={handleDetectLocation}
+                  disabled={isLocating}
+                >
+                  {isLocating ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <LocateFixed className="w-4 h-4" />
+                  )}
+                </Button>
               </div>
               
               {/* Dropdown */}
@@ -218,6 +270,18 @@ export function WeatherSection({ config, update }: WeatherSectionProps) {
                 </div>
               )}
             </div>
+
+            {/* Location detection feedback */}
+            {locateMessage && (
+              <div className={cn(
+                "text-xs px-2 py-1.5 rounded-md",
+                locateMessage.type === "info"
+                  ? "bg-muted text-muted-foreground"
+                  : "bg-destructive/10 text-destructive"
+              )}>
+                {locateMessage.text}
+              </div>
+            )}
 
             {/* Coordinates display (manual overrides) */}
             <div className="grid grid-cols-2 gap-3 pb-2">

@@ -548,3 +548,13 @@ pub async fn refresh_weather() -> Result<Option<crate::weather::WeatherData>, St
         .await
         .map_err(|e| e.to_string())
 }
+
+/// Detect user location automatically (CoreLocation → IP fallback).
+#[tauri::command]
+pub async fn detect_location(
+    app_handle: tauri::AppHandle,
+) -> Result<crate::weather::DetectedLocation, String> {
+    crate::weather::detect_location(app_handle)
+        .await
+        .map_err(|e| e.to_string())
+}

@@ -29,6 +29,7 @@ src/                    前端（React + TypeScript）
 src-tauri/src/          后端（Rust）
   lib.rs                Tauri 命令注册 & AppState
   weather.rs            天气缓存系统与 Open-Meteo API
+  weather_location_macos.rs macOS 原生 CoreLocation 定位（objc2 delegate + callback 生命周期）
   agent/                AssistantAgent（多 Provider + Tool Loop）
     providers/          Anthropic / OpenAI Chat / OpenAI Responses / Codex
   channel/              IM 渠道系统（Telegram / WeChat 插件、会话映射、分发 worker）

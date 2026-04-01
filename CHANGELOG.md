@@ -51,6 +51,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **macOS 自动定位改为原生 CoreLocation**
+  - 移除 `osascript` + JXA 桥接，改为 Rust 后端通过 `objc2` 直接调用 `CLLocationManager`
+  - 原生实现一次性定位 delegate 与 callback 生命周期，避免 `DelClass.alloc` 这类 JXA bridge 错误
+  - CoreLocation 权限请求切回 Tauri 主线程执行，修复后台线程触发时系统授权弹窗不出现的问题
+  - `not_determined` 状态下改为先发起 one-shot location，请 macOS 自动弹出定位授权，而不是卡在单独的授权请求阶段
+  - 开发态非 `.app` 运行时直接跳过 CoreLocation 并回退到 IP 定位，避免在 `tauri dev` 下长时间等待不会出现的系统授权弹窗
+  - 定位等待改为异步 callback 驱动，不再在主线程上手动轮询 run loop
+  - 保留现有降级行为：系统定位失败或超时后自动回退到 IP 地理定位
+
 - **对齐斜杠命令在 Channel 对话中的执行行为**
   - `/model`、`/think` 在 Channel 中执行后实际切换模型/推理强度，并通过 `slash:model_switched`、`slash:effort_changed` 事件同步前端 UI
   - `/stop` 支持通过 `ChannelCancelRegistry` 取消 Channel 中正在进行的流式输出

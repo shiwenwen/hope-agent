@@ -39,6 +39,8 @@ mod tray;
 mod url_preview;
 mod user_config;
 mod weather;
+#[cfg(target_os = "macos")]
+mod weather_location_macos;
 
 use agent::AssistantAgent;
 use logging::{AppLogger, LogDB};

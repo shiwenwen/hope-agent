@@ -133,6 +133,58 @@ struct GeocodingResult {
     timezone: Option<String>,
 }
 
+// ── Location Detection ──────────────────────────────────────────
+
+/// Result of automatic location detection
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DetectedLocation {
+    pub latitude: f64,
+    pub longitude: f64,
+    pub city: Option<String>,
+    pub admin1: Option<String>,
+    pub country: Option<String>,
+    /// "system" (CoreLocation) or "ip" (IP geolocation)
+    pub source: String,
+}
+
+/// ip-api.com response
+#[derive(Debug, Deserialize)]
+struct IpApiResponse {
+    status: String,
+    #[serde(default)]
+    city: Option<String>,
+    #[serde(rename = "regionName", default)]
+    region_name: Option<String>,
+    #[serde(default)]
+    country: Option<String>,
+    #[serde(default)]
+    lat: Option<f64>,
+    #[serde(default)]
+    lon: Option<f64>,
+}
+
+/// Nominatim reverse geocoding response
+#[derive(Debug, Deserialize)]
+struct NominatimResponse {
+    #[serde(default)]
+    address: Option<NominatimAddress>,
+}
+
+#[derive(Debug, Deserialize)]
+struct NominatimAddress {
+    #[serde(default)]
+    city: Option<String>,
+    #[serde(default)]
+    town: Option<String>,
+    #[serde(default)]
+    village: Option<String>,
+    #[serde(default)]
+    state: Option<String>,
+    #[serde(default)]
+    country: Option<String>,
+}
+
 // ── Weather Cache ────────────────────────────────────────────────
 
 /// Cached weather data with change detection
@@ -374,9 +426,7 @@ pub async fn refresh_weather_cache() {
                         "refresh_cache",
                         &format!(
                             "Weather updated: {}°C, {} ({})",
-                            resp.current.temperature,
-                            resp.current.weather_description,
-                            city
+                            resp.current.temperature, resp.current.weather_description, city
                         ),
                         None,
                         None,
@@ -496,4 +546,154 @@ pub fn weather_code_description(code: i32) -> &'static str {
         99 => "Thunderstorm with heavy hail",
         _ => "Unknown",
     }
+}
+
+// ── Location Detection Functions ────────────────────────────────
+
+/// Detect location via IP geolocation (ip-api.com).
+/// Returns city-level accuracy, no permissions needed.
+async fn ip_geolocate() -> Result<DetectedLocation> {
+    let client = crate::provider::apply_proxy(
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .connect_timeout(std::time::Duration::from_secs(5)),
+    )
+    .build()?;
+
+    let resp: IpApiResponse = client
+        .get("http://ip-api.com/json/?fields=status,city,regionName,country,lat,lon")
+        .send()
+        .await?
+        .json()
+        .await?;
+
+    if resp.status != "success" {
+        anyhow::bail!("ip-api returned status: {}", resp.status);
+    }
+
+    let lat = resp
+        .lat
+        .ok_or_else(|| anyhow::anyhow!("No latitude in IP response"))?;
+    let lon = resp
+        .lon
+        .ok_or_else(|| anyhow::anyhow!("No longitude in IP response"))?;
+
+    Ok(DetectedLocation {
+        latitude: lat,
+        longitude: lon,
+        city: resp.city,
+        admin1: resp.region_name,
+        country: resp.country,
+        source: "ip".to_string(),
+    })
+}
+
+/// Reverse geocode coordinates to a city name via Nominatim.
+async fn reverse_geocode(
+    lat: f64,
+    lon: f64,
+) -> Result<(Option<String>, Option<String>, Option<String>)> {
+    let client = crate::provider::apply_proxy(
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .connect_timeout(std::time::Duration::from_secs(5)),
+    )
+    .build()?;
+
+    let url = format!(
+        "https://nominatim.openstreetmap.org/reverse?lat={}&lon={}&format=json&accept-language=zh",
+        lat, lon,
+    );
+
+    let resp: NominatimResponse = client
+        .get(&url)
+        .header("User-Agent", "OpenComputer/0.1 (weather-location)")
+        .send()
+        .await?
+        .json()
+        .await?;
+
+    if let Some(addr) = resp.address {
+        let city = addr.city.or(addr.town).or(addr.village);
+        Ok((city, addr.state, addr.country))
+    } else {
+        Ok((None, None, None))
+    }
+}
+
+#[cfg(target_os = "macos")]
+async fn system_locate(app_handle: tauri::AppHandle) -> Option<(f64, f64)> {
+    crate::weather_location_macos::system_locate(app_handle).await
+}
+
+#[cfg(not(target_os = "macos"))]
+async fn system_locate(_app_handle: tauri::AppHandle) -> Option<(f64, f64)> {
+    crate::app_info!(
+        "weather",
+        "system_locate",
+        "Not macOS, skipping CoreLocation"
+    );
+    None
+}
+
+/// Detect user location automatically.
+/// Tries macOS CoreLocation first (precise), falls back to IP geolocation (city-level).
+/// Reverse geocodes to get a city name when using system location.
+pub async fn detect_location(app_handle: tauri::AppHandle) -> Result<DetectedLocation> {
+    crate::app_info!("weather", "detect_location", "Starting location detection");
+
+    // Step 1: Try system location (macOS CoreLocation)
+    let system_result = system_locate(app_handle).await;
+
+    if let Some((lat, lon)) = system_result {
+        crate::app_info!(
+            "weather",
+            "detect_location",
+            "System location obtained, reverse geocoding lat={:.4}, lon={:.4}",
+            lat,
+            lon
+        );
+        let (city, admin1, country) = reverse_geocode(lat, lon)
+            .await
+            .unwrap_or((None, None, None));
+        crate::app_info!(
+            "weather",
+            "detect_location",
+            "Result: source=system, city={:?}",
+            city
+        );
+        return Ok(DetectedLocation {
+            latitude: lat,
+            longitude: lon,
+            city,
+            admin1,
+            country,
+            source: "system".to_string(),
+        });
+    }
+
+    // Step 2: Fall back to IP geolocation
+    crate::app_info!(
+        "weather",
+        "detect_location",
+        "System location unavailable, falling back to IP geolocation"
+    );
+    let result = ip_geolocate().await;
+    match &result {
+        Ok(loc) => crate::app_info!(
+            "weather",
+            "detect_location",
+            "Result: source=ip, city={:?}, lat={:.4}, lon={:.4}",
+            loc.city,
+            loc.latitude,
+            loc.longitude
+        ),
+        Err(e) => crate::app_error!(
+            "weather",
+            "detect_location",
+            "IP geolocation also failed: {}",
+            e
+        ),
+    }
+    result
 }
