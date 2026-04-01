@@ -36,6 +36,10 @@ pub async fn dispatch(
             let store = state.provider_store.lock().await;
             model::handle_model(&store, args)
         }
+        "models" => {
+            let store = state.provider_store.lock().await;
+            model::handle_model(&store, "")
+        }
         "think" => model::handle_think(args),
 
         // ── Memory ──

@@ -1288,6 +1288,7 @@
     "stop": { "description": "Stop current reply" },
     "rename": { "description": "Rename session" },
     "model": { "description": "Switch model" },
+    "models": { "description": "List all available models", "cardTitle": "Available Models" },
     "think": { "description": "Set thinking effort" },
     "remember": { "description": "Save a memory" },
     "forget": { "description": "Delete a memory" },

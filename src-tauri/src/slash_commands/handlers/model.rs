@@ -1,12 +1,12 @@
 use crate::provider::{self, AvailableModel, ProviderStore};
-use crate::slash_commands::types::{CommandAction, CommandResult};
+use crate::slash_commands::types::{CommandAction, CommandResult, ModelPickerItem};
 
 /// /model [name] — List or switch models.
 pub fn handle_model(store: &ProviderStore, args: &str) -> Result<CommandResult, String> {
     let models = provider::build_available_models(&store.providers);
 
     if args.trim().is_empty() {
-        // List all available models
+        // List all available models as an interactive picker
         if models.is_empty() {
             return Ok(CommandResult {
                 content: "No models available. Please configure a provider first.".into(),
@@ -14,25 +14,29 @@ pub fn handle_model(store: &ProviderStore, args: &str) -> Result<CommandResult, 
             });
         }
 
-        let mut lines = vec!["**Available Models**\n".to_string()];
-        let mut current_provider = String::new();
-        for m in &models {
-            if m.provider_name != current_provider {
-                current_provider = m.provider_name.clone();
-                lines.push(format!("\n**{}**", current_provider));
-            }
-            let active = store
-                .active_model
-                .as_ref()
-                .map(|a| a.provider_id == m.provider_id && a.model_id == m.model_id)
-                .unwrap_or(false);
-            let marker = if active { " ← current" } else { "" };
-            lines.push(format!("- `{}`{}", m.model_name, marker));
-        }
+        let items: Vec<ModelPickerItem> = models
+            .iter()
+            .map(|m| ModelPickerItem {
+                provider_id: m.provider_id.clone(),
+                provider_name: m.provider_name.clone(),
+                model_id: m.model_id.clone(),
+                model_name: m.model_name.clone(),
+            })
+            .collect();
+
+        let (active_pid, active_mid) = store
+            .active_model
+            .as_ref()
+            .map(|a| (Some(a.provider_id.clone()), Some(a.model_id.clone())))
+            .unwrap_or((None, None));
 
         return Ok(CommandResult {
-            content: lines.join("\n"),
-            action: Some(CommandAction::DisplayOnly),
+            content: String::new(),
+            action: Some(CommandAction::ShowModelPicker {
+                models: items,
+                active_provider_id: active_pid,
+                active_model_id: active_mid,
+            }),
         });
     }
 

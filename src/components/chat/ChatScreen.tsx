@@ -424,6 +424,20 @@ export default function ChatScreen({
         case "displayOnly":
           // Already handled above by adding event message
           break
+        case "showModelPicker": {
+          const pickerMsg: Message = {
+            role: "event",
+            content: "",
+            timestamp: new Date().toISOString(),
+            modelPickerData: {
+              models: action.models,
+              activeProviderId: action.activeProviderId,
+              activeModelId: action.activeModelId,
+            },
+          }
+          session.setMessages((prev) => [...prev, pickerMsg])
+          break
+        }
         case "enterPlanMode":
           planMode.enterPlanMode()
           break
@@ -582,6 +596,7 @@ export default function ChatScreen({
           onPausePlan={planMode.pauseExecution}
           onResumePlan={planMode.resumeExecution}
           planSubagentRunning={planMode.planSubagentRunning}
+          onSwitchModel={(providerId, modelId) => handleModelChange(`${providerId}::${modelId}`)}
         />
 
         {/* Memory extraction toast */}

@@ -32,6 +32,7 @@ interface MessageListProps {
   onPausePlan?: () => void
   onResumePlan?: () => void
   planSubagentRunning?: boolean
+  onSwitchModel?: (providerId: string, modelId: string) => void
 }
 
 export default function MessageList({
@@ -55,6 +56,7 @@ export default function MessageList({
   onPausePlan,
   onResumePlan,
   planSubagentRunning,
+  onSwitchModel,
 }: MessageListProps) {
   const { t } = useTranslation()
   const [hoveredMsgIndex, setHoveredMsgIndex] = useState<number | null>(null)
@@ -148,6 +150,7 @@ export default function MessageList({
             onCopy={handleCopyMessage}
             sessionId={sessionId}
             onOpenPlanPanel={onOpenPlanPanel}
+            onSwitchModel={onSwitchModel}
           />
         </div>
       ))}

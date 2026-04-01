@@ -1177,13 +1177,17 @@ async fn dispatch_slash_for_channel(
             })
         }
 
-        // ── DisplayOnly: for /model with no args, attach model list as inline buttons ──
-        Some(CommandAction::DisplayOnly) if name == "model" && args.trim().is_empty() => {
-            let model_buttons = build_model_buttons(app_state).await;
+        // ── ShowModelPicker: render model list as inline buttons for IM channels ──
+        Some(CommandAction::ShowModelPicker {
+            models,
+            active_provider_id,
+            active_model_id,
+        }) => {
+            let buttons = build_model_buttons_from_items(&models, &active_provider_id, &active_model_id);
             Ok(ChannelSlashOutcome::Reply {
-                content: result.content,
+                content: "Select a model:".into(),
                 new_session_id: None,
-                buttons: model_buttons,
+                buttons,
             })
         }
 
@@ -1196,32 +1200,29 @@ async fn dispatch_slash_for_channel(
     }
 }
 
-/// Build inline keyboard buttons for the model list.
-/// Each available model gets a button with callback_data `slash:model <model_name>`.
-/// Telegram limits inline keyboard callback_data to 64 bytes, so we use model_name
+/// Build inline keyboard buttons from model picker items.
+/// Each model gets a button with callback_data `slash:model <model_name>`.
+/// Telegram limits callback_data to 64 bytes, so we use model_name
 /// (the display name the fuzzy matcher accepts) rather than model_id.
-async fn build_model_buttons(
-    app_state: &crate::AppState,
+fn build_model_buttons_from_items(
+    models: &[crate::slash_commands::types::ModelPickerItem],
+    active_provider_id: &Option<String>,
+    active_model_id: &Option<String>,
 ) -> Vec<Vec<crate::channel::types::InlineButton>> {
-    let store = app_state.provider_store.lock().await;
-    let models = crate::provider::build_available_models(&store.providers);
-
-    // Group up to 2 models per row, max 20 buttons (Telegram limit is 100 but keep it tidy)
     let mut rows: Vec<Vec<crate::channel::types::InlineButton>> = Vec::new();
     let mut row: Vec<crate::channel::types::InlineButton> = Vec::new();
 
     for m in models.iter().take(20) {
-        let is_active = store
-            .active_model
+        let is_active = active_provider_id
             .as_ref()
-            .map(|a| a.provider_id == m.provider_id && a.model_id == m.model_id)
+            .zip(active_model_id.as_ref())
+            .map(|(pid, mid)| pid == &m.provider_id && mid == &m.model_id)
             .unwrap_or(false);
         let label = if is_active {
             format!("✓ {}", m.model_name)
         } else {
             m.model_name.clone()
         };
-        // Telegram callback_data max is 64 bytes; truncate if needed
         let cb = format!("slash:model {}", m.model_name);
         let cb = if cb.len() > 64 {
             format!("slash:model {}", &m.model_id)

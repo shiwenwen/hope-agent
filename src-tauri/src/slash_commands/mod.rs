@@ -45,6 +45,7 @@ pub async fn list_slash_commands(
             category: CommandCategory::Skill,
             description_key: String::new(), // No i18n key — use raw description
             has_args: true,
+            args_optional: true,
             arg_placeholder: Some("[args]".into()),
             arg_options: None,
             // Carry the raw description for frontend display

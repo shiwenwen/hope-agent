@@ -241,12 +241,13 @@ export function useSlashCommands(
         setExpandedCmd(cmd)
         setSelectedOptionIndex(0)
         setInput(`/${cmd.name} `)
-      } else if (cmd.hasArgs) {
-        // Has args but no built-in options: fill in command and let user type
+      } else if (cmd.hasArgs && !cmd.argsOptional) {
+        // Has required args but no built-in options: fill in command and let user type
         setInput(`/${cmd.name} `)
         setIsOpen(false)
         setForceOpen(false)
       } else {
+        // No args, or args are optional: execute directly
         executeCommandInner(cmd)
       }
     },

@@ -1288,6 +1288,7 @@
     "stop": { "description": "停止当前回复" },
     "rename": { "description": "重命名对话" },
     "model": { "description": "切换模型" },
+    "models": { "description": "列出所有可用模型", "cardTitle": "可用模型" },
     "think": { "description": "设置思考强度" },
     "remember": { "description": "保存记忆" },
     "forget": { "description": "删除记忆" },

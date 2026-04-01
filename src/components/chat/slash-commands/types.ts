@@ -7,6 +7,7 @@ export interface SlashCommandDef {
   category: CommandCategory
   descriptionKey: string
   hasArgs: boolean
+  argsOptional?: boolean
   argPlaceholder?: string
   argOptions?: string[]
   /** Raw description for skill commands (no i18n key). */
@@ -26,11 +27,20 @@ export type CommandAction =
   | { type: "exportFile"; content: string; filename: string }
   | { type: "setToolPermission"; mode: string }
   | { type: "displayOnly" }
+  | { type: "showModelPicker"; models: ModelPickerItem[]; activeProviderId?: string; activeModelId?: string }
   | { type: "enterPlanMode" }
   | { type: "exitPlanMode"; planContent?: string }
   | { type: "approvePlan"; planContent?: string }
   | { type: "showPlan"; planContent: string }
   | { type: "viewSystemPrompt" }
+
+/** A model entry in the model picker card */
+export interface ModelPickerItem {
+  providerId: string
+  providerName: string
+  modelId: string
+  modelName: string
+}
 
 /** Matches Rust CommandResult struct */
 export interface CommandResult {
