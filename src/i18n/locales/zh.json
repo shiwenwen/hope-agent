@@ -219,7 +219,8 @@
     "subagent": "子 Agent",
     "update_plan_step": "更新计划步骤",
     "rawCall": "查看原始调用",
-    "loadingSkill": "加载技能: {{name}}"
+    "loadingSkill": "加载技能: {{name}}",
+    "elapsed": "耗时 {{time}}"
   },
   "toolGroup": {
     "browse": "已浏览 {{count}} 个文件",
@@ -1109,7 +1110,8 @@
     "queueIndicator": "第 {{current}} 个，共 {{total}} 个"
   },
   "thinking": {
-    "label": "思考过程"
+    "label": "思考过程",
+    "elapsed": "耗时 {{time}}"
   },
   "provider_templates": {
     "anthropic": {

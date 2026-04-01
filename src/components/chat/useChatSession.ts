@@ -443,6 +443,7 @@ export function useChatSession({
               callId: ev.call_id,
               name: ev.name,
               arguments: ev.arguments || "",
+              startedAtMs: Date.now(),
             }
             calls.push(newTool)
             const blocks: ContentBlock[] = [...(last.contentBlocks || [])]
@@ -458,8 +459,16 @@ export function useChatSession({
             const mediaUrls: string[] | undefined = ev.media_urls?.length ? ev.media_urls : undefined
             const calls = [...(last.toolCalls || [])]
             const idx = calls.findIndex((c) => c.callId === ev.call_id)
+            const resolvedDurationMs = ev.duration_ms ?? (
+              idx >= 0 && calls[idx].startedAtMs ? Date.now() - calls[idx].startedAtMs! : undefined
+            )
             if (idx >= 0) {
-              calls[idx] = { ...calls[idx], result: ev.result, ...(mediaUrls && { mediaUrls }) }
+              calls[idx] = {
+                ...calls[idx],
+                result: ev.result,
+                ...(mediaUrls && { mediaUrls }),
+                ...(resolvedDurationMs != null ? { durationMs: resolvedDurationMs } : {}),
+              }
             }
             const blocks: ContentBlock[] = [...(last.contentBlocks || [])]
             const blockIdx = blocks.findIndex(
@@ -472,7 +481,12 @@ export function useChatSession({
               }
               blocks[blockIdx] = {
                 type: "tool_call",
-                tool: { ...block.tool, result: ev.result, ...(mediaUrls && { mediaUrls }) },
+                tool: {
+                  ...block.tool,
+                  result: ev.result,
+                  ...(mediaUrls && { mediaUrls }),
+                  ...(resolvedDurationMs != null ? { durationMs: resolvedDurationMs } : {}),
+                },
               }
             }
             updated[updated.length - 1] = {

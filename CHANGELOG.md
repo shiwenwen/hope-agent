@@ -17,6 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **聊天 Think/Tool 运行态展示优化（前端）**
+  - Think 内容区域新增最大高度限制，超出后在内部滚动，避免思考块无限撑高消息气泡
+  - Think 流式更新时自动滚动到底部，便于持续跟踪最新推理片段
+  - Think 头部新增耗时显示，流式阶段按 100ms 粒度实时刷新，结束后保留最终耗时
+  - Tool 调用项（单条与分组）新增耗时显示：运行中实时更新，完成后展示后端返回的最终 duration
+  - Tool 调用流事件补充 `startedAtMs`/`durationMs` 前端字段，统一支持实时耗时与完成态耗时展示
+  - Tool 完成时若后端未返回 `duration_ms`，前端会基于 `startedAtMs` 自动补算并写入最终耗时；历史消息回放也会读取 `toolDurationMs` 还原工具耗时
 - **System Prompt 工具描述重构 + 行为指导增强**（参考 Claude Code System Prompts）
   - 工具描述从单一 60 行常量拆分为 31 个独立 per-tool 常量，每个工具包含详细使用指南、最佳实践和常见陷阱
   - `build_tools_section()` 重写为按 agent allow/deny 配置动态组装，只注入授权工具的描述，减少无关 token 消耗

@@ -205,6 +205,7 @@ export function useChatStream({
                     callId: ev.call_id,
                     name: ev.name,
                     arguments: ev.arguments || "",
+                    startedAtMs: Date.now(),
                   },
                 ]
                 const blocks = [...(last.contentBlocks || [])]
@@ -228,12 +229,31 @@ export function useChatStream({
               const last = updated[updated.length - 1]
               if (last?.role === "assistant" && last.toolCalls) {
                 const mediaUrls: string[] | undefined = ev.media_urls?.length ? ev.media_urls : undefined
+                const current = last.toolCalls.find((tc) => tc.callId === ev.call_id)
+                const resolvedDurationMs = ev.duration_ms ?? (
+                  current?.startedAtMs ? Date.now() - current.startedAtMs : undefined
+                )
                 const toolCalls = last.toolCalls.map((tc) =>
-                  tc.callId === ev.call_id ? { ...tc, result: ev.result, ...(mediaUrls && { mediaUrls }) } : tc,
+                  tc.callId === ev.call_id
+                    ? {
+                        ...tc,
+                        result: ev.result,
+                        ...(mediaUrls && { mediaUrls }),
+                        ...(resolvedDurationMs != null ? { durationMs: resolvedDurationMs } : {}),
+                      }
+                    : tc,
                 )
                 const blocks = (last.contentBlocks || []).map((b) =>
                   b.type === "tool_call" && b.tool?.callId === ev.call_id
-                    ? { ...b, tool: { ...b.tool!, result: ev.result, ...(mediaUrls && { mediaUrls }) } }
+                    ? {
+                        ...b,
+                        tool: {
+                          ...b.tool!,
+                          result: ev.result,
+                          ...(mediaUrls && { mediaUrls }),
+                          ...(resolvedDurationMs != null ? { durationMs: resolvedDurationMs } : {}),
+                        },
+                      }
                     : b,
                 )
                 updated[updated.length - 1] = {
@@ -556,6 +576,7 @@ export function useChatStream({
                   callId: event.call_id,
                   name: event.name,
                   arguments: event.arguments,
+                  startedAtMs: Date.now(),
                 }
                 calls.push(newTool)
                 const blocks: ContentBlock[] = [...(last.contentBlocks || [])]
@@ -571,8 +592,16 @@ export function useChatStream({
                 const mediaUrls: string[] | undefined = event.media_urls?.length ? event.media_urls : undefined
                 const calls = [...(last.toolCalls || [])]
                 const idx = calls.findIndex((c) => c.callId === event.call_id)
+                const resolvedDurationMs = event.duration_ms ?? (
+                  idx >= 0 && calls[idx].startedAtMs ? Date.now() - calls[idx].startedAtMs! : undefined
+                )
                 if (idx >= 0) {
-                  calls[idx] = { ...calls[idx], result: event.result, ...(mediaUrls && { mediaUrls }) }
+                  calls[idx] = {
+                    ...calls[idx],
+                    result: event.result,
+                    ...(mediaUrls && { mediaUrls }),
+                    ...(resolvedDurationMs != null ? { durationMs: resolvedDurationMs } : {}),
+                  }
                 }
                 const blocks: ContentBlock[] = [...(last.contentBlocks || [])]
                 const blockIdx = blocks.findIndex(
@@ -585,7 +614,12 @@ export function useChatStream({
                   }
                   blocks[blockIdx] = {
                     type: "tool_call",
-                    tool: { ...block.tool, result: event.result, ...(mediaUrls && { mediaUrls }) },
+                    tool: {
+                      ...block.tool,
+                      result: event.result,
+                      ...(mediaUrls && { mediaUrls }),
+                      ...(resolvedDurationMs != null ? { durationMs: resolvedDurationMs } : {}),
+                    },
                   }
                 }
                 updated[updated.length - 1] = {

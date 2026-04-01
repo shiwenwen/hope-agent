@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import {
   ChevronRight,
@@ -39,6 +39,14 @@ const CATEGORY_MAP: Record<string, ToolCategory> = {
 
 function getToolCategory(name: string): ToolCategory {
   return CATEGORY_MAP[name] || "other"
+}
+
+function formatElapsed(ms: number): string {
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`
+  const totalSeconds = Math.floor(ms / 1000)
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return `${minutes}m ${seconds}s`
 }
 
 /** Icon per category */
@@ -154,6 +162,7 @@ function GroupItem({ tool }: { tool: ToolCall }) {
   const { t } = useTranslation()
   const [showResult, setShowResult] = useState(false)
   const [showRaw, setShowRaw] = useState(false)
+  const [now, setNow] = useState(() => Date.now())
   const isRunning = tool.result === undefined
   const skillName = getSkillName(tool)
   const fullTarget = skillName ? "" : getFullTarget(tool)
@@ -163,6 +172,18 @@ function GroupItem({ tool }: { tool: ToolCall }) {
   const preview = skillName ? null : getResultPreview(tool.result)
   const cat = getToolCategory(tool.name)
   const CatIcon = CATEGORY_ICONS[cat]
+  const startedAtMs = tool.startedAtMs || 0
+  const elapsedMs = tool.durationMs ?? (isRunning && startedAtMs ? now - startedAtMs : undefined)
+  const elapsedText = useMemo(
+    () => (elapsedMs != null && elapsedMs >= 0 ? formatElapsed(elapsedMs) : null),
+    [elapsedMs],
+  )
+
+  useEffect(() => {
+    if (!isRunning || !startedAtMs) return
+    const timer = window.setInterval(() => setNow(Date.now()), 100)
+    return () => window.clearInterval(timer)
+  }, [isRunning, startedAtMs])
 
   return (
     <div className="text-[11px]">
@@ -189,10 +210,15 @@ function GroupItem({ tool }: { tool: ToolCall }) {
             {preview}
           </span>
         )}
+        {elapsedText && (
+          <span className="ml-auto shrink-0 text-[10px] text-muted-foreground/60 tabular-nums">
+            {t("tools.elapsed", { time: elapsedText })}
+          </span>
+        )}
         <IconTip label={t("tools.rawCall", "查看原始调用")}>
           <span
             role="button"
-            className="ml-auto shrink-0 p-0.5 rounded hover:bg-secondary text-muted-foreground/40 hover:text-muted-foreground/80 transition-colors opacity-0 group-hover/item:opacity-100"
+            className="shrink-0 p-0.5 rounded hover:bg-secondary text-muted-foreground/40 hover:text-muted-foreground/80 transition-colors opacity-0 group-hover/item:opacity-100"
             onClick={(e) => {
               e.stopPropagation()
               setShowRaw(!showRaw)

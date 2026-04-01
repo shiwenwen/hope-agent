@@ -219,7 +219,8 @@
     "subagent": "Sub-Agent",
     "update_plan_step": "Update Plan Step",
     "rawCall": "View raw call",
-    "loadingSkill": "Loading skill: {{name}}"
+    "loadingSkill": "Loading skill: {{name}}",
+    "elapsed": "Elapsed {{time}}"
   },
   "toolGroup": {
     "browse": "Browsed {{count}} files",
@@ -1109,7 +1110,8 @@
     "queueIndicator": "{{current}} of {{total}}"
   },
   "thinking": {
-    "label": "Thinking"
+    "label": "Thinking",
+    "elapsed": "Elapsed {{time}}"
   },
   "provider_templates": {
     "anthropic": {
