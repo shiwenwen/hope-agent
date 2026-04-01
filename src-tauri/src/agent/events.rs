@@ -75,72 +75,129 @@ pub(super) fn emit_tool_result(
     emit_event(on_delta, &event);
 }
 
-/// Parse the `__IMAGE_BASE64__<mime>__<base64data>\n<text>` marker.
-/// Returns `Some((mime, base64, text_description))` if present.
-fn parse_image_base64_marker(result: &str) -> Option<(&str, &str, &str)> {
+/// Parsed image marker: (mime, base64_data, text_description).
+struct ImageMarker<'a> {
+    mime: &'a str,
+    b64: &'a str,
+    text: &'a str,
+}
+
+/// Parse all `__IMAGE_BASE64__<mime>__<base64data>__\n<text>` markers from a tool result.
+/// Returns (leading_text, Vec<ImageMarker>). Supports single and multi-image results.
+fn parse_all_image_markers(result: &str) -> (String, Vec<ImageMarker<'_>>) {
     use crate::tools::browser::IMAGE_BASE64_PREFIX;
-    let rest = result.strip_prefix(IMAGE_BASE64_PREFIX)?;
-    let sep_idx = rest.find("__")?;
-    let mime = &rest[..sep_idx];
-    let after = &rest[sep_idx + 2..];
-    let (b64, text) = after.split_once('\n').unwrap_or((after, ""));
-    Some((mime, b64, text))
+    let mut markers = Vec::new();
+
+    // Split by the prefix; first segment is leading text (may be empty)
+    let parts: Vec<&str> = result.split(IMAGE_BASE64_PREFIX).collect();
+    if parts.len() <= 1 {
+        // No markers found
+        return (result.to_string(), markers);
+    }
+
+    let leading_text = parts[0].trim().to_string();
+
+    for part in &parts[1..] {
+        // Each part looks like: "<mime>__<base64>__\n<text_description>\n\n..."
+        if let Some(sep_idx) = part.find("__") {
+            let mime = &part[..sep_idx];
+            let after = &part[sep_idx + 2..];
+            // Base64 data ends at next newline (or end of this segment)
+            let (b64, text) = after.split_once('\n').unwrap_or((after, ""));
+            markers.push(ImageMarker {
+                mime,
+                b64,
+                text: text.trim(),
+            });
+        }
+    }
+
+    (leading_text, markers)
 }
 
 /// Build tool result content for Anthropic Messages API.
-/// Detects `__IMAGE_BASE64__` marker and returns a content array with image + text blocks.
+/// Detects `__IMAGE_BASE64__` markers and returns a content array with image + text blocks.
 pub(super) fn build_anthropic_tool_result_content(result: &str) -> serde_json::Value {
-    if let Some((mime, b64, text)) = parse_image_base64_marker(result) {
-        return json!([
-            {
-                "type": "image",
-                "source": {
-                    "type": "base64",
-                    "media_type": mime,
-                    "data": b64
-                }
-            },
-            {
-                "type": "text",
-                "text": if text.trim().is_empty() { "Screenshot captured." } else { text.trim() }
-            }
-        ]);
+    let (leading, markers) = parse_all_image_markers(result);
+    if markers.is_empty() {
+        return json!(result);
     }
-    json!(result)
+
+    let mut content = Vec::new();
+    if !leading.is_empty() {
+        content.push(json!({"type": "text", "text": leading}));
+    }
+    for m in &markers {
+        content.push(json!({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": m.mime,
+                "data": m.b64
+            }
+        }));
+        let text = if m.text.is_empty() { "Image captured." } else { m.text };
+        content.push(json!({"type": "text", "text": text}));
+    }
+    json!(content)
 }
 
 /// Build tool result content for OpenAI Chat Completions API.
-/// Returns a content array with `image_url` (data URI) + `text` blocks when image is detected.
+/// Returns a content array with `image_url` (data URI) + `text` blocks when images are detected.
 pub(super) fn build_openai_chat_tool_result_content(result: &str) -> serde_json::Value {
-    if let Some((mime, b64, text)) = parse_image_base64_marker(result) {
-        let data_uri = format!("data:{};base64,{}", mime, b64);
-        return json!([
-            {
-                "type": "image_url",
-                "image_url": { "url": data_uri }
-            },
-            {
-                "type": "text",
-                "text": if text.trim().is_empty() { "Screenshot captured." } else { text.trim() }
-            }
-        ]);
+    let (leading, markers) = parse_all_image_markers(result);
+    if markers.is_empty() {
+        return json!(result);
     }
-    json!(result)
+
+    let mut content = Vec::new();
+    if !leading.is_empty() {
+        content.push(json!({"type": "text", "text": leading}));
+    }
+    for m in &markers {
+        let data_uri = format!("data:{};base64,{}", m.mime, m.b64);
+        content.push(json!({
+            "type": "image_url",
+            "image_url": { "url": data_uri }
+        }));
+        let text = if m.text.is_empty() { "Image captured." } else { m.text };
+        content.push(json!({"type": "text", "text": text}));
+    }
+    json!(content)
 }
 
 /// Build tool result for OpenAI Responses API (`function_call_output`).
-/// The `output` field only accepts a string, so when an image is detected,
-/// returns `(clean_text, Some(image_input_item))` where the image item
-/// should be appended to the input array as a separate message.
-pub(super) fn build_responses_tool_result(result: &str) -> (String, Option<serde_json::Value>) {
-    if let Some((mime, b64, text)) = parse_image_base64_marker(result) {
-        let clean = if text.trim().is_empty() {
-            "Screenshot captured.".to_string()
+/// The `output` field only accepts a string, so when images are detected,
+/// returns `(clean_text, Vec<image_input_items>)` where each image item
+/// should be appended to the input array as a separate user message.
+pub(super) fn build_responses_tool_result(result: &str) -> (String, Vec<serde_json::Value>) {
+    let (leading, markers) = parse_all_image_markers(result);
+    if markers.is_empty() {
+        return (result.to_string(), Vec::new());
+    }
+
+    // Build combined text output for the function_call_output field
+    let mut text_parts = Vec::new();
+    if !leading.is_empty() {
+        text_parts.push(leading);
+    }
+    for m in &markers {
+        let text = if m.text.is_empty() { "Image captured." } else { m.text };
+        text_parts.push(text.to_string());
+    }
+    let combined_text = text_parts.join("\n");
+
+    // Build one user message per image for the input array
+    let mut image_items = Vec::new();
+    for (i, m) in markers.iter().enumerate() {
+        let data_uri = format!("data:{};base64,{}", m.mime, m.b64);
+        let label = if m.text.is_empty() { "Image captured." } else { m.text };
+        let tag = if markers.len() > 1 {
+            format!("[Tool visual output {}/{}] {}", i + 1, markers.len(), label)
         } else {
-            text.trim().to_string()
+            format!("[Tool visual output] {}", label)
         };
-        let data_uri = format!("data:{};base64,{}", mime, b64);
-        let image_item = json!({
+        image_items.push(json!({
             "role": "user",
             "content": [
                 {
@@ -149,14 +206,13 @@ pub(super) fn build_responses_tool_result(result: &str) -> (String, Option<serde
                 },
                 {
                     "type": "input_text",
-                    "text": format!("[Tool visual output] {}", clean)
+                    "text": tag
                 }
             ]
-        });
-        (clean, Some(image_item))
-    } else {
-        (result.to_string(), None)
+        }));
     }
+
+    (combined_text, image_items)
 }
 
 pub(super) fn emit_thinking_delta(on_delta: &(impl Fn(&str) + Send), text: &str) {

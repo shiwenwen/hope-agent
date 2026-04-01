@@ -816,21 +816,52 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         // ── Image Analysis ──────────────────────────────────────
         ToolDefinition {
             name: TOOL_IMAGE.into(),
-            description: "Analyze an image file. Reads the image at the given path and returns it as base64-encoded data for visual analysis. Supports PNG, JPEG, GIF, WebP, BMP, TIFF. Oversized images are auto-resized. Use 'prompt' to specify what to analyze.".into(),
+            description: "Analyze one or more images for visual understanding. Supports multiple sources: local files, HTTP/HTTPS URLs, data URIs, system clipboard, and desktop screenshots. Up to 10 images per call — each image is sent directly to the model as raw vision data for maximum quality. Supports PNG, JPEG, GIF, WebP, BMP, TIFF. Oversized images are auto-resized.".into(),
             internal: true,
             parameters: json!({
                 "type": "object",
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "Image file path (supports ~ expansion)"
+                        "description": "Single image file path (shorthand for images: [{type:'file', path:'...'}]). Supports ~ expansion."
+                    },
+                    "url": {
+                        "type": "string",
+                        "description": "Single image URL (shorthand for images: [{type:'url', url:'...'}]). Supports HTTP/HTTPS and data: URIs."
+                    },
+                    "images": {
+                        "type": "array",
+                        "description": "Array of image sources (max 10). Use this for multi-image analysis.",
+                        "maxItems": 10,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "type": {
+                                    "type": "string",
+                                    "enum": ["file", "url", "clipboard", "screenshot"],
+                                    "description": "Source type: 'file' (local path), 'url' (HTTP/HTTPS/data URI), 'clipboard' (system clipboard image), 'screenshot' (capture desktop)"
+                                },
+                                "path": {
+                                    "type": "string",
+                                    "description": "File path (for type='file')"
+                                },
+                                "url": {
+                                    "type": "string",
+                                    "description": "URL (for type='url')"
+                                },
+                                "monitor": {
+                                    "type": "integer",
+                                    "description": "Monitor index for screenshot (default: 0 = primary)"
+                                }
+                            },
+                            "required": ["type"]
+                        }
                     },
                     "prompt": {
                         "type": "string",
-                        "description": "What to analyze or describe about the image (optional)"
+                        "description": "What to analyze or describe about the image(s)"
                     }
                 },
-                "required": ["path"],
                 "additionalProperties": false
             }),
         },

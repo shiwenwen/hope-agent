@@ -428,7 +428,7 @@ impl AssistantAgent {
                     &media_urls,
                 );
 
-                let (text_output, image_item) = build_responses_tool_result(&clean_result);
+                let (text_output, image_items) = build_responses_tool_result(&clean_result);
 
                 input.push(json!({
                     "type": "function_call",
@@ -442,7 +442,7 @@ impl AssistantAgent {
                     "call_id": tc.call_id,
                     "output": text_output,
                 }));
-                if let Some(img_item) = image_item {
+                for img_item in image_items {
                     input.push(img_item);
                 }
             }
