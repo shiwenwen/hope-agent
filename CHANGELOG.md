@@ -24,6 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **React Error Boundary**：新增 `ErrorBoundary` 组件包裹整个 App，任何子组件渲染错误不再导致白屏，提供友好的错误恢复 UI
 - **MessageBubble 性能优化**：使用 `React.memo` 包裹 MessageBubble 组件，避免流式输出时 50+ 条消息的不必要重渲染
+- **Memory SQLite 连接池**：将单连接 `Mutex<Connection>` 改为写连接 + 4 个只读连接池（round-robin），WAL 模式下读操作不再阻塞写入，search/list/count 等查询可并发执行
+- **前端 Bundle Code-Splitting**：DashboardView 和 CronCalendarView 改为 `React.lazy()` 动态导入，减少首屏加载体积
+- **Streamdown 插件懒加载**：math（KaTeX ~300KB）和 mermaid（~200KB）插件改为按需动态导入，仅在消息内容包含数学公式或 Mermaid 图表时加载
 
 ### Added
 
