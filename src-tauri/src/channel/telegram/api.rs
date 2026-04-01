@@ -3,8 +3,8 @@ use anyhow::Result;
 use std::time::Duration;
 use teloxide::prelude::*;
 use teloxide::types::{
-    ChatAction, ChatId, InlineKeyboardButton, InlineKeyboardMarkup, InputFile, Me, MessageId,
-    ParseMode as TgParseMode, ReplyParameters, ThreadId,
+    BotCommand, ChatAction, ChatId, InlineKeyboardButton, InlineKeyboardMarkup, InputFile, Me,
+    MessageId, ParseMode as TgParseMode, ReplyParameters, ThreadId,
 };
 
 /// Thin wrapper around teloxide's `Bot` to isolate framework details.
@@ -241,6 +241,15 @@ impl TelegramBotApi {
 
         req.await
             .map_err(|e| anyhow::anyhow!("getUpdates failed: {}", e))
+    }
+
+    /// Register bot menu commands via setMyCommands API.
+    pub async fn set_my_commands(&self, commands: Vec<BotCommand>) -> Result<()> {
+        self.bot
+            .set_my_commands(commands)
+            .await
+            .map_err(|e| anyhow::anyhow!("setMyCommands failed: {}", e))?;
+        Ok(())
     }
 
     /// Download a file by file_id (returns the file path on Telegram servers).

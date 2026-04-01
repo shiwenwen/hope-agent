@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Telegram 斜杠命令菜单同步**
+  - Bot 启动认证后自动调用 `setMyCommands` 将所有内置斜杠命令同步到 Telegram 的 `/` 命令菜单
+  - 用户在 Telegram 中输入 `/` 即可看到所有可用命令及英文描述
+  - `SlashCommandDef` 新增 `description_en()` 方法，为渠道 API 提供英文描述（无需 i18n 系统）
+  - 同步失败不阻塞 Bot 启动，仅记录警告日志
+
 - **天气地区自动定位**
   - 设置面板城市搜索框旁新增定位按钮（LocateFixed 图标）
   - macOS 优先使用 CoreLocation 系统定位（精确），通过 `objc2` FFI 直接调用，权限对话框显示应用名 "OpenComputer"

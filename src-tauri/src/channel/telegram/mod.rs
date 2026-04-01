@@ -44,6 +44,40 @@ impl TelegramPlugin {
             .ok_or_else(|| anyhow::anyhow!("Missing 'token' in Telegram credentials"))
     }
 
+    /// Sync slash commands to Telegram's bot menu via setMyCommands.
+    /// Called once after successful authentication. Non-fatal on failure.
+    async fn sync_commands_to_menu(api: &TelegramBotApi) {
+        let commands = crate::slash_commands::registry::all_commands();
+
+        let bot_commands: Vec<teloxide::types::BotCommand> = commands
+            .iter()
+            .map(|cmd| teloxide::types::BotCommand {
+                command: cmd.name.clone(),
+                description: cmd.description_en(),
+            })
+            .collect();
+
+        let count = bot_commands.len();
+        match api.set_my_commands(bot_commands).await {
+            Ok(()) => {
+                app_info!(
+                    "channel",
+                    "telegram",
+                    "Synced {} commands to bot menu",
+                    count
+                );
+            }
+            Err(e) => {
+                app_warn!(
+                    "channel",
+                    "telegram",
+                    "Failed to sync bot menu commands: {}",
+                    e
+                );
+            }
+        }
+    }
+
     /// Extract optional proxy URL from settings or global config.
     fn extract_proxy(settings: &serde_json::Value) -> Option<String> {
         // Check channel-level proxy first
@@ -138,6 +172,9 @@ impl ChannelPlugin for TelegramPlugin {
             bot_username,
             bot_id
         );
+
+        // Sync slash commands to Telegram bot menu
+        Self::sync_commands_to_menu(&api).await;
 
         let api = Arc::new(api);
 
