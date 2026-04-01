@@ -444,7 +444,7 @@ export default function ChatSidebar({
                 }[filter]
                 const count = filter === "channel"
                   ? 0  // Channel sessions don't show unread counts
-                  : filterSessions.reduce((sum, s) => sum + s.unreadCount, 0)
+                  : filterSessions.reduce((sum, s) => sum + (s.channelInfo ? 0 : s.unreadCount), 0)
                 const isActive = sessionFilter === filter
                 const handleMarkAllRead = async () => {
                   const unreadSessions = filterSessions.filter((s) => s.unreadCount > 0)
