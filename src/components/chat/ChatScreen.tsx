@@ -178,6 +178,52 @@ export default function ChatScreen({
     return () => { unlisten?.() }
   }, [handleNewChat, currentAgentId])
 
+  // Listen for channel slash command state-sync events
+  useEffect(() => {
+    const unlisteners: Promise<UnlistenFn>[] = []
+
+    // Model switched from channel (/model)
+    unlisteners.push(
+      listen("slash:model_switched", (event) => {
+        const { providerId, modelId } = event.payload as {
+          providerId: string
+          modelId: string
+        }
+        setActiveModel({ providerId, modelId })
+        applyModelForDisplay(providerId, modelId)
+      }),
+    )
+
+    // Effort changed from channel (/think)
+    unlisteners.push(
+      listen("slash:effort_changed", (event) => {
+        setReasoningEffort(event.payload as string)
+      }),
+    )
+
+    // Session cleared from channel (/clear)
+    unlisteners.push(
+      listen("slash:session_cleared", (event) => {
+        const clearedSid = event.payload as string
+        if (clearedSid === session.currentSessionId) {
+          session.setMessages([])
+        }
+        session.reloadSessions()
+      }),
+    )
+
+    // Plan state changed from channel (/plan)
+    unlisteners.push(
+      listen("slash:plan_changed", () => {
+        session.reloadSessions()
+      }),
+    )
+
+    return () => {
+      unlisteners.forEach((p) => p.then((fn) => fn()))
+    }
+  }, [session.currentSessionId]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Fetch models and current settings on mount
   useEffect(() => {
     ;(async () => {
