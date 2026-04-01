@@ -266,6 +266,7 @@ fn convert_callback_query(
         media: Vec::new(),
         reply_to_message_id: None,
         timestamp: msg.date,
+        was_mentioned: true,
         raw: serde_json::json!({ "callback_query_id": cb.id }),
     })
 }
