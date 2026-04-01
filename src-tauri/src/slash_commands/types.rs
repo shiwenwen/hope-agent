@@ -107,6 +107,43 @@ pub enum CommandAction {
     ViewSystemPrompt,
 }
 
+impl SlashCommandDef {
+    /// Return an English description for use in channel APIs (e.g. Telegram Bot Menu).
+    ///
+    /// For skill commands, uses `description_raw`. For built-in commands, maps
+    /// the command name to a hardcoded English string (matching en.json values).
+    pub fn description_en(&self) -> String {
+        if let Some(ref raw) = self.description_raw {
+            return raw.clone();
+        }
+        match self.name.as_str() {
+            "new" => "Start a new chat",
+            "clear" => "Clear conversation",
+            "compact" => "Compress context",
+            "stop" => "Stop current reply",
+            "rename" => "Rename session",
+            "model" => "Switch model",
+            "models" => "List all available models",
+            "think" => "Set thinking effort",
+            "remember" => "Save a memory",
+            "forget" => "Delete a memory",
+            "memories" => "List memories",
+            "agent" => "Switch agent",
+            "agents" => "List agents",
+            "help" => "Show all commands",
+            "status" => "Session status",
+            "export" => "Export as Markdown",
+            "usage" => "Token usage",
+            "search" => "Search the web",
+            "permission" => "Set tool permission mode",
+            "plan" => "Enter/exit plan mode",
+            "prompts" => "View system prompt",
+            _ => "Command",
+        }
+        .to_string()
+    }
+}
+
 /// A single model entry for the model picker card.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
