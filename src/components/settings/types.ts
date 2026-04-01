@@ -8,6 +8,7 @@ export type SettingsSection =
   | "cron"
   | "notifications"
   | "sandbox"
+  | "acp"
   | "permissions"
   | "profile"
   | "chat"
@@ -125,6 +126,8 @@ export interface AgentConfig {
     deniedAgents: string[]
     maxConcurrent: number
     defaultTimeoutSecs: number
+    maxSpawnDepth?: number | null
+    announceTimeoutSecs?: number | null
     model?: string | null
   }
 }

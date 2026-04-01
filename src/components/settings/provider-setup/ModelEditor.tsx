@@ -2,6 +2,7 @@ import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { useSortable } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
+import type { DraggableAttributes, DraggableSyntheticListeners } from "@dnd-kit/core"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -19,6 +20,17 @@ import {
   XCircle,
 } from "lucide-react"
 import type { ModelConfig } from "./types"
+
+interface ModelTestData {
+  success?: boolean
+  message?: string
+  latencyMs?: number
+  reply?: string
+  request?: unknown
+  response?: unknown
+  status?: number | string
+  model?: string
+}
 
 // ── SortableModelEditor ──────────────────────────────────────────
 
@@ -74,15 +86,15 @@ export function ModelEditor({
   onChange: (m: ModelConfig) => void
   onRemove: () => void
   onTest?: (modelId: string) => Promise<string>
-  dragListeners?: Record<string, unknown>
-  dragAttributes?: Record<string, unknown>
+  dragListeners?: DraggableSyntheticListeners
+  dragAttributes?: DraggableAttributes
 }) {
   const { t } = useTranslation()
   const inputTypes = ["text", "image", "video"]
   const [testLoading, setTestLoading] = useState(false)
   const [testResult, setTestResult] = useState<{
     ok: boolean
-    data: Record<string, unknown>
+    data: ModelTestData
   } | null>(null)
   const [logExpanded, setLogExpanded] = useState(false)
 
@@ -328,7 +340,7 @@ export function ModelEditor({
                       <X className="h-2.5 w-2.5" />
                     </button>
                   </div>
-                  {d.request && (
+                  {d.request != null && (
                     <div>
                       <span className="text-[9px] font-semibold text-blue-400">▸ 请求</span>
                       <pre className="text-[10px] text-muted-foreground whitespace-pre-wrap break-all max-h-32 overflow-y-auto font-mono mt-0.5 pl-2 border-l-2 border-blue-500/30">

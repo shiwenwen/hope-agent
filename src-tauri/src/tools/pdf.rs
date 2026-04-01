@@ -76,10 +76,7 @@ fn normalize_pdf_sources(args: &Value, max_pdfs: usize) -> Result<Vec<PdfSource>
     if let Some(arr) = args.get("pdfs").and_then(|v| v.as_array()) {
         for item in arr {
             if let Some(obj) = item.as_object() {
-                let src_type = obj
-                    .get("type")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("file");
+                let src_type = obj.get("type").and_then(|v| v.as_str()).unwrap_or("file");
                 match src_type {
                     "file" => {
                         if let Some(p) = obj.get("path").and_then(|v| v.as_str()) {
@@ -90,9 +87,7 @@ fn normalize_pdf_sources(args: &Value, max_pdfs: usize) -> Result<Vec<PdfSource>
                     }
                     "url" => {
                         if let Some(u) = obj.get("url").and_then(|v| v.as_str()) {
-                            sources.push(PdfSource::Url {
-                                url: u.to_string(),
-                            });
+                            sources.push(PdfSource::Url { url: u.to_string() });
                         }
                     }
                     _ => {}
@@ -126,9 +121,7 @@ fn normalize_pdf_sources(args: &Value, max_pdfs: usize) -> Result<Vec<PdfSource>
     // 3. Shorthand: `url`
     if sources.is_empty() {
         if let Some(u) = args.get("url").and_then(|v| v.as_str()) {
-            sources.push(PdfSource::Url {
-                url: u.to_string(),
-            });
+            sources.push(PdfSource::Url { url: u.to_string() });
         }
     }
 
@@ -295,9 +288,8 @@ fn build_vision_output(
     max_vision_pages: usize,
 ) -> String {
     // Convert 1-indexed page filter to 0-indexed for render_pdf_bytes
-    let indices: Option<Vec<usize>> = page_filter.map(|filter| {
-        filter.iter().map(|&p| p.saturating_sub(1)).collect()
-    });
+    let indices: Option<Vec<usize>> =
+        page_filter.map(|filter| filter.iter().map(|&p| p.saturating_sub(1)).collect());
 
     match crate::file_extract::render_pdf_bytes(
         data,
@@ -346,10 +338,7 @@ fn build_vision_output(
 pub(crate) async fn tool_pdf(args: &Value) -> Result<String> {
     let config = load_pdf_config();
 
-    let mode = args
-        .get("mode")
-        .and_then(|v| v.as_str())
-        .unwrap_or("auto");
+    let mode = args.get("mode").and_then(|v| v.as_str()).unwrap_or("auto");
 
     let pages_spec = args.get("pages").and_then(|v| v.as_str());
     let max_chars = args
@@ -388,24 +377,26 @@ pub(crate) async fn tool_pdf(args: &Value) -> Result<String> {
         };
 
         let part = match mode {
-            "text" => {
-                match extract_text_from_bytes(&data) {
-                    Ok(pages) => build_text_output(
-                        &pages,
-                        page_filter.as_deref(),
-                        max_chars,
-                        &source_label,
-                        file_size,
-                    ),
-                    Err(e) => format!(
-                        "{}PDF: {} ({} bytes)\n\nError: {}",
-                        label_prefix, source_label, file_size, e
-                    ),
-                }
-            }
-            "vision" => {
-                build_vision_output(&data, page_filter.as_deref(), &source_label, file_size, config.max_vision_pages)
-            }
+            "text" => match extract_text_from_bytes(&data) {
+                Ok(pages) => build_text_output(
+                    &pages,
+                    page_filter.as_deref(),
+                    max_chars,
+                    &source_label,
+                    file_size,
+                ),
+                Err(e) => format!(
+                    "{}PDF: {} ({} bytes)\n\nError: {}",
+                    label_prefix, source_label, file_size, e
+                ),
+            },
+            "vision" => build_vision_output(
+                &data,
+                page_filter.as_deref(),
+                &source_label,
+                file_size,
+                config.max_vision_pages,
+            ),
             _ => {
                 // auto: try text first, fall back to vision if sparse
                 match extract_text_from_bytes(&data) {

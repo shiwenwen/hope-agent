@@ -49,7 +49,11 @@ impl WeChatApi {
         serde_json::from_str(&raw).context("Failed to decode WeChat QR code response")
     }
 
-    pub async fn poll_login_status(base_url: &str, qrcode: &str, timeout_ms: u64) -> Result<QrStatusResponse> {
+    pub async fn poll_login_status(
+        base_url: &str,
+        qrcode: &str,
+        timeout_ms: u64,
+    ) -> Result<QrStatusResponse> {
         match Self::get_text(
             base_url,
             &format!(
@@ -60,8 +64,9 @@ impl WeChatApi {
         )
         .await
         {
-            Ok(raw) => serde_json::from_str(&raw)
-                .context("Failed to decode WeChat QR status response"),
+            Ok(raw) => {
+                serde_json::from_str(&raw).context("Failed to decode WeChat QR status response")
+            }
             Err(err) if is_timeout(&err) => Ok(QrStatusResponse {
                 status: Some("wait".to_string()),
                 ..Default::default()
@@ -86,8 +91,9 @@ impl WeChatApi {
             )
             .await
         {
-            Ok(raw) => serde_json::from_str(&raw)
-                .context("Failed to decode WeChat getUpdates response"),
+            Ok(raw) => {
+                serde_json::from_str(&raw).context("Failed to decode WeChat getUpdates response")
+            }
             Err(err) if is_timeout(&err) => Ok(GetUpdatesResponse {
                 ret: Some(0),
                 get_updates_buf: Some(get_updates_buf.to_string()),
@@ -141,10 +147,7 @@ impl WeChatApi {
         Ok(message_id)
     }
 
-    pub async fn get_upload_url(
-        &self,
-        body: serde_json::Value,
-    ) -> Result<GetUploadUrlResponse> {
+    pub async fn get_upload_url(&self, body: serde_json::Value) -> Result<GetUploadUrlResponse> {
         let raw = self
             .post_json("ilink/bot/getuploadurl", body, 15_000)
             .await?;
@@ -202,7 +205,9 @@ impl WeChatApi {
             "WeChat probe failed: ret={} errcode={} errmsg={}",
             ret,
             errcode,
-            response.errmsg.unwrap_or_else(|| "unknown error".to_string())
+            response
+                .errmsg
+                .unwrap_or_else(|| "unknown error".to_string())
         ))
     }
 
@@ -212,10 +217,7 @@ impl WeChatApi {
         let response = client
             .get(url.clone())
             .header("iLink-App-Id", ILINK_APP_ID)
-            .header(
-                "iLink-App-ClientVersion",
-                client_version().to_string(),
-            )
+            .header("iLink-App-ClientVersion", client_version().to_string())
             .timeout(std::time::Duration::from_millis(timeout_ms))
             .send()
             .await
@@ -253,14 +255,16 @@ impl WeChatApi {
             .header("AuthorizationType", "ilink_bot_token")
             .header("X-WECHAT-UIN", random_wechat_uin())
             .header("iLink-App-Id", ILINK_APP_ID)
-            .header(
-                "iLink-App-ClientVersion",
-                client_version().to_string(),
-            )
+            .header("iLink-App-ClientVersion", client_version().to_string())
             .timeout(std::time::Duration::from_millis(timeout_ms))
             .json(&body);
 
-        if let Some(token) = self.token.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+        if let Some(token) = self
+            .token
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+        {
             request = request.header("Authorization", format!("Bearer {}", token));
         }
 

@@ -76,7 +76,7 @@ export default function LogPanel() {
   const [filterCategories, setFilterCategories] = useState<string[]>([])
   const [keyword, setKeyword] = useState("")
   const keywordRef = useRef("")
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>()
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined)
 
   // File mode state
   const [logFiles, setLogFiles] = useState<LogFileInfo[]>([])

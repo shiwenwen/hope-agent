@@ -66,10 +66,7 @@ fn normalize_sources(args: &Value, max_images: usize) -> Result<Vec<ImageSource>
     // 1. Check `images` array parameter
     if let Some(arr) = args.get("images").and_then(|v| v.as_array()) {
         for item in arr {
-            let src_type = item
-                .get("type")
-                .and_then(|v| v.as_str())
-                .unwrap_or("file");
+            let src_type = item.get("type").and_then(|v| v.as_str()).unwrap_or("file");
             match src_type {
                 "file" => {
                     let path = item
@@ -93,7 +90,10 @@ fn normalize_sources(args: &Value, max_images: usize) -> Result<Vec<ImageSource>
                     sources.push(ImageSource::Clipboard);
                 }
                 "screenshot" => {
-                    let monitor = item.get("monitor").and_then(|v| v.as_u64()).map(|n| n as usize);
+                    let monitor = item
+                        .get("monitor")
+                        .and_then(|v| v.as_u64())
+                        .map(|n| n as usize);
                     sources.push(ImageSource::Screenshot { monitor });
                 }
                 other => {
@@ -178,10 +178,7 @@ async fn resolve_url(url: &str) -> Result<(Vec<u8>, String)> {
     if let Some(ct) = resp.headers().get(reqwest::header::CONTENT_TYPE) {
         if let Ok(ct_str) = ct.to_str() {
             if !ct_str.starts_with("image/") && !ct_str.starts_with("application/octet-stream") {
-                return Err(anyhow!(
-                    "URL returned non-image content type: {}",
-                    ct_str
-                ));
+                return Err(anyhow!("URL returned non-image content type: {}", ct_str));
             }
         }
     }
@@ -242,8 +239,12 @@ fn resolve_clipboard() -> Result<(Vec<u8>, String)> {
         .get_image()
         .map_err(|_| anyhow!("Clipboard does not contain an image"))?;
 
-    let rgba = RgbaImage::from_raw(img_data.width as u32, img_data.height as u32, img_data.bytes.into_owned())
-        .ok_or_else(|| anyhow!("Failed to create image from clipboard data"))?;
+    let rgba = RgbaImage::from_raw(
+        img_data.width as u32,
+        img_data.height as u32,
+        img_data.bytes.into_owned(),
+    )
+    .ok_or_else(|| anyhow!("Failed to create image from clipboard data"))?;
 
     let dyn_img = image::DynamicImage::ImageRgba8(rgba);
 
@@ -252,10 +253,7 @@ fn resolve_clipboard() -> Result<(Vec<u8>, String)> {
         .write_to(&mut buf, image::ImageFormat::Png)
         .map_err(|e| anyhow!("Failed to encode clipboard image as PNG: {}", e))?;
 
-    let label = format!(
-        "clipboard ({}x{})",
-        img_data.width, img_data.height
-    );
+    let label = format!("clipboard ({}x{})", img_data.width, img_data.height);
     Ok((buf.into_inner(), label))
 }
 
@@ -270,13 +268,20 @@ fn resolve_screenshot(monitor_index: Option<usize>) -> Result<(Vec<u8>, String)>
     }
 
     let idx = monitor_index.unwrap_or(0);
-    let monitor = monitors
-        .get(idx)
-        .ok_or_else(|| anyhow!("Monitor index {} out of range (available: {})", idx, monitors.len()))?;
+    let monitor = monitors.get(idx).ok_or_else(|| {
+        anyhow!(
+            "Monitor index {} out of range (available: {})",
+            idx,
+            monitors.len()
+        )
+    })?;
 
-    let rgba_image = monitor
-        .capture_image()
-        .map_err(|e| anyhow!("Screenshot capture failed (may need Screen Recording permission): {}", e))?;
+    let rgba_image = monitor.capture_image().map_err(|e| {
+        anyhow!(
+            "Screenshot capture failed (may need Screen Recording permission): {}",
+            e
+        )
+    })?;
 
     let (w, h) = (rgba_image.width(), rgba_image.height());
     let dyn_img = image::DynamicImage::ImageRgba8(rgba_image);

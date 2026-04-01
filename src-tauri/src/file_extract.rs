@@ -186,10 +186,7 @@ fn bind_pdfium() -> Result<pdfium_render::prelude::Pdfium> {
 }
 
 /// Render a single PDF page to a base64 PNG string.
-fn render_page_to_b64(
-    page: &pdfium_render::prelude::PdfPage,
-    render_width: u32,
-) -> Result<String> {
+fn render_page_to_b64(page: &pdfium_render::prelude::PdfPage, render_width: u32) -> Result<String> {
     use pdfium_render::prelude::*;
 
     let width = page.width();
@@ -259,7 +256,12 @@ pub(crate) fn render_pdf_bytes(
     let mut results = Vec::new();
 
     let indices_to_render: Vec<usize> = if let Some(indices) = page_indices {
-        indices.iter().copied().filter(|&i| i < total).take(max_pages).collect()
+        indices
+            .iter()
+            .copied()
+            .filter(|&i| i < total)
+            .take(max_pages)
+            .collect()
     } else {
         (0..total.min(max_pages)).collect()
     };

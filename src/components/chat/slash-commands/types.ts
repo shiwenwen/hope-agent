@@ -32,6 +32,8 @@ export type CommandAction =
   | { type: "exitPlanMode"; planContent?: string }
   | { type: "approvePlan"; planContent?: string }
   | { type: "showPlan"; planContent: string }
+  | { type: "pausePlan" }
+  | { type: "resumePlan" }
   | { type: "viewSystemPrompt" }
 
 /** A model entry in the model picker card */

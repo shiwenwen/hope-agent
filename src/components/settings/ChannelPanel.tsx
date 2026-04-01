@@ -165,7 +165,7 @@ export default function ChannelPanel() {
       }
       setHealthMap(hMap)
     } catch (e) {
-      logger.error("Failed to load channel data", e)
+      logger.error("channel", "ChannelPanel", "Failed to load channel data", e)
     } finally {
       setLoading(false)
     }
@@ -194,7 +194,7 @@ export default function ChannelPanel() {
       await invoke("channel_start_account", { accountId })
       await loadData()
     } catch (e) {
-      logger.error("Failed to start channel account", e)
+      logger.error("channel", "ChannelPanel", "Failed to start channel account", e)
     }
   }
 
@@ -203,7 +203,7 @@ export default function ChannelPanel() {
       await invoke("channel_stop_account", { accountId })
       await loadData()
     } catch (e) {
-      logger.error("Failed to stop channel account", e)
+      logger.error("channel", "ChannelPanel", "Failed to stop channel account", e)
     }
   }
 
@@ -212,7 +212,7 @@ export default function ChannelPanel() {
       await invoke("channel_remove_account", { accountId })
       await loadData()
     } catch (e) {
-      logger.error("Failed to remove channel account", e)
+      logger.error("channel", "ChannelPanel", "Failed to remove channel account", e)
     }
   }
 
@@ -224,7 +224,7 @@ export default function ChannelPanel() {
       })
       await loadData()
     } catch (e) {
-      logger.error("Failed to toggle channel account", e)
+      logger.error("channel", "ChannelPanel", "Failed to toggle channel account", e)
     }
   }
 
@@ -719,7 +719,7 @@ function AddAccountDialog({
       setWeChatConnection(null)
       onAdded()
     } catch (e) {
-      logger.error("Failed to add channel account", e)
+      logger.error("channel", "ChannelPanel", "Failed to add channel account", e)
     } finally {
       setSaving(false)
     }
@@ -1008,7 +1008,7 @@ function EditAccountDialog({
       await invoke("channel_update_account", params)
       onSaved()
     } catch (e) {
-      logger.error("Failed to update channel account", e)
+      logger.error("channel", "ChannelPanel", "Failed to update channel account", e)
     } finally {
       setSaving(false)
     }

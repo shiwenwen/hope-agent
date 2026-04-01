@@ -214,7 +214,7 @@ export default function ImageGeneratePanel() {
         }
       })
       .catch((e) => {
-        logger.error("settings", `Failed to load image generate config: ${e}`)
+        logger.error("settings", "ImageGeneratePanel", `Failed to load image generate config: ${e}`)
       })
     return () => {
       cancelled = true
@@ -229,7 +229,7 @@ export default function ImageGeneratePanel() {
       setSaveStatus("saved")
       setTimeout(() => setSaveStatus("idle"), 2000)
     } catch (e) {
-      logger.error("settings", `Failed to save image generate config: ${e}`)
+      logger.error("settings", "ImageGeneratePanel", `Failed to save image generate config: ${e}`)
       setSaveStatus("failed")
       setTimeout(() => setSaveStatus("idle"), 2000)
     } finally {

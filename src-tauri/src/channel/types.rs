@@ -342,7 +342,6 @@ pub struct SecurityConfig {
     pub admin_ids: Vec<String>,
 
     // ── New layered group/channel config (OpenClaw-compatible) ────
-
     /// Account-level group policy (open | allowlist | disabled).
     #[serde(default)]
     pub group_policy: GroupPolicy,

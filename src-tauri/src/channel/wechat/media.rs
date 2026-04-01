@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use openssl::hash::{hash, MessageDigest};
 use openssl::symm::{decrypt, encrypt, Cipher};
-use reqwest::header::{CONTENT_TYPE, HeaderValue};
+use reqwest::header::{HeaderValue, CONTENT_TYPE};
 use serde_json::json;
 use tokio::fs;
 use uuid::Uuid;
@@ -56,7 +56,8 @@ pub async fn send_outbound_media(
         }));
     }
     items.push(item);
-    api.send_message_items(to_user_id, items, context_token).await
+    api.send_message_items(to_user_id, items, context_token)
+        .await
 }
 
 pub async fn download_inbound_media(
@@ -188,7 +189,8 @@ fn build_outbound_item(
     local_path: &Path,
     upload: &UploadedFileInfo,
 ) -> Result<serde_json::Value> {
-    let aes_key_base64 = base64::engine::general_purpose::STANDARD.encode(upload.aes_key_hex.as_bytes());
+    let aes_key_base64 =
+        base64::engine::general_purpose::STANDARD.encode(upload.aes_key_hex.as_bytes());
     let _media = json!({
         "encrypt_query_param": upload.download_encrypted_query_param,
         "aes_key": aes_key_base64,
@@ -296,7 +298,13 @@ async fn upload_media_to_wechat(
     let upload_url = upload_response
         .upload_full_url
         .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| build_cdn_upload_url(cdn_base_url, upload_response.upload_param.as_deref().unwrap_or_default(), &filekey));
+        .unwrap_or_else(|| {
+            build_cdn_upload_url(
+                cdn_base_url,
+                upload_response.upload_param.as_deref().unwrap_or_default(),
+                &filekey,
+            )
+        });
 
     let client = reqwest::Client::new();
 
@@ -306,7 +314,10 @@ async fn upload_media_to_wechat(
     for attempt in 0..3 {
         let resp = client
             .post(upload_url.clone())
-            .header(CONTENT_TYPE, HeaderValue::from_static("application/octet-stream"))
+            .header(
+                CONTENT_TYPE,
+                HeaderValue::from_static("application/octet-stream"),
+            )
             .body(ciphertext.clone())
             .send()
             .await
@@ -410,7 +421,10 @@ async fn download_plain_media(media: &CdnMedia, cdn_base_url: &str) -> Result<Ve
         .clone()
         .filter(|value| !value.trim().is_empty())
         .or_else(|| {
-            media.encrypt_query_param.as_ref().map(|param| build_cdn_download_url(cdn_base_url, param))
+            media
+                .encrypt_query_param
+                .as_ref()
+                .map(|param| build_cdn_download_url(cdn_base_url, param))
         })
         .ok_or_else(|| anyhow::anyhow!("Missing WeChat CDN download URL"))?;
 
@@ -418,7 +432,10 @@ async fn download_plain_media(media: &CdnMedia, cdn_base_url: &str) -> Result<Ve
         .await
         .with_context(|| format!("Failed to download WeChat media '{}'", download_url))?;
     let status = response.status();
-    let bytes = response.bytes().await.context("Failed to read WeChat CDN body")?;
+    let bytes = response
+        .bytes()
+        .await
+        .context("Failed to read WeChat CDN body")?;
     if !status.is_success() {
         return Err(anyhow::anyhow!(
             "WeChat CDN download failed with {}",
@@ -448,7 +465,11 @@ fn parse_aes_key(aes_key_base64: &str) -> Result<Vec<u8>> {
 async fn save_outbound_bytes(ext: &str, bytes: &[u8]) -> Result<PathBuf> {
     let dir = outbound_temp_dir()?;
     fs::create_dir_all(&dir).await?;
-    let path = dir.join(format!("{}.{}", Uuid::new_v4().simple(), ext.trim_start_matches('.')));
+    let path = dir.join(format!(
+        "{}.{}",
+        Uuid::new_v4().simple(),
+        ext.trim_start_matches('.')
+    ));
     fs::write(&path, bytes).await?;
     Ok(path)
 }
@@ -478,7 +499,11 @@ async fn save_inbound_named_file(
 ) -> Result<PathBuf> {
     let dir = inbound_temp_dir()?;
     fs::create_dir_all(&dir).await?;
-    let filename = format!("{}-{}", sanitize_name(message_id), sanitize_name(original_name));
+    let filename = format!(
+        "{}-{}",
+        sanitize_name(message_id),
+        sanitize_name(original_name)
+    );
     let path = dir.join(filename);
     fs::write(&path, bytes).await?;
     Ok(path)

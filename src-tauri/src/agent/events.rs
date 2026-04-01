@@ -136,7 +136,11 @@ pub(super) fn build_anthropic_tool_result_content(result: &str) -> serde_json::V
                 "data": m.b64
             }
         }));
-        let text = if m.text.is_empty() { "Image captured." } else { m.text };
+        let text = if m.text.is_empty() {
+            "Image captured."
+        } else {
+            m.text
+        };
         content.push(json!({"type": "text", "text": text}));
     }
     json!(content)
@@ -160,7 +164,11 @@ pub(super) fn build_openai_chat_tool_result_content(result: &str) -> serde_json:
             "type": "image_url",
             "image_url": { "url": data_uri }
         }));
-        let text = if m.text.is_empty() { "Image captured." } else { m.text };
+        let text = if m.text.is_empty() {
+            "Image captured."
+        } else {
+            m.text
+        };
         content.push(json!({"type": "text", "text": text}));
     }
     json!(content)
@@ -182,7 +190,11 @@ pub(super) fn build_responses_tool_result(result: &str) -> (String, Vec<serde_js
         text_parts.push(leading);
     }
     for m in &markers {
-        let text = if m.text.is_empty() { "Image captured." } else { m.text };
+        let text = if m.text.is_empty() {
+            "Image captured."
+        } else {
+            m.text
+        };
         text_parts.push(text.to_string());
     }
     let combined_text = text_parts.join("\n");
@@ -191,7 +203,11 @@ pub(super) fn build_responses_tool_result(result: &str) -> (String, Vec<serde_js
     let mut image_items = Vec::new();
     for (i, m) in markers.iter().enumerate() {
         let data_uri = format!("data:{};base64,{}", m.mime, m.b64);
-        let label = if m.text.is_empty() { "Image captured." } else { m.text };
+        let label = if m.text.is_empty() {
+            "Image captured."
+        } else {
+            m.text
+        };
         let tag = if markers.len() > 1 {
             format!("[Tool visual output {}/{}] {}", i + 1, markers.len(), label)
         } else {

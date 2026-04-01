@@ -18,6 +18,7 @@ export interface MemoryEntry {
   createdAt: string
   updatedAt: string
   relevanceScore?: number | null
+  pinned?: boolean
 }
 
 export interface MemorySearchQuery {

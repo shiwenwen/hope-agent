@@ -80,7 +80,7 @@ export default function AcpControlPanel() {
       setConfig(cfg)
       setSavedSnapshot(JSON.stringify(cfg))
     } catch (e) {
-      logger.error("settings", `Failed to load ACP config: ${e}`)
+      logger.error("settings", "AcpControlPanel", `Failed to load ACP config: ${e}`)
     }
   }, [])
 
@@ -90,7 +90,7 @@ export default function AcpControlPanel() {
       const list = await invoke<AcpBackendInfo[]>("acp_list_backends")
       setBackends(list)
     } catch (e) {
-      logger.error("settings", `Failed to load ACP backends: ${e}`)
+      logger.error("settings", "AcpControlPanel", `Failed to load ACP backends: ${e}`)
     } finally {
       setChecking(false)
     }
@@ -111,7 +111,7 @@ export default function AcpControlPanel() {
       setTimeout(() => setSaveStatus("idle"), 2000)
       loadBackends()
     } catch (e) {
-      logger.error("settings", `Failed to save ACP config: ${e}`)
+      logger.error("settings", "AcpControlPanel", `Failed to save ACP config: ${e}`)
       setSaveStatus("failed")
       setTimeout(() => setSaveStatus("idle"), 2000)
     } finally {

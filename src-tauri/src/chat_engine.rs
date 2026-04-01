@@ -470,80 +470,97 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
 
             let chat_start = std::time::Instant::now();
             match agent
-                .chat(&message, &attachments, effort_ref, cancel_clone, move |delta| {
-                    // Intercept usage events
-                    if let Ok(event) = serde_json::from_str::<serde_json::Value>(delta) {
-                        match event.get("type").and_then(|t| t.as_str()) {
-                            Some("usage") => {
-                                if let Ok(mut u) = captured_usage_clone.lock() {
-                                    if let Some(v) =
-                                        event.get("input_tokens").and_then(|v| v.as_i64())
-                                    {
-                                        u.input_tokens = Some(v);
-                                    }
-                                    if let Some(v) =
-                                        event.get("output_tokens").and_then(|v| v.as_i64())
-                                    {
-                                        u.output_tokens = Some(v);
-                                    }
-                                    if let Some(v) = event.get("model").and_then(|v| v.as_str()) {
-                                        u.model = Some(v.to_string());
-                                    }
-                                    if let Some(v) = event.get("ttft_ms").and_then(|v| v.as_i64()) {
-                                        u.ttft_ms = Some(v);
-                                    }
-                                }
-                            }
-                            Some("thinking_delta") => {
-                                if let Some(text) = event.get("content").and_then(|t| t.as_str()) {
-                                    // Record start time on first thinking_delta
-                                    if let Ok(mut ts) = thinking_start_clone.lock() {
-                                        if ts.is_none() {
-                                            *ts = Some(std::time::Instant::now());
+                .chat(
+                    &message,
+                    &attachments,
+                    effort_ref,
+                    cancel_clone,
+                    move |delta| {
+                        // Intercept usage events
+                        if let Ok(event) = serde_json::from_str::<serde_json::Value>(delta) {
+                            match event.get("type").and_then(|t| t.as_str()) {
+                                Some("usage") => {
+                                    if let Ok(mut u) = captured_usage_clone.lock() {
+                                        if let Some(v) =
+                                            event.get("input_tokens").and_then(|v| v.as_i64())
+                                        {
+                                            u.input_tokens = Some(v);
+                                        }
+                                        if let Some(v) =
+                                            event.get("output_tokens").and_then(|v| v.as_i64())
+                                        {
+                                            u.output_tokens = Some(v);
+                                        }
+                                        if let Some(v) = event.get("model").and_then(|v| v.as_str())
+                                        {
+                                            u.model = Some(v.to_string());
+                                        }
+                                        if let Some(v) =
+                                            event.get("ttft_ms").and_then(|v| v.as_i64())
+                                        {
+                                            u.ttft_ms = Some(v);
                                         }
                                     }
+                                }
+                                Some("thinking_delta") => {
+                                    if let Some(text) =
+                                        event.get("content").and_then(|t| t.as_str())
+                                    {
+                                        // Record start time on first thinking_delta
+                                        if let Ok(mut ts) = thinking_start_clone.lock() {
+                                            if ts.is_none() {
+                                                *ts = Some(std::time::Instant::now());
+                                            }
+                                        }
+                                        if let Ok(mut pk) = pending_thinking_clone.lock() {
+                                            pk.push_str(text);
+                                        }
+                                    }
+                                }
+                                Some("text_delta") => {
+                                    if let Some(text) = event.get("text").and_then(|t| t.as_str()) {
+                                        if let Ok(mut pt) = pending_text_clone.lock() {
+                                            pt.push_str(text);
+                                        }
+                                    }
+                                }
+                                Some("tool_call") => {
+                                    // Flush accumulated thinking before tool_call
                                     if let Ok(mut pk) = pending_thinking_clone.lock() {
-                                        pk.push_str(text);
+                                        if !pk.is_empty() {
+                                            let duration = thinking_start_clone
+                                                .lock()
+                                                .ok()
+                                                .and_then(|mut ts| ts.take())
+                                                .map(|t| t.elapsed().as_millis() as i64);
+                                            let thinking_msg =
+                                                session::NewMessage::thinking_block_with_duration(
+                                                    &pk, duration,
+                                                );
+                                            let _ = db_for_cb
+                                                .append_message(&sid_for_cb, &thinking_msg);
+                                            pk.clear();
+                                            had_thinking_blocks_clone
+                                                .store(true, std::sync::atomic::Ordering::SeqCst);
+                                        }
                                     }
-                                }
-                            }
-                            Some("text_delta") => {
-                                if let Some(text) = event.get("text").and_then(|t| t.as_str()) {
+                                    // Flush accumulated text before tool_call
                                     if let Ok(mut pt) = pending_text_clone.lock() {
-                                        pt.push_str(text);
+                                        if !pt.is_empty() {
+                                            let text_msg = session::NewMessage::text_block(&pt);
+                                            let _ =
+                                                db_for_cb.append_message(&sid_for_cb, &text_msg);
+                                            pt.clear();
+                                        }
                                     }
                                 }
+                                _ => {}
                             }
-                            Some("tool_call") => {
-                                // Flush accumulated thinking before tool_call
-                                if let Ok(mut pk) = pending_thinking_clone.lock() {
-                                    if !pk.is_empty() {
-                                        let duration = thinking_start_clone.lock().ok()
-                                            .and_then(|mut ts| ts.take())
-                                            .map(|t| t.elapsed().as_millis() as i64);
-                                        let thinking_msg = session::NewMessage::thinking_block_with_duration(&pk, duration);
-                                        let _ =
-                                            db_for_cb.append_message(&sid_for_cb, &thinking_msg);
-                                        pk.clear();
-                                        had_thinking_blocks_clone
-                                            .store(true, std::sync::atomic::Ordering::SeqCst);
-                                    }
-                                }
-                                // Flush accumulated text before tool_call
-                                if let Ok(mut pt) = pending_text_clone.lock() {
-                                    if !pt.is_empty() {
-                                        let text_msg = session::NewMessage::text_block(&pt);
-                                        let _ = db_for_cb.append_message(&sid_for_cb, &text_msg);
-                                        pt.clear();
-                                    }
-                                }
-                            }
-                            _ => {}
                         }
-                    }
-                    persist_tool_event(&db_for_cb, &sid_for_cb, delta);
-                    event_sink_clone.send(delta);
-                })
+                        persist_tool_event(&db_for_cb, &sid_for_cb, delta);
+                        event_sink_clone.send(delta);
+                    },
+                )
                 .await
             {
                 Ok((result, thinking)) => {
@@ -561,10 +578,13 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     // Flush remaining pending thinking
                     if let Ok(mut pk) = pending_thinking.lock() {
                         if !pk.is_empty() {
-                            let duration = thinking_start_time.lock().ok()
+                            let duration = thinking_start_time
+                                .lock()
+                                .ok()
                                 .and_then(|mut ts| ts.take())
                                 .map(|t| t.elapsed().as_millis() as i64);
-                            let thinking_msg = session::NewMessage::thinking_block_with_duration(&pk, duration);
+                            let thinking_msg =
+                                session::NewMessage::thinking_block_with_duration(&pk, duration);
                             let _ = db.append_message(&session_id, &thinking_msg);
                             pk.clear();
                             had_thinking_blocks.store(true, std::sync::atomic::Ordering::SeqCst);

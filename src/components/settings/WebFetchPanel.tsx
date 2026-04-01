@@ -54,7 +54,7 @@ export default function WebFetchPanel() {
         }
       })
       .catch((e) => {
-        logger.error("settings", `Failed to load web fetch config: ${e}`)
+        logger.error("settings", "WebFetchPanel", `Failed to load web fetch config: ${e}`)
       })
     return () => {
       cancelled = true
@@ -69,7 +69,7 @@ export default function WebFetchPanel() {
       setSaveStatus("saved")
       setTimeout(() => setSaveStatus("idle"), 2000)
     } catch (e) {
-      logger.error("settings", `Failed to save web fetch config: ${e}`)
+      logger.error("settings", "WebFetchPanel", `Failed to save web fetch config: ${e}`)
       setSaveStatus("failed")
       setTimeout(() => setSaveStatus("idle"), 2000)
     } finally {

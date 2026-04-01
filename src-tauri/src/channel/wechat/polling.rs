@@ -6,7 +6,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-use crate::channel::types::{ChatType, ChannelId, MsgContext};
+use crate::channel::types::{ChannelId, ChatType, MsgContext};
 
 use super::api::{
     GetUpdatesResponse, MessageItem, WeChatApi, WeChatMessage, DEFAULT_WECHAT_CDN_BASE_URL,
@@ -116,12 +116,18 @@ pub(crate) async fn run_polling_loop(
                         continue;
                     }
 
-                    let Some(sender_id) = update.from_user_id.as_deref().filter(|v| !v.is_empty()) else {
+                    let Some(sender_id) = update.from_user_id.as_deref().filter(|v| !v.is_empty())
+                    else {
                         continue;
                     };
 
-                    if let Some(context_token) = update.context_token.as_deref().filter(|v| !v.is_empty()) {
-                        if let Err(err) = shared.set_context_token(&account_id, sender_id, context_token).await {
+                    if let Some(context_token) =
+                        update.context_token.as_deref().filter(|v| !v.is_empty())
+                    {
+                        if let Err(err) = shared
+                            .set_context_token(&account_id, sender_id, context_token)
+                            .await
+                        {
                             app_warn!(
                                 "channel",
                                 "wechat::polling",
@@ -134,10 +140,7 @@ pub(crate) async fn run_polling_loop(
 
                     // Clone item_list before moving update into convert_update
                     let item_list = update.item_list.clone();
-                    let msg_id_str = update
-                        .message_id
-                        .map(|v| v.to_string())
-                        .unwrap_or_default();
+                    let msg_id_str = update.message_id.map(|v| v.to_string()).unwrap_or_default();
 
                     if let Some(mut msg) = convert_update(&account_id, update) {
                         // Extract inbound media from non-text items
@@ -264,7 +267,11 @@ fn extract_body(items: &[MessageItem]) -> Option<String> {
             }
         }
 
-        if let Some(ref_msg) = item.ref_msg.as_ref().and_then(|ref_msg| ref_msg.message_item.as_deref()) {
+        if let Some(ref_msg) = item
+            .ref_msg
+            .as_ref()
+            .and_then(|ref_msg| ref_msg.message_item.as_deref())
+        {
             if let Some(text) = extract_body(std::slice::from_ref(ref_msg)) {
                 return Some(text);
             }

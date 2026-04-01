@@ -112,7 +112,10 @@ impl WeChatSharedState {
 
     pub async fn get_context_token(&self, account_id: &str, user_id: &str) -> Option<String> {
         let store = self.context_tokens.lock().await;
-        store.get(account_id).and_then(|value| value.get(user_id)).cloned()
+        store
+            .get(account_id)
+            .and_then(|value| value.get(user_id))
+            .cloned()
     }
 
     fn persist_context_tokens(
@@ -221,7 +224,10 @@ impl WeChatSharedState {
 
     pub async fn pause_account(&self, account_id: &str) {
         let mut paused = self.paused_until.lock().await;
-        paused.insert(account_id.to_string(), Instant::now() + SESSION_PAUSE_DURATION);
+        paused.insert(
+            account_id.to_string(),
+            Instant::now() + SESSION_PAUSE_DURATION,
+        );
         // Clear typing tickets for paused account
         let mut tickets = self.typing_tickets.lock().await;
         tickets.remove(account_id);
@@ -366,12 +372,7 @@ impl ChannelPlugin for WeChatPlugin {
 
         {
             let mut accounts = self.shared.accounts.lock().await;
-            accounts.insert(
-                account.id.clone(),
-                RunningAccount {
-                    api: api.clone(),
-                },
-            );
+            accounts.insert(account.id.clone(), RunningAccount { api: api.clone() });
         }
 
         app_info!(
@@ -412,9 +413,7 @@ impl ChannelPlugin for WeChatPlugin {
         }
 
         // Cancel typing keepalive and send typing cancel (status=2)
-        self.shared
-            .stop_typing_keepalive(account_id, chat_id)
-            .await;
+        self.shared.stop_typing_keepalive(account_id, chat_id).await;
         if let Ok(api) = self.get_api(account_id).await {
             if let Ok(ticket) = self
                 .shared

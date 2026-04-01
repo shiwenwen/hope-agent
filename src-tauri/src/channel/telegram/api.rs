@@ -1,3 +1,4 @@
+use crate::channel::types::InlineButton;
 use anyhow::Result;
 use std::time::Duration;
 use teloxide::prelude::*;
@@ -5,7 +6,6 @@ use teloxide::types::{
     ChatAction, ChatId, InlineKeyboardButton, InlineKeyboardMarkup, InputFile, Me, MessageId,
     ParseMode as TgParseMode, ReplyParameters, ThreadId,
 };
-use crate::channel::types::InlineButton;
 
 /// Thin wrapper around teloxide's `Bot` to isolate framework details.
 pub struct TelegramBotApi {
@@ -34,7 +34,9 @@ impl TelegramBotApi {
             }
         }
 
-        let client = client_builder.build().unwrap_or_else(|_| reqwest::Client::new());
+        let client = client_builder
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
         let bot = Bot::with_client(token, client);
 
         Self {
@@ -97,7 +99,14 @@ impl TelegramBotApi {
     ) -> Result<teloxide::types::Message> {
         // Try with HTML first
         match self
-            .send_text(chat_id, text, Some(TgParseMode::Html), reply_to, thread_id, buttons)
+            .send_text(
+                chat_id,
+                text,
+                Some(TgParseMode::Html),
+                reply_to,
+                thread_id,
+                buttons,
+            )
             .await
         {
             Ok(msg) => Ok(msg),
@@ -315,13 +324,11 @@ fn build_inline_keyboard(buttons: &[Vec<InlineButton>]) -> InlineKeyboardMarkup 
                     if let Some(ref url) = b.url {
                         InlineKeyboardButton::url(
                             b.text.clone(),
-                            url.parse().unwrap_or_else(|_| "https://example.com".parse().unwrap()),
+                            url.parse()
+                                .unwrap_or_else(|_| "https://example.com".parse().unwrap()),
                         )
                     } else {
-                        let cb = b
-                            .callback_data
-                            .clone()
-                            .unwrap_or_else(|| b.text.clone());
+                        let cb = b.callback_data.clone().unwrap_or_else(|| b.text.clone());
                         InlineKeyboardButton::callback(b.text.clone(), cb)
                     }
                 })

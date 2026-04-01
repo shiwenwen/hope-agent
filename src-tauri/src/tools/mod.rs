@@ -27,9 +27,9 @@ pub(crate) mod read;
 mod sessions;
 pub(crate) mod subagent;
 mod submit_plan;
+mod weather;
 pub(crate) mod web_fetch;
 pub(crate) mod web_search;
-mod weather;
 mod write;
 
 // ── Public Re-exports ─────────────────────────────────────────────

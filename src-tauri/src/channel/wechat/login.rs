@@ -7,7 +7,7 @@ use serde::Serialize;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-use super::api::{WeChatApi, DEFAULT_WECHAT_BOT_TYPE, DEFAULT_WECHAT_BASE_URL};
+use super::api::{WeChatApi, DEFAULT_WECHAT_BASE_URL, DEFAULT_WECHAT_BOT_TYPE};
 
 const LOGIN_TTL: Duration = Duration::minutes(8); // Official: 480 seconds
 
@@ -85,7 +85,10 @@ pub async fn start_login(account_id: Option<&str>) -> Result<WeChatLoginStart> {
         refresh_count: 0,
     };
 
-    ACTIVE_LOGINS.lock().await.insert(session_key.clone(), login);
+    ACTIVE_LOGINS
+        .lock()
+        .await
+        .insert(session_key.clone(), login);
 
     Ok(WeChatLoginStart {
         qrcode_url: Some(qr_url),
@@ -128,8 +131,8 @@ pub async fn wait_login(session_key: &str, timeout_ms: Option<u64>) -> Result<We
     }
 
     let timeout = timeout_ms.unwrap_or(3_000).clamp(1_000, 5_000);
-    let status = WeChatApi::poll_login_status(&login.current_api_base_url, &login.qrcode, timeout)
-        .await?;
+    let status =
+        WeChatApi::poll_login_status(&login.current_api_base_url, &login.qrcode, timeout).await?;
 
     match status.status.as_deref().unwrap_or("wait") {
         "confirmed" => {
@@ -183,9 +186,7 @@ pub async fn wait_login(session_key: &str, timeout_ms: Option<u64>) -> Result<We
             };
 
             if should_refresh {
-                if let Ok(qr_response) =
-                    WeChatApi::fetch_login_qr(DEFAULT_WECHAT_BOT_TYPE).await
-                {
+                if let Ok(qr_response) = WeChatApi::fetch_login_qr(DEFAULT_WECHAT_BOT_TYPE).await {
                     let qr_url = qr_response.qrcode_img_content.clone();
                     let refresh_count = {
                         let mut logins = ACTIVE_LOGINS.lock().await;
@@ -194,8 +195,7 @@ pub async fn wait_login(session_key: &str, timeout_ms: Option<u64>) -> Result<We
                             active.qrcode_url = qr_url.clone();
                             active.started_at = Utc::now();
                             active.refresh_count += 1;
-                            active.current_api_base_url =
-                                DEFAULT_WECHAT_BASE_URL.to_string();
+                            active.current_api_base_url = DEFAULT_WECHAT_BASE_URL.to_string();
                             active.refresh_count
                         } else {
                             0
@@ -208,10 +208,7 @@ pub async fn wait_login(session_key: &str, timeout_ms: Option<u64>) -> Result<We
                         remote_account_id: None,
                         base_url: None,
                         user_id: None,
-                        message: format!(
-                            "二维码已过期，已自动刷新 ({}/3)。",
-                            refresh_count
-                        ),
+                        message: format!("二维码已过期，已自动刷新 ({}/3)。", refresh_count),
                         qrcode_url: Some(qr_url),
                     });
                 }

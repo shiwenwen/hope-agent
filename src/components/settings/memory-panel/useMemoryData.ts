@@ -162,7 +162,7 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
     async function loadExtractConfig() {
       try {
         const global = await invoke<{ autoExtract: boolean; extractMinTurns: number; extractProviderId: string | null; extractModelId: string | null }>("get_extract_config")
-        setGlobalExtract(global)
+        setGlobalExtract(prev => ({ ...global, flushBeforeCompact: prev.flushBeforeCompact }))
 
         if (isAgentMode && agentId) {
           const cfg = await invoke<{ memory?: { autoExtract?: boolean | null; extractMinTurns?: number | null; extractProviderId?: string | null; extractModelId?: string | null } }>("get_agent_config", { id: agentId })

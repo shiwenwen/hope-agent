@@ -76,7 +76,7 @@ export default function SandboxPanel() {
         }
       })
       .catch((e) => {
-        logger.error("settings", `Failed to load sandbox config: ${e}`)
+        logger.error("settings", "SandboxPanel", `Failed to load sandbox config: ${e}`)
       })
 
     invoke<DockerStatus>("check_sandbox_available")
@@ -100,7 +100,7 @@ export default function SandboxPanel() {
       setSaveStatus("saved")
       setTimeout(() => setSaveStatus("idle"), 2000)
     } catch (e) {
-      logger.error("settings", `Failed to save sandbox config: ${e}`)
+      logger.error("settings", "SandboxPanel", `Failed to save sandbox config: ${e}`)
       setSaveStatus("failed")
       setTimeout(() => setSaveStatus("idle"), 2000)
     } finally {

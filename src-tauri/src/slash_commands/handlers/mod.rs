@@ -146,9 +146,8 @@ async fn handle_skill_command(
                 serde_json::json!({ "command": args.trim() })
             } else {
                 // Try to parse as JSON; fall back to wrapping in {"query": ...}
-                serde_json::from_str(args.trim()).unwrap_or_else(|_| {
-                    serde_json::json!({ "query": args.trim() })
-                })
+                serde_json::from_str(args.trim())
+                    .unwrap_or_else(|_| serde_json::json!({ "query": args.trim() }))
             };
 
             // Build execution context
@@ -164,10 +163,7 @@ async fn handle_skill_command(
                 Ok(output) => {
                     let display = crate::truncate_utf8(&output, 4096);
                     Ok(CommandResult {
-                        content: format!(
-                            "**{}** → `{}`\n\n{}",
-                            matched.name, tool_name, display
-                        ),
+                        content: format!("**{}** → `{}`\n\n{}", matched.name, tool_name, display),
                         action: Some(CommandAction::DisplayOnly),
                     })
                 }

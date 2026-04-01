@@ -190,7 +190,7 @@ export default function ChatScreen({
           modelId: string
         }
         setActiveModel({ providerId, modelId })
-        applyModelForDisplay(providerId, modelId)
+        applyModelForDisplay(`${providerId}::${modelId}`)
       }),
     )
 

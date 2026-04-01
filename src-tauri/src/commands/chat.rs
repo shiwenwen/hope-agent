@@ -727,10 +727,7 @@ pub async fn get_system_prompt(
     let (model, provider) = {
         let store = state.provider_store.lock().await;
         if let Some(ref active) = store.active_model {
-            let prov = store
-                .providers
-                .iter()
-                .find(|p| p.id == active.provider_id);
+            let prov = store.providers.iter().find(|p| p.id == active.provider_id);
             let model_id = active.model_id.clone();
             let provider_name = prov
                 .map(|p| p.api_type.display_name().to_string())

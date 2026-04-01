@@ -86,7 +86,7 @@ export default function CrashHistoryPanel() {
       setBackups(backupData as BackupInfo[])
       setGuardianEnabled(enabled)
     } catch (e) {
-      logger.error("health", `Failed to load crash history: ${e}`)
+      logger.error("health", "CrashHistoryPanel", `Failed to load crash history: ${e}`)
     } finally {
       setLoading(false)
     }
@@ -102,7 +102,7 @@ export default function CrashHistoryPanel() {
       setJournal(null)
       loadData()
     } catch (e) {
-      logger.error("health", `Failed to clear crash history: ${e}`)
+      logger.error("health", "CrashHistoryPanel", `Failed to clear crash history: ${e}`)
     }
   }
 
@@ -112,7 +112,7 @@ export default function CrashHistoryPanel() {
       await invoke<string>("create_backup_cmd")
       loadData()
     } catch (e) {
-      logger.error("health", `Failed to create backup: ${e}`)
+      logger.error("health", "CrashHistoryPanel", `Failed to create backup: ${e}`)
     } finally {
       setBackupLoading(false)
     }
@@ -123,7 +123,7 @@ export default function CrashHistoryPanel() {
       await invoke("restore_backup_cmd", { name })
       loadData()
     } catch (e) {
-      logger.error("health", `Failed to restore backup: ${e}`)
+      logger.error("health", "CrashHistoryPanel", `Failed to restore backup: ${e}`)
     }
   }
 
@@ -131,7 +131,7 @@ export default function CrashHistoryPanel() {
     try {
       await invoke("request_app_restart")
     } catch (e) {
-      logger.error("health", `Failed to request restart: ${e}`)
+      logger.error("health", "CrashHistoryPanel", `Failed to request restart: ${e}`)
     }
   }
 
@@ -141,7 +141,7 @@ export default function CrashHistoryPanel() {
       await invoke("set_guardian_enabled", { enabled })
     } catch (e) {
       setGuardianEnabled(!enabled)
-      logger.error("health", `Failed to set guardian enabled: ${e}`)
+      logger.error("health", "CrashHistoryPanel", `Failed to set guardian enabled: ${e}`)
     }
   }
 
