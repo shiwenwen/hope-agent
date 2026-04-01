@@ -256,7 +256,11 @@ async fn download_inbound_media_to_temp(
     };
     let safe_id = file_id.replace(['/', '\\', ':'], "_");
     let safe_ext = ext.trim_start_matches('.');
-    let path = dir.join(format!("{}-{}.{}", safe_id, prefix, safe_ext));
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let path = dir.join(format!("{}-{}-{}.{}", ts, safe_id, prefix, safe_ext));
     match api.download_file_to_path(file_id, &path).await {
         Ok(_) => Some(path.to_string_lossy().to_string()),
         Err(err) => {

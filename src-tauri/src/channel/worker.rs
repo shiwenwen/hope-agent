@@ -982,7 +982,11 @@ fn persist_channel_media_to_session(
         MediaType::Voice => "voice",
         MediaType::Animation => "animation",
     };
-    let filename = format!("channel-{}-{}.{}", media_kind, safe_id, ext);
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let filename = format!("{}-channel-{}-{}.{}", ts, media_kind, safe_id, ext);
     let dest = dir.join(filename);
     if src == dest {
         return Some(dest.to_string_lossy().to_string());
