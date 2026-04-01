@@ -4779,6 +4779,7 @@ dependencies = [
  "objc2-app-kit",
  "once_cell",
  "open",
+ "openssl",
  "pdf-extract",
  "pdfium-render",
  "portable-pty",

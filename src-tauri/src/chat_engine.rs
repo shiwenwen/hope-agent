@@ -90,6 +90,7 @@ pub struct ChatEngineParams {
     pub session_id: String,
     pub agent_id: String,
     pub message: String,
+    pub attachments: Vec<crate::agent::Attachment>,
     pub session_db: Arc<SessionDB>,
 
     // Model chain (pre-resolved by caller)
@@ -318,6 +319,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         session_id,
         agent_id,
         message,
+        attachments,
         session_db: db,
         model_chain,
         providers,
@@ -468,7 +470,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
 
             let chat_start = std::time::Instant::now();
             match agent
-                .chat(&message, &[], effort_ref, cancel_clone, move |delta| {
+                .chat(&message, &attachments, effort_ref, cancel_clone, move |delta| {
                     // Intercept usage events
                     if let Ok(event) = serde_json::from_str::<serde_json::Value>(delta) {
                         match event.get("type").and_then(|t| t.as_str()) {

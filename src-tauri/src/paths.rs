@@ -47,6 +47,18 @@ pub fn auth_path() -> Result<PathBuf> {
     Ok(credentials_dir()?.join("auth.json"))
 }
 
+// ── Channels ─────────────────────────────────────────────────────
+
+/// Channels runtime state directory: ~/.opencomputer/channels/
+pub fn channels_dir() -> Result<PathBuf> {
+    Ok(root_dir()?.join("channels"))
+}
+
+/// Specific channel runtime state directory: ~/.opencomputer/channels/{channel_id}/
+pub fn channel_dir(channel_id: &str) -> Result<PathBuf> {
+    Ok(channels_dir()?.join(channel_id))
+}
+
 // ── Skills ───────────────────────────────────────────────────────
 
 /// Skills directory: ~/.opencomputer/skills/
@@ -219,6 +231,7 @@ pub fn ensure_dirs() -> Result<()> {
     let dirs_to_create = [
         root_dir()?,
         credentials_dir()?,
+        channels_dir()?,
         skills_dir()?,
         agents_dir()?,
         home_dir()?,

@@ -161,8 +161,17 @@ pub async fn channel_remove_account(account_id: String) -> Result<(), String> {
 
     // Remove from config
     let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    let removed_channel_id = store
+        .channels
+        .find_account(&account_id)
+        .map(|account| account.channel_id.clone());
     store.channels.accounts.retain(|a| a.id != account_id);
     provider::save_store(&store).map_err(|e| e.to_string())?;
+
+    if matches!(removed_channel_id, Some(ChannelId::WeChat)) {
+        crate::channel::wechat::clear_persisted_account_state(&account_id)
+            .map_err(|e| e.to_string())?;
+    }
 
     Ok(())
 }
@@ -316,4 +325,25 @@ pub async fn channel_list_sessions(
         .collect();
 
     Ok(result)
+}
+
+// ── WeChat QR Login ─────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn channel_wechat_start_login(
+    account_id: Option<String>,
+) -> Result<crate::channel::wechat::login::WeChatLoginStart, String> {
+    crate::channel::wechat::login::start_login(account_id.as_deref())
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn channel_wechat_wait_login(
+    session_key: String,
+    timeout_ms: Option<u64>,
+) -> Result<crate::channel::wechat::login::WeChatLoginWait, String> {
+    crate::channel::wechat::login::wait_login(&session_key, timeout_ms)
+        .await
+        .map_err(|e| e.to_string())
 }

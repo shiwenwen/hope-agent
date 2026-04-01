@@ -5,6 +5,7 @@ pub mod registry;
 pub mod telegram;
 pub mod traits;
 pub mod types;
+pub mod wechat;
 pub mod worker;
 
 pub use cancel::ChannelCancelRegistry;

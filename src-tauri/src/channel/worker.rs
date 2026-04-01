@@ -103,7 +103,25 @@ async fn handle_inbound_message(
     );
 
     // 1. Load config and find account
-    let store = crate::provider::load_store().unwrap_or_default();
+    let store = match crate::provider::load_store() {
+        Ok(s) => s,
+        Err(err) => {
+            app_error!(
+                "channel",
+                "worker",
+                "Failed to load config (falling back to default): {}",
+                err
+            );
+            crate::provider::ProviderStore::default()
+        }
+    };
+    app_debug!(
+        "channel",
+        "worker",
+        "Config loaded: {} channel accounts, looking for '{}'",
+        store.channels.accounts.len(),
+        msg.account_id
+    );
     let account = store
         .channels
         .find_account(&msg.account_id)
@@ -419,10 +437,14 @@ async fn handle_inbound_message(
         max_msg_len,
     );
 
+    // 8. Convert inbound media to agent Attachments
+    let attachments = convert_inbound_media_to_attachments(&msg.media);
+
     let engine_params = crate::chat_engine::ChatEngineParams {
         session_id: session_id.clone(),
         agent_id: agent_id.clone(),
         message: engine_message,
+        attachments,
         session_db: session_db.clone(),
         model_chain,
         providers: store.providers.clone(),
@@ -866,6 +888,61 @@ async fn send_stream_preview(
             send_message_preview(plugin, account_id, chat_id, &payload, preview_message_id).await;
         }
     }
+}
+
+// ── Inbound Media → Attachment Conversion ───────────────────────────
+
+/// Convert channel inbound media items to agent Attachment structs
+/// so the LLM can see images/files sent by users.
+fn convert_inbound_media_to_attachments(
+    media: &[InboundMedia],
+) -> Vec<crate::agent::Attachment> {
+    let mut attachments = Vec::new();
+    for m in media {
+        let Some(ref file_url) = m.file_url else {
+            continue;
+        };
+        let mime = m
+            .mime_type
+            .clone()
+            .unwrap_or_else(|| "application/octet-stream".to_string());
+        let is_image = mime.starts_with("image/");
+
+        if is_image {
+            // Images: read file data and encode as base64 for multimodal LLM input
+            match std::fs::read(file_url) {
+                Ok(data) => {
+                    use base64::Engine as _;
+                    attachments.push(crate::agent::Attachment {
+                        name: m.file_id.clone(),
+                        mime_type: mime,
+                        data: Some(
+                            base64::engine::general_purpose::STANDARD.encode(&data),
+                        ),
+                        file_path: None,
+                    });
+                }
+                Err(err) => {
+                    app_warn!(
+                        "channel",
+                        "worker",
+                        "Failed to read inbound image '{}': {}",
+                        file_url,
+                        err
+                    );
+                }
+            }
+        } else {
+            // Non-image files: pass file_path, let file_extract handle text extraction
+            attachments.push(crate::agent::Attachment {
+                name: m.file_id.clone(),
+                mime_type: mime,
+                data: None,
+                file_path: Some(file_url.clone()),
+            });
+        }
+    }
+    attachments
 }
 
 // ── Slash Command Dispatch for IM Channels ─────────────────────────

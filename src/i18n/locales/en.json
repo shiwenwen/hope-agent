@@ -708,6 +708,9 @@
     "weatherRefresh": "Refresh",
     "weatherNoLocation": "Location not set, weather unavailable",
     "weatherFetchError": "Failed to fetch weather or pending refresh",
+    "weatherDetectLocation": "Auto detect location",
+    "weatherNetworkLocation": "Using network location (lower accuracy)",
+    "weatherLocationFailed": "Location detection failed, please search manually",
 
     "profileSaved": "Saved",
     "agents": "Agents",

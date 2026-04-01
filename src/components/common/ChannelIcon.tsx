@@ -17,6 +17,7 @@ const CHANNEL_ICONS: Record<string, ChannelIconEntry> = {
   discord: { icon: SiDiscord, color: SiDiscordHex },
   whatsapp: { icon: SiWhatsapp, color: SiWhatsappHex },
   wechat: { icon: SiWechat, color: SiWechatHex },
+  weixin: { icon: SiWechat, color: SiWechatHex },
 }
 
 export default function ChannelIcon({

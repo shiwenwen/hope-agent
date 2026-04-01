@@ -72,6 +72,7 @@ signal-hook = "0.3"
 sysinfo = "0.33"
 teloxide = { version = "0.17", features = ["macros"], default-features = false }
 tokio-util = { version = "0.7", features = ["rt"] }
+openssl = "0.10"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-app-kit = { version = "0.3.2", features = ["NSWindow", "NSColor"] }

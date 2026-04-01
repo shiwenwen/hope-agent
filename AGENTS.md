@@ -31,6 +31,7 @@ src-tauri/src/          后端（Rust）
   weather.rs            天气缓存系统与 Open-Meteo API
   agent/                AssistantAgent（多 Provider + Tool Loop）
     providers/          Anthropic / OpenAI Chat / OpenAI Responses / Codex
+  channel/              IM 渠道系统（Telegram / WeChat 插件、会话映射、分发 worker）
   tools/                31 个内置工具（按工具拆分子模块）
   skills.rs             技能系统（SKILL.md 发现 + 懒加载）
   slash_commands/       斜杠命令系统
@@ -69,6 +70,7 @@ src-tauri/src/          后端（Rust）
 - **温度配置**：三层覆盖架构（会话 > Agent > 全局）。全局存储在 `config.json` 的 `temperature` 字段，Agent 级存储在 `agent.json` 的 `model.temperature` 字段，会话级通过 `chat` 命令的 `temperatureOverride` 参数传递。`AssistantAgent.temperature` 字段在四种 Provider 的 API 请求中统一注入。范围 0.0–2.0，`None` 表示使用 API 默认值
 - **Tool Loop**：请求 → 解析 tool_call → 执行 → 回传 → 继续，最多 10 轮
 - **数据存储**：所有数据统一在 `~/.opencomputer/`，`paths.rs` 集中管理
+- **IM Channel 架构**：`channel/` 目录统一承载 Telegram / WeChat 等渠道插件；Telegram 走 Bot API 轮询，WeChat 走 OpenClaw 兼容的二维码登录 + iLink HTTP 长轮询协议，渠道状态文件统一落在 `~/.opencomputer/channels/`。入站媒体管道：polling 收集 `InboundMedia` → worker 转为 `Attachment`（图片 base64 / 文件 path）→ `ChatEngineParams.attachments` → `agent.chat()` 多模态接口。WeChat 通道完整能力：typing 指示器（24h TTL + 5s keepalive + cancel）、入站媒体下载解密（图片/视频/语音/文件）、出站媒体 AES-128-ECB 加密上传 CDN（3 次 5xx 重试）、会话过期暂停 1h、QR 登录自动刷新 3 次
 - **SearXNG Docker 代理注入**：`web_search.searxng_docker_use_proxy` 控制是否向 Docker SearXNG 写入 `settings.yml` 的 `outgoing.proxies` 和代理环境变量；适用于系统 VPN 场景，修改后在下次启动或重新部署容器时生效
 - **降级策略**：ContextOverflow 终止 → RateLimit/Overloaded/Timeout 指数退避重试 2 次 → Auth/Billing/ModelNotFound 跳下一模型
 - **连续消息合并**：`push_user_message()` 自动合并连续 user 消息，兼容 Anthropic role 交替要求

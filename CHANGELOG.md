@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **天气地区自动定位**
+  - 设置面板城市搜索框旁新增定位按钮（LocateFixed 图标）
+  - macOS 优先使用 CoreLocation 系统定位（精确），通过 `objc2` FFI 直接调用，权限对话框显示应用名 "OpenComputer"
+  - 跨平台 IP 地理定位兜底（ip-api.com，城市级精度）
+  - 系统定位失败时静默降级到 IP 定位，并显示轻提示"已使用网络定位（精度较低）"
+  - 系统定位成功后通过 Nominatim 反向地理编码获取城市名，自动填入城市和经纬度
+
 - **PDF 工具视觉分析增强**
   - 三种处理模式：`auto`（默认，智能检测扫描件自动切换）、`text`（纯文本提取）、`vision`（页面渲染为图片直达模型）
   - Vision 模式通过 pdfium 将 PDF 页面渲染为 PNG 图片，以 `__IMAGE_BASE64__` marker 输出，全 4 种 Provider（Anthropic/OpenAI Chat/OpenAI Responses/Codex）均支持视觉分析

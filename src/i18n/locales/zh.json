@@ -708,6 +708,9 @@
     "weatherRefresh": "刷新天气",
     "weatherNoLocation": "尚未配置位置，无法获取天气",
     "weatherFetchError": "天气数据获取失败或正在刷新",
+    "weatherDetectLocation": "自动定位",
+    "weatherNetworkLocation": "已使用网络定位（精度较低）",
+    "weatherLocationFailed": "定位失败，请手动搜索城市",
 
     "profileSaved": "已保存",
     "agents": "Agent",

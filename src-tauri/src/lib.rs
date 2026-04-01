@@ -993,6 +993,7 @@ pub fn run() {
             commands::config::preview_weather,
             commands::config::get_current_weather,
             commands::config::refresh_weather,
+            commands::config::detect_location,
             // Autostart
             commands::config::get_autostart_enabled,
             commands::config::set_autostart_enabled,

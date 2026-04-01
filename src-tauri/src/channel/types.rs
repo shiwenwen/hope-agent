@@ -8,6 +8,8 @@ use std::collections::HashMap;
 #[serde(rename_all = "lowercase")]
 pub enum ChannelId {
     Telegram,
+    #[serde(rename = "wechat")]
+    WeChat,
     #[serde(rename = "whatsapp")]
     WhatsApp,
     Discord,
@@ -28,6 +30,7 @@ impl std::fmt::Display for ChannelId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ChannelId::Telegram => write!(f, "telegram"),
+            ChannelId::WeChat => write!(f, "wechat"),
             ChannelId::WhatsApp => write!(f, "whatsapp"),
             ChannelId::Discord => write!(f, "discord"),
             ChannelId::Irc => write!(f, "irc"),

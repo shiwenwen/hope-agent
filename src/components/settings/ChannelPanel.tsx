@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, type KeyboardEvent } from "react"
 import { useTranslation } from "react-i18next"
 import { invoke, convertFileSrc } from "@tauri-apps/api/core"
+import { QRCodeSVG } from "qrcode.react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -112,6 +113,29 @@ interface ChannelPluginInfo {
     supportsTyping: boolean
     maxMessageLength: number | null
   }
+}
+
+interface WeChatConnection {
+  botToken: string
+  baseUrl: string
+  remoteAccountId?: string | null
+  userId?: string | null
+}
+
+interface WeChatLoginStartResult {
+  qrcodeUrl?: string | null
+  sessionKey: string
+  message: string
+}
+
+interface WeChatLoginWaitResult {
+  connected: boolean
+  status?: string | null
+  botToken?: string | null
+  remoteAccountId?: string | null
+  baseUrl?: string | null
+  userId?: string | null
+  message: string
 }
 
 export default function ChannelPanel() {
@@ -383,6 +407,206 @@ function AgentAvatar({ agent, size = "sm" }: { agent: AgentInfo; size?: "sm" | "
   )
 }
 
+function getWeChatConnectionFromAccount(account: ChannelAccountConfig | null): WeChatConnection | null {
+  if (!account || account.channelId !== "wechat") return null
+
+  const credentials = account.credentials as Record<string, string | undefined>
+  const settings = account.settings as Record<string, string | undefined>
+  const botToken = credentials.token?.trim()
+  const baseUrl = settings.baseUrl?.trim() || credentials.baseUrl?.trim()
+
+  if (!botToken || !baseUrl) return null
+
+  return {
+    botToken,
+    baseUrl,
+    remoteAccountId: credentials.remoteAccountId ?? null,
+    userId: credentials.userId ?? null,
+  }
+}
+
+function defaultWeChatLabel(connection: WeChatConnection): string {
+  const identity = connection.userId?.trim() || connection.remoteAccountId?.trim()
+  return identity ? `WeChat ${identity}` : "WeChat"
+}
+
+function WeChatConnectSection({
+  accountId,
+  connection,
+  onConnectionChange,
+}: {
+  accountId?: string
+  connection: WeChatConnection | null
+  onConnectionChange: (connection: WeChatConnection | null) => void
+}) {
+  const { t } = useTranslation()
+  const [sessionKey, setSessionKey] = useState<string | null>(null)
+  const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null)
+  const [status, setStatus] = useState<"idle" | "wait" | "scanned" | "expired" | "connected" | "error">(
+    connection ? "connected" : "idle",
+  )
+  const [message, setMessage] = useState<string | null>(null)
+  const [connecting, setConnecting] = useState(false)
+  const pollingRef = useRef(false)
+
+  useEffect(() => {
+    if (connection && !sessionKey && !qrCodeUrl) {
+      setStatus("connected")
+      if (!message) {
+        setMessage(t("channels.wechatConnected"))
+      }
+      return
+    }
+
+    if (!sessionKey && status === "connected") {
+      setStatus("idle")
+      setMessage(null)
+    }
+  }, [connection, message, qrCodeUrl, sessionKey, status, t])
+
+  useEffect(() => {
+    if (!sessionKey) return
+
+    let cancelled = false
+
+    const poll = async () => {
+      if (cancelled || pollingRef.current) return
+      pollingRef.current = true
+
+      try {
+        const result = await invoke<WeChatLoginWaitResult>("channel_wechat_wait_login", {
+          sessionKey,
+          timeoutMs: 1500,
+        })
+
+        if (cancelled) return
+
+        if (result.connected && result.botToken && result.baseUrl) {
+          onConnectionChange({
+            botToken: result.botToken,
+            baseUrl: result.baseUrl,
+            remoteAccountId: result.remoteAccountId ?? null,
+            userId: result.userId ?? null,
+          })
+          setStatus("connected")
+          setMessage(result.message)
+          setSessionKey(null)
+          return
+        }
+
+        if (result.status === "scanned") {
+          setStatus("scanned")
+        } else if (result.status === "expired") {
+          setStatus("expired")
+          setSessionKey(null)
+        } else {
+          setStatus("wait")
+        }
+        setMessage(result.message)
+      } catch (error) {
+        if (!cancelled) {
+          setStatus("error")
+          setMessage(String(error))
+          setSessionKey(null)
+        }
+      } finally {
+        pollingRef.current = false
+      }
+    }
+
+    void poll()
+    const timer = window.setInterval(() => {
+      void poll()
+    }, 2000)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [onConnectionChange, sessionKey])
+
+  const handleStart = async () => {
+    setConnecting(true)
+    setMessage(null)
+    setStatus("wait")
+
+    try {
+      const result = await invoke<WeChatLoginStartResult>("channel_wechat_start_login", {
+        accountId: accountId ?? null,
+      })
+      console.log("[WeChat Login] start_login result:", {
+        qrcodeUrl: result.qrcodeUrl ? `${result.qrcodeUrl.substring(0, 80)}... (${result.qrcodeUrl.length} chars)` : null,
+        sessionKey: result.sessionKey,
+        message: result.message,
+      })
+      setQrCodeUrl(result.qrcodeUrl ?? null)
+      setSessionKey(result.sessionKey)
+      setMessage(result.message)
+    } catch (error) {
+      setStatus("error")
+      setMessage(String(error))
+      setSessionKey(null)
+    } finally {
+      setConnecting(false)
+    }
+  }
+
+  const identity = connection?.userId?.trim() || connection?.remoteAccountId?.trim()
+  const statusText = status === "scanned"
+    ? t("channels.wechatScannedHint")
+    : status === "expired"
+      ? t("channels.wechatExpiredHint")
+      : status === "connected"
+        ? t("channels.wechatConnected")
+        : status === "error"
+          ? message || t("common.saveFailed")
+          : t("channels.wechatScanHint")
+
+  return (
+    <div className="space-y-3 rounded-lg border bg-card/60 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="space-y-1">
+          <Label>{t("channels.wechatConnect")}</Label>
+          <p className="text-xs text-muted-foreground">{t("channels.wechatConnectionHint")}</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={handleStart} disabled={connecting}>
+          {connecting ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+          {connection ? t("channels.wechatReconnect") : t("channels.wechatConnect")}
+        </Button>
+      </div>
+
+      {connection && (
+        <div className="flex items-center gap-1 text-sm text-green-600">
+          <Check className="h-3.5 w-3.5" />
+          {identity ? `${t("channels.wechatConnectedAs")} ${identity}` : t("channels.wechatConnected")}
+        </div>
+      )}
+
+      {qrCodeUrl && status !== "connected" && (
+        <div className="space-y-3">
+          <div className="rounded-lg border bg-white p-3 flex justify-center">
+            <QRCodeSVG value={qrCodeUrl} size={200} />
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => window.open(qrCodeUrl, "_blank", "noopener,noreferrer")}
+            >
+              {t("channels.wechatOpenQr")}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      <div className={`text-sm ${status === "error" ? "text-destructive" : "text-muted-foreground"}`}>
+        {statusText}
+        {message && status !== "error" ? <span className="ml-1">{message}</span> : null}
+      </div>
+    </div>
+  )
+}
+
 function AddAccountDialog({
   open,
   onOpenChange,
@@ -408,6 +632,7 @@ function AddAccountDialog({
   const [validating, setValidating] = useState(false)
   const [validationResult, setValidationResult] = useState<string | null>(null)
   const [validationError, setValidationError] = useState<string | null>(null)
+  const [wechatConnection, setWeChatConnection] = useState<WeChatConnection | null>(null)
 
   const handleValidate = async () => {
     if (!token.trim()) return
@@ -435,16 +660,40 @@ function AddAccountDialog({
   const [groups, setGroups] = useState<Record<string, TelegramGroupConfig>>({})
   const [channels, setChannels] = useState<Record<string, TelegramChannelConfig>>({})
 
+  useEffect(() => {
+    if (channelId === "wechat" && wechatConnection && !label.trim()) {
+      setLabel(defaultWeChatLabel(wechatConnection))
+    }
+  }, [channelId, label, wechatConnection])
+
   const handleSave = async () => {
-    if (!token.trim() || !label.trim()) return
+    if (!label.trim()) return
+    if (channelId === "telegram" && !token.trim()) return
+    if (channelId === "wechat" && !wechatConnection) return
+
     setSaving(true)
     try {
+      const credentials = channelId === "wechat"
+        ? {
+            token: wechatConnection?.botToken ?? "",
+            remoteAccountId: wechatConnection?.remoteAccountId ?? null,
+            userId: wechatConnection?.userId ?? null,
+          }
+        : { token: token.trim() }
+
+      const settings = channelId === "wechat"
+        ? {
+            transport: "longpoll",
+            baseUrl: wechatConnection?.baseUrl ?? "",
+          }
+        : { transport: "polling" }
+
       await invoke("channel_add_account", {
         channelId,
         label: label.trim(),
         agentId: agentId || null,
-        credentials: { token: token.trim() },
-        settings: { transport: "polling" },
+        credentials,
+        settings,
         security: {
           dmPolicy,
           groupAllowlist: [],
@@ -467,6 +716,7 @@ function AddAccountDialog({
       setChannels({})
       setValidationResult(null)
       setValidationError(null)
+      setWeChatConnection(null)
       onAdded()
     } catch (e) {
       logger.error("Failed to add channel account", e)
@@ -552,6 +802,13 @@ function AddAccountDialog({
             </div>
           )}
 
+          {channelId === "wechat" && (
+            <WeChatConnectSection
+              connection={wechatConnection}
+              onConnectionChange={setWeChatConnection}
+            />
+          )}
+
           {/* Label */}
           <div className="space-y-2">
             <Label>{t("channels.accountLabel")}</Label>
@@ -631,7 +888,12 @@ function AddAccountDialog({
           </Button>
           <Button
             onClick={handleSave}
-            disabled={!token.trim() || !label.trim() || saving}
+            disabled={
+              !label.trim()
+              || saving
+              || (channelId === "telegram" && !token.trim())
+              || (channelId === "wechat" && !wechatConnection)
+            }
           >
             {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
             {t("common.save")}
@@ -669,6 +931,7 @@ function EditAccountDialog({
   const [validating, setValidating] = useState(false)
   const [validationResult, setValidationResult] = useState<string | null>(null)
   const [validationError, setValidationError] = useState<string | null>(null)
+  const [wechatConnection, setWeChatConnection] = useState<WeChatConnection | null>(null)
 
   // Populate form when account changes
   useEffect(() => {
@@ -684,6 +947,7 @@ function EditAccountDialog({
       setChannels(account.security.channels ? { ...account.security.channels } : {})
       setValidationResult(null)
       setValidationError(null)
+      setWeChatConnection(getWeChatConnectionFromAccount(account))
     }
   }, [account])
 
@@ -725,7 +989,20 @@ function EditAccountDialog({
       }
       // Only send credentials if token was changed
       const originalToken = (account.credentials as Record<string, string>).token ?? ""
-      if (token.trim() !== originalToken) {
+      if (account.channelId === "wechat") {
+        if (wechatConnection) {
+          params.credentials = {
+            token: wechatConnection.botToken,
+            remoteAccountId: wechatConnection.remoteAccountId ?? null,
+            userId: wechatConnection.userId ?? null,
+          }
+          params.settings = {
+            ...(account.settings as Record<string, unknown>),
+            transport: "longpoll",
+            baseUrl: wechatConnection.baseUrl,
+          }
+        }
+      } else if (token.trim() !== originalToken) {
         params.credentials = { token: token.trim() }
       }
       await invoke("channel_update_account", params)
@@ -800,6 +1077,14 @@ function EditAccountDialog({
                 </div>
               )}
             </div>
+          )}
+
+          {account.channelId === "wechat" && (
+            <WeChatConnectSection
+              accountId={account.id}
+              connection={wechatConnection}
+              onConnectionChange={setWeChatConnection}
+            />
           )}
 
           {/* Label */}
