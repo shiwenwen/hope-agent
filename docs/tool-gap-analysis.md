@@ -60,7 +60,7 @@
 
 | 工具           | OpenComputer     | OpenClaw         | 功能差异                                                                                 |
 | -------------- | ---------------- | ---------------- | ---------------------------------------------------------------------------------------- |
-| image          | `image`          | `image`          | OC 单图分析 + base64；OpenClaw 支持多图（最多 20 张）+ URL                               |
+| image          | `image`          | `image`          | **OC 领先**：多图（10 张原始视觉数据直达模型）+ URL + 剪贴板 + 截屏；OpenClaw 多图（20 张）但仅生成文字描述，丢失视觉细节 |
 | image_generate | `image_generate` | `image_generate` | OC 支持 OpenAI/Google/Fal 三 Provider；OpenClaw 按配置推断 Provider                      |
 | pdf            | `pdf`            | `pdf`            | OC 用 pdf-extract 文本提取；OpenClaw 支持 Anthropic/Google 原生 PDF 分析 + 文本/图像回退 |
 
@@ -137,6 +137,7 @@
 - **Plan Mode**：完整的 4 工具计划系统（六态状态机），OpenClaw 无对应能力
 - **天气查询**：内置免费天气 API，OpenClaw 无对应
 - **Canvas**：11 个 action + 7 种内容类型 + 版本历史，比 OpenClaw 更丰富
+- **Image 视觉分析**：多图（10 张）+ URL + 剪贴板 + 截屏，且图片作为原始视觉数据直达模型（OpenClaw 经二次模型转述丢失细节）
 
 ### OpenClaw 领先的领域
 
@@ -145,6 +146,7 @@
 - **设备控制**：`nodes` 工具支持 IoT 远程设备（摄像头/截屏/定位）
 - **PDF 分析**：支持 Anthropic/Google 原生 PDF 理解，不仅仅是文本提取
 - **网关运维**：`gateway` 平台级配置管理
+- ~~**Image 多图 + URL**~~ → 已被 OC 超越（OC 多图 + URL + 剪贴板 + 截屏 + 原始视觉数据）
 
 ### 尚未补齐的 OpenClaw 工具
 
