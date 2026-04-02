@@ -972,6 +972,7 @@
     "title": "IM Channels",
     "description": "Connect Telegram, WeChat, Discord, Slack and other IM platforms to chat with AI Agent",
     "addAccount": "Add Channel Account",
+    "selectChannel": "Select Channel",
     "noAccounts": "No IM channel accounts configured yet",
     "addFirst": "Add your first channel",
     "channelType": "Channel Type",

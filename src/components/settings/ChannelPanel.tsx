@@ -33,6 +33,7 @@ import {
   Pencil,
   X,
   Bot,
+  ArrowLeft,
 } from "lucide-react"
 import { logger } from "@/lib/logger"
 import ChannelIcon from "@/components/common/ChannelIcon"
@@ -377,6 +378,7 @@ export default function ChannelPanel() {
         open={!!editingAccount}
         onOpenChange={(open) => { if (!open) setEditingAccount(null) }}
         account={editingAccount}
+        plugins={plugins}
         agents={agents}
         onSaved={() => {
           setEditingAccount(null)
@@ -621,7 +623,8 @@ function AddAccountDialog({
   onAdded: () => void
 }) {
   const { t } = useTranslation()
-  const [channelId, setChannelId] = useState("telegram")
+  const [step, setStep] = useState<"select" | "configure">("select")
+  const [channelId, setChannelId] = useState("")
   const [label, setLabel] = useState("")
   const [token, setToken] = useState("")
   const [agentId, setAgentId] = useState("")
@@ -633,6 +636,17 @@ function AddAccountDialog({
   const [validationResult, setValidationResult] = useState<string | null>(null)
   const [validationError, setValidationError] = useState<string | null>(null)
   const [wechatConnection, setWeChatConnection] = useState<WeChatConnection | null>(null)
+
+  const selectedPlugin = plugins.find((p) => p.meta.id === channelId)
+
+  const handleSelectChannel = (id: string) => {
+    setChannelId(id)
+    setStep("configure")
+  }
+
+  const handleBack = () => {
+    setStep("select")
+  }
 
   const handleValidate = async () => {
     if (!token.trim()) return
@@ -705,6 +719,8 @@ function AddAccountDialog({
         },
       })
       // Reset form
+      setStep("select")
+      setChannelId("")
       setLabel("")
       setToken("")
       setAgentId("")
@@ -726,179 +742,208 @@ function AddAccountDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(v) => {
+      if (!v) {
+        setStep("select")
+        setChannelId("")
+      }
+      onOpenChange(v)
+    }}>
       <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>{t("channels.addAccount")}</DialogTitle>
-        </DialogHeader>
+        {step === "select" ? (
+          <>
+            <DialogHeader>
+              <DialogTitle>{t("channels.selectChannel")}</DialogTitle>
+            </DialogHeader>
 
-        <div className="space-y-4">
-          {/* Channel Type */}
-          <div className="space-y-2">
-            <Label>{t("channels.channelType")}</Label>
-            <Select value={channelId} onValueChange={setChannelId}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {plugins.map((p) => (
-                  <SelectItem key={p.meta.id} value={p.meta.id}>
-                    {p.meta.displayName}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Bot Token (Telegram-specific) */}
-          {channelId === "telegram" && (
-            <div className="space-y-2">
-              <Label>Bot Token</Label>
-              <div className="flex gap-2">
-                <Input
-                  type="password"
-                  placeholder="123456:ABC-DEF..."
-                  value={token}
-                  onChange={(e) => {
-                    setToken(e.target.value)
-                    setValidationResult(null)
-                    setValidationError(null)
-                  }}
-                  onBlur={() => {
-                    if (token.trim() && !validationResult && !validating) {
-                      handleValidate()
-                    }
-                  }}
-                  className="flex-1"
-                />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleValidate}
-                  disabled={!token.trim() || validating}
+            <div className="grid grid-cols-2 gap-3">
+              {plugins.map((p) => (
+                <button
+                  key={p.meta.id}
+                  onClick={() => handleSelectChannel(p.meta.id)}
+                  className="flex items-center gap-3 p-4 rounded-lg border border-border hover:border-primary hover:bg-accent transition-colors text-left cursor-pointer"
                 >
-                  {validating ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    t("channels.testConnection")
-                  )}
-                </Button>
-              </div>
-              {validationResult && (
-                <div className="flex items-center gap-1 text-sm text-green-600">
-                  <Check className="h-3.5 w-3.5" />
-                  {validationResult}
-                </div>
-              )}
-              {validationError && (
-                <div className="flex items-center gap-1 text-sm text-destructive">
-                  <AlertCircle className="h-3.5 w-3.5" />
-                  {validationError}
-                </div>
-              )}
-              <p className="text-xs text-muted-foreground">
-                {t("channels.telegramTokenHint")}
-              </p>
+                  <ChannelIcon channelId={p.meta.id} className="h-8 w-8" />
+                  <div className="min-w-0">
+                    <div className="font-medium">{p.meta.displayName}</div>
+                    <div className="text-xs text-muted-foreground truncate">{p.meta.description}</div>
+                  </div>
+                </button>
+              ))}
             </div>
-          )}
 
-          {channelId === "wechat" && (
-            <WeChatConnectSection
-              connection={wechatConnection}
-              onConnectionChange={setWeChatConnection}
-            />
-          )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => onOpenChange(false)}>
+                {t("common.cancel")}
+              </Button>
+            </DialogFooter>
+          </>
+        ) : (
+          <>
+            <DialogHeader>
+              <div className="flex items-center gap-2">
+                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleBack}>
+                  <ArrowLeft className="h-4 w-4" />
+                </Button>
+                <div className="flex items-center gap-2">
+                  <ChannelIcon channelId={channelId} className="h-5 w-5" />
+                  <DialogTitle>{selectedPlugin?.meta.displayName ?? channelId}</DialogTitle>
+                </div>
+              </div>
+            </DialogHeader>
 
-          {/* Label */}
-          <div className="space-y-2">
-            <Label>{t("channels.accountLabel")}</Label>
-            <Input
-              placeholder={t("channels.accountLabelPlaceholder")}
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
-            />
-          </div>
+            <div className="space-y-4">
+              {/* Bot Token (Telegram-specific) */}
+              {channelId === "telegram" && (
+                <div className="space-y-2">
+                  <Label>Bot Token</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      type="password"
+                      placeholder="123456:ABC-DEF..."
+                      value={token}
+                      onChange={(e) => {
+                        setToken(e.target.value)
+                        setValidationResult(null)
+                        setValidationError(null)
+                      }}
+                      onBlur={() => {
+                        if (token.trim() && !validationResult && !validating) {
+                          handleValidate()
+                        }
+                      }}
+                      className="flex-1"
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleValidate}
+                      disabled={!token.trim() || validating}
+                    >
+                      {validating ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        t("channels.testConnection")
+                      )}
+                    </Button>
+                  </div>
+                  {validationResult && (
+                    <div className="flex items-center gap-1 text-sm text-green-600">
+                      <Check className="h-3.5 w-3.5" />
+                      {validationResult}
+                    </div>
+                  )}
+                  {validationError && (
+                    <div className="flex items-center gap-1 text-sm text-destructive">
+                      <AlertCircle className="h-3.5 w-3.5" />
+                      {validationError}
+                    </div>
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    {t("channels.telegramTokenHint")}
+                  </p>
+                </div>
+              )}
 
-          {/* Bound Agent */}
-          <div className="space-y-2">
-            <Label>{t("channels.boundAgent")}</Label>
-            <Select value={agentId || "__none__"} onValueChange={(v) => setAgentId(v === "__none__" ? "" : v)}>
-              <SelectTrigger>
-                <SelectValue placeholder={t("channels.boundAgentDefault")} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__none__">{t("channels.boundAgentDefault")}</SelectItem>
-                {agents.map((a) => (
-                  <SelectItem key={a.id} value={a.id}>
-                    <span className="flex items-center gap-2">
-                      <AgentAvatar agent={a} />
-                      {a.name}
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              {t("channels.boundAgentHint")}
-            </p>
-          </div>
+              {channelId === "wechat" && (
+                <WeChatConnectSection
+                  connection={wechatConnection}
+                  onConnectionChange={setWeChatConnection}
+                />
+              )}
 
-          {/* DM Policy */}
-          <div className="space-y-2">
-            <Label>{t("channels.dmPolicy")}</Label>
-            <Select value={dmPolicy} onValueChange={setDmPolicy}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="open">{t("channels.dmPolicyOpen")}</SelectItem>
-                <SelectItem value="allowlist">{t("channels.dmPolicyAllowlist")}</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+              {/* Label */}
+              <div className="space-y-2">
+                <Label>{t("channels.accountLabel")}</Label>
+                <Input
+                  placeholder={t("channels.accountLabelPlaceholder")}
+                  value={label}
+                  onChange={(e) => setLabel(e.target.value)}
+                />
+              </div>
 
-          {/* User Allowlist */}
-          {dmPolicy === "allowlist" && (
-            <AllowlistTagInput
-              tags={userAllowlist}
-              onTagsChange={setUserAllowlist}
-              inputValue={allowlistInput}
-              onInputChange={setAllowlistInput}
-            />
-          )}
+              {/* Bound Agent */}
+              <div className="space-y-2">
+                <Label>{t("channels.boundAgent")}</Label>
+                <Select value={agentId || "__none__"} onValueChange={(v) => setAgentId(v === "__none__" ? "" : v)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder={t("channels.boundAgentDefault")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">{t("channels.boundAgentDefault")}</SelectItem>
+                    {agents.map((a) => (
+                      <SelectItem key={a.id} value={a.id}>
+                        <span className="flex items-center gap-2">
+                          <AgentAvatar agent={a} />
+                          {a.name}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {t("channels.boundAgentHint")}
+                </p>
+              </div>
 
-          {/* Telegram-specific: Group & Channel Config */}
-          {channelId === "telegram" && (
-            <TelegramGroupChannelConfig
-              groupPolicy={groupPolicy}
-              onGroupPolicyChange={setGroupPolicy}
-              groups={groups}
-              onGroupsChange={setGroups}
-              channels={channels}
-              onChannelsChange={setChannels}
-              agents={agents}
-              t={t}
-            />
-          )}
-        </div>
+              {/* DM Policy */}
+              <div className="space-y-2">
+                <Label>{t("channels.dmPolicy")}</Label>
+                <Select value={dmPolicy} onValueChange={setDmPolicy}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="open">{t("channels.dmPolicyOpen")}</SelectItem>
+                    <SelectItem value="allowlist">{t("channels.dmPolicyAllowlist")}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            {t("common.cancel")}
-          </Button>
-          <Button
-            onClick={handleSave}
-            disabled={
-              !label.trim()
-              || saving
-              || (channelId === "telegram" && !token.trim())
-              || (channelId === "wechat" && !wechatConnection)
-            }
-          >
-            {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
-            {t("common.save")}
-          </Button>
-        </DialogFooter>
+              {/* User Allowlist */}
+              {dmPolicy === "allowlist" && (
+                <AllowlistTagInput
+                  tags={userAllowlist}
+                  onTagsChange={setUserAllowlist}
+                  inputValue={allowlistInput}
+                  onInputChange={setAllowlistInput}
+                />
+              )}
+
+              {/* Telegram-specific: Group & Channel Config */}
+              {channelId === "telegram" && (
+                <TelegramGroupChannelConfig
+                  groupPolicy={groupPolicy}
+                  onGroupPolicyChange={setGroupPolicy}
+                  groups={groups}
+                  onGroupsChange={setGroups}
+                  channels={channels}
+                  onChannelsChange={setChannels}
+                  agents={agents}
+                  t={t}
+                />
+              )}
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => onOpenChange(false)}>
+                {t("common.cancel")}
+              </Button>
+              <Button
+                onClick={handleSave}
+                disabled={
+                  !label.trim()
+                  || saving
+                  || (channelId === "telegram" && !token.trim())
+                  || (channelId === "wechat" && !wechatConnection)
+                }
+              >
+                {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+                {t("common.save")}
+              </Button>
+            </DialogFooter>
+          </>
+        )}
       </DialogContent>
     </Dialog>
   )
@@ -908,12 +953,14 @@ function EditAccountDialog({
   open,
   onOpenChange,
   account,
+  plugins,
   agents,
   onSaved,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   account: ChannelAccountConfig | null
+  plugins: ChannelPluginInfo[]
   agents: AgentInfo[]
   onSaved: () => void
 }) {
@@ -1024,10 +1071,13 @@ function EditAccountDialog({
         </DialogHeader>
 
         <div className="space-y-4">
-          {/* Channel Type (read-only) */}
+          {/* Channel Type (read-only with logo) */}
           <div className="space-y-2">
             <Label>{t("channels.channelType")}</Label>
-            <Input value={account.channelId} disabled />
+            <div className="flex items-center gap-2 h-9 px-3 rounded-md border border-input bg-muted text-sm">
+              <ChannelIcon channelId={account.channelId} className="h-5 w-5" />
+              <span>{plugins.find((p) => p.meta.id === account.channelId)?.meta.displayName ?? account.channelId}</span>
+            </div>
           </div>
 
           {/* Bot Token */}
