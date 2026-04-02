@@ -3,7 +3,8 @@ import { invoke } from "@tauri-apps/api/core"
 
 export type ThemeMode = "auto" | "light" | "dark"
 
-function applyTheme(mode: ThemeMode) {
+/** Apply theme visually (DOM + native window) without persisting to config */
+function applyThemeVisual(mode: ThemeMode) {
   const root = document.documentElement
   let isDark: boolean
   if (mode === "dark") {
@@ -26,27 +27,31 @@ function applyTheme(mode: ThemeMode) {
   invoke("set_window_theme", { isDark }).catch(() => {})
 }
 
+/** Apply theme visually and persist to backend config */
+function applyTheme(mode: ThemeMode) {
+  applyThemeVisual(mode)
+  invoke("set_theme", { theme: mode }).catch(() => {})
+}
+
 export function useTheme() {
   const [theme, setThemeState] = useState<ThemeMode>("auto")
 
-  // Load theme from backend config.json on mount
+  // Load theme from backend config.json on mount (apply visually only, no write-back)
   useEffect(() => {
     invoke<string>("get_theme")
       .then((stored) => {
         const mode = (stored === "light" || stored === "dark") ? stored : "auto"
         setThemeState(mode)
-        applyTheme(mode)
+        applyThemeVisual(mode)
       })
       .catch(() => {
-        applyTheme("auto")
+        applyThemeVisual("auto")
       })
   }, [])
 
   const setTheme = useCallback((mode: ThemeMode) => {
     setThemeState(mode)
     applyTheme(mode)
-    // Persist to backend config.json
-    invoke("set_theme", { theme: mode }).catch(() => {})
   }, [])
 
   // Listen for system changes when in "auto" mode
@@ -54,7 +59,7 @@ export function useTheme() {
     const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)")
     const handleChange = () => {
       if (theme === "auto") {
-        applyTheme("auto")
+        applyThemeVisual("auto")
       }
     }
 

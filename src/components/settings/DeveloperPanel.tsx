@@ -150,30 +150,58 @@ export default function DeveloperPanel() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => window.dispatchEvent(new CustomEvent("simulate-weather", { detail: null }))}
+              onClick={() => window.dispatchEvent(new CustomEvent("simulate-weather", { detail: { weatherCode: 0 } }))}
             >
               晴天 (Clear)
             </Button>
             <Button
               variant="outline"
               size="sm"
-              onClick={() => window.dispatchEvent(new CustomEvent("simulate-weather", { detail: 3 }))}
+              onClick={() => window.dispatchEvent(new CustomEvent("simulate-weather", { detail: { weatherCode: 3 } }))}
             >
               多云 (Cloudy)
             </Button>
             <Button
               variant="outline"
               size="sm"
-              onClick={() => window.dispatchEvent(new CustomEvent("simulate-weather", { detail: 61 }))}
+              onClick={() => window.dispatchEvent(new CustomEvent("simulate-weather", { detail: { weatherCode: 45 } }))}
+            >
+              雾 (Fog)
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => window.dispatchEvent(new CustomEvent("simulate-weather", { detail: { weatherCode: 61 } }))}
             >
               下雨 (Rain)
             </Button>
             <Button
               variant="outline"
               size="sm"
-              onClick={() => window.dispatchEvent(new CustomEvent("simulate-weather", { detail: 71 }))}
+              onClick={() => window.dispatchEvent(new CustomEvent("simulate-weather", { detail: { weatherCode: 71 } }))}
             >
               下雪 (Snow)
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => window.dispatchEvent(new CustomEvent("simulate-weather", { detail: { weatherCode: 95 } }))}
+            >
+              雷暴 (Thunder)
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => window.dispatchEvent(new CustomEvent("simulate-weather", { detail: { weatherCode: 61, windSpeed: 50 } }))}
+            >
+              大风+雨 (Wind)
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => window.dispatchEvent(new CustomEvent("simulate-weather", { detail: { weatherCode: 71, windSpeed: 45 } }))}
+            >
+              大风+雪 (Wind)
             </Button>
           </div>
           <p className="text-xs text-muted-foreground mt-2">

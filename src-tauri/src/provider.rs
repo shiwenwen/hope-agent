@@ -765,7 +765,7 @@ pub fn save_store(store: &ProviderStore) -> Result<()> {
         .iter()
         .map(|a| a.id.as_str())
         .collect();
-    app_info!(
+    app_debug!(
         "provider",
         "save_store",
         "Saving config with {} channel account(s): {:?}",
