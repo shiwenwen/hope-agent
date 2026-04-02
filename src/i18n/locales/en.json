@@ -1037,8 +1037,21 @@
     "removeConfig": "Remove",
     "pluginName_telegram": "Telegram",
     "pluginName_wechat": "WeChat",
+    "pluginName_discord": "Discord",
+    "pluginName_slack": "Slack",
+    "pluginName_feishu": "Feishu / Lark",
+    "pluginName_qqbot": "QQ Bot",
     "pluginDesc_telegram": "Telegram Bot API channel",
-    "pluginDesc_wechat": "WeChat via ClawBot"
+    "pluginDesc_wechat": "WeChat via ClawBot",
+    "pluginDesc_discord": "Discord Bot channel",
+    "pluginDesc_slack": "Slack Bot (Socket Mode)",
+    "pluginDesc_feishu": "Feishu (飞书) / Lark Bot",
+    "pluginDesc_qqbot": "QQ Official Bot",
+    "discordTokenHint": "Create a Bot at Discord Developer Portal and copy the token",
+    "slackTokenHint": "Enable Socket Mode in your Slack App settings to get the App Token",
+    "feishuTokenHint": "Create a Bot in Feishu Open Platform and get App ID / App Secret",
+    "feishuDomain": "Domain",
+    "qqbotTokenHint": "Create a Bot at QQ Open Platform (q.qq.com) and get credentials"
   },
   "cron": {
     "title": "Scheduled Tasks",

@@ -769,6 +769,10 @@ pub fn run() {
                 // Register built-in channel plugins
                 registry.register_plugin(Arc::new(channel::telegram::TelegramPlugin::new()));
                 registry.register_plugin(Arc::new(channel::wechat::WeChatPlugin::new()));
+                registry.register_plugin(Arc::new(channel::slack::SlackPlugin::new()));
+                registry.register_plugin(Arc::new(channel::feishu::FeishuPlugin::new()));
+                registry.register_plugin(Arc::new(channel::discord::DiscordPlugin::new()));
+                registry.register_plugin(Arc::new(channel::qqbot::QqBotPlugin::new()));
 
                 let registry = Arc::new(registry);
                 let channel_db = Arc::new(channel::ChannelDB::new(session_db.clone()));

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Discord 渠道插件**：WebSocket Gateway 协议、Application Commands 斜杠命令同步、RESUME 自动重连、原生 Markdown 透传
+- **Slack 渠道插件**：Socket Mode WebSocket、Bot Token + App Token 双令牌认证、mrkdwn 格式转换、一次性 URL 重连
+- **飞书 / Lark 渠道插件**：WebSocket 事件订阅、OAuth Token 自动刷新（2h TTL）、多域名支持（feishu/lark/私有部署）
+- **QQ Bot 渠道插件**：WebSocket Gateway（opcode 协议）、QQBotAccessToken 认证、C2C/Group/Channel/DMs 四种消息类型
+- **共享 WebSocket 工具**（`channel/ws.rs`）：统一 WsConnection 封装 + 指数退避重连，被 Discord/Slack/Feishu/QQ Bot 四个插件复用
+- **前端渠道凭据表单**：ChannelPanel 支持 Discord（Bot Token）、Slack（双 Token）、飞书（App ID + Secret + 域名选择）、QQ Bot（App ID + Secret）的凭据输入和验证
+- **渠道图标**：ChannelIcon 新增 Slack（lucide-react）、飞书（自定义 SVG）、QQ（SiQq）图标
+
 ### Changed
 
 - **Read 工具 Context Window 自适应**：read 工具的输出预算从固定 20% 总 context window 改为基于**剩余** token 动态计算，上下文利用率 >50% 时 share 降至 15%、>80% 降至 10%，从源头避免大文件撑爆上下文（50KB 最低保障）

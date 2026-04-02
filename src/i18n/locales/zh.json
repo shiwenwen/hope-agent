@@ -1037,8 +1037,21 @@
     "removeConfig": "删除",
     "pluginName_telegram": "Telegram",
     "pluginName_wechat": "微信",
+    "pluginName_discord": "Discord",
+    "pluginName_slack": "Slack",
+    "pluginName_feishu": "飞书 / Lark",
+    "pluginName_qqbot": "QQ Bot",
     "pluginDesc_telegram": "Telegram Bot API 渠道",
-    "pluginDesc_wechat": "微信 ClawBot 接入"
+    "pluginDesc_wechat": "微信 ClawBot 接入",
+    "pluginDesc_discord": "Discord Bot 渠道",
+    "pluginDesc_slack": "Slack Bot（Socket Mode）",
+    "pluginDesc_feishu": "飞书 / Lark 机器人",
+    "pluginDesc_qqbot": "QQ 官方机器人",
+    "discordTokenHint": "在 Discord Developer Portal 创建 Bot 并复制 Token",
+    "slackTokenHint": "在 Slack App 设置中启用 Socket Mode 获取 App Token",
+    "feishuTokenHint": "在飞书开放平台创建应用，获取 App ID 和 App Secret",
+    "feishuDomain": "域名",
+    "qqbotTokenHint": "在 QQ 开放平台 (q.qq.com) 创建机器人并获取凭据"
   },
   "cron": {
     "title": "定时任务",

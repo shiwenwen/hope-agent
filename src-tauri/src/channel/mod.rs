@@ -1,12 +1,17 @@
 pub mod cancel;
 pub mod config;
 pub mod db;
+pub mod discord;
+pub mod feishu;
+pub mod qqbot;
 pub mod registry;
+pub mod slack;
 pub mod telegram;
 pub mod traits;
 pub mod types;
 pub mod wechat;
 pub mod worker;
+pub mod ws;
 
 pub use cancel::ChannelCancelRegistry;
 pub use config::ChannelStoreConfig;

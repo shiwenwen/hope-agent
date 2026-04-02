@@ -21,6 +21,9 @@ pub enum ChannelId {
     #[serde(rename = "imessage")]
     IMessage,
     Line,
+    Feishu,
+    #[serde(rename = "qqbot")]
+    QqBot,
     /// Extension channels not in the built-in list.
     #[serde(untagged)]
     Custom(String),
@@ -39,6 +42,8 @@ impl std::fmt::Display for ChannelId {
             ChannelId::Signal => write!(f, "signal"),
             ChannelId::IMessage => write!(f, "imessage"),
             ChannelId::Line => write!(f, "line"),
+            ChannelId::Feishu => write!(f, "feishu"),
+            ChannelId::QqBot => write!(f, "qqbot"),
             ChannelId::Custom(s) => write!(f, "{}", s),
         }
     }

@@ -627,6 +627,16 @@ function AddAccountDialog({
   const [channelId, setChannelId] = useState("")
   const [label, setLabel] = useState("")
   const [token, setToken] = useState("")
+  // Slack-specific
+  const [slackBotToken, setSlackBotToken] = useState("")
+  const [slackAppToken, setSlackAppToken] = useState("")
+  // Feishu-specific
+  const [feishuAppId, setFeishuAppId] = useState("")
+  const [feishuAppSecret, setFeishuAppSecret] = useState("")
+  const [feishuDomain, setFeishuDomain] = useState("feishu")
+  // QQ Bot-specific
+  const [qqAppId, setQqAppId] = useState("")
+  const [qqClientSecret, setQqClientSecret] = useState("")
   const [agentId, setAgentId] = useState("")
   const [dmPolicy, setDmPolicy] = useState("open")
   const [userAllowlist, setUserAllowlist] = useState<string[]>([])
@@ -648,15 +658,55 @@ function AddAccountDialog({
     setStep("select")
   }
 
+  const buildCredentials = () => {
+    switch (channelId) {
+      case "slack":
+        return { botToken: slackBotToken.trim(), appToken: slackAppToken.trim() }
+      case "feishu":
+        return { appId: feishuAppId.trim(), appSecret: feishuAppSecret.trim(), domain: feishuDomain }
+      case "qqbot":
+        return { appId: qqAppId.trim(), clientSecret: qqClientSecret.trim() }
+      case "wechat":
+        return {
+          token: wechatConnection?.botToken ?? "",
+          remoteAccountId: wechatConnection?.remoteAccountId ?? null,
+          userId: wechatConnection?.userId ?? null,
+        }
+      default:
+        return { token: token.trim() }
+    }
+  }
+
+  const canValidate = () => {
+    switch (channelId) {
+      case "slack": return !!slackBotToken.trim()
+      case "feishu": return !!feishuAppId.trim() && !!feishuAppSecret.trim()
+      case "qqbot": return !!qqAppId.trim() && !!qqClientSecret.trim()
+      case "wechat": return false
+      default: return !!token.trim()
+    }
+  }
+
+  const canSave = () => {
+    if (!label.trim() || saving) return false
+    switch (channelId) {
+      case "slack": return !!slackBotToken.trim() && !!slackAppToken.trim()
+      case "feishu": return !!feishuAppId.trim() && !!feishuAppSecret.trim()
+      case "qqbot": return !!qqAppId.trim() && !!qqClientSecret.trim()
+      case "wechat": return !!wechatConnection
+      default: return !!token.trim()
+    }
+  }
+
   const handleValidate = async () => {
-    if (!token.trim()) return
+    if (!canValidate()) return
     setValidating(true)
     setValidationResult(null)
     setValidationError(null)
     try {
       const botName = await invoke<string>("channel_validate_credentials", {
         channelId,
-        credentials: { token: token.trim() },
+        credentials: buildCredentials(),
       })
       setValidationResult(botName)
       if (!label.trim()) {
@@ -681,26 +731,18 @@ function AddAccountDialog({
   }, [channelId, label, wechatConnection])
 
   const handleSave = async () => {
-    if (!label.trim()) return
-    if (channelId === "telegram" && !token.trim()) return
-    if (channelId === "wechat" && !wechatConnection) return
+    if (!canSave()) return
 
     setSaving(true)
     try {
-      const credentials = channelId === "wechat"
-        ? {
-            token: wechatConnection?.botToken ?? "",
-            remoteAccountId: wechatConnection?.remoteAccountId ?? null,
-            userId: wechatConnection?.userId ?? null,
-          }
-        : { token: token.trim() }
+      const credentials = buildCredentials()
 
       const settings = channelId === "wechat"
         ? {
             transport: "longpoll",
             baseUrl: wechatConnection?.baseUrl ?? "",
           }
-        : { transport: "polling" }
+        : {}
 
       await invoke("channel_add_account", {
         channelId,
@@ -723,6 +765,13 @@ function AddAccountDialog({
       setChannelId("")
       setLabel("")
       setToken("")
+      setSlackBotToken("")
+      setSlackAppToken("")
+      setFeishuAppId("")
+      setFeishuAppSecret("")
+      setFeishuDomain("feishu")
+      setQqAppId("")
+      setQqClientSecret("")
       setAgentId("")
       setDmPolicy("open")
       setUserAllowlist([])
@@ -845,6 +894,139 @@ function AddAccountDialog({
                 </div>
               )}
 
+              {/* Discord: single Bot Token */}
+              {channelId === "discord" && (
+                <div className="space-y-2">
+                  <Label>Bot Token</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      type="password"
+                      placeholder="MTIzNDU2Nzg5MDEyMzQ1Njc4OQ..."
+                      value={token}
+                      onChange={(e) => { setToken(e.target.value); setValidationResult(null); setValidationError(null) }}
+                      onBlur={() => { if (token.trim() && !validationResult && !validating) handleValidate() }}
+                      className="flex-1"
+                    />
+                    <Button variant="outline" size="sm" onClick={handleValidate} disabled={!token.trim() || validating}>
+                      {validating ? <Loader2 className="h-4 w-4 animate-spin" /> : t("channels.testConnection")}
+                    </Button>
+                  </div>
+                  {validationResult && <div className="flex items-center gap-1 text-sm text-green-600"><Check className="h-3.5 w-3.5" />{validationResult}</div>}
+                  {validationError && <div className="flex items-center gap-1 text-sm text-destructive"><AlertCircle className="h-3.5 w-3.5" />{validationError}</div>}
+                  <p className="text-xs text-muted-foreground">{t("channels.discordTokenHint", "Create a Bot at Discord Developer Portal and copy the token")}</p>
+                </div>
+              )}
+
+              {/* Slack: Bot Token + App Token */}
+              {channelId === "slack" && (
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    <Label>Bot Token (xoxb-...)</Label>
+                    <Input
+                      type="password"
+                      placeholder="xoxb-..."
+                      value={slackBotToken}
+                      onChange={(e) => { setSlackBotToken(e.target.value); setValidationResult(null); setValidationError(null) }}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>App Token (xapp-...)</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        type="password"
+                        placeholder="xapp-..."
+                        value={slackAppToken}
+                        onChange={(e) => { setSlackAppToken(e.target.value); setValidationResult(null); setValidationError(null) }}
+                        onBlur={() => { if (canValidate() && !validationResult && !validating) handleValidate() }}
+                        className="flex-1"
+                      />
+                      <Button variant="outline" size="sm" onClick={handleValidate} disabled={!canValidate() || validating}>
+                        {validating ? <Loader2 className="h-4 w-4 animate-spin" /> : t("channels.testConnection")}
+                      </Button>
+                    </div>
+                  </div>
+                  {validationResult && <div className="flex items-center gap-1 text-sm text-green-600"><Check className="h-3.5 w-3.5" />{validationResult}</div>}
+                  {validationError && <div className="flex items-center gap-1 text-sm text-destructive"><AlertCircle className="h-3.5 w-3.5" />{validationError}</div>}
+                  <p className="text-xs text-muted-foreground">{t("channels.slackTokenHint", "Enable Socket Mode in your Slack App settings to get the App Token")}</p>
+                </div>
+              )}
+
+              {/* Feishu: App ID + App Secret + Domain */}
+              {channelId === "feishu" && (
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    <Label>App ID</Label>
+                    <Input
+                      placeholder="cli_xxx"
+                      value={feishuAppId}
+                      onChange={(e) => { setFeishuAppId(e.target.value); setValidationResult(null); setValidationError(null) }}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>App Secret</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        type="password"
+                        value={feishuAppSecret}
+                        onChange={(e) => { setFeishuAppSecret(e.target.value); setValidationResult(null); setValidationError(null) }}
+                        onBlur={() => { if (canValidate() && !validationResult && !validating) handleValidate() }}
+                        className="flex-1"
+                      />
+                      <Button variant="outline" size="sm" onClick={handleValidate} disabled={!canValidate() || validating}>
+                        {validating ? <Loader2 className="h-4 w-4 animate-spin" /> : t("channels.testConnection")}
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>{t("channels.feishuDomain", "Domain")}</Label>
+                    <Select value={feishuDomain} onValueChange={setFeishuDomain}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="feishu">Feishu (飞书)</SelectItem>
+                        <SelectItem value="lark">Lark (International)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {validationResult && <div className="flex items-center gap-1 text-sm text-green-600"><Check className="h-3.5 w-3.5" />{validationResult}</div>}
+                  {validationError && <div className="flex items-center gap-1 text-sm text-destructive"><AlertCircle className="h-3.5 w-3.5" />{validationError}</div>}
+                  <p className="text-xs text-muted-foreground">{t("channels.feishuTokenHint", "Create a Bot in Feishu Open Platform and get App ID / App Secret")}</p>
+                </div>
+              )}
+
+              {/* QQ Bot: App ID + Client Secret */}
+              {channelId === "qqbot" && (
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    <Label>App ID</Label>
+                    <Input
+                      placeholder="102xxx"
+                      value={qqAppId}
+                      onChange={(e) => { setQqAppId(e.target.value); setValidationResult(null); setValidationError(null) }}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Client Secret</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        type="password"
+                        value={qqClientSecret}
+                        onChange={(e) => { setQqClientSecret(e.target.value); setValidationResult(null); setValidationError(null) }}
+                        onBlur={() => { if (canValidate() && !validationResult && !validating) handleValidate() }}
+                        className="flex-1"
+                      />
+                      <Button variant="outline" size="sm" onClick={handleValidate} disabled={!canValidate() || validating}>
+                        {validating ? <Loader2 className="h-4 w-4 animate-spin" /> : t("channels.testConnection")}
+                      </Button>
+                    </div>
+                  </div>
+                  {validationResult && <div className="flex items-center gap-1 text-sm text-green-600"><Check className="h-3.5 w-3.5" />{validationResult}</div>}
+                  {validationError && <div className="flex items-center gap-1 text-sm text-destructive"><AlertCircle className="h-3.5 w-3.5" />{validationError}</div>}
+                  <p className="text-xs text-muted-foreground">{t("channels.qqbotTokenHint", "Create a Bot at QQ Open Platform (q.qq.com) and get credentials")}</p>
+                </div>
+              )}
+
               {channelId === "wechat" && (
                 <WeChatConnectSection
                   connection={wechatConnection}
@@ -931,12 +1113,7 @@ function AddAccountDialog({
               </Button>
               <Button
                 onClick={handleSave}
-                disabled={
-                  !label.trim()
-                  || saving
-                  || (channelId === "telegram" && !token.trim())
-                  || (channelId === "wechat" && !wechatConnection)
-                }
+                disabled={!canSave()}
               >
                 {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
                 {t("common.save")}
