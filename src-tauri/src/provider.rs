@@ -768,10 +768,9 @@ pub fn save_store(store: &ProviderStore) -> Result<()> {
     app_info!(
         "provider",
         "save_store",
-        "Saving config with {} channel account(s): {:?} — caller: {}",
+        "Saving config with {} channel account(s): {:?}",
         account_ids.len(),
-        account_ids,
-        std::backtrace::Backtrace::force_capture()
+        account_ids
     );
     let data = serde_json::to_string_pretty(store)?;
     std::fs::write(&path, data)?;
