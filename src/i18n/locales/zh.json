@@ -972,6 +972,7 @@
     "title": "IM 渠道",
     "description": "接入 Telegram、微信、Discord、Slack 等即时通讯平台，通过 IM 与 AI Agent 对话",
     "addAccount": "添加渠道账户",
+    "selectChannel": "选择渠道",
     "noAccounts": "尚未配置任何 IM 渠道账户",
     "addFirst": "添加第一个渠道",
     "channelType": "渠道类型",

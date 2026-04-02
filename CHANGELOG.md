@@ -24,6 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Memory 批量写入优化**：memory/sqlite.rs 中 embedding 更新操作包裹在 SQLite 事务中，显著减少大量记忆重新嵌入时的磁盘 I/O
 - **前端日志丢失修复**：main.tsx 添加 `beforeunload` 事件监听，确保 logger 缓冲区在页面卸载前刷新
 
+### Changed
+
+- **渠道添加流程优化**：添加渠道时先弹出渠道选择界面（各渠道带品牌 Logo），选择后再进入详细配置；编辑渠道时也展示渠道 Logo 和名称替代纯文本
+
 ### Added
 
 - **React Error Boundary**：新增 `ErrorBoundary` 组件包裹整个 App，任何子组件渲染错误不再导致白屏，提供友好的错误恢复 UI
