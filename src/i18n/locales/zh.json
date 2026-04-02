@@ -1034,7 +1034,11 @@
     "channelIdPlaceholder": "填写 Telegram 频道的数字 ID",
     "channelEnabled": "启用",
     "channelAgent": "绑定 Agent",
-    "removeConfig": "删除"
+    "removeConfig": "删除",
+    "pluginName_telegram": "Telegram",
+    "pluginName_wechat": "微信",
+    "pluginDesc_telegram": "Telegram Bot API 渠道",
+    "pluginDesc_wechat": "微信 ClawBot 接入"
   },
   "cron": {
     "title": "定时任务",

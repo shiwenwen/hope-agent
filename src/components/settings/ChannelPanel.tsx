@@ -765,8 +765,8 @@ function AddAccountDialog({
                 >
                   <ChannelIcon channelId={p.meta.id} className="h-8 w-8" />
                   <div className="min-w-0">
-                    <div className="font-medium">{p.meta.displayName}</div>
-                    <div className="text-xs text-muted-foreground truncate">{p.meta.description}</div>
+                    <div className="font-medium">{t(`channels.pluginName_${p.meta.id}`, p.meta.displayName)}</div>
+                    <div className="text-xs text-muted-foreground truncate">{t(`channels.pluginDesc_${p.meta.id}`, p.meta.description)}</div>
                   </div>
                 </button>
               ))}
@@ -787,7 +787,7 @@ function AddAccountDialog({
                 </Button>
                 <div className="flex items-center gap-2">
                   <ChannelIcon channelId={channelId} className="h-5 w-5" />
-                  <DialogTitle>{selectedPlugin?.meta.displayName ?? channelId}</DialogTitle>
+                  <DialogTitle>{t(`channels.pluginName_${channelId}`, selectedPlugin?.meta.displayName ?? channelId)}</DialogTitle>
                 </div>
               </div>
             </DialogHeader>
@@ -1076,7 +1076,7 @@ function EditAccountDialog({
             <Label>{t("channels.channelType")}</Label>
             <div className="flex items-center gap-2 h-9 px-3 rounded-md border border-input bg-muted text-sm">
               <ChannelIcon channelId={account.channelId} className="h-5 w-5" />
-              <span>{plugins.find((p) => p.meta.id === account.channelId)?.meta.displayName ?? account.channelId}</span>
+              <span>{t(`channels.pluginName_${account.channelId}`, plugins.find((p) => p.meta.id === account.channelId)?.meta.displayName ?? account.channelId)}</span>
             </div>
           </div>
 

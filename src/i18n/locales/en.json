@@ -1034,7 +1034,11 @@
     "channelIdPlaceholder": "Enter Telegram channel numeric ID",
     "channelEnabled": "Enabled",
     "channelAgent": "Bound Agent",
-    "removeConfig": "Remove"
+    "removeConfig": "Remove",
+    "pluginName_telegram": "Telegram",
+    "pluginName_wechat": "WeChat",
+    "pluginDesc_telegram": "Telegram Bot API channel",
+    "pluginDesc_wechat": "WeChat via ClawBot"
   },
   "cron": {
     "title": "Scheduled Tasks",
