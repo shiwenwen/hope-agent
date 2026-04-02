@@ -372,6 +372,13 @@ impl AssistantAgent {
                 );
             }
 
+            // Estimate current token usage for adaptive tool output sizing
+            let estimated_used = crate::context_compact::estimate_request_tokens(
+                &system_prompt,
+                &input,
+                16384,
+            );
+
             // Execute tools and append results to input
             for tc in &tool_calls {
                 // Check cancel before each tool execution
@@ -418,7 +425,7 @@ impl AssistantAgent {
                 let tool_start = std::time::Instant::now();
                 // Use tokio::select! to race tool execution against cancel flag
                 let cancel_clone = cancel.clone();
-                let tool_ctx = self.tool_context();
+                let tool_ctx = self.tool_context_with_usage(Some(estimated_used));
                 let result = tokio::select! {
                     res = tools::execute_tool_with_context(&tc.name, &args, &tool_ctx) => {
                         match res {

@@ -130,15 +130,40 @@ const MAX_ADAPTIVE_READ_PAGES: usize = 8;
 /// Default max lines per page when no limit is specified.
 const READ_DEFAULT_MAX_LINES: usize = 2000;
 
-/// Compute max bytes for a single adaptive read page based on model context window.
-fn compute_adaptive_read_max_bytes(context_window_tokens: Option<u32>) -> usize {
+/// Compute max bytes for adaptive read output based on **remaining** context budget.
+///
+/// When `used_tokens` is available, the budget is based on remaining tokens with a
+/// dynamic share ratio that decreases as context fills up. This prevents large reads
+/// from crowding out the context window in long conversations.
+///
+/// Fallback: when `used_tokens` is `None`, uses the full context window (backward compat).
+fn compute_adaptive_read_max_bytes(
+    context_window_tokens: Option<u32>,
+    used_tokens: Option<u32>,
+) -> usize {
     match context_window_tokens {
-        Some(tokens) if tokens > 0 => {
-            let from_context = (tokens as usize)
-                * CHARS_PER_TOKEN_ESTIMATE
-                * (ADAPTIVE_READ_CONTEXT_SHARE * 100.0) as usize
-                / 100;
-            from_context.clamp(DEFAULT_READ_PAGE_MAX_BYTES, MAX_ADAPTIVE_READ_MAX_BYTES)
+        Some(window) if window > 0 => {
+            // Remaining tokens: total window minus already used
+            let remaining = match used_tokens {
+                Some(used) if used < window => window - used,
+                Some(_) => 0, // context fully consumed or overflowed
+                None => window, // no usage info → fall back to full window
+            };
+
+            // Dynamic share: allocate a smaller fraction of remaining as context fills up
+            let utilization = used_tokens
+                .map(|u| u as f64 / window as f64)
+                .unwrap_or(0.0);
+            let share = if utilization > 0.8 {
+                0.10 // tight: 10% of remaining
+            } else if utilization > 0.5 {
+                0.15 // moderate: 15% of remaining
+            } else {
+                ADAPTIVE_READ_CONTEXT_SHARE // fresh: 20% of remaining (baseline)
+            };
+
+            let budget = (remaining as f64 * share * CHARS_PER_TOKEN_ESTIMATE as f64) as usize;
+            budget.clamp(DEFAULT_READ_PAGE_MAX_BYTES, MAX_ADAPTIVE_READ_MAX_BYTES)
         }
         _ => DEFAULT_READ_PAGE_MAX_BYTES,
     }
@@ -295,7 +320,19 @@ pub(crate) async fn tool_read_file(args: &Value, ctx: &super::ToolExecContext) -
     }
 
     // Adaptive paging: auto-aggregate multiple pages up to max_bytes budget
-    let max_bytes = compute_adaptive_read_max_bytes(ctx.context_window_tokens);
+    let max_bytes = compute_adaptive_read_max_bytes(ctx.context_window_tokens, ctx.used_tokens);
+    app_debug!(
+        "tool",
+        "read",
+        "Adaptive read budget: {}KB (window={}K, used={}K, remaining={}K)",
+        max_bytes / 1024,
+        ctx.context_window_tokens.unwrap_or(0) / 1000,
+        ctx.used_tokens.unwrap_or(0) / 1000,
+        ctx.context_window_tokens
+            .unwrap_or(0)
+            .saturating_sub(ctx.used_tokens.unwrap_or(0))
+            / 1000
+    );
     let page_max_lines = READ_DEFAULT_MAX_LINES;
     let mut aggregated = String::new();
     let mut aggregated_bytes: usize = 0;

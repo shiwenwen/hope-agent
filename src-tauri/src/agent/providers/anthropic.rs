@@ -343,6 +343,13 @@ impl AssistantAgent {
                 );
             }
 
+            // Estimate current token usage for adaptive tool output sizing
+            let estimated_used = crate::context_compact::estimate_request_tokens(
+                &system_prompt,
+                &messages,
+                max_tokens,
+            );
+
             // Execute tools and build tool_result messages
             let mut tool_results: Vec<serde_json::Value> = Vec::new();
             for tc in &tool_calls {
@@ -390,7 +397,7 @@ impl AssistantAgent {
                 let tool_start = std::time::Instant::now();
                 // Use tokio::select! to race tool execution against cancel flag
                 let cancel_clone = cancel.clone();
-                let tool_ctx = self.tool_context();
+                let tool_ctx = self.tool_context_with_usage(Some(estimated_used));
                 let result = tokio::select! {
                     res = tools::execute_tool_with_context(&tc.name, &args, &tool_ctx) => {
                         match res {

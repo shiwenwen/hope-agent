@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Read 工具 Context Window 自适应**：read 工具的输出预算从固定 20% 总 context window 改为基于**剩余** token 动态计算，上下文利用率 >50% 时 share 降至 15%、>80% 降至 10%，从源头避免大文件撑爆上下文（50KB 最低保障）
+
 ### Fixed
 
 - **Mutex 中毒防护**：修复 52 处 `.lock().unwrap()` 调用（分布在 cron/db.rs、canvas_db.rs、agent providers 等 12 个文件），改用 `map_err` 错误传播或 `unwrap_or_else(|e| e.into_inner())` 恢复，防止 panic 导致的级联 mutex 中毒崩溃

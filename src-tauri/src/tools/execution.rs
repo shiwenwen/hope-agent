@@ -46,6 +46,9 @@ fn tool_timeout() -> Option<Duration> {
 pub struct ToolExecContext {
     /// Model context window in tokens (for dynamic output truncation)
     pub context_window_tokens: Option<u32>,
+    /// Estimated tokens currently used by system prompt + messages + max_output.
+    /// Used by the read tool to compute remaining context budget for adaptive sizing.
+    pub used_tokens: Option<u32>,
     /// Agent home directory — used as default cwd/path for tools.
     /// Falls back to user ~ if None.
     pub home_dir: Option<String>,
@@ -70,6 +73,7 @@ impl Default for ToolExecContext {
     fn default() -> Self {
         Self {
             context_window_tokens: None,
+            used_tokens: None,
             home_dir: None,
             session_id: None,
             agent_id: None,

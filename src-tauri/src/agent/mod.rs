@@ -327,8 +327,12 @@ impl AssistantAgent {
             .map(|p| p.to_string_lossy().to_string())
     }
 
-    /// Build a ToolExecContext with agent home directory and context window.
-    pub(crate) fn tool_context(&self) -> tools::ToolExecContext {
+    /// Build a ToolExecContext with agent home directory, context window, and
+    /// estimated token usage for adaptive tool output sizing.
+    pub(crate) fn tool_context_with_usage(
+        &self,
+        used_tokens: Option<u32>,
+    ) -> tools::ToolExecContext {
         let agent_def = crate::agent_loader::load_agent(&self.agent_id);
         let mut require_approval = agent_def
             .as_ref()
@@ -348,6 +352,7 @@ impl AssistantAgent {
             .unwrap_or(false);
         tools::ToolExecContext {
             context_window_tokens: Some(self.context_window),
+            used_tokens,
             home_dir: self.agent_home(),
             session_id: self.session_id.clone(),
             agent_id: Some(self.agent_id.clone()),
@@ -356,6 +361,11 @@ impl AssistantAgent {
             force_sandbox,
             plan_mode_allow_paths: self.plan_mode_allow_paths.clone(),
         }
+    }
+
+    /// Build a ToolExecContext without token usage info (backward-compatible wrapper).
+    pub(crate) fn tool_context(&self) -> tools::ToolExecContext {
+        self.tool_context_with_usage(None)
     }
 
     /// Get the context window size.
