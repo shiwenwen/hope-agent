@@ -78,6 +78,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Telegram/Channel 入站附件归档与可见性修复**
+  - Telegram polling 现在会下载入站 photo/document 到本地 `~/.opencomputer/channels/telegram/inbound-temp`，不再仅有 `file_id` 无 `file_url`
+  - Channel worker 转换入站媒体为 `Attachment` 时，新增复制归档到会话目录 `~/.opencomputer/attachments/{session_id}/`，避免仅停留在 channel 临时目录
+  - 归档后使用会话目录路径参与后续文件提取与多模态输入，提升附件可追溯性与稳定性
+
 - **macOS 自动定位改为原生 CoreLocation**
   - 移除 `osascript` + JXA 桥接，改为 Rust 后端通过 `objc2` 直接调用 `CLLocationManager`
   - 原生实现一次性定位 delegate 与 callback 生命周期，避免 `DelClass.alloc` 这类 JXA bridge 错误
