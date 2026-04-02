@@ -970,6 +970,8 @@ pub fn run() {
             commands::config::set_theme,
             commands::config::get_language,
             commands::config::set_language,
+            commands::config::get_ui_effects_enabled,
+            commands::config::set_ui_effects_enabled,
             // User config
             commands::config::get_user_config,
             commands::config::save_user_config,

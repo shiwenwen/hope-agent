@@ -435,8 +435,14 @@ pub async fn refresh_weather_cache() {
                 }
             }
 
-            cache.data = Some(resp.current);
+            cache.data = Some(resp.current.clone());
             cache.last_fetched = Some(std::time::Instant::now());
+
+            // Notify frontend about weather cache update
+            if let Some(app) = crate::get_app_handle() {
+                use tauri::Emitter;
+                let _ = app.emit("weather-cache-updated", &resp.current);
+            }
         }
         Err(e) => {
             if let Some(logger) = crate::get_logger() {
@@ -485,6 +491,12 @@ pub async fn force_refresh_weather() -> Result<Option<WeatherData>> {
     cache.data_hash = Some(new_hash);
     cache.data = Some(resp.current.clone());
     cache.last_fetched = Some(std::time::Instant::now());
+
+    // Notify frontend about weather cache update
+    if let Some(app) = crate::get_app_handle() {
+        use tauri::Emitter;
+        let _ = app.emit("weather-cache-updated", &resp.current);
+    }
 
     Ok(Some(resp.current))
 }

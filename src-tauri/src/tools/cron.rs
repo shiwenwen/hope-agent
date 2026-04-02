@@ -1,138 +1,149 @@
+use std::future::Future;
+use std::pin::Pin;
+
 use anyhow::Result;
 use serde_json::Value;
 
 use crate::cron::{self, CronPayload, CronSchedule, NewCronJob};
 
 /// Tool: manage_cron — create, list, update, delete, and trigger scheduled tasks.
-pub(crate) async fn tool_manage_cron(args: &Value) -> Result<String> {
-    let cron_db =
-        crate::get_cron_db().ok_or_else(|| anyhow::anyhow!("Cron service not initialized"))?;
+///
+/// Returns `Pin<Box<dyn Future + Send>>` instead of an opaque `async fn` future
+/// to break the type-level recursion: tool_manage_cron → execute_job → agent.chat
+/// → execute_tool_with_context → tool_manage_cron. Without the boxing, the compiler
+/// cannot compute the infinite recursive future type to verify `Send`.
+pub(crate) fn tool_manage_cron(args: &Value) -> Pin<Box<dyn Future<Output = Result<String>> + Send + '_>> {
+    Box::pin(async move {
+        let cron_db =
+            crate::get_cron_db().ok_or_else(|| anyhow::anyhow!("Cron service not initialized"))?;
 
-    let action = args
-        .get("action")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing 'action' parameter"))?;
+        let action = args
+            .get("action")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("Missing 'action' parameter"))?;
 
-    match action {
-        "create" => {
-            let name = args.get("name")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| anyhow::anyhow!("Missing 'name' parameter"))?;
+        match action {
+            "create" => {
+                let name = args.get("name")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'name' parameter"))?;
 
-            let prompt = args.get("prompt")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| anyhow::anyhow!("Missing 'prompt' parameter"))?;
+                let prompt = args.get("prompt")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'prompt' parameter"))?;
 
-            let schedule = parse_schedule(args)?;
+                let schedule = parse_schedule(args)?;
 
-            let agent_id = args.get("agent_id")
-                .and_then(|v| v.as_str())
-                .map(String::from);
+                let agent_id = args.get("agent_id")
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
 
-            let description = args.get("description")
-                .and_then(|v| v.as_str())
-                .map(String::from);
+                let description = args.get("description")
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
 
-            let input = NewCronJob {
-                name: name.to_string(),
-                description,
-                schedule,
-                payload: CronPayload::AgentTurn {
-                    prompt: prompt.to_string(),
-                    agent_id,
-                },
-                max_failures: args.get("max_failures").and_then(|v| v.as_u64()).map(|v| v as u32),
-                notify_on_complete: args.get("notify_on_complete").and_then(|v| v.as_bool()),
-            };
+                let input = NewCronJob {
+                    name: name.to_string(),
+                    description,
+                    schedule,
+                    payload: CronPayload::AgentTurn {
+                        prompt: prompt.to_string(),
+                        agent_id,
+                    },
+                    max_failures: args.get("max_failures").and_then(|v| v.as_u64()).map(|v| v as u32),
+                    notify_on_complete: args.get("notify_on_complete").and_then(|v| v.as_bool()),
+                };
 
-            let job = cron_db.add_job(&input)?;
-            Ok(format!("Created scheduled task '{}' (id: {}). Next run: {}",
-                job.name, job.id,
-                job.next_run_at.as_deref().unwrap_or("none")
-            ))
-        }
-
-        "list" => {
-            let jobs = cron_db.list_jobs()?;
-            if jobs.is_empty() {
-                return Ok("No scheduled tasks.".to_string());
+                let job = cron_db.add_job(&input)?;
+                Ok(format!("Created scheduled task '{}' (id: {}). Next run: {}",
+                    job.name, job.id,
+                    job.next_run_at.as_deref().unwrap_or("none")
+                ))
             }
-            let mut lines = Vec::new();
-            lines.push(format!("{} scheduled task(s):", jobs.len()));
-            for job in &jobs {
-                let next = job.next_run_at.as_deref().unwrap_or("none");
-                lines.push(format!("  - [{}] {} ({}) | Next: {} | Status: {}",
-                    &job.id[..8], job.name,
-                    schedule_summary(&job.schedule),
-                    next, job.status.as_str()
-                ));
-            }
-            Ok(lines.join("\n"))
-        }
 
-        "get" => {
-            let id = args.get("id")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| anyhow::anyhow!("Missing 'id' parameter"))?;
-            match cron_db.get_job(id)? {
-                Some(job) => Ok(serde_json::to_string_pretty(&job)?),
-                None => Ok(format!("Job '{}' not found.", id)),
-            }
-        }
-
-        "delete" => {
-            let id = args.get("id")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| anyhow::anyhow!("Missing 'id' parameter"))?;
-            cron_db.delete_job(id)?;
-            Ok(format!("Deleted scheduled task '{}'.", id))
-        }
-
-        "pause" => {
-            let id = args.get("id")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| anyhow::anyhow!("Missing 'id' parameter"))?;
-            cron_db.toggle_job(id, false)?;
-            Ok(format!("Paused scheduled task '{}'.", id))
-        }
-
-        "resume" => {
-            let id = args.get("id")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| anyhow::anyhow!("Missing 'id' parameter"))?;
-            cron_db.toggle_job(id, true)?;
-            Ok(format!("Resumed scheduled task '{}'.", id))
-        }
-
-        "run_now" => {
-            let id = args.get("id")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| anyhow::anyhow!("Missing 'id' parameter"))?;
-            let job = cron_db.get_job(id)?
-                .ok_or_else(|| anyhow::anyhow!("Job '{}' not found", id))?;
-
-            // Fire and forget — run in background
-            // We need Send-safe clones before spawning
-            let db = cron_db.clone();
-            let job_clone = job;
-            let session_db_path = crate::session::db_path()?;
-
-            tokio::spawn(async move {
-                match crate::session::SessionDB::open(&session_db_path) {
-                    Ok(session_db) => {
-                        let session_db = std::sync::Arc::new(session_db);
-                        cron::execute_job_public(&db, &session_db, &job_clone).await;
-                    }
-                    Err(e) => {
-                        app_error!("cron", "tool", "Failed to open session DB for cron run_now: {}", e);
-                    }
+            "list" => {
+                let jobs = cron_db.list_jobs()?;
+                if jobs.is_empty() {
+                    return Ok("No scheduled tasks.".to_string());
                 }
-            });
-            Ok(format!("Triggered immediate execution of '{}'.", id))
-        }
+                let mut lines = Vec::new();
+                lines.push(format!("{} scheduled task(s):", jobs.len()));
+                for job in &jobs {
+                    let next = job.next_run_at.as_deref().unwrap_or("none");
+                    lines.push(format!("  - [{}] {} ({}) | Next: {} | Status: {}",
+                        &job.id[..8], job.name,
+                        schedule_summary(&job.schedule),
+                        next, job.status.as_str()
+                    ));
+                }
+                Ok(lines.join("\n"))
+            }
 
-        _ => Err(anyhow::anyhow!("Unknown action: '{}'. Valid actions: create, list, get, delete, pause, resume, run_now", action)),
-    }
+            "get" => {
+                let id = args.get("id")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'id' parameter"))?;
+                match cron_db.get_job(id)? {
+                    Some(job) => Ok(serde_json::to_string_pretty(&job)?),
+                    None => Ok(format!("Job '{}' not found.", id)),
+                }
+            }
+
+            "delete" => {
+                let id = args.get("id")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'id' parameter"))?;
+                cron_db.delete_job(id)?;
+                Ok(format!("Deleted scheduled task '{}'.", id))
+            }
+
+            "pause" => {
+                let id = args.get("id")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'id' parameter"))?;
+                cron_db.toggle_job(id, false)?;
+                Ok(format!("Paused scheduled task '{}'.", id))
+            }
+
+            "resume" => {
+                let id = args.get("id")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'id' parameter"))?;
+                cron_db.toggle_job(id, true)?;
+                Ok(format!("Resumed scheduled task '{}'.", id))
+            }
+
+            "run_now" => {
+                let id = args.get("id")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'id' parameter"))?;
+                let job = cron_db.get_job(id)?
+                    .ok_or_else(|| anyhow::anyhow!("Job '{}' not found", id))?;
+
+                // Fire and forget — run in background via tokio::spawn.
+                // The type-level recursion is broken by this function returning
+                // Pin<Box<dyn Future + Send>> instead of an opaque async fn future.
+                let db = cron_db.clone();
+                let job_clone = job;
+                // Prefer the global SessionDB (Tauri app); fall back to opening a fresh
+                // connection (ACP mode where SESSION_DB OnceLock is never populated).
+                let session_db = match crate::get_session_db() {
+                    Some(db) => db.clone(),
+                    None => {
+                        let path = crate::session::db_path()?;
+                        std::sync::Arc::new(crate::session::SessionDB::open(&path)?)
+                    }
+                };
+
+                tokio::spawn(async move {
+                    cron::execute_job_public(&db, &session_db, &job_clone).await;
+                });
+                Ok(format!("Triggered immediate execution of '{}'.", id))
+            }
+
+            _ => Err(anyhow::anyhow!("Unknown action: '{}'. Valid actions: create, list, get, delete, pause, resume, run_now", action)),
+        }
+    })
 }
 
 /// Parse schedule from tool arguments.

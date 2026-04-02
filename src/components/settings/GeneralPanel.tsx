@@ -128,9 +128,11 @@ export default function GeneralPanel() {
     setFollowSystem(false)
   }
 
-  // ── System state ──
+  // ── System / Effect state ──
   const [autostart, setAutostart] = useState(false)
   const [autostartLoaded, setAutostartLoaded] = useState(false)
+  const [uiEffectsEnabled, setUiEffectsEnabled] = useState(true)
+  const [uiEffectsLoaded, setUiEffectsLoaded] = useState(false)
 
   // ── Shortcut state ──
   const [shortcuts, setShortcuts] = useState<ShortcutConfig | null>(null)
@@ -158,8 +160,9 @@ export default function GeneralPanel() {
       invoke<boolean>("get_autostart_enabled"),
       invoke<ProxyConfig>("get_proxy_config"),
       invoke<ShortcutConfig>("get_shortcut_config"),
+      invoke<boolean>("get_ui_effects_enabled"),
     ])
-      .then(([enabled, cfg, sc]) => {
+      .then(([enabled, cfg, sc, effectsEnabled]) => {
         if (cancelled) return
         setAutostart(enabled)
         setAutostartLoaded(true)
@@ -167,6 +170,8 @@ export default function GeneralPanel() {
         setProxySaved(JSON.stringify(cfg))
         setShortcuts(sc)
         shortcutSavedRef.current = JSON.stringify(sc)
+        setUiEffectsEnabled(effectsEnabled)
+        setUiEffectsLoaded(true)
       })
       .catch((e) => {
         logger.error("settings", "GeneralPanel::load", "Failed to load settings", e)
@@ -183,6 +188,18 @@ export default function GeneralPanel() {
     } catch (e) {
       setAutostart(!next)
       logger.error("settings", "GeneralPanel::toggle", "Failed to set autostart", e)
+    }
+  }
+
+  async function toggleUiEffects() {
+    const next = !uiEffectsEnabled
+    setUiEffectsEnabled(next)
+    try {
+      await invoke("set_ui_effects_enabled", { enabled: next })
+      window.dispatchEvent(new Event("ui-effects-changed"))
+    } catch (e) {
+      setUiEffectsEnabled(!next)
+      logger.error("settings", "GeneralPanel::toggle", "Failed to set UI effects", e)
     }
   }
 
@@ -392,6 +409,23 @@ export default function GeneralPanel() {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+
+            {/* UI Effects */}
+            <div>
+              <h3 className="text-sm font-semibold text-foreground mb-1">{t("settings.uiEffects", "背景动效")}</h3>
+              {uiEffectsLoaded && (
+                <div
+                  className="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-secondary/40 transition-colors cursor-pointer"
+                  onClick={toggleUiEffects}
+                >
+                  <div className="space-y-0.5">
+                    <div className="text-sm font-medium">{t("settings.uiEffectsToggle", "开启动效")}</div>
+                    <div className="text-xs text-muted-foreground">{t("settings.uiEffectsDesc", "开启全天候背景及天气特效联动")}</div>
+                  </div>
+                  <Switch checked={uiEffectsEnabled} onCheckedChange={toggleUiEffects} />
+                </div>
+              )}
             </div>
           </div>
         </TabsContent>

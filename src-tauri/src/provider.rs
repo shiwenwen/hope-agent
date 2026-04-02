@@ -616,6 +616,9 @@ pub struct ProviderStore {
     /// UI language preference: "auto" means follow system, otherwise a locale code like "zh", "en"
     #[serde(default = "default_language")]
     pub language: String,
+    /// Whether UI background effects (stars, weather) are enabled
+    #[serde(default = "default_true")]
+    pub ui_effects_enabled: bool,
     /// Global proxy configuration for all outgoing HTTP requests
     #[serde(default)]
     pub proxy: ProxyConfig,
@@ -701,6 +704,7 @@ impl Default for ProviderStore {
             tool_timeout: default_tool_timeout(),
             theme: default_theme(),
             language: default_language(),
+            ui_effects_enabled: true,
             proxy: ProxyConfig::default(),
             skill_prompt_budget: crate::skills::SkillPromptBudget::default(),
             skill_allow_bundled: Vec::new(),
