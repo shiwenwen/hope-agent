@@ -1,4 +1,4 @@
-import { MessageCircle, Slack as LucideSlack } from "lucide-react"
+import { MessageCircle } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
   SiTelegram, SiTelegramHex,
@@ -9,6 +9,7 @@ import {
   SiSignal, SiSignalHex,
   SiLine, SiLineHex,
   SiGooglechat, SiGooglechatHex,
+  SiImessage, SiImessageHex,
 } from "@icons-pack/react-simple-icons"
 
 const FEISHU_HEX = "#3370FF"
@@ -17,13 +18,14 @@ function FeishuIcon({ size, className, color }: { size?: number | string; classN
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
+      viewBox="0 0 48 48"
       fill={color || FEISHU_HEX}
       className={className}
       width={size}
       height={size}
     >
-      <path d="M3.42 7.83a9.65 9.65 0 0 1 4.19-5.71A5.97 5.97 0 0 0 6.1 7.39l-2.68.44Zm17.33 2.5a9.54 9.54 0 0 0-3.58-5.81L12 9.15l4.43 3.13a18.6 18.6 0 0 1 4.32-1.95ZM5.3 8.5 2.3 9a.5.5 0 0 0-.24.86l7.5 6.18a.5.5 0 0 0 .38.12l5.47-.6a17.5 17.5 0 0 0-4.57-3.43L5.3 8.5Zm5.53 8.74-1.29.14a34.7 34.7 0 0 0 3.35 4.68.5.5 0 0 0 .82-.12c1-2.14 1.7-4.04 2.2-5.7l-5.08.56Z" />
+      <path fillRule="evenodd" clipRule="evenodd" d="M41.072 5.994 3.31 16.519l9.075 9.293 8.414.147 9.683-9.44a4.2 4.2 0 0 1-.116-1.318c0-.794.312-1.423.796-1.868.83-.763 1.828-.877 2.995-.342l7.183-6.997Z" />
+      <path fillRule="evenodd" clipRule="evenodd" d="m42.102 6.728-10.524 37.761-9.294-9.075-.147-8.414 9.375-9.519a3.6 3.6 0 0 0 1.664.496c.903-.05 1.486-.595 1.759-.916s.594-.855.567-1.649a3.4 3.4 0 0 0-.521-1.464l7.121-7.22Z" />
     </svg>
   )
 }
@@ -34,33 +36,39 @@ function IrcIcon({ size, className, color }: { size?: number | string; className
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      fill={color || IRC_HEX}
+      viewBox="0 0 48 48"
+      fill="none"
+      stroke={color || IRC_HEX}
+      strokeWidth={4}
+      strokeLinecap="round"
+      strokeLinejoin="round"
       className={className}
       width={size}
       height={size}
     >
-      <path d="M4 4h2v16H4V4zm7 0h2v16h-2V4zm7 0h2v16h-2V4zM2 8h20v2H2V8zm0 6h20v2H2v-2z" />
+      <rect x="5.5" y="5.5" width="37" height="37" rx="4" />
+      <path d="M18.773 5.5v37M29.227 5.5v37M5.5 18.773h37M5.5 29.227h37" />
     </svg>
   )
 }
 
-const IMESSAGE_HEX = "#34C759"
+const SLACK_HEX = "#4A154B"
 
-function IMessageIcon({ size, className, color }: { size?: number | string; className?: string; color?: string }) {
+function SlackIcon({ size, className, color }: { size?: number | string; className?: string; color?: string }) {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
       viewBox="0 0 24 24"
-      fill={color || IMESSAGE_HEX}
+      fill={color || SLACK_HEX}
       className={className}
       width={size}
       height={size}
     >
-      <path d="M12 2C6.477 2 2 5.813 2 10.5c0 2.61 1.408 4.932 3.604 6.468A6.706 6.706 0 0 1 4 21l3.84-2.16c1.296.42 2.703.66 4.16.66 5.523 0 10-3.813 10-8.5S17.523 2 12 2z" />
+      <path d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zM6.313 15.165a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313zM8.834 5.042a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zM8.834 6.313a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312zM18.956 8.834a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zM17.688 8.834a2.528 2.528 0 0 1-2.523 2.521 2.527 2.527 0 0 1-2.52-2.521V2.522A2.527 2.527 0 0 1 15.165 0a2.528 2.528 0 0 1 2.523 2.522v6.312zM15.165 18.956a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52zM15.165 17.688a2.527 2.527 0 0 1-2.52-2.523 2.526 2.526 0 0 1 2.52-2.52h6.313A2.527 2.527 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.523h-6.313z" />
     </svg>
   )
 }
+
 
 interface ChannelIconEntry {
   icon: React.ComponentType<{ size?: number | string; className?: string; color?: string }>
@@ -73,14 +81,14 @@ const CHANNEL_ICONS: Record<string, ChannelIconEntry> = {
   whatsapp: { icon: SiWhatsapp, color: SiWhatsappHex },
   wechat: { icon: SiWechat, color: SiWechatHex },
   weixin: { icon: SiWechat, color: SiWechatHex },
-  slack: { icon: LucideSlack, color: "#4A154B" },
+  slack: { icon: SlackIcon, color: SLACK_HEX },
   feishu: { icon: FeishuIcon, color: FEISHU_HEX },
   qqbot: { icon: SiQq, color: SiQqHex },
   signal: { icon: SiSignal, color: SiSignalHex },
   line: { icon: SiLine, color: SiLineHex },
   googlechat: { icon: SiGooglechat, color: SiGooglechatHex },
   irc: { icon: IrcIcon, color: IRC_HEX },
-  imessage: { icon: IMessageIcon, color: IMESSAGE_HEX },
+  imessage: { icon: SiImessage, color: SiImessageHex },
 }
 
 export default function ChannelIcon({

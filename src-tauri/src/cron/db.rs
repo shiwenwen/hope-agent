@@ -326,7 +326,7 @@ impl CronDB {
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 log.job_id, log.session_id, log.status, log.started_at,
-                log.finished_at, log.duration_ms, log.result_preview, log.error
+                log.finished_at, log.duration_ms.map(|v| v as i64), log.result_preview, log.error
             ],
         )?;
         Ok(conn.last_insert_rowid())
@@ -339,7 +339,7 @@ impl CronDB {
             "SELECT id, job_id, session_id, status, started_at, finished_at, duration_ms, result_preview, error
              FROM cron_run_logs WHERE job_id=?1 ORDER BY started_at DESC LIMIT ?2"
         )?;
-        let rows = stmt.query_map(params![job_id, limit], |row| {
+        let rows = stmt.query_map(params![job_id, limit as i64], |row| {
             Ok(CronRunLog {
                 id: row.get(0)?,
                 job_id: row.get(1)?,
@@ -347,7 +347,7 @@ impl CronDB {
                 status: row.get(3)?,
                 started_at: row.get(4)?,
                 finished_at: row.get(5)?,
-                duration_ms: row.get(6)?,
+                duration_ms: crate::sql_opt_u64(row, 6)?,
                 result_preview: row.get(7)?,
                 error: row.get(8)?,
             })
@@ -473,7 +473,7 @@ impl CronDB {
                 status: row.get(3)?,
                 started_at: row.get(4)?,
                 finished_at: row.get(5)?,
-                duration_ms: row.get(6)?,
+                duration_ms: crate::sql_opt_u64(row, 6)?,
                 result_preview: row.get(7)?,
                 error: row.get(8)?,
             }))

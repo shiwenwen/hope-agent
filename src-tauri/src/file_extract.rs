@@ -202,7 +202,9 @@ fn render_page_to_b64(page: &pdfium_render::prelude::PdfPage, render_width: u32)
         )
         .map_err(|e| anyhow::anyhow!("Failed to render page: {:?}", e))?;
 
-    let img = bitmap.as_image();
+    let img = bitmap
+        .as_image()
+        .map_err(|e| anyhow::anyhow!("Failed to convert bitmap to image: {:?}", e))?;
     let mut buf = std::io::Cursor::new(Vec::new());
     img.write_to(&mut buf, image::ImageFormat::Png)
         .map_err(|e| anyhow::anyhow!("Failed to encode page as PNG: {}", e))?;
@@ -218,7 +220,7 @@ fn render_pdf_pages(path: &Path) -> Result<Vec<ExtractedImage>> {
         .map_err(|e| anyhow::anyhow!("Failed to load PDF: {:?}", e))?;
 
     let pages = document.pages();
-    let page_count = pages.len().min(MAX_PDF_PAGES as u16);
+    let page_count = pages.len().min(MAX_PDF_PAGES as i32);
     let mut images = Vec::new();
 
     for i in 0..page_count {
@@ -268,7 +270,7 @@ pub(crate) fn render_pdf_bytes(
 
     for i in indices_to_render {
         let page = pages
-            .get(i as u16)
+            .get(i as i32)
             .map_err(|e| anyhow::anyhow!("Failed to get page {}: {:?}", i + 1, e))?;
 
         let b64 = render_page_to_b64(&page, render_width)?;

@@ -270,7 +270,7 @@ impl LogDB {
         let count_sql = format!("SELECT COUNT(*) FROM logs {}", where_sql);
         let params_ref: Vec<&dyn rusqlite::types::ToSql> =
             param_values.iter().map(|p| p.as_ref()).collect();
-        let total: u64 = conn.query_row(&count_sql, params_ref.as_slice(), |row| row.get(0))?;
+        let total: u64 = conn.query_row(&count_sql, params_ref.as_slice(), |row| crate::sql_u64(row, 0))?;
 
         // Query page
         let offset = (page.saturating_sub(1)) * page_size;
@@ -315,13 +315,13 @@ impl LogDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
-        let total: u64 = conn.query_row("SELECT COUNT(*) FROM logs", [], |row| row.get(0))?;
+        let total: u64 = conn.query_row("SELECT COUNT(*) FROM logs", [], |row| crate::sql_u64(row, 0))?;
 
         let mut by_level = HashMap::new();
         {
             let mut stmt = conn.prepare("SELECT level, COUNT(*) FROM logs GROUP BY level")?;
             let rows = stmt.query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, u64>(1)?))
+                Ok((row.get::<_, String>(0)?, crate::sql_u64(row, 1)?))
             })?;
             for row in rows {
                 let (level, count) = row?;
@@ -333,7 +333,7 @@ impl LogDB {
         {
             let mut stmt = conn.prepare("SELECT category, COUNT(*) FROM logs GROUP BY category")?;
             let rows = stmt.query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, u64>(1)?))
+                Ok((row.get::<_, String>(0)?, crate::sql_u64(row, 1)?))
             })?;
             for row in rows {
                 let (cat, count) = row?;

@@ -477,7 +477,7 @@ pub fn query_overview(
     let f = build_session_filter(filter, "s", None);
     let sql = format!("SELECT COUNT(*) FROM sessions s {}", f.where_sql);
     let total_sessions: u64 =
-        sess_conn.query_row(&sql, params_ref(&f.params).as_slice(), |r| r.get(0))?;
+        sess_conn.query_row(&sql, params_ref(&f.params).as_slice(), |r| crate::sql_u64(r, 0))?;
 
     // Message count + token sums + tool calls + errors
     let f = build_session_filter(filter, "s", Some("m"));
@@ -494,7 +494,7 @@ pub fn query_overview(
     );
     let (total_messages, total_input_tokens, total_output_tokens, total_tool_calls, total_errors): (u64, u64, u64, u64, u64) =
         sess_conn.query_row(&sql, params_ref(&f.params).as_slice(), |r| {
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+            Ok((crate::sql_u64(r, 0)?, crate::sql_u64(r, 1)?, crate::sql_u64(r, 2)?, crate::sql_u64(r, 3)?, crate::sql_u64(r, 4)?))
         })?;
 
     // Active agents (distinct agent_ids in sessions within filter period)
@@ -504,7 +504,7 @@ pub fn query_overview(
         f.where_sql
     );
     let active_agents: u64 =
-        sess_conn.query_row(&sql, params_ref(&f.params).as_slice(), |r| r.get(0))?;
+        sess_conn.query_row(&sql, params_ref(&f.params).as_slice(), |r| crate::sql_u64(r, 0))?;
 
     // Query average TTFT
     let f = build_session_filter(filter, "s", Some("m"));
@@ -533,7 +533,7 @@ pub fn query_overview(
     let active_cron_jobs: u64 = cron_conn.query_row(
         "SELECT COUNT(*) FROM cron_jobs WHERE status = 'active'",
         [],
-        |r| r.get(0),
+        |r| crate::sql_u64(r, 0),
     )?;
     drop(cron_conn);
 
@@ -557,8 +557,8 @@ pub fn query_overview(
     let rows = stmt.query_map(params_ref(&f.params).as_slice(), |r| {
         Ok((
             r.get::<_, String>(0)?,
-            r.get::<_, u64>(1)?,
-            r.get::<_, u64>(2)?,
+            crate::sql_u64(r, 1)?,
+            crate::sql_u64(r, 2)?,
         ))
     })?;
     let mut estimated_cost_usd = 0.0;
@@ -609,8 +609,8 @@ pub fn query_token_usage(
     let rows = stmt.query_map(params_ref(&f.params).as_slice(), |r| {
         Ok(TokenUsageTrend {
             date: r.get(0)?,
-            input_tokens: r.get(1)?,
-            output_tokens: r.get(2)?,
+            input_tokens: crate::sql_u64(r, 1)?,
+            output_tokens: crate::sql_u64(r, 2)?,
             avg_ttft_ms: r.get(3)?,
         })
     })?;
@@ -635,8 +635,8 @@ pub fn query_token_usage(
     let rows = stmt.query_map(params_ref(&f.params).as_slice(), |r| {
         let model_id: String = r.get(0)?;
         let provider_name: String = r.get(1)?;
-        let input_tokens: u64 = r.get(2)?;
-        let output_tokens: u64 = r.get(3)?;
+        let input_tokens: u64 = crate::sql_u64(r, 2)?;
+        let output_tokens: u64 = crate::sql_u64(r, 3)?;
         let avg_ttft_ms: Option<f64> = r.get(4)?;
         Ok(TokenByModel {
             estimated_cost_usd: estimate_cost(&model_id, input_tokens, output_tokens),
@@ -687,10 +687,10 @@ pub fn query_tool_usage(
     let rows = stmt.query_map(params_ref(&f.params).as_slice(), |r| {
         Ok(ToolUsageStats {
             tool_name: r.get(0)?,
-            call_count: r.get(1)?,
-            error_count: r.get(2)?,
+            call_count: crate::sql_u64(r, 1)?,
+            error_count: crate::sql_u64(r, 2)?,
             avg_duration_ms: r.get(3)?,
-            total_duration_ms: r.get(4)?,
+            total_duration_ms: crate::sql_u64(r, 4)?,
         })
     })?;
     rows.collect::<std::result::Result<_, _>>()
@@ -724,8 +724,8 @@ pub fn query_sessions(
     let rows = stmt.query_map(params_ref(&f.params).as_slice(), |r| {
         Ok(SessionTrend {
             date: r.get(0)?,
-            session_count: r.get(1)?,
-            message_count: r.get(2)?,
+            session_count: crate::sql_u64(r, 1)?,
+            message_count: crate::sql_u64(r, 2)?,
         })
     })?;
     let trend: Vec<SessionTrend> = rows.collect::<std::result::Result<_, _>>()?;
@@ -748,9 +748,9 @@ pub fn query_sessions(
     let rows = stmt.query_map(params_ref(&f.params).as_slice(), |r| {
         Ok(SessionByAgent {
             agent_id: r.get(0)?,
-            session_count: r.get(1)?,
-            message_count: r.get(2)?,
-            total_tokens: r.get(3)?,
+            session_count: crate::sql_u64(r, 1)?,
+            message_count: crate::sql_u64(r, 2)?,
+            total_tokens: crate::sql_u64(r, 3)?,
         })
     })?;
     let by_agent: Vec<SessionByAgent> = rows.collect::<std::result::Result<_, _>>()?;
@@ -786,8 +786,8 @@ pub fn query_errors(log_db: &Arc<LogDB>, filter: &DashboardFilter) -> Result<Das
     let rows = stmt.query_map(params_ref(&base_filter.params).as_slice(), |r| {
         Ok(ErrorTrend {
             date: r.get(0)?,
-            error_count: r.get(1)?,
-            warn_count: r.get(2)?,
+            error_count: crate::sql_u64(r, 1)?,
+            warn_count: crate::sql_u64(r, 2)?,
         })
     })?;
     let trend: Vec<ErrorTrend> = rows.collect::<std::result::Result<_, _>>()?;
@@ -811,7 +811,7 @@ pub fn query_errors(log_db: &Arc<LogDB>, filter: &DashboardFilter) -> Result<Das
     let rows = stmt.query_map(params_ref(&base_filter.params).as_slice(), |r| {
         Ok(ErrorByCategory {
             category: r.get(0)?,
-            count: r.get(1)?,
+            count: crate::sql_u64(r, 1)?,
         })
     })?;
     let by_category: Vec<ErrorByCategory> = rows.collect::<std::result::Result<_, _>>()?;
@@ -832,7 +832,7 @@ pub fn query_errors(log_db: &Arc<LogDB>, filter: &DashboardFilter) -> Result<Das
     );
     let (total_errors, total_warnings): (u64, u64) =
         conn.query_row(&sql, params_ref(&base_filter.params).as_slice(), |r| {
-            Ok((r.get(0)?, r.get(1)?))
+            Ok((crate::sql_u64(r, 0)?, crate::sql_u64(r, 1)?))
         })?;
 
     Ok(DashboardErrorData {
@@ -856,11 +856,11 @@ pub fn query_tasks(
         .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
     let total_jobs: u64 =
-        cron_conn.query_row("SELECT COUNT(*) FROM cron_jobs", [], |r| r.get(0))?;
+        cron_conn.query_row("SELECT COUNT(*) FROM cron_jobs", [], |r| crate::sql_u64(r, 0))?;
     let active_jobs: u64 = cron_conn.query_row(
         "SELECT COUNT(*) FROM cron_jobs WHERE status = 'active'",
         [],
-        |r| r.get(0),
+        |r| crate::sql_u64(r, 0),
     )?;
 
     // Run logs with optional date filter
@@ -895,7 +895,7 @@ pub fn query_tasks(
     );
     let (total_runs, success_runs, failed_runs, avg_duration_ms): (u64, u64, u64, f64) = cron_conn
         .query_row(&sql, params_ref(&cron_params).as_slice(), |r| {
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+            Ok((crate::sql_u64(r, 0)?, crate::sql_u64(r, 1)?, crate::sql_u64(r, 2)?, r.get(3)?))
         })?;
 
     drop(cron_conn);
@@ -949,7 +949,7 @@ pub fn query_tasks(
     );
     let (total_runs, completed, failed, killed, total_input_tokens, total_output_tokens, avg_dur): (u64, u64, u64, u64, u64, u64, f64) =
         sess_conn.query_row(&sql, params_ref(&sub_params).as_slice(), |r| {
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?))
+            Ok((crate::sql_u64(r, 0)?, crate::sql_u64(r, 1)?, crate::sql_u64(r, 2)?, crate::sql_u64(r, 3)?, crate::sql_u64(r, 4)?, crate::sql_u64(r, 5)?, r.get(6)?))
         })?;
 
     let subagent = SubagentStats {
@@ -1067,8 +1067,8 @@ pub fn query_session_list(
             title: r.get(1)?,
             agent_id: r.get(2)?,
             model_id: r.get(3)?,
-            message_count: r.get(4)?,
-            total_tokens: r.get(5)?,
+            message_count: crate::sql_u64(r, 4)?,
+            total_tokens: crate::sql_u64(r, 5)?,
             created_at: r.get(6)?,
             updated_at: r.get(7)?,
         })
@@ -1109,8 +1109,8 @@ pub fn query_message_list(
             session_title: r.get(2)?,
             role: r.get(3)?,
             content_preview: r.get::<_, Option<String>>(4)?.unwrap_or_default(),
-            tokens_in: r.get(5)?,
-            tokens_out: r.get(6)?,
+            tokens_in: crate::sql_u64(r, 5)?,
+            tokens_out: crate::sql_u64(r, 6)?,
             timestamp: r.get(7)?,
         })
     })?;
@@ -1233,9 +1233,9 @@ pub fn query_agent_list(
     let rows = stmt.query_map(params_ref(&f.params).as_slice(), |r| {
         Ok(DashboardAgentItem {
             agent_id: r.get(0)?,
-            session_count: r.get(1)?,
-            message_count: r.get(2)?,
-            total_tokens: r.get(3)?,
+            session_count: crate::sql_u64(r, 1)?,
+            message_count: crate::sql_u64(r, 2)?,
+            total_tokens: crate::sql_u64(r, 3)?,
             last_active_at: r.get(4)?,
         })
     })?;

@@ -1,9 +1,9 @@
 use anyhow::Result;
-use bollard::container::{
-    Config, CreateContainerOptions, LogsOptions, RemoveContainerOptions, WaitContainerOptions,
+use bollard::models::{ContainerCreateBody, HostConfig};
+use bollard::query_parameters::{
+    CreateContainerOptions, CreateImageOptions, LogsOptions, RemoveContainerOptions,
+    WaitContainerOptions,
 };
-use bollard::image::CreateImageOptions;
-use bollard::models::HostConfig;
 use bollard::Docker;
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -247,8 +247,8 @@ async fn ensure_image(docker: &Docker, image: &str) -> Result<()> {
     };
 
     let options = CreateImageOptions {
-        from_image: repo,
-        tag,
+        from_image: Some(repo.to_string()),
+        tag: Some(tag.to_string()),
         ..Default::default()
     };
 
@@ -360,7 +360,7 @@ pub async fn exec_in_sandbox(
     }
 
     // Create container
-    let container_config = Config {
+    let container_config = ContainerCreateBody {
         image: Some(config.image.clone()),
         cmd: Some(vec![
             "sh".to_string(),
@@ -392,8 +392,8 @@ pub async fn exec_in_sandbox(
     let container = docker
         .create_container(
             Some(CreateContainerOptions {
-                name: &container_name,
-                platform: None,
+                name: Some(container_name.clone()),
+                platform: String::new(),
             }),
             container_config,
         )
@@ -404,7 +404,7 @@ pub async fn exec_in_sandbox(
 
     // Start container
     if let Err(e) = docker
-        .start_container::<String>(&container_id, None)
+        .start_container(&container_id, None)
         .await
     {
         // Synchronously clean up the failed container before returning error
@@ -478,7 +478,7 @@ pub async fn exec_in_sandbox(
 /// Wait for a container to exit and return its exit code.
 async fn wait_for_container(docker: &Docker, container_id: &str) -> Result<i64> {
     let options = WaitContainerOptions {
-        condition: "not-running",
+        condition: "not-running".to_string(),
     };
 
     let mut stream = docker.wait_container(container_id, Some(options));
@@ -498,7 +498,7 @@ async fn wait_for_container(docker: &Docker, container_id: &str) -> Result<i64> 
 
 /// Collect stdout and stderr logs from a container.
 async fn collect_logs(docker: &Docker, container_id: &str) -> Result<(String, String)> {
-    let options = LogsOptions::<String> {
+    let options = LogsOptions {
         stdout: true,
         stderr: true,
         follow: false,

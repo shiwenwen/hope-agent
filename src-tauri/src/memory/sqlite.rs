@@ -807,7 +807,7 @@ impl MemoryBackend for SqliteMemoryBackend {
                  WHERE memories_fts MATCH ?1
                  ORDER BY rank LIMIT ?2",
             )?;
-            let rows = stmt.query_map(params![fts_query, limit * 3], |row| {
+            let rows = stmt.query_map(params![fts_query, (limit * 3) as i64], |row| {
                 Ok((row.get::<_, i64>(0)?, row.get::<_, f64>(1)?))
             })?;
             for r in rows.flatten() {
@@ -825,7 +825,7 @@ impl MemoryBackend for SqliteMemoryBackend {
                  WHERE embedding MATCH ?1
                  ORDER BY distance LIMIT ?2",
             ) {
-                let rows = stmt.query_map(params![emb_bytes, limit * 3], |row| {
+                let rows = stmt.query_map(params![emb_bytes, (limit * 3) as i64], |row| {
                     Ok((row.get::<_, i64>(0)?, row.get::<_, f64>(1)?))
                 });
                 if let Ok(rows) = rows {
@@ -1169,8 +1169,8 @@ impl MemoryBackend for SqliteMemoryBackend {
         let total: usize = conn.query_row(
             &format!("SELECT COUNT(*) FROM memories WHERE {}", scope_clause),
             rusqlite::params_from_iter(scope_params.iter()),
-            |row| row.get(0),
-        )?;
+            |row| row.get::<_, i64>(0),
+        )? as usize;
 
         // Count by type
         let mut by_type = std::collections::HashMap::new();
@@ -1181,7 +1181,7 @@ impl MemoryBackend for SqliteMemoryBackend {
                 sc
             ))?;
             let rows = stmt.query_map(rusqlite::params_from_iter(sp.iter()), |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, usize>(1)?))
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as usize))
             })?;
             for row in rows {
                 let (t, c) = row?;
@@ -1198,7 +1198,7 @@ impl MemoryBackend for SqliteMemoryBackend {
                     sc
                 ),
                 rusqlite::params_from_iter(sp.iter()),
-                |row| row.get(0),
+                |row| row.get::<_, i64>(0).map(|v| v as usize),
             ).unwrap_or(0)
         };
 

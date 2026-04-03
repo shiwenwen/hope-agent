@@ -97,7 +97,7 @@ function keyEventToShortcutStr(e: KeyboardEvent): string | null {
     "AltLeft", "AltRight", "MetaLeft", "MetaRight",
   ]
   if (modifierCodes.includes(e.code)) return null
-  let keyName = ""
+  let keyName: string
   if (e.code.startsWith("Key")) keyName = e.code.slice(3)
   else if (e.code.startsWith("Digit")) keyName = e.code.slice(5)
   else if (e.code === "Space") keyName = "Space"
