@@ -387,7 +387,7 @@
     "sandbox": "Docker 沙箱",
     "sandboxDesc": "配置 Docker 容器沙箱隔离，用于安全执行命令",
     "channels": "IM 渠道",
-    "channelsDesc": "管理 Telegram、微信、Discord、Slack 等 IM 渠道接入",
+    "channelsDesc": "管理 Telegram、微信、飞书、Discord、Slack 等 IM 渠道接入",
     "acpControl": "ACP 控制面",
     "acpControlDesc": "管理外部 ACP Agent（Claude Code、Codex CLI、Gemini CLI 等）",
     "acpEnabled": "启用 ACP 控制面",
@@ -978,7 +978,7 @@
   },
   "channels": {
     "title": "IM 渠道",
-    "description": "接入 Telegram、微信、Discord、Slack 等即时通讯平台，通过 IM 与 AI Agent 对话",
+    "description": "接入 Telegram、微信、飞书、Discord、Slack 等即时通讯平台，通过 IM 与 AI Agent 对话",
     "addAccount": "添加渠道账户",
     "selectChannel": "选择渠道",
     "noAccounts": "尚未配置任何 IM 渠道账户",

@@ -387,7 +387,7 @@
     "sandbox": "Docker Sandbox",
     "sandboxDesc": "Configure Docker container sandbox isolation for secure command execution",
     "channels": "IM Channels",
-    "channelsDesc": "Manage Telegram, WeChat, Discord, Slack and other IM channel integrations",
+    "channelsDesc": "Manage Telegram, WeChat, Feishu, Discord, Slack and other IM channel integrations",
     "acpControl": "ACP Control Plane",
     "acpControlDesc": "Manage external ACP agents (Claude Code, Codex CLI, Gemini CLI, etc.)",
     "acpEnabled": "Enable ACP Control Plane",
@@ -978,7 +978,7 @@
   },
   "channels": {
     "title": "IM Channels",
-    "description": "Connect Telegram, WeChat, Discord, Slack and other IM platforms to chat with AI Agent",
+    "description": "Connect Telegram, WeChat, Feishu, Discord, Slack and other IM platforms to chat with AI Agent",
     "addAccount": "Add Channel Account",
     "selectChannel": "Select Channel",
     "noAccounts": "No IM channel accounts configured yet",
