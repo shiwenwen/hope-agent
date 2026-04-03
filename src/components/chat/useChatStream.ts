@@ -455,9 +455,8 @@ export function useChatStream({
                 buf.thinking = ""
                 if (!textChunk && !thinkingChunk) return
                 updateSessionMessages(flushSid, (prev) => {
-                  const updated = [...prev]
-                  const last = updated[updated.length - 1]
-                  if (!last || last.role !== "assistant") return updated
+                  const last = prev[prev.length - 1]
+                  if (!last || last.role !== "assistant") return prev
                   const blocks: ContentBlock[] = [...(last.contentBlocks || [])]
                   if (thinkingChunk) {
                     const lastBlock = blocks[blocks.length - 1]
@@ -481,6 +480,8 @@ export function useChatStream({
                       blocks.push({ type: "text", content: textChunk })
                     }
                   }
+                  // Only replace the last element to minimize GC pressure
+                  const updated = prev.slice()
                   updated[updated.length - 1] = {
                     ...last,
                     contentBlocks: blocks,

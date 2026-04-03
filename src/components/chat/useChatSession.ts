@@ -240,9 +240,9 @@ export function useChatSession({
 
   // Listen for channel stream lifecycle — loading state + message placeholder
   useEffect(() => {
-    const unlisteners: UnlistenFn[] = []
+    const listenPromises: Promise<UnlistenFn>[] = []
 
-    listen("channel:stream_start", (event) => {
+    listenPromises.push(listen("channel:stream_start", (event) => {
       const payload = event.payload as { sessionId: string }
       if (!payload.sessionId) return
       // Mark session as loading
@@ -287,9 +287,9 @@ export function useChatSession({
           })
         })
       }
-    }).then((fn) => unlisteners.push(fn))
+    }))
 
-    listen("channel:stream_end", (event) => {
+    listenPromises.push(listen("channel:stream_end", (event) => {
       const payload = event.payload as { sessionId: string }
       if (!payload.sessionId) return
       loadingSessionsRef.current.delete(payload.sessionId)
@@ -315,9 +315,15 @@ export function useChatSession({
           setMessages(parsed)
         }).catch(() => {})
       }
-    }).then((fn) => unlisteners.push(fn))
+    }))
 
-    return () => { unlisteners.forEach((fn) => fn()) }
+    return () => {
+      Promise.allSettled(listenPromises).then((results) => {
+        for (const r of results) {
+          if (r.status === "fulfilled") r.value()
+        }
+      })
+    }
   }, [setLoading, setLoadingSessionIds, reloadSessions])
 
   // Listen for channel streaming events — full event processing (mirrors useChatStream)

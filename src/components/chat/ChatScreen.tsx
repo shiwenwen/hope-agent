@@ -220,7 +220,11 @@ export default function ChatScreen({
     )
 
     return () => {
-      unlisteners.forEach((p) => p.then((fn) => fn()))
+      Promise.allSettled(unlisteners).then((results) => {
+        for (const r of results) {
+          if (r.status === "fulfilled") r.value()
+        }
+      })
     }
   }, [session.currentSessionId]) // eslint-disable-line react-hooks/exhaustive-deps
 

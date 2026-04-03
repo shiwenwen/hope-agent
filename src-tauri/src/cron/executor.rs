@@ -24,6 +24,25 @@ pub(crate) async fn execute_job(
     let start_time = std::time::Instant::now();
     let started_at = Utc::now().to_rfc3339();
 
+    // Atomically claim the job — skip if already running
+    match cron_db.try_mark_running(&job.id) {
+        Ok(true) => {} // claimed successfully
+        Ok(false) => {
+            app_warn!(
+                "cron",
+                "executor",
+                "Job '{}' ({}) is already running, skipping",
+                job.name,
+                job.id
+            );
+            return;
+        }
+        Err(e) => {
+            app_error!("cron", "executor", "Failed to claim job '{}': {}", job.name, e);
+            return;
+        }
+    }
+
     app_info!(
         "cron",
         "executor",
@@ -68,8 +87,29 @@ pub(crate) async fn execute_job(
         }
     };
 
-    // Build agent from provider store
-    let result = build_and_run_agent(&agent_id, &prompt, &session_id, session_db).await;
+    // Build agent from provider store (with 5-minute timeout to prevent blocking scheduler)
+    const CRON_JOB_TIMEOUT_SECS: u64 = 300;
+    let result = match tokio::time::timeout(
+        std::time::Duration::from_secs(CRON_JOB_TIMEOUT_SECS),
+        build_and_run_agent(&agent_id, &prompt, &session_id, session_db),
+    )
+    .await
+    {
+        Ok(r) => r,
+        Err(_) => {
+            app_error!(
+                "cron",
+                "executor",
+                "Job '{}' timed out after {}s",
+                job.name,
+                CRON_JOB_TIMEOUT_SECS
+            );
+            Err(anyhow::anyhow!(
+                "Cron job timed out after {}s",
+                CRON_JOB_TIMEOUT_SECS
+            ))
+        }
+    };
 
     let duration_ms = start_time.elapsed().as_millis() as u64;
     let finished_at = Utc::now().to_rfc3339();

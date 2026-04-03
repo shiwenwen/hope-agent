@@ -244,7 +244,7 @@ impl ChannelPlugin for TelegramPlugin {
 
         // Send media
         for m in &payload.media {
-            let input_file = media::media_data_to_input_file(&m.data);
+            let input_file = media::media_data_to_input_file(&m.data)?;
             match m.media_type {
                 MediaType::Photo => {
                     let msg = api

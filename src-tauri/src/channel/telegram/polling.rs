@@ -20,6 +20,8 @@ pub async fn run_polling_loop(
     let mut offset: i32 = 0;
     let poll_timeout: u32 = 30; // seconds
     let mut consecutive_errors: u32 = 0;
+    let mut consecutive_timeouts: u32 = 0;
+    const MAX_CONSECUTIVE_TIMEOUTS: u32 = 10;
     let max_backoff_secs: u64 = 30;
 
     app_info!(
@@ -41,12 +43,28 @@ pub async fn run_polling_loop(
             ) => {
                 match result {
                     Err(_timeout) => {
-                        app_warn!("channel", "telegram::polling", "Poll timed out for account '{}', reconnecting", account_id);
+                        consecutive_timeouts += 1;
+                        if consecutive_timeouts <= 3 || consecutive_timeouts % 10 == 0 {
+                            app_warn!("channel", "telegram::polling",
+                                "Poll timed out for account '{}' (timeout #{}/{}), reconnecting",
+                                account_id, consecutive_timeouts, MAX_CONSECUTIVE_TIMEOUTS);
+                        }
+                        if consecutive_timeouts >= MAX_CONSECUTIVE_TIMEOUTS {
+                            app_error!("channel", "telegram::polling",
+                                "Account '{}': {} consecutive timeouts — possible network issue. Pausing 60s before retry.",
+                                account_id, consecutive_timeouts);
+                            tokio::select! {
+                                _ = cancel.cancelled() => break,
+                                _ = tokio::time::sleep(std::time::Duration::from_secs(60)) => {}
+                            }
+                            consecutive_timeouts = 0;
+                        }
                         continue;
                     }
                     Ok(result) => match result {
                         Ok(updates) => {
                             consecutive_errors = 0;
+                            consecutive_timeouts = 0;
 
                             for update in updates {
                                 offset = update.id.0 as i32 + 1;

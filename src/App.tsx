@@ -150,23 +150,7 @@ export default function App() {
     <div className="flex h-screen overflow-hidden bg-background">
       <StarrySky />
       <IconSidebar
-        view={
-          view === "settings"
-            ? "settings"
-            : view === "skills"
-              ? "skills"
-              : view === "profile"
-                ? "profile"
-                : view === "agents"
-                  ? "agents"
-                  : view === "channels"
-                    ? "channels"
-                    : view === "calendar"
-                      ? "calendar"
-                      : view === "dashboard"
-                        ? "dashboard"
-                        : "chat"
-        }
+        view={view === "loading" || view === "setup" ? "chat" : view}
         onOpenSettings={() => setView("settings")}
         onOpenChat={() => setView("chat")}
         onOpenAgents={() => {

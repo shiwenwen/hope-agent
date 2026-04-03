@@ -1,3 +1,4 @@
+use anyhow::Result;
 use teloxide::types::{InputFile, PhotoSize};
 
 use crate::channel::types::{InboundMedia, MediaType};
@@ -17,8 +18,9 @@ pub fn photo_to_inbound(photos: &[PhotoSize]) -> Option<InboundMedia> {
 }
 
 /// Create an InputFile from a URL string.
-pub fn input_file_from_url(url: &str) -> InputFile {
-    InputFile::url(url.parse().expect("Invalid URL"))
+pub fn input_file_from_url(url: &str) -> Result<InputFile> {
+    let parsed = url.parse().map_err(|e| anyhow::anyhow!("Invalid URL '{}': {}", url, e))?;
+    Ok(InputFile::url(parsed))
 }
 
 /// Create an InputFile from a file path.
@@ -32,12 +34,12 @@ pub fn input_file_from_bytes(data: Vec<u8>, filename: &str) -> InputFile {
 }
 
 /// Map our MediaData to a teloxide InputFile.
-pub fn media_data_to_input_file(data: &crate::channel::types::MediaData) -> InputFile {
+pub fn media_data_to_input_file(data: &crate::channel::types::MediaData) -> Result<InputFile> {
     match data {
         crate::channel::types::MediaData::Url(url) => input_file_from_url(url),
-        crate::channel::types::MediaData::FilePath(path) => input_file_from_path(path),
+        crate::channel::types::MediaData::FilePath(path) => Ok(input_file_from_path(path)),
         crate::channel::types::MediaData::Bytes(bytes) => {
-            input_file_from_bytes(bytes.clone(), "file")
+            Ok(input_file_from_bytes(bytes.clone(), "file"))
         }
     }
 }

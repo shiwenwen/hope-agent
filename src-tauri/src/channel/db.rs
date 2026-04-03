@@ -1,5 +1,5 @@
 use anyhow::Result;
-use rusqlite::params;
+use rusqlite::{params, OptionalExtension};
 use std::sync::Arc;
 
 use super::types::ChatType;
@@ -83,21 +83,33 @@ impl ChannelDB {
         chat_type: &ChatType,
         agent_id: &str,
     ) -> Result<String> {
-        // Check for existing mapping
-        if let Some(existing) = self.get_session(channel_id, account_id, chat_id, thread_id)? {
+        // Check for existing mapping (hold lock across check+insert to avoid race condition)
+        let conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+
+        let existing: Option<String> = conn
+            .query_row(
+                "SELECT session_id FROM channel_conversations WHERE channel_id = ?1 AND account_id = ?2 AND chat_id = ?3 AND (thread_id IS ?4 OR (?4 IS NULL AND thread_id IS NULL))",
+                params![channel_id, account_id, chat_id, thread_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+
+        if let Some(existing) = existing {
             // Update timestamp and sender info
             let now = chrono::Utc::now().to_rfc3339();
-            let conn = self
-                .session_db
-                .conn
-                .lock()
-                .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
             conn.execute(
                 "UPDATE channel_conversations SET updated_at = ?1, sender_id = COALESCE(?2, sender_id), sender_name = COALESCE(?3, sender_name) WHERE session_id = ?4",
                 params![now, sender_id, sender_name, existing],
             )?;
             return Ok(existing);
         }
+
+        // Release lock before creating session (which also acquires the lock)
+        drop(conn);
 
         // Create a new session
         let session_meta = self.session_db.create_session(agent_id)?;

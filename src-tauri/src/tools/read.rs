@@ -257,6 +257,20 @@ pub(crate) async fn tool_read_file(args: &Value, ctx: &super::ToolExecContext) -
         explicit_limit
     );
 
+    // Check file size before reading to prevent memory exhaustion
+    const MAX_FILE_SIZE: u64 = 50 * 1024 * 1024; // 50 MB
+    let metadata = tokio::fs::metadata(&path)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to stat file '{}': {}", path, e))?;
+    if metadata.len() > MAX_FILE_SIZE {
+        return Err(anyhow::anyhow!(
+            "File '{}' is too large ({:.1} MB, max {} MB). Use a streaming approach or read specific sections.",
+            path,
+            metadata.len() as f64 / 1_048_576.0,
+            MAX_FILE_SIZE / 1_048_576
+        ));
+    }
+
     // Read raw bytes first to detect file type
     let data = tokio::fs::read(&path)
         .await

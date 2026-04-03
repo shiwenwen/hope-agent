@@ -517,6 +517,17 @@ impl CronDB {
         Ok(rows > 0)
     }
 
+    /// Atomically claim a job for execution. Returns `false` if already running.
+    pub fn try_mark_running(&self, id: &str) -> Result<bool> {
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let now = chrono::Utc::now().to_rfc3339();
+        let rows = conn.execute(
+            "UPDATE cron_jobs SET running_at=?1 WHERE id=?2 AND running_at IS NULL",
+            params![now, id],
+        )?;
+        Ok(rows > 0)
+    }
+
     /// Clear running_at after job execution completes (called by execute_job).
     pub fn clear_running(&self, id: &str) -> Result<()> {
         let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;

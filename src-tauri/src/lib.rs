@@ -161,57 +161,53 @@ fn auto_start_searxng_docker() {
         return;
     }
 
-    // Spawn background task — don't block app startup
-    std::thread::spawn(|| {
-        let rt = tokio::runtime::Runtime::new()
-            .expect("Failed to create runtime for SearXNG auto-start");
-        rt.block_on(async {
-            let status = docker::status().await;
-            if !status.docker_installed || status.docker_not_running {
+    // Spawn background task — don't block app startup (reuse existing Tauri runtime)
+    tauri::async_runtime::spawn(async {
+        let status = docker::status().await;
+        if !status.docker_installed || status.docker_not_running {
+            if let Some(logger) = get_logger() {
+                logger.log(
+                    "warn",
+                    "docker",
+                    "auto_start",
+                    "Docker not available, skipping SearXNG auto-start",
+                    None,
+                    None,
+                    None,
+                );
+            }
+            return;
+        }
+        if status.container_running && status.health_ok {
+            // Already running, nothing to do
+            return;
+        }
+        if status.container_exists && !status.container_running {
+            if let Some(logger) = get_logger() {
+                logger.log(
+                    "info",
+                    "docker",
+                    "auto_start",
+                    "Auto-starting SearXNG container...",
+                    None,
+                    None,
+                    None,
+                );
+            }
+            if let Err(e) = docker::start().await {
                 if let Some(logger) = get_logger() {
                     logger.log(
-                        "warn",
+                        "error",
                         "docker",
                         "auto_start",
-                        "Docker not available, skipping SearXNG auto-start",
-                        None,
+                        "Failed to auto-start SearXNG",
+                        Some(e.to_string()),
                         None,
                         None,
                     );
                 }
-                return;
             }
-            if status.container_running && status.health_ok {
-                // Already running, nothing to do
-                return;
-            }
-            if status.container_exists && !status.container_running {
-                if let Some(logger) = get_logger() {
-                    logger.log(
-                        "info",
-                        "docker",
-                        "auto_start",
-                        "Auto-starting SearXNG container...",
-                        None,
-                        None,
-                        None,
-                    );
-                }
-                if let Err(e) = docker::start().await {
-                    if let Some(logger) = get_logger() {
-                        logger.log(
-                            "error",
-                            "docker",
-                            "auto_start",
-                            "Failed to auto-start SearXNG",
-                            Some(e.to_string()),
-                            None,
-                            None,
-                        );
-                    }
-                }
-            }
-        });
+        }
     });
 }
 
@@ -659,21 +655,27 @@ pub fn run() {
             Ok(())
         })
         .manage({
+            /// Unwrap a Result or print a fatal error to stderr and panic.
+            fn fatal<T>(result: anyhow::Result<T>, msg: &str) -> T {
+                result.unwrap_or_else(|e| {
+                    eprintln!("[FATAL] {msg}: {e}");
+                    panic!("{msg}: {e}");
+                })
+            }
+
             // Initialize the SessionDB
-            let db_path = session::db_path().expect("Failed to resolve database path");
-            let session_db =
-                Arc::new(SessionDB::open(&db_path).expect("Failed to open session database"));
+            let db_path = fatal(session::db_path(), "Cannot resolve session database path");
+            let session_db = Arc::new(fatal(SessionDB::open(&db_path), "Cannot open session database"));
 
             // Initialize the LogDB and AppLogger
-            let log_db_path = logging::db_path().expect("Failed to resolve log database path");
-            let log_db = Arc::new(LogDB::open(&log_db_path).expect("Failed to open log database"));
+            let log_db_path = fatal(logging::db_path(), "Cannot resolve log database path");
+            let log_db = Arc::new(fatal(LogDB::open(&log_db_path), "Cannot open log database"));
 
             // Load log config and cleanup old logs
             let log_config = logging::load_log_config().unwrap_or_default();
             let _ = log_db.cleanup_old(log_config.max_age_days);
-            // Clean up old log files
             let _ = logging::cleanup_old_log_files(log_config.max_age_days);
-            let logs_dir = paths::logs_dir().expect("Failed to resolve logs directory");
+            let logs_dir = fatal(paths::logs_dir(), "Cannot resolve logs directory");
             let logger = AppLogger::new(log_db.clone(), logs_dir);
             logger.update_config(log_config);
 
@@ -681,11 +683,9 @@ pub fn run() {
             let _ = APP_LOGGER.set(logger.clone());
 
             // Initialize the MemoryDB
-            let memory_db_path =
-                paths::memory_db_path().expect("Failed to resolve memory database path");
+            let memory_db_path = fatal(paths::memory_db_path(), "Cannot resolve memory database path");
             let memory_backend: Arc<dyn memory::MemoryBackend> = Arc::new(
-                memory::SqliteMemoryBackend::open(&memory_db_path)
-                    .expect("Failed to open memory database"),
+                fatal(memory::SqliteMemoryBackend::open(&memory_db_path), "Cannot open memory database"),
             );
             let _ = MEMORY_BACKEND.set(memory_backend);
 
@@ -724,9 +724,8 @@ pub fn run() {
             }
 
             // Initialize the CronDB (scheduler started in .setup() where tokio runtime is available)
-            let cron_db_path = paths::cron_db_path().expect("Failed to resolve cron database path");
-            let cron_db =
-                Arc::new(cron::CronDB::open(&cron_db_path).expect("Failed to open cron database"));
+            let cron_db_path = fatal(paths::cron_db_path(), "Cannot resolve cron database path");
+            let cron_db = Arc::new(fatal(cron::CronDB::open(&cron_db_path), "Cannot open cron database"));
             let _ = CRON_DB.set(cron_db.clone());
 
             // Log system startup

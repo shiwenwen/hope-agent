@@ -126,7 +126,7 @@ export default function MessageList({
       )}
       {messages.map((msg, i) => (
         <div
-          key={i}
+          key={msg.dbId ?? `${msg.role}-${msg.timestamp ?? i}`}
           className={cn(
             "flex",
             msg.role === "event" || msg.isSubagentResult || msg.isCronTrigger

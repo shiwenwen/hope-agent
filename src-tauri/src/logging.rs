@@ -847,15 +847,45 @@ pub fn redact_sensitive(input: &str) -> String {
 
     let mut result = input.to_string();
     for key in &sensitive_keys {
-        // Simple pattern: "key":"value" or "key": "value"
+        // Pattern 1: "key":"value" or "key": "value" (JSON string values)
         let patterns = [format!("\"{}\":\"", key), format!("\"{}\": \"", key)];
         for pattern in &patterns {
-            if let Some(start) = result.find(pattern) {
-                let value_start = start + pattern.len();
-                if let Some(end) = result[value_start..].find('"') {
+            let mut search_from = 0;
+            while search_from < result.len() {
+                if let Some(pos) = result[search_from..].find(pattern.as_str()) {
+                    let start = search_from + pos;
+                    let value_start = start + pattern.len();
+                    if let Some(end) = result[value_start..].find('"') {
+                        let before = &result[..value_start];
+                        let after = &result[value_start + end..];
+                        result = format!("{}[REDACTED]{}", before, after);
+                        search_from = value_start + "[REDACTED]".len();
+                    } else {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+        }
+
+        // Pattern 2: URL query parameters (?key=value& or &key=value&)
+        for sep in &["?", "&"] {
+            let url_pattern = format!("{}{}=", sep, key);
+            let mut search_from = 0;
+            while search_from < result.len() {
+                if let Some(pos) = result[search_from..].find(url_pattern.as_str()) {
+                    let start = search_from + pos;
+                    let value_start = start + url_pattern.len();
+                    let end = result[value_start..]
+                        .find(|c: char| c == '&' || c == ' ' || c == '"' || c == '\n')
+                        .unwrap_or(result.len() - value_start);
                     let before = &result[..value_start];
                     let after = &result[value_start + end..];
                     result = format!("{}[REDACTED]{}", before, after);
+                    search_from = value_start + "[REDACTED]".len();
+                } else {
+                    break;
                 }
             }
         }

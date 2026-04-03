@@ -2,12 +2,16 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tauri::Emitter;
 use tauri::Manager;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Semaphore};
 
 use super::db::ChannelDB;
 use super::registry::ChannelRegistry;
 use super::traits::ChannelPlugin;
 use super::types::*;
+
+/// Maximum number of inbound messages processed concurrently.
+/// Prevents resource exhaustion (DB lock contention, API rate limits) during message bursts.
+const MAX_CONCURRENT_INBOUND: usize = 20;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum StreamPreviewTransport {
@@ -57,14 +61,17 @@ pub fn spawn_dispatcher(
     mut inbound_rx: mpsc::Receiver<MsgContext>,
 ) {
     tauri::async_runtime::spawn(async move {
-        app_info!("channel", "worker", "Inbound message dispatcher started");
+        app_info!("channel", "worker", "Inbound message dispatcher started (max_concurrent={})", MAX_CONCURRENT_INBOUND);
+        let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_INBOUND));
 
         while let Some(msg) = inbound_rx.recv().await {
             let registry = registry.clone();
             let channel_db = channel_db.clone();
+            let permit = semaphore.clone().acquire_owned().await;
 
-            // Handle each message in a separate task for concurrency
+            // Handle each message in a separate task, limited by semaphore
             tauri::async_runtime::spawn(async move {
+                let _permit = permit; // held until task completes
                 if let Err(e) = handle_inbound_message(&registry, &channel_db, msg).await {
                     app_error!(
                         "channel",

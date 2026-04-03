@@ -44,7 +44,10 @@ fn get_deploy_progress() -> (bool, Option<String>, Vec<String>) {
     if !deploying {
         return (false, None, vec![]);
     }
-    let guard = DEPLOY_PROGRESS.lock().unwrap_or_else(|e| e.into_inner());
+    let guard = DEPLOY_PROGRESS.lock().unwrap_or_else(|e| {
+        app_warn!("docker", "deploy", "DEPLOY_PROGRESS lock poisoned, recovering");
+        e.into_inner()
+    });
     (true, guard.step.clone(), guard.logs.clone())
 }
 
@@ -85,16 +88,26 @@ pub struct SearxngDockerStatus {
 /// Gather full status of Docker + SearXNG container.
 /// Uses a Mutex + short TTL cache to prevent concurrent calls and redundant search tests.
 pub async fn status() -> SearxngDockerStatus {
-    let mut guard = STATUS_LOCK.lock().await;
+    // Check cache under lock, but release lock before expensive status_inner() call
+    {
+        let guard = STATUS_LOCK.lock().await;
+        if let Some((ts, ref cached)) = *guard {
+            if ts.elapsed().as_secs() < STATUS_CACHE_TTL_SECS {
+                return cached.clone();
+            }
+        }
+    }
+    // Lock released here — only one task will typically compute, others will see stale cache or wait
 
-    // Return cached result if fresh enough
+    let result = status_inner().await;
+
+    // Re-acquire and update cache (double-check to avoid overwriting a fresher result)
+    let mut guard = STATUS_LOCK.lock().await;
     if let Some((ts, ref cached)) = *guard {
         if ts.elapsed().as_secs() < STATUS_CACHE_TTL_SECS {
             return cached.clone();
         }
     }
-
-    let result = status_inner().await;
     *guard = Some((std::time::Instant::now(), result.clone()));
     result
 }
