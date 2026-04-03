@@ -30,7 +30,6 @@ import {
   Check,
   Loader2,
   AlertCircle,
-  MessageCircle,
   Pencil,
   X,
   Bot,
@@ -146,6 +145,7 @@ export default function ChannelPanel() {
   const [plugins, setPlugins] = useState<ChannelPluginInfo[]>([])
   const [healthMap, setHealthMap] = useState<Record<string, ChannelHealth>>({})
   const [showAddDialog, setShowAddDialog] = useState(false)
+  const [addInitialChannel, setAddInitialChannel] = useState<string | undefined>()
   const [editingAccount, setEditingAccount] = useState<ChannelAccountConfig | null>(null)
   const [agents, setAgents] = useState<AgentInfo[]>([])
   const [loading, setLoading] = useState(true)
@@ -264,18 +264,23 @@ export default function ChannelPanel() {
 
       {/* Account List */}
       {accounts.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-          <MessageCircle className="h-12 w-12 mb-4 opacity-30" />
-          <p className="text-sm">{t("channels.noAccounts")}</p>
-          <Button
-            variant="outline"
-            size="sm"
-            className="mt-4"
-            onClick={() => setShowAddDialog(true)}
-          >
-            <Plus className="h-4 w-4 mr-1" />
-            {t("channels.addFirst")}
-          </Button>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          {plugins.map((p) => (
+            <button
+              key={p.meta.id}
+              onClick={() => {
+                setAddInitialChannel(p.meta.id)
+                setShowAddDialog(true)
+              }}
+              className="flex items-center gap-3 p-4 rounded-lg border border-border hover:border-primary hover:bg-accent transition-colors text-left cursor-pointer"
+            >
+              <ChannelIcon channelId={p.meta.id} className="h-8 w-8" />
+              <div className="min-w-0">
+                <div className="font-medium text-sm">{t(`channels.pluginName_${p.meta.id}`, p.meta.displayName)}</div>
+                <div className="text-xs text-muted-foreground truncate">{t(`channels.pluginDesc_${p.meta.id}`, p.meta.description)}</div>
+              </div>
+            </button>
+          ))}
         </div>
       ) : (
         <div className="space-y-3">
@@ -375,13 +380,18 @@ export default function ChannelPanel() {
       {/* Add Account Dialog */}
       <AddAccountDialog
         open={showAddDialog}
-        onOpenChange={setShowAddDialog}
+        onOpenChange={(v) => {
+          setShowAddDialog(v)
+          if (!v) setAddInitialChannel(undefined)
+        }}
         plugins={plugins}
         agents={agents}
         onAdded={() => {
           setShowAddDialog(false)
+          setAddInitialChannel(undefined)
           loadData()
         }}
+        initialChannelId={addInitialChannel}
       />
 
       {/* Edit Account Dialog */}
@@ -626,17 +636,27 @@ function AddAccountDialog({
   plugins,
   agents,
   onAdded,
+  initialChannelId,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   plugins: ChannelPluginInfo[]
   agents: AgentInfo[]
   onAdded: () => void
+  initialChannelId?: string
 }) {
   const { t } = useTranslation()
   const [step, setStep] = useState<"select" | "configure">("select")
   const [channelId, setChannelId] = useState("")
   const [label, setLabel] = useState("")
+
+  // Sync initialChannelId when dialog opens
+  useEffect(() => {
+    if (open && initialChannelId) {
+      setChannelId(initialChannelId)
+      setStep("configure")
+    }
+  }, [open, initialChannelId])
   const [token, setToken] = useState("")
   // Slack-specific
   const [slackBotToken, setSlackBotToken] = useState("")
