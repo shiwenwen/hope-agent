@@ -30,8 +30,9 @@ src-tauri/src/          后端（Rust）
   lib.rs                Tauri 命令注册 & AppState
   weather.rs            天气缓存系统与 Open-Meteo API
   weather_location_macos.rs macOS 原生 CoreLocation 定位（objc2 delegate + callback 生命周期）
-  agent/                AssistantAgent（多 Provider + Tool Loop）
+  agent/                AssistantAgent（多 Provider + Tool Loop + Side Query 缓存侧查询）
     providers/          Anthropic / OpenAI Chat / OpenAI Responses / Codex
+    side_query.rs       缓存友好侧查询（复用 prompt cache，Tier 3 摘要 / 记忆提取成本降低 90%）
   channel/              IM 渠道系统（12 个插件：Telegram / WeChat / Discord / Slack / Feishu / QQ Bot / IRC / Signal / iMessage / WhatsApp / Google Chat / LINE，会话映射、分发 worker、共享 WebSocket 工具、进程管理器、嵌入式 Webhook 服务器）
   tools/                31 个内置工具（按工具拆分子模块）
   skills.rs             技能系统（SKILL.md 发现 + 懒加载）
@@ -74,6 +75,7 @@ src-tauri/src/          后端（Rust）
 - **数据存储**：所有数据统一在 `~/.opencomputer/`，`paths.rs` 集中管理
 - **IM Channel 架构**：`channel/` 目录统一承载 Telegram / WeChat 等渠道插件；Telegram 走 Bot API 轮询，WeChat 走 OpenClaw 兼容的二维码登录 + iLink HTTP 长轮询协议，渠道状态文件统一落在 `~/.opencomputer/channels/`。入站媒体管道：polling 收集 `InboundMedia`（Telegram/WeChat 入站媒体下载到 channel inbound-temp）→ worker 转为 `Attachment`（图片 base64 / 文件 path）并复制归档到会话目录 `~/.opencomputer/attachments/{session_id}/` → `ChatEngineParams.attachments` → `agent.chat()` 多模态接口。WeChat 通道完整能力：typing 指示器（24h TTL + 5s keepalive + cancel）、入站媒体下载解密（图片/视频/语音/文件）、出站媒体 AES-128-ECB 加密上传 CDN（3 次 5xx 重试）、会话过期暂停 1h、QR 登录自动刷新 3 次。**斜杠命令同步**：Telegram Bot 启动时自动调用 `setMyCommands` 同步内置命令到 Bot 菜单，`SlashCommandDef::description_en()` 提供英文描述
 - **SearXNG Docker 代理注入**：`web_search.searxng_docker_use_proxy` 控制是否向 Docker SearXNG 写入 `settings.yml` 的 `outgoing.proxies` 和代理环境变量；适用于系统 VPN 场景，修改后在下次启动或重新部署容器时生效
+- **Side Query（缓存侧查询）**：`AssistantAgent.side_query()` 复用主对话的 system_prompt + tool_schemas + conversation_history 前缀，利用 Anthropic 显式 prompt caching / OpenAI 自动前缀缓存，侧查询（Tier 3 摘要、记忆提取）成本降低约 90%。每轮主请求 compaction 后自动快照 `CacheSafeParams`，侧查询构建字节一致的前缀请求。无缓存参数时退化为普通请求
 - **降级策略**：ContextOverflow 终止 → RateLimit/Overloaded/Timeout 指数退避重试 2 次 → Auth/Billing/ModelNotFound 跳下一模型
 - **连续消息合并**：`push_user_message()` 自动合并连续 user 消息，兼容 Anthropic role 交替要求
 - **统一日志**：前后端日志统一写入 `logging.rs`（SQLite + 纯文本双写），API 请求体自动脱敏（`redact_sensitive`）并截断（32KB）

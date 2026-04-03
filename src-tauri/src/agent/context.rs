@@ -235,8 +235,60 @@ impl AssistantAgent {
     }
 
     /// Non-streaming LLM call for context summarization.
-    /// Uses the current provider to generate a summary.
+    /// Prefers side_query() when cache-safe params are available (prompt cache sharing),
+    /// falls back to direct HTTP call otherwise.
     async fn summarize_with_model(&self, prompt: &str) -> Result<String> {
+        use crate::context_compact::SUMMARIZATION_SYSTEM_PROMPT;
+
+        // Try cache-friendly side_query path first
+        let has_cache = self
+            .cache_safe_params
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_some();
+
+        if has_cache {
+            let instruction = format!(
+                "<summarization_instructions>\n{}\n</summarization_instructions>\n\n{}",
+                SUMMARIZATION_SYSTEM_PROMPT, prompt
+            );
+            let result = self
+                .side_query(&instruction, self.compact_config.summary_max_tokens)
+                .await?;
+
+            if let Some(logger) = crate::get_logger() {
+                logger.log(
+                    "info",
+                    "agent",
+                    "side_query::summarize",
+                    &format!(
+                        "Summarization via side_query: cache_read={}, input={}, output={}",
+                        result.usage.cache_read_input_tokens,
+                        result.usage.input_tokens,
+                        result.usage.output_tokens,
+                    ),
+                    None,
+                    None,
+                    None,
+                );
+            }
+
+            if !result.text.is_empty() {
+                return Ok(result.text);
+            }
+            app_warn!(
+                "agent",
+                "side_query::summarize",
+                "Side query returned empty text, falling back to direct HTTP call"
+            );
+        }
+
+        // Fallback: direct HTTP call (no cache sharing, used before first chat turn)
+        self.summarize_with_model_direct(prompt).await
+    }
+
+    /// Direct HTTP summarization call (fallback when no cache-safe params available).
+    async fn summarize_with_model_direct(&self, prompt: &str) -> Result<String> {
         use crate::context_compact::SUMMARIZATION_SYSTEM_PROMPT;
 
         let client =
@@ -276,7 +328,6 @@ impl AssistantAgent {
                     anyhow::anyhow!("Failed to parse summarization response: {}", e)
                 })?;
 
-                // Extract text from Anthropic response
                 result
                     .get("content")
                     .and_then(|c| c.as_array())
@@ -340,8 +391,7 @@ impl AssistantAgent {
                 account_id,
                 model,
             } => {
-                // Codex uses OpenAI-compatible endpoint
-                let api_url = format!("https://chatgpt.com/backend-api/codex/v1/chat/completions");
+                let api_url = "https://chatgpt.com/backend-api/codex/v1/chat/completions";
                 let body = json!({
                     "model": model,
                     "max_tokens": self.compact_config.summary_max_tokens,
@@ -351,7 +401,7 @@ impl AssistantAgent {
                     ],
                 });
                 let resp = client
-                    .post(&api_url)
+                    .post(api_url)
                     .header("Authorization", format!("Bearer {}", access_token))
                     .header("X-Account-ID", account_id.as_str())
                     .header("content-type", "application/json")

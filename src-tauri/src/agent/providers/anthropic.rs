@@ -93,6 +93,13 @@ impl AssistantAgent {
         // Map thinking effort for Anthropic
         let thinking = map_think_anthropic_style(reasoning_effort, max_tokens);
 
+        // Save cache-safe params for side_query reuse (prompt cache sharing)
+        self.save_cache_safe_params(
+            system_prompt.clone(),
+            tool_schemas.clone(),
+            messages.clone(),
+        );
+
         let max_rounds = get_max_tool_rounds();
         let max_rounds = if max_rounds == 0 {
             u32::MAX

@@ -39,14 +39,18 @@ Conversation (recent):
 
 /// Run memory extraction from recent conversation history.
 /// This is meant to be called from `tokio::spawn` after a successful chat.
+/// When `main_agent` is provided, uses side_query() for prompt cache sharing.
 pub async fn run_extraction(
     messages: &[Value],
     agent_id: &str,
     session_id: &str,
     provider_config: &crate::provider::ProviderConfig,
     model_id: &str,
+    main_agent: Option<&AssistantAgent>,
 ) {
-    if let Err(e) = do_extraction(messages, agent_id, session_id, provider_config, model_id).await {
+    if let Err(e) =
+        do_extraction(messages, agent_id, session_id, provider_config, model_id, main_agent).await
+    {
         app_warn!("memory", "auto_extract", "Extraction failed: {}", e);
     }
 }
@@ -57,6 +61,7 @@ async fn do_extraction(
     session_id: &str,
     provider_config: &crate::provider::ProviderConfig,
     model_id: &str,
+    main_agent: Option<&AssistantAgent>,
 ) -> Result<()> {
     let backend = crate::get_memory_backend()
         .ok_or_else(|| anyhow::anyhow!("Memory backend not initialized"))?;
@@ -98,17 +103,41 @@ async fn do_extraction(
         .replace("{EXISTING}", &existing_summary)
         .replace("{MESSAGES}", &messages_text);
 
-    // Make a simple LLM call (no tool loop, no system prompt injection)
-    let mut agent = AssistantAgent::new_from_provider(provider_config, model_id);
-    agent.set_agent_id(agent_id);
-    agent.set_session_id(session_id);
-    agent.set_extra_system_context(
-        "You are a memory extraction assistant. Respond ONLY with a JSON array, no markdown fences."
-            .to_string(),
-    );
-
-    let cancel = Arc::new(AtomicBool::new(false));
-    let (response, _thinking) = agent.chat(&prompt, &[], None, cancel, |_| {}).await?;
+    // Make LLM call — prefer side_query for prompt cache sharing
+    let response = if let Some(agent) = main_agent {
+        let instruction = format!(
+            "You are a memory extraction assistant. Respond ONLY with a JSON array, no markdown fences.\n\n{}",
+            prompt
+        );
+        let result = agent.side_query(&instruction, 4096).await?;
+        if let Some(logger) = crate::get_logger() {
+            logger.log(
+                "info",
+                "memory",
+                "side_query::extract",
+                &format!(
+                    "Memory extraction via side_query: cache_read={}",
+                    result.usage.cache_read_input_tokens
+                ),
+                None,
+                None,
+                None,
+            );
+        }
+        result.text
+    } else {
+        // Fallback: create temp agent (no cache sharing)
+        let mut agent = AssistantAgent::new_from_provider(provider_config, model_id);
+        agent.set_agent_id(agent_id);
+        agent.set_session_id(session_id);
+        agent.set_extra_system_context(
+            "You are a memory extraction assistant. Respond ONLY with a JSON array, no markdown fences."
+                .to_string(),
+        );
+        let cancel = Arc::new(AtomicBool::new(false));
+        let (resp, _thinking) = agent.chat(&prompt, &[], None, cancel, |_| {}).await?;
+        resp
+    };
 
     // Parse JSON response
     let extracted = parse_extraction_response(&response)?;

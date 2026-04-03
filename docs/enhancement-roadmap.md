@@ -64,9 +64,10 @@
 
 ---
 
-## Phase 1: Tool 系统基础增强
+## Phase 1: Tool 系统基础增强 ✅
 
 > 目标：提升工具执行效率，优化上下文空间利用
+> **状态：已完成** — 详见 `docs/tool-execution-architecture.md`
 
 ### 1A. 工具并发执行 [M]
 
@@ -129,11 +130,12 @@
 
 ---
 
-## Phase 2: Forked Agent 缓存共享基础设施
+## Phase 2: Forked Agent 缓存共享基础设施 ✅
 
 > 目标：建立低成本"侧查询"能力，为后续记忆提取、LLM 摘要、记忆选择提供统一基础
 > 依赖：无（可与 Phase 1 并行）
 > 受益者：Phase 3（压缩 Tier 3 摘要）、Phase 4（记忆提取/选择）
+> **状态：已完成** — 详见 `docs/side-query-architecture.md`
 
 ### 2A. Forked Agent 缓存共享 [M]
 

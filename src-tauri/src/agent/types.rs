@@ -124,6 +124,47 @@ pub struct AssistantAgent {
     pub(super) plan_mode_allow_paths: Vec<String>,
     /// Temperature for LLM API calls (0.0–2.0). None = use API default.
     pub(super) temperature: Option<f64>,
+    /// Cache-safe params from the last main chat request, used for side_query().
+    /// Wrapped in Arc to avoid expensive deep clones on every chat turn.
+    pub(super) cache_safe_params: std::sync::Mutex<Option<std::sync::Arc<CacheSafeParams>>>,
+}
+
+/// Cached parameters from the last main chat request.
+/// Used by `side_query()` to construct cache-friendly API requests that share the
+/// same prompt prefix as the main conversation, enabling prompt cache hits.
+#[derive(Debug)]
+pub(super) struct CacheSafeParams {
+    pub system_prompt: String,
+    pub tool_schemas: Vec<serde_json::Value>,
+    pub conversation_history: Vec<serde_json::Value>,
+    pub provider_format: ProviderFormat,
+}
+
+/// Provider format tag for CacheSafeParams, derived from LlmProvider variant.
+#[derive(Debug, PartialEq)]
+pub(super) enum ProviderFormat {
+    Anthropic,
+    OpenAIChat,
+    OpenAIResponses,
+    Codex,
+}
+
+impl From<&LlmProvider> for ProviderFormat {
+    fn from(provider: &LlmProvider) -> Self {
+        match provider {
+            LlmProvider::Anthropic { .. } => ProviderFormat::Anthropic,
+            LlmProvider::OpenAIChat { .. } => ProviderFormat::OpenAIChat,
+            LlmProvider::OpenAIResponses { .. } => ProviderFormat::OpenAIResponses,
+            LlmProvider::Codex { .. } => ProviderFormat::Codex,
+        }
+    }
+}
+
+/// Result of a side query call.
+#[derive(Debug)]
+pub struct SideQueryResult {
+    pub text: String,
+    pub usage: ChatUsage,
 }
 
 /// Stateful filter that strips `<think>...</think>` tags from streaming content.

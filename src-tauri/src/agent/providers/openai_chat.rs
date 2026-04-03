@@ -84,6 +84,13 @@ impl AssistantAgent {
         self.run_compaction(&mut messages, &system_prompt, 16384, on_delta)
             .await;
 
+        // Save cache-safe params for side_query reuse (prompt cache sharing)
+        self.save_cache_safe_params(
+            system_prompt.clone(),
+            tool_schemas.clone(),
+            messages.clone(),
+        );
+
         // Apply thinking parameters based on ThinkingStyle
 
         let max_rounds = get_max_tool_rounds();

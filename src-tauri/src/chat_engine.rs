@@ -300,6 +300,7 @@ fn spawn_memory_extraction(
                     &extract_session_id,
                     prov,
                     &extract_model_id,
+                    None, // No main agent ref available in spawned task
                 )
                 .await;
             }

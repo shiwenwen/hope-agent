@@ -90,6 +90,13 @@ impl AssistantAgent {
         self.run_compaction(&mut input, &system_prompt, 16384, on_delta)
             .await;
 
+        // Save cache-safe params for side_query reuse (prompt cache sharing)
+        self.save_cache_safe_params(
+            system_prompt.clone(),
+            tool_schemas.clone(),
+            input.clone(),
+        );
+
         let max_rounds = get_max_tool_rounds();
         let max_rounds = if max_rounds == 0 {
             u32::MAX

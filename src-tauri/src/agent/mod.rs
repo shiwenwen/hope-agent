@@ -5,6 +5,7 @@ mod context;
 mod errors;
 mod events;
 mod providers;
+mod side_query;
 mod types;
 
 // Re-export public API
@@ -59,6 +60,7 @@ impl AssistantAgent {
             plan_agent_mode: types::PlanAgentMode::Off,
             plan_mode_allow_paths: Vec::new(),
             temperature: None,
+            cache_safe_params: std::sync::Mutex::new(None),
         }
     }
 
@@ -91,6 +93,7 @@ impl AssistantAgent {
             plan_agent_mode: types::PlanAgentMode::Off,
             plan_mode_allow_paths: Vec::new(),
             temperature: None,
+            cache_safe_params: std::sync::Mutex::new(None),
         }
     }
 
@@ -149,6 +152,7 @@ impl AssistantAgent {
             plan_agent_mode: types::PlanAgentMode::Off,
             plan_mode_allow_paths: Vec::new(),
             temperature: None,
+            cache_safe_params: std::sync::Mutex::new(None),
         }
     }
 
