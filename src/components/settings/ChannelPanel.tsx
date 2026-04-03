@@ -159,7 +159,17 @@ export default function ChannelPanel() {
         invoke<AgentInfo[]>("list_agents"),
       ])
       setAccounts(accountList)
-      setPlugins(pluginList)
+      // Prioritize commonly-used channels at the top of selection grid
+      const priorityOrder = ["wechat", "telegram", "feishu", "qq_bot", "discord"]
+      const sorted = [...pluginList].sort((a, b) => {
+        const ai = priorityOrder.indexOf(a.meta.id)
+        const bi = priorityOrder.indexOf(b.meta.id)
+        if (ai !== -1 && bi !== -1) return ai - bi
+        if (ai !== -1) return -1
+        if (bi !== -1) return 1
+        return 0
+      })
+      setPlugins(sorted)
       setAgents(agentList)
       const hMap: Record<string, ChannelHealth> = {}
       for (const [id, health] of healthList) {
