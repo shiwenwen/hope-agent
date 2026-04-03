@@ -14,8 +14,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **飞书 / Lark 渠道插件**：WebSocket 事件订阅、OAuth Token 自动刷新（2h TTL）、多域名支持（feishu/lark/私有部署）
 - **QQ Bot 渠道插件**：WebSocket Gateway（opcode 协议）、QQBotAccessToken 认证、C2C/Group/Channel/DMs 四种消息类型
 - **共享 WebSocket 工具**（`channel/ws.rs`）：统一 WsConnection 封装 + 指数退避重连，被 Discord/Slack/Feishu/QQ Bot 四个插件复用
-- **前端渠道凭据表单**：ChannelPanel 支持 Discord（Bot Token）、Slack（双 Token）、飞书（App ID + Secret + 域名选择）、QQ Bot（App ID + Secret）的凭据输入和验证
-- **渠道图标**：ChannelIcon 新增 Slack（lucide-react）、飞书（自定义 SVG）、QQ（SiQq）图标
+- **IRC 渠道插件**：TCP/TLS 直连、NICK/USER/PRIVMSG 完整协议、NickServ 认证、PING/PONG 心跳、指数退避重连
+- **Signal 渠道插件**：signal-cli 守护进程管理、SSE 事件流实时接收、JSON-RPC 出站通信、支持撤回/回复/typing
+- **iMessage 渠道插件**：macOS 限定、imsg CLI JSON-RPC over stdio、自动平台检测、会话和群聊支持
+- **WhatsApp 渠道插件**：外部桥接服务 HTTP 轮询（同 WeChat/iLink 架构）、QR 登录流程、媒体支持
+- **Google Chat 渠道插件**：Service Account JWT 认证、嵌入式 Webhook 接收、spaces REST API、线程回复
+- **LINE 渠道插件**：Channel Token 认证、HMAC-SHA256 Webhook 签名验证、Reply/Push 双模式发送
+- **进程管理工具**（`channel/process_manager.rs`）：Signal 和 iMessage 共享的外部子进程生命周期管理
+- **嵌入式 Webhook 服务器**（`channel/webhook_server.rs`）：基于 axum 的本地 HTTP 服务器，Google Chat/LINE 共享 webhook 接收
+- **前端渠道凭据表单**：ChannelPanel 支持全部 12 个渠道的凭据输入和验证（IRC 多字段表单、Signal 手机号、WhatsApp 桥接 URL、Google Chat Service Account JSON、LINE 双 Token + Webhook URL）
+- **渠道图标**：ChannelIcon 新增 Slack（lucide-react）、飞书（自定义 SVG）、QQ（SiQq）、Signal、LINE、Google Chat、IRC（自定义 SVG）、iMessage（自定义 SVG）图标
 
 ### Changed
 

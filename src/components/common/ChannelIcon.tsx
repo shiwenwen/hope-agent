@@ -6,6 +6,9 @@ import {
   SiWhatsapp, SiWhatsappHex,
   SiWechat, SiWechatHex,
   SiQq, SiQqHex,
+  SiSignal, SiSignalHex,
+  SiLine, SiLineHex,
+  SiGooglechat, SiGooglechatHex,
 } from "@icons-pack/react-simple-icons"
 
 const FEISHU_HEX = "#3370FF"
@@ -25,6 +28,40 @@ function FeishuIcon({ size, className, color }: { size?: number | string; classN
   )
 }
 
+const IRC_HEX = "#1F8B4C"
+
+function IrcIcon({ size, className, color }: { size?: number | string; className?: string; color?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill={color || IRC_HEX}
+      className={className}
+      width={size}
+      height={size}
+    >
+      <path d="M4 4h2v16H4V4zm7 0h2v16h-2V4zm7 0h2v16h-2V4zM2 8h20v2H2V8zm0 6h20v2H2v-2z" />
+    </svg>
+  )
+}
+
+const IMESSAGE_HEX = "#34C759"
+
+function IMessageIcon({ size, className, color }: { size?: number | string; className?: string; color?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill={color || IMESSAGE_HEX}
+      className={className}
+      width={size}
+      height={size}
+    >
+      <path d="M12 2C6.477 2 2 5.813 2 10.5c0 2.61 1.408 4.932 3.604 6.468A6.706 6.706 0 0 1 4 21l3.84-2.16c1.296.42 2.703.66 4.16.66 5.523 0 10-3.813 10-8.5S17.523 2 12 2z" />
+    </svg>
+  )
+}
+
 interface ChannelIconEntry {
   icon: React.ComponentType<{ size?: number | string; className?: string; color?: string }>
   color: string
@@ -39,6 +76,11 @@ const CHANNEL_ICONS: Record<string, ChannelIconEntry> = {
   slack: { icon: LucideSlack, color: "#4A154B" },
   feishu: { icon: FeishuIcon, color: FEISHU_HEX },
   qqbot: { icon: SiQq, color: SiQqHex },
+  signal: { icon: SiSignal, color: SiSignalHex },
+  line: { icon: SiLine, color: SiLineHex },
+  googlechat: { icon: SiGooglechat, color: SiGooglechatHex },
+  irc: { icon: IrcIcon, color: IRC_HEX },
+  imessage: { icon: IMessageIcon, color: IMESSAGE_HEX },
 }
 
 export default function ChannelIcon({

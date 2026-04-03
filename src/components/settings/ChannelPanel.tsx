@@ -4,6 +4,7 @@ import { invoke, convertFileSrc } from "@tauri-apps/api/core"
 import { QRCodeSVG } from "qrcode.react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import {
@@ -637,6 +638,27 @@ function AddAccountDialog({
   // QQ Bot-specific
   const [qqAppId, setQqAppId] = useState("")
   const [qqClientSecret, setQqClientSecret] = useState("")
+  // IRC-specific
+  const [ircServer, setIrcServer] = useState("")
+  const [ircPort, setIrcPort] = useState("6697")
+  const [ircTls, setIrcTls] = useState(true)
+  const [ircNick, setIrcNick] = useState("")
+  const [ircPassword, setIrcPassword] = useState("")
+  const [ircNickservPassword, setIrcNickservPassword] = useState("")
+  const [ircChannels, setIrcChannels] = useState("")
+  // Signal-specific
+  const [signalAccount, setSignalAccount] = useState("")
+  // iMessage-specific (no credentials needed beyond optional paths)
+  // WhatsApp-specific
+  const [whatsappBaseUrl, setWhatsappBaseUrl] = useState("")
+  const [whatsappToken, setWhatsappToken] = useState("")
+  // Google Chat-specific
+  const [gchatCredentialsJson, setGchatCredentialsJson] = useState("")
+  const [gchatWebhookUrl, setGchatWebhookUrl] = useState("")
+  // LINE-specific
+  const [lineAccessToken, setLineAccessToken] = useState("")
+  const [lineChannelSecret, setLineChannelSecret] = useState("")
+  const [lineWebhookUrl, setLineWebhookUrl] = useState("")
   const [agentId, setAgentId] = useState("")
   const [dmPolicy, setDmPolicy] = useState("open")
   const [userAllowlist, setUserAllowlist] = useState<string[]>([])
@@ -672,6 +694,23 @@ function AddAccountDialog({
           remoteAccountId: wechatConnection?.remoteAccountId ?? null,
           userId: wechatConnection?.userId ?? null,
         }
+      case "irc":
+        return {
+          server: ircServer.trim(), port: parseInt(ircPort) || 6697, tls: ircTls,
+          nick: ircNick.trim(), password: ircPassword.trim() || null,
+          nickservPassword: ircNickservPassword.trim() || null,
+          channels: ircChannels.trim() || null,
+        }
+      case "signal":
+        return { account: signalAccount.trim() }
+      case "imessage":
+        return {}
+      case "whatsapp":
+        return { baseUrl: whatsappBaseUrl.trim(), token: whatsappToken.trim() || null }
+      case "googlechat":
+        return { credentialsJson: gchatCredentialsJson.trim(), webhookBaseUrl: gchatWebhookUrl.trim() || null }
+      case "line":
+        return { channelAccessToken: lineAccessToken.trim(), channelSecret: lineChannelSecret.trim(), webhookBaseUrl: lineWebhookUrl.trim() || null }
       default:
         return { token: token.trim() }
     }
@@ -683,6 +722,12 @@ function AddAccountDialog({
       case "feishu": return !!feishuAppId.trim() && !!feishuAppSecret.trim()
       case "qqbot": return !!qqAppId.trim() && !!qqClientSecret.trim()
       case "wechat": return false
+      case "irc": return !!ircServer.trim() && !!ircNick.trim()
+      case "signal": return !!signalAccount.trim()
+      case "imessage": return true
+      case "whatsapp": return !!whatsappBaseUrl.trim()
+      case "googlechat": return !!gchatCredentialsJson.trim()
+      case "line": return !!lineAccessToken.trim() && !!lineChannelSecret.trim()
       default: return !!token.trim()
     }
   }
@@ -694,6 +739,12 @@ function AddAccountDialog({
       case "feishu": return !!feishuAppId.trim() && !!feishuAppSecret.trim()
       case "qqbot": return !!qqAppId.trim() && !!qqClientSecret.trim()
       case "wechat": return !!wechatConnection
+      case "irc": return !!ircServer.trim() && !!ircNick.trim()
+      case "signal": return !!signalAccount.trim()
+      case "imessage": return true
+      case "whatsapp": return !!whatsappBaseUrl.trim()
+      case "googlechat": return !!gchatCredentialsJson.trim()
+      case "line": return !!lineAccessToken.trim() && !!lineChannelSecret.trim()
       default: return !!token.trim()
     }
   }
@@ -1024,6 +1075,207 @@ function AddAccountDialog({
                   {validationResult && <div className="flex items-center gap-1 text-sm text-green-600"><Check className="h-3.5 w-3.5" />{validationResult}</div>}
                   {validationError && <div className="flex items-center gap-1 text-sm text-destructive"><AlertCircle className="h-3.5 w-3.5" />{validationError}</div>}
                   <p className="text-xs text-muted-foreground">{t("channels.qqbotTokenHint", "Create a Bot at QQ Open Platform (q.qq.com) and get credentials")}</p>
+                </div>
+              )}
+
+              {/* IRC: Server + Port + TLS + Nick + Password + Channels */}
+              {channelId === "irc" && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <Label>{t("channels.ircServer", "Server")}</Label>
+                      <Input
+                        placeholder="irc.libera.chat"
+                        value={ircServer}
+                        onChange={(e) => { setIrcServer(e.target.value); setValidationResult(null); setValidationError(null) }}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>{t("channels.ircPort", "Port")}</Label>
+                      <Input
+                        type="number"
+                        placeholder="6697"
+                        value={ircPort}
+                        onChange={(e) => { setIrcPort(e.target.value); setValidationResult(null); setValidationError(null) }}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Switch checked={ircTls} onCheckedChange={setIrcTls} />
+                    <Label>TLS</Label>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Nick</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="mybot"
+                        value={ircNick}
+                        onChange={(e) => { setIrcNick(e.target.value); setValidationResult(null); setValidationError(null) }}
+                        onBlur={() => { if (canValidate() && !validationResult && !validating) handleValidate() }}
+                        className="flex-1"
+                      />
+                      <Button variant="outline" size="sm" onClick={handleValidate} disabled={!canValidate() || validating}>
+                        {validating ? <Loader2 className="h-4 w-4 animate-spin" /> : t("channels.testConnection")}
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <Label>{t("channels.ircPassword", "Server Password")}</Label>
+                      <Input type="password" value={ircPassword} onChange={(e) => setIrcPassword(e.target.value)} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>{t("channels.ircNickserv", "NickServ Password")}</Label>
+                      <Input type="password" value={ircNickservPassword} onChange={(e) => setIrcNickservPassword(e.target.value)} />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>{t("channels.ircChannels", "Auto-join Channels")}</Label>
+                    <Input placeholder="#channel1,#channel2" value={ircChannels} onChange={(e) => setIrcChannels(e.target.value)} />
+                  </div>
+                  {validationResult && <div className="flex items-center gap-1 text-sm text-green-600"><Check className="h-3.5 w-3.5" />{validationResult}</div>}
+                  {validationError && <div className="flex items-center gap-1 text-sm text-destructive"><AlertCircle className="h-3.5 w-3.5" />{validationError}</div>}
+                  <p className="text-xs text-muted-foreground">{t("channels.ircHint", "Connect to any IRC server with optional TLS encryption")}</p>
+                </div>
+              )}
+
+              {/* Signal: Phone number */}
+              {channelId === "signal" && (
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    <Label>{t("channels.signalAccount", "Phone Number")}</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="+1234567890"
+                        value={signalAccount}
+                        onChange={(e) => { setSignalAccount(e.target.value); setValidationResult(null); setValidationError(null) }}
+                        onBlur={() => { if (canValidate() && !validationResult && !validating) handleValidate() }}
+                        className="flex-1"
+                      />
+                      <Button variant="outline" size="sm" onClick={handleValidate} disabled={!canValidate() || validating}>
+                        {validating ? <Loader2 className="h-4 w-4 animate-spin" /> : t("channels.testConnection")}
+                      </Button>
+                    </div>
+                  </div>
+                  {validationResult && <div className="flex items-center gap-1 text-sm text-green-600"><Check className="h-3.5 w-3.5" />{validationResult}</div>}
+                  {validationError && <div className="flex items-center gap-1 text-sm text-destructive"><AlertCircle className="h-3.5 w-3.5" />{validationError}</div>}
+                  <p className="text-xs text-muted-foreground">{t("channels.signalHint", "Requires signal-cli installed and registered locally. Run 'signal-cli link' or 'signal-cli register' first.")}</p>
+                </div>
+              )}
+
+              {/* iMessage: minimal config */}
+              {channelId === "imessage" && (
+                <div className="space-y-3">
+                  <div className="flex gap-2 items-center">
+                    <Button variant="outline" size="sm" onClick={handleValidate} disabled={validating}>
+                      {validating ? <Loader2 className="h-4 w-4 animate-spin" /> : t("channels.testConnection")}
+                    </Button>
+                  </div>
+                  {validationResult && <div className="flex items-center gap-1 text-sm text-green-600"><Check className="h-3.5 w-3.5" />{validationResult}</div>}
+                  {validationError && <div className="flex items-center gap-1 text-sm text-destructive"><AlertCircle className="h-3.5 w-3.5" />{validationError}</div>}
+                  <p className="text-xs text-muted-foreground">{t("channels.imessageHint", "macOS only. Requires the imsg CLI tool installed and in your PATH.")}</p>
+                </div>
+              )}
+
+              {/* WhatsApp: Bridge URL + Token */}
+              {channelId === "whatsapp" && (
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    <Label>{t("channels.whatsappBaseUrl", "Bridge Service URL")}</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="http://localhost:3000"
+                        value={whatsappBaseUrl}
+                        onChange={(e) => { setWhatsappBaseUrl(e.target.value); setValidationResult(null); setValidationError(null) }}
+                        onBlur={() => { if (canValidate() && !validationResult && !validating) handleValidate() }}
+                        className="flex-1"
+                      />
+                      <Button variant="outline" size="sm" onClick={handleValidate} disabled={!canValidate() || validating}>
+                        {validating ? <Loader2 className="h-4 w-4 animate-spin" /> : t("channels.testConnection")}
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>{t("channels.whatsappBridgeToken", "Auth Token (optional)")}</Label>
+                    <Input type="password" value={whatsappToken} onChange={(e) => setWhatsappToken(e.target.value)} />
+                  </div>
+                  {validationResult && <div className="flex items-center gap-1 text-sm text-green-600"><Check className="h-3.5 w-3.5" />{validationResult}</div>}
+                  {validationError && <div className="flex items-center gap-1 text-sm text-destructive"><AlertCircle className="h-3.5 w-3.5" />{validationError}</div>}
+                  <p className="text-xs text-muted-foreground">{t("channels.whatsappHint", "Requires a WhatsApp bridge service running. Point to its HTTP API URL.")}</p>
+                </div>
+              )}
+
+              {/* Google Chat: Service Account JSON + Webhook URL */}
+              {channelId === "googlechat" && (
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    <Label>{t("channels.gchatCredentials", "Service Account JSON")}</Label>
+                    <Textarea
+                      rows={4}
+                      placeholder='{"type": "service_account", "project_id": "...", ...}'
+                      value={gchatCredentialsJson}
+                      onChange={(e) => { setGchatCredentialsJson(e.target.value); setValidationResult(null); setValidationError(null) }}
+                      className="font-mono text-xs"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>{t("channels.webhookUrl", "Public Webhook URL")}</Label>
+                    <Input
+                      placeholder="https://your-domain.com"
+                      value={gchatWebhookUrl}
+                      onChange={(e) => setGchatWebhookUrl(e.target.value)}
+                    />
+                    <p className="text-xs text-muted-foreground">{t("channels.webhookUrlHint", "Desktop apps need a public URL (e.g. ngrok) to receive webhooks")}</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={handleValidate} disabled={!canValidate() || validating}>
+                      {validating ? <Loader2 className="h-4 w-4 animate-spin" /> : t("channels.testConnection")}
+                    </Button>
+                  </div>
+                  {validationResult && <div className="flex items-center gap-1 text-sm text-green-600"><Check className="h-3.5 w-3.5" />{validationResult}</div>}
+                  {validationError && <div className="flex items-center gap-1 text-sm text-destructive"><AlertCircle className="h-3.5 w-3.5" />{validationError}</div>}
+                  <p className="text-xs text-muted-foreground">{t("channels.gchatHint", "Requires a Google Workspace service account with Chat API enabled")}</p>
+                </div>
+              )}
+
+              {/* LINE: Channel Access Token + Channel Secret + Webhook URL */}
+              {channelId === "line" && (
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    <Label>Channel Access Token</Label>
+                    <Input
+                      type="password"
+                      value={lineAccessToken}
+                      onChange={(e) => { setLineAccessToken(e.target.value); setValidationResult(null); setValidationError(null) }}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Channel Secret</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        type="password"
+                        value={lineChannelSecret}
+                        onChange={(e) => { setLineChannelSecret(e.target.value); setValidationResult(null); setValidationError(null) }}
+                        onBlur={() => { if (canValidate() && !validationResult && !validating) handleValidate() }}
+                        className="flex-1"
+                      />
+                      <Button variant="outline" size="sm" onClick={handleValidate} disabled={!canValidate() || validating}>
+                        {validating ? <Loader2 className="h-4 w-4 animate-spin" /> : t("channels.testConnection")}
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>{t("channels.webhookUrl", "Public Webhook URL")}</Label>
+                    <Input
+                      placeholder="https://your-domain.com"
+                      value={lineWebhookUrl}
+                      onChange={(e) => setLineWebhookUrl(e.target.value)}
+                    />
+                    <p className="text-xs text-muted-foreground">{t("channels.webhookUrlHint", "Desktop apps need a public URL (e.g. ngrok) to receive webhooks")}</p>
+                  </div>
+                  {validationResult && <div className="flex items-center gap-1 text-sm text-green-600"><Check className="h-3.5 w-3.5" />{validationResult}</div>}
+                  {validationError && <div className="flex items-center gap-1 text-sm text-destructive"><AlertCircle className="h-3.5 w-3.5" />{validationError}</div>}
+                  <p className="text-xs text-muted-foreground">{t("channels.lineHint", "Get credentials from LINE Developers Console (Messaging API channel)")}</p>
                 </div>
               )}
 

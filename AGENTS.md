@@ -32,7 +32,7 @@ src-tauri/src/          后端（Rust）
   weather_location_macos.rs macOS 原生 CoreLocation 定位（objc2 delegate + callback 生命周期）
   agent/                AssistantAgent（多 Provider + Tool Loop）
     providers/          Anthropic / OpenAI Chat / OpenAI Responses / Codex
-  channel/              IM 渠道系统（6 个插件：Telegram / WeChat / Discord / Slack / Feishu / QQ Bot，会话映射、分发 worker、共享 WebSocket 工具）
+  channel/              IM 渠道系统（12 个插件：Telegram / WeChat / Discord / Slack / Feishu / QQ Bot / IRC / Signal / iMessage / WhatsApp / Google Chat / LINE，会话映射、分发 worker、共享 WebSocket 工具、进程管理器、嵌入式 Webhook 服务器）
   tools/                31 个内置工具（按工具拆分子模块）
   skills.rs             技能系统（SKILL.md 发现 + 懒加载）
   slash_commands/       斜杠命令系统

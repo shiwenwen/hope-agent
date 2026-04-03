@@ -772,6 +772,12 @@ pub fn run() {
                 registry.register_plugin(Arc::new(channel::feishu::FeishuPlugin::new()));
                 registry.register_plugin(Arc::new(channel::discord::DiscordPlugin::new()));
                 registry.register_plugin(Arc::new(channel::qqbot::QqBotPlugin::new()));
+                registry.register_plugin(Arc::new(channel::irc::IrcPlugin::new()));
+                registry.register_plugin(Arc::new(channel::signal::SignalPlugin::new()));
+                registry.register_plugin(Arc::new(channel::imessage::IMessagePlugin::new()));
+                registry.register_plugin(Arc::new(channel::whatsapp::WhatsAppPlugin::new()));
+                registry.register_plugin(Arc::new(channel::googlechat::GoogleChatPlugin::new()));
+                registry.register_plugin(Arc::new(channel::line::LinePlugin::new()));
 
                 let registry = Arc::new(registry);
                 let channel_db = Arc::new(channel::ChannelDB::new(session_db.clone()));

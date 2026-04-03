@@ -1,0 +1,89 @@
+use anyhow::{Context, Result};
+use std::net::TcpListener;
+use std::time::Duration;
+
+use crate::channel::process_manager::ManagedProcess;
+
+/// Manages a `signal-cli daemon` child process.
+pub struct SignalDaemon {
+    process: Option<ManagedProcess>,
+    port: u16,
+}
+
+impl SignalDaemon {
+    /// Start the signal-cli daemon process.
+    ///
+    /// - `account`: E.164 phone number (e.g. "+1234567890")
+    /// - `cli_path`: path to signal-cli binary, or None to use "signal-cli" from PATH
+    /// - `port`: HTTP port to listen on, or None to auto-select a free port
+    pub fn start(account: &str, cli_path: Option<&str>, port: Option<u16>) -> Result<Self> {
+        let program = cli_path.unwrap_or("signal-cli");
+
+        let port = match port {
+            Some(p) => p,
+            None => find_free_port()?,
+        };
+
+        let http_addr = format!("localhost:{}", port);
+
+        let args = vec![
+            "-a",
+            account,
+            "daemon",
+            "--http",
+            &http_addr,
+            "--no-receive-stdout",
+        ];
+
+        app_info!(
+            "channel",
+            "signal-daemon",
+            "Starting signal-cli daemon for {} on port {}",
+            account,
+            port
+        );
+
+        let process = ManagedProcess::spawn(program, &args)
+            .with_context(|| format!("Failed to start signal-cli daemon for {}", account))?;
+
+        Ok(Self {
+            process: Some(process),
+            port,
+        })
+    }
+
+    /// Return the HTTP port the daemon is listening on.
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+
+    /// Check if the daemon process is still running.
+    pub fn is_running(&mut self) -> bool {
+        match self.process {
+            Some(ref mut p) => match p.try_wait() {
+                Ok(None) => true,   // still running
+                Ok(Some(_)) => false, // exited
+                Err(_) => false,
+            },
+            None => false,
+        }
+    }
+
+    /// Graceful shutdown: SIGTERM, wait up to 5s, then SIGKILL.
+    pub async fn stop(&mut self) {
+        if let Some(ref mut process) = self.process {
+            app_info!("channel", "signal-daemon", "Stopping signal-cli daemon on port {}", self.port);
+            process.shutdown(Duration::from_secs(5)).await;
+        }
+        self.process = None;
+    }
+}
+
+/// Find a free TCP port by binding to port 0.
+fn find_free_port() -> Result<u16> {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .context("Failed to bind to ephemeral port for signal-cli daemon")?;
+    let port = listener.local_addr()?.port();
+    drop(listener);
+    Ok(port)
+}

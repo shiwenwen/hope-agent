@@ -128,6 +128,101 @@ pub trait ChannelPlugin: Send + Sync + 'static {
     async fn validate_credentials(&self, credentials: &serde_json::Value) -> Result<String>;
 }
 
+/// Default access-control logic shared by all channel plugins.
+///
+/// Implements DM policy, group policy (allowlist / disabled / open),
+/// per-group and per-topic allow_from lists, legacy group_allowlist compat,
+/// and account-level user allowlist. Unsupported chat types are denied.
+pub fn default_check_access(
+    account: &ChannelAccountConfig,
+    msg: &MsgContext,
+    supported_chat_types: &[ChatType],
+) -> bool {
+    if !supported_chat_types.contains(&msg.chat_type) {
+        return false;
+    }
+
+    let security = &account.security;
+
+    match msg.chat_type {
+        ChatType::Dm => match security.dm_policy {
+            DmPolicy::Open => true,
+            DmPolicy::Allowlist | DmPolicy::Pairing => {
+                security.user_allowlist.contains(&msg.sender_id)
+                    || security.admin_ids.contains(&msg.sender_id)
+            }
+        },
+        ChatType::Group | ChatType::Forum | ChatType::Channel => {
+            if security.group_policy == GroupPolicy::Disabled {
+                return false;
+            }
+
+            let group_config = security.groups.get(&msg.chat_id);
+            let wildcard_config = security.groups.get("*");
+            let effective_group_config = group_config.or(wildcard_config);
+
+            if security.group_policy == GroupPolicy::Allowlist {
+                if security.groups.is_empty() {
+                    if !security.group_allowlist.is_empty()
+                        && !security.group_allowlist.contains(&msg.chat_id)
+                    {
+                        return false;
+                    }
+                } else if effective_group_config.is_none() {
+                    return false;
+                }
+            }
+
+            // Legacy group_allowlist backward compat
+            if !security.group_allowlist.is_empty()
+                && security.groups.is_empty()
+                && !security.group_allowlist.contains(&msg.chat_id)
+            {
+                return false;
+            }
+
+            if let Some(cfg) = effective_group_config {
+                if cfg.enabled == Some(false) {
+                    return false;
+                }
+
+                // Topic-level check
+                if let Some(ref thread_id) = msg.thread_id {
+                    if let Some(topic_cfg) = cfg.topics.get(thread_id) {
+                        if topic_cfg.enabled == Some(false) {
+                            return false;
+                        }
+                        if !topic_cfg.allow_from.is_empty()
+                            && !topic_cfg.allow_from.contains(&msg.sender_id)
+                            && !security.admin_ids.contains(&msg.sender_id)
+                        {
+                            return false;
+                        }
+                    }
+                }
+
+                // Group-level sender allowlist
+                if !cfg.allow_from.is_empty()
+                    && !cfg.allow_from.contains(&msg.sender_id)
+                    && !security.admin_ids.contains(&msg.sender_id)
+                {
+                    return false;
+                }
+            }
+
+            // Account-level user allowlist
+            if !security.user_allowlist.is_empty()
+                && !security.user_allowlist.contains(&msg.sender_id)
+                && !security.admin_ids.contains(&msg.sender_id)
+            {
+                return false;
+            }
+
+            true
+        }
+    }
+}
+
 /// Split text into chunks of at most `max_len` bytes, preferring paragraph boundaries.
 pub fn chunk_text(text: &str, max_len: usize) -> Vec<String> {
     if text.len() <= max_len {
