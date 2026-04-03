@@ -346,5 +346,81 @@ pub async fn execute_tool_with_context(
         }
     }
 
-    result
+    // ── Large result disk persistence ────────────────────────────────
+    // If the result exceeds the threshold, write it to disk and return
+    // a preview with a path reference so the model can `read` the full file.
+    match result {
+        Ok(output) if output.len() > disk_persist_threshold() => {
+            match persist_large_result(&output, ctx.session_id.as_deref(), name) {
+                Ok(path) => {
+                    let head = crate::truncate_utf8(&output, 2000);
+                    // Find a valid UTF-8 char boundary for tail extraction
+                    let mut tail_start = output.len().saturating_sub(1000);
+                    while tail_start > 0 && !output.is_char_boundary(tail_start) {
+                        tail_start += 1;
+                    }
+                    let tail = &output[tail_start..];
+                    let omitted = output.len().saturating_sub(head.len() + tail.len());
+                    app_info!(
+                        "tool",
+                        "disk_persist",
+                        "Tool '{}' result {}B persisted to {}",
+                        name,
+                        output.len(),
+                        path
+                    );
+                    Ok(format!(
+                        "{head}\n\n[...{omitted} bytes omitted...]\n\n{tail}\n\n\
+                         [Full result ({total}B) saved to: {path}]\n\
+                         [Use read tool with this path to access full content]",
+                        total = output.len(),
+                    ))
+                }
+                Err(e) => {
+                    // Fall back to returning the full result if persistence fails
+                    app_warn!(
+                        "tool",
+                        "disk_persist",
+                        "Failed to persist large result for '{}': {}",
+                        name,
+                        e
+                    );
+                    Ok(output)
+                }
+            }
+        }
+        other => other,
+    }
+}
+
+// ── Disk Persistence Helpers ─────────────────────────────────────
+
+/// Load the disk persistence threshold from config.json, defaulting to 50KB.
+/// Returns 0 to disable (never persist).
+fn disk_persist_threshold() -> usize {
+    crate::provider::load_store()
+        .map(|s| s.tool_result_disk_threshold.unwrap_or(50_000))
+        .unwrap_or(50_000)
+}
+
+/// Write a large tool result to disk and return the file path.
+fn persist_large_result(
+    content: &str,
+    session_id: Option<&str>,
+    tool_name: &str,
+) -> anyhow::Result<String> {
+    let base_dir = crate::paths::root_dir()?
+        .join("tool_results")
+        .join(session_id.unwrap_or("_global"));
+    std::fs::create_dir_all(&base_dir)?;
+
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let filename = format!("{tool_name}_{ts}.txt");
+    let path = base_dir.join(&filename);
+    std::fs::write(&path, content)?;
+
+    Ok(path.to_string_lossy().to_string())
 }

@@ -1,14 +1,146 @@
-// ── Main Entry Point + Tier 4: Emergency Compaction ──
+// ── Main Entry Point + Tier 0/4 Compaction ──
+
+use std::collections::HashMap;
 
 use super::config::CompactConfig;
 use super::estimation::{
-    estimate_request_tokens, estimate_tokens, get_tool_result_text, is_tool_result,
-    is_user_message, set_tool_result_text,
+    estimate_request_tokens, estimate_tokens, get_tool_result_text, is_assistant_message,
+    is_tool_result, is_user_message, set_tool_result_text,
 };
 use super::pruning::prune_old_context;
 use super::truncation::truncate_tool_results;
 use super::types::{CompactDetails, CompactResult};
 use serde_json::Value;
+
+// ── Tier 0: Microcompaction ──
+
+/// Zero-cost clearing of ephemeral tool results (ls, grep, find, etc.)
+/// that are older than the protected boundary. No LLM call required.
+///
+/// Returns the number of tool results cleared.
+pub fn microcompact(messages: &mut [Value], config: &CompactConfig) -> usize {
+    if !config.microcompact_enabled || config.microcompact_tools.is_empty() {
+        return 0;
+    }
+
+    // Build a map from tool_use_id → tool_name by scanning assistant messages.
+    // This handles all provider formats (Anthropic tool_use blocks, OpenAI function_call).
+    let mut tool_id_to_name: HashMap<String, String> = HashMap::new();
+    for msg in messages.iter() {
+        if !is_assistant_message(msg) {
+            continue;
+        }
+        // Anthropic: content array with tool_use blocks
+        if let Some(content) = msg.get("content").and_then(|c| c.as_array()) {
+            for block in content {
+                if block.get("type").and_then(|t| t.as_str()) == Some("tool_use") {
+                    if let (Some(id), Some(name)) = (
+                        block.get("id").and_then(|v| v.as_str()),
+                        block.get("name").and_then(|v| v.as_str()),
+                    ) {
+                        tool_id_to_name.insert(id.to_string(), name.to_string());
+                    }
+                }
+            }
+        }
+        // OpenAI Chat: tool_calls array
+        if let Some(tool_calls) = msg.get("tool_calls").and_then(|c| c.as_array()) {
+            for tc in tool_calls {
+                if let (Some(id), Some(name)) = (
+                    tc.get("id").and_then(|v| v.as_str()),
+                    tc.get("function")
+                        .and_then(|f| f.get("name"))
+                        .and_then(|n| n.as_str()),
+                ) {
+                    tool_id_to_name.insert(id.to_string(), name.to_string());
+                }
+            }
+        }
+        // OpenAI Responses: type=function_call with call_id
+        if msg.get("type").and_then(|t| t.as_str()) == Some("function_call") {
+            if let (Some(id), Some(name)) = (
+                msg.get("call_id").and_then(|v| v.as_str()),
+                msg.get("name").and_then(|v| v.as_str()),
+            ) {
+                tool_id_to_name.insert(id.to_string(), name.to_string());
+            }
+        }
+    }
+
+    // Find the protection boundary: skip last N assistant messages
+    let mut assistant_count = 0;
+    let mut boundary = messages.len();
+    for (i, msg) in messages.iter().enumerate().rev() {
+        if is_assistant_message(msg) {
+            assistant_count += 1;
+            if assistant_count >= config.keep_last_assistants {
+                boundary = i;
+                break;
+            }
+        }
+    }
+
+    let placeholder = "[Ephemeral tool result cleared]";
+    let mut cleared = 0;
+
+    // Clear ephemeral tool results before the boundary
+    for msg in &mut messages[..boundary] {
+        if !is_tool_result(msg) {
+            continue;
+        }
+
+        // Extract tool_use_id from the tool result message
+        let tool_name = get_tool_name_for_result(msg, &tool_id_to_name);
+        let is_ephemeral = match &tool_name {
+            Some(name) => config.microcompact_tools.iter().any(|t| t == name),
+            None => false,
+        };
+
+        if is_ephemeral {
+            if let Some(text) = get_tool_result_text(msg) {
+                if text.len() > placeholder.len() + 10 {
+                    set_tool_result_text(msg, placeholder);
+                    cleared += 1;
+                }
+            }
+        }
+    }
+
+    cleared
+}
+
+/// Extract the tool name for a tool_result message using the tool_use_id→name map.
+fn get_tool_name_for_result(
+    msg: &Value,
+    id_to_name: &HashMap<String, String>,
+) -> Option<String> {
+    // OpenAI Chat: role=tool with name field directly
+    if let Some(name) = msg.get("name").and_then(|n| n.as_str()) {
+        return Some(name.to_string());
+    }
+
+    // Try tool_call_id (OpenAI Chat) or call_id (OpenAI Responses)
+    let tool_id = msg
+        .get("tool_call_id")
+        .or_else(|| msg.get("call_id"))
+        .and_then(|v| v.as_str());
+    if let Some(id) = tool_id {
+        return id_to_name.get(id).cloned();
+    }
+
+    // Anthropic: content array with tool_result blocks containing tool_use_id
+    if let Some(content) = msg.get("content").and_then(|c| c.as_array()) {
+        for block in content {
+            if block.get("type").and_then(|t| t.as_str()) == Some("tool_result") {
+                if let Some(id) = block.get("tool_use_id").and_then(|v| v.as_str()) {
+                    return id_to_name.get(id).cloned();
+                }
+            }
+        }
+    }
+
+    None
+}
 
 // ── Tier 4: Emergency Compaction ──
 
@@ -107,6 +239,9 @@ pub fn compact_if_needed(
             details: None,
         };
     }
+
+    // Tier 0: Microcompact ephemeral tool results (zero cost, always runs first)
+    let tier0_count = microcompact(messages, config);
 
     // Tier 1: Truncate individual oversized tool results
     let tier1_count = truncate_tool_results(messages, context_window, config);

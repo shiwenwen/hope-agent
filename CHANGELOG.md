@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **工具并发执行**：`ToolDefinition` 新增 `concurrent_safe` 标志，只读工具（read/grep/ls/find/web_search 等 16 个）在同一轮次内并行执行（`futures::join_all`），写入工具保持串行。四种 Provider（Anthropic/OpenAI Chat/OpenAI Responses/Codex）统一支持
+- **微压缩 Tier 0**：上下文压缩新增零成本预处理层，在 Tier 1 截断之前清除旧的临时工具结果（ls/grep/find/process/sessions_list/agents_list），无需 LLM 调用即可节省 10-20% token
+- **工具结果磁盘持久化**：工具结果超过阈值（默认 50KB，`config.json` → `toolResultDiskThreshold` 可配置）时自动写入磁盘（`~/.opencomputer/tool_results/`），上下文仅保留 head 2KB + tail 1KB + 路径引用，模型可通过 read 工具访问完整内容
+
 - **Discord 渠道插件**：WebSocket Gateway 协议、Application Commands 斜杠命令同步、RESUME 自动重连、原生 Markdown 透传
 - **Slack 渠道插件**：Socket Mode WebSocket、Bot Token + App Token 双令牌认证、mrkdwn 格式转换、一次性 URL 重连
 - **飞书 / Lark 渠道插件**：WebSocket 事件订阅、OAuth Token 自动刷新（2h TTL）、多域名支持（feishu/lark/私有部署）

@@ -610,6 +610,11 @@ pub struct ProviderStore {
     /// Default 300 (5 min). Set to 0 to disable.
     #[serde(default = "default_tool_timeout")]
     pub tool_timeout: u64,
+    /// Threshold (bytes) for persisting large tool results to disk.
+    /// Results exceeding this size are written to disk with a preview in context.
+    /// Default: 50000 (50KB). Set to 0 to disable.
+    #[serde(default)]
+    pub tool_result_disk_threshold: Option<usize>,
     /// UI theme preference: "auto" | "light" | "dark"
     #[serde(default = "default_theme")]
     pub theme: String,
@@ -702,6 +707,7 @@ impl Default for ProviderStore {
             image: crate::tools::image::ImageToolConfig::default(),
             pdf: crate::tools::pdf::PdfToolConfig::default(),
             tool_timeout: default_tool_timeout(),
+            tool_result_disk_threshold: None,
             theme: default_theme(),
             language: default_language(),
             ui_effects_enabled: true,

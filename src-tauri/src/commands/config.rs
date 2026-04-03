@@ -459,6 +459,19 @@ pub async fn set_tool_timeout(seconds: u64) -> Result<(), String> {
     provider::save_store(&store).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub async fn get_tool_result_disk_threshold() -> Result<usize, String> {
+    let store = provider::load_store().map_err(|e| e.to_string())?;
+    Ok(store.tool_result_disk_threshold.unwrap_or(50_000))
+}
+
+#[tauri::command]
+pub async fn set_tool_result_disk_threshold(bytes: usize) -> Result<(), String> {
+    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    store.tool_result_disk_threshold = if bytes == 0 { Some(0) } else { Some(bytes) };
+    provider::save_store(&store).map_err(|e| e.to_string())
+}
+
 // ── Tool Limits ────────────────────────────────────────────────
 
 #[derive(serde::Serialize, serde::Deserialize)]

@@ -16,6 +16,8 @@ import { logger } from "@/lib/logger"
 
 interface CompactConfig {
   enabled: boolean
+  microcompactEnabled: boolean
+  microcompactTools: string[]
   softTrimRatio: number
   hardClearRatio: number
   keepLastAssistants: number
@@ -115,6 +117,7 @@ export default function ContextCompactPanel() {
   const [savedJson, setSavedJson] = useState("")
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
+  const [microcompactOpen, setMicrocompactOpen] = useState(false)
   const [pruningOpen, setPruningOpen] = useState(true)
   const [summaryOpen, setSummaryOpen] = useState(true)
   const [advancedOpen, setAdvancedOpen] = useState(false)
@@ -188,6 +191,50 @@ export default function ContextCompactPanel() {
 
       {config.enabled && (
         <>
+          {/* ── Microcompact Section ── */}
+          <div className="rounded-lg border border-border/50 bg-secondary/20 overflow-hidden">
+            <button
+              className="flex items-center gap-2 px-3 py-2.5 w-full text-left hover:bg-secondary/30 transition-colors"
+              onClick={() => setMicrocompactOpen(!microcompactOpen)}
+            >
+              {microcompactOpen ? (
+                <ChevronDown className="h-3.5 w-3.5" />
+              ) : (
+                <ChevronRight className="h-3.5 w-3.5" />
+              )}
+              <span className="text-sm font-medium">{t("settings.contextCompactMicrocompact")}</span>
+            </button>
+            {microcompactOpen && (
+              <div className="px-3 pb-3 pt-1 space-y-3 border-t border-border/30">
+                <div className="flex items-center justify-between py-2">
+                  <div className="space-y-0.5">
+                    <div className="text-sm">{t("settings.contextCompactMicrocompactEnabled")}</div>
+                    <div className="text-xs text-muted-foreground">{t("settings.contextCompactMicrocompactEnabledDesc")}</div>
+                  </div>
+                  <Switch
+                    checked={config.microcompactEnabled}
+                    onCheckedChange={(v) => setConfig(prev => ({ ...prev, microcompactEnabled: v }))}
+                  />
+                </div>
+                {config.microcompactEnabled && (
+                  <div className="space-y-1.5">
+                    <div className="text-xs font-medium text-muted-foreground">{t("settings.contextCompactMicrocompactTools")}</div>
+                    <div className="text-xs text-muted-foreground">{t("settings.contextCompactMicrocompactToolsDesc")}</div>
+                    <Input
+                      value={(config.microcompactTools || []).join(", ")}
+                      onChange={(e) => {
+                        const tools = e.target.value.split(",").map(s => s.trim()).filter(Boolean)
+                        setConfig(prev => ({ ...prev, microcompactTools: tools }))
+                      }}
+                      className="text-xs h-8"
+                      placeholder="ls, grep, find, process, sessions_list, agents_list"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* ── Pruning Section ── */}
           <div className="rounded-lg border border-border/50 bg-secondary/20 overflow-hidden">
             <button

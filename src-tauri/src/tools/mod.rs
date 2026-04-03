@@ -40,7 +40,8 @@ pub use approval::{
 pub use definitions::{
     get_amend_plan_tool, get_available_tools, get_canvas_tool, get_image_generate_tool_dynamic,
     get_notification_tool, get_plan_question_tool, get_plan_step_tool, get_subagent_tool,
-    get_submit_plan_tool, get_tools_for_provider, get_web_search_tool, is_internal_tool,
+    get_submit_plan_tool, get_tools_for_provider, get_web_search_tool, is_concurrent_safe,
+    is_internal_tool,
 };
 pub use execution::{execute_tool_with_context, ToolExecContext};
 

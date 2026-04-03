@@ -1,12 +1,13 @@
 // ── Context Compression & Trimming System ──────────────────────────
 //
-//  4-tier progressive context compression to prevent context overflow:
+//  5-tier progressive context compression to prevent context overflow:
+//   Tier 0: Microcompaction (zero-cost clearing of ephemeral tool results: ls/grep/find)
 //   Tier 1: Tool result truncation (head+tail for oversized individual results)
 //   Tier 2: Context pruning (soft-trim old tool results -> hard-clear with placeholder)
 //   Tier 3: LLM summarization (call model to summarize old messages)
 //   Tier 4: Emergency compaction (aggressive truncation on ContextOverflow)
 //
-//  Reference: openclaw context-pruning + compaction systems.
+//  Reference: openclaw context-pruning + compaction systems + claude-code microcompact.
 
 mod compact;
 mod config;
@@ -87,7 +88,7 @@ PRIORITIZE recent context over older history."#;
 
 // ── Re-exports ──
 
-pub use compact::{compact_if_needed, emergency_compact};
+pub use compact::{compact_if_needed, emergency_compact, microcompact};
 pub use config::CompactConfig;
 pub use estimation::estimate_request_tokens;
 pub(crate) use summarization::SUMMARIZATION_SYSTEM_PROMPT;

@@ -989,6 +989,9 @@ pub fn run() {
             // Tool timeout
             commands::config::get_tool_timeout,
             commands::config::set_tool_timeout,
+            // Tool result disk persistence
+            commands::config::get_tool_result_disk_threshold,
+            commands::config::set_tool_result_disk_threshold,
             // Tool limits (image/pdf)
             commands::config::get_tool_limits,
             commands::config::set_tool_limits,

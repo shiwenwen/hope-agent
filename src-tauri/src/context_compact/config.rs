@@ -57,6 +57,16 @@ pub struct CompactConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,
 
+    // ── Tier 0: Microcompaction ──
+    /// Enable microcompaction of ephemeral tool results (default: true).
+    /// Clears old results from tools like ls/grep/find that become stale quickly.
+    #[serde(default = "default_true")]
+    pub microcompact_enabled: bool,
+    /// Tool names eligible for Tier 0 microcompaction.
+    /// Results from these tools are cleared when older than `keep_last_assistants` boundary.
+    #[serde(default = "default_microcompact_tools")]
+    pub microcompact_tools: Vec<String>,
+
     // ── Tier 2: Context Pruning ──
     /// Soft trim trigger ratio (default: 0.50)
     #[serde(default = "default_soft_trim_ratio")]
@@ -116,6 +126,20 @@ pub struct CompactConfig {
     pub max_history_share: f64,
 }
 
+fn default_microcompact_tools() -> Vec<String> {
+    use crate::tools::{
+        TOOL_AGENTS_LIST, TOOL_FIND, TOOL_GREP, TOOL_LS, TOOL_PROCESS, TOOL_SESSIONS_LIST,
+    };
+    vec![
+        TOOL_LS.into(),
+        TOOL_GREP.into(),
+        TOOL_FIND.into(),
+        TOOL_PROCESS.into(),
+        TOOL_SESSIONS_LIST.into(),
+        TOOL_AGENTS_LIST.into(),
+    ]
+}
+
 fn default_tools_deny_prune() -> Vec<String> {
     use crate::tools::{
         TOOL_DELETE_MEMORY, TOOL_MEMORY_GET, TOOL_RECALL_MEMORY, TOOL_SAVE_MEMORY,
@@ -137,6 +161,8 @@ impl Default for CompactConfig {
     fn default() -> Self {
         Self {
             enabled: default_true(),
+            microcompact_enabled: default_true(),
+            microcompact_tools: default_microcompact_tools(),
             soft_trim_ratio: default_soft_trim_ratio(),
             hard_clear_ratio: default_hard_clear_ratio(),
             keep_last_assistants: default_keep_last_assistants(),

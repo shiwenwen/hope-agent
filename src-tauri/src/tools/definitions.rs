@@ -1076,6 +1076,36 @@ pub fn get_acp_spawn_tool() -> ToolDefinition {
     }
 }
 
+/// Tools that are safe for concurrent execution (read-only, no side effects).
+/// These tools can run in parallel within a single tool round.
+static CONCURRENT_SAFE_TOOL_NAMES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
+    [
+        TOOL_READ,
+        TOOL_LS,
+        TOOL_GREP,
+        TOOL_FIND,
+        TOOL_RECALL_MEMORY,
+        TOOL_MEMORY_GET,
+        TOOL_WEB_SEARCH,
+        TOOL_WEB_FETCH,
+        TOOL_AGENTS_LIST,
+        TOOL_SESSIONS_LIST,
+        TOOL_SESSION_STATUS,
+        TOOL_SESSIONS_HISTORY,
+        TOOL_IMAGE,
+        TOOL_PDF,
+        TOOL_GET_WEATHER,
+        TOOL_PLAN_QUESTION,
+    ]
+    .into_iter()
+    .collect()
+});
+
+/// Check if a tool is safe for concurrent execution within a tool round.
+pub fn is_concurrent_safe(name: &str) -> bool {
+    CONCURRENT_SAFE_TOOL_NAMES.contains(name)
+}
+
 /// Cached set of internal tool names — derived from ToolDefinition.internal flag.
 /// This is the single source of truth; no separate hardcoded list needed.
 static INTERNAL_TOOL_NAMES: LazyLock<HashSet<String>> = LazyLock::new(|| {

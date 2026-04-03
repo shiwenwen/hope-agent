@@ -14,6 +14,9 @@ use super::super::events::{
     emit_tool_result, emit_usage, extract_media_urls,
 };
 use super::super::types::{AssistantAgent, ChatUsage};
+use super::tool_exec_helpers::{execute_tool_with_cancel, log_tool_input, log_tool_output};
+use futures_util::future::join_all;
+
 use crate::tools::{self, ToolProvider};
 
 impl AssistantAgent {
@@ -350,10 +353,62 @@ impl AssistantAgent {
                 max_tokens,
             );
 
-            // Execute tools and build tool_result messages
+            // Execute tools with concurrent-safe tools in parallel, sequential tools in order.
+            // Partition tool calls into concurrent-safe and sequential groups.
+            let (concurrent_tcs, sequential_tcs): (Vec<_>, Vec<_>) = tool_calls
+                .iter()
+                .partition(|tc| tools::is_concurrent_safe(&tc.name));
+
             let mut tool_results: Vec<serde_json::Value> = Vec::new();
-            for tc in &tool_calls {
-                // Check cancel before each tool execution
+            let tool_ctx = self.tool_context_with_usage(Some(estimated_used));
+
+            // Phase 1: Execute concurrent-safe tools in parallel
+            if !concurrent_tcs.is_empty() && !cancel.load(Ordering::SeqCst) {
+                let concurrent_futures: Vec<_> = concurrent_tcs
+                    .iter()
+                    .map(|tc| {
+                        let cancel_clone = cancel.clone();
+                        let tool_ctx = tool_ctx.clone();
+                        let call_id = tc.call_id.clone();
+                        let name = tc.name.clone();
+                        let arguments = tc.arguments.clone();
+                        async move {
+                            let args: serde_json::Value =
+                                serde_json::from_str(&arguments).unwrap_or(json!({}));
+                            let (result, elapsed_ms) =
+                                execute_tool_with_cancel(&name, &args, &tool_ctx, &cancel_clone)
+                                    .await;
+                            (call_id, name, arguments, result, elapsed_ms)
+                        }
+                    })
+                    .collect();
+
+                // Emit all tool_call events before parallel execution
+                for tc in &concurrent_tcs {
+                    emit_tool_call(on_delta, &tc.call_id, &tc.name, &tc.arguments);
+                    log_tool_input(tc, round);
+                }
+
+                let results = join_all(concurrent_futures).await;
+
+                for (call_id, name, _arguments, result, elapsed_ms) in results {
+                    log_tool_output(&call_id, &name, &result, elapsed_ms, round);
+                    let is_tool_error = result.starts_with("Tool error:");
+                    let (clean_result, media_urls) = extract_media_urls(&result);
+                    emit_tool_result(
+                        on_delta, &call_id, &name, &clean_result, elapsed_ms,
+                        is_tool_error, &media_urls,
+                    );
+                    tool_results.push(json!({
+                        "type": "tool_result",
+                        "tool_use_id": call_id,
+                        "content": build_anthropic_tool_result_content(&clean_result),
+                    }));
+                }
+            }
+
+            // Phase 2: Execute sequential tools one by one
+            for tc in &sequential_tcs {
                 if cancel.load(Ordering::SeqCst) {
                     break;
                 }
@@ -362,110 +417,17 @@ impl AssistantAgent {
                     serde_json::from_str(&tc.arguments).unwrap_or(json!({}));
 
                 emit_tool_call(on_delta, &tc.call_id, &tc.name, &tc.arguments);
+                log_tool_input(tc, round);
 
-                // Log tool execution input
-                if let Some(logger) = crate::get_logger() {
-                    let args_str = tc.arguments.as_str();
-                    let args_preview = if args_str.len() > 2048 {
-                        format!(
-                            "{}...(truncated, total {}B)",
-                            crate::truncate_utf8(args_str, 2048),
-                            args_str.len()
-                        )
-                    } else {
-                        args_str.to_string()
-                    };
-                    logger.log(
-                        "debug",
-                        "agent",
-                        "agent::tool_exec::input",
-                        &format!("Tool exec [{}] id={}", tc.name, tc.call_id),
-                        Some(
-                            json!({
-                                "tool_name": tc.name,
-                                "call_id": tc.call_id,
-                                "arguments": args_preview,
-                                "round": round,
-                            })
-                            .to_string(),
-                        ),
-                        None,
-                        None,
-                    );
-                }
+                let (result, tool_elapsed_ms) =
+                    execute_tool_with_cancel(&tc.name, &args, &tool_ctx, cancel).await;
 
-                let tool_start = std::time::Instant::now();
-                // Use tokio::select! to race tool execution against cancel flag
-                let cancel_clone = cancel.clone();
-                let tool_ctx = self.tool_context_with_usage(Some(estimated_used));
-                let result = tokio::select! {
-                    res = tools::execute_tool_with_context(&tc.name, &args, &tool_ctx) => {
-                        match res {
-                            Ok(r) => r,
-                            Err(e) => format!("Tool error: {}", e),
-                        }
-                    }
-                    _ = async {
-                        loop {
-                            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                            if cancel_clone.load(Ordering::SeqCst) { break; }
-                        }
-                    } => {
-                        String::from("Tool execution cancelled by user")
-                    }
-                };
-                let tool_elapsed_ms = tool_start.elapsed().as_millis() as u64;
-
-                // Log tool execution output
-                if let Some(logger) = crate::get_logger() {
-                    let result_preview = if result.len() > 2048 {
-                        format!(
-                            "{}...(truncated, total {}B)",
-                            crate::truncate_utf8(&result, 2048),
-                            result.len()
-                        )
-                    } else {
-                        result.clone()
-                    };
-                    let is_error = result.starts_with("Tool error:");
-                    logger.log(
-                        if is_error { "warn" } else { "debug" },
-                        "agent",
-                        "agent::tool_exec::output",
-                        &format!(
-                            "Tool result [{}] {}B, {}ms{}",
-                            tc.name,
-                            result.len(),
-                            tool_elapsed_ms,
-                            if is_error { " (ERROR)" } else { "" }
-                        ),
-                        Some(
-                            json!({
-                                "tool_name": tc.name,
-                                "call_id": tc.call_id,
-                                "result_size_bytes": result.len(),
-                                "elapsed_ms": tool_elapsed_ms,
-                                "is_error": is_error,
-                                "result_preview": result_preview,
-                                "round": round,
-                            })
-                            .to_string(),
-                        ),
-                        None,
-                        None,
-                    );
-                }
-
+                log_tool_output(&tc.call_id, &tc.name, &result, tool_elapsed_ms, round);
                 let is_tool_error = result.starts_with("Tool error:");
                 let (clean_result, media_urls) = extract_media_urls(&result);
                 emit_tool_result(
-                    on_delta,
-                    &tc.call_id,
-                    &tc.name,
-                    &clean_result,
-                    tool_elapsed_ms,
-                    is_tool_error,
-                    &media_urls,
+                    on_delta, &tc.call_id, &tc.name, &clean_result, tool_elapsed_ms,
+                    is_tool_error, &media_urls,
                 );
 
                 tool_results.push(json!({

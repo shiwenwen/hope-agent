@@ -31,6 +31,8 @@ export default function ToolGeneralPanel() {
   const { t } = useTranslation()
   const [toolTimeout, setToolTimeout] = useState(300)
   const [savedTimeout, setSavedTimeout] = useState(300)
+  const [diskThreshold, setDiskThreshold] = useState(50)
+  const [savedDiskThreshold, setSavedDiskThreshold] = useState(50)
 
   const [limits, setLimits] = useState<ToolLimitsConfig>(DEFAULT_LIMITS)
   const [savedLimitsSnapshot, setSavedLimitsSnapshot] = useState("")
@@ -51,6 +53,11 @@ export default function ToolGeneralPanel() {
     invoke<number>("get_tool_timeout")
       .then((v) => { if (!cancelled) { setToolTimeout(v); setSavedTimeout(v); } })
       .catch((e) => logger.error("settings", "ToolGeneralPanel::load", "Failed to load tool timeout", e))
+
+    // Load disk persistence threshold (bytes → KB for display)
+    invoke<number>("get_tool_result_disk_threshold")
+      .then((v) => { if (!cancelled) { const kb = Math.round(v / 1000); setDiskThreshold(kb); setSavedDiskThreshold(kb); } })
+      .catch((e) => logger.error("settings", "ToolGeneralPanel::load", "Failed to load disk threshold", e))
 
     // Load user config
     invoke<UserConfig>("get_user_config")
@@ -84,6 +91,16 @@ export default function ToolGeneralPanel() {
       logger.error("settings", "ToolGeneralPanel::save", "Failed to save tool timeout", e)
     }
   }, [savedTimeout])
+
+  const saveDiskThreshold = useCallback(async (kb: number) => {
+    try {
+      await invoke("set_tool_result_disk_threshold", { bytes: kb * 1000 })
+      setSavedDiskThreshold(kb)
+    } catch (e) {
+      setDiskThreshold(savedDiskThreshold)
+      logger.error("settings", "ToolGeneralPanel::save", "Failed to save disk threshold", e)
+    }
+  }, [savedDiskThreshold])
 
   const saveAll = async () => {
     setSaving(true)
@@ -142,6 +159,30 @@ export default function ToolGeneralPanel() {
                 className="w-24 h-8 text-sm text-right"
               />
               <span className="text-xs text-muted-foreground whitespace-nowrap">{t("settings.seconds")}</span>
+            </div>
+          </div>
+
+          {/* Disk Persistence Threshold */}
+          <div className="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-secondary/40 transition-colors">
+            <div className="space-y-0.5">
+              <div className="text-sm font-medium">{t("settings.toolResultDiskThreshold")}</div>
+              <div className="text-xs text-muted-foreground">{t("settings.toolResultDiskThresholdDesc")}</div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                min={0}
+                step={10}
+                value={diskThreshold}
+                onChange={(e) => setDiskThreshold(Number(e.target.value))}
+                onBlur={() => {
+                  const clamped = Math.max(0, Math.round(diskThreshold))
+                  setDiskThreshold(clamped)
+                  if (clamped !== savedDiskThreshold) saveDiskThreshold(clamped)
+                }}
+                className="w-24 h-8 text-sm text-right"
+              />
+              <span className="text-xs text-muted-foreground whitespace-nowrap">{t("settings.kb")}</span>
             </div>
           </div>
 
