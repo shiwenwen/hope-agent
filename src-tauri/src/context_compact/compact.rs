@@ -177,6 +177,9 @@ pub fn emergency_compact(messages: &mut Vec<Value>, config: &CompactConfig) -> C
         }
     }
 
+    // Adjust to a round-safe boundary so we never orphan tool_result messages
+    keep_from = super::round_grouping::find_round_safe_boundary_forward(messages, keep_from);
+
     if keep_from > 0 && keep_from < messages.len() {
         let removed = keep_from;
         messages.drain(..keep_from);

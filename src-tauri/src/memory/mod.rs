@@ -2,6 +2,7 @@ pub mod embedding;
 pub mod helpers;
 pub mod import;
 pub mod mmr;
+pub(crate) mod selection;
 pub mod sqlite;
 pub mod traits;
 pub mod types;

@@ -143,6 +143,21 @@ pub async fn save_extract_config(config: memory::MemoryExtractConfig) -> Result<
 }
 
 #[tauri::command]
+pub async fn get_memory_selection_config() -> Result<memory::MemorySelectionConfig, String> {
+    let store = provider::load_store().map_err(|e| e.to_string())?;
+    Ok(store.memory_selection)
+}
+
+#[tauri::command]
+pub async fn save_memory_selection_config(
+    config: memory::MemorySelectionConfig,
+) -> Result<(), String> {
+    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    store.memory_selection = config;
+    provider::save_store(&store).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn get_dedup_config() -> Result<memory::DedupConfig, String> {
     let store = provider::load_store().map_err(|e| e.to_string())?;
     Ok(store.dedup)

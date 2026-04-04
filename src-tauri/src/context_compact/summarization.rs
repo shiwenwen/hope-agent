@@ -58,6 +58,13 @@ pub fn split_for_summarization(
         return None; // Not enough turns to summarize
     }
 
+    // Adjust to a round-safe boundary so we never split a tool_use/tool_result pair
+    boundary_index = super::round_grouping::find_round_safe_boundary(messages, boundary_index);
+
+    if boundary_index == 0 {
+        return None; // Round adjustment consumed all summarizable messages
+    }
+
     let summarizable = messages[..boundary_index].to_vec();
     let preserved = messages[boundary_index..].to_vec();
 

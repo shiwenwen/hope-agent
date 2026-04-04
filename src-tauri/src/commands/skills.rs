@@ -29,6 +29,8 @@ pub async fn get_skills(state: State<'_, AppState>) -> Result<Vec<skills::SkillS
                 has_install: !e.install.is_empty(),
                 any_bins,
                 always,
+                allowed_tools: e.allowed_tools,
+                context_mode: e.context_mode,
             }
         })
         .collect())

@@ -120,6 +120,7 @@ pub async fn spawn_subagent(
     let plan_mode_allow_paths = params.plan_mode_allow_paths.clone();
     let skip_parent_injection = params.skip_parent_injection;
     let extra_system_context = params.extra_system_context.clone();
+    let skill_allowed_tools = params.skill_allowed_tools.clone();
 
     tokio::spawn(async move {
         let start = std::time::Instant::now();
@@ -145,6 +146,7 @@ pub async fn spawn_subagent(
         let plan_agent_mode_exec = plan_agent_mode.clone();
         let plan_mode_allow_paths_exec = plan_mode_allow_paths.clone();
         let extra_system_context_exec = extra_system_context.clone();
+        let skill_allowed_tools_exec = skill_allowed_tools.clone();
         let exec_result = std::panic::AssertUnwindSafe(tokio::time::timeout(
             std::time::Duration::from_secs(timeout_secs),
             execute_subagent(
@@ -159,6 +161,7 @@ pub async fn spawn_subagent(
                 plan_agent_mode_exec,
                 plan_mode_allow_paths_exec,
                 extra_system_context_exec,
+                skill_allowed_tools_exec,
             ),
         ));
         let result = futures_util::FutureExt::catch_unwind(exec_result).await;
@@ -332,6 +335,7 @@ fn execute_subagent(
     plan_agent_mode: Option<crate::agent::PlanAgentMode>,
     plan_mode_allow_paths: Vec<String>,
     extra_system_context_override: Option<String>,
+    skill_allowed_tools: Vec<String>,
 ) -> impl std::future::Future<Output = Result<(String, Option<String>)>> + Send {
     async move {
         use crate::agent::AssistantAgent;
@@ -438,6 +442,10 @@ fn execute_subagent(
                 if let Some(ref mode) = plan_agent_mode {
                     agent.set_plan_agent_mode(mode.clone());
                     agent.set_plan_mode_allow_paths(plan_mode_allow_paths.clone());
+                }
+                // Apply skill-level tool restriction (for fork-mode skills)
+                if !skill_allowed_tools.is_empty() {
+                    agent.set_skill_allowed_tools(skill_allowed_tools.clone());
                 }
                 // Apply denied_tools from parent agent's subagent config
                 let mut denied = Vec::new();

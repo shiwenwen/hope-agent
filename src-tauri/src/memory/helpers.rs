@@ -36,6 +36,13 @@ pub fn load_dedup_config() -> DedupConfig {
         .unwrap_or_default()
 }
 
+/// Load LLM memory selection config from config.json.
+pub fn load_memory_selection_config() -> MemorySelectionConfig {
+    crate::provider::load_store()
+        .map(|s| s.memory_selection)
+        .unwrap_or_default()
+}
+
 /// Load global extract config from config.json.
 pub fn load_extract_config() -> MemoryExtractConfig {
     crate::provider::load_store()

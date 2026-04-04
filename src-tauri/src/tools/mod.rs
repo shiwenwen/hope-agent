@@ -31,6 +31,7 @@ mod weather;
 pub(crate) mod web_fetch;
 pub(crate) mod web_search;
 mod write;
+pub(crate) mod tool_search;
 
 // ── Public Re-exports ─────────────────────────────────────────────
 
@@ -38,10 +39,11 @@ pub use approval::{
     set_tool_permission_mode, submit_approval_response, ApprovalResponse, ToolPermissionMode,
 };
 pub use definitions::{
-    get_amend_plan_tool, get_available_tools, get_canvas_tool, get_image_generate_tool_dynamic,
+    get_amend_plan_tool, get_available_tools, get_canvas_tool, get_core_tools,
+    get_core_tools_for_provider, get_deferred_tools, get_image_generate_tool_dynamic,
     get_notification_tool, get_plan_question_tool, get_plan_step_tool, get_subagent_tool,
-    get_submit_plan_tool, get_tools_for_provider, get_web_search_tool, is_concurrent_safe,
-    is_internal_tool,
+    get_submit_plan_tool, get_tool_search_tool, get_tools_for_provider, get_web_search_tool,
+    is_concurrent_safe, is_core_tool, is_internal_tool,
 };
 pub use execution::{execute_tool_with_context, ToolExecContext};
 
@@ -83,6 +85,7 @@ pub const TOOL_UPDATE_PLAN_STEP: &str = "update_plan_step";
 pub const TOOL_PLAN_QUESTION: &str = "plan_question";
 pub const TOOL_SUBMIT_PLAN: &str = "submit_plan";
 pub const TOOL_AMEND_PLAN: &str = "amend_plan";
+pub const TOOL_TOOL_SEARCH: &str = "tool_search";
 
 // ── Shared Helpers ────────────────────────────────────────────────
 

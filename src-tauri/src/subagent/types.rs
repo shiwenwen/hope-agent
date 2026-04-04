@@ -97,6 +97,9 @@ pub struct SpawnParams {
     pub skip_parent_injection: bool,
     /// Extra system context to inject into the sub-agent (e.g., PLAN_MODE_SYSTEM_PROMPT)
     pub extra_system_context: Option<String>,
+    /// Skill-level tool restriction inherited from parent skill activation.
+    /// When non-empty, the sub-agent only has access to these tools.
+    pub skill_allowed_tools: Vec<String>,
 }
 
 /// Event payload for streaming parent agent responses back to frontend.

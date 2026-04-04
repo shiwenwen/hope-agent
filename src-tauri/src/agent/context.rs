@@ -183,6 +183,28 @@ impl AssistantAgent {
                                 None, None, None,
                             );
                         }
+
+                        // Post-compaction file recovery: re-inject recently-edited file contents
+                        let tokens_after_summary = context_compact::estimate_request_tokens(
+                            system_prompt, messages, max_tokens,
+                        );
+                        let tokens_freed = compact_result
+                            .tokens_before
+                            .saturating_sub(tokens_after_summary);
+                        if let Some(recovery_msg) = context_compact::build_recovery_message(
+                            &split.summarizable,
+                            &split.preserved,
+                            tokens_freed,
+                            &self.compact_config,
+                        ) {
+                            // Insert after summary message (index 0), before preserved messages
+                            messages.insert(1, recovery_msg);
+                            app_info!(
+                                "context",
+                                "compact",
+                                "Post-compaction recovery: injected file contents after summary"
+                            );
+                        }
                     }
                     Ok(Err(e)) => {
                         if let Some(logger) = crate::get_logger() {

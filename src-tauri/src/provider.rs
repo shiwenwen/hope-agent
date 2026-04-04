@@ -661,6 +661,27 @@ pub struct ProviderStore {
     /// IM channel configuration (Telegram, Discord, Slack, etc.)
     #[serde(default)]
     pub channels: crate::channel::ChannelStoreConfig,
+
+    /// Deferred tool loading configuration
+    #[serde(default)]
+    pub deferred_tools: DeferredToolsConfig,
+}
+
+/// Configuration for deferred tool loading.
+/// When enabled, only core tools are sent to the LLM per request,
+/// and remaining tools are discoverable via `tool_search`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeferredToolsConfig {
+    /// Enable deferred tool loading (default: false, opt-in)
+    #[serde(default)]
+    pub enabled: bool,
+}
+
+impl Default for DeferredToolsConfig {
+    fn default() -> Self {
+        Self { enabled: false }
+    }
 }
 
 fn default_skill_env_check() -> bool {
@@ -720,6 +741,7 @@ impl Default for ProviderStore {
             temperature: None,
             plan_subagent: false,
             channels: crate::channel::ChannelStoreConfig::default(),
+            deferred_tools: DeferredToolsConfig::default(),
         }
     }
 }

@@ -117,6 +117,9 @@ pub struct AssistantAgent {
     pub(super) steer_run_id: Option<String>,
     /// Tools denied for this agent (used for depth-based tool policy)
     pub(super) denied_tools: Vec<String>,
+    /// Active skill's allowed tools: when non-empty, only these tools are sent to the LLM.
+    /// Set when a skill with `allowed-tools` frontmatter is activated.
+    pub(super) skill_allowed_tools: Vec<String>,
     /// Plan Agent / Build Agent mode (dual-agent architecture)
     pub(super) plan_agent_mode: PlanAgentMode,
     /// Plan mode path-based allow rules: write/edit targeting these paths are allowed
@@ -127,6 +130,11 @@ pub struct AssistantAgent {
     /// Cache-safe params from the last main chat request, used for side_query().
     /// Wrapped in Arc to avoid expensive deep clones on every chat turn.
     pub(super) cache_safe_params: std::sync::Mutex<Option<std::sync::Arc<CacheSafeParams>>>,
+    /// Number of memory extractions performed this session (for frequency capping).
+    pub(crate) extraction_count: std::sync::atomic::AtomicU32,
+    /// Whether save_memory/update_core_memory was called in the current chat() round.
+    /// Used for mutual exclusion with auto-extraction.
+    pub(crate) manual_memory_saved: std::sync::atomic::AtomicBool,
 }
 
 /// Cached parameters from the last main chat request.

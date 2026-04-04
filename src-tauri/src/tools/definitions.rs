@@ -27,6 +27,13 @@ pub struct ToolDefinition {
     /// rather than system-interacting tools (exec, write, edit, etc.)
     #[serde(default)]
     pub internal: bool,
+    /// Whether this tool is deferred (schema not sent to LLM by default).
+    /// Deferred tools are discoverable via `tool_search`.
+    #[serde(default)]
+    pub deferred: bool,
+    /// When true, always load this tool even when deferred loading is enabled.
+    #[serde(default)]
+    pub always_load: bool,
 }
 
 impl ToolDefinition {
@@ -37,6 +44,8 @@ impl ToolDefinition {
             description: description.into(),
             parameters,
             internal: false,
+            deferred: false,
+            always_load: false,
         }
     }
 
@@ -47,6 +56,8 @@ impl ToolDefinition {
             description: description.into(),
             parameters,
             internal: true,
+            deferred: false,
+            always_load: false,
         }
     }
 
@@ -77,12 +88,24 @@ impl ToolDefinition {
 
 // ── Tool Catalog ──────────────────────────────────────────────────
 
+/// Core tools that are always loaded (never deferred).
+const CORE_TOOL_NAMES: &[&str] = &[
+    "exec", "process", "read", "write", "edit", "ls", "grep", "find", "apply_patch",
+];
+
+/// Check if a tool name is a core tool (always loaded).
+pub fn is_core_tool(name: &str) -> bool {
+    CORE_TOOL_NAMES.contains(&name)
+}
+
 pub fn get_available_tools() -> Vec<ToolDefinition> {
-    vec![
+    let mut tools = vec![
         ToolDefinition {
             name: TOOL_EXEC.into(),
             description: "Execute a shell command. Returns stdout/stderr. Supports background execution with yield_ms/background params.".into(),
             internal: false,
+            deferred: false,
+            always_load: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -128,6 +151,8 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             name: TOOL_PROCESS.into(),
             description: "Manage running exec sessions: list, poll, log, write, kill, clear, remove.".into(),
             internal: false,
+            deferred: false,
+            always_load: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -165,6 +190,8 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             name: TOOL_READ.into(),
             description: "Read the contents of a file at the specified path. Supports text files with line-based pagination (offset/limit) and image files (auto-detected, returned as base64). For large files, use offset and limit to read specific sections.".into(),
             internal: false,
+            deferred: false,
+            always_load: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -189,6 +216,8 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             name: TOOL_WRITE.into(),
             description: "Write content to a file at the specified path. Creates parent directories if needed. Accepts 'file_path' as alias for 'path'.".into(),
             internal: false,
+            deferred: false,
+            always_load: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -209,6 +238,8 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             name: TOOL_EDIT.into(),
             description: "Edit a file by replacing specific text. More precise than write for making targeted changes. The old_text must match exactly once (including whitespace and indentation). Accepts aliases: 'file_path' for 'path', 'oldText'/'old_string' for 'old_text', 'newText'/'new_string' for 'new_text'.".into(),
             internal: false,
+            deferred: false,
+            always_load: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -233,6 +264,8 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             name: TOOL_LS.into(),
             description: "List files and directories in the specified path. Returns sorted names with type indicators (/ for directories, @ for symlinks). Supports ~ expansion and entry limit.".into(),
             internal: false,
+            deferred: false,
+            always_load: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -253,6 +286,8 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             name: TOOL_GREP.into(),
             description: "Search file contents using regex or literal patterns. Respects .gitignore. Returns matching lines with file paths and line numbers.".into(),
             internal: false,
+            deferred: false,
+            always_load: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -293,6 +328,8 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             name: TOOL_FIND.into(),
             description: "Find files by glob pattern. Respects .gitignore. Returns matching file paths relative to the search directory.".into(),
             internal: false,
+            deferred: false,
+            always_load: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -317,6 +354,8 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             name: TOOL_APPLY_PATCH.into(),
             description: "Apply a patch to create, modify, move, or delete files. Use the *** Begin Patch / *** End Patch format with Add File, Update File, Delete File, and Move to markers.".into(),
             internal: false,
+            deferred: false,
+            always_load: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -333,6 +372,8 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             name: TOOL_WEB_FETCH.into(),
             description: "Fetch and extract readable content from a URL using Mozilla Readability. Supports markdown and plain text output modes. Returns structured JSON with page content, metadata, and extraction info. Use this to read web pages, documentation, articles, or API responses.".into(),
             internal: false,
+            deferred: false,
+            always_load: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -358,6 +399,8 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             name: TOOL_SAVE_MEMORY.into(),
             description: "Save information to persistent memory for future conversations. Use this when the user shares personal info, preferences, corrections to your behavior, project context, or reference materials. Memories persist across conversations and help you provide better, personalized assistance.".into(),
             internal: true,
+            deferred: false,
+            always_load: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -393,6 +436,8 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             name: TOOL_RECALL_MEMORY.into(),
             description: "Search persistent memories by keyword or semantic query. Use this to recall previously stored information about the user, their preferences, project context, or reference materials. Set include_history=true to also search past conversation messages.".into(),
             internal: true,
+            deferred: false,
+            always_load: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -422,6 +467,8 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             name: TOOL_UPDATE_MEMORY.into(),
             description: "Update an existing memory's content and tags by its ID. Use recall_memory first to find the memory ID. Use when a memory needs correction or its information has changed.".into(),
             internal: true,
+            deferred: false,
+            always_load: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -447,6 +494,8 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             name: TOOL_DELETE_MEMORY.into(),
             description: "Delete a memory by its ID. Use recall_memory first to find the memory ID, then use this tool to remove it. Use when the user asks to forget something or when a memory is outdated/incorrect.".into(),
             internal: true,
+            deferred: false,
+            always_load: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -464,6 +513,8 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             name: TOOL_MANAGE_CRON.into(),
             description: "Create, list, update, delete, and trigger scheduled tasks (cron jobs). Jobs run an agent turn with the given prompt on a schedule (isolated session, no prior history). Supports one-time (at), recurring (every), and cron expression schedules.".into(),
             internal: true,
+            deferred: false,
+            always_load: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -523,6 +574,8 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             name: TOOL_BROWSER.into(),
             description: "Control a Chrome browser via DevTools Protocol. Supports navigation, element interaction (click/fill/hover/drag), screenshots, accessibility snapshots, JavaScript execution, tab management, profile isolation, and PDF export. Chrome must be running with --remote-debugging-port=9222, or use action='launch' to start a managed instance. Use 'take_snapshot' to get element refs, then use those refs for click/fill/hover actions. Use 'list_profiles' to see available profiles and 'save_pdf' to export pages as PDF.".into(),
             internal: false,
+            deferred: false,
+            always_load: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -662,6 +715,8 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             name: TOOL_MEMORY_GET.into(),
             description: "Retrieve a specific memory entry by its ID with full content and metadata. Use after recall_memory to get complete details of a specific memory.".into(),
             internal: true,
+            deferred: false,
+            always_load: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -679,6 +734,8 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             name: TOOL_UPDATE_CORE_MEMORY.into(),
             description: "Update the core memory file (memory.md) that is always visible in the system prompt. Use for persistent rules, preferences, and standing instructions that the user wants you to always follow.".into(),
             internal: true,
+            deferred: false,
+            always_load: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -706,6 +763,8 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             name: TOOL_AGENTS_LIST.into(),
             description: "List all available agents with their descriptions and capabilities. Useful for choosing which agent to delegate tasks to via subagent.".into(),
             internal: true,
+            deferred: false,
+            always_load: false,
             parameters: json!({
                 "type": "object",
                 "properties": {},
@@ -718,6 +777,8 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             name: TOOL_SESSIONS_LIST.into(),
             description: "List all chat sessions with metadata (title, agent, model, message count). Use to discover existing sessions for cross-session communication.".into(),
             internal: true,
+            deferred: false,
+            always_load: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -743,6 +804,8 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             name: TOOL_SESSION_STATUS.into(),
             description: "Query detailed status of a specific session including agent, model, message count, and timestamps.".into(),
             internal: true,
+            deferred: false,
+            always_load: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -760,6 +823,8 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             name: TOOL_SESSIONS_HISTORY.into(),
             description: "Get paginated chat history from a specific session. Use to read conversation context from other sessions. Tool call details are excluded by default to reduce noise.".into(),
             internal: true,
+            deferred: false,
+            always_load: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -789,6 +854,8 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             name: TOOL_SESSIONS_SEND.into(),
             description: "Send a message to another session for cross-session communication. The message is delivered as a user message. With wait=true, blocks until the target agent responds (up to timeout_secs).".into(),
             internal: true,
+            deferred: false,
+            always_load: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -818,6 +885,8 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             name: TOOL_IMAGE.into(),
             description: "Analyze one or more images for visual understanding. Supports multiple sources: local files, HTTP/HTTPS URLs, data URIs, system clipboard, and desktop screenshots. Up to 10 images per call — each image is sent directly to the model as raw vision data for maximum quality. Supports PNG, JPEG, GIF, WebP, BMP, TIFF. Oversized images are auto-resized.".into(),
             internal: true,
+            deferred: false,
+            always_load: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -870,6 +939,8 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             name: TOOL_PDF.into(),
             description: "Analyze PDF documents with text extraction or visual page rendering. Modes: 'auto' (default) extracts text, falls back to vision for scanned/image PDFs; 'text' for pure text extraction; 'vision' renders pages as images for the model to see directly. Supports local files, URLs, and multiple PDFs.".into(),
             internal: true,
+            deferred: false,
+            always_load: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -909,6 +980,8 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             name: TOOL_GET_WEATHER.into(),
             description: "Get current weather and forecast for a location. Uses Open-Meteo API (free, no API key required). Defaults to the user's configured location if no location parameter is provided.".into(),
             internal: true,
+            deferred: false,
+            always_load: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -925,7 +998,16 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                 "additionalProperties": false
             }),
         },
-    ]
+    ];
+    // Mark non-core tools as deferred, core tools as always_load
+    for tool in &mut tools {
+        if is_core_tool(&tool.name) {
+            tool.always_load = true;
+        } else {
+            tool.deferred = true;
+        }
+    }
+    tools
 }
 
 /// Returns the subagent tool definition (conditionally injected when enabled).
@@ -934,13 +1016,15 @@ pub fn get_subagent_tool() -> ToolDefinition {
         name: TOOL_SUBAGENT.into(),
         description: "Spawn and manage sub-agents to delegate tasks. Sub-agents run asynchronously — their results are automatically pushed to you when complete. Use steer to redirect a running sub-agent. Use check(wait=true) as fallback if you need to actively wait for a result.".into(),
         internal: false,
+        deferred: false,
+        always_load: false,
         parameters: json!({
             "type": "object",
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["spawn", "check", "list", "result", "kill", "kill_all", "steer", "batch_spawn", "wait_all"],
-                    "description": "Action: spawn (delegate task), check (poll/wait), list (all runs), result (full output), kill (terminate one), kill_all (terminate all), steer (redirect running sub-agent), batch_spawn (spawn multiple), wait_all (wait for multiple)"
+                    "enum": ["spawn", "check", "list", "result", "kill", "kill_all", "steer", "batch_spawn", "wait_all", "spawn_and_wait"],
+                    "description": "Action: spawn (delegate task), check (poll/wait), list (all runs), result (full output), kill (terminate one), kill_all (terminate all), steer (redirect running sub-agent), batch_spawn (spawn multiple), wait_all (wait for multiple), spawn_and_wait (spawn + auto-background on timeout)"
                 },
                 "task": {
                     "type": "string",
@@ -1011,6 +1095,10 @@ pub fn get_subagent_tool() -> ToolDefinition {
                         },
                         "required": ["name", "content"]
                     }
+                },
+                "foreground_timeout": {
+                    "type": "integer",
+                    "description": "For spawn_and_wait: seconds to wait before auto-backgrounding (default 30, max 120). If the sub-agent completes within this time, result is returned inline."
                 }
             },
             "required": ["action"],
@@ -1025,6 +1113,8 @@ pub fn get_acp_spawn_tool() -> ToolDefinition {
         name: TOOL_ACP_SPAWN.into(),
         description: "Spawn and manage external ACP agents (Claude Code, Codex CLI, Gemini CLI, etc.). External agents run as separate processes with their own tools, context, and capabilities. Use for tasks that benefit from a specialized external coding agent.".into(),
         internal: false,
+        deferred: false,
+        always_load: false,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -1140,6 +1230,59 @@ pub fn get_tools_for_provider(provider: ToolProvider) -> Vec<serde_json::Value> 
         .iter()
         .map(|t| t.to_provider_schema(provider))
         .collect()
+}
+
+/// Get only core (always-loaded) tools — used when deferred loading is enabled.
+pub fn get_core_tools() -> Vec<ToolDefinition> {
+    get_available_tools()
+        .into_iter()
+        .filter(|t| !t.deferred)
+        .collect()
+}
+
+/// Get only deferred tools — discoverable via tool_search.
+pub fn get_deferred_tools() -> Vec<ToolDefinition> {
+    get_available_tools()
+        .into_iter()
+        .filter(|t| t.deferred)
+        .collect()
+}
+
+/// Get core tool schemas for a provider (when deferred loading is on).
+pub fn get_core_tools_for_provider(provider: ToolProvider) -> Vec<serde_json::Value> {
+    get_core_tools()
+        .iter()
+        .map(|t| t.to_provider_schema(provider))
+        .collect()
+}
+
+/// Get the tool_search meta-tool definition.
+/// This tool enables on-demand discovery of deferred tool schemas.
+pub fn get_tool_search_tool() -> ToolDefinition {
+    ToolDefinition {
+        name: super::TOOL_TOOL_SEARCH.into(),
+        description: "Search for available tools by keyword query. Returns full tool schemas \
+            for matched tools. Use this to discover tools not listed in the main tool catalog."
+            .into(),
+        internal: true,
+        deferred: false,
+        always_load: true,
+        parameters: json!({
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search query: use 'select:name1,name2' for exact match, or keywords for fuzzy search"
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Maximum results to return (default 5, max 20)"
+                }
+            },
+            "required": ["query"],
+            "additionalProperties": false
+        }),
+    }
 }
 
 /// Returns the image_generate tool definition (static fallback for is_internal_tool etc.).
@@ -1282,6 +1425,8 @@ pub fn get_image_generate_tool_dynamic(
         name: TOOL_IMAGE_GENERATE.into(),
         description,
         internal: false,
+        deferred: false,
+        always_load: false,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -1339,6 +1484,8 @@ pub fn get_web_search_tool() -> ToolDefinition {
         name: TOOL_WEB_SEARCH.into(),
         description: "Search the web for information. Returns relevant results with titles, URLs, and snippets. Use this when the user asks about current events, recent information, or anything that requires up-to-date knowledge.".into(),
         internal: false,
+        deferred: false,
+        always_load: false,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -1376,6 +1523,8 @@ pub fn get_notification_tool() -> ToolDefinition {
         name: TOOL_SEND_NOTIFICATION.into(),
         description: "Send a native desktop notification to the user. Use this to proactively alert the user about important events, task completions, or findings that need their attention.".into(),
         internal: true,
+        deferred: false,
+        always_load: false,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -1400,6 +1549,8 @@ pub fn get_canvas_tool() -> ToolDefinition {
         name: TOOL_CANVAS.into(),
         description: "Create and manage interactive canvas projects — HTML/CSS/JS live preview, documents (Markdown/code), data visualizations (Chart.js), diagrams (Mermaid), presentations (slides), and SVG graphics. Canvas content is rendered in a sandboxed preview panel visible to the user. Use snapshot to capture the current visual state for analysis.".into(),
         internal: true,
+        deferred: false,
+        always_load: false,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -1467,6 +1618,8 @@ pub fn get_plan_step_tool() -> ToolDefinition {
         name: TOOL_UPDATE_PLAN_STEP.into(),
         description: "Update the status of a plan step during plan execution. Call this after starting or completing each step to track progress in the Plan panel.".into(),
         internal: true,
+        deferred: false,
+        always_load: false,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -1492,6 +1645,8 @@ pub fn get_plan_question_tool() -> ToolDefinition {
         name: TOOL_PLAN_QUESTION.into(),
         description: "Send structured questions to the user during plan creation. Each question includes suggested options that render as an interactive UI. The user can select options or provide custom input. Use this to clarify requirements, confirm design decisions, and gather preferences before submitting the final plan.".into(),
         internal: true,
+        deferred: false,
+        always_load: false,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -1559,6 +1714,8 @@ pub fn get_submit_plan_tool() -> ToolDefinition {
         name: TOOL_SUBMIT_PLAN.into(),
         description: "Submit the final implementation plan after gathering requirements through plan_question. The plan should be structured as markdown with phased checklists. This transitions the plan to Review mode where the user can approve and start execution.".into(),
         internal: true,
+        deferred: false,
+        always_load: false,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -1583,6 +1740,8 @@ pub fn get_amend_plan_tool() -> ToolDefinition {
         name: TOOL_AMEND_PLAN.into(),
         description: "Modify the current plan during execution. Use this when you discover the plan needs changes (new steps needed, steps should be removed, or step descriptions need updating). Available actions: insert (add a new step), delete (remove a pending step), update (modify a pending step's title/description).".into(),
         internal: true,
+        deferred: false,
+        always_load: false,
         parameters: json!({
             "type": "object",
             "properties": {

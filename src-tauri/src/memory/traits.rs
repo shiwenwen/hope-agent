@@ -38,6 +38,10 @@ pub trait MemoryBackend: Send + Sync {
     /// Build a summary string for system prompt injection (section ⑧)
     fn build_prompt_summary(&self, agent_id: &str, shared: bool, budget: usize) -> Result<String>;
 
+    /// Load candidate memories for prompt injection (agent + optionally global).
+    /// Used by LLM memory selection to get raw entries before filtering.
+    fn load_prompt_candidates(&self, agent_id: &str, shared: bool) -> Result<Vec<MemoryEntry>>;
+
     /// Export all memories as markdown
     fn export_markdown(&self, scope: Option<&MemoryScope>) -> Result<String>;
 

@@ -25,6 +25,19 @@ use crate::tools;
 use config::{ANTHROPIC_API_URL, ANTHROPIC_MODEL};
 use types::LlmProvider::*;
 
+/// Extract tool name from a provider-formatted schema value.
+/// Handles both Anthropic format (`{"name": ...}`) and OpenAI format (`{"function": {"name": ...}}`).
+fn extract_tool_name(t: &serde_json::Value) -> &str {
+    t.get("name")
+        .and_then(|v| v.as_str())
+        .or_else(|| {
+            t.get("function")
+                .and_then(|f| f.get("name"))
+                .and_then(|v| v.as_str())
+        })
+        .unwrap_or("")
+}
+
 // ── AssistantAgent constructors, setters, and chat dispatcher ─────
 
 impl AssistantAgent {
@@ -57,10 +70,13 @@ impl AssistantAgent {
             subagent_depth: 0,
             steer_run_id: None,
             denied_tools: Vec::new(),
+            skill_allowed_tools: Vec::new(),
             plan_agent_mode: types::PlanAgentMode::Off,
             plan_mode_allow_paths: Vec::new(),
             temperature: None,
             cache_safe_params: std::sync::Mutex::new(None),
+            extraction_count: std::sync::atomic::AtomicU32::new(0),
+            manual_memory_saved: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -90,10 +106,13 @@ impl AssistantAgent {
             subagent_depth: 0,
             steer_run_id: None,
             denied_tools: Vec::new(),
+            skill_allowed_tools: Vec::new(),
             plan_agent_mode: types::PlanAgentMode::Off,
             plan_mode_allow_paths: Vec::new(),
             temperature: None,
             cache_safe_params: std::sync::Mutex::new(None),
+            extraction_count: std::sync::atomic::AtomicU32::new(0),
+            manual_memory_saved: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -149,10 +168,32 @@ impl AssistantAgent {
             subagent_depth: 0,
             steer_run_id: None,
             denied_tools: Vec::new(),
+            skill_allowed_tools: Vec::new(),
             plan_agent_mode: types::PlanAgentMode::Off,
             plan_mode_allow_paths: Vec::new(),
             temperature: None,
             cache_safe_params: std::sync::Mutex::new(None),
+            extraction_count: std::sync::atomic::AtomicU32::new(0),
+            manual_memory_saved: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
+
+    /// Reset per-chat-round flags. Called at the start of each chat() dispatch.
+    pub(crate) fn reset_chat_flags(&self) {
+        self.manual_memory_saved
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Check if any tool call in this round was a manual memory write
+    /// (save_memory / update_core_memory). If so, set the mutual exclusion
+    /// flag to skip auto-extraction for this round.
+    pub(crate) fn check_manual_memory_save(&self, tool_calls: &[api_types::FunctionCallItem]) {
+        if tool_calls
+            .iter()
+            .any(|tc| tc.name == crate::tools::TOOL_SAVE_MEMORY || tc.name == crate::tools::TOOL_UPDATE_CORE_MEMORY)
+        {
+            self.manual_memory_saved
+                .store(true, std::sync::atomic::Ordering::SeqCst);
         }
     }
 
@@ -214,6 +255,11 @@ impl AssistantAgent {
         self.denied_tools = tools;
     }
 
+    /// Set skill-level allowed tools: when non-empty, only these tools are sent to the LLM.
+    pub fn set_skill_allowed_tools(&mut self, tools: Vec<String>) {
+        self.skill_allowed_tools = tools;
+    }
+
     /// Set the plan agent mode (Plan Agent / Build Agent / Off).
     pub fn set_plan_agent_mode(&mut self, mode: types::PlanAgentMode) {
         self.plan_agent_mode = mode;
@@ -243,16 +289,7 @@ impl AssistantAgent {
                 tool_schemas.push(tools::get_submit_plan_tool().to_provider_schema(provider));
                 // Filter to allow-list only
                 tool_schemas.retain(|t| {
-                    let name = t
-                        .get("name")
-                        .and_then(|v| v.as_str())
-                        // OpenAI Responses format: tool.function.name
-                        .or_else(|| {
-                            t.get("function")
-                                .and_then(|f| f.get("name"))
-                                .and_then(|v| v.as_str())
-                        })
-                        .unwrap_or("");
+                    let name = extract_tool_name(t);
                     allowed_tools.iter().any(|a| a == name)
                 });
             }
@@ -270,6 +307,69 @@ impl AssistantAgent {
             }
             types::PlanAgentMode::Off => {}
         }
+    }
+
+    /// Build complete tool schema list for a provider, handling:
+    /// - Deferred vs full loading
+    /// - Conditional tool injection (web_search, notification, image_gen, canvas, subagent)
+    /// - Plan mode tool injection/filtering
+    /// - Denied tools filtering (depth-based policy)
+    /// - Skill allowed-tools filtering
+    pub(crate) fn build_tool_schemas(&self, provider: tools::ToolProvider) -> Vec<serde_json::Value> {
+        let deferred_enabled = crate::provider::load_store()
+            .map(|s| s.deferred_tools.enabled)
+            .unwrap_or(false);
+
+        let mut schemas = if deferred_enabled {
+            let mut s = tools::get_core_tools_for_provider(provider);
+            s.push(tools::get_tool_search_tool().to_provider_schema(provider));
+            if self.subagent_tool_enabled() {
+                s.push(tools::get_subagent_tool().to_provider_schema(provider));
+            }
+            s
+        } else {
+            let mut s = tools::get_tools_for_provider(provider);
+            if self.web_search_enabled {
+                s.push(tools::get_web_search_tool().to_provider_schema(provider));
+            }
+            if self.notification_enabled {
+                s.push(tools::get_notification_tool().to_provider_schema(provider));
+            }
+            if let Some(ref img_config) = self.image_gen_config {
+                s.push(
+                    tools::get_image_generate_tool_dynamic(img_config)
+                        .to_provider_schema(provider),
+                );
+            }
+            if self.canvas_enabled {
+                s.push(tools::get_canvas_tool().to_provider_schema(provider));
+            }
+            if self.subagent_tool_enabled() {
+                s.push(tools::get_subagent_tool().to_provider_schema(provider));
+            }
+            s
+        };
+
+        // Plan Agent / Build Agent tool injection
+        self.apply_plan_tools(&mut schemas, provider);
+
+        // Filter out denied tools (depth-based tool policy)
+        if !self.denied_tools.is_empty() {
+            schemas.retain(|t| {
+                let name = extract_tool_name(t);
+                !self.denied_tools.iter().any(|d| d.as_str() == name)
+            });
+        }
+
+        // Filter to skill-allowed tools (when a skill restricts available tools)
+        if !self.skill_allowed_tools.is_empty() {
+            schemas.retain(|t| {
+                let name = extract_tool_name(t);
+                self.skill_allowed_tools.iter().any(|a| a == name)
+            });
+        }
+
+        schemas
     }
 
     /// Build the full system prompt, including any extra context.
@@ -364,6 +464,10 @@ impl AssistantAgent {
             require_approval,
             force_sandbox,
             plan_mode_allow_paths: self.plan_mode_allow_paths.clone(),
+            plan_mode_allowed_tools: match &self.plan_agent_mode {
+                types::PlanAgentMode::PlanAgent { allowed_tools, .. } => allowed_tools.clone(),
+                _ => Vec::new(),
+            },
         }
     }
 
@@ -380,6 +484,108 @@ impl AssistantAgent {
     /// Set the compact config (called from lib.rs after agent construction).
     pub fn set_compact_config(&mut self, config: crate::context_compact::CompactConfig) {
         self.compact_config = config;
+    }
+
+    /// If LLM memory selection is enabled and enough candidates exist,
+    /// use side_query to select only the most relevant memories and replace
+    /// the `# Memory` section in the system prompt.
+    pub(crate) async fn select_memories_if_needed(
+        &self,
+        system_prompt: &mut String,
+        user_message: &str,
+    ) {
+        let config = crate::memory::helpers::load_memory_selection_config();
+        if !config.enabled {
+            return;
+        }
+
+        let backend = match crate::get_memory_backend() {
+            Some(b) => b,
+            None => return,
+        };
+        let agent_def = crate::agent_loader::load_agent(&self.agent_id).ok();
+        let shared = agent_def
+            .as_ref()
+            .map(|d| d.config.memory.shared)
+            .unwrap_or(true);
+
+        let candidates = match backend.load_prompt_candidates(&self.agent_id, shared) {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+
+        if candidates.len() <= config.threshold {
+            return;
+        }
+
+        // Build compact manifest: (id, first-line preview)
+        let manifest: Vec<(i64, String)> = candidates
+            .iter()
+            .map(|e| {
+                let preview = e.content.lines().next().unwrap_or(&e.content);
+                let truncated = crate::truncate_utf8(preview, 120);
+                (e.id, truncated.to_string())
+            })
+            .collect();
+
+        let instruction = crate::memory::selection::build_selection_instruction(
+            user_message,
+            &manifest,
+            config.max_selected,
+        );
+
+        let result = match self.side_query(&instruction, 1024).await {
+            Ok(r) => r,
+            Err(e) => {
+                app_warn!(
+                    "memory",
+                    "selection",
+                    "LLM memory selection failed, using full set: {}",
+                    e
+                );
+                return;
+            }
+        };
+
+        let selected_ids = crate::memory::selection::parse_selection_response(&result.text);
+        if selected_ids.is_empty() {
+            return;
+        }
+
+        // Filter candidates to selected IDs (preserve selection order)
+        let selected: Vec<crate::memory::MemoryEntry> = selected_ids
+            .iter()
+            .filter_map(|id| candidates.iter().find(|e| e.id == *id).cloned())
+            .collect();
+
+        if selected.is_empty() {
+            return;
+        }
+
+        let budget = agent_def
+            .as_ref()
+            .map(|d| d.config.memory.prompt_budget)
+            .unwrap_or(5000);
+        let new_summary = crate::memory::sqlite::format_prompt_summary(&selected, budget);
+
+        crate::memory::selection::replace_memory_section(system_prompt, &new_summary);
+
+        if let Some(logger) = crate::get_logger() {
+            logger.log(
+                "info",
+                "memory",
+                "selection",
+                &format!(
+                    "LLM memory selection: {} candidates → {} selected, cache_read={}",
+                    candidates.len(),
+                    selected.len(),
+                    result.usage.cache_read_input_tokens,
+                ),
+                None,
+                None,
+                None,
+            );
+        }
     }
 
     pub async fn chat(

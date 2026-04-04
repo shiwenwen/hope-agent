@@ -31,40 +31,13 @@ impl AssistantAgent {
         cancel: &Arc<AtomicBool>,
         on_delta: &(impl Fn(&str) + Send),
     ) -> Result<(String, Option<String>)> {
+        self.reset_chat_flags();
+
         let client =
             crate::provider::apply_proxy(reqwest::Client::builder().user_agent(&self.user_agent))
                 .build()
                 .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
-        let mut tool_schemas = tools::get_tools_for_provider(ToolProvider::OpenAI);
-        if self.web_search_enabled {
-            tool_schemas
-                .push(tools::get_web_search_tool().to_provider_schema(ToolProvider::OpenAI));
-        }
-        if self.notification_enabled {
-            tool_schemas
-                .push(tools::get_notification_tool().to_provider_schema(ToolProvider::OpenAI));
-        }
-        if let Some(ref img_config) = self.image_gen_config {
-            tool_schemas.push(
-                tools::get_image_generate_tool_dynamic(img_config)
-                    .to_provider_schema(ToolProvider::OpenAI),
-            );
-        }
-        if self.canvas_enabled {
-            tool_schemas.push(tools::get_canvas_tool().to_provider_schema(ToolProvider::OpenAI));
-        }
-        if self.subagent_tool_enabled() {
-            tool_schemas.push(tools::get_subagent_tool().to_provider_schema(ToolProvider::OpenAI));
-        }
-        // Plan Agent / Build Agent tool injection
-        self.apply_plan_tools(&mut tool_schemas, ToolProvider::OpenAI);
-        // Filter out denied tools (depth-based tool policy)
-        if !self.denied_tools.is_empty() {
-            tool_schemas.retain(|t| {
-                let name = t.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                !self.denied_tools.contains(&name.to_string())
-            });
-        }
+        let tool_schemas = self.build_tool_schemas(ToolProvider::OpenAI);
 
         // Normalize history in case previous turns were from a different provider (failover / model switch)
         let mut messages =
@@ -83,6 +56,10 @@ impl AssistantAgent {
         // Run context compaction (Tier 1-3) before API call
         self.run_compaction(&mut messages, &system_prompt, 16384, on_delta)
             .await;
+
+        // LLM memory selection: filter to most relevant memories
+        let mut system_prompt = system_prompt;
+        self.select_memories_if_needed(&mut system_prompt, message).await;
 
         // Save cache-safe params for side_query reuse (prompt cache sharing)
         self.save_cache_safe_params(
@@ -116,9 +93,9 @@ impl AssistantAgent {
                 }
             }
 
-            // Build messages array: system + conversation
+            // Build messages array: system + conversation (strip _oc_round metadata)
             let mut api_messages = vec![json!({ "role": "system", "content": &system_prompt })];
-            api_messages.extend(messages.iter().cloned());
+            api_messages.extend(crate::context_compact::prepare_messages_for_api(&messages));
 
             // Build tools array in Chat Completions format
             let tools_array: Vec<serde_json::Value> = tool_schemas
@@ -341,7 +318,7 @@ impl AssistantAgent {
                 assistant_msg["reasoning_content"] = json!(thinking);
             }
             assistant_msg["tool_calls"] = json!(tc_json);
-            messages.push(assistant_msg);
+            crate::context_compact::push_and_stamp(&mut messages, assistant_msg, round);
 
             // Estimate current token usage for adaptive tool output sizing
             let estimated_used = crate::context_compact::estimate_request_tokens(
@@ -395,11 +372,11 @@ impl AssistantAgent {
                         on_delta, &call_id, &name, &clean_result, elapsed_ms,
                         is_tool_error, &media_urls,
                     );
-                    messages.push(json!({
+                    crate::context_compact::push_and_stamp(&mut messages, json!({
                         "role": "tool",
                         "tool_call_id": call_id,
                         "content": build_openai_chat_tool_result_content(&clean_result),
-                    }));
+                    }), round);
                 }
             }
 
@@ -426,12 +403,15 @@ impl AssistantAgent {
                     is_tool_error, &media_urls,
                 );
 
-                messages.push(json!({
+                crate::context_compact::push_and_stamp(&mut messages, json!({
                     "role": "tool",
                     "tool_call_id": tc.call_id,
                     "content": build_openai_chat_tool_result_content(&clean_result),
-                }));
+                }), round);
             }
+
+            // Track manual memory writes for extraction mutual exclusion
+            self.check_manual_memory_save(&tool_calls);
 
             // Tier 1 quick check: truncate any oversized tool results added this round
             crate::context_compact::truncate_tool_results(

@@ -115,6 +115,8 @@ pub struct ChatEngineParams {
     /// Plan Mode agent configuration (set by chat command, None for channel worker)
     pub plan_agent_mode: Option<PlanAgentMode>,
     pub plan_mode_allow_paths: Option<Vec<String>>,
+    /// Skill-level tool restriction (set when a skill with `allowed-tools` is activated)
+    pub skill_allowed_tools: Vec<String>,
 
     // Output
     pub event_sink: Arc<dyn EventSink>,
@@ -260,8 +262,10 @@ pub(crate) async fn relay_to_channel(session_id: &str, response: &str) {
     }
 }
 
-/// Spawn async memory extraction if enabled for this agent.
-fn spawn_memory_extraction(
+/// Run memory extraction inline (non-spawned) to enable side_query cache sharing.
+/// The user's response has already been streamed, so the 1-3s extraction latency
+/// is acceptable. Inline execution allows passing `&agent` for prompt cache reuse.
+async fn run_memory_extraction_inline(
     agent_id: &str,
     session_id: &str,
     model_ref: &ActiveModel,
@@ -277,34 +281,67 @@ fn spawn_memory_extraction(
     let min_turns = agent_mem
         .and_then(|m| m.extract_min_turns)
         .unwrap_or(global_extract.extract_min_turns);
+    let max_per_session = global_extract.max_extractions_per_session;
     let history = agent.get_conversation_history();
 
-    if auto_extract && history.len() >= min_turns * 2 {
-        let extract_agent_id = agent_id.to_string();
-        let extract_session_id = session_id.to_string();
-        let extract_provider_id = agent_mem
-            .and_then(|m| m.extract_provider_id.clone())
-            .or_else(|| global_extract.extract_provider_id.clone())
-            .unwrap_or_else(|| model_ref.provider_id.clone());
-        let extract_model_id = agent_mem
-            .and_then(|m| m.extract_model_id.clone())
-            .or_else(|| global_extract.extract_model_id.clone())
-            .unwrap_or_else(|| model_ref.model_id.clone());
+    // Gate 1: auto_extract enabled
+    if !auto_extract {
+        return;
+    }
 
-        tokio::spawn(async move {
-            let store = provider::load_store().unwrap_or_default();
-            if let Some(prov) = provider::find_provider(&store.providers, &extract_provider_id) {
-                memory_extract::run_extraction(
-                    &history,
-                    &extract_agent_id,
-                    &extract_session_id,
-                    prov,
-                    &extract_model_id,
-                    None, // No main agent ref available in spawned task
-                )
-                .await;
-            }
-        });
+    // Gate 2: minimum conversation length
+    if history.len() < min_turns * 2 {
+        return;
+    }
+
+    // Gate 3: mutual exclusion — skip if save_memory was called this round
+    if agent
+        .manual_memory_saved
+        .load(std::sync::atomic::Ordering::SeqCst)
+    {
+        app_info!(
+            "memory",
+            "auto_extract",
+            "Skipping extraction: manual save_memory called this round"
+        );
+        return;
+    }
+
+    // Gate 4: frequency cap
+    let current_count = agent
+        .extraction_count
+        .load(std::sync::atomic::Ordering::SeqCst);
+    if current_count >= max_per_session as u32 {
+        return;
+    }
+
+    // Resolve provider/model for extraction
+    let extract_provider_id = agent_mem
+        .and_then(|m| m.extract_provider_id.clone())
+        .or_else(|| global_extract.extract_provider_id.clone())
+        .unwrap_or_else(|| model_ref.provider_id.clone());
+    let extract_model_id = agent_mem
+        .and_then(|m| m.extract_model_id.clone())
+        .or_else(|| global_extract.extract_model_id.clone())
+        .unwrap_or_else(|| model_ref.model_id.clone());
+
+    let store = provider::load_store().unwrap_or_default();
+    if let Some(prov) = provider::find_provider(&store.providers, &extract_provider_id) {
+        // Increment count only when extraction actually runs (not on provider lookup failure)
+        agent
+            .extraction_count
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
+        // Pass Some(agent) to enable side_query prompt cache sharing
+        memory_extract::run_extraction(
+            &history,
+            agent_id,
+            session_id,
+            prov,
+            &extract_model_id,
+            Some(agent),
+        )
+        .await;
     }
 }
 
@@ -336,6 +373,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         cancel,
         plan_agent_mode,
         plan_mode_allow_paths,
+        skill_allowed_tools,
         event_sink,
     } = params;
 
@@ -381,6 +419,9 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
 
         if let Some(ref ctx) = extra_system_context {
             agent.set_extra_system_context(ctx.clone());
+        }
+        if !skill_allowed_tools.is_empty() {
+            agent.set_skill_allowed_tools(skill_allowed_tools.clone());
         }
         if let Some(ref mode) = plan_agent_mode {
             agent.set_plan_agent_mode(mode.clone());
@@ -611,8 +652,8 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     // Persist conversation context
                     save_agent_context(&db, &session_id, &agent);
 
-                    // Spawn async memory extraction
-                    spawn_memory_extraction(&agent_id, &session_id, model_ref, &agent);
+                    // Run memory extraction inline (enables side_query cache sharing)
+                    run_memory_extraction_inline(&agent_id, &session_id, model_ref, &agent).await;
 
                     return Ok(ChatEngineResult {
                         response: result,

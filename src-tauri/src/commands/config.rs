@@ -575,6 +575,23 @@ pub async fn refresh_weather() -> Result<Option<crate::weather::WeatherData>, St
         .map_err(|e| e.to_string())
 }
 
+// ── Deferred Tool Loading ─────────────────────────────────────────
+
+#[tauri::command]
+pub async fn get_deferred_tools_config() -> Result<provider::DeferredToolsConfig, String> {
+    let store = provider::load_store().map_err(|e| e.to_string())?;
+    Ok(store.deferred_tools)
+}
+
+#[tauri::command]
+pub async fn save_deferred_tools_config(
+    config: provider::DeferredToolsConfig,
+) -> Result<(), String> {
+    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    store.deferred_tools = config;
+    provider::save_store(&store).map_err(|e| e.to_string())
+}
+
 /// Detect user location automatically (CoreLocation → IP fallback).
 #[tauri::command]
 pub async fn detect_location(

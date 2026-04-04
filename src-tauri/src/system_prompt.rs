@@ -145,9 +145,9 @@ const TOOL_DESC_SEND_NOTIFICATION: &str = "\
 
 const TOOL_DESC_SUBAGENT: &str = "\
 - subagent: Spawn and manage sub-agents to delegate tasks.\n\
-  - Actions: spawn (start with task + agent_id), check (poll status), list, result, kill, kill_all, steer (redirect)\n\
-  - Sub-agents run asynchronously — you can continue working while they execute\n\
-  - Results are automatically pushed to you when the sub-agent completes\n\
+  - Actions: spawn, check, list, result, kill, kill_all, steer, batch_spawn, wait_all, spawn_and_wait\n\
+  - Sub-agents run asynchronously — results are auto-pushed when complete\n\
+  - spawn_and_wait: spawn + wait up to foreground_timeout (default 30s, max 120s). If completes in time, returns result inline. Otherwise auto-backgrounds — result injected later\n\
   - Use steer to redirect a running sub-agent without killing it";
 
 const TOOL_DESC_MEMORY_GET: &str = "\
@@ -421,6 +421,11 @@ pub fn build(
     // ⑥ Tool definitions (filtered by agent config)
     sections.push(build_tools_section(&definition.config.tools));
 
+    // ⑥b Deferred tools listing (when deferred loading is enabled)
+    if let Some(deferred_section) = build_deferred_tools_section() {
+        sections.push(deferred_section);
+    }
+
     // ⑦ Skills (filtered by agent config)
     sections.push(build_skills_section(
         &definition.config.skills,
@@ -605,6 +610,11 @@ pub fn build_legacy(model: Option<&str>, provider: Option<&str>) -> String {
     // Tools
     sections.push(build_all_tools_description());
 
+    // Deferred tools listing
+    if let Some(deferred_section) = build_deferred_tools_section() {
+        sections.push(deferred_section);
+    }
+
     // Skills
     if !skills_section.is_empty() {
         sections.push(skills_section);
@@ -648,6 +658,44 @@ fn build_tools_section(filter: &FilterConfig) -> String {
 fn build_all_tools_description() -> String {
     let descs: Vec<&str> = TOOL_DESCRIPTIONS.iter().map(|(_, desc)| *desc).collect();
     format!("# Available Tools\n\n{}", descs.join("\n\n"))
+}
+
+/// Build a section listing deferred tools (name + one-line description).
+/// Only generated when deferred tool loading is enabled.
+fn build_deferred_tools_section() -> Option<String> {
+    let store = crate::provider::load_store().unwrap_or_default();
+    if !store.deferred_tools.enabled {
+        return None;
+    }
+    let deferred = crate::tools::get_deferred_tools();
+    if deferred.is_empty() {
+        return None;
+    }
+    let mut lines = vec![
+        "# Additional Tools (use tool_search to discover)".to_string(),
+        "The following tools are available but their schemas are not loaded by default. \
+         Use `tool_search(query=\"keyword\")` to get the full schema before calling them."
+            .to_string(),
+        String::new(),
+    ];
+    for tool in &deferred {
+        let short_desc = tool.description.split('.').next().unwrap_or(&tool.description);
+        lines.push(format!("- **{}**: {}", tool.name, short_desc));
+    }
+    // Also include conditionally-injected deferred tools
+    let extra_names = [
+        crate::tools::TOOL_WEB_SEARCH,
+        crate::tools::TOOL_SEND_NOTIFICATION,
+        crate::tools::TOOL_IMAGE_GENERATE,
+        crate::tools::TOOL_CANVAS,
+        crate::tools::TOOL_ACP_SPAWN,
+    ];
+    for name in &extra_names {
+        if !deferred.iter().any(|t| t.name == *name) {
+            lines.push(format!("- **{}**: Use tool_search to discover", name));
+        }
+    }
+    Some(lines.join("\n"))
 }
 
 /// Build behavior guidance section (output efficiency + action safety + task execution).

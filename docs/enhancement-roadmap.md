@@ -247,10 +247,11 @@ pub fn provider_supports_cache(provider: &LlmProvider) -> bool {
 
 ---
 
-## Phase 3: 上下文压缩增强
+## Phase 3: 上下文压缩增强 ✅
 
 > 目标：提升长对话的信息保真度
 > 依赖：Phase 2（Tier 3 摘要可复用 forked query 降低成本）
+> **状态：已完成** — 详见 `docs/context-compression-enhancement.md`
 
 ### 3A. 后压缩恢复 [M]
 
@@ -288,10 +289,11 @@ pub fn provider_supports_cache(provider: &LlmProvider) -> bool {
 
 ---
 
-## Phase 4: 记忆系统升级
+## Phase 4: 记忆系统升级 ✅
 
 > 目标：记忆自动积累 + 精准注入
 > 依赖：Phase 2（forked query 降低提取/选择成本）
+> **状态：已完成** — 详见 `docs/memory-system-upgrade.md`
 
 ### 4A. 自动记忆提取 [M]
 
@@ -334,7 +336,7 @@ pub fn provider_supports_cache(provider: &LlmProvider) -> bool {
 
 ---
 
-## Phase 5: Skill 和 Plan 模式加固
+## Phase 5: Skill 和 Plan 模式加固 ✅
 
 > 目标：工具隔离 + 纵深防御
 > 依赖：5C 依赖子 Agent 系统（现有）
@@ -377,7 +379,7 @@ pub fn provider_supports_cache(provider: &LlmProvider) -> bool {
 
 ---
 
-## Phase 6: Agent 调度增强
+## Phase 6: Agent 调度增强 ✅
 
 > 目标：长任务不阻塞主对话
 > 依赖：现有子 Agent 系统
@@ -396,7 +398,7 @@ pub fn provider_supports_cache(provider: &LlmProvider) -> bool {
 
 ---
 
-## Phase 7: 延迟工具加载
+## Phase 7: 延迟工具加载 ✅
 
 > 目标：显著减少每请求 token 消耗
 > 依赖：所有工具定义稳定后实施

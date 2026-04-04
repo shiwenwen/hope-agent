@@ -256,6 +256,9 @@ pub fn run() {
             commands::config::set_global_temperature,
             commands::config::get_plan_subagent,
             commands::config::set_plan_subagent,
+            // Deferred tool loading
+            commands::config::get_deferred_tools_config,
+            commands::config::save_deferred_tools_config,
             // Shortcuts
             commands::config::get_shortcut_config,
             commands::config::save_shortcut_config,

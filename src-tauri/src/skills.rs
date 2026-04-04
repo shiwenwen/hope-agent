@@ -167,6 +167,14 @@ pub struct SkillEntry {
     /// Installation specs for dependencies.
     #[serde(default)]
     pub install: Vec<SkillInstallSpec>,
+    /// Tool restriction: when non-empty, only these tools are available during skill execution.
+    /// Parsed from SKILL.md frontmatter `allowed-tools:` field.
+    #[serde(default)]
+    pub allowed_tools: Vec<String>,
+    /// Context mode: "fork" runs skill in a sub-agent, "inline" (default) in main conversation.
+    /// Parsed from SKILL.md frontmatter `context:` field.
+    #[serde(default)]
+    pub context_mode: Option<String>,
 }
 
 /// Lightweight summary returned to the frontend.
@@ -192,6 +200,12 @@ pub struct SkillSummary {
     pub any_bins: Vec<String>,
     #[serde(default)]
     pub always: bool,
+    /// Tool restriction from SKILL.md frontmatter.
+    #[serde(default)]
+    pub allowed_tools: Vec<String>,
+    /// Context mode from SKILL.md frontmatter.
+    #[serde(default)]
+    pub context_mode: Option<String>,
 }
 
 /// File metadata inside a skill directory.
@@ -231,6 +245,10 @@ pub struct SkillDetail {
     pub command_tool: Option<String>,
     #[serde(default)]
     pub install: Vec<SkillInstallSpec>,
+    #[serde(default)]
+    pub allowed_tools: Vec<String>,
+    #[serde(default)]
+    pub context_mode: Option<String>,
 }
 
 /// Skill health status for diagnostics.
@@ -292,6 +310,8 @@ struct ParsedFrontmatter {
     command_arg_options: Option<Vec<String>>,
     command_prompt_template: Option<String>,
     install: Vec<SkillInstallSpec>,
+    allowed_tools: Vec<String>,
+    context_mode: Option<String>,
 }
 
 /// Extract YAML frontmatter from a SKILL.md file content.
@@ -317,6 +337,8 @@ fn parse_frontmatter(content: &str) -> Option<ParsedFrontmatter> {
     let mut command_arg_placeholder: Option<String> = None;
     let mut command_arg_options: Option<Vec<String>> = None;
     let mut command_prompt_template: Option<String> = None;
+    let mut allowed_tools: Vec<String> = Vec::new();
+    let mut context_mode: Option<String> = None;
 
     let requires = parse_requires(yaml_block);
     let install = parse_install_specs(yaml_block);
@@ -380,6 +402,18 @@ fn parse_frontmatter(content: &str) -> Option<ParsedFrontmatter> {
             if !val.is_empty() {
                 command_prompt_template = Some(val);
             }
+        } else if let Some(rest) = line_trimmed
+            .strip_prefix("allowed-tools:")
+            .or_else(|| line_trimmed.strip_prefix("allowed_tools:"))
+        {
+            if let Some(arr) = parse_inline_string_array(rest.trim()) {
+                allowed_tools = arr;
+            }
+        } else if let Some(rest) = line_trimmed.strip_prefix("context:") {
+            let val = unquote(rest.trim());
+            if !val.is_empty() {
+                context_mode = Some(val);
+            }
         }
     }
 
@@ -409,6 +443,8 @@ fn parse_frontmatter(content: &str) -> Option<ParsedFrontmatter> {
         command_arg_options,
         command_prompt_template,
         install,
+        allowed_tools,
+        context_mode,
     })
 }
 
@@ -1007,6 +1043,8 @@ fn load_single_skill(
         command_arg_options: parsed.command_arg_options,
         command_prompt_template: parsed.command_prompt_template,
         install: parsed.install,
+        allowed_tools: parsed.allowed_tools,
+        context_mode: parsed.context_mode,
     })
 }
 
@@ -1340,6 +1378,8 @@ pub fn get_skill_content(
         command_dispatch: entry.command_dispatch,
         command_tool: entry.command_tool,
         install: entry.install,
+        allowed_tools: entry.allowed_tools,
+        context_mode: entry.context_mode,
     })
 }
 
@@ -1363,6 +1403,8 @@ mod tests {
             command_dispatch: None,
             command_tool: None,
             install: vec![],
+            allowed_tools: vec![],
+            context_mode: None,
         }
     }
 
@@ -1380,6 +1422,8 @@ mod tests {
             command_dispatch: None,
             command_tool: None,
             install: vec![],
+            allowed_tools: vec![],
+            context_mode: None,
         }
     }
 

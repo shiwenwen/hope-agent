@@ -33,41 +33,13 @@ impl AssistantAgent {
         cancel: &Arc<AtomicBool>,
         on_delta: &(impl Fn(&str) + Send),
     ) -> Result<(String, Option<String>)> {
+        self.reset_chat_flags();
+
         let client =
             crate::provider::apply_proxy(reqwest::Client::builder().user_agent(&self.user_agent))
                 .build()
                 .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
-        let mut tool_schemas = tools::get_tools_for_provider(ToolProvider::Anthropic);
-        if self.web_search_enabled {
-            tool_schemas
-                .push(tools::get_web_search_tool().to_provider_schema(ToolProvider::Anthropic));
-        }
-        if self.notification_enabled {
-            tool_schemas
-                .push(tools::get_notification_tool().to_provider_schema(ToolProvider::Anthropic));
-        }
-        if let Some(ref img_config) = self.image_gen_config {
-            tool_schemas.push(
-                tools::get_image_generate_tool_dynamic(img_config)
-                    .to_provider_schema(ToolProvider::Anthropic),
-            );
-        }
-        if self.canvas_enabled {
-            tool_schemas.push(tools::get_canvas_tool().to_provider_schema(ToolProvider::Anthropic));
-        }
-        if self.subagent_tool_enabled() {
-            tool_schemas
-                .push(tools::get_subagent_tool().to_provider_schema(ToolProvider::Anthropic));
-        }
-        // Plan Agent / Build Agent tool injection
-        self.apply_plan_tools(&mut tool_schemas, ToolProvider::Anthropic);
-        // Filter out denied tools (depth-based tool policy)
-        if !self.denied_tools.is_empty() {
-            tool_schemas.retain(|t| {
-                let name = t.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                !self.denied_tools.contains(&name.to_string())
-            });
-        }
+        let tool_schemas = self.build_tool_schemas(ToolProvider::Anthropic);
 
         // Build messages from conversation history + new user message (with optional image attachments)
         // Normalize history in case previous turns were from a different provider (failover / model switch)
@@ -92,6 +64,10 @@ impl AssistantAgent {
 
         // Map thinking effort for Anthropic
         let thinking = map_think_anthropic_style(reasoning_effort, max_tokens);
+
+        // LLM memory selection: filter to most relevant memories
+        let mut system_prompt = system_prompt;
+        self.select_memories_if_needed(&mut system_prompt, message).await;
 
         // Save cache-safe params for side_query reuse (prompt cache sharing)
         self.save_cache_safe_params(
@@ -136,12 +112,15 @@ impl AssistantAgent {
                 last_tool["cache_control"] = json!({ "type": "ephemeral" });
             }
 
+            // Strip _oc_round metadata before sending to API
+            let api_messages = crate::context_compact::prepare_messages_for_api(&messages);
+
             let mut body = json!({
                 "model": model,
                 "max_tokens": max_tokens,
                 "system": system_with_cache,
                 "tools": tools_with_cache,
-                "messages": messages,
+                "messages": api_messages,
                 "stream": true,
             });
 
@@ -325,7 +304,7 @@ impl AssistantAgent {
                     "input": args,
                 }));
             }
-            messages.push(json!({ "role": "assistant", "content": assistant_content }));
+            crate::context_compact::push_and_stamp(&mut messages, json!({ "role": "assistant", "content": assistant_content }), round);
 
             // Log tool loop progress
             if let Some(logger) = crate::get_logger() {
@@ -443,7 +422,10 @@ impl AssistantAgent {
                     "content": build_anthropic_tool_result_content(&clean_result),
                 }));
             }
-            messages.push(json!({ "role": "user", "content": tool_results }));
+            crate::context_compact::push_and_stamp(&mut messages, json!({ "role": "user", "content": tool_results }), round);
+
+            // Track manual memory writes for extraction mutual exclusion
+            self.check_manual_memory_save(&tool_calls);
 
             // Tier 1 quick check: truncate any oversized tool results added this round
             crate::context_compact::truncate_tool_results(

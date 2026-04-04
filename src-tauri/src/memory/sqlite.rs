@@ -13,6 +13,95 @@ const READ_POOL_SIZE: usize = 4;
 
 // ── Prompt Injection Protection ─────────────────────────────────
 
+/// Format memory entries into a Markdown prompt summary string.
+/// Groups by type (User → Feedback → Project → Reference), pinned first,
+/// respects character budget. Used by `build_prompt_summary` and LLM selection.
+pub fn format_prompt_summary(entries: &[MemoryEntry], budget: usize) -> String {
+    if entries.is_empty() {
+        return String::new();
+    }
+
+    let type_order = [
+        MemoryType::User,
+        MemoryType::Feedback,
+        MemoryType::Project,
+        MemoryType::Reference,
+    ];
+    let header = "# Memory\n\n";
+    let truncated_marker = "\n\n[... truncated ...]";
+    let mut result = header.to_string();
+    let mut remaining = budget.saturating_sub(header.len() + truncated_marker.len());
+    let mut has_content = false;
+    let mut budget_exhausted = false;
+
+    for mem_type in &type_order {
+        if budget_exhausted {
+            break;
+        }
+
+        let mut typed_entries: Vec<&MemoryEntry> = entries
+            .iter()
+            .filter(|m| &m.memory_type == mem_type)
+            .collect();
+        typed_entries.sort_by(|a, b| {
+            b.pinned
+                .cmp(&a.pinned)
+                .then_with(|| b.updated_at.cmp(&a.updated_at))
+        });
+
+        if typed_entries.is_empty() {
+            continue;
+        }
+
+        let heading = format!("## {}\n", mem_type.heading());
+        if heading.len() > remaining {
+            budget_exhausted = true;
+            break;
+        }
+
+        remaining -= heading.len();
+        result.push_str(&heading);
+        let mut section_has_entries = false;
+
+        for entry in &typed_entries {
+            let prefix = if entry.pinned { "★ " } else { "" };
+            let att_prefix = match (&entry.attachment_path, &entry.attachment_mime) {
+                (Some(_), Some(mime)) if mime.starts_with("image/") => "[img] ",
+                (Some(_), Some(mime)) if mime.starts_with("audio/") => "[audio] ",
+                _ => "",
+            };
+            let content_line = entry.content.lines().next().unwrap_or(&entry.content);
+            let safe_content = sanitize_for_prompt(content_line);
+            let line = format!("- {}{}{}\n", prefix, att_prefix, safe_content);
+            if line.len() > remaining {
+                budget_exhausted = true;
+                break;
+            }
+            remaining -= line.len();
+            result.push_str(&line);
+            section_has_entries = true;
+        }
+
+        if section_has_entries {
+            has_content = true;
+            if remaining > 1 {
+                result.push('\n');
+                remaining = remaining.saturating_sub(1);
+            }
+        }
+    }
+
+    if !has_content {
+        return String::new();
+    }
+
+    if budget_exhausted {
+        result.push_str(truncated_marker);
+    }
+
+    result
+}
+
 /// Sanitize memory content before injecting into system prompt.
 /// Detects suspicious patterns and escapes special tokens.
 fn sanitize_for_prompt(content: &str) -> String {
@@ -1001,9 +1090,18 @@ impl MemoryBackend for SqliteMemoryBackend {
     }
 
     fn build_prompt_summary(&self, agent_id: &str, shared: bool, budget: usize) -> Result<String> {
-        // Load memories: agent-scoped + optionally global
-        // list() already returns results ordered by updated_at DESC,
-        // so recently updated memories are prioritized within each type.
+        let candidates = self.load_prompt_candidates(agent_id, shared)?;
+        Ok(format_prompt_summary(&candidates, budget))
+    }
+
+    /// Load candidate memories for prompt injection.
+    /// Returns agent-scoped + optionally global memories, ordered by updated_at DESC.
+    /// Used directly by `build_prompt_summary` and by LLM memory selection.
+    fn load_prompt_candidates(
+        &self,
+        agent_id: &str,
+        shared: bool,
+    ) -> Result<Vec<MemoryEntry>> {
         let mut all_memories = Vec::new();
 
         // Agent-scoped memories
@@ -1019,94 +1117,7 @@ impl MemoryBackend for SqliteMemoryBackend {
             all_memories.extend(global_mems);
         }
 
-        if all_memories.is_empty() {
-            return Ok(String::new());
-        }
-
-        // Build result with per-entry budget tracking to avoid mid-line truncation.
-        // Group by type (User → Feedback → Project → Reference), each type's entries
-        // are already sorted by updated_at DESC from list().
-        let type_order = [
-            MemoryType::User,
-            MemoryType::Feedback,
-            MemoryType::Project,
-            MemoryType::Reference,
-        ];
-        let header = "# Memory\n\n";
-        let truncated_marker = "\n\n[... truncated ...]";
-        let mut result = header.to_string();
-        let mut remaining = budget.saturating_sub(header.len() + truncated_marker.len());
-        let mut has_content = false;
-        let mut budget_exhausted = false;
-
-        for mem_type in &type_order {
-            if budget_exhausted {
-                break;
-            }
-
-            // Collect entries for this type, pinned first then by updated_at
-            let mut entries: Vec<&MemoryEntry> = all_memories
-                .iter()
-                .filter(|m| &m.memory_type == mem_type)
-                .collect();
-            entries.sort_by(|a, b| {
-                b.pinned
-                    .cmp(&a.pinned)
-                    .then_with(|| b.updated_at.cmp(&a.updated_at))
-            });
-
-            if entries.is_empty() {
-                continue;
-            }
-
-            let heading = format!("## {}\n", mem_type.heading());
-            if heading.len() > remaining {
-                budget_exhausted = true;
-                break;
-            }
-
-            remaining -= heading.len();
-            result.push_str(&heading);
-            let mut section_has_entries = false;
-
-            for entry in &entries {
-                let prefix = if entry.pinned { "★ " } else { "" };
-                let att_prefix = match (&entry.attachment_path, &entry.attachment_mime) {
-                    (Some(_), Some(mime)) if mime.starts_with("image/") => "[img] ",
-                    (Some(_), Some(mime)) if mime.starts_with("audio/") => "[audio] ",
-                    _ => "",
-                };
-                let content_line = entry.content.lines().next().unwrap_or(&entry.content);
-                let safe_content = sanitize_for_prompt(content_line);
-                let line = format!("- {}{}{}\n", prefix, att_prefix, safe_content);
-                if line.len() > remaining {
-                    budget_exhausted = true;
-                    break;
-                }
-                remaining -= line.len();
-                result.push_str(&line);
-                section_has_entries = true;
-            }
-
-            if section_has_entries {
-                has_content = true;
-                // Add separator between type sections
-                if remaining > 1 {
-                    result.push('\n');
-                    remaining = remaining.saturating_sub(1);
-                }
-            }
-        }
-
-        if !has_content {
-            return Ok(String::new());
-        }
-
-        if budget_exhausted {
-            result.push_str(truncated_marker);
-        }
-
-        Ok(result)
+        Ok(all_memories)
     }
 
     fn export_markdown(&self, scope: Option<&MemoryScope>) -> Result<String> {

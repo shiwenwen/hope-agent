@@ -20,14 +20,17 @@ pub(crate) async fn tool_subagent(args: &Value, ctx: &ToolExecContext) -> Result
         "steer" => action_steer(args).await,
         "batch_spawn" => action_batch_spawn(args, ctx).await,
         "wait_all" => action_wait_all(args).await,
+        "spawn_and_wait" => action_spawn_and_wait(args, ctx).await,
         _ => Err(anyhow::anyhow!(
-            "Unknown subagent action '{}'. Valid actions: spawn, check, list, result, kill, kill_all, steer, batch_spawn, wait_all",
+            "Unknown subagent action '{}'. Valid actions: spawn, check, list, result, kill, kill_all, steer, batch_spawn, wait_all, spawn_and_wait",
             action
         )),
     }
 }
 
-async fn action_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
+/// Core spawn logic shared by action_spawn and action_spawn_and_wait.
+/// Returns the run_id on success.
+async fn do_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
     let task = args
         .get("task")
         .and_then(|v| v.as_str())
@@ -135,10 +138,15 @@ async fn action_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
         plan_mode_allow_paths: Vec::new(),
         skip_parent_injection: false,
         extra_system_context: None,
+        skill_allowed_tools: Vec::new(),
     };
 
     let run_id = subagent::spawn_subagent(params, session_db, cancel_registry).await?;
+    Ok(run_id)
+}
 
+async fn action_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
+    let run_id = do_spawn(args, ctx).await?;
     Ok(serde_json::to_string_pretty(&serde_json::json!({
         "status": "spawned",
         "run_id": run_id,
@@ -390,6 +398,7 @@ async fn action_batch_spawn(args: &Value, ctx: &ToolExecContext) -> Result<Strin
             plan_mode_allow_paths: Vec::new(),
             skip_parent_injection: false,
             extra_system_context: None,
+            skill_allowed_tools: Vec::new(),
         };
 
         match subagent::spawn_subagent(params, session_db.clone(), cancel_registry.clone()).await {
@@ -507,6 +516,69 @@ async fn action_steer(args: &Value) -> Result<String> {
         "run_id": run_id,
         "message": "Steer message delivered. The sub-agent will process it in the next tool loop round."
     }))?)
+}
+
+/// Spawn a sub-agent and wait for completion with auto-backgrounding.
+///
+/// If the sub-agent completes within `foreground_timeout` seconds, its result
+/// is returned inline (like a synchronous call). If it exceeds the timeout,
+/// it's automatically converted to a background task — the spawn continues
+/// running and the result will be injected via the existing injection system.
+async fn action_spawn_and_wait(args: &Value, ctx: &ToolExecContext) -> Result<String> {
+    let fg_timeout = args
+        .get("foreground_timeout")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(30)
+        .min(120);
+
+    let run_id = do_spawn(args, ctx).await?;
+
+    // Poll for completion within foreground timeout
+    let session_db = get_session_db()?;
+    let deadline =
+        std::time::Instant::now() + std::time::Duration::from_secs(fg_timeout);
+
+    loop {
+        let run = session_db
+            .get_subagent_run(&run_id)?
+            .ok_or_else(|| anyhow::anyhow!("Sub-agent run '{}' not found", run_id))?;
+
+        if run.status.is_terminal() {
+            // Completed within foreground timeout — return inline
+            crate::subagent::mark_run_fetched(&run_id);
+            let mut response = serde_json::json!({
+                "status": run.status.as_str(),
+                "mode": "foreground",
+                "run_id": run_id,
+            });
+            if let Some(ref result) = run.result {
+                response["result"] = serde_json::Value::String(result.clone());
+            }
+            if let Some(ref error) = run.error {
+                response["error"] = serde_json::Value::String(error.clone());
+            }
+            if let Some(ms) = run.duration_ms {
+                response["duration_ms"] = serde_json::Value::Number(ms.into());
+            }
+            return Ok(serde_json::to_string_pretty(&response)?);
+        }
+
+        if std::time::Instant::now() >= deadline {
+            // Timeout — auto-background; the spawn task continues and injection handles it
+            return Ok(serde_json::to_string_pretty(&serde_json::json!({
+                "status": "backgrounded",
+                "mode": "background",
+                "run_id": run_id,
+                "message": format!(
+                    "Sub-agent did not complete within {}s. Automatically backgrounded. \
+                     Result will be injected into the conversation when complete.",
+                    fg_timeout
+                ),
+            }))?);
+        }
+
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    }
 }
 
 // ── Helpers ─────────────────────────────────────────────────────

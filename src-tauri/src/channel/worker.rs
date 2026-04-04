@@ -486,6 +486,7 @@ async fn handle_inbound_message(
         },
         plan_agent_mode: None,
         plan_mode_allow_paths: None,
+        skill_allowed_tools: Vec::new(),
         event_sink: Arc::new(crate::chat_engine::ChannelStreamSink::new(
             session_id.clone(),
             event_tx,

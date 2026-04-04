@@ -608,6 +608,7 @@ pub async fn chat(
         cancel: cancel.clone(),
         plan_agent_mode,
         plan_mode_allow_paths: plan_allow_paths,
+        skill_allowed_tools: Vec::new(),
         event_sink: Arc::new(crate::chat_engine::ChannelSink {
             channel: on_event.clone(),
         }),

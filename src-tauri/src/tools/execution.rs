@@ -67,6 +67,9 @@ pub struct ToolExecContext {
     /// glob patterns are allowed even if the tool is in the denied list.
     /// Format: list of glob patterns (e.g. ["~/.opencomputer/plans/*.md"])
     pub plan_mode_allow_paths: Vec<String>,
+    /// Plan mode tool whitelist: when non-empty, only these tools can execute.
+    /// Enforced at execution layer as defense-in-depth (supplements schema-level filtering).
+    pub plan_mode_allowed_tools: Vec<String>,
 }
 
 impl Default for ToolExecContext {
@@ -81,6 +84,7 @@ impl Default for ToolExecContext {
             require_approval: Vec::new(),
             force_sandbox: false,
             plan_mode_allow_paths: Vec::new(),
+            plan_mode_allowed_tools: Vec::new(),
         }
     }
 }
@@ -243,6 +247,19 @@ pub async fn execute_tool_with_context(
         }
     }
 
+    // ── Plan Mode tool whitelist enforcement (defense-in-depth) ────
+    // When plan_mode_allowed_tools is set, reject any tool not in the list.
+    // This supplements the schema-level filtering done in providers.
+    if !ctx.plan_mode_allowed_tools.is_empty()
+        && !ctx.plan_mode_allowed_tools.iter().any(|t| t == name)
+    {
+        return Err(anyhow::anyhow!(
+            "Plan Mode restriction: tool '{}' is not allowed during planning. Allowed: {}",
+            name,
+            ctx.plan_mode_allowed_tools.join(", ")
+        ));
+    }
+
     let dispatch = async {
         match name {
             TOOL_EXEC => exec::tool_exec(args, ctx).await,
@@ -284,6 +301,7 @@ pub async fn execute_tool_with_context(
             TOOL_PLAN_QUESTION => Ok(plan_question::execute(args, ctx.session_id.as_deref()).await),
             TOOL_SUBMIT_PLAN => Ok(submit_plan::execute(args, ctx.session_id.as_deref()).await),
             TOOL_AMEND_PLAN => Ok(amend_plan::execute(args, ctx.session_id.as_deref()).await),
+            super::TOOL_TOOL_SEARCH => super::tool_search::tool_search(args).await,
             _ => Err(anyhow::anyhow!("Unknown tool: {}", name)),
         }
     };

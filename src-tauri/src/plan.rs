@@ -445,6 +445,7 @@ pub async fn spawn_plan_subagent(
             "{}\n\n{}",
             PLAN_MODE_SYSTEM_PROMPT, PLAN_SUBAGENT_CONTEXT_NOTICE
         )),
+        skill_allowed_tools: Vec::new(),
     };
 
     let run_id =

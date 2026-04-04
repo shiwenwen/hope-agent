@@ -13,6 +13,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **微压缩 Tier 0**：上下文压缩新增零成本预处理层，在 Tier 1 截断之前清除旧的临时工具结果（ls/grep/find/process/sessions_list/agents_list），无需 LLM 调用即可节省 10-20% token
 - **工具结果磁盘持久化**：工具结果超过阈值（默认 50KB，`config.json` → `toolResultDiskThreshold` 可配置）时自动写入磁盘（`~/.opencomputer/tool_results/`），上下文仅保留 head 2KB + tail 1KB + 路径引用，模型可通过 read 工具访问完整内容
 - **Side Query 缓存侧查询**：新增 `AssistantAgent.side_query()` 机制，复用主对话的 system_prompt + tool_schemas + conversation_history 前缀发起非流式 LLM 调用，利用 Anthropic 显式 prompt caching / OpenAI 自动前缀缓存，侧查询（Tier 3 上下文摘要、记忆提取）成本降低约 90%。每轮主请求自动快照 `CacheSafeParams`，无缓存时退化为普通请求
+- **后压缩文件恢复**：Tier 3 LLM 摘要后自动扫描被摘要消息中的 write/edit/apply_patch 工具调用，从磁盘读取最近编辑文件的当前内容（最多 5 文件 × 16KB），注入 summary 之后的对话历史，省去额外的 read tool call。预算：释放 token 的 10%（兜底 100K chars）
+- **API-Round 消息分组**：Tool loop 中的 assistant + tool_result 消息通过 `_oc_round` 元数据标记为同一 round，Tier 3 摘要和 Tier 4 紧急压缩的切割对齐到 round 边界，确保 tool_use/tool_result 配对不被拆散。支持 Anthropic/OpenAI Chat/Responses/Codex 四种格式，无标记的旧会话向后兼容
+- **自动记忆提取增强**：`auto_extract` 和 `flush_before_compact` 默认开启，提取从 `tokio::spawn` 改为 inline async 执行以支持 side_query 缓存共享（成本降低 ~90%）。新增互斥保护（检测 save_memory 工具调用时跳过自动提取）和频率上限（`maxExtractionsPerSession`，默认 5）
+- **LLM 记忆语义选择**：新增 `memorySelection` 配置，当候选记忆数超过阈值（默认 8）时通过 side_query 调用 LLM 选择最相关的 ≤5 条注入系统提示。`build_prompt_summary` 拆分为 `load_prompt_candidates` + `format_prompt_summary` 以支持选择流程
+- **Skill allowed-tools 工具隔离**：SKILL.md frontmatter 新增 `allowed-tools:` 字段，激活时仅保留指定工具的 schema。4 个 Provider 统一在 `denied_tools` 过滤后追加 `skill_allowed_tools` 白名单过滤
+- **Plan 执行层权限强制**：`ToolExecContext` 新增 `plan_mode_allowed_tools` 字段，在 `execute_tool_with_context()` 中追加白名单检查。与 schema 级过滤形成纵深防御（defense-in-depth），从 `PlanAgentConfig` 自动填充
+- **Skill Fork 模式**：SKILL.md frontmatter 新增 `context: fork`，激活时 skill 在子 Agent 中执行（不污染主对话历史）。`SpawnParams` 新增 `skill_allowed_tools` 字段实现工具隔离继承，`CommandAction::SkillFork` 通知前端
+- **子 Agent spawn_and_wait**：subagent 工具新增 `spawn_and_wait` action，前台等待 `foreground_timeout`（默认 30s，上限 120s）内完成则内联返回，超时自动转后台并衔接现有注入系统
+- **延迟工具加载 + tool_search**：opt-in 配置 `deferredTools.enabled`，开启后仅发送核心工具 schema（exec/read/write/edit 等 ~10 个 + tool_search），其余 ~20 个工具通过 `tool_search` 元工具按需发现（支持 `select:name` 精确匹配和关键词模糊搜索）。execution dispatch 不变，容错：直接调用 deferred 工具仍正常执行
 
 - **Discord 渠道插件**：WebSocket Gateway 协议、Application Commands 斜杠命令同步、RESUME 自动重连、原生 Markdown 透传
 - **Slack 渠道插件**：Socket Mode WebSocket、Bot Token + App Token 双令牌认证、mrkdwn 格式转换、一次性 URL 重连

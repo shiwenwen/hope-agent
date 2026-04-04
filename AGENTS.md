@@ -39,7 +39,7 @@ src-tauri/src/          后端（Rust）
   slash_commands/       斜杠命令系统
   plan.rs               Plan Mode（子 Agent 制定计划 + 主 Agent 执行，六态状态机）
   memory.rs             记忆系统（SQLite + FTS5 + 向量检索）
-  context_compact.rs    上下文压缩（5 层渐进式：Tier 0 微压缩 → Tier 1 截断 → Tier 2 裁剪 → Tier 3 LLM 摘要 → Tier 4 紧急）
+  context_compact.rs    上下文压缩（5 层渐进式：Tier 0 微压缩 → Tier 1 截断 → Tier 2 裁剪 → Tier 3 LLM 摘要 + 后压缩文件恢复 → Tier 4 紧急，API-Round 分组保护 tool 配对）
   subagent.rs           子 Agent 系统
   cron.rs               定时任务调度
   sandbox.rs            Docker 沙箱
@@ -78,7 +78,16 @@ src-tauri/src/          后端（Rust）
 - **Side Query（缓存侧查询）**：`AssistantAgent.side_query()` 复用主对话的 system_prompt + tool_schemas + conversation_history 前缀，利用 Anthropic 显式 prompt caching / OpenAI 自动前缀缓存，侧查询（Tier 3 摘要、记忆提取）成本降低约 90%。每轮主请求 compaction 后自动快照 `CacheSafeParams`，侧查询构建字节一致的前缀请求。无缓存参数时退化为普通请求
 - **降级策略**：ContextOverflow 终止 → RateLimit/Overloaded/Timeout 指数退避重试 2 次 → Auth/Billing/ModelNotFound 跳下一模型
 - **连续消息合并**：`push_user_message()` 自动合并连续 user 消息，兼容 Anthropic role 交替要求
+- **API-Round 消息分组**：Tool loop 中的 assistant + tool_result 消息通过 `_oc_round` 元数据标记为同一 round，压缩切割（Tier 3/4）对齐到 round 边界，确保 tool_use/tool_result 配对不被拆散。元数据在 API 调用前通过 `prepare_messages_for_api()` 剥离。无标记的旧会话退化为原行为
+- **后压缩文件恢复**：Tier 3 摘要后自动扫描被摘要消息中的 write/edit/apply_patch 工具调用，从磁盘读取最近编辑的文件当前内容（最多 5 文件 × 16KB），注入 summary 之后的对话历史，省去额外的 read tool call。预算：释放 token 的 10%，兜底 100K chars
+- **自动记忆提取**：默认开启，每轮对话结束后 inline 执行记忆提取（非 tokio::spawn），支持 side_query 缓存共享降低成本。互斥保护：检测 save_memory/update_core_memory 工具调用时跳过自动提取。频率上限：每会话最多 5 次（可配置）
+- **LLM 记忆语义选择**：当候选记忆数 > 阈值（默认 8）时，通过 side_query 调用 LLM 从候选列表中选择最相关的 ≤5 条注入系统提示。选择在 compaction 后、cache 快照前执行，确保精简后的系统提示被缓存。opt-in 配置（`memorySelection.enabled`），失败时退化为全量注入
 - **统一日志**：前后端日志统一写入 `logging.rs`（SQLite + 纯文本双写），API 请求体自动脱敏（`redact_sensitive`）并截断（32KB）
+- **Skill 工具隔离**：SKILL.md frontmatter 支持 `allowed-tools:` 字段，激活时只保留指定工具 schema。空列表 = 全部工具（向后兼容）。Agent 通过 `skill_allowed_tools` 字段在 Provider 层过滤
+- **Plan 执行层权限强制**：`ToolExecContext.plan_mode_allowed_tools` 在执行层白名单检查，与 schema 级过滤形成双重防护（defense-in-depth）
+- **Skill Fork 模式**：SKILL.md frontmatter `context: fork` 指定在子 Agent 中执行，tool_call 不污染主对话。子 Agent 继承 `allowed_tools`，结果通过注入系统自动推送回主对话
+- **子 Agent spawn_and_wait**：`subagent(action="spawn_and_wait")` 前台等待 `foreground_timeout`（默认 30s），超时自动转后台。短任务同步返回，长任务无缝衔接后台注入
+- **延迟工具加载**：opt-in 配置（`deferredTools.enabled`），开启后只发送核心工具 schema（exec/read/write/edit 等 ~10 个），其余通过 `tool_search` 元工具按需发现。execution dispatch 不变，直接调用 deferred 工具仍正常执行（容错）
 
 ## 编码规范
 
