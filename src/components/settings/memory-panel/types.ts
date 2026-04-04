@@ -65,11 +65,7 @@ export interface LocalEmbeddingModel {
   downloaded: boolean
 }
 
-export interface AgentInfo {
-  id: string
-  name: string
-  emoji?: string | null
-}
+export type { AgentInfo } from "@/types/chat"
 
 export interface MemoryStats {
   total: number

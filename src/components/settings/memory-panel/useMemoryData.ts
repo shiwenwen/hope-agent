@@ -5,13 +5,11 @@ import type {
   MemoryEntry,
   MemorySearchQuery,
   NewMemory,
-  EmbeddingConfig,
-  EmbeddingPreset,
-  LocalEmbeddingModel,
   AgentInfo,
-  MemoryStats,
   MemoryView,
 } from "./types"
+import { useMemoryExtract } from "./useMemoryExtract"
+import { useMemoryStats } from "./useMemoryStats"
 
 interface UseMemoryDataParams {
   agentId?: string
@@ -19,6 +17,10 @@ interface UseMemoryDataParams {
 }
 
 export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
+  // ── Sub-hooks ──
+  const extract = useMemoryExtract({ agentId, isAgentMode })
+  const statsHook = useMemoryStats()
+
   // ── Core state ──
   const [view, setView] = useState<MemoryView>("list")
   const [memories, setMemories] = useState<MemoryEntry[]>([])
@@ -37,34 +39,6 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
   const [formTags, setFormTags] = useState("")
   const [formScope, setFormScope] = useState<"global" | "agent">(isAgentMode ? "agent" : "global")
 
-  // ── Auto-extract state ──
-  const [globalExtract, setGlobalExtract] = useState({ autoExtract: false, extractMinTurns: 3, extractProviderId: null as string | null, extractModelId: null as string | null, flushBeforeCompact: false })
-  const [agentExtractOverride, setAgentExtractOverride] = useState<{ autoExtract: boolean | null; extractMinTurns: number | null; extractProviderId: string | null; extractModelId: string | null }>({ autoExtract: null, extractMinTurns: null, extractProviderId: null, extractModelId: null })
-  const [extractConfigLoaded, setExtractConfigLoaded] = useState(false)
-  const [availableProviders, setAvailableProviders] = useState<{ id: string; name: string; models: { id: string; name: string }[] }[]>([])
-
-  // ── Effective values (agent override -> global fallback) ──
-  const effectiveAutoExtract = isAgentMode
-    ? (agentExtractOverride.autoExtract ?? globalExtract.autoExtract)
-    : globalExtract.autoExtract
-  const effectiveMinTurns = isAgentMode
-    ? (agentExtractOverride.extractMinTurns ?? globalExtract.extractMinTurns)
-    : globalExtract.extractMinTurns
-  const effectiveProviderId = isAgentMode
-    ? (agentExtractOverride.extractProviderId ?? globalExtract.extractProviderId)
-    : globalExtract.extractProviderId
-  const effectiveModelId = isAgentMode
-    ? (agentExtractOverride.extractModelId ?? globalExtract.extractModelId)
-    : globalExtract.extractModelId
-  const effectiveFlushBeforeCompact = globalExtract.flushBeforeCompact
-
-  const agentHasOverride = isAgentMode && (
-    agentExtractOverride.autoExtract !== null ||
-    agentExtractOverride.extractMinTurns !== null ||
-    agentExtractOverride.extractProviderId !== null ||
-    agentExtractOverride.extractModelId !== null
-  )
-
   // ── Multi-select state ──
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [batchLoading, setBatchLoading] = useState(false)
@@ -72,26 +46,6 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
   // ── Dedup confirmation state ──
   const [dedupSimilar, setDedupSimilar] = useState<MemoryEntry[]>([])
   const [dedupPendingEntry, setDedupPendingEntry] = useState<NewMemory | null>(null)
-
-  // ── Embedding config state ──
-  const [embeddingConfig, setEmbeddingConfig] = useState<EmbeddingConfig>({
-    enabled: false,
-    providerType: "openai-compatible",
-  })
-  const [presets, setPresets] = useState<EmbeddingPreset[]>([])
-  const [localModels, setLocalModels] = useState<LocalEmbeddingModel[]>([])
-  const [embeddingDirty, setEmbeddingDirty] = useState(false)
-  const [embeddingTestLoading, setEmbeddingTestLoading] = useState(false)
-  const [embeddingTestResult, setEmbeddingTestResult] = useState<import("../TestResultDisplay").TestResult | null>(null)
-  const [embeddingSaving, setEmbeddingSaving] = useState(false)
-  const [embeddingSaveStatus, setEmbeddingSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
-
-  // ── Dedup config state ──
-  const [dedupConfig, setDedupConfig] = useState({ thresholdHigh: 0.02, thresholdMerge: 0.012 })
-  const [dedupExpanded, setDedupExpanded] = useState(false)
-
-  // ── Stats state ──
-  const [stats, setStats] = useState<MemoryStats | null>(null)
 
   // ── Load agents for scope picker (standalone mode) ──
   useEffect(() => {
@@ -142,150 +96,20 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
       }
       const [count, statsData] = await Promise.all([
         invoke<number>("memory_count", { scope }),
-        invoke<MemoryStats>("memory_stats", { scope }).catch(() => null),
+        invoke<import("./types").MemoryStats>("memory_stats", { scope }).catch(() => null),
       ])
       setTotalCount(count)
-      if (statsData) setStats(statsData)
+      statsHook.updateStats(statsData)
     } catch (e) {
       logger.error("settings", "MemoryPanel::load", "Failed to load memories", e)
     } finally {
       setLoading(false)
     }
-  }, [searchQuery, filterType, buildScope, isAgentMode, filterScope, agentId])
+  }, [searchQuery, filterType, buildScope, isAgentMode, filterScope, agentId, statsHook])
 
   useEffect(() => {
     loadMemories()
   }, [loadMemories])
-
-  // ── Load extract config (global + agent override) ──
-  useEffect(() => {
-    async function loadExtractConfig() {
-      try {
-        const global = await invoke<{ autoExtract: boolean; extractMinTurns: number; extractProviderId: string | null; extractModelId: string | null }>("get_extract_config")
-        setGlobalExtract(prev => ({ ...global, flushBeforeCompact: prev.flushBeforeCompact }))
-
-        if (isAgentMode && agentId) {
-          const cfg = await invoke<{ memory?: { autoExtract?: boolean | null; extractMinTurns?: number | null; extractProviderId?: string | null; extractModelId?: string | null } }>("get_agent_config", { id: agentId })
-          setAgentExtractOverride({
-            autoExtract: cfg?.memory?.autoExtract ?? null,
-            extractMinTurns: cfg?.memory?.extractMinTurns ?? null,
-            extractProviderId: cfg?.memory?.extractProviderId ?? null,
-            extractModelId: cfg?.memory?.extractModelId ?? null,
-          })
-        }
-
-        const providers = await invoke<{ id: string; name: string; models: { id: string; name: string }[]; enabled?: boolean }[]>("get_providers")
-        setAvailableProviders(
-          providers
-            .filter((p) => p.enabled !== false)
-            .map((p) => ({ id: p.id, name: p.name, models: p.models.map((m) => ({ id: m.id, name: m.name })) }))
-        )
-      } catch {
-        // ignore
-      } finally {
-        setExtractConfigLoaded(true)
-      }
-    }
-    loadExtractConfig()
-  }, [isAgentMode, agentId])
-
-  // ── Save global extract config ──
-  async function saveGlobalExtract(updates: Partial<typeof globalExtract>) {
-    const updated = { ...globalExtract, ...updates }
-    setGlobalExtract(updated)
-    try {
-      await invoke("save_extract_config", { config: updated })
-    } catch (e) {
-      logger.error("settings", "MemoryPanel::saveGlobalExtract", "Failed", e)
-    }
-  }
-
-  // ── Save per-agent extract override ──
-  async function saveAgentExtract(updates: Partial<typeof agentExtractOverride>) {
-    if (!agentId) return
-    const updated = { ...agentExtractOverride, ...updates }
-    setAgentExtractOverride(updated)
-    try {
-      const cfg = await invoke<Record<string, unknown>>("get_agent_config", { id: agentId })
-      const memory = (cfg?.memory ?? {}) as Record<string, unknown>
-      Object.assign(memory, updates)
-      cfg.memory = memory
-      await invoke("save_agent_config_cmd", { id: agentId, config: cfg })
-    } catch (e) {
-      logger.error("settings", "MemoryPanel::saveAgentExtract", "Failed", e)
-    }
-  }
-
-  // ── Reset agent overrides to inherit global ──
-  async function resetAgentExtract() {
-    if (!agentId) return
-    setAgentExtractOverride({ autoExtract: null, extractMinTurns: null, extractProviderId: null, extractModelId: null })
-    try {
-      const cfg = await invoke<Record<string, unknown>>("get_agent_config", { id: agentId })
-      const memory = (cfg?.memory ?? {}) as Record<string, unknown>
-      delete memory.autoExtract
-      delete memory.extractMinTurns
-      delete memory.extractProviderId
-      delete memory.extractModelId
-      cfg.memory = memory
-      await invoke("save_agent_config_cmd", { id: agentId, config: cfg })
-    } catch (e) {
-      logger.error("settings", "MemoryPanel::resetAgentExtract", "Failed", e)
-    }
-  }
-
-  function handleToggleAutoExtract(enabled: boolean) {
-    if (isAgentMode) {
-      saveAgentExtract({ autoExtract: enabled })
-    } else {
-      saveGlobalExtract({ autoExtract: enabled })
-    }
-  }
-
-  function handleUpdateExtractModel(value: string) {
-    const updates = value === "__chat__"
-      ? { extractProviderId: null, extractModelId: null }
-      : { extractProviderId: value.split("::", 2)[0], extractModelId: value.split("::", 2)[1] }
-    if (isAgentMode) {
-      saveAgentExtract(updates)
-    } else {
-      saveGlobalExtract(updates)
-    }
-  }
-
-  function handleUpdateExtractMinTurns(val: number) {
-    const clamped = Math.max(1, Math.min(20, val))
-    if (isAgentMode) {
-      saveAgentExtract({ extractMinTurns: clamped })
-    } else {
-      saveGlobalExtract({ extractMinTurns: clamped })
-    }
-  }
-
-  function handleToggleFlushBeforeCompact(enabled: boolean) {
-    saveGlobalExtract({ flushBeforeCompact: enabled })
-  }
-
-  // ── Load embedding config ──
-  useEffect(() => {
-    async function loadEmbedding() {
-      try {
-        const [config, presetList, models, dedup] = await Promise.all([
-          invoke<EmbeddingConfig>("get_embedding_config"),
-          invoke<EmbeddingPreset[]>("get_embedding_presets"),
-          invoke<LocalEmbeddingModel[]>("list_local_embedding_models"),
-          invoke<{ thresholdHigh: number; thresholdMerge: number }>("get_dedup_config"),
-        ])
-        setEmbeddingConfig(config)
-        setPresets(presetList)
-        setLocalModels(models)
-        setDedupConfig(dedup)
-      } catch (e) {
-        logger.error("settings", "MemoryPanel::loadEmbedding", "Failed to load embedding config", e)
-      }
-    }
-    loadEmbedding()
-  }, [])
 
   // ── CRUD handlers ──
   function buildNewMemoryEntry(): NewMemory {
@@ -506,22 +330,6 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
     }
   }
 
-  async function saveEmbeddingConfig() {
-    setEmbeddingSaving(true)
-    try {
-      await invoke("save_embedding_config", { config: embeddingConfig })
-      setEmbeddingDirty(false)
-      setEmbeddingSaveStatus("saved")
-      setTimeout(() => setEmbeddingSaveStatus("idle"), 2000)
-    } catch (e) {
-      logger.error("settings", "MemoryPanel::saveEmbedding", "Failed to save", e)
-      setEmbeddingSaveStatus("failed")
-      setTimeout(() => setEmbeddingSaveStatus("idle"), 2000)
-    } finally {
-      setEmbeddingSaving(false)
-    }
-  }
-
   function startEdit(mem: MemoryEntry) {
     setEditingMemory(mem)
     setFormContent(mem.content)
@@ -557,16 +365,16 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
     formTags, setFormTags,
     formScope, setFormScope,
 
-    // Auto-extract state
-    globalExtract,
-    agentExtractOverride,
-    extractConfigLoaded,
-    availableProviders,
-    effectiveAutoExtract,
-    effectiveMinTurns,
-    effectiveProviderId,
-    effectiveModelId,
-    agentHasOverride,
+    // Auto-extract state (from sub-hook)
+    globalExtract: extract.globalExtract,
+    agentExtractOverride: extract.agentExtractOverride,
+    extractConfigLoaded: extract.extractConfigLoaded,
+    availableProviders: extract.availableProviders,
+    effectiveAutoExtract: extract.effectiveAutoExtract,
+    effectiveMinTurns: extract.effectiveMinTurns,
+    effectiveProviderId: extract.effectiveProviderId,
+    effectiveModelId: extract.effectiveModelId,
+    agentHasOverride: extract.agentHasOverride,
 
     // Multi-select state
     selectedIds,
@@ -576,22 +384,22 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
     dedupSimilar,
     dedupPendingEntry,
 
-    // Embedding config state
-    embeddingConfig, setEmbeddingConfig,
-    presets,
-    localModels,
-    embeddingDirty, setEmbeddingDirty,
-    embeddingTestLoading, setEmbeddingTestLoading,
-    embeddingTestResult, setEmbeddingTestResult,
-    embeddingSaving,
-    embeddingSaveStatus,
+    // Embedding config state (from sub-hook)
+    embeddingConfig: statsHook.embeddingConfig, setEmbeddingConfig: statsHook.setEmbeddingConfig,
+    presets: statsHook.presets,
+    localModels: statsHook.localModels,
+    embeddingDirty: statsHook.embeddingDirty, setEmbeddingDirty: statsHook.setEmbeddingDirty,
+    embeddingTestLoading: statsHook.embeddingTestLoading, setEmbeddingTestLoading: statsHook.setEmbeddingTestLoading,
+    embeddingTestResult: statsHook.embeddingTestResult, setEmbeddingTestResult: statsHook.setEmbeddingTestResult,
+    embeddingSaving: statsHook.embeddingSaving,
+    embeddingSaveStatus: statsHook.embeddingSaveStatus,
 
-    // Dedup config state
-    dedupConfig, setDedupConfig,
-    dedupExpanded, setDedupExpanded,
+    // Dedup config state (from sub-hook)
+    dedupConfig: statsHook.dedupConfig, setDedupConfig: statsHook.setDedupConfig,
+    dedupExpanded: statsHook.dedupExpanded, setDedupExpanded: statsHook.setDedupExpanded,
 
-    // Stats state
-    stats,
+    // Stats state (from sub-hook)
+    stats: statsHook.stats,
 
     // Handlers
     loadMemories,
@@ -609,14 +417,14 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
     handleReembedBatch,
     handleReembedAll,
     handleImport,
-    saveEmbeddingConfig,
+    saveEmbeddingConfig: statsHook.saveEmbeddingConfig,
     startEdit,
     startAdd,
-    handleToggleAutoExtract,
-    handleUpdateExtractModel,
-    handleUpdateExtractMinTurns,
-    handleToggleFlushBeforeCompact,
-    effectiveFlushBeforeCompact,
-    resetAgentExtract,
+    handleToggleAutoExtract: extract.handleToggleAutoExtract,
+    handleUpdateExtractModel: extract.handleUpdateExtractModel,
+    handleUpdateExtractMinTurns: extract.handleUpdateExtractMinTurns,
+    handleToggleFlushBeforeCompact: extract.handleToggleFlushBeforeCompact,
+    effectiveFlushBeforeCompact: extract.effectiveFlushBeforeCompact,
+    resetAgentExtract: extract.resetAgentExtract,
   }
 }

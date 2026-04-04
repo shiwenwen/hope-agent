@@ -1,3 +1,10 @@
+export interface AgentInfo {
+  id: string
+  name: string
+  emoji?: string | null
+  avatar?: string | null
+}
+
 export interface ToolCall {
   callId: string
   name: string

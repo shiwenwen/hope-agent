@@ -5,8 +5,7 @@ import { save } from "@tauri-apps/plugin-dialog"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { Brain } from "lucide-react"
-import type { AvailableModel, ActiveModel, Message } from "@/types/chat"
-import { getEffortOptionsForType } from "@/types/chat"
+import type { Message } from "@/types/chat"
 import type { CommandResult } from "./slash-commands/types"
 import ApprovalDialog from "@/components/chat/ApprovalDialog"
 import ChatSidebar from "@/components/chat/ChatSidebar"
@@ -29,6 +28,7 @@ import { useChatSession } from "./useChatSession"
 import { useChatStream } from "./useChatStream"
 import { useAutoScroll } from "./useAutoScroll"
 import { usePlanMode } from "./plan-mode/usePlanMode"
+import { useModelState } from "./hooks/useModelState"
 import SystemPromptDialog from "./SystemPromptDialog"
 import { PlanPanel } from "./plan-mode/PlanPanel"
 
@@ -52,11 +52,14 @@ export default function ChatScreen({
   const { t } = useTranslation()
 
   // ── Model State ─────────────────────────────────────────────
-  const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
-  const [activeModel, setActiveModel] = useState<ActiveModel | null>(null)
-  const [reasoningEffort, setReasoningEffort] = useState("medium")
-  const [sessionTemperature, setSessionTemperature] = useState<number | null>(null)
-  const globalActiveModelRef = useRef<ActiveModel | null>(null)
+  const {
+    availableModels, setAvailableModels,
+    activeModel, setActiveModel,
+    reasoningEffort, setReasoningEffort,
+    sessionTemperature, setSessionTemperature,
+    globalActiveModelRef,
+    applyModelForDisplay, handleModelChange, handleEffortChange,
+  } = useModelState()
 
   // Sidebar panel width
   const [panelWidth, setPanelWidth] = useState(288)
@@ -75,61 +78,6 @@ export default function ChatScreen({
 
   // Plan mode state (declared early so useChatStream can access it)
   const [planModeState, setPlanModeState] = useState<"off" | "planning" | "review" | "executing" | "paused" | "completed">("off")
-
-  // Update model display + reasoning effort without persisting to global settings
-  const applyModelForDisplay = useCallback(
-    (key: string) => {
-      const [providerId, modelId] = key.split("::")
-      if (!providerId || !modelId) return
-      setActiveModel({ providerId, modelId })
-      const newModel = availableModels.find(
-        (m) => m.providerId === providerId && m.modelId === modelId,
-      )
-      if (newModel) {
-        const validOptions = getEffortOptionsForType(newModel.apiType, t)
-        const isValid = validOptions.some((opt) => opt.value === reasoningEffort)
-        if (!isValid) {
-          const fallback = validOptions.some((o) => o.value === "medium") ? "medium" : "none"
-          setReasoningEffort(fallback)
-        }
-      }
-    },
-    [availableModels, reasoningEffort, t],
-  )
-
-  const handleModelChange = useCallback(
-    async (key: string) => {
-      const [providerId, modelId] = key.split("::")
-      if (!providerId || !modelId) return
-      setActiveModel({ providerId, modelId })
-      try {
-        await invoke("set_active_model", { providerId, modelId })
-      } catch (e) {
-        logger.error("ui", "ChatScreen::modelChange", "Failed to set model", e)
-      }
-      const newModel = availableModels.find(
-        (m) => m.providerId === providerId && m.modelId === modelId,
-      )
-      if (newModel) {
-        const validOptions = getEffortOptionsForType(newModel.apiType, t)
-        const isValid = validOptions.some((opt) => opt.value === reasoningEffort)
-        if (!isValid) {
-          const fallback = validOptions.some((o) => o.value === "medium") ? "medium" : "none"
-          handleEffortChange(fallback)
-        }
-      }
-    },
-    [availableModels, reasoningEffort, t],
-  )
-
-  async function handleEffortChange(effort: string) {
-    setReasoningEffort(effort)
-    try {
-      await invoke("set_reasoning_effort", { effort })
-    } catch (e) {
-      logger.error("ui", "ChatScreen::effortChange", "Failed to set reasoning effort", e)
-    }
-  }
 
   // ── Session Hook ────────────────────────────────────────────
   const session = useChatSession({

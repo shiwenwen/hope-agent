@@ -17,10 +17,9 @@ import {
 } from "@/lib/notifications"
 import type { AgentConfig } from "./types"
 
-interface AgentInfo {
-  id: string
-  name: string
-  emoji?: string | null
+import type { AgentInfo as BaseAgentInfo } from "@/types/chat"
+
+interface AgentInfo extends BaseAgentInfo {
   notifyOnComplete?: boolean | null
 }
 
