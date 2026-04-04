@@ -33,7 +33,7 @@ pub struct AcpControlConfig {
     pub runtime_ttl_secs: u64,
 
     /// Automatically scan $PATH for known ACP agent binaries on startup.
-    #[serde(default = "default_true")]
+    #[serde(default = "crate::default_true")]
     pub auto_discover: bool,
 }
 
@@ -94,10 +94,6 @@ fn default_runtime_ttl() -> u64 {
     1800
 }
 
-fn default_true() -> bool {
-    true
-}
-
 // ── Per-backend config ───────────────────────────────────────────
 
 /// Configuration for a single ACP backend.
@@ -119,7 +115,7 @@ pub struct AcpBackendConfig {
     pub acp_args: Vec<String>,
 
     /// Whether this backend is enabled.
-    #[serde(default = "default_true")]
+    #[serde(default = "crate::default_true")]
     pub enabled: bool,
 
     /// Default model to request from the external agent.
@@ -139,7 +135,7 @@ pub struct AcpBackendConfig {
 #[serde(rename_all = "camelCase")]
 pub struct AgentAcpConfig {
     /// Whether this agent is allowed to use ACP external agents.
-    #[serde(default = "default_true")]
+    #[serde(default = "crate::default_true")]
     pub enabled: bool,
 
     /// Allowlist of backend IDs this agent may use (empty = all).

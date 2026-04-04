@@ -44,15 +44,11 @@ pub struct LogConfig {
     pub max_age_days: u32,
     pub max_size_mb: u32,
     /// Enable plain text log file output (for external tools / Agent self-inspection)
-    #[serde(default = "default_true")]
+    #[serde(default = "crate::default_true")]
     pub file_enabled: bool,
     /// Max single log file size in MB before rotation (default 10MB)
     #[serde(default = "default_file_max_size")]
     pub file_max_size_mb: u32,
-}
-
-fn default_true() -> bool {
-    true
 }
 fn default_file_max_size() -> u32 {
     10

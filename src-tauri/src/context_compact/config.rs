@@ -2,9 +2,6 @@
 
 use serde::{Deserialize, Serialize};
 
-fn default_true() -> bool {
-    true
-}
 fn default_soft_trim_ratio() -> f64 {
     0.50
 }
@@ -47,6 +44,12 @@ fn default_summary_max_tokens() -> u32 {
 fn default_max_history_share() -> f64 {
     0.5
 }
+fn default_recovery_max_files() -> usize {
+    5
+}
+fn default_recovery_max_file_bytes() -> usize {
+    16_384
+}
 
 /// Context compaction configuration, stored in config.json `compact` field.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,13 +57,13 @@ fn default_max_history_share() -> f64 {
 pub struct CompactConfig {
     // ── Global ──
     /// Enable context compaction (default: true)
-    #[serde(default = "default_true")]
+    #[serde(default = "crate::default_true")]
     pub enabled: bool,
 
     // ── Tier 0: Microcompaction ──
     /// Enable microcompaction of ephemeral tool results (default: true).
     /// Clears old results from tools like ls/grep/find that become stale quickly.
-    #[serde(default = "default_true")]
+    #[serde(default = "crate::default_true")]
     pub microcompact_enabled: bool,
     /// Tool names eligible for Tier 0 microcompaction.
     /// Results from these tools are cleared when older than `keep_last_assistants` boundary.
@@ -90,7 +93,7 @@ pub struct CompactConfig {
     #[serde(default = "default_soft_trim_tail_chars")]
     pub soft_trim_tail_chars: usize,
     /// Enable hard clear phase (default: true)
-    #[serde(default = "default_true")]
+    #[serde(default = "crate::default_true")]
     pub hard_clear_enabled: bool,
     /// Placeholder text for hard-cleared tool results
     #[serde(default = "default_hard_clear_placeholder")]
@@ -124,6 +127,19 @@ pub struct CompactConfig {
     /// Max share of context window for history during pruning (default: 0.5)
     #[serde(default = "default_max_history_share")]
     pub max_history_share: f64,
+
+    // ── Post-Compaction Recovery ──
+    /// Enable post-compaction file recovery after Tier 3 summarization (default: true).
+    /// Re-reads recently written/edited files from disk and injects their current
+    /// contents so the model doesn't need an extra read tool call.
+    #[serde(default = "crate::default_true")]
+    pub recovery_enabled: bool,
+    /// Max files to recover after compaction (default: 5)
+    #[serde(default = "default_recovery_max_files")]
+    pub recovery_max_files: usize,
+    /// Max bytes per recovered file (default: 16384 = 16KB)
+    #[serde(default = "default_recovery_max_file_bytes")]
+    pub recovery_max_file_bytes: usize,
 }
 
 fn default_microcompact_tools() -> Vec<String> {
@@ -160,8 +176,8 @@ fn default_tools_deny_prune() -> Vec<String> {
 impl Default for CompactConfig {
     fn default() -> Self {
         Self {
-            enabled: default_true(),
-            microcompact_enabled: default_true(),
+            enabled: crate::default_true(),
+            microcompact_enabled: crate::default_true(),
             microcompact_tools: default_microcompact_tools(),
             soft_trim_ratio: default_soft_trim_ratio(),
             hard_clear_ratio: default_hard_clear_ratio(),
@@ -170,7 +186,7 @@ impl Default for CompactConfig {
             soft_trim_max_chars: default_soft_trim_max_chars(),
             soft_trim_head_chars: default_soft_trim_head_chars(),
             soft_trim_tail_chars: default_soft_trim_tail_chars(),
-            hard_clear_enabled: default_true(),
+            hard_clear_enabled: crate::default_true(),
             hard_clear_placeholder: default_hard_clear_placeholder(),
             tools_deny_prune: default_tools_deny_prune(),
             summarization_threshold: default_summarization_threshold(),
@@ -181,6 +197,9 @@ impl Default for CompactConfig {
             summarization_timeout_secs: default_summarization_timeout(),
             summary_max_tokens: default_summary_max_tokens(),
             max_history_share: default_max_history_share(),
+            recovery_enabled: crate::default_true(),
+            recovery_max_files: default_recovery_max_files(),
+            recovery_max_file_bytes: default_recovery_max_file_bytes(),
         }
     }
 }

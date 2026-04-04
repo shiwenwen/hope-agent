@@ -13,10 +13,6 @@ use tokio::process::Command;
 const DEFAULT_SANDBOX_IMAGE: &str = "debian:bookworm-slim";
 
 // ── Sandbox Configuration ─────────────────────────────────────────
-
-fn default_true() -> bool {
-    true
-}
 fn default_network_none() -> String {
     "none".to_string()
 }
@@ -39,16 +35,16 @@ pub struct SandboxConfig {
     /// CPU limit as number of CPUs (default 1.0)
     pub cpu_limit: Option<f64>,
     /// Mount root filesystem as read-only (default: true)
-    #[serde(default = "default_true")]
+    #[serde(default = "crate::default_true")]
     pub read_only: bool,
     /// Network mode: "none", "bridge", "host" (default: "none")
     #[serde(default = "default_network_none")]
     pub network_mode: String,
     /// Drop all Linux capabilities (default: true)
-    #[serde(default = "default_true")]
+    #[serde(default = "crate::default_true")]
     pub cap_drop_all: bool,
     /// Prevent gaining new privileges (default: true)
-    #[serde(default = "default_true")]
+    #[serde(default = "crate::default_true")]
     pub no_new_privileges: bool,
     /// PID limit inside container (default: 256)
     #[serde(default = "default_pids_limit")]

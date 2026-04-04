@@ -57,12 +57,12 @@ pub struct UserConfig {
     pub auto_send_pending: bool,
 
     /// Whether thinking blocks auto-expand in chat bubbles (default: true)
-    #[serde(default = "default_true")]
+    #[serde(default = "crate::default_true")]
     pub auto_expand_thinking: bool,
 
     // ── Weather / Location settings ──
     /// Whether to inject weather info into system prompt (default: true)
-    #[serde(default = "default_true")]
+    #[serde(default = "crate::default_true")]
     pub weather_enabled: bool,
 
     /// City name for weather lookup
@@ -78,10 +78,6 @@ pub struct UserConfig {
     pub weather_longitude: Option<f64>,
 }
 
-#[allow(dead_code)]
-fn default_true() -> bool {
-    true
-}
 
 // ── Persistence ──────────────────────────────────────────────────
 

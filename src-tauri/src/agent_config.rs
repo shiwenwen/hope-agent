@@ -238,11 +238,11 @@ impl Default for BehaviorConfig {
 #[serde(rename_all = "camelCase")]
 pub struct MemoryConfig {
     /// Whether memory is enabled for this agent
-    #[serde(default = "default_true")]
+    #[serde(default = "crate::default_true")]
     pub enabled: bool,
 
     /// Whether to also load global shared memories
-    #[serde(default = "default_true")]
+    #[serde(default = "crate::default_true")]
     pub shared: bool,
 
     /// Max chars for memory section in system prompt
@@ -268,10 +268,6 @@ pub struct MemoryConfig {
     /// Whether to flush memories before context compaction (None = inherit global)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub flush_before_compact: Option<bool>,
-}
-
-fn default_true() -> bool {
-    true
 }
 
 fn default_memory_budget() -> usize {
@@ -300,7 +296,7 @@ impl Default for MemoryConfig {
 #[serde(rename_all = "camelCase")]
 pub struct SubagentConfig {
     /// Whether this agent can spawn sub-agents
-    #[serde(default = "default_true")]
+    #[serde(default = "crate::default_true")]
     pub enabled: bool,
 
     /// Which agents this agent is allowed to delegate to (empty = all)

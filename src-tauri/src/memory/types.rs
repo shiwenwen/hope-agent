@@ -150,7 +150,7 @@ pub struct MemoryStats {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MemoryExtractConfig {
-    #[serde(default)]
+    #[serde(default = "crate::default_true")]
     pub auto_extract: bool,
     #[serde(default = "default_extract_min_turns")]
     pub extract_min_turns: usize,
@@ -159,22 +159,64 @@ pub struct MemoryExtractConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extract_model_id: Option<String>,
     /// Auto-extract memories before context compaction (Tier 3 summarization)
-    #[serde(default)]
+    #[serde(default = "crate::default_true")]
     pub flush_before_compact: bool,
+    /// Maximum extractions per session (default: 5)
+    #[serde(default = "default_max_extractions_per_session")]
+    pub max_extractions_per_session: usize,
 }
-
 fn default_extract_min_turns() -> usize {
     3
+}
+fn default_max_extractions_per_session() -> usize {
+    5
 }
 
 impl Default for MemoryExtractConfig {
     fn default() -> Self {
         Self {
-            auto_extract: false,
+            auto_extract: true,
             extract_min_turns: 3,
             extract_provider_id: None,
             extract_model_id: None,
-            flush_before_compact: false,
+            flush_before_compact: true,
+            max_extractions_per_session: 5,
+        }
+    }
+}
+
+// ── LLM Memory Selection ──────────────────────────────────────
+
+/// LLM-based memory selection configuration, stored in config.json `memorySelection` field.
+/// When enabled, uses side_query() to select the most relevant memories for the
+/// current user message, reducing system prompt noise from irrelevant entries.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemorySelectionConfig {
+    /// Enable LLM-based memory selection (default: false, opt-in)
+    #[serde(default)]
+    pub enabled: bool,
+    /// Minimum candidate count before LLM selection kicks in (default: 8)
+    #[serde(default = "default_selection_threshold")]
+    pub threshold: usize,
+    /// Maximum memories to select (default: 5)
+    #[serde(default = "default_selection_max")]
+    pub max_selected: usize,
+}
+
+fn default_selection_threshold() -> usize {
+    8
+}
+fn default_selection_max() -> usize {
+    5
+}
+
+impl Default for MemorySelectionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            threshold: 8,
+            max_selected: 5,
         }
     }
 }
@@ -295,16 +337,13 @@ impl Default for TemporalDecayConfig {
 #[serde(rename_all = "camelCase")]
 pub struct MmrConfig {
     /// Enable MMR reranking (default: true)
-    #[serde(default = "default_true_val")]
+    #[serde(default = "crate::default_true")]
     pub enabled: bool,
     /// Lambda: 0 = max diversity, 1 = max relevance (default: 0.7)
     #[serde(default = "default_mmr_lambda")]
     pub lambda: f32,
 }
 
-fn default_true_val() -> bool {
-    true
-}
 fn default_mmr_lambda() -> f32 {
     0.7
 }
@@ -325,7 +364,7 @@ impl Default for MmrConfig {
 #[serde(rename_all = "camelCase")]
 pub struct EmbeddingCacheConfig {
     /// Enable embedding cache (default: true)
-    #[serde(default = "default_true_val")]
+    #[serde(default = "crate::default_true")]
     pub enabled: bool,
     /// Maximum number of cached entries (default: 10000)
     #[serde(default = "default_max_cache_entries")]

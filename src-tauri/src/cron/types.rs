@@ -80,12 +80,8 @@ pub struct CronJob {
     pub created_at: String,
     pub updated_at: String,
     /// Whether to send a desktop notification when this job completes.
-    #[serde(default = "default_true")]
+    #[serde(default = "crate::default_true")]
     pub notify_on_complete: bool,
-}
-
-pub(crate) fn default_true() -> bool {
-    true
 }
 
 /// A single run log entry.

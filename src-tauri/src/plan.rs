@@ -159,7 +159,7 @@ pub struct PlanQuestion {
     pub question_id: String,
     pub text: String,
     pub options: Vec<PlanQuestionOption>,
-    #[serde(default = "default_true")]
+    #[serde(default = "crate::default_true")]
     pub allow_custom: bool,
     #[serde(default)]
     pub multi_select: bool,
@@ -167,10 +167,6 @@ pub struct PlanQuestion {
     /// Used to render category-specific UI styling.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub template: Option<String>,
-}
-
-fn default_true() -> bool {
-    true
 }
 
 /// A group of questions sent together

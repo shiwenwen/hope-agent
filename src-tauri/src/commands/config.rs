@@ -198,7 +198,7 @@ pub async fn set_shortcuts_paused(app: tauri::AppHandle, paused: bool) -> Result
 
     if paused {
         // Clear pending chord state and unregister all
-        *crate::chord_state().lock().unwrap_or_else(|e| e.into_inner()) = None;
+        crate::shortcuts::clear_chord_state();
         let _ = manager.unregister_all();
     } else {
         // Re-register from saved config
@@ -253,7 +253,7 @@ pub async fn save_shortcut_config(
     provider::save_store(&store).map_err(|e| e.to_string())?;
 
     // Clear any pending chord state
-    *crate::chord_state().lock().unwrap_or_else(|e| e.into_inner()) = None;
+    crate::shortcuts::clear_chord_state();
 
     // Re-register global shortcuts (chord-aware)
     use tauri_plugin_global_shortcut::GlobalShortcutExt;

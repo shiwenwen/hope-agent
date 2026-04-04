@@ -367,7 +367,7 @@ pub struct ChannelAccountConfig {
     pub id: String,
     pub channel_id: ChannelId,
     pub label: String,
-    #[serde(default = "default_true")]
+    #[serde(default = "crate::default_true")]
     pub enabled: bool,
     /// Agent ID bound to this channel account. If None, falls back to global default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -380,10 +380,6 @@ pub struct ChannelAccountConfig {
     pub settings: serde_json::Value,
     #[serde(default)]
     pub security: SecurityConfig,
-}
-
-fn default_true() -> bool {
-    true
 }
 
 // ── Channel Health ───────────────────────────────────────────────

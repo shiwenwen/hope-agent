@@ -131,7 +131,7 @@ pub struct ProviderConfig {
     #[serde(default)]
     pub models: Vec<ModelConfig>,
     /// Whether this provider is enabled
-    #[serde(default = "default_true")]
+    #[serde(default = "crate::default_true")]
     pub enabled: bool,
     /// Custom User-Agent header for API requests
     #[serde(default = "default_user_agent")]
@@ -139,10 +139,6 @@ pub struct ProviderConfig {
     /// Thinking/reasoning parameter format
     #[serde(default)]
     pub thinking_style: ThinkingStyle,
-}
-
-fn default_true() -> bool {
-    true
 }
 
 fn default_user_agent() -> String {
@@ -473,7 +469,7 @@ pub struct ShortcutBinding {
     /// Empty string means disabled.
     pub keys: String,
     /// Whether this shortcut is enabled
-    #[serde(default = "default_true")]
+    #[serde(default = "crate::default_true")]
     pub enabled: bool,
 }
 
@@ -522,7 +518,7 @@ impl Default for ShortcutConfig {
 #[serde(rename_all = "camelCase")]
 pub struct NotificationConfig {
     /// Global on/off toggle (default: true)
-    #[serde(default = "default_true")]
+    #[serde(default = "crate::default_true")]
     pub enabled: bool,
 }
 
@@ -569,6 +565,9 @@ pub struct ProviderStore {
     /// Global memory auto-extract configuration
     #[serde(default)]
     pub memory_extract: crate::memory::MemoryExtractConfig,
+    /// LLM-based memory selection configuration
+    #[serde(default)]
+    pub memory_selection: crate::memory::MemorySelectionConfig,
     /// Memory deduplication thresholds
     #[serde(default)]
     pub dedup: crate::memory::DedupConfig,
@@ -622,7 +621,7 @@ pub struct ProviderStore {
     #[serde(default = "default_language")]
     pub language: String,
     /// Whether UI background effects (stars, weather) are enabled
-    #[serde(default = "default_true")]
+    #[serde(default = "crate::default_true")]
     pub ui_effects_enabled: bool,
     /// Global proxy configuration for all outgoing HTTP requests
     #[serde(default)]
@@ -691,6 +690,7 @@ impl Default for ProviderStore {
             skill_env_check: true,
             embedding: crate::memory::EmbeddingConfig::default(),
             memory_extract: crate::memory::MemoryExtractConfig::default(),
+            memory_selection: crate::memory::MemorySelectionConfig::default(),
             dedup: crate::memory::DedupConfig::default(),
             hybrid_search: crate::memory::HybridSearchConfig::default(),
             temporal_decay: crate::memory::TemporalDecayConfig::default(),
