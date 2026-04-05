@@ -1,6 +1,6 @@
 # OpenComputer
 
-基于 Tauri 2 + React 19 + Rust 的本地 AI 助手桌面应用，支持 24+ 内置 Provider 模板，GUI 傻瓜式配置。
+基于 Tauri 2 + React 19 + Rust 的本地 AI 助手桌面应用，支持 28 个内置 Provider 模板（108 个预设模型），GUI 傻瓜式配置。
 
 ## 开发命令
 
@@ -33,25 +33,34 @@ src-tauri/src/          后端（Rust）
   agent/                AssistantAgent（多 Provider + Tool Loop + Side Query 缓存侧查询）
     providers/          Anthropic / OpenAI Chat / OpenAI Responses / Codex
     side_query.rs       缓存友好侧查询（复用 prompt cache，Tier 3 摘要 / 记忆提取成本降低 90%）
-  channel/              IM 渠道系统（12 个插件：Telegram / WeChat / Discord / Slack / Feishu / QQ Bot / IRC / Signal / iMessage / WhatsApp / Google Chat / LINE，会话映射、分发 worker、共享 WebSocket 工具、进程管理器、嵌入式 Webhook 服务器）
+  channel/              IM 渠道系统（12 个插件，会话映射、分发 worker、共享 WebSocket 工具）
+    worker/             消息分发器（dispatcher/streaming/media/slash 拆分）
   tools/                31 个内置工具（按工具拆分子模块）
-  skills.rs             技能系统（SKILL.md 发现 + 懒加载）
+    definitions/        工具定义注册（types/core_tools/special_tools/plan_tools/registry 拆分）
+    image_generate/     AI 图片生成（types/helpers/generate/output + 7 个 Provider）
+  skills/               技能系统（types/frontmatter/requirements/discovery/prompt/slash 拆分）
   slash_commands/       斜杠命令系统
-  plan.rs               Plan Mode（子 Agent 制定计划 + 主 Agent 执行，六态状态机）
-  memory.rs             记忆系统（SQLite + FTS5 + 向量检索）
-  context_compact.rs    上下文压缩（5 层渐进式：Tier 0 微压缩 → Tier 1 截断 → Tier 2 裁剪 → Tier 3 LLM 摘要 + 后压缩文件恢复 → Tier 4 紧急，API-Round 分组保护 tool 配对）
-  subagent.rs           子 Agent 系统
-  cron.rs               定时任务调度
+  plan/                 Plan Mode 六态状态机（types/constants/store/subagent/file_io/parser/git 拆分）
+  memory/               记忆系统（SQLite + FTS5 + 向量检索）
+    embedding/          Embedding 提供者（config/utils/api_provider/local_provider/fallback_provider/factory）
+    sqlite/             SQLite 后端（prompt/backend/trait_impl 拆分）
+  context_compact/      上下文压缩（5 层渐进式）
+  subagent/             子 Agent 系统
+  cron/                 定时任务调度
   sandbox.rs            Docker 沙箱
   acp/                  ACP 协议服务器（IDE 直连）
   acp_control/          ACP 控制面客户端
-  provider.rs           Provider 数据模型 & 持久化
-  session.rs            会话持久化（SQLite）
+  provider/             Provider 数据模型（types/proxy/store/persistence 拆分）
+  session/              会话持久化（SQLite）
   paths.rs              统一路径管理（~/.opencomputer/）
   failover.rs           模型降级 & 重试策略
-  system_prompt.rs      系统提示词模块化拼装（per-tool 描述 + 行为指导）
-  dashboard.rs          数据大盘聚合查询
-  logging.rs            统一日志（SQLite + 纯文本双写）
+  system_prompt/        系统提示词模块化拼装（constants/build/sections/helpers 拆分）
+  chat_engine/          聊天引擎（types/context/engine 拆分）
+  docker/               Docker 服务管理（status/deploy/lifecycle/helpers/proxy 拆分）
+  dashboard/            数据大盘聚合查询（types/cost/filters/queries/detail_queries 拆分）
+  logging/              统一日志（types/db/file_writer/app_logger/file_ops/config 拆分）
+  commands/             Tauri 命令层
+    provider/           Provider 管理命令（crud/test_provider/test_embedding/test_image/models 拆分）
 ```
 
 ## 技术栈
@@ -133,11 +142,16 @@ src-tauri/src/          后端（Rust）
 
 ## 文档维护
 
+技术文档索引见 [`docs/README.md`](docs/README.md)，分为架构文档（`docs/architecture/`）和历史文档（`docs/history/`）。
+
 代码改动时**必须同步更新文档**：
 
-| 改动类型                  | 需更新                      |
-| ------------------------- | --------------------------- |
-| 新增/删除功能、命令、模块 | `CHANGELOG.md`、`AGENTS.md` |
-| 技术栈/架构/规范变更      | `AGENTS.md`                 |
+| 改动类型                  | 需更新                                          |
+| ------------------------- | ----------------------------------------------- |
+| 新增/删除功能、命令、模块 | `CHANGELOG.md`、`AGENTS.md`                     |
+| 技术栈/架构/规范变更      | `AGENTS.md`                                     |
+| 子系统架构变更            | `docs/architecture/` 对应文档                   |
+| 新增阶段性实现            | `docs/history/` 新建阶段记录                    |
 
 - `CHANGELOG.md`：[Keep a Changelog](https://keepachangelog.com/) 格式
+- `docs/README.md`：文档索引，新增/删除文档时同步更新

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **后端代码结构化重构**：14 个超大 Rust 文件（800-1875 行）拆分为子目录模块，每个文件 200-600 行。涉及 `dashboard/`、`system_prompt/`、`logging/`、`skills/`、`provider/`、`docker/`、`chat_engine/`、`plan/`、`tools/definitions/`、`commands/provider/`、`tools/image_generate/`、`memory/embedding/`、`memory/sqlite/`、`channel/worker/`。纯代码移动，通过 `pub use` 再导出保持所有外部 API 路径不变
+
 ### Added
 
 - **工具并发执行**：`ToolDefinition` 新增 `concurrent_safe` 标志，只读工具（read/grep/ls/find/web_search 等 16 个）在同一轮次内并行执行（`futures::join_all`），写入工具保持串行。四种 Provider（Anthropic/OpenAI Chat/OpenAI Responses/Codex）统一支持
