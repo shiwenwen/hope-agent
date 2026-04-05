@@ -383,7 +383,7 @@ OpenClaw 附带大量开箱即用的 Skill 目录（按类别）：
 | **Skill 格式** | SKILL.md + YAML | SKILL.md + YAML + 编程式 | SKILL.md + YAML (JSON metadata) |
 | **自研 Frontmatter 解析** | 是（Rust 手写） | 否（通用库） | 否（通用库） |
 | **发现层数** | 3 | 6+ | 7 |
-| **优先级覆盖** | 名称去重��盖 | realpath 去重 | 名称去重覆盖 |
+| **优先级覆盖** | 名称去重覆盖 | realpath 去重 | 名称去重覆盖 |
 | **缓存机制** | 30s TTL + 版本号 | memoize（进程级） | 无显式缓存（同步加载） |
 | **条件激活（paths）** | 无 | 有（文件路径匹配） | 无 |
 | **工具隔离** | Schema + 执行层双重防护 | allowedTools 字段 | 无专用机制 |

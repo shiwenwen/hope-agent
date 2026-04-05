@@ -1098,7 +1098,7 @@
     "ircNickserv": "NickServ 密码",
     "ircChannels": "自动加入频道",
     "signalAccount": "手机号",
-    "signalHint": "需要本地安装 signal-cli 并完成注���。先运行 signal-cli link 或 signal-cli register",
+    "signalHint": "需要本地安装 signal-cli 并完成注册。先运行 signal-cli link 或 signal-cli register",
     "imessageHint": "仅 macOS。需要安装 imsg CLI 工具并添加到 PATH",
     "whatsappBaseUrl": "桥接服务地址",
     "whatsappBridgeToken": "认证令牌（可选）",

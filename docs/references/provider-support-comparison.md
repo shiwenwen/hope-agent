@@ -335,7 +335,7 @@ DEFAULT_CONTEXT_TOKENS = 200_000;
 | `auth` | 跳过当前 profile |
 | `auth_permanent` | 永久禁用 profile |
 | `format` | 跳过当前模型（400 请求格式错误） |
-| `rate_limit` | 冷却 + 轮转 profile/模��� |
+| `rate_limit` | 冷却 + 轮转 profile/模型 |
 | `overloaded` | 冷却 + 轮转 |
 | `billing` | 跳过当前 profile |
 | `timeout` | 轮转（也可冷却探测） |

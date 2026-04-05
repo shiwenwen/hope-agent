@@ -121,7 +121,7 @@ recall_memory, memory_get, subagent                  // 记忆和委托
 
 ### 2.3 Docker 沙箱
 
-**��件**：`src-tauri/src/sandbox.rs`
+**文件**：`src-tauri/src/sandbox.rs`
 
 #### 安全硬化配置（`SandboxConfig`）
 
@@ -463,7 +463,7 @@ type SecurityAuditReport = {
 
 #### 外部内容安全
 
-**文��**：`src/security/external-content.ts`
+**文件**：`src/security/external-content.ts`
 
 防止 Prompt 注入攻击：
 - 检测 14 种可疑模式（`SUSPICIOUS_PATTERNS`），如 "ignore previous instructions"、"system: override" 等
