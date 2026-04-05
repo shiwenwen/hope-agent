@@ -9,7 +9,7 @@
 | 文档 | 说明 |
 |------|------|
 | [系统架构总览](architecture/overview.md) | 技术栈、架构全景图、核心数据流、模块依赖、存储架构 |
-| [Workspace 三 Crate 架构](architecture/workspace-architecture.md) | oc-core/oc-server/src-tauri 分层设计、运行模式、EventBus、Transport 层、Guardian 保活、HTTP API 端点、初始化流程、多客户端支持 |
+| [前后端分离架构](architecture/backend-separation.md) | 三层架构设计（核心库/HTTP 服务/桌面壳）、运行模式、EventBus、Transport 层、Guardian 保活、HTTP API 端点、初始化流程、多客户端支持 |
 
 ---
 

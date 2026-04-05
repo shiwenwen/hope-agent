@@ -6,7 +6,7 @@
 
 基于 Rust 的本地 AI 助手，支持三种运行模式：桌面 GUI（Tauri）、HTTP/WS 守护进程、ACP stdio。核心设计目标：**一切复杂逻辑在 oc-core**（零 Tauri 依赖），前端只负责展示和交互，Tauri 和 HTTP 服务都是薄壳。
 
-> 三 Crate 架构详细设计见 [Workspace 架构](workspace-architecture.md)
+> 三层架构详细设计见 [前后端分离架构](backend-separation.md)
 
 ## 技术栈
 

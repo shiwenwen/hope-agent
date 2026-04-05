@@ -1,10 +1,10 @@
-# Workspace 三 Crate 架构
+# 前后端分离架构
 
 > 返回 [文档索引](../README.md) | 关联源码：`Cargo.toml`, `crates/oc-core/`, `crates/oc-server/`, `src-tauri/`
 
 ## 设计目标
 
-将 OpenComputer 从 Tauri 单体应用重构为三 Crate Workspace，实现：
+将 OpenComputer 从 Tauri 单体应用重构为三层架构（核心库 / HTTP 服务 / 桌面壳），实现：
 
 1. **核心逻辑框架无关** — `oc-core` 零 Tauri 依赖，可被任何 Rust 程序引用
 2. **多入口运行** — 桌面 GUI、HTTP 守护进程、CLI stdio 三种模式共享同一核心
