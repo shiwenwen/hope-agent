@@ -224,7 +224,7 @@ pub fn plans_dir() -> Result<PathBuf> {
     Ok(root_dir()?.join("plans"))
 }
 
-// ── Directory Initialization ────────���────────────────────────────
+// ── Directory Initialization ──────────────────────────────────────
 
 /// Ensure all required directories exist.
 pub fn ensure_dirs() -> Result<()> {

@@ -20,7 +20,7 @@ use super::types::*;
 /// - Format/Chunking → markdown_to_native / chunk_message
 #[async_trait]
 pub trait ChannelPlugin: Send + Sync + 'static {
-    // ── Metadata ────���────────────────────────────────────────────
+    // ── Metadata ──────────────────────────────────────────────────
 
     /// Static metadata about this channel plugin.
     fn meta(&self) -> ChannelMeta;
@@ -108,7 +108,7 @@ pub trait ChannelPlugin: Send + Sync + 'static {
     /// Check whether the sender in `msg` is allowed based on `account` security rules.
     fn check_access(&self, account: &ChannelAccountConfig, msg: &MsgContext) -> bool;
 
-    // ── Format Conversion ��───────────────────────────────────────
+    // ── Format Conversion ─────────────────────────────────────────
 
     /// Convert Markdown text to the channel's native rich-text format.
     /// For Telegram this is HTML, for Discord it's native Markdown, etc.
