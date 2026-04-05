@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react"
-import { invoke } from "@tauri-apps/api/core"
-import { listen, type UnlistenFn } from "@tauri-apps/api/event"
+import { getTransport } from "@/lib/transport-provider"
 import { save } from "@tauri-apps/plugin-dialog"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
@@ -103,7 +102,7 @@ export default function ChatScreen({
   // Rename session handler
   const handleRenameSession = useCallback(async (sessionId: string, title: string) => {
     try {
-      await invoke("rename_session_cmd", { sessionId, title })
+      await getTransport().call("rename_session_cmd", { sessionId, title })
       reloadSessions()
     } catch (err) {
       logger.error("chat", "ChatScreen::renameSession", "Failed to rename session", err)
@@ -119,21 +118,19 @@ export default function ChatScreen({
 
   // Listen for tray "new-session" event to trigger new chat
   useEffect(() => {
-    let unlisten: UnlistenFn | undefined
-    listen("new-session", () => {
+    return getTransport().listen("new-session", () => {
       handleNewChat(currentAgentId)
-    }).then((fn) => { unlisten = fn })
-    return () => { unlisten?.() }
+    })
   }, [handleNewChat, currentAgentId])
 
   // Listen for channel slash command state-sync events
   useEffect(() => {
-    const unlisteners: Promise<UnlistenFn>[] = []
+    const unlisteners: Array<() => void> = []
 
     // Model switched from channel (/model)
     unlisteners.push(
-      listen("slash:model_switched", (event) => {
-        const { providerId, modelId } = event.payload as {
+      getTransport().listen("slash:model_switched", (payload) => {
+        const { providerId, modelId } = payload as {
           providerId: string
           modelId: string
         }
@@ -144,15 +141,15 @@ export default function ChatScreen({
 
     // Effort changed from channel (/think)
     unlisteners.push(
-      listen("slash:effort_changed", (event) => {
-        setReasoningEffort(event.payload as string)
+      getTransport().listen("slash:effort_changed", (payload) => {
+        setReasoningEffort(payload as string)
       }),
     )
 
     // Session cleared from channel (/clear)
     unlisteners.push(
-      listen("slash:session_cleared", (event) => {
-        const clearedSid = event.payload as string
+      getTransport().listen("slash:session_cleared", (payload) => {
+        const clearedSid = payload as string
         if (clearedSid === session.currentSessionId) {
           session.setMessages([])
         }
@@ -162,17 +159,13 @@ export default function ChatScreen({
 
     // Plan state changed from channel (/plan)
     unlisteners.push(
-      listen("slash:plan_changed", () => {
+      getTransport().listen("slash:plan_changed", () => {
         session.reloadSessions()
       }),
     )
 
     return () => {
-      Promise.allSettled(unlisteners).then((results) => {
-        for (const r of results) {
-          if (r.status === "fulfilled") r.value()
-        }
-      })
+      unlisteners.forEach((fn) => fn())
     }
   }, [session.currentSessionId]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -181,10 +174,10 @@ export default function ChatScreen({
     ;(async () => {
       try {
         const [models, active, settings, agentConfig] = await Promise.all([
-          invoke<AvailableModel[]>("get_available_models"),
-          invoke<ActiveModel | null>("get_active_model"),
-          invoke<{ model: string; reasoning_effort: string }>("get_current_settings"),
-          invoke<{
+          getTransport().call<AvailableModel[]>("get_available_models"),
+          getTransport().call<ActiveModel | null>("get_active_model"),
+          getTransport().call<{ model: string; reasoning_effort: string }>("get_current_settings"),
+          getTransport().call<{
             name: string
             emoji?: string | null
             avatar?: string | null
@@ -244,18 +237,17 @@ export default function ChatScreen({
   const memoryToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
-    let unlisten: UnlistenFn | undefined
-    listen<{ count: number; sessionId: string }>("memory_extracted", (event) => {
-      const { count, sessionId } = event.payload
+    const unlisten = getTransport().listen("memory_extracted", (raw) => {
+      const { count, sessionId } = raw as { count: number; sessionId: string }
       // Only show toast for the current session
       if (sessionId === session.currentSessionId && count > 0) {
         setMemoryToast({ count })
         if (memoryToastTimer.current) clearTimeout(memoryToastTimer.current)
         memoryToastTimer.current = setTimeout(() => setMemoryToast(null), 4000)
       }
-    }).then((fn) => { unlisten = fn })
+    })
     return () => {
-      unlisten?.()
+      unlisten()
       if (memoryToastTimer.current) clearTimeout(memoryToastTimer.current)
     }
   }, [session.currentSessionId])
@@ -277,7 +269,7 @@ export default function ChatScreen({
   const loadSystemPrompt = useCallback(async () => {
     setSystemPromptLoading(true)
     try {
-      const prompt = await invoke<string>("get_system_prompt", {
+      const prompt = await getTransport().call<string>("get_system_prompt", {
         agentId: session.currentAgentId,
       })
       setSystemPromptContent(prompt)
@@ -313,7 +305,7 @@ export default function ChatScreen({
           // in the sidebar. The backend-created session is deleted to avoid DB clutter.
           session.handleNewChat(session.currentAgentId)
           if (action.sessionId) {
-            invoke("delete_session_cmd", { sessionId: action.sessionId })
+            getTransport().call("delete_session_cmd", { sessionId: action.sessionId })
               .then(() => session.reloadSessions())
               .catch(() => {})
           }
@@ -334,7 +326,7 @@ export default function ChatScreen({
           if (session.currentSessionId) {
             setCompacting(true)
             try {
-              await invoke("compact_context_now", {
+              await getTransport().call("compact_context_now", {
                 sessionId: session.currentSessionId,
               })
             } catch (e) {
@@ -361,7 +353,7 @@ export default function ChatScreen({
               filters: [{ name: "Markdown", extensions: ["md"] }],
             })
             if (filePath) {
-              await invoke("write_export_file", {
+              await getTransport().call("write_export_file", {
                 path: filePath,
                 content: action.content,
               })
@@ -434,7 +426,7 @@ export default function ChatScreen({
       // Send feedback back to LLM, which will revise the plan
       setPlanState("planning")
       if (currentSessionId) {
-        invoke("set_plan_mode", { sessionId: currentSessionId, state: "planning" }).catch(() => {})
+        getTransport().call("set_plan_mode", { sessionId: currentSessionId, state: "planning" }).catch(() => {})
       }
       sendMessage(feedback)
     },

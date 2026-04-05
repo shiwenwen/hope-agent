@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
@@ -76,7 +76,7 @@ export default function AcpControlPanel() {
 
   const loadConfig = useCallback(async () => {
     try {
-      const cfg = await invoke<AcpControlConfig>("acp_get_config")
+      const cfg = await getTransport().call<AcpControlConfig>("acp_get_config")
       setConfig(cfg)
       setSavedSnapshot(JSON.stringify(cfg))
     } catch (e) {
@@ -87,7 +87,7 @@ export default function AcpControlPanel() {
   const loadBackends = useCallback(async () => {
     try {
       setChecking(true)
-      const list = await invoke<AcpBackendInfo[]>("acp_list_backends")
+      const list = await getTransport().call<AcpBackendInfo[]>("acp_list_backends")
       setBackends(list)
     } catch (e) {
       logger.error("settings", "AcpControlPanel", `Failed to load ACP backends: ${e}`)
@@ -105,7 +105,7 @@ export default function AcpControlPanel() {
     setSaving(true)
     setSaveStatus("idle")
     try {
-      await invoke("acp_set_config", { config })
+      await getTransport().call("acp_set_config", { config })
       setSavedSnapshot(JSON.stringify(config))
       setSaveStatus("saved")
       setTimeout(() => setSaveStatus("idle"), 2000)

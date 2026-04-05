@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
@@ -243,7 +243,7 @@ export default function ProviderSettings({
   async function loadProviders() {
     setLoading(true)
     try {
-      const list = await invoke<ProviderConfig[]>("get_providers")
+      const list = await getTransport().call<ProviderConfig[]>("get_providers")
       setProviders(list)
     } catch (e) {
       logger.error("settings", "ProviderSettings::load", "Failed to load providers", e)
@@ -255,7 +255,7 @@ export default function ProviderSettings({
   async function deleteProvider(id: string) {
     if (!confirm(t("provider.confirmDelete"))) return
     try {
-      await invoke("delete_provider", { providerId: id })
+      await getTransport().call("delete_provider", { providerId: id })
       await loadProviders()
     } catch (e) {
       logger.error("settings", "ProviderSettings::delete", "Failed to delete provider", e)
@@ -265,7 +265,7 @@ export default function ProviderSettings({
 
   async function toggleProvider(provider: ProviderConfig) {
     try {
-      await invoke("update_provider", {
+      await getTransport().call("update_provider", {
         config: { ...provider, enabled: !provider.enabled },
       })
       await loadProviders()
@@ -282,7 +282,7 @@ export default function ProviderSettings({
     const newIndex = providers.findIndex((p) => p.id === over.id)
     const updated = arrayMove(providers, oldIndex, newIndex)
     setProviders(updated)
-    invoke("reorder_providers", {
+    getTransport().call("reorder_providers", {
       providerIds: updated.map((p) => p.id),
     }).catch((e) =>
       logger.error("settings", "ProviderSettings::reorder", "Failed to reorder providers", e),

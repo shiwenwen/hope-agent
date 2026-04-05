@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
-import { invoke } from "@tauri-apps/api/core"
-import { listen } from "@tauri-apps/api/event"
+import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
@@ -23,7 +22,7 @@ export default function CronPanel() {
 
   const fetchJobs = useCallback(async () => {
     try {
-      const result = await invoke<CronJob[]>("cron_list_jobs")
+      const result = await getTransport().call<CronJob[]>("cron_list_jobs")
       setJobs(result)
     } catch {
       // ignore
@@ -38,12 +37,9 @@ export default function CronPanel() {
 
   // Listen for cron:run_completed events
   useEffect(() => {
-    const unlisten = listen("cron:run_completed", () => {
+    return getTransport().listen("cron:run_completed", () => {
       fetchJobs()
     })
-    return () => {
-      unlisten.then((f) => f())
-    }
   }, [fetchJobs])
 
   const filteredJobs = jobs.filter((job) => {
@@ -54,17 +50,17 @@ export default function CronPanel() {
 
   async function handleToggle(job: CronJob) {
     const enabled = job.status !== "active"
-    await invoke("cron_toggle_job", { id: job.id, enabled })
+    await getTransport().call("cron_toggle_job", { id: job.id, enabled })
     fetchJobs()
   }
 
   async function handleDelete(job: CronJob) {
-    await invoke("cron_delete_job", { id: job.id })
+    await getTransport().call("cron_delete_job", { id: job.id })
     fetchJobs()
   }
 
   async function handleRunNow(job: CronJob) {
-    await invoke("cron_run_now", { id: job.id })
+    await getTransport().call("cron_run_now", { id: job.id })
     setTimeout(fetchJobs, 2000)
   }
 

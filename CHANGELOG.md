@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Cargo Workspace 三 Crate 分离**：将单体 `src-tauri` 拆分为 Cargo workspace，包含 `oc-core`（核心业务逻辑，零 Tauri 依赖，~30 个模块）、`oc-server`（axum HTTP/WS 守护进程）、`src-tauri`（Tauri 桌面薄壳）三个 crate
+- **HTTP/WS 服务器模式**：新增 `crates/oc-server/`，基于 axum 提供完整的 REST API 端点和 WebSocket 流式推送，使 OpenComputer 可脱离桌面 GUI 以守护进程形式运行
+- **`opencomputer server` CLI**：新增 server 子命令，支持 `start`（前台启动）、`install`（注册系统服务）、`uninstall`（卸载系统服务）、`status`（查看运行状态）、`stop`（停止服务）
+- **系统服务注册**：macOS 自动生成 launchd plist（`~/Library/LaunchAgents/`），Linux 自动生成 systemd unit（`~/.config/systemd/user/`），支持开机自启
+- **前端 Transport 抽象层**：新增 `src/lib/transport.ts` 统一接口 + `transport-tauri.ts`（Tauri IPC）和 `transport-http.ts`（HTTP/WS）双实现，业务代码无需感知底层传输协议
+- **EventBus 事件总线**：`oc-core` 新增 `EventBus` 替代 Tauri `APP_HANDLE` 事件发射，使核心逻辑完全脱离 Tauri 框架依赖
+- **Guardian 统一心跳**：桌面模式和服务器模式共用 Guardian keepalive 机制
+
 ### Changed
 
 - **后端代码结构化重构**：14 个超大 Rust 文件（800-1875 行）拆分为子目录模块，每个文件 200-600 行。涉及 `dashboard/`、`system_prompt/`、`logging/`、`skills/`、`provider/`、`docker/`、`chat_engine/`、`plan/`、`tools/definitions/`、`commands/provider/`、`tools/image_generate/`、`memory/embedding/`、`memory/sqlite/`、`channel/worker/`。纯代码移动，通过 `pub use` 再导出保持所有外部 API 路径不变

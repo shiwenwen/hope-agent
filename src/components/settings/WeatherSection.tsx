@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
@@ -115,7 +115,7 @@ export function WeatherSection({ config, update }: WeatherSectionProps) {
   const performSearch = async (query: string) => {
     setIsSearching(true)
     try {
-      const results: GeocodeResult[] = await invoke("geocode_search", { query })
+      const results: GeocodeResult[] = await getTransport().call("geocode_search", { query })
       setSearchResults(results)
       setShowDropdown(true)
     } catch (e) {
@@ -131,7 +131,7 @@ export function WeatherSection({ config, update }: WeatherSectionProps) {
     setWeatherError(false)
     try {
       const city = config.weatherCity || "Unknown"
-      const weather: WeatherData = await invoke("preview_weather", {
+      const weather: WeatherData = await getTransport().call("preview_weather", {
         lat: config.weatherLatitude,
         lon: config.weatherLongitude,
         city
@@ -156,7 +156,7 @@ export function WeatherSection({ config, update }: WeatherSectionProps) {
         admin1?: string | null
         country?: string | null
         source: string
-      } = await invoke("detect_location")
+      } = await getTransport().call("detect_location")
 
       update("weatherLatitude", result.latitude)
       update("weatherLongitude", result.longitude)

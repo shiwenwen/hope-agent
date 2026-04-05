@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { IconTip } from "@/components/ui/tooltip"
@@ -167,7 +167,7 @@ export default function ChatTitleBar({
                   onClick={async () => {
                     setCompacting(true)
                     try {
-                      const result = await invoke<{
+                      const result = await getTransport().call<{
                         tierApplied: number
                         tokensBefore: number
                         tokensAfter: number
@@ -299,7 +299,7 @@ export default function ChatTitleBar({
                           onClick={async () => {
                             setCompacting(true)
                             try {
-                              const result = await invoke<{
+                              const result = await getTransport().call<{
                                 tierApplied: number
                                 tokensBefore: number
                                 tokensAfter: number

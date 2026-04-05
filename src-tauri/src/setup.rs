@@ -1,5 +1,5 @@
-use crate::globals::{APP_HANDLE, CRON_DB};
-use crate::{cron, docker, get_logger, provider, session, tools, tray, weather};
+use crate::globals::APP_HANDLE;
+use crate::{cron, docker, get_logger, provider, session, tools, tray, weather, CRON_DB};
 use session::SessionDB;
 use std::sync::Arc;
 
@@ -90,6 +90,33 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
         }
     }
 
+    // Start embedded HTTP/WS server for web clients and external tools
+    {
+        let session_db = oc_core::get_session_db().cloned().unwrap_or_else(|| {
+            let db_path = session::db_path().expect("session db path");
+            Arc::new(SessionDB::open(&db_path).expect("open session db"))
+        });
+        let event_bus = oc_core::get_event_bus().cloned().unwrap_or_else(|| {
+            Arc::new(oc_core::event_bus::BroadcastEventBus::new(256))
+        });
+        let ctx = Arc::new(oc_server::AppContext {
+            session_db,
+            event_bus,
+            chat_streams: Arc::new(oc_server::ws::chat_stream::ChatStreamRegistry::new()),
+            chat_cancels: Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
+        });
+        let config = oc_server::ServerConfig {
+            bind_addr: "127.0.0.1:8420".to_string(),
+            api_key: None,
+            cors_origins: Vec::new(),
+        };
+        tauri::async_runtime::spawn(async move {
+            if let Err(e) = oc_server::start_server(config, ctx).await {
+                eprintln!("[embedded-server] Failed to start: {}", e);
+            }
+        });
+    }
+
     // Start cron scheduler on dedicated thread with its own tokio runtime
     if let (Some(cron_db), Ok(db_path)) = (CRON_DB.get(), session::db_path()) {
         if let Ok(session_db) = SessionDB::open(&db_path) {
@@ -97,6 +124,11 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
             // Thread runs until app exits
         }
     }
+
+    // Start background async tasks (channel auto-start, ACP discovery) — requires async runtime
+    tauri::async_runtime::spawn(async {
+        oc_core::start_background_tasks().await;
+    });
 
     // Auto-start Docker SearXNG if previously configured
     auto_start_searxng_docker();
@@ -122,8 +154,8 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
                 key_to_register.parse::<tauri_plugin_global_shortcut::Shortcut>()
             {
                 if let Err(e) = app.global_shortcut().register(shortcut) {
-                    log::warn!(
-                        "Failed to register shortcut '{}' ({}): {}",
+                    eprintln!(
+                        "[setup] Failed to register shortcut '{}' ({}): {}",
                         binding.id,
                         key_to_register,
                         e

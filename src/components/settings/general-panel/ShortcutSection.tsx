@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { Switch } from "@/components/ui/switch"
@@ -90,7 +90,7 @@ export default function ShortcutSection() {
 
   useEffect(() => {
     let cancelled = false
-    invoke<ShortcutConfig>("get_shortcut_config")
+    getTransport().call<ShortcutConfig>("get_shortcut_config")
       .then((sc) => {
         if (cancelled) return
         setShortcuts(sc)
@@ -105,9 +105,9 @@ export default function ShortcutSection() {
   // Pause/resume global shortcuts when recording starts/stops
   useEffect(() => {
     if (recordingId) {
-      invoke("set_shortcuts_paused", { paused: true }).catch(() => {})
+      getTransport().call("set_shortcuts_paused", { paused: true }).catch(() => {})
     } else {
-      invoke("set_shortcuts_paused", { paused: false }).catch(() => {})
+      getTransport().call("set_shortcuts_paused", { paused: false }).catch(() => {})
       setChordFirstPart(null)
       if (chordTimerRef.current) { clearTimeout(chordTimerRef.current); chordTimerRef.current = null }
     }
@@ -115,7 +115,7 @@ export default function ShortcutSection() {
 
   // Ensure shortcuts are resumed if component unmounts during recording
   useEffect(() => {
-    return () => { invoke("set_shortcuts_paused", { paused: false }).catch(() => {}) }
+    return () => { getTransport().call("set_shortcuts_paused", { paused: false }).catch(() => {}) }
   }, [])
 
   useEffect(() => {
@@ -164,7 +164,7 @@ export default function ShortcutSection() {
     if (!shortcuts) return
     setShortcutSaving(true)
     try {
-      await invoke("save_shortcut_config", { config: shortcuts })
+      await getTransport().call("save_shortcut_config", { config: shortcuts })
       shortcutSavedRef.current = JSON.stringify(shortcuts)
       setShortcutDirty(false)
       setShortcutSaveStatus("saved")

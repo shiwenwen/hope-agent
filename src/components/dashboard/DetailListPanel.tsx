@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { X, MessageSquare, Wrench, AlertTriangle, Bot, Clock, MessagesSquare } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -51,7 +51,7 @@ function useListData<T>(command: string, params: Record<string, unknown>) {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const result = await invoke<T[]>(command, params)
+      const result = await getTransport().call<T[]>(command, params)
       setData(result)
     } catch (e) {
       logger.error("dashboard", command, `${e}`)

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { Loader2, Check } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
@@ -39,7 +39,7 @@ export default function CanvasSettingsPanel() {
   const isDirty = JSON.stringify(config) !== savedSnapshot
 
   useEffect(() => {
-    invoke<CanvasConfig>("get_canvas_config")
+    getTransport().call<CanvasConfig>("get_canvas_config")
       .then((c) => {
         setConfig(c)
         setSavedSnapshot(JSON.stringify(c))
@@ -50,7 +50,7 @@ export default function CanvasSettingsPanel() {
   const handleSave = async () => {
     setSaving(true)
     try {
-      await invoke("save_canvas_config", { config })
+      await getTransport().call("save_canvas_config", { config })
       setSavedSnapshot(JSON.stringify(config))
       setSaveStatus("saved")
       setTimeout(() => setSaveStatus("idle"), 2000)

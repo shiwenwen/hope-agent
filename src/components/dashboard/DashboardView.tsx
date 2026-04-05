@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -69,7 +69,7 @@ export default function DashboardView({ onBack }: { onBack: () => void }) {
 
   const loadOverview = useCallback(async () => {
     try {
-      const data = await invoke<OverviewStats>("dashboard_overview", { filter })
+      const data = await getTransport().call<OverviewStats>("dashboard_overview", { filter })
       setOverview(data)
     } catch (e) {
       logger.error("dashboard", "loadOverview", `Failed: ${e}`)
@@ -78,7 +78,7 @@ export default function DashboardView({ onBack }: { onBack: () => void }) {
 
   // Load agent names once on mount
   useEffect(() => {
-    invoke<{ id: string; name: string; emoji?: string | null }[]>("list_agents")
+    getTransport().call<{ id: string; name: string; emoji?: string | null }[]>("list_agents")
       .then(setAgents)
       .catch(() => {})
   }, [])
@@ -88,38 +88,38 @@ export default function DashboardView({ onBack }: { onBack: () => void }) {
       try {
         switch (tab) {
           case "tokens": {
-            const td = await invoke<DashboardTokenData>("dashboard_token_usage", {
+            const td = await getTransport().call<DashboardTokenData>("dashboard_token_usage", {
               filter,
             })
             setTokenData(td)
             break
           }
           case "tools": {
-            const tld = await invoke<ToolUsageStats[]>("dashboard_tool_usage", { filter })
+            const tld = await getTransport().call<ToolUsageStats[]>("dashboard_tool_usage", { filter })
             setToolData(tld)
             break
           }
           case "sessions": {
-            const sd = await invoke<DashboardSessionData>("dashboard_sessions", {
+            const sd = await getTransport().call<DashboardSessionData>("dashboard_sessions", {
               filter,
             })
             setSessionData(sd)
             break
           }
           case "errors": {
-            const ed = await invoke<DashboardErrorData>("dashboard_errors", {
+            const ed = await getTransport().call<DashboardErrorData>("dashboard_errors", {
               filter,
             })
             setErrorData(ed)
             break
           }
           case "tasks": {
-            const tkd = await invoke<DashboardTaskData>("dashboard_tasks", { filter })
+            const tkd = await getTransport().call<DashboardTaskData>("dashboard_tasks", { filter })
             setTaskData(tkd)
             break
           }
           case "system": {
-            const sm = await invoke<SystemMetrics>("dashboard_system_metrics")
+            const sm = await getTransport().call<SystemMetrics>("dashboard_system_metrics")
             setSystemMetrics(sm)
             break
           }

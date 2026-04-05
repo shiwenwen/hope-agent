@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import type { LogConfig, LogEntry, LogFileInfo, LogFilter, LogQueryResult, LogStats } from "../types"
 import LogActionBar from "./LogActionBar"
@@ -63,7 +63,7 @@ export default function LogPanel() {
   const fetchLogs = useCallback(async () => {
     setLoading(true)
     try {
-      const result = await invoke<LogQueryResult>("query_logs_cmd", {
+      const result = await getTransport().call<LogQueryResult>("query_logs_cmd", {
         filter: buildFilter(),
         page,
         pageSize,
@@ -79,7 +79,7 @@ export default function LogPanel() {
 
   const fetchStats = useCallback(async () => {
     try {
-      const s = await invoke<LogStats>("get_log_stats_cmd")
+      const s = await getTransport().call<LogStats>("get_log_stats_cmd")
       setStats(s)
     } catch (e) {
       logger.error("settings", "LogPanel::getStats", "Failed to get log stats", e)
@@ -88,7 +88,7 @@ export default function LogPanel() {
 
   const fetchConfig = useCallback(async () => {
     try {
-      const c = await invoke<LogConfig>("get_log_config_cmd")
+      const c = await getTransport().call<LogConfig>("get_log_config_cmd")
       setConfig(c)
     } catch (e) {
       logger.error("settings", "LogPanel::getConfig", "Failed to get log config", e)
@@ -97,7 +97,7 @@ export default function LogPanel() {
 
   const fetchLogFiles = useCallback(async () => {
     try {
-      const files = await invoke<LogFileInfo[]>("list_log_files_cmd")
+      const files = await getTransport().call<LogFileInfo[]>("list_log_files_cmd")
       setLogFiles(files)
     } catch (e) {
       logger.error("settings", "LogPanel::listFiles", "Failed to list log files", e)
@@ -106,7 +106,7 @@ export default function LogPanel() {
 
   const fetchCurrentLogPath = useCallback(async () => {
     try {
-      const path = await invoke<string>("get_log_file_path_cmd")
+      const path = await getTransport().call<string>("get_log_file_path_cmd")
       setCurrentLogPath(path)
     } catch (e) {
       logger.error("settings", "LogPanel::getFilePath", "Failed to get log file path", e)
@@ -116,7 +116,7 @@ export default function LogPanel() {
   const fetchFileContent = useCallback(async (filename: string) => {
     setFileLoading(true)
     try {
-      const content = await invoke<string>("read_log_file_cmd", {
+      const content = await getTransport().call<string>("read_log_file_cmd", {
         filename,
         tailLines: 500,
       })
@@ -181,7 +181,7 @@ export default function LogPanel() {
 
   const handleClearLogs = async () => {
     try {
-      await invoke("clear_logs_cmd", { beforeDate: null })
+      await getTransport().call("clear_logs_cmd", { beforeDate: null })
       await fetchLogs()
       await fetchStats()
     } catch (e) {
@@ -191,7 +191,7 @@ export default function LogPanel() {
 
   const handleSaveConfig = async (newConfig: LogConfig) => {
     try {
-      await invoke("save_log_config_cmd", { config: newConfig })
+      await getTransport().call("save_log_config_cmd", { config: newConfig })
       setConfig(newConfig)
     } catch (e) {
       logger.error("settings", "LogPanel::saveConfig", "Failed to save log config", e)
@@ -200,7 +200,7 @@ export default function LogPanel() {
 
   const handleExport = async (format: string) => {
     try {
-      const content = await invoke<string>("export_logs_cmd", {
+      const content = await getTransport().call<string>("export_logs_cmd", {
         filter: buildFilter(),
         format,
       })

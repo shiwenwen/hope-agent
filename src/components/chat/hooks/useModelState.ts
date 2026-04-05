@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import type { AvailableModel, ActiveModel } from "@/types/chat"
@@ -53,7 +53,7 @@ export function useModelState(): UseModelStateReturn {
   const handleEffortChange = useCallback(async (effort: string) => {
     setReasoningEffort(effort)
     try {
-      await invoke("set_reasoning_effort", { effort })
+      await getTransport().call("set_reasoning_effort", { effort })
     } catch (e) {
       logger.error("ui", "ChatScreen::effortChange", "Failed to set reasoning effort", e)
     }
@@ -65,7 +65,7 @@ export function useModelState(): UseModelStateReturn {
       if (!providerId || !modelId) return
       setActiveModel({ providerId, modelId })
       try {
-        await invoke("set_active_model", { providerId, modelId })
+        await getTransport().call("set_active_model", { providerId, modelId })
       } catch (e) {
         logger.error("ui", "ChatScreen::modelChange", "Failed to set model", e)
       }

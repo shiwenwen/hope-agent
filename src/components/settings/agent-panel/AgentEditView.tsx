@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react"
-import { invoke, convertFileSrc } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
+import { convertFileSrc } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
@@ -46,13 +47,13 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
     async function load() {
       try {
         const [cfg, md, per, tg, skills, tools, models] = await Promise.all([
-          invoke<AgentConfig>("get_agent_config", { id: agentId }),
-          invoke<string | null>("get_agent_markdown", { id: agentId, file: "agent.md" }),
-          invoke<string | null>("get_agent_markdown", { id: agentId, file: "persona.md" }),
-          invoke<string | null>("get_agent_markdown", { id: agentId, file: "tools.md" }),
-          invoke<SkillSummary[]>("get_skills"),
-          invoke<{ name: string; description: string; internal?: boolean }[]>("list_builtin_tools"),
-          invoke<AvailableModel[]>("get_available_models"),
+          getTransport().call<AgentConfig>("get_agent_config", { id: agentId }),
+          getTransport().call<string | null>("get_agent_markdown", { id: agentId, file: "agent.md" }),
+          getTransport().call<string | null>("get_agent_markdown", { id: agentId, file: "persona.md" }),
+          getTransport().call<string | null>("get_agent_markdown", { id: agentId, file: "tools.md" }),
+          getTransport().call<SkillSummary[]>("get_skills"),
+          getTransport().call<{ name: string; description: string; internal?: boolean }[]>("list_builtin_tools"),
+          getTransport().call<AvailableModel[]>("get_available_models"),
         ])
         setAvailableModels(models)
         setAvailableSkills(skills.filter((s) => s.enabled))
@@ -89,11 +90,11 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
     if (!config) return
     setSaving(true)
     try {
-      await invoke("save_agent_config_cmd", { id: agentId, config })
+      await getTransport().call("save_agent_config_cmd", { id: agentId, config })
       await Promise.all([
-        invoke("save_agent_markdown", { id: agentId, file: "agent.md", content: agentMd }),
-        invoke("save_agent_markdown", { id: agentId, file: "persona.md", content: persona }),
-        invoke("save_agent_markdown", { id: agentId, file: "tools.md", content: toolsGuide }),
+        getTransport().call("save_agent_markdown", { id: agentId, file: "agent.md", content: agentMd }),
+        getTransport().call("save_agent_markdown", { id: agentId, file: "persona.md", content: persona }),
+        getTransport().call("save_agent_markdown", { id: agentId, file: "tools.md", content: toolsGuide }),
       ])
       window.dispatchEvent(new Event("agents-changed"))
       setSaveStatus("saved")
@@ -111,7 +112,7 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
     if (agentId === "default") return
     if (!confirm(t("settings.agentDeleteConfirm"))) return
     try {
-      await invoke("delete_agent", { id: agentId })
+      await getTransport().call("delete_agent", { id: agentId })
       window.dispatchEvent(new Event("agents-changed"))
       onBack()
     } catch (e) {
@@ -145,7 +146,7 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
       for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
       const base64 = window.btoa(binary)
       const fileName = `agent_${agentId}_${Date.now()}.png`
-      const savedPath = await invoke<string>("save_avatar", { imageData: base64, fileName })
+      const savedPath = await getTransport().call<string>("save_avatar", { imageData: base64, fileName })
       updateConfig({ avatar: savedPath })
     } catch (e) {
       logger.error("settings", "AgentPanel::saveAvatar", "Failed to save avatar", e)
@@ -213,7 +214,7 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
     else if (lang.startsWith("vi")) locale = "vi"
     else if (lang.startsWith("ms")) locale = "ms"
     try {
-      return await invoke<string>("get_agent_template", { name, locale })
+      return await getTransport().call<string>("get_agent_template", { name, locale })
     } catch {
       return ""
     }

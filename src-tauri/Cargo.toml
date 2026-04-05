@@ -18,6 +18,8 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2.5.6", features = [] }
 
 [dependencies]
+oc-core = { path = "../crates/oc-core" }
+oc-server = { path = "../crates/oc-server" }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
@@ -44,7 +46,7 @@ xcap = "0.9"
 regex = "1.12.3"
 ignore = "0.4.25"
 glob = "0.3.3"
-tauri-plugin-dialog = "2.6.0"
+tauri-plugin-dialog = "2"
 tauri-plugin-autostart = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-process = "2"

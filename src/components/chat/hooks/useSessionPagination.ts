@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { parseSessionMessages } from "../chatUtils"
 import { PAGE_SIZE, SESSION_PAGE_SIZE } from "./constants"
@@ -43,7 +43,7 @@ export function useSessionPagination({
 
   const reloadSessions = useCallback(async () => {
     try {
-      const [list, total] = await invoke<[SessionMeta[], number]>("list_sessions_cmd", {
+      const [list, total] = await getTransport().call<[SessionMeta[], number]>("list_sessions_cmd", {
         limit: SESSION_PAGE_SIZE,
         offset: 0,
       })
@@ -58,7 +58,7 @@ export function useSessionPagination({
     if (loadingMoreSessions || !hasMoreSessions) return
     setLoadingMoreSessions(true)
     try {
-      const [more, total] = await invoke<[SessionMeta[], number]>("list_sessions_cmd", {
+      const [more, total] = await getTransport().call<[SessionMeta[], number]>("list_sessions_cmd", {
         limit: SESSION_PAGE_SIZE,
         offset: sessionsLength,
       })
@@ -88,7 +88,7 @@ export function useSessionPagination({
 
     setLoadingMore(true)
     try {
-      const olderMsgs = await invoke<SessionMessage[]>("load_session_messages_before_cmd", {
+      const olderMsgs = await getTransport().call<SessionMessage[]>("load_session_messages_before_cmd", {
         sessionId: curSid,
         beforeId: oldestId,
         limit: PAGE_SIZE,
@@ -98,7 +98,7 @@ export function useSessionPagination({
         setHasMore(false)
         return
       }
-      const [currentSessions] = await invoke<[SessionMeta[], number]>("list_sessions_cmd", {}).catch(
+      const [currentSessions] = await getTransport().call<[SessionMeta[], number]>("list_sessions_cmd", {}).catch(
         () => [[] as SessionMeta[], 0] as [SessionMeta[], number],
       )
       const sessionMeta = currentSessions.find((s) => s.id === curSid)

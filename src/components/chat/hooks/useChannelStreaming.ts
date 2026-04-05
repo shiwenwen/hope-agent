@@ -1,6 +1,5 @@
 import { useEffect, useRef } from "react"
-import { invoke } from "@tauri-apps/api/core"
-import { listen, type UnlistenFn } from "@tauri-apps/api/event"
+import { getTransport } from "@/lib/transport-provider"
 import { parseSessionMessages } from "../chatUtils"
 import { PAGE_SIZE } from "./constants"
 import type {
@@ -35,10 +34,10 @@ export function useChannelStreaming({
 
   // Listen for channel stream lifecycle — loading state + message placeholder
   useEffect(() => {
-    const listenPromises: Promise<UnlistenFn>[] = []
+    const unlisteners: Array<() => void> = []
 
-    listenPromises.push(listen("channel:stream_start", (event) => {
-      const payload = event.payload as { sessionId: string }
+    unlisteners.push(getTransport().listen("channel:stream_start", (raw) => {
+      const payload = raw as { sessionId: string }
       if (!payload.sessionId) return
       // Mark session as loading
       loadingSessionsRef.current.add(payload.sessionId)
@@ -49,7 +48,7 @@ export function useChannelStreaming({
         setLoading(true)
         // Load latest messages from DB (includes the just-saved user message),
         // then append an empty assistant placeholder for streaming into.
-        invoke<[SessionMessage[], number]>("load_session_messages_latest_cmd", {
+        getTransport().call<[SessionMessage[], number]>("load_session_messages_latest_cmd", {
           sessionId: payload.sessionId,
           limit: PAGE_SIZE,
         }).then(([msgs]) => {
@@ -84,8 +83,8 @@ export function useChannelStreaming({
       }
     }))
 
-    listenPromises.push(listen("channel:stream_end", (event) => {
-      const payload = event.payload as { sessionId: string }
+    unlisteners.push(getTransport().listen("channel:stream_end", (raw) => {
+      const payload = raw as { sessionId: string }
       if (!payload.sessionId) return
       loadingSessionsRef.current.delete(payload.sessionId)
       setLoadingSessionIds(new Set(loadingSessionsRef.current))
@@ -101,7 +100,7 @@ export function useChannelStreaming({
         setLoading(false)
         // Reload messages from DB to get final persisted content
         // (replaces the streaming placeholder with the complete message)
-        invoke<[SessionMessage[], number]>("load_session_messages_latest_cmd", {
+        getTransport().call<[SessionMessage[], number]>("load_session_messages_latest_cmd", {
           sessionId: payload.sessionId,
           limit: PAGE_SIZE,
         }).then(([msgs]) => {
@@ -113,19 +112,14 @@ export function useChannelStreaming({
     }))
 
     return () => {
-      Promise.allSettled(listenPromises).then((results) => {
-        for (const r of results) {
-          if (r.status === "fulfilled") r.value()
-        }
-      })
+      unlisteners.forEach((fn) => fn())
     }
   }, [setLoading, setLoadingSessionIds, reloadSessions, currentSessionIdRef, sessionCacheRef, loadingSessionsRef, setMessages])
 
   // Listen for channel streaming events — full event processing (mirrors useChatStream)
   useEffect(() => {
-    let unlisten: UnlistenFn | undefined
-    listen("channel:stream_delta", (event) => {
-      const payload = event.payload as { sessionId: string; event: string }
+    const unlisten = getTransport().listen("channel:stream_delta", (raw) => {
+      const payload = raw as { sessionId: string; event: string }
       if (!payload.sessionId || payload.sessionId !== currentSessionIdRef.current) return
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -326,16 +320,15 @@ export function useChannelStreaming({
         sessionCacheRef.current.set(sid, updated)
         return updated
       })
-    }).then((fn) => { unlisten = fn })
-    return () => { unlisten?.() }
+    })
+    return unlisten
   }, [currentSessionIdRef, sessionCacheRef, setMessages])
 
   // Listen for channel message updates — refresh sessions + reload current session messages
   // (but SKIP DB reload if the session is currently streaming to avoid overwriting stream state)
   useEffect(() => {
-    let unlisten: UnlistenFn | undefined
-    listen("channel:message_update", (event) => {
-      const payload = event.payload as { sessionId: string }
+    const unlisten = getTransport().listen("channel:message_update", (raw) => {
+      const payload = raw as { sessionId: string }
       reloadSessions()
       // If the session is currently streaming, skip DB reload — stream_end will reload
       if (payload.sessionId && loadingSessionsRef.current.has(payload.sessionId)) {
@@ -343,7 +336,7 @@ export function useChannelStreaming({
       }
       // If the updated session is currently active, reload its messages from DB
       if (payload.sessionId && payload.sessionId === currentSessionIdRef.current) {
-        invoke<[SessionMessage[], number]>("load_session_messages_latest_cmd", {
+        getTransport().call<[SessionMessage[], number]>("load_session_messages_latest_cmd", {
           sessionId: payload.sessionId,
           limit: PAGE_SIZE,
         }).then(([msgs]) => {
@@ -352,11 +345,7 @@ export function useChannelStreaming({
           sessionCacheRef.current.set(payload.sessionId, parsed)
         }).catch(() => {})
       }
-    }).then((fn) => {
-      unlisten = fn
     })
-    return () => {
-      unlisten?.()
-    }
+    return unlisten
   }, [reloadSessions, currentSessionIdRef, loadingSessionsRef, sessionCacheRef, setMessages])
 }

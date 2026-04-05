@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react"
 import { useTranslation } from "react-i18next"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 
@@ -11,7 +11,7 @@ export default function TemporalDecayConfig() {
   const [decayConfig, setDecayConfig] = useState<TemporalDecayConfigData>({ enabled: false, halfLifeDays: 30 })
 
   useEffect(() => {
-    invoke<TemporalDecayConfigData>("get_temporal_decay_config").then(setDecayConfig).catch(() => {})
+    getTransport().call<TemporalDecayConfigData>("get_temporal_decay_config").then(setDecayConfig).catch(() => {})
   }, [])
 
   return (
@@ -23,7 +23,7 @@ export default function TemporalDecayConfig() {
           onCheckedChange={(v) => {
             const updated = { ...decayConfig, enabled: v }
             setDecayConfig(updated)
-            invoke("save_temporal_decay_config", { config: updated }).catch(() => {})
+            getTransport().call("save_temporal_decay_config", { config: updated }).catch(() => {})
           }}
         />
       </div>
@@ -40,7 +40,7 @@ export default function TemporalDecayConfig() {
               if (!isNaN(val) && val > 0) {
                 const updated = { ...decayConfig, halfLifeDays: val }
                 setDecayConfig(updated)
-                invoke("save_temporal_decay_config", { config: updated }).catch(() => {})
+                getTransport().call("save_temporal_decay_config", { config: updated }).catch(() => {})
               }
             }}
             className="h-7 text-xs w-20"

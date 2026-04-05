@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react"
 import { useTranslation } from "react-i18next"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { Button } from "@/components/ui/button"
 import { AlertTriangle, ChevronDown, ChevronUp, X } from "lucide-react"
 
@@ -26,7 +26,7 @@ export default function CrashRecoveryBanner() {
   const [expanded, setExpanded] = useState(false)
 
   useEffect(() => {
-    invoke<RecoveryInfo>("get_crash_recovery_info")
+    getTransport().call<RecoveryInfo>("get_crash_recovery_info")
       .then((data) => {
         if (data.recovered) {
           setInfo(data)

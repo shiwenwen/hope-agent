@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react"
-import { invoke, convertFileSrc } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
+import { convertFileSrc } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { Switch } from "@/components/ui/switch"
 import { Input } from "@/components/ui/input"
@@ -17,7 +18,7 @@ export default function SubagentPanel({ config, currentAgentId, onChange }: Suba
   const [agents, setAgents] = useState<AgentSummary[]>([])
 
   useEffect(() => {
-    invoke<AgentSummary[]>("list_agents")
+    getTransport().call<AgentSummary[]>("list_agents")
       .then((list) => {
         // Exclude self from the list
         setAgents(list.filter((a) => a.id !== currentAgentId))

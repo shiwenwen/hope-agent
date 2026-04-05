@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
@@ -28,7 +28,7 @@ export default function ProxySection() {
 
   useEffect(() => {
     let cancelled = false
-    invoke<ProxyConfig>("get_proxy_config")
+    getTransport().call<ProxyConfig>("get_proxy_config")
       .then((cfg) => {
         if (cancelled) return
         setProxy(cfg)
@@ -43,7 +43,7 @@ export default function ProxySection() {
   const saveProxy = useCallback(async () => {
     setProxySaving(true)
     try {
-      await invoke("save_proxy_config", { config: proxy })
+      await getTransport().call("save_proxy_config", { config: proxy })
       setProxySaved(JSON.stringify(proxy))
       setProxySaveStatus("saved")
       setTimeout(() => setProxySaveStatus("idle"), 2000)
@@ -60,7 +60,7 @@ export default function ProxySection() {
     setProxyTesting(true)
     setProxyTestResult(null)
     try {
-      const msg = await invoke<string>("test_proxy", { config: proxy })
+      const msg = await getTransport().call<string>("test_proxy", { config: proxy })
       setProxyTestResult({ ok: true, msg })
     } catch (e) {
       setProxyTestResult({ ok: false, msg: String(e) })

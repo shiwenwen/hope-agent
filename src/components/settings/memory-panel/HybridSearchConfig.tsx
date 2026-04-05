@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react"
 import { useTranslation } from "react-i18next"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
@@ -31,10 +31,10 @@ export default function HybridSearchConfigSection({ data }: HybridSearchConfigPr
   const [searchTuningExpanded, setSearchTuningExpanded] = useState(false)
 
   useEffect(() => {
-    invoke<HybridSearchConfig>("get_hybrid_search_config").then(setHybridConfig).catch(() => {})
-    invoke<MmrConfig>("get_mmr_config").then(setMmrConfig).catch(() => {})
-    invoke<EmbeddingCacheConfig>("get_embedding_cache_config").then(setCacheConfig).catch(() => {})
-    invoke<MultimodalConfig>("get_multimodal_config").then(setMultimodalConfig).catch(() => {})
+    getTransport().call<HybridSearchConfig>("get_hybrid_search_config").then(setHybridConfig).catch(() => {})
+    getTransport().call<MmrConfig>("get_mmr_config").then(setMmrConfig).catch(() => {})
+    getTransport().call<EmbeddingCacheConfig>("get_embedding_cache_config").then(setCacheConfig).catch(() => {})
+    getTransport().call<MultimodalConfig>("get_multimodal_config").then(setMultimodalConfig).catch(() => {})
   }, [])
 
   return (
@@ -64,7 +64,7 @@ export default function HybridSearchConfigSection({ data }: HybridSearchConfigPr
                   if (!isNaN(val)) {
                     const updated = { ...dedupConfig, thresholdHigh: val }
                     setDedupConfig(updated)
-                    invoke("save_dedup_config", { config: updated }).catch(() => {})
+                    getTransport().call("save_dedup_config", { config: updated }).catch(() => {})
                   }
                 }}
                 className="h-7 text-xs w-24"
@@ -83,7 +83,7 @@ export default function HybridSearchConfigSection({ data }: HybridSearchConfigPr
                   if (!isNaN(val)) {
                     const updated = { ...dedupConfig, thresholdMerge: val }
                     setDedupConfig(updated)
-                    invoke("save_dedup_config", { config: updated }).catch(() => {})
+                    getTransport().call("save_dedup_config", { config: updated }).catch(() => {})
                   }
                 }}
                 className="h-7 text-xs w-24"
@@ -121,7 +121,7 @@ export default function HybridSearchConfigSection({ data }: HybridSearchConfigPr
                 onValueChange={([v]) => {
                   const updated = { ...hybridConfig, vectorWeight: v, textWeight: parseFloat((1 - v).toFixed(1)) }
                   setHybridConfig(updated)
-                  invoke("save_hybrid_search_config", { config: updated }).catch(() => {})
+                  getTransport().call("save_hybrid_search_config", { config: updated }).catch(() => {})
                 }}
               />
             </div>
@@ -138,7 +138,7 @@ export default function HybridSearchConfigSection({ data }: HybridSearchConfigPr
                   onCheckedChange={(v) => {
                     const updated = { ...mmrConfig, enabled: v }
                     setMmrConfig(updated)
-                    invoke("save_mmr_config", { config: updated }).catch(() => {})
+                    getTransport().call("save_mmr_config", { config: updated }).catch(() => {})
                   }}
                 />
               </div>
@@ -155,7 +155,7 @@ export default function HybridSearchConfigSection({ data }: HybridSearchConfigPr
                     onValueChange={([v]) => {
                       const updated = { ...mmrConfig, lambda: v }
                       setMmrConfig(updated)
-                      invoke("save_mmr_config", { config: updated }).catch(() => {})
+                      getTransport().call("save_mmr_config", { config: updated }).catch(() => {})
                     }}
                   />
                   <div className="flex justify-between text-[10px] text-muted-foreground/50">
@@ -175,7 +175,7 @@ export default function HybridSearchConfigSection({ data }: HybridSearchConfigPr
                   onCheckedChange={(v) => {
                     const updated = { ...cacheConfig, enabled: v }
                     setCacheConfig(updated)
-                    invoke("save_embedding_cache_config", { config: updated }).catch(() => {})
+                    getTransport().call("save_embedding_cache_config", { config: updated }).catch(() => {})
                   }}
                 />
               </div>
@@ -191,7 +191,7 @@ export default function HybridSearchConfigSection({ data }: HybridSearchConfigPr
                   onCheckedChange={(v) => {
                     const updated = { ...multimodalConfig, enabled: v }
                     setMultimodalConfig(updated)
-                    invoke("save_multimodal_config", { config: updated }).catch(() => {})
+                    getTransport().call("save_multimodal_config", { config: updated }).catch(() => {})
                   }}
                 />
               </div>
@@ -209,7 +209,7 @@ export default function HybridSearchConfigSection({ data }: HybridSearchConfigPr
                             : multimodalConfig.modalities.filter(m => m !== "image")
                           const updated = { ...multimodalConfig, modalities: mods }
                           setMultimodalConfig(updated)
-                          invoke("save_multimodal_config", { config: updated }).catch(() => {})
+                          getTransport().call("save_multimodal_config", { config: updated }).catch(() => {})
                         }}
                       />
                       {t("settings.memoryMultimodalImage")}
@@ -223,7 +223,7 @@ export default function HybridSearchConfigSection({ data }: HybridSearchConfigPr
                             : multimodalConfig.modalities.filter(m => m !== "audio")
                           const updated = { ...multimodalConfig, modalities: mods }
                           setMultimodalConfig(updated)
-                          invoke("save_multimodal_config", { config: updated }).catch(() => {})
+                          getTransport().call("save_multimodal_config", { config: updated }).catch(() => {})
                         }}
                       />
                       {t("settings.memoryMultimodalAudio")}
@@ -240,7 +240,7 @@ export default function HybridSearchConfigSection({ data }: HybridSearchConfigPr
                         if (!isNaN(mb) && mb > 0) {
                           const updated = { ...multimodalConfig, maxFileBytes: mb * 1024 * 1024 }
                           setMultimodalConfig(updated)
-                          invoke("save_multimodal_config", { config: updated }).catch(() => {})
+                          getTransport().call("save_multimodal_config", { config: updated }).catch(() => {})
                         }
                       }}
                       className="h-7 text-xs w-16"

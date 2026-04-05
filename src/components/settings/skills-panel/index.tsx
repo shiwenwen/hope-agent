@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import type { SkillSummary } from "../types"
 import type { SkillDetail } from "./types"
@@ -24,10 +24,10 @@ export default function SkillsPanel() {
   const reload = useCallback(async () => {
     try {
       const [list, dirs, envCheck, status] = await Promise.all([
-        invoke<SkillSummary[]>("get_skills"),
-        invoke<string[]>("get_extra_skills_dirs"),
-        invoke<boolean>("get_skill_env_check"),
-        invoke<Record<string, Record<string, boolean>>>("get_skills_env_status"),
+        getTransport().call<SkillSummary[]>("get_skills"),
+        getTransport().call<string[]>("get_extra_skills_dirs"),
+        getTransport().call<boolean>("get_skill_env_check"),
+        getTransport().call<Record<string, Record<string, boolean>>>("get_skills_env_status"),
       ])
       setSkills(list)
       setExtraDirs(dirs)
@@ -46,7 +46,7 @@ export default function SkillsPanel() {
 
   async function handleOpenDir(path: string) {
     try {
-      await invoke("open_directory", { path })
+      await getTransport().call("open_directory", { path })
     } catch (e) {
       logger.error("settings", "SkillsPanel::openDir", "Failed to open directory", e)
     }
@@ -57,7 +57,7 @@ export default function SkillsPanel() {
       const { open } = await import("@tauri-apps/plugin-dialog")
       const selected = await open({ directory: true, multiple: false })
       if (selected) {
-        await invoke("add_extra_skills_dir", { dir: selected })
+        await getTransport().call("add_extra_skills_dir", { dir: selected })
         await reload()
       }
     } catch (e) {
@@ -67,7 +67,7 @@ export default function SkillsPanel() {
 
   async function handleRemoveDir(dir: string) {
     try {
-      await invoke("remove_extra_skills_dir", { dir })
+      await getTransport().call("remove_extra_skills_dir", { dir })
       await reload()
     } catch (e) {
       logger.error("settings", "SkillsPanel::removeDir", "Failed to remove skills directory", e)
@@ -76,7 +76,7 @@ export default function SkillsPanel() {
 
   async function handleToggleSkill(name: string, enabled: boolean) {
     try {
-      await invoke("toggle_skill", { name, enabled })
+      await getTransport().call("toggle_skill", { name, enabled })
       // Update local state immediately
       setSkills((prev) => prev.map((s) => (s.name === name ? { ...s, enabled } : s)))
       if (selectedSkill?.name === name) {
@@ -90,8 +90,8 @@ export default function SkillsPanel() {
   async function handleSelectSkill(name: string) {
     try {
       const [detail, maskedEnv] = await Promise.all([
-        invoke<SkillDetail>("get_skill_detail", { name }),
-        invoke<Record<string, string>>("get_skill_env", { name }),
+        getTransport().call<SkillDetail>("get_skill_detail", { name }),
+        getTransport().call<Record<string, string>>("get_skill_env", { name }),
       ])
       setSelectedSkill(detail)
       setEnvValues(maskedEnv)
@@ -107,15 +107,15 @@ export default function SkillsPanel() {
     const value = envValues[key] ?? ""
     setEnvSaving((prev) => ({ ...prev, [key]: true }))
     try {
-      await invoke("set_skill_env_var", { skill: selectedSkill.name, key, value })
+      await getTransport().call("set_skill_env_var", { skill: selectedSkill.name, key, value })
       // Re-fetch the masked value
-      const maskedEnv = await invoke<Record<string, string>>("get_skill_env", {
+      const maskedEnv = await getTransport().call<Record<string, string>>("get_skill_env", {
         name: selectedSkill.name,
       })
       setEnvValues(maskedEnv)
       setEnvDirty((prev) => ({ ...prev, [key]: false }))
       // Refresh env status
-      const status = await invoke<Record<string, Record<string, boolean>>>("get_skills_env_status")
+      const status = await getTransport().call<Record<string, Record<string, boolean>>>("get_skills_env_status")
       setEnvStatus(status)
     } catch (e) {
       logger.error("settings", "SkillsPanel::saveEnv", "Failed to save env var", e)
@@ -127,7 +127,7 @@ export default function SkillsPanel() {
   async function handleRemoveEnvVar(key: string) {
     if (!selectedSkill) return
     try {
-      await invoke("remove_skill_env_var", { skill: selectedSkill.name, key })
+      await getTransport().call("remove_skill_env_var", { skill: selectedSkill.name, key })
       setEnvValues((prev) => {
         const next = { ...prev }
         delete next[key]
@@ -135,7 +135,7 @@ export default function SkillsPanel() {
       })
       setEnvDirty((prev) => ({ ...prev, [key]: false }))
       // Refresh env status
-      const status = await invoke<Record<string, Record<string, boolean>>>("get_skills_env_status")
+      const status = await getTransport().call<Record<string, Record<string, boolean>>>("get_skills_env_status")
       setEnvStatus(status)
     } catch (e) {
       logger.error("settings", "SkillsPanel::removeEnv", "Failed to remove env var", e)
@@ -149,7 +149,7 @@ export default function SkillsPanel() {
 
   async function handleSetSkillEnvCheck(v: boolean) {
     setSkillEnvCheck(v)
-    await invoke("set_skill_env_check", { enabled: v })
+    await getTransport().call("set_skill_env_check", { enabled: v })
   }
 
   // ── Skill Detail View ──────────────────────────────────────────

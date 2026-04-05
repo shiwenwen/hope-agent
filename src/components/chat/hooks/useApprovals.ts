@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react"
-import { invoke } from "@tauri-apps/api/core"
-import { listen, type UnlistenFn } from "@tauri-apps/api/event"
+import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import type { ApprovalRequest } from "@/components/chat/ApprovalDialog"
 
@@ -17,20 +16,14 @@ export function useApprovals(): UseApprovalsReturn {
 
   // Listen for command approval events
   useEffect(() => {
-    let unlisten: UnlistenFn | undefined
-    listen<string>("approval_required", (event) => {
+    return getTransport().listen("approval_required", (raw) => {
       try {
-        const request: ApprovalRequest = JSON.parse(event.payload)
+        const request: ApprovalRequest = JSON.parse(raw as string)
         setApprovalRequests((prev) => [...prev, request])
       } catch (e) {
         logger.error("ui", "ChatScreen::approval", "Failed to parse approval request", e)
       }
-    }).then((fn) => {
-      unlisten = fn
     })
-    return () => {
-      unlisten?.()
-    }
   }, [])
 
   async function handleApprovalResponse(
@@ -39,7 +32,7 @@ export function useApprovals(): UseApprovalsReturn {
   ) {
     setApprovalRequests((prev) => prev.filter((r) => r.request_id !== requestId))
     try {
-      await invoke("respond_to_approval", { requestId, response })
+      await getTransport().call("respond_to_approval", { requestId, response })
     } catch (e) {
       logger.error("ui", "ChatScreen::approval", "Failed to respond to approval", e)
     }

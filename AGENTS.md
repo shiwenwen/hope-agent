@@ -1,6 +1,6 @@
 # OpenComputer
 
-基于 Tauri 2 + React 19 + Rust 的本地 AI 助手桌面应用，支持 28 个内置 Provider 模板（108 个预设模型），GUI 傻瓜式配置。
+基于 Tauri 2 + React 19 + Rust 的本地 AI 助手桌面应用，支持 28 个内置 Provider 模板（108 个预设模型），GUI 傻瓜式配置。支持三种运行模式：桌面 GUI（Tauri）、HTTP/WS 守护进程（`opencomputer server`）、ACP stdio（`opencomputer acp`）。
 
 ## 开发命令
 
@@ -12,9 +12,28 @@ npx tsc --noEmit       # 前端类型检查
 npm run lint           # Lint
 node scripts/sync-i18n.mjs --check   # 检查各语言翻译缺失
 node scripts/sync-i18n.mjs --apply   # 从翻译文件补齐缺失翻译
+
+# Server 模式（HTTP/WS 守护进程）
+opencomputer server start              # 前台启动 HTTP/WS 服务
+opencomputer server install            # 注册系统服务（macOS launchd / Linux systemd）
+opencomputer server uninstall          # 卸载系统服务
+opencomputer server status             # 查看服务运行状态
+opencomputer server stop               # 停止服务
 ```
 
 ## 项目结构
+
+### Cargo Workspace
+
+```
+Cargo.toml              Workspace 根（members: crates/oc-core, crates/oc-server, src-tauri）
+crates/
+  oc-core/              核心业务逻辑（零 Tauri 依赖，纯 Rust 库）
+  oc-server/            HTTP/WS 服务器（axum，REST API + WebSocket 流式推送）
+src-tauri/              Tauri 桌面 Shell（薄壳，调用 oc-core）
+```
+
+### 前端
 
 ```
 src/                    前端（React + TypeScript）
@@ -23,11 +42,21 @@ src/                    前端（React + TypeScript）
     settings/           设置面板
     common/             共享组件（导航栏/Markdown 渲染/Provider 图标）
     dashboard/          数据大盘（recharts 图表）
-  lib/logger.ts         前端统一日志工具
+  lib/
+    logger.ts           前端统一日志工具
+    transport.ts        Transport 抽象层（统一 invoke/listen 接口）
+    transport-tauri.ts  Tauri IPC 实现（invoke + Channel 事件）
+    transport-http.ts   HTTP/WS 实现（REST API + WebSocket 流式事件）
   i18n/locales/         12 种语言翻译文件
   types/chat.ts         共享类型定义
-src-tauri/src/          后端（Rust）
-  lib.rs                Tauri 命令注册 & AppState
+```
+
+### oc-core（核心库）
+
+```
+crates/oc-core/src/     核心业务逻辑（~30 个模块，零 Tauri 依赖）
+  lib.rs                模块导出 & CoreState（替代原 AppState）
+  event_bus.rs          EventBus 事件总线（替代 Tauri APP_HANDLE 事件发射）
   weather.rs            天气缓存系统与 Open-Meteo API
   weather_location_macos.rs macOS 原生 CoreLocation 定位（objc2 delegate + callback 生命周期）
   agent/                AssistantAgent（多 Provider + Tool Loop + Side Query 缓存侧查询）
@@ -59,6 +88,24 @@ src-tauri/src/          后端（Rust）
   docker/               Docker 服务管理（status/deploy/lifecycle/helpers/proxy 拆分）
   dashboard/            数据大盘聚合查询（types/cost/filters/queries/detail_queries 拆分）
   logging/              统一日志（types/db/file_writer/app_logger/file_ops/config 拆分）
+```
+
+### oc-server（HTTP/WS 服务器）
+
+```
+crates/oc-server/src/   HTTP/WS 守护进程
+  main.rs               CLI 入口（start/install/uninstall/status/stop 子命令）
+  router.rs             axum Router（REST API 路由注册）
+  ws.rs                 WebSocket 流式推送（替代 Tauri Channel<String>）
+  service.rs            系统服务注册（macOS launchd / Linux systemd）
+  guardian.rs           Guardian keepalive（统一心跳，桌面/服务器共用）
+```
+
+### src-tauri（Tauri 桌面 Shell）
+
+```
+src-tauri/src/          Tauri 薄壳（命令层 + 桌面集成）
+  lib.rs                Tauri 命令注册 & AppState（委托 oc-core）
   commands/             Tauri 命令层
     provider/           Provider 管理命令（crud/test_provider/test_embedding/test_image/models 拆分）
 ```
@@ -69,14 +116,20 @@ src-tauri/src/          后端（Rust）
 | ------ | -------------------------------------------------------------------- |
 | 前端   | React 19 + TypeScript, Vite 8, Tailwind CSS v4, shadcn/ui (Radix UI) |
 | 桌面   | Tauri 2                                                              |
-| 后端   | Rust, tokio, reqwest                                                 |
+| 服务器 | axum (HTTP/WS), clap (CLI)                                          |
+| 后端   | Rust, tokio, reqwest（oc-core 库，零 Tauri 依赖）                   |
 | 渲染   | Streamdown + Shiki + KaTeX + Mermaid                                 |
 | 多语言 | i18next (12 种语言)                                                  |
 
 ## 架构约定
 
-- **前后端通信**：前端通过 `invoke()` 调用 Tauri 命令，流式输出通过 `Channel<String>` 推送事件
-- **状态管理**：后端用 `State<AppState>`（`tokio::sync::Mutex`），前端保持轻量 React state
+- **Cargo Workspace 三 Crate 架构**：`oc-core`（核心业务逻辑，零 Tauri 依赖）、`oc-server`（axum HTTP/WS 守护进程）、`src-tauri`（Tauri 桌面薄壳）。所有业务逻辑在 oc-core，src-tauri 和 oc-server 均为调用方
+- **三种运行模式**：`opencomputer`（桌面 GUI，Tauri）、`opencomputer server`（HTTP/WS 守护进程，支持 install/uninstall/status/stop 子命令）、`opencomputer acp`（stdio ACP 协议）
+- **前后端通信**：前端通过 Transport 抽象层（`src/lib/transport.ts`）统一调用后端。桌面模式走 Tauri IPC（`invoke()` + `Channel<String>`），服务器模式走 HTTP REST API + WebSocket 流式推送。业务代码无需感知底层传输
+- **EventBus 事件总线**：`oc-core` 中的 `EventBus` 替代原 Tauri `APP_HANDLE` 进行事件发射，使核心逻辑脱离 Tauri 依赖。Tauri shell 和 axum server 各自订阅 EventBus 并转发到各自的前端通道
+- **状态管理**：后端核心状态在 `oc-core::CoreState`（`tokio::sync::Mutex`），Tauri 端通过 `State<AppState>` 持有引用，Server 端通过 axum `Extension` 注入。前端保持轻量 React state
+- **Guardian 统一心跳**：桌面模式和服务器模式共用 Guardian keepalive 机制，确保后台任务（Channel 轮询、Cron 调度等）持续运行
+- **系统服务注册**：`opencomputer server install` 在 macOS 注册 launchd plist（`~/Library/LaunchAgents/`），在 Linux 注册 systemd unit（`~/.config/systemd/user/`），实现开机自启
 - **LLM 调用**：集中在 `agent/` 模块，四种 Provider（Anthropic / OpenAIChat / OpenAIResponses / Codex）
 - **温度配置**：三层覆盖架构（会话 > Agent > 全局）。全局存储在 `config.json` 的 `temperature` 字段，Agent 级存储在 `agent.json` 的 `model.temperature` 字段，会话级通过 `chat` 命令的 `temperatureOverride` 参数传递。`AssistantAgent.temperature` 字段在四种 Provider 的 API 请求中统一注入。范围 0.0–2.0，`None` 表示使用 API 默认值
 - **Tool Loop**：请求 → 解析 tool_call → 并发/串行执行 → 回传 → 继续，最多 10 轮。工具按 `concurrent_safe` 标记分组：只读工具（read/grep/ls/find 等）并行执行，写入工具（exec/write/edit 等）串行执行
@@ -103,7 +156,7 @@ src-tauri/src/          后端（Rust）
 ### 通用
 
 - **性能和用户体验是最高优先级**
-- **核心逻辑必须在 Rust 后端实现**：业务逻辑、数据处理、文件 IO、状态管理等一律放 `src-tauri/`，前端只负责展示和交互
+- **核心逻辑必须在 oc-core 实现**：业务逻辑、数据处理、文件 IO、状态管理等一律放 `crates/oc-core/`，`src-tauri/` 仅做 Tauri 命令薄壳，`crates/oc-server/` 仅做 HTTP 路由薄壳，前端只负责展示和交互
 - 操作即时反馈（乐观更新、loading 态），动效 60fps（优先 CSS transform/opacity）
 
 ### 前端
@@ -122,7 +175,7 @@ src-tauri/src/          后端（Rust）
 
 ### 后端（Rust）
 
-- 新功能放单独模块文件，在 `lib.rs` 注册命令
+- 新功能放 `crates/oc-core/` 单独模块文件；Tauri 命令在 `src-tauri/src/lib.rs` 注册，HTTP 路由在 `crates/oc-server/src/router.rs` 注册
 - 内部用 `anyhow::Result`，命令边界转为 `String`
 - 异步命令加 `async`，不要自己 `block_on`
 - **禁止使用 `log` crate 宏**（`log::info!` 等），必须使用 `app_info!` / `app_warn!` / `app_error!` / `app_debug!`（定义在 `logging.rs`）。唯一例外：`lib.rs` 的 `run()` 中 AppLogger 初始化之前，以及 `main.rs` 的 panic 恢复
@@ -138,7 +191,10 @@ src-tauri/src/          后端（Rust）
 ## 易错提醒
 
 - 修改 Tauri 命令后须同步更新 `invoke_handler!` 宏注册列表
-- Rust 依赖变更后 `cargo check` 先行验证
+- 新增 HTTP API 端点后须在 `crates/oc-server/src/router.rs` 注册路由
+- 新增核心功能须放 `crates/oc-core/`，禁止在 oc-core 中引入 Tauri 依赖
+- Rust 依赖变更后 `cargo check` 先行验证（workspace 级别）
+- 前端新增 invoke 调用时须同步实现 Transport 的 Tauri 和 HTTP 两种适配
 
 ## 文档维护
 

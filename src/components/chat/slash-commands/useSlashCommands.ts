@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import type { SlashCommandDef, CommandResult } from "./types"
 import { CATEGORY_ORDER } from "./types"
 
@@ -56,7 +56,7 @@ export function useSlashCommands(
 
   // Load commands from backend (refresh when menu opens to pick up skill changes)
   const loadCommands = useCallback(() => {
-    invoke<SlashCommandDef[]>("list_slash_commands").then(setCommands).catch(() => {})
+    getTransport().call<SlashCommandDef[]>("list_slash_commands").then(setCommands).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -177,7 +177,7 @@ export function useSlashCommands(
       setExecuting(true)
 
       try {
-        const result = await invoke<CommandResult>("execute_slash_command", {
+        const result = await getTransport().call<CommandResult>("execute_slash_command", {
           sessionId: actionsRef.current.sessionId,
           agentId: actionsRef.current.agentId,
           commandText,
@@ -204,7 +204,7 @@ export function useSlashCommands(
       setExecuting(true)
 
       const commandText = `/${cmd.name} ${option}`
-      invoke<CommandResult>("execute_slash_command", {
+      getTransport().call<CommandResult>("execute_slash_command", {
         sessionId: actionsRef.current.sessionId,
         agentId: actionsRef.current.agentId,
         commandText,

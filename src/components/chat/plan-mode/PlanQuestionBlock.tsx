@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
@@ -95,7 +95,7 @@ export default function PlanQuestionBlock({ group, onSubmitted }: PlanQuestionBl
           customInput: state?.customInput || undefined,
         }
       })
-      await invoke("respond_plan_question", {
+      await getTransport().call("respond_plan_question", {
         requestId: group.requestId,
         answers: answerList,
       })

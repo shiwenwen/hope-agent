@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { Input } from "@/components/ui/input"
@@ -50,17 +50,17 @@ export default function ToolGeneralPanel() {
     let cancelled = false
 
     // Load tool timeout
-    invoke<number>("get_tool_timeout")
+    getTransport().call<number>("get_tool_timeout")
       .then((v) => { if (!cancelled) { setToolTimeout(v); setSavedTimeout(v); } })
       .catch((e) => logger.error("settings", "ToolGeneralPanel::load", "Failed to load tool timeout", e))
 
     // Load disk persistence threshold (bytes → KB for display)
-    invoke<number>("get_tool_result_disk_threshold")
+    getTransport().call<number>("get_tool_result_disk_threshold")
       .then((v) => { if (!cancelled) { const kb = Math.round(v / 1000); setDiskThreshold(kb); setSavedDiskThreshold(kb); } })
       .catch((e) => logger.error("settings", "ToolGeneralPanel::load", "Failed to load disk threshold", e))
 
     // Load user config
-    invoke<UserConfig>("get_user_config")
+    getTransport().call<UserConfig>("get_user_config")
       .then((cfg) => {
         if (!cancelled) {
           setConfig(cfg)
@@ -70,7 +70,7 @@ export default function ToolGeneralPanel() {
       .catch((e) => logger.error("settings", "ToolGeneralPanel::load", "Failed to load user config", e))
 
     // Load tool limits
-    invoke<ToolLimitsConfig>("get_tool_limits")
+    getTransport().call<ToolLimitsConfig>("get_tool_limits")
       .then((cfg) => {
         if (!cancelled) {
           setLimits(cfg)
@@ -84,7 +84,7 @@ export default function ToolGeneralPanel() {
 
   const saveTimeout = useCallback(async (value: number) => {
     try {
-      await invoke("set_tool_timeout", { seconds: value })
+      await getTransport().call("set_tool_timeout", { seconds: value })
       setSavedTimeout(value)
     } catch (e) {
       setToolTimeout(savedTimeout)
@@ -94,7 +94,7 @@ export default function ToolGeneralPanel() {
 
   const saveDiskThreshold = useCallback(async (kb: number) => {
     try {
-      await invoke("set_tool_result_disk_threshold", { bytes: kb * 1000 })
+      await getTransport().call("set_tool_result_disk_threshold", { bytes: kb * 1000 })
       setSavedDiskThreshold(kb)
     } catch (e) {
       setDiskThreshold(savedDiskThreshold)
@@ -107,10 +107,10 @@ export default function ToolGeneralPanel() {
     try {
       const promises: Promise<void>[] = []
       if (isConfigDirty) {
-        promises.push(invoke("save_user_config", { config }))
+        promises.push(getTransport().call("save_user_config", { config }))
       }
       if (isLimitsDirty) {
-        promises.push(invoke("set_tool_limits", { config: limits }))
+        promises.push(getTransport().call("set_tool_limits", { config: limits }))
       }
       await Promise.all(promises)
       setSavedConfigSnapshot(JSON.stringify(config))

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { Switch } from "@/components/ui/switch"
 import { Input } from "@/components/ui/input"
@@ -124,7 +124,7 @@ export default function ContextCompactPanel() {
   const [availableTools, setAvailableTools] = useState<{ name: string; description: string }[]>([])
 
   useEffect(() => {
-    invoke<CompactConfig>("get_compact_config")
+    getTransport().call<CompactConfig>("get_compact_config")
       .then((c) => {
         setConfig(c)
         setSavedJson(JSON.stringify(c))
@@ -132,7 +132,7 @@ export default function ContextCompactPanel() {
       .catch((e) =>
         logger.error("settings", "ContextCompactPanel::load", "Failed to load compact config", e),
       )
-    invoke<{ name: string; description: string }[]>("list_builtin_tools")
+    getTransport().call<{ name: string; description: string }[]>("list_builtin_tools")
       .then(setAvailableTools)
       .catch(() => { })
   }, [])
@@ -143,7 +143,7 @@ export default function ContextCompactPanel() {
     if (!config) return
     setSaving(true)
     try {
-      await invoke("save_compact_config", { config })
+      await getTransport().call("save_compact_config", { config })
       setSavedJson(JSON.stringify(config))
       setSaveStatus("saved")
       setTimeout(() => setSaveStatus("idle"), 2000)

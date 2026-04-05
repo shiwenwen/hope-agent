@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { Switch } from "@/components/ui/switch"
@@ -10,7 +10,7 @@ export default function PlanSettingsPanel() {
   const [loaded, setLoaded] = useState(false)
 
   useEffect(() => {
-    invoke<boolean>("get_plan_subagent")
+    getTransport().call<boolean>("get_plan_subagent")
       .then((val) => {
         setPlanSubagent(val)
         setLoaded(true)
@@ -21,7 +21,7 @@ export default function PlanSettingsPanel() {
   async function togglePlanSubagent(checked: boolean) {
     setPlanSubagent(checked)
     try {
-      await invoke("set_plan_subagent", { enabled: checked })
+      await getTransport().call("set_plan_subagent", { enabled: checked })
     } catch (e) {
       logger.error("settings", "PlanSettingsPanel::save", "Failed to save", e)
       setPlanSubagent(!checked)

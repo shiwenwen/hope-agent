@@ -2,6 +2,7 @@ use crate::agent::{self, AssistantAgent};
 use crate::oauth;
 use crate::provider::{self, ActiveModel, ApiType, ModelConfig, ProviderConfig};
 use crate::AppState;
+use oc_core::{app_info, app_warn};
 use serde::Serialize;
 use tauri::State;
 

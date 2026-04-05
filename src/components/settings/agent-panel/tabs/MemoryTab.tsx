@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from "react"
 import { useTranslation } from "react-i18next"
-import { invoke } from "@tauri-apps/api/core"
-import { listen } from "@tauri-apps/api/event"
+import { getTransport } from "@/lib/transport-provider"
 import { Textarea } from "@/components/ui/textarea"
 import { Button } from "@/components/ui/button"
 import { Loader2, Check, Save } from "lucide-react"
@@ -22,7 +21,7 @@ export default function MemoryTab({ agentId }: MemoryTabProps) {
 
   const loadContent = useCallback(async () => {
     try {
-      const md = await invoke<string | null>("get_agent_memory_md", { id: agentId })
+      const md = await getTransport().call<string | null>("get_agent_memory_md", { id: agentId })
       const val = md ?? ""
       setContent(val)
       setOriginalContent(val)
@@ -38,18 +37,19 @@ export default function MemoryTab({ agentId }: MemoryTabProps) {
 
   // Listen for updates from the agent tool
   useEffect(() => {
-    const unlisten = listen("core_memory_updated", (event: { payload: { agentId: string; scope: string } }) => {
-      if (event.payload.scope === "agent" && event.payload.agentId === agentId) {
+    const unlisten = getTransport().listen("core_memory_updated", (raw) => {
+      const payload = raw as { agentId: string; scope: string }
+      if (payload.scope === "agent" && payload.agentId === agentId) {
         loadContent()
       }
     })
-    return () => { unlisten.then((fn) => fn()) }
+    return unlisten
   }, [agentId, loadContent])
 
   const handleSave = async () => {
     setSaving(true)
     try {
-      await invoke("save_agent_memory_md", { id: agentId, content })
+      await getTransport().call("save_agent_memory_md", { id: agentId, content })
       setOriginalContent(content)
       setSaveStatus("saved")
       setTimeout(() => setSaveStatus("idle"), 2000)

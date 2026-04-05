@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { X, ExternalLink, Globe } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -49,7 +49,7 @@ export default function UrlPreviewCard({
   if (!data.title && !data.description) return null
 
   const handleClick = () => {
-    invoke("open_url", { url: data.finalUrl || data.url })
+    getTransport().call("open_url", { url: data.finalUrl || data.url })
   }
 
   const handleDismiss = (e: React.MouseEvent) => {

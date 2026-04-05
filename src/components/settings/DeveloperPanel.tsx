@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react"
 import { useTranslation } from "react-i18next"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
 import {
@@ -85,9 +85,9 @@ export default function DeveloperPanel() {
     setLoading(target)
 
     try {
-      await invoke(action.command)
+      await getTransport().call(action.command)
       // Restart app to reinitialize databases
-      await invoke("request_app_restart")
+      await getTransport().call("request_app_restart")
     } catch (e) {
       logger.error("settings", "DeveloperPanel::clearData", `Failed to clear ${target}`, e)
       setLoading(null)

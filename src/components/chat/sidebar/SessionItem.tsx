@@ -1,5 +1,5 @@
 import { useCallback } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { convertFileSrc } from "@tauri-apps/api/core"
 import { logger } from "@/lib/logger"
 import { useTranslation } from "react-i18next"
@@ -67,7 +67,7 @@ export default function SessionItem({
   const handleMarkAsRead = useCallback(async () => {
     if (session.unreadCount === 0) return
     try {
-      await invoke("mark_session_read_cmd", {
+      await getTransport().call("mark_session_read_cmd", {
         sessionId: session.id,
       })
       if (onMarkAllRead) onMarkAllRead()

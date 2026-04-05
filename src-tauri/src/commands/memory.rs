@@ -1,6 +1,7 @@
 use crate::get_memory_backend;
 use crate::memory;
 use crate::provider;
+use oc_core::{app_info, app_warn};
 
 #[tauri::command]
 pub async fn memory_add(entry: memory::NewMemory) -> Result<i64, String> {

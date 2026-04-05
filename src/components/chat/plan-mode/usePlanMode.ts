@@ -1,6 +1,5 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react"
-import { invoke } from "@tauri-apps/api/core"
-import { listen, type UnlistenFn } from "@tauri-apps/api/event"
+import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import type { PlanQuestionGroup } from "./PlanQuestionBlock"
 
@@ -70,7 +69,7 @@ export function usePlanMode(
       return
     }
     try {
-      await invoke("set_plan_mode", { sessionId: currentSessionId, state: "planning" })
+      await getTransport().call("set_plan_mode", { sessionId: currentSessionId, state: "planning" })
       setPlanState("planning")
     } catch (e) {
       logger.error("plan", "usePlanMode::enter", "Failed to enter plan mode", e)
@@ -81,7 +80,7 @@ export function usePlanMode(
   const exitPlanMode = useCallback(async () => {
     if (currentSessionId) {
       try {
-        await invoke("set_plan_mode", { sessionId: currentSessionId, state: "off" })
+        await getTransport().call("set_plan_mode", { sessionId: currentSessionId, state: "off" })
       } catch (e) {
         logger.error("plan", "usePlanMode::exit", "Failed to exit plan mode", e)
         return
@@ -102,7 +101,7 @@ export function usePlanMode(
   const approvePlan = useCallback(async () => {
     if (!currentSessionId) return
     try {
-      await invoke("set_plan_mode", { sessionId: currentSessionId, state: "executing" })
+      await getTransport().call("set_plan_mode", { sessionId: currentSessionId, state: "executing" })
       setPlanState("executing")
     } catch (e) {
       logger.error("plan", "usePlanMode::approve", "Failed to approve plan", e)
@@ -113,7 +112,7 @@ export function usePlanMode(
   const pauseExecution = useCallback(async () => {
     if (!currentSessionId) return
     try {
-      await invoke("set_plan_mode", { sessionId: currentSessionId, state: "paused" })
+      await getTransport().call("set_plan_mode", { sessionId: currentSessionId, state: "paused" })
       setPlanState("paused")
     } catch (e) {
       logger.error("plan", "usePlanMode::pause", "Failed to pause plan", e)
@@ -124,7 +123,7 @@ export function usePlanMode(
   const resumeExecution = useCallback(async () => {
     if (!currentSessionId) return
     try {
-      await invoke("set_plan_mode", { sessionId: currentSessionId, state: "executing" })
+      await getTransport().call("set_plan_mode", { sessionId: currentSessionId, state: "executing" })
       setPlanState("executing")
     } catch (e) {
       logger.error("plan", "usePlanMode::resume", "Failed to resume plan", e)
@@ -164,16 +163,16 @@ export function usePlanMode(
     // If frontend already has a non-off plan state (entered before session existed),
     // sync it TO the backend instead of reading FROM backend
     if (planStateRef.current !== "off") {
-      invoke("set_plan_mode", { sessionId: currentSessionId, state: planStateRef.current })
+      getTransport().call("set_plan_mode", { sessionId: currentSessionId, state: planStateRef.current })
         .catch(() => {})
       return
     }
 
     // Otherwise, load plan state from backend (e.g. restoring a historical session)
     Promise.all([
-      invoke<string>("get_plan_mode", { sessionId: currentSessionId }),
-      invoke<PlanStep[]>("get_plan_steps", { sessionId: currentSessionId }),
-      invoke<string | null>("get_plan_content", { sessionId: currentSessionId }),
+      getTransport().call<string>("get_plan_mode", { sessionId: currentSessionId }),
+      getTransport().call<PlanStep[]>("get_plan_steps", { sessionId: currentSessionId }),
+      getTransport().call<string | null>("get_plan_content", { sessionId: currentSessionId }),
     ])
       .then(([state, steps, content]) => {
         const s = (state || "off") as PlanModeState
@@ -190,159 +189,102 @@ export function usePlanMode(
 
   // Listen for plan_content_updated events (backend detected plan in LLM output)
   useEffect(() => {
-    let unlisten: UnlistenFn | undefined
-    listen<{ sessionId: string; stepCount: number; content: string }>(
-      "plan_content_updated",
-      (event) => {
-        if (event.payload.sessionId !== currentSessionId) return
-        setPlanContent(event.payload.content)
-        invoke<PlanStep[]>("get_plan_steps", { sessionId: event.payload.sessionId })
-          .then((steps) => {
-            if (steps && steps.length > 0) {
-              setPlanSteps(steps)
-            }
-          })
-          .catch(() => {})
-      }
-    ).then((fn) => {
-      unlisten = fn
+    return getTransport().listen("plan_content_updated", (raw) => {
+      const payload = raw as { sessionId: string; stepCount: number; content: string }
+      if (payload.sessionId !== currentSessionId) return
+      setPlanContent(payload.content)
+      getTransport().call<PlanStep[]>("get_plan_steps", { sessionId: payload.sessionId })
+        .then((steps) => {
+          if (steps && steps.length > 0) {
+            setPlanSteps(steps)
+          }
+        })
+        .catch(() => {})
     })
-    return () => {
-      unlisten?.()
-    }
   }, [currentSessionId])
 
   // Listen for plan_step_updated events
   useEffect(() => {
-    let unlisten: UnlistenFn | undefined
-    listen<{ sessionId: string; stepIndex: number; status: string; durationMs?: number }>(
-      "plan_step_updated",
-      (event) => {
-        if (event.payload.sessionId !== currentSessionId) return
-        setPlanSteps((prev) =>
-          prev.map((s) =>
-            s.index === event.payload.stepIndex
-              ? {
-                  ...s,
-                  status: event.payload.status as PlanStep["status"],
-                  durationMs: event.payload.durationMs ?? s.durationMs,
-                }
-              : s
-          )
+    return getTransport().listen("plan_step_updated", (raw) => {
+      const payload = raw as { sessionId: string; stepIndex: number; status: string; durationMs?: number }
+      if (payload.sessionId !== currentSessionId) return
+      setPlanSteps((prev) =>
+        prev.map((s) =>
+          s.index === payload.stepIndex
+            ? {
+                ...s,
+                status: payload.status as PlanStep["status"],
+                durationMs: payload.durationMs ?? s.durationMs,
+              }
+            : s
         )
-      }
-    ).then((fn) => {
-      unlisten = fn
+      )
     })
-    return () => {
-      unlisten?.()
-    }
   }, [currentSessionId])
 
   // Listen for plan_mode_changed events (auto-transition)
   useEffect(() => {
-    let unlisten: UnlistenFn | undefined
-    listen<{ sessionId: string; state: string; reason?: string }>(
-      "plan_mode_changed",
-      (event) => {
-        if (event.payload.sessionId !== currentSessionId) return
-        setPlanState(event.payload.state as PlanModeState)
-      }
-    ).then((fn) => {
-      unlisten = fn
+    return getTransport().listen("plan_mode_changed", (raw) => {
+      const payload = raw as { sessionId: string; state: string; reason?: string }
+      if (payload.sessionId !== currentSessionId) return
+      setPlanState(payload.state as PlanModeState)
     })
-    return () => {
-      unlisten?.()
-    }
   }, [currentSessionId, setPlanState])
 
   // Listen for plan_submitted events (LLM submitted a plan via submit_plan tool)
   useEffect(() => {
-    let unlisten: UnlistenFn | undefined
-    listen<{ sessionId: string; title: string; stepCount: number; phaseCount: number; steps: PlanStep[] }>(
-      "plan_submitted",
-      (event) => {
-        if (event.payload.sessionId !== currentSessionId) return
-        setPlanCardInfo({
-          title: event.payload.title,
-          stepCount: event.payload.stepCount,
-          phaseCount: event.payload.phaseCount,
+    return getTransport().listen("plan_submitted", (raw) => {
+      const payload = raw as { sessionId: string; title: string; stepCount: number; phaseCount: number; steps: PlanStep[] }
+      if (payload.sessionId !== currentSessionId) return
+      setPlanCardInfo({
+        title: payload.title,
+        stepCount: payload.stepCount,
+        phaseCount: payload.phaseCount,
+      })
+      setPlanSteps(payload.steps)
+      setPlanState("review")
+      setPendingQuestionGroup(null)
+      // Load the plan content and auto-show panel
+      getTransport().call<string | null>("get_plan_content", { sessionId: currentSessionId })
+        .then((content) => {
+          if (content) {
+            setPlanContent(content)
+            setShowPanel(true)
+          }
         })
-        setPlanSteps(event.payload.steps)
-        setPlanState("review")
-        setPendingQuestionGroup(null)
-        // Load the plan content and auto-show panel
-        invoke<string | null>("get_plan_content", { sessionId: currentSessionId })
-          .then((content) => {
-            if (content) {
-              setPlanContent(content)
-              setShowPanel(true)
-            }
-          })
-          .catch(() => {})
-      }
-    ).then((fn) => {
-      unlisten = fn
+        .catch(() => {})
     })
-    return () => {
-      unlisten?.()
-    }
   }, [currentSessionId, setPlanState])
 
   // Listen for plan_amended events (steps changed during execution via amend_plan tool)
   useEffect(() => {
-    let unlisten: UnlistenFn | undefined
-    listen<{ sessionId: string; steps: PlanStep[]; stepCount: number }>(
-      "plan_amended",
-      (event) => {
-        if (event.payload.sessionId !== currentSessionId) return
-        setPlanSteps(event.payload.steps)
-      }
-    ).then((fn) => {
-      unlisten = fn
+    return getTransport().listen("plan_amended", (raw) => {
+      const payload = raw as { sessionId: string; steps: PlanStep[]; stepCount: number }
+      if (payload.sessionId !== currentSessionId) return
+      setPlanSteps(payload.steps)
     })
-    return () => {
-      unlisten?.()
-    }
   }, [currentSessionId])
 
   // Listen for plan_question_request events
   useEffect(() => {
-    let unlisten: UnlistenFn | undefined
-    listen<string>(
-      "plan_question_request",
-      (event) => {
-        try {
-          const group: PlanQuestionGroup = JSON.parse(event.payload)
-          if (group.sessionId !== currentSessionId) return
-          setPendingQuestionGroup(group)
-        } catch {
-          // ignore parse errors
-        }
+    return getTransport().listen("plan_question_request", (raw) => {
+      try {
+        const group: PlanQuestionGroup = JSON.parse(raw as string)
+        if (group.sessionId !== currentSessionId) return
+        setPendingQuestionGroup(group)
+      } catch {
+        // ignore parse errors
       }
-    ).then((fn) => {
-      unlisten = fn
     })
-    return () => {
-      unlisten?.()
-    }
   }, [currentSessionId])
 
   // Listen for plan_subagent_status events (plan sub-agent running/completed)
   useEffect(() => {
-    let unlisten: UnlistenFn | undefined
-    listen<{ sessionId: string; status: string; runId: string }>(
-      "plan_subagent_status",
-      (event) => {
-        if (event.payload.sessionId !== currentSessionId) return
-        setPlanSubagentRunning(event.payload.status === "running")
-      }
-    ).then((fn) => {
-      unlisten = fn
+    return getTransport().listen("plan_subagent_status", (raw) => {
+      const payload = raw as { sessionId: string; status: string; runId: string }
+      if (payload.sessionId !== currentSessionId) return
+      setPlanSubagentRunning(payload.status === "running")
     })
-    return () => {
-      unlisten?.()
-    }
   }, [currentSessionId])
 
   // Also clear planSubagentRunning when plan state transitions away from planning

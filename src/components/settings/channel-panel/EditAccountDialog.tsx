@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react"
 import { useTranslation } from "react-i18next"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -90,7 +90,7 @@ export default function EditAccountDialog({
     setValidationResult(null)
     setValidationError(null)
     try {
-      const botName = await invoke<string>("channel_validate_credentials", {
+      const botName = await getTransport().call<string>("channel_validate_credentials", {
         channelId: account.channelId,
         credentials: { token: token.trim() },
       })
@@ -138,7 +138,7 @@ export default function EditAccountDialog({
       } else if (token.trim() !== originalToken) {
         params.credentials = { token: token.trim() }
       }
-      await invoke("channel_update_account", params)
+      await getTransport().call("channel_update_account", params)
       onSaved()
     } catch (e) {
       logger.error("channel", "ChannelPanel", "Failed to update channel account", e)

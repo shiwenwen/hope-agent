@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 
 type LogLevel = "error" | "warn" | "info" | "debug"
 
@@ -30,7 +30,7 @@ async function flushLogs() {
   logBuffer = []
 
   try {
-    await invoke("frontend_log_batch", { entries })
+    await getTransport().call("frontend_log_batch", { entries })
   } catch {
     // Fallback: if backend is unavailable, silently drop
     // (we don't want infinite recursion logging about logging failures)

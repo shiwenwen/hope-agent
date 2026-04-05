@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import type {
   MemoryEntry,
@@ -50,7 +50,7 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
   // ── Load agents for scope picker (standalone mode) ──
   useEffect(() => {
     if (!isAgentMode) {
-      invoke<AgentInfo[]>("list_agents")
+      getTransport().call<AgentInfo[]>("list_agents")
         .then(setAgents)
         .catch(() => {})
     }
@@ -82,11 +82,11 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
           scope: isAgentMode && filterScope === "all" ? null : scope,
           limit: 50,
         }
-        const results = await invoke<MemoryEntry[]>("memory_search", { query })
+        const results = await getTransport().call<MemoryEntry[]>("memory_search", { query })
         setMemories(results)
       } else {
         const types = filterType ? [filterType] : null
-        const results = await invoke<MemoryEntry[]>("memory_list", {
+        const results = await getTransport().call<MemoryEntry[]>("memory_list", {
           scope,
           types,
           limit: 50,
@@ -95,8 +95,8 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
         setMemories(results)
       }
       const [count, statsData] = await Promise.all([
-        invoke<number>("memory_count", { scope }),
-        invoke<import("./types").MemoryStats>("memory_stats", { scope }).catch(() => null),
+        getTransport().call<number>("memory_count", { scope }),
+        getTransport().call<import("./types").MemoryStats>("memory_stats", { scope }).catch(() => null),
       ])
       setTotalCount(count)
       statsHook.updateStats(statsData)
@@ -130,7 +130,7 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
     try {
       const entry = buildNewMemoryEntry()
 
-      const similar = await invoke<MemoryEntry[]>("memory_find_similar", {
+      const similar = await getTransport().call<MemoryEntry[]>("memory_find_similar", {
         content: entry.content,
         threshold: 0.008,
         limit: 3,
@@ -150,7 +150,7 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
 
   async function doAddMemory(entry: NewMemory) {
     try {
-      await invoke("memory_add", { entry })
+      await getTransport().call("memory_add", { entry })
       setView("list")
       setFormContent("")
       setFormTags("")
@@ -178,7 +178,7 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
       if (!existing) return
       const mergedContent = existing.content + "\n" + dedupPendingEntry.content
       const mergedTags = [...new Set([...existing.tags, ...dedupPendingEntry.tags])]
-      await invoke("memory_update", { id: existingId, content: mergedContent, tags: mergedTags })
+      await getTransport().call("memory_update", { id: existingId, content: mergedContent, tags: mergedTags })
       setView("list")
       setFormContent("")
       setFormTags("")
@@ -197,7 +197,7 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
         .split(",")
         .map((t) => t.trim())
         .filter(Boolean)
-      await invoke("memory_update", {
+      await getTransport().call("memory_update", {
         id: editingMemory.id,
         content: formContent.trim(),
         tags,
@@ -212,7 +212,7 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
 
   async function handleDelete(id: number) {
     try {
-      await invoke("memory_delete", { id })
+      await getTransport().call("memory_delete", { id })
       loadMemories()
     } catch (e) {
       logger.error("settings", "MemoryPanel::delete", "Failed to delete memory", e)
@@ -225,7 +225,7 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
       setMemories((prev) =>
         prev.map((m) => (m.id === id ? { ...m, pinned } : m))
       )
-      await invoke("memory_toggle_pin", { id, pinned })
+      await getTransport().call("memory_toggle_pin", { id, pinned })
       loadMemories()
     } catch (e) {
       logger.error("settings", "MemoryPanel::togglePin", "Failed to toggle pin", e)
@@ -235,7 +235,7 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
 
   async function handleExport() {
     try {
-      const md = await invoke<string>("memory_export", { scope: null })
+      const md = await getTransport().call<string>("memory_export", { scope: null })
       await navigator.clipboard.writeText(md)
     } catch (e) {
       logger.error("settings", "MemoryPanel::export", "Failed to export", e)
@@ -265,7 +265,7 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
     if (selectedIds.size === 0) return
     setBatchLoading(true)
     try {
-      await invoke("memory_delete_batch", { ids: [...selectedIds] })
+      await getTransport().call("memory_delete_batch", { ids: [...selectedIds] })
       setSelectedIds(new Set())
       loadMemories()
     } catch (e) {
@@ -279,7 +279,7 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
     if (selectedIds.size === 0) return
     setBatchLoading(true)
     try {
-      await invoke("memory_reembed", { ids: [...selectedIds] })
+      await getTransport().call("memory_reembed", { ids: [...selectedIds] })
       setSelectedIds(new Set())
     } catch (e) {
       logger.error("settings", "MemoryPanel::reembedBatch", "Failed to batch re-embed", e)
@@ -291,7 +291,7 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
   async function handleReembedAll() {
     setBatchLoading(true)
     try {
-      await invoke("memory_reembed", { ids: null })
+      await getTransport().call("memory_reembed", { ids: null })
     } catch (e) {
       logger.error("settings", "MemoryPanel::reembedAll", "Failed to re-embed all", e)
     } finally {
@@ -310,7 +310,7 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
         const text = await file.text()
         const format = file.name.endsWith(".json") ? "json" : "markdown"
         try {
-          const result = await invoke<{ created: number; skippedDuplicate: number; failed: number }>(
+          const result = await getTransport().call<{ created: number; skippedDuplicate: number; failed: number }>(
             "memory_import",
             { content: text, format, dedup: true },
           )

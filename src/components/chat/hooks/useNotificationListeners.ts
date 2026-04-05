@@ -1,6 +1,5 @@
 import { useEffect } from "react"
-import { invoke } from "@tauri-apps/api/core"
-import { listen, type UnlistenFn } from "@tauri-apps/api/event"
+import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { notify } from "@/lib/notifications"
 import { parseSessionMessages } from "../chatUtils"
@@ -34,23 +33,16 @@ export function useNotificationListeners(deps: UseNotificationListenersDeps) {
 
   // Listen for agent-initiated notification events
   useEffect(() => {
-    let unlisten: UnlistenFn | undefined
-    listen("agent:send_notification", (event) => {
-      const { title, body } = event.payload as { title: string; body: string }
+    return getTransport().listen("agent:send_notification", (raw) => {
+      const { title, body } = raw as { title: string; body: string }
       notify(title || "OpenComputer", body)
-    }).then((fn) => {
-      unlisten = fn
     })
-    return () => {
-      unlisten?.()
-    }
   }, [])
 
   // Listen for backend-driven parent agent streaming (sub-agent result injection)
   useEffect(() => {
-    let unlisten: UnlistenFn | undefined
-    listen<ParentAgentStreamEvent>("parent_agent_stream", (event) => {
-      const payload = event.payload
+    const unlisten = getTransport().listen("parent_agent_stream", (raw) => {
+      const payload = raw as ParentAgentStreamEvent
       const { eventType, parentSessionId, delta } = payload
       const isCurrentSession = currentSessionIdRef.current === parentSessionId
 
@@ -188,7 +180,7 @@ export function useNotificationListeners(deps: UseNotificationListenersDeps) {
         reloadSessions()
         // Reload messages from DB so subagent result message renders with correct type
         if (currentSessionIdRef.current === parentSessionId) {
-          invoke<[SessionMessage[], number]>("load_session_messages_latest_cmd", {
+          getTransport().call<[SessionMessage[], number]>("load_session_messages_latest_cmd", {
             sessionId: parentSessionId,
             limit: PAGE_SIZE,
           })
@@ -203,11 +195,7 @@ export function useNotificationListeners(deps: UseNotificationListenersDeps) {
           sessionCacheRef.current.delete(parentSessionId)
         }
       }
-    }).then((fn) => {
-      unlisten = fn
     })
-    return () => {
-      unlisten?.()
-    }
+    return unlisten
   }, [reloadSessions]) // eslint-disable-line react-hooks/exhaustive-deps
 }

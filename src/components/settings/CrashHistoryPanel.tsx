@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react"
 import { useTranslation } from "react-i18next"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import {
@@ -78,9 +78,9 @@ export default function CrashHistoryPanel() {
     setLoading(true)
     try {
       const [journalData, backupData, enabled] = await Promise.all([
-        invoke<CrashJournal>("get_crash_history"),
-        invoke<BackupInfo[]>("list_backups_cmd"),
-        invoke<boolean>("get_guardian_enabled"),
+        getTransport().call<CrashJournal>("get_crash_history"),
+        getTransport().call<BackupInfo[]>("list_backups_cmd"),
+        getTransport().call<boolean>("get_guardian_enabled"),
       ])
       setJournal(journalData as CrashJournal)
       setBackups(backupData as BackupInfo[])
@@ -98,7 +98,7 @@ export default function CrashHistoryPanel() {
 
   const handleClearHistory = async () => {
     try {
-      await invoke("clear_crash_history")
+      await getTransport().call("clear_crash_history")
       setJournal(null)
       loadData()
     } catch (e) {
@@ -109,7 +109,7 @@ export default function CrashHistoryPanel() {
   const handleCreateBackup = async () => {
     setBackupLoading(true)
     try {
-      await invoke<string>("create_backup_cmd")
+      await getTransport().call<string>("create_backup_cmd")
       loadData()
     } catch (e) {
       logger.error("health", "CrashHistoryPanel", `Failed to create backup: ${e}`)
@@ -120,7 +120,7 @@ export default function CrashHistoryPanel() {
 
   const handleRestoreBackup = async (name: string) => {
     try {
-      await invoke("restore_backup_cmd", { name })
+      await getTransport().call("restore_backup_cmd", { name })
       loadData()
     } catch (e) {
       logger.error("health", "CrashHistoryPanel", `Failed to restore backup: ${e}`)
@@ -129,7 +129,7 @@ export default function CrashHistoryPanel() {
 
   const handleRestart = async () => {
     try {
-      await invoke("request_app_restart")
+      await getTransport().call("request_app_restart")
     } catch (e) {
       logger.error("health", "CrashHistoryPanel", `Failed to request restart: ${e}`)
     }
@@ -138,7 +138,7 @@ export default function CrashHistoryPanel() {
   const handleGuardianToggle = async (enabled: boolean) => {
     setGuardianEnabled(enabled)
     try {
-      await invoke("set_guardian_enabled", { enabled })
+      await getTransport().call("set_guardian_enabled", { enabled })
     } catch (e) {
       setGuardianEnabled(!enabled)
       logger.error("health", "CrashHistoryPanel", `Failed to set guardian enabled: ${e}`)

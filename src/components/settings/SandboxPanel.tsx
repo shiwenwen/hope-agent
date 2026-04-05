@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
@@ -59,7 +59,7 @@ export default function SandboxPanel() {
 
   const refreshDockerStatus = useCallback(async () => {
     try {
-      const s = await invoke<DockerStatus>("check_sandbox_available")
+      const s = await getTransport().call<DockerStatus>("check_sandbox_available")
       setDockerStatus(s)
     } catch {
       setDockerStatus({ installed: false, running: false })
@@ -68,7 +68,7 @@ export default function SandboxPanel() {
 
   useEffect(() => {
     let cancelled = false
-    invoke<SandboxConfig>("get_sandbox_config")
+    getTransport().call<SandboxConfig>("get_sandbox_config")
       .then((cfg) => {
         if (!cancelled) {
           setConfig(cfg)
@@ -79,7 +79,7 @@ export default function SandboxPanel() {
         logger.error("settings", "SandboxPanel", `Failed to load sandbox config: ${e}`)
       })
 
-    invoke<DockerStatus>("check_sandbox_available")
+    getTransport().call<DockerStatus>("check_sandbox_available")
       .then((s) => {
         if (!cancelled) setDockerStatus(s)
       })
@@ -95,7 +95,7 @@ export default function SandboxPanel() {
   const save = async () => {
     setSaving(true)
     try {
-      await invoke("set_sandbox_config", { config })
+      await getTransport().call("set_sandbox_config", { config })
       setSavedSnapshot(JSON.stringify(config))
       setSaveStatus("saved")
       setTimeout(() => setSaveStatus("idle"), 2000)
@@ -152,7 +152,7 @@ export default function SandboxPanel() {
                   variant="outline"
                   className="h-7 text-xs"
                   onClick={() =>
-                    invoke("open_url", {
+                    getTransport().call("open_url", {
                       url: "https://www.docker.com/products/docker-desktop/",
                     })
                   }

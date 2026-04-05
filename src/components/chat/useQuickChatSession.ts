@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { parseSessionMessages } from "./chatUtils"
 import type {
@@ -93,7 +93,7 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
   // Load agents list
   const loadAgents = useCallback(async () => {
     try {
-      const list = await invoke<AgentSummaryForSidebar[]>("list_agents")
+      const list = await getTransport().call<AgentSummaryForSidebar[]>("list_agents")
       setAgents(list)
       return list
     } catch (e) {
@@ -106,9 +106,9 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
   const loadModels = useCallback(async () => {
     try {
       const [models, active, settings] = await Promise.all([
-        invoke<AvailableModel[]>("get_available_models"),
-        invoke<ActiveModel | null>("get_active_model"),
-        invoke<{ reasoning_effort: string }>("get_current_settings"),
+        getTransport().call<AvailableModel[]>("get_available_models"),
+        getTransport().call<ActiveModel | null>("get_active_model"),
+        getTransport().call<{ reasoning_effort: string }>("get_current_settings"),
       ])
       setAvailableModels(models)
       setActiveModel(active)
@@ -121,7 +121,7 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
   // Load session messages
   const loadSessionMessages = useCallback(async (sessionId: string) => {
     try {
-      const [rawMsgs] = await invoke<[unknown[], number]>(
+      const [rawMsgs] = await getTransport().call<[unknown[], number]>(
         "load_session_messages_latest_cmd",
         { sessionId, limit: QUICK_CHAT_PAGE_SIZE },
       )
@@ -139,7 +139,7 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
   // Reload sessions list (for useChatStream compatibility)
   const reloadSessions = useCallback(async () => {
     try {
-      const [list] = await invoke<[SessionMeta[], number]>("list_sessions_cmd", {
+      const [list] = await getTransport().call<[SessionMeta[], number]>("list_sessions_cmd", {
         agentId: currentAgentId === "default" ? null : currentAgentId,
       })
       setSessions(list)
@@ -176,7 +176,7 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
     if (lastSid) {
       try {
         // Verify session still exists by loading messages
-        const [rawMsgs] = await invoke<[unknown[], number]>(
+        const [rawMsgs] = await getTransport().call<[unknown[], number]>(
           "load_session_messages_latest_cmd",
           { sessionId: lastSid, limit: QUICK_CHAT_PAGE_SIZE },
         )
@@ -227,7 +227,7 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
 
       // Try to load the agent's specific model config
       try {
-        const agentConfig = await invoke<AgentConfig>("get_agent_config", { id: agentId })
+        const agentConfig = await getTransport().call<AgentConfig>("get_agent_config", { id: agentId })
         if (agentConfig.model.primary) {
           const [pId, mId] = agentConfig.model.primary.split("::")
           if (pId && mId) {
@@ -264,7 +264,7 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
       if (!providerId || !modelId) return
       setActiveModel({ providerId, modelId })
       try {
-        await invoke("set_active_model", { providerId, modelId })
+        await getTransport().call("set_active_model", { providerId, modelId })
       } catch (e) {
         logger.error("ui", "QuickChat::modelChange", "Failed to set model", e)
       }
@@ -276,7 +276,7 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
   const handleEffortChange = useCallback(async (effort: string) => {
     setReasoningEffort(effort)
     try {
-      await invoke("set_reasoning_effort", { effort })
+      await getTransport().call("set_reasoning_effort", { effort })
     } catch (e) {
       logger.error("ui", "QuickChat::effortChange", "Failed to set effort", e)
     }

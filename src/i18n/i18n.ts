@@ -1,6 +1,6 @@
 import i18n from "i18next"
 import { initReactI18next } from "react-i18next"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 
 import zh from "./locales/zh.json"
 import zhTW from "./locales/zh-TW.json"
@@ -80,7 +80,7 @@ let _followingSystem = true
  */
 export async function initLanguageFromConfig() {
   try {
-    const saved = await invoke<string>("get_language")
+    const saved = await getTransport().call<string>("get_language")
     if (saved && saved !== "auto") {
       _followingSystem = false
       const lang = resolveLanguage(saved)
@@ -110,7 +110,7 @@ export function setFollowSystemLanguage() {
   _followingSystem = true
   const lang = detectSystemLanguage()
   i18n.changeLanguage(lang)
-  invoke("set_language", { language: "auto" }).catch(() => {})
+  getTransport().call("set_language", { language: "auto" }).catch(() => {})
 }
 
 /**
@@ -120,7 +120,7 @@ export function setFollowSystemLanguage() {
 export function setLanguage(code: string) {
   _followingSystem = false
   i18n.changeLanguage(code)
-  invoke("set_language", { language: code }).catch(() => {})
+  getTransport().call("set_language", { language: code }).catch(() => {})
 }
 
 export default i18n

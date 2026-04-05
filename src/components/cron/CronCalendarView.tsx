@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
-import { invoke } from "@tauri-apps/api/core"
-import { listen } from "@tauri-apps/api/event"
+import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { ChevronLeft, ChevronRight, Plus, CalendarDays } from "lucide-react"
@@ -30,7 +29,7 @@ export default function CronCalendarView({ onNavigateToSession }: CronCalendarVi
     try {
       const start = new Date(year, month, 1)
       const end = new Date(year, month + 1, 1)
-      const result = await invoke<CalendarEvent[]>("cron_get_calendar_events", {
+      const result = await getTransport().call<CalendarEvent[]>("cron_get_calendar_events", {
         start: start.toISOString(),
         end: end.toISOString(),
       })
@@ -46,12 +45,9 @@ export default function CronCalendarView({ onNavigateToSession }: CronCalendarVi
 
   // Listen for cron:run_completed events
   useEffect(() => {
-    const unlisten = listen("cron:run_completed", () => {
+    return getTransport().listen("cron:run_completed", () => {
       fetchEvents()
     })
-    return () => {
-      unlisten.then((f) => f())
-    }
   }, [fetchEvents])
 
   function goToday() {

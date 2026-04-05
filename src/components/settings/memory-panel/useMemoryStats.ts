@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import type {
   EmbeddingConfig,
@@ -34,10 +34,10 @@ export function useMemoryStats() {
     async function loadEmbedding() {
       try {
         const [config, presetList, models, dedup] = await Promise.all([
-          invoke<EmbeddingConfig>("get_embedding_config"),
-          invoke<EmbeddingPreset[]>("get_embedding_presets"),
-          invoke<LocalEmbeddingModel[]>("list_local_embedding_models"),
-          invoke<{ thresholdHigh: number; thresholdMerge: number }>("get_dedup_config"),
+          getTransport().call<EmbeddingConfig>("get_embedding_config"),
+          getTransport().call<EmbeddingPreset[]>("get_embedding_presets"),
+          getTransport().call<LocalEmbeddingModel[]>("list_local_embedding_models"),
+          getTransport().call<{ thresholdHigh: number; thresholdMerge: number }>("get_dedup_config"),
         ])
         setEmbeddingConfig(config)
         setPresets(presetList)
@@ -53,7 +53,7 @@ export function useMemoryStats() {
   async function saveEmbeddingConfig() {
     setEmbeddingSaving(true)
     try {
-      await invoke("save_embedding_config", { config: embeddingConfig })
+      await getTransport().call("save_embedding_config", { config: embeddingConfig })
       setEmbeddingDirty(false)
       setEmbeddingSaveStatus("saved")
       setTimeout(() => setEmbeddingSaveStatus("idle"), 2000)

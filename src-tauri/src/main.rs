@@ -2,24 +2,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::env;
-use std::process::{Command, ExitStatus};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-/// Exit code for "restart requested" (e.g., after self-fix)
-const EXIT_CODE_RESTART: i32 = 42;
 /// Maximum consecutive crash restarts in child mode (panic recovery)
 const MAX_CHILD_PANICS: u32 = 3;
-/// Maximum consecutive crashes before triggering backup + self-diagnosis
-const DIAGNOSIS_THRESHOLD: u32 = 5;
-/// Maximum consecutive crashes before giving up entirely
-const MAX_GUARDIAN_CRASHES: u32 = 8;
-/// Time window (seconds) — if no crash occurs within this window, reset counter
-const CRASH_WINDOW_SECS: u64 = 600; // 10 minutes
-
-/// Backoff delays for consecutive crashes (seconds)
-const BACKOFF_DELAYS: [u64; 5] = [1, 3, 9, 15, 30];
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -30,7 +17,16 @@ fn main() {
         return;
     }
 
-    if env::var("OPENCOMPUTER_CHILD").is_ok() {
+    // Server subcommand: `opencomputer server` — runs the HTTP/WS server (no GUI)
+    if args.len() >= 2 && args[1] == "server" {
+        run_server(&args[2..]);
+        return;
+    }
+
+    // Child mode: spawned by Guardian via --child-mode arg or legacy OPENCOMPUTER_CHILD env
+    if (args.len() >= 2 && args[1] == "--child-mode")
+        || env::var("OPENCOMPUTER_CHILD").is_ok()
+    {
         run_child();
     } else if cfg!(debug_assertions) {
         // Dev mode — skip guardian, run app directly
@@ -69,204 +65,11 @@ fn is_guardian_enabled() -> bool {
 // ── Guardian Mode ──────────────────────────────────────────────────
 
 fn run_guardian() {
-    let should_exit = Arc::new(AtomicBool::new(false));
-
-    // Install signal handlers to forward signals to child and exit cleanly
-    #[cfg(unix)]
-    {
-        use signal_hook::consts::{SIGINT, SIGTERM};
-        let exit_flag = should_exit.clone();
-        let _ = signal_hook::flag::register(SIGTERM, exit_flag.clone());
-        let _ = signal_hook::flag::register(SIGINT, exit_flag);
-    }
-
-    let mut crash_count: u32 = 0;
-    let mut last_crash_time: Option<Instant> = None;
-
-    // Resolve crash journal path (best-effort, don't fail if home dir is unavailable)
-    let journal_path = resolve_journal_path();
-
-    loop {
-        // Check if we received a termination signal
-        if should_exit.load(Ordering::Relaxed) {
-            eprintln!("[Guardian] Received termination signal, exiting cleanly.");
-            break;
-        }
-
-        // Reset crash counter if enough time has passed since last crash
-        if let Some(last_time) = last_crash_time {
-            if last_time.elapsed() > Duration::from_secs(CRASH_WINDOW_SECS) {
-                crash_count = 0;
-            }
-        }
-
-        // Spawn the child process
-        let exe = match env::current_exe() {
-            Ok(e) => e,
-            Err(err) => {
-                eprintln!("[Guardian] Cannot resolve own executable path: {}", err);
-                std::process::exit(1);
-            }
-        };
-
-        let mut cmd = Command::new(&exe);
-        cmd.env("OPENCOMPUTER_CHILD", "1");
-
-        // Pass recovery info to child if this is a crash recovery
-        if crash_count > 0 {
-            cmd.env("OPENCOMPUTER_RECOVERED", "1");
-            cmd.env("OPENCOMPUTER_CRASH_COUNT", crash_count.to_string());
-        }
-
-        let child_result = cmd.spawn();
-        let mut child = match child_result {
-            Ok(c) => c,
-            Err(err) => {
-                eprintln!("[Guardian] Failed to spawn child process: {}", err);
-                std::process::exit(1);
-            }
-        };
-
-        // Wait for child to exit
-        let exit_status: ExitStatus = match child.wait() {
-            Ok(s) => s,
-            Err(err) => {
-                eprintln!("[Guardian] Failed to wait for child: {}", err);
-                // If we received a signal while waiting, exit cleanly
-                if should_exit.load(Ordering::Relaxed) {
-                    break;
-                }
-                crash_count += 1;
-                last_crash_time = Some(Instant::now());
-                continue;
-            }
-        };
-
-        // Check if we received a signal during wait
-        if should_exit.load(Ordering::Relaxed) {
-            break;
-        }
-
-        let exit_code = exit_status.code().unwrap_or(1);
-
-        match exit_code {
-            0 => {
-                // Normal user-initiated quit
-                break;
-            }
-            EXIT_CODE_RESTART => {
-                // Restart requested (e.g., after self-fix)
-                eprintln!(
-                    "[Guardian] Restart requested (exit code {}), restarting immediately.",
-                    EXIT_CODE_RESTART
-                );
-                crash_count = 0;
-                last_crash_time = None;
-                continue;
-            }
-            _ => {
-                // Crash detected
-                crash_count += 1;
-                last_crash_time = Some(Instant::now());
-
-                let signal_info = app_lib::crash_journal::signal_name_from_exit_code(exit_code)
-                    .map(|s| format!(" ({})", s))
-                    .unwrap_or_default();
-
-                eprintln!(
-                    "[Guardian] Crash detected ({}/{}): exit code {}{}",
-                    crash_count, MAX_GUARDIAN_CRASHES, exit_code, signal_info
-                );
-
-                // Record crash to journal
-                if let Some(ref path) = journal_path {
-                    let mut journal = app_lib::crash_journal::CrashJournal::load(path);
-                    journal.add_crash(exit_code, crash_count);
-                    let _ = journal.save(path);
-                }
-
-                // Trigger backup + self-diagnosis at threshold
-                if crash_count == DIAGNOSIS_THRESHOLD {
-                    eprintln!(
-                        "[Guardian] Crash threshold reached, running backup and self-diagnosis..."
-                    );
-                    run_recovery(journal_path.as_ref());
-                }
-
-                // Give up after max crashes
-                if crash_count >= MAX_GUARDIAN_CRASHES {
-                    eprintln!(
-                        "[Guardian] Max crash restarts reached ({}), giving up.",
-                        MAX_GUARDIAN_CRASHES
-                    );
-                    std::process::exit(1);
-                }
-
-                // Exponential backoff
-                let delay_idx = (crash_count as usize - 1).min(BACKOFF_DELAYS.len() - 1);
-                let delay = BACKOFF_DELAYS[delay_idx];
-                eprintln!("[Guardian] Restarting in {} second(s)...", delay);
-                std::thread::sleep(Duration::from_secs(delay));
-            }
-        }
-    }
-}
-
-/// Run backup and self-diagnosis
-fn run_recovery(journal_path: Option<&std::path::PathBuf>) {
-    // Step 1: Backup settings
-    match app_lib::backup::create_backup() {
-        Ok(backup_path) => {
-            eprintln!("[Guardian] Backup created: {}", backup_path);
-            if let Some(path) = journal_path {
-                let mut journal = app_lib::crash_journal::CrashJournal::load(path);
-                journal.set_last_backup(chrono::Utc::now().to_rfc3339());
-                let _ = journal.save(path);
-            }
-        }
-        Err(e) => {
-            eprintln!("[Guardian] Backup failed: {}", e);
-        }
-    }
-
-    // Step 2: Self-diagnosis via LLM
-    if let Some(path) = journal_path {
-        let journal = app_lib::crash_journal::CrashJournal::load(path);
-        match app_lib::self_diagnosis::diagnose(&journal) {
-            Ok(result) => {
-                eprintln!("[Guardian] Diagnosis complete:");
-                eprintln!("  Cause: {}", result.cause);
-                eprintln!("  Severity: {}", result.severity);
-                for rec in &result.recommendations {
-                    eprintln!("  - {}", rec);
-                }
-
-                // Step 3: Attempt auto-fix if applicable
-                let fixes = app_lib::self_diagnosis::auto_fix(&result);
-                let mut final_result = result;
-                if !fixes.is_empty() {
-                    eprintln!("[Guardian] Auto-fixes applied:");
-                    for fix in &fixes {
-                        eprintln!("  - {}", fix);
-                    }
-                    final_result.auto_fix_applied = fixes;
-                }
-
-                // Save diagnosis to journal
-                let mut journal = app_lib::crash_journal::CrashJournal::load(path);
-                journal.set_last_diagnosis(final_result);
-                let _ = journal.save(path);
-            }
-            Err(e) => {
-                eprintln!("[Guardian] Diagnosis failed: {}", e);
-            }
-        }
-    }
-}
-
-/// Resolve crash journal path (best-effort)
-fn resolve_journal_path() -> Option<std::path::PathBuf> {
-    app_lib::paths::crash_journal_path().ok()
+    // Desktop guardian: spawn child with OPENCOMPUTER_CHILD env var
+    oc_core::guardian::run_guardian(
+        vec!["--child-mode".to_string()],
+        oc_core::guardian::GuardianConfig::default(),
+    );
 }
 
 // ── Child Mode ─────────────────────────────────────────────────────
@@ -382,5 +185,201 @@ fn run_acp_server(args: &[String]) {
     if let Err(e) = app_lib::acp::server::start(session_db, agent_id, verbose) {
         eprintln!("[acp] Server error: {}", e);
         std::process::exit(1);
+    }
+}
+
+// ── HTTP/WS Server Mode ───────────────────────────────────────────
+
+fn run_server(args: &[String]) {
+    // Handle service sub-subcommands first
+    if let Some(subcmd) = args.first().map(|s| s.as_str()) {
+        match subcmd {
+            "install" => {
+                return run_server_install(&args[1..]);
+            }
+            "uninstall" => {
+                match oc_core::service_install::uninstall_service() {
+                    Ok(()) => println!("Service uninstalled successfully."),
+                    Err(e) => {
+                        eprintln!("Failed to uninstall service: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+                return;
+            }
+            "status" => {
+                match oc_core::service_install::service_status() {
+                    Ok(status) => println!("{}", status),
+                    Err(e) => {
+                        eprintln!("Failed to query service status: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+                return;
+            }
+            "stop" => {
+                match oc_core::service_install::stop_server() {
+                    Ok(()) => println!("Server stopped."),
+                    Err(e) => {
+                        eprintln!("Failed to stop server: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+                return;
+            }
+            _ => {} // Fall through to normal arg parsing
+        }
+    }
+
+    let Some((bind_addr, api_key)) = parse_server_args(args, "server") else {
+        println!("OpenComputer HTTP/WebSocket Server");
+        println!();
+        println!("Usage: opencomputer server [COMMAND] [OPTIONS]");
+        println!();
+        println!("Commands:");
+        println!("  install              Install as a system service (launchd/systemd)");
+        println!("  uninstall            Uninstall the system service");
+        println!("  status               Show service status");
+        println!("  stop                 Stop the running server");
+        println!();
+        println!("Options:");
+        println!("  --bind, -b ADDR      Bind address (default: 127.0.0.1:8420)");
+        println!("  --api-key KEY        API key for authentication");
+        println!("  --version            Print version and exit");
+        println!("  --help, -h           Print help and exit");
+        return;
+    };
+
+    eprintln!(
+        "[server] Starting OpenComputer server v{}",
+        env!("CARGO_PKG_VERSION")
+    );
+    eprintln!("[server] Bind address: {}", bind_addr);
+
+    // Initialize core subsystems
+    if let Err(e) = oc_core::paths::ensure_dirs() {
+        eprintln!("[server] Failed to initialize data directories: {}", e);
+        std::process::exit(1);
+    }
+    if let Err(e) = oc_core::agent_loader::ensure_default_agent() {
+        eprintln!("[server] Warning: failed to ensure default agent: {}", e);
+    }
+
+    // Initialize SessionDB (use oc_core types for server mode)
+    let db_path = match oc_core::session::db_path() {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("[server] Fatal: failed to resolve database path: {}", e);
+            std::process::exit(1);
+        }
+    };
+    let session_db = match oc_core::session::SessionDB::open(&db_path) {
+        Ok(db) => Arc::new(db),
+        Err(e) => {
+            eprintln!("[server] Fatal: failed to open session database: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    // Register global SessionDB so oc-core internals (tools, agent, etc.) can access it
+    let _ = oc_core::globals::SESSION_DB.set(session_db.clone());
+
+    // Create event bus
+    let event_bus: Arc<dyn oc_core::event_bus::EventBus> =
+        Arc::new(oc_core::event_bus::BroadcastEventBus::new(256));
+    oc_core::set_event_bus(event_bus.clone());
+
+    // Build server context
+    let ctx = Arc::new(oc_server::AppContext {
+        session_db,
+        event_bus,
+        chat_streams: Arc::new(oc_server::ws::chat_stream::ChatStreamRegistry::new()),
+        chat_cancels: Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
+    });
+
+    let config = oc_server::ServerConfig {
+        bind_addr,
+        api_key,
+        cors_origins: Vec::new(),
+    };
+
+    // Write PID file
+    let pid_path = oc_core::paths::root_dir()
+        .map(|d| d.join("server.pid"))
+        .ok();
+    if let Some(ref p) = pid_path {
+        let _ = std::fs::write(p, std::process::id().to_string());
+    }
+
+    // Run the tokio runtime
+    let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
+    rt.block_on(async {
+        if let Err(e) = oc_server::start_server(config, ctx).await {
+            eprintln!("[server] Server error: {}", e);
+            std::process::exit(1);
+        }
+    });
+
+    // Clean up PID file
+    if let Some(ref p) = pid_path {
+        let _ = std::fs::remove_file(p);
+    }
+}
+
+/// Shared server arg parser for --bind and --api-key.
+/// Returns None if --help was requested (already printed).
+fn parse_server_args(args: &[String], context: &str) -> Option<(String, Option<String>)> {
+    let mut bind_addr = "127.0.0.1:8420".to_string();
+    let mut api_key: Option<String> = None;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--bind" | "-b" => {
+                i += 1;
+                if i < args.len() {
+                    bind_addr = args[i].clone();
+                }
+            }
+            "--api-key" => {
+                i += 1;
+                if i < args.len() {
+                    api_key = Some(args[i].clone());
+                }
+            }
+            "--version" => {
+                println!("opencomputer-server {}", env!("CARGO_PKG_VERSION"));
+                std::process::exit(0);
+            }
+            "--help" | "-h" => return None,
+            _ => {
+                eprintln!("[{}] Unknown argument: {}", context, args[i]);
+            }
+        }
+        i += 1;
+    }
+    Some((bind_addr, api_key))
+}
+
+/// Handle `opencomputer server install [--bind ADDR] [--api-key KEY]`
+fn run_server_install(args: &[String]) {
+    let Some((bind_addr, api_key)) = parse_server_args(args, "server install") else {
+        println!("Install OpenComputer server as a system service");
+        println!();
+        println!("Usage: opencomputer server install [OPTIONS]");
+        println!();
+        println!("Options:");
+        println!("  --bind, -b ADDR      Bind address (default: 127.0.0.1:8420)");
+        println!("  --api-key KEY        API key for authentication");
+        println!("  --help, -h           Print help and exit");
+        return;
+    };
+
+    match oc_core::service_install::install_service(&bind_addr, api_key.as_deref()) {
+        Ok(msg) => println!("{}", msg),
+        Err(e) => {
+            eprintln!("Failed to install service: {}", e);
+            std::process::exit(1);
+        }
     }
 }
