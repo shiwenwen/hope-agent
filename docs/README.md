@@ -59,6 +59,18 @@
 
 | 文档 | 说明 |
 |------|------|
-| [竞品功能分析](references/competitive-analysis.md) | OpenComputer vs Claude Code vs OpenClaw 全面对比 |
-| [工具差异分析](references/tool-gap-analysis.md) | 工具功能逐项对比和优先级排序 |
-| [记忆系统对比](references/memory-system-comparison.md) | 记忆系统架构深度对比 |
+| [竞品功能分析](references/competitive-analysis.md) | OpenComputer vs Claude Code vs OpenClaw 全面对比（主文档） |
+| [工具系统对比](references/tool-gap-analysis.md) | 工具定义、执行引擎、延迟加载、权限过滤 |
+| [Agent 系统对比](references/agent-system-comparison.md) | Team/Swarm、Coordinator、Worktree、Agent 间消息 |
+| [Skill 系统对比](references/skill-system-comparison.md) | MCP Skills、Effort 级别、发现机制、Fork 模式 |
+| [Plan Mode 对比](references/plan-mode-comparison.md) | 六态状态机、双 Agent、Git Checkpoint |
+| [记忆系统对比](references/memory-system-comparison.md) | SQLite vs 文件系统、向量检索、团队同步 |
+| [上下文管理对比](references/context-management-comparison.md) | 5 层压缩、Side Query、Tool Use Summary |
+| [Provider 支持对比](references/provider-support-comparison.md) | 多 Provider 模板、降级策略、Prompt Cache |
+| [IM 渠道系统对比](references/im-channel-comparison.md) | 12 vs 24+ 渠道、DM 配对、语音、媒体管道 |
+| [权限与安全对比](references/permission-security-comparison.md) | 权限模式、MDM、TCC 检查、速率限制 |
+| [IDE 集成对比](references/ide-integration-comparison.md) | VS Code Bridge、REPL Bridge、ACP 协议 |
+| [Hooks 系统对比](references/hooks-system-comparison.md) | 事件类型、同步/异步 Hook、工具拦截 |
+| [通知系统对比](references/notification-system-comparison.md) | 优先级队列、通知折叠、失效机制 |
+| [Session 管理对比](references/session-management-comparison.md) | Teleport、远程会话、会话恢复 |
+| [其他独有能力对比](references/unique-capabilities-comparison.md) | DreamTask、Dashboard、i18n、Canvas |

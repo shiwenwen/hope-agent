@@ -1,6 +1,8 @@
-# 记忆系统对比分析：OpenComputer vs openclaw
+# 记忆系统对比分析：OpenComputer vs Claude Code vs OpenClaw
 
-本文档详细对比两个项目的记忆系统实现，重点分析记忆从创建到被 Agent 使用的完整工作流程。
+> 基线对比时间：2026-04-05 | 对应主文档章节：2.5
+
+本文档详细对比三个项目的记忆系统实现，重点分析记忆从创建到被 Agent 使用的完整工作流程。
 
 ---
 
@@ -741,3 +743,156 @@ flowchart TD
 | `src-tauri/src/tools/memory.rs` | Agent 工具：save_memory, recall_memory, update_memory, delete_memory, update_core_memory |
 | `src-tauri/src/paths.rs` | 路径管理（含 memory_attachments_dir） |
 | `src/components/settings/memory-panel/EmbeddingView.tsx` | 前端：Embedding 配置 + Auto 按钮 + 搜索调优面板 + 多模态开关 |
+
+---
+
+## Claude Code 记忆系统
+
+### 1. 架构总览
+
+Claude Code 的记忆系统采用**纯文件系统存储**，以 Markdown 文件 + YAML frontmatter 为数据格式。整体分为三个子系统：
+
+| 子系统 | 用途 | 存储位置 |
+|--------|------|----------|
+| **Auto Memory（持久记忆）** | 跨会话持久记忆，按主题分文件存储 | `~/.claude/projects/<sanitized-git-root>/memory/` |
+| **Session Memory（会话记忆）** | 当前会话的结构化笔记，用于 compaction 后恢复上下文 | `~/.claude/session-memory/` 目录下按会话生成 |
+| **Team Memory（团队记忆）** | 多人共享记忆，按 GitHub 仓库维度同步 | `~/.claude/projects/<path>/memory/team/` |
+
+核心设计原则：
+
+- **MEMORY.md 索引文件**：每个记忆目录包含一个 `MEMORY.md` 作为入口索引（而非存储实体），200 行 / 25KB 截断后注入系统提示词
+- **Forked Agent 提取**：记忆提取通过 `runForkedAgent` 运行——从主对话完美 fork 一个子 Agent，共享 prompt cache 前缀，避免额外缓存成本
+- **文件权限隔离**：提取子 Agent 仅允许在记忆目录内使用 Edit/Write 工具，其余工具仅限只读操作
+
+### 2. 数据模型与存储
+
+**关键代码路径**：
+- `~/Codes/claude-code/src/memdir/paths.ts` — 路径解析（支持 env var / settings.json / git root 三层 fallback）
+- `~/Codes/claude-code/src/memdir/memdir.ts` — 记忆提示词构建 & MEMORY.md 截断
+- `~/Codes/claude-code/src/memdir/memoryTypes.ts` — 四类记忆分类定义 & 提示词模板
+- `~/Codes/claude-code/src/memdir/memoryScan.ts` — 目录扫描 & frontmatter 解析
+
+**记忆类型（四类闭合分类）**：
+
+| 类型 | 说明 | 典型示例 |
+|------|------|----------|
+| `user` | 用户角色、偏好、知识背景 | "用户是数据科学家，关注可观测性" |
+| `feedback` | 用户对 Claude 工作方式的纠正或确认 | "集成测试必须连真实数据库，不能用 mock" |
+| `project` | 项目进展、决策、截止日期等非代码可推导信息 | "3月5日起代码冻结，mobile 团队要切 release 分支" |
+| `reference` | 外部系统的引用指针 | "pipeline bug 追踪在 Linear 项目 INGEST 中" |
+
+**frontmatter 格式**：
+
+```markdown
+---
+name: {{memory name}}
+description: {{one-line description — 用于未来相关性判断}}
+type: {{user, feedback, project, reference}}
+---
+
+{{memory content}}
+```
+
+**存储结构**：
+- 每条记忆一个独立 `.md` 文件（如 `user_role.md`、`feedback_testing.md`）
+- `MEMORY.md` 是索引文件，每条记录一行、不超 150 字符：`- [Title](file.md) — one-line hook`
+- 上限 200 个记忆文件（`MAX_MEMORY_FILES`），扫描时按 mtime 降序排列
+
+### 3. 记忆注入（系统提示词）
+
+**关键代码路径**：
+- `~/Codes/claude-code/src/memdir/memdir.ts` → `loadMemoryPrompt()` — 加载记忆提示词到系统提示
+- `~/Codes/claude-code/src/memdir/findRelevantMemories.ts` — 基于 Sonnet 的相关性选择
+
+**注入流程**：
+
+1. **MEMORY.md 全量注入**：启动时读取 `MEMORY.md`，经过双重截断（200 行 + 25KB），注入系统提示词。超限时追加 WARNING 提醒
+2. **按需记忆检索**：通过 `findRelevantMemories()` 机制，扫描记忆目录所有 `.md` 文件的 frontmatter（排除 MEMORY.md），使用 Sonnet 模型作为"记忆选择器"从候选列表中选出最多 5 条相关记忆
+3. **选择器提示词**：包含用户查询 + 记忆清单（filename + description + type + timestamp），要求只选"确定有用"的记忆
+
+### 4. 记忆提取（自动/手动）
+
+**关键代码路径**：
+- `~/Codes/claude-code/src/services/extractMemories/extractMemories.ts` — 自动提取主逻辑
+- `~/Codes/claude-code/src/services/extractMemories/prompts.ts` — 提取子 Agent 的 prompt 模板
+- `~/Codes/claude-code/src/services/SessionMemory/sessionMemory.ts` — 会话记忆提取
+
+#### 4.1 Auto Memory 提取（跨会话持久记忆）
+
+**触发机制**：
+- 通过 `initExtractMemories()` 注册为 post-sampling hook，每次主 Agent 完成一轮响应后触发
+- 有频率节流，默认每 1 个 eligible turn 执行一次
+- **互斥保护**：检测到主 Agent 已在本轮直接写了记忆文件（`hasMemoryWritesSince`），则跳过后台提取
+
+**提取流程**：
+1. 扫描记忆目录，生成现有记忆清单（`scanMemoryFiles` + `formatMemoryManifest`）
+2. 构建提取 prompt，包含：最近 ~N 条新消息的分析指令 + 四类记忆分类 + "什么不该存" 规则
+3. 通过 `runForkedAgent` 执行——共享主对话的 system prompt + 消息前缀（利用 prompt cache），最多 5 轮
+4. 子 Agent 读取已有记忆文件 → 并行写入/编辑记忆文件，工具权限限制为：Read/Grep/Glob（不限）、只读 Bash、Edit/Write（仅限记忆目录内）
+
+#### 4.2 Session Memory 提取（当前会话笔记）
+
+**触发条件**（必须同时满足 token 阈值 + 工具调用阈值或对话间歇）：
+- 初始化阈值：上下文窗口 token 数 >= 10,000（`minimumMessageTokensToInit`）
+- 更新间隔阈值：距上次提取增长 >= 5,000 token（`minimumTokensBetweenUpdate`）
+- 工具调用阈值：>= 3 次（`toolCallsBetweenUpdates`）
+- 或：token 阈值已满 + 最后一轮 assistant 没有工具调用（自然对话间歇）
+
+**会话笔记模板**（9 个固定 section）：
+- Session Title / Current State / Task specification / Files and Functions / Workflow / Errors & Corrections / Codebase and System Documentation / Learnings / Key results / Worklog
+- 每个 section 上限约 2,000 token，总文件上限 12,000 token
+
+### 5. 团队记忆同步
+
+**关键代码路径**：
+- `~/Codes/claude-code/src/services/teamMemorySync/index.ts` — Pull/Push API 客户端
+- `~/Codes/claude-code/src/services/teamMemorySync/watcher.ts` — 文件系统 watcher
+- `~/Codes/claude-code/src/services/teamMemorySync/secretScanner.ts` — 密钥扫描（30+ 规则）
+- `~/Codes/claude-code/src/services/teamMemorySync/teamMemSecretGuard.ts` — 写入拦截
+
+**架构**：
+
+- **存储模型**：服务端按 GitHub repo 维度存储扁平 key-value 映射（key = 文件相对路径，value = UTF-8 内容）
+- **API 协议**：
+  - `GET /api/claude_code/team_memory?repo={owner/repo}` — 拉取全量数据（含 per-key SHA-256 checksum）
+  - `GET ...&view=hashes` — 仅拉取元数据和 checksum（冲突解决用）
+  - `PUT /api/claude_code/team_memory?repo={owner/repo}` — 上传变更条目（upsert 语义）
+
+**同步流程**：
+1. **启动时拉取**：`startTeamMemoryWatcher()` 先执行 `pullTeamMemory()`（server wins per-key），然后启动 `fs.watch` 监控目录变化
+2. **增量推送**：文件变化触发 2 秒防抖（`DEBOUNCE_MS`），仅上传 SHA-256 不同的文件（delta upload）
+3. **冲突处理**：412 Precondition Failed 时重新拉取 hashes 后重试
+4. **永久失败抑制**：4xx（排除 409/429）被标记为永久失败，抑制后续重试
+
+**密钥保护**（`secretScanner.ts`）：
+- 集成了 30+ 条基于 gitleaks 的高置信度正则规则（AWS / GCP / Anthropic / OpenAI / GitHub / Slack / Stripe 等）
+- **写入前拦截**：`checkTeamMemSecrets()` 在 FileWriteTool/FileEditTool 的 `validateInput` 中调用
+- **推送前扫描**：`scanForSecrets()` 在上传前检测，跳过含密钥的文件
+- **密文脱敏**：`redactSecrets()` 支持将检测到的密钥替换为 `[REDACTED]`
+
+### 6. 记忆老化
+
+Claude Code **没有自动衰减/过期/删除机制**，但实现了**基于文件 mtime 的新鲜度提示**：
+
+**关键代码路径**：`~/Codes/claude-code/src/memdir/memoryAge.ts`
+
+- `memoryAgeDays(mtimeMs)` — 计算记忆距今天数
+- `memoryFreshnessText(mtimeMs)` — 超过 1 天的记忆追加警告："This memory is N days old... Verify against current code before asserting as fact."
+
+老化是**提示词层面的软引导**，不是数据层面的 TTL/衰减/自动清理。
+
+### 7. 与 OpenComputer / OpenClaw 对比
+
+| 维度 | Claude Code | OpenComputer | OpenClaw |
+|------|-------------|--------------|----------|
+| **存储引擎** | 纯文件系统（Markdown + frontmatter） | SQLite + FTS5 + 向量检索三引擎 | 文件系统 + LanceDB 向量 |
+| **检索方式** | LLM 选择器（Sonnet 从 frontmatter 中选 top-5） | FTS5 + Embedding 向量 + LLM 语义选择 | 向量 0.7 + BM25 0.3 + 可选 MMR |
+| **记忆分类** | 4 类闭合分类（user/feedback/project/reference） | 4 类（user/feedback/project/reference） | 无固定分类 |
+| **提取机制** | Forked Agent（共享 prompt cache） | Inline + side_query 缓存共享 | 文件写入 |
+| **会话记忆** | 独立 Session Memory（9 section 结构化笔记） | 五层渐进式上下文压缩 | 基础压缩 |
+| **团队同步** | 完整 Team Memory Sync（GitHub repo 维度） | 无 | 无 |
+| **密钥保护** | 30+ gitleaks 规则，写入拦截+推送扫描+脱敏 | 无专门保护 | 无 |
+| **记忆老化** | 提示词软引导（mtime 新鲜度文本） | 无 | 可选时间衰减 |
+| **附件支持** | 无 | 图片/音频附件 | 多模态 embedding |
+| **Pin 置顶** | 无 | pinned 字段优先注入 | 无 |
+| **来源追踪** | 无 | source: user/auto/import | 无 |
