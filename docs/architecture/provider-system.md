@@ -1,5 +1,7 @@
 # 对话与模型服务架构
 
+> 返回 [文档索引](../README.md)
+
 > 模型 Provider 系统、对话流程、Thinking/Reasoning 回传、Failover 降级、上下文管理的完整技术文档。
 
 ---
@@ -190,6 +192,8 @@ Provider 通过 `on_delta` 回调实时推送 JSON 事件：
   "thinking": { "type": "enabled", "budget_tokens": 4096 }
 }
 ```
+
+> `cache_control` 用于 Prompt Cache 复用，详见 [Side Query 缓存架构](side-query.md)。
 
 **History 格式（assistant 消息）：**
 ```json

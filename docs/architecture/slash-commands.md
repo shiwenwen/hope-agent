@@ -1,5 +1,7 @@
 # 斜杠命令系统 (Slash Commands)
 
+> 返回 [文档索引](../README.md)
+
 OpenComputer 内置斜杠命令系统，用户在**聊天输入框**或**任意 IM 渠道**（Telegram 等）中输入 `/` 前缀即可触发。命令按类别分组，支持参数、模糊匹配和动态技能扩展。
 
 ## 架构概述
@@ -170,7 +172,7 @@ sequenceDiagram
 
 ## `/plan` 子命令详解
 
-计划模式（Plan Mode）是一个六态状态机，`/plan` 命令控制状态转换：
+计划模式（Plan Mode）是一个六态状态机，`/plan` 命令控制状态转换（详见 [Plan Mode 架构文档](plan-mode.md)）：
 
 ```mermaid
 stateDiagram-v2

@@ -1,5 +1,7 @@
 # ACP (Agent Client Protocol) 架构文档
 
+> 返回 [文档索引](../README.md)
+
 > OpenComputer 原生 ACP 实现 — 零桥接、高性能的 IDE 直连方案
 
 ## 目录

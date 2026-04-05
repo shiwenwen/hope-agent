@@ -1,5 +1,7 @@
 # 图片生成工具技术架构文档
 
+> 返回 [文档索引](../README.md)
+
 ## 概述
 
 OpenComputer 的图片生成系统采用 **Trait 抽象 + Capabilities 声明 + 动态工具描述 + 自动降级** 的架构，支持 7 个内置 Provider，覆盖文生图和参考图编辑两种模式。整个系统遵循「上层不感知 Provider」原则——工具入口函数 `tool_image_generate()` 通过统一的 `ImageGenProviderImpl` trait 与所有 Provider 交互，不包含任何 Provider 特定逻辑。

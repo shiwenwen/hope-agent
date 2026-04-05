@@ -1,5 +1,7 @@
 # OpenComputer Plan Mode 架构文档
 
+> 返回 [文档索引](../README.md)
+>
 > 更新时间：2026-03-29
 
 ## 目录
@@ -315,6 +317,8 @@ pub fn is_plan_mode_path_allowed(file_path: &str) -> bool
 | Plan 文件 | `.opencomputer/plans/*.md` | 计划内容持久化 + 版本历史 |
 
 ### 工具限制与路径权限
+
+> 详见 [工具系统架构](tool-system.md) 了解完整的工具权限模型。
 
 **文件**：`src-tauri/src/commands/chat.rs`
 

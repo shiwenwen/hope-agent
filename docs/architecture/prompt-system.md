@@ -1,6 +1,6 @@
 # OpenComputer 提示词系统技术文档
 
-> 更新时间：2026-03-29
+> 返回 [文档索引](../README.md) | 更新时间：2026-04-04
 
 ## 目录
 
@@ -11,7 +11,7 @@
   - [Legacy 兼容路径](#legacy-兼容路径)
 - [Per-Tool 描述系统](#per-tool-描述系统)
   - [设计理念](#设计理念)
-  - [工具描述清单（31 个工具）](#工具描述清单31-个工具)
+  - [工具描述清单（32 个工具）](#工具描述清单32-个工具)
   - [动态过滤机制](#动态过滤机制)
 - [行为指导系统](#行为指导系统)
   - [Output Efficiency（输出效率）](#output-efficiency输出效率)
@@ -40,30 +40,21 @@
 
 OpenComputer 的提示词系统采用**模块化组装**架构，由 `system_prompt.rs` 统一编排。System Prompt 由最多 13 个独立段落（section）按固定顺序拼接，每段可独立启用/禁用/过滤，支持 Agent 级别的差异化配置。
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                    System Prompt                         │
-│                                                         │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐    │
-│  │ ① Identity  │  │ ② agent.md  │  │ ③ persona   │    │
-│  └─────────────┘  └─────────────┘  └─────────────┘    │
-│  ┌─────────────┐  ┌─────────────┐  ┌──────────────┐   │
-│  │ ④ User Ctx  │  │ ⑤ tools.md  │  │ ⑥ Tool Descs │   │
-│  └─────────────┘  └─────────────┘  │  (filtered)  │   │
-│                                     └──────────────┘   │
-│  ┌─────────────┐  ┌──────────────┐ ┌──────────────┐   │
-│  │ ⑦ Skills    │  │ ⑦b Behavior  │ │ ⑧ Memory     │   │
-│  │ (filtered)  │  │  Guidance    │ │  Guidelines  │   │
-│  └─────────────┘  └──────────────┘ └──────────────┘   │
-│  ┌─────────────┐  ┌──────────────┐ ┌──────────────┐   │
-│  │ ⑨ Runtime   │  │ ⑩ SubAgent   │ │ ⑪ Sandbox    │   │
-│  │    Info      │  │  Delegation  │ │   Mode       │   │
-│  └─────────────┘  └──────────────┘ └──────────────┘   │
-│  ┌──────────────┐                                      │
-│  │ ⑬ ACP       │     ⑫ (reserved: Project Context)    │
-│  │  Ext Agents  │                                      │
-│  └──────────────┘                                      │
-└─────────────────────────────────────────────────────────┘
+```mermaid
+graph TD
+    subgraph SP["System Prompt 13 段组装"]
+        direction LR
+        S1["① Identity"] --> S2["② agent.md"] --> S3["③ persona.md"]
+        S4["④ User Context"] --> S5["⑤ tools.md"] --> S6["⑥ Tool Descriptions\n(filtered)"]
+        S7["⑦ Skills\n(filtered)"] --> S7b["⑦b Behavior\nGuidance"] --> S8["⑧ Memory\nGuidelines"]
+        S9["⑨ Runtime Info"] --> S10["⑩ SubAgent\nDelegation"] --> S11["⑪ Sandbox Mode"]
+        S12["⑫ reserved"] --> S13["⑬ ACP\nExt Agents"]
+    end
+    S3 --> S4
+    S6 --> S7
+    S8 --> S9
+    S11 --> S12
+    style SP fill:#f5f5f5
 ```
 
 **核心设计原则**：
@@ -84,24 +75,29 @@ OpenComputer 的提示词系统采用**模块化组装**架构，由 `system_pro
 
 组装由 `system_prompt::build()` 函数执行，入口参数为 `AgentDefinition`（Agent 完整配置）：
 
-```
-AgentDefinition
-    ├── config.name / config.personality    → ① Identity + ② Personality
-    ├── agent_md                            → ③ agent.md
-    ├── persona                             → ④ persona.md
-    ├── tools_guide                         → ⑤ tools.md
-    ├── config.tools (FilterConfig)         → ⑥ Tool Descriptions (filtered)
-    ├── config.skills (FilterConfig)        → ⑦ Skills (filtered)
-    │                                       → ⑦b Behavior Guidance (always)
-    ├── config.memory.enabled               → ⑧ Memory (conditional)
-    │   ├── global_memory_md                   └── 8a: Core Memory (Global)
-    │   ├── memory_md                          └── 8b: Core Memory (Agent)
-    │   ├── memory_context (SQLite)            └── 8c: SQLite Memories
-    │   └── (hardcoded)                        └── 8d: Memory Guidelines
-    ├── model / provider                    → ⑨ Runtime Info
-    ├── config.subagents.enabled            → ⑩ Sub-Agent Delegation (conditional)
-    ├── config.behavior.sandbox             → ⑪ Sandbox Mode (conditional)
-    └── config.acp.enabled                  → ⑬ ACP External Agents (conditional)
+```mermaid
+graph LR
+    AD["AgentDefinition"] --> S1["① Identity\n② Personality"]
+    AD --> S3["③ agent.md"]
+    AD --> S4["④ persona.md"]
+    AD --> S5["⑤ tools.md"]
+    AD --> S6["⑥ Tool Descriptions\n(FilterConfig)"]
+    AD --> S7["⑦ Skills\n(FilterConfig)"]
+    AD --> S7b["⑦b Behavior Guidance\n(always)"]
+    AD --> S8["⑧ Memory"]
+    S8 --> S8a["8a: Core Memory\n(Global)"]
+    S8 --> S8b["8b: Core Memory\n(Agent)"]
+    S8 --> S8c["8c: SQLite\nMemories"]
+    S8 --> S8d["8d: Memory\nGuidelines"]
+    AD --> S9["⑨ Runtime Info"]
+    AD --> S10["⑩ SubAgent\n(conditional)"]
+    AD --> S11["⑪ Sandbox\n(conditional)"]
+    AD --> S13["⑬ ACP\n(conditional)"]
+
+    style S8 fill:#fff3cd
+    style S10 fill:#e3f2fd
+    style S11 fill:#e3f2fd
+    style S13 fill:#e3f2fd
 ```
 
 **代码位置**：`src-tauri/src/system_prompt.rs:322` — `pub fn build()`
@@ -139,7 +135,7 @@ AgentDefinition
 2. **详细指南**：每个工具包含使用指南、最佳实践、常见陷阱
 3. **工具优先级**：`exec` 工具明确标注「优先使用专用工具」规则，防止模型绕过专用工具直接用 shell
 
-### 工具描述清单（31 个工具）
+### 工具描述清单（32 个工具）
 
 工具描述以 `TOOL_DESC_*` 常量定义，通过 `TOOL_DESCRIPTIONS` 数组映射：
 
@@ -353,14 +349,23 @@ Phase 5: Review & Refinement   → 用户审核，inline comment 修订
 
 上下文压缩系统在对话历史逼近上下文窗口限制时自动触发：
 
-```
-Tier 1: Tool Result Truncation     ← 单条工具结果过大时 head+tail 截断
-   ↓ context 仍然过大
-Tier 2: Context Pruning            ← 旧工具结果 soft-trim → hard-clear
-   ↓ context 仍然过大
-Tier 3: LLM Summarization          ← 调用模型总结旧消息
-   ↓ ContextOverflow 错误
-Tier 4: Emergency Compaction        ← 激进截断
+```mermaid
+flowchart TD
+    T1["Tier 1: Tool Result Truncation\n单条工具结果 head+tail 截断"] --> C1{"context 仍过大?"}
+    C1 -- Yes --> T2["Tier 2: Context Pruning\n旧工具结果 soft-trim → hard-clear"]
+    C1 -- No --> Done["完成"]
+    T2 --> C2{"context 仍过大?"}
+    C2 -- Yes --> T3["Tier 3: LLM Summarization\n调用模型总结旧消息"]
+    C2 -- No --> Done
+    T3 --> C3{"ContextOverflow?"}
+    C3 -- Yes --> T4["Tier 4: Emergency Compaction\n激进截断"]
+    C3 -- No --> Done
+
+    style T1 fill:#d4edda
+    style T2 fill:#fff3cd
+    style T3 fill:#fce4ec
+    style T4 fill:#f8d7da
+    style Done fill:#e8f5e9
 ```
 
 **代码位置**：`src-tauri/src/context_compact/mod.rs`
@@ -495,7 +500,7 @@ including UUIDs, hashes, IDs, tokens, hostnames, IPs, ports, URLs, and file name
 
 | 文件 | 内容 |
 |------|------|
-| `src-tauri/src/system_prompt.rs` | **核心**：13 段组装、31 个工具描述、3 个行为指导、所有 section builder |
+| `src-tauri/src/system_prompt.rs` | **核心**：13 段组装、32 个工具描述、3 个行为指导、所有 section builder |
 | `src-tauri/src/plan.rs:454-630` | Plan Mode 4 个提示词常量 |
 | `src-tauri/src/context_compact/summarization.rs` | 上下文压缩 system prompt + 总结构建 |
 | `src-tauri/src/context_compact/config.rs` | 压缩配置结构体（17 个参数） |
@@ -503,5 +508,5 @@ including UUIDs, hashes, IDs, tokens, hostnames, IPs, ports, URLs, and file name
 | `src-tauri/src/user_config.rs` | 用户上下文构建（name/role/birthday/timezone/...） |
 | `src-tauri/src/agent_config.rs` | Agent 配置结构（personality/tools/skills/memory/subagents） |
 | `src-tauri/src/skills.rs` | 技能加载 + prompt 构建 + budget 管理 |
-| `src-tauri/src/tools/mod.rs:42-76` | 35 个 `TOOL_*` 名称常量 |
+| `src-tauri/src/tools/mod.rs:52-88` | 37 个 `TOOL_*` 名称常量 |
 | `src-tauri/src/tools/definitions.rs` | 工具 JSON Schema 定义（发送给 LLM 的 function calling schema） |
