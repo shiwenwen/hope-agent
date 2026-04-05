@@ -4,15 +4,19 @@
 
 ## 系统定位
 
-基于 Tauri 2 + React 19 + Rust 的本地 AI 助手桌面应用。核心设计目标：**一切复杂逻辑在 Rust 后端**，前端只负责展示和交互。
+基于 Rust 的本地 AI 助手，支持三种运行模式：桌面 GUI（Tauri）、HTTP/WS 守护进程、ACP stdio。核心设计目标：**一切复杂逻辑在 oc-core**（零 Tauri 依赖），前端只负责展示和交互，Tauri 和 HTTP 服务都是薄壳。
+
+> 三 Crate 架构详细设计见 [Workspace 架构](workspace-architecture.md)
 
 ## 技术栈
 
 | 层 | 技术 |
 |---|---|
 | 前端 | React 19 + TypeScript, Vite 8, Tailwind CSS v4, shadcn/ui (Radix UI) |
-| 桌面 | Tauri 2 (IPC via `invoke()`, 流式输出 via `Channel<String>`) |
-| 后端 | Rust, tokio, reqwest |
+| 前端通信 | Transport 抽象层（Tauri IPC 或 HTTP/WebSocket 双模式） |
+| 桌面 | Tauri 2（薄壳，调用 oc-core） |
+| 服务器 | axum 0.8（HTTP REST API + WebSocket 流式） |
+| 核心 | oc-core（Rust, tokio, reqwest，零 Tauri 依赖） |
 | 渲染 | Streamdown + Shiki + KaTeX + Mermaid |
 | 存储 | SQLite (WAL) + FTS5 + vec0 向量扩展 |
 | 多语言 | i18next (12 种语言) |
@@ -29,43 +33,48 @@ graph TD
         ChannelUI["ChannelUI"]
     end
 
-    ChatUI & Settings & Dashboard_UI & CronUI & ChannelUI -->|"invoke() / Channel&lt;String&gt;"| IPC["Tauri IPC"]
+    ChatUI & Settings & Dashboard_UI & CronUI & ChannelUI -->|"getTransport()"| Transport["Transport 抽象层"]
 
-    IPC --> ChatEngine
+    Transport -->|"Tauri 模式"| IPC["Tauri IPC<br/>(invoke + Channel)"]
+    Transport -->|"Web 模式"| HTTP["HTTP REST + WS<br/>(:8420)"]
 
-    subgraph Backend["Backend (Rust / Tokio)"]
-        ChatEngine["Chat Engine (入口)<br/>请求路由 → Agent 构建 → 模型调用<br/>→ 流式输出 → 持久化"]
+    IPC --> TauriShell
+    HTTP --> OcServer
 
-        ChatEngine --> ProviderSystem["Provider System<br/>(28 模板)<br/>Failover Chain"]
-        ChatEngine --> Agent["Agent<br/>(4 种 API)<br/>Side Query Cache"]
-        ChatEngine --> Tools["Tools<br/>(37 个)<br/>Tool Loop<br/>并发/串行"]
-        ChatEngine --> ContextCompact["Context Compact<br/>(5 层)<br/>Round Grouping"]
-        ChatEngine --> Memory["Memory<br/>(SQLite + FTS5<br/>+ vec0)<br/>Hybrid Search"]
-
-        ChatEngine --> SessionDB["Session<br/>(会话 DB)<br/>FTS5 搜索"]
-        ChatEngine --> PlanMode["Plan<br/>(六态 FSM)<br/>双 Agent"]
-        ChatEngine --> SkillSystem["Skill<br/>(懒加载)<br/>Fork 模式"]
-        ChatEngine --> Subagent["Subagent<br/>(spawn + inject)"]
-
-        SystemPrompt["System Prompt"]
-        ChatEngine --> SystemPrompt
-
-        Channel["Channel<br/>(12 渠道)"]
-        Cron["Cron<br/>(定时调度)"]
-        Sandbox["Sandbox<br/>(Docker)"]
-        DashboardBackend["Dashboard<br/>(聚合分析)"]
-
-        Channel --> ChatEngine
-        Cron --> ChatEngine
-
-        Logging["Logging<br/>(双写日志)"]
-        ACP["ACP<br/>(IDE 直连)"]
-        ACP --> ChatEngine
+    subgraph TauriShell["src-tauri (桌面薄壳)"]
+        Commands["150+ Tauri Commands"]
+        TauriSetup["setup.rs<br/>内嵌 HTTP 服务"]
     end
 
+    subgraph OcServer["oc-server (HTTP/WS)"]
+        Router["axum Router<br/>43 REST 端点"]
+        WSHandler["WebSocket<br/>/ws/events<br/>/ws/chat/{session}"]
+    end
+
+    Commands --> ChatEngine
+    Router --> ChatEngine
+    TauriSetup -.->|"spawn"| OcServer
+
+    subgraph OcCore["oc-core (核心业务逻辑，零 Tauri 依赖)"]
+        ChatEngine["Chat Engine"]
+        ChatEngine --> Agent["Agent (4 种 API)"]
+        ChatEngine --> Tools["Tools (31 个)"]
+        ChatEngine --> Memory["Memory"]
+        ChatEngine --> PlanMode["Plan Mode"]
+        EventBus["EventBus<br/>(broadcast)"]
+        Channel["Channel (12 渠道)"]
+        Cron["Cron"]
+        ACP["ACP (stdio)"]
+        Channel & Cron & ACP --> ChatEngine
+    end
+
+    EventBus -.->|"subscriber"| IPC
+    EventBus -.->|"subscriber"| WSHandler
+
     style Frontend fill:#e3f2fd
-    style Backend fill:#fff8e1
-    style ChatEngine fill:#c8e6c9
+    style OcCore fill:#e8f5e9
+    style OcServer fill:#e3f2fd
+    style TauriShell fill:#fff8e1
 ```
 
 ## 核心数据流
