@@ -9,9 +9,10 @@ import { logger } from "@/lib/logger"
 
 interface MemoryTabProps {
   agentId: string
+  openclawMode?: boolean
 }
 
-export default function MemoryTab({ agentId }: MemoryTabProps) {
+export default function MemoryTab({ agentId, openclawMode }: MemoryTabProps) {
   const { t } = useTranslation()
   const [content, setContent] = useState("")
   const [originalContent, setOriginalContent] = useState("")
@@ -89,6 +90,13 @@ export default function MemoryTab({ agentId }: MemoryTabProps) {
           )}
         </div>
         <p className="text-xs text-muted-foreground mb-3">{t("settings.coreMemoryAgentDesc")}</p>
+        {openclawMode && (
+          <div className="rounded-lg border border-green-500/30 bg-green-500/5 px-3 py-2 mb-3">
+            <p className="text-xs text-green-600 dark:text-green-400">
+              {t("settings.openclawMemoryHint")}
+            </p>
+          </div>
+        )}
         {loaded && (
           <Textarea
             value={content}

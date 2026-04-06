@@ -120,6 +120,7 @@ export interface AgentConfig {
     skillEnvCheck: boolean
   }
   useCustomPrompt: boolean
+  openclawMode: boolean
   notifyOnComplete?: boolean | null
   subagents: {
     enabled: boolean

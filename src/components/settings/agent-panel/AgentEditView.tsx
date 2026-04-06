@@ -34,6 +34,9 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
   const [agentMd, setAgentMd] = useState("")
   const [persona, setPersona] = useState("")
   const [toolsGuide, setToolsGuide] = useState("")
+  const [agentsMd, setAgentsMd] = useState("")
+  const [identityMd, setIdentityMd] = useState("")
+  const [soulMd, setSoulMd] = useState("")
   const [activeTab, setActiveTab] = useState<AgentTab>("identity")
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
@@ -55,6 +58,15 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
           getTransport().call<{ name: string; description: string; internal?: boolean }[]>("list_builtin_tools"),
           getTransport().call<AvailableModel[]>("get_available_models"),
         ])
+        // Fetch OpenClaw files only when mode is enabled
+        let ocAgents: string | null = null, ocIdentity: string | null = null, ocSoul: string | null = null
+        if (cfg.openclawMode) {
+          ;[ocAgents, ocIdentity, ocSoul] = await Promise.all([
+            getTransport().call<string | null>("get_agent_markdown", { id: agentId, file: "agents.md" }),
+            getTransport().call<string | null>("get_agent_markdown", { id: agentId, file: "identity.md" }),
+            getTransport().call<string | null>("get_agent_markdown", { id: agentId, file: "soul.md" }),
+          ])
+        }
         setAvailableModels(models)
         setAvailableSkills(skills.filter((s) => s.enabled))
         setBuiltinTools(tools)
@@ -77,6 +89,9 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
         setAgentMd(md ?? "")
         setPersona(per ?? "")
         setToolsGuide(tg ?? "")
+        setAgentsMd(ocAgents ?? "")
+        setIdentityMd(ocIdentity ?? "")
+        setSoulMd(ocSoul ?? "")
         // Flag: file never created -> fill with template; empty string means user cleared it intentionally
         if (md === null || md === undefined) setNeedsFillTemplate(true)
       } catch (e) {
@@ -91,11 +106,20 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
     setSaving(true)
     try {
       await getTransport().call("save_agent_config_cmd", { id: agentId, config })
-      await Promise.all([
+      const mdSaves = [
         getTransport().call("save_agent_markdown", { id: agentId, file: "agent.md", content: agentMd }),
         getTransport().call("save_agent_markdown", { id: agentId, file: "persona.md", content: persona }),
         getTransport().call("save_agent_markdown", { id: agentId, file: "tools.md", content: toolsGuide }),
-      ])
+      ]
+      // Only save OpenClaw files when mode is enabled
+      if (config.openclawMode) {
+        mdSaves.push(
+          getTransport().call("save_agent_markdown", { id: agentId, file: "agents.md", content: agentsMd }),
+          getTransport().call("save_agent_markdown", { id: agentId, file: "identity.md", content: identityMd }),
+          getTransport().call("save_agent_markdown", { id: agentId, file: "soul.md", content: soulMd }),
+        )
+      }
+      await Promise.all(mdSaves)
       window.dispatchEvent(new Event("agents-changed"))
       setSaveStatus("saved")
       setTimeout(() => setSaveStatus("idle"), 2000)
@@ -199,7 +223,7 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
   }
 
   /** Fetch a template file from backend by name and current locale */
-  const fetchTemplate = async (name: "agent" | "persona") => {
+  const fetchTemplate = async (name: string) => {
     const lang = i18n.language
     let locale = "en"
     if (lang.startsWith("zh-TW") || lang.startsWith("zh-HK")) locale = "zh-TW"
@@ -230,17 +254,23 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
     }
   }, [needsFillTemplate, config]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleEnableCustomPrompt = async () => {
-    // Pre-fill with templates from files if empty
-    if (!agentMd.trim()) {
-      const tpl = await fetchTemplate("agent")
-      if (tpl) setAgentMd(tpl)
-    }
-    if (!persona.trim()) {
-      const tpl = await fetchTemplate("persona")
-      if (tpl) setPersona(tpl)
-    }
-    updateConfig({ useCustomPrompt: true })
+  const handleEnableOpenClawMode = async () => {
+    // Pre-fill OpenClaw files with templates if empty
+    const templateNames = [
+      { state: agentsMd, setter: setAgentsMd, name: "openclaw_agents" },
+      { state: identityMd, setter: setIdentityMd, name: "openclaw_identity" },
+      { state: soulMd, setter: setSoulMd, name: "openclaw_soul" },
+      { state: toolsGuide, setter: setToolsGuide, name: "openclaw_tools" },
+    ]
+    await Promise.all(
+      templateNames.map(async ({ state, setter, name }) => {
+        if (!state.trim()) {
+          const tpl = await fetchTemplate(name)
+          if (tpl) setter(tpl)
+        }
+      }),
+    )
+    updateConfig({ openclawMode: true, useCustomPrompt: false })
   }
 
   if (!config) {
@@ -325,6 +355,7 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
             <IdentityTab
               config={config}
               agentMd={agentMd}
+              openclawMode={config.openclawMode}
               updateConfig={updateConfig}
               updatePersonality={updatePersonality}
               setAgentMd={setAgentMd}
@@ -337,6 +368,7 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
             <PersonalityTab
               config={config}
               persona={persona}
+              openclawMode={config.openclawMode}
               updatePersonality={updatePersonality}
               setPersona={setPersona}
               textInputProps={textInputProps}
@@ -350,6 +382,7 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
               builtinTools={builtinTools}
               availableSkills={availableSkills}
               toolsGuide={toolsGuide}
+              openclawMode={config.openclawMode}
               updateConfig={updateConfig}
               setToolsGuide={setToolsGuide}
               textInputProps={textInputProps}
@@ -365,7 +398,7 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
             />
           )}
 
-          {activeTab === "memory" && <MemoryTab agentId={agentId} />}
+          {activeTab === "memory" && <MemoryTab agentId={agentId} openclawMode={config.openclawMode} />}
 
           {activeTab === "subagent" && (
             <SubagentTab
@@ -378,13 +411,17 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
           {activeTab === "custom" && (
             <CustomTab
               config={config}
-              agentMd={agentMd}
-              persona={persona}
+              agentsMd={agentsMd}
+              identityMd={identityMd}
+              soulMd={soulMd}
+              toolsGuide={toolsGuide}
               updateConfig={updateConfig}
-              handleEnableCustomPrompt={handleEnableCustomPrompt}
+              handleEnableOpenClawMode={handleEnableOpenClawMode}
               textInputProps={textInputProps}
-              setAgentMd={setAgentMd}
-              setPersona={setPersona}
+              setAgentsMd={setAgentsMd}
+              setIdentityMd={setIdentityMd}
+              setSoulMd={setSoulMd}
+              setToolsGuide={setToolsGuide}
               CharCounter={CharCounter}
             />
           )}

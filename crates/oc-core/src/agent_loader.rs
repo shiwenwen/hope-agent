@@ -14,6 +14,11 @@ const PERSONA_MD: &str = "persona.md";
 const TOOLS_MD: &str = "tools.md";
 const MEMORY_MD: &str = "memory.md";
 
+/// OpenClaw-compatible markdown files.
+const AGENTS_MD: &str = "agents.md";
+const IDENTITY_MD: &str = "identity.md";
+const SOUL_MD: &str = "soul.md";
+
 // ── Default Agent Template ───────────────────────────────────────
 
 /// Detect system locale code (e.g. "zh", "en", "ja").
@@ -145,10 +150,25 @@ fn default_persona_md(locale: &str) -> &'static str {
     }
 }
 
+/// OpenClaw template (English only, no i18n).
+fn openclaw_template(name: &str) -> Option<&'static str> {
+    match name {
+        "openclaw_agents" => Some(include_str!("../templates/openclaw_agents.md")),
+        "openclaw_identity" => Some(include_str!("../templates/openclaw_identity.md")),
+        "openclaw_soul" => Some(include_str!("../templates/openclaw_soul.md")),
+        "openclaw_tools" => Some(include_str!("../templates/openclaw_tools.md")),
+        _ => None,
+    }
+}
+
 /// Get a template by name and locale. Called from frontend.
-/// `name`: "agent" or "persona"
-/// `locale`: language code like "zh", "en", "ja" etc.
+/// `name`: "agent", "persona", or "openclaw_agents"/"openclaw_identity"/"openclaw_soul"/"openclaw_tools"
+/// `locale`: language code like "zh", "en", "ja" etc. (ignored for openclaw templates)
 pub fn get_template(name: &str, locale: &str) -> Option<String> {
+    // OpenClaw templates (locale-independent)
+    if let Some(tpl) = openclaw_template(name) {
+        return Some(tpl.to_string());
+    }
     match name {
         "agent" => Some(default_agent_md(locale).to_string()),
         "persona" => Some(default_persona_md(locale).to_string()),
@@ -219,6 +239,17 @@ pub fn load_agent(id: &str) -> Result<AgentDefinition> {
     let tools_guide = read_optional_md(&dir, TOOLS_MD)?;
     let memory_md = read_optional_md(&dir, MEMORY_MD)?;
 
+    // Load OpenClaw-compatible markdown files (only when mode is enabled)
+    let (agents_md, identity_md, soul_md) = if config.openclaw_mode {
+        (
+            read_optional_md(&dir, AGENTS_MD)?,
+            read_optional_md(&dir, IDENTITY_MD)?,
+            read_optional_md(&dir, SOUL_MD)?,
+        )
+    } else {
+        (None, None, None)
+    };
+
     // Load global memory.md from ~/.opencomputer/memory.md
     let global_memory_md = {
         let global_path = paths::root_dir()?.join(MEMORY_MD);
@@ -244,6 +275,9 @@ pub fn load_agent(id: &str) -> Result<AgentDefinition> {
         agent_md,
         persona,
         tools_guide,
+        agents_md,
+        identity_md,
+        soul_md,
         global_memory_md,
         memory_md,
     })
@@ -347,11 +381,10 @@ pub fn save_agent_config(id: &str, config: &AgentConfig) -> Result<()> {
 // ── Save Agent Markdown ──────────────────────────────────────────
 
 /// Save a markdown file for the given agent.
-/// `file` must be one of: "agent.md", "persona.md", "tools.md"
 pub fn save_agent_markdown(id: &str, file: &str, content: &str) -> Result<()> {
     // Validate filename to prevent path traversal
     match file {
-        AGENT_MD | PERSONA_MD | TOOLS_MD => {}
+        AGENT_MD | PERSONA_MD | TOOLS_MD | AGENTS_MD | IDENTITY_MD | SOUL_MD => {}
         _ => anyhow::bail!("Invalid agent markdown file: {}", file),
     }
 
@@ -367,7 +400,7 @@ pub fn save_agent_markdown(id: &str, file: &str, content: &str) -> Result<()> {
 /// Read a markdown file for the given agent.
 pub fn get_agent_markdown(id: &str, file: &str) -> Result<Option<String>> {
     match file {
-        AGENT_MD | PERSONA_MD | TOOLS_MD => {}
+        AGENT_MD | PERSONA_MD | TOOLS_MD | AGENTS_MD | IDENTITY_MD | SOUL_MD => {}
         _ => anyhow::bail!("Invalid agent markdown file: {}", file),
     }
     let dir = paths::agent_dir(id)?;

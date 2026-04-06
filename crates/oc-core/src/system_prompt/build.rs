@@ -36,7 +36,46 @@ pub fn build(
     let os = std::env::consts::OS;
     let arch = std::env::consts::ARCH;
 
-    if definition.config.use_custom_prompt {
+    if definition.config.openclaw_mode {
+        // ── OpenClaw compatible mode: 4-file prompt (AGENTS.md, SOUL.md, IDENTITY.md, TOOLS.md) ──
+
+        // Minimal identity line
+        sections.push(format!(
+            "You are {}, running in OpenComputer on {} {}.",
+            definition.config.name, os, arch
+        ));
+
+        // # Project Context — assembled in OpenClaw order
+        let mut project_ctx = String::from("# Project Context\n\nThe following project context files have been loaded:");
+
+        let openclaw_files: [(&str, &Option<String>); 4] = [
+            ("AGENTS.md", &definition.agents_md),
+            ("SOUL.md", &definition.soul_md),
+            ("IDENTITY.md", &definition.identity_md),
+            ("TOOLS.md", &definition.tools_guide),
+        ];
+        let mut has_soul = false;
+        for (name, content) in &openclaw_files {
+            if let Some(md) = content.as_deref().filter(|s| !s.trim().is_empty()) {
+                project_ctx.push_str(&format!("\n\n## {}\n\n", name));
+                project_ctx.push_str(&truncate(md, MAX_FILE_CHARS));
+                if *name == "SOUL.md" {
+                    has_soul = true;
+                }
+            }
+        }
+
+        sections.push(project_ctx);
+
+        // SOUL.md embodiment guidance
+        if has_soul {
+            sections.push(
+                "If SOUL.md is present, embody its persona and tone throughout all interactions. \
+                 Avoid stiff, generic replies; follow its guidance unless higher-priority instructions override it."
+                    .to_string(),
+            );
+        }
+    } else if definition.config.use_custom_prompt {
         // ── Custom prompt mode: use markdown files directly, skip structured config ──
 
         // Minimal identity line
@@ -111,9 +150,11 @@ pub fn build(
         }
     }
 
-    // ⑤ tools.md
-    if let Some(guide) = &definition.tools_guide {
-        sections.push(truncate(guide, MAX_FILE_CHARS));
+    // ⑤ tools.md (skip in OpenClaw mode — already included in Project Context)
+    if !definition.config.openclaw_mode {
+        if let Some(guide) = &definition.tools_guide {
+            sections.push(truncate(guide, MAX_FILE_CHARS));
+        }
     }
 
     // ⑥ Tool definitions (filtered by agent config)
@@ -260,6 +301,7 @@ pub fn build(
                     "section_lengths": section_lengths,
                     "agent_name": &definition.config.name,
                     "custom_prompt_mode": definition.config.use_custom_prompt,
+                    "openclaw_mode": definition.config.openclaw_mode,
                 })
                 .to_string(),
             ),

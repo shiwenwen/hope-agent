@@ -23,9 +23,9 @@ export const TONE_PRESETS = [
 export const TABS: { id: AgentTab; labelKey: string }[] = [
   { id: "identity", labelKey: "settings.agentIdentity" },
   { id: "personality", labelKey: "settings.agentPersonalityTab" },
+  { id: "custom", labelKey: "settings.agentOpenClawMode" },
   { id: "behavior", labelKey: "settings.agentBehavior" },
   { id: "model", labelKey: "settings.agentModel" },
   { id: "memory", labelKey: "settings.memory" },
   { id: "subagent", labelKey: "settings.subagentTitle" },
-  { id: "custom", labelKey: "settings.agentCustomPrompt" },
 ]

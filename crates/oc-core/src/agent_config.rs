@@ -52,6 +52,11 @@ pub struct AgentConfig {
     #[serde(default)]
     pub use_custom_prompt: bool,
 
+    /// If true, use OpenClaw-compatible 4-file prompt mode
+    /// (AGENTS.md, IDENTITY.md, SOUL.md, TOOLS.md)
+    #[serde(default)]
+    pub openclaw_mode: bool,
+
     /// Per-agent notification override. None = use global setting.
     #[serde(default)]
     pub notify_on_complete: Option<bool>,
@@ -83,6 +88,7 @@ impl Default for AgentConfig {
             behavior: BehaviorConfig::default(),
             memory: MemoryConfig::default(),
             use_custom_prompt: false,
+            openclaw_mode: false,
             notify_on_complete: None,
             subagents: SubagentConfig::default(),
             acp: crate::acp_control::AgentAcpConfig::default(),
@@ -398,6 +404,15 @@ pub struct AgentDefinition {
 
     /// tools.md content — custom tool usage guidance
     pub tools_guide: Option<String>,
+
+    /// agents.md content — OpenClaw AGENTS.md (workspace rules/instructions)
+    pub agents_md: Option<String>,
+
+    /// identity.md content — OpenClaw IDENTITY.md (agent identity metadata)
+    pub identity_md: Option<String>,
+
+    /// soul.md content — OpenClaw SOUL.md (personality/values/tone)
+    pub soul_md: Option<String>,
 
     /// Global memory.md content — shared core memory across all agents
     pub global_memory_md: Option<String>,
