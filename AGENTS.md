@@ -198,7 +198,7 @@ src-tauri/src/          Tauri 薄壳（命令层 + 桌面集成）
 
 ## 文档维护
 
-技术文档索引见 [`docs/README.md`](docs/README.md)，分为架构文档（`docs/architecture/`）和历史文档（`docs/history/`）。
+技术文档索引见 [`docs/README.md`](docs/README.md)，分为架构文档（`docs/architecture/`）和调研文档（`docs/research/`）。
 
 代码改动时**必须同步更新文档**：
 
@@ -207,7 +207,7 @@ src-tauri/src/          Tauri 薄壳（命令层 + 桌面集成）
 | 新增/删除功能、命令、模块 | `CHANGELOG.md`、`AGENTS.md`                     |
 | 技术栈/架构/规范变更      | `AGENTS.md`                                     |
 | 子系统架构变更            | `docs/architecture/` 对应文档                   |
-| 新增阶段性实现            | `docs/history/` 新建阶段记录                    |
+| 新增调研/对比分析         | `docs/research/` 新建调研文档                   |
 
 - `CHANGELOG.md`：[Keep a Changelog](https://keepachangelog.com/) 格式
 - `docs/README.md`：文档索引，新增/删除文档时同步更新
