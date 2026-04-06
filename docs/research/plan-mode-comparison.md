@@ -23,7 +23,7 @@
 
 ### 2.1 六态状态机
 
-OpenComputer 的 Plan Mode 采用严格的六态有限状态机，定义在 `src-tauri/src/plan/types.rs`:
+OpenComputer 的 Plan Mode 采用严格的六态有限状态机，定义在 `crates/oc-core/src/plan/types.rs`:
 
 ```
 Off → Planning → Review → Executing → Completed
@@ -89,7 +89,7 @@ pub struct PlanStep {
 
 ### 2.4 Git Checkpoint
 
-执行前自动创建 git checkpoint，实现在 `src-tauri/src/plan/git.rs`：
+执行前自动创建 git checkpoint，实现在 `crates/oc-core/src/plan/git.rs`：
 
 1. **创建**：`create_git_checkpoint()` 在当前 HEAD 创建分支 `opencomputer/checkpoint-{short_id}-{timestamp}`，不切换分支
 2. **存储**：checkpoint 引用保存在 `PlanMeta.checkpoint_ref`

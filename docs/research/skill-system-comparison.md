@@ -23,7 +23,7 @@
 
 ### 2.1 Skill 发现与加载
 
-**源码位置**：`src-tauri/src/skills/discovery.rs`
+**源码位置**：`crates/oc-core/src/skills/discovery.rs`
 
 OpenComputer 的 Skill 发现由 Rust 后端同步执行，采用三层优先级覆盖：
 
@@ -43,7 +43,7 @@ OpenComputer 的 Skill 发现由 Rust 后端同步执行，采用三层优先级
 
 ### 2.2 Frontmatter 规范
 
-**源码位置**：`src-tauri/src/skills/frontmatter.rs`
+**源码位置**：`crates/oc-core/src/skills/frontmatter.rs`
 
 OpenComputer 使用自研轻量 YAML 解析器（非完整 YAML 库），支持以下字段：
 
@@ -94,7 +94,7 @@ SKILL.md frontmatter 的 `allowed-tools:` 字段实现双重防护：
 
 ### 2.5 安装规范与环境检测
 
-**源码位置**：`src-tauri/src/skills/requirements.rs`
+**源码位置**：`crates/oc-core/src/skills/requirements.rs`
 
 环境检测逻辑：
 - **bins（AND）**：所有二进制必须存在于 PATH
@@ -117,7 +117,7 @@ SKILL.md frontmatter 的 `allowed-tools:` 字段实现双重防护：
 
 ### 2.6 预算控制
 
-**源码位置**：`src-tauri/src/skills/prompt.rs`
+**源码位置**：`crates/oc-core/src/skills/prompt.rs`
 
 三级渐进降级策略：
 

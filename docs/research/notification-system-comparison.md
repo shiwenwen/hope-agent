@@ -18,7 +18,7 @@
 
 ### 2.1 工具驱动通知
 
-通知通过内置工具 `send_notification` 触发，定义在 `src-tauri/src/tools/notification.rs`：
+通知通过内置工具 `send_notification` 触发，定义在 `crates/oc-core/src/tools/notification.rs`：
 
 - Agent 在对话中调用 `send_notification` 工具，传入 `title` 和 `body`
 - Rust 后端通过 `tauri::Emitter` 发射 `agent:send_notification` 事件

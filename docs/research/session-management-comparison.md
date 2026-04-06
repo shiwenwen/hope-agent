@@ -17,7 +17,7 @@
 
 ### 2.1 SQLite 持久化
 
-`src-tauri/src/session/db.rs` 管理核心数据库：
+`crates/oc-core/src/session/db.rs` 管理核心数据库：
 
 **sessions 表**：
 - `id`（UUID PRIMARY KEY）、`title`、`agent_id`、`provider_id`、`provider_name`、`model_id`

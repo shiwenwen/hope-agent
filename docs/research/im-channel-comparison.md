@@ -23,7 +23,7 @@
 
 ### 2.1 渠道插件架构
 
-核心 trait 定义在 `src-tauri/src/channel/traits.rs`：
+核心 trait 定义在 `crates/oc-core/src/channel/traits.rs`：
 
 ```
 ChannelPlugin trait
@@ -140,7 +140,7 @@ send_outbound_media()
 
 ### 2.5 WeChat 深度集成
 
-实现路径：`src-tauri/src/channel/wechat/`
+实现路径：`crates/oc-core/src/channel/wechat/`
 
 - **协议**：OpenClaw 兼容的 iLink HTTP 长轮询（`DEFAULT_WECHAT_BASE_URL`）
 - **登录**：QR 码扫码登录 + 自动刷新（3 次重试）
@@ -159,7 +159,7 @@ send_outbound_media()
 
 ### 2.6 Telegram Bot 集成
 
-实现路径：`src-tauri/src/channel/telegram/`
+实现路径：`crates/oc-core/src/channel/telegram/`
 
 - **传输**：Bot API 长轮询（`getUpdates`，30s timeout）
 - **错误重试**：指数退避（2^n 秒，上限 30s），连续超时 10 次暂停 60s

@@ -31,8 +31,8 @@ graph TB
         RC[recharts 图表组件<br/>src/components/dashboard/]
     end
 
-    subgraph Tauri命令层
-        CMD[dashboard_* 命令<br/>src-tauri/src/commands/dashboard.rs]
+    subgraph 命令层
+        CMD[dashboard_* 命令<br/>src-tauri/src/commands/dashboard.rs<br/>桌面模式 Tauri 命令入口]
     end
 
     subgraph Dashboard模块

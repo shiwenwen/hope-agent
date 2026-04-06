@@ -58,7 +58,7 @@ graph TD
     subgraph OcCore["oc-core (核心业务逻辑，零 Tauri 依赖)"]
         ChatEngine["Chat Engine"]
         ChatEngine --> Agent["Agent (4 种 API)"]
-        ChatEngine --> Tools["Tools (31 个)"]
+        ChatEngine --> Tools["Tools (37 个)"]
         ChatEngine --> Memory["Memory"]
         ChatEngine --> PlanMode["Plan Mode"]
         EventBus["EventBus<br/>(broadcast)"]

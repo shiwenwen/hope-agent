@@ -320,7 +320,7 @@ pub fn is_plan_mode_path_allowed(file_path: &str) -> bool
 
 > 详见 [工具系统架构](tool-system.md) 了解完整的工具权限模型。
 
-**文件**：`src-tauri/src/commands/chat.rs`
+**文件**：`src-tauri/src/commands/chat.rs`（桌面）/ `crates/oc-server/src/routes/chat.rs`（HTTP）→ 调用 `crates/oc-core/src/plan/`
 
 ```rust
 // 常量定义（plan.rs）
@@ -485,18 +485,18 @@ sequenceDiagram
     participant LLM
     participant Tool as plan_question.rs
     participant Registry as PENDING_PLAN_QUESTIONS
-    participant Tauri as Tauri Events
+    participant EventBus as EventBus
     participant UI as PlanQuestionBlock
 
     LLM->>Tool: plan_question({questions: [...]})
     Tool->>Registry: register_plan_question(request_id, oneshot_tx)
-    Tool->>Tauri: emit("plan_question_request", PlanQuestionGroup)
-    Tauri-->>UI: 渲染可视化问答卡片
+    Tool->>EventBus: emit("plan_question_request", PlanQuestionGroup)
+    EventBus-->>UI: 渲染可视化问答卡片
 
     Note over UI: 用户选择选项 / 输入自定义答案
 
-    UI->>Tauri: invoke("respond_plan_question", answers)
-    Tauri->>Registry: submit_plan_question_response(request_id, answers)
+    UI->>EventBus: invoke("respond_plan_question", answers)
+    EventBus->>Registry: submit_plan_question_response(request_id, answers)
     Registry->>Tool: oneshot_rx.recv() → answers
 
     Tool-->>LLM: 格式化的答案文本
@@ -550,21 +550,21 @@ sequenceDiagram
     participant Tool as plan_step.rs
     participant Store as PLAN_STORE
     participant DB as SessionDB
-    participant Tauri as Tauri Events
+    participant EventBus as EventBus
     participant UI as 前端 UI
 
     LLM->>Tool: update_plan_step(step_index=2, status="completed")
     Tool->>Store: update_step_status(sid, 2, Completed)
     Tool->>DB: save_plan_steps(sid, steps_json)
-    Tool->>Tauri: emit("plan_step_updated", {stepIndex: 2, status: "completed"})
-    Tauri-->>UI: 更新 PlanCardBlock + PlanPanel
+    Tool->>EventBus: emit("plan_step_updated", {stepIndex: 2, status: "completed"})
+    EventBus-->>UI: 更新 PlanCardBlock + PlanPanel
 
     alt 所有步骤 is_terminal()
         Tool->>Store: set_plan_state(sid, Completed)
         Tool->>DB: update_session_plan_mode(sid, "completed")
         Tool->>Tool: cleanup_checkpoint(checkpoint_ref)
-        Tool->>Tauri: emit("plan_mode_changed", {state: "completed"})
-        Tauri-->>UI: 显示完成状态 + 总结提示
+        Tool->>EventBus: emit("plan_mode_changed", {state: "completed"})
+        EventBus-->>UI: 显示完成状态 + 总结提示
     end
 
     Tool-->>LLM: "Step 2 marked as completed."

@@ -28,7 +28,7 @@
 
 记忆存储在 SQLite 数据库中（`~/.opencomputer/memory.db`），每条记忆是一条数据库记录。
 
-**表结构**（`src-tauri/src/memory/sqlite.rs`）：
+**表结构**（`crates/oc-core/src/memory/sqlite/`）：
 
 ```sql
 CREATE TABLE memories (
@@ -88,7 +88,7 @@ CREATE TABLE embedding_cache (
 
 Agent 在对话中识别到值得保存的信息时，调用 `save_memory` 工具。
 
-**工具定义**（`src-tauri/src/tools/memory.rs`）：
+**工具定义**（`crates/oc-core/src/tools/memory.rs`）：
 - 参数：`content`（必需）、`type`（user/feedback/project/reference）、`scope`（global/agent）、`tags`
 - 去重：调用 `add_with_dedup()` 自动检测重复
 
@@ -112,7 +112,7 @@ flowchart TD
 
 每次 LLM 响应成功后，异步检查是否需要自动提取记忆。
 
-**触发条件**（`src-tauri/src/commands/chat.rs`）：
+**触发条件**（`crates/oc-core/src/chat_engine/context.rs`）：
 
 ```
 auto_extract == true  &&  对话历史长度 >= extract_min_turns × 2
@@ -120,7 +120,7 @@ auto_extract == true  &&  对话历史长度 >= extract_min_turns × 2
 
 其中 `auto_extract` 和 `extract_min_turns` 先取 Agent 配置，fallback 到全局配置（`config.json` 的 `memoryExtract` 字段）。默认 `auto_extract = false`，`extract_min_turns = 3`。
 
-**提取流程**（`src-tauri/src/memory_extract.rs`）：
+**提取流程**（`crates/oc-core/src/memory_extract.rs`）：
 
 ```mermaid
 flowchart TD
@@ -161,7 +161,7 @@ flowchart TD
 
 #### 步骤一：生成记忆摘要
 
-在每次构建系统提示词时调用（`src-tauri/src/agent/config.rs`）：
+在每次构建系统提示词时调用（`crates/oc-core/src/agent/config.rs`）：
 
 ```rust
 let memory_context = if definition.config.memory.enabled {
@@ -179,7 +179,7 @@ let memory_context = if definition.config.memory.enabled {
 
 #### 步骤二：build_prompt_summary 的具体逻辑
 
-（`src-tauri/src/memory/sqlite.rs`）：
+（`crates/oc-core/src/memory/sqlite/`）：
 
 ```
 1. 加载 Agent 作用域记忆（最新 200 条，按 updated_at DESC）
@@ -222,7 +222,7 @@ let memory_context = if definition.config.memory.enabled {
 
 #### 步骤三：注入系统提示词
 
-（`src-tauri/src/system_prompt.rs`，Section ⑧）：
+（`crates/oc-core/src/system_prompt/`，Section ⑧）：
 
 ```
 系统提示词 = [
@@ -264,7 +264,7 @@ Section ⑧ 的内容由两部分拼接：
 
 除了系统提示词中的被动注入，Agent 还可以通过 `recall_memory` 工具主动搜索。
 
-**搜索流程**（`src-tauri/src/memory/sqlite.rs` 的 `search` 方法）：
+**搜索流程**（`crates/oc-core/src/memory/sqlite/` 的 `search` 方法）：
 
 ```
 输入：MemorySearchQuery { query, types, scope, limit }
@@ -301,7 +301,7 @@ Step 5: MMR 多样性重排（如启用，默认开启）
 
 ### 2.5 Embedding 系统
 
-**8 个 Provider**（`src-tauri/src/memory/embedding.rs`）：
+**8 个 Provider**（`crates/oc-core/src/memory/embedding/`）：
 
 | Provider | 类型 | 默认模型 | 维度 |
 |----------|------|---------|------|
@@ -729,19 +729,20 @@ flowchart TD
 
 | 文件 | 用途 |
 |------|------|
-| `src-tauri/src/memory/mod.rs` | 模块导出 |
-| `src-tauri/src/memory/types.rs` | 数据结构：MemoryType, MemoryScope, MemoryEntry（含 attachment_path/mime）, SearchQuery, 配置结构体（HybridSearchConfig, TemporalDecayConfig, MmrConfig, EmbeddingCacheConfig, MultimodalConfig）+ MIME 检测工具 |
-| `src-tauri/src/memory/traits.rs` | MemoryBackend trait + EmbeddingProvider trait（含 MultimodalInput + supports_multimodal + embed_multimodal） |
-| `src-tauri/src/memory/sqlite.rs` | SQLite 后端：schema（含 attachment 列 + embedding_cache 表）+ CRUD + 混合搜索（加权 RRF + 时间衰减 + MMR）+ Embedding 缓存 + 多模态 Embedding + Prompt 注入防护 |
-| `src-tauri/src/memory/embedding.rs` | 8 个 Embedding Provider + Auto 自动选择 + Fallback + Token 限制 + L2 归一化 + Gemini 批量接口 + Gemini 多模态（call_google_multimodal） |
-| `src-tauri/src/memory/mmr.rs` | MMR 多样性重排算法（Jaccard + CJK bigram） |
-| `src-tauri/src/memory/helpers.rs` | FTS 查询构建 + 查询扩展（中英双语停用词）+ 配置加载器 |
-| `src-tauri/src/memory/import.rs` | JSON/Markdown 导入 |
-| `src-tauri/src/memory_extract.rs` | 对话后自动提取 + flush_before_compact |
-| `src-tauri/src/system_prompt.rs` | 系统提示词拼装（Section ⑧ Memory） |
-| `src-tauri/src/commands/memory.rs` | Tauri 命令（CRUD + 配置 get/save） |
-| `src-tauri/src/tools/memory.rs` | Agent 工具：save_memory, recall_memory, update_memory, delete_memory, update_core_memory |
-| `src-tauri/src/paths.rs` | 路径管理（含 memory_attachments_dir） |
+| `crates/oc-core/src/memory/mod.rs` | 模块导出 |
+| `crates/oc-core/src/memory/types.rs` | 数据结构：MemoryType, MemoryScope, MemoryEntry（含 attachment_path/mime）, SearchQuery, 配置结构体（HybridSearchConfig, TemporalDecayConfig, MmrConfig, EmbeddingCacheConfig, MultimodalConfig）+ MIME 检测工具 |
+| `crates/oc-core/src/memory/traits.rs` | MemoryBackend trait + EmbeddingProvider trait（含 MultimodalInput + supports_multimodal + embed_multimodal） |
+| `crates/oc-core/src/memory/sqlite/` | SQLite 后端：schema（含 attachment 列 + embedding_cache 表）+ CRUD + 混合搜索（加权 RRF + 时间衰减 + MMR）+ Embedding 缓存 + 多模态 Embedding + Prompt 注入防护 |
+| `crates/oc-core/src/memory/embedding/` | 8 个 Embedding Provider + Auto 自动选择 + Fallback + Token 限制 + L2 归一化 + Gemini 批量接口 + Gemini 多模态（call_google_multimodal） |
+| `crates/oc-core/src/memory/mmr.rs` | MMR 多样性重排算法（Jaccard + CJK bigram） |
+| `crates/oc-core/src/memory/helpers.rs` | FTS 查询构建 + 查询扩展（中英双语停用词）+ 配置加载器 |
+| `crates/oc-core/src/memory/import.rs` | JSON/Markdown 导入 |
+| `crates/oc-core/src/memory_extract.rs` | 对话后自动提取 + flush_before_compact |
+| `crates/oc-core/src/system_prompt/` | 系统提示词拼装（Section ⑧ Memory） |
+| `src-tauri/src/commands/memory.rs` | Tauri 命令层（CRUD + 配置 get/save） |
+| `crates/oc-server/src/routes/memory.rs` | HTTP 路由层（REST API） |
+| `crates/oc-core/src/tools/memory.rs` | Agent 工具：save_memory, recall_memory, update_memory, delete_memory, update_core_memory |
+| `crates/oc-core/src/paths.rs` | 路径管理（含 memory_attachments_dir） |
 | `src/components/settings/memory-panel/EmbeddingView.tsx` | 前端：Embedding 配置 + Auto 按钮 + 搜索调优面板 + 多模态开关 |
 
 ---

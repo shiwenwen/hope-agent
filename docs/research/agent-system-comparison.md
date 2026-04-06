@@ -26,9 +26,9 @@
 ### 2.1 子 Agent 产卵机制
 
 **关键代码路径**：
-- 工具入口：`src-tauri/src/tools/subagent.rs` → `tool_subagent()`
-- 产卵逻辑：`src-tauri/src/subagent/spawn.rs` → `spawn_subagent()`
-- 类型定义：`src-tauri/src/subagent/types.rs`
+- 工具入口：`crates/oc-core/src/tools/subagent.rs` → `tool_subagent()`
+- 产卵逻辑：`crates/oc-core/src/subagent/spawn.rs` → `spawn_subagent()`
+- 类型定义：`crates/oc-core/src/subagent/types.rs`
 
 `subagent` 工具通过 `action` 参数分发到 10 种操作：
 
@@ -73,7 +73,7 @@ pub struct SpawnParams {
 
 ### 2.2 前后台自动切换（spawn_and_wait）
 
-**代码路径**：`src-tauri/src/tools/subagent.rs` → `action_spawn_and_wait()`
+**代码路径**：`crates/oc-core/src/tools/subagent.rs` → `action_spawn_and_wait()`
 
 这是 OpenComputer 的独特设计：
 
@@ -87,7 +87,7 @@ spawn_and_wait(foreground_timeout=30s)
 
 ### 2.3 结果注入（inject_and_run_parent）
 
-**代码路径**：`src-tauri/src/subagent/injection.rs`
+**代码路径**：`crates/oc-core/src/subagent/injection.rs`
 
 这是 OpenComputer 子 Agent 系统最复杂的部分——后端驱动的自动结果注入：
 
@@ -115,7 +115,7 @@ Duration: {duration}
 
 ### 2.4 Mailbox 实时引导
 
-**代码路径**：`src-tauri/src/subagent/mailbox.rs`
+**代码路径**：`crates/oc-core/src/subagent/mailbox.rs`
 
 `SubagentMailbox` 是一个全局的 per-run 消息队列（`HashMap<String, Vec<String>>`），实现运行时引导（steer）：
 

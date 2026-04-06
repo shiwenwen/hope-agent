@@ -50,7 +50,7 @@ graph TB
 
 ### 2.1 工具审批机制
 
-**文件**：`src-tauri/src/tools/approval.rs`、`src-tauri/src/tools/execution.rs`
+**文件**：`crates/oc-core/src/tools/approval.rs`、`crates/oc-core/src/tools/execution.rs`
 
 OpenComputer 实现了三层工具审批系统：
 
@@ -88,7 +88,7 @@ OpenComputer 实现了三层工具审批系统：
 
 ### 2.2 Plan Mode 权限限制
 
-**文件**：`src-tauri/src/plan/types.rs`、`src-tauri/src/plan/constants.rs`、`src-tauri/src/tools/execution.rs`
+**文件**：`crates/oc-core/src/plan/types.rs`、`crates/oc-core/src/plan/constants.rs`、`crates/oc-core/src/tools/execution.rs`
 
 #### 六态状态机
 
@@ -121,7 +121,7 @@ recall_memory, memory_get, subagent                  // 记忆和委托
 
 ### 2.3 Docker 沙箱
 
-**文件**：`src-tauri/src/sandbox.rs`
+**文件**：`crates/oc-core/src/sandbox.rs`
 
 #### 安全硬化配置（`SandboxConfig`）
 
@@ -154,7 +154,7 @@ recall_memory, memory_get, subagent                  // 记忆和委托
 
 ### 2.4 macOS TCC 权限检查
 
-**文件**：`src-tauri/src/permissions.rs`
+**文件**：`crates/oc-core/src/permissions.rs`
 
 覆盖 15 项 macOS 系统权限的检测与请求：
 
@@ -179,7 +179,7 @@ recall_memory, memory_get, subagent                  // 记忆和委托
 
 ### 2.5 API Key 脱敏
 
-**文件**：`src-tauri/src/logging/file_ops.rs`、四个 Provider 实现
+**文件**：`crates/oc-core/src/logging/file_ops.rs`、四个 Provider 实现
 
 #### `redact_sensitive()` 函数
 

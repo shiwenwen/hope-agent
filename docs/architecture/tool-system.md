@@ -442,7 +442,8 @@ block-beta
 | `crates/oc-core/src/agent/mod.rs` | `tool_context()` 构建 ToolExecContext，传递 require_approval |
 | `crates/oc-core/src/agent/providers/*.rs` | denied_tools 过滤 tool_schemas |
 | `crates/oc-core/src/system_prompt/` | `build_tools_section()` 按 FilterConfig 过滤提示词 |
-| `src-tauri/src/commands/chat.rs` | 解析前端 tool_permission_mode 参数并设置全局模式 |
+| `src-tauri/src/commands/chat.rs` | Tauri 命令层：解析前端 tool_permission_mode 参数并设置全局模式 |
+| `crates/oc-server/src/routes/chat.rs` | HTTP 路由层：REST API + WebSocket 流式推送 |
 | `src/components/chat/ChatInput.tsx` | 盾牌按钮 UI（三态切换） |
 | `src/components/chat/ApprovalDialog.tsx` | 审批弹窗 UI |
 | `src/components/settings/agent-panel/tabs/BehaviorTab.tsx` | Agent 审批配置 UI |

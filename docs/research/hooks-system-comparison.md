@@ -22,7 +22,7 @@
 
 ### 2.1 现状：无 Hooks 系统
 
-OpenComputer 当前 **不具备 Hooks 系统**。经过对 `src-tauri/src/` 全目录搜索，仅在 `channel/` 子目录中发现 webhook 相关代码（LINE 和 Google Chat 渠道插件的入站 webhook 处理），但这属于 IM 渠道协议层的 webhook 接入，**不是通用的生命周期 Hook 机制**。
+OpenComputer 当前 **不具备 Hooks 系统**。经过对 `crates/oc-core/src/` 全目录搜索，仅在 `channel/` 子目录中发现 webhook 相关代码（LINE 和 Google Chat 渠道插件的入站 webhook 处理），但这属于 IM 渠道协议层的 webhook 接入，**不是通用的生命周期 Hook 机制**。
 
 ### 2.2 现有替代机制
 

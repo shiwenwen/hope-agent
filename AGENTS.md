@@ -64,7 +64,7 @@ crates/oc-core/src/     核心业务逻辑（~30 个模块，零 Tauri 依赖）
     side_query.rs       缓存友好侧查询（复用 prompt cache，Tier 3 摘要 / 记忆提取成本降低 90%）
   channel/              IM 渠道系统（12 个插件，会话映射、分发 worker、共享 WebSocket 工具）
     worker/             消息分发器（dispatcher/streaming/media/slash 拆分）
-  tools/                31 个内置工具（按工具拆分子模块）
+  tools/                37 个内置工具（按工具拆分子模块）
     definitions/        工具定义注册（types/core_tools/special_tools/plan_tools/registry 拆分）
     image_generate/     AI 图片生成（types/helpers/generate/output + 7 个 Provider）
   skills/               技能系统（types/frontmatter/requirements/discovery/prompt/slash 拆分）

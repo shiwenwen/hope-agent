@@ -45,7 +45,7 @@ graph TB
 
 ### 2.1 ACP 协议（Agent Coding Protocol）
 
-OpenComputer 的 ACP 服务端位于 `src-tauri/src/acp/`，完全用 Rust 手工实现，无第三方 ACP SDK 依赖。
+OpenComputer 的 ACP 服务端位于 `crates/oc-core/src/acp/`，完全用 Rust 手工实现，无第三方 ACP SDK 依赖。
 
 **协议层（`protocol.rs`）**：
 - 传输层：`NdJsonTransport` — 基于 `BufReader<Stdin>` / `Stdout` 的同步 NDJSON 读写

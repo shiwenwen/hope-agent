@@ -120,7 +120,7 @@ flowchart LR
 
 ### 3.1 主流程
 
-**`src-tauri/src/commands/chat.rs`**
+**入口**：`src-tauri/src/commands/chat.rs`（桌面）/ `crates/oc-server/src/routes/chat.rs`（HTTP）→ 调用 `crates/oc-core/src/chat_engine/`
 
 ```mermaid
 flowchart TD
@@ -543,7 +543,7 @@ CREATE TRIGGER messages_fts_ai AFTER INSERT ON messages
   BEGIN INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content); END;
 ```
 
-**写入时机（`src-tauri/src/commands/chat.rs`）：**
+**写入时机（`crates/oc-core/src/chat_engine/context.rs`，由 Tauri 命令层 / HTTP 路由层调用）：**
 
 ```mermaid
 flowchart TD
@@ -867,7 +867,8 @@ flowchart TD
 | 上下文压缩 | `crates/oc-core/src/context_compact/` | 4 层压缩 + 摘要构建 |
 | Failover | `crates/oc-core/src/failover.rs` | 错误分类、重试策略 |
 | Session DB | `crates/oc-core/src/session/` | SQLite 持久化、消息 FTS 搜索 |
-| Chat 命令 | `src-tauri/src/commands/chat.rs` | 主流程编排、模型链迭代、上下文保存恢复 |
+| Chat 命令（桌面） | `src-tauri/src/commands/chat.rs` | Tauri 命令层：主流程编排、模型链迭代、上下文保存恢复 |
+| Chat 路由（HTTP） | `crates/oc-server/src/routes/chat.rs` | HTTP/WS 入口：REST API + WebSocket 流式推送 |
 | 前端模板 | `src/components/settings/provider-setup/templates.ts` | 28 个 Provider 模板 |
 | 前端 Hook | `src/components/chat/useChatStream.ts` | 事件处理、delta 批量刷新 |
 | Dashboard 定价 | `crates/oc-core/src/dashboard/` | `estimate_cost()` 50+ 模型定价规则 |

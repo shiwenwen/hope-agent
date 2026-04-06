@@ -59,7 +59,7 @@ sequenceDiagram
     participant D as handlers::dispatch()
     participant Core as core 函数
     participant CH as IM Channel (Telegram)
-    participant FE as 前端 (Tauri emit)
+    participant FE as 前端 (EventBus)
 
     U->>W: 发送消息 "/model gpt-4o"
     W->>W: parser::is_command() → true
@@ -226,7 +226,7 @@ stateDiagram-v2
 | `PausePlan` | 暂停计划执行 | `/plan pause` | ✅ DB 状态已持久化 + 回复确认 | `slash:plan_changed` |
 | `ResumePlan` | 恢复计划执行 | `/plan resume` | ✅ DB 状态已持久化 + 回复确认 | `slash:plan_changed` |
 
-> **前端事件说明**：Channel 执行状态变更类命令后，会通过 Tauri `emit()` 发送 `slash:*` 事件通知前端 UI 同步更新（如模型选择器、effort 指示器、消息列表等）。前端在 `ChatScreen.tsx` 中统一监听这些事件。
+> **前端事件说明**：Channel 执行状态变更类命令后，会通过 `EventBus` 发送 `slash:*` 事件通知前端 UI 同步更新（如模型选择器、effort 指示器、消息列表等）。桌面模式通过 Tauri `handle.emit()` 转发到 WebView，HTTP 模式通过 WebSocket 推送。前端在 `ChatScreen.tsx` 中统一监听这些事件。
 >
 > **⚡ 标注说明**：`/permission` 在 Channel 中不适用，因为 Channel 对话固定使用 auto-approve 模式，不需要交互式权限审批。
 
