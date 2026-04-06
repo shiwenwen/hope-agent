@@ -37,7 +37,7 @@ Chat Engine 本身不持有状态，所有依赖通过 `ChatEngineParams` 注入
 ## 模块结构
 
 ```
-src-tauri/src/chat_engine/
+crates/oc-core/src/chat_engine/
 ├── mod.rs       (8 行)   模块声明和 re-export
 ├── types.rs     (124 行)  EventSink trait + ChatEngineParams/Result + CapturedUsage
 ├── context.rs   (220 行)  Agent 构建 + 上下文恢复/保存 + 工具事件持久化 + Channel 中继 + 记忆提取
@@ -289,7 +289,7 @@ graph TB
 
 | 文件 | 行数 | 职责 |
 |---|---|---|
-| `src-tauri/src/chat_engine/mod.rs` | 8 | 模块声明和 re-export |
-| `src-tauri/src/chat_engine/types.rs` | 124 | EventSink trait、ChatEngineParams、ChatEngineResult、CapturedUsage |
-| `src-tauri/src/chat_engine/context.rs` | 220 | Agent 构建、上下文恢复/保存、工具事件持久化、Channel 中继、记忆提取 |
-| `src-tauri/src/chat_engine/engine.rs` | 425 | `run_chat_engine()` 核心引擎：模型链遍历、重试循环、流式处理、failover |
+| `crates/oc-core/src/chat_engine/mod.rs` | 8 | 模块声明和 re-export |
+| `crates/oc-core/src/chat_engine/types.rs` | 124 | EventSink trait、ChatEngineParams、ChatEngineResult、CapturedUsage |
+| `crates/oc-core/src/chat_engine/context.rs` | 220 | Agent 构建、上下文恢复/保存、工具事件持久化、Channel 中继、记忆提取 |
+| `crates/oc-core/src/chat_engine/engine.rs` | 425 | `run_chat_engine()` 核心引擎：模型链遍历、重试循环、流式处理、failover |

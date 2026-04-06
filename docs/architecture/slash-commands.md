@@ -7,7 +7,7 @@ OpenComputer 内置斜杠命令系统，用户在**聊天输入框**或**任意 
 ## 架构概述
 
 ```
-src-tauri/src/slash_commands/
+crates/oc-core/src/slash_commands/
 ├── mod.rs          # Tauri 命令入口（list / execute / is_slash_command）
 ├── types.rs        # 数据结构（SlashCommandDef / CommandResult / CommandAction）
 ├── parser.rs       # 解析器（"/" 前缀 → 命令名 + 参数）

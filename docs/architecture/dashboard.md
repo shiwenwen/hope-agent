@@ -397,11 +397,11 @@ sequenceDiagram
 
 | 文件 | 行数 | 职责 |
 |------|------|------|
-| `src-tauri/src/dashboard/mod.rs` | 15 | 模块入口，re-export 公开 API |
-| `src-tauri/src/dashboard/types.rs` | 254 | 20 个数据结构（Filter + Stats + Detail Items + SystemMetrics） |
-| `src-tauri/src/dashboard/filters.rs` | 118 | build_session_filter / build_log_filter 筛选器构建 |
-| `src-tauri/src/dashboard/queries.rs` | 588 | 7 个聚合查询（overview / token / tool / session / error / task / system） |
-| `src-tauri/src/dashboard/detail_queries.rs` | 215 | 5 个详情列表查询（session / message / tool_call / error / agent） |
-| `src-tauri/src/dashboard/cost.rs` | 75 | 模型定价表与成本计算公式 |
+| `crates/oc-core/src/dashboard/mod.rs` | 15 | 模块入口，re-export 公开 API |
+| `crates/oc-core/src/dashboard/types.rs` | 254 | 20 个数据结构（Filter + Stats + Detail Items + SystemMetrics） |
+| `crates/oc-core/src/dashboard/filters.rs` | 118 | build_session_filter / build_log_filter 筛选器构建 |
+| `crates/oc-core/src/dashboard/queries.rs` | 588 | 7 个聚合查询（overview / token / tool / session / error / task / system） |
+| `crates/oc-core/src/dashboard/detail_queries.rs` | 215 | 5 个详情列表查询（session / message / tool_call / error / agent） |
+| `crates/oc-core/src/dashboard/cost.rs` | 75 | 模型定价表与成本计算公式 |
 | `src-tauri/src/commands/dashboard.rs` | - | Tauri 命令注册层（invoke 入口） |
 | `src/components/dashboard/` | - | 前端 recharts 图表组件 |

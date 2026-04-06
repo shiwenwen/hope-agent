@@ -302,11 +302,11 @@ pub struct LogConfig {
 
 | 文件 | 路径 | 职责 |
 |------|------|------|
-| 模块入口 | `src-tauri/src/logging/mod.rs` | 宏定义、模块 re-export |
-| 数据结构 | `src-tauri/src/logging/types.rs` | LogEntry、LogFilter、LogConfig、LogStats、PendingLog |
-| 异步日志器 | `src-tauri/src/logging/app_logger.rs` | AppLogger（mpsc channel + writer_loop） |
-| SQLite 管理器 | `src-tauri/src/logging/db.rs` | LogDB（insert/batch_insert/query/clear/export/get_stats） |
-| 文件写入器 | `src-tauri/src/logging/file_writer.rs` | LogFileWriter（日期 + 大小双轮转） |
-| 文件操作 & 脱敏 | `src-tauri/src/logging/file_ops.rs` | list/read/cleanup + redact_sensitive() |
-| 配置持久化 | `src-tauri/src/logging/config.rs` | load_log_config / save_log_config / db_path |
+| 模块入口 | `crates/oc-core/src/logging/mod.rs` | 宏定义、模块 re-export |
+| 数据结构 | `crates/oc-core/src/logging/types.rs` | LogEntry、LogFilter、LogConfig、LogStats、PendingLog |
+| 异步日志器 | `crates/oc-core/src/logging/app_logger.rs` | AppLogger（mpsc channel + writer_loop） |
+| SQLite 管理器 | `crates/oc-core/src/logging/db.rs` | LogDB（insert/batch_insert/query/clear/export/get_stats） |
+| 文件写入器 | `crates/oc-core/src/logging/file_writer.rs` | LogFileWriter（日期 + 大小双轮转） |
+| 文件操作 & 脱敏 | `crates/oc-core/src/logging/file_ops.rs` | list/read/cleanup + redact_sensitive() |
+| 配置持久化 | `crates/oc-core/src/logging/config.rs` | load_log_config / save_log_config / db_path |
 | 前端日志工具 | `src/lib/logger.ts` | 前端日志封装 |

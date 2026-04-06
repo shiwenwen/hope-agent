@@ -456,7 +456,7 @@ sequenceDiagram
 ## 模块拆分
 
 ```
-src-tauri/src/channel/
+crates/oc-core/src/channel/
 ├── mod.rs              模块根入口，re-export 公共类型
 ├── types.rs            核心数据类型（20+ struct/enum）
 ├── traits.rs           ChannelPlugin trait 定义 + chunk_text 辅助函数
@@ -1082,7 +1082,7 @@ interface ChannelAccountConfig {
 
 以 WebSocket 渠道为例：
 ```
-src-tauri/src/channel/{channel_name}/
+crates/oc-core/src/channel/{channel_name}/
 ├── mod.rs          // {Channel}Plugin: impl ChannelPlugin
 ├── api.rs          // REST API 封装（reqwest）
 ├── auth.rs         // 可选：OAuth Token 管理（如需 app_id+secret 认证）
@@ -1100,9 +1100,9 @@ src-tauri/src/channel/{channel_name}/
 
 ### 3. 注册插件
 
-在 `src-tauri/src/channel/mod.rs` 添加 `pub mod {channel_name};`
+在 `crates/oc-core/src/channel/mod.rs` 添加 `pub mod {channel_name};`
 
-在 `src-tauri/src/lib.rs` 的 setup 中添加：
+在 `crates/oc-core/src/lib.rs` 的 setup 中添加：
 ```rust
 registry.register_plugin(Arc::new(channel::{channel_name}::{Channel}Plugin::new()));
 ```
@@ -1160,18 +1160,18 @@ registry.register_plugin(Arc::new(channel::{channel_name}::{Channel}Plugin::new(
 
 | 文件路径 | 说明 |
 |---------|------|
-| `src-tauri/src/channel/mod.rs` | 模块根 |
-| `src-tauri/src/channel/types.rs` | 核心数据类型（ChannelId 12+Custom 变体） |
-| `src-tauri/src/channel/traits.rs` | ChannelPlugin trait + chunk_text |
-| `src-tauri/src/channel/ws.rs` | 共享 WebSocket 工具（WsConnection + 退避） |
-| `src-tauri/src/channel/config.rs` | 配置存储 |
-| `src-tauri/src/channel/db.rs` | 会话映射 DB |
-| `src-tauri/src/channel/registry.rs` | 插件注册表 |
-| `src-tauri/src/channel/worker.rs` | 入站分发器 |
-| `src-tauri/src/channel/cancel.rs` | 流式取消注册表 |
-| `src-tauri/src/channel/process_manager.rs` | 外部子进程管理（Signal/iMessage 共享） |
-| `src-tauri/src/channel/webhook_server.rs` | 嵌入式 Webhook HTTP 服务器（axum, Google Chat/LINE 共享） |
-| `src-tauri/src/chat_engine.rs` | 共享聊天执行引擎 |
+| `crates/oc-core/src/channel/mod.rs` | 模块根 |
+| `crates/oc-core/src/channel/types.rs` | 核心数据类型（ChannelId 12+Custom 变体） |
+| `crates/oc-core/src/channel/traits.rs` | ChannelPlugin trait + chunk_text |
+| `crates/oc-core/src/channel/ws.rs` | 共享 WebSocket 工具（WsConnection + 退避） |
+| `crates/oc-core/src/channel/config.rs` | 配置存储 |
+| `crates/oc-core/src/channel/db.rs` | 会话映射 DB |
+| `crates/oc-core/src/channel/registry.rs` | 插件注册表 |
+| `crates/oc-core/src/channel/worker.rs` | 入站分发器 |
+| `crates/oc-core/src/channel/cancel.rs` | 流式取消注册表 |
+| `crates/oc-core/src/channel/process_manager.rs` | 外部子进程管理（Signal/iMessage 共享） |
+| `crates/oc-core/src/channel/webhook_server.rs` | 嵌入式 Webhook HTTP 服务器（axum, Google Chat/LINE 共享） |
+| `crates/oc-core/src/chat_engine/` | 共享聊天执行引擎 |
 
 ### 渠道插件文件
 
