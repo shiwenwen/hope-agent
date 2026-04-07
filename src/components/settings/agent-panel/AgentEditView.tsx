@@ -284,7 +284,7 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
       <div className="flex-1 overflow-y-auto p-6">
-        <div className="max-w-4xl">
+        <div className="w-full">
           {/* Back button */}
           <button
             onClick={onBack}
