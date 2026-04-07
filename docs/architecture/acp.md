@@ -169,11 +169,11 @@ classDiagram
 graph LR
     subgraph "acp/ 模块目录"
         MOD["mod.rs<br/><i>模块声明 + pub re-export</i>"]
-        TYPES["types.rs<br/><i>562 行 · 全量协议类型</i>"]
+        TYPES["types.rs<br/><i>全量协议类型</i>"]
         PROTO["protocol.rs<br/><i>NDJSON 读写</i>"]
         MAPPER["event_mapper.rs<br/><i>Agent事件 → ACP通知</i>"]
         SESSION["session.rs<br/><i>会话存储 + LRU</i>"]
-        AGENT["agent.rs<br/><i>801 行 · 核心分发器</i>"]
+        AGENT["agent.rs<br/><i>核心分发器</i>"]
         SERVER["server.rs<br/><i>启动入口</i>"]
     end
 
@@ -190,15 +190,15 @@ graph LR
 
 ### 各模块职责
 
-| 模块 | 行数 | 职责 |
-|------|------|------|
-| `types.rs` | ~562 | JSON-RPC 2.0 基础类型 + ACP 全量请求/响应/通知 DTO + 内容块解析 + 工具类型推断 |
-| `protocol.rs` | ~70 | NDJSON 传输层：BufReader 逐行读取 stdin、stdout 写回 + flush |
-| `event_mapper.rs` | ~90 | Agent 事件字符串 → ACP `session/update` 通知的映射层 |
-| `session.rs` | ~100 | 活跃会话的内存存储，HashMap + LRU 淘汰（默认 32 上限） |
-| `agent.rs` | ~801 | 核心 ACP Agent：方法分发、会话管理、prompt 执行、failover、历史重放 |
-| `server.rs` | ~20 | 启动入口包装函数 |
-| `mod.rs` | ~15 | 模块声明与公共 API 导出 |
+| 模块 | 职责 |
+|------|------|
+| `types.rs` | JSON-RPC 2.0 基础类型 + ACP 全量请求/响应/通知 DTO + 内容块解析 + 工具类型推断 |
+| `protocol.rs` | NDJSON 传输层：BufReader 逐行读取 stdin、stdout 写回 + flush |
+| `event_mapper.rs` | Agent 事件字符串 → ACP `session/update` 通知的映射层 |
+| `session.rs` | 活跃会话的内存存储，HashMap + LRU 淘汰（默认 32 上限） |
+| `agent.rs` | 核心 ACP Agent：方法分发、会话管理、prompt 执行、failover、历史重放 |
+| `server.rs` | 启动入口包装函数 |
+| `mod.rs` | 模块声明与公共 API 导出 |
 
 ---
 
@@ -676,11 +676,11 @@ opencomputer acp --help
 ```
 crates/oc-core/src/acp/
 ├── mod.rs              # 模块声明 + pub re-export
-├── types.rs            # JSON-RPC 2.0 + ACP 全量类型定义 (562 行)
+├── types.rs            # JSON-RPC 2.0 + ACP 全量类型定义
 ├── protocol.rs         # NDJSON stdio 传输层
 ├── event_mapper.rs     # Agent 事件 → ACP 通知映射
 ├── session.rs          # 会话内存存储 + LRU 淘汰
-├── agent.rs            # ACP Agent 核心实现 (801 行)
+├── agent.rs            # ACP Agent 核心实现
 └── server.rs           # 启动入口函数
 
 src-tauri/src/main.rs        # acp 子命令入口 (run_acp_server)

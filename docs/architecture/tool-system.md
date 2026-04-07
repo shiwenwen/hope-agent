@@ -321,7 +321,7 @@ pub const PLAN_MODE_PATH_AWARE_TOOLS: &[&str] = &["write", "edit"];
 
 ### 2. 路径级硬限制（Planning 阶段文件写入）
 
-**源码**：`tools/execution.rs:201-219`（执行守卫）+ `plan.rs` → `is_plan_mode_path_allowed()`
+**源码**：`tools/execution.rs`（执行守卫）+ `plan.rs` → `is_plan_mode_path_allowed()`
 **触发条件**：`ToolExecContext.plan_mode_allow_paths` 非空时（Planning 阶段由 `PlanAgentConfig.plan_mode_allow_paths = ["plans"]` 自动设置）
 
 在审批门**之后**、实际执行**之前**做路径检查：

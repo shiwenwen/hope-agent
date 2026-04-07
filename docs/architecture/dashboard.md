@@ -3,7 +3,7 @@
 
 ## 概述
 
-Dashboard 模块提供跨三个 SQLite 数据库（SessionDB、LogDB、CronDB）的聚合分析查询，为前端 recharts 图表提供标准化 JSON 数据。模块拆分为 6 个文件共 1265 行 Rust 代码，采用「筛选器 + 查询函数」的管道式架构。
+Dashboard 模块提供跨三个 SQLite 数据库（SessionDB、LogDB、CronDB）的聚合分析查询，为前端 recharts 图表提供标准化 JSON 数据。模块拆分为 6 个文件，采用「筛选器 + 查询函数」的管道式架构。
 
 核心设计原则：
 - **自动排除非用户数据**：所有 session 级查询自动注入 `is_cron = 0 AND parent_session_id IS NULL`，排除定时任务会话和子 Agent 会话
@@ -13,15 +13,14 @@ Dashboard 模块提供跨三个 SQLite 数据库（SessionDB、LogDB、CronDB）
 
 ## 模块结构
 
-| 文件 | 行数 | 职责 |
-|------|------|------|
-| `mod.rs` | 15 | 模块入口，re-export 公开 API |
-| `types.rs` | 254 | 全部数据结构定义（20 个 struct） |
-| `queries.rs` | 588 | 7 个聚合查询函数 |
-| `detail_queries.rs` | 215 | 5 个详情列表查询函数 |
-| `filters.rs` | 118 | 筛选器构建（session / log 两套） |
-| `cost.rs` | 75 | 模型定价表与成本计算引擎 |
-| **合计** | **1265** | |
+| 文件 | 职责 |
+|------|------|
+| `mod.rs` | 模块入口，re-export 公开 API |
+| `types.rs` | 全部数据结构定义（20 个 struct） |
+| `queries.rs` | 7 个聚合查询函数 |
+| `detail_queries.rs` | 5 个详情列表查询函数 |
+| `filters.rs` | 筛选器构建（session / log 两套） |
+| `cost.rs` | 模型定价表与成本计算引擎 |
 
 ## 数据源架构
 
@@ -395,13 +394,13 @@ sequenceDiagram
 
 ## 关键源文件
 
-| 文件 | 行数 | 职责 |
-|------|------|------|
-| `crates/oc-core/src/dashboard/mod.rs` | 15 | 模块入口，re-export 公开 API |
-| `crates/oc-core/src/dashboard/types.rs` | 254 | 20 个数据结构（Filter + Stats + Detail Items + SystemMetrics） |
-| `crates/oc-core/src/dashboard/filters.rs` | 118 | build_session_filter / build_log_filter 筛选器构建 |
-| `crates/oc-core/src/dashboard/queries.rs` | 588 | 7 个聚合查询（overview / token / tool / session / error / task / system） |
-| `crates/oc-core/src/dashboard/detail_queries.rs` | 215 | 5 个详情列表查询（session / message / tool_call / error / agent） |
-| `crates/oc-core/src/dashboard/cost.rs` | 75 | 模型定价表与成本计算公式 |
+| 文件 | 职责 |
+|------|------|
+| `crates/oc-core/src/dashboard/mod.rs` | 模块入口，re-export 公开 API |
+| `crates/oc-core/src/dashboard/types.rs` | 20 个数据结构（Filter + Stats + Detail Items + SystemMetrics） |
+| `crates/oc-core/src/dashboard/filters.rs` | build_session_filter / build_log_filter 筛选器构建 |
+| `crates/oc-core/src/dashboard/queries.rs` | 7 个聚合查询（overview / token / tool / session / error / task / system） |
+| `crates/oc-core/src/dashboard/detail_queries.rs` | 5 个详情列表查询（session / message / tool_call / error / agent） |
+| `crates/oc-core/src/dashboard/cost.rs` | 模型定价表与成本计算公式 |
 | `src-tauri/src/commands/dashboard.rs` | - | Tauri 命令注册层（invoke 入口） |
 | `src/components/dashboard/` | - | 前端 recharts 图表组件 |

@@ -9,15 +9,14 @@ Cron 系统提供定时调度能力，支持一次性（At）、固定间隔（E
 
 ## 模块结构
 
-| 文件 | 行数 | 职责 |
-|------|------|------|
-| `cron/mod.rs` | 20 | 模块入口、re-exports |
-| `cron/types.rs` | 123 | CronSchedule / CronPayload / CronJob / CronJobStatus / CronRunLog / NewCronJob / CalendarEvent |
-| `cron/schedule.rs` | 95 | `compute_next_run` 三种调度计算、cron 表达式验证、`backoff_delay_ms` 指数退避、时间戳灵活解析 |
-| `cron/scheduler.rs` | 146 | `start_scheduler` 后台调度循环 + 启动恢复 + 追赶执行 |
-| `cron/executor.rs` | 402 | `execute_job` 任务执行 + `build_and_run_agent` 含 failover + `record_failure` + 事件发射 |
-| `cron/db.rs` | 589 | `CronDB` SQLite 持久化（CRUD、claim、running 标记、calendar 查询、启动恢复） |
-| **合计** | **1375** | |
+| 文件 | 职责 |
+|------|------|
+| `cron/mod.rs` | 模块入口、re-exports |
+| `cron/types.rs` | CronSchedule / CronPayload / CronJob / CronJobStatus / CronRunLog / NewCronJob / CalendarEvent |
+| `cron/schedule.rs` | `compute_next_run` 三种调度计算、cron 表达式验证、`backoff_delay_ms` 指数退避、时间戳灵活解析 |
+| `cron/scheduler.rs` | `start_scheduler` 后台调度循环 + 启动恢复 + 追赶执行 |
+| `cron/executor.rs` | `execute_job` 任务执行 + `build_and_run_agent` 含 failover + `record_failure` + 事件发射 |
+| `cron/db.rs` | `CronDB` SQLite 持久化（CRUD、claim、running 标记、calendar 查询、启动恢复） |
 
 ## 数据模型
 
@@ -324,11 +323,11 @@ stateDiagram-v2
 
 ## 关键源文件索引
 
-| 文件 | 行数 | 职责 |
-|------|------|------|
-| `crates/oc-core/src/cron/mod.rs` | 20 | 模块入口、re-exports（CronDB / start_scheduler / execute_job_public / validate_cron_expression） |
-| `crates/oc-core/src/cron/types.rs` | 123 | CronSchedule / CronPayload / CronJobStatus / CronJob / CronRunLog / NewCronJob / CalendarEvent 定义 |
-| `crates/oc-core/src/cron/schedule.rs` | 95 | `compute_next_run`（三种类型）/ `validate_cron_expression` / `backoff_delay_ms`（指数退避）/ `parse_flexible_timestamp`（RFC 3339 + 紧凑偏移） |
-| `crates/oc-core/src/cron/scheduler.rs` | 146 | `start_scheduler`：独立 OS 线程 + tokio runtime / 启动恢复（orphaned runs + stale markers + missed At + 追赶执行）/ 15s tick 循环 + tick_running 防重入 |
-| `crates/oc-core/src/cron/executor.rs` | 402 | `execute_job`：创建隔离 session + 5min timeout + 成功/失败分支处理 / `build_and_run_agent`：模型链遍历 + failover 重试 / `record_failure` / `emit_cron_event` |
-| `crates/oc-core/src/cron/db.rs` | 589 | `CronDB`：SQLite schema 初始化 + 迁移 / CRUD（add/update/delete/get/list）/ `get_due_jobs`（到期查询）/ `claim_job_for_execution`（原子 claim）/ `try_mark_running` / `clear_running` / `toggle_job`（启用/禁用）/ `update_after_run`（成功重置/失败退避/自动禁用）/ `get_calendar_events`（日历展开）/ `recover_orphaned_runs` + `clear_all_running` + `mark_missed_at_jobs`（启动恢复） |
+| 文件 | 职责 |
+|------|------|
+| `crates/oc-core/src/cron/mod.rs` | 模块入口、re-exports（CronDB / start_scheduler / execute_job_public / validate_cron_expression） |
+| `crates/oc-core/src/cron/types.rs` | CronSchedule / CronPayload / CronJobStatus / CronJob / CronRunLog / NewCronJob / CalendarEvent 定义 |
+| `crates/oc-core/src/cron/schedule.rs` | `compute_next_run`（三种类型）/ `validate_cron_expression` / `backoff_delay_ms`（指数退避）/ `parse_flexible_timestamp`（RFC 3339 + 紧凑偏移） |
+| `crates/oc-core/src/cron/scheduler.rs` | `start_scheduler`：独立 OS 线程 + tokio runtime / 启动恢复（orphaned runs + stale markers + missed At + 追赶执行）/ 15s tick 循环 + tick_running 防重入 |
+| `crates/oc-core/src/cron/executor.rs` | `execute_job`：创建隔离 session + 5min timeout + 成功/失败分支处理 / `build_and_run_agent`：模型链遍历 + failover 重试 / `record_failure` / `emit_cron_event` |
+| `crates/oc-core/src/cron/db.rs` | `CronDB`：SQLite schema 初始化 + 迁移 / CRUD（add/update/delete/get/list）/ `get_due_jobs`（到期查询）/ `claim_job_for_execution`（原子 claim）/ `try_mark_running` / `clear_running` / `toggle_job`（启用/禁用）/ `update_after_run`（成功重置/失败退避/自动禁用）/ `get_calendar_events`（日历展开）/ `recover_orphaned_runs` + `clear_all_running` + `mark_missed_at_jobs`（启动恢复） |

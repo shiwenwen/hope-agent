@@ -13,15 +13,14 @@ Docker Sandbox 模块为 OpenComputer 提供本地 SearXNG 搜索引擎的容器
 
 ## 模块结构
 
-| 文件 | 行数 | 职责 |
-|------|------|------|
-| `mod.rs` | 66 | 模块入口、常量定义、全局状态（`DEPLOYING`/`DEPLOY_PROGRESS`/`STATUS_LOCK`）、日志工具 |
-| `status.rs` | 130 | 状态聚合查询（`SearxngDockerStatus`），带 TTL 缓存的 `status()` |
-| `deploy.rs` | 204 | 7 步部署流水线，流式进度回调 |
-| `lifecycle.rs` | 80 | 容器启动 / 停止 / 删除操作 |
-| `helpers.rs` | 314 | Docker CLI 封装、端口探测、配置生成、健康检查、搜索测试 |
-| `proxy.rs` | 96 | 代理解析（Custom / System / None 三模式），macOS `scutil` 系统代理检测 |
-| **合计** | **890** | |
+| 文件 | 职责 |
+|------|------|
+| `mod.rs` | 模块入口、常量定义、全局状态（`DEPLOYING`/`DEPLOY_PROGRESS`/`STATUS_LOCK`）、日志工具 |
+| `status.rs` | 状态聚合查询（`SearxngDockerStatus`），带 TTL 缓存的 `status()` |
+| `deploy.rs` | 7 步部署流水线，流式进度回调 |
+| `lifecycle.rs` | 容器启动 / 停止 / 删除操作 |
+| `helpers.rs` | Docker CLI 封装、端口探测、配置生成、健康检查、搜索测试 |
+| `proxy.rs` | 代理解析（Custom / System / None 三模式），macOS `scutil` 系统代理检测 |
 
 ## 常量定义
 

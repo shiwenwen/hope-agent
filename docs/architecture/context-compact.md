@@ -28,19 +28,18 @@ flowchart TD
 
 ## 模块结构
 
-| 文件 | 行数 | 职责 |
-|------|------|------|
-| `mod.rs` | ~100 | 模块入口、常量定义、re-exports |
-| `types.rs` | ~105 | 数据类型（CompactResult, TokenEstimateCalibrator, SummarizationSplit 等） |
-| `config.rs` | ~205 | 配置结构 CompactConfig（全部可配置参数） |
-| `estimation.rs` | ~60+ | Token 估算（chars/4 启发式、图片估算、消息字符计数） |
-| `compact.rs` | ~80+ | 主入口 + Tier 0 微压缩 + Tier 4 紧急压缩 |
-| `truncation.rs` | ~50+ | Tier 1 工具结果截断（head+tail、结构边界检测） |
-| `pruning.rs` | ~50+ | Tier 2 上下文裁剪（soft-trim + hard-clear） |
-| `summarization.rs` | ~80+ | Tier 3 LLM 摘要（消息分割、prompt 构建、摘要应用） |
-| `round_grouping.rs` | ~220 | API-Round 分组（stamp/strip 元数据、round-safe 边界查找） |
-| `recovery.rs` | ~360 | 后压缩文件恢复（扫描写入工具、读取磁盘、构建恢复消息） |
-| **合计** | **~2260** | |
+| 文件 | 职责 |
+|------|------|
+| `mod.rs` | 模块入口、常量定义、re-exports |
+| `types.rs` | 数据类型（CompactResult, TokenEstimateCalibrator, SummarizationSplit 等） |
+| `config.rs` | 配置结构 CompactConfig（全部可配置参数） |
+| `estimation.rs` | Token 估算（chars/4 启发式、图片估算、消息字符计数） |
+| `compact.rs` | 主入口 + Tier 0 微压缩 + Tier 4 紧急压缩 |
+| `truncation.rs` | Tier 1 工具结果截断（head+tail、结构边界检测） |
+| `pruning.rs` | Tier 2 上下文裁剪（soft-trim + hard-clear） |
+| `summarization.rs` | Tier 3 LLM 摘要（消息分割、prompt 构建、摘要应用） |
+| `round_grouping.rs` | API-Round 分组（stamp/strip 元数据、round-safe 边界查找） |
+| `recovery.rs` | 后压缩文件恢复（扫描写入工具、读取磁盘、构建恢复消息） |
 
 ## 5 层压缩详解
 
