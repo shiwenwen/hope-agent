@@ -3,8 +3,8 @@
 use super::config::CompactConfig;
 use super::estimation::{get_tool_result_text, is_tool_result, set_tool_result_text};
 use super::{
-    CHARS_PER_TOKEN, HARD_MAX_TOOL_RESULT_CHARS, MAX_TOOL_RESULT_CONTEXT_SHARE,
-    MIDDLE_OMISSION_MARKER, MIN_KEEP_CHARS, TRUNCATION_SUFFIX,
+    CHARS_PER_TOKEN, HARD_MAX_TOOL_RESULT_CHARS, MIDDLE_OMISSION_MARKER, MIN_KEEP_CHARS,
+    TRUNCATION_SUFFIX,
 };
 use serde_json::Value;
 
@@ -127,8 +127,9 @@ pub(super) fn head_tail_truncate(text: &str, max_chars: usize) -> String {
 }
 
 /// Calculate max chars for a single tool result based on context window.
-fn calculate_max_tool_result_chars(context_window_tokens: u32) -> usize {
-    let max_tokens = (context_window_tokens as f64 * MAX_TOOL_RESULT_CONTEXT_SHARE) as usize;
+fn calculate_max_tool_result_chars(context_window_tokens: u32, config: &CompactConfig) -> usize {
+    let share = config.max_tool_result_context_share.clamp(0.1, 0.6);
+    let max_tokens = (context_window_tokens as f64 * share) as usize;
     let max_chars = max_tokens * CHARS_PER_TOKEN;
     max_chars.min(HARD_MAX_TOOL_RESULT_CHARS)
 }
@@ -138,9 +139,9 @@ fn calculate_max_tool_result_chars(context_window_tokens: u32) -> usize {
 pub fn truncate_tool_results(
     messages: &mut [Value],
     context_window: u32,
-    _config: &CompactConfig,
+    config: &CompactConfig,
 ) -> usize {
-    let max_chars = calculate_max_tool_result_chars(context_window);
+    let max_chars = calculate_max_tool_result_chars(context_window, config);
     let mut truncated_count = 0;
 
     for msg in messages.iter_mut() {

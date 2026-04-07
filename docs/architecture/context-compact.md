@@ -10,13 +10,13 @@
 ```mermaid
 flowchart TD
     A["compact_if_needed()"] --> B["Tier 0: 微压缩<br/>清除 ephemeral 工具结果"]
-    B --> C{"usage > 30%?"}
+    B --> C{"usage > min(softTrimRatio, 30%)?"}
     C -- No --> Done["完成"]
     C -- Yes --> D["Tier 1: 截断<br/>过大工具结果 head+tail"]
-    D --> E{"usage > 50%?"}
+    D --> E{"usage > softTrimRatio<br/>(默认 50%)?"}
     E -- No --> Done
     E -- Yes --> F["Tier 2: 裁剪<br/>soft-trim + hard-clear"]
-    F --> G{"usage > 85%?"}
+    F --> G{"usage > summarizationThreshold<br/>(默认 85%)?"}
     G -- No --> Done
     G -- Yes --> H["Tier 3: LLM 摘要<br/>调用模型压缩旧消息"]
     H --> I["后压缩文件恢复"]
@@ -274,42 +274,85 @@ calibrated_estimate = raw_estimate × calibration_factor
 
 ## 配置项
 
-| 配置路径（`compact.*`） | 默认值 | 说明 |
-|------------------------|--------|------|
-| `enabled` | `true` | 启用上下文压缩 |
-| **工具策略** | | |
-| `toolPolicies` | 见下方 | 每个工具的压缩策略（`"eager"` / `"protect"`，不在 map 中为正常压缩） |
-| **Tier 2** | | |
-| `softTrimRatio` | `0.50` | Soft-trim 触发比率 |
-| `softTrimMaxChars` | `6000` | 触发 soft-trim 的最小内容长度 |
-| `softTrimHeadChars` | `2000` | Soft-trim 保留头部字符数 |
-| `softTrimTailChars` | `2000` | Soft-trim 保留尾部字符数 |
-| `hardClearRatio` | `0.70` | Hard-clear 触发比率 |
-| `hardClearEnabled` | `true` | 启用 hard-clear 阶段 |
-| `hardClearPlaceholder` | `"[Old tool result content cleared]"` | Hard-clear 占位符文本 |
-| `keepLastAssistants` | `4` | 保护最近 N 个 assistant 消息 |
-| `minPrunableToolChars` | `20000` | 低于此总量跳过 hard-clear |
+所有配置项存储在 `config.json` 的 `compact` 字段中，使用 camelCase 命名。对应 Rust 结构体 `CompactConfig`（`crates/oc-core/src/context_compact/config.rs`）。
+
+### 全局
+
+| 配置路径（`compact.*`） | 类型 | 默认值 | 说明 |
+|------------------------|------|--------|------|
+| `enabled` | `bool` | `true` | 是否启用上下文压缩。设为 `false` 将完全跳过所有 Tier 的压缩，上下文溢出时仅靠 Tier 4 紧急压缩兜底 |
+
+### 工具策略（Tier 0 / Tier 2 共用）
+
+| 配置路径（`compact.*`） | 类型 | 默认值 | 说明 |
+|------------------------|------|--------|------|
+| `toolPolicies` | `Map<String, String>` | 见下方 | 按工具名指定压缩策略。可选值：`"eager"`（Tier 0 微压缩时优先清除）、`"protect"`（Tier 2 裁剪时跳过）。不在此 map 中的工具按正常流程处理 |
 
 **`toolPolicies` 默认值**：
 
 | 策略 | 工具 | 理由 |
 |------|------|------|
-| `eager`（优先清除） | ls, grep, find, process, sessions_list, agents_list, session_status, get_weather, tool_search | 快照/列表类，旧结果无价值 |
-| `protect`（保护不裁） | web_search, web_fetch, recall_memory, memory_get | 内容可能后续反复引用 |
-| 正常压缩 | 其余所有工具 | 按 Tier 1→2 正常流程处理 |
-| **Tier 3** | | |
-| `summarizationThreshold` | `0.85` | 摘要触发比率 |
-| `preserveRecentTurns` | `4`（最大 12） | 摘要时保留最近 N 轮 |
-| `identifierPolicy` | `"strict"` | 标识符保留策略 |
-| `identifierInstructions` | — | 自定义标识符指令（policy=custom 时） |
-| `customInstructions` | — | 追加到摘要 prompt 的自定义指令 |
-| `summarizationTimeoutSecs` | `60` | 摘要 LLM 调用超时（秒） |
-| `summaryMaxTokens` | `4096` | 摘要最大输出 token |
-| `maxHistoryShare` | `0.5` | 裁剪时历史最大上下文占比 |
-| **后压缩恢复** | | |
-| `recoveryEnabled` | `true` | 启用文件恢复 |
-| `recoveryMaxFiles` | `5` | 最大恢复文件数 |
-| `recoveryMaxFileBytes` | `16384` (16KB) | 单文件最大恢复字节数 |
+| `eager`（优先清除） | ls, grep, find, process, sessions_list, agents_list, session_status, get_weather, tool_search | 快照/列表类，旧结果很快过时，优先清除释放空间 |
+| `protect`（保护不裁） | web_search, web_fetch, recall_memory, memory_get | 搜索和记忆内容可能在后续对话中反复引用，需要保留 |
+| 正常压缩 | 其余所有工具 | 不做特殊处理，按 Tier 1→2 正常流程压缩 |
+
+### Tier 2：上下文裁剪
+
+| 配置路径（`compact.*`） | 类型 | 默认值 | 说明 |
+|------------------------|------|--------|------|
+| `softTrimRatio` | `f64` | `0.50` | **Soft-trim 触发比率**。当 token 使用率超过此值时开始阶段一裁剪。同时也作为快速退出判断的参考：`min(softTrimRatio, 0.3)` 以下直接跳过所有压缩 |
+| `softTrimMaxChars` | `usize` | `6000` | 阶段一中只对内容超过此字符数的工具结果执行 soft-trim，小于此值的不处理 |
+| `softTrimHeadChars` | `usize` | `2000` | Soft-trim 时保留的头部字符数 |
+| `softTrimTailChars` | `usize` | `2000` | Soft-trim 时保留的尾部字符数。头尾之间用省略标记替代 |
+| `hardClearRatio` | `f64` | `0.70` | **Hard-clear 触发比率**。阶段一裁剪后使用率仍超过此值时，进入阶段二，直接清空工具结果内容 |
+| `hardClearEnabled` | `bool` | `true` | 是否启用 hard-clear 阶段。设为 `false` 则 Tier 2 只做 soft-trim，不会彻底清空 |
+| `hardClearPlaceholder` | `String` | `"[Old tool result content cleared]"` | Hard-clear 时替换工具结果的占位符文本 |
+| `keepLastAssistants` | `usize` | `4` | 保护最近 N 个 assistant 消息及其之后的内容，不参与 Tier 0 微压缩和 Tier 2 裁剪 |
+| `minPrunableToolChars` | `usize` | `20000` | Hard-clear 跳过阈值。若所有可裁剪工具结果的总字符数低于此值，则跳过 hard-clear（清除收益太小） |
+
+### Tier 3：LLM 摘要
+
+| 配置路径（`compact.*`） | 类型 | 默认值 | 说明 |
+|------------------------|------|--------|------|
+| `summarizationThreshold` | `f64` | `0.85` | **摘要触发比率**。Tier 2 裁剪后使用率仍超过此值时，调用 LLM 将旧对话历史压缩为结构化摘要 |
+| `preserveRecentTurns` | `usize` | `4`（上限 12） | 摘要时保留最近 N 轮 user 消息及其后续内容不参与摘要，确保最近的对话上下文完整 |
+| `identifierPolicy` | `String` | `"strict"` | 标识符保留策略。`"strict"`：摘要中严格保留所有不透明标识符（UUID/hash/ID/token/URL/文件名等）不缩短不重构；`"off"`：不做特殊保留；`"custom"`：使用 `identifierInstructions` 自定义指令 |
+| `identifierInstructions` | `Option<String>` | — | 自定义标识符保留指令，仅当 `identifierPolicy` 为 `"custom"` 时生效 |
+| `customInstructions` | `Option<String>` | — | 追加到摘要 prompt 的自定义指令。可用于指导 LLM 摘要时特别关注或保留某些信息 |
+| `summarizationTimeoutSecs` | `u64` | `60` | 摘要 LLM 调用的超时时间（秒）。超时后摘要失败，保持原始历史不变 |
+| `summaryMaxTokens` | `u32` | `4096` | 摘要 LLM 调用的最大输出 token 数 |
+| `maxHistoryShare` | `f64` | `0.5` | 裁剪时历史消息最大允许占用的上下文窗口比例 |
+| `maxCompactionSummaryChars` | `usize` | `16000` | 摘要文本的最大字符数，超出截断并追加 `[truncated]` 标记。范围 `4000–64000`：调高可保留更完整的摘要上下文（适合复杂长对话），但摘要本身也会占用更多上下文预算 |
+
+### 后压缩文件恢复
+
+| 配置路径（`compact.*`） | 类型 | 默认值 | 说明 |
+|------------------------|------|--------|------|
+| `recoveryEnabled` | `bool` | `true` | 是否启用后压缩文件恢复。Tier 3 摘要后自动从磁盘读取最近编辑的文件内容注入对话，省去额外的 read 工具调用 |
+| `recoveryMaxFiles` | `usize` | `5` | 最多恢复的文件数量。按文件最近修改时间排序，取最新的 N 个 |
+| `recoveryMaxFileBytes` | `usize` | `16384`（16KB） | 单个文件最大恢复字节数。超出部分截断并追加 `[truncated]` 标记 |
+
+### Tier 1：工具结果截断
+
+| 配置路径（`compact.*`） | 类型 | 默认值 | 范围 | 说明 |
+|------------------------|------|--------|------|------|
+| `maxToolResultContextShare` | `f64` | `0.3` | `0.1–0.6` | 单个工具结果最大允许占用上下文窗口的比例。调高可保留更完整的 `web_fetch` / 大文件读取结果，但挤压其他对话空间；调低则更积极截断单个工具结果 |
+
+### 硬编码常量（不可配置）
+
+以下常量定义在 `mod.rs` 中，不通过 `config.json` 暴露：
+
+| 常量 | 值 | 说明 |
+|------|-----|------|
+| `CHARS_PER_TOKEN` | `4` | 通用文本 token 估算比率（1 token ≈ 4 字符） |
+| `TOOL_RESULT_CHARS_PER_TOKEN` | `2` | 工具结果的 token 估算比率（结构化内容密度更高） |
+| `IMAGE_CHAR_ESTIMATE` | `8000` | 图片内容的固定字符估算值 |
+| `HARD_MAX_TOOL_RESULT_CHARS` | `400,000` | Tier 1 单个工具结果的绝对字符上限（`maxToolResultContextShare` 计算结果不超过此值） |
+| `MIN_KEEP_CHARS` | `2000` | Tier 1 截断后最少保留的字符数 |
+| `SAFETY_MARGIN` | `1.2` | Token 估算安全系数（乘以估算值留出余量） |
+| `SUMMARIZATION_OVERHEAD_TOKENS` | `4096` | 摘要请求预留的额外 token 开销 |
+| `BASE_CHUNK_RATIO` | `0.4` | 摘要分块的基础比率 |
+| `MIN_CHUNK_RATIO` | `0.15` | 摘要分块的最小比率 |
 
 ## 关键源文件
 

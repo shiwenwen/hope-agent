@@ -29,7 +29,9 @@ const TOOL_RESULT_CHARS_PER_TOKEN: usize = 2;
 /// Image content char estimate (openclaw: IMAGE_CHAR_ESTIMATE = 8_000)
 const IMAGE_CHAR_ESTIMATE: usize = 8_000;
 
-/// Single tool result max share of context window (openclaw: MAX_TOOL_RESULT_CONTEXT_SHARE = 0.3)
+/// Single tool result max share of context window — now configurable via CompactConfig.max_tool_result_context_share
+/// Kept as fallback constant for reference; runtime value is read from config (default 0.3, range 0.1–0.6).
+#[allow(dead_code)]
 const MAX_TOOL_RESULT_CONTEXT_SHARE: f64 = 0.3;
 /// Hard char limit per tool result (openclaw: HARD_MAX_TOOL_RESULT_CHARS = 400_000)
 const HARD_MAX_TOOL_RESULT_CHARS: usize = 400_000;
@@ -48,7 +50,8 @@ const BASE_CHUNK_RATIO: f64 = 0.4;
 /// Minimum chunk ratio for very large messages
 #[allow(dead_code)]
 const MIN_CHUNK_RATIO: f64 = 0.15;
-/// Max chars for compaction summary (openclaw: MAX_COMPACTION_SUMMARY_CHARS = 16_000)
+/// Max chars for compaction summary — now configurable via CompactConfig.max_compaction_summary_chars
+/// Kept as fallback constant for reference; runtime value is read from config (default 16000, range 4000–64000).
 #[allow(dead_code)]
 const MAX_COMPACTION_SUMMARY_CHARS: usize = 16_000;
 

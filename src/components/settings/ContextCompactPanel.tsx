@@ -17,6 +17,7 @@ import { logger } from "@/lib/logger"
 interface CompactConfig {
   enabled: boolean
   toolPolicies: Record<string, string>
+  maxToolResultContextShare: number
   softTrimRatio: number
   hardClearRatio: number
   keepLastAssistants: number
@@ -34,6 +35,7 @@ interface CompactConfig {
   summarizationTimeoutSecs: number
   summaryMaxTokens: number
   maxHistoryShare: number
+  maxCompactionSummaryChars: number
 }
 
 function RatioInput({
@@ -256,6 +258,15 @@ export default function ContextCompactPanel() {
                 </div>
                 <div className="border-t border-border/30 pt-3 space-y-3">
                   <RatioInput
+                    label={t("settings.contextCompactMaxToolResultShare")}
+                    desc={t("settings.contextCompactMaxToolResultShareDesc")}
+                    value={config.maxToolResultContextShare}
+                    min={0.1}
+                    max={0.6}
+                    step={0.05}
+                    onChange={(v) => update({ maxToolResultContextShare: v })}
+                  />
+                  <RatioInput
                     label={t("settings.contextCompactSoftTrimRatio")}
                     desc={t("settings.contextCompactSoftTrimRatioDesc")}
                     value={config.softTrimRatio}
@@ -357,6 +368,14 @@ export default function ContextCompactPanel() {
                   min={10}
                   max={300}
                   onChange={(v) => update({ summarizationTimeoutSecs: v })}
+                />
+                <NumberField
+                  label={t("settings.contextCompactMaxSummaryChars")}
+                  desc={t("settings.contextCompactMaxSummaryCharsDesc")}
+                  value={config.maxCompactionSummaryChars}
+                  min={4000}
+                  max={64000}
+                  onChange={(v) => update({ maxCompactionSummaryChars: v })}
                 />
               </div>
             )}

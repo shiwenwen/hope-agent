@@ -4,8 +4,8 @@ use super::config::CompactConfig;
 use super::estimation::{estimate_tokens, get_tool_result_text, is_tool_result, is_user_message};
 use super::types::SummarizationSplit;
 use super::{
-    BASE_CHUNK_RATIO, IDENTIFIER_PRESERVATION_INSTRUCTIONS, MAX_COMPACTION_SUMMARY_CHARS,
-    MIN_CHUNK_RATIO, SAFETY_MARGIN, SUMMARY_TRUNCATED_MARKER,
+    BASE_CHUNK_RATIO, IDENTIFIER_PRESERVATION_INSTRUCTIONS, MIN_CHUNK_RATIO, SAFETY_MARGIN,
+    SUMMARY_TRUNCATED_MARKER,
 };
 use serde_json::Value;
 
@@ -238,11 +238,12 @@ pub fn apply_summary(
     messages: &mut Vec<Value>,
     summary: &str,
     preserved_start_index: usize,
-    _config: &CompactConfig,
+    config: &CompactConfig,
 ) {
-    // Cap summary length
-    let capped_summary = if summary.len() > MAX_COMPACTION_SUMMARY_CHARS {
-        let budget = MAX_COMPACTION_SUMMARY_CHARS - SUMMARY_TRUNCATED_MARKER.len();
+    // Cap summary length (configurable, clamped to 4000–64000)
+    let max_summary_chars = config.max_compaction_summary_chars.clamp(4_000, 64_000);
+    let capped_summary = if summary.len() > max_summary_chars {
+        let budget = max_summary_chars - SUMMARY_TRUNCATED_MARKER.len();
         format!(
             "{}{}",
             &summary[..budget.min(summary.len())],

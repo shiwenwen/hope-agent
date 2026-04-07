@@ -51,6 +51,12 @@ fn default_recovery_max_files() -> usize {
 fn default_recovery_max_file_bytes() -> usize {
     16_384
 }
+fn default_max_tool_result_context_share() -> f64 {
+    0.3
+}
+fn default_max_compaction_summary_chars() -> usize {
+    16_000
+}
 
 /// Context compaction configuration, stored in config.json `compact` field.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,6 +74,11 @@ pub struct CompactConfig {
     /// Tools not in this map use default compaction behavior.
     #[serde(default = "default_tool_policies")]
     pub tool_policies: HashMap<String, String>,
+
+    // ── Tier 1: Tool Result Truncation ──
+    /// Max share of context window a single tool result can occupy (default: 0.3, range: 0.1–0.6)
+    #[serde(default = "default_max_tool_result_context_share")]
+    pub max_tool_result_context_share: f64,
 
     // ── Tier 2: Context Pruning ──
     /// Soft trim trigger ratio (default: 0.50)
@@ -123,6 +134,9 @@ pub struct CompactConfig {
     /// Max share of context window for history during pruning (default: 0.5)
     #[serde(default = "default_max_history_share")]
     pub max_history_share: f64,
+    /// Max chars for compaction summary (default: 16000, range: 4000–64000)
+    #[serde(default = "default_max_compaction_summary_chars")]
+    pub max_compaction_summary_chars: usize,
 
     // ── Post-Compaction Recovery ──
     /// Enable post-compaction file recovery after Tier 3 summarization (default: true).
@@ -194,6 +208,18 @@ impl CompactConfig {
             .map(|(k, _)| k.as_str())
             .collect()
     }
+
+    /// Clamp user-configurable values to safe ranges.
+    /// Called after deserialization to prevent misconfiguration.
+    pub fn clamp(&mut self) {
+        // max_tool_result_context_share: 0.1–0.6
+        // Too low → useful tool results get truncated; too high → single result crowds out context
+        self.max_tool_result_context_share = self.max_tool_result_context_share.clamp(0.1, 0.6);
+
+        // max_compaction_summary_chars: 4000–64000
+        // Too low → summaries lose critical context; too high → summary itself wastes context budget
+        self.max_compaction_summary_chars = self.max_compaction_summary_chars.clamp(4_000, 64_000);
+    }
 }
 
 impl Default for CompactConfig {
@@ -201,6 +227,7 @@ impl Default for CompactConfig {
         Self {
             enabled: crate::default_true(),
             tool_policies: default_tool_policies(),
+            max_tool_result_context_share: default_max_tool_result_context_share(),
             soft_trim_ratio: default_soft_trim_ratio(),
             hard_clear_ratio: default_hard_clear_ratio(),
             keep_last_assistants: default_keep_last_assistants(),
@@ -218,6 +245,7 @@ impl Default for CompactConfig {
             summarization_timeout_secs: default_summarization_timeout(),
             summary_max_tokens: default_summary_max_tokens(),
             max_history_share: default_max_history_share(),
+            max_compaction_summary_chars: default_max_compaction_summary_chars(),
             recovery_enabled: crate::default_true(),
             recovery_max_files: default_recovery_max_files(),
             recovery_max_file_bytes: default_recovery_max_file_bytes(),

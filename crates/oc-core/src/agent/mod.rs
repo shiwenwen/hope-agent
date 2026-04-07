@@ -491,7 +491,8 @@ impl AssistantAgent {
     }
 
     /// Set the compact config (called from lib.rs after agent construction).
-    pub fn set_compact_config(&mut self, config: crate::context_compact::CompactConfig) {
+    pub fn set_compact_config(&mut self, mut config: crate::context_compact::CompactConfig) {
+        config.clamp();
         self.compact_config = config;
     }
 
