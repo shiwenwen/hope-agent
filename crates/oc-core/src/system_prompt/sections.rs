@@ -67,14 +67,6 @@ pub(super) fn build_deferred_tools_section() -> Option<String> {
     Some(lines.join("\n"))
 }
 
-/// Build behavior guidance section (output efficiency + action safety + task execution).
-pub(super) fn build_behavior_section() -> String {
-    format!(
-        "{}\n\n{}\n\n{}",
-        BEHAVIOR_OUTPUT_EFFICIENCY, BEHAVIOR_ACTION_SAFETY, BEHAVIOR_DOING_TASKS,
-    )
-}
-
 /// Build skills section, filtered by agent config.
 pub(super) fn build_skills_section(filter: &FilterConfig, env_check: bool) -> String {
     let store = crate::provider::load_store().unwrap_or_default();
@@ -212,11 +204,10 @@ pub(super) fn build_subagent_section(
         "You can delegate tasks to other agents using the `subagent` tool.".to_string(),
     ];
 
-    // List available agents for delegation
+    // List available agents for delegation (including self for forking)
     let agents = crate::agent_loader::list_agents().unwrap_or_default();
     let available: Vec<_> = agents
         .iter()
-        .filter(|a| a.id != current_agent_id) // Don't delegate to self
         .filter(|a| config.is_agent_allowed(&a.id))
         .collect();
 
@@ -226,7 +217,15 @@ pub(super) fn build_subagent_section(
         for a in &available {
             let desc = a.description.as_deref().unwrap_or("No description");
             let emoji = a.emoji.as_deref().unwrap_or("");
-            lines.push(format!("- {} {} (id: `{}`): {}", emoji, a.name, a.id, desc));
+            let self_tag = if a.id == current_agent_id {
+                " *(self — fork for parallel work)*"
+            } else {
+                ""
+            };
+            lines.push(format!(
+                "- {} {} (id: `{}`): {}{}",
+                emoji, a.name, a.id, desc, self_tag
+            ));
         }
     }
 
@@ -262,6 +261,17 @@ pub(super) fn build_subagent_section(
     lines.push(String::new());
     lines.push("Sub-agents run in isolated sessions with their own tools and context.".to_string());
     lines.push(format!("Current depth: {}/{}", depth, effective_max));
+    lines.push(String::new());
+    lines.push("## Self-fork".to_string());
+    lines.push(format!(
+        "You can spawn yourself (`agent_id=\"{}\"`') as a fork for parallel work.",
+        current_agent_id
+    ));
+    lines.push("Use this when a task has independent sub-tasks that benefit from parallel execution (e.g., modifying frontend and backend simultaneously).".to_string());
+    lines.push(format!(
+        "Do NOT self-fork for simple or sequential tasks. Depth limit: {}/{}.",
+        depth, effective_max
+    ));
 
     lines.join("\n")
 }

@@ -22,7 +22,7 @@ const SOUL_MD: &str = "soul.md";
 // ── Default Agent Template ───────────────────────────────────────
 
 /// Detect system locale code (e.g. "zh", "en", "ja").
-fn detect_system_locale() -> String {
+pub(crate) fn detect_system_locale() -> String {
     // macOS: check AppleLocale (e.g. "zh_CN", "en_US", "ja_JP")
     if let Ok(output) = std::process::Command::new("defaults")
         .args(["read", "-g", "AppleLocale"])
@@ -115,7 +115,7 @@ fn default_meta(locale: &str) -> DefaultMeta {
 }
 
 /// Agent.md template per locale (embedded at compile time).
-fn default_agent_md(locale: &str) -> &'static str {
+pub(crate) fn default_agent_md(locale: &str) -> &'static str {
     match locale {
         "zh" => include_str!("../templates/agent.zh.md"),
         "zh-TW" => include_str!("../templates/agent.zh-TW.md"),

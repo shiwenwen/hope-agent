@@ -171,9 +171,6 @@ pub fn build(
         definition.config.behavior.skill_env_check,
     ));
 
-    // ⑦b Behavior guidance (output efficiency, action safety, task execution)
-    sections.push(build_behavior_section());
-
     // ⑧ Memory
     if definition.config.memory.enabled {
         let mut memory_section = String::new();
@@ -330,15 +327,9 @@ pub fn build_legacy(model: Option<&str>, provider: Option<&str>) -> String {
 
     let mut sections = Vec::new();
 
-    // Identity
-    let os = std::env::consts::OS;
-    let arch = std::env::consts::ARCH;
-    sections.push(format!(
-        "You are OpenComputer, a personal AI assistant with deep system integration. \
-         You help users interact with their computer naturally and efficiently. \
-         Running on {} {}.",
-        os, arch
-    ));
+    // Identity + behavior guidance (from agent.md template)
+    let locale = crate::agent_loader::detect_system_locale();
+    sections.push(crate::agent_loader::default_agent_md(&locale).to_string());
 
     // User context
     if let Ok(user_cfg) = user_config::load_user_config() {
@@ -359,9 +350,6 @@ pub fn build_legacy(model: Option<&str>, provider: Option<&str>) -> String {
     if !skills_section.is_empty() {
         sections.push(skills_section);
     }
-
-    // Behavior guidance
-    sections.push(build_behavior_section());
 
     // Weather context
     if let Some(weather_text) = crate::weather::get_weather_for_prompt() {
