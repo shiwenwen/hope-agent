@@ -38,37 +38,100 @@ src-tauri/              Tauri 桌面 Shell（薄壳，调用 oc-core）
 ```
 src/                    前端（React + TypeScript）
   components/
-    chat/               聊天组件（消息列表/输入框/Plan Mode/快捷对话浮层）
+    chat/               聊天组件
+      hooks/            聊天相关自定义 hooks
+      input/            输入框组件
+      message/          消息渲染组件
+      plan-mode/        Plan Mode 组件
+      sidebar/          侧边栏组件
+      slash-commands/   斜杠命令 UI
     settings/           设置面板
+      agent-panel/      Agent 管理面板（含 tabs/ 子目录）
+      channel-panel/    渠道管理面板
+      general-panel/    通用设置面板
+      log-panel/        日志面板
+      memory-panel/     记忆管理面板
+      profile-panel/    个人资料面板
+      provider-setup/   Provider 配置（含 templates/ 子目录）
+      skills-panel/     技能面板
+      web-search-panel/ 搜索设置面板
     common/             共享组件（导航栏/Markdown 渲染/Provider 图标）
+    ui/                 shadcn/ui 基础组件
     dashboard/          数据大盘（recharts 图表）
+    cron/               定时任务管理组件
+  hooks/                全局自定义 hooks（useClickOutside/useTheme/useUrlPreview）
   lib/
     logger.ts           前端统一日志工具
     transport.ts        Transport 抽象层（统一 invoke/listen 接口）
     transport-tauri.ts  Tauri IPC 实现（invoke + Channel 事件）
     transport-http.ts   HTTP/WS 实现（REST API + WebSocket 流式事件）
+    transport-provider.ts Provider Transport 适配
+    notifications.ts    通知工具
+    urlDetect.ts        URL 检测工具
+    utils.ts            通用工具函数
   i18n/locales/         12 种语言翻译文件
-  types/chat.ts         共享类型定义
+  types/
+    chat.ts             聊天相关类型定义
+    tools.ts            工具相关类型定义
 ```
 
 ### oc-core（核心库）
 
 ```
-crates/oc-core/src/     核心业务逻辑（~30 个模块，零 Tauri 依赖）
+crates/oc-core/src/     核心业务逻辑（零 Tauri 依赖）
   lib.rs                模块导出 & CoreState（替代原 AppState）
   event_bus.rs          EventBus 事件总线（替代 Tauri APP_HANDLE 事件发射）
+  globals.rs            全局状态管理
+  app_init.rs           应用初始化逻辑
+  user_config.rs        用户配置管理
+  guardian.rs           Guardian 统一心跳管理
+  permissions.rs        权限控制
+  process_registry.rs   进程注册表
+  util.rs               通用工具函数
   weather.rs            天气缓存系统与 Open-Meteo API
   weather_location_macos.rs macOS 原生 CoreLocation 定位（objc2 delegate + callback 生命周期）
+  paths.rs              统一路径管理（~/.opencomputer/）
+  failover.rs           模型降级 & 重试策略
+  sandbox.rs            Docker 沙箱
+  oauth.rs              OAuth 认证
+  url_preview.rs        URL 预览
+  file_extract.rs       文件内容提取
+  browser_state.rs      浏览器状态管理
+  canvas_db.rs          Canvas 数据库
+  crash_journal.rs      崩溃日志
+  dev_tools.rs          开发者工具
+  self_diagnosis.rs     自诊断
+  service_install.rs    系统服务注册（macOS launchd / Linux systemd）
+  backup.rs             备份管理
+  memory_extract.rs     记忆自动提取
   agent/                AssistantAgent（多 Provider + Tool Loop + Side Query 缓存侧查询）
     providers/          Anthropic / OpenAI Chat / OpenAI Responses / Codex
-    side_query.rs       缓存友好侧查询（复用 prompt cache，Tier 3 摘要 / 记忆提取成本降低 90%）
-  channel/              IM 渠道系统（12 个插件，会话映射、分发 worker、共享 WebSocket 工具）
-    worker/             消息分发器（dispatcher/streaming/media/slash 拆分）
-  tools/                37 个内置工具（按工具拆分子模块）
+    side_query.rs       缓存友好侧查询（复用 prompt cache，成本降低 ~90%）
+  agent_config.rs       Agent 配置管理
+  agent_loader.rs       Agent 加载器
+  channel/              IM 渠道系统（12 个插件，会话映射、分发 worker）
+    discord/            Discord 渠道
+    feishu/             飞书渠道
+    googlechat/         Google Chat 渠道
+    imessage/           iMessage 渠道
+    irc/                IRC 渠道
+    line/               LINE 渠道
+    qqbot/              QQ Bot 渠道
+    signal/             Signal 渠道
+    slack/              Slack 渠道
+    telegram/           Telegram 渠道
+    wechat/             微信渠道
+    whatsapp/           WhatsApp 渠道
+    worker/             消息分发器（dispatcher/streaming/media/slash/approval 拆分）
+  tools/                内置工具（按子模块拆分）
     definitions/        工具定义注册（types/core_tools/special_tools/plan_tools/registry 拆分）
     image_generate/     AI 图片生成（types/helpers/generate/output + 7 个 Provider）
+    browser/            浏览器工具
+    canvas/             Canvas 画布工具
+    web_search/         Web 搜索工具
   skills/               技能系统（types/frontmatter/requirements/discovery/prompt/slash 拆分）
   slash_commands/       斜杠命令系统
+    handlers/           各命令处理器
   plan/                 Plan Mode 六态状态机（types/constants/store/subagent/file_io/parser/git 拆分）
   memory/               记忆系统（SQLite + FTS5 + 向量检索）
     embedding/          Embedding 提供者（config/utils/api_provider/local_provider/fallback_provider/factory）
@@ -76,13 +139,10 @@ crates/oc-core/src/     核心业务逻辑（~30 个模块，零 Tauri 依赖）
   context_compact/      上下文压缩（5 层渐进式）
   subagent/             子 Agent 系统
   cron/                 定时任务调度
-  sandbox.rs            Docker 沙箱
   acp/                  ACP 协议服务器（IDE 直连）
   acp_control/          ACP 控制面客户端
   provider/             Provider 数据模型（types/proxy/store/persistence 拆分）
   session/              会话持久化（SQLite）
-  paths.rs              统一路径管理（~/.opencomputer/）
-  failover.rs           模型降级 & 重试策略
   system_prompt/        系统提示词模块化拼装（constants/build/sections/helpers 拆分）
   chat_engine/          聊天引擎（types/context/engine 拆分）
   docker/               Docker 服务管理（status/deploy/lifecycle/helpers/proxy 拆分）
@@ -96,6 +156,7 @@ crates/oc-core/src/     核心业务逻辑（~30 个模块，零 Tauri 依赖）
 crates/oc-server/src/   HTTP/WS 守护进程
   lib.rs                axum Router（路由注册 + 服务启动）
   config.rs             ServerConfig（bind_addr / api_key / cors_origins）
+  error.rs              统一错误处理
   middleware.rs          API Key 鉴权中间件（Bearer header + ?token= query param）
   routes/               REST API 路由处理（sessions/chat/providers/config/agents/memory/health）
   ws/                   WebSocket（events 事件推送 + chat_stream 流式聊天）
@@ -106,8 +167,33 @@ crates/oc-server/src/   HTTP/WS 守护进程
 ```
 src-tauri/src/          Tauri 薄壳（命令层 + 桌面集成）
   lib.rs                Tauri 命令注册 & AppState（委托 oc-core）
-  commands/             Tauri 命令层
+  main.rs               入口（桌面 GUI / server / acp 多模式分发）
+  setup.rs              Tauri 应用 setup 初始化
+  app_init.rs           应用初始化逻辑
+  globals.rs            全局状态
+  shortcuts.rs          全局快捷键
+  tray.rs               系统托盘
+  tauri_wrappers.rs     Tauri API 封装
+  commands/             Tauri 命令层（~19 个模块）
     provider/           Provider 管理命令（crud/test_provider/test_embedding/test_image/models 拆分）
+    chat.rs             聊天命令
+    session.rs          会话管理命令
+    agent_mgmt.rs       Agent 管理命令
+    channel.rs          渠道管理命令
+    config.rs           配置命令
+    memory.rs           记忆管理命令
+    skills.rs           技能命令
+    plan.rs             Plan Mode 命令
+    subagent.rs         子 Agent 命令
+    cron.rs             定时任务命令
+    docker.rs           Docker 管理命令
+    dashboard.rs        数据大盘命令
+    logging.rs          日志命令
+    auth.rs             认证命令
+    acp_control.rs      ACP 控制命令
+    misc.rs             杂项命令
+    crash.rs            崩溃报告命令
+    url_preview.rs      URL 预览命令
 ```
 
 ## 技术栈
