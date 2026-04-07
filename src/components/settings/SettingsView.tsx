@@ -62,11 +62,6 @@ const SECTIONS: SettingsSectionItem[] = [
     labelKey: "settings.general",
   },
   {
-    id: "server",
-    icon: <Globe className="h-4 w-4" />,
-    labelKey: "settings.server",
-  },
-  {
     id: "modelConfig",
     icon: <Server className="h-4 w-4" />,
     labelKey: "settings.modelConfig",
@@ -105,6 +100,11 @@ const SECTIONS: SettingsSectionItem[] = [
     id: "tools",
     icon: <Wrench className="h-4 w-4" />,
     labelKey: "settings.tools",
+  },
+  {
+    id: "server",
+    icon: <Globe className="h-4 w-4" />,
+    labelKey: "settings.server",
   },
   {
     id: "sandbox",

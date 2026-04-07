@@ -958,7 +958,7 @@
     "serverMode": "Server Mode",
     "serverModeDesc": "Choose embedded mode or connect to a remote server",
     "serverModeEmbedded": "Embedded",
-    "serverModeEmbeddedDesc": "Tauri desktop runs an HTTP server on localhost",
+    "serverModeEmbeddedDesc": "Desktop app runs an HTTP server on localhost",
     "serverModeRemote": "Remote",
     "serverModeRemoteDesc": "Connect to an external OpenComputer server",
     "serverEmbeddedAddress": "Embedded Server Address",
