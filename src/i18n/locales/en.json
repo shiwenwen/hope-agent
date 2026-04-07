@@ -17,7 +17,8 @@
     "saved": "Saved",
     "saveFailed": "Save failed",
     "custom": "Custom",
-    "select": "Select"
+    "select": "Select",
+    "settings": "Settings"
   },
   "chat": {
     "conversations": "Chats",
