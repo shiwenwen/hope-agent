@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { logger } from "@/lib/logger"
-import { MonitorSmartphone, Globe, Check, Loader2, Wifi, CircleDot } from "lucide-react"
+import { MonitorSmartphone, Globe, Check, Loader2, Wifi, CircleDot, RefreshCw } from "lucide-react"
 
 type ServerMode = "embedded" | "remote"
 
@@ -14,6 +14,9 @@ interface ServerConfig {
   serverMode: ServerMode
   remoteServerUrl: string
   remoteApiKey: string
+  // Embedded server settings (from config.json)
+  embeddedBindAddr: string
+  embeddedApiKey: string
 }
 
 const DEFAULT_EMBEDDED_ADDRESS = "127.0.0.1:8420"
@@ -22,6 +25,15 @@ const DEFAULT_CONFIG: ServerConfig = {
   serverMode: "embedded",
   remoteServerUrl: "",
   remoteApiKey: "",
+  embeddedBindAddr: DEFAULT_EMBEDDED_ADDRESS,
+  embeddedApiKey: "",
+}
+
+/** Generate a random 32-char hex API key. */
+function generateApiKey(): string {
+  const bytes = new Uint8Array(16)
+  crypto.getRandomValues(bytes)
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")
 }
 
 export default function ServerPanel() {
@@ -40,20 +52,26 @@ export default function ServerPanel() {
   // Load config on mount
   useEffect(() => {
     let cancelled = false
-    getTransport()
-      .call<Record<string, unknown>>("get_user_config")
-      .then((cfg) => {
+
+    Promise.all([
+      getTransport().call<Record<string, unknown>>("get_user_config"),
+      getTransport().call<Record<string, unknown>>("get_server_config"),
+    ])
+      .then(([userCfg, serverCfg]) => {
         if (cancelled) return
         const loaded: ServerConfig = {
-          serverMode: (cfg.serverMode as ServerMode) || "embedded",
-          remoteServerUrl: (cfg.remoteServerUrl as string) || "",
-          remoteApiKey: (cfg.remoteApiKey as string) || "",
+          serverMode: (userCfg.serverMode as ServerMode) || "embedded",
+          remoteServerUrl: (userCfg.remoteServerUrl as string) || "",
+          remoteApiKey: (userCfg.remoteApiKey as string) || "",
+          embeddedBindAddr: (serverCfg.bindAddr as string) || DEFAULT_EMBEDDED_ADDRESS,
+          // Show masked key if exists, otherwise empty
+          embeddedApiKey: (serverCfg.hasApiKey as boolean) ? (serverCfg.apiKey as string) || "" : "",
         }
         setConfig(loaded)
         setSavedSnapshot(JSON.stringify(loaded))
       })
       .catch((e) => {
-        logger.error("settings", "ServerPanel::load", "Failed to load user config", e)
+        logger.error("settings", "ServerPanel::load", "Failed to load config", e)
       })
     return () => {
       cancelled = true
@@ -91,6 +109,7 @@ export default function ServerPanel() {
   const handleSave = useCallback(async () => {
     setSaving(true)
     try {
+      // Save user config (server mode, remote URL/key)
       const full = await getTransport().call<Record<string, unknown>>("get_user_config")
       await getTransport().call("save_user_config", {
         config: {
@@ -101,9 +120,17 @@ export default function ServerPanel() {
         },
       })
 
+      // Save embedded server config (bind addr, api key) to config.json
+      await getTransport().call("save_server_config", {
+        config: {
+          bindAddr: config.embeddedBindAddr || DEFAULT_EMBEDDED_ADDRESS,
+          apiKey: config.embeddedApiKey || null,
+        },
+      })
+
       // Switch transport based on mode
       if (config.serverMode === "remote" && config.remoteServerUrl) {
-        switchToRemote(config.remoteServerUrl.replace(/\/+$/, ""))
+        switchToRemote(config.remoteServerUrl.replace(/\/+$/, ""), config.remoteApiKey || null)
       } else {
         switchToEmbedded()
       }
@@ -259,13 +286,63 @@ export default function ServerPanel() {
           </div>
         </div>
 
-        {/* Embedded mode: read-only address */}
+        {/* Embedded mode: configurable bind address + API key */}
         {config.serverMode === "embedded" && (
-          <div className="space-y-1.5">
-            <span className="text-xs text-muted-foreground">
-              {t("settings.serverEmbeddedAddress")}
-            </span>
-            <Input value={DEFAULT_EMBEDDED_ADDRESS} readOnly className="opacity-60" />
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <span className="text-xs text-muted-foreground">
+                {t("settings.serverEmbeddedBind")}
+              </span>
+              <Input
+                value={config.embeddedBindAddr}
+                placeholder={DEFAULT_EMBEDDED_ADDRESS}
+                onChange={(e) =>
+                  setConfig((prev) => ({
+                    ...prev,
+                    embeddedBindAddr: e.target.value,
+                  }))
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                {t("settings.serverEmbeddedBindDesc")}
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <span className="text-xs text-muted-foreground">
+                {t("settings.serverEmbeddedApiKey")}
+              </span>
+              <div className="flex gap-2">
+                <Input
+                  type="password"
+                  className="flex-1"
+                  value={config.embeddedApiKey}
+                  placeholder={t("settings.serverEmbeddedApiKeyPlaceholder")}
+                  onChange={(e) =>
+                    setConfig((prev) => ({
+                      ...prev,
+                      embeddedApiKey: e.target.value,
+                    }))
+                  }
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0"
+                  onClick={() =>
+                    setConfig((prev) => ({
+                      ...prev,
+                      embeddedApiKey: generateApiKey(),
+                    }))
+                  }
+                >
+                  <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+                  {t("settings.serverGenerateApiKey")}
+                </Button>
+              </div>
+            </div>
+            <p className="text-xs text-amber-600 dark:text-amber-400">
+              {t("settings.serverRestartRequired")}
+            </p>
           </div>
         )}
 

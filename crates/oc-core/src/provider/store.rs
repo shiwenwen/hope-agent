@@ -110,6 +110,34 @@ pub(super) fn default_language() -> String {
     "auto".to_string()
 }
 
+// ── Embedded Server Config ──────────────────────────────────────
+
+fn default_server_bind() -> String {
+    "127.0.0.1:8420".to_string()
+}
+
+/// Embedded HTTP/WS server configuration, stored in config.json `server` field.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EmbeddedServerConfig {
+    /// Bind address (default "127.0.0.1:8420").
+    /// Set to "0.0.0.0:8420" to expose to the network.
+    #[serde(default = "default_server_bind")]
+    pub bind_addr: String,
+    /// API Key for authenticating requests (None = no auth).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<String>,
+}
+
+impl Default for EmbeddedServerConfig {
+    fn default() -> Self {
+        Self {
+            bind_addr: default_server_bind(),
+            api_key: None,
+        }
+    }
+}
+
 // ── Provider Store ──────────────────────────────────────────────
 
 /// Root structure for persistence
@@ -249,6 +277,10 @@ pub struct ProviderStore {
     /// Deferred tool loading configuration
     #[serde(default)]
     pub deferred_tools: DeferredToolsConfig,
+
+    /// Embedded HTTP/WS server configuration
+    #[serde(default)]
+    pub server: EmbeddedServerConfig,
 }
 
 impl Default for ProviderStore {
@@ -293,6 +325,7 @@ impl Default for ProviderStore {
             plan_subagent: false,
             channels: crate::channel::ChannelStoreConfig::default(),
             deferred_tools: DeferredToolsConfig::default(),
+            server: EmbeddedServerConfig::default(),
         }
     }
 }

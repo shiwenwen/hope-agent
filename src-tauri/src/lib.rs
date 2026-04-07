@@ -246,6 +246,8 @@ pub fn run() {
             commands::config::save_compact_config,
             commands::config::get_notification_config,
             commands::config::save_notification_config,
+            commands::config::get_server_config,
+            commands::config::save_server_config,
             commands::config::compact_context_now,
             commands::memory::list_local_embedding_models,
             // Theme & Language

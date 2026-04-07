@@ -105,3 +105,34 @@ pub async fn save_notification_config(
     save_store(&store)?;
     Ok(Json(json!({ "saved": true })))
 }
+
+// ── Server Config ──────────────────────────────────────────────
+
+/// `GET /api/config/server` -- get embedded server config (api_key masked).
+pub async fn get_server_config() -> Result<Json<Value>, AppError> {
+    let store = load_store()?;
+    let server = &store.server;
+    // Mask api_key for security — only reveal whether it's set
+    let masked_key = server.api_key.as_ref().map(|k| {
+        if k.len() <= 4 {
+            "****".to_string()
+        } else {
+            format!("{}...{}", &k[..2], &k[k.len() - 2..])
+        }
+    });
+    Ok(Json(json!({
+        "bindAddr": server.bind_addr,
+        "apiKey": masked_key,
+        "hasApiKey": server.api_key.is_some(),
+    })))
+}
+
+/// `PUT /api/config/server` -- save embedded server config.
+pub async fn save_server_config(
+    Json(config): Json<oc_core::provider::EmbeddedServerConfig>,
+) -> Result<Json<Value>, AppError> {
+    let mut store = load_store()?;
+    store.server = config;
+    save_store(&store)?;
+    Ok(Json(json!({ "saved": true, "restartRequired": true })))
+}

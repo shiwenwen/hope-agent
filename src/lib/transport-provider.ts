@@ -52,11 +52,11 @@ export function setTransport(transport: Transport): void {
 }
 
 /**
- * Switch to a remote HTTP transport with the given base URL.
+ * Switch to a remote HTTP transport with the given base URL and optional API key.
  * Replaces the current singleton so all subsequent calls go to the remote server.
  */
-export function switchToRemote(baseUrl: string): void {
-  instance = new HttpTransport(baseUrl);
+export function switchToRemote(baseUrl: string, apiKey?: string | null): void {
+  instance = new HttpTransport(baseUrl, apiKey);
 }
 
 /**

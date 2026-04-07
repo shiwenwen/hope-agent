@@ -105,9 +105,11 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
             chat_streams: Arc::new(oc_server::ws::chat_stream::ChatStreamRegistry::new()),
             chat_cancels: Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
         });
+        // Read server config from config.json (bind address, API key)
+        let store = provider::load_store().unwrap_or_default();
         let config = oc_server::ServerConfig {
-            bind_addr: "127.0.0.1:8420".to_string(),
-            api_key: None,
+            bind_addr: store.server.bind_addr.clone(),
+            api_key: store.server.api_key.clone(),
             cors_origins: Vec::new(),
         };
         tauri::async_runtime::spawn(async move {

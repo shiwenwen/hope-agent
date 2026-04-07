@@ -294,6 +294,34 @@ pub async fn save_shortcut_config(
     Ok(())
 }
 
+// ── Server Config ───────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn get_server_config() -> Result<serde_json::Value, String> {
+    let store = provider::load_store().map_err(|e| e.to_string())?;
+    let server = &store.server;
+    // Mask api_key for security
+    let masked_key = server.api_key.as_ref().map(|k| {
+        if k.len() <= 4 {
+            "****".to_string()
+        } else {
+            format!("{}...{}", &k[..2], &k[k.len() - 2..])
+        }
+    });
+    Ok(serde_json::json!({
+        "bindAddr": server.bind_addr,
+        "apiKey": masked_key,
+        "hasApiKey": server.api_key.is_some(),
+    }))
+}
+
+#[tauri::command]
+pub async fn save_server_config(config: provider::EmbeddedServerConfig) -> Result<(), String> {
+    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    store.server = config;
+    provider::save_store(&store).map_err(|e| e.to_string())
+}
+
 // ── Proxy ────────────────────────────────────────────────────────
 
 #[tauri::command]

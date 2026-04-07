@@ -155,6 +155,10 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   get_notification_config:         { method: "GET",    path: "/api/config/notification" },
   save_notification_config:        { method: "PUT",    path: "/api/config/notification" },
 
+  // -- Server --
+  get_server_config:               { method: "GET",    path: "/api/config/server" },
+  save_server_config:              { method: "PUT",    path: "/api/config/server" },
+
   // -- Proxy --
   get_proxy_config:                { method: "GET",    path: "/api/config/proxy" },
   save_proxy_config:               { method: "PUT",    path: "/api/config/proxy" },
@@ -338,6 +342,7 @@ interface EventSubscription {
 
 export class HttpTransport implements Transport {
   private readonly baseUrl: string;
+  private apiKey: string | null;
 
   /** Persistent WebSocket for backend-pushed events. */
   private eventWs: WebSocket | null = null;
@@ -349,9 +354,22 @@ export class HttpTransport implements Transport {
   private reconnectAttempts = 0;
   private readonly maxReconnectDelay = 30_000; // 30 s cap
 
-  constructor(baseUrl: string) {
+  constructor(baseUrl: string, apiKey?: string | null) {
     // Strip trailing slash.
     this.baseUrl = baseUrl.replace(/\/+$/, "");
+    this.apiKey = apiKey ?? null;
+  }
+
+  /** Update the API key at runtime. */
+  setApiKey(key: string | null): void {
+    this.apiKey = key;
+  }
+
+  /** Build a WebSocket URL with token query param if API key is set. */
+  private wsUrl(path: string): string {
+    const wsBase = this.baseUrl.replace(/^http/, "ws");
+    const url = `${wsBase}${path}`;
+    return this.apiKey ? `${url}${url.includes("?") ? "&" : "?"}token=${encodeURIComponent(this.apiKey)}` : url;
   }
 
   // ----- call -----
@@ -371,6 +389,9 @@ export class HttpTransport implements Transport {
     const url = isBodyMethod ? rawUrl : appendQueryParams(rawUrl, remainingArgs);
 
     const headers: Record<string, string> = {};
+    if (this.apiKey) {
+      headers["Authorization"] = `Bearer ${this.apiKey}`;
+    }
     let body: string | undefined;
 
     if (isBodyMethod) {
@@ -409,11 +430,10 @@ export class HttpTransport implements Transport {
     sessionId: string | null,
     onEvent: (event: string) => void,
   ): ChatStream {
-    const wsBase = this.baseUrl.replace(/^http/, "ws");
     const path = sessionId
       ? `/ws/chat/${encodeURIComponent(sessionId)}`
       : "/ws/chat";
-    const ws = new WebSocket(`${wsBase}${path}`);
+    const ws = new WebSocket(this.wsUrl(path));
 
     ws.onmessage = (ev) => {
       if (typeof ev.data === "string") {
@@ -456,8 +476,7 @@ export class HttpTransport implements Transport {
     if (this.eventWs || this.eventWsConnecting) return;
     this.eventWsConnecting = true;
 
-    const wsBase = this.baseUrl.replace(/^http/, "ws");
-    const ws = new WebSocket(`${wsBase}/ws/events`);
+    const ws = new WebSocket(this.wsUrl("/ws/events"));
 
     ws.onopen = () => {
       this.eventWsConnecting = false;

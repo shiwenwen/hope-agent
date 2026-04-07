@@ -14,6 +14,7 @@ use oc_core::session::SessionDB;
 
 pub mod config;
 pub mod error;
+pub mod middleware;
 pub mod routes;
 pub mod ws;
 
@@ -34,14 +35,14 @@ pub struct AppContext {
 // ── Router Builder ──────────────────────────────────────────────
 
 /// Build the full axum `Router` with all API routes and WebSocket endpoints.
-/// Uses permissive CORS (allow all origins).
+/// Uses permissive CORS (allow all origins), no API key auth.
 pub fn build_router(ctx: Arc<AppContext>) -> Router {
-    build_router_with_cors(ctx, &[])
+    build_router_with_cors(ctx, &[], None)
 }
 
 /// Start the HTTP/WebSocket server, binding to the configured address.
 pub async fn start_server(config: ServerConfig, ctx: Arc<AppContext>) -> anyhow::Result<()> {
-    let router = build_router_with_cors(ctx, &config.cors_origins);
+    let router = build_router_with_cors(ctx, &config.cors_origins, config.api_key.clone());
 
     let listener = tokio::net::TcpListener::bind(&config.bind_addr).await?;
     eprintln!("[oc-server] listening on {}", config.bind_addr);
@@ -52,11 +53,17 @@ pub async fn start_server(config: ServerConfig, ctx: Arc<AppContext>) -> anyhow:
 
 // ── Internal Helpers ────────────────────────────────────────────
 
-/// Build the router with specific CORS origins (used by `start_server`).
-fn build_router_with_cors(ctx: Arc<AppContext>, cors_origins: &[String]) -> Router {
+/// Build the router with specific CORS origins and optional API key auth.
+fn build_router_with_cors(
+    ctx: Arc<AppContext>,
+    cors_origins: &[String],
+    api_key: Option<String>,
+) -> Router {
+    // Health endpoint is always public (no auth required)
+    let health = Router::new().route("/api/health", get(routes::health::health_check));
+
+    // Protected API routes
     let api = Router::new()
-        // Health
-        .route("/health", get(routes::health::health_check))
         // Sessions
         .route("/sessions", post(routes::sessions::create_session))
         .route("/sessions", get(routes::sessions::list_sessions))
@@ -113,6 +120,8 @@ fn build_router_with_cors(ctx: Arc<AppContext>, cors_origins: &[String]) -> Rout
         .route("/config/compact", put(routes::config::save_compact_config))
         .route("/config/notification", get(routes::config::get_notification_config))
         .route("/config/notification", put(routes::config::save_notification_config))
+        .route("/config/server", get(routes::config::get_server_config))
+        .route("/config/server", put(routes::config::save_server_config))
         // Agents
         .route("/agents", get(routes::agents::list_agents))
         .route("/agents/{id}", get(routes::agents::get_agent))
@@ -123,9 +132,19 @@ fn build_router_with_cors(ctx: Arc<AppContext>, cors_origins: &[String]) -> Rout
         .route("/events", get(ws::events::events_ws))
         .route("/chat/{session_id}", get(ws::chat_stream::chat_stream_ws));
 
-    Router::new()
+    // Apply API key auth middleware to protected routes
+    let auth_state = middleware::ApiKeyState { api_key };
+    let protected = Router::new()
         .nest("/api", api)
         .nest("/ws", ws_routes)
+        .route_layer(axum::middleware::from_fn_with_state(
+            auth_state,
+            middleware::require_api_key,
+        ));
+
+    Router::new()
+        .merge(health)
+        .merge(protected)
         .layer(build_cors_layer(cors_origins))
         .with_state(ctx)
 }
