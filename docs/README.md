@@ -60,18 +60,4 @@
 
 | 文档 | 说明 |
 |------|------|
-| [竞品功能分析](research/competitive-analysis.md) | OpenComputer vs Claude Code vs OpenClaw 全面对比（主文档） |
-| [工具系统对比](research/tool-gap-analysis.md) | 工具定义、执行引擎、延迟加载、权限过滤 |
-| [Agent 系统对比](research/agent-system-comparison.md) | Team/Swarm、Coordinator、Worktree、Agent 间消息 |
-| [Skill 系统对比](research/skill-system-comparison.md) | MCP Skills、Effort 级别、发现机制、Fork 模式 |
-| [Plan Mode 对比](research/plan-mode-comparison.md) | 六态状态机、双 Agent、Git Checkpoint |
-| [记忆系统对比](research/memory-system-comparison.md) | SQLite vs 文件系统、向量检索、团队同步 |
-| [上下文管理对比](research/context-management-comparison.md) | 5 层压缩、Side Query、Tool Use Summary |
-| [Provider 支持对比](research/provider-support-comparison.md) | 多 Provider 模板、降级策略、Prompt Cache |
-| [IM 渠道系统对比](research/im-channel-comparison.md) | 12 vs 24+ 渠道、DM 配对、语音、媒体管道 |
-| [权限与安全对比](research/permission-security-comparison.md) | 权限模式、MDM、TCC 检查、速率限制 |
-| [IDE 集成对比](research/ide-integration-comparison.md) | VS Code Bridge、REPL Bridge、ACP 协议 |
-| [Hooks 系统对比](research/hooks-system-comparison.md) | 事件类型、同步/异步 Hook、工具拦截 |
-| [通知系统对比](research/notification-system-comparison.md) | 优先级队列、通知折叠、失效机制 |
-| [Session 管理对比](research/session-management-comparison.md) | Teleport、远程会话、会话恢复 |
-| [其他独有能力对比](research/unique-capabilities-comparison.md) | DreamTask、Dashboard、i18n、Canvas |
+| [三项目统一维度对比](research/unified-comparison.md) | OpenComputer vs Claude Code vs OpenClaw 全维度对比（16 维度评分 + Actionable 差距清单 + 演进路线图） |
