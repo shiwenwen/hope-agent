@@ -19,7 +19,7 @@ use serde_json::Value;
 ///
 /// Returns the number of tool results cleared.
 pub fn microcompact(messages: &mut [Value], config: &CompactConfig) -> usize {
-    if !config.microcompact_enabled || config.microcompact_tools.is_empty() {
+    if config.eager_tools().is_empty() {
         return 0;
     }
 
@@ -92,7 +92,7 @@ pub fn microcompact(messages: &mut [Value], config: &CompactConfig) -> usize {
         // Extract tool_use_id from the tool result message
         let tool_name = get_tool_name_for_result(msg, &tool_id_to_name);
         let is_ephemeral = match &tool_name {
-            Some(name) => config.microcompact_tools.iter().any(|t| t == name),
+            Some(name) => config.is_eager(name),
             None => false,
         };
 

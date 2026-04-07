@@ -1,6 +1,7 @@
 // ── Configuration (user-configurable, stored in config.json) ──
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 fn default_soft_trim_ratio() -> f64 {
     0.50
@@ -60,15 +61,13 @@ pub struct CompactConfig {
     #[serde(default = "crate::default_true")]
     pub enabled: bool,
 
-    // ── Tier 0: Microcompaction ──
-    /// Enable microcompaction of ephemeral tool results (default: true).
-    /// Clears old results from tools like ls/grep/find that become stale quickly.
-    #[serde(default = "crate::default_true")]
-    pub microcompact_enabled: bool,
-    /// Tool names eligible for Tier 0 microcompaction.
-    /// Results from these tools are cleared when older than `keep_last_assistants` boundary.
-    #[serde(default = "default_microcompact_tools")]
-    pub microcompact_tools: Vec<String>,
+    // ── Tool Policies ──
+    /// Per-tool compaction policy. Key: tool name, value: "eager" | "protect".
+    /// "eager": old results are cleared first (microcompaction).
+    /// "protect": results are exempt from pruning.
+    /// Tools not in this map use default compaction behavior.
+    #[serde(default = "default_tool_policies")]
+    pub tool_policies: HashMap<String, String>,
 
     // ── Tier 2: Context Pruning ──
     /// Soft trim trigger ratio (default: 0.50)
@@ -98,9 +97,6 @@ pub struct CompactConfig {
     /// Placeholder text for hard-cleared tool results
     #[serde(default = "default_hard_clear_placeholder")]
     pub hard_clear_placeholder: String,
-    /// Tool names exempt from pruning
-    #[serde(default = "default_tools_deny_prune")]
-    pub tools_deny_prune: Vec<String>,
 
     // ── Tier 3: LLM Summarization ──
     /// Summarization trigger ratio (default: 0.85)
@@ -142,43 +138,69 @@ pub struct CompactConfig {
     pub recovery_max_file_bytes: usize,
 }
 
-fn default_microcompact_tools() -> Vec<String> {
+fn default_tool_policies() -> HashMap<String, String> {
     use crate::tools::{
-        TOOL_AGENTS_LIST, TOOL_FIND, TOOL_GREP, TOOL_LS, TOOL_PROCESS, TOOL_SESSIONS_LIST,
+        TOOL_AGENTS_LIST, TOOL_FIND, TOOL_GET_WEATHER, TOOL_GREP, TOOL_LS, TOOL_MEMORY_GET,
+        TOOL_PROCESS, TOOL_RECALL_MEMORY, TOOL_SESSIONS_LIST, TOOL_SESSION_STATUS,
+        TOOL_TOOL_SEARCH, TOOL_WEB_FETCH, TOOL_WEB_SEARCH,
     };
-    vec![
-        TOOL_LS.into(),
-        TOOL_GREP.into(),
-        TOOL_FIND.into(),
-        TOOL_PROCESS.into(),
-        TOOL_SESSIONS_LIST.into(),
-        TOOL_AGENTS_LIST.into(),
-    ]
+    let mut m = HashMap::new();
+    // Eager: ephemeral/snapshot tools whose old results become stale quickly
+    for name in [
+        TOOL_LS,
+        TOOL_GREP,
+        TOOL_FIND,
+        TOOL_PROCESS,
+        TOOL_SESSIONS_LIST,
+        TOOL_AGENTS_LIST,
+        TOOL_SESSION_STATUS,
+        TOOL_GET_WEATHER,
+        TOOL_TOOL_SEARCH,
+    ] {
+        m.insert(name.into(), "eager".into());
+    }
+    // Protect: tools whose results may be referenced later
+    for name in [
+        TOOL_WEB_SEARCH,
+        TOOL_WEB_FETCH,
+        TOOL_RECALL_MEMORY,
+        TOOL_MEMORY_GET,
+    ] {
+        m.insert(name.into(), "protect".into());
+    }
+    m
 }
 
-fn default_tools_deny_prune() -> Vec<String> {
-    use crate::tools::{
-        TOOL_DELETE_MEMORY, TOOL_MEMORY_GET, TOOL_RECALL_MEMORY, TOOL_SAVE_MEMORY,
-        TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY, TOOL_WEB_FETCH, TOOL_WEB_SEARCH,
-    };
-    vec![
-        TOOL_WEB_SEARCH.into(),
-        TOOL_WEB_FETCH.into(),
-        TOOL_SAVE_MEMORY.into(),
-        TOOL_RECALL_MEMORY.into(),
-        TOOL_UPDATE_MEMORY.into(),
-        TOOL_DELETE_MEMORY.into(),
-        TOOL_MEMORY_GET.into(),
-        TOOL_UPDATE_CORE_MEMORY.into(),
-    ]
+impl CompactConfig {
+    /// Check if a tool is marked as "eager" (microcompact).
+    pub fn is_eager(&self, tool_name: &str) -> bool {
+        self.tool_policies
+            .get(tool_name)
+            .is_some_and(|v| v == "eager")
+    }
+
+    /// Check if a tool is marked as "protect" (exempt from pruning).
+    pub fn is_protected(&self, tool_name: &str) -> bool {
+        self.tool_policies
+            .get(tool_name)
+            .is_some_and(|v| v == "protect")
+    }
+
+    /// Get all eager tool names.
+    pub fn eager_tools(&self) -> Vec<&str> {
+        self.tool_policies
+            .iter()
+            .filter(|(_, v)| v.as_str() == "eager")
+            .map(|(k, _)| k.as_str())
+            .collect()
+    }
 }
 
 impl Default for CompactConfig {
     fn default() -> Self {
         Self {
             enabled: crate::default_true(),
-            microcompact_enabled: crate::default_true(),
-            microcompact_tools: default_microcompact_tools(),
+            tool_policies: default_tool_policies(),
             soft_trim_ratio: default_soft_trim_ratio(),
             hard_clear_ratio: default_hard_clear_ratio(),
             keep_last_assistants: default_keep_last_assistants(),
@@ -188,7 +210,6 @@ impl Default for CompactConfig {
             soft_trim_tail_chars: default_soft_trim_tail_chars(),
             hard_clear_enabled: crate::default_true(),
             hard_clear_placeholder: default_hard_clear_placeholder(),
-            tools_deny_prune: default_tools_deny_prune(),
             summarization_threshold: default_summarization_threshold(),
             preserve_recent_turns: default_preserve_recent_turns(),
             identifier_policy: default_identifier_policy(),

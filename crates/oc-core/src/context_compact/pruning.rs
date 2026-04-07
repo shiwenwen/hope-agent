@@ -3,7 +3,7 @@
 use super::config::CompactConfig;
 use super::estimation::{
     estimate_message_chars, extract_tool_name, get_tool_result_text, is_assistant_message,
-    is_tool_denied, is_tool_result, is_user_message, set_tool_result_text,
+    is_tool_result, is_user_message, set_tool_result_text,
 };
 use super::truncation::head_tail_truncate;
 use super::types::{PruneResult, ToolResultInfo};
@@ -43,7 +43,7 @@ fn collect_prunable_tool_results(
     messages: &[Value],
     prune_start: usize,
     cutoff: usize,
-    deny_list: &[String],
+    config: &CompactConfig,
 ) -> Vec<ToolResultInfo> {
     let mut results = Vec::new();
     for i in prune_start..cutoff {
@@ -53,7 +53,7 @@ fn collect_prunable_tool_results(
         }
         let tool_name = extract_tool_name(msg);
         if let Some(ref name) = tool_name {
-            if is_tool_denied(name, deny_list) {
+            if config.is_protected(name) {
                 continue;
             }
         }
@@ -113,7 +113,7 @@ pub fn prune_old_context(
 
     // Step 4: Collect prunable tool results, sorted by priority (highest first)
     let mut prunable =
-        collect_prunable_tool_results(messages, prune_start, cutoff, &config.tools_deny_prune);
+        collect_prunable_tool_results(messages, prune_start, cutoff, config);
     let total_msgs = messages.len();
     prunable.sort_by(|a, b| {
         let pa = prune_priority(a.msg_index, total_msgs, a.content_chars);

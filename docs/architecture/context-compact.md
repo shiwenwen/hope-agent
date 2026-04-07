@@ -48,7 +48,7 @@ flowchart TD
 
 **零成本**清除过时的短命工具结果，无需 LLM 调用。
 
-**触发条件**：每次请求前自动执行（`microcompact_enabled = true`）
+**触发条件**：每次请求前自动执行（`tool_policies` 中存在 `"eager"` 策略的工具时）
 
 **处理逻辑**：
 1. 构建 `tool_use_id → tool_name` 映射表，兼容三种消息格式：
@@ -56,8 +56,8 @@ flowchart TD
    - **OpenAI Chat**：`tool_calls` 数组（`id` + `function.name`）
    - **OpenAI Responses**：`type=function_call` 消息（`call_id` + `name`）
 2. 找到保护边界：从末尾跳过最近 `keep_last_assistants`（默认 4）个 assistant 消息
-3. 清除边界之前的以下工具的结果内容：`ls`, `grep`, `find`, `process`, `sessions_list`, `agents_list`
-4. 替换为空字符串（保留消息结构以维持 tool_use/tool_result 配对）
+3. 清除边界之前所有 `tool_policies` 中策略为 `"eager"` 的工具结果内容（默认：`ls`, `grep`, `find`, `process`, `sessions_list`, `agents_list`, `session_status`, `get_weather`, `tool_search`）
+4. 替换为占位符（保留消息结构以维持 tool_use/tool_result 配对）
 
 ### Tier 1：截断（Truncation）
 
@@ -93,7 +93,7 @@ flowchart TD
     Sort --> Check1{"usage ≥ soft_trim_ratio<br/>(50%)?"}
     Check1 -- No --> Skip["跳过裁剪"]
     Check1 -- Yes --> Soft["阶段一：Soft-trim"]
-    Soft --> Filter1{"内容 > 6000 chars<br/>且不在 deny 列表?"}
+    Soft --> Filter1{"内容 > 6000 chars<br/>且非 protect 策略?"}
     Filter1 -- Yes --> Trim["head 2KB + tail 2KB<br/>中间替换省略标记"]
     Filter1 -- No --> Next1["跳过该条目"]
     Trim --> Check2{"usage ≥ hard_clear_ratio<br/>(70%)?"}
@@ -126,7 +126,7 @@ priority = age × 0.6 + size × 0.4
 
 **保护机制**：
 - 最近 `keep_last_assistants`（默认 4）个 assistant 消息之后的内容不裁剪
-- `tools_deny_prune` 列表中的工具不裁剪（默认包括 `web_search`, `web_fetch`, `save_memory`, `recall_memory` 等 8 个工具）
+- `tool_policies` 中策略为 `"protect"` 的工具不裁剪（默认：`web_search`, `web_fetch`, `recall_memory`, `memory_get`）
 
 ### Tier 3：LLM 摘要（Summarization）
 
@@ -278,9 +278,8 @@ calibrated_estimate = raw_estimate × calibration_factor
 | 配置路径（`compact.*`） | 默认值 | 说明 |
 |------------------------|--------|------|
 | `enabled` | `true` | 启用上下文压缩 |
-| **Tier 0** | | |
-| `microcompactEnabled` | `true` | 启用微压缩 |
-| `microcompactTools` | `[ls, grep, find, process, sessions_list, agents_list]` | 微压缩目标工具列表 |
+| **工具策略** | | |
+| `toolPolicies` | 见下方 | 每个工具的压缩策略（`"eager"` / `"protect"`，不在 map 中为正常压缩） |
 | **Tier 2** | | |
 | `softTrimRatio` | `0.50` | Soft-trim 触发比率 |
 | `softTrimMaxChars` | `6000` | 触发 soft-trim 的最小内容长度 |
@@ -291,7 +290,14 @@ calibrated_estimate = raw_estimate × calibration_factor
 | `hardClearPlaceholder` | `"[Old tool result content cleared]"` | Hard-clear 占位符文本 |
 | `keepLastAssistants` | `4` | 保护最近 N 个 assistant 消息 |
 | `minPrunableToolChars` | `20000` | 低于此总量跳过 hard-clear |
-| `toolsDenyPrune` | `[web_search, web_fetch, save_memory, ...]` | 裁剪豁免工具列表（8 个） |
+
+**`toolPolicies` 默认值**：
+
+| 策略 | 工具 | 理由 |
+|------|------|------|
+| `eager`（优先清除） | ls, grep, find, process, sessions_list, agents_list, session_status, get_weather, tool_search | 快照/列表类，旧结果无价值 |
+| `protect`（保护不裁） | web_search, web_fetch, recall_memory, memory_get | 内容可能后续反复引用 |
+| 正常压缩 | 其余所有工具 | 按 Tier 1→2 正常流程处理 |
 | **Tier 3** | | |
 | `summarizationThreshold` | `0.85` | 摘要触发比率 |
 | `preserveRecentTurns` | `4`（最大 12） | 摘要时保留最近 N 轮 |
