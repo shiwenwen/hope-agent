@@ -91,7 +91,7 @@ flowchart TD
 
     F --> G["解析 tool_calls"]
     G --> H{"有 tool_calls?"}
-    H -- Yes --> I["Tool Loop (最多 10 轮)"]
+    H -- Yes --> I["Tool Loop (默认最多 10 轮，可配置)"]
     I --> J{"concurrent_safe?"}
     J -- Yes --> K["并发安全组<br/>join_all() 并行执行"]
     J -- No --> L["串行组<br/>for loop 逐个执行"]
