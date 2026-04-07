@@ -94,11 +94,11 @@ crates/oc-core/src/     核心业务逻辑（~30 个模块，零 Tauri 依赖）
 
 ```
 crates/oc-server/src/   HTTP/WS 守护进程
-  main.rs               CLI 入口（start/install/uninstall/status/stop 子命令）
-  router.rs             axum Router（REST API 路由注册）
-  ws.rs                 WebSocket 流式推送（替代 Tauri Channel<String>）
-  service.rs            系统服务注册（macOS launchd / Linux systemd）
-  guardian.rs           Guardian keepalive（统一心跳，桌面/服务器共用）
+  lib.rs                axum Router（路由注册 + 服务启动）
+  config.rs             ServerConfig（bind_addr / api_key / cors_origins）
+  middleware.rs          API Key 鉴权中间件（Bearer header + ?token= query param）
+  routes/               REST API 路由处理（sessions/chat/providers/config/agents/memory/health）
+  ws/                   WebSocket（events 事件推送 + chat_stream 流式聊天）
 ```
 
 ### src-tauri（Tauri 桌面 Shell）
@@ -130,6 +130,8 @@ src-tauri/src/          Tauri 薄壳（命令层 + 桌面集成）
 - **状态管理**：后端核心状态在 `oc-core::CoreState`（`tokio::sync::Mutex`），Tauri 端通过 `State<AppState>` 持有引用，Server 端通过 axum `Extension` 注入。前端保持轻量 React state
 - **Guardian 统一心跳**：桌面模式和服务器模式共用 Guardian keepalive 机制，确保后台任务（Channel 轮询、Cron 调度等）持续运行
 - **系统服务注册**：`opencomputer server install` 在 macOS 注册 launchd plist（`~/Library/LaunchAgents/`），在 Linux 注册 systemd unit（`~/.config/systemd/user/`），实现开机自启
+- **API Key 鉴权**：`oc-server/middleware.rs` 实现 axum `from_fn_with_state` 中间件。支持 `Authorization: Bearer <key>` 头和 `?token=<key>` 查询参数（浏览器 WebSocket 不支持自定义头）。`/api/health` 免鉴权。`api_key` 为 `None` 时全部放行。CLI 模式通过 `--api-key` 参数传入，桌面模式从 `config.json` 的 `server.apiKey` 读取
+- **内嵌服务器配置**：桌面应用内嵌 HTTP 服务的 bind 地址和 API Key 存储在 `config.json` 的 `server` 字段（`EmbeddedServerConfig`），`setup.rs` 启动时读取。默认 `127.0.0.1:8420` 仅本机访问，设为 `0.0.0.0:8420` 可对外暴露。修改后需重启应用生效
 - **LLM 调用**：集中在 `agent/` 模块，四种 Provider（Anthropic / OpenAIChat / OpenAIResponses / Codex）
 - **温度配置**：三层覆盖架构（会话 > Agent > 全局）。全局存储在 `config.json` 的 `temperature` 字段，Agent 级存储在 `agent.json` 的 `model.temperature` 字段，会话级通过 `chat` 命令的 `temperatureOverride` 参数传递。`AssistantAgent.temperature` 字段在四种 Provider 的 API 请求中统一注入。范围 0.0–2.0，`None` 表示使用 API 默认值
 - **Tool Loop**：请求 → 解析 tool_call → 并发/串行执行 → 回传 → 继续，最多 10 轮。工具按 `concurrent_safe` 标记分组：只读工具（read/grep/ls/find 等）并行执行，写入工具（exec/write/edit 等）串行执行

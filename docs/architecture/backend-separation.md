@@ -77,6 +77,7 @@ logging/        非阻塞双写 + 脱敏
 | REST API | 43 个端点（sessions/chat/providers/memory/config/agents） |
 | WebSocket | `/ws/events`（全局事件广播）+ `/ws/chat/{session_id}`（流式输出） |
 | 路由框架 | axum 0.8 + tower-http CORS |
+| API Key 鉴权 | `middleware.rs` — `Authorization: Bearer` 头 + `?token=` 查询参数，`/api/health` 免鉴权 |
 | 错误处理 | `AppError` — 显式 status code，不做字符串匹配 |
 
 **关键类型**：
@@ -97,7 +98,7 @@ pub struct AppContext {
 | Tauri IPC | 150+ `#[tauri::command]` 处理函数 |
 | 桌面集成 | 系统托盘、全局快捷键、窗口管理、macOS 菜单 |
 | 薄封装 | `tauri_wrappers.rs` 为 oc-core 无 `#[tauri::command]` 的函数添加属性 |
-| 内嵌服务 | `setup.rs` 中 spawn oc-server 在 localhost:8420 |
+| 内嵌服务 | `setup.rs` 中 spawn oc-server，配置从 `config.json` 的 `server` 字段读取 |
 | 入口管理 | Guardian / Child / Server / ACP 四种模式 |
 
 **文件结构（9 个文件）**：
@@ -139,13 +140,17 @@ graph LR
 ### 1. 桌面模式（默认）
 
 ```
-opencomputer → Guardian → Child (Tauri GUI + 内嵌 HTTP :8420)
+opencomputer → Guardian → Child (Tauri GUI + 内嵌 HTTP)
 ```
 
 - Guardian 监护子进程，崩溃自动重启（指数退避 1s→30s，最多 8 次）
 - 第 5 次崩溃触发 backup + self-diagnosis + auto-fix
 - 子进程启动 Tauri GUI，`setup.rs` 中同时 spawn oc-server
-- 前端通过 Tauri IPC 调用后端（也可通过 HTTP :8420）
+- 前端通过 Tauri IPC 调用后端（也可通过内嵌 HTTP 服务）
+- 内嵌服务器配置从 `config.json` 的 `server` 字段读取（`EmbeddedServerConfig`）：
+  - `bindAddr`：监听地址（默认 `127.0.0.1:8420`，设为 `0.0.0.0:8420` 可对外暴露）
+  - `apiKey`：API Key 鉴权（`null` = 无鉴权）
+- 修改后需重启应用生效
 
 ### 2. 服务器模式
 
@@ -154,6 +159,7 @@ opencomputer server [--bind 0.0.0.0:8420] [--api-key KEY]
 ```
 
 - 无 GUI，纯 HTTP/WS 守护进程
+- CLI `--api-key` 参数优先于 config.json 配置
 - 初始化 oc-core 全部子系统（DB、IM 渠道、ACP、Cron）
 - 写 PID 文件到 `~/.opencomputer/server.pid`
 - 支持系统服务注册：
@@ -492,6 +498,7 @@ stateDiagram-v2
 | GET/PUT | `/api/config/proxy` | 代理配置 |
 | GET/PUT | `/api/config/compact` | 压缩配置 |
 | GET/PUT | `/api/config/notification` | 通知配置 |
+| GET/PUT | `/api/config/server` | 内嵌服务器配置（bind 地址 + API Key） |
 
 ### Agents
 
@@ -513,7 +520,7 @@ stateDiagram-v2
 
 | Method | Path | 说明 |
 |--------|------|------|
-| GET | `/api/health` | `{"status":"ok","version":"0.1.0"}` |
+| GET | `/api/health` | `{"status":"ok","version":"0.1.0"}`（免鉴权） |
 
 ---
 
