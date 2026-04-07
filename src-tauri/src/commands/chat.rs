@@ -622,6 +622,7 @@ pub async fn chat(
         plan_agent_mode,
         plan_mode_allow_paths: plan_allow_paths,
         skill_allowed_tools: Vec::new(),
+        auto_approve_tools: false,
         event_sink: Arc::new(ChannelSink {
             channel: on_event.clone(),
         }),

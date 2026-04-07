@@ -107,6 +107,7 @@ impl ChannelPlugin for GoogleChatPlugin {
             supports_threads: true,
             supports_media: vec![MediaType::Photo, MediaType::Document],
             supports_typing: false,
+            supports_buttons: true,
             max_message_length: Some(4096),
         }
     }
@@ -204,8 +205,45 @@ impl ChannelPlugin for GoogleChatPlugin {
                 return Ok(DeliveryResult::ok("empty"));
             }
 
+            // Build Card v2 widgets for approval buttons if present
+            let cards_v2 = if payload.buttons.is_empty() {
+                None
+            } else {
+                let button_widgets: Vec<_> = payload
+                    .buttons
+                    .iter()
+                    .flatten()
+                    .map(|b| {
+                        serde_json::json!({
+                            "buttonList": {
+                                "buttons": [{
+                                    "text": &b.text,
+                                    "onClick": {
+                                        "action": {
+                                            "function": b.callback_id(),
+                                        }
+                                    }
+                                }]
+                            }
+                        })
+                    })
+                    .collect();
+
+                Some(vec![serde_json::json!({
+                    "cardId": "approval",
+                    "card": {
+                        "sections": [{
+                            "widgets": button_widgets
+                        }]
+                    }
+                })])
+            };
+
             let thread_key = payload.thread_id.as_deref();
-            let result = api.send_message(chat_id, text, thread_key).await?;
+            let cards_ref = cards_v2.as_deref();
+            let result = api
+                .send_message(chat_id, text, thread_key, cards_ref)
+                .await?;
 
             let msg_name = result
                 .get("name")

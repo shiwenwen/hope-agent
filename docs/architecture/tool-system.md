@@ -249,6 +249,19 @@ flowchart TD
 
 审批超时 5 分钟自动拒绝。
 
+### IM Channel 审批交互
+
+当工具审批发生在 IM 渠道（Telegram/Discord/Slack 等）对话中时，`channel/worker/approval.rs` 监听 EventBus 的 `approval_required` 事件，通过 `ApprovalRequest.session_id` 反查 `ChannelDB` 关联的渠道信息，将审批提示发送到 IM 渠道本身：
+
+- **支持按钮的渠道**（`ChannelCapabilities.supports_buttons = true`）：Telegram InlineKeyboard / Discord Action Row Button / Slack Block Kit / 飞书 Interactive Card / QQ Bot Keyboard / LINE Buttons Template / Google Chat Card v2
+- **不支持按钮的渠道**：发送文本提示，用户回复 "1"（允许一次）/ "2"（始终允许）/ "3"（拒绝）
+
+按钮回调通过各渠道原生机制（callback_query / INTERACTION_CREATE / interactive envelope / card.action.trigger / postback / CARD_CLICKED）路由回 `submit_approval_response()`。
+
+### IM Channel 自动审批
+
+`ChannelAccountConfig.auto_approve_tools: bool`（默认 `false`）可在设置中开启。开启后该渠道的所有工具调用自动审批，通过 `ChatEngineParams.auto_approve_tools` → `AssistantAgent.auto_approve_tools` → `ToolExecContext.auto_approve_tools` 传递到执行层，在审批门控和 exec 命令审批中均直接跳过。
+
 ---
 
 ## exec 工具的独立审批流程
@@ -447,3 +460,5 @@ block-beta
 | `src/components/chat/ChatInput.tsx` | 盾牌按钮 UI（三态切换） |
 | `src/components/chat/ApprovalDialog.tsx` | 审批弹窗 UI |
 | `src/components/settings/agent-panel/tabs/BehaviorTab.tsx` | Agent 审批配置 UI |
+| `crates/oc-core/src/channel/worker/approval.rs` | IM Channel 审批交互（EventBus 监听、按钮/文本发送、回调处理） |
+| `src/components/settings/channel-panel/EditAccountDialog.tsx` | Channel 设置中的 auto_approve_tools 开关 |

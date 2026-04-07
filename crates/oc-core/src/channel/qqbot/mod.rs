@@ -88,6 +88,7 @@ impl ChannelPlugin for QqBotPlugin {
             supports_reply: true,
             supports_threads: false,
             supports_typing: true,
+            supports_buttons: true,
             supports_draft: false,
             supports_polls: false,
             supports_reactions: false,
@@ -162,6 +163,50 @@ impl ChannelPlugin for QqBotPlugin {
         payload: &ReplyPayload,
     ) -> Result<DeliveryResult> {
         let api = self.get_api(account_id).await?;
+
+        // Handle messages with inline keyboard buttons (approval prompts, etc.)
+        if !payload.buttons.is_empty() {
+            let text_content = payload.text.as_deref().unwrap_or("");
+            let msg_id = payload.reply_to_message_id.as_deref();
+
+            let rows: Vec<_> = payload
+                .buttons
+                .iter()
+                .map(|row| {
+                    let buttons: Vec<_> = row
+                        .iter()
+                        .map(|b| {
+                            serde_json::json!({
+                                "id": b.callback_id(),
+                                "render_data": {
+                                    "label": &b.text,
+                                    "visited_label": &b.text,
+                                },
+                                "action": {
+                                    "type": 2,
+                                    "data": b.callback_id(),
+                                    "permission": { "type": 2 }
+                                }
+                            })
+                        })
+                        .collect();
+                    serde_json::json!({ "buttons": buttons })
+                })
+                .collect();
+
+            let keyboard = serde_json::json!({ "content": { "rows": rows } });
+            let result = api
+                .send_message_with_keyboard(chat_id, text_content, keyboard, msg_id)
+                .await?;
+
+            let response_msg_id = result
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("sent")
+                .to_string();
+
+            return Ok(DeliveryResult::ok(response_msg_id));
+        }
 
         if let Some(ref text) = payload.text {
             if text.is_empty() {

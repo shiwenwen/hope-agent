@@ -141,6 +141,7 @@ impl ChannelPlugin for LinePlugin {
                 MediaType::Document,
             ],
             supports_typing: false,
+            supports_buttons: true,
             max_message_length: Some(5000),
         }
     }
@@ -244,10 +245,38 @@ impl ChannelPlugin for LinePlugin {
             _ => return Ok(DeliveryResult::ok("empty")),
         };
 
-        let messages = vec![serde_json::json!({
-            "type": "text",
-            "text": text,
-        })];
+        // Build messages: use a buttons template if buttons are present,
+        // otherwise send a plain text message.
+        let messages = if !payload.buttons.is_empty() {
+            let actions: Vec<_> = payload
+                .buttons
+                .iter()
+                .flatten()
+                .take(3) // LINE buttons template supports at most 4 actions
+                .map(|b| {
+                    serde_json::json!({
+                        "type": "postback",
+                        "label": &b.text,
+                        "data": b.callback_id(),
+                    })
+                })
+                .collect();
+
+            vec![serde_json::json!({
+                "type": "template",
+                "altText": &text,
+                "template": {
+                    "type": "buttons",
+                    "text": crate::truncate_utf8(&text, 160),
+                    "actions": actions,
+                }
+            })]
+        } else {
+            vec![serde_json::json!({
+                "type": "text",
+                "text": text,
+            })]
+        };
 
         // Try to use reply token first (valid for ~1 minute)
         let reply_token = {

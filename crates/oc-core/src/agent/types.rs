@@ -135,6 +135,8 @@ pub struct AssistantAgent {
     /// Whether save_memory/update_core_memory was called in the current chat() round.
     /// Used for mutual exclusion with auto-extraction.
     pub(crate) manual_memory_saved: std::sync::atomic::AtomicBool,
+    /// When true, automatically approve all tool calls (IM channel auto-approve mode).
+    pub(super) auto_approve_tools: bool,
 }
 
 /// Cached parameters from the last main chat request.

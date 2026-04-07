@@ -277,6 +277,20 @@ async fn handle_ws_message(
                 handle_message_event(event_data, account_id, bot_open_id, inbound_tx).await?;
             }
         }
+        "card.action.trigger" => {
+            if let Some(event_data) = event.event {
+                if let Some(action) = event_data.get("action") {
+                    if let Some(value) = action.get("value").and_then(|v| v.as_str()) {
+                        if crate::channel::worker::approval::is_approval_callback(value) {
+                            crate::channel::worker::approval::spawn_callback_handler(
+                                value,
+                                "feishu:gateway",
+                            );
+                        }
+                    }
+                }
+            }
+        }
         _ => {
             app_debug!(
                 "channel",

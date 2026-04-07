@@ -110,6 +110,18 @@ async fn handle_inbound_message(
         crate::truncate_utf8(msg.text.as_deref().unwrap_or("(media)"), 100)
     );
 
+    // 0. Check if this message is a text-reply to a pending approval prompt
+    if super::approval::try_handle_approval_reply(&msg).await {
+        app_info!(
+            "channel",
+            "worker",
+            "[{}] Message consumed as approval reply from {}",
+            channel_id_str,
+            sender_label
+        );
+        return Ok(());
+    }
+
     // 1. Load config and find account
     let store = match crate::provider::load_store() {
         Ok(s) => s,
@@ -484,6 +496,7 @@ async fn handle_inbound_message(
         plan_agent_mode: None,
         plan_mode_allow_paths: None,
         skill_allowed_tools: Vec::new(),
+        auto_approve_tools: account.auto_approve_tools,
         event_sink: Arc::new(crate::chat_engine::ChannelStreamSink::new(
             session_id.clone(),
             event_tx,

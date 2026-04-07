@@ -243,13 +243,23 @@ async fn handle_envelope(
             }
         }
         "interactive" => {
-            // Interactive messages (buttons, menus, etc.) - not handled yet
-            app_debug!(
-                "channel",
-                "slack::socket",
-                "Ignoring interactive envelope for account '{}'",
-                account_id
-            );
+            if let Some(payload) = envelope.get("payload") {
+                if let Some(actions) = payload.get("actions").and_then(|v| v.as_array()) {
+                    for action in actions {
+                        if let Some(action_id) =
+                            action.get("action_id").and_then(|v| v.as_str())
+                        {
+                            if crate::channel::worker::approval::is_approval_callback(action_id)
+                            {
+                                crate::channel::worker::approval::spawn_callback_handler(
+                                    action_id,
+                                    "slack::socket",
+                                );
+                            }
+                        }
+                    }
+                }
+            }
         }
         "hello" => {
             // Socket Mode hello message on connect - expected, no action needed

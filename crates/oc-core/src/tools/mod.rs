@@ -4,7 +4,7 @@ pub(crate) mod acp_spawn;
 mod agents;
 mod amend_plan;
 mod apply_patch;
-mod approval;
+pub(crate) mod approval;
 pub(crate) mod browser;
 pub mod canvas;
 mod cron;

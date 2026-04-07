@@ -230,6 +230,8 @@ pub struct ChannelCapabilities {
     #[serde(default)]
     pub supports_typing: bool,
     #[serde(default)]
+    pub supports_buttons: bool,
+    #[serde(default)]
     pub max_message_length: Option<usize>,
 }
 
@@ -380,6 +382,9 @@ pub struct ChannelAccountConfig {
     pub settings: serde_json::Value,
     #[serde(default)]
     pub security: SecurityConfig,
+    /// When true, all tool calls from this IM channel are automatically approved.
+    #[serde(default)]
+    pub auto_approve_tools: bool,
 }
 
 // ── Channel Health ───────────────────────────────────────────────

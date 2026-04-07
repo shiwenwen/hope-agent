@@ -221,6 +221,7 @@ pub async fn chat(
         plan_agent_mode: None,
         plan_mode_allow_paths: None,
         skill_allowed_tools: Vec::new(),
+        auto_approve_tools: false,
         event_sink,
     };
 

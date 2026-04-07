@@ -77,6 +77,7 @@ impl AssistantAgent {
             cache_safe_params: std::sync::Mutex::new(None),
             extraction_count: std::sync::atomic::AtomicU32::new(0),
             manual_memory_saved: std::sync::atomic::AtomicBool::new(false),
+            auto_approve_tools: false,
         }
     }
 
@@ -113,6 +114,7 @@ impl AssistantAgent {
             cache_safe_params: std::sync::Mutex::new(None),
             extraction_count: std::sync::atomic::AtomicU32::new(0),
             manual_memory_saved: std::sync::atomic::AtomicBool::new(false),
+            auto_approve_tools: false,
         }
     }
 
@@ -175,6 +177,7 @@ impl AssistantAgent {
             cache_safe_params: std::sync::Mutex::new(None),
             extraction_count: std::sync::atomic::AtomicU32::new(0),
             manual_memory_saved: std::sync::atomic::AtomicBool::new(false),
+            auto_approve_tools: false,
         }
     }
 
@@ -273,6 +276,11 @@ impl AssistantAgent {
     /// Set temperature for LLM API calls (0.0–2.0). None = use API default.
     pub fn set_temperature(&mut self, temp: Option<f64>) {
         self.temperature = temp;
+    }
+
+    /// Set auto-approve mode for all tool calls (used by IM channel auto-approve).
+    pub fn set_auto_approve_tools(&mut self, enabled: bool) {
+        self.auto_approve_tools = enabled;
     }
 
     /// Apply plan-mode tool modifications to a tool schema list.
@@ -468,6 +476,7 @@ impl AssistantAgent {
                 types::PlanAgentMode::PlanAgent { allowed_tools, .. } => allowed_tools.clone(),
                 _ => Vec::new(),
             },
+            auto_approve_tools: self.auto_approve_tools,
         }
     }
 

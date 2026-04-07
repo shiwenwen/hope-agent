@@ -180,6 +180,47 @@ impl QqBotApi {
             .await
     }
 
+    /// Send a message with inline keyboard buttons (msg_type 2 = markdown with keyboard).
+    ///
+    /// For QQ Bot, buttons are sent as a keyboard component alongside markdown content.
+    /// Only supported for C2C and group messages (not guild channels/DMs).
+    pub async fn send_message_with_keyboard(
+        &self,
+        chat_id: &str,
+        content: &str,
+        keyboard: serde_json::Value,
+        msg_id: Option<&str>,
+    ) -> Result<serde_json::Value> {
+        let (path, mut body) = if let Some(openid) = chat_id.strip_prefix("c2c:") {
+            (
+                format!("/v2/c2c/users/{}/messages", openid),
+                serde_json::json!({
+                    "content": content,
+                    "msg_type": 2,
+                    "keyboard": keyboard,
+                }),
+            )
+        } else if let Some(group_openid) = chat_id.strip_prefix("group:") {
+            (
+                format!("/v2/groups/{}/messages", group_openid),
+                serde_json::json!({
+                    "content": content,
+                    "msg_type": 2,
+                    "keyboard": keyboard,
+                }),
+            )
+        } else {
+            return Err(anyhow!("Keyboard buttons not supported for this QQ Bot chat type: {}", crate::truncate_utf8(chat_id, 100)));
+        };
+
+        if let Some(id) = msg_id {
+            body["msg_id"] = serde_json::Value::String(id.to_string());
+        }
+
+        self.qq_request(reqwest::Method::POST, &path, Some(body))
+            .await
+    }
+
     /// Send a typing indicator for C2C (private) messages.
     ///
     /// POST /v2/users/{openid}/input_notify

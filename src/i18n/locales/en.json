@@ -1088,6 +1088,8 @@
     "channelEnabled": "Enabled",
     "channelAgent": "Bound Agent",
     "removeConfig": "Remove",
+    "autoApproveTools": "Auto Approve Tools",
+    "autoApproveToolsHint": "When enabled, all tool executions via this IM channel will be automatically approved without manual confirmation",
     "pluginName_telegram": "Telegram",
     "pluginName_wechat": "WeChat",
     "pluginName_discord": "Discord",

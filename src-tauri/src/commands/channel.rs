@@ -63,6 +63,7 @@ pub async fn channel_add_account(
         credentials,
         settings,
         security,
+        auto_approve_tools: false,
     };
 
     // Save to config
@@ -94,6 +95,7 @@ pub async fn channel_update_account(
     label: Option<String>,
     enabled: Option<bool>,
     agent_id: Option<String>,
+    auto_approve_tools: Option<bool>,
     credentials: Option<serde_json::Value>,
     settings: Option<serde_json::Value>,
     security: Option<SecurityConfig>,
@@ -120,6 +122,9 @@ pub async fn channel_update_account(
         } else {
             Some(aid.clone())
         };
+    }
+    if let Some(aat) = auto_approve_tools {
+        account.auto_approve_tools = aat;
     }
     if let Some(c) = credentials {
         account.credentials = c;

@@ -33,6 +33,7 @@
   - [Markdown → Telegram HTML](#markdown--telegram-html)
   - [群组消息过滤](#群组消息过滤)
   - [媒体处理](#媒体处理)
+- [工具审批交互](#工具审批交互)
 - [配置格式](#配置格式)
   - [配置结构](#配置结构)
   - [Telegram 配置示例](#telegram-配置示例)
@@ -305,6 +306,7 @@ pub struct ChannelCapabilities {
     pub supports_threads: bool,           // 线程/话题
     pub supports_media: Vec<MediaType>,   // 支持的媒体类型
     pub supports_typing: bool,            // 输入中指示器
+    pub supports_buttons: bool,           // 交互按钮（审批等）
     pub max_message_length: Option<usize>,// 单条消息长度限制
 }
 ```
@@ -899,6 +901,46 @@ QQ Bot 有多种消息端点，`chat_id` 使用前缀区分：
 
 ---
 
+## 工具审批交互
+
+当 AI Agent 在 IM 渠道对话中调用需要审批的工具时，审批提示会直接发送到 IM 渠道内，而非仅在桌面 UI 显示。
+
+### 架构
+
+`channel/worker/approval.rs` 在应用启动时注册 EventBus 监听器，拦截 `approval_required` 事件：
+
+1. 通过 `ApprovalRequest.session_id` 查询 `ChannelDB.get_conversation_by_session()` 反查渠道信息
+2. 非渠道会话的审批事件跳过（由桌面 UI 处理）
+3. 根据 `ChannelCapabilities.supports_buttons` 决定发送方式
+
+### 按钮渠道（supports_buttons = true）
+
+发送平台原生交互按钮（Allow Once / Always Allow / Deny），用户点击后通过各平台回调机制路由回 `submit_approval_response()`：
+
+| 渠道 | 按钮格式 | 回调机制 |
+|------|---------|---------|
+| Telegram | InlineKeyboard | callback_query |
+| Discord | Action Row + Button | INTERACTION_CREATE type=3 |
+| Slack | Block Kit actions | Socket Mode `interactive` envelope |
+| 飞书 | Interactive Card | `card.action.trigger` 事件 |
+| QQ Bot | Markdown + Keyboard | INTERACTION_CREATE |
+| LINE | Buttons Template | `postback` 事件 |
+| Google Chat | Card v2 | CARD_CLICKED 事件 |
+
+### 文本渠道（supports_buttons = false）
+
+发送文本提示（"回复 1/2/3"），用户回复的数字消息在 `dispatcher.rs` 的消息处理最前端被 `try_handle_approval_reply()` 拦截。不匹配 "1"/"2"/"3" 的消息正常处理。
+
+适用渠道：WeChat、Signal、iMessage、IRC、WhatsApp
+
+### 自动审批
+
+`ChannelAccountConfig.auto_approve_tools`（默认 `false`）可在渠道设置中开启。开启后该渠道的所有工具调用通过 `ToolExecContext.auto_approve_tools` 直接跳过审批门控，无需任何交互。
+
+**源码**：`crates/oc-core/src/channel/worker/approval.rs`
+
+---
+
 ## 配置格式
 
 ### 配置结构
@@ -921,6 +963,7 @@ interface ChannelAccountConfig {
   credentials: object        // 渠道特定凭据
   settings: object           // 渠道特定设置
   security: SecurityConfig   // 安全策略
+  autoApproveTools: boolean  // 自动审批所有工具调用（默认 false）
 }
 ```
 

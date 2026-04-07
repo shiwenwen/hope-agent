@@ -140,6 +140,7 @@ impl ChannelPlugin for TelegramPlugin {
                 MediaType::Animation,
             ],
             supports_typing: true,
+            supports_buttons: true,
             max_message_length: Some(4096),
         }
     }

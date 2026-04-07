@@ -180,6 +180,62 @@ impl FeishuApi {
         self.parse_send_response(resp).await
     }
 
+    /// Send an interactive card message with action buttons.
+    ///
+    /// If `reply_to` is Some, sends as a reply to the specified message.
+    /// Returns the message_id of the sent message.
+    pub async fn send_interactive_card(
+        &self,
+        receive_id: &str,
+        card_json: serde_json::Value,
+        reply_to: Option<&str>,
+    ) -> Result<String> {
+        let content = card_json.to_string();
+
+        if let Some(reply_msg_id) = reply_to {
+            // Reply to a specific message with an interactive card
+            let url = format!(
+                "{}/open-apis/im/v1/messages/{}/reply",
+                self.base_url, reply_msg_id
+            );
+            let body = serde_json::json!({
+                "msg_type": "interactive",
+                "content": content,
+            });
+
+            let resp = self
+                .authorized_request(reqwest::Method::POST, &url)
+                .await?
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| anyhow!("Failed to send Feishu interactive card reply: {}", e))?;
+
+            return self.parse_send_response(resp).await;
+        }
+
+        // Send a new interactive card message
+        let url = format!(
+            "{}/open-apis/im/v1/messages?receive_id_type=chat_id",
+            self.base_url
+        );
+        let body = serde_json::json!({
+            "receive_id": receive_id,
+            "msg_type": "interactive",
+            "content": content,
+        });
+
+        let resp = self
+            .authorized_request(reqwest::Method::POST, &url)
+            .await?
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| anyhow!("Failed to send Feishu interactive card: {}", e))?;
+
+        self.parse_send_response(resp).await
+    }
+
     /// Update an existing message.
     pub async fn update_message(&self, message_id: &str, text: &str) -> Result<()> {
         let url = format!(

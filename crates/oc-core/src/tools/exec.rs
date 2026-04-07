@@ -206,66 +206,36 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
     }
 
     // ── Command approval gate ───────────────────────────────────
-    // Check session-level tool permission mode first
-    let perm_mode = get_tool_permission_mode().await;
-    match perm_mode {
-        ToolPermissionMode::FullApprove => {
-            // Skip all approval checks
-            app_info!(
-                "tool",
-                "exec",
-                "Command auto-approved (full_approve mode): {}",
-                command
-            );
-        }
-        ToolPermissionMode::AskEveryTime => {
-            // Always ask, ignore allowlist
-            match check_and_request_approval(command, &session_cwd).await {
-                Ok(ApprovalResponse::AllowOnce) => {
-                    app_info!(
-                        "tool",
-                        "exec",
-                        "Command approved (once, ask_every_time): {}",
-                        command
-                    );
-                }
-                Ok(ApprovalResponse::AllowAlways) => {
-                    // In ask_every_time mode, still ask next time — do NOT add to allowlist
-                    app_info!(
-                        "tool",
-                        "exec",
-                        "Command approved (ask_every_time): {}",
-                        command
-                    );
-                }
-                Ok(ApprovalResponse::Deny) => {
-                    let mut registry = get_registry().lock().await;
-                    registry.mark_exited(&session_id, None, None, ProcessStatus::Failed);
-                    return Err(anyhow::anyhow!(
-                        "Command execution denied by user: {}",
-                        command
-                    ));
-                }
-                Err(e) => {
-                    app_warn!(
-                        "tool",
-                        "exec",
-                        "Approval check failed ({}), proceeding with execution",
-                        e
-                    );
-                }
+    if !ctx.auto_approve_tools {
+        let perm_mode = get_tool_permission_mode().await;
+        match perm_mode {
+            ToolPermissionMode::FullApprove => {
+                app_info!(
+                    "tool",
+                    "exec",
+                    "Command auto-approved (full_approve mode): {}",
+                    command
+                );
             }
-        }
-        ToolPermissionMode::Auto => {
-            // Default behavior: check allowlist first
-            if !is_command_allowed(command).await {
-                match check_and_request_approval(command, &session_cwd).await {
+            ToolPermissionMode::AskEveryTime => {
+                match check_and_request_approval(command, &session_cwd, ctx.session_id.as_deref())
+                    .await
+                {
                     Ok(ApprovalResponse::AllowOnce) => {
-                        app_info!("tool", "exec", "Command approved (once): {}", command);
+                        app_info!(
+                            "tool",
+                            "exec",
+                            "Command approved (once, ask_every_time): {}",
+                            command
+                        );
                     }
                     Ok(ApprovalResponse::AllowAlways) => {
-                        app_info!("tool", "exec", "Command approved (always): {}", command);
-                        add_to_allowlist(command).await;
+                        app_info!(
+                            "tool",
+                            "exec",
+                            "Command approved (ask_every_time): {}",
+                            command
+                        );
                     }
                     Ok(ApprovalResponse::Deny) => {
                         let mut registry = get_registry().lock().await;
@@ -282,6 +252,41 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
                             "Approval check failed ({}), proceeding with execution",
                             e
                         );
+                    }
+                }
+            }
+            ToolPermissionMode::Auto => {
+                if !is_command_allowed(command).await {
+                    match check_and_request_approval(
+                        command,
+                        &session_cwd,
+                        ctx.session_id.as_deref(),
+                    )
+                    .await
+                    {
+                        Ok(ApprovalResponse::AllowOnce) => {
+                            app_info!("tool", "exec", "Command approved (once): {}", command);
+                        }
+                        Ok(ApprovalResponse::AllowAlways) => {
+                            app_info!("tool", "exec", "Command approved (always): {}", command);
+                            add_to_allowlist(command).await;
+                        }
+                        Ok(ApprovalResponse::Deny) => {
+                            let mut registry = get_registry().lock().await;
+                            registry.mark_exited(&session_id, None, None, ProcessStatus::Failed);
+                            return Err(anyhow::anyhow!(
+                                "Command execution denied by user: {}",
+                                command
+                            ));
+                        }
+                        Err(e) => {
+                            app_warn!(
+                                "tool",
+                                "exec",
+                                "Approval check failed ({}), proceeding with execution",
+                                e
+                            );
+                        }
                     }
                 }
             }

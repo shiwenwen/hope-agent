@@ -168,6 +168,12 @@ pub fn init_app_state(initial_store: ProviderStore) -> AppState {
         // Spawn the inbound message dispatcher
         channel::worker::spawn_dispatcher(registry.clone(), channel_db.clone(), inbound_rx);
 
+        // Spawn the IM channel approval listener (routes tool approval prompts to IM)
+        channel::worker::approval::spawn_channel_approval_listener(
+            channel_db.clone(),
+            registry.clone(),
+        );
+
         let _ = CHANNEL_REGISTRY.set(registry);
         let _ = CHANNEL_DB.set(channel_db);
     }

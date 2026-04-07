@@ -211,6 +211,20 @@ pub fn create_webhook_handler(
                             source_id
                         );
                     }
+                    "postback" => {
+                        if let Some(postback_data) =
+                            event.pointer("/postback/data").and_then(|v| v.as_str())
+                        {
+                            if crate::channel::worker::approval::is_approval_callback(
+                                postback_data,
+                            ) {
+                                crate::channel::worker::approval::spawn_callback_handler(
+                                    postback_data,
+                                    "line",
+                                );
+                            }
+                        }
+                    }
                     other => {
                         app_debug!(
                             "channel",

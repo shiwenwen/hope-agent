@@ -40,12 +40,15 @@ pub async fn get_tool_permission_mode() -> ToolPermissionMode {
 
 // ── Command Approval System ───────────────────────────────────────
 
-/// Approval request sent to frontend
-#[derive(Debug, Clone, Serialize)]
+/// Approval request sent to frontend and IM channel approval listeners.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApprovalRequest {
     pub request_id: String,
     pub command: String,
     pub cwd: String,
+    /// Session ID for correlating with IM channel conversations.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
 }
 
 /// Approval response from frontend
@@ -141,10 +144,13 @@ fn extract_command_prefix(command: &str) -> String {
 }
 
 /// Request approval from the user for a command.
-/// Emits a Tauri event and waits for the response via oneshot channel.
+/// Emits an EventBus event and waits for the response via oneshot channel.
+/// `session_id` is used by the IM channel approval listener to route the
+/// request to the correct chat.
 pub(crate) async fn check_and_request_approval(
     command: &str,
     cwd: &str,
+    session_id: Option<&str>,
 ) -> Result<ApprovalResponse> {
     let request_id = create_session_id();
     let (tx, rx) = tokio::sync::oneshot::channel();
@@ -160,6 +166,7 @@ pub(crate) async fn check_and_request_approval(
         request_id: request_id.clone(),
         command: command.to_string(),
         cwd: cwd.to_string(),
+        session_id: session_id.map(|s| s.to_string()),
     };
 
     if let Some(bus) = crate::globals::get_event_bus() {

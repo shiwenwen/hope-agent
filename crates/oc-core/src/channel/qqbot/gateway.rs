@@ -583,6 +583,23 @@ async fn handle_gateway_message(
                         }
                     }
                 }
+                "INTERACTION_CREATE" => {
+                    if let Some(d) = data {
+                        if let Some(button_data) = d
+                            .pointer("/data/resolved/button_data")
+                            .and_then(|v| v.as_str())
+                        {
+                            if crate::channel::worker::approval::is_approval_callback(
+                                button_data,
+                            ) {
+                                crate::channel::worker::approval::spawn_callback_handler(
+                                    button_data,
+                                    "qqbot::gateway",
+                                );
+                            }
+                        }
+                    }
+                }
                 other => {
                     app_debug!(
                         "channel",

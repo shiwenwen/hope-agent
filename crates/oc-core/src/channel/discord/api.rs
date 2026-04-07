@@ -98,13 +98,14 @@ impl DiscordApi {
 
     // ── Messages ────────────────────────────────────────────────────
 
-    /// POST /channels/{channel_id}/messages — send a text message.
+    /// POST /channels/{channel_id}/messages — send a text message with optional components.
     pub async fn create_message(
         &self,
         channel_id: &str,
         content: &str,
         reply_to: Option<&str>,
         thread_id: Option<&str>,
+        components: Option<&[serde_json::Value]>,
     ) -> Result<serde_json::Value> {
         // Build the target URL — if thread_id is provided, the message goes into that thread
         let url = match thread_id {
@@ -118,6 +119,10 @@ impl DiscordApi {
             body["message_reference"] = serde_json::json!({
                 "message_id": ref_id
             });
+        }
+
+        if let Some(comps) = components {
+            body["components"] = serde_json::json!(comps);
         }
 
         let resp = self
@@ -182,6 +187,46 @@ impl DiscordApi {
             .send()
             .await
             .map_err(|e| anyhow!("delete_message request failed: {}", e))?;
+
+        if !resp.status().is_success() {
+            return Err(Self::parse_error(resp).await);
+        }
+        Ok(())
+    }
+
+    // ── Interactions ─────────────────────────────────────────────────
+
+    /// POST /interactions/{id}/{token}/callback — respond to an interaction.
+    ///
+    /// Common response types:
+    /// - 4: CHANNEL_MESSAGE_WITH_SOURCE (send a message)
+    /// - 6: DEFERRED_UPDATE_MESSAGE (ACK, edit later)
+    /// - 7: UPDATE_MESSAGE (edit the original message)
+    pub async fn create_interaction_response(
+        &self,
+        interaction_id: &str,
+        interaction_token: &str,
+        response_type: u64,
+        data: Option<serde_json::Value>,
+    ) -> Result<()> {
+        let url = format!(
+            "https://discord.com/api/v10/interactions/{}/{}/callback",
+            interaction_id, interaction_token
+        );
+
+        let mut body = serde_json::json!({ "type": response_type });
+        if let Some(d) = data {
+            body["data"] = d;
+        }
+
+        let resp = self
+            .client
+            .post(&url)
+            .header("Authorization", &self.token)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| anyhow!("create_interaction_response request failed: {}", e))?;
 
         if !resp.status().is_success() {
             return Err(Self::parse_error(resp).await);

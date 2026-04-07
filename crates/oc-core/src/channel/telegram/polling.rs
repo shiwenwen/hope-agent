@@ -130,7 +130,16 @@ async fn convert_update(
         UpdateKind::EditedMessage(msg) => {
             convert_message(api, msg, account_id, bot_id, bot_username).await
         }
-        UpdateKind::CallbackQuery(cb) => convert_callback_query(cb, account_id),
+        UpdateKind::CallbackQuery(cb) => {
+            // Handle approval callbacks directly (don't create MsgContext)
+            if let Some(data) = cb.data.as_ref() {
+                if crate::channel::worker::approval::is_approval_callback(data) {
+                    handle_approval_callback_query(api, cb).await;
+                    return None;
+                }
+            }
+            convert_callback_query(cb, account_id)
+        }
         _ => None,
     }
 }
@@ -290,6 +299,64 @@ async fn download_inbound_media_to_temp(
                 err
             );
             None
+        }
+    }
+}
+
+/// Handle an approval callback query: submit the approval response, answer the
+/// callback query to dismiss the loading spinner, and edit the message to show
+/// the result (removing the inline keyboard).
+async fn handle_approval_callback_query(
+    api: &TelegramBotApi,
+    cb: &teloxide::types::CallbackQuery,
+) {
+    let data = match cb.data.as_ref() {
+        Some(d) => d,
+        None => return,
+    };
+
+    // Handle the approval
+    let result_text = match crate::channel::worker::approval::handle_approval_callback(data).await {
+        Ok(label) => label.to_string(),
+        Err(e) => format!("Error: {}", e),
+    };
+
+    // Answer the callback query to dismiss the loading spinner
+    if let Err(e) = api.answer_callback_query(&cb.id.0, Some(&result_text)).await {
+        app_warn!(
+            "channel",
+            "telegram::polling",
+            "Failed to answer approval callback query: {}",
+            e
+        );
+    }
+
+    // Edit the original message to show the result and remove the inline keyboard
+    if let Some(msg) = cb.message.as_ref().and_then(|m| m.regular_message()) {
+        let chat_id = msg.chat.id.0;
+        let message_id = msg.id.0;
+
+        // Append the result to the original message text
+        let original_text = msg.text().unwrap_or("Tool approval");
+        let updated_text = format!("{}\n\n{}", original_text, result_text);
+
+        if let Err(e) = api.edit_message_text(chat_id, message_id, &updated_text, None).await {
+            app_warn!(
+                "channel",
+                "telegram::polling",
+                "Failed to edit approval message: {}",
+                e
+            );
+        }
+
+        // Remove inline keyboard
+        if let Err(e) = api.remove_inline_keyboard(chat_id, message_id).await {
+            app_warn!(
+                "channel",
+                "telegram::polling",
+                "Failed to remove approval keyboard: {}",
+                e
+            );
         }
     }
 }

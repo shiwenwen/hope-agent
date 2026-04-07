@@ -353,6 +353,7 @@ impl ChannelPlugin for WeChatPlugin {
                 MediaType::Voice,
             ],
             supports_typing: true,
+            supports_buttons: false,
             max_message_length: Some(4000),
         }
     }

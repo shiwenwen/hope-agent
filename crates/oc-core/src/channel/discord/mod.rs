@@ -184,6 +184,7 @@ impl ChannelPlugin for DiscordPlugin {
                 MediaType::Document,
             ],
             supports_typing: true,
+            supports_buttons: true,
             max_message_length: Some(2000),
         }
     }
@@ -278,6 +279,35 @@ impl ChannelPlugin for DiscordPlugin {
         let reply_to = payload.reply_to_message_id.as_deref();
         let thread_id = payload.thread_id.as_deref();
 
+        // Convert buttons to Discord components format
+        let components: Option<Vec<serde_json::Value>> = if payload.buttons.is_empty() {
+            None
+        } else {
+            Some(vec![serde_json::json!({
+                "type": 1, // ACTION_ROW
+                "components": payload.buttons.iter().flatten().map(|b| {
+                    if let Some(ref url) = b.url {
+                        // Link button (style=5)
+                        serde_json::json!({
+                            "type": 2,
+                            "style": 5,
+                            "label": b.text,
+                            "url": url,
+                        })
+                    } else {
+                        // Interactive button (style=1 PRIMARY)
+                        let custom_id = b.callback_data.clone().unwrap_or_else(|| b.text.clone());
+                        serde_json::json!({
+                            "type": 2,
+                            "style": 1,
+                            "label": b.text,
+                            "custom_id": custom_id,
+                        })
+                    }
+                }).collect::<Vec<_>>()
+            })])
+        };
+
         // Send text
         if let Some(ref text) = payload.text {
             if text.is_empty() {
@@ -285,7 +315,13 @@ impl ChannelPlugin for DiscordPlugin {
             }
 
             let msg = api
-                .create_message(chat_id, text, reply_to, thread_id)
+                .create_message(
+                    chat_id,
+                    text,
+                    reply_to,
+                    thread_id,
+                    components.as_deref(),
+                )
                 .await?;
 
             let msg_id = msg["id"]

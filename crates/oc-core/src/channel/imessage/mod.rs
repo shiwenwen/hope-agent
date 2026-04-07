@@ -75,6 +75,7 @@ impl ChannelPlugin for IMessagePlugin {
             supports_threads: false,
             supports_media: vec![MediaType::Photo, MediaType::Document],
             supports_typing: true,
+            supports_buttons: false,
             max_message_length: None,
         }
     }

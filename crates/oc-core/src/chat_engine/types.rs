@@ -98,6 +98,9 @@ pub struct ChatEngineParams {
     /// Skill-level tool restriction (set when a skill with `allowed-tools` is activated)
     pub skill_allowed_tools: Vec<String>,
 
+    /// When true, all tool calls are auto-approved (IM channel auto-approve mode).
+    pub auto_approve_tools: bool,
+
     // Output
     pub event_sink: Arc<dyn EventSink>,
 }

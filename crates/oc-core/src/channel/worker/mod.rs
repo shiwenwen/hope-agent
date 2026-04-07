@@ -1,3 +1,4 @@
+pub(crate) mod approval;
 mod dispatcher;
 mod media;
 mod slash;

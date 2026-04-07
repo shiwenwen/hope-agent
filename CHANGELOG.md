@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **IM Channel 工具审批交互**：IM 渠道对话中触发需审批的工具时，自动在渠道内发送审批提示。支持按钮的渠道（Telegram/Discord/Slack/飞书/QQ Bot/LINE/Google Chat）使用平台原生交互按钮，不支持的渠道降级为文本回复（1/2/3）。新增 `ChannelAccountConfig.auto_approve_tools` 设置，开启后该渠道自动审批所有工具，`ChannelCapabilities.supports_buttons` 标识渠道按钮能力
 - **工具并发执行**：`ToolDefinition` 新增 `concurrent_safe` 标志，只读工具（read/grep/ls/find/web_search 等 16 个）在同一轮次内并行执行（`futures::join_all`），写入工具保持串行。四种 Provider（Anthropic/OpenAI Chat/OpenAI Responses/Codex）统一支持
 - **微压缩 Tier 0**：上下文压缩新增零成本预处理层，在 Tier 1 截断之前清除旧的临时工具结果（ls/grep/find/process/sessions_list/agents_list），无需 LLM 调用即可节省 10-20% token
 - **工具结果磁盘持久化**：工具结果超过阈值（默认 50KB，`config.json` → `toolResultDiskThreshold` 可配置）时自动写入磁盘（`~/.opencomputer/tool_results/`），上下文仅保留 head 2KB + tail 1KB + 路径引用，模型可通过 read 工具访问完整内容

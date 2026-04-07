@@ -72,11 +72,14 @@ impl GoogleChatApi {
     /// POST /spaces/{space}/messages — send a text message.
     ///
     /// If `thread_key` is provided, the message is sent as a reply in that thread.
+    /// If `cards_v2` is provided, interactive card widgets (e.g. approval buttons)
+    /// are attached to the message.
     pub async fn send_message(
         &self,
         space: &str,
         text: &str,
         thread_key: Option<&str>,
+        cards_v2: Option<&[serde_json::Value]>,
     ) -> Result<serde_json::Value> {
         let auth = self.auth_header().await?;
 
@@ -84,6 +87,10 @@ impl GoogleChatApi {
 
         if let Some(tk) = thread_key {
             body["thread"] = serde_json::json!({ "name": tk });
+        }
+
+        if let Some(cards) = cards_v2 {
+            body["cardsV2"] = serde_json::Value::Array(cards.to_vec());
         }
 
         let mut url = format!("{}/{}/messages", CHAT_API_BASE, space);

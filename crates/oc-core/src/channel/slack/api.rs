@@ -128,11 +128,15 @@ impl SlackApi {
 
     /// Post a message to a channel.
     /// Returns the message timestamp (ts) which serves as the message ID.
+    ///
+    /// If `blocks` is provided, they are sent as Slack Block Kit blocks alongside
+    /// the `text` (which becomes the fallback for notifications/accessibility).
     pub async fn chat_post_message(
         &self,
         channel: &str,
         text: &str,
         thread_ts: Option<&str>,
+        blocks: Option<&[serde_json::Value]>,
     ) -> Result<String> {
         let mut body = serde_json::json!({
             "channel": channel,
@@ -141,6 +145,10 @@ impl SlackApi {
 
         if let Some(ts) = thread_ts {
             body["thread_ts"] = serde_json::Value::String(ts.to_string());
+        }
+
+        if let Some(blocks) = blocks {
+            body["blocks"] = serde_json::Value::Array(blocks.to_vec());
         }
 
         let data: PostMessageData = self.slack_post("chat.postMessage", body).await?;

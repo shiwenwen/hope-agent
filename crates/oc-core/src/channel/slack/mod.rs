@@ -103,6 +103,7 @@ impl ChannelPlugin for SlackPlugin {
             supports_reply: true,
             supports_threads: true,
             supports_typing: true,
+            supports_buttons: true,
             supports_draft: false,
             supports_polls: false,
             supports_reactions: false,
@@ -186,7 +187,38 @@ impl ChannelPlugin for SlackPlugin {
             }
 
             let thread_ts = payload.thread_id.as_deref();
-            let ts = api.chat_post_message(chat_id, text, thread_ts).await?;
+
+            // Convert buttons to Slack Block Kit format if present
+            let blocks = if payload.buttons.is_empty() {
+                None
+            } else {
+                let text_block = serde_json::json!({
+                    "type": "section",
+                    "text": {"type": "mrkdwn", "text": text}
+                });
+                let button_elements: Vec<_> = payload
+                    .buttons
+                    .iter()
+                    .flatten()
+                    .map(|b| {
+                        serde_json::json!({
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": &b.text},
+                            "action_id": b.callback_id(),
+                        })
+                    })
+                    .collect();
+                let actions_block = serde_json::json!({
+                    "type": "actions",
+                    "elements": button_elements
+                });
+                Some(vec![text_block, actions_block])
+            };
+
+            let blocks_ref = blocks.as_deref();
+            let ts = api
+                .chat_post_message(chat_id, text, thread_ts, blocks_ref)
+                .await?;
             return Ok(DeliveryResult::ok(ts));
         }
 

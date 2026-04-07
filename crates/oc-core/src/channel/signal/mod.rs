@@ -103,6 +103,7 @@ impl ChannelPlugin for SignalPlugin {
             supports_threads: false,
             supports_media: vec![MediaType::Photo, MediaType::Document, MediaType::Voice],
             supports_typing: true,
+            supports_buttons: false,
             max_message_length: None,
         }
     }

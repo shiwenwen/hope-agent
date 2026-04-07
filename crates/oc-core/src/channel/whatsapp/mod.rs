@@ -96,6 +96,7 @@ impl ChannelPlugin for WhatsAppPlugin {
                 MediaType::Document,
             ],
             supports_typing: true,
+            supports_buttons: false,
             max_message_length: Some(65536),
         }
     }

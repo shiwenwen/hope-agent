@@ -18,6 +18,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog"
+import { Switch } from "@/components/ui/switch"
 import { Check, Loader2, AlertCircle } from "lucide-react"
 import { logger } from "@/lib/logger"
 import ChannelIcon from "@/components/common/ChannelIcon"
@@ -58,6 +59,7 @@ export default function EditAccountDialog({
   const [userAllowlist, setUserAllowlist] = useState<string[]>([])
   const [allowlistInput, setAllowlistInput] = useState("")
   const [groupPolicy, setGroupPolicy] = useState("open")
+  const [autoApproveTools, setAutoApproveTools] = useState(false)
   const [groups, setGroups] = useState<Record<string, TelegramGroupConfig>>({})
   const [channels, setChannels] = useState<Record<string, TelegramChannelConfig>>({})
   const [saving, setSaving] = useState(false)
@@ -78,6 +80,7 @@ export default function EditAccountDialog({
       setGroupPolicy(account.security.groupPolicy ?? "open")
       setGroups(account.security.groups ? { ...account.security.groups } : {})
       setChannels(account.security.channels ? { ...account.security.channels } : {})
+      setAutoApproveTools(account.autoApproveTools ?? false)
       setValidationResult(null)
       setValidationError(null)
       setWeChatConnection(getWeChatConnectionFromAccount(account))
@@ -110,6 +113,7 @@ export default function EditAccountDialog({
         accountId: account.id,
         label: label.trim(),
         agentId: agentId || "",  // empty string = clear to default
+        autoApproveTools,
         security: {
           dmPolicy,
           groupAllowlist: account.security.groupAllowlist,
@@ -294,6 +298,20 @@ export default function EditAccountDialog({
               t={t}
             />
           )}
+
+          {/* Auto Approve Tools */}
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label>{t("channels.autoApproveTools")}</Label>
+              <p className="text-xs text-muted-foreground">
+                {t("channels.autoApproveToolsHint")}
+              </p>
+            </div>
+            <Switch
+              checked={autoApproveTools}
+              onCheckedChange={setAutoApproveTools}
+            />
+          </div>
         </div>
 
         <DialogFooter>

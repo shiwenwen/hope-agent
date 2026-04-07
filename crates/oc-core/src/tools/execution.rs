@@ -70,6 +70,8 @@ pub struct ToolExecContext {
     /// Plan mode tool whitelist: when non-empty, only these tools can execute.
     /// Enforced at execution layer as defense-in-depth (supplements schema-level filtering).
     pub plan_mode_allowed_tools: Vec<String>,
+    /// When true, automatically approve all tool calls (IM channel auto-approve mode).
+    pub auto_approve_tools: bool,
 }
 
 impl Default for ToolExecContext {
@@ -85,6 +87,7 @@ impl Default for ToolExecContext {
             force_sandbox: false,
             plan_mode_allow_paths: Vec::new(),
             plan_mode_allowed_tools: Vec::new(),
+            auto_approve_tools: false,
         }
     }
 }
@@ -152,15 +155,19 @@ pub async fn execute_tool_with_context(
     // Note: exec tool has its own command-level approval inside tool_exec;
     // this is the tool-level gate that applies to ALL approvable tools.
     let perm_mode = approval::get_tool_permission_mode().await;
-    let needs_approval = match perm_mode {
-        approval::ToolPermissionMode::FullApprove => false,
-        approval::ToolPermissionMode::AskEveryTime => {
-            // In ask_every_time mode, all non-internal tools need approval
-            // (except reading SKILL.md — pre-authorized by skill system)
-            !super::is_internal_tool(name) && name != TOOL_EXEC && !is_skill_read(name, args)
-        }
-        approval::ToolPermissionMode::Auto => {
-            tool_needs_approval(name, args, ctx) && name != TOOL_EXEC
+    let needs_approval = if ctx.auto_approve_tools {
+        false
+    } else {
+        match perm_mode {
+            approval::ToolPermissionMode::FullApprove => false,
+            approval::ToolPermissionMode::AskEveryTime => {
+                // In ask_every_time mode, all non-internal tools need approval
+                // (except reading SKILL.md — pre-authorized by skill system)
+                !super::is_internal_tool(name) && name != TOOL_EXEC && !is_skill_read(name, args)
+            }
+            approval::ToolPermissionMode::Auto => {
+                tool_needs_approval(name, args, ctx) && name != TOOL_EXEC
+            }
         }
     };
     if needs_approval {
@@ -173,7 +180,7 @@ pub async fn execute_tool_with_context(
             }
         });
         let cwd = ctx.home_dir.as_deref().unwrap_or(".");
-        match approval::check_and_request_approval(&desc, cwd).await {
+        match approval::check_and_request_approval(&desc, cwd, ctx.session_id.as_deref()).await {
             Ok(approval::ApprovalResponse::AllowOnce) => {
                 app_info!("tool", "approval", "Tool '{}' approved (once)", name);
             }

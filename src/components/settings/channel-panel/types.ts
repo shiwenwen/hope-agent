@@ -29,6 +29,7 @@ export interface ChannelAccountConfig {
   label: string
   enabled: boolean
   agentId?: string | null
+  autoApproveTools?: boolean
   credentials: Record<string, unknown>
   settings: Record<string, unknown>
   security: {

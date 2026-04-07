@@ -1088,6 +1088,8 @@
     "channelEnabled": "启用",
     "channelAgent": "绑定 Agent",
     "removeConfig": "删除",
+    "autoApproveTools": "自动审批工具",
+    "autoApproveToolsHint": "开启后，通过此 IM 渠道的对话将自动批准所有工具执行，无需手动审批",
     "pluginName_telegram": "Telegram",
     "pluginName_wechat": "微信",
     "pluginName_discord": "Discord",

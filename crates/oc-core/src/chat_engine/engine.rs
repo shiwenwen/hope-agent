@@ -36,6 +36,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         plan_agent_mode,
         plan_mode_allow_paths,
         skill_allowed_tools,
+        auto_approve_tools,
         event_sink,
     } = params;
 
@@ -90,6 +91,9 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         }
         if let Some(ref paths) = plan_mode_allow_paths {
             agent.set_plan_mode_allow_paths(paths.clone());
+        }
+        if auto_approve_tools {
+            agent.set_auto_approve_tools(true);
         }
 
         // Restore conversation history from DB

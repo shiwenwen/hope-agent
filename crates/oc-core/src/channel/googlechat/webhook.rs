@@ -80,6 +80,19 @@ pub fn create_webhook_handler(
                         space_name
                     );
                 }
+                "CARD_CLICKED" => {
+                    if let Some(action) = body
+                        .pointer("/action/actionMethodName")
+                        .and_then(|v| v.as_str())
+                    {
+                        if crate::channel::worker::approval::is_approval_callback(action) {
+                            crate::channel::worker::approval::spawn_callback_handler(
+                                action,
+                                "googlechat",
+                            );
+                        }
+                    }
+                }
                 other => {
                     app_debug!(
                         "channel",

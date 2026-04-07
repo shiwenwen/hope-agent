@@ -96,6 +96,7 @@ impl ChannelPlugin for FeishuPlugin {
             supports_threads: false,
             supports_media: vec![MediaType::Photo, MediaType::Document],
             supports_typing: false,
+            supports_buttons: true,
             max_message_length: Some(4096),
         }
     }
@@ -163,6 +164,44 @@ impl ChannelPlugin for FeishuPlugin {
         payload: &ReplyPayload,
     ) -> Result<DeliveryResult> {
         let api = self.get_account(account_id).await?;
+
+        // If buttons are present, send as an interactive card
+        if !payload.buttons.is_empty() {
+            let text_content = payload.text.as_deref().unwrap_or("");
+            let button_elements: Vec<_> = payload
+                .buttons
+                .iter()
+                .flatten()
+                .map(|b| {
+                    serde_json::json!({
+                        "tag": "button",
+                        "text": {"tag": "plain_text", "content": &b.text},
+                        "type": "primary",
+                        "value": b.callback_id(),
+                    })
+                })
+                .collect();
+
+            let card = serde_json::json!({
+                "config": {"wide_screen_mode": true},
+                "elements": [
+                    {
+                        "tag": "markdown",
+                        "content": text_content
+                    },
+                    {
+                        "tag": "action",
+                        "actions": button_elements
+                    }
+                ]
+            });
+
+            let reply_to = payload.reply_to_message_id.as_deref();
+            let msg_id = api
+                .send_interactive_card(chat_id, card, reply_to)
+                .await?;
+            return Ok(DeliveryResult::ok(msg_id));
+        }
 
         if let Some(ref text) = payload.text {
             if text.is_empty() {

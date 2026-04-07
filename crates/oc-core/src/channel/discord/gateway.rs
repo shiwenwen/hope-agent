@@ -332,7 +332,32 @@ pub async fn run_gateway_loop(
                                     }
                                 }
                                 "INTERACTION_CREATE" => {
-                                    if let Some(ctx) = convert_interaction(
+                                    // Check for component interaction (type=3) — button clicks
+                                    let interaction_type = d["type"].as_u64().unwrap_or(0);
+                                    if interaction_type == 3 {
+                                        // Message component interaction
+                                        let custom_id = d.get("data")
+                                            .and_then(|data| data.get("custom_id"))
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("");
+
+                                        if crate::channel::worker::approval::is_approval_callback(custom_id) {
+                                            let api_clone = api.clone();
+                                            let interaction_id = d["id"].as_str().unwrap_or("").to_string();
+                                            let interaction_token = d["token"].as_str().unwrap_or("").to_string();
+                                            let custom_id_owned = custom_id.to_string();
+
+                                            tokio::spawn(async move {
+                                                handle_approval_component(
+                                                    &api_clone,
+                                                    &interaction_id,
+                                                    &interaction_token,
+                                                    &custom_id_owned,
+                                                ).await;
+                                            });
+                                        }
+                                        // Don't pass component interactions to convert_interaction
+                                    } else if let Some(ctx) = convert_interaction(
                                         d,
                                         &account_id,
                                     ) {
@@ -658,6 +683,40 @@ fn convert_message_create(
         was_mentioned,
         raw: d.clone(),
     })
+}
+
+/// Handle an approval button component interaction: submit the approval response
+/// and update the original message to show the result.
+async fn handle_approval_component(
+    api: &DiscordApi,
+    interaction_id: &str,
+    interaction_token: &str,
+    custom_id: &str,
+) {
+    // Handle the approval
+    let result_text = match crate::channel::worker::approval::handle_approval_callback(custom_id).await {
+        Ok(label) => label.to_string(),
+        Err(e) => format!("Error: {}", e),
+    };
+
+    // Respond with UPDATE_MESSAGE (type=7) to edit the original message
+    // and remove the buttons
+    let response_data = serde_json::json!({
+        "content": result_text,
+        "components": []  // Remove buttons
+    });
+
+    if let Err(e) = api
+        .create_interaction_response(interaction_id, interaction_token, 7, Some(response_data))
+        .await
+    {
+        app_warn!(
+            "channel",
+            "discord::gateway",
+            "Failed to respond to approval interaction: {}",
+            e
+        );
+    }
 }
 
 /// Convert a Discord INTERACTION_CREATE event (slash command) to a synthetic MsgContext.

@@ -5,8 +5,8 @@ use std::time::Duration;
 use teloxide::prelude::*;
 use teloxide::net::Download;
 use teloxide::types::{
-    BotCommand, ChatAction, ChatId, InlineKeyboardButton, InlineKeyboardMarkup, InputFile, Me,
-    MessageId, ParseMode as TgParseMode, ReplyParameters, ThreadId,
+    BotCommand, CallbackQueryId, ChatAction, ChatId, InlineKeyboardButton, InlineKeyboardMarkup,
+    InputFile, Me, MessageId, ParseMode as TgParseMode, ReplyParameters, ThreadId,
 };
 
 /// Thin wrapper around teloxide's `Bot` to isolate framework details.
@@ -243,6 +243,36 @@ impl TelegramBotApi {
 
         req.await
             .map_err(|e| anyhow::anyhow!("getUpdates failed: {}", e))
+    }
+
+    /// POST answerCallbackQuery — acknowledge a callback query (dismisses loading spinner).
+    pub async fn answer_callback_query(
+        &self,
+        callback_query_id: &str,
+        text: Option<&str>,
+    ) -> Result<()> {
+        let mut req = self
+            .bot
+            .answer_callback_query(CallbackQueryId(callback_query_id.to_string()));
+        if let Some(t) = text {
+            req = req.text(t);
+        }
+        req.await
+            .map_err(|e| anyhow::anyhow!("answerCallbackQuery failed: {}", e))?;
+        Ok(())
+    }
+
+    /// POST editMessageReplyMarkup — remove inline keyboard from a message.
+    pub async fn remove_inline_keyboard(
+        &self,
+        chat_id: i64,
+        message_id: i32,
+    ) -> Result<()> {
+        self.bot
+            .edit_message_reply_markup(ChatId(chat_id), MessageId(message_id))
+            .await
+            .map_err(|e| anyhow::anyhow!("editMessageReplyMarkup failed: {}", e))?;
+        Ok(())
     }
 
     /// Register bot menu commands via setMyCommands API.

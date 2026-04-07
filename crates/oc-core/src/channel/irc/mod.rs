@@ -129,6 +129,7 @@ impl ChannelPlugin for IrcPlugin {
             supports_threads: false,
             supports_media: Vec::new(),
             supports_typing: false,
+            supports_buttons: false,
             max_message_length: Some(512),
         }
     }
