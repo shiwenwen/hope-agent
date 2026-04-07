@@ -180,7 +180,7 @@ export default function GlobalModelPanel() {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-6 max-w-4xl">
+    <div className="flex-1 overflow-y-auto p-6">
       <h2 className="text-lg font-semibold text-foreground mb-1">{t("settings.globalModel")}</h2>
       <p className="text-xs text-muted-foreground mb-5">{t("settings.globalModelDesc")}</p>
 

@@ -175,7 +175,7 @@ export default function ServerPanel() {
 
   return (
     <div className="flex-1 overflow-y-auto p-6">
-      <div className="max-w-4xl space-y-6">
+      <div className="w-full space-y-6">
         {/* Header */}
         <div>
           <h2 className="text-lg font-semibold text-foreground mb-1">

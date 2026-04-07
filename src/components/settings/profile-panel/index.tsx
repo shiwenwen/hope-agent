@@ -119,7 +119,7 @@ export default function UserProfilePanel({ onSaved }: { onSaved?: () => void } =
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
       {/* Scrollable content */}
       <div className="flex-1 overflow-y-auto p-6">
-        <div className="max-w-4xl">
+        <div className="w-full">
           <h2 className="text-lg font-semibold text-foreground mb-1">{t("settings.profile")}</h2>
           <p className="text-xs text-muted-foreground mb-5">{t("settings.profileDesc")}</p>
 

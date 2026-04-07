@@ -229,7 +229,7 @@ export default function PermissionsPanel() {
     : false
 
   return (
-    <div className="flex-1 overflow-y-auto p-6 max-w-4xl">
+    <div className="flex-1 overflow-y-auto p-6">
       {/* Header summary */}
       <div className="flex items-center gap-3 mb-2">
         {allDetectableGranted && permissions ? (

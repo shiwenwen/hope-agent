@@ -76,7 +76,7 @@ export default function ProxySection() {
   ]
 
   return (
-    <div className="max-w-4xl pt-4">
+    <div className="w-full pt-4">
       <h3 className="text-sm font-semibold text-foreground mb-1">{t("settings.proxySettings")}</h3>
       <p className="text-xs text-muted-foreground mb-3">{t("settings.proxySettingsDesc")}</p>
       <div className="space-y-3">

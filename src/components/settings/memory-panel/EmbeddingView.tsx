@@ -22,7 +22,7 @@ export default function EmbeddingView({ data }: EmbeddingViewProps) {
 
   return (
     <div className="flex-1 overflow-y-auto p-6">
-      <div className="max-w-4xl">
+      <div className="w-full">
         <button
           onClick={() => setView("list")}
           className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-4"

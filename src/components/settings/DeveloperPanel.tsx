@@ -98,7 +98,7 @@ export default function DeveloperPanel() {
 
   return (
     <div className="flex-1 overflow-y-auto p-6">
-      <div className="max-w-2xl mx-auto space-y-6">
+      <div className="w-full space-y-6">
         {/* Warning banner */}
         <div className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4">
           <AlertTriangle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />

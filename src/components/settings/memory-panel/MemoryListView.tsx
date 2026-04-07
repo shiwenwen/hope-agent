@@ -68,7 +68,7 @@ export default function MemoryListView({ data, isAgentMode, compact }: MemoryLis
 
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden p-6">
-        <div className="max-w-4xl w-full flex flex-col min-h-0">
+        <div className="w-full flex flex-col min-h-0">
           {/* Header */}
           <div className="flex items-center justify-between mb-1 shrink-0">
             <h2 className="text-lg font-semibold">{t("settings.memory")}</h2>

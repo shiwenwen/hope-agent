@@ -22,7 +22,7 @@ export default function GeneralPanel() {
 
         {/* Appearance & Language */}
         <TabsContent value="appearance" className="flex-1 overflow-y-auto px-6 pb-6">
-          <div className="max-w-4xl space-y-8 pt-4">
+          <div className="w-full space-y-8 pt-4">
             <ThemeSection />
             <LanguageSection />
             <UiEffectsToggle />
@@ -31,7 +31,7 @@ export default function GeneralPanel() {
 
         {/* System & Shortcuts */}
         <TabsContent value="system" className="flex-1 overflow-y-auto px-6 pb-6">
-          <div className="max-w-4xl space-y-8 pt-4">
+          <div className="w-full space-y-8 pt-4">
             <AutostartToggle />
             <ShortcutSection />
           </div>

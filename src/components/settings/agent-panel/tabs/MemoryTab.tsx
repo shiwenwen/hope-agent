@@ -68,7 +68,7 @@ export default function MemoryTab({ agentId, openclawMode }: MemoryTabProps) {
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-auto">
       {/* Core Memory Editor */}
-      <div className="px-6 pt-6 pb-4 shrink-0 max-w-4xl w-full">
+      <div className="px-6 pt-6 pb-4 shrink-0 w-full">
         <div className="flex items-center justify-between mb-1">
           <h3 className="text-sm font-semibold">{t("settings.coreMemory")}</h3>
           {loaded && (

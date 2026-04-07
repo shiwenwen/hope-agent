@@ -117,7 +117,7 @@ export default function SkillDetailView({
 
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-y-auto p-6">
-      <div className="max-w-4xl">
+      <div className="w-full">
         <button
           onClick={onBack}
           className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-4"
