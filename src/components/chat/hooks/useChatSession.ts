@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react"
-import { invoke } from "@tauri-apps/api/core"
-import { listen, type UnlistenFn } from "@tauri-apps/api/event"
+import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { notify } from "@/lib/notifications"
@@ -151,7 +150,7 @@ export function useChatSession({
   // Load agent list
   const reloadAgents = useCallback(async () => {
     try {
-      const list = await invoke<AgentSummaryForSidebar[]>("list_agents")
+      const list = await getTransport().call<AgentSummaryForSidebar[]>("list_agents")
       setAgents(list)
     } catch (e) {
       logger.error("ui", "ChatScreen::loadAgents", "Failed to load agents", e)
@@ -174,10 +173,9 @@ export function useChatSession({
 
   // Listen for cron job completions to refresh unread counts + send notification
   useEffect(() => {
-    let unlisten: UnlistenFn | undefined
-    listen("cron:run_completed", (event) => {
+    return getTransport().listen("cron:run_completed", (raw) => {
       reloadSessions()
-      const payload = event.payload as {
+      const payload = raw as {
         job_id: string
         job_name: string
         status: string
@@ -188,19 +186,13 @@ export function useChatSession({
           payload.status === "success" ? t("notification.cronSuccess") : t("notification.cronError")
         notify(title, payload.job_name)
       }
-    }).then((fn) => {
-      unlisten = fn
     })
-    return () => {
-      unlisten?.()
-    }
   }, [reloadSessions, t])
 
   // Listen for sub-agent events — manage loading state + refresh sidebar
   useEffect(() => {
-    let unlisten: UnlistenFn | undefined
-    listen("subagent_event", (event) => {
-      const payload = event.payload as SubagentEvent
+    return getTransport().listen("subagent_event", (raw) => {
+      const payload = raw as SubagentEvent
       const childSid = payload.childSessionId
       if (childSid) {
         if (["spawning", "running"].includes(payload.status)) {
@@ -214,12 +206,7 @@ export function useChatSession({
       if (["completed", "error", "timeout", "killed", "spawning"].includes(payload.status)) {
         reloadSessions()
       }
-    }).then((fn) => {
-      unlisten = fn
     })
-    return () => {
-      unlisten?.()
-    }
   }, [reloadSessions])
 
   // Compute total unread count — exclude channel sessions (IM messages don't count as unread)
@@ -255,11 +242,11 @@ export function useChatSession({
       } else {
         // Load latest PAGE_SIZE messages from DB
         try {
-          const [msgs, total] = await invoke<[SessionMessage[], number]>(
+          const [msgs, total] = await getTransport().call<[SessionMessage[], number]>(
             "load_session_messages_latest_cmd",
             { sessionId, limit: PAGE_SIZE },
           )
-          const [currentSessions] = await invoke<[SessionMeta[], number]>("list_sessions_cmd", {})
+          const [currentSessions] = await getTransport().call<[SessionMeta[], number]>("list_sessions_cmd", {})
           const sessionMeta = currentSessions.find((s) => s.id === sessionId)
           const parentSession = sessionMeta?.parentSessionId
             ? currentSessions.find((s) => s.id === sessionMeta.parentSessionId)
@@ -288,10 +275,10 @@ export function useChatSession({
       if (switchVersionRef.current !== version) return // stale switch
 
       // Use fresh sessions list for session lookup
-      const [currentSessions] = await invoke<[SessionMeta[], number]>("list_sessions_cmd", {}).catch(
+      const [currentSessions] = await getTransport().call<[SessionMeta[], number]>("list_sessions_cmd", {}).catch(
         () => [[] as SessionMeta[], 0] as [SessionMeta[], number],
       )
-      const currentAgents = await invoke<AgentSummaryForSidebar[]>("list_agents").catch(
+      const currentAgents = await getTransport().call<AgentSummaryForSidebar[]>("list_agents").catch(
         () => [] as AgentSummaryForSidebar[],
       )
       const session = currentSessions.find((s) => s.id === sessionId)
@@ -311,7 +298,7 @@ export function useChatSession({
         } else {
           // Session has no model info, fallback to agent's configured model or global default
           try {
-            const agentConfig = await invoke<AgentConfig>("get_agent_config", {
+            const agentConfig = await getTransport().call<AgentConfig>("get_agent_config", {
               id: session.agentId,
             })
             if (agentConfig.model.primary) {
@@ -321,7 +308,7 @@ export function useChatSession({
               if (modelExists) {
                 applyModelForDisplay(agentConfig.model.primary)
                 // Mark session as read and refresh
-                invoke("mark_session_read_cmd", { sessionId }).catch(() => {})
+                getTransport().call("mark_session_read_cmd", { sessionId }).catch(() => {})
                 reloadSessions()
                 return
               }
@@ -337,7 +324,7 @@ export function useChatSession({
       }
 
       // Mark session as read and refresh unread counts
-      invoke("mark_session_read_cmd", { sessionId }).catch(() => {})
+      getTransport().call("mark_session_read_cmd", { sessionId }).catch(() => {})
       reloadSessions()
     },
     [
@@ -368,7 +355,7 @@ export function useChatSession({
       // Save current session to cache
       // (cache is already maintained by updateSessionMessages)
 
-      const currentAgents = await invoke<AgentSummaryForSidebar[]>("list_agents").catch(
+      const currentAgents = await getTransport().call<AgentSummaryForSidebar[]>("list_agents").catch(
         () => [] as AgentSummaryForSidebar[],
       )
       const agent = currentAgents.find((a) => a.id === agentId)
@@ -383,7 +370,7 @@ export function useChatSession({
 
       // Apply agent's configured model, or restore global default
       try {
-        const agentConfig = await invoke<AgentConfig>("get_agent_config", {
+        const agentConfig = await getTransport().call<AgentConfig>("get_agent_config", {
           id: agentId,
         })
         if (agentConfig.model.primary) {
@@ -410,7 +397,7 @@ export function useChatSession({
   const handleDeleteSession = useCallback(
     async (sessionId: string) => {
       try {
-        await invoke("delete_session_cmd", { sessionId })
+        await getTransport().call("delete_session_cmd", { sessionId })
         sessionCacheRef.current.delete(sessionId)
         loadingSessionsRef.current.delete(sessionId)
         hasMoreRef.current.delete(sessionId)

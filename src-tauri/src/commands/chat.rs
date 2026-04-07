@@ -1,13 +1,26 @@
 use crate::agent::Attachment;
 use crate::agent_loader;
+use crate::chat_engine::EventSink;
 use crate::provider::{self, ActiveModel};
 use crate::session::{self, SessionDB};
 use crate::tools;
 use crate::truncate_utf8;
 use crate::AppState;
+use oc_core::{app_info, app_warn, app_error};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tauri::State;
+
+/// Tauri-specific EventSink — wraps `tauri::ipc::Channel<String>`.
+pub(crate) struct ChannelSink {
+    pub channel: tauri::ipc::Channel<String>,
+}
+
+impl EventSink for ChannelSink {
+    fn send(&self, event: &str) {
+        let _ = self.channel.send(event.to_string());
+    }
+}
 
 /// Save an attachment file to disk. Uses a temp directory when session_id is empty.
 /// Returns the absolute path to the saved file.
@@ -609,7 +622,7 @@ pub async fn chat(
         plan_agent_mode,
         plan_mode_allow_paths: plan_allow_paths,
         skill_allowed_tools: Vec::new(),
-        event_sink: Arc::new(crate::chat_engine::ChannelSink {
+        event_sink: Arc::new(ChannelSink {
             channel: on_event.clone(),
         }),
     };

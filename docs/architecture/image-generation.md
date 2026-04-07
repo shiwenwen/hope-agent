@@ -494,7 +494,7 @@ block-beta
 
 ```mermaid
 graph LR
-    subgraph backend["src-tauri/src/tools/image_generate/"]
+    subgraph backend["crates/oc-core/src/tools/image_generate/"]
         MOD["mod.rs<br/>核心模块：trait + capabilities<br/>+ 入口 + failover + list"]
         OAI["openai.rs<br/>gpt-image-1<br/>base64 响应"]
         GOO["google.rs<br/>Gemini<br/>多模态 + thinkingLevel"]
@@ -534,7 +534,7 @@ graph LR
 
 ### 1. 新建 Provider 文件
 
-`src-tauri/src/tools/image_generate/{provider_id}.rs`，参照 `minimax.rs` 模板：
+`crates/oc-core/src/tools/image_generate/{provider_id}.rs`，参照 `minimax.rs` 模板：
 
 ```rust
 pub(crate) struct MyProvider;

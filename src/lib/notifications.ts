@@ -3,7 +3,7 @@ import {
   requestPermission,
   sendNotification,
 } from "@tauri-apps/plugin-notification"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 
 export interface NotificationConfig {
   enabled: boolean
@@ -13,7 +13,7 @@ let cachedConfig: NotificationConfig | null = null
 
 /** Load notification config from backend and cache it. */
 export async function loadNotificationConfig(): Promise<NotificationConfig> {
-  cachedConfig = await invoke<NotificationConfig>("get_notification_config")
+  cachedConfig = await getTransport().call<NotificationConfig>("get_notification_config")
   return cachedConfig
 }
 
@@ -24,7 +24,7 @@ export function getCachedConfig(): NotificationConfig | null {
 
 /** Save notification config to backend and update cache. */
 export async function saveNotificationConfig(config: NotificationConfig): Promise<void> {
-  await invoke("save_notification_config", { config })
+  await getTransport().call("save_notification_config", { config })
   cachedConfig = config
 }
 

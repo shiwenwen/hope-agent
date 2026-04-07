@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, lazy, Suspense } from "react"
-import { invoke } from "@tauri-apps/api/core"
-import { listen } from "@tauri-apps/api/event"
+import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { initLanguageFromConfig } from "@/i18n/i18n"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -29,7 +28,7 @@ export default function App() {
   // Load user avatar
   async function fetchUserAvatar() {
     try {
-      const config = await invoke<{ avatar?: string | null }>("get_user_config")
+      const config = await getTransport().call<{ avatar?: string | null }>("get_user_config")
       return config.avatar ?? null
     } catch {
       return null
@@ -64,15 +63,15 @@ export default function App() {
 
   // Listen for system tray events
   useEffect(() => {
-    const unlistenSettings = listen("open-settings", () => {
+    const unlistenSettings = getTransport().listen("open-settings", () => {
       setView("settings")
     })
-    const unlistenNewSession = listen("new-session", () => {
+    const unlistenNewSession = getTransport().listen("new-session", () => {
       setView("chat")
     })
     return () => {
-      unlistenSettings.then((fn) => fn())
-      unlistenNewSession.then((fn) => fn())
+      unlistenSettings()
+      unlistenNewSession()
     }
   }, [])
 
@@ -84,11 +83,11 @@ export default function App() {
         await initLanguageFromConfig()
         const avatar = await fetchUserAvatar()
         setUserAvatar(avatar)
-        const restored = await invoke<boolean>("try_restore_session")
+        const restored = await getTransport().call<boolean>("try_restore_session")
         if (restored) {
           setView("chat")
         } else {
-          const has = await invoke<boolean>("has_providers")
+          const has = await getTransport().call<boolean>("has_providers")
           setView(has ? "chat" : "setup")
         }
       } catch (e) {
@@ -99,17 +98,17 @@ export default function App() {
   }, [])
 
   async function handleCodexAuth() {
-    await invoke("start_codex_auth")
+    await getTransport().call("start_codex_auth")
 
     const poll = async (): Promise<void> => {
       for (let i = 0; i < 300; i++) {
         await new Promise((r) => setTimeout(r, 1000))
-        const status = await invoke<{
+        const status = await getTransport().call<{
           authenticated: boolean
           error: string | null
         }>("check_auth_status")
         if (status.authenticated) {
-          await invoke("finalize_codex_auth")
+          await getTransport().call("finalize_codex_auth")
           setView("chat")
           return
         }

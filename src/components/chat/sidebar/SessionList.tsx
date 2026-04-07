@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
@@ -92,7 +92,7 @@ export default function SessionList({
             const unreadSessions = filterSessions.filter((s) => s.unreadCount > 0)
             if (unreadSessions.length === 0) return
             try {
-              await invoke("mark_session_read_batch_cmd", {
+              await getTransport().call("mark_session_read_batch_cmd", {
                 sessionIds: unreadSessions.map((s) => s.id),
               })
               if (onMarkAllRead) onMarkAllRead()

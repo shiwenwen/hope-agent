@@ -1,59 +1,77 @@
-#[macro_use]
-mod logging;
-mod app_init;
+// ── Local Tauri-specific modules ──────────────────────────────────
 mod globals;
+mod app_init;
 mod setup;
 mod shortcuts;
-mod util;
-
-pub mod acp;
-pub(crate) mod acp_control;
-mod agent;
-mod agent_config;
-mod agent_loader;
-pub mod backup;
-mod browser_state;
-mod canvas_db;
-pub mod channel;
-mod chat_engine;
-mod commands;
-mod context_compact;
-pub mod crash_journal;
-mod cron;
-mod dashboard;
-mod dev_tools;
-mod docker;
-mod failover;
-mod file_extract;
-mod memory;
-mod memory_extract;
-mod oauth;
-pub mod paths;
-mod permissions;
-mod plan;
-mod process_registry;
-pub mod provider;
-mod sandbox;
-pub mod self_diagnosis;
-pub mod session;
-mod skills;
-mod slash_commands;
-mod subagent;
-mod system_prompt;
-mod tools;
 mod tray;
-mod url_preview;
-mod user_config;
-mod weather;
-#[cfg(target_os = "macos")]
-mod weather_location_macos;
+mod commands;
+mod tauri_wrappers;
 
-pub use util::*;
-pub use globals::{
-    get_acp_manager, get_app_handle, get_channel_db, get_channel_registry, get_cron_db,
+// ── Re-export all business logic from oc-core ────────────────────
+// This makes `crate::agent`, `crate::session`, etc. resolve to oc-core's modules,
+// eliminating the need for duplicate local copies.
+
+pub use oc_core::acp;
+pub use oc_core::acp_control;
+pub use oc_core::agent;
+pub use oc_core::agent_config;
+pub use oc_core::agent_loader;
+pub use oc_core::backup;
+pub use oc_core::browser_state;
+pub use oc_core::canvas_db;
+pub use oc_core::channel;
+pub use oc_core::chat_engine;
+pub use oc_core::context_compact;
+pub use oc_core::crash_journal;
+pub use oc_core::cron;
+pub use oc_core::dashboard;
+pub use oc_core::dev_tools;
+pub use oc_core::docker;
+pub use oc_core::failover;
+pub use oc_core::file_extract;
+pub use oc_core::guardian;
+pub use oc_core::logging;
+pub use oc_core::memory;
+pub use oc_core::memory_extract;
+pub use oc_core::oauth;
+pub use oc_core::paths;
+pub use oc_core::permissions;
+pub use oc_core::plan;
+pub use oc_core::process_registry;
+pub use oc_core::provider;
+pub use oc_core::sandbox;
+pub use oc_core::self_diagnosis;
+pub use oc_core::service_install;
+pub use oc_core::session;
+pub use oc_core::skills;
+pub use oc_core::slash_commands;
+pub use oc_core::subagent;
+pub use oc_core::system_prompt;
+pub use oc_core::tools;
+pub use oc_core::url_preview;
+pub use oc_core::user_config;
+pub use oc_core::weather;
+#[cfg(target_os = "macos")]
+pub use oc_core::weather_location_macos;
+
+// Re-export oc-core utility functions (truncate_utf8, default_true, etc.)
+pub use oc_core::{truncate_utf8, default_true, sql_u64, sql_opt_u64};
+
+// Re-export oc-core global accessors and types
+pub use oc_core::{
     get_logger, get_memory_backend, get_session_db, get_subagent_cancels,
+    get_acp_manager, get_channel_db, get_channel_registry, get_cron_db,
+    get_event_bus, set_event_bus,
 };
-pub(crate) use globals::AppState;
+pub use oc_core::{
+    AppState, APP_LOGGER, ACP_MANAGER, CHANNEL_DB, CHANNEL_REGISTRY, CRON_DB,
+    EVENT_BUS, MEMORY_BACKEND, SESSION_DB, SUBAGENT_CANCELS, APP_STATE,
+};
+pub use oc_core::init_app_state;
+pub use oc_core::event_bus;
+
+// ── Local re-exports ─────────────────────────────────────────────
+pub use globals::get_app_handle;
 pub(crate) use shortcuts::toggle_quickchat_window;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -105,7 +123,7 @@ pub fn run() {
             }
         })
         .setup(setup::app_setup)
-        .manage(app_init::init_app_state(initial_store))
+        .manage(app_init::init_tauri_app_state(initial_store))
         .invoke_handler(tauri::generate_handler![
             // Provider management
             commands::provider::get_providers,
@@ -272,10 +290,10 @@ pub fn run() {
             // Autostart
             commands::config::get_autostart_enabled,
             commands::config::set_autostart_enabled,
-            // Permissions
-            permissions::check_all_permissions,
-            permissions::check_permission,
-            permissions::request_permission,
+            // Permissions (thin wrappers over oc-core)
+            tauri_wrappers::check_all_permissions,
+            tauri_wrappers::check_permission,
+            tauri_wrappers::request_permission,
             // Session management
             commands::session::create_session_cmd,
             commands::session::list_sessions_cmd,
@@ -326,23 +344,23 @@ pub fn run() {
             commands::crash::create_backup_cmd,
             commands::crash::get_guardian_enabled,
             commands::crash::set_guardian_enabled,
-            // Sandbox
-            sandbox::get_sandbox_config,
-            sandbox::set_sandbox_config,
-            sandbox::check_sandbox_available,
-            // Slash commands
-            slash_commands::list_slash_commands,
-            slash_commands::execute_slash_command,
-            slash_commands::is_slash_command,
-            // Canvas
-            tools::canvas::canvas_submit_snapshot,
-            tools::canvas::canvas_submit_eval_result,
-            tools::canvas::get_canvas_config,
-            tools::canvas::save_canvas_config,
-            tools::canvas::list_canvas_projects,
-            tools::canvas::get_canvas_project,
-            tools::canvas::delete_canvas_project,
-            tools::canvas::show_canvas_panel,
+            // Sandbox (thin wrappers over oc-core)
+            tauri_wrappers::get_sandbox_config,
+            tauri_wrappers::set_sandbox_config,
+            tauri_wrappers::check_sandbox_available,
+            // Slash commands (thin wrappers over oc-core)
+            tauri_wrappers::list_slash_commands,
+            tauri_wrappers::execute_slash_command,
+            tauri_wrappers::is_slash_command,
+            // Canvas (thin wrappers over oc-core)
+            tauri_wrappers::canvas_submit_snapshot,
+            tauri_wrappers::canvas_submit_eval_result,
+            tauri_wrappers::get_canvas_config,
+            tauri_wrappers::save_canvas_config,
+            tauri_wrappers::list_canvas_projects,
+            tauri_wrappers::get_canvas_project,
+            tauri_wrappers::delete_canvas_project,
+            tauri_wrappers::show_canvas_panel,
             // Dashboard analytics
             commands::dashboard::dashboard_overview,
             commands::dashboard::dashboard_token_usage,
@@ -356,12 +374,12 @@ pub fn run() {
             commands::dashboard::dashboard_tool_call_list,
             commands::dashboard::dashboard_error_list,
             commands::dashboard::dashboard_agent_list,
-            // Developer tools
-            dev_tools::dev_clear_sessions,
-            dev_tools::dev_clear_cron,
-            dev_tools::dev_clear_memory,
-            dev_tools::dev_reset_config,
-            dev_tools::dev_clear_all,
+            // Developer tools (thin wrappers over oc-core)
+            tauri_wrappers::dev_clear_sessions,
+            tauri_wrappers::dev_clear_cron,
+            tauri_wrappers::dev_clear_memory,
+            tauri_wrappers::dev_reset_config,
+            tauri_wrappers::dev_clear_all,
             // Plan mode
             commands::plan::get_plan_mode,
             commands::plan::set_plan_mode,

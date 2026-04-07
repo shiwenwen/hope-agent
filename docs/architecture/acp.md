@@ -674,7 +674,7 @@ opencomputer acp --help
 ## 文件索引
 
 ```
-src-tauri/src/acp/
+crates/oc-core/src/acp/
 ├── mod.rs              # 模块声明 + pub re-export
 ├── types.rs            # JSON-RPC 2.0 + ACP 全量类型定义 (562 行)
 ├── protocol.rs         # NDJSON stdio 传输层
@@ -683,6 +683,6 @@ src-tauri/src/acp/
 ├── agent.rs            # ACP Agent 核心实现 (801 行)
 └── server.rs           # 启动入口函数
 
-src-tauri/src/main.rs   # acp 子命令入口 (run_acp_server)
-src-tauri/src/lib.rs    # pub mod acp 注册
+src-tauri/src/main.rs        # acp 子命令入口 (run_acp_server)
+crates/oc-core/src/lib.rs    # pub mod acp 注册
 ```

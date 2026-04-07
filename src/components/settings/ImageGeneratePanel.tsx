@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
@@ -206,7 +206,7 @@ export default function ImageGeneratePanel() {
 
   useEffect(() => {
     let cancelled = false
-    invoke<ImageGenConfig>("get_image_generate_config")
+    getTransport().call<ImageGenConfig>("get_image_generate_config")
       .then((cfg) => {
         if (!cancelled) {
           setConfig(cfg)
@@ -224,7 +224,7 @@ export default function ImageGeneratePanel() {
   const save = async () => {
     setSaving(true)
     try {
-      await invoke("save_image_generate_config", { config })
+      await getTransport().call("save_image_generate_config", { config })
       setSavedSnapshot(JSON.stringify(config))
       setSaveStatus("saved")
       setTimeout(() => setSaveStatus("idle"), 2000)
@@ -267,7 +267,7 @@ export default function ImageGeneratePanel() {
       return next
     })
     try {
-      const msg = await invoke<string>("test_image_generate", {
+      const msg = await getTransport().call<string>("test_image_generate", {
         providerId: provider.id,
         apiKey: provider.apiKey ?? "",
         baseUrl: provider.baseUrl,

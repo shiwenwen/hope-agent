@@ -27,17 +27,18 @@ Chat Engine 是 OpenComputer 的对话编排入口，统一处理来自四种来
 
 | 来源 | EventSink 实现 | 说明 |
 |---|---|---|
-| UI 聊天 | `ChannelSink`（Tauri IPC Channel） | 用户直接交互 |
-| IM Channel | `ChannelStreamSink`（全局 emit + mpsc） | Telegram / WeChat 等渠道 |
-| Cron 定时任务 | `ChannelSink` | 定时触发的对话 |
-| ACP 协议 | `ChannelSink` | IDE 直连 |
+| UI 聊天（桌面） | `ChannelSink`（Tauri IPC Channel，定义在 src-tauri） | 用户直接交互（桌面模式） |
+| UI 聊天（HTTP） | `WsSink`（WebSocket，定义在 oc-server） | 用户直接交互（HTTP/WS 模式） |
+| IM Channel | `ChannelStreamSink`（EventBus + mpsc） | Telegram / WeChat 等渠道 |
+| Cron 定时任务 | `ChannelSink` / `WsSink` | 定时触发的对话 |
+| ACP 协议 | `ChannelSink` / `WsSink` | IDE 直连 |
 
 Chat Engine 本身不持有状态，所有依赖通过 `ChatEngineParams` 注入。调用方（`commands/chat.rs`、`channel/worker.rs` 等）从 `State<AppState>` 或磁盘提取参数，构建 params 后调用 `run_chat_engine()`。
 
 ## 模块结构
 
 ```
-src-tauri/src/chat_engine/
+crates/oc-core/src/chat_engine/
 ├── mod.rs       (8 行)   模块声明和 re-export
 ├── types.rs     (124 行)  EventSink trait + ChatEngineParams/Result + CapturedUsage
 ├── context.rs   (220 行)  Agent 构建 + 上下文恢复/保存 + 工具事件持久化 + Channel 中继 + 记忆提取
@@ -56,10 +57,11 @@ pub trait EventSink: Send + Sync + 'static {
 }
 ```
 
-两种实现：
+三种实现：
 
-- **`ChannelSink`** — 包裹 `tauri::ipc::Channel<String>`，用于 UI 直连。事件直接推送到前端
-- **`ChannelStreamSink`** — 双路输出：(1) 通过 Tauri 全局 `emit("channel:stream_delta")` 推送到前端实时展示；(2) 通过 `mpsc::Sender` 转发到后台任务，驱动 IM 渠道的渐进式消息编辑（如 Telegram 消息实时更新）
+- **`ChannelSink`**（定义在 `src-tauri/src/commands/chat.rs`）— 包裹 `tauri::ipc::Channel<String>`，用于桌面模式 UI 直连。事件直接推送到 Tauri WebView 前端
+- **`WsSink`**（定义在 `crates/oc-server/src/routes/chat.rs`）— 通过 WebSocket 推送事件，用于 HTTP/WS 模式 UI 直连
+- **`ChannelStreamSink`**（定义在 `crates/oc-core/src/chat_engine/types.rs`）— 双路输出：(1) 通过 `EventBus` 发布 `channel:stream_delta` 事件推送到前端实时展示；(2) 通过 `mpsc::Sender` 转发到后台任务，驱动 IM 渠道的渐进式消息编辑（如 Telegram 消息实时更新）
 
 ### ChatEngineParams
 
@@ -289,7 +291,7 @@ graph TB
 
 | 文件 | 行数 | 职责 |
 |---|---|---|
-| `src-tauri/src/chat_engine/mod.rs` | 8 | 模块声明和 re-export |
-| `src-tauri/src/chat_engine/types.rs` | 124 | EventSink trait、ChatEngineParams、ChatEngineResult、CapturedUsage |
-| `src-tauri/src/chat_engine/context.rs` | 220 | Agent 构建、上下文恢复/保存、工具事件持久化、Channel 中继、记忆提取 |
-| `src-tauri/src/chat_engine/engine.rs` | 425 | `run_chat_engine()` 核心引擎：模型链遍历、重试循环、流式处理、failover |
+| `crates/oc-core/src/chat_engine/mod.rs` | 8 | 模块声明和 re-export |
+| `crates/oc-core/src/chat_engine/types.rs` | 124 | EventSink trait、ChatEngineParams、ChatEngineResult、CapturedUsage |
+| `crates/oc-core/src/chat_engine/context.rs` | 220 | Agent 构建、上下文恢复/保存、工具事件持久化、Channel 中继、记忆提取 |
+| `crates/oc-core/src/chat_engine/engine.rs` | 425 | `run_chat_engine()` 核心引擎：模型链遍历、重试循环、流式处理、failover |

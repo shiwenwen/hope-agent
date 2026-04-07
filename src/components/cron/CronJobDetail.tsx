@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
@@ -41,8 +41,8 @@ export default function CronJobDetail({
   async function fetchData() {
     try {
       const [j, l] = await Promise.all([
-        invoke<CronJob | null>("cron_get_job", { id: jobId }),
-        invoke<CronRunLog[]>("cron_get_run_logs", { jobId, limit: 50 }),
+        getTransport().call<CronJob | null>("cron_get_job", { id: jobId }),
+        getTransport().call<CronRunLog[]>("cron_get_run_logs", { jobId, limit: 50 }),
       ])
       setJob(j)
       setLogs(l)
@@ -61,21 +61,21 @@ export default function CronJobDetail({
   async function handleToggle() {
     if (!job) return
     const enabled = job.status !== "active"
-    await invoke("cron_toggle_job", { id: job.id, enabled })
+    await getTransport().call("cron_toggle_job", { id: job.id, enabled })
     fetchData()
     onRefresh()
   }
 
   async function handleDelete() {
     if (!job) return
-    await invoke("cron_delete_job", { id: job.id })
+    await getTransport().call("cron_delete_job", { id: job.id })
     onBack()
     onRefresh()
   }
 
   async function handleRunNow() {
     if (!job) return
-    await invoke("cron_run_now", { id: job.id })
+    await getTransport().call("cron_run_now", { id: job.id })
     // Refresh after a short delay to pick up the run log
     setTimeout(fetchData, 2000)
   }

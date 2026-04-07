@@ -434,15 +434,16 @@ block-beta
 
 | 文件 | 职责 |
 |------|------|
-| `src-tauri/src/tools/approval.rs` | ToolPermissionMode 定义、审批请求/响应、Allowlist 管理 |
-| `src-tauri/src/tools/execution.rs` | 统一审批门（`execute_tool_with_context`）、Plan Mode 路径检查 |
-| `src-tauri/src/tools/exec.rs` | exec 独立命令级审批逻辑 |
-| `src-tauri/src/tools/definitions.rs` | Internal Tool 集合（`INTERNAL_TOOL_NAMES`）、`is_internal_tool()`、`is_concurrent_safe()` |
-| `src-tauri/src/agent_config.rs` | `FilterConfig`（allow/deny）、`BehaviorConfig.require_approval`、`SubagentConfig.denied_tools` |
-| `src-tauri/src/agent/mod.rs` | `tool_context()` 构建 ToolExecContext，传递 require_approval |
-| `src-tauri/src/agent/providers/*.rs` | denied_tools 过滤 tool_schemas |
-| `src-tauri/src/system_prompt.rs` | `build_tools_section()` 按 FilterConfig 过滤提示词 |
-| `src-tauri/src/commands/chat.rs` | 解析前端 tool_permission_mode 参数并设置全局模式 |
+| `crates/oc-core/src/tools/approval.rs` | ToolPermissionMode 定义、审批请求/响应、Allowlist 管理 |
+| `crates/oc-core/src/tools/execution.rs` | 统一审批门（`execute_tool_with_context`）、Plan Mode 路径检查 |
+| `crates/oc-core/src/tools/exec.rs` | exec 独立命令级审批逻辑 |
+| `crates/oc-core/src/tools/definitions.rs` | Internal Tool 集合（`INTERNAL_TOOL_NAMES`）、`is_internal_tool()`、`is_concurrent_safe()` |
+| `crates/oc-core/src/agent_config.rs` | `FilterConfig`（allow/deny）、`BehaviorConfig.require_approval`、`SubagentConfig.denied_tools` |
+| `crates/oc-core/src/agent/mod.rs` | `tool_context()` 构建 ToolExecContext，传递 require_approval |
+| `crates/oc-core/src/agent/providers/*.rs` | denied_tools 过滤 tool_schemas |
+| `crates/oc-core/src/system_prompt/` | `build_tools_section()` 按 FilterConfig 过滤提示词 |
+| `src-tauri/src/commands/chat.rs` | Tauri 命令层：解析前端 tool_permission_mode 参数并设置全局模式 |
+| `crates/oc-server/src/routes/chat.rs` | HTTP 路由层：REST API + WebSocket 流式推送 |
 | `src/components/chat/ChatInput.tsx` | 盾牌按钮 UI（三态切换） |
 | `src/components/chat/ApprovalDialog.tsx` | 审批弹窗 UI |
 | `src/components/settings/agent-panel/tabs/BehaviorTab.tsx` | Agent 审批配置 UI |

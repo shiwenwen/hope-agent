@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from "react"
 import { useTranslation } from "react-i18next"
-import { invoke } from "@tauri-apps/api/core"
-import { listen } from "@tauri-apps/api/event"
+import { getTransport } from "@/lib/transport-provider"
 import { Textarea } from "@/components/ui/textarea"
 import { Button } from "@/components/ui/button"
 import { Loader2, Check, Save, ChevronDown, ChevronRight } from "lucide-react"
@@ -24,8 +23,8 @@ export default function CoreMemoryEditor({ scope, agentId }: CoreMemoryEditorPro
   const loadContent = useCallback(async () => {
     try {
       const md = scope === "global"
-        ? await invoke<string | null>("get_global_memory_md")
-        : await invoke<string | null>("get_agent_memory_md", { id: agentId })
+        ? await getTransport().call<string | null>("get_global_memory_md")
+        : await getTransport().call<string | null>("get_agent_memory_md", { id: agentId })
       const val = md ?? ""
       setContent(val)
       setOriginalContent(val)
@@ -41,23 +40,23 @@ export default function CoreMemoryEditor({ scope, agentId }: CoreMemoryEditorPro
   }, [loadContent])
 
   useEffect(() => {
-    const unlisten = listen("core_memory_updated", (event: { payload: { scope: string; agentId?: string } }) => {
-      if (event.payload.scope === scope) {
-        if (scope === "global" || event.payload.agentId === agentId) {
+    return getTransport().listen("core_memory_updated", (raw) => {
+      const payload = raw as { scope: string; agentId?: string }
+      if (payload.scope === scope) {
+        if (scope === "global" || payload.agentId === agentId) {
           loadContent()
         }
       }
     })
-    return () => { unlisten.then((fn) => fn()) }
   }, [scope, agentId, loadContent])
 
   const handleSave = async () => {
     setSaving(true)
     try {
       if (scope === "global") {
-        await invoke("save_global_memory_md", { content })
+        await getTransport().call("save_global_memory_md", { content })
       } else {
-        await invoke("save_agent_memory_md", { id: agentId, content })
+        await getTransport().call("save_agent_memory_md", { id: agentId, content })
       }
       setOriginalContent(content)
       setSaveStatus("saved")

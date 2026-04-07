@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react"
-import { invoke, convertFileSrc } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
+import { convertFileSrc } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
@@ -23,8 +24,8 @@ export default function UserProfilePanel({ onSaved }: { onSaved?: () => void } =
 
   useEffect(() => {
     Promise.all([
-      invoke<UserConfig>("get_user_config"),
-      invoke<string>("get_system_timezone").catch(() => "UTC"),
+      getTransport().call<UserConfig>("get_user_config"),
+      getTransport().call<string>("get_system_timezone").catch(() => "UTC"),
     ])
       .then(([cfg, sysTz]) => {
         if (!cfg.timezone) cfg.timezone = sysTz
@@ -48,7 +49,7 @@ export default function UserProfilePanel({ onSaved }: { onSaved?: () => void } =
   const handleSave = async () => {
     setSaving(true)
     try {
-      await invoke("save_user_config", { config })
+      await getTransport().call("save_user_config", { config })
       setSaveStatus("saved")
       onSaved?.()
       setTimeout(() => setSaveStatus("idle"), 2000)
@@ -107,7 +108,7 @@ export default function UserProfilePanel({ onSaved }: { onSaved?: () => void } =
       for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
       const base64 = window.btoa(binary)
       const fileName = `user_${Date.now()}.png`
-      const savedPath = await invoke<string>("save_avatar", { imageData: base64, fileName })
+      const savedPath = await getTransport().call<string>("save_avatar", { imageData: base64, fileName })
       update({ avatar: savedPath })
     } catch (e) {
       logger.error("settings", "UserProfilePanel::saveAvatar", "Failed to save avatar", e)

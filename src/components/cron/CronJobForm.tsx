@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react"
-import { invoke, convertFileSrc } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
+import { convertFileSrc } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -94,7 +95,7 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
   const [error, setError] = useState("")
 
   useEffect(() => {
-    invoke<AgentInfo[]>("list_agents")
+    getTransport().call<AgentInfo[]>("list_agents")
       .then(setAgents)
       .catch(() => {})
   }, [])
@@ -132,10 +133,10 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
           maxFailures: parseInt(maxFailures) || 5,
           notifyOnComplete,
         }
-        await invoke("cron_update_job", { job: updated })
+        await getTransport().call("cron_update_job", { job: updated })
       } else {
         const schedule = buildSchedule()
-        await invoke("cron_create_job", {
+        await getTransport().call("cron_create_job", {
           job: {
             name: name.trim(),
             description: description.trim() || null,

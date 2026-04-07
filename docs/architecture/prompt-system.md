@@ -1,13 +1,13 @@
 # OpenComputer 提示词系统技术文档
 
-> 返回 [文档索引](../README.md) | 更新时间：2026-04-04
+> 返回 [文档索引](../README.md) | 更新时间：2026-04-05
 
 ## 目录
 
 - [概述](#概述)（含架构总览图）
 - [System Prompt 组装流程](#system-prompt-组装流程)
   - [13 段组装顺序](#13-段组装顺序)（含数据流图）
-  - [结构化模式 vs 自定义模式](#结构化模式-vs-自定义模式)
+  - [三种组装模式](#三种组装模式)
   - [Legacy 兼容路径](#legacy-兼容路径)
 - [Per-Tool 描述系统](#per-tool-描述系统)
   - [设计理念](#设计理念)
@@ -38,13 +38,13 @@
 
 ## 概述
 
-OpenComputer 的提示词系统采用**模块化组装**架构，由 `system_prompt.rs` 统一编排。System Prompt 由最多 13 个独立段落（section）按固定顺序拼接，每段可独立启用/禁用/过滤，支持 Agent 级别的差异化配置。
+OpenComputer 的提示词系统采用**模块化组装**架构，由 `system_prompt::build()` 统一编排。System Prompt 由最多 13 个独立段落（section）按固定顺序拼接，每段可独立启用/禁用/过滤，支持 Agent 级别的差异化配置。支持三种互斥的组装模式：**结构化模式**（默认 GUI 配置）、**自定义模式**（自由 Markdown）、**OpenClaw 兼容模式**（4 文件配置）。
 
 ```mermaid
 graph TD
     subgraph SP["System Prompt 13 段组装"]
         direction LR
-        S1["① Identity"] --> S2["② agent.md"] --> S3["③ persona.md"]
+        S1["① Identity"] --> S2["② agent.md /\nProject Context"] --> S3["③ persona.md"]
         S4["④ User Context"] --> S5["⑤ tools.md"] --> S6["⑥ Tool Descriptions\n(filtered)"]
         S7["⑦ Skills\n(filtered)"] --> S7b["⑦b Behavior\nGuidance"] --> S8["⑧ Memory\nGuidelines"]
         S9["⑨ Runtime Info"] --> S10["⑩ SubAgent\nDelegation"] --> S11["⑪ Sandbox Mode"]
@@ -57,6 +57,23 @@ graph TD
     style SP fill:#f5f5f5
 ```
 
+**三种组装模式**：
+
+```mermaid
+graph LR
+    CFG["AgentConfig"] --> C1{"openclaw_mode?"}
+    C1 -- Yes --> OC["OpenClaw 模式\n# Project Context\nAGENTS.md → SOUL.md →\nIDENTITY.md → TOOLS.md"]
+    C1 -- No --> C2{"use_custom_prompt?"}
+    C2 -- Yes --> CP["自定义模式\nagent.md + persona.md"]
+    C2 -- No --> ST["结构化模式\nPersonalityConfig 字段组装"]
+    OC --> REST["④~⑬ 共享段\n(User/Tools/Skills/Memory/Runtime...)"]
+    CP --> REST
+    ST --> REST
+    style OC fill:#e3f2fd
+    style CP fill:#fff3cd
+    style ST fill:#d4edda
+```
+
 **核心设计原则**：
 
 | 原则 | 说明 |
@@ -66,6 +83,7 @@ graph TD
 | **缓存友好** | 日期只精确到天，避免每次请求都改变 system prompt |
 | **安全截断** | 注入的 markdown 文件限制 20,000 字符，head(70%)+tail(20%) 截断 |
 | **条件注入** | Sandbox、SubAgent、ACP 段仅在配置启用时注入 |
+| **OpenClaw 兼容** | 支持 OpenClaw 风格 4 文件配置（AGENTS/IDENTITY/SOUL/TOOLS.md），与 OpenClaw 的 MEMORY.md 核心记忆格式互通 |
 
 ---
 
@@ -100,18 +118,48 @@ graph LR
     style S13 fill:#e3f2fd
 ```
 
-**代码位置**：`src-tauri/src/system_prompt.rs:322` — `pub fn build()`
+**代码位置**：`crates/oc-core/src/system_prompt/build.rs` — `pub fn build()`
 
-### 结构化模式 vs 自定义模式
+### 三种组装模式
 
-通过 `config.use_custom_prompt` 切换：
+`build()` 函数根据 `config.openclaw_mode` 和 `config.use_custom_prompt` 选择组装模式，三者互斥，优先级：OpenClaw > 自定义 > 结构化。
 
-| | 结构化模式（默认） | 自定义模式 |
-|---|---|---|
-| Identity | `"You are {name}, a {role}, running on..."` | `"You are {name}, running on..."` |
-| Personality | 从 `PersonalityConfig` 字段组装（vibe/tone/traits/principles...） | 跳过 |
-| agent.md | 作为补充说明注入 | 作为主要 identity 注入 |
-| persona.md | 作为补充个性注入 | 作为主要个性注入 |
+| | 结构化模式（默认） | 自定义模式 | OpenClaw 兼容模式 |
+|---|---|---|---|
+| 触发条件 | 默认 | `use_custom_prompt: true` | `openclaw_mode: true` |
+| Identity 行 | `"You are {name}, a {role}, running on..."` | `"You are {name}, running on..."` | `"You are {name}, running on..."` |
+| Personality | `PersonalityConfig` 字段组装 | 跳过 | 跳过 |
+| agent.md | 补充说明 | 主要 identity | 不使用 |
+| persona.md | 补充个性 | 主要个性 | 不使用 |
+| OpenClaw 文件 | — | — | `# Project Context` 段注入 |
+
+#### OpenClaw 兼容模式
+
+启用 `openclaw_mode` 后，提示词采用 OpenClaw 风格的 4 文件组装，按以下顺序注入 `# Project Context` 段：
+
+```
+# Project Context
+
+The following project context files have been loaded:
+
+## AGENTS.md    ← 工作空间规则、红线、记忆指导
+## SOUL.md      ← 性格、价值观、语气、边界
+## IDENTITY.md  ← 身份元数据（名称、生物类型、风格）
+## TOOLS.md     ← 本地环境说明（摄像头、SSH、TTS）
+```
+
+如果 SOUL.md 存在且非空，追加指导语：
+> "If SOUL.md is present, embody its persona and tone throughout all interactions."
+
+**文件存储**：`~/.opencomputer/agents/{id}/agents.md`、`identity.md`、`soul.md`（`tools.md` 复用现有文件）
+
+**模板预填充**：首次启用时，空文件自动填充适配后的 OpenClaw 官方模板（`crates/oc-core/templates/openclaw_*.md`，纯英文）
+
+**UI 行为**：启用后，Identity/Personality tab 禁用（显示提示），BehaviorTab 工具指导只读，MemoryTab 提示核心记忆与 OpenClaw MEMORY.md 兼容
+
+**与其他段的关系**：OpenClaw 模式下 `tools.md` 已包含在 `# Project Context` 中，跳过独立的 ⑤ tools.md 注入。其余段（④ 用户上下文、⑥ 工具定义、⑦ 技能、⑦b 行为指导、⑧ 记忆、⑨ 运行时等）照常注入。
+
+**代码位置**：`crates/oc-core/src/system_prompt/build.rs` — `build()` 函数开头的 `if definition.config.openclaw_mode` 分支
 
 ### Legacy 兼容路径
 
@@ -121,7 +169,7 @@ graph LR
 - 从全局 `ProviderStore` 加载技能
 - 无 Memory、SubAgent、Sandbox、ACP 段
 
-**代码位置**：`src-tauri/src/system_prompt.rs:520` — `pub fn build_legacy()`
+**代码位置**：`crates/oc-core/src/system_prompt/:520` — `pub fn build_legacy()`
 
 ---
 
@@ -173,7 +221,7 @@ graph LR
 | | manage_cron | `TOOL_DESC_MANAGE_CRON` | 定时任务管理 |
 | | send_notification | `TOOL_DESC_SEND_NOTIFICATION` | 系统通知 |
 
-**代码位置**：`src-tauri/src/system_prompt.rs:10-236`
+**代码位置**：`crates/oc-core/src/system_prompt/:10-236`
 
 ### 动态过滤机制
 
@@ -194,7 +242,7 @@ fn build_tools_section(filter: &FilterConfig) -> String {
 - `deny` 非空 → 排除黑名单中的工具
 - 过滤后为空 → 不注入工具段
 
-**代码位置**：`src-tauri/src/system_prompt.rs:573-589`
+**代码位置**：`crates/oc-core/src/system_prompt/:573-589`
 
 ---
 
@@ -262,7 +310,7 @@ fn build_tools_section(filter: &FilterConfig) -> String {
 
 **设计参考**：Claude Code `system-prompt-doing-tasks-*.md`（多个文件合并）
 
-**代码位置**：`src-tauri/src/system_prompt.rs:238-301`
+**代码位置**：`crates/oc-core/src/system_prompt/:238-301`
 
 ---
 
@@ -368,7 +416,7 @@ flowchart TD
     style Done fill:#e8f5e9
 ```
 
-**代码位置**：`src-tauri/src/context_compact/mod.rs`
+**代码位置**：`crates/oc-core/src/context_compact/mod.rs`
 
 ### Summarization System Prompt
 
@@ -434,7 +482,7 @@ including UUIDs, hashes, IDs, tokens, hostnames, IPs, ports, URLs, and file name
 | `summary_max_tokens` | 4,096 | 总结输出最大 token |
 | `summarization_timeout_secs` | 60 | 总结调用超时 |
 
-**代码位置**：`src-tauri/src/context_compact/config.rs`
+**代码位置**：`crates/oc-core/src/context_compact/config.rs`
 
 ---
 
@@ -455,7 +503,7 @@ including UUIDs, hashes, IDs, tokens, hostnames, IPs, ports, URLs, and file name
 - 不列出自身（防止自委托）
 - 受 `SubagentConfig.allow/deny` 控制
 
-**代码位置**：`src-tauri/src/system_prompt.rs:770-823`
+**代码位置**：`crates/oc-core/src/system_prompt/:770-823`
 
 ### Sandbox Mode
 
@@ -477,7 +525,7 @@ including UUIDs, hashes, IDs, tokens, hostnames, IPs, ports, URLs, and file name
 - 使用场景区分：subagent（内部）vs acp_spawn（外部）
 - 异步执行 + check(wait=true) 阻塞等待
 
-**代码位置**：`src-tauri/src/system_prompt.rs:834-880`
+**代码位置**：`crates/oc-core/src/system_prompt/:834-880`
 
 ---
 
@@ -500,13 +548,14 @@ including UUIDs, hashes, IDs, tokens, hostnames, IPs, ports, URLs, and file name
 
 | 文件 | 内容 |
 |------|------|
-| `src-tauri/src/system_prompt.rs` | **核心**：13 段组装、32 个工具描述、3 个行为指导、所有 section builder |
-| `src-tauri/src/plan.rs:454-630` | Plan Mode 4 个提示词常量 |
-| `src-tauri/src/context_compact/summarization.rs` | 上下文压缩 system prompt + 总结构建 |
-| `src-tauri/src/context_compact/config.rs` | 压缩配置结构体（17 个参数） |
-| `src-tauri/src/context_compact/mod.rs` | 4 层压缩常量 + 标识符保留指令 |
-| `src-tauri/src/user_config.rs` | 用户上下文构建（name/role/birthday/timezone/...） |
-| `src-tauri/src/agent_config.rs` | Agent 配置结构（personality/tools/skills/memory/subagents） |
-| `src-tauri/src/skills.rs` | 技能加载 + prompt 构建 + budget 管理 |
-| `src-tauri/src/tools/mod.rs:52-88` | 37 个 `TOOL_*` 名称常量 |
-| `src-tauri/src/tools/definitions.rs` | 工具 JSON Schema 定义（发送给 LLM 的 function calling schema） |
+| `crates/oc-core/src/system_prompt/build.rs` | **核心**：三模式组装（结构化/自定义/OpenClaw）、13 段拼接逻辑 |
+| `crates/oc-core/src/system_prompt/constants.rs` | 32 个工具描述常量、3 个行为指导常量 |
+| `crates/oc-core/src/system_prompt/sections.rs` | 各 section builder（personality/tools/skills/runtime/subagent/acp） |
+| `crates/oc-core/src/agent_config.rs` | Agent 配置结构（personality/tools/skills/memory/subagents/openclaw_mode） |
+| `crates/oc-core/src/agent_loader.rs` | Agent 加载（agent.json + md 文件 + OpenClaw 模板） |
+| `crates/oc-core/templates/openclaw_*.md` | OpenClaw 兼容模式 4 个模板文件（纯英文） |
+| `crates/oc-core/src/plan/` | Plan Mode 提示词常量 |
+| `crates/oc-core/src/context_compact/` | 上下文压缩（4 层 + 总结 system prompt + 标识符保留） |
+| `crates/oc-core/src/user_config.rs` | 用户上下文构建（name/role/birthday/timezone/...） |
+| `crates/oc-core/src/skills/` | 技能加载 + prompt 构建 + budget 管理 |
+| `crates/oc-core/src/tools/definitions/` | 工具 JSON Schema 定义（发送给 LLM 的 function calling schema） |

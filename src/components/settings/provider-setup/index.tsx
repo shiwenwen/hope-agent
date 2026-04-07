@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import type { TestResult } from "@/components/settings/TestResultDisplay"
 import type { ApiType, ModelConfig, ProviderConfig, ProviderTemplate, ThinkingStyleType } from "./types"
@@ -76,7 +76,7 @@ export default function ProviderSetup({
     setSaving(true)
     setError("")
     try {
-      await invoke("add_provider", {
+      await getTransport().call("add_provider", {
         config: {
           id: "",
           name: providerName,
@@ -90,10 +90,10 @@ export default function ProviderSetup({
         },
       })
       // Set the first model as active
-      const providers = await invoke<ProviderConfig[]>("get_providers")
+      const providers = await getTransport().call<ProviderConfig[]>("get_providers")
       const latest = providers[providers.length - 1]
       if (latest && latest.models.length > 0) {
-        await invoke("set_active_model", {
+        await getTransport().call("set_active_model", {
           providerId: latest.id,
           modelId: latest.models[0].id,
         })

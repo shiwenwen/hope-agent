@@ -1,8 +1,7 @@
 import { useState, useEffect } from "react"
 import { ChevronRight, Cable, CheckCircle, XCircle, Clock, Loader2, Skull, StopCircle } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { invoke } from "@tauri-apps/api/core"
-import { listen, type UnlistenFn } from "@tauri-apps/api/event"
+import { getTransport } from "@/lib/transport-provider"
 import { Button } from "@/components/ui/button"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 
@@ -66,10 +65,8 @@ export default function AcpSpawnBlock({
 
   // Listen for ACP control events
   useEffect(() => {
-    let unlisten: UnlistenFn | undefined
-
-    listen<AcpControlEvent>("acp_control_event", (event) => {
-      const payload = event.payload
+    return getTransport().listen("acp_control_event", (raw) => {
+      const payload = raw as AcpControlEvent
       if (payload.runId !== runId) return
 
       switch (payload.eventType) {
@@ -103,18 +100,12 @@ export default function AcpSpawnBlock({
           setStatus("killed")
           break
       }
-    }).then((fn) => {
-      unlisten = fn
     })
-
-    return () => {
-      unlisten?.()
-    }
   }, [runId])
 
   const handleKill = async () => {
     try {
-      await invoke("acp_kill_run", { runId })
+      await getTransport().call("acp_kill_run", { runId })
     } catch {
       // ignore
     }

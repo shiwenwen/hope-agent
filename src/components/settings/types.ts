@@ -18,6 +18,7 @@ export type SettingsSection =
   | "about"
   | "channels"
   | "developer"
+  | "server"
 
 export interface SettingsSectionItem {
   id: SettingsSection
@@ -119,6 +120,7 @@ export interface AgentConfig {
     skillEnvCheck: boolean
   }
   useCustomPrompt: boolean
+  openclawMode: boolean
   notifyOnComplete?: boolean | null
   subagents: {
     enabled: boolean

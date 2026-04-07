@@ -594,10 +594,8 @@ pub async fn save_deferred_tools_config(
 
 /// Detect user location automatically (CoreLocation → IP fallback).
 #[tauri::command]
-pub async fn detect_location(
-    app_handle: tauri::AppHandle,
-) -> Result<crate::weather::DetectedLocation, String> {
-    crate::weather::detect_location(app_handle)
+pub async fn detect_location() -> Result<crate::weather::DetectedLocation, String> {
+    crate::weather::detect_location()
         .await
         .map_err(|e| e.to_string())
 }

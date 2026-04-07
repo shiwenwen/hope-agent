@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import UrlPreviewCard, { type UrlPreviewData } from "@/components/chat/UrlPreviewCard"
 import { extractUrls } from "@/lib/urlDetect"
 
@@ -17,7 +17,7 @@ export default function MessageUrlPreviews({ content, isStreaming }: { content: 
     fetchedRef.current = true
     const urlsToFetch = urls.slice(0, 5)
 
-    invoke<UrlPreviewData[]>("fetch_url_previews", { urls: urlsToFetch })
+    getTransport().call<UrlPreviewData[]>("fetch_url_previews", { urls: urlsToFetch })
       .then(setPreviews)
       .catch(() => {})
   }, [content, isStreaming])

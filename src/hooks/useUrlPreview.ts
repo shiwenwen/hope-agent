@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { extractUrls } from "@/lib/urlDetect"
 import type { UrlPreviewData } from "@/components/chat/UrlPreviewCard"
 
@@ -71,7 +71,7 @@ export function useUrlPreview(
         pendingRef.current.add(url)
         activeRef.current++
 
-        invoke<UrlPreviewData>("fetch_url_preview", { url })
+        getTransport().call<UrlPreviewData>("fetch_url_preview", { url })
           .then((meta) => {
             cacheRef.current.set(url, meta)
             setPreviews((prev) => {
@@ -128,7 +128,7 @@ export function useMessageUrlPreviews(
     // Limit to 5 URLs per message
     const urlsToFetch = urls.slice(0, 5)
 
-    invoke<UrlPreviewData[]>("fetch_url_previews", { urls: urlsToFetch })
+    getTransport().call<UrlPreviewData[]>("fetch_url_previews", { urls: urlsToFetch })
       .then((results) => {
         setPreviews(results)
       })

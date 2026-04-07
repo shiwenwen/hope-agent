@@ -1,97 +1,137 @@
+import { useState } from "react"
 import { useTranslation } from "react-i18next"
+import { cn } from "@/lib/utils"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import type { AgentConfig } from "../types"
 
+/** Reusable hint banner for OpenClaw-disabled tabs */
+export function OpenClawHintBanner() {
+  const { t } = useTranslation()
+  return (
+    <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 px-3 py-2">
+      <p className="text-xs text-blue-600 dark:text-blue-400">
+        {t("settings.openclawModeActiveHint")}
+      </p>
+    </div>
+  )
+}
+
 interface CustomTabProps {
   config: AgentConfig
-  agentMd: string
-  persona: string
+  agentsMd: string
+  identityMd: string
+  soulMd: string
+  toolsGuide: string
   updateConfig: (patch: Partial<AgentConfig>) => void
-  handleEnableCustomPrompt: () => void
+  handleEnableOpenClawMode: () => void
   textInputProps: (getter: string, setter: (v: string) => void) => {
     value: string
     onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => void
     onCompositionStart: () => void
     onCompositionEnd: (e: React.CompositionEvent<HTMLInputElement | HTMLTextAreaElement>) => void
   }
-  setAgentMd: (v: string) => void
-  setPersona: (v: string) => void
+  setAgentsMd: (v: string) => void
+  setIdentityMd: (v: string) => void
+  setSoulMd: (v: string) => void
+  setToolsGuide: (v: string) => void
   CharCounter: React.ComponentType<{ value: string }>
 }
 
+type OcFileTab = "agents" | "identity" | "soul" | "tools"
+
+const OC_FILE_TABS: { id: OcFileTab; labelKey: string; descKey: string; placeholder: string }[] = [
+  { id: "agents", labelKey: "settings.agentAgentsMd", descKey: "settings.agentAgentsMdDesc", placeholder: "# AGENTS.md - Your Workspace" },
+  { id: "identity", labelKey: "settings.agentIdentityMd", descKey: "settings.agentIdentityMdDesc", placeholder: "# IDENTITY.md - Who Am I?" },
+  { id: "soul", labelKey: "settings.agentSoulMd", descKey: "settings.agentSoulMdDesc", placeholder: "# SOUL.md - Who You Are" },
+  { id: "tools", labelKey: "settings.agentToolsMd", descKey: "settings.agentToolsMdOcDesc", placeholder: "# TOOLS.md - Local Notes" },
+]
+
 export default function CustomTab({
   config,
-  agentMd,
-  persona,
+  agentsMd,
+  identityMd,
+  soulMd,
+  toolsGuide,
   updateConfig,
-  handleEnableCustomPrompt,
+  handleEnableOpenClawMode,
   textInputProps,
-  setAgentMd,
-  setPersona,
+  setAgentsMd,
+  setIdentityMd,
+  setSoulMd,
+  setToolsGuide,
   CharCounter,
 }: CustomTabProps) {
   const { t } = useTranslation()
+  const [activeFile, setActiveFile] = useState<OcFileTab>("agents")
+
+  const fileState: Record<OcFileTab, { value: string; setter: (v: string) => void }> = {
+    agents: { value: agentsMd, setter: setAgentsMd },
+    identity: { value: identityMd, setter: setIdentityMd },
+    soul: { value: soulMd, setter: setSoulMd },
+    tools: { value: toolsGuide, setter: setToolsGuide },
+  }
+
+  const activeTab = OC_FILE_TABS.find((t) => t.id === activeFile)!
+  const { value, setter } = fileState[activeFile]
 
   return (
     <div className="space-y-5">
-      {/* Toggle */}
+      {/* OpenClaw Compatible Mode Toggle */}
       <div className="flex items-center justify-between px-1">
         <div>
-          <div className="text-sm text-foreground">{t("settings.agentCustomPrompt")}</div>
+          <div className="text-sm text-foreground">{t("settings.agentOpenClawMode")}</div>
           <div className="text-xs text-muted-foreground">
-            {t("settings.agentCustomPromptDesc")}
+            {t("settings.agentOpenClawModeDesc")}
           </div>
         </div>
         <Switch
-          checked={config.useCustomPrompt}
+          checked={config.openclawMode}
           onCheckedChange={(v) => {
-            if (v) handleEnableCustomPrompt()
-            else updateConfig({ useCustomPrompt: false })
+            if (v) handleEnableOpenClawMode()
+            else updateConfig({ openclawMode: false })
           }}
         />
       </div>
 
-      {config.useCustomPrompt && (
+      {config.openclawMode && (
         <>
-          <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2">
-            <p className="text-xs text-amber-600 dark:text-amber-400">
-              {t("settings.agentCustomPromptWarning")}
+          <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 px-3 py-2">
+            <p className="text-xs text-blue-600 dark:text-blue-400">
+              {t("settings.agentOpenClawModeWarning")}
             </p>
           </div>
 
-          {/* Custom Identity */}
-          <div>
-            <div className="text-xs font-medium text-muted-foreground mb-1 px-1">
-              {t("settings.agentMd")}
-            </div>
-            <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">
-              {t("settings.agentCustomIdentityDesc")}
-            </p>
-            <Textarea
-              className="bg-secondary/40 rounded-lg resize-y leading-relaxed font-mono min-h-[160px]"
-              rows={10}
-              {...textInputProps(agentMd, setAgentMd)}
-              placeholder={t("settings.agentMdPlaceholder")}
-            />
-            <CharCounter value={agentMd} />
+          {/* Sub-tabs for 4 md files */}
+          <div className="flex gap-1 border-b border-border pb-px">
+            {OC_FILE_TABS.map((tab) => (
+              <button
+                key={tab.id}
+                className={cn(
+                  "px-2.5 py-1.5 text-xs rounded-t-md transition-colors -mb-px",
+                  activeFile === tab.id
+                    ? "text-primary border-b-2 border-primary font-medium"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                onClick={() => setActiveFile(tab.id)}
+              >
+                {t(tab.labelKey)}
+              </button>
+            ))}
           </div>
 
-          {/* Custom Personality */}
+          {/* Active file editor */}
           <div>
-            <div className="text-xs font-medium text-muted-foreground mb-1 px-1">
-              {t("settings.agentPersona")}
-            </div>
             <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">
-              {t("settings.agentCustomPersonaDesc")}
+              {t(activeTab.descKey)}
             </p>
             <Textarea
-              className="bg-secondary/40 rounded-lg resize-y leading-relaxed font-mono min-h-[120px]"
-              rows={8}
-              {...textInputProps(persona, setPersona)}
-              placeholder={t("settings.agentPersonaPlaceholder")}
+              className="bg-secondary/40 rounded-lg resize-y leading-relaxed font-mono min-h-[280px]"
+              rows={16}
+              {...textInputProps(value, setter)}
+              placeholder={activeTab.placeholder}
             />
-            <CharCounter value={persona} />
+            <CharCounter value={value} />
           </div>
         </>
       )}

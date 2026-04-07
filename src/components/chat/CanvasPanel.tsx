@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react"
-import { listen, type UnlistenFn } from "@tauri-apps/api/event"
-import { invoke, convertFileSrc } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
+import { convertFileSrc } from "@tauri-apps/api/core"
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window"
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow"
 import { useTranslation } from "react-i18next"
@@ -39,7 +39,7 @@ export default function CanvasPanel({ panelWidth = 480, onPanelWidthChange }: Ca
   const handleSnapshotRequest = useCallback((requestId: string) => {
     const iframe = iframeRef.current
     if (!iframe?.contentWindow) {
-      invoke("canvas_submit_snapshot", {
+      getTransport().call("canvas_submit_snapshot", {
         requestId,
         dataUrl: null,
         error: "Canvas panel is not open or iframe not loaded",
@@ -56,7 +56,7 @@ export default function CanvasPanel({ panelWidth = 480, onPanelWidthChange }: Ca
     (requestId: string, code: string) => {
       const iframe = iframeRef.current
       if (!iframe?.contentWindow) {
-        invoke("canvas_submit_eval_result", {
+        getTransport().call("canvas_submit_eval_result", {
           requestId,
           result: null,
           error: "Canvas panel is not open or iframe not loaded",
@@ -83,11 +83,11 @@ export default function CanvasPanel({ panelWidth = 480, onPanelWidthChange }: Ca
 
   // Listen for canvas events from backend
   useEffect(() => {
-    const unlisteners: UnlistenFn[] = []
+    const unlisteners: Array<() => void> = []
 
-    listen<string>("canvas_show", (event) => {
+    unlisteners.push(getTransport().listen("canvas_show", (raw) => {
       try {
-        const data = JSON.parse(event.payload)
+        const data = JSON.parse(raw as string)
         setCanvas({
           projectId: data.projectId,
           title: data.title || "Canvas",
@@ -97,15 +97,15 @@ export default function CanvasPanel({ panelWidth = 480, onPanelWidthChange }: Ca
       } catch {
         /* ignore parse errors */
       }
-    }).then((u) => unlisteners.push(u))
+    }))
 
-    listen<string>("canvas_hide", () => {
+    unlisteners.push(getTransport().listen("canvas_hide", () => {
       setCanvas(null)
-    }).then((u) => unlisteners.push(u))
+    }))
 
-    listen<string>("canvas_reload", (event) => {
+    unlisteners.push(getTransport().listen("canvas_reload", (raw) => {
       try {
-        const data = JSON.parse(event.payload)
+        const data = JSON.parse(raw as string)
         // If it's the current canvas, refresh
         setCanvas((prev) => {
           if (prev && prev.projectId === data.projectId) {
@@ -126,11 +126,11 @@ export default function CanvasPanel({ panelWidth = 480, onPanelWidthChange }: Ca
       } catch {
         /* ignore */
       }
-    }).then((u) => unlisteners.push(u))
+    }))
 
-    listen<string>("canvas_deleted", (event) => {
+    unlisteners.push(getTransport().listen("canvas_deleted", (raw) => {
       try {
-        const data = JSON.parse(event.payload)
+        const data = JSON.parse(raw as string)
         setCanvas((prev) => {
           if (prev && prev.projectId === data.projectId) {
             return null
@@ -140,27 +140,27 @@ export default function CanvasPanel({ panelWidth = 480, onPanelWidthChange }: Ca
       } catch {
         /* ignore */
       }
-    }).then((u) => unlisteners.push(u))
+    }))
 
     // Listen for snapshot requests from backend
-    listen<string>("canvas_snapshot_request", (event) => {
+    unlisteners.push(getTransport().listen("canvas_snapshot_request", (raw) => {
       try {
-        const data = JSON.parse(event.payload)
+        const data = JSON.parse(raw as string)
         handleSnapshotRequest(data.requestId)
       } catch {
         /* ignore */
       }
-    }).then((u) => unlisteners.push(u))
+    }))
 
     // Listen for eval requests from backend
-    listen<string>("canvas_eval_request", (event) => {
+    unlisteners.push(getTransport().listen("canvas_eval_request", (raw) => {
       try {
-        const data = JSON.parse(event.payload)
+        const data = JSON.parse(raw as string)
         handleEvalRequest(data.requestId, data.code)
       } catch {
         /* ignore */
       }
-    }).then((u) => unlisteners.push(u))
+    }))
 
     return () => {
       unlisteners.forEach((u) => u())
@@ -173,7 +173,7 @@ export default function CanvasPanel({ panelWidth = 480, onPanelWidthChange }: Ca
       if (!event.data || typeof event.data !== "object") return
 
       if (event.data.type === "canvas_eval_result") {
-        invoke("canvas_submit_eval_result", {
+        getTransport().call("canvas_submit_eval_result", {
           requestId: event.data.requestId,
           result: event.data.result ?? null,
           error: event.data.error ?? null,
@@ -181,7 +181,7 @@ export default function CanvasPanel({ panelWidth = 480, onPanelWidthChange }: Ca
       }
 
       if (event.data.type === "canvas_snapshot_result") {
-        invoke("canvas_submit_snapshot", {
+        getTransport().call("canvas_submit_snapshot", {
           requestId: event.data.requestId,
           dataUrl: event.data.dataUrl ?? null,
           error: event.data.error ?? null,

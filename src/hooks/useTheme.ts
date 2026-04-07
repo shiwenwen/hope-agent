@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 
 export type ThemeMode = "auto" | "light" | "dark"
 
@@ -24,13 +24,13 @@ function applyThemeVisual(mode: ThemeMode) {
   root.style.backgroundColor = isDark ? "#0f0f0f" : "#ffffff"
   root.style.colorScheme = isDark ? "dark" : "light"
   // Sync macOS NSWindow background color to match theme
-  invoke("set_window_theme", { isDark }).catch(() => {})
+  getTransport().call("set_window_theme", { isDark }).catch(() => {})
 }
 
 /** Apply theme visually and persist to backend config */
 function applyTheme(mode: ThemeMode) {
   applyThemeVisual(mode)
-  invoke("set_theme", { theme: mode }).catch(() => {})
+  getTransport().call("set_theme", { theme: mode }).catch(() => {})
 }
 
 export function useTheme() {
@@ -38,7 +38,7 @@ export function useTheme() {
 
   // Load theme from backend config.json on mount (apply visually only, no write-back)
   useEffect(() => {
-    invoke<string>("get_theme")
+    getTransport().call<string>("get_theme")
       .then((stored) => {
         const mode = (stored === "light" || stored === "dark") ? stored : "auto"
         setThemeState(mode)

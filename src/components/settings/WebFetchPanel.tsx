@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
@@ -46,7 +46,7 @@ export default function WebFetchPanel() {
 
   useEffect(() => {
     let cancelled = false
-    invoke<WebFetchConfig>("get_web_fetch_config")
+    getTransport().call<WebFetchConfig>("get_web_fetch_config")
       .then((cfg) => {
         if (!cancelled) {
           setConfig(cfg)
@@ -64,7 +64,7 @@ export default function WebFetchPanel() {
   const save = async () => {
     setSaving(true)
     try {
-      await invoke("save_web_fetch_config", { config })
+      await getTransport().call("save_web_fetch_config", { config })
       setSavedSnapshot(JSON.stringify(config))
       setSaveStatus("saved")
       setTimeout(() => setSaveStatus("idle"), 2000)

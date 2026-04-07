@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
@@ -60,8 +60,8 @@ export default function ModelTab({ config, availableModels, updateConfig }: Mode
               // Inherit from global settings
               try {
                 const [globalActive, globalFallbacks] = await Promise.all([
-                  invoke<ActiveModelRef | null>("get_active_model"),
-                  invoke<ActiveModelRef[]>("get_fallback_models"),
+                  getTransport().call<ActiveModelRef | null>("get_active_model"),
+                  getTransport().call<ActiveModelRef[]>("get_fallback_models"),
                 ])
                 const primary = globalActive
                   ? `${globalActive.providerId}::${globalActive.modelId}`

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react"
 import { useTranslation } from "react-i18next"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { IconTip } from "@/components/ui/tooltip"
@@ -32,10 +32,10 @@ export default function ChannelPanel() {
   const loadData = useCallback(async () => {
     try {
       const [accountList, pluginList, healthList, agentList] = await Promise.all([
-        invoke<ChannelAccountConfig[]>("channel_list_accounts"),
-        invoke<ChannelPluginInfo[]>("channel_list_plugins"),
-        invoke<[string, ChannelHealth][]>("channel_health_all"),
-        invoke<AgentInfo[]>("list_agents"),
+        getTransport().call<ChannelAccountConfig[]>("channel_list_accounts"),
+        getTransport().call<ChannelPluginInfo[]>("channel_list_plugins"),
+        getTransport().call<[string, ChannelHealth][]>("channel_health_all"),
+        getTransport().call<AgentInfo[]>("list_agents"),
       ])
       setAccounts(accountList)
       // Prioritize commonly-used channels at the top of selection grid
@@ -68,7 +68,7 @@ export default function ChannelPanel() {
     // Poll health every 10s
     const interval = setInterval(async () => {
       try {
-        const healthList = await invoke<[string, ChannelHealth][]>("channel_health_all")
+        const healthList = await getTransport().call<[string, ChannelHealth][]>("channel_health_all")
         if (aborted) return
         const hMap: Record<string, ChannelHealth> = {}
         for (const [id, health] of healthList) {
@@ -84,7 +84,7 @@ export default function ChannelPanel() {
 
   const handleStart = async (accountId: string) => {
     try {
-      await invoke("channel_start_account", { accountId })
+      await getTransport().call("channel_start_account", { accountId })
       await loadData()
     } catch (e) {
       logger.error("channel", "ChannelPanel", "Failed to start channel account", e)
@@ -93,7 +93,7 @@ export default function ChannelPanel() {
 
   const handleStop = async (accountId: string) => {
     try {
-      await invoke("channel_stop_account", { accountId })
+      await getTransport().call("channel_stop_account", { accountId })
       await loadData()
     } catch (e) {
       logger.error("channel", "ChannelPanel", "Failed to stop channel account", e)
@@ -102,7 +102,7 @@ export default function ChannelPanel() {
 
   const handleRemove = async (accountId: string) => {
     try {
-      await invoke("channel_remove_account", { accountId })
+      await getTransport().call("channel_remove_account", { accountId })
       await loadData()
     } catch (e) {
       logger.error("channel", "ChannelPanel", "Failed to remove channel account", e)
@@ -111,7 +111,7 @@ export default function ChannelPanel() {
 
   const handleToggleEnabled = async (account: ChannelAccountConfig) => {
     try {
-      await invoke("channel_update_account", {
+      await getTransport().call("channel_update_account", {
         accountId: account.id,
         enabled: !account.enabled,
       })

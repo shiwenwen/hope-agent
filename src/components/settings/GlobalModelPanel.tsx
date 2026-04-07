@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import {
@@ -91,10 +91,10 @@ export default function GlobalModelPanel() {
     async function load() {
       try {
         const [models, active, fallbacks, temp] = await Promise.all([
-          invoke<AvailableModel[]>("get_available_models"),
-          invoke<ActiveModelRef | null>("get_active_model"),
-          invoke<ActiveModelRef[]>("get_fallback_models"),
-          invoke<number | null>("get_global_temperature"),
+          getTransport().call<AvailableModel[]>("get_available_models"),
+          getTransport().call<ActiveModelRef | null>("get_active_model"),
+          getTransport().call<ActiveModelRef[]>("get_fallback_models"),
+          getTransport().call<number | null>("get_global_temperature"),
         ])
         setAvailableModels(models)
         setActiveModel(active)
@@ -118,7 +118,7 @@ export default function GlobalModelPanel() {
 
   const handleSetDefault = async (providerId: string, modelId: string) => {
     try {
-      await invoke("set_active_model", { providerId, modelId })
+      await getTransport().call("set_active_model", { providerId, modelId })
       setActiveModel({ providerId, modelId })
     } catch (e) {
       logger.error("settings", "GlobalModelPanel::setDefault", "Failed to set default model", e)
@@ -127,7 +127,7 @@ export default function GlobalModelPanel() {
 
   const handleSaveFallbacks = async (newFallbacks: ActiveModelRef[]) => {
     try {
-      await invoke("set_fallback_models", { models: newFallbacks })
+      await getTransport().call("set_fallback_models", { models: newFallbacks })
       setFallbackModels(newFallbacks)
     } catch (e) {
       logger.error(
@@ -288,7 +288,7 @@ export default function GlobalModelPanel() {
             }}
             onValueCommit={([v]) => {
               const temp = v / 100
-              invoke("set_global_temperature", { temperature: temp }).catch((e) =>
+              getTransport().call("set_global_temperature", { temperature: temp }).catch((e) =>
                 logger.error("settings", "GlobalModelPanel::setTemperature", "Failed", e),
               )
             }}
@@ -301,7 +301,7 @@ export default function GlobalModelPanel() {
             className="text-muted-foreground/50 hover:text-foreground transition-colors"
             onClick={() => {
               setGlobalTemperature(null)
-              invoke("set_global_temperature", { temperature: null }).catch((e) =>
+              getTransport().call("set_global_temperature", { temperature: null }).catch((e) =>
                 logger.error("settings", "GlobalModelPanel::resetTemperature", "Failed", e),
               )
             }}

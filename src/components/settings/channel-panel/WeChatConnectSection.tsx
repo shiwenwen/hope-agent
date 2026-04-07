@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react"
 import { useTranslation } from "react-i18next"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { QRCodeSVG } from "qrcode.react"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
@@ -51,7 +51,7 @@ export default function WeChatConnectSection({
       pollingRef.current = true
 
       try {
-        const result = await invoke<WeChatLoginWaitResult>("channel_wechat_wait_login", {
+        const result = await getTransport().call<WeChatLoginWaitResult>("channel_wechat_wait_login", {
           sessionKey,
           timeoutMs: 1500,
         })
@@ -108,7 +108,7 @@ export default function WeChatConnectSection({
     setStatus("wait")
 
     try {
-      const result = await invoke<WeChatLoginStartResult>("channel_wechat_start_login", {
+      const result = await getTransport().call<WeChatLoginStartResult>("channel_wechat_start_login", {
         accountId: accountId ?? null,
       })
       console.log("[WeChat Login] start_login result:", {

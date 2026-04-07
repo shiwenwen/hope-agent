@@ -362,7 +362,7 @@ Worker Dispatcher (worker.rs)
     │       ├── 恢复会话历史 (restore_agent_context)
     │       ├── AssistantAgent.chat() → 流式执行 → Tool Loop
     │       ├── 工具事件实时持久化 (persist_tool_event)
-    │       ├── 流式事件推送前端 (EmitSink → channel:stream_delta)
+    │       ├── 流式事件推送前端 (ChannelStreamSink → EventBus → channel:stream_delta)
     │       ├── Context compaction (溢出时自动压缩)
     │       ├── 保存助手回复（含 token/duration/thinking 元数据）
     │       ├── 持久化对话上下文 (save_agent_context)
@@ -439,7 +439,7 @@ sequenceDiagram
 
     Worker->>Agent: chat_engine::run_chat_engine()
     Agent->>LLM: API 请求 (流式 + tool loop)
-    LLM-->>Agent: 流式响应 (text_delta → EmitSink → 前端)
+    LLM-->>Agent: 流式响应 (text_delta → ChannelStreamSink → EventBus → 前端)
     Agent-->>Worker: 完整响应
     Worker->>Plugin: markdown_to_native(response)
     Worker->>Plugin: chunk_message(native_text)
@@ -456,7 +456,7 @@ sequenceDiagram
 ## 模块拆分
 
 ```
-src-tauri/src/channel/
+crates/oc-core/src/channel/
 ├── mod.rs              模块根入口，re-export 公共类型
 ├── types.rs            核心数据类型（20+ struct/enum）
 ├── traits.rs           ChannelPlugin trait 定义 + chunk_text 辅助函数
@@ -643,7 +643,7 @@ pub fn spawn_dispatcher(
 - **并发处理**：每条入站消息在独立 `tokio::spawn` 中处理，不阻塞其他消息
 - **斜杠命令拦截**：在调用 LLM 之前，`dispatch_slash_for_channel()` 检测以 `/` 开头的消息并转发给 `slash_commands::handlers::dispatch()`。`Reply` 类命令（`/help`、`/new`、`/clear`、`/model`、`/status` 等）直接回复并跳过 LLM；`PassThrough` 类命令（技能调用、`/search`）将转换后的指令作为 `engine_message` 交给 LLM（详见 [斜杠命令系统](slash-commands.md)）
 - **共享 ChatEngine**：调用 `chat_engine::run_chat_engine()` — 与 UI 聊天使用完全相同的 Agent 执行引擎，拥有相同的能力：流式输出、会话历史恢复、工具事件持久化、Failover 降级、Context compaction、Token 跟踪、异步记忆提取
-- **EventSink 抽象**：UI 聊天通过 `ChannelSink`（Tauri Channel）推流，IM 聊天通过 `EmitSink`（Tauri emit）推流到前端 + 累积 text_delta 发送 `channel:stream_delta` 事件
+- **EventSink 抽象**：UI 聊天通过 `ChannelSink`（桌面 Tauri Channel）或 `WsSink`（HTTP WebSocket）推流，IM 聊天通过 `ChannelStreamSink`（EventBus）推流到前端 + 累积 text_delta 发送 `channel:stream_delta` 事件
 - **每个渠道可绑定独立 Agent**：`ChannelAccountConfig.agent_id` 字段支持每个渠道账户绑定不同 Agent，未设置时回退到全局默认
 - **Channel 上下文注入**：通过 `extra_system_context` 向 Agent 注入当前 IM 渠道信息（channel type、chat type、sender 等）
 - **格式转换后发送**：先 `markdown_to_native()` 转格式，再 `chunk_message()` 分块，最后逐块发送
@@ -1082,7 +1082,7 @@ interface ChannelAccountConfig {
 
 以 WebSocket 渠道为例：
 ```
-src-tauri/src/channel/{channel_name}/
+crates/oc-core/src/channel/{channel_name}/
 ├── mod.rs          // {Channel}Plugin: impl ChannelPlugin
 ├── api.rs          // REST API 封装（reqwest）
 ├── auth.rs         // 可选：OAuth Token 管理（如需 app_id+secret 认证）
@@ -1100,9 +1100,9 @@ src-tauri/src/channel/{channel_name}/
 
 ### 3. 注册插件
 
-在 `src-tauri/src/channel/mod.rs` 添加 `pub mod {channel_name};`
+在 `crates/oc-core/src/channel/mod.rs` 添加 `pub mod {channel_name};`
 
-在 `src-tauri/src/lib.rs` 的 setup 中添加：
+在 `crates/oc-core/src/lib.rs` 的 setup 中添加：
 ```rust
 registry.register_plugin(Arc::new(channel::{channel_name}::{Channel}Plugin::new()));
 ```
@@ -1160,18 +1160,18 @@ registry.register_plugin(Arc::new(channel::{channel_name}::{Channel}Plugin::new(
 
 | 文件路径 | 说明 |
 |---------|------|
-| `src-tauri/src/channel/mod.rs` | 模块根 |
-| `src-tauri/src/channel/types.rs` | 核心数据类型（ChannelId 12+Custom 变体） |
-| `src-tauri/src/channel/traits.rs` | ChannelPlugin trait + chunk_text |
-| `src-tauri/src/channel/ws.rs` | 共享 WebSocket 工具（WsConnection + 退避） |
-| `src-tauri/src/channel/config.rs` | 配置存储 |
-| `src-tauri/src/channel/db.rs` | 会话映射 DB |
-| `src-tauri/src/channel/registry.rs` | 插件注册表 |
-| `src-tauri/src/channel/worker.rs` | 入站分发器 |
-| `src-tauri/src/channel/cancel.rs` | 流式取消注册表 |
-| `src-tauri/src/channel/process_manager.rs` | 外部子进程管理（Signal/iMessage 共享） |
-| `src-tauri/src/channel/webhook_server.rs` | 嵌入式 Webhook HTTP 服务器（axum, Google Chat/LINE 共享） |
-| `src-tauri/src/chat_engine.rs` | 共享聊天执行引擎 |
+| `crates/oc-core/src/channel/mod.rs` | 模块根 |
+| `crates/oc-core/src/channel/types.rs` | 核心数据类型（ChannelId 12+Custom 变体） |
+| `crates/oc-core/src/channel/traits.rs` | ChannelPlugin trait + chunk_text |
+| `crates/oc-core/src/channel/ws.rs` | 共享 WebSocket 工具（WsConnection + 退避） |
+| `crates/oc-core/src/channel/config.rs` | 配置存储 |
+| `crates/oc-core/src/channel/db.rs` | 会话映射 DB |
+| `crates/oc-core/src/channel/registry.rs` | 插件注册表 |
+| `crates/oc-core/src/channel/worker.rs` | 入站分发器 |
+| `crates/oc-core/src/channel/cancel.rs` | 流式取消注册表 |
+| `crates/oc-core/src/channel/process_manager.rs` | 外部子进程管理（Signal/iMessage 共享） |
+| `crates/oc-core/src/channel/webhook_server.rs` | 嵌入式 Webhook HTTP 服务器（axum, Google Chat/LINE 共享） |
+| `crates/oc-core/src/chat_engine/` | 共享聊天执行引擎 |
 
 ### 渠道插件文件
 

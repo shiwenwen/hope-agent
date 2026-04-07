@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react"
-import { invoke, Channel } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
+import { Channel } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { loadNotificationConfig, isAgentNotifyEnabled, notify } from "@/lib/notifications"
@@ -119,7 +120,7 @@ export function useChatStream({
 
   // Load config on mount
   useEffect(() => {
-    invoke<{ autoSendPending?: boolean }>("get_user_config")
+    getTransport().call<{ autoSendPending?: boolean }>("get_user_config")
       .then((cfg) => {
         autoSendPendingRef.current = cfg.autoSendPending !== false
       })
@@ -129,7 +130,7 @@ export function useChatStream({
 
   async function handleStop() {
     try {
-      await invoke("stop_chat")
+      await getTransport().call("stop_chat")
     } catch (e) {
       logger.error("ui", "ChatScreen::stop", "Failed to stop chat", e)
     }
@@ -184,7 +185,7 @@ export function useChatStream({
           })
         } else {
           const bytes = Array.from(new Uint8Array(arrayBuffer))
-          const filePath = await invoke<string>("save_attachment", {
+          const filePath = await getTransport().call<string>("save_attachment", {
             sessionId: currentSessionId,
             fileName: file.name,
             mimeType,
@@ -279,7 +280,7 @@ export function useChatStream({
       const modelOverride = activeModel
         ? `${activeModel.providerId}::${activeModel.modelId}`
         : undefined
-      await invoke<string>("chat", {
+      await getTransport().call<string>("chat", {
         message: text,
         attachments,
         sessionId: currentSessionId,
@@ -342,7 +343,7 @@ export function useChatStream({
       }
       // Mark current session as read so unread count stays 0 for active session
       if (targetSessionId) {
-        invoke("mark_session_read_cmd", { sessionId: targetSessionId }).catch(() => {})
+        getTransport().call("mark_session_read_cmd", { sessionId: targetSessionId }).catch(() => {})
       }
       reloadSessions()
 

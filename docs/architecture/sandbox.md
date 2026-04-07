@@ -161,9 +161,9 @@ flowchart LR
 
 | 文件路径 | 核心导出 |
 |----------|----------|
-| `src-tauri/src/docker/mod.rs` | `CONTAINER_NAME`, `IMAGE`, `DEFAULT_HOST_PORT`, `DEPLOYING`, `DEPLOY_PROGRESS`, `STATUS_LOCK` |
-| `src-tauri/src/docker/status.rs` | `SearxngDockerStatus`, `status()` |
-| `src-tauri/src/docker/deploy.rs` | `deploy()` |
-| `src-tauri/src/docker/lifecycle.rs` | `start()`, `stop()`, `remove()` |
-| `src-tauri/src/docker/helpers.rs` | `docker_status()`, `inspect_container()`, `inspect_port()`, `prepare_searxng_config()`, `health_check()`, `search_test()` |
-| `src-tauri/src/docker/proxy.rs` | `resolve_proxy_for_container()` |
+| `crates/oc-core/src/docker/mod.rs` | `CONTAINER_NAME`, `IMAGE`, `DEFAULT_HOST_PORT`, `DEPLOYING`, `DEPLOY_PROGRESS`, `STATUS_LOCK` |
+| `crates/oc-core/src/docker/status.rs` | `SearxngDockerStatus`, `status()` |
+| `crates/oc-core/src/docker/deploy.rs` | `deploy()` |
+| `crates/oc-core/src/docker/lifecycle.rs` | `start()`, `stop()`, `remove()` |
+| `crates/oc-core/src/docker/helpers.rs` | `docker_status()`, `inspect_container()`, `inspect_port()`, `prepare_searxng_config()`, `health_check()`, `search_test()` |
+| `crates/oc-core/src/docker/proxy.rs` | `resolve_proxy_for_container()` |

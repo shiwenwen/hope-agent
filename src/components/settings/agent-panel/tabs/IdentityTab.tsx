@@ -1,11 +1,13 @@
 import { useTranslation } from "react-i18next"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
+import { OpenClawHintBanner } from "./CustomTab"
 import type { AgentConfig, PersonalityConfig } from "../types"
 
 interface IdentityTabProps {
   config: AgentConfig
   agentMd: string
+  openclawMode: boolean
   updateConfig: (patch: Partial<AgentConfig>) => void
   updatePersonality: (patch: Partial<PersonalityConfig>) => void
   setAgentMd: (v: string) => void
@@ -21,6 +23,7 @@ interface IdentityTabProps {
 export default function IdentityTab({
   config,
   agentMd,
+  openclawMode,
   updateConfig,
   updatePersonality,
   setAgentMd,
@@ -31,6 +34,8 @@ export default function IdentityTab({
 
   return (
     <div className="space-y-4">
+      {openclawMode && <OpenClawHintBanner />}
+
       {/* Name */}
       <div>
         <div className="text-xs font-medium text-muted-foreground mb-2 px-1">
@@ -73,13 +78,14 @@ export default function IdentityTab({
       <div className="border-t border-border/50" />
 
       {/* Role */}
-      <div>
+      <div className={openclawMode ? "opacity-50 pointer-events-none" : ""}>
         <div className="text-xs font-medium text-muted-foreground mb-2 px-1">
           {t("settings.agentRole")}
         </div>
         <Textarea
           className="bg-secondary/40 rounded-lg resize-y leading-relaxed min-h-[60px]"
           rows={3}
+          disabled={openclawMode}
           {...textInputProps(config.personality.role ?? "", (v) =>
             updatePersonality({ role: v || null }),
           )}
@@ -90,7 +96,7 @@ export default function IdentityTab({
       <div className="border-t border-border/50" />
 
       {/* Identity supplement */}
-      <div>
+      <div className={openclawMode ? "opacity-50 pointer-events-none" : ""}>
         <div className="text-xs font-medium text-muted-foreground mb-1 px-1">
           {t("settings.agentSupplement")}
         </div>
@@ -100,6 +106,7 @@ export default function IdentityTab({
         <Textarea
           className="bg-secondary/40 rounded-lg resize-y leading-relaxed font-mono min-h-[120px]"
           rows={8}
+          disabled={openclawMode}
           {...textInputProps(agentMd, setAgentMd)}
           placeholder={t("settings.agentSupplementPlaceholder")}
         />

@@ -190,8 +190,8 @@ pub struct ChatUsage {
 
 | 文件 | 路径 | 职责 |
 |------|------|------|
-| Side Query 核心 | `src-tauri/src/agent/side_query.rs` | `save_cache_safe_params()` + `side_query()` + 4 个 Provider 适配 + 共享 helpers |
-| 类型定义 | `src-tauri/src/agent/types.rs` | `CacheSafeParams` / `ProviderFormat` / `SideQueryResult` / `ChatUsage` |
-| Provider 配置 | `src-tauri/src/agent/config.rs` | `build_api_url()` / `ANTHROPIC_API_VERSION` |
-| 上下文压缩 | `src-tauri/src/context_compact.rs` | 调用方：Tier 3 摘要通过 side_query 执行 |
-| 记忆系统 | `src-tauri/src/memory.rs` | 调用方：记忆提取 + 语义选择通过 side_query 执行 |
+| Side Query 核心 | `crates/oc-core/src/agent/side_query.rs` | `save_cache_safe_params()` + `side_query()` + 4 个 Provider 适配 + 共享 helpers |
+| 类型定义 | `crates/oc-core/src/agent/types.rs` | `CacheSafeParams` / `ProviderFormat` / `SideQueryResult` / `ChatUsage` |
+| Provider 配置 | `crates/oc-core/src/agent/config.rs` | `build_api_url()` / `ANTHROPIC_API_VERSION` |
+| 上下文压缩 | `crates/oc-core/src/context_compact/` | 调用方：Tier 3 摘要通过 side_query 执行 |
+| 记忆系统 | `crates/oc-core/src/memory/` | 调用方：记忆提取 + 语义选择通过 side_query 执行 |

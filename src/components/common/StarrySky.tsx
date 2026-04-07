@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, memo } from "react"
-import { invoke } from "@tauri-apps/api/core"
-import { listen } from "@tauri-apps/api/event"
+import { getTransport } from "@/lib/transport-provider"
 import { classifyWeather, generatePoints } from "./weatherUtils"
 import type { WeatherData } from "./weatherUtils"
 import WeatherCanvas from "./WeatherCanvas"
@@ -76,11 +75,11 @@ function AppBackgroundInner() {
 
     const loadData = async () => {
       try {
-        const effects = await invoke<boolean>("get_ui_effects_enabled")
+        const effects = await getTransport().call<boolean>("get_ui_effects_enabled")
         if (mounted) setUiEffectsEnabled(effects)
         if (effects) {
           try {
-            const w = await invoke<WeatherData | null>("get_current_weather")
+            const w = await getTransport().call<WeatherData | null>("get_current_weather")
             applyWeather(w)
           } catch {
             // weather might not be configured
@@ -103,18 +102,15 @@ function AppBackgroundInner() {
     window.addEventListener("ui-effects-changed", listener)
     window.addEventListener("simulate-weather", simulateListener)
 
-    let unlistenWeather: (() => void) | null = null
-    listen<WeatherData>("weather-cache-updated", (event) => {
-      applyWeather(event.payload)
-    }).then((fn) => {
-      unlistenWeather = fn
+    const unlistenWeather = getTransport().listen("weather-cache-updated", (payload) => {
+      applyWeather(payload as WeatherData)
     })
 
     return () => {
       mounted = false
       window.removeEventListener("ui-effects-changed", listener)
       window.removeEventListener("simulate-weather", simulateListener)
-      unlistenWeather?.()
+      unlistenWeather()
     }
   }, [])
 

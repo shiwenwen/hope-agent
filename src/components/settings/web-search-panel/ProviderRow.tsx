@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { useSortable } from "@dnd-kit/sortable"
@@ -106,7 +106,7 @@ export function SortableProviderItem({
         <button
           type="button"
           className="text-muted-foreground/40 hover:text-primary shrink-0 transition-colors"
-          onClick={() => invoke("open_url", { url: meta.url })}
+          onClick={() => getTransport().call("open_url", { url: meta.url })}
           title={meta.url}
         >
           <ExternalLink className="h-3.5 w-3.5" />

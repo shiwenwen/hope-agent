@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 
 interface UseMemoryExtractParams {
@@ -39,11 +39,11 @@ export function useMemoryExtract({ agentId, isAgentMode }: UseMemoryExtractParam
   useEffect(() => {
     async function loadExtractConfig() {
       try {
-        const global = await invoke<{ autoExtract: boolean; extractMinTurns: number; extractProviderId: string | null; extractModelId: string | null }>("get_extract_config")
+        const global = await getTransport().call<{ autoExtract: boolean; extractMinTurns: number; extractProviderId: string | null; extractModelId: string | null }>("get_extract_config")
         setGlobalExtract(prev => ({ ...global, flushBeforeCompact: prev.flushBeforeCompact }))
 
         if (isAgentMode && agentId) {
-          const cfg = await invoke<{ memory?: { autoExtract?: boolean | null; extractMinTurns?: number | null; extractProviderId?: string | null; extractModelId?: string | null } }>("get_agent_config", { id: agentId })
+          const cfg = await getTransport().call<{ memory?: { autoExtract?: boolean | null; extractMinTurns?: number | null; extractProviderId?: string | null; extractModelId?: string | null } }>("get_agent_config", { id: agentId })
           setAgentExtractOverride({
             autoExtract: cfg?.memory?.autoExtract ?? null,
             extractMinTurns: cfg?.memory?.extractMinTurns ?? null,
@@ -52,7 +52,7 @@ export function useMemoryExtract({ agentId, isAgentMode }: UseMemoryExtractParam
           })
         }
 
-        const providers = await invoke<{ id: string; name: string; models: { id: string; name: string }[]; enabled?: boolean }[]>("get_providers")
+        const providers = await getTransport().call<{ id: string; name: string; models: { id: string; name: string }[]; enabled?: boolean }[]>("get_providers")
         setAvailableProviders(
           providers
             .filter((p) => p.enabled !== false)
@@ -72,7 +72,7 @@ export function useMemoryExtract({ agentId, isAgentMode }: UseMemoryExtractParam
     const updated = { ...globalExtract, ...updates }
     setGlobalExtract(updated)
     try {
-      await invoke("save_extract_config", { config: updated })
+      await getTransport().call("save_extract_config", { config: updated })
     } catch (e) {
       logger.error("settings", "MemoryPanel::saveGlobalExtract", "Failed", e)
     }
@@ -84,11 +84,11 @@ export function useMemoryExtract({ agentId, isAgentMode }: UseMemoryExtractParam
     const updated = { ...agentExtractOverride, ...updates }
     setAgentExtractOverride(updated)
     try {
-      const cfg = await invoke<Record<string, unknown>>("get_agent_config", { id: agentId })
+      const cfg = await getTransport().call<Record<string, unknown>>("get_agent_config", { id: agentId })
       const memory = (cfg?.memory ?? {}) as Record<string, unknown>
       Object.assign(memory, updates)
       cfg.memory = memory
-      await invoke("save_agent_config_cmd", { id: agentId, config: cfg })
+      await getTransport().call("save_agent_config_cmd", { id: agentId, config: cfg })
     } catch (e) {
       logger.error("settings", "MemoryPanel::saveAgentExtract", "Failed", e)
     }
@@ -99,14 +99,14 @@ export function useMemoryExtract({ agentId, isAgentMode }: UseMemoryExtractParam
     if (!agentId) return
     setAgentExtractOverride({ autoExtract: null, extractMinTurns: null, extractProviderId: null, extractModelId: null })
     try {
-      const cfg = await invoke<Record<string, unknown>>("get_agent_config", { id: agentId })
+      const cfg = await getTransport().call<Record<string, unknown>>("get_agent_config", { id: agentId })
       const memory = (cfg?.memory ?? {}) as Record<string, unknown>
       delete memory.autoExtract
       delete memory.extractMinTurns
       delete memory.extractProviderId
       delete memory.extractModelId
       cfg.memory = memory
-      await invoke("save_agent_config_cmd", { id: agentId, config: cfg })
+      await getTransport().call("save_agent_config_cmd", { id: agentId, config: cfg })
     } catch (e) {
       logger.error("settings", "MemoryPanel::resetAgentExtract", "Failed", e)
     }

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { Switch } from "@/components/ui/switch"
 import { logger } from "@/lib/logger"
@@ -15,7 +15,7 @@ export function AutostartToggle() {
 
   useEffect(() => {
     let cancelled = false
-    invoke<boolean>("get_autostart_enabled")
+    getTransport().call<boolean>("get_autostart_enabled")
       .then((enabled) => {
         if (cancelled) return
         setAutostart(enabled)
@@ -32,7 +32,7 @@ export function AutostartToggle() {
     const next = !autostart
     setAutostart(next)
     try {
-      await invoke("set_autostart_enabled", { enabled: next })
+      await getTransport().call("set_autostart_enabled", { enabled: next })
     } catch (e) {
       setAutostart(!next)
       logger.error("settings", "AutostartToggle::toggle", "Failed to set autostart", e)
@@ -69,7 +69,7 @@ export function UiEffectsToggle() {
 
   useEffect(() => {
     let cancelled = false
-    invoke<boolean>("get_ui_effects_enabled")
+    getTransport().call<boolean>("get_ui_effects_enabled")
       .then((effectsEnabled) => {
         if (cancelled) return
         setUiEffectsEnabled(effectsEnabled)
@@ -86,7 +86,7 @@ export function UiEffectsToggle() {
     const next = !uiEffectsEnabled
     setUiEffectsEnabled(next)
     try {
-      await invoke("set_ui_effects_enabled", { enabled: next })
+      await getTransport().call("set_ui_effects_enabled", { enabled: next })
       window.dispatchEvent(new Event("ui-effects-changed"))
     } catch (e) {
       setUiEffectsEnabled(!next)

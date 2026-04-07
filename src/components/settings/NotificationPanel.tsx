@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { Switch } from "@/components/ui/switch"
 import {
@@ -36,11 +36,11 @@ export default function NotificationPanel() {
       setConfig(cfg)
 
       const agentList =
-        await invoke<{ id: string; name: string; emoji?: string | null }[]>("list_agents")
+        await getTransport().call<{ id: string; name: string; emoji?: string | null }[]>("list_agents")
       const agentsWithNotify = await Promise.all(
         agentList.map(async (a) => {
           try {
-            const agentConfig = await invoke<AgentConfig>("get_agent_config", { id: a.id })
+            const agentConfig = await getTransport().call<AgentConfig>("get_agent_config", { id: a.id })
             return { ...a, notifyOnComplete: agentConfig.notifyOnComplete ?? null }
           } catch {
             return { ...a, notifyOnComplete: null }
@@ -74,9 +74,9 @@ export default function NotificationPanel() {
   const handleAgentNotify = async (agentId: string, value: string) => {
     const notifyValue = value === "default" ? null : value === "on"
     try {
-      const agentConfig = await invoke<AgentConfig>("get_agent_config", { id: agentId })
+      const agentConfig = await getTransport().call<AgentConfig>("get_agent_config", { id: agentId })
       const updated = { ...agentConfig, notifyOnComplete: notifyValue }
-      await invoke("save_agent_config_cmd", { id: agentId, config: updated })
+      await getTransport().call("save_agent_config_cmd", { id: agentId, config: updated })
       setAgents((prev) =>
         prev.map((a) => (a.id === agentId ? { ...a, notifyOnComplete: notifyValue } : a)),
       )

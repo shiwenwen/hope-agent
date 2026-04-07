@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { IconTip } from "@/components/ui/tooltip"
@@ -41,7 +41,7 @@ function InstallSpecRow({
     setInstalling(true)
     setResult(null)
     try {
-      const output = await invoke<string>("install_skill_dependency", {
+      const output = await getTransport().call<string>("install_skill_dependency", {
         skillName,
         specIndex,
       })

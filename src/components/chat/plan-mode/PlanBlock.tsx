@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from "react"
 import { ChevronRight, ClipboardList, PanelRightOpen } from "lucide-react"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
@@ -38,7 +38,7 @@ export function PlanBlock({
   // Save plan content to backend when detected
   useEffect(() => {
     if (sessionId && parsedSteps.length > 0 && planState === "planning") {
-      invoke("save_plan_content", { sessionId, content }).catch(() => {})
+      getTransport().call("save_plan_content", { sessionId, content }).catch(() => {})
     }
   }, [sessionId, parsedSteps.length, planState, content])
 

@@ -7,6 +7,7 @@ import {
   Bot,
   Brain,
   Code,
+  Globe,
   Info,
   MessageSquare,
   Puzzle,
@@ -46,6 +47,7 @@ import DeveloperPanel from "@/components/settings/DeveloperPanel"
 import SandboxPanel from "@/components/settings/SandboxPanel"
 import AcpControlPanel from "@/components/settings/AcpControlPanel"
 import ChannelPanel from "@/components/settings/channel-panel"
+import ServerPanel from "@/components/settings/ServerPanel"
 import type { SettingsSection, SettingsSectionItem } from "./types"
 
 const SECTIONS: SettingsSectionItem[] = [
@@ -58,6 +60,11 @@ const SECTIONS: SettingsSectionItem[] = [
     id: "general",
     icon: <Settings2 className="h-4 w-4" />,
     labelKey: "settings.general",
+  },
+  {
+    id: "server",
+    icon: <Globe className="h-4 w-4" />,
+    labelKey: "settings.server",
   },
   {
     id: "modelConfig",
@@ -265,6 +272,7 @@ export default function SettingsView({
             {activeSection === "health" && <CrashHistoryPanel />}
             {activeSection === "logs" && <LogPanel />}
             {activeSection === "about" && <AboutPanel />}
+            {activeSection === "server" && <ServerPanel />}
             {activeSection === "developer" && <DeveloperPanel />}
           </div>
         </div>

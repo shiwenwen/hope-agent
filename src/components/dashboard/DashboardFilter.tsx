@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import {
@@ -65,8 +65,8 @@ export default function DashboardFilter({ filter, onChange }: DashboardFilterPro
   useEffect(() => {
     let alive = true
     Promise.all([
-      invoke<Agent[]>("list_agents"),
-      invoke<Provider[]>("get_providers"),
+      getTransport().call<Agent[]>("list_agents"),
+      getTransport().call<Provider[]>("get_providers"),
     ])
       .then(([agentList, providerList]) => {
         if (!alive) return

@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -268,7 +268,7 @@ export default function EmbeddingModelSection({ data }: EmbeddingModelSectionPro
             setEmbeddingTestLoading(true)
             setEmbeddingTestResult(null)
             try {
-              const msg = await invoke<string>("test_embedding", {
+              const msg = await getTransport().call<string>("test_embedding", {
                 config: embeddingConfig,
               })
               setEmbeddingTestResult(parseTestResult(msg, false))

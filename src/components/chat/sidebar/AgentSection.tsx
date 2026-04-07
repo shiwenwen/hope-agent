@@ -13,7 +13,7 @@ import {
   ChevronRight,
   Bot,
   MessageSquarePlus,
-  Pencil,
+  Settings,
 } from "lucide-react"
 import type { AgentSummaryForSidebar } from "@/types/chat"
 
@@ -156,8 +156,8 @@ export default function AgentSection({
                 {onEditAgent && (
                   <ContextMenuContent>
                     <ContextMenuItem onClick={() => onEditAgent(agent.id)}>
-                      <Pencil className="h-3 w-3 mr-2" />
-                      {t("common.edit")}
+                      <Settings className="h-3 w-3 mr-2" />
+                      {t("common.settings")}
                     </ContextMenuItem>
                   </ContextMenuContent>
                 )}

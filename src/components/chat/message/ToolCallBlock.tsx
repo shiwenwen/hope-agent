@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback, useEffect } from "react"
 import { useTranslation } from "react-i18next"
-import { invoke, convertFileSrc } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
+import { convertFileSrc } from "@tauri-apps/api/core"
 import {
   ChevronRight,
   Terminal,
@@ -245,7 +246,7 @@ export default function ToolCallBlock({ tool }: { tool: ToolCall }) {
   const handleOpenCanvas = useCallback(async () => {
     if (!canvasInfo) return
     try {
-      await invoke("show_canvas_panel", { projectId: canvasInfo.projectId })
+      await getTransport().call("show_canvas_panel", { projectId: canvasInfo.projectId })
     } catch {
       // Project may have been deleted
     }

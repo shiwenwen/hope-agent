@@ -1,0 +1,529 @@
+/**
+ * HTTP / WebSocket transport implementation.
+ *
+ * Used when the frontend runs outside of Tauri (standalone web mode).
+ * Maps Tauri command names to REST endpoints and uses WebSockets for
+ * streaming chat and backend events.
+ */
+
+import type { Transport, ChatStream } from "@/lib/transport";
+
+// ---------------------------------------------------------------------------
+// Command → REST endpoint mapping
+// ---------------------------------------------------------------------------
+
+type HttpMethod = "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
+
+interface EndpointDef {
+  method: HttpMethod;
+  /**
+   * Path template. Use `{paramName}` for path parameters that will be
+   * extracted from the `args` object.
+   */
+  path: string;
+}
+
+/**
+ * Lookup table mapping Tauri command names to REST endpoints.
+ *
+ * Only the most commonly used commands are mapped here. For unmapped commands
+ * `call()` will throw an explicit error. Extend this map as the HTTP backend
+ * gains more routes.
+ */
+const COMMAND_MAP: Record<string, EndpointDef> = {
+  // -- Sessions --
+  list_sessions_cmd:               { method: "GET",    path: "/api/sessions" },
+  load_session_messages_latest_cmd:{ method: "GET",    path: "/api/sessions/{sessionId}/messages" },
+  delete_session_cmd:              { method: "DELETE", path: "/api/sessions/{sessionId}" },
+  rename_session_cmd:              { method: "PATCH",  path: "/api/sessions/{sessionId}" },
+  mark_session_read_cmd:           { method: "POST",   path: "/api/sessions/{sessionId}/read" },
+  mark_session_read_batch_cmd:     { method: "POST",   path: "/api/sessions/read-batch" },
+  mark_all_sessions_read_cmd:      { method: "POST",   path: "/api/sessions/read-all" },
+  compact_context_now:             { method: "POST",   path: "/api/sessions/{sessionId}/compact" },
+  write_export_file:               { method: "POST",   path: "/api/sessions/{sessionId}/export" },
+
+  // -- Chat --
+  chat:                            { method: "POST",   path: "/api/chat" },
+  stop_chat:                       { method: "POST",   path: "/api/chat/stop" },
+  respond_to_approval:             { method: "POST",   path: "/api/chat/approval" },
+  save_attachment:                  { method: "POST",   path: "/api/chat/attachment" },
+
+  // -- Providers --
+  get_providers:                   { method: "GET",    path: "/api/providers" },
+  add_provider:                    { method: "POST",   path: "/api/providers" },
+  update_provider:                 { method: "PUT",    path: "/api/providers/{providerId}" },
+  delete_provider:                 { method: "DELETE", path: "/api/providers/{providerId}" },
+  reorder_providers:               { method: "POST",   path: "/api/providers/reorder" },
+  test_provider:                   { method: "POST",   path: "/api/providers/test" },
+  test_embedding:                  { method: "POST",   path: "/api/providers/test-embedding" },
+  test_image_generate:             { method: "POST",   path: "/api/providers/test-image" },
+
+  // -- Models --
+  get_available_models:            { method: "GET",    path: "/api/models" },
+  get_active_model:                { method: "GET",    path: "/api/models/active" },
+  set_active_model:                { method: "POST",   path: "/api/models/active" },
+  set_fallback_models:             { method: "POST",   path: "/api/models/fallback" },
+  set_reasoning_effort:            { method: "POST",   path: "/api/models/reasoning-effort" },
+  get_current_settings:            { method: "GET",    path: "/api/models/settings" },
+  set_global_temperature:          { method: "POST",   path: "/api/models/temperature" },
+
+  // -- Agents --
+  list_agents:                     { method: "GET",    path: "/api/agents" },
+  get_agent_config:                { method: "GET",    path: "/api/agents/{id}" },
+  save_agent_config_cmd:           { method: "PUT",    path: "/api/agents/{id}" },
+  delete_agent:                    { method: "DELETE", path: "/api/agents/{id}" },
+  save_agent_markdown:             { method: "PUT",    path: "/api/agents/{id}/markdown" },
+  save_agent_memory_md:            { method: "PUT",    path: "/api/agents/{id}/memory-md" },
+
+  // -- User config --
+  get_user_config:                 { method: "GET",    path: "/api/config/user" },
+  save_user_config:                { method: "PUT",    path: "/api/config/user" },
+
+  // -- Memory --
+  memory_search:                   { method: "POST",   path: "/api/memory/search" },
+  memory_list:                     { method: "GET",    path: "/api/memory" },
+  memory_add:                      { method: "POST",   path: "/api/memory" },
+  memory_update:                   { method: "PUT",    path: "/api/memory/{id}" },
+  memory_delete:                   { method: "DELETE", path: "/api/memory/{id}" },
+  memory_toggle_pin:               { method: "POST",   path: "/api/memory/{id}/pin" },
+  memory_delete_batch:             { method: "POST",   path: "/api/memory/delete-batch" },
+  memory_reembed:                  { method: "POST",   path: "/api/memory/reembed" },
+  save_global_memory_md:           { method: "PUT",    path: "/api/memory/global-md" },
+
+  // -- Memory config --
+  get_embedding_config:            { method: "GET",    path: "/api/config/embedding" },
+  save_embedding_config:           { method: "PUT",    path: "/api/config/embedding" },
+  get_embedding_presets:           { method: "GET",    path: "/api/config/embedding/presets" },
+  get_embedding_cache_config:      { method: "GET",    path: "/api/config/embedding-cache" },
+  save_embedding_cache_config:     { method: "PUT",    path: "/api/config/embedding-cache" },
+  get_dedup_config:                { method: "GET",    path: "/api/config/dedup" },
+  save_dedup_config:               { method: "PUT",    path: "/api/config/dedup" },
+  get_hybrid_search_config:        { method: "GET",    path: "/api/config/hybrid-search" },
+  save_hybrid_search_config:       { method: "PUT",    path: "/api/config/hybrid-search" },
+  get_mmr_config:                  { method: "GET",    path: "/api/config/mmr" },
+  save_mmr_config:                 { method: "PUT",    path: "/api/config/mmr" },
+  get_multimodal_config:           { method: "GET",    path: "/api/config/multimodal" },
+  save_multimodal_config:          { method: "PUT",    path: "/api/config/multimodal" },
+  get_temporal_decay_config:       { method: "GET",    path: "/api/config/temporal-decay" },
+  save_temporal_decay_config:      { method: "PUT",    path: "/api/config/temporal-decay" },
+  get_extract_config:              { method: "GET",    path: "/api/config/extract" },
+  save_extract_config:             { method: "PUT",    path: "/api/config/extract" },
+
+  // -- Context compaction --
+  get_compact_config:              { method: "GET",    path: "/api/config/compact" },
+  save_compact_config:             { method: "PUT",    path: "/api/config/compact" },
+
+  // -- Plan mode --
+  get_plan_mode:                   { method: "GET",    path: "/api/plan/{sessionId}/mode" },
+  set_plan_mode:                   { method: "POST",   path: "/api/plan/{sessionId}/mode" },
+  get_plan_steps:                  { method: "GET",    path: "/api/plan/{sessionId}/steps" },
+  get_plan_content:                { method: "GET",    path: "/api/plan/{sessionId}/content" },
+  save_plan_content:               { method: "PUT",    path: "/api/plan/{sessionId}/content" },
+  get_plan_file_path:              { method: "GET",    path: "/api/plan/{sessionId}/file-path" },
+  get_plan_checkpoint:             { method: "GET",    path: "/api/plan/{sessionId}/checkpoint" },
+  restore_plan_version:            { method: "POST",   path: "/api/plan/{sessionId}/restore" },
+  respond_plan_question:           { method: "POST",   path: "/api/plan/{sessionId}/respond" },
+  set_plan_subagent:               { method: "POST",   path: "/api/config/plan-subagent" },
+  get_plan_subagent:               { method: "GET",    path: "/api/config/plan-subagent" },
+
+  // -- Cron --
+  cron_list_jobs:                  { method: "GET",    path: "/api/cron" },
+  cron_create_job:                 { method: "POST",   path: "/api/cron" },
+  cron_update_job:                 { method: "PUT",    path: "/api/cron/{id}" },
+  cron_toggle_job:                 { method: "PATCH",  path: "/api/cron/{id}/toggle" },
+  cron_delete_job:                 { method: "DELETE", path: "/api/cron/{id}" },
+  cron_run_now:                    { method: "POST",   path: "/api/cron/{id}/run" },
+
+  // -- Dashboard --
+  dashboard_overview:              { method: "POST",   path: "/api/dashboard/overview" },
+  dashboard_token_usage:           { method: "POST",   path: "/api/dashboard/token-usage" },
+  dashboard_tool_usage:            { method: "POST",   path: "/api/dashboard/tool-usage" },
+  dashboard_sessions:              { method: "POST",   path: "/api/dashboard/sessions" },
+  dashboard_errors:                { method: "POST",   path: "/api/dashboard/errors" },
+  dashboard_tasks:                 { method: "POST",   path: "/api/dashboard/tasks" },
+  dashboard_system_metrics:        { method: "GET",    path: "/api/dashboard/system-metrics" },
+
+  // -- Logging --
+  frontend_log_batch:              { method: "POST",   path: "/api/logs/batch" },
+  get_log_stats_cmd:               { method: "GET",    path: "/api/logs/stats" },
+  get_log_config_cmd:              { method: "GET",    path: "/api/logs/config" },
+  save_log_config_cmd:             { method: "PUT",    path: "/api/logs/config" },
+  get_log_file_path_cmd:           { method: "GET",    path: "/api/logs/file-path" },
+  clear_logs_cmd:                  { method: "POST",   path: "/api/logs/clear" },
+
+  // -- Notifications --
+  get_notification_config:         { method: "GET",    path: "/api/config/notification" },
+  save_notification_config:        { method: "PUT",    path: "/api/config/notification" },
+
+  // -- Proxy --
+  get_proxy_config:                { method: "GET",    path: "/api/config/proxy" },
+  save_proxy_config:               { method: "PUT",    path: "/api/config/proxy" },
+
+  // -- Shortcuts --
+  get_shortcut_config:             { method: "GET",    path: "/api/config/shortcuts" },
+  save_shortcut_config:            { method: "PUT",    path: "/api/config/shortcuts" },
+  set_shortcuts_paused:            { method: "POST",   path: "/api/config/shortcuts/pause" },
+
+  // -- Sandbox --
+  get_sandbox_config:              { method: "GET",    path: "/api/config/sandbox" },
+  set_sandbox_config:              { method: "PUT",    path: "/api/config/sandbox" },
+
+  // -- Canvas --
+  get_canvas_config:               { method: "GET",    path: "/api/config/canvas" },
+  save_canvas_config:              { method: "PUT",    path: "/api/config/canvas" },
+  canvas_submit_snapshot:          { method: "POST",   path: "/api/canvas/snapshot" },
+  canvas_submit_eval_result:       { method: "POST",   path: "/api/canvas/eval-result" },
+  show_canvas_panel:               { method: "POST",   path: "/api/canvas/show" },
+
+  // -- Image generation --
+  get_image_generate_config:       { method: "GET",    path: "/api/config/image-generate" },
+  save_image_generate_config:      { method: "PUT",    path: "/api/config/image-generate" },
+
+  // -- Web search --
+  get_web_search_config:           { method: "GET",    path: "/api/config/web-search" },
+  save_web_search_config:          { method: "PUT",    path: "/api/config/web-search" },
+
+  // -- Web fetch --
+  get_web_fetch_config:            { method: "GET",    path: "/api/config/web-fetch" },
+  save_web_fetch_config:           { method: "PUT",    path: "/api/config/web-fetch" },
+
+  // -- SearXNG Docker --
+  searxng_docker_status:           { method: "GET",    path: "/api/searxng/status" },
+  searxng_docker_deploy:           { method: "POST",   path: "/api/searxng/deploy" },
+  searxng_docker_start:            { method: "POST",   path: "/api/searxng/start" },
+  searxng_docker_stop:             { method: "POST",   path: "/api/searxng/stop" },
+  searxng_docker_remove:           { method: "DELETE", path: "/api/searxng" },
+
+  // -- Skills --
+  get_skills:                      { method: "GET",    path: "/api/skills" },
+  toggle_skill:                    { method: "POST",   path: "/api/skills/toggle" },
+  add_extra_skills_dir:            { method: "POST",   path: "/api/skills/dirs" },
+  remove_extra_skills_dir:         { method: "DELETE", path: "/api/skills/dirs" },
+  set_skill_env_var:               { method: "POST",   path: "/api/skills/env" },
+  remove_skill_env_var:            { method: "DELETE", path: "/api/skills/env" },
+  get_skills_env_status:           { method: "GET",    path: "/api/skills/env-status" },
+  set_skill_env_check:             { method: "POST",   path: "/api/skills/env-check" },
+
+  // -- Slash commands --
+  list_slash_commands:             { method: "GET",    path: "/api/slash-commands" },
+
+  // -- Channels --
+  channel_list_accounts:           { method: "GET",    path: "/api/channels/accounts" },
+  channel_list_plugins:            { method: "GET",    path: "/api/channels/plugins" },
+  channel_add_account:             { method: "POST",   path: "/api/channels/accounts" },
+  channel_update_account:          { method: "PUT",    path: "/api/channels/accounts/{accountId}" },
+  channel_remove_account:          { method: "DELETE", path: "/api/channels/accounts/{accountId}" },
+  channel_start_account:           { method: "POST",   path: "/api/channels/accounts/{accountId}/start" },
+  channel_stop_account:            { method: "POST",   path: "/api/channels/accounts/{accountId}/stop" },
+
+  // -- Subagent --
+  get_subagent_run:                { method: "GET",    path: "/api/subagent/{runId}" },
+
+  // -- Weather --
+  geocode_search:                  { method: "GET",    path: "/api/weather/geocode" },
+  preview_weather:                 { method: "POST",   path: "/api/weather/preview" },
+  detect_location:                 { method: "GET",    path: "/api/weather/detect-location" },
+  get_current_weather:             { method: "GET",    path: "/api/weather/current" },
+
+  // -- URL preview --
+  fetch_url_preview:               { method: "POST",   path: "/api/url-preview" },
+  fetch_url_previews:              { method: "POST",   path: "/api/url-previews" },
+
+  // -- Theme / Language / UI --
+  get_theme:                       { method: "GET",    path: "/api/config/theme" },
+  set_theme:                       { method: "POST",   path: "/api/config/theme" },
+  set_window_theme:                { method: "POST",   path: "/api/config/window-theme" },
+  get_language:                    { method: "GET",    path: "/api/config/language" },
+  set_language:                    { method: "POST",   path: "/api/config/language" },
+  get_ui_effects_enabled:          { method: "GET",    path: "/api/config/ui-effects" },
+  set_ui_effects_enabled:          { method: "POST",   path: "/api/config/ui-effects" },
+  get_autostart_enabled:           { method: "GET",    path: "/api/config/autostart" },
+  set_autostart_enabled:           { method: "POST",   path: "/api/config/autostart" },
+
+  // -- Tools --
+  set_tool_timeout:                { method: "POST",   path: "/api/config/tool-timeout" },
+  set_tool_result_disk_threshold:  { method: "POST",   path: "/api/config/tool-result-threshold" },
+  set_tool_limits:                 { method: "POST",   path: "/api/config/tool-limits" },
+
+  // -- Crash / Recovery --
+  get_crash_recovery_info:         { method: "GET",    path: "/api/crash/recovery" },
+  get_crash_history:               { method: "GET",    path: "/api/crash/history" },
+  clear_crash_history:             { method: "POST",   path: "/api/crash/clear" },
+  restore_backup_cmd:              { method: "POST",   path: "/api/crash/restore" },
+  set_guardian_enabled:            { method: "POST",   path: "/api/crash/guardian" },
+  request_app_restart:             { method: "POST",   path: "/api/system/restart" },
+
+  // -- Developer --
+  dev_clear_sessions:              { method: "POST",   path: "/api/dev/clear-sessions" },
+  dev_clear_cron:                  { method: "POST",   path: "/api/dev/clear-cron" },
+  dev_clear_memory:                { method: "POST",   path: "/api/dev/clear-memory" },
+  dev_reset_config:                { method: "POST",   path: "/api/dev/reset-config" },
+  dev_clear_all:                   { method: "POST",   path: "/api/dev/clear-all" },
+
+  // -- ACP --
+  acp_set_config:                  { method: "PUT",    path: "/api/acp/config" },
+  acp_kill_run:                    { method: "POST",   path: "/api/acp/runs/{runId}/kill" },
+
+  // -- Auth --
+  start_codex_auth:                { method: "POST",   path: "/api/auth/codex/start" },
+  finalize_codex_auth:             { method: "POST",   path: "/api/auth/codex/finalize" },
+
+  // -- Desktop-only (no-op in web mode) --
+  open_url:                        { method: "POST",   path: "/api/desktop/open-url" },
+  open_directory:                  { method: "POST",   path: "/api/desktop/open-directory" },
+  reveal_in_folder:                { method: "POST",   path: "/api/desktop/reveal-in-folder" },
+  get_system_prompt:               { method: "POST",   path: "/api/system-prompt" },
+};
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the final URL by replacing `{param}` placeholders in the path
+ * template with values from `args`, removing consumed keys.
+ */
+function buildUrl(
+  baseUrl: string,
+  def: EndpointDef,
+  args: Record<string, unknown> | undefined,
+): { url: string; remainingArgs: Record<string, unknown> } {
+  const remaining = args ? { ...args } : {};
+  let path = def.path;
+
+  const paramRegex = /\{(\w+)\}/g;
+  let match: RegExpExecArray | null;
+  while ((match = paramRegex.exec(def.path)) !== null) {
+    const key = match[1];
+    const value = remaining[key];
+    if (value === undefined || value === null) {
+      throw new Error(
+        `Missing required path parameter "${key}" for endpoint ${def.method} ${def.path}`,
+      );
+    }
+    path = path.replace(`{${key}}`, encodeURIComponent(String(value)));
+    delete remaining[key];
+  }
+
+  return { url: `${baseUrl}${path}`, remainingArgs: remaining };
+}
+
+/**
+ * Append remaining args as query string parameters for GET / DELETE requests.
+ */
+function appendQueryParams(url: string, params: Record<string, unknown>): string {
+  const entries = Object.entries(params).filter(
+    ([, v]) => v !== undefined && v !== null,
+  );
+  if (entries.length === 0) return url;
+
+  const qs = entries
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
+    .join("&");
+  return url.includes("?") ? `${url}&${qs}` : `${url}?${qs}`;
+}
+
+// ---------------------------------------------------------------------------
+// WebSocket reconnection helper for the global events channel
+// ---------------------------------------------------------------------------
+
+interface EventSubscription {
+  eventName: string;
+  handler: (payload: unknown) => void;
+}
+
+// ---------------------------------------------------------------------------
+// HttpTransport
+// ---------------------------------------------------------------------------
+
+export class HttpTransport implements Transport {
+  private readonly baseUrl: string;
+
+  /** Persistent WebSocket for backend-pushed events. */
+  private eventWs: WebSocket | null = null;
+  private eventWsConnecting = false;
+  private eventSubscriptions: EventSubscription[] = [];
+
+  /** Reconnection state. */
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconnectAttempts = 0;
+  private readonly maxReconnectDelay = 30_000; // 30 s cap
+
+  constructor(baseUrl: string) {
+    // Strip trailing slash.
+    this.baseUrl = baseUrl.replace(/\/+$/, "");
+  }
+
+  // ----- call -----
+
+  async call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+    const def = COMMAND_MAP[command];
+    if (!def) {
+      throw new Error(
+        `[HttpTransport] No REST mapping for command "${command}". ` +
+          "Add it to COMMAND_MAP in transport-http.ts.",
+      );
+    }
+
+    const { url: rawUrl, remainingArgs } = buildUrl(this.baseUrl, def, args);
+
+    const isBodyMethod = def.method === "POST" || def.method === "PUT" || def.method === "PATCH";
+    const url = isBodyMethod ? rawUrl : appendQueryParams(rawUrl, remainingArgs);
+
+    const headers: Record<string, string> = {};
+    let body: string | undefined;
+
+    if (isBodyMethod) {
+      headers["Content-Type"] = "application/json";
+      body = JSON.stringify(remainingArgs);
+    }
+
+    const response = await fetch(url, {
+      method: def.method,
+      headers,
+      body,
+    });
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(
+        `[HttpTransport] ${def.method} ${url} returned ${response.status}: ${text}`,
+      );
+    }
+
+    // Some endpoints return no body (204, or empty 200).
+    const contentType = response.headers.get("content-type") ?? "";
+    if (
+      response.status === 204 ||
+      !contentType.includes("application/json")
+    ) {
+      return undefined as unknown as T;
+    }
+
+    return (await response.json()) as T;
+  }
+
+  // ----- openChatStream -----
+
+  openChatStream(
+    sessionId: string | null,
+    onEvent: (event: string) => void,
+  ): ChatStream {
+    const wsBase = this.baseUrl.replace(/^http/, "ws");
+    const path = sessionId
+      ? `/ws/chat/${encodeURIComponent(sessionId)}`
+      : "/ws/chat";
+    const ws = new WebSocket(`${wsBase}${path}`);
+
+    ws.onmessage = (ev) => {
+      if (typeof ev.data === "string") {
+        onEvent(ev.data);
+      }
+    };
+
+    ws.onerror = (err) => {
+      console.error("[HttpTransport] Chat WebSocket error", err);
+    };
+
+    return {
+      close() {
+        ws.close();
+      },
+    };
+  }
+
+  // ----- listen -----
+
+  listen(eventName: string, handler: (payload: unknown) => void): () => void {
+    const sub: EventSubscription = { eventName, handler };
+    this.eventSubscriptions.push(sub);
+    this.ensureEventWs();
+
+    return () => {
+      const idx = this.eventSubscriptions.indexOf(sub);
+      if (idx !== -1) this.eventSubscriptions.splice(idx, 1);
+
+      // Disconnect the events WebSocket when nobody is listening.
+      if (this.eventSubscriptions.length === 0) {
+        this.teardownEventWs();
+      }
+    };
+  }
+
+  // ----- Events WebSocket internals -----
+
+  private ensureEventWs(): void {
+    if (this.eventWs || this.eventWsConnecting) return;
+    this.eventWsConnecting = true;
+
+    const wsBase = this.baseUrl.replace(/^http/, "ws");
+    const ws = new WebSocket(`${wsBase}/ws/events`);
+
+    ws.onopen = () => {
+      this.eventWsConnecting = false;
+      this.eventWs = ws;
+      this.reconnectAttempts = 0;
+    };
+
+    ws.onmessage = (ev) => {
+      if (typeof ev.data !== "string") return;
+      try {
+        const envelope = JSON.parse(ev.data) as {
+          name: string;
+          payload: unknown;
+        };
+        for (const sub of this.eventSubscriptions) {
+          if (sub.eventName === envelope.name) {
+            sub.handler(envelope.payload);
+          }
+        }
+      } catch {
+        // Ignore malformed messages.
+      }
+    };
+
+    ws.onerror = () => {
+      // onclose will handle reconnection.
+    };
+
+    ws.onclose = () => {
+      this.eventWs = null;
+      this.eventWsConnecting = false;
+
+      // Reconnect only if there are active subscribers.
+      if (this.eventSubscriptions.length > 0) {
+        this.scheduleReconnect();
+      }
+    };
+  }
+
+  private scheduleReconnect(): void {
+    if (this.reconnectTimer) return;
+
+    // Exponential back-off: 1s, 2s, 4s, 8s, ... capped at maxReconnectDelay.
+    const delay = Math.min(
+      1000 * Math.pow(2, this.reconnectAttempts),
+      this.maxReconnectDelay,
+    );
+    this.reconnectAttempts++;
+
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.ensureEventWs();
+    }, delay);
+  }
+
+  private teardownEventWs(): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.reconnectAttempts = 0;
+
+    if (this.eventWs) {
+      this.eventWs.close();
+      this.eventWs = null;
+    }
+    this.eventWsConnecting = false;
+  }
+}

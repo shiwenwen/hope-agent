@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
@@ -186,7 +186,7 @@ export default function PermissionsPanel() {
   const fetchPermissions = useCallback(async () => {
     try {
       setLoading(true)
-      const result = await invoke<AllPermissions>("check_all_permissions")
+      const result = await getTransport().call<AllPermissions>("check_all_permissions")
       setPermissions(result)
     } catch (e) {
       logger.error("settings", "PermissionsPanel::fetch", "Failed to check permissions", e)
@@ -209,7 +209,7 @@ export default function PermissionsPanel() {
   const handleRequest = async (id: string) => {
     setRequesting(id)
     try {
-      const result = await invoke<{ id: string; status: PermState }>("request_permission", { id })
+      const result = await getTransport().call<{ id: string; status: PermState }>("request_permission", { id })
       setPermissions((prev) => (prev ? { ...prev, [result.id]: result.status } : prev))
     } catch (e) {
       logger.error("settings", "PermissionsPanel::request", `Failed to request ${id}`, e)

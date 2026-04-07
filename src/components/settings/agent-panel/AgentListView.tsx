@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react"
-import { invoke, convertFileSrc } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
+import { convertFileSrc } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
@@ -61,7 +62,7 @@ function AgentCreateView({
           model: null,
         },
       }
-      await invoke("save_agent_config_cmd", { id: trimmedId, config })
+      await getTransport().call("save_agent_config_cmd", { id: trimmedId, config })
       window.dispatchEvent(new Event("agents-changed"))
       onCreated(trimmedId)
     } catch (e) {
@@ -140,7 +141,7 @@ export default function AgentListView({ onEditAgent }: { onEditAgent: (id: strin
 
   async function reload() {
     try {
-      const list = await invoke<AgentSummary[]>("list_agents")
+      const list = await getTransport().call<AgentSummary[]>("list_agents")
       setAgents(list)
     } catch (e) {
       logger.error("settings", "AgentPanel::loadAgents", "Failed to load agents", e)

@@ -100,11 +100,11 @@ graph TB
 
 | 文件 | 职责 |
 |------|------|
-| `src-tauri/src/skills.rs` | 核心模块：类型定义、frontmatter 解析、requirements 检查、prompt 生成、缓存、健康检查 |
+| `crates/oc-core/src/skills/` | 核心模块：类型定义、frontmatter 解析、requirements 检查、prompt 生成、缓存、健康检查 |
 | `src-tauri/src/commands/skills.rs` | 14 个 Tauri 命令：CRUD + 安装 + 健康检查 |
-| `src-tauri/src/system_prompt.rs` | 系统提示词构建，调用 `build_skills_prompt` 注入技能段落 |
-| `src-tauri/src/provider.rs` | `ProviderStore` 持久化技能配置（budget/allowlist/disabled/env） |
-| `src-tauri/src/slash_commands/` | 斜杠命令系统，动态注册 user-invocable 技能为 `/skillname` 命令 |
+| `crates/oc-core/src/system_prompt/` | 系统提示词构建，调用 `build_skills_prompt` 注入技能段落 |
+| `crates/oc-core/src/provider/` | `ProviderStore` 持久化技能配置（budget/allowlist/disabled/env） |
+| `crates/oc-core/src/slash_commands/` | 斜杠命令系统，动态注册 user-invocable 技能为 `/skillname` 命令 |
 | `src/components/settings/SkillsPanel.tsx` | 前端技能管理面板（列表 + 详情 + 安装 + 健康状态） |
 
 ---

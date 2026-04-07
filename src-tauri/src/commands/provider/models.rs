@@ -1,4 +1,4 @@
-use crate::agent::{build_api_url, AssistantAgent};
+use crate::agent::AssistantAgent;
 use crate::provider::{self, ActiveModel, ApiType, AvailableModel};
 use crate::AppState;
 use tauri::State;

@@ -1,6 +1,7 @@
 use crate::plan::{
     self, PlanModeState, PlanQuestionAnswer, PlanStep, PlanStepStatus, PlanVersionInfo,
 };
+use oc_core::app_info;
 
 #[tauri::command]
 pub async fn get_plan_mode(

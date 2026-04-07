@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -106,7 +106,7 @@ export default function ProviderEditPage({
     setTestLoading(true)
     setTestResult(null)
     try {
-      const msg = await invoke<string>("test_provider", {
+      const msg = await getTransport().call<string>("test_provider", {
         config: {
           id: provider.id,
           name: editName,
@@ -131,7 +131,7 @@ export default function ProviderEditPage({
     setSaving(true)
     setError("")
     try {
-      await invoke("update_provider", {
+      await getTransport().call("update_provider", {
         config: {
           ...provider,
           name: editName,
@@ -381,7 +381,7 @@ export default function ProviderEditPage({
                       onTest={
                         editBaseUrl.trim() && !isCodex
                           ? (modelId) =>
-                              invoke<string>("test_model", {
+                              getTransport().call<string>("test_model", {
                                 config: {
                                   id: provider.id,
                                   name: editName,

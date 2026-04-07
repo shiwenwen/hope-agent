@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 
 let cachedAutoExpand: boolean | null = null
 let cachePromise: Promise<boolean> | null = null
@@ -6,7 +6,7 @@ let cachePromise: Promise<boolean> | null = null
 export function getAutoExpandThinking(): Promise<boolean> {
   if (cachedAutoExpand !== null) return Promise.resolve(cachedAutoExpand)
   if (cachePromise) return cachePromise
-  cachePromise = invoke<{ autoExpandThinking?: boolean }>("get_user_config")
+  cachePromise = getTransport().call<{ autoExpandThinking?: boolean }>("get_user_config")
     .then((cfg) => {
       cachedAutoExpand = cfg.autoExpandThinking !== false
       return cachedAutoExpand

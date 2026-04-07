@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { Switch } from "@/components/ui/switch"
@@ -10,7 +10,7 @@ export default function SystemPanel() {
   const [loaded, setLoaded] = useState(false)
 
   useEffect(() => {
-    invoke<boolean>("get_autostart_enabled")
+    getTransport().call<boolean>("get_autostart_enabled")
       .then((enabled) => {
         setAutostart(enabled)
         setLoaded(true)
@@ -25,7 +25,7 @@ export default function SystemPanel() {
     const next = !autostart
     setAutostart(next) // optimistic update
     try {
-      await invoke("set_autostart_enabled", { enabled: next })
+      await getTransport().call("set_autostart_enabled", { enabled: next })
     } catch (e) {
       setAutostart(!next) // rollback
       logger.error("settings", "SystemPanel::toggle", "Failed to set autostart", e)

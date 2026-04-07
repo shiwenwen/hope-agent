@@ -1,5 +1,6 @@
 import { useState } from "react"
-import { convertFileSrc, invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
+import { convertFileSrc } from "@tauri-apps/api/core"
 import { logger } from "@/lib/logger"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
@@ -109,7 +110,7 @@ export default function IconSidebar({
               <ContextMenuItem
                 onClick={async () => {
                   try {
-                    await invoke("mark_all_sessions_read_cmd")
+                    await getTransport().call("mark_all_sessions_read_cmd")
                     onMarkAllRead?.()
                   } catch (err) {
                     logger.error("ui", "IconSidebar::markAllRead", "Failed to mark all as read", err)

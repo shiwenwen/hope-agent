@@ -6,6 +6,7 @@ import { Switch } from "@/components/ui/switch"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { ChevronDown } from "lucide-react"
+import { OpenClawHintBanner } from "./CustomTab"
 import type { AgentConfig, SkillSummary } from "../types"
 
 interface BehaviorTabProps {
@@ -13,6 +14,7 @@ interface BehaviorTabProps {
   builtinTools: { name: string; description: string; internal?: boolean }[]
   availableSkills: SkillSummary[]
   toolsGuide: string
+  openclawMode: boolean
   updateConfig: (patch: Partial<AgentConfig>) => void
   setToolsGuide: (v: string) => void
   textInputProps: (getter: string, setter: (v: string) => void) => {
@@ -29,6 +31,7 @@ export default function BehaviorTab({
   builtinTools,
   availableSkills,
   toolsGuide,
+  openclawMode,
   updateConfig,
   setToolsGuide,
   textInputProps,
@@ -297,13 +300,18 @@ export default function BehaviorTab({
         <div className="text-xs font-medium text-muted-foreground mb-1 px-1">
           {t("settings.agentToolsGuide")}
         </div>
+        {openclawMode && <div className="mb-2"><OpenClawHintBanner /></div>}
         <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">
           {t("settings.agentToolsGuideDesc")}
         </p>
         <Textarea
-          className="bg-secondary/40 rounded-lg resize-y leading-relaxed font-mono min-h-[80px]"
+          className={cn(
+            "bg-secondary/40 rounded-lg resize-y leading-relaxed font-mono min-h-[80px]",
+            openclawMode && "opacity-60",
+          )}
           rows={5}
-          {...textInputProps(toolsGuide, setToolsGuide)}
+          readOnly={openclawMode}
+          {...(openclawMode ? { value: toolsGuide } : textInputProps(toolsGuide, setToolsGuide))}
           placeholder={t("settings.agentToolsGuidePlaceholder")}
         />
         <CharCounter value={toolsGuide} />

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { Switch } from "@/components/ui/switch"
@@ -17,7 +17,7 @@ export default function ChatSettingsPanel() {
   const [loaded, setLoaded] = useState(false)
 
   useEffect(() => {
-    invoke<{ autoSendPending?: boolean; autoExpandThinking?: boolean }>("get_user_config")
+    getTransport().call<{ autoSendPending?: boolean; autoExpandThinking?: boolean }>("get_user_config")
       .then((cfg) => {
         setConfig({
           autoSendPending: cfg.autoSendPending !== false,
@@ -32,8 +32,8 @@ export default function ChatSettingsPanel() {
     const updated = { ...config, [key]: !config[key] }
     setConfig(updated)
     try {
-      const full = await invoke<Record<string, unknown>>("get_user_config")
-      await invoke("save_user_config", { config: { ...full, ...updated } })
+      const full = await getTransport().call<Record<string, unknown>>("get_user_config")
+      await getTransport().call("save_user_config", { config: { ...full, ...updated } })
       if (key === "autoExpandThinking") {
         invalidateThinkingExpandCache()
       }

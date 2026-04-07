@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react"
 import { createPortal } from "react-dom"
-import { convertFileSrc, invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
+import { convertFileSrc } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { X, Plus, ChevronDown, Bot } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -73,7 +74,7 @@ export default function QuickChatDialog({
       } else if (action.type === "newSession") {
         session.handleNewChat()
         if (action.sessionId) {
-          invoke("delete_session_cmd", { sessionId: action.sessionId }).catch(() => {})
+          getTransport().call("delete_session_cmd", { sessionId: action.sessionId }).catch(() => {})
         }
       }
     },

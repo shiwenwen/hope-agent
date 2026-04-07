@@ -5,6 +5,7 @@ dist/
 .env*
 
 # Rust / Tauri
+target/
 src-tauri/target/
 src-tauri/WixTools/
 

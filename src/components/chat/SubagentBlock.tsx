@@ -1,8 +1,7 @@
 import { useState, useEffect } from "react"
 import { ChevronRight, Users, CheckCircle, XCircle, Clock, Loader2, Skull, Paperclip } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { invoke } from "@tauri-apps/api/core"
-import { listen, type UnlistenFn } from "@tauri-apps/api/event"
+import { getTransport } from "@/lib/transport-provider"
 import type { SubagentEvent, SubagentRun } from "@/types/chat"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 
@@ -48,7 +47,7 @@ export default function SubagentBlock({ runId, agentId, task, initialStatus }: S
 
   // Hydrate from DB on mount (handles re-mount after switching sessions)
   useEffect(() => {
-    invoke<SubagentRun | null>("get_subagent_run", { runId })
+    getTransport().call<SubagentRun | null>("get_subagent_run", { runId })
       .then((run) => {
         if (!run) return
         setStatus(run.status)
@@ -64,11 +63,10 @@ export default function SubagentBlock({ runId, agentId, task, initialStatus }: S
       .catch(() => {})
   }, [runId])
 
-  // Live updates via Tauri events
+  // Live updates via transport events
   useEffect(() => {
-    let unlisten: UnlistenFn | undefined
-    listen<SubagentEvent>("subagent_event", (event) => {
-      const payload = event.payload
+    return getTransport().listen("subagent_event", (raw) => {
+      const payload = raw as SubagentEvent
       if (payload.runId !== runId) return
       setStatus(payload.status)
       if (payload.resultFull) setResultFull(payload.resultFull)
@@ -77,12 +75,7 @@ export default function SubagentBlock({ runId, agentId, task, initialStatus }: S
       if (payload.label) setLabel(payload.label)
       if (payload.inputTokens) setInputTokens(payload.inputTokens)
       if (payload.outputTokens) setOutputTokens(payload.outputTokens)
-    }).then((fn) => {
-      unlisten = fn
     })
-    return () => {
-      unlisten?.()
-    }
   }, [runId])
 
   const isTerminal = ["completed", "error", "timeout", "killed"].includes(status)

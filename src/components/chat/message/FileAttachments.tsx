@@ -1,5 +1,5 @@
 import React, { useCallback } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { FileText, FolderOpen } from "lucide-react"
 import { IconTip } from "@/components/ui/tooltip"
@@ -15,7 +15,7 @@ function FileAttachments({ files }: { files: string[] }) {
 
   const handleOpen = useCallback(async (path: string) => {
     try {
-      await invoke("open_directory", { path })
+      await getTransport().call("open_directory", { path })
     } catch (e) {
       logger.error("chat", "FileAttachments::open", "Failed to open file", e)
     }
@@ -23,7 +23,7 @@ function FileAttachments({ files }: { files: string[] }) {
 
   const handleRevealInFolder = useCallback(async (path: string) => {
     try {
-      await invoke("reveal_in_folder", { path })
+      await getTransport().call("reveal_in_folder", { path })
     } catch (e) {
       logger.error("chat", "FileAttachments::reveal", "Failed to reveal in folder", e)
     }

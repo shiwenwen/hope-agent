@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { Check, ChevronRight, ClipboardList, FolderOpen, PanelRight } from "lucide-react"
 
 /** Collapsible Q&A summary for plan_question tool results */
@@ -66,9 +66,9 @@ export function SubmitPlanResult({
   const handleRevealFile = async () => {
     if (!sessionId) return
     try {
-      const filePath = await invoke<string | null>("get_plan_file_path", { sessionId })
+      const filePath = await getTransport().call<string | null>("get_plan_file_path", { sessionId })
       if (filePath) {
-        await invoke("reveal_in_folder", { path: filePath })
+        await getTransport().call("reveal_in_folder", { path: filePath })
       }
     } catch { /* ignore */ }
   }

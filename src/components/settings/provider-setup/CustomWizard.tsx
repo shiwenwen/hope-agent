@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -141,7 +141,7 @@ export function CustomWizard({
     setTestLoading(true)
     setTestResult(null)
     try {
-      const msg = await invoke<string>("test_provider", {
+      const msg = await getTransport().call<string>("test_provider", {
         config: {
           id: "",
           name: providerName,
@@ -399,7 +399,7 @@ export function CustomWizard({
                       onTest={
                         baseUrl.trim()
                           ? (modelId) =>
-                              invoke<string>("test_model", {
+                              getTransport().call<string>("test_model", {
                                 config: {
                                   id: "",
                                   name: providerName,

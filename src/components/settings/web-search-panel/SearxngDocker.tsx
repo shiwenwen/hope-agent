@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react"
-import { invoke, Channel } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
+import { Channel } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
@@ -41,7 +42,7 @@ export function SearxngDockerSection({
   const refreshStatus = useCallback(async () => {
     setChecking(true)
     try {
-      const s = await invoke<SearxngDockerStatus>("searxng_docker_status")
+      const s = await getTransport().call<SearxngDockerStatus>("searxng_docker_status")
       setStatus(s)
     } catch (e) {
       logger.error("settings", "SearxngDocker::status", "Failed to check Docker status", e)
@@ -60,7 +61,7 @@ export function SearxngDockerSection({
     if (!needsPoll) return
     const timer = setInterval(async () => {
       try {
-        const s = await invoke<SearxngDockerStatus>("searxng_docker_status")
+        const s = await getTransport().call<SearxngDockerStatus>("searxng_docker_status")
         setStatus(s)
         // Sync deploy state from backend when we're observing an external deploy
         if (s.deploying && !deploying) {
@@ -90,7 +91,7 @@ export function SearxngDockerSection({
   const waitForHealthy = useCallback(async () => {
     for (let i = 0; i < 10; i++) {
       await new Promise((r) => setTimeout(r, 1500))
-      const s = await invoke<SearxngDockerStatus>("searxng_docker_status")
+      const s = await getTransport().call<SearxngDockerStatus>("searxng_docker_status")
       setStatus(s)
       if (s.healthOk) break
     }
@@ -127,7 +128,7 @@ export function SearxngDockerSection({
           setDeployStep(msg)
         }
       }
-      const url = await invoke<string>("searxng_docker_deploy", { channel })
+      const url = await getTransport().call<string>("searxng_docker_deploy", { channel })
       onUrlSet(url)
       await refreshStatus()
     } catch (e) {
@@ -144,7 +145,7 @@ export function SearxngDockerSection({
     setError(null)
     try {
       // Remove existing container first
-      await invoke("searxng_docker_remove")
+      await getTransport().call("searxng_docker_remove")
       await refreshStatus()
     } catch {
       // Ignore remove errors (container might not exist)
@@ -160,13 +161,13 @@ export function SearxngDockerSection({
       setActionLoading(true)
       setError(null)
       try {
-        await invoke(`searxng_docker_${action}`)
+        await getTransport().call(`searxng_docker_${action}`)
         await refreshStatus()
         // After start, poll until healthy (up to 15s)
         if (action === "start") {
           for (let i = 0; i < 10; i++) {
             await new Promise((r) => setTimeout(r, 1500))
-            const s = await invoke<SearxngDockerStatus>("searxng_docker_status")
+            const s = await getTransport().call<SearxngDockerStatus>("searxng_docker_status")
             setStatus(s)
             if (s.healthOk) break
           }
@@ -199,8 +200,8 @@ export function SearxngDockerSection({
 
       setActionLoading(true)
       try {
-        await invoke("searxng_docker_stop")
-        await invoke("searxng_docker_start")
+        await getTransport().call("searxng_docker_stop")
+        await getTransport().call("searxng_docker_start")
         await refreshStatus()
         await waitForHealthy()
       } catch (e) {
@@ -244,7 +245,7 @@ export function SearxngDockerSection({
           variant="outline"
           className="h-7 text-xs"
           onClick={() =>
-            invoke("open_url", { url: "https://www.docker.com/products/docker-desktop/" })
+            getTransport().call("open_url", { url: "https://www.docker.com/products/docker-desktop/" })
           }
         >
           <ExternalLink className="h-3 w-3 mr-1" />

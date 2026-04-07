@@ -365,20 +365,20 @@ flowchart TD
 
 | 文件 | 说明 |
 |------|------|
-| `src-tauri/src/memory/mod.rs` | 模块入口与 re-exports |
-| `src-tauri/src/memory/types.rs` | 数据结构定义（MemoryEntry, MemoryType, MemoryScope, 各配置类型） |
-| `src-tauri/src/memory/traits.rs` | MemoryBackend trait + EmbeddingProvider trait |
-| `src-tauri/src/memory/sqlite/backend.rs` | SQLite 后端实现（表创建、连接池、WAL） |
-| `src-tauri/src/memory/sqlite/trait_impl.rs` | MemoryBackend trait 的 SQLite 实现 |
-| `src-tauri/src/memory/sqlite/prompt.rs` | 系统提示注入格式化 + prompt 注入防护 |
-| `src-tauri/src/memory/embedding/mod.rs` | Embedding 模块入口 |
-| `src-tauri/src/memory/embedding/config.rs` | Embedding 配置、预设模板、本地模型定义 |
-| `src-tauri/src/memory/embedding/local_provider.rs` | 本地 ONNX 模型提供者（fastembed-rs） |
-| `src-tauri/src/memory/embedding/api_provider.rs` | API embedding 提供者（OpenAI 兼容 + Google） |
-| `src-tauri/src/memory/embedding/fallback_provider.rs` | Fallback 提供者（主备切换） |
-| `src-tauri/src/memory/embedding/factory.rs` | Embedding 提供者工厂（Auto 模式选择逻辑） |
-| `src-tauri/src/memory/mmr.rs` | MMR 多样性重排实现 |
-| `src-tauri/src/memory/selection.rs` | LLM 语义选择（prompt 构建 + 响应解析） |
-| `src-tauri/src/memory/import.rs` | 批量导入/导出（JSON + Markdown） |
-| `src-tauri/src/memory/helpers.rs` | 辅助函数（加载配置等） |
-| `src-tauri/src/memory_extract.rs` | 自动记忆提取逻辑 |
+| `crates/oc-core/src/memory/mod.rs` | 模块入口与 re-exports |
+| `crates/oc-core/src/memory/types.rs` | 数据结构定义（MemoryEntry, MemoryType, MemoryScope, 各配置类型） |
+| `crates/oc-core/src/memory/traits.rs` | MemoryBackend trait + EmbeddingProvider trait |
+| `crates/oc-core/src/memory/sqlite/backend.rs` | SQLite 后端实现（表创建、连接池、WAL） |
+| `crates/oc-core/src/memory/sqlite/trait_impl.rs` | MemoryBackend trait 的 SQLite 实现 |
+| `crates/oc-core/src/memory/sqlite/prompt.rs` | 系统提示注入格式化 + prompt 注入防护 |
+| `crates/oc-core/src/memory/embedding/mod.rs` | Embedding 模块入口 |
+| `crates/oc-core/src/memory/embedding/config.rs` | Embedding 配置、预设模板、本地模型定义 |
+| `crates/oc-core/src/memory/embedding/local_provider.rs` | 本地 ONNX 模型提供者（fastembed-rs） |
+| `crates/oc-core/src/memory/embedding/api_provider.rs` | API embedding 提供者（OpenAI 兼容 + Google） |
+| `crates/oc-core/src/memory/embedding/fallback_provider.rs` | Fallback 提供者（主备切换） |
+| `crates/oc-core/src/memory/embedding/factory.rs` | Embedding 提供者工厂（Auto 模式选择逻辑） |
+| `crates/oc-core/src/memory/mmr.rs` | MMR 多样性重排实现 |
+| `crates/oc-core/src/memory/selection.rs` | LLM 语义选择（prompt 构建 + 响应解析） |
+| `crates/oc-core/src/memory/import.rs` | 批量导入/导出（JSON + Markdown） |
+| `crates/oc-core/src/memory/helpers.rs` | 辅助函数（加载配置等） |
+| `crates/oc-core/src/memory_extract.rs` | 自动记忆提取逻辑 |

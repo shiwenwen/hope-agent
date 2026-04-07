@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react"
 import { useTranslation } from "react-i18next"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -190,7 +190,7 @@ export default function AddAccountDialog({
     setValidationResult(null)
     setValidationError(null)
     try {
-      const botName = await invoke<string>("channel_validate_credentials", {
+      const botName = await getTransport().call<string>("channel_validate_credentials", {
         channelId,
         credentials: buildCredentials(),
       })
@@ -230,7 +230,7 @@ export default function AddAccountDialog({
           }
         : {}
 
-      await invoke("channel_add_account", {
+      await getTransport().call("channel_add_account", {
         channelId,
         label: label.trim(),
         agentId: agentId || null,

@@ -1,7 +1,7 @@
 import { useMemo, useEffect, useState, useCallback, useRef } from "react"
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window"
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import {
   ClipboardList,
@@ -149,7 +149,7 @@ export function PlanPanel({
     if (!sessionId) return
     setLoadingVersions(true)
     try {
-      const v = await invoke<{ version: number; filePath: string; modifiedAt: string; isCurrent: boolean }[]>(
+      const v = await getTransport().call<{ version: number; filePath: string; modifiedAt: string; isCurrent: boolean }[]>(
         "get_plan_versions", { sessionId }
       )
       setVersions(v)
@@ -165,7 +165,7 @@ export function PlanPanel({
   useEffect(() => {
     if (!sessionId) return
     if (planState === "executing" || planState === "paused" || planState === "completed") {
-      invoke<string | null>("get_plan_checkpoint", { sessionId })
+      getTransport().call<string | null>("get_plan_checkpoint", { sessionId })
         .then((ref) => setHasCheckpoint(!!ref))
         .catch(() => setHasCheckpoint(false))
     } else {
@@ -177,7 +177,7 @@ export function PlanPanel({
     if (!sessionId) return
     setRollingBack(true)
     try {
-      const msg = await invoke<string>("plan_rollback", { sessionId })
+      const msg = await getTransport().call<string>("plan_rollback", { sessionId })
       logger.info("plan", "PlanPanel::rollback", "Rollback result", msg)
       setHasCheckpoint(false)
     } catch (e) {
@@ -190,7 +190,7 @@ export function PlanPanel({
   const handleRestoreVersion = useCallback(async (filePath: string) => {
     if (!sessionId) return
     try {
-      await invoke("restore_plan_version", { sessionId, filePath })
+      await getTransport().call("restore_plan_version", { sessionId, filePath })
       setShowVersions(false)
     } catch (e) {
       logger.error("plan", "PlanPanel::restoreVersion", "Failed to restore plan version", e)

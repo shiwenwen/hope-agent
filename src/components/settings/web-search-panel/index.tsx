@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
-import { invoke } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import i18n from "@/i18n/i18n"
 import { SUPPORTED_LANGUAGES } from "@/i18n/i18n"
@@ -40,7 +40,7 @@ export default function WebSearchPanel() {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
   useEffect(() => {
-    invoke<WebSearchConfig>("get_web_search_config")
+    getTransport().call<WebSearchConfig>("get_web_search_config")
       .then((cfg) => {
         setConfig(cfg)
         setSavedJson(JSON.stringify(cfg))
@@ -57,7 +57,7 @@ export default function WebSearchPanel() {
       if (JSON.stringify(configToSave) === savedJson) return true
       setSaving(true)
       try {
-        await invoke("save_web_search_config", { config: configToSave })
+        await getTransport().call("save_web_search_config", { config: configToSave })
         setSavedJson(JSON.stringify(configToSave))
         setSaveStatus("saved")
         setTimeout(() => setSaveStatus("idle"), 2000)
