@@ -166,7 +166,7 @@ function formatRawCall(tool: ToolCall): string {
   }
 }
 
-export default function ToolCallBlock({ tool }: { tool: ToolCall }) {
+export default function ToolCallBlock({ tool, shimmer }: { tool: ToolCall; shimmer?: boolean }) {
   const { t } = useTranslation()
   const { openLightbox } = useLightbox()
   const [expanded, setExpanded] = useState(false)
@@ -279,7 +279,7 @@ export default function ToolCallBlock({ tool }: { tool: ToolCall }) {
           />
         )}
         <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-        <span className="text-muted-foreground font-medium shrink-0 whitespace-nowrap">{toolLabel}</span>
+        <span className={cn("text-muted-foreground font-medium shrink-0 whitespace-nowrap", (isRunning || shimmer) && "animate-text-shimmer")}>{toolLabel}</span>
         <span className="text-muted-foreground/60 truncate font-mono text-[11px]">
           {displayArgs}
         </span>

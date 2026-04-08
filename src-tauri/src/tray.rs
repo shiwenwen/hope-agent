@@ -202,23 +202,10 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         ])
         .build()?;
 
-    // Read icon config from tauri.conf.json trayIcon section.
-    let (icon, icon_as_template, show_menu_on_left_click) = match &app.config().app.tray_icon {
-        Some(tc) => {
-            let icon_path =
-                std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(&tc.icon_path);
-            let img = tauri::image::Image::from_path(&icon_path).unwrap_or_else(|_| {
-                tauri::image::Image::from_bytes(include_bytes!("../icons/menuIconTray.png"))
-                    .unwrap()
-            });
-            (img, tc.icon_as_template, tc.show_menu_on_left_click)
-        }
-        None => (
-            tauri::image::Image::from_bytes(include_bytes!("../icons/menuIconTray.png")).unwrap(),
-            true,
-            false,
-        ),
-    };
+    let icon =
+        tauri::image::Image::from_bytes(include_bytes!("../icons/menuIconTray.png")).unwrap();
+    let icon_as_template = true;
+    let show_menu_on_left_click = false;
 
     let tray = TrayIconBuilder::new()
         .tooltip("OpenComputer")

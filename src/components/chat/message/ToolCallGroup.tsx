@@ -260,9 +260,10 @@ function GroupItem({ tool }: { tool: ToolCall }) {
 
 interface ToolCallGroupProps {
   tools: ToolCall[]
+  shimmer?: boolean
 }
 
-export default function ToolCallGroup({ tools }: ToolCallGroupProps) {
+export default function ToolCallGroup({ tools, shimmer }: ToolCallGroupProps) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
   const [now, setNow] = useState(() => Date.now())
@@ -314,7 +315,7 @@ export default function ToolCallGroup({ tools }: ToolCallGroupProps) {
           <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
         )}
         <HeaderIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-        <span className="text-muted-foreground font-medium">{label}</span>
+        <span className={cn("text-muted-foreground font-medium", (anyRunning || shimmer) && "animate-text-shimmer")}>{label}</span>
         {totalElapsedText && (
           <span className="ml-auto shrink-0 text-[10px] text-muted-foreground/60 tabular-nums">
             {t("tools.elapsed", { time: totalElapsedText })}
