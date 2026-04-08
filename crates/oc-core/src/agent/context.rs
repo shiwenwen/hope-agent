@@ -257,10 +257,60 @@ impl AssistantAgent {
     }
 
     /// Non-streaming LLM call for context summarization.
-    /// Prefers side_query() when cache-safe params are available (prompt cache sharing),
+    /// If a custom summarization model is configured, uses that model directly (no cache sharing).
+    /// Otherwise prefers side_query() when cache-safe params are available (prompt cache sharing),
     /// falls back to direct HTTP call otherwise.
     async fn summarize_with_model(&self, prompt: &str) -> Result<String> {
         use crate::context_compact::SUMMARIZATION_SYSTEM_PROMPT;
+
+        // Check for custom summarization model override
+        if let Some(ref model_ref) = self.compact_config.summarization_model {
+            if let Some((provider_id, model_id)) = model_ref.split_once(':') {
+                match crate::provider::load_store() {
+                    Ok(store) => {
+                        if let Some(provider_config) = store
+                            .providers
+                            .iter()
+                            .find(|p| p.id == provider_id && p.enabled)
+                        {
+                            let provider = Self::build_llm_provider(provider_config, model_id);
+                            app_info!(
+                                "agent",
+                                "summarize",
+                                "Using custom summarization model: {} ({}:{})",
+                                provider_config.name,
+                                provider_id,
+                                model_id
+                            );
+                            return self
+                                .summarize_with_provider_direct(&provider, prompt)
+                                .await;
+                        }
+                        app_warn!(
+                            "agent",
+                            "summarize",
+                            "Custom summarization provider '{}' not found or disabled, falling back to conversation model",
+                            provider_id
+                        );
+                    }
+                    Err(e) => {
+                        app_warn!(
+                            "agent",
+                            "summarize",
+                            "Failed to load provider store for custom summarization model: {}, falling back to conversation model",
+                            e
+                        );
+                    }
+                }
+            } else {
+                app_warn!(
+                    "agent",
+                    "summarize",
+                    "Invalid summarization_model format '{}' (expected 'providerId:modelId'), falling back to conversation model",
+                    model_ref
+                );
+            }
+        }
 
         // Try cache-friendly side_query path first
         let has_cache = self
@@ -306,11 +356,46 @@ impl AssistantAgent {
         }
 
         // Fallback: direct HTTP call (no cache sharing, used before first chat turn)
-        self.summarize_with_model_direct(prompt).await
+        self.summarize_with_provider_direct(&self.provider, prompt)
+            .await
     }
 
-    /// Direct HTTP summarization call (fallback when no cache-safe params available).
-    async fn summarize_with_model_direct(&self, prompt: &str) -> Result<String> {
+    /// Build an LlmProvider from a ProviderConfig and model ID.
+    fn build_llm_provider(
+        config: &crate::provider::ProviderConfig,
+        model_id: &str,
+    ) -> LlmProvider {
+        use crate::provider::ApiType;
+        match config.api_type {
+            ApiType::Anthropic => LlmProvider::Anthropic {
+                api_key: config.api_key.clone(),
+                base_url: config.base_url.clone(),
+                model: model_id.to_string(),
+            },
+            ApiType::OpenaiChat => LlmProvider::OpenAIChat {
+                api_key: config.api_key.clone(),
+                base_url: config.base_url.clone(),
+                model: model_id.to_string(),
+            },
+            ApiType::OpenaiResponses => LlmProvider::OpenAIResponses {
+                api_key: config.api_key.clone(),
+                base_url: config.base_url.clone(),
+                model: model_id.to_string(),
+            },
+            ApiType::Codex => LlmProvider::Codex {
+                access_token: config.api_key.clone(),
+                account_id: String::new(),
+                model: model_id.to_string(),
+            },
+        }
+    }
+
+    /// Direct HTTP summarization call with a specific provider.
+    async fn summarize_with_provider_direct(
+        &self,
+        provider: &LlmProvider,
+        prompt: &str,
+    ) -> Result<String> {
         use crate::context_compact::SUMMARIZATION_SYSTEM_PROMPT;
 
         let client =
@@ -318,7 +403,7 @@ impl AssistantAgent {
                 .build()
                 .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
 
-        match &self.provider {
+        match provider {
             LlmProvider::Anthropic {
                 api_key,
                 base_url,

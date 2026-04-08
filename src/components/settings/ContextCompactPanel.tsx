@@ -32,10 +32,18 @@ interface CompactConfig {
   identifierPolicy: string
   identifierInstructions: string | null
   customInstructions: string | null
+  summarizationModel: string | null
   summarizationTimeoutSecs: number
   summaryMaxTokens: number
   maxHistoryShare: number
   maxCompactionSummaryChars: number
+}
+
+interface ProviderOption {
+  id: string
+  name: string
+  models: { id: string; name: string }[]
+  enabled?: boolean
 }
 
 function RatioInput({
@@ -121,6 +129,7 @@ export default function ContextCompactPanel() {
   const [summaryOpen, setSummaryOpen] = useState(true)
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [availableTools, setAvailableTools] = useState<{ name: string; description: string }[]>([])
+  const [providers, setProviders] = useState<ProviderOption[]>([])
 
   useEffect(() => {
     getTransport().call<CompactConfig>("get_compact_config")
@@ -133,6 +142,9 @@ export default function ContextCompactPanel() {
       )
     getTransport().call<{ name: string; description: string }[]>("list_builtin_tools")
       .then(setAvailableTools)
+      .catch(() => { })
+    getTransport().call<ProviderOption[]>("get_providers")
+      .then(setProviders)
       .catch(() => { })
   }, [])
 
@@ -314,6 +326,42 @@ export default function ContextCompactPanel() {
             </button>
             {summaryOpen && (
               <div className="px-3 pb-3 pt-1 space-y-3 border-t border-border/30">
+                {/* Summarization Model Selector */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="text-sm">
+                      {t("settings.contextCompactSummarizationModel")}
+                      <IconTip label={t("settings.contextCompactSummarizationModelDesc")} />
+                    </label>
+                    <select
+                      className="h-7 w-56 rounded-md border border-border bg-background px-2 text-sm text-right truncate"
+                      value={config.summarizationModel ?? ""}
+                      onChange={(e) =>
+                        update({ summarizationModel: e.target.value || null })
+                      }
+                    >
+                      <option value="">
+                        {t("settings.contextCompactSummarizationModelDefault")}
+                      </option>
+                      {providers
+                        .filter((p) => p.enabled !== false && p.models.length > 0)
+                        .map((p) => (
+                          <optgroup key={p.id} label={p.name}>
+                            {p.models.map((m) => (
+                              <option key={`${p.id}:${m.id}`} value={`${p.id}:${m.id}`}>
+                                {m.name}
+                              </option>
+                            ))}
+                          </optgroup>
+                        ))}
+                    </select>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground/60">
+                    {config.summarizationModel
+                      ? t("settings.contextCompactSummarizationModelCustomHint")
+                      : t("settings.contextCompactSummarizationModelCacheHint")}
+                  </p>
+                </div>
                 <RatioInput
                   label={t("settings.contextCompactSummarizationThreshold")}
                   desc={t("settings.contextCompactSummarizationThresholdDesc")}

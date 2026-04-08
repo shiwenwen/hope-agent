@@ -314,6 +314,7 @@ calibrated_estimate = raw_estimate × calibration_factor
 
 | 配置路径（`compact.*`） | 类型 | 默认值 | 说明 |
 |------------------------|------|--------|------|
+| `summarizationModel` | `Option<String>` | — | **摘要模型**。格式 `"providerId:modelId"`，指定用于摘要的模型。为空（默认）时使用对话模型并复用 prompt 缓存（约 90% 缓存命中，token 消耗极低）；指定后使用独立 API 调用（无缓存共享，但可使用更便宜的模型降低成本） |
 | `summarizationThreshold` | `f64` | `0.85` | **摘要触发比率**。Tier 2 裁剪后使用率仍超过此值时，调用 LLM 将旧对话历史压缩为结构化摘要 |
 | `preserveRecentTurns` | `usize` | `4`（上限 12） | 摘要时保留最近 N 轮 user 消息及其后续内容不参与摘要，确保最近的对话上下文完整 |
 | `identifierPolicy` | `String` | `"strict"` | 标识符保留策略。`"strict"`：摘要中严格保留所有不透明标识符（UUID/hash/ID/token/URL/文件名等）不缩短不重构；`"off"`：不做特殊保留；`"custom"`：使用 `identifierInstructions` 自定义指令 |

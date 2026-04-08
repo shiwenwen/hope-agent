@@ -110,6 +110,10 @@ pub struct CompactConfig {
     pub hard_clear_placeholder: String,
 
     // ── Tier 3: LLM Summarization ──
+    /// Optional override model for summarization.
+    /// Format: "providerId:modelId". When None, uses conversation model (with cache sharing).
+    #[serde(default)]
+    pub summarization_model: Option<String>,
     /// Summarization trigger ratio (default: 0.85)
     #[serde(default = "default_summarization_threshold")]
     pub summarization_threshold: f64,
@@ -237,6 +241,7 @@ impl Default for CompactConfig {
             soft_trim_tail_chars: default_soft_trim_tail_chars(),
             hard_clear_enabled: crate::default_true(),
             hard_clear_placeholder: default_hard_clear_placeholder(),
+            summarization_model: None,
             summarization_threshold: default_summarization_threshold(),
             preserve_recent_turns: default_preserve_recent_turns(),
             identifier_policy: default_identifier_policy(),
