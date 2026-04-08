@@ -301,7 +301,61 @@ flowchart TD
 
 ## 系统提示注入
 
-记忆通过 `format_prompt_summary()` 格式化为 Markdown 并注入系统提示的 Section 8：
+记忆通过 `format_prompt_summary()` 格式化为 Markdown 并注入系统提示的 Section 8。
+
+### 注入流程
+
+```mermaid
+flowchart TD
+    Start["build_system_prompt(agent_id)"] --> Check{"memory.enabled?"}
+    Check -- No --> Skip["跳过记忆注入"]
+    Check -- Yes --> S8a
+
+    subgraph Section8["Section ⑧ Memory 组装"]
+        S8a["8a: Global Core Memory<br/>读取全局 memory.md<br/>截断 MAX_FILE_CHARS"] --> S8b
+        S8b["8b: Agent Core Memory<br/>读取 Agent memory.md<br/>截断 MAX_FILE_CHARS"] --> S8c
+        S8c["8c: SQLite 记忆注入"] --> S8d
+        S8d["8d: Memory Guidelines<br/>工具使用指南（静态文本）"]
+    end
+
+    S8c -.-> SQLite
+
+    subgraph SQLite["SQLite 记忆加载与格式化"]
+        direction TB
+        Load["load_prompt_candidates()<br/>Agent scope: list(limit=200)<br/>Global scope: list(limit=200)<br/>最多 400 条候选"]
+        Load --> Format["format_prompt_summary()<br/>按类型分组排序<br/>pinned 优先<br/>字符预算裁切（默认 5000）"]
+        Format --> Result["返回 Markdown 文本"]
+    end
+
+    Result -.-> S8c
+
+    S8d --> Push["sections.push(memory_section)"]
+    Push --> SysPrompt["拼入完整系统提示词"]
+
+    SysPrompt --> SelectCheck{"memorySelection.enabled?<br/>且候选数 > threshold?"}
+    SelectCheck -- No --> Done["完成"]
+    SelectCheck -- Yes --> LLMSelect
+
+    subgraph LLMSelect["LLM 语义选择（compaction 后）"]
+        direction TB
+        Reload["load_prompt_candidates()<br/>重新加载候选"]
+        Reload --> Manifest["构建 manifest<br/>(id, 首行预览 ≤120 字符)"]
+        Manifest --> SideQuery["side_query 调用 LLM<br/>从候选中选择 ≤ max_selected 条"]
+        SideQuery --> Parse["parse_selection_response()<br/>解析返回的 id 列表"]
+        Parse --> Reformat["format_prompt_summary()<br/>仅对选中条目格式化"]
+        Reformat --> Replace["replace_memory_section()<br/>替换系统提示中的 Memory section"]
+    end
+
+    Replace --> Done
+
+    style Skip fill:#ffcdd2
+    style Done fill:#e8f5e9
+    style Section8 fill:#e3f2fd,stroke:#90caf9
+    style SQLite fill:#fff3e0,stroke:#ffb74d
+    style LLMSelect fill:#f3e5f5,stroke:#ce93d8
+```
+
+### 输出格式
 
 ```markdown
 # Memory
@@ -320,7 +374,20 @@ flowchart TD
 - ...
 ```
 
-特性：
+### 注入量控制
+
+| 参数 | 值 | 可配置 | 说明 |
+|------|-----|--------|------|
+| 候选加载上限（Agent scope） | `200` 条 | 否（硬编码） | `load_prompt_candidates` 对 Agent 作用域的 `list()` 调用 |
+| 候选加载上限（Global scope） | `200` 条 | 否（硬编码） | `load_prompt_candidates` 对 Global 作用域的 `list()` 调用 |
+| 字符预算 `prompt_budget` | `5000` chars | 是（Agent 级，`agent.json` → `memory.promptBudget`） | `format_prompt_summary()` 的字符上限，超出追加 `[... truncated ...]` |
+| Core Memory 截断 | `MAX_FILE_CHARS` | 否（硬编码） | Global/Agent Core Memory MD 文件的截断上限 |
+| LLM 语义选择 `max_selected` | `5` 条 | 是（`config.json` → `memorySelection.maxSelected`） | LLM 从候选中最多选几条 |
+
+注入流程：`load_prompt_candidates`（最多 400 条候选）→ `format_prompt_summary`（字符预算裁切）→ 注入 Section 8。若启用 LLM 语义选择，候选先经 LLM 筛选到 ≤5 条再格式化。
+
+### 特性
+
 - 按类型分组（User → Feedback → Project → Reference），每组内 pinned 优先
 - 字符预算控制，超出时追加 `[... truncated ...]`
 - **Prompt 注入防护**：`sanitize_for_prompt()` 检测并过滤可疑指令注入模式（如 "ignore previous instructions"），转义特殊 LLM token
@@ -360,6 +427,68 @@ flowchart TD
 | `memoryExtract` | `extractMinTurns` | `3` | 最小轮数门槛 |
 | `memoryExtract` | `flushBeforeCompact` | `true` | 压缩前提取 |
 | `memoryExtract` | `maxExtractionsPerSession` | `5` | 每会话最大提取次数 |
+
+## 硬编码参数
+
+以下参数在源码中以常量或字面量形式定义，修改需要改代码并重新编译。
+
+### 系统提示注入
+
+| 参数 | 值 | 位置 | 说明 |
+|------|-----|------|------|
+| 候选加载上限（per scope） | `200` | `memory/sqlite/trait_impl.rs` | `load_prompt_candidates` 每个 scope 的 `list()` limit |
+
+### SQLite 连接池
+
+| 参数 | 值 | 位置 | 说明 |
+|------|-----|------|------|
+| `READ_POOL_SIZE` | `4` | `memory/sqlite/backend.rs` | 只读连接池大小 |
+
+### Embedding HTTP 客户端
+
+| 参数 | 值 | 位置 | 说明 |
+|------|-----|------|------|
+| Connect Timeout | `10s` | `memory/embedding/api_provider.rs` | HTTP 连接超时 |
+| Request Timeout | `30s` | `memory/embedding/api_provider.rs` | HTTP 请求超时 |
+
+### Embedding 批量处理
+
+| 参数 | 值 | 位置 | 说明 |
+|------|-----|------|------|
+| Google Batch Size | `100` | `memory/embedding/api_provider.rs` | Google 单次批量 embedding 上限 |
+| Batch API Max Size | `50,000` | `memory/embedding/api_provider.rs` | OpenAI Batch API 最大条目数 |
+| Batch API Poll Interval | `5s` | `memory/embedding/api_provider.rs` | Batch 任务轮询间隔 |
+| Batch API Timeout | `60 min` | `memory/embedding/api_provider.rs` | Batch 任务最大等待时间 |
+
+### Embedding Token 上限
+
+| 模型 | Token 上限 | 说明 |
+|------|-----------|------|
+| OpenAI (text-embedding-3-*、ada-002) | `8191` | — |
+| Google (gemini-embedding-001、text-embedding-004) | `2048` | — |
+| Google gemini-embedding-2-preview | `8192` | — |
+| Voyage (voyage-3、voyage-code-3、voyage-4-large) | `32000` | — |
+| Voyage voyage-3-lite | `16000` | — |
+| Mistral mistral-embed | `8192` | — |
+| Jina jina-embeddings-v3 | `8192` | — |
+| Cohere embed-multilingual-v3.0 | `512` | — |
+| Ollama nomic-embed-text | `8192` | — |
+| BGE 系列 (BAAI/bge*) | `512` | — |
+| 其他（默认） | `8192` | — |
+
+文本截断公式：`max_tokens × 4` 字节（保守估算），定义于 `memory/embedding/utils.rs`。
+
+### 自动记忆提取
+
+| 参数 | 值 | 位置 | 说明 |
+|------|-----|------|------|
+| Prompt 最大提取条数 | `5` | `memory_extract.rs` | 单次提取 LLM 最多返回记忆数 |
+| 提取取最近消息数 | `6` | `memory_extract.rs` | 发给 LLM 的最近消息条数 |
+| 提取消息截断长度 | `500 chars` | `memory_extract.rs` | 每条消息截断上限 |
+| Flush 最大提取条数 | `8` | `memory_extract.rs` | 压缩前 flush 提取上限 |
+| Flush 消息总字符上限 | `8,000 chars` | `memory_extract.rs` | Flush 输入的总字符预算 |
+| Flush 消息截断长度 | `800 chars` | `memory_extract.rs` | Flush 每条消息截断上限 |
+| 解析提取结果上限 | `5` | `memory_extract.rs` | 从 LLM 响应中最多解析的条数 |
 
 ## 关键源文件
 
