@@ -26,11 +26,6 @@
         "transparent": true
       }
     ],
-    "trayIcon": {
-      "iconPath": "icons/menuIconTray.png",
-      "iconAsTemplate": true,
-      "showMenuOnLeftClick": false
-    },
     "security": {
       "csp": null,
       "assetProtocol": {

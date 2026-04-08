@@ -130,6 +130,30 @@
   animation: fade-slide-in 0.2s ease-out both;
 }
 
+/* Shimmer highlight sweep across text (thinking / tool titles while running) */
+@keyframes text-shimmer {
+  from {
+    background-position: 120% center;
+  }
+  to {
+    background-position: -20% center;
+  }
+}
+
+@utility animate-text-shimmer {
+  background: linear-gradient(
+    90deg,
+    currentColor 40%,
+    hsl(270 60% 82%) 50%,
+    currentColor 60%
+  );
+  background-size: 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent !important;
+  animation: text-shimmer 2.5s ease-in-out infinite;
+}
+
 /* Respect reduced motion preferences */
 @media (prefers-reduced-motion: reduce) {
   *,

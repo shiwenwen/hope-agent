@@ -36,7 +36,7 @@ export function AssistantContentBlocks({
         <ThinkingBlock
           key={i}
           content={block.content}
-          isStreaming={loading && isLast && isLastBlock && !msg.content.trim()}
+          isStreaming={loading && isLast && isLastBlock}
           durationMs={block.durationMs}
         />,
       )
@@ -88,6 +88,7 @@ export function AssistantContentBlocks({
         j++
       }
 
+      const isLastToolGroup = loading && isLast && j === blocks.length
       if (group.length >= 2) {
         // Render as a collapsed group
         const tools = group.map(
@@ -97,11 +98,12 @@ export function AssistantContentBlocks({
           <ToolCallGroup
             key={`grp-${tools[0].callId}`}
             tools={tools}
+            shimmer={isLastToolGroup}
           />,
         )
       } else {
         // Single tool — render individually
-        elements.push(<ToolCallBlock key={block.tool.callId} tool={block.tool} />)
+        elements.push(<ToolCallBlock key={block.tool.callId} tool={block.tool} shimmer={isLastToolGroup} />)
       }
       i = j
     } else {

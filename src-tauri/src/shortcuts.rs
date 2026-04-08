@@ -226,9 +226,9 @@ pub(crate) fn toggle_quickchat_window(app_handle: &tauri::AppHandle) {
                     );
                     ns_window.setBackgroundColor(Some(&clear_color));
 
-                    // Highest window level — above almost everything (including other always-on-top windows)
+                    // Floating window level — above normal windows while allowing IME candidate popups
                     ns_window.setLevel(
-                        objc2_app_kit::NSWindowLevel::from(25_isize), // NSStatusWindowLevel
+                        objc2_app_kit::NSWindowLevel::from(3_isize), // NSFloatingWindowLevel
                     );
 
                     // Visible on ALL Spaces / desktops, including full-screen apps
