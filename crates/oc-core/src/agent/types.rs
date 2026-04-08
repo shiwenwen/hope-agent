@@ -137,6 +137,8 @@ pub struct AssistantAgent {
     pub(crate) manual_memory_saved: std::sync::atomic::AtomicBool,
     /// When true, automatically approve all tool calls (IM channel auto-approve mode).
     pub(super) auto_approve_tools: bool,
+    /// Timestamp of last Tier 2+ compaction (cache-TTL throttle, session-scoped).
+    pub(crate) last_tier2_compaction_at: std::sync::Mutex<Option<std::time::Instant>>,
 }
 
 /// Cached parameters from the last main chat request.

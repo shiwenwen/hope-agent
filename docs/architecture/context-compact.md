@@ -1,5 +1,5 @@
 # 上下文压缩架构
-> 返回 [文档索引](../README.md) | 更新时间：2026-04-05
+> 返回 [文档索引](../README.md) | 更新时间：2026-04-08
 
 ## 概述
 
@@ -245,6 +245,25 @@ file contents here...
 - 文件不存在、已删除或为二进制文件时静默跳过
 - 无可恢复文件时返回 `None`，不注入任何消息
 
+## Cache-TTL 节流
+
+### 背景
+
+Anthropic、OpenAI、Google 的 API 均支持 prompt cache（约 5 分钟 TTL）。Tier 2+（裁剪/摘要）会改变消息前缀，导致缓存失效。如果 token 使用率在阈值附近反复波动，每次请求都触发 Tier 2+ → 缓存失效 → 重建缓存，反而增加成本。
+
+### 机制
+
+1. `AssistantAgent` 持有 `last_tier2_compaction_at: Mutex<Option<Instant>>` 会话级时间戳
+2. `run_compaction()` 调用 `compact_if_needed()` 前检查：若上次 Tier 2+ 在 `cacheTtlSecs` 秒内，将 `soft_trim_ratio` / `hard_clear_ratio` / `summarization_threshold` 临时设为 `2.0`，使 Tier 2+ 不触发
+3. Tier 0（微压缩）和 Tier 1（截断）不受 TTL 限制（成本低，不显著改变前缀）
+4. Tier 2+ 成功执行后更新时间戳
+
+### 安全保护
+
+- **紧急阈值覆盖**：usage ratio ≥ 95% 时，即使在 TTL 内也强制执行 Tier 2+，避免撞到 ContextOverflow → Tier 4（无 LLM 摘要的粗暴清除）
+- **Tier 4 不受影响**：Tier 4 走独立的 `handle_context_overflow()` 路径，不经过 `run_compaction()`
+- **`/compact` 不受影响**：手动 `/compact` 命令直接调用 `compact_if_needed()`，不经过 TTL 检查
+
 ## Token 估算
 
 ### chars/4 启发式
@@ -281,6 +300,7 @@ calibrated_estimate = raw_estimate × calibration_factor
 | 配置路径（`compact.*`） | 类型 | 默认值 | 说明 |
 |------------------------|------|--------|------|
 | `enabled` | `bool` | `true` | 是否启用上下文压缩。设为 `false` 将完全跳过所有 Tier 的压缩，上下文溢出时仅靠 Tier 4 紧急压缩兜底 |
+| `cacheTtlSecs` | `u64` | `300` | **Cache-TTL 节流**。上次 Tier 2+ 压缩后的冷却时间（秒），TTL 内跳过 Tier 2+（裁剪/摘要），保护 API prompt cache。`0` = 禁用，上限 `900`（15 分钟）。当 usage ≥ 95% 时强制覆盖 TTL（紧急阈值保护） |
 
 ### 工具策略（Tier 0 / Tier 2 共用）
 

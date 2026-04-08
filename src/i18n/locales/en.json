@@ -644,6 +644,8 @@
     "contextCompactSoftTrimMaxCharsDesc": "Tool results smaller than this are skipped during soft trim",
     "contextCompactHeadChars": "Head chars to keep",
     "contextCompactTailChars": "Tail chars to keep",
+    "contextCompactCacheTtl": "Cache TTL (seconds)",
+    "contextCompactCacheTtlDesc": "Skip pruning/summarization if last compaction was within this time. Preserves API prompt cache. 0 = disabled",
     "contextCompactMinPrunableChars": "Min prunable total",
     "contextCompactMinPrunableCharsDesc": "Skip hard clear if total prunable chars below this value",
     "contextCompactMaxHistoryShare": "Max history share (%)",

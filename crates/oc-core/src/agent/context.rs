@@ -27,16 +27,68 @@ impl AssistantAgent {
     ) {
         use crate::context_compact;
 
+        /// Usage ratio that overrides cache-TTL throttle to prevent ContextOverflow → Tier 4.
+        const CACHE_TTL_EMERGENCY_RATIO: f64 = 0.95;
+
+        // Cache-TTL throttle: skip Tier 2+ if last compaction was recent.
+        // Only clone config when we need to mutate thresholds; borrow otherwise.
+        let mut owned_config;
+        let effective_config = if self.compact_config.cache_ttl_secs > 0 {
+            let within_ttl = {
+                let guard = self
+                    .last_tier2_compaction_at
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                matches!(*guard, Some(ts) if ts.elapsed().as_secs() < self.compact_config.cache_ttl_secs)
+            };
+            if within_ttl {
+                let tokens_now =
+                    context_compact::estimate_request_tokens(system_prompt, messages, max_tokens);
+                let usage_now = tokens_now as f64 / self.context_window as f64;
+                if usage_now >= CACHE_TTL_EMERGENCY_RATIO {
+                    app_debug!(
+                        "context",
+                        "compact",
+                        "Cache-TTL throttle overridden: usage {:.1}% >= {:.0}%, forcing Tier 2+",
+                        usage_now * 100.0,
+                        CACHE_TTL_EMERGENCY_RATIO * 100.0
+                    );
+                    &self.compact_config
+                } else {
+                    owned_config = self.compact_config.clone();
+                    owned_config.soft_trim_ratio = f64::INFINITY;
+                    owned_config.hard_clear_ratio = f64::INFINITY;
+                    owned_config.summarization_threshold = f64::INFINITY;
+                    app_debug!(
+                        "context",
+                        "compact",
+                        "Cache-TTL throttle: skipping Tier 2+ (cache still hot)"
+                    );
+                    &owned_config
+                }
+            } else {
+                &self.compact_config
+            }
+        } else {
+            &self.compact_config
+        };
+
         let compact_result = context_compact::compact_if_needed(
             messages,
             system_prompt,
             self.context_window,
             max_tokens,
-            &self.compact_config,
+            effective_config,
         );
 
         if compact_result.tier_applied == 0 {
             return;
+        }
+
+        // Touch timer after synchronous Tier 2 completes.
+        // Tier 3 touches the timer separately in its own success path (after async LLM call).
+        if compact_result.tier_applied == 2 {
+            self.touch_compaction_timer();
         }
 
         // Log compaction
@@ -171,6 +223,8 @@ impl AssistantAgent {
                             split.preserved_start_index,
                             &self.compact_config,
                         );
+                        // Update cache-TTL timer after successful Tier 3 summarization
+                        self.touch_compaction_timer();
                         if let Some(logger) = crate::get_logger() {
                             logger.log(
                                 "info", "context", "compact",

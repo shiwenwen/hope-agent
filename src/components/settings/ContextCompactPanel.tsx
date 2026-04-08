@@ -16,6 +16,7 @@ import { logger } from "@/lib/logger"
 
 interface CompactConfig {
   enabled: boolean
+  cacheTtlSecs: number
   toolPolicies: Record<string, string>
   maxToolResultContextShare: number
   softTrimRatio: number
@@ -444,6 +445,14 @@ export default function ContextCompactPanel() {
             </button>
             {advancedOpen && (
               <div className="px-3 pb-3 pt-1 space-y-3 border-t border-border/30">
+                <NumberField
+                  label={t("settings.contextCompactCacheTtl")}
+                  desc={t("settings.contextCompactCacheTtlDesc")}
+                  value={config.cacheTtlSecs}
+                  min={0}
+                  max={900}
+                  onChange={(v) => update({ cacheTtlSecs: v })}
+                />
                 <NumberField
                   label={t("settings.contextCompactSoftTrimMaxChars")}
                   desc={t("settings.contextCompactSoftTrimMaxCharsDesc")}

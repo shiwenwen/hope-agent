@@ -644,6 +644,8 @@
     "contextCompactSoftTrimMaxCharsDesc": "小于此字符数的工具结果不参与软裁剪",
     "contextCompactHeadChars": "保留头部字符数",
     "contextCompactTailChars": "保留尾部字符数",
+    "contextCompactCacheTtl": "缓存 TTL（秒）",
+    "contextCompactCacheTtlDesc": "如果上次压缩在此时间内，跳过裁剪/摘要，保护 API 提示缓存。0 = 禁用",
     "contextCompactMinPrunableChars": "最小可裁剪总量",
     "contextCompactMinPrunableCharsDesc": "累计可裁剪字符低于此值时跳过硬替换",
     "contextCompactMaxHistoryShare": "历史最大占比 (%)",

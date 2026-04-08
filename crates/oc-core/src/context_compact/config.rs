@@ -36,6 +36,9 @@ fn default_preserve_recent_turns() -> usize {
 fn default_identifier_policy() -> String {
     "strict".into()
 }
+fn default_cache_ttl_secs() -> u64 {
+    300
+}
 fn default_summarization_timeout() -> u64 {
     60
 }
@@ -66,6 +69,12 @@ pub struct CompactConfig {
     /// Enable context compaction (default: true)
     #[serde(default = "crate::default_true")]
     pub enabled: bool,
+
+    // ── Cache TTL ──
+    /// Cache TTL throttle: skip Tier 2+ compaction if last compaction was within this many seconds.
+    /// 0 = disabled. Default: 300 (5 minutes). Max: 900 (15 minutes).
+    #[serde(default = "default_cache_ttl_secs")]
+    pub cache_ttl_secs: u64,
 
     // ── Tool Policies ──
     /// Per-tool compaction policy. Key: tool name, value: "eager" | "protect".
@@ -216,6 +225,9 @@ impl CompactConfig {
     /// Clamp user-configurable values to safe ranges.
     /// Called after deserialization to prevent misconfiguration.
     pub fn clamp(&mut self) {
+        // cache_ttl_secs: 0–900 (0 = disabled, max 15 minutes)
+        self.cache_ttl_secs = self.cache_ttl_secs.min(900);
+
         // max_tool_result_context_share: 0.1–0.6
         // Too low → useful tool results get truncated; too high → single result crowds out context
         self.max_tool_result_context_share = self.max_tool_result_context_share.clamp(0.1, 0.6);
@@ -230,6 +242,7 @@ impl Default for CompactConfig {
     fn default() -> Self {
         Self {
             enabled: crate::default_true(),
+            cache_ttl_secs: default_cache_ttl_secs(),
             tool_policies: default_tool_policies(),
             max_tool_result_context_share: default_max_tool_result_context_share(),
             soft_trim_ratio: default_soft_trim_ratio(),

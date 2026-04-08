@@ -231,6 +231,7 @@ src-tauri/src/          Tauri 薄壳（命令层 + 桌面集成）
 - **连续消息合并**：`push_user_message()` 自动合并连续 user 消息，兼容 Anthropic role 交替要求
 - **API-Round 消息分组**：Tool loop 中的 assistant + tool_result 消息通过 `_oc_round` 元数据标记为同一 round，压缩切割（Tier 3/4）对齐到 round 边界，确保 tool_use/tool_result 配对不被拆散。元数据在 API 调用前通过 `prepare_messages_for_api()` 剥离。无标记的旧会话退化为原行为
 - **后压缩文件恢复**：Tier 3 摘要后自动扫描被摘要消息中的 write/edit/apply_patch 工具调用，从磁盘读取最近编辑的文件当前内容（最多 5 文件 × 16KB），注入 summary 之后的对话历史，省去额外的 read tool call。预算：释放 token 的 10%，兜底 100K chars
+- **Cache-TTL 节流**：`compact.cacheTtlSecs`（默认 300 秒）控制 Tier 2+（裁剪/摘要）的冷却时间，TTL 内跳过 Tier 2+ 保护 API prompt cache（Anthropic/OpenAI/Google 均有 ~5 分钟缓存 TTL）。Tier 0/1 不受限。紧急阈值保护：usage ≥ 95% 时强制覆盖 TTL。`0` = 禁用
 - **自动记忆提取**：默认开启，每轮对话结束后 inline 执行记忆提取（非 tokio::spawn），支持 side_query 缓存共享降低成本。互斥保护：检测 save_memory/update_core_memory 工具调用时跳过自动提取。频率上限：每会话最多 5 次（可配置）
 - **LLM 记忆语义选择**：当候选记忆数 > 阈值（默认 8）时，通过 side_query 调用 LLM 从候选列表中选择最相关的 ≤5 条注入系统提示。选择在 compaction 后、cache 快照前执行，确保精简后的系统提示被缓存。opt-in 配置（`memorySelection.enabled`），失败时退化为全量注入
 - **统一日志**：前后端日志统一写入 `logging.rs`（SQLite + 纯文本双写），API 请求体自动脱敏（`redact_sensitive`）并截断（32KB）

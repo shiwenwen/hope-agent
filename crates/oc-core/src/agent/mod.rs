@@ -78,6 +78,7 @@ impl AssistantAgent {
             extraction_count: std::sync::atomic::AtomicU32::new(0),
             manual_memory_saved: std::sync::atomic::AtomicBool::new(false),
             auto_approve_tools: false,
+            last_tier2_compaction_at: std::sync::Mutex::new(None),
         }
     }
 
@@ -115,6 +116,7 @@ impl AssistantAgent {
             extraction_count: std::sync::atomic::AtomicU32::new(0),
             manual_memory_saved: std::sync::atomic::AtomicBool::new(false),
             auto_approve_tools: false,
+            last_tier2_compaction_at: std::sync::Mutex::new(None),
         }
     }
 
@@ -178,6 +180,7 @@ impl AssistantAgent {
             extraction_count: std::sync::atomic::AtomicU32::new(0),
             manual_memory_saved: std::sync::atomic::AtomicBool::new(false),
             auto_approve_tools: false,
+            last_tier2_compaction_at: std::sync::Mutex::new(None),
         }
     }
 
@@ -281,6 +284,14 @@ impl AssistantAgent {
     /// Set auto-approve mode for all tool calls (used by IM channel auto-approve).
     pub fn set_auto_approve_tools(&mut self, enabled: bool) {
         self.auto_approve_tools = enabled;
+    }
+
+    /// Record that a Tier 2+ compaction just happened (resets cache-TTL timer).
+    pub fn touch_compaction_timer(&self) {
+        *self
+            .last_tier2_compaction_at
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(std::time::Instant::now());
     }
 
     /// Apply plan-mode tool modifications to a tool schema list.
