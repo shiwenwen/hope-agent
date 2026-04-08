@@ -32,6 +32,14 @@ pub static CHANNEL_DB: std::sync::OnceLock<Arc<channel::ChannelDB>> =
     std::sync::OnceLock::new();
 pub static APP_STATE: std::sync::OnceLock<Arc<AppState>> = std::sync::OnceLock::new();
 
+/// Registry for idle extraction delayed tasks, keyed by session_id.
+/// Each entry holds (AbortHandle, agent_id, updated_at_snapshot) for deferred extraction.
+pub static IDLE_EXTRACT_HANDLES: std::sync::OnceLock<
+    std::sync::Mutex<
+        std::collections::HashMap<String, (tokio::task::AbortHandle, String, String)>,
+    >,
+> = std::sync::OnceLock::new();
+
 // ── Accessor functions ─────────────────────────────────────────
 
 /// Get stored AppLogger for global logging

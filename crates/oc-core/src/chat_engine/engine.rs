@@ -176,6 +176,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
             let sid_for_cb = session_id.clone();
             let event_sink_clone = event_sink.clone();
 
+            let history_len_before = agent.get_conversation_history().len();
             let chat_start = std::time::Instant::now();
             match agent
                 .chat(
@@ -318,8 +319,46 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     // Persist conversation context
                     save_agent_context(&db, &session_id, &agent);
 
-                    // Run memory extraction inline (enables side_query cache sharing)
-                    run_memory_extraction_inline(&agent_id, &session_id, model_ref, &agent).await;
+                    {
+                        let round_tokens = {
+                            let u = captured_usage.lock().unwrap();
+                            let input = u.input_tokens.unwrap_or(0);
+                            let output = u.output_tokens.unwrap_or(0);
+                            (input + output) as u32
+                        };
+                        let round_messages = agent
+                            .get_conversation_history()
+                            .len()
+                            .saturating_sub(history_len_before) as u32;
+                        agent.accumulate_extraction_stats(round_tokens, round_messages);
+                    }
+
+                    let idle_timeout =
+                        run_memory_extraction_inline(&agent_id, &session_id, model_ref, &agent).await;
+
+                    // Schedule idle extraction if inline didn't trigger (tracking not reset)
+                    if idle_timeout > 0 {
+                        let tokens_remain = agent
+                            .tokens_since_extraction
+                            .load(std::sync::atomic::Ordering::SeqCst);
+                        let msgs_remain = agent
+                            .messages_since_extraction
+                            .load(std::sync::atomic::Ordering::SeqCst);
+                        if tokens_remain > 0 || msgs_remain > 0 {
+                            let updated_at = db
+                                .get_session(&session_id)
+                                .ok()
+                                .flatten()
+                                .map(|s| s.updated_at)
+                                .unwrap_or_default();
+                            crate::memory_extract::schedule_idle_extraction(
+                                agent_id.clone(),
+                                session_id.clone(),
+                                updated_at,
+                                idle_timeout,
+                            );
+                        }
+                    }
 
                     return Ok(ChatEngineResult {
                         response: result,

@@ -8,8 +8,33 @@ interface UseMemoryExtractParams {
 }
 
 export function useMemoryExtract({ agentId, isAgentMode }: UseMemoryExtractParams) {
-  const [globalExtract, setGlobalExtract] = useState({ autoExtract: false, extractMinTurns: 3, extractProviderId: null as string | null, extractModelId: null as string | null, flushBeforeCompact: false })
-  const [agentExtractOverride, setAgentExtractOverride] = useState<{ autoExtract: boolean | null; extractMinTurns: number | null; extractProviderId: string | null; extractModelId: string | null }>({ autoExtract: null, extractMinTurns: null, extractProviderId: null, extractModelId: null })
+  const [globalExtract, setGlobalExtract] = useState({
+    autoExtract: false,
+    extractProviderId: null as string | null,
+    extractModelId: null as string | null,
+    flushBeforeCompact: false,
+    extractTokenThreshold: 8000,
+    extractTimeThresholdSecs: 300,
+    extractMessageThreshold: 10,
+    extractIdleTimeoutSecs: 1800,
+  })
+  const [agentExtractOverride, setAgentExtractOverride] = useState<{
+    autoExtract: boolean | null
+    extractProviderId: string | null
+    extractModelId: string | null
+    extractTokenThreshold: number | null
+    extractTimeThresholdSecs: number | null
+    extractMessageThreshold: number | null
+    extractIdleTimeoutSecs: number | null
+  }>({
+    autoExtract: null,
+    extractProviderId: null,
+    extractModelId: null,
+    extractTokenThreshold: null,
+    extractTimeThresholdSecs: null,
+    extractMessageThreshold: null,
+    extractIdleTimeoutSecs: null,
+  })
   const [extractConfigLoaded, setExtractConfigLoaded] = useState(false)
   const [availableProviders, setAvailableProviders] = useState<{ id: string; name: string; models: { id: string; name: string }[] }[]>([])
 
@@ -17,9 +42,6 @@ export function useMemoryExtract({ agentId, isAgentMode }: UseMemoryExtractParam
   const effectiveAutoExtract = isAgentMode
     ? (agentExtractOverride.autoExtract ?? globalExtract.autoExtract)
     : globalExtract.autoExtract
-  const effectiveMinTurns = isAgentMode
-    ? (agentExtractOverride.extractMinTurns ?? globalExtract.extractMinTurns)
-    : globalExtract.extractMinTurns
   const effectiveProviderId = isAgentMode
     ? (agentExtractOverride.extractProviderId ?? globalExtract.extractProviderId)
     : globalExtract.extractProviderId
@@ -27,28 +49,63 @@ export function useMemoryExtract({ agentId, isAgentMode }: UseMemoryExtractParam
     ? (agentExtractOverride.extractModelId ?? globalExtract.extractModelId)
     : globalExtract.extractModelId
   const effectiveFlushBeforeCompact = globalExtract.flushBeforeCompact
+  const effectiveTokenThreshold = isAgentMode
+    ? (agentExtractOverride.extractTokenThreshold ?? globalExtract.extractTokenThreshold)
+    : globalExtract.extractTokenThreshold
+  const effectiveTimeThresholdSecs = isAgentMode
+    ? (agentExtractOverride.extractTimeThresholdSecs ?? globalExtract.extractTimeThresholdSecs)
+    : globalExtract.extractTimeThresholdSecs
+  const effectiveMessageThreshold = isAgentMode
+    ? (agentExtractOverride.extractMessageThreshold ?? globalExtract.extractMessageThreshold)
+    : globalExtract.extractMessageThreshold
+  const effectiveIdleTimeoutSecs = isAgentMode
+    ? (agentExtractOverride.extractIdleTimeoutSecs ?? globalExtract.extractIdleTimeoutSecs)
+    : globalExtract.extractIdleTimeoutSecs
 
   const agentHasOverride = isAgentMode && (
     agentExtractOverride.autoExtract !== null ||
-    agentExtractOverride.extractMinTurns !== null ||
     agentExtractOverride.extractProviderId !== null ||
-    agentExtractOverride.extractModelId !== null
+    agentExtractOverride.extractModelId !== null ||
+    agentExtractOverride.extractTokenThreshold !== null ||
+    agentExtractOverride.extractTimeThresholdSecs !== null ||
+    agentExtractOverride.extractMessageThreshold !== null ||
+    agentExtractOverride.extractIdleTimeoutSecs !== null
   )
 
   // ── Load extract config (global + agent override) ──
   useEffect(() => {
     async function loadExtractConfig() {
       try {
-        const global = await getTransport().call<{ autoExtract: boolean; extractMinTurns: number; extractProviderId: string | null; extractModelId: string | null }>("get_extract_config")
-        setGlobalExtract(prev => ({ ...global, flushBeforeCompact: prev.flushBeforeCompact }))
+        const global = await getTransport().call<{
+          autoExtract: boolean
+          extractProviderId: string | null
+          extractModelId: string | null
+          flushBeforeCompact: boolean
+          extractTokenThreshold: number
+          extractTimeThresholdSecs: number
+          extractMessageThreshold: number
+          extractIdleTimeoutSecs: number
+        }>("get_extract_config")
+        setGlobalExtract(global)
 
         if (isAgentMode && agentId) {
-          const cfg = await getTransport().call<{ memory?: { autoExtract?: boolean | null; extractMinTurns?: number | null; extractProviderId?: string | null; extractModelId?: string | null } }>("get_agent_config", { id: agentId })
+          const cfg = await getTransport().call<{ memory?: {
+            autoExtract?: boolean | null
+            extractProviderId?: string | null
+            extractModelId?: string | null
+            extractTokenThreshold?: number | null
+            extractTimeThresholdSecs?: number | null
+            extractMessageThreshold?: number | null
+            extractIdleTimeoutSecs?: number | null
+          } }>("get_agent_config", { id: agentId })
           setAgentExtractOverride({
             autoExtract: cfg?.memory?.autoExtract ?? null,
-            extractMinTurns: cfg?.memory?.extractMinTurns ?? null,
             extractProviderId: cfg?.memory?.extractProviderId ?? null,
             extractModelId: cfg?.memory?.extractModelId ?? null,
+            extractTokenThreshold: cfg?.memory?.extractTokenThreshold ?? null,
+            extractTimeThresholdSecs: cfg?.memory?.extractTimeThresholdSecs ?? null,
+            extractMessageThreshold: cfg?.memory?.extractMessageThreshold ?? null,
+            extractIdleTimeoutSecs: cfg?.memory?.extractIdleTimeoutSecs ?? null,
           })
         }
 
@@ -97,14 +154,25 @@ export function useMemoryExtract({ agentId, isAgentMode }: UseMemoryExtractParam
   // ── Reset agent overrides to inherit global ──
   async function resetAgentExtract() {
     if (!agentId) return
-    setAgentExtractOverride({ autoExtract: null, extractMinTurns: null, extractProviderId: null, extractModelId: null })
+    setAgentExtractOverride({
+      autoExtract: null,
+      extractProviderId: null,
+      extractModelId: null,
+      extractTokenThreshold: null,
+      extractTimeThresholdSecs: null,
+      extractMessageThreshold: null,
+      extractIdleTimeoutSecs: null,
+    })
     try {
       const cfg = await getTransport().call<Record<string, unknown>>("get_agent_config", { id: agentId })
       const memory = (cfg?.memory ?? {}) as Record<string, unknown>
       delete memory.autoExtract
-      delete memory.extractMinTurns
       delete memory.extractProviderId
       delete memory.extractModelId
+      delete memory.extractTokenThreshold
+      delete memory.extractTimeThresholdSecs
+      delete memory.extractMessageThreshold
+      delete memory.extractIdleTimeoutSecs
       cfg.memory = memory
       await getTransport().call("save_agent_config_cmd", { id: agentId, config: cfg })
     } catch (e) {
@@ -131,12 +199,39 @@ export function useMemoryExtract({ agentId, isAgentMode }: UseMemoryExtractParam
     }
   }
 
-  function handleUpdateExtractMinTurns(val: number) {
-    const clamped = Math.max(1, Math.min(20, val))
+  function handleUpdateTokenThreshold(val: number) {
+    const clamped = Math.max(1000, Math.min(50000, val))
     if (isAgentMode) {
-      saveAgentExtract({ extractMinTurns: clamped })
+      saveAgentExtract({ extractTokenThreshold: clamped })
     } else {
-      saveGlobalExtract({ extractMinTurns: clamped })
+      saveGlobalExtract({ extractTokenThreshold: clamped })
+    }
+  }
+
+  function handleUpdateTimeThresholdMins(val: number) {
+    const clamped = Math.max(1, Math.min(60, val))
+    if (isAgentMode) {
+      saveAgentExtract({ extractTimeThresholdSecs: clamped * 60 })
+    } else {
+      saveGlobalExtract({ extractTimeThresholdSecs: clamped * 60 })
+    }
+  }
+
+  function handleUpdateMessageThreshold(val: number) {
+    const clamped = Math.max(2, Math.min(50, val))
+    if (isAgentMode) {
+      saveAgentExtract({ extractMessageThreshold: clamped })
+    } else {
+      saveGlobalExtract({ extractMessageThreshold: clamped })
+    }
+  }
+
+  function handleUpdateIdleTimeoutMins(val: number) {
+    const clamped = val === 0 ? 0 : Math.max(5, Math.min(120, val))
+    if (isAgentMode) {
+      saveAgentExtract({ extractIdleTimeoutSecs: clamped * 60 })
+    } else {
+      saveGlobalExtract({ extractIdleTimeoutSecs: clamped * 60 })
     }
   }
 
@@ -150,14 +245,20 @@ export function useMemoryExtract({ agentId, isAgentMode }: UseMemoryExtractParam
     extractConfigLoaded,
     availableProviders,
     effectiveAutoExtract,
-    effectiveMinTurns,
     effectiveProviderId,
     effectiveModelId,
     effectiveFlushBeforeCompact,
+    effectiveTokenThreshold,
+    effectiveTimeThresholdSecs,
+    effectiveMessageThreshold,
+    effectiveIdleTimeoutSecs,
     agentHasOverride,
     handleToggleAutoExtract,
     handleUpdateExtractModel,
-    handleUpdateExtractMinTurns,
+    handleUpdateTokenThreshold,
+    handleUpdateTimeThresholdMins,
+    handleUpdateMessageThreshold,
+    handleUpdateIdleTimeoutMins,
     handleToggleFlushBeforeCompact,
     resetAgentExtract,
   }

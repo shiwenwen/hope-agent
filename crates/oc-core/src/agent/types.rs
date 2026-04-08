@@ -130,8 +130,12 @@ pub struct AssistantAgent {
     /// Cache-safe params from the last main chat request, used for side_query().
     /// Wrapped in Arc to avoid expensive deep clones on every chat turn.
     pub(super) cache_safe_params: std::sync::Mutex<Option<std::sync::Arc<CacheSafeParams>>>,
-    /// Number of memory extractions performed this session (for frequency capping).
-    pub(crate) extraction_count: std::sync::atomic::AtomicU32,
+    /// Timestamp of the last successful memory extraction (or session start).
+    pub(crate) last_extraction_at: std::sync::Mutex<std::time::Instant>,
+    /// Accumulated token count since last extraction.
+    pub(crate) tokens_since_extraction: std::sync::atomic::AtomicU32,
+    /// Accumulated message count since last extraction.
+    pub(crate) messages_since_extraction: std::sync::atomic::AtomicU32,
     /// Whether save_memory/update_core_memory was called in the current chat() round.
     /// Used for mutual exclusion with auto-extraction.
     pub(crate) manual_memory_saved: std::sync::atomic::AtomicBool,

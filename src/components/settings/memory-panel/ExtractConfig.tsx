@@ -24,13 +24,19 @@ export default function ExtractConfig({ data, isAgentMode }: ExtractConfigProps)
     extractConfigLoaded,
     availableProviders,
     effectiveAutoExtract,
-    effectiveMinTurns,
     effectiveProviderId,
     effectiveModelId,
+    effectiveTokenThreshold,
+    effectiveTimeThresholdSecs,
+    effectiveMessageThreshold,
+    effectiveIdleTimeoutSecs,
     agentHasOverride,
     handleToggleAutoExtract,
     handleUpdateExtractModel,
-    handleUpdateExtractMinTurns,
+    handleUpdateTokenThreshold,
+    handleUpdateTimeThresholdMins,
+    handleUpdateMessageThreshold,
+    handleUpdateIdleTimeoutMins,
     resetAgentExtract,
   } = data
 
@@ -79,16 +85,53 @@ export default function ExtractConfig({ data, isAgentMode }: ExtractConfigProps)
               </SelectContent>
             </Select>
           </div>
-          {/* Min turns */}
+          {/* Token threshold */}
           <div className="flex items-center gap-2">
-            <label className="text-xs text-muted-foreground whitespace-nowrap min-w-[72px]">{t("settings.memoryExtractMinTurns")}</label>
+            <label className="text-xs text-muted-foreground whitespace-nowrap min-w-[72px]">{t("settings.memoryExtractTokenThreshold")}</label>
+            <Input
+              type="number"
+              min={1000}
+              max={50000}
+              step={1000}
+              value={effectiveTokenThreshold}
+              onChange={(e) => handleUpdateTokenThreshold(parseInt(e.target.value) || 8000)}
+              className="h-7 text-xs w-24"
+            />
+          </div>
+          {/* Time threshold (displayed as minutes) */}
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-muted-foreground whitespace-nowrap min-w-[72px]">{t("settings.memoryExtractTimeThreshold")}</label>
             <Input
               type="number"
               min={1}
-              max={20}
-              value={effectiveMinTurns}
-              onChange={(e) => handleUpdateExtractMinTurns(parseInt(e.target.value) || 3)}
-              className="h-7 text-xs w-20"
+              max={60}
+              value={Math.round(effectiveTimeThresholdSecs / 60)}
+              onChange={(e) => handleUpdateTimeThresholdMins(parseInt(e.target.value) || 5)}
+              className="h-7 text-xs w-24"
+            />
+          </div>
+          {/* Message threshold */}
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-muted-foreground whitespace-nowrap min-w-[72px]">{t("settings.memoryExtractMessageThreshold")}</label>
+            <Input
+              type="number"
+              min={2}
+              max={50}
+              value={effectiveMessageThreshold}
+              onChange={(e) => handleUpdateMessageThreshold(parseInt(e.target.value) || 10)}
+              className="h-7 text-xs w-24"
+            />
+          </div>
+          {/* Idle timeout (displayed as minutes, 0 = disabled) */}
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-muted-foreground whitespace-nowrap min-w-[72px]">{t("settings.memoryExtractIdleTimeout")}</label>
+            <Input
+              type="number"
+              min={0}
+              max={120}
+              value={Math.round(effectiveIdleTimeoutSecs / 60)}
+              onChange={(e) => handleUpdateIdleTimeoutMins(parseInt(e.target.value) || 0)}
+              className="h-7 text-xs w-24"
             />
           </div>
           {/* Memory Flush (pre-compaction extraction) */}

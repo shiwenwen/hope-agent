@@ -147,13 +147,16 @@ pub struct MemoryStats {
 
 /// Global auto-extract configuration, stored in config.json `memoryExtract` field.
 /// Per-agent MemoryConfig can override these with Some(...) values.
+///
+/// Trigger logic (since last extraction):
+/// - Cooldown: elapsed time must >= `extract_time_threshold_secs` (prevents too-frequent extraction)
+/// - Trigger: token count >= `extract_token_threshold` OR message count >= `extract_message_threshold`
+/// Both cooldown AND trigger must be satisfied.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MemoryExtractConfig {
     #[serde(default = "crate::default_true")]
     pub auto_extract: bool,
-    #[serde(default = "default_extract_min_turns")]
-    pub extract_min_turns: usize,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extract_provider_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -161,26 +164,43 @@ pub struct MemoryExtractConfig {
     /// Auto-extract memories before context compaction (Tier 3 summarization)
     #[serde(default = "crate::default_true")]
     pub flush_before_compact: bool,
-    /// Maximum extractions per session (default: 5)
-    #[serde(default = "default_max_extractions_per_session")]
-    pub max_extractions_per_session: usize,
+    /// Token accumulation threshold — trigger extraction when tokens since last extraction >= this (default: 8000)
+    #[serde(default = "default_extract_token_threshold")]
+    pub extract_token_threshold: usize,
+    /// Cooldown in seconds — extraction won't trigger until this much time has passed (default: 300 = 5 min)
+    #[serde(default = "default_extract_time_threshold_secs")]
+    pub extract_time_threshold_secs: u64,
+    /// Message count threshold — trigger extraction when messages since last extraction >= this (default: 10)
+    #[serde(default = "default_extract_message_threshold")]
+    pub extract_message_threshold: usize,
+    /// Idle timeout in seconds — trigger final extraction when session is idle for this long (default: 1800 = 30 min). 0 = disabled.
+    #[serde(default = "default_extract_idle_timeout_secs")]
+    pub extract_idle_timeout_secs: u64,
 }
-fn default_extract_min_turns() -> usize {
-    3
+fn default_extract_token_threshold() -> usize {
+    8000
 }
-fn default_max_extractions_per_session() -> usize {
-    5
+fn default_extract_time_threshold_secs() -> u64 {
+    300
+}
+fn default_extract_message_threshold() -> usize {
+    10
+}
+fn default_extract_idle_timeout_secs() -> u64 {
+    1800
 }
 
 impl Default for MemoryExtractConfig {
     fn default() -> Self {
         Self {
             auto_extract: true,
-            extract_min_turns: 3,
             extract_provider_id: None,
             extract_model_id: None,
             flush_before_compact: true,
-            max_extractions_per_session: 5,
+            extract_token_threshold: default_extract_token_threshold(),
+            extract_time_threshold_secs: default_extract_time_threshold_secs(),
+            extract_message_threshold: default_extract_message_threshold(),
+            extract_idle_timeout_secs: default_extract_idle_timeout_secs(),
         }
     }
 }

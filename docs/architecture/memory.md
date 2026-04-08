@@ -139,13 +139,15 @@ flowchart TD
 Agent 在以下时机自动提取记忆（inline 执行，非 `tokio::spawn`）：
 
 - **Tier 3 压缩前**（`flush_before_compact = true`）：在 LLM 摘要压缩对话历史之前，先提取有价值的记忆
-- **对话结束后**：每轮对话结束时触发
+- **阈值触发**：对话过程中，当冷却时间已过且内容阈值满足时触发提取
 
 自动提取特性：
 - 复用 `side_query` 缓存共享，降低 LLM 调用成本
-- 频率上限：每会话最多 `max_extractions_per_session` 次（默认 5）
-- 最小轮数门槛：`extract_min_turns`（默认 3 轮）后才开始提取
+- **冷却 + 阈值双层触发**（自上次提取以来，两个条件需同时满足）：
+  - 冷却保护：时间间隔 ≥ `extract_time_threshold_secs`（默认 300 秒 = 5 分钟）
+  - 内容触发（任一满足）：Token 累积 ≥ `extract_token_threshold`（默认 8000）或 消息条数 ≥ `extract_message_threshold`（默认 10 条）
 - **互斥保护**：检测到当前轮次已调用 `save_memory` / `update_core_memory` 工具时，跳过自动提取
+- **空闲超时兜底**：当 inline 提取因阈值未满足而跳过时，调度延迟任务（默认 30 分钟）。会话空闲超时后从 DB 加载历史执行最终提取。新建会话时立即 flush 所有待提取的空闲会话
 
 ### 3. 导入
 

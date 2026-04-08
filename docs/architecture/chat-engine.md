@@ -248,9 +248,13 @@ flowchart TD
 | 门控 | 条件 | 说明 |
 |---|---|---|
 | Gate 1 | `auto_extract == true` | 全局或 Agent 级配置 |
-| Gate 2 | `history.len() >= min_turns * 2` | 对话长度达标 |
-| Gate 3 | `manual_memory_saved == false` | 本轮未手动调用 save_memory |
-| Gate 4 | `extraction_count < max_per_session` | 频率上限（默认 5 次/会话） |
+| Gate 2 | `manual_memory_saved == false` | 本轮未手动调用 save_memory |
+| Gate 3 | 冷却保护 | 距上次提取 ≥ `extract_time_threshold_secs`（默认 300s） |
+| Gate 4 | 内容阈值（任一满足） | Token ≥ 阈值（默认 8000）或 消息数 ≥ 阈值（默认 10） |
+
+Gate 3（冷却）和 Gate 4（内容）需同时满足。提取成功后重置追踪状态。
+
+**空闲超时兜底**：当 inline 提取未触发时（追踪状态未重置），调度延迟任务（默认 30 分钟）。超时后从 DB 加载历史执行最终提取（无 side_query 缓存共享）。新建会话时 `create_session()` 调用 `flush_all_idle_extractions()` 立即执行所有待提取。
 
 提取使用的 provider/model 可独立配置（Agent 级 > 全局 > 当前模型），支持用廉价模型做提取以降低成本。
 

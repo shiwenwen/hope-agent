@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **EventBus 事件总线**：`oc-core` 新增 `EventBus` 替代 Tauri `APP_HANDLE` 事件发射，使核心逻辑完全脱离 Tauri 框架依赖
 - **Guardian 统一心跳**：桌面模式和服务器模式共用 Guardian keepalive 机制
 
+- **记忆提取阈值触发**：自动记忆提取从"每轮触发 + 硬上限"改为冷却 + 阈值双层触发——冷却时间 ≥ 5 分钟 AND（Token 累积 ≥ 8000 OR 消息条数 ≥ 10），解决长会话后期配额耗尽无法提取的问题。新增空闲超时兜底（默认 30 分钟），会话空闲后自动执行最终提取，新建会话时立即 flush。所有阈值均支持全局和 Agent 级配置
+
 ### Changed
 
 - **后端代码结构化重构**：14 个超大 Rust 文件（800-1875 行）拆分为子目录模块，每个文件 200-600 行。涉及 `dashboard/`、`system_prompt/`、`logging/`、`skills/`、`provider/`、`docker/`、`chat_engine/`、`plan/`、`tools/definitions/`、`commands/provider/`、`tools/image_generate/`、`memory/embedding/`、`memory/sqlite/`、`channel/worker/`。纯代码移动，通过 `pub use` 再导出保持所有外部 API 路径不变

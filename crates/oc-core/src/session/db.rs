@@ -205,6 +205,8 @@ impl SessionDB {
 
     /// Create a new session, return its metadata.
     pub fn create_session(&self, agent_id: &str) -> Result<SessionMeta> {
+        // Flush pending idle extractions from previous sessions
+        crate::memory_extract::flush_all_idle_extractions();
         self.create_session_with_parent(agent_id, None)
     }
 

@@ -405,6 +405,158 @@ fn extract_json_array(text: &str) -> Option<String> {
     }
 }
 
+// ── Idle Extraction ────────────────────────────────────────────
+
+/// Cancel a pending idle extraction for a session.
+fn cancel_idle_extract(session_id: &str) {
+    if let Some(handles) = crate::globals::IDLE_EXTRACT_HANDLES.get() {
+        if let Ok(mut map) = handles.lock() {
+            if let Some((abort_handle, _, _)) = map.remove(session_id) {
+                abort_handle.abort();
+            }
+        }
+    }
+}
+
+/// Register an idle extraction handle for a session.
+fn register_idle_extract(
+    session_id: &str,
+    abort_handle: tokio::task::AbortHandle,
+    agent_id: &str,
+    updated_at: &str,
+) {
+    if let Some(handles) = crate::globals::IDLE_EXTRACT_HANDLES.get() {
+        if let Ok(mut map) = handles.lock() {
+            map.insert(
+                session_id.to_string(),
+                (abort_handle, agent_id.to_string(), updated_at.to_string()),
+            );
+        }
+    }
+}
+
+/// Schedule an idle extraction for a session. If no new messages arrive within
+/// `idle_timeout_secs`, extraction will be triggered from DB history.
+pub fn schedule_idle_extraction(
+    agent_id: String,
+    session_id: String,
+    updated_at: String,
+    idle_timeout_secs: u64,
+) {
+    if idle_timeout_secs == 0 {
+        return;
+    }
+
+    cancel_idle_extract(&session_id);
+
+    let sid = session_id.clone();
+    let aid = agent_id.clone();
+    let uat = updated_at.clone();
+
+    let handle = tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(idle_timeout_secs)).await;
+        run_idle_extraction(&aid, &sid, &uat).await;
+    });
+
+    register_idle_extract(&session_id, handle.abort_handle(), &agent_id, &updated_at);
+}
+
+/// Flush all pending idle extractions immediately (e.g., when creating a new session).
+/// Spawns extraction tasks without waiting for timeout.
+pub fn flush_all_idle_extractions() {
+    let entries = if let Some(handles) = crate::globals::IDLE_EXTRACT_HANDLES.get() {
+        if let Ok(mut map) = handles.lock() {
+            let entries: Vec<(String, String, String)> = map
+                .drain()
+                .map(|(sid, (abort_handle, aid, uat))| {
+                    abort_handle.abort(); // Cancel the delayed task
+                    (sid, aid, uat)
+                })
+                .collect();
+            entries
+        } else {
+            return;
+        }
+    } else {
+        return;
+    };
+
+    for (session_id, agent_id, updated_at) in entries {
+        tokio::spawn(async move {
+            run_idle_extraction(&agent_id, &session_id, &updated_at).await;
+        });
+    }
+}
+
+/// Execute idle extraction: load history from DB and run extraction without agent cache.
+async fn run_idle_extraction(agent_id: &str, session_id: &str, expected_updated_at: &str) {
+    // Remove our handle entry immediately (task is running, abort handle is stale).
+    // This prevents cleanup from accidentally removing a newer entry registered
+    // by a concurrent schedule_idle_extraction() call.
+    if let Some(handles) = crate::globals::IDLE_EXTRACT_HANDLES.get() {
+        if let Ok(mut map) = handles.lock() {
+            map.remove(session_id);
+        }
+    }
+
+    let db = match crate::get_session_db() {
+        Some(db) => db,
+        None => return,
+    };
+
+    let session_meta = match db.get_session(session_id) {
+        Ok(Some(s)) => s,
+        _ => return,
+    };
+    if session_meta.updated_at != expected_updated_at {
+        return; // New messages arrived, skip
+    }
+
+    // Check auto_extract is enabled
+    let global_extract = crate::memory::load_extract_config();
+    let agent_def = crate::agent_loader::load_agent(agent_id);
+    let agent_mem = agent_def.as_ref().ok().map(|d| &d.config.memory);
+    let auto_extract = agent_mem
+        .and_then(|m| m.auto_extract)
+        .unwrap_or(global_extract.auto_extract);
+    if !auto_extract {
+        return;
+    }
+
+    // Load conversation history from DB
+    let history = match db.load_context(session_id) {
+        Ok(Some(json)) => serde_json::from_str::<Vec<Value>>(&json).unwrap_or_default(),
+        _ => return,
+    };
+    if history.is_empty() {
+        return;
+    }
+
+    // Resolve provider/model
+    let extract_provider_id = agent_mem
+        .and_then(|m| m.extract_provider_id.clone())
+        .or_else(|| global_extract.extract_provider_id.clone())
+        .or(session_meta.provider_id.clone())
+        .unwrap_or_default();
+    let extract_model_id = agent_mem
+        .and_then(|m| m.extract_model_id.clone())
+        .or_else(|| global_extract.extract_model_id.clone())
+        .or(session_meta.model_id.clone())
+        .unwrap_or_default();
+
+    let store = crate::provider::load_store().unwrap_or_default();
+    if let Some(prov) = crate::provider::find_provider(&store.providers, &extract_provider_id) {
+        app_info!(
+            "memory",
+            "idle_extract",
+            "Running idle extraction for session {} (agent: {})",
+            session_id,
+            agent_id
+        );
+        run_extraction(&history, agent_id, session_id, prov, &extract_model_id, None).await;
+    }
+}
+
 fn extract_text_content(msg: &Value) -> Option<String> {
     // Skip OpenAI Responses API reasoning items (encrypted, no readable text)
     if msg.get("type").and_then(|t| t.as_str()) == Some("reasoning") {

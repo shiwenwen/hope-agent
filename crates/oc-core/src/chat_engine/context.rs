@@ -137,14 +137,19 @@ pub async fn relay_to_channel(session_id: &str, response: &str) {
 }
 
 /// Run memory extraction inline (non-spawned) to enable side_query cache sharing.
-/// The user's response has already been streamed, so the 1-3s extraction latency
-/// is acceptable. Inline execution allows passing `&agent` for prompt cache reuse.
+/// Returns the resolved idle_timeout_secs so the caller can schedule idle extraction
+/// without re-loading config.
+///
+/// Trigger logic (since last extraction):
+/// - Cooldown: elapsed time must >= time threshold (prevents too-frequent extraction)
+/// - Trigger: token count >= token threshold OR message count >= message threshold
+/// Both cooldown AND trigger must be satisfied.
 pub(super) async fn run_memory_extraction_inline(
     agent_id: &str,
     session_id: &str,
     model_ref: &ActiveModel,
     agent: &AssistantAgent,
-) {
+) -> u64 {
     let global_extract = crate::memory::load_extract_config();
     let agent_def = crate::agent_loader::load_agent(agent_id);
     let agent_mem = agent_def.as_ref().ok().map(|d| &d.config.memory);
@@ -152,23 +157,14 @@ pub(super) async fn run_memory_extraction_inline(
     let auto_extract = agent_mem
         .and_then(|m| m.auto_extract)
         .unwrap_or(global_extract.auto_extract);
-    let min_turns = agent_mem
-        .and_then(|m| m.extract_min_turns)
-        .unwrap_or(global_extract.extract_min_turns);
-    let max_per_session = global_extract.max_extractions_per_session;
-    let history = agent.get_conversation_history();
+    let idle_timeout = agent_mem
+        .and_then(|m| m.extract_idle_timeout_secs)
+        .unwrap_or(global_extract.extract_idle_timeout_secs);
 
-    // Gate 1: auto_extract enabled
     if !auto_extract {
-        return;
+        return 0;
     }
 
-    // Gate 2: minimum conversation length
-    if history.len() < min_turns * 2 {
-        return;
-    }
-
-    // Gate 3: mutual exclusion — skip if save_memory was called this round
     if agent
         .manual_memory_saved
         .load(std::sync::atomic::Ordering::SeqCst)
@@ -178,16 +174,54 @@ pub(super) async fn run_memory_extraction_inline(
             "auto_extract",
             "Skipping extraction: manual save_memory called this round"
         );
-        return;
+        return idle_timeout;
     }
 
-    // Gate 4: frequency cap
-    let current_count = agent
-        .extraction_count
-        .load(std::sync::atomic::Ordering::SeqCst);
-    if current_count >= max_per_session as u32 {
-        return;
+    let token_threshold = agent_mem
+        .and_then(|m| m.extract_token_threshold)
+        .unwrap_or(global_extract.extract_token_threshold);
+    let cooldown_secs = agent_mem
+        .and_then(|m| m.extract_time_threshold_secs)
+        .unwrap_or(global_extract.extract_time_threshold_secs);
+    let message_threshold = agent_mem
+        .and_then(|m| m.extract_message_threshold)
+        .unwrap_or(global_extract.extract_message_threshold);
+
+    let tokens_acc = agent
+        .tokens_since_extraction
+        .load(std::sync::atomic::Ordering::SeqCst) as usize;
+    let messages_acc = agent
+        .messages_since_extraction
+        .load(std::sync::atomic::Ordering::SeqCst) as usize;
+    let elapsed_secs = agent
+        .last_extraction_at
+        .lock()
+        .map(|t| t.elapsed().as_secs())
+        .unwrap_or(0);
+
+    if elapsed_secs < cooldown_secs {
+        return idle_timeout;
     }
+
+    let token_met = tokens_acc >= token_threshold;
+    let message_met = messages_acc >= message_threshold;
+
+    if !token_met && !message_met {
+        return idle_timeout;
+    }
+
+    app_info!(
+        "memory",
+        "auto_extract",
+        "Extraction triggered: tokens={}/{} msgs={}/{} cooldown={}s/{}s (session: {})",
+        tokens_acc,
+        token_threshold,
+        messages_acc,
+        message_threshold,
+        elapsed_secs,
+        cooldown_secs,
+        session_id
+    );
 
     // Resolve provider/model for extraction
     let extract_provider_id = agent_mem
@@ -199,14 +233,9 @@ pub(super) async fn run_memory_extraction_inline(
         .or_else(|| global_extract.extract_model_id.clone())
         .unwrap_or_else(|| model_ref.model_id.clone());
 
+    let history = agent.get_conversation_history();
     let store = provider::load_store().unwrap_or_default();
     if let Some(prov) = provider::find_provider(&store.providers, &extract_provider_id) {
-        // Increment count only when extraction actually runs (not on provider lookup failure)
-        agent
-            .extraction_count
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-
-        // Pass Some(agent) to enable side_query prompt cache sharing
         crate::memory_extract::run_extraction(
             &history,
             agent_id,
@@ -216,5 +245,8 @@ pub(super) async fn run_memory_extraction_inline(
             Some(agent),
         )
         .await;
+
+        agent.reset_extraction_tracking();
     }
+    idle_timeout
 }

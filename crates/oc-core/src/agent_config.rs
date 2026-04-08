@@ -259,10 +259,6 @@ pub struct MemoryConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_extract: Option<bool>,
 
-    /// Minimum conversation turns before extraction (None = inherit global)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub extract_min_turns: Option<usize>,
-
     /// Provider ID for memory extraction (None = inherit global)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extract_provider_id: Option<String>,
@@ -274,6 +270,22 @@ pub struct MemoryConfig {
     /// Whether to flush memories before context compaction (None = inherit global)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub flush_before_compact: Option<bool>,
+
+    /// Token threshold for extraction trigger (None = inherit global)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extract_token_threshold: Option<usize>,
+
+    /// Time threshold in seconds for extraction trigger (None = inherit global)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extract_time_threshold_secs: Option<u64>,
+
+    /// Message count threshold for extraction trigger (None = inherit global)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extract_message_threshold: Option<usize>,
+
+    /// Idle timeout in seconds for final extraction (None = inherit global)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extract_idle_timeout_secs: Option<u64>,
 }
 
 fn default_memory_budget() -> usize {
@@ -287,10 +299,13 @@ impl Default for MemoryConfig {
             shared: true,
             prompt_budget: default_memory_budget(),
             auto_extract: None,
-            extract_min_turns: None,
             extract_provider_id: None,
             extract_model_id: None,
             flush_before_compact: None,
+            extract_token_threshold: None,
+            extract_time_threshold_secs: None,
+            extract_message_threshold: None,
+            extract_idle_timeout_secs: None,
         }
     }
 }

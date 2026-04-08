@@ -75,7 +75,11 @@ impl AssistantAgent {
             plan_mode_allow_paths: Vec::new(),
             temperature: None,
             cache_safe_params: std::sync::Mutex::new(None),
-            extraction_count: std::sync::atomic::AtomicU32::new(0),
+            last_extraction_at: std::sync::Mutex::new(
+                std::time::Instant::now() - std::time::Duration::from_secs(3600),
+            ),
+            tokens_since_extraction: std::sync::atomic::AtomicU32::new(0),
+            messages_since_extraction: std::sync::atomic::AtomicU32::new(0),
             manual_memory_saved: std::sync::atomic::AtomicBool::new(false),
             auto_approve_tools: false,
             last_tier2_compaction_at: std::sync::Mutex::new(None),
@@ -113,7 +117,11 @@ impl AssistantAgent {
             plan_mode_allow_paths: Vec::new(),
             temperature: None,
             cache_safe_params: std::sync::Mutex::new(None),
-            extraction_count: std::sync::atomic::AtomicU32::new(0),
+            last_extraction_at: std::sync::Mutex::new(
+                std::time::Instant::now() - std::time::Duration::from_secs(3600),
+            ),
+            tokens_since_extraction: std::sync::atomic::AtomicU32::new(0),
+            messages_since_extraction: std::sync::atomic::AtomicU32::new(0),
             manual_memory_saved: std::sync::atomic::AtomicBool::new(false),
             auto_approve_tools: false,
             last_tier2_compaction_at: std::sync::Mutex::new(None),
@@ -177,7 +185,11 @@ impl AssistantAgent {
             plan_mode_allow_paths: Vec::new(),
             temperature: None,
             cache_safe_params: std::sync::Mutex::new(None),
-            extraction_count: std::sync::atomic::AtomicU32::new(0),
+            last_extraction_at: std::sync::Mutex::new(
+                std::time::Instant::now() - std::time::Duration::from_secs(3600),
+            ),
+            tokens_since_extraction: std::sync::atomic::AtomicU32::new(0),
+            messages_since_extraction: std::sync::atomic::AtomicU32::new(0),
             manual_memory_saved: std::sync::atomic::AtomicBool::new(false),
             auto_approve_tools: false,
             last_tier2_compaction_at: std::sync::Mutex::new(None),
@@ -201,6 +213,25 @@ impl AssistantAgent {
             self.manual_memory_saved
                 .store(true, std::sync::atomic::Ordering::SeqCst);
         }
+    }
+
+    /// Accumulate token and message counts for extraction threshold tracking.
+    pub(crate) fn accumulate_extraction_stats(&self, tokens: u32, messages: u32) {
+        self.tokens_since_extraction
+            .fetch_add(tokens, std::sync::atomic::Ordering::SeqCst);
+        self.messages_since_extraction
+            .fetch_add(messages, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Reset extraction tracking state after a successful extraction.
+    pub(crate) fn reset_extraction_tracking(&self) {
+        if let Ok(mut t) = self.last_extraction_at.lock() {
+            *t = std::time::Instant::now();
+        }
+        self.tokens_since_extraction
+            .store(0, std::sync::atomic::Ordering::SeqCst);
+        self.messages_since_extraction
+            .store(0, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// Set the agent ID (for memory context and home directory).

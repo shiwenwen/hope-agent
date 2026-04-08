@@ -2,8 +2,8 @@ use crate::acp_control;
 use crate::channel;
 use crate::cron;
 use crate::globals::{
-    ACP_MANAGER, APP_LOGGER, CHANNEL_DB, CHANNEL_REGISTRY, CRON_DB, EVENT_BUS, MEMORY_BACKEND,
-    SESSION_DB, SUBAGENT_CANCELS,
+    ACP_MANAGER, APP_LOGGER, CHANNEL_DB, CHANNEL_REGISTRY, CRON_DB, EVENT_BUS,
+    IDLE_EXTRACT_HANDLES, MEMORY_BACKEND, SESSION_DB, SUBAGENT_CANCELS,
 };
 use crate::logging::{self, AppLogger, LogDB};
 use crate::memory;
@@ -127,6 +127,7 @@ pub fn init_app_state(initial_store: ProviderStore) -> AppState {
     let subagent_cancels = Arc::new(subagent::SubagentCancelRegistry::new());
     let _ = SUBAGENT_CANCELS.set(subagent_cancels.clone());
     let _ = SESSION_DB.set(session_db.clone());
+    let _ = IDLE_EXTRACT_HANDLES.set(std::sync::Mutex::new(std::collections::HashMap::new()));
 
     // Initialize channel cancel registry
     let channel_cancels = Arc::new(channel::ChannelCancelRegistry::new());
