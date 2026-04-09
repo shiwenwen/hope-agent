@@ -3,7 +3,7 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use oc_core::provider::{self, ActiveModel, ProviderConfig};
+use oc_core::provider::{self, ActiveModel, AvailableModel, ProviderConfig};
 
 use crate::error::AppError;
 
@@ -180,6 +180,38 @@ pub async fn test_provider(
 pub async fn get_active_model() -> Result<Json<Value>, AppError> {
     let store = provider::load_store()?;
     Ok(Json(json!({ "active_model": store.active_model })))
+}
+
+/// `GET /api/providers/available-models` — list all available models from enabled providers.
+pub async fn get_available_models() -> Result<Json<Vec<AvailableModel>>, AppError> {
+    let store = provider::load_store()?;
+    Ok(Json(provider::build_available_models(&store.providers)))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ReorderBody {
+    pub provider_ids: Vec<String>,
+}
+
+/// `POST /api/providers/reorder` — reorder providers.
+pub async fn reorder_providers(
+    Json(body): Json<ReorderBody>,
+) -> Result<Json<Value>, AppError> {
+    let mut store = provider::load_store()?;
+    let mut reordered = Vec::with_capacity(body.provider_ids.len());
+    for id in &body.provider_ids {
+        if let Some(p) = store.providers.iter().find(|p| &p.id == id) {
+            reordered.push(p.clone());
+        }
+    }
+    for p in &store.providers {
+        if !body.provider_ids.contains(&p.id) {
+            reordered.push(p.clone());
+        }
+    }
+    store.providers = reordered;
+    provider::save_store(&store)?;
+    Ok(Json(json!({ "reordered": true })))
 }
 
 /// `PUT /api/providers/active-model` — set the active model.

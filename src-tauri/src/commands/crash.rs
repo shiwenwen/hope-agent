@@ -68,23 +68,10 @@ pub async fn create_backup_cmd() -> Result<String, String> {
 
 #[tauri::command]
 pub async fn get_guardian_enabled() -> Result<bool, String> {
-    let config_path = paths::config_path().map_err(|e| e.to_string())?;
-    let content = std::fs::read_to_string(&config_path).unwrap_or_default();
-    let config: serde_json::Value = serde_json::from_str(&content).unwrap_or_default();
-    Ok(config
-        .get("guardian")
-        .and_then(|g| g.get("enabled"))
-        .and_then(|v| v.as_bool())
-        .unwrap_or(true))
+    crate::guardian::get_enabled_from_config().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn set_guardian_enabled(enabled: bool) -> Result<(), String> {
-    let config_path = paths::config_path().map_err(|e| e.to_string())?;
-    let content = std::fs::read_to_string(&config_path).unwrap_or_default();
-    let mut config: serde_json::Value =
-        serde_json::from_str(&content).unwrap_or(serde_json::json!({}));
-    config["guardian"] = serde_json::json!({ "enabled": enabled });
-    let json_str = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
-    std::fs::write(&config_path, json_str).map_err(|e| format!("Failed to save config: {}", e))
+    crate::guardian::set_enabled_in_config(enabled).map_err(|e| e.to_string())
 }

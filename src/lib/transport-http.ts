@@ -40,7 +40,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   mark_session_read_batch_cmd:     { method: "POST",   path: "/api/sessions/read-batch" },
   mark_all_sessions_read_cmd:      { method: "POST",   path: "/api/sessions/read-all" },
   compact_context_now:             { method: "POST",   path: "/api/sessions/{sessionId}/compact" },
-  write_export_file:               { method: "POST",   path: "/api/sessions/{sessionId}/export" },
+  write_export_file:               { method: "POST",   path: "/api/misc/write-export-file" },
 
   // -- Chat --
   chat:                            { method: "POST",   path: "/api/chat" },
@@ -117,24 +117,32 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   get_plan_mode:                   { method: "GET",    path: "/api/plan/{sessionId}/mode" },
   set_plan_mode:                   { method: "POST",   path: "/api/plan/{sessionId}/mode" },
   get_plan_steps:                  { method: "GET",    path: "/api/plan/{sessionId}/steps" },
+  update_plan_step_status:         { method: "POST",   path: "/api/plan/{sessionId}/steps/update" },
   get_plan_content:                { method: "GET",    path: "/api/plan/{sessionId}/content" },
   save_plan_content:               { method: "PUT",    path: "/api/plan/{sessionId}/content" },
   get_plan_file_path:              { method: "GET",    path: "/api/plan/{sessionId}/file-path" },
   get_plan_checkpoint:             { method: "GET",    path: "/api/plan/{sessionId}/checkpoint" },
-  restore_plan_version:            { method: "POST",   path: "/api/plan/{sessionId}/restore" },
-  respond_plan_question:           { method: "POST",   path: "/api/plan/{sessionId}/respond" },
+  get_plan_versions:               { method: "GET",    path: "/api/plan/{sessionId}/versions" },
+  load_plan_version_content:       { method: "POST",   path: "/api/plan/version/load" },
+  restore_plan_version:            { method: "POST",   path: "/api/plan/{sessionId}/version/restore" },
+  plan_rollback:                   { method: "POST",   path: "/api/plan/{sessionId}/rollback" },
+  cancel_plan_subagent:            { method: "POST",   path: "/api/plan/{sessionId}/cancel" },
+  respond_plan_question:           { method: "POST",   path: "/api/plan/question-response" },
   set_plan_subagent:               { method: "POST",   path: "/api/config/plan-subagent" },
   get_plan_subagent:               { method: "GET",    path: "/api/config/plan-subagent" },
   set_plan_question_timeout:       { method: "POST",   path: "/api/config/plan-question-timeout" },
   get_plan_question_timeout:       { method: "GET",    path: "/api/config/plan-question-timeout" },
 
   // -- Cron --
-  cron_list_jobs:                  { method: "GET",    path: "/api/cron" },
-  cron_create_job:                 { method: "POST",   path: "/api/cron" },
-  cron_update_job:                 { method: "PUT",    path: "/api/cron/{id}" },
-  cron_toggle_job:                 { method: "PATCH",  path: "/api/cron/{id}/toggle" },
-  cron_delete_job:                 { method: "DELETE", path: "/api/cron/{id}" },
-  cron_run_now:                    { method: "POST",   path: "/api/cron/{id}/run" },
+  cron_list_jobs:                  { method: "GET",    path: "/api/cron/jobs" },
+  cron_get_job:                    { method: "GET",    path: "/api/cron/jobs/{id}" },
+  cron_create_job:                 { method: "POST",   path: "/api/cron/jobs" },
+  cron_update_job:                 { method: "PUT",    path: "/api/cron/jobs/{id}" },
+  cron_toggle_job:                 { method: "POST",   path: "/api/cron/jobs/{id}/toggle" },
+  cron_delete_job:                 { method: "DELETE", path: "/api/cron/jobs/{id}" },
+  cron_run_now:                    { method: "POST",   path: "/api/cron/jobs/{id}/run" },
+  cron_get_run_logs:               { method: "GET",    path: "/api/cron/jobs/{jobId}/logs" },
+  cron_get_calendar_events:        { method: "GET",    path: "/api/cron/calendar" },
 
   // -- Dashboard --
   dashboard_overview:              { method: "POST",   path: "/api/dashboard/overview" },
@@ -144,13 +152,23 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   dashboard_errors:                { method: "POST",   path: "/api/dashboard/errors" },
   dashboard_tasks:                 { method: "POST",   path: "/api/dashboard/tasks" },
   dashboard_system_metrics:        { method: "GET",    path: "/api/dashboard/system-metrics" },
+  dashboard_session_list:          { method: "POST",   path: "/api/dashboard/session-list" },
+  dashboard_message_list:          { method: "POST",   path: "/api/dashboard/message-list" },
+  dashboard_tool_call_list:        { method: "POST",   path: "/api/dashboard/tool-call-list" },
+  dashboard_error_list:            { method: "POST",   path: "/api/dashboard/error-list" },
+  dashboard_agent_list:            { method: "POST",   path: "/api/dashboard/agent-list" },
 
   // -- Logging --
-  frontend_log_batch:              { method: "POST",   path: "/api/logs/batch" },
+  query_logs_cmd:                  { method: "POST",   path: "/api/logs/query" },
+  frontend_log:                    { method: "POST",   path: "/api/logs/frontend" },
+  frontend_log_batch:              { method: "POST",   path: "/api/logs/frontend-batch" },
   get_log_stats_cmd:               { method: "GET",    path: "/api/logs/stats" },
   get_log_config_cmd:              { method: "GET",    path: "/api/logs/config" },
   save_log_config_cmd:             { method: "PUT",    path: "/api/logs/config" },
+  list_log_files_cmd:              { method: "GET",    path: "/api/logs/files" },
+  read_log_file_cmd:               { method: "GET",    path: "/api/logs/file" },
   get_log_file_path_cmd:           { method: "GET",    path: "/api/logs/file-path" },
+  export_logs_cmd:                 { method: "POST",   path: "/api/logs/export" },
   clear_logs_cmd:                  { method: "POST",   path: "/api/logs/clear" },
 
   // -- Notifications --
@@ -177,8 +195,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   // -- Canvas --
   get_canvas_config:               { method: "GET",    path: "/api/config/canvas" },
   save_canvas_config:              { method: "PUT",    path: "/api/config/canvas" },
-  canvas_submit_snapshot:          { method: "POST",   path: "/api/canvas/snapshot" },
-  canvas_submit_eval_result:       { method: "POST",   path: "/api/canvas/eval-result" },
+  canvas_submit_snapshot:          { method: "POST",   path: "/api/canvas/snapshot/{requestId}" },
+  canvas_submit_eval_result:       { method: "POST",   path: "/api/canvas/eval/{requestId}" },
   show_canvas_panel:               { method: "POST",   path: "/api/canvas/show" },
 
   // -- Image generation --
@@ -202,38 +220,55 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
 
   // -- Skills --
   get_skills:                      { method: "GET",    path: "/api/skills" },
-  toggle_skill:                    { method: "POST",   path: "/api/skills/toggle" },
-  add_extra_skills_dir:            { method: "POST",   path: "/api/skills/dirs" },
-  remove_extra_skills_dir:         { method: "DELETE", path: "/api/skills/dirs" },
-  set_skill_env_var:               { method: "POST",   path: "/api/skills/env" },
-  remove_skill_env_var:            { method: "DELETE", path: "/api/skills/env" },
+  get_skill_detail:                { method: "GET",    path: "/api/skills/{name}" },
+  toggle_skill:                    { method: "POST",   path: "/api/skills/{name}/toggle" },
+  get_extra_skills_dirs:           { method: "GET",    path: "/api/skills/extra-dirs" },
+  add_extra_skills_dir:            { method: "POST",   path: "/api/skills/extra-dirs" },
+  remove_extra_skills_dir:         { method: "DELETE", path: "/api/skills/extra-dirs" },
+  get_skill_env:                   { method: "GET",    path: "/api/skills/{name}/env" },
+  set_skill_env_var:               { method: "POST",   path: "/api/skills/{skill}/env" },
+  remove_skill_env_var:            { method: "DELETE", path: "/api/skills/{skill}/env" },
   get_skills_env_status:           { method: "GET",    path: "/api/skills/env-status" },
-  set_skill_env_check:             { method: "POST",   path: "/api/skills/env-check" },
+  get_skills_status:               { method: "GET",    path: "/api/skills/status" },
+  get_skill_env_check:             { method: "GET",    path: "/api/skills/env-check" },
+  set_skill_env_check:             { method: "PUT",    path: "/api/skills/env-check" },
 
   // -- Slash commands --
   list_slash_commands:             { method: "GET",    path: "/api/slash-commands" },
+  execute_slash_command:           { method: "POST",   path: "/api/slash-commands/execute" },
+  is_slash_command:                { method: "POST",   path: "/api/slash-commands/is-slash" },
 
   // -- Channels --
-  channel_list_accounts:           { method: "GET",    path: "/api/channels/accounts" },
-  channel_list_plugins:            { method: "GET",    path: "/api/channels/plugins" },
-  channel_add_account:             { method: "POST",   path: "/api/channels/accounts" },
-  channel_update_account:          { method: "PUT",    path: "/api/channels/accounts/{accountId}" },
-  channel_remove_account:          { method: "DELETE", path: "/api/channels/accounts/{accountId}" },
-  channel_start_account:           { method: "POST",   path: "/api/channels/accounts/{accountId}/start" },
-  channel_stop_account:            { method: "POST",   path: "/api/channels/accounts/{accountId}/stop" },
+  channel_list_plugins:            { method: "GET",    path: "/api/channel/plugins" },
+  channel_list_accounts:           { method: "GET",    path: "/api/channel/accounts" },
+  channel_add_account:             { method: "POST",   path: "/api/channel/accounts" },
+  channel_update_account:          { method: "PUT",    path: "/api/channel/accounts/{accountId}" },
+  channel_remove_account:          { method: "DELETE", path: "/api/channel/accounts/{accountId}" },
+  channel_start_account:           { method: "POST",   path: "/api/channel/accounts/{accountId}/start" },
+  channel_stop_account:            { method: "POST",   path: "/api/channel/accounts/{accountId}/stop" },
+  channel_health:                  { method: "GET",    path: "/api/channel/accounts/{accountId}/health" },
+  channel_health_all:              { method: "GET",    path: "/api/channel/health" },
+  channel_validate_credentials:    { method: "POST",   path: "/api/channel/validate" },
+  channel_send_test_message:       { method: "POST",   path: "/api/channel/accounts/{accountId}/test-message" },
+  channel_list_sessions:           { method: "GET",    path: "/api/channel/sessions" },
+  channel_wechat_start_login:      { method: "POST",   path: "/api/channel/wechat/login/start" },
+  channel_wechat_wait_login:       { method: "POST",   path: "/api/channel/wechat/login/wait" },
 
   // -- Subagent --
-  get_subagent_run:                { method: "GET",    path: "/api/subagent/{runId}" },
+  list_subagent_runs:              { method: "GET",    path: "/api/subagent/runs" },
+  get_subagent_run:                { method: "GET",    path: "/api/subagent/runs/{runId}" },
+  kill_subagent:                   { method: "POST",   path: "/api/subagent/runs/{runId}/kill" },
 
   // -- Weather --
   geocode_search:                  { method: "GET",    path: "/api/weather/geocode" },
   preview_weather:                 { method: "POST",   path: "/api/weather/preview" },
   detect_location:                 { method: "GET",    path: "/api/weather/detect-location" },
   get_current_weather:             { method: "GET",    path: "/api/weather/current" },
+  refresh_weather:                 { method: "POST",   path: "/api/weather/refresh" },
 
   // -- URL preview --
   fetch_url_preview:               { method: "POST",   path: "/api/url-preview" },
-  fetch_url_previews:              { method: "POST",   path: "/api/url-previews" },
+  fetch_url_previews:              { method: "POST",   path: "/api/url-preview/batch" },
 
   // -- Theme / Language / UI --
   get_theme:                       { method: "GET",    path: "/api/config/theme" },
@@ -252,14 +287,17 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   set_tool_limits:                 { method: "POST",   path: "/api/config/tool-limits" },
 
   // -- Crash / Recovery --
-  get_crash_recovery_info:         { method: "GET",    path: "/api/crash/recovery" },
+  get_crash_recovery_info:         { method: "GET",    path: "/api/crash/recovery-info" },
   get_crash_history:               { method: "GET",    path: "/api/crash/history" },
-  clear_crash_history:             { method: "POST",   path: "/api/crash/clear" },
-  restore_backup_cmd:              { method: "POST",   path: "/api/crash/restore" },
-  set_guardian_enabled:            { method: "POST",   path: "/api/crash/guardian" },
+  clear_crash_history:             { method: "DELETE", path: "/api/crash/history" },
+  list_backups_cmd:                { method: "GET",    path: "/api/crash/backups" },
+  create_backup_cmd:               { method: "POST",   path: "/api/crash/backups" },
+  restore_backup_cmd:              { method: "POST",   path: "/api/crash/backups/restore" },
+  get_guardian_enabled:            { method: "GET",    path: "/api/crash/guardian" },
+  set_guardian_enabled:            { method: "PUT",    path: "/api/crash/guardian" },
   request_app_restart:             { method: "POST",   path: "/api/system/restart" },
 
-  // -- Developer --
+  // -- Developer (desktop-only, HTTP not implemented) --
   dev_clear_sessions:              { method: "POST",   path: "/api/dev/clear-sessions" },
   dev_clear_cron:                  { method: "POST",   path: "/api/dev/clear-cron" },
   dev_clear_memory:                { method: "POST",   path: "/api/dev/clear-memory" },
@@ -267,8 +305,14 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   dev_clear_all:                   { method: "POST",   path: "/api/dev/clear-all" },
 
   // -- ACP --
-  acp_set_config:                  { method: "PUT",    path: "/api/acp/config" },
+  acp_list_backends:               { method: "GET",    path: "/api/acp/backends" },
+  acp_health_check:                { method: "GET",    path: "/api/acp/backends" },
+  acp_refresh_backends:            { method: "POST",   path: "/api/acp/refresh" },
+  acp_list_runs:                   { method: "GET",    path: "/api/acp/runs" },
   acp_kill_run:                    { method: "POST",   path: "/api/acp/runs/{runId}/kill" },
+  acp_get_run_result:              { method: "GET",    path: "/api/acp/runs/{runId}/result" },
+  acp_get_config:                  { method: "GET",    path: "/api/acp/config" },
+  acp_set_config:                  { method: "PUT",    path: "/api/acp/config" },
 
   // -- Auth --
   start_codex_auth:                { method: "POST",   path: "/api/auth/codex/start" },

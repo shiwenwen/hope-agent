@@ -1,7 +1,23 @@
+pub mod helpers;
+
+pub mod acp;
 pub mod agents;
+pub mod canvas;
+pub mod channel;
 pub mod chat;
 pub mod config;
+pub mod crash;
+pub mod cron;
+pub mod dashboard;
 pub mod health;
+pub mod logging;
 pub mod memory;
+pub mod misc;
+pub mod plan;
 pub mod providers;
 pub mod sessions;
+pub mod skills;
+pub mod slash;
+pub mod subagent;
+pub mod url_preview;
+pub mod weather;

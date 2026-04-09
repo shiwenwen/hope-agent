@@ -3,8 +3,38 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use anyhow::Result;
+use serde_json::{json, Value};
+
 /// Exit code for "restart requested" (e.g., after self-fix)
 const EXIT_CODE_RESTART: i32 = 42;
+
+// ── Config Persistence ────────────────────────────────────────────
+
+/// Read `guardian.enabled` from `~/.opencomputer/config.json`. Defaults to
+/// `true` when the file, the `guardian` key, or the `enabled` field is missing.
+pub fn get_enabled_from_config() -> Result<bool> {
+    let config_path = crate::paths::config_path()?;
+    let content = std::fs::read_to_string(&config_path).unwrap_or_default();
+    let config: Value = serde_json::from_str(&content).unwrap_or_default();
+    Ok(config
+        .get("guardian")
+        .and_then(|g| g.get("enabled"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true))
+}
+
+/// Set `guardian.enabled` in `~/.opencomputer/config.json` via read-modify-write.
+/// Other top-level fields in the file are preserved.
+pub fn set_enabled_in_config(enabled: bool) -> Result<()> {
+    let config_path = crate::paths::config_path()?;
+    let content = std::fs::read_to_string(&config_path).unwrap_or_default();
+    let mut config: Value = serde_json::from_str(&content).unwrap_or(json!({}));
+    config["guardian"] = json!({ "enabled": enabled });
+    let json_str = serde_json::to_string_pretty(&config)?;
+    std::fs::write(&config_path, json_str)?;
+    Ok(())
+}
 
 // ── Configuration ─────────────────────────────────────────────────
 

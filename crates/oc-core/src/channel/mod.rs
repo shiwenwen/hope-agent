@@ -1,3 +1,4 @@
+pub mod accounts;
 pub mod cancel;
 pub mod config;
 pub mod db;

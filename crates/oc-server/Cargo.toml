@@ -13,6 +13,8 @@ anyhow = { workspace = true }
 futures-util = { workspace = true }
 
 reqwest = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
 
 # HTTP/WS framework
 axum = { version = "0.8", features = ["ws"] }
