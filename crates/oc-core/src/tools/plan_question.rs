@@ -132,30 +132,34 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
         return "Error: EventBus not available for plan question events".to_string();
     }
 
-    // Wait for response with timeout (10 minutes — user may need time to think)
-    match tokio::time::timeout(std::time::Duration::from_secs(600), rx).await {
-        Ok(Ok(answers)) => {
-            // Format answers as readable text for the LLM
-            format_answers_for_llm(&questions, &answers, context.as_deref())
+    // Wait for response with configurable timeout (default 30 minutes, 0 = no timeout)
+    let timeout_secs = crate::provider::load_store()
+        .map(|s| s.plan_question_timeout_secs)
+        .unwrap_or(1800);
+
+    if timeout_secs == 0 {
+        // No timeout — wait forever
+        match rx.await {
+            Ok(answers) => format_answers_for_llm(&questions, &answers, context.as_deref()),
+            Err(_) => {
+                app_warn!("plan", "plan_question", "Plan question cancelled (id: {})", request_id);
+                "The user cancelled the questions without answering.".to_string()
+            }
         }
-        Ok(Err(_)) => {
-            app_warn!(
-                "plan",
-                "plan_question",
-                "Plan question cancelled (id: {})",
-                request_id
-            );
-            "The user cancelled the questions without answering.".to_string()
-        }
-        Err(_) => {
-            plan::cancel_pending_plan_question(&request_id).await;
-            app_warn!(
-                "plan",
-                "plan_question",
-                "Plan question timed out (id: {})",
-                request_id
-            );
-            "The questions timed out after 10 minutes without a response.".to_string()
+    } else {
+        match tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), rx).await {
+            Ok(Ok(answers)) => {
+                format_answers_for_llm(&questions, &answers, context.as_deref())
+            }
+            Ok(Err(_)) => {
+                app_warn!("plan", "plan_question", "Plan question cancelled (id: {})", request_id);
+                "The user cancelled the questions without answering.".to_string()
+            }
+            Err(_) => {
+                plan::cancel_pending_plan_question(&request_id).await;
+                app_warn!("plan", "plan_question", "Plan question timed out (id: {})", request_id);
+                format!("The questions timed out after {} seconds without a response.", timeout_secs)
+            }
         }
     }
 }

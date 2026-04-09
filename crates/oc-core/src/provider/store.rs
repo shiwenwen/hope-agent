@@ -102,6 +102,10 @@ pub(super) fn default_tool_timeout() -> u64 {
     300
 }
 
+pub(super) fn default_plan_question_timeout() -> u64 {
+    1800
+}
+
 pub(super) fn default_theme() -> String {
     "auto".to_string()
 }
@@ -270,6 +274,11 @@ pub struct ProviderStore {
     #[serde(default)]
     pub plan_subagent: bool,
 
+    /// Timeout in seconds for plan_question tool waiting for user response.
+    /// Default: 1800 (30 minutes). 0 = no timeout (wait forever).
+    #[serde(default = "default_plan_question_timeout")]
+    pub plan_question_timeout_secs: u64,
+
     /// IM channel configuration (Telegram, Discord, Slack, etc.)
     #[serde(default)]
     pub channels: crate::channel::ChannelStoreConfig,
@@ -323,6 +332,7 @@ impl Default for ProviderStore {
             plans_directory: None,
             temperature: None,
             plan_subagent: false,
+            plan_question_timeout_secs: default_plan_question_timeout(),
             channels: crate::channel::ChannelStoreConfig::default(),
             deferred_tools: DeferredToolsConfig::default(),
             server: EmbeddedServerConfig::default(),

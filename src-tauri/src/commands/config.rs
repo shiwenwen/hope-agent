@@ -562,6 +562,19 @@ pub async fn set_plan_subagent(enabled: bool) -> Result<(), String> {
     provider::save_store(&store).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub async fn get_plan_question_timeout() -> Result<u64, String> {
+    let store = provider::load_store().map_err(|e| e.to_string())?;
+    Ok(store.plan_question_timeout_secs)
+}
+
+#[tauri::command]
+pub async fn set_plan_question_timeout(secs: u64) -> Result<(), String> {
+    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    store.plan_question_timeout_secs = secs;
+    provider::save_store(&store).map_err(|e| e.to_string())
+}
+
 // ── Weather ─────────────────────────────────────────────────────
 
 /// Search cities by name using Open-Meteo Geocoding API.

@@ -120,6 +120,10 @@ fn build_router_with_cors(
         .route("/config/compact", put(routes::config::save_compact_config))
         .route("/config/notification", get(routes::config::get_notification_config))
         .route("/config/notification", put(routes::config::save_notification_config))
+        .route("/config/plan-subagent", get(routes::config::get_plan_subagent))
+        .route("/config/plan-subagent", post(routes::config::set_plan_subagent))
+        .route("/config/plan-question-timeout", get(routes::config::get_plan_question_timeout))
+        .route("/config/plan-question-timeout", post(routes::config::set_plan_question_timeout))
         .route("/config/server", get(routes::config::get_server_config))
         .route("/config/server", put(routes::config::save_server_config))
         // Agents

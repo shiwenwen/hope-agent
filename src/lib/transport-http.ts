@@ -125,6 +125,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   respond_plan_question:           { method: "POST",   path: "/api/plan/{sessionId}/respond" },
   set_plan_subagent:               { method: "POST",   path: "/api/config/plan-subagent" },
   get_plan_subagent:               { method: "GET",    path: "/api/config/plan-subagent" },
+  set_plan_question_timeout:       { method: "POST",   path: "/api/config/plan-question-timeout" },
+  get_plan_question_timeout:       { method: "GET",    path: "/api/config/plan-question-timeout" },
 
   // -- Cron --
   cron_list_jobs:                  { method: "GET",    path: "/api/cron" },

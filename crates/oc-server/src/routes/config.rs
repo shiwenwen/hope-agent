@@ -106,6 +106,44 @@ pub async fn save_notification_config(
     Ok(Json(json!({ "saved": true })))
 }
 
+// ── Plan Config ─────────────────────────────────────────────────
+
+/// `GET /api/config/plan-subagent` -- get plan subagent toggle.
+pub async fn get_plan_subagent() -> Result<Json<Value>, AppError> {
+    let store = load_store()?;
+    Ok(Json(json!(store.plan_subagent)))
+}
+
+/// `POST /api/config/plan-subagent` -- set plan subagent toggle.
+pub async fn set_plan_subagent(Json(body): Json<Value>) -> Result<Json<Value>, AppError> {
+    let enabled = body
+        .get("enabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let mut store = load_store()?;
+    store.plan_subagent = enabled;
+    save_store(&store)?;
+    Ok(Json(json!({ "saved": true })))
+}
+
+/// `GET /api/config/plan-question-timeout` -- get plan question timeout (seconds).
+pub async fn get_plan_question_timeout() -> Result<Json<Value>, AppError> {
+    let store = load_store()?;
+    Ok(Json(json!(store.plan_question_timeout_secs)))
+}
+
+/// `POST /api/config/plan-question-timeout` -- set plan question timeout (seconds).
+pub async fn set_plan_question_timeout(Json(body): Json<Value>) -> Result<Json<Value>, AppError> {
+    let secs = body
+        .get("secs")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(1800);
+    let mut store = load_store()?;
+    store.plan_question_timeout_secs = secs;
+    save_store(&store)?;
+    Ok(Json(json!({ "saved": true })))
+}
+
 // ── Server Config ──────────────────────────────────────────────
 
 /// `GET /api/config/server` -- get embedded server config (api_key masked).
