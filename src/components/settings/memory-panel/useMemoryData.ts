@@ -43,6 +43,9 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [batchLoading, setBatchLoading] = useState(false)
 
+  // ── Import-from-AI dialog state ──
+  const [importFromAIOpen, setImportFromAIOpen] = useState(false)
+
   // ── Dedup confirmation state ──
   const [dedupSimilar, setDedupSimilar] = useState<MemoryEntry[]>([])
   const [dedupPendingEntry, setDedupPendingEntry] = useState<NewMemory | null>(null)
@@ -382,6 +385,10 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
     // Multi-select state
     selectedIds,
     batchLoading,
+
+    // Import-from-AI dialog
+    importFromAIOpen,
+    setImportFromAIOpen,
 
     // Dedup state
     dedupSimilar,

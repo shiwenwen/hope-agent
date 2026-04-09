@@ -203,6 +203,7 @@ pub fn run() {
             commands::memory::memory_find_similar,
             commands::memory::memory_delete_batch,
             commands::memory::memory_import,
+            commands::memory::memory_get_import_from_ai_prompt,
             commands::memory::memory_reembed,
             commands::memory::get_global_memory_md,
             commands::memory::save_global_memory_md,

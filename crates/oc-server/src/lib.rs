@@ -109,6 +109,10 @@ fn build_router_with_cors(
         .route("/memory/search", post(routes::memory::search_memories))
         .route("/memory/count", get(routes::memory::memory_count))
         .route("/memory/stats", get(routes::memory::memory_stats))
+        .route(
+            "/memory/import-from-ai-prompt",
+            get(routes::memory::import_from_ai_prompt),
+        )
         // Config
         .route("/config/user", get(routes::config::get_user_config))
         .route("/config/user", put(routes::config::save_user_config))

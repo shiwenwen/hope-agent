@@ -35,6 +35,11 @@ pub struct StatsQuery {
     pub agent_id: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ImportPromptQuery {
+    pub locale: Option<String>,
+}
+
 // ── Helpers ─────────────────────────────────────────────────────
 
 fn get_backend() -> Result<&'static std::sync::Arc<dyn oc_core::memory::MemoryBackend>, AppError> {
@@ -144,4 +149,15 @@ pub async fn memory_stats(
     let scope = parse_scope(&q.scope, &q.agent_id);
     let stats = backend.stats(scope.as_ref())?;
     Ok(Json(stats))
+}
+
+/// `GET /api/memory/import-from-ai-prompt` -- get the prompt template shown to the user
+/// when importing memories from another AI assistant. Returns a JSON-encoded string
+/// (the raw Markdown template), matching the Tauri command's `String` return type.
+pub async fn import_from_ai_prompt(
+    Query(q): Query<ImportPromptQuery>,
+) -> Result<Json<String>, AppError> {
+    let locale = q.locale.as_deref().unwrap_or("en");
+    let prompt = oc_core::memory::import_prompt::import_from_ai_prompt(locale);
+    Ok(Json(prompt.to_string()))
 }

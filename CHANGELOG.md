@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **记忆模块"从其他 AI 导入"**：设置 → 记忆面板工具栏新增 Sparkles 图标按钮，弹出双步骤对话框 —— 第 1 步展示本地化提示词模板（按当前界面语言返回 zh/en，其他语言回退英文），用户复制后粘贴到 ChatGPT / Claude / Gemini 等外部 AI；第 2 步把 AI 返回的 JSON 粘回，解析后复用现有 `memory_import` 命令批量写入（dedup 默认开启）。前端自动剥离 ```` ```json ```` 代码块围栏。模板文件位于 `crates/oc-core/templates/memory_import_from_ai.{en,zh}.md`，通过 `include_str!` 编译期嵌入，新增 `memory::import_prompt::import_from_ai_prompt(locale)` 加载函数、`memory_get_import_from_ai_prompt` Tauri 命令和 `GET /api/memory/import-from-ai-prompt` HTTP 路由
 - **Agent 工具注入 UI**：Agent 设置 → 能力 → 工具子 tab 新增"工具注入"折叠段落，可在 Agent 级别启用/禁用具体内置工具。Internal 系统工具（plan_question/save_memory/canvas 等 22 个）自动隐藏不可关闭。后端复用现有 `FilterConfig.is_allowed()` 在 system_prompt 构建时过滤工具描述
 
 ### Changed

@@ -97,6 +97,12 @@ pub async fn memory_delete_batch(ids: Vec<i64>) -> Result<usize, String> {
 }
 
 #[tauri::command]
+pub async fn memory_get_import_from_ai_prompt(locale: Option<String>) -> Result<String, String> {
+    let locale = locale.as_deref().unwrap_or("en");
+    Ok(memory::import_prompt::import_from_ai_prompt(locale).to_string())
+}
+
+#[tauri::command]
 pub async fn memory_import(
     content: String,
     format: String,

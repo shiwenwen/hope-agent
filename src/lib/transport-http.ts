@@ -88,6 +88,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   memory_toggle_pin:               { method: "POST",   path: "/api/memory/{id}/pin" },
   memory_delete_batch:             { method: "POST",   path: "/api/memory/delete-batch" },
   memory_reembed:                  { method: "POST",   path: "/api/memory/reembed" },
+  memory_get_import_from_ai_prompt:{ method: "GET",    path: "/api/memory/import-from-ai-prompt" },
   save_global_memory_md:           { method: "PUT",    path: "/api/memory/global-md" },
 
   // -- Memory config --

@@ -23,10 +23,12 @@ import {
   Square,
   User,
   Pin,
+  Sparkles,
 } from "lucide-react"
 import { MEMORY_TYPES, MEMORY_TYPE_ICONS } from "./types"
 import ExtractConfig from "./ExtractConfig"
 import CoreMemoryEditor from "./CoreMemoryEditor"
+import ImportFromAIDialog from "./ImportFromAIDialog"
 import type { useMemoryData } from "./useMemoryData"
 
 type MemoryData = ReturnType<typeof useMemoryData>
@@ -56,6 +58,9 @@ export default function MemoryListView({ data, isAgentMode, compact }: MemoryLis
     stats,
     handleExport,
     handleImport,
+    importFromAIOpen,
+    setImportFromAIOpen,
+    loadMemories,
     handleDelete,
     handleDeleteBatch,
     handleReembedBatch,
@@ -73,6 +78,15 @@ export default function MemoryListView({ data, isAgentMode, compact }: MemoryLis
           <div className="flex items-center justify-between mb-1 shrink-0">
             <h2 className="text-lg font-semibold">{t("settings.memory")}</h2>
             <div className="flex items-center gap-2">
+              <IconTip label={t("settings.memoryImportFromAI")}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setImportFromAIOpen(true)}
+                >
+                  <Sparkles className="h-4 w-4" />
+                </Button>
+              </IconTip>
               <IconTip label={t("settings.memoryImport")}>
                 <Button variant="ghost" size="sm" onClick={handleImport}>
                   <Upload className="h-4 w-4" />
@@ -370,6 +384,11 @@ export default function MemoryListView({ data, isAgentMode, compact }: MemoryLis
             )}
           </div>
         </div>
+        <ImportFromAIDialog
+          open={importFromAIOpen}
+          onOpenChange={setImportFromAIOpen}
+          onImported={loadMemories}
+        />
       </div>
   )
 }

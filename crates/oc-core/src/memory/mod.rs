@@ -1,6 +1,7 @@
 pub mod embedding;
 pub mod helpers;
 pub mod import;
+pub mod import_prompt;
 pub mod mmr;
 pub(crate) mod selection;
 pub mod sqlite;
