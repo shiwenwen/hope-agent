@@ -179,9 +179,13 @@ pub fn init_app_state(initial_store: ProviderStore) -> AppState {
         let _ = CHANNEL_DB.set(channel_db);
     }
 
-    // Initialize ACP control plane (non-async parts only)
+    // Initialize ACP control plane (non-async parts only).
+    // This is also the first `cached_store()` call on the Tauri setup path,
+    // which synchronously populates the in-memory provider-store cache so
+    // later async hot paths (tool execution, chat, channel workers) never
+    // block on the initial disk read. Do not remove without auditing.
     {
-        let store = provider::load_store().unwrap_or_default();
+        let store = provider::cached_store();
         if store.acp_control.enabled {
             let registry = Arc::new(acp_control::AcpRuntimeRegistry::new());
             let manager = Arc::new(acp_control::AcpSessionManager::new(registry));
@@ -212,7 +216,7 @@ pub async fn start_background_tasks() {
     // Auto-start enabled channel accounts
     if let Some(registry) = CHANNEL_REGISTRY.get() {
         let registry = registry.clone();
-        let store = provider::load_store().unwrap_or_default();
+        let store = provider::cached_store();
         tokio::spawn(async move {
             for account in store.channels.enabled_accounts() {
                 if let Err(e) = registry.start_account(account).await {
@@ -230,7 +234,7 @@ pub async fn start_background_tasks() {
 
     // Auto-discover ACP backends
     if let Some(acp_mgr) = ACP_MANAGER.get() {
-        let store = provider::load_store().unwrap_or_default();
+        let store = provider::cached_store();
         if store.acp_control.enabled {
             let registry = acp_mgr.runtime_registry().clone();
             let acp_config = store.acp_control.clone();

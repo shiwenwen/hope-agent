@@ -133,9 +133,7 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
     }
 
     // Wait for response with configurable timeout (default 30 minutes, 0 = no timeout)
-    let timeout_secs = crate::provider::load_store()
-        .map(|s| s.plan_question_timeout_secs)
-        .unwrap_or(1800);
+    let timeout_secs = crate::provider::cached_store().plan_question_timeout_secs;
 
     if timeout_secs == 0 {
         // No timeout — wait forever

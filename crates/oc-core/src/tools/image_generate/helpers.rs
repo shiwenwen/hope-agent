@@ -9,9 +9,7 @@ use super::types::*;
 /// Check if at least one provider is enabled with an API key.
 #[allow(dead_code)]
 pub fn has_configured_provider() -> bool {
-    provider::load_store()
-        .map(|s| has_configured_provider_from_config(&s.image_generate))
-        .unwrap_or(false)
+    has_configured_provider_from_config(&provider::cached_store().image_generate)
 }
 
 /// Check from a config reference (avoids re-loading store).

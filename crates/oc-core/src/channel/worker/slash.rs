@@ -421,8 +421,7 @@ async fn compact_context_now_core(
         });
     }
 
-    let store = provider::load_store().map_err(|e| e.to_string())?;
-    let compact_config = store.compact;
+    let compact_config = provider::cached_store().compact.clone();
 
     let system_prompt_estimate = "system";
     let max_tokens: u32 = 16384;

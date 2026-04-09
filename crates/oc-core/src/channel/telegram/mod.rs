@@ -86,17 +86,9 @@ impl TelegramPlugin {
                 return Some(proxy.to_string());
             }
         }
-        // Fall back to global proxy
-        if let Ok(store) = crate::provider::load_store() {
-            if matches!(store.proxy.mode, crate::provider::ProxyMode::Custom) {
-                if let Some(ref url) = store.proxy.url {
-                    if !url.is_empty() {
-                        return Some(url.clone());
-                    }
-                }
-            }
-        }
-        None
+        // Fall back to global custom proxy (system-proxy autodetect is
+        // intentionally NOT honored for bot SDKs).
+        crate::provider::active_custom_proxy_url()
     }
 
     /// Get the API for a running account.

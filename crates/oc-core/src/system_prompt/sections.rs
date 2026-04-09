@@ -32,7 +32,7 @@ pub(super) fn build_all_tools_description() -> String {
 /// Build a section listing deferred tools (name + one-line description).
 /// Only generated when deferred tool loading is enabled.
 pub(super) fn build_deferred_tools_section() -> Option<String> {
-    let store = crate::provider::load_store().unwrap_or_default();
+    let store = crate::provider::cached_store();
     if !store.deferred_tools.enabled {
         return None;
     }
@@ -69,7 +69,7 @@ pub(super) fn build_deferred_tools_section() -> Option<String> {
 
 /// Build skills section, filtered by agent config.
 pub(super) fn build_skills_section(filter: &FilterConfig, env_check: bool) -> String {
-    let store = crate::provider::load_store().unwrap_or_default();
+    let store = crate::provider::cached_store();
     let all_skills =
         skills::load_all_skills_with_budget(&store.extra_skills_dirs, &store.skill_prompt_budget);
 
@@ -291,11 +291,7 @@ pub fn build_subagent_section_with_depth(
 /// Build the ACP external agent delegation section for the system prompt.
 pub(super) fn build_acp_section() -> String {
     // Check global config
-    let store = match crate::provider::load_store() {
-        Ok(s) => s,
-        Err(_) => return String::new(),
-    };
-
+    let store = crate::provider::cached_store();
     if !store.acp_control.enabled {
         return String::new();
     }

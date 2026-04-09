@@ -11,9 +11,7 @@ use super::types::*;
 // ── Tool Entry Point (with Failover) ────────────────────────────
 
 pub(crate) async fn tool_image_generate(args: &Value) -> Result<String> {
-    let config = provider::load_store()
-        .map(|s| s.image_generate)
-        .unwrap_or_default();
+    let config = provider::cached_store().image_generate.clone();
 
     // Parse action
     let action = args

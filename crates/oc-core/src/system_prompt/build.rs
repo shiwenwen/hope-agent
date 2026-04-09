@@ -313,7 +313,7 @@ pub fn build(
 /// Build a system prompt using the legacy path (no AgentDefinition).
 /// This preserves backward compatibility during the transition.
 pub fn build_legacy(model: Option<&str>, provider: Option<&str>) -> String {
-    let store = crate::provider::load_store().unwrap_or_default();
+    let store = crate::provider::cached_store();
     let available_skills =
         skills::load_all_skills_with_budget(&store.extra_skills_dirs, &store.skill_prompt_budget);
     let skills_section = skills::build_skills_prompt(

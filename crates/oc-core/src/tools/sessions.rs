@@ -337,7 +337,7 @@ async fn run_agent_for_session(agent_id: &str, message: &str, session_id: &str) 
     use std::sync::atomic::AtomicBool;
     use std::sync::Arc;
 
-    let store = provider::load_store().unwrap_or_default();
+    let store = provider::cached_store();
     let agent_model_config = crate::agent_loader::load_agent(agent_id)
         .map(|def| def.config.model)
         .unwrap_or_default();

@@ -47,25 +47,13 @@ impl DiscordPlugin {
     }
 
     /// Extract optional proxy URL from settings or global config.
-    /// Same pattern as Telegram's extract_proxy.
     fn extract_proxy(settings: &serde_json::Value) -> Option<String> {
-        // Check channel-level proxy first
         if let Some(proxy) = settings.get("proxy").and_then(|v| v.as_str()) {
             if !proxy.is_empty() {
                 return Some(proxy.to_string());
             }
         }
-        // Fall back to global proxy
-        if let Ok(store) = crate::provider::load_store() {
-            if matches!(store.proxy.mode, crate::provider::ProxyMode::Custom) {
-                if let Some(ref url) = store.proxy.url {
-                    if !url.is_empty() {
-                        return Some(url.clone());
-                    }
-                }
-            }
-        }
-        None
+        crate::provider::active_custom_proxy_url()
     }
 
     /// Sync slash commands to Discord's Application Commands API.

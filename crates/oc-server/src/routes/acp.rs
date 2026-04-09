@@ -11,7 +11,7 @@ use crate::error::AppError;
 
 /// `GET /api/acp/backends`
 pub async fn list_backends() -> Result<Json<Vec<AcpBackendInfo>>, AppError> {
-    let store = provider::load_store()?;
+    let store = provider::cached_store();
     if !store.acp_control.enabled {
         return Ok(Json(Vec::new()));
     }
@@ -50,7 +50,7 @@ pub async fn list_backends() -> Result<Json<Vec<AcpBackendInfo>>, AppError> {
 /// `POST /api/acp/refresh`
 pub async fn refresh_backends() -> Result<Json<Value>, AppError> {
     if let Some(_manager) = oc_core::get_acp_manager() {
-        let store = provider::load_store()?;
+        let store = provider::cached_store();
         let registry = std::sync::Arc::new(oc_core::acp_control::AcpRuntimeRegistry::new());
         oc_core::acp_control::registry::auto_discover_and_register(&registry, &store.acp_control)
             .await;
@@ -104,7 +104,7 @@ pub async fn get_run_result(Path(run_id): Path<String>) -> Result<Json<Value>, A
 
 /// `GET /api/acp/config`
 pub async fn get_config() -> Result<Json<AcpControlConfig>, AppError> {
-    Ok(Json(provider::load_store()?.acp_control))
+    Ok(Json(provider::cached_store().acp_control.clone()))
 }
 
 /// `PUT /api/acp/config`

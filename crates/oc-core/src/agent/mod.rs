@@ -366,9 +366,7 @@ impl AssistantAgent {
     /// - Denied tools filtering (depth-based policy)
     /// - Skill allowed-tools filtering
     pub(crate) fn build_tool_schemas(&self, provider: tools::ToolProvider) -> Vec<serde_json::Value> {
-        let deferred_enabled = crate::provider::load_store()
-            .map(|s| s.deferred_tools.enabled)
-            .unwrap_or(false);
+        let deferred_enabled = crate::provider::cached_store().deferred_tools.enabled;
 
         let mut schemas = if deferred_enabled {
             let mut s = tools::get_core_tools_for_provider(provider);

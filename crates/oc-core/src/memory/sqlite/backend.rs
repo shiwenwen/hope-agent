@@ -202,7 +202,7 @@ impl SqliteMemoryBackend {
         let hash_str = format!("{:016x}", hasher.finish());
 
         // Load provider/model info from config for cache key
-        let store = crate::provider::load_store().ok()?;
+        let store = crate::provider::cached_store();
         let provider_key = format!("{:?}", store.embedding.provider_type);
         let model_key = store.embedding.api_model.clone().unwrap_or_default();
 

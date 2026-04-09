@@ -31,58 +31,42 @@ pub(crate) fn sanitize_fts_query(query: &str) -> String {
 
 /// Load dedup thresholds from config.json, falling back to defaults.
 pub fn load_dedup_config() -> DedupConfig {
-    crate::provider::load_store()
-        .map(|s| s.dedup)
-        .unwrap_or_default()
+    crate::provider::cached_store().dedup.clone()
 }
 
 /// Load LLM memory selection config from config.json.
 pub fn load_memory_selection_config() -> MemorySelectionConfig {
-    crate::provider::load_store()
-        .map(|s| s.memory_selection)
-        .unwrap_or_default()
+    crate::provider::cached_store().memory_selection.clone()
 }
 
 /// Load global extract config from config.json.
 pub fn load_extract_config() -> MemoryExtractConfig {
-    crate::provider::load_store()
-        .map(|s| s.memory_extract)
-        .unwrap_or_default()
+    crate::provider::cached_store().memory_extract.clone()
 }
 
 /// Load hybrid search config from config.json.
 pub fn load_hybrid_search_config() -> HybridSearchConfig {
-    crate::provider::load_store()
-        .map(|s| s.hybrid_search)
-        .unwrap_or_default()
+    crate::provider::cached_store().hybrid_search.clone()
 }
 
 /// Load temporal decay config from config.json.
 pub fn load_temporal_decay_config() -> TemporalDecayConfig {
-    crate::provider::load_store()
-        .map(|s| s.temporal_decay)
-        .unwrap_or_default()
+    crate::provider::cached_store().temporal_decay.clone()
 }
 
 /// Load MMR config from config.json.
 pub fn load_mmr_config() -> MmrConfig {
-    crate::provider::load_store()
-        .map(|s| s.mmr)
-        .unwrap_or_default()
+    crate::provider::cached_store().mmr.clone()
 }
 
 /// Load multimodal config from config.json.
 pub fn load_multimodal_config() -> MultimodalConfig {
-    crate::provider::load_store()
-        .map(|s| s.multimodal)
-        .unwrap_or_default()
+    crate::provider::cached_store().multimodal.clone()
 }
 
 /// Load embedding cache config from config.json.
 pub fn load_embedding_cache_config() -> EmbeddingCacheConfig {
-    crate::provider::load_store()
-        .map(|s| s.embedding_cache)
-        .unwrap_or_default()
+    crate::provider::cached_store().embedding_cache.clone()
 }
 
 /// Extract keywords from a query, filtering stopwords for better FTS matching.

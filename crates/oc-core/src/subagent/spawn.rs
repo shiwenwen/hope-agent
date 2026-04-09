@@ -346,7 +346,7 @@ fn execute_subagent(
         const RETRY_BASE_MS: u64 = 1000;
         const RETRY_MAX_MS: u64 = 10_000;
 
-        let store = provider::load_store().unwrap_or_default();
+        let store = provider::cached_store();
 
         // Load agent config for model resolution
         let agent_def = crate::agent_loader::load_agent(&agent_id)?;

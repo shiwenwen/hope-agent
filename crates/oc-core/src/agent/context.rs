@@ -127,9 +127,10 @@ impl AssistantAgent {
 
                     if flush_enabled {
                         // Resolve provider config on the current thread before spawning
-                        let flush_provider = crate::provider::load_store()
-                            .ok()
-                            .and_then(|s| s.providers.first().cloned());
+                        let flush_provider = crate::provider::cached_store()
+                            .providers
+                            .first()
+                            .cloned();
 
                         if let Some(prov) = flush_provider {
                             if let Some(model) = prov.models.first().cloned() {
@@ -320,42 +321,31 @@ impl AssistantAgent {
         // Check for custom summarization model override
         if let Some(ref model_ref) = self.compact_config.summarization_model {
             if let Some((provider_id, model_id)) = model_ref.split_once(':') {
-                match crate::provider::load_store() {
-                    Ok(store) => {
-                        if let Some(provider_config) = store
-                            .providers
-                            .iter()
-                            .find(|p| p.id == provider_id && p.enabled)
-                        {
-                            let provider = Self::build_llm_provider(provider_config, model_id);
-                            app_info!(
-                                "agent",
-                                "summarize",
-                                "Using custom summarization model: {} ({}:{})",
-                                provider_config.name,
-                                provider_id,
-                                model_id
-                            );
-                            return self
-                                .summarize_with_provider_direct(&provider, prompt)
-                                .await;
-                        }
-                        app_warn!(
-                            "agent",
-                            "summarize",
-                            "Custom summarization provider '{}' not found or disabled, falling back to conversation model",
-                            provider_id
-                        );
-                    }
-                    Err(e) => {
-                        app_warn!(
-                            "agent",
-                            "summarize",
-                            "Failed to load provider store for custom summarization model: {}, falling back to conversation model",
-                            e
-                        );
-                    }
+                let store = crate::provider::cached_store();
+                if let Some(provider_config) = store
+                    .providers
+                    .iter()
+                    .find(|p| p.id == provider_id && p.enabled)
+                {
+                    let provider = Self::build_llm_provider(provider_config, model_id);
+                    app_info!(
+                        "agent",
+                        "summarize",
+                        "Using custom summarization model: {} ({}:{})",
+                        provider_config.name,
+                        provider_id,
+                        model_id
+                    );
+                    return self
+                        .summarize_with_provider_direct(&provider, prompt)
+                        .await;
                 }
+                app_warn!(
+                    "agent",
+                    "summarize",
+                    "Custom summarization provider '{}' not found or disabled, falling back to conversation model",
+                    provider_id
+                );
             } else {
                 app_warn!(
                     "agent",

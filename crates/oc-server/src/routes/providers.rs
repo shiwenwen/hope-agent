@@ -19,7 +19,7 @@ pub struct SetActiveModelRequest {
 
 /// `GET /api/providers` — list all providers (API keys masked).
 pub async fn list_providers() -> Result<Json<Vec<ProviderConfig>>, AppError> {
-    let store = provider::load_store()?;
+    let store = provider::cached_store();
     let masked: Vec<ProviderConfig> = store.providers.iter().map(|p| p.masked()).collect();
     Ok(Json(masked))
 }
@@ -178,13 +178,13 @@ pub async fn test_provider(
 
 /// `GET /api/providers/active-model` — get the currently active model.
 pub async fn get_active_model() -> Result<Json<Value>, AppError> {
-    let store = provider::load_store()?;
+    let store = provider::cached_store();
     Ok(Json(json!({ "active_model": store.active_model })))
 }
 
 /// `GET /api/providers/available-models` — list all available models from enabled providers.
 pub async fn get_available_models() -> Result<Json<Vec<AvailableModel>>, AppError> {
-    let store = provider::load_store()?;
+    let store = provider::cached_store();
     Ok(Json(provider::build_available_models(&store.providers)))
 }
 

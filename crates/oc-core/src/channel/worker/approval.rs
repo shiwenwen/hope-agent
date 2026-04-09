@@ -172,10 +172,7 @@ pub fn spawn_channel_approval_listener(
             };
 
             // Load account config
-            let store = match crate::provider::load_store() {
-                Ok(s) => s,
-                Err(_) => continue,
-            };
+            let store = crate::provider::cached_store();
             let account_config = match store.channels.find_account(&conversation.account_id) {
                 Some(c) => c.clone(),
                 None => continue,

@@ -196,29 +196,27 @@ pub fn canvas_db_path() -> Result<PathBuf> {
 /// Plans directory: uses custom `plansDirectory` config if set,
 /// otherwise `~/.opencomputer/plans/`.
 pub fn plans_dir() -> Result<PathBuf> {
-    // Check custom plansDirectory config
-    if let Ok(store) = crate::provider::load_store() {
-        if let Some(ref custom_dir) = store.plans_directory {
-            if !custom_dir.is_empty() {
-                let expanded = if custom_dir.starts_with('~') {
-                    if let Some(home) = dirs::home_dir() {
-                        let suffix = custom_dir
-                            .strip_prefix("~/")
-                            .or_else(|| custom_dir.strip_prefix("~"))
-                            .unwrap_or(custom_dir);
-                        if suffix.is_empty() {
-                            home
-                        } else {
-                            home.join(suffix)
-                        }
+    let store = crate::provider::cached_store();
+    if let Some(ref custom_dir) = store.plans_directory {
+        if !custom_dir.is_empty() {
+            let expanded = if custom_dir.starts_with('~') {
+                if let Some(home) = dirs::home_dir() {
+                    let suffix = custom_dir
+                        .strip_prefix("~/")
+                        .or_else(|| custom_dir.strip_prefix("~"))
+                        .unwrap_or(custom_dir);
+                    if suffix.is_empty() {
+                        home
                     } else {
-                        PathBuf::from(custom_dir)
+                        home.join(suffix)
                     }
                 } else {
                     PathBuf::from(custom_dir)
-                };
-                return Ok(expanded);
-            }
+                }
+            } else {
+                PathBuf::from(custom_dir)
+            };
+            return Ok(expanded);
         }
     }
     Ok(root_dir()?.join("plans"))

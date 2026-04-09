@@ -20,18 +20,11 @@ use super::{
     TOOL_UPDATE_MEMORY, TOOL_UPDATE_PLAN_STEP, TOOL_WEB_FETCH, TOOL_WEB_SEARCH, TOOL_WRITE,
 };
 
-/// Default hard timeout (seconds) for a single tool execution.
-/// Acts as a safety net when the inner tool timeout (e.g. reqwest) does not fire
-/// in degraded network conditions (stuck TCP, unresponsive proxy, etc.).
-/// Configurable via `config.json` → `toolTimeout` (seconds). 0 = disabled.
-const DEFAULT_TOOL_TIMEOUT_SECS: u64 = 300; // 5 minutes
-
-/// Load the user-configured tool timeout from config.json, falling back to the
-/// compile-time default. Returns `None` when the user explicitly set 0 (disabled).
+/// Load the user-configured tool timeout from config.json. Returns `None`
+/// when the user explicitly set 0 (disabled). The serde default in
+/// [`ProviderStore`] provides the 300s fallback when the field is missing.
 fn tool_timeout() -> Option<Duration> {
-    let secs = crate::provider::load_store()
-        .map(|s| s.tool_timeout)
-        .unwrap_or(DEFAULT_TOOL_TIMEOUT_SECS);
+    let secs = crate::provider::cached_store().tool_timeout;
     if secs == 0 {
         None
     } else {
@@ -423,8 +416,8 @@ pub async fn execute_tool_with_context(
 /// Load the disk persistence threshold from config.json, defaulting to 50KB.
 /// Returns 0 to disable (never persist).
 fn disk_persist_threshold() -> usize {
-    crate::provider::load_store()
-        .map(|s| s.tool_result_disk_threshold.unwrap_or(50_000))
+    crate::provider::cached_store()
+        .tool_result_disk_threshold
         .unwrap_or(50_000)
 }
 

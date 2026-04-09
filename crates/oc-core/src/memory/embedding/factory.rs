@@ -73,8 +73,7 @@ fn create_auto_provider() -> Result<Arc<dyn EmbeddingProvider>> {
     }
 
     // Priority 20-50: Try API providers by reusing configured LLM API keys
-    let store = crate::provider::load_store()
-        .map_err(|e| anyhow::anyhow!("Failed to load provider store for auto-selection: {}", e))?;
+    let store = crate::provider::cached_store();
 
     for candidate in AUTO_CANDIDATES {
         // Find a configured LLM provider whose base_url matches

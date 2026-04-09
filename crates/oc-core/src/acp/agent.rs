@@ -515,7 +515,7 @@ impl AcpAgent {
 
     /// Build an AssistantAgent from provider config (mirrors cron::build_and_run_agent)
     fn build_agent(&self, agent_id: &str, session_id: &str) -> Result<AssistantAgent> {
-        let store = provider::load_store().unwrap_or_default();
+        let store = provider::cached_store();
         let agent_model_config = crate::agent_loader::load_agent(agent_id)
             .map(|def| def.config.model)
             .unwrap_or_default();
@@ -597,7 +597,7 @@ impl AcpAgent {
         let attachments_owned = attachments.to_vec();
 
         // Build model chain for failover
-        let store = provider::load_store().unwrap_or_default();
+        let store = provider::cached_store();
         let agent_id = self
             .sessions
             .get(session_id)

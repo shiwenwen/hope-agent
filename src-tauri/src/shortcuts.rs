@@ -40,7 +40,7 @@ pub(crate) fn handle_shortcut(
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
     let shortcut_str = shortcut.to_string();
-    let store = provider::load_store().unwrap_or_default();
+    let store = provider::cached_store();
 
     // ── Step 1: Check if this completes a pending chord ──
     {

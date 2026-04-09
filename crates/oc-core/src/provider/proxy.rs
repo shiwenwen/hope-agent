@@ -2,7 +2,26 @@ use super::types::{ProxyConfig, ProxyMode};
 
 /// Load global proxy config once.
 pub fn load_proxy_config() -> ProxyConfig {
-    super::persistence::load_store().map(|s| s.proxy).unwrap_or_default()
+    super::persistence::cached_store().proxy.clone()
+}
+
+/// Resolve the user-configured **custom** proxy URL (ignoring system-proxy
+/// autodetection). Returns `None` unless the user explicitly set
+/// [`ProxyMode::Custom`] with a non-empty URL. Used by bot SDKs (Telegram,
+/// Discord, Slack, LINE) that should only honor explicit proxies and never
+/// pick up an unexpected env-var / system proxy.
+pub fn active_custom_proxy_url() -> Option<String> {
+    let store = super::persistence::cached_store();
+    if matches!(store.proxy.mode, ProxyMode::Custom) {
+        store
+            .proxy
+            .url
+            .as_ref()
+            .filter(|u| !u.is_empty())
+            .cloned()
+    } else {
+        None
+    }
 }
 
 /// Apply proxy settings to a reqwest async ClientBuilder based on global config.

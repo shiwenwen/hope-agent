@@ -113,9 +113,7 @@ fn tray_labels(lang: &str) -> TrayLabels {
 
 /// Resolve the effective language code. When `"auto"`, detect from macOS system locale.
 fn resolve_language() -> String {
-    let stored = crate::provider::load_store()
-        .map(|s| s.language)
-        .unwrap_or_else(|_| "auto".to_string());
+    let stored = crate::provider::cached_store().language.clone();
 
     if stored != "auto" {
         return stored;

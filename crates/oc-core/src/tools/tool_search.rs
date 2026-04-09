@@ -125,9 +125,7 @@ fn collect_extra_tools() -> Vec<ToolDefinition> {
 
 /// Try to load image generation config from provider store.
 fn load_image_gen_config() -> Option<crate::tools::image_generate::ImageGenConfig> {
-    crate::provider::load_store()
-        .ok()
-        .map(|s| s.image_generate)
+    Some(crate::provider::cached_store().image_generate.clone())
 }
 
 #[cfg(test)]

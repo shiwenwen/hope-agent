@@ -239,7 +239,7 @@ pub(crate) async fn inject_and_run_parent(
     });
 
     // 4. Build model chain
-    let store = provider::load_store().unwrap_or_default();
+    let store = provider::cached_store();
     let agent_model_config = crate::agent_loader::load_agent(&parent_agent_id)
         .map(|def| def.config.model)
         .unwrap_or_default();

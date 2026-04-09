@@ -417,9 +417,7 @@ pub(crate) async fn tool_web_fetch(args: &Value) -> Result<String> {
         .unwrap_or("markdown");
 
     // Load config
-    let config = provider::load_store()
-        .map(|s| s.web_fetch)
-        .unwrap_or_default();
+    let config = provider::cached_store().web_fetch.clone();
 
     let max_chars = {
         let requested = args

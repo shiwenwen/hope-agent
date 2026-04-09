@@ -242,9 +242,7 @@ fn resolve_providers(config: &WebSearchConfig) -> Vec<&WebSearchProviderEntry> {
 // ── Tool Entry Point ─────────────────────────────────────────────
 
 pub(crate) async fn tool_web_search(args: &Value) -> Result<String> {
-    let config = provider::load_store()
-        .map(|s| s.web_search)
-        .unwrap_or_default();
+    let config = provider::cached_store().web_search.clone();
 
     let query = args
         .get("query")

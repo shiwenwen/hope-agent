@@ -23,7 +23,7 @@ pub async fn list_plugins() -> Result<Json<Vec<Value>>, AppError> {
 
 /// `GET /api/channel/accounts`
 pub async fn list_accounts() -> Result<Json<Vec<ChannelAccountConfig>>, AppError> {
-    Ok(Json(provider::load_store()?.channels.accounts))
+    Ok(Json(provider::cached_store().channels.accounts.clone()))
 }
 
 #[derive(Debug, Deserialize)]
@@ -95,8 +95,7 @@ pub async fn remove_account(
 pub async fn start_account(
     Path(account_id): Path<String>,
 ) -> Result<Json<Value>, AppError> {
-    let store = provider::load_store()?;
-    let account = store
+    let account = provider::cached_store()
         .channels
         .find_account(&account_id)
         .ok_or_else(|| AppError::not_found(format!("Account '{}' not found", account_id)))?
@@ -124,7 +123,7 @@ pub async fn health(Path(account_id): Path<String>) -> Result<Json<ChannelHealth
     let reg = registry()?;
     let mut h = reg.health(&account_id).await;
     if !h.is_running {
-        let store = provider::load_store()?;
+        let store = provider::cached_store();
         if let Some(account) = store.channels.find_account(&account_id) {
             if let Some(plugin) = reg.get_plugin(&account.channel_id) {
                 if let Ok(probe) = plugin.probe(account).await {
@@ -177,7 +176,7 @@ pub async fn send_test_message(
     Path(account_id): Path<String>,
     Json(body): Json<TestMessageBody>,
 ) -> Result<Json<DeliveryResult>, AppError> {
-    let store = provider::load_store()?;
+    let store = provider::cached_store();
     let account = store
         .channels
         .find_account(&account_id)

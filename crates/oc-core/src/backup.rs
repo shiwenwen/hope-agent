@@ -138,6 +138,10 @@ pub fn restore_backup(backup_name: &str) -> Result<(), String> {
             .map_err(|e| format!("Failed to restore agents/: {}", e))?;
     }
 
+    // `config.json` was rewritten out-of-band above; drop the in-memory
+    // snapshot so hot-path readers pick up the restored state.
+    let _ = crate::provider::reload_cache_from_disk();
+
     Ok(())
 }
 

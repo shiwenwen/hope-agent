@@ -230,7 +230,7 @@ pub async fn build_and_run_agent_with_context(
     const RETRY_MAX_MS: u64 = 10_000;
 
     // Load provider store from disk
-    let store = provider::load_store().unwrap_or_default();
+    let store = provider::cached_store();
 
     // Load agent config for model resolution
     let agent_model_config = crate::agent_loader::load_agent(agent_id)

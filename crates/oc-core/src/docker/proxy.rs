@@ -6,10 +6,7 @@ use super::info;
 /// - None mode: no proxy
 /// All localhost/127.0.0.1 addresses are rewritten to host.docker.internal.
 pub(crate) fn resolve_proxy_for_container() -> Option<String> {
-    if !crate::provider::load_store()
-        .map(|s| s.web_search.searxng_docker_use_proxy)
-        .unwrap_or(true)
-    {
+    if !crate::provider::cached_store().web_search.searxng_docker_use_proxy {
         return None;
     }
 

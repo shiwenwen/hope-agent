@@ -1,12 +1,14 @@
 use anyhow::Result;
+use arc_swap::ArcSwap;
 use std::path::PathBuf;
+use std::sync::{Arc, OnceLock};
 
 use crate::paths;
 
+use super::store::ProviderStore;
 use super::types::{
     ActiveModel, ApiType, AvailableModel, ModelConfig, ProviderConfig, ThinkingStyle,
 };
-use super::store::ProviderStore;
 
 // ── Persistence ───────────────────────────────────────────────────
 
@@ -14,8 +16,21 @@ fn config_path() -> Result<PathBuf> {
     paths::config_path()
 }
 
-/// Load provider store from disk. Returns default if file doesn't exist.
-pub fn load_store() -> Result<ProviderStore> {
+/// Process-wide in-memory snapshot of the provider store.
+///
+/// Populated lazily on first access and refreshed atomically on every
+/// successful [`save_store`]. All reads are lock-free acquire loads — this is
+/// why [`cached_store`] is safe to call from hot paths (tool execution, chat
+/// loops, memory lookups, channel workers) without any synchronization cost.
+fn cache() -> &'static ArcSwap<ProviderStore> {
+    static CACHE: OnceLock<ArcSwap<ProviderStore>> = OnceLock::new();
+    CACHE.get_or_init(|| {
+        let initial = read_from_disk().unwrap_or_default();
+        ArcSwap::from_pointee(initial)
+    })
+}
+
+fn read_from_disk() -> Result<ProviderStore> {
     let path = config_path()?;
     if !path.exists() {
         return Ok(ProviderStore::default());
@@ -25,7 +40,26 @@ pub fn load_store() -> Result<ProviderStore> {
     Ok(store)
 }
 
-/// Save provider store to disk.
+/// Shared read-only snapshot of the provider store. **Lock-free, zero data
+/// clone** — one atomic acquire load plus an `Arc` refcount bump.
+///
+/// Use this in hot paths and read-only accesses. The returned `Arc` is a
+/// point-in-time snapshot; a concurrent [`save_store`] will not affect it.
+pub fn cached_store() -> Arc<ProviderStore> {
+    cache().load_full()
+}
+
+/// Load an owned copy of the provider store. Clones the cached snapshot;
+/// use when you need to mutate and then call [`save_store`]. Read-only
+/// callers should use [`cached_store`] instead.
+pub fn load_store() -> Result<ProviderStore> {
+    Ok((*cached_store()).clone())
+}
+
+/// Persist the provider store to disk and refresh the in-memory cache.
+///
+/// Callers must pass the full, mutated store — this function does not merge
+/// with the existing on-disk content.
 pub fn save_store(store: &ProviderStore) -> Result<()> {
     let path = config_path()?;
     if let Some(parent) = path.parent() {
@@ -47,6 +81,19 @@ pub fn save_store(store: &ProviderStore) -> Result<()> {
     );
     let data = serde_json::to_string_pretty(store)?;
     std::fs::write(&path, data)?;
+
+    // Atomically publish the new snapshot so subsequent cached_store() calls
+    // see the refreshed state without touching disk.
+    cache().store(Arc::new(store.clone()));
+    Ok(())
+}
+
+/// Force a fresh disk read into the cache. Use after an out-of-band write
+/// to `config.json` (e.g. [`crate::backup::restore_backup`]) so hot-path
+/// readers don't keep serving the stale snapshot.
+pub fn reload_cache_from_disk() -> Result<()> {
+    let fresh = read_from_disk()?;
+    cache().store(Arc::new(fresh));
     Ok(())
 }
 
