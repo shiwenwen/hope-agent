@@ -99,10 +99,10 @@ flowchart LR
 
 | 类别 | 维度 | 作用 | 配置位置 |
 |------|------|------|----------|
-| **可见性控制** | Agent 工具过滤（FilterConfig） | 决定 LLM **能看到**哪些工具 | Agent 设置 → 工具 |
+| **可见性控制** | Agent 工具过滤（FilterConfig） | 决定 LLM **能看到**哪些工具 | Agent 设置 → 能力 → 工具 → 工具注入 |
 | **可见性控制** | 子 Agent 工具拒绝（denied_tools） | 从 LLM 可见的工具列表中移除 | Agent 设置 → 子 Agent |
 | **执行审批** | 会话权限模式（ToolPermissionMode） | 决定工具执行前**是否弹审批** | 输入框盾牌按钮 |
-| **执行审批** | Agent 审批列表（require_approval） | 指定哪些工具需要审批 | Agent 设置 → 行为 |
+| **执行审批** | Agent 审批列表（require_approval） | 指定哪些工具需要审批 | Agent 设置 → 能力 → 工具 → 工具审批 |
 
 此外还有 **Plan Mode 路径限制** 和 **exec 命令级 Allowlist** 两个特殊机制。
 
@@ -110,9 +110,9 @@ flowchart LR
 
 ### 1. Agent 工具过滤（FilterConfig）
 
-**源码**：`agent_config.rs` → `AgentConfig.tools: FilterConfig`
-**UI**：Agent 设置面板 → 工具标签页
-**生效位置**：`system_prompt.rs:build_tools_section()` — 构建系统提示词时过滤工具描述
+**源码**：`agent_config.rs` → `AgentConfig.capabilities.tools: FilterConfig`
+**UI**：Agent 设置面板 → 能力 → 工具子 tab → 工具注入折叠段落
+**生效位置**：`system_prompt/build.rs:build_tools_section()` — 构建系统提示词时过滤工具描述
 
 ```rust
 pub struct FilterConfig {

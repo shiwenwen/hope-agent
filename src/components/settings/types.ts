@@ -110,14 +110,14 @@ export interface AgentConfig {
   emoji?: string | null
   avatar?: string | null
   model: { primary?: string | null; fallbacks: string[]; planModel?: string | null; temperature?: number | null }
-  skills: { allow: string[]; deny: string[] }
-  tools: { allow: string[]; deny: string[] }
   personality: PersonalityConfig
-  behavior: {
+  capabilities: {
     maxToolRounds: number
     requireApproval: string[]
     sandbox: boolean
     skillEnvCheck: boolean
+    tools: { allow: string[]; deny: string[] }
+    skills: { allow: string[]; deny: string[] }
   }
   useCustomPrompt: boolean
   openclawMode: boolean

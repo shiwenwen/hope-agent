@@ -17,7 +17,7 @@ import type { AgentConfig, PersonalityConfig, AvailableModel, SkillSummary, Agen
 import { DEFAULT_PERSONALITY, TABS } from "./types"
 import IdentityTab from "./tabs/IdentityTab"
 import PersonalityTab from "./tabs/PersonalityTab"
-import BehaviorTab from "./tabs/BehaviorTab"
+import CapabilitiesTab from "./tabs/CapabilitiesTab"
 import ModelTab from "./tabs/ModelTab"
 import MemoryTab from "./tabs/MemoryTab"
 import SubagentTab from "./tabs/SubagentTab"
@@ -376,8 +376,8 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
             />
           )}
 
-          {activeTab === "behavior" && (
-            <BehaviorTab
+          {activeTab === "capabilities" && (
+            <CapabilitiesTab
               config={config}
               builtinTools={builtinTools}
               availableSkills={availableSkills}

@@ -46,7 +46,7 @@ pub(super) const DEFAULT_MAX_TOOL_ROUNDS: u32 = 10;
 /// Returns 0 for unlimited.
 pub(super) fn get_max_tool_rounds() -> u32 {
     crate::agent_loader::load_agent("default")
-        .map(|def| def.config.behavior.max_tool_rounds)
+        .map(|def| def.config.capabilities.max_tool_rounds)
         .unwrap_or(DEFAULT_MAX_TOOL_ROUNDS)
 }
 

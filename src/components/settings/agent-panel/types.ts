@@ -9,7 +9,7 @@ export type {
 } from "../types"
 export { DEFAULT_PERSONALITY } from "../types"
 
-export type AgentTab = "identity" | "personality" | "behavior" | "model" | "memory" | "subagent" | "custom"
+export type AgentTab = "identity" | "personality" | "capabilities" | "model" | "memory" | "subagent" | "custom"
 
 export const TONE_PRESETS = [
   { value: "formal", labelKey: "settings.agentToneFormal" },
@@ -24,7 +24,7 @@ export const TABS: { id: AgentTab; labelKey: string }[] = [
   { id: "identity", labelKey: "settings.agentIdentity" },
   { id: "personality", labelKey: "settings.agentPersonalityTab" },
   { id: "custom", labelKey: "settings.agentOpenClawMode" },
-  { id: "behavior", labelKey: "settings.agentBehavior" },
+  { id: "capabilities", labelKey: "settings.agentCapabilities" },
   { id: "model", labelKey: "settings.agentModel" },
   { id: "memory", labelKey: "settings.memory" },
   { id: "subagent", labelKey: "settings.subagentTitle" },

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Agent 工具注入 UI**：Agent 设置 → 能力 → 工具子 tab 新增"工具注入"折叠段落，可在 Agent 级别启用/禁用具体内置工具。Internal 系统工具（plan_question/save_memory/canvas 等 22 个）自动隐藏不可关闭。后端复用现有 `FilterConfig.is_allowed()` 在 system_prompt 构建时过滤工具描述
+
+### Changed
+
+- **Agent 设置 tab 重命名 + 结构调整**：原"工具与技能"（代码层 `BehaviorTab` / `agentBehavior`）重命名为"能力"（`CapabilitiesTab` / `agentCapabilities`），内部拆分为"工具"和"技能"两个子 tab。`AgentConfig` 结构调整：原顶层 `tools` / `skills` / `behavior` 字段合并进新的 `capabilities` 字段，统一持久化到 `agent.json` 的 `capabilities` 节点（不保留旧字段兼容）
+
 - **Cargo Workspace 三 Crate 分离**：将单体 `src-tauri` 拆分为 Cargo workspace，包含 `oc-core`（核心业务逻辑，零 Tauri 依赖，~30 个模块）、`oc-server`（axum HTTP/WS 守护进程）、`src-tauri`（Tauri 桌面薄壳）三个 crate
 - **HTTP/WS 服务器模式**：新增 `crates/oc-server/`，基于 axum 提供完整的 REST API 端点和 WebSocket 流式推送，使 OpenComputer 可脱离桌面 GUI 以守护进程形式运行
 - **`opencomputer server` CLI**：新增 server 子命令，支持 `start`（前台启动）、`install`（注册系统服务）、`uninstall`（卸载系统服务）、`status`（查看运行状态）、`stop`（停止服务）

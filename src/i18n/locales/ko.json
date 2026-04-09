@@ -207,7 +207,6 @@
     "agentIdentity": "정체성",
     "agentPersonalityTab": "성격",
     "agentBasicInfo": "기본 정보",
-    "agentBehavior": "동작 설정",
     "agentMaxToolRounds": "최대 도구 호출 횟수",
     "agentUnlimited": "제한 없음",
     "agentSkills": "스킬",

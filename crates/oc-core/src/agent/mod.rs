@@ -490,7 +490,7 @@ impl AssistantAgent {
         let agent_def = crate::agent_loader::load_agent(&self.agent_id);
         let mut require_approval = agent_def
             .as_ref()
-            .map(|def| def.config.behavior.require_approval.clone())
+            .map(|def| def.config.capabilities.require_approval.clone())
             .unwrap_or_default();
         // Merge plan agent ask tools (e.g., exec requires approval during planning)
         if let types::PlanAgentMode::PlanAgent { ask_tools, .. } = &self.plan_agent_mode {
@@ -502,7 +502,7 @@ impl AssistantAgent {
         }
         let force_sandbox = agent_def
             .as_ref()
-            .map(|def| def.config.behavior.sandbox)
+            .map(|def| def.config.capabilities.sandbox)
             .unwrap_or(false);
         tools::ToolExecContext {
             context_window_tokens: Some(self.context_window),

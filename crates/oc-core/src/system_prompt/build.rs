@@ -158,7 +158,7 @@ pub fn build(
     }
 
     // ⑥ Tool definitions (filtered by agent config)
-    sections.push(build_tools_section(&definition.config.tools));
+    sections.push(build_tools_section(&definition.config.capabilities.tools));
 
     // ⑥b Deferred tools listing (when deferred loading is enabled)
     if let Some(deferred_section) = build_deferred_tools_section() {
@@ -167,8 +167,8 @@ pub fn build(
 
     // ⑦ Skills (filtered by agent config)
     sections.push(build_skills_section(
-        &definition.config.skills,
-        definition.config.behavior.skill_env_check,
+        &definition.config.capabilities.skills,
+        definition.config.capabilities.skill_env_check,
     ));
 
     // ⑧ Memory
@@ -240,7 +240,7 @@ pub fn build(
     }
 
     // ⑪ Sandbox mode (conditionally injected)
-    if definition.config.behavior.sandbox {
+    if definition.config.capabilities.sandbox {
         sections.push(
             "# Sandbox Mode\n\n\
              All commands you execute via the `exec` tool will automatically run inside a Docker sandbox container.\n\

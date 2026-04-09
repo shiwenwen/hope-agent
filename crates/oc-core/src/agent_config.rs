@@ -28,21 +28,13 @@ pub struct AgentConfig {
     #[serde(default)]
     pub model: AgentModelConfig,
 
-    /// Skill filtering
-    #[serde(default)]
-    pub skills: FilterConfig,
-
-    /// Tool filtering
-    #[serde(default)]
-    pub tools: FilterConfig,
-
     /// Personality & identity settings
     #[serde(default)]
     pub personality: PersonalityConfig,
 
-    /// Behavior settings
+    /// Capabilities: tools, skills, approval, sandbox, runtime limits
     #[serde(default)]
-    pub behavior: BehaviorConfig,
+    pub capabilities: CapabilitiesConfig,
 
     /// Memory settings
     #[serde(default)]
@@ -82,10 +74,8 @@ impl Default for AgentConfig {
             emoji: None,
             avatar: None,
             model: AgentModelConfig::default(),
-            skills: FilterConfig::default(),
-            tools: FilterConfig::default(),
             personality: PersonalityConfig::default(),
-            behavior: BehaviorConfig::default(),
+            capabilities: CapabilitiesConfig::default(),
             memory: MemoryConfig::default(),
             use_custom_prompt: false,
             openclaw_mode: false,
@@ -189,12 +179,13 @@ impl FilterConfig {
     }
 }
 
-// ── Behavior Config ──────────────────────────────────────────────
+// ── Capabilities Config ──────────────────────────────────────────
 
-/// Agent behavior configuration.
+/// Agent capabilities: what the agent can do and how.
+/// Merges the former BehaviorConfig with top-level tools/skills filters.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct BehaviorConfig {
+pub struct CapabilitiesConfig {
     /// Max tool-call loop rounds
     #[serde(default = "default_max_rounds")]
     pub max_tool_rounds: u32,
@@ -211,6 +202,14 @@ pub struct BehaviorConfig {
     /// When true (default), skills whose requirements are not met are silently excluded.
     #[serde(default = "default_skill_env_check")]
     pub skill_env_check: bool,
+
+    /// Tool visibility filter (allow/deny by tool name)
+    #[serde(default)]
+    pub tools: FilterConfig,
+
+    /// Skill visibility filter (allow/deny by skill name)
+    #[serde(default)]
+    pub skills: FilterConfig,
 }
 
 fn default_max_rounds() -> u32 {
@@ -225,13 +224,15 @@ fn default_skill_env_check() -> bool {
     true
 }
 
-impl Default for BehaviorConfig {
+impl Default for CapabilitiesConfig {
     fn default() -> Self {
         Self {
             max_tool_rounds: default_max_rounds(),
             require_approval: default_approval_tools(),
             sandbox: false,
             skill_env_check: default_skill_env_check(),
+            tools: FilterConfig::default(),
+            skills: FilterConfig::default(),
         }
     }
 }

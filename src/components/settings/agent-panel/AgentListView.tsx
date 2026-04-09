@@ -43,16 +43,17 @@ function AgentCreateView({
         emoji: "🤖",
         avatar: null,
         model: { primary: null, fallbacks: [] },
-        skills: { allow: [], deny: [] },
-        tools: { allow: [], deny: [] },
         personality: { ...DEFAULT_PERSONALITY },
-        behavior: {
+        capabilities: {
           maxToolRounds: 10,
           requireApproval: ["*"],
           sandbox: false,
           skillEnvCheck: true,
+          tools: { allow: [], deny: [] },
+          skills: { allow: [], deny: [] },
         },
         useCustomPrompt: false,
+        openclawMode: false,
         subagents: {
           enabled: true,
           allowedAgents: [],
