@@ -530,8 +530,8 @@ pub async fn chat(
             )
         }
         crate::plan::PlanModeState::Executing | crate::plan::PlanModeState::Paused => {
-            let mode = crate::agent::PlanAgentMode::BuildAgent {
-                extra_tools: crate::plan::BUILD_AGENT_EXTRA_TOOLS
+            let mode = crate::agent::PlanAgentMode::ExecutingAgent {
+                extra_tools: crate::plan::EXECUTING_AGENT_EXTRA_TOOLS
                     .iter()
                     .map(|s| s.to_string())
                     .collect(),

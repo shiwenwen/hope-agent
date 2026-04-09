@@ -99,7 +99,7 @@ enum LlmProvider {
 | `context_window` | 模型上下文窗口大小 |
 | `compact_config` | 上下文压缩配置 |
 | `denied_tools` | 深度分层工具策略 |
-| `plan_agent_mode` | Plan/Build Agent 模式切换 |
+| `plan_agent_mode` | Plan/Executing Agent 模式切换 |
 
 ### 2.3 Chat 分发器
 

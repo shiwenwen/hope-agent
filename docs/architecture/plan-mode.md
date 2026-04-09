@@ -21,7 +21,7 @@
   - [执行中计划修改（amend_plan）](#执行中计划修改amend_plan)
   - [Git Checkpoint 回滚](#git-checkpoint-回滚)
   - [计划版本管理](#计划版本管理)
-  - [Plan/Build 独立模型](#planbuild-独立模型)
+  - [Planning/Executing 独立模型](#planningexecuting-独立模型)
   - [子 Agent 安全继承](#子-agent-安全继承)
 - [斜杠命令 /plan](#斜杠命令-plan)（含命令分发图）
 - [Tauri 命令一览](#tauri-命令一览)
@@ -628,7 +628,7 @@ sequenceDiagram
 
 前端 PlanPanel 提供版本历史浏览和一键恢复。
 
-### Plan/Build 独立模型
+### Planning/Executing 独立模型
 
 **配置**：`AgentModelConfig.plan_model: Option<String>`
 
@@ -1088,7 +1088,7 @@ Planning/Review 状态下 spawn 的子 Agent 自动继承 `PLAN_MODE_DENIED_TOOL
 | 特性 | Claude Code | OpenCode | OpenComputer |
 |------|-------------|----------|--------------|
 | 入口 | Shift+Tab / CLI flag | Tab 键切换 | **工具栏按钮** + /plan 命令 |
-| 状态数 | 4 (default/acceptEdits/plan/auto) | 2 (Plan/Build) | **6 (Off/Planning/Review/Executing/Paused/Completed)** |
+| 状态数 | 4 (default/acceptEdits/plan/auto) | 2 (Plan/Execute) | **6 (Off/Planning/Review/Executing/Paused/Completed)** |
 | 规划模式 | 内联（同一 Agent） | 内联（同一 Agent） | **双模式可切换（内联 / 子 Agent）** |
 | 规划流程 | 5 阶段（Explore→Plan→Review→Write→Exit） | 5 阶段（复刻 Claude Code） | **5 阶段 + 结构化问答 + 以逻辑单元为中心的计划格式** |
 | 计划格式 | ≤40 行精简（文件+改动） | 增量写入 plan 文件 | **以逻辑单元为中心，代码任务含代码片段/文件引用，非代码任务含交付标准** |
@@ -1103,7 +1103,7 @@ Planning/Review 状态下 spawn 的子 Agent 自动继承 `PLAN_MODE_DENIED_TOOL
 | Plan 存储 | `~/.claude/plans/` | `.opencode/plans/` | **项目本地 + 全局回退** |
 | 版本管理 | 无 | 无 | **自动备份 + 版本历史 + 恢复** |
 | Git 回滚 | 无 | 无 | **Checkpoint 分支 + 一键回滚** |
-| 模型优化 | 同一模型 | Plan/Build 独立模型 | **planModel 覆盖（节省 60-80%）** |
+| 模型优化 | 同一模型 | Planning/Executing 独立模型 | **planModel 覆盖（节省 60-80%）** |
 | 审批选项 | 4 种执行模式 | 确认/取消 | **批准/请求修改/退出/版本恢复** |
 
 ---

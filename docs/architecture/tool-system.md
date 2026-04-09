@@ -208,9 +208,9 @@ flowchart TD
     PermMode -- AskEveryTime --> ShowApproval[弹出审批对话框]
     PermMode -- "Auto（默认）" --> AgentConfig{读取 Agent 的<br/>require_approval}
 
-    AgentConfig -- '["*"]（默认）' --> ShowApproval
-    AgentConfig -- "[]（空）" --> DirectExec
-    AgentConfig -- '["具体工具名"]' --> MatchTool{工具名在列表中？}
+    AgentConfig -- "全部审批（默认）" --> ShowApproval
+    AgentConfig -- "空列表" --> DirectExec
+    AgentConfig -- "指定工具名" --> MatchTool{工具名在列表中？}
 
     MatchTool -- 匹配 --> ShowApproval
     MatchTool -- 不匹配 --> DirectExec
@@ -329,8 +329,8 @@ pub const PLAN_MODE_PATH_AWARE_TOOLS: &[&str] = &["write", "edit"];
 |------|-----------|--------|
 | Off | 正常 | Agent 配置的完整工具集 |
 | Planning / Review | PlanAgent | 白名单工具 + path-restricted `write`/`edit` + 条件注入 `plan_question`/`submit_plan` |
-| Executing / Paused | BuildAgent | 全量工具 + 条件注入 `update_plan_step`/`amend_plan` |
-| Completed | BuildAgent | 全量工具 + 注入 `PLAN_COMPLETED_SYSTEM_PROMPT` |
+| Executing / Paused | ExecutingAgent | 全量工具 + 条件注入 `update_plan_step`/`amend_plan` |
+| Completed | ExecutingAgent | 全量工具 + 注入 `PLAN_COMPLETED_SYSTEM_PROMPT` |
 
 ### 2. 路径级硬限制（Planning 阶段文件写入）
 

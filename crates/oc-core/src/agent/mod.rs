@@ -297,7 +297,7 @@ impl AssistantAgent {
         self.skill_allowed_tools = tools;
     }
 
-    /// Set the plan agent mode (Plan Agent / Build Agent / Off).
+    /// Set the plan agent mode (Plan Agent / Executing Agent / Off).
     pub fn set_plan_agent_mode(&mut self, mode: types::PlanAgentMode) {
         self.plan_agent_mode = mode;
     }
@@ -343,7 +343,7 @@ impl AssistantAgent {
                     allowed_tools.iter().any(|a| a == name)
                 });
             }
-            types::PlanAgentMode::BuildAgent { extra_tools } => {
+            types::PlanAgentMode::ExecutingAgent { extra_tools } => {
                 // Add extra plan execution tools
                 for tool_name in extra_tools {
                     match tool_name.as_str() {
@@ -400,7 +400,7 @@ impl AssistantAgent {
             s
         };
 
-        // Plan Agent / Build Agent tool injection
+        // Plan Agent / Executing Agent tool injection
         self.apply_plan_tools(&mut schemas, provider);
 
         // Filter out denied tools (depth-based tool policy)

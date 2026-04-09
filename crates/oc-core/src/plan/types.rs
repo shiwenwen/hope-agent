@@ -195,7 +195,7 @@ pub struct PlanVersionInfo {
     pub is_current: bool,
 }
 
-// ── Plan Agent / Build Agent Configuration ─────────────────────
+// ── Plan Agent / Executing Agent Configuration ─────────────────────
 
 /// Declarative configuration for the Plan Agent (Planning/Review states).
 /// Uses an **allow-list** approach: only listed tools are available.

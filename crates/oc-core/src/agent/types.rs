@@ -67,7 +67,7 @@ pub enum LlmProvider {
     },
 }
 
-/// Dual-agent plan mode: Plan Agent (read-only + planning tools) vs Build Agent (full tools + execution tracking).
+/// Dual-agent plan mode: Plan Agent (read-only + planning tools) vs Executing Agent (full tools + execution tracking).
 #[derive(Debug, Clone, Default)]
 pub enum PlanAgentMode {
     /// Normal mode, no plan restrictions
@@ -78,8 +78,8 @@ pub enum PlanAgentMode {
         allowed_tools: Vec<String>,
         ask_tools: Vec<String>,
     },
-    /// Build Agent: full tool access + extra plan execution tools
-    BuildAgent { extra_tools: Vec<String> },
+    /// Executing Agent: full tool access + extra plan execution tools
+    ExecutingAgent { extra_tools: Vec<String> },
 }
 
 pub struct AssistantAgent {
@@ -120,7 +120,7 @@ pub struct AssistantAgent {
     /// Active skill's allowed tools: when non-empty, only these tools are sent to the LLM.
     /// Set when a skill with `allowed-tools` frontmatter is activated.
     pub(super) skill_allowed_tools: Vec<String>,
-    /// Plan Agent / Build Agent mode (dual-agent architecture)
+    /// Plan Agent / Executing Agent mode (dual-agent architecture)
     pub(super) plan_agent_mode: PlanAgentMode,
     /// Plan mode path-based allow rules: write/edit targeting these paths are allowed
     /// even when the tool is normally denied during planning.

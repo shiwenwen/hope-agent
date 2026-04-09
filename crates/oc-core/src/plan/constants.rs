@@ -1,7 +1,7 @@
 use super::file_io::plans_dir;
 
-/// Extra tools injected for the Build Agent (Executing/Paused states).
-pub const BUILD_AGENT_EXTRA_TOOLS: &[&str] = &["update_plan_step", "amend_plan"];
+/// Extra tools injected for the Executing Agent (Executing/Paused states).
+pub const EXECUTING_AGENT_EXTRA_TOOLS: &[&str] = &["update_plan_step", "amend_plan"];
 
 /// Tools denied in Plan Mode — kept for sub-agent inheritance compatibility.
 /// Derived from PlanAgentConfig: tools NOT in the allow-list.
