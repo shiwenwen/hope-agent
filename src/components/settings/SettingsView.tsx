@@ -11,7 +11,6 @@ import {
   Info,
   MessageSquare,
   Puzzle,
-  Clock,
   HeartPulse,
   ScrollText,
   Server,
@@ -39,7 +38,6 @@ import UserProfilePanel from "@/components/settings/profile-panel"
 import AboutPanel from "@/components/settings/AboutPanel"
 import LogPanel from "@/components/settings/log-panel"
 import MemoryPanel from "@/components/settings/MemoryPanel"
-import CronPanel from "@/components/settings/CronPanel"
 import PermissionsPanel from "@/components/settings/PermissionsPanel"
 import CrashHistoryPanel from "@/components/settings/CrashHistoryPanel"
 import NotificationPanel from "@/components/settings/NotificationPanel"
@@ -115,11 +113,6 @@ const SECTIONS: SettingsSectionItem[] = [
     id: "acp",
     icon: <Cable className="h-4 w-4" />,
     labelKey: "settings.acpControl",
-  },
-  {
-    id: "cron",
-    icon: <Clock className="h-4 w-4" />,
-    labelKey: "settings.cron",
   },
   {
     id: "notifications",
@@ -260,7 +253,6 @@ export default function SettingsView({
             {activeSection === "agents" && <AgentPanel initialAgentId={initialAgentId} />}
             {activeSection === "profile" && <UserProfilePanel onSaved={onProfileSaved} />}
             {activeSection === "memory" && <MemoryPanel />}
-            {activeSection === "cron" && <CronPanel />}
             {activeSection === "notifications" && <NotificationPanel />}
             {activeSection === "tools" && <ToolSettingsPanel />}
             {activeSection === "sandbox" && <SandboxPanel />}
