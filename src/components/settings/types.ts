@@ -5,7 +5,6 @@ export type SettingsSection =
   | "skills"
   | "agents"
   | "memory"
-  | "cron"
   | "notifications"
   | "sandbox"
   | "acp"
