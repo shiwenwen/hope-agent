@@ -96,9 +96,12 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
             let db_path = session::db_path().expect("session db path");
             Arc::new(SessionDB::open(&db_path).expect("open session db"))
         });
-        let event_bus = oc_core::get_event_bus()
-            .cloned()
-            .unwrap_or_else(|| Arc::new(oc_core::event_bus::BroadcastEventBus::new(256)));
+        let event_bus = oc_core::get_event_bus().cloned().unwrap_or_else(|| {
+            let bus: Arc<dyn oc_core::event_bus::EventBus> =
+                Arc::new(oc_core::event_bus::BroadcastEventBus::new(256));
+            oc_core::set_event_bus(bus.clone());
+            bus
+        });
         let ctx = Arc::new(oc_server::AppContext {
             session_db,
             event_bus,
