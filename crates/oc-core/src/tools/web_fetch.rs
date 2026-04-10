@@ -8,8 +8,6 @@ use std::net::IpAddr;
 use std::sync::Mutex;
 use std::time::Instant;
 
-use crate::provider;
-
 const DEFAULT_WEB_FETCH_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 const DEFAULT_WEB_FETCH_MAX_CHARS: usize = 50000;
 const DEFAULT_WEB_FETCH_MAX_CHARS_CAP: usize = 200000;
@@ -417,7 +415,7 @@ pub(crate) async fn tool_web_fetch(args: &Value) -> Result<String> {
         .unwrap_or("markdown");
 
     // Load config
-    let config = provider::cached_store().web_fetch.clone();
+    let config = crate::config::cached_config().web_fetch.clone();
 
     let max_chars = {
         let requested = args

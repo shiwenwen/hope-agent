@@ -22,9 +22,9 @@ use super::{
 
 /// Load the user-configured tool timeout from config.json. Returns `None`
 /// when the user explicitly set 0 (disabled). The serde default in
-/// [`ProviderStore`] provides the 300s fallback when the field is missing.
+/// [`AppConfig`] provides the 300s fallback when the field is missing.
 fn tool_timeout() -> Option<Duration> {
-    let secs = crate::provider::cached_store().tool_timeout;
+    let secs = crate::config::cached_config().tool_timeout;
     if secs == 0 {
         None
     } else {
@@ -416,7 +416,7 @@ pub async fn execute_tool_with_context(
 /// Load the disk persistence threshold from config.json, defaulting to 50KB.
 /// Returns 0 to disable (never persist).
 fn disk_persist_threshold() -> usize {
-    crate::provider::cached_store()
+    crate::config::cached_config()
         .tool_result_disk_threshold
         .unwrap_or(50_000)
 }

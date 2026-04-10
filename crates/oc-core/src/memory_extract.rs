@@ -544,7 +544,7 @@ async fn run_idle_extraction(agent_id: &str, session_id: &str, expected_updated_
         .or(session_meta.model_id.clone())
         .unwrap_or_default();
 
-    let store = crate::provider::cached_store();
+    let store = crate::config::cached_config();
     if let Some(prov) = crate::provider::find_provider(&store.providers, &extract_provider_id) {
         app_info!(
             "memory",

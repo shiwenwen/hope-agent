@@ -22,7 +22,7 @@ impl Default for EmbeddingProviderType {
     }
 }
 
-/// Embedding configuration, stored in ProviderStore (config.json).
+/// Embedding configuration, stored in AppConfig (config.json).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EmbeddingConfig {

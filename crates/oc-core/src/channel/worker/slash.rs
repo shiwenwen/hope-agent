@@ -55,7 +55,7 @@ pub(super) async fn dispatch_slash_for_channel(
 
         // If not found in built-in, check dynamic skill commands
         if options_found.is_none() {
-            let store = app_state.provider_store.lock().await;
+            let store = app_state.config.lock().await;
             let skills = crate::skills::get_invocable_skills(
                 &store.extra_skills_dirs,
                 &store.disabled_skills,
@@ -143,7 +143,7 @@ pub(super) async fn dispatch_slash_for_channel(
         // ViewSystemPrompt — build and return the system prompt text directly.
         Some(CommandAction::ViewSystemPrompt) => {
             let (model, provider) = {
-                let store = app_state.provider_store.lock().await;
+                let store = app_state.config.lock().await;
                 if let Some(ref active) = store.active_model {
                     let prov = store.providers.iter().find(|p| p.id == active.provider_id);
                     let model_id = active.model_id.clone();
@@ -348,10 +348,10 @@ async fn set_active_model_core(
     model_id: &str,
     state: &crate::globals::AppState,
 ) -> Result<(), String> {
-    use crate::provider::{self, ActiveModel, ApiType};
+    use crate::provider::{ActiveModel, ApiType};
     use crate::agent::AssistantAgent;
 
-    let mut store = state.provider_store.lock().await;
+    let mut store = state.config.lock().await;
 
     let provider = store
         .providers
@@ -378,7 +378,7 @@ async fn set_active_model_core(
         provider_id: provider_id.to_string(),
         model_id: model_id.to_string(),
     });
-    provider::save_store(&store).map_err(|e| e.to_string())?;
+    crate::config::save_config(&store).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -403,7 +403,7 @@ async fn compact_context_now_core(
     session_id: &str,
     state: &crate::globals::AppState,
 ) -> Result<crate::context_compact::CompactResult, String> {
-    use crate::{context_compact, provider};
+    use crate::context_compact;
     use crate::chat_engine::save_agent_context;
 
     let agent = state.agent.lock().await;
@@ -421,7 +421,7 @@ async fn compact_context_now_core(
         });
     }
 
-    let compact_config = provider::cached_store().compact.clone();
+    let compact_config = crate::config::cached_config().compact.clone();
 
     let system_prompt_estimate = "system";
     let max_tokens: u32 = 16384;

@@ -127,7 +127,7 @@ impl AssistantAgent {
 
                     if flush_enabled {
                         // Resolve provider config on the current thread before spawning
-                        let flush_provider = crate::provider::cached_store()
+                        let flush_provider = crate::config::cached_config()
                             .providers
                             .first()
                             .cloned();
@@ -321,7 +321,7 @@ impl AssistantAgent {
         // Check for custom summarization model override
         if let Some(ref model_ref) = self.compact_config.summarization_model {
             if let Some((provider_id, model_id)) = model_ref.split_once(':') {
-                let store = crate::provider::cached_store();
+                let store = crate::config::cached_config();
                 if let Some(provider_config) = store
                     .providers
                     .iter()

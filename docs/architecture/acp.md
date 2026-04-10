@@ -60,7 +60,7 @@ graph TB
 
     subgraph "持久化层"
         SESSION_DB["SessionDB<br/>~/.opencomputer/sessions.db"]
-        CONFIG["ProviderStore<br/>~/.opencomputer/config.json"]
+        CONFIG["AppConfig<br/>~/.opencomputer/config.json"]
         AGENTS_DIR["Agent 配置<br/>~/.opencomputer/agents/"]
     end
 

@@ -156,7 +156,7 @@ flowchart TD
     D --> E[tokio::time::timeout<br/>CRON_JOB_TIMEOUT_SECS = 300s]
     E --> F[build_and_run_agent]
 
-    F --> G[load_store + resolve_model_chain]
+    F --> G[load_config + resolve_model_chain]
     G --> H{model_chain 为空?}
     H -->|是| H1[返回错误:<br/>No model configured]
     H -->|否| I[遍历 model_chain]

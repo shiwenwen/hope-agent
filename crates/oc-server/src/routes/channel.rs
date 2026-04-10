@@ -5,7 +5,6 @@ use serde_json::{json, Value};
 
 use oc_core::channel::accounts::{self, UpdateAccountParams};
 use oc_core::channel::types::*;
-use oc_core::provider;
 
 use crate::error::AppError;
 use crate::routes::helpers::{channel_db, channel_registry as registry};
@@ -23,7 +22,7 @@ pub async fn list_plugins() -> Result<Json<Vec<Value>>, AppError> {
 
 /// `GET /api/channel/accounts`
 pub async fn list_accounts() -> Result<Json<Vec<ChannelAccountConfig>>, AppError> {
-    Ok(Json(provider::cached_store().channels.accounts.clone()))
+    Ok(Json(oc_core::config::cached_config().channels.accounts.clone()))
 }
 
 #[derive(Debug, Deserialize)]
@@ -95,7 +94,7 @@ pub async fn remove_account(
 pub async fn start_account(
     Path(account_id): Path<String>,
 ) -> Result<Json<Value>, AppError> {
-    let account = provider::cached_store()
+    let account = oc_core::config::cached_config()
         .channels
         .find_account(&account_id)
         .ok_or_else(|| AppError::not_found(format!("Account '{}' not found", account_id)))?
@@ -123,7 +122,7 @@ pub async fn health(Path(account_id): Path<String>) -> Result<Json<ChannelHealth
     let reg = registry()?;
     let mut h = reg.health(&account_id).await;
     if !h.is_running {
-        let store = provider::cached_store();
+        let store = oc_core::config::cached_config();
         if let Some(account) = store.channels.find_account(&account_id) {
             if let Some(plugin) = reg.get_plugin(&account.channel_id) {
                 if let Ok(probe) = plugin.probe(account).await {
@@ -176,7 +175,7 @@ pub async fn send_test_message(
     Path(account_id): Path<String>,
     Json(body): Json<TestMessageBody>,
 ) -> Result<Json<DeliveryResult>, AppError> {
-    let store = provider::cached_store();
+    let store = oc_core::config::cached_config();
     let account = store
         .channels
         .find_account(&account_id)

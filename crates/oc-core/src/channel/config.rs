@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use super::types::ChannelAccountConfig;
 
-/// Top-level channel configuration stored in ProviderStore (config.json).
+/// Top-level channel configuration stored in AppConfig (config.json).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChannelStoreConfig {
@@ -13,7 +13,7 @@ pub struct ChannelStoreConfig {
     #[serde(default)]
     pub default_agent_id: Option<String>,
     /// Provider/model override for channel conversations.
-    /// If None, uses the global active_model from ProviderStore.
+    /// If None, uses the global active_model from AppConfig.
     #[serde(default)]
     pub default_model: Option<crate::provider::ActiveModel>,
 }

@@ -31,42 +31,42 @@ pub(crate) fn sanitize_fts_query(query: &str) -> String {
 
 /// Load dedup thresholds from config.json, falling back to defaults.
 pub fn load_dedup_config() -> DedupConfig {
-    crate::provider::cached_store().dedup.clone()
+    crate::config::cached_config().dedup.clone()
 }
 
 /// Load LLM memory selection config from config.json.
 pub fn load_memory_selection_config() -> MemorySelectionConfig {
-    crate::provider::cached_store().memory_selection.clone()
+    crate::config::cached_config().memory_selection.clone()
 }
 
 /// Load global extract config from config.json.
 pub fn load_extract_config() -> MemoryExtractConfig {
-    crate::provider::cached_store().memory_extract.clone()
+    crate::config::cached_config().memory_extract.clone()
 }
 
 /// Load hybrid search config from config.json.
 pub fn load_hybrid_search_config() -> HybridSearchConfig {
-    crate::provider::cached_store().hybrid_search.clone()
+    crate::config::cached_config().hybrid_search.clone()
 }
 
 /// Load temporal decay config from config.json.
 pub fn load_temporal_decay_config() -> TemporalDecayConfig {
-    crate::provider::cached_store().temporal_decay.clone()
+    crate::config::cached_config().temporal_decay.clone()
 }
 
 /// Load MMR config from config.json.
 pub fn load_mmr_config() -> MmrConfig {
-    crate::provider::cached_store().mmr.clone()
+    crate::config::cached_config().mmr.clone()
 }
 
 /// Load multimodal config from config.json.
 pub fn load_multimodal_config() -> MultimodalConfig {
-    crate::provider::cached_store().multimodal.clone()
+    crate::config::cached_config().multimodal.clone()
 }
 
 /// Load embedding cache config from config.json.
 pub fn load_embedding_cache_config() -> EmbeddingCacheConfig {
-    crate::provider::cached_store().embedding_cache.clone()
+    crate::config::cached_config().embedding_cache.clone()
 }
 
 /// Extract keywords from a query, filtering stopwords for better FTS matching.

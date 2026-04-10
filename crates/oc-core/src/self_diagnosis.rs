@@ -136,7 +136,7 @@ pub fn auto_fix(result: &DiagnosisResult) -> Vec<String> {
 /// Load candidate providers for diagnosis, sorted by cost (cheapest first).
 /// Skips Codex (OAuth) providers since Guardian can't handle token refresh.
 fn load_candidate_providers() -> Vec<ProviderConfig> {
-    // Read config.json directly (don't use provider::load_store which may depend on complex types)
+    // Read config.json directly (don't use config::load_config which may depend on complex types)
     let config_path = match paths::config_path() {
         Ok(p) => p,
         Err(_) => return Vec::new(),

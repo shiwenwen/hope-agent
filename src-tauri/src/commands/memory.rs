@@ -1,6 +1,5 @@
 use crate::get_memory_backend;
 use crate::memory;
-use crate::provider;
 use oc_core::{app_info, app_warn};
 
 #[tauri::command]
@@ -138,20 +137,20 @@ pub async fn memory_stats(
 
 #[tauri::command]
 pub async fn get_extract_config() -> Result<memory::MemoryExtractConfig, String> {
-    let store = provider::load_store().map_err(|e| e.to_string())?;
+    let store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     Ok(store.memory_extract)
 }
 
 #[tauri::command]
 pub async fn save_extract_config(config: memory::MemoryExtractConfig) -> Result<(), String> {
-    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    let mut store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     store.memory_extract = config;
-    provider::save_store(&store).map_err(|e| e.to_string())
+    oc_core::config::save_config(&store).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn get_memory_selection_config() -> Result<memory::MemorySelectionConfig, String> {
-    let store = provider::load_store().map_err(|e| e.to_string())?;
+    let store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     Ok(store.memory_selection)
 }
 
@@ -159,68 +158,68 @@ pub async fn get_memory_selection_config() -> Result<memory::MemorySelectionConf
 pub async fn save_memory_selection_config(
     config: memory::MemorySelectionConfig,
 ) -> Result<(), String> {
-    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    let mut store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     store.memory_selection = config;
-    provider::save_store(&store).map_err(|e| e.to_string())
+    oc_core::config::save_config(&store).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn get_dedup_config() -> Result<memory::DedupConfig, String> {
-    let store = provider::load_store().map_err(|e| e.to_string())?;
+    let store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     Ok(store.dedup)
 }
 
 #[tauri::command]
 pub async fn save_dedup_config(config: memory::DedupConfig) -> Result<(), String> {
-    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    let mut store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     store.dedup = config;
-    provider::save_store(&store).map_err(|e| e.to_string())
+    oc_core::config::save_config(&store).map_err(|e| e.to_string())
 }
 
 // ── Search Tuning Configs ──────────────────────────────────────
 
 #[tauri::command]
 pub async fn get_hybrid_search_config() -> Result<memory::HybridSearchConfig, String> {
-    let store = provider::load_store().map_err(|e| e.to_string())?;
+    let store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     Ok(store.hybrid_search)
 }
 
 #[tauri::command]
 pub async fn save_hybrid_search_config(config: memory::HybridSearchConfig) -> Result<(), String> {
-    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    let mut store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     store.hybrid_search = config;
-    provider::save_store(&store).map_err(|e| e.to_string())
+    oc_core::config::save_config(&store).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn get_temporal_decay_config() -> Result<memory::TemporalDecayConfig, String> {
-    let store = provider::load_store().map_err(|e| e.to_string())?;
+    let store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     Ok(store.temporal_decay)
 }
 
 #[tauri::command]
 pub async fn save_temporal_decay_config(config: memory::TemporalDecayConfig) -> Result<(), String> {
-    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    let mut store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     store.temporal_decay = config;
-    provider::save_store(&store).map_err(|e| e.to_string())
+    oc_core::config::save_config(&store).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn get_mmr_config() -> Result<memory::MmrConfig, String> {
-    let store = provider::load_store().map_err(|e| e.to_string())?;
+    let store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     Ok(store.mmr)
 }
 
 #[tauri::command]
 pub async fn save_mmr_config(config: memory::MmrConfig) -> Result<(), String> {
-    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    let mut store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     store.mmr = config;
-    provider::save_store(&store).map_err(|e| e.to_string())
+    oc_core::config::save_config(&store).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn get_embedding_cache_config() -> Result<memory::EmbeddingCacheConfig, String> {
-    let store = provider::load_store().map_err(|e| e.to_string())?;
+    let store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     Ok(store.embedding_cache)
 }
 
@@ -228,36 +227,36 @@ pub async fn get_embedding_cache_config() -> Result<memory::EmbeddingCacheConfig
 pub async fn save_embedding_cache_config(
     config: memory::EmbeddingCacheConfig,
 ) -> Result<(), String> {
-    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    let mut store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     store.embedding_cache = config;
-    provider::save_store(&store).map_err(|e| e.to_string())
+    oc_core::config::save_config(&store).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn get_multimodal_config() -> Result<memory::MultimodalConfig, String> {
-    let store = provider::load_store().map_err(|e| e.to_string())?;
+    let store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     Ok(store.multimodal)
 }
 
 #[tauri::command]
 pub async fn save_multimodal_config(config: memory::MultimodalConfig) -> Result<(), String> {
-    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    let mut store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     store.multimodal = config;
-    provider::save_store(&store).map_err(|e| e.to_string())
+    oc_core::config::save_config(&store).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn get_embedding_config() -> Result<memory::EmbeddingConfig, String> {
-    let store = provider::load_store().map_err(|e| e.to_string())?;
+    let store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     Ok(store.embedding)
 }
 
 #[tauri::command]
 pub async fn save_embedding_config(config: memory::EmbeddingConfig) -> Result<(), String> {
-    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    let mut store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     let should_enable = config.enabled;
     store.embedding = config.clone();
-    provider::save_store(&store).map_err(|e| e.to_string())?;
+    oc_core::config::save_config(&store).map_err(|e| e.to_string())?;
 
     // Apply embedder in background to avoid blocking the command response
     tokio::task::spawn_blocking(move || {

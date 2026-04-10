@@ -33,11 +33,11 @@ pub async fn dispatch(
 
         // ── Model ──
         "model" => {
-            let store = state.provider_store.lock().await;
+            let store = state.config.lock().await;
             model::handle_model(&store, args)
         }
         "models" => {
-            let store = state.provider_store.lock().await;
+            let store = state.config.lock().await;
             model::handle_model(&store, "")
         }
         "think" => model::handle_think(args),
@@ -67,7 +67,7 @@ pub async fn dispatch(
         "permission" => utility::handle_permission(args),
         "help" => Ok(utility::handle_help()),
         "status" => {
-            let store = state.provider_store.lock().await;
+            let store = state.config.lock().await;
             utility::handle_status(&state.session_db, &store, session_id, agent_id)
         }
         "export" => utility::handle_export(&state.session_db, session_id),
@@ -116,7 +116,7 @@ async fn handle_skill_command(
     session_id: Option<&str>,
     agent_id: &str,
 ) -> Option<Result<CommandResult, String>> {
-    let store = state.provider_store.lock().await;
+    let store = state.config.lock().await;
     let skills =
         crate::skills::get_invocable_skills(&store.extra_skills_dirs, &store.disabled_skills);
     drop(store);

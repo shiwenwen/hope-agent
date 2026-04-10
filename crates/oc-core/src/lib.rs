@@ -24,6 +24,7 @@ pub mod browser_state;
 pub mod canvas_db;
 pub mod channel;
 pub mod chat_engine;
+pub mod config;
 pub mod context_compact;
 pub mod crash_journal;
 pub mod cron;

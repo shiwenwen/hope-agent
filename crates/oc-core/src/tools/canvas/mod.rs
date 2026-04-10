@@ -64,7 +64,7 @@ impl Default for CanvasConfig {
 /// Check if canvas is enabled in config.
 #[allow(dead_code)]
 pub fn is_canvas_enabled() -> bool {
-    crate::provider::cached_store().canvas.enabled
+    crate::config::cached_config().canvas.enabled
 }
 
 // ── Helper: get or init canvas DB ──────────────────────────────────
@@ -165,7 +165,7 @@ async fn action_create(args: &Value, ctx: &super::execution::ToolExecContext) ->
     );
 
     // Emit show event so frontend opens the panel
-    if crate::provider::cached_store().canvas.auto_show {
+    if crate::config::cached_config().canvas.auto_show {
         emit_canvas_event(
             "canvas_show",
             &build_show_payload(&project.id, &project.title, &project.content_type),
@@ -199,7 +199,7 @@ async fn action_update(args: &Value) -> Result<String> {
     let language = args.get("language").and_then(|v| v.as_str());
     let version_message = args.get("version_message").and_then(|v| v.as_str());
 
-    let max_versions = crate::provider::cached_store().canvas.max_versions_per_project;
+    let max_versions = crate::config::cached_config().canvas.max_versions_per_project;
 
     let project = project::update_project(
         &db,
@@ -622,13 +622,13 @@ pub async fn canvas_submit_eval_result(
 }
 
 pub async fn get_canvas_config() -> Result<CanvasConfig, String> {
-    Ok(crate::provider::cached_store().canvas.clone())
+    Ok(crate::config::cached_config().canvas.clone())
 }
 
 pub async fn save_canvas_config(config: CanvasConfig) -> Result<(), String> {
-    let mut store = crate::provider::load_store().map_err(|e| e.to_string())?;
+    let mut store = crate::config::load_config().map_err(|e| e.to_string())?;
     store.canvas = config;
-    crate::provider::save_store(&store).map_err(|e| e.to_string())
+    crate::config::save_config(&store).map_err(|e| e.to_string())
 }
 
 pub async fn list_canvas_projects() -> Result<String, String> {

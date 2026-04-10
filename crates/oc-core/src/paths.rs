@@ -196,7 +196,7 @@ pub fn canvas_db_path() -> Result<PathBuf> {
 /// Plans directory: uses custom `plansDirectory` config if set,
 /// otherwise `~/.opencomputer/plans/`.
 pub fn plans_dir() -> Result<PathBuf> {
-    let store = crate::provider::cached_store();
+    let store = crate::config::cached_config();
     if let Some(ref custom_dir) = store.plans_directory {
         if !custom_dir.is_empty() {
             let expanded = if custom_dir.starts_with('~') {

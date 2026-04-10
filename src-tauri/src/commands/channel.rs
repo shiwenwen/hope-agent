@@ -1,6 +1,5 @@
 use crate::channel::accounts::{self, UpdateAccountParams};
 use crate::channel::types::*;
-use crate::provider;
 
 // ── List Plugins ─────────────────────────────────────────────────
 
@@ -27,7 +26,7 @@ pub async fn channel_list_plugins() -> Result<Vec<serde_json::Value>, String> {
 
 #[tauri::command]
 pub async fn channel_list_accounts() -> Result<Vec<ChannelAccountConfig>, String> {
-    Ok(provider::cached_store().channels.accounts.clone())
+    Ok(oc_core::config::cached_config().channels.accounts.clone())
 }
 
 #[tauri::command]
@@ -82,7 +81,7 @@ pub async fn channel_remove_account(account_id: String) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn channel_start_account(account_id: String) -> Result<(), String> {
-    let account = provider::cached_store()
+    let account = oc_core::config::cached_config()
         .channels
         .find_account(&account_id)
         .ok_or_else(|| format!("Account '{}' not found", account_id))?
@@ -120,7 +119,7 @@ pub async fn channel_health(account_id: String) -> Result<ChannelHealth, String>
 
     // If not running, try probe from config
     if !health.is_running {
-        let store = provider::cached_store();
+        let store = oc_core::config::cached_config();
         if let Some(account) = store.channels.find_account(&account_id) {
             if let Some(plugin) = registry.get_plugin(&account.channel_id) {
                 if let Ok(probe_health) = plugin.probe(account).await {
@@ -176,7 +175,7 @@ pub async fn channel_send_test_message(
     chat_id: String,
     text: String,
 ) -> Result<DeliveryResult, String> {
-    let store = provider::cached_store();
+    let store = oc_core::config::cached_config();
     let account = store
         .channels
         .find_account(&account_id)

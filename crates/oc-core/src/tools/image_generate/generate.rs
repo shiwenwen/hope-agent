@@ -3,7 +3,6 @@ use std::collections::HashSet;
 use anyhow::Result;
 use serde_json::Value;
 
-use crate::provider;
 use super::helpers::*;
 use super::output::*;
 use super::types::*;
@@ -11,7 +10,7 @@ use super::types::*;
 // ── Tool Entry Point (with Failover) ────────────────────────────
 
 pub(crate) async fn tool_image_generate(args: &Value) -> Result<String> {
-    let config = provider::cached_store().image_generate.clone();
+    let config = crate::config::cached_config().image_generate.clone();
 
     // Parse action
     let action = args

@@ -19,7 +19,7 @@ pub struct SetActiveModelRequest {
 
 /// `GET /api/providers` — list all providers (API keys masked).
 pub async fn list_providers() -> Result<Json<Vec<ProviderConfig>>, AppError> {
-    let store = provider::cached_store();
+    let store = oc_core::config::cached_config();
     let masked: Vec<ProviderConfig> = store.providers.iter().map(|p| p.masked()).collect();
     Ok(Json(masked))
 }
@@ -28,7 +28,7 @@ pub async fn list_providers() -> Result<Json<Vec<ProviderConfig>>, AppError> {
 pub async fn add_provider(
     Json(config): Json<ProviderConfig>,
 ) -> Result<Json<ProviderConfig>, AppError> {
-    let mut store = provider::load_store()?;
+    let mut store = oc_core::config::load_config()?;
     let mut new_provider = ProviderConfig::new(
         config.name,
         config.api_type,
@@ -39,7 +39,7 @@ pub async fn add_provider(
 
     let masked = new_provider.masked();
     store.providers.push(new_provider);
-    provider::save_store(&store)?;
+    oc_core::config::save_config(&store)?;
     Ok(Json(masked))
 }
 
@@ -48,7 +48,7 @@ pub async fn update_provider(
     Path(id): Path<String>,
     Json(config): Json<ProviderConfig>,
 ) -> Result<Json<Value>, AppError> {
-    let mut store = provider::load_store()?;
+    let mut store = oc_core::config::load_config()?;
     if let Some(existing) = store.providers.iter_mut().find(|p| p.id == id) {
         existing.name = config.name;
         existing.api_type = config.api_type;
@@ -61,7 +61,7 @@ pub async fn update_provider(
         existing.enabled = config.enabled;
         existing.user_agent = config.user_agent;
         existing.thinking_style = config.thinking_style;
-        provider::save_store(&store)?;
+        oc_core::config::save_config(&store)?;
         Ok(Json(json!({ "updated": true })))
     } else {
         Err(AppError::not_found(format!("Provider not found: {}", id)))
@@ -72,7 +72,7 @@ pub async fn update_provider(
 pub async fn delete_provider(
     Path(id): Path<String>,
 ) -> Result<Json<Value>, AppError> {
-    let mut store = provider::load_store()?;
+    let mut store = oc_core::config::load_config()?;
     let len_before = store.providers.len();
     store.providers.retain(|p| p.id != id);
     if store.providers.len() == len_before {
@@ -84,7 +84,7 @@ pub async fn delete_provider(
             store.active_model = None;
         }
     }
-    provider::save_store(&store)?;
+    oc_core::config::save_config(&store)?;
     Ok(Json(json!({ "deleted": true })))
 }
 
@@ -178,13 +178,13 @@ pub async fn test_provider(
 
 /// `GET /api/providers/active-model` — get the currently active model.
 pub async fn get_active_model() -> Result<Json<Value>, AppError> {
-    let store = provider::cached_store();
+    let store = oc_core::config::cached_config();
     Ok(Json(json!({ "active_model": store.active_model })))
 }
 
 /// `GET /api/providers/available-models` — list all available models from enabled providers.
 pub async fn get_available_models() -> Result<Json<Vec<AvailableModel>>, AppError> {
-    let store = provider::cached_store();
+    let store = oc_core::config::cached_config();
     Ok(Json(provider::build_available_models(&store.providers)))
 }
 
@@ -197,7 +197,7 @@ pub struct ReorderBody {
 pub async fn reorder_providers(
     Json(body): Json<ReorderBody>,
 ) -> Result<Json<Value>, AppError> {
-    let mut store = provider::load_store()?;
+    let mut store = oc_core::config::load_config()?;
     let mut reordered = Vec::with_capacity(body.provider_ids.len());
     for id in &body.provider_ids {
         if let Some(p) = store.providers.iter().find(|p| &p.id == id) {
@@ -210,7 +210,7 @@ pub async fn reorder_providers(
         }
     }
     store.providers = reordered;
-    provider::save_store(&store)?;
+    oc_core::config::save_config(&store)?;
     Ok(Json(json!({ "reordered": true })))
 }
 
@@ -218,7 +218,7 @@ pub async fn reorder_providers(
 pub async fn set_active_model(
     Json(body): Json<SetActiveModelRequest>,
 ) -> Result<Json<Value>, AppError> {
-    let mut store = provider::load_store()?;
+    let mut store = oc_core::config::load_config()?;
 
     // Verify provider and model exist
     let provider = store
@@ -238,6 +238,6 @@ pub async fn set_active_model(
         provider_id: body.provider_id,
         model_id: body.model_id,
     });
-    provider::save_store(&store)?;
+    oc_core::config::save_config(&store)?;
     Ok(Json(json!({ "updated": true })))
 }

@@ -8,7 +8,7 @@ use crate::globals::{
 use crate::logging::{self, AppLogger, LogDB};
 use crate::memory;
 use crate::paths;
-use crate::provider::{self, ProviderStore};
+use crate::config::AppConfig;
 use crate::session::{self, SessionDB};
 use crate::subagent;
 use crate::globals::AppState;
@@ -18,7 +18,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 /// Initialize all databases, subsystems, and construct the `AppState`.
-pub fn init_app_state(initial_store: ProviderStore) -> AppState {
+pub fn init_app_state(initial_store: AppConfig) -> AppState {
     /// Unwrap a Result or print a fatal error to stderr and panic.
     fn fatal<T>(result: anyhow::Result<T>, msg: &str) -> T {
         result.unwrap_or_else(|e| {
@@ -62,7 +62,7 @@ pub fn init_app_state(initial_store: ProviderStore) -> AppState {
 
     // Auto-initialize embedder if enabled in config
     if let Some(backend) = MEMORY_BACKEND.get() {
-        match provider::load_store() {
+        match crate::config::load_config() {
             Ok(store) if store.embedding.enabled => {
                 match memory::create_embedding_provider(&store.embedding) {
                     Ok(emb_provider) => {
@@ -180,12 +180,12 @@ pub fn init_app_state(initial_store: ProviderStore) -> AppState {
     }
 
     // Initialize ACP control plane (non-async parts only).
-    // This is also the first `cached_store()` call on the Tauri setup path,
+    // This is also the first `cached_config()` call on the Tauri setup path,
     // which synchronously populates the in-memory provider-store cache so
     // later async hot paths (tool execution, chat, channel workers) never
     // block on the initial disk read. Do not remove without auditing.
     {
-        let store = provider::cached_store();
+        let store = crate::config::cached_config();
         if store.acp_control.enabled {
             let registry = Arc::new(acp_control::AcpRuntimeRegistry::new());
             let manager = Arc::new(acp_control::AcpSessionManager::new(registry));
@@ -196,7 +196,7 @@ pub fn init_app_state(initial_store: ProviderStore) -> AppState {
     AppState {
         agent: Mutex::new(None),
         auth_result: Arc::new(Mutex::new(None)),
-        provider_store: Mutex::new(initial_store),
+        config: Mutex::new(initial_store),
         reasoning_effort: Mutex::new("medium".to_string()),
         codex_token: Mutex::new(None),
         current_agent_id: Mutex::new("default".to_string()),
@@ -216,7 +216,7 @@ pub async fn start_background_tasks() {
     // Auto-start enabled channel accounts
     if let Some(registry) = CHANNEL_REGISTRY.get() {
         let registry = registry.clone();
-        let store = provider::cached_store();
+        let store = crate::config::cached_config();
         tokio::spawn(async move {
             for account in store.channels.enabled_accounts() {
                 if let Err(e) = registry.start_account(account).await {
@@ -234,7 +234,7 @@ pub async fn start_background_tasks() {
 
     // Auto-discover ACP backends
     if let Some(acp_mgr) = ACP_MANAGER.get() {
-        let store = provider::cached_store();
+        let store = crate::config::cached_config();
         if store.acp_control.enabled {
             let registry = acp_mgr.runtime_registry().clone();
             let acp_config = store.acp_control.clone();

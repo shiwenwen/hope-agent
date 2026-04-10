@@ -352,7 +352,7 @@ sequenceDiagram
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `agent` | `Mutex<Option<AssistantAgent>>` | 当前 Agent 实例 |
-| `provider_store` | `Mutex<ProviderStore>` | Provider 配置 |
+| `config` | `Mutex<AppConfig>` | Provider 配置 |
 | `session_db` | `Arc<SessionDB>` | 会话 DB |
 | `chat_cancel` | `Arc<AtomicBool>` | 桌面模式取消标记 |
 | `reasoning_effort` | `Mutex<String>` | 推理强度 |

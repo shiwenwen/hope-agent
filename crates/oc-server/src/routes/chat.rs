@@ -120,8 +120,8 @@ pub async fn chat(
         }
     }
 
-    // Load provider store (cached after first call)
-    let store = provider::cached_store();
+    // Load app config (cached after first call)
+    let store = oc_core::config::cached_config();
 
     // Resolve model chain
     let agent_def = oc_core::agent_loader::load_agent(&agent_id).ok();
@@ -279,7 +279,7 @@ pub async fn get_system_prompt(
     let agent_id = q.agent_id.unwrap_or_else(|| "default".to_string());
 
     // Resolve model and provider name from active model in store
-    let store = provider::cached_store();
+    let store = oc_core::config::cached_config();
     let (model, provider_name) = if let Some(ref active) = store.active_model {
         let prov = store.providers.iter().find(|p| p.id == active.provider_id);
         let model_id = active.model_id.clone();

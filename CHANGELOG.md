@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **配置根结构重命名 `ProviderStore` → `AppConfig` + 模块搬家**：历史上 `config.json` 的根结构叫 `ProviderStore`，但实际只有 `providers` / `activeModel` / `fallbackModels` 3 个字段与 provider 相关，其余 30+ 字段横跨 channels/memory/skills/tools/server 等所有子系统,命名严重误导。本次重构:(1) 类型 `ProviderStore` → `AppConfig`;(2) 新建 `crates/oc-core/src/config/` 模块承载 `AppConfig` 和持久化函数 `load_config` / `save_config` / `cached_config` / `reload_cache_from_disk`(从 `crates/oc-core/src/provider/persistence.rs` 迁出);(3) provider 专属 helpers(`build_available_models` / `parse_model_ref` / `resolve_model_chain` / `find_provider` / `ensure_codex_provider`)留在 `provider/persistence.rs`;(4) `AppState.provider_store` 字段 → `AppState.config`;(5) 原 `ShortcutConfig` / `NotificationConfig` / `EmbeddedServerConfig` / `DeferredToolsConfig` 类型跟随 `AppConfig` 搬到 `crate::config` 命名空间。`config.json` 磁盘格式完全不变(JSON 由字段 `#[serde(rename_all="camelCase")]` 决定,与 Rust 类型名无关),**用户配置文件零迁移**。前端零影响
 - **Agent 设置 tab 重命名 + 结构调整**：原"工具与技能"（代码层 `BehaviorTab` / `agentBehavior`）重命名为"能力"（`CapabilitiesTab` / `agentCapabilities`），内部拆分为"工具"和"技能"两个子 tab。`AgentConfig` 结构调整：原顶层 `tools` / `skills` / `behavior` 字段合并进新的 `capabilities` 字段，统一持久化到 `agent.json` 的 `capabilities` 节点（不保留旧字段兼容）
 
 - **Cargo Workspace 三 Crate 分离**：将单体 `src-tauri` 拆分为 Cargo workspace，包含 `oc-core`（核心业务逻辑，零 Tauri 依赖，~30 个模块）、`oc-server`（axum HTTP/WS 守护进程）、`src-tauri`（Tauri 桌面薄壳）三个 crate
@@ -292,7 +293,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **plan_question 增强**：选项支持 `recommended` 标记（琥珀色星标高亮），问题支持 `template` 模板分类（scope/tech_choice/priority 对应不同图标）
   - **Review 请求修改**：PlanPanel Review 状态新增"请求修改"按钮，用户输入反馈文本后自动转回 Planning 状态，将反馈发送给 LLM 修订计划
   - **Plan Model 前端配置**：Agent 设置面板新增 Plan Mode Model 选择器，琥珀色 Lightbulb 图标标识
-  - **自定义 plansDirectory**：ProviderStore 新增 `plans_directory` 配置项，支持覆盖默认计划文件存储路径
+  - **自定义 plansDirectory**：AppConfig 新增 `plans_directory` 配置项，支持覆盖默认计划文件存储路径
 - **系统托盘常驻（System Tray）**：应用关闭窗口后常驻系统托盘，不再退出
   - 菜单栏/系统托盘图标，提供快捷菜单（显示主窗口/快捷对话/新建对话/设置/退出）
   - 关闭主窗口仅隐藏，应用在后台持续运行，全局快捷键始终可用
@@ -619,7 +620,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 12 个新 Tauri 命令：`memory_add` / `memory_update` / `memory_delete` / `memory_get` / `memory_list` / `memory_search` / `memory_count` / `memory_export` / `get_embedding_config` / `save_embedding_config` / `get_embedding_presets` / `list_local_embedding_models`
   - `AgentSummary` 新增 `memory_count` 字段
   - Embedding 配置系统：支持 API 模式（OpenAI / Google Gemini / Jina / Cohere / 硅基流动 / 自定义）和本地 ONNX 模型，类 Provider 设计
-  - `EmbeddingConfig` 存储在 `config.json`（ProviderStore），内置 5 个 API 预设 + 4 个本地模型预设
+  - `EmbeddingConfig` 存储在 `config.json`（AppConfig），内置 5 个 API 预设 + 4 个本地模型预设
   - SQLite FTS5 通过 build.rs 编译时启用
 - **向量语义搜索（Phase 2B）**：在 FTS5 关键词搜索基础上增加向量相似度搜索
   - 集成 `fastembed`（本地 ONNX embedding）+ `sqlite-vec`（SQLite 向量扩展）
@@ -721,7 +722,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 自动发送排队消息开关，存储到 `~/.opencomputer/user.json`
   - `UserConfig` 新增 `auto_send_pending: bool` 字段（默认 true）
 - **全局默认模型 + 降级模型系统**：支持设置有序降级链，每个 Agent 可继承全局设置或自定义覆盖
-  - `provider.rs`：`ProviderStore` 新增 `fallback_models` 字段 + `resolve_model_chain()` / `parse_model_ref()` / `find_provider()` 辅助函数
+  - `provider.rs`：`AppConfig` 新增 `fallback_models` 字段 + `resolve_model_chain()` / `parse_model_ref()` / `find_provider()` 辅助函数
   - 新增 Tauri 命令：`get_fallback_models` / `set_fallback_models`
   - `chat` 命令重构为支持 primary + fallback 模型链按序尝试
 - **智能降级错误分类**（参考 OpenClaw）：新增 `failover.rs` 模块
@@ -961,7 +962,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Together AI：新增 Llama 4 Maverick 17B
   - Ollama：默认模型从 `llama3.3` 改为 `glm-4.7-flash`
 - `agent.rs` `LlmProvider` 从 2 种（Anthropic/OpenAI）扩展到 4 种（Anthropic/OpenAIChat/OpenAIResponses/Codex），全部支持自定义 base_url
-- `lib.rs` `AppState` 使用 `ProviderStore` 替代独立的 codex_model 字段
+- `lib.rs` `AppState` 使用 `AppConfig` 替代独立的 codex_model 字段
 - `lib.rs` `initialize_agent` 命令改为自动创建 Anthropic Provider
 - `lib.rs` `finalize_codex_auth` 改为自动创建/更新内置 Codex Provider
 - `App.tsx` 模型选择器改为显示 `Provider / Model` 组合格式

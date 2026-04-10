@@ -1,4 +1,5 @@
-use crate::provider::{self, ProviderStore};
+use crate::config::AppConfig;
+use crate::provider;
 use crate::session::{MessageRole, SessionDB};
 use crate::slash_commands::registry;
 use crate::slash_commands::types::{CommandAction, CommandResult};
@@ -46,7 +47,7 @@ pub fn handle_help() -> CommandResult {
 /// /status — Show session status.
 pub fn handle_status(
     session_db: &Arc<SessionDB>,
-    store: &ProviderStore,
+    store: &AppConfig,
     session_id: Option<&str>,
     agent_id: &str,
 ) -> Result<CommandResult, String> {

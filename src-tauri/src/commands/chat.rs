@@ -258,13 +258,13 @@ pub async fn chat(
 
     // Determine if notification tool should be available for this agent
     let notification_enabled = {
-        let store = state.provider_store.lock().await;
+        let store = state.config.lock().await;
         let global_enabled = store.notification.enabled;
         global_enabled && agent_notify_on_complete != Some(false)
     };
 
     let image_gen_config = {
-        let store = state.provider_store.lock().await;
+        let store = state.config.lock().await;
         if crate::tools::image_generate::has_configured_provider_from_config(&store.image_generate)
         {
             let mut cfg = store.image_generate.clone();
@@ -276,18 +276,18 @@ pub async fn chat(
     };
 
     let canvas_enabled = {
-        let store = state.provider_store.lock().await;
+        let store = state.config.lock().await;
         store.canvas.enabled
     };
 
     let web_search_enabled = {
-        let store = state.provider_store.lock().await;
+        let store = state.config.lock().await;
         crate::tools::web_search::has_enabled_provider(&store.web_search)
     };
 
     // Resolve temperature: session > agent > global
     let resolved_temperature: Option<f64> = {
-        let global_temp = state.provider_store.lock().await.temperature;
+        let global_temp = state.config.lock().await.temperature;
         let agent_temp = agent_def
             .as_ref()
             .and_then(|def| def.config.model.temperature);
@@ -312,7 +312,7 @@ pub async fn chat(
     // When plan_subagent=false (default), planning runs inline in the main agent.
     if early_plan_state == crate::plan::PlanModeState::Planning {
         let use_subagent = {
-            let store = state.provider_store.lock().await;
+            let store = state.config.lock().await;
             store.plan_subagent
         };
 
@@ -367,7 +367,7 @@ pub async fn chat(
     }
 
     let (primary, fallbacks) = {
-        let store = state.provider_store.lock().await;
+        let store = state.config.lock().await;
         // Plan Mode model override: use cheaper/faster model during Planning phase
         let plan_model_override = if early_plan_state == crate::plan::PlanModeState::Planning {
             agent_model_config.plan_model.clone()
@@ -596,7 +596,7 @@ pub async fn chat(
 
     // ── Build ChatEngineParams and delegate to shared engine ──
     let (providers_snapshot, compact_config) = {
-        let store = state.provider_store.lock().await;
+        let store = state.config.lock().await;
         (store.providers.clone(), store.compact.clone())
     };
     let codex_token_snapshot = state.codex_token.lock().await.clone();
@@ -740,7 +740,7 @@ pub async fn get_system_prompt(
 
     // Resolve model and provider name from active model
     let (model, provider) = {
-        let store = state.provider_store.lock().await;
+        let store = state.config.lock().await;
         if let Some(ref active) = store.active_model {
             let prov = store.providers.iter().find(|p| p.id == active.provider_id);
             let model_id = active.model_id.clone();

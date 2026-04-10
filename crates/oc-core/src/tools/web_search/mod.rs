@@ -6,8 +6,6 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Instant;
 
-use crate::provider;
-
 mod brave;
 mod duckduckgo;
 mod google;
@@ -242,7 +240,7 @@ fn resolve_providers(config: &WebSearchConfig) -> Vec<&WebSearchProviderEntry> {
 // ── Tool Entry Point ─────────────────────────────────────────────
 
 pub(crate) async fn tool_web_search(args: &Value) -> Result<String> {
-    let config = provider::cached_store().web_search.clone();
+    let config = crate::config::cached_config().web_search.clone();
 
     let query = args
         .get("query")

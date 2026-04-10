@@ -1,5 +1,3 @@
-use crate::provider;
-
 // ── Chord shortcut state machine ────────────────────────────────
 
 /// Tracks pending first-part of a chord shortcut (e.g. after Ctrl+K in "Ctrl+K Ctrl+C").
@@ -40,7 +38,7 @@ pub(crate) fn handle_shortcut(
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
     let shortcut_str = shortcut.to_string();
-    let store = provider::cached_store();
+    let store = oc_core::config::cached_config();
 
     // ── Step 1: Check if this completes a pending chord ──
     {

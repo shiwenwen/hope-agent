@@ -8,7 +8,7 @@ use tauri::State;
 
 #[tauri::command]
 pub async fn initialize_agent(api_key: String, state: State<'_, AppState>) -> Result<(), String> {
-    let mut store = state.provider_store.lock().await;
+    let mut store = state.config.lock().await;
 
     // Create an Anthropic provider
     let mut provider = ProviderConfig::new(
@@ -37,7 +37,7 @@ pub async fn initialize_agent(api_key: String, state: State<'_, AppState>) -> Re
         provider_id,
         model_id,
     });
-    provider::save_store(&store).map_err(|e| e.to_string())?;
+    oc_core::config::save_config(&store).map_err(|e| e.to_string())?;
     *state.agent.lock().await = Some(agent);
     Ok(())
 }
@@ -95,14 +95,14 @@ pub async fn finalize_codex_auth(state: State<'_, AppState>) -> Result<(), Strin
     // Ensure Codex provider exists in store
     let default_model_id;
     {
-        let mut store = state.provider_store.lock().await;
+        let mut store = state.config.lock().await;
         let codex_provider_id = provider::ensure_codex_provider(&mut store);
         default_model_id = "gpt-5.4".to_string();
         store.active_model = Some(ActiveModel {
             provider_id: codex_provider_id,
             model_id: default_model_id.clone(),
         });
-        provider::save_store(&store).map_err(|e| e.to_string())?;
+        oc_core::config::save_config(&store).map_err(|e| e.to_string())?;
     }
 
     let agent = AssistantAgent::new_openai(&token.access_token, &account_id, &default_model_id);
@@ -113,12 +113,12 @@ pub async fn finalize_codex_auth(state: State<'_, AppState>) -> Result<(), Strin
 
 #[tauri::command]
 pub async fn try_restore_session(state: State<'_, AppState>) -> Result<bool, String> {
-    // First, load provider store from disk
+    // First, load app config from disk
     {
-        let mut store = state.provider_store.lock().await;
-        match provider::load_store() {
+        let mut store = state.config.lock().await;
+        match oc_core::config::load_config() {
             Ok(loaded) => *store = loaded,
-            Err(e) => app_warn!("app", "session", "Failed to load provider store: {}", e),
+            Err(e) => app_warn!("app", "session", "Failed to load app config: {}", e),
         }
     }
 
@@ -169,7 +169,7 @@ pub async fn try_restore_session(state: State<'_, AppState>) -> Result<bool, Str
                     // Ensure Codex provider exists
                     let model_id;
                     {
-                        let mut store = state.provider_store.lock().await;
+                        let mut store = state.config.lock().await;
                         let codex_provider_id = provider::ensure_codex_provider(&mut store);
 
                         // Determine which model to activate:
@@ -181,7 +181,7 @@ pub async fn try_restore_session(state: State<'_, AppState>) -> Result<bool, Str
                                 provider_id: codex_provider_id,
                                 model_id: model_id.clone(),
                             });
-                            provider::save_store(&store).map_err(|e| e.to_string())?;
+                            oc_core::config::save_config(&store).map_err(|e| e.to_string())?;
                         } else {
                             _ = store.active_model.as_ref().unwrap().model_id.clone();
                         }
@@ -189,7 +189,7 @@ pub async fn try_restore_session(state: State<'_, AppState>) -> Result<bool, Str
 
                     // Create agent based on the active model's provider type
                     {
-                        let store = state.provider_store.lock().await;
+                        let store = state.config.lock().await;
                         if let Some(ref active) = store.active_model {
                             let active_provider =
                                 store.providers.iter().find(|p| p.id == active.provider_id);
@@ -235,7 +235,7 @@ pub async fn try_restore_session(state: State<'_, AppState>) -> Result<bool, Str
 
 /// Try to restore from a non-Codex provider (API key providers)
 pub(crate) async fn try_restore_non_codex_session(state: &State<'_, AppState>) -> bool {
-    let store = state.provider_store.lock().await;
+    let store = state.config.lock().await;
     if let Some(ref active) = store.active_model {
         if let Some(provider) = store
             .providers
@@ -263,7 +263,7 @@ pub async fn logout_codex(state: State<'_, AppState>) -> Result<(), String> {
 
     // Remove Codex provider from store
     {
-        let mut store = state.provider_store.lock().await;
+        let mut store = state.config.lock().await;
         store.providers.retain(|p| p.api_type != ApiType::Codex);
         if let Some(ref active) = store.active_model {
             // If active model was from a Codex provider, clear it
@@ -271,7 +271,7 @@ pub async fn logout_codex(state: State<'_, AppState>) -> Result<(), String> {
                 store.active_model = None;
             }
         }
-        provider::save_store(&store).map_err(|e| e.to_string())?;
+        oc_core::config::save_config(&store).map_err(|e| e.to_string())?;
     }
 
     oauth::clear_token().map_err(|e| e.to_string())?;
@@ -293,7 +293,7 @@ pub async fn get_codex_models() -> Result<Vec<agent::CodexModel>, String> {
 
 #[tauri::command]
 pub async fn get_current_settings(state: State<'_, AppState>) -> Result<CurrentSettings, String> {
-    let store = state.provider_store.lock().await;
+    let store = state.config.lock().await;
     let model = store
         .active_model
         .as_ref()
@@ -315,11 +315,11 @@ pub async fn set_codex_model(model: String, state: State<'_, AppState>) -> Resul
 
     // Update active model in store
     {
-        let mut store = state.provider_store.lock().await;
+        let mut store = state.config.lock().await;
         if let Some(ref mut active) = store.active_model {
             active.model_id = model.clone();
         }
-        provider::save_store(&store).map_err(|e| e.to_string())?;
+        oc_core::config::save_config(&store).map_err(|e| e.to_string())?;
     }
 
     // Rebuild agent with new model if authenticated

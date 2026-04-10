@@ -136,7 +136,7 @@ graph TB
 
     subgraph "持久化层"
         SESSION_DB["SessionDB<br/>sessions.db"]
-        PROVIDER_STORE["ProviderStore<br/>config.json"]
+        PROVIDER_STORE["AppConfig<br/>config.json"]
     end
 
     subgraph "前端"
@@ -945,7 +945,7 @@ QQ Bot 有多种消息端点，`chat_id` 使用前缀区分：
 
 ### 配置结构
 
-Channel 配置存储在 `~/.opencomputer/config.json` 的 `ProviderStore.channels` 字段中：
+Channel 配置存储在 `~/.opencomputer/config.json` 的 `AppConfig.channels` 字段中：
 
 ```typescript
 // TypeScript 等效类型

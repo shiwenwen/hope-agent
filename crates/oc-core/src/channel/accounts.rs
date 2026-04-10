@@ -8,7 +8,6 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use super::types::{ChannelAccountConfig, ChannelId, SecurityConfig};
-use crate::provider;
 
 /// Patch for [`update_account`]. `None` fields are left untouched; an empty
 /// `agent_id` string clears the account's override back to the default.
@@ -58,9 +57,9 @@ pub async fn add_account(
         auto_approve_tools: false,
     };
 
-    let mut store = provider::load_store()?;
+    let mut store = crate::config::load_config()?;
     store.channels.accounts.push(account.clone());
-    provider::save_store(&store)?;
+    crate::config::save_config(&store)?;
 
     if account.enabled {
         if let Some(registry) = crate::get_channel_registry() {
@@ -82,7 +81,7 @@ pub async fn add_account(
 /// Apply `params` to the named account and manage registry lifecycle
 /// transitions (start/stop/restart) based on the before/after enabled state.
 pub async fn update_account(account_id: &str, params: UpdateAccountParams) -> Result<()> {
-    let mut store = provider::load_store()?;
+    let mut store = crate::config::load_config()?;
     let account = store
         .channels
         .find_account_mut(account_id)
@@ -112,7 +111,7 @@ pub async fn update_account(account_id: &str, params: UpdateAccountParams) -> Re
     }
 
     let updated = account.clone();
-    provider::save_store(&store)?;
+    crate::config::save_config(&store)?;
 
     if let Some(registry) = crate::get_channel_registry() {
         if was_enabled && !updated.enabled {
@@ -140,13 +139,13 @@ pub async fn remove_account(account_id: &str) -> Result<()> {
         let _ = registry.stop_account(account_id).await;
     }
 
-    let mut store = provider::load_store()?;
+    let mut store = crate::config::load_config()?;
     let removed_channel_id = store
         .channels
         .find_account(account_id)
         .map(|a| a.channel_id.clone());
     store.channels.accounts.retain(|a| a.id != account_id);
-    provider::save_store(&store)?;
+    crate::config::save_config(&store)?;
 
     if matches!(removed_channel_id, Some(ChannelId::WeChat)) {
         super::wechat::clear_persisted_account_state(account_id)

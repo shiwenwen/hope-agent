@@ -1,11 +1,10 @@
-use crate::provider;
 use crate::skills;
 use crate::AppState;
 use tauri::State;
 
 #[tauri::command]
 pub async fn get_skills(state: State<'_, AppState>) -> Result<Vec<skills::SkillSummary>, String> {
-    let store = state.provider_store.lock().await;
+    let store = state.config.lock().await;
     let entries =
         skills::load_all_skills_with_budget(&store.extra_skills_dirs, &store.skill_prompt_budget);
     let disabled = &store.disabled_skills;
@@ -41,24 +40,24 @@ pub async fn get_skill_detail(
     name: String,
     state: State<'_, AppState>,
 ) -> Result<skills::SkillDetail, String> {
-    let store = state.provider_store.lock().await;
+    let store = state.config.lock().await;
     skills::get_skill_content(&name, &store.extra_skills_dirs, &store.disabled_skills)
         .ok_or_else(|| format!("Skill not found: {}", name))
 }
 
 #[tauri::command]
 pub async fn get_extra_skills_dirs(state: State<'_, AppState>) -> Result<Vec<String>, String> {
-    let store = state.provider_store.lock().await;
+    let store = state.config.lock().await;
     Ok(store.extra_skills_dirs.clone())
 }
 
 #[tauri::command]
 pub async fn add_extra_skills_dir(dir: String, state: State<'_, AppState>) -> Result<(), String> {
-    let mut store = state.provider_store.lock().await;
+    let mut store = state.config.lock().await;
     // Avoid duplicates
     if !store.extra_skills_dirs.contains(&dir) {
         store.extra_skills_dirs.push(dir);
-        provider::save_store(&store).map_err(|e| e.to_string())?;
+        oc_core::config::save_config(&store).map_err(|e| e.to_string())?;
     }
     skills::bump_skill_version();
     Ok(())
@@ -69,9 +68,9 @@ pub async fn remove_extra_skills_dir(
     dir: String,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let mut store = state.provider_store.lock().await;
+    let mut store = state.config.lock().await;
     store.extra_skills_dirs.retain(|d| d != &dir);
-    provider::save_store(&store).map_err(|e| e.to_string())?;
+    oc_core::config::save_config(&store).map_err(|e| e.to_string())?;
     skills::bump_skill_version();
     Ok(())
 }
@@ -82,28 +81,28 @@ pub async fn toggle_skill(
     enabled: bool,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let mut store = state.provider_store.lock().await;
+    let mut store = state.config.lock().await;
     if enabled {
         store.disabled_skills.retain(|n| n != &name);
     } else if !store.disabled_skills.contains(&name) {
         store.disabled_skills.push(name);
     }
-    provider::save_store(&store).map_err(|e| e.to_string())?;
+    oc_core::config::save_config(&store).map_err(|e| e.to_string())?;
     skills::bump_skill_version();
     Ok(())
 }
 
 #[tauri::command]
 pub async fn get_skill_env_check(state: State<'_, AppState>) -> Result<bool, String> {
-    let store = state.provider_store.lock().await;
+    let store = state.config.lock().await;
     Ok(store.skill_env_check)
 }
 
 #[tauri::command]
 pub async fn set_skill_env_check(enabled: bool, state: State<'_, AppState>) -> Result<(), String> {
-    let mut store = state.provider_store.lock().await;
+    let mut store = state.config.lock().await;
     store.skill_env_check = enabled;
-    provider::save_store(&store).map_err(|e| e.to_string())?;
+    oc_core::config::save_config(&store).map_err(|e| e.to_string())?;
     skills::bump_skill_version();
     Ok(())
 }
@@ -114,7 +113,7 @@ pub async fn get_skill_env(
     name: String,
     state: State<'_, AppState>,
 ) -> Result<std::collections::HashMap<String, String>, String> {
-    let store = state.provider_store.lock().await;
+    let store = state.config.lock().await;
     let env_map = store.skill_env.get(&name).cloned().unwrap_or_default();
     Ok(env_map
         .into_iter()
@@ -134,9 +133,9 @@ pub async fn set_skill_env_var(
     if skills::is_masked_value(&value) {
         return Ok(());
     }
-    let mut store = state.provider_store.lock().await;
+    let mut store = state.config.lock().await;
     store.skill_env.entry(skill).or_default().insert(key, value);
-    provider::save_store(&store).map_err(|e| e.to_string())?;
+    oc_core::config::save_config(&store).map_err(|e| e.to_string())?;
     skills::bump_skill_version();
     Ok(())
 }
@@ -148,14 +147,14 @@ pub async fn remove_skill_env_var(
     key: String,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let mut store = state.provider_store.lock().await;
+    let mut store = state.config.lock().await;
     if let Some(map) = store.skill_env.get_mut(&skill) {
         map.remove(&key);
         if map.is_empty() {
             store.skill_env.remove(&skill);
         }
     }
-    provider::save_store(&store).map_err(|e| e.to_string())?;
+    oc_core::config::save_config(&store).map_err(|e| e.to_string())?;
     skills::bump_skill_version();
     Ok(())
 }
@@ -166,7 +165,7 @@ pub async fn remove_skill_env_var(
 pub async fn get_skills_env_status(
     state: State<'_, AppState>,
 ) -> Result<std::collections::HashMap<String, std::collections::HashMap<String, bool>>, String> {
-    let store = state.provider_store.lock().await;
+    let store = state.config.lock().await;
     let entries =
         skills::load_all_skills_with_budget(&store.extra_skills_dirs, &store.skill_prompt_budget);
     let mut result = std::collections::HashMap::new();
@@ -194,7 +193,7 @@ pub async fn get_skills_env_status(
 pub async fn get_skills_status(
     state: State<'_, AppState>,
 ) -> Result<Vec<skills::SkillStatusEntry>, String> {
-    let store = state.provider_store.lock().await;
+    let store = state.config.lock().await;
     let entries =
         skills::load_all_skills_with_budget(&store.extra_skills_dirs, &store.skill_prompt_budget);
     Ok(skills::check_all_skills_status(
@@ -213,7 +212,7 @@ pub async fn install_skill_dependency(
     spec_index: usize,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
-    let store = state.provider_store.lock().await;
+    let store = state.config.lock().await;
     let entries =
         skills::load_all_skills_with_budget(&store.extra_skills_dirs, &store.skill_prompt_budget);
     drop(store); // Release lock before running install

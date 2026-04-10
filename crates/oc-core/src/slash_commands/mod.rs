@@ -14,7 +14,7 @@ pub async fn list_slash_commands(
     let mut commands = registry::all_commands();
 
     // Append user-invocable skills as Skill category commands
-    let store = state.provider_store.lock().await;
+    let store = state.config.lock().await;
     let skill_entries =
         crate::skills::get_invocable_skills(&store.extra_skills_dirs, &store.disabled_skills);
     drop(store);

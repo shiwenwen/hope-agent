@@ -1,6 +1,19 @@
+//! Application configuration — the root structure persisted to `~/.opencomputer/config.json`.
+//!
+//! Historically named `ProviderStore`, this type actually owns the entire
+//! user-facing config (providers, channels, memory, skills, tools, UI, server…).
+//! It was renamed to `AppConfig` to match its real scope.
+//!
+//! The on-disk JSON shape is unchanged — all fields use `#[serde(rename_all = "camelCase")]`
+//! and no wrapper struct is involved, so the Rust type name has zero impact on serialization.
+
+mod persistence;
+
+pub use persistence::{cached_config, load_config, reload_cache_from_disk, save_config};
+
 use serde::{Deserialize, Serialize};
 
-use super::types::{ActiveModel, ProxyConfig};
+use crate::provider::{ActiveModel, ProviderConfig, ProxyConfig};
 
 // ── Shortcut Config ─────────────────────────────────────────────
 
@@ -98,19 +111,19 @@ fn default_skill_env_check() -> bool {
     true
 }
 
-pub(super) fn default_tool_timeout() -> u64 {
+pub(crate) fn default_tool_timeout() -> u64 {
     300
 }
 
-pub(super) fn default_plan_question_timeout() -> u64 {
+pub(crate) fn default_plan_question_timeout() -> u64 {
     1800
 }
 
-pub(super) fn default_theme() -> String {
+pub(crate) fn default_theme() -> String {
     "auto".to_string()
 }
 
-pub(super) fn default_language() -> String {
+pub(crate) fn default_language() -> String {
     "auto".to_string()
 }
 
@@ -142,13 +155,13 @@ impl Default for EmbeddedServerConfig {
     }
 }
 
-// ── Provider Store ──────────────────────────────────────────────
+// ── App Config ──────────────────────────────────────────────────
 
-/// Root structure for persistence
+/// Root structure for the application's persisted configuration (`config.json`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ProviderStore {
-    pub providers: Vec<super::types::ProviderConfig>,
+pub struct AppConfig {
+    pub providers: Vec<ProviderConfig>,
     #[serde(default)]
     pub active_model: Option<ActiveModel>,
     /// Global fallback model chain (ordered).
@@ -292,7 +305,7 @@ pub struct ProviderStore {
     pub server: EmbeddedServerConfig,
 }
 
-impl Default for ProviderStore {
+impl Default for AppConfig {
     fn default() -> Self {
         Self {
             providers: Vec::new(),

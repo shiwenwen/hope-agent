@@ -65,7 +65,7 @@ graph TB
     end
 
     subgraph 存储层
-        CONFIG[(config.json<br/>ProviderStore)]
+        CONFIG[(config.json<br/>AppConfig)]
         FS[("~/.opencomputer/skills/<br/>.opencomputer/skills/<br/>extra dirs")]
     end
 
@@ -103,7 +103,7 @@ graph TB
 | `crates/oc-core/src/skills/` | 核心模块：类型定义、frontmatter 解析、requirements 检查、prompt 生成、缓存、健康检查 |
 | `src-tauri/src/commands/skills.rs` | 14 个 Tauri 命令：CRUD + 安装 + 健康检查 |
 | `crates/oc-core/src/system_prompt/` | 系统提示词构建，调用 `build_skills_prompt` 注入技能段落 |
-| `crates/oc-core/src/provider/` | `ProviderStore` 持久化技能配置（budget/allowlist/disabled/env） |
+| `crates/oc-core/src/provider/` | `AppConfig` 持久化技能配置（budget/allowlist/disabled/env） |
 | `crates/oc-core/src/slash_commands/` | 斜杠命令系统，动态注册 user-invocable 技能为 `/skillname` 命令 |
 | `src/components/settings/SkillsPanel.tsx` | 前端技能管理面板（列表 + 详情 + 安装 + 健康状态） |
 
@@ -717,7 +717,7 @@ SkillsPanel 列表中每个技能显示状态标签：
 
 ## 配置项
 
-### config.json（ProviderStore）
+### config.json（AppConfig）
 
 ```jsonc
 {

@@ -1,5 +1,5 @@
 use crate::globals::APP_HANDLE;
-use crate::{cron, docker, get_logger, provider, session, tools, tray, weather, CRON_DB};
+use crate::{cron, docker, get_logger, session, tools, tray, weather, CRON_DB};
 use session::SessionDB;
 use std::sync::Arc;
 
@@ -106,7 +106,7 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
             chat_cancels: Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
         });
         // Read server config from config.json (bind address, API key)
-        let store = provider::load_store().unwrap_or_default();
+        let store = oc_core::config::load_config().unwrap_or_default();
         let config = oc_server::ServerConfig {
             bind_addr: store.server.bind_addr.clone(),
             api_key: store.server.api_key.clone(),
@@ -141,7 +141,7 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
     // Register global shortcuts from config (chord-aware: only first parts for chords)
     {
         use tauri_plugin_global_shortcut::GlobalShortcutExt;
-        let store = provider::load_store().unwrap_or_default();
+        let store = oc_core::config::load_config().unwrap_or_default();
         for binding in &store.shortcuts.bindings {
             if !binding.enabled || binding.keys.is_empty() {
                 continue;
@@ -172,7 +172,7 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
 
 /// If SearXNG is docker-managed and enabled, auto-start the container on app launch.
 fn auto_start_searxng_docker() {
-    let store = match provider::load_store() {
+    let store = match oc_core::config::load_config() {
         Ok(s) => s,
         Err(_) => return,
     };

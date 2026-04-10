@@ -7,13 +7,13 @@ use tauri::State;
 pub async fn get_available_models(
     state: State<'_, AppState>,
 ) -> Result<Vec<AvailableModel>, String> {
-    let store = state.provider_store.lock().await;
+    let store = state.config.lock().await;
     Ok(provider::build_available_models(&store.providers))
 }
 
 #[tauri::command]
 pub async fn get_active_model(state: State<'_, AppState>) -> Result<Option<ActiveModel>, String> {
-    let store = state.provider_store.lock().await;
+    let store = state.config.lock().await;
     Ok(store.active_model.clone())
 }
 
@@ -24,7 +24,7 @@ pub(crate) async fn set_active_model_core(
     model_id: &str,
     state: &AppState,
 ) -> Result<(), String> {
-    let mut store = state.provider_store.lock().await;
+    let mut store = state.config.lock().await;
 
     // Find the provider
     let provider = store
@@ -55,7 +55,7 @@ pub(crate) async fn set_active_model_core(
         provider_id: provider_id.to_string(),
         model_id: model_id.to_string(),
     });
-    provider::save_store(&store).map_err(|e| e.to_string())?;
+    oc_core::config::save_config(&store).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -70,7 +70,7 @@ pub async fn set_active_model(
 
 #[tauri::command]
 pub async fn get_fallback_models(state: State<'_, AppState>) -> Result<Vec<ActiveModel>, String> {
-    let store = state.provider_store.lock().await;
+    let store = state.config.lock().await;
     Ok(store.fallback_models.clone())
 }
 
@@ -79,9 +79,9 @@ pub async fn set_fallback_models(
     models: Vec<ActiveModel>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let mut store = state.provider_store.lock().await;
+    let mut store = state.config.lock().await;
     store.fallback_models = models;
-    provider::save_store(&store).map_err(|e| e.to_string())?;
+    oc_core::config::save_config(&store).map_err(|e| e.to_string())?;
     Ok(())
 }
 

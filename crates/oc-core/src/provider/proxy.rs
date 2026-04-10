@@ -2,7 +2,7 @@ use super::types::{ProxyConfig, ProxyMode};
 
 /// Load global proxy config once.
 pub fn load_proxy_config() -> ProxyConfig {
-    super::persistence::cached_store().proxy.clone()
+    crate::config::cached_config().proxy.clone()
 }
 
 /// Resolve the user-configured **custom** proxy URL (ignoring system-proxy
@@ -11,13 +11,12 @@ pub fn load_proxy_config() -> ProxyConfig {
 /// Discord, Slack, LINE) that should only honor explicit proxies and never
 /// pick up an unexpected env-var / system proxy.
 pub fn active_custom_proxy_url() -> Option<String> {
-    let store = super::persistence::cached_store();
-    if matches!(store.proxy.mode, ProxyMode::Custom) {
-        store
-            .proxy
+    let cfg = crate::config::cached_config();
+    if matches!(cfg.proxy.mode, ProxyMode::Custom) {
+        cfg.proxy
             .url
             .as_ref()
-            .filter(|u| !u.is_empty())
+            .filter(|u: &&String| !u.is_empty())
             .cloned()
     } else {
         None

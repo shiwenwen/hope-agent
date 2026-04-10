@@ -141,7 +141,8 @@ crates/oc-core/src/     核心业务逻辑（零 Tauri 依赖）
   cron/                 定时任务调度
   acp/                  ACP 协议服务器（IDE 直连）
   acp_control/          ACP 控制面客户端
-  provider/             Provider 数据模型（types/proxy/store/persistence 拆分）
+  config/               AppConfig 根结构 + 持久化（mod/persistence 拆分，load_config/save_config/cached_config）
+  provider/             Provider 数据模型（types/proxy/persistence 拆分，persistence 只保留 provider 专属 helpers）
   session/              会话持久化（SQLite）
   system_prompt/        系统提示词模块化拼装（constants/build/sections/helpers 拆分）
   chat_engine/          聊天引擎（types/context/engine 拆分）

@@ -73,7 +73,7 @@ fn create_auto_provider() -> Result<Arc<dyn EmbeddingProvider>> {
     }
 
     // Priority 20-50: Try API providers by reusing configured LLM API keys
-    let store = crate::provider::cached_store();
+    let store = crate::config::cached_config();
 
     for candidate in AUTO_CANDIDATES {
         // Find a configured LLM provider whose base_url matches

@@ -123,7 +123,7 @@ async fn handle_inbound_message(
     }
 
     // 1. Load config and find account
-    let store = crate::provider::cached_store();
+    let store = crate::config::cached_config();
     app_debug!(
         "channel",
         "worker",

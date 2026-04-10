@@ -1,8 +1,9 @@
-use crate::provider::{self, AvailableModel, ProviderStore};
+use crate::config::AppConfig;
+use crate::provider::{self, AvailableModel};
 use crate::slash_commands::types::{CommandAction, CommandResult, ModelPickerItem};
 
 /// /model [name] — List or switch models.
-pub fn handle_model(store: &ProviderStore, args: &str) -> Result<CommandResult, String> {
+pub fn handle_model(store: &AppConfig, args: &str) -> Result<CommandResult, String> {
     let models = provider::build_available_models(&store.providers);
 
     if args.trim().is_empty() {

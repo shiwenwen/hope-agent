@@ -61,7 +61,7 @@ async fn action_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
         .ok_or_else(|| anyhow::anyhow!("ACP control plane not initialized"))?;
 
     // Check global config
-    let store = crate::provider::cached_store();
+    let store = crate::config::cached_config();
     if !store.acp_control.enabled {
         return Err(anyhow::anyhow!(
             "ACP control plane is disabled. Enable it in Settings → ACP."
@@ -220,7 +220,7 @@ async fn action_steer(args: &Value) -> Result<String> {
 }
 
 async fn action_backends() -> Result<String> {
-    let store = crate::provider::cached_store();
+    let store = crate::config::cached_config();
     if !store.acp_control.enabled {
         return Ok(serde_json::json!({
             "enabled": false,

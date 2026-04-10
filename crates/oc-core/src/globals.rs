@@ -6,7 +6,7 @@ use crate::event_bus::EventBus;
 use crate::logging::{AppLogger, LogDB};
 use crate::memory;
 use crate::oauth::TokenData;
-use crate::provider::ProviderStore;
+use crate::config::AppConfig;
 use crate::session::SessionDB;
 use crate::subagent;
 
@@ -114,8 +114,8 @@ pub fn set_app_state(state: Arc<AppState>) {
 pub struct AppState {
     pub agent: Mutex<Option<AssistantAgent>>,
     pub auth_result: Arc<Mutex<Option<anyhow::Result<TokenData>>>>,
-    /// Provider configuration store
-    pub provider_store: Mutex<ProviderStore>,
+    /// Application configuration (persisted to ~/.opencomputer/config.json)
+    pub config: Mutex<AppConfig>,
     /// Reasoning effort for Codex models
     pub reasoning_effort: Mutex<String>,
     /// Store token info so we can rebuild agent when model changes

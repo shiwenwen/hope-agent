@@ -87,8 +87,8 @@ pub fn run() {
         log::error!("Failed to ensure default agent: {}", e);
     }
 
-    // Load provider store at startup
-    let initial_store = provider::load_store().unwrap_or_default();
+    // Load app config at startup
+    let initial_store = oc_core::config::load_config().unwrap_or_default();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())

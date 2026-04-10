@@ -100,7 +100,7 @@ pub async fn relay_to_channel(session_id: &str, response: &str) {
         _ => return,
     };
 
-    let store = crate::provider::cached_store();
+    let store = crate::config::cached_config();
     let account = match store.channels.find_account(&conv.account_id) {
         Some(a) => a.clone(),
         None => return,
@@ -234,7 +234,7 @@ pub(super) async fn run_memory_extraction_inline(
         .unwrap_or_else(|| model_ref.model_id.clone());
 
     let history = agent.get_conversation_history();
-    let store = provider::cached_store();
+    let store = crate::config::cached_config();
     if let Some(prov) = provider::find_provider(&store.providers, &extract_provider_id) {
         crate::memory_extract::run_extraction(
             &history,

@@ -1147,7 +1147,7 @@ Planning/Review 状态下 spawn 的子 Agent 自动继承 `PLAN_MODE_DENIED_TOOL
 | `crates/oc-core/src/session/db.rs` | 迁移（plan_mode + plan_steps 列）+ 读写方法 |
 | `crates/oc-core/src/session/types.rs` | `SessionMeta.plan_mode` 字段 |
 | `src-tauri/src/commands/chat.rs` | 六态分支：双模式分发（plan_subagent 设置）+ 工具限制 + 路径权限 + 模型覆盖 + 提示词注入 |
-| `crates/oc-core/src/provider/` | ProviderStore 新增 `plan_subagent: bool` 全局设置 |
+| `crates/oc-core/src/provider/` | AppConfig 新增 `plan_subagent: bool` 全局设置 |
 | `crates/oc-core/src/agent/mod.rs` | plan_ask_tools + plan_executing + plan_tools_enabled + plan_mode_allow_paths |
 | `crates/oc-core/src/agent/providers/*.rs` | 4 个 Provider 条件注入 plan 工具 |
 | `crates/oc-core/src/tools/mod.rs` | 4 个 plan 工具模块 + 常量 |

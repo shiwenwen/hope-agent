@@ -61,7 +61,7 @@ enum PdfSource {
 
 /// Load PDF tool config from the global config store, clamped to hard caps.
 fn load_pdf_config() -> PdfToolConfig {
-    let mut cfg = crate::provider::load_store()
+    let mut cfg = crate::config::load_config()
         .map(|s| s.pdf)
         .unwrap_or_default();
     cfg.max_pdfs = cfg.max_pdfs.min(CAP_MAX_PDFS);

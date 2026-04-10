@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::provider::{self, ApiType};
+use crate::provider::ApiType;
 use crate::session;
 use crate::{context_compact, failover};
 

@@ -87,7 +87,7 @@ pub(crate) async fn execute_job(
         }
     };
 
-    // Build agent from provider store (with 5-minute timeout to prevent blocking scheduler)
+    // Build agent from app config (with 5-minute timeout to prevent blocking scheduler)
     const CRON_JOB_TIMEOUT_SECS: u64 = 300;
     let result = match tokio::time::timeout(
         std::time::Duration::from_secs(CRON_JOB_TIMEOUT_SECS),
@@ -229,8 +229,8 @@ pub async fn build_and_run_agent_with_context(
     const RETRY_BASE_MS: u64 = 1000;
     const RETRY_MAX_MS: u64 = 10_000;
 
-    // Load provider store from disk
-    let store = provider::cached_store();
+    // Load app config from disk
+    let store = crate::config::cached_config();
 
     // Load agent config for model resolution
     let agent_model_config = crate::agent_loader::load_agent(agent_id)

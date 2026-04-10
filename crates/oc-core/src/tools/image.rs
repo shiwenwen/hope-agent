@@ -41,7 +41,7 @@ impl Default for ImageToolConfig {
 
 /// Load image tool config from the global config store, clamped to hard caps.
 fn load_image_config() -> ImageToolConfig {
-    let mut cfg = crate::provider::load_store()
+    let mut cfg = crate::config::load_config()
         .map(|s| s.image)
         .unwrap_or_default();
     cfg.max_images = cfg.max_images.min(CAP_MAX_IMAGES);

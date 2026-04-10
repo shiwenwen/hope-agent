@@ -54,7 +54,7 @@ graph LR
 | `reasoning` | bool | 是否支持推理 |
 | `cost_input` / `cost_output` | f64 | 百万 token 定价（USD） |
 
-**`ProviderStore`** — 全局配置根，持久化到 `~/.opencomputer/config.json`：
+**`AppConfig`** — 全局配置根，持久化到 `~/.opencomputer/config.json`：
 - `providers`: 已注册的 Provider 列表
 - `active_model`: 当前选中的模型 `{providerId, modelId}`
 - `fallback_models`: 降级模型链
@@ -445,7 +445,7 @@ flowchart TD
 ```mermaid
 flowchart TD
   AGENT["Agent 配置 (agent.json)<br/>primary + fallbacks + planModel"]
-  STORE["Provider Store (config.json)<br/>active_model + fallback_models"]
+  STORE["App Config (config.json)<br/>active_model + fallback_models"]
 
   AGENT & STORE --> RESOLVE["resolve_model_chain()"]
   RESOLVE --> CHAIN["模型链: [primary, fallback1, fallback2, ...]"]

@@ -162,7 +162,7 @@ The following project context files have been loaded:
 `build_legacy()` 在 `load_agent()` 加载 Agent 配置失败时（如配置文件损坏或不存在）作为降级路径，拼出一个基础 system prompt：
 
 - 注入全部工具描述（不过滤）
-- 从全局 `ProviderStore` 加载技能
+- 从全局 `AppConfig` 加载技能
 - 无 Memory、SubAgent、Sandbox、ACP 段
 
 **代码位置**：`crates/oc-core/src/system_prompt/build.rs` — `pub fn build_legacy()`

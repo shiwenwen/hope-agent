@@ -162,7 +162,7 @@ pub(crate) struct GeneratedImage {
 
 ```mermaid
 flowchart TD
-    START(["tool_image_generate(args)"]) --> LOAD["加载配置<br/>provider::load_store().image_generate"]
+    START(["tool_image_generate(args)"]) --> LOAD["加载配置<br/>provider::load_config().image_generate"]
     LOAD --> ACTION{"action 参数?"}
 
     ACTION -- "list" --> LIST["build_list_result()<br/>返回所有 Provider 能力列表"]

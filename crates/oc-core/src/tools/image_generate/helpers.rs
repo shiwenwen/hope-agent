@@ -1,7 +1,6 @@
 use anyhow::Result;
 use base64::Engine;
 
-use crate::provider;
 use super::types::*;
 
 // ── Public Helpers ──────────────────────────────────────────────
@@ -9,7 +8,7 @@ use super::types::*;
 /// Check if at least one provider is enabled with an API key.
 #[allow(dead_code)]
 pub fn has_configured_provider() -> bool {
-    has_configured_provider_from_config(&provider::cached_store().image_generate)
+    has_configured_provider_from_config(&crate::config::cached_config().image_generate)
 }
 
 /// Check from a config reference (avoids re-loading store).

@@ -8,7 +8,7 @@ use crate::AppState;
 
 #[tauri::command]
 pub async fn get_web_search_config() -> Result<tools::web_search::WebSearchConfig, String> {
-    let store = provider::load_store().map_err(|e| e.to_string())?;
+    let store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     let mut config = store.web_search;
     tools::web_search::backfill_providers(&mut config);
     Ok(config)
@@ -18,53 +18,53 @@ pub async fn get_web_search_config() -> Result<tools::web_search::WebSearchConfi
 pub async fn save_web_search_config(
     config: tools::web_search::WebSearchConfig,
 ) -> Result<(), String> {
-    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    let mut store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     store.web_search = config;
-    provider::save_store(&store).map_err(|e| e.to_string())
+    oc_core::config::save_config(&store).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn get_web_fetch_config() -> Result<tools::web_fetch::WebFetchConfig, String> {
-    let store = provider::load_store().map_err(|e| e.to_string())?;
+    let store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     Ok(store.web_fetch)
 }
 
 #[tauri::command]
 pub async fn save_web_fetch_config(config: tools::web_fetch::WebFetchConfig) -> Result<(), String> {
-    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    let mut store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     store.web_fetch = config;
-    provider::save_store(&store).map_err(|e| e.to_string())
+    oc_core::config::save_config(&store).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn get_compact_config() -> Result<context_compact::CompactConfig, String> {
-    let store = provider::load_store().map_err(|e| e.to_string())?;
+    let store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     Ok(store.compact)
 }
 
 #[tauri::command]
 pub async fn save_compact_config(config: context_compact::CompactConfig) -> Result<(), String> {
-    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    let mut store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     store.compact = config;
-    provider::save_store(&store).map_err(|e| e.to_string())
+    oc_core::config::save_config(&store).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn get_notification_config() -> Result<provider::NotificationConfig, String> {
-    let store = provider::load_store().map_err(|e| e.to_string())?;
+pub async fn get_notification_config() -> Result<oc_core::config::NotificationConfig, String> {
+    let store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     Ok(store.notification)
 }
 
 #[tauri::command]
-pub async fn save_notification_config(config: provider::NotificationConfig) -> Result<(), String> {
-    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+pub async fn save_notification_config(config: oc_core::config::NotificationConfig) -> Result<(), String> {
+    let mut store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     store.notification = config;
-    provider::save_store(&store).map_err(|e| e.to_string())
+    oc_core::config::save_config(&store).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn get_image_generate_config() -> Result<tools::image_generate::ImageGenConfig, String> {
-    let store = provider::load_store().map_err(|e| e.to_string())?;
+    let store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     let mut config = store.image_generate;
     tools::image_generate::backfill_providers(&mut config);
     Ok(config)
@@ -74,9 +74,9 @@ pub async fn get_image_generate_config() -> Result<tools::image_generate::ImageG
 pub async fn save_image_generate_config(
     config: tools::image_generate::ImageGenConfig,
 ) -> Result<(), String> {
-    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    let mut store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     store.image_generate = config;
-    provider::save_store(&store).map_err(|e| e.to_string())
+    oc_core::config::save_config(&store).map_err(|e| e.to_string())
 }
 
 /// Core logic for manual context compaction. Usable from both Tauri commands
@@ -100,7 +100,7 @@ pub(crate) async fn compact_context_now_core(
         });
     }
 
-    let store = provider::load_store().map_err(|e| e.to_string())?;
+    let store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     let compact_config = store.compact;
 
     let system_prompt_estimate = "system";
@@ -202,7 +202,7 @@ pub async fn set_shortcuts_paused(app: tauri::AppHandle, paused: bool) -> Result
         let _ = manager.unregister_all();
     } else {
         // Re-register from saved config
-        let store = provider::load_store().map_err(|e| e.to_string())?;
+        let store = oc_core::config::load_config().map_err(|e| e.to_string())?;
         let _ = manager.unregister_all();
         for binding in &store.shortcuts.bindings {
             if !binding.enabled || binding.keys.is_empty() {
@@ -223,15 +223,15 @@ pub async fn set_shortcuts_paused(app: tauri::AppHandle, paused: bool) -> Result
 }
 
 #[tauri::command]
-pub async fn get_shortcut_config() -> Result<provider::ShortcutConfig, String> {
-    let store = provider::load_store().map_err(|e| e.to_string())?;
+pub async fn get_shortcut_config() -> Result<oc_core::config::ShortcutConfig, String> {
+    let store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     Ok(store.shortcuts)
 }
 
 #[tauri::command]
 pub async fn save_shortcut_config(
     app: tauri::AppHandle,
-    config: provider::ShortcutConfig,
+    config: oc_core::config::ShortcutConfig,
 ) -> Result<(), String> {
     // Validate all key combinations first
     for binding in &config.bindings {
@@ -248,9 +248,9 @@ pub async fn save_shortcut_config(
         }
     }
 
-    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    let mut store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     store.shortcuts = config.clone();
-    provider::save_store(&store).map_err(|e| e.to_string())?;
+    oc_core::config::save_config(&store).map_err(|e| e.to_string())?;
 
     // Clear any pending chord state
     crate::shortcuts::clear_chord_state();
@@ -298,7 +298,7 @@ pub async fn save_shortcut_config(
 
 #[tauri::command]
 pub async fn get_server_config() -> Result<serde_json::Value, String> {
-    let store = provider::load_store().map_err(|e| e.to_string())?;
+    let store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     let server = &store.server;
     // Mask api_key for security
     let masked_key = server.api_key.as_ref().map(|k| {
@@ -316,25 +316,25 @@ pub async fn get_server_config() -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
-pub async fn save_server_config(config: provider::EmbeddedServerConfig) -> Result<(), String> {
-    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+pub async fn save_server_config(config: oc_core::config::EmbeddedServerConfig) -> Result<(), String> {
+    let mut store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     store.server = config;
-    provider::save_store(&store).map_err(|e| e.to_string())
+    oc_core::config::save_config(&store).map_err(|e| e.to_string())
 }
 
 // ── Proxy ────────────────────────────────────────────────────────
 
 #[tauri::command]
 pub async fn get_proxy_config() -> Result<provider::ProxyConfig, String> {
-    let store = provider::load_store().map_err(|e| e.to_string())?;
+    let store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     Ok(store.proxy)
 }
 
 #[tauri::command]
 pub async fn save_proxy_config(config: provider::ProxyConfig) -> Result<(), String> {
-    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    let mut store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     store.proxy = config;
-    provider::save_store(&store).map_err(|e| e.to_string())
+    oc_core::config::save_config(&store).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -367,41 +367,41 @@ pub async fn test_proxy(config: provider::ProxyConfig) -> Result<String, String>
 
 #[tauri::command]
 pub async fn get_theme() -> Result<String, String> {
-    let store = provider::load_store().map_err(|e| e.to_string())?;
+    let store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     Ok(store.theme)
 }
 
 #[tauri::command]
 pub async fn set_theme(theme: String) -> Result<(), String> {
-    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    let mut store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     store.theme = theme;
-    provider::save_store(&store).map_err(|e| e.to_string())
+    oc_core::config::save_config(&store).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn get_language() -> Result<String, String> {
-    let store = provider::load_store().map_err(|e| e.to_string())?;
+    let store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     Ok(store.language)
 }
 
 #[tauri::command]
 pub async fn set_language(language: String) -> Result<(), String> {
-    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    let mut store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     store.language = language;
-    provider::save_store(&store).map_err(|e| e.to_string())
+    oc_core::config::save_config(&store).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn get_ui_effects_enabled() -> Result<bool, String> {
-    let store = provider::load_store().map_err(|e| e.to_string())?;
+    let store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     Ok(store.ui_effects_enabled)
 }
 
 #[tauri::command]
 pub async fn set_ui_effects_enabled(enabled: bool) -> Result<(), String> {
-    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    let mut store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     store.ui_effects_enabled = enabled;
-    provider::save_store(&store).map_err(|e| e.to_string())
+    oc_core::config::save_config(&store).map_err(|e| e.to_string())
 }
 
 // ── User Config Commands ─────────────────────────────────────────
@@ -476,28 +476,28 @@ pub async fn get_system_timezone() -> Result<String, String> {
 
 #[tauri::command]
 pub async fn get_tool_timeout() -> Result<u64, String> {
-    let store = provider::load_store().map_err(|e| e.to_string())?;
+    let store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     Ok(store.tool_timeout)
 }
 
 #[tauri::command]
 pub async fn set_tool_timeout(seconds: u64) -> Result<(), String> {
-    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    let mut store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     store.tool_timeout = seconds;
-    provider::save_store(&store).map_err(|e| e.to_string())
+    oc_core::config::save_config(&store).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn get_tool_result_disk_threshold() -> Result<usize, String> {
-    let store = provider::load_store().map_err(|e| e.to_string())?;
+    let store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     Ok(store.tool_result_disk_threshold.unwrap_or(50_000))
 }
 
 #[tauri::command]
 pub async fn set_tool_result_disk_threshold(bytes: usize) -> Result<(), String> {
-    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    let mut store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     store.tool_result_disk_threshold = if bytes == 0 { Some(0) } else { Some(bytes) };
-    provider::save_store(&store).map_err(|e| e.to_string())
+    oc_core::config::save_config(&store).map_err(|e| e.to_string())
 }
 
 // ── Tool Limits ────────────────────────────────────────────────
@@ -512,7 +512,7 @@ pub struct ToolLimitsConfig {
 
 #[tauri::command]
 pub async fn get_tool_limits() -> Result<ToolLimitsConfig, String> {
-    let store = provider::load_store().map_err(|e| e.to_string())?;
+    let store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     Ok(ToolLimitsConfig {
         max_images: store.image.max_images,
         max_pdfs: store.pdf.max_pdfs,
@@ -522,18 +522,18 @@ pub async fn get_tool_limits() -> Result<ToolLimitsConfig, String> {
 
 #[tauri::command]
 pub async fn set_tool_limits(config: ToolLimitsConfig) -> Result<(), String> {
-    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    let mut store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     store.image.max_images = config.max_images;
     store.pdf.max_pdfs = config.max_pdfs;
     store.pdf.max_vision_pages = config.max_vision_pages;
-    provider::save_store(&store).map_err(|e| e.to_string())
+    oc_core::config::save_config(&store).map_err(|e| e.to_string())
 }
 
 // ── Temperature ─────────────────────────────────────────────────
 
 #[tauri::command]
 pub async fn get_global_temperature() -> Result<Option<f64>, String> {
-    let store = provider::load_store().map_err(|e| e.to_string())?;
+    let store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     Ok(store.temperature)
 }
 
@@ -544,35 +544,35 @@ pub async fn set_global_temperature(temperature: Option<f64>) -> Result<(), Stri
             return Err("Temperature must be between 0.0 and 2.0".to_string());
         }
     }
-    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    let mut store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     store.temperature = temperature;
-    provider::save_store(&store).map_err(|e| e.to_string())
+    oc_core::config::save_config(&store).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn get_plan_subagent() -> Result<bool, String> {
-    let store = provider::load_store().map_err(|e| e.to_string())?;
+    let store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     Ok(store.plan_subagent)
 }
 
 #[tauri::command]
 pub async fn set_plan_subagent(enabled: bool) -> Result<(), String> {
-    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    let mut store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     store.plan_subagent = enabled;
-    provider::save_store(&store).map_err(|e| e.to_string())
+    oc_core::config::save_config(&store).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn get_plan_question_timeout() -> Result<u64, String> {
-    let store = provider::load_store().map_err(|e| e.to_string())?;
+    let store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     Ok(store.plan_question_timeout_secs)
 }
 
 #[tauri::command]
 pub async fn set_plan_question_timeout(secs: u64) -> Result<(), String> {
-    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    let mut store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     store.plan_question_timeout_secs = secs;
-    provider::save_store(&store).map_err(|e| e.to_string())
+    oc_core::config::save_config(&store).map_err(|e| e.to_string())
 }
 
 // ── Weather ─────────────────────────────────────────────────────
@@ -619,18 +619,18 @@ pub async fn refresh_weather() -> Result<Option<crate::weather::WeatherData>, St
 // ── Deferred Tool Loading ─────────────────────────────────────────
 
 #[tauri::command]
-pub async fn get_deferred_tools_config() -> Result<provider::DeferredToolsConfig, String> {
-    let store = provider::load_store().map_err(|e| e.to_string())?;
+pub async fn get_deferred_tools_config() -> Result<oc_core::config::DeferredToolsConfig, String> {
+    let store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     Ok(store.deferred_tools)
 }
 
 #[tauri::command]
 pub async fn save_deferred_tools_config(
-    config: provider::DeferredToolsConfig,
+    config: oc_core::config::DeferredToolsConfig,
 ) -> Result<(), String> {
-    let mut store = provider::load_store().map_err(|e| e.to_string())?;
+    let mut store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     store.deferred_tools = config;
-    provider::save_store(&store).map_err(|e| e.to_string())
+    oc_core::config::save_config(&store).map_err(|e| e.to_string())
 }
 
 /// Detect user location automatically (CoreLocation → IP fallback).

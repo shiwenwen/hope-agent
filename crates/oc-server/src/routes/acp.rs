@@ -5,13 +5,12 @@ use serde_json::{json, Value};
 
 use oc_core::acp_control::config::AcpControlConfig;
 use oc_core::acp_control::types::{AcpBackendInfo, AcpRun};
-use oc_core::provider;
 
 use crate::error::AppError;
 
 /// `GET /api/acp/backends`
 pub async fn list_backends() -> Result<Json<Vec<AcpBackendInfo>>, AppError> {
-    let store = provider::cached_store();
+    let store = oc_core::config::cached_config();
     if !store.acp_control.enabled {
         return Ok(Json(Vec::new()));
     }
@@ -50,7 +49,7 @@ pub async fn list_backends() -> Result<Json<Vec<AcpBackendInfo>>, AppError> {
 /// `POST /api/acp/refresh`
 pub async fn refresh_backends() -> Result<Json<Value>, AppError> {
     if let Some(_manager) = oc_core::get_acp_manager() {
-        let store = provider::cached_store();
+        let store = oc_core::config::cached_config();
         let registry = std::sync::Arc::new(oc_core::acp_control::AcpRuntimeRegistry::new());
         oc_core::acp_control::registry::auto_discover_and_register(&registry, &store.acp_control)
             .await;
@@ -104,15 +103,15 @@ pub async fn get_run_result(Path(run_id): Path<String>) -> Result<Json<Value>, A
 
 /// `GET /api/acp/config`
 pub async fn get_config() -> Result<Json<AcpControlConfig>, AppError> {
-    Ok(Json(provider::cached_store().acp_control.clone()))
+    Ok(Json(oc_core::config::cached_config().acp_control.clone()))
 }
 
 /// `PUT /api/acp/config`
 pub async fn set_config(
     Json(config): Json<AcpControlConfig>,
 ) -> Result<Json<Value>, AppError> {
-    let mut store = provider::load_store()?;
+    let mut store = oc_core::config::load_config()?;
     store.acp_control = config;
-    provider::save_store(&store)?;
+    oc_core::config::save_config(&store)?;
     Ok(Json(json!({ "saved": true })))
 }

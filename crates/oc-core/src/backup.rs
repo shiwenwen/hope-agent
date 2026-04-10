@@ -140,7 +140,7 @@ pub fn restore_backup(backup_name: &str) -> Result<(), String> {
 
     // `config.json` was rewritten out-of-band above; drop the in-memory
     // snapshot so hot-path readers pick up the restored state.
-    let _ = crate::provider::reload_cache_from_disk();
+    let _ = crate::config::reload_cache_from_disk();
 
     Ok(())
 }
