@@ -219,17 +219,10 @@ pub fn init_app_state(initial_store: AppConfig) -> AppState {
 /// Start background async tasks that require a tokio runtime.
 /// Must be called from within a tokio async context (e.g., Tauri's `.setup()` or a server runtime).
 pub async fn start_background_tasks() {
-    // Resume unanswered ask_user_question groups from previous session.
-    // Re-emits the event so any connected frontend or IM channel can continue
-    // the interrupted Q&A. Pending groups whose timeout already elapsed are
-    // skipped; they will be cleaned up as part of normal execution next time
-    // the user opens the session (no-op on the backend side since the oneshot
-    // sender was dropped when the app shut down).
-    // Delegate to a background task so startup never blocks on DB reads or
-    // listener readiness.
+    // Resume unanswered ask_user_question groups from previous session,
+    // then keep a daily purge running so the `ask_user_questions` table
+    // doesn't grow unbounded during long-lived server mode.
     tokio::spawn(async move {
-        // Housekeeping: drop answered rows older than 7 days before loading,
-        // so the `ask_user_questions` table doesn't grow unbounded.
         if let Some(db) = crate::get_session_db() {
             if let Err(e) = db.purge_old_answered_ask_user_groups(7) {
                 app_warn!(
@@ -244,6 +237,8 @@ pub async fn start_background_tasks() {
         let Some(db) = crate::get_session_db() else {
             return;
         };
+        // list_pending_ask_user_groups already drops expired rows inside a
+        // single UPDATE and caps the row count.
         let groups = match db.list_pending_ask_user_groups() {
             Ok(v) => v,
             Err(e) => {
@@ -256,30 +251,39 @@ pub async fn start_background_tasks() {
                 return;
             }
         };
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        let Some(bus) = crate::globals::get_event_bus() else {
-            return;
-        };
-        for group in groups {
-            if let Some(ts) = group.timeout_at {
-                if ts > 0 && ts < now {
-                    // Expired while offline — mark answered so it's never replayed again.
-                    let _ = db.mark_ask_user_answered(&group.request_id);
-                    continue;
+        if let Some(bus) = crate::globals::get_event_bus() {
+            for group in groups {
+                if let Ok(payload) = serde_json::to_value(&group) {
+                    bus.emit(crate::plan::EVENT_ASK_USER_REQUEST, payload.clone());
+                    bus.emit(crate::plan::EVENT_PLAN_QUESTION_REQUEST, payload);
+                    app_info!(
+                        "ask_user",
+                        "resume",
+                        "Re-emitted pending ask_user group {}",
+                        group.request_id
+                    );
                 }
             }
-            if let Ok(payload) = serde_json::to_value(&group) {
-                bus.emit(crate::plan::EVENT_ASK_USER_REQUEST, payload.clone());
-                bus.emit(crate::plan::EVENT_PLAN_QUESTION_REQUEST, payload);
-                app_info!(
-                    "ask_user",
-                    "resume",
-                    "Re-emitted pending ask_user group {}",
-                    group.request_id
-                );
+        }
+    });
+
+    // Daily purge loop: keeps `ask_user_questions` bounded in long-running
+    // server/launchd/systemd deployments where start_background_tasks only
+    // runs once at boot.
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(86_400));
+        ticker.tick().await; // skip immediate tick (startup path already purged)
+        loop {
+            ticker.tick().await;
+            if let Some(db) = crate::get_session_db() {
+                if let Err(e) = db.purge_old_answered_ask_user_groups(7) {
+                    app_warn!(
+                        "ask_user",
+                        "purge",
+                        "Daily ask_user purge failed: {}",
+                        e
+                    );
+                }
             }
         }
     });

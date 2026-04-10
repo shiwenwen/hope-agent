@@ -279,8 +279,11 @@ impl SessionDB {
         Ok(n)
     }
 
-    /// Load all still-pending ask_user_question groups. Used on app startup
-    /// to re-emit events so the frontend can continue any interrupted Q&A.
+    /// Load all still-pending ask_user_question groups whose timeout has not
+    /// elapsed. Used on app startup to re-emit events so the frontend can
+    /// continue any interrupted Q&A. Already-expired rows are eagerly marked
+    /// answered in a single statement so they never get loaded here. Capped
+    /// at 500 rows as a safety bound.
     pub fn list_pending_ask_user_groups(
         &self,
     ) -> anyhow::Result<Vec<crate::plan::PlanQuestionGroup>> {
@@ -288,8 +291,20 @@ impl SessionDB {
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        conn.execute(
+            "UPDATE ask_user_questions
+                SET status = 'answered', answered_at = datetime('now')
+                WHERE status = 'pending'
+                  AND timeout_at IS NOT NULL
+                  AND timeout_at > 0
+                  AND timeout_at <= strftime('%s','now')",
+            [],
+        )?;
         let mut stmt = conn.prepare(
-            "SELECT payload FROM ask_user_questions WHERE status = 'pending' ORDER BY created_at ASC",
+            "SELECT payload FROM ask_user_questions
+                WHERE status = 'pending'
+                ORDER BY created_at ASC
+                LIMIT 500",
         )?;
         let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
         let mut out = Vec::new();

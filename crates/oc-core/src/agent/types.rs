@@ -1,6 +1,32 @@
 use serde::{Deserialize, Serialize};
 
+use crate::agent_config::FilterConfig;
 use crate::provider::ThinkingStyle;
+
+/// Snapshot of the fields read from `agent.json` on every chat / tool-loop
+/// iteration. Cached on `AssistantAgent` so we stop re-reading and re-parsing
+/// agent.json 10+ times per chat turn.
+#[derive(Debug, Clone)]
+pub(super) struct AgentCapsCache {
+    pub agent_tool_filter: FilterConfig,
+    pub require_approval_base: Vec<String>,
+    pub sandbox: bool,
+    pub subagents_enabled: bool,
+}
+
+impl Default for AgentCapsCache {
+    fn default() -> Self {
+        // Mirrors previous fallbacks when `load_agent` fails:
+        // `subagents.enabled` defaulted to true, everything else to the
+        // type's Default.
+        Self {
+            agent_tool_filter: FilterConfig::default(),
+            require_approval_base: Vec::new(),
+            sandbox: false,
+            subagents_enabled: true,
+        }
+    }
+}
 
 /// File/image attachment sent alongside a chat message
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -143,6 +169,9 @@ pub struct AssistantAgent {
     pub(super) auto_approve_tools: bool,
     /// Timestamp of last Tier 2+ compaction (cache-TTL throttle, session-scoped).
     pub(crate) last_tier2_compaction_at: std::sync::Mutex<Option<std::time::Instant>>,
+    /// Lazily-populated cache for fields read from `agent.json` on every
+    /// chat/tool-loop iteration. Cleared by `set_agent_id`.
+    pub(super) agent_caps_cache: std::sync::Mutex<Option<std::sync::Arc<AgentCapsCache>>>,
 }
 
 /// Cached parameters from the last main chat request.

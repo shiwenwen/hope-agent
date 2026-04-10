@@ -107,26 +107,26 @@ function OptionPreview({ option }: { option: PlanQuestionOption }) {
 // ── Countdown timer ──────────────────────────────────────────────
 
 function useCountdown(timeoutAt: number | undefined | null) {
-  // Start with null. The interval callback is the single place that writes
-  // state — the effect body itself never calls setRemaining synchronously, so
-  // it can't trigger a cascading render loop.
   const [remaining, setRemaining] = useState<number | null>(null)
 
   useEffect(() => {
     if (!timeoutAt) {
-      // Schedule a one-shot async clear so we don't setState synchronously.
       const id = window.setTimeout(() => setRemaining(null), 0)
       return () => window.clearTimeout(id)
     }
-    const timer = window.setInterval(() => {
-      setRemaining(Math.max(0, timeoutAt - Math.floor(Date.now() / 1000)))
-    }, 1000)
-    // Initial async populate to avoid synchronous setState in effect body.
-    const first = window.setTimeout(() => {
-      setRemaining(Math.max(0, timeoutAt - Math.floor(Date.now() / 1000)))
-    }, 0)
+    let timer: number | undefined
+    const tick = () => {
+      const secs = Math.max(0, timeoutAt - Math.floor(Date.now() / 1000))
+      setRemaining(secs)
+      if (secs <= 0 && timer !== undefined) {
+        window.clearInterval(timer)
+        timer = undefined
+      }
+    }
+    const first = window.setTimeout(tick, 0)
+    timer = window.setInterval(tick, 1000)
     return () => {
-      window.clearInterval(timer)
+      if (timer !== undefined) window.clearInterval(timer)
       window.clearTimeout(first)
     }
   }, [timeoutAt])
@@ -206,7 +206,6 @@ export default function PlanQuestionBlock({ group, onSubmitted }: PlanQuestionBl
           customInput: state?.customInput || undefined,
         }
       })
-      // Prefer the new command; fall back to the legacy one on error.
       try {
         await getTransport().call("respond_ask_user", {
           requestId: group.requestId,
@@ -240,8 +239,6 @@ export default function PlanQuestionBlock({ group, onSubmitted }: PlanQuestionBl
     }
   }, [group, answers, onSubmitted])
 
-  // After submission, the Q&A summary is rendered inline by PlanQuestionResult
-  // in the tool call's position within the message flow.
   if (submitted) return null
 
   const timedOut = remaining !== null && remaining <= 0

@@ -122,17 +122,20 @@ pub async fn drop_pending_by_request_id(request_id: &str) {
 
 /// Render the prompt text for a group. Includes context and all questions with
 /// their options numbered so the user can reference them either via button or
-/// text reply.
+/// text reply. Each field is individually truncated, and the full prompt is
+/// clamped to ~3500 bytes so it fits inside the strictest IM payload limit
+/// (Discord 2000 / Telegram 4096 / Slack 3000 / LINE 5000).
 fn format_prompt(group: &PlanQuestionGroup) -> String {
     let mut out = String::new();
     out.push_str("❓ Question from AI\n");
     if let Some(ctx) = &group.context {
         out.push('\n');
-        out.push_str(ctx);
+        out.push_str(crate::truncate_utf8(ctx, 500));
         out.push('\n');
     }
     for (qi, q) in group.questions.iter().enumerate() {
-        out.push_str(&format!("\n{}. {}", qi + 1, q.text));
+        let qtext = crate::truncate_utf8(&q.text, 500);
+        out.push_str(&format!("\n{}. {}", qi + 1, qtext));
         if q.multi_select {
             out.push_str("  (multi-select)");
         }
@@ -140,13 +143,15 @@ fn format_prompt(group: &PlanQuestionGroup) -> String {
         for (oi, opt) in q.options.iter().enumerate() {
             let marker = option_marker(qi, oi);
             let rec = if opt.recommended { " ★" } else { "" };
-            out.push_str(&format!("  {marker}. {}{rec}\n", opt.label));
+            let label = crate::truncate_utf8(&opt.label, 100);
+            out.push_str(&format!("  {marker}. {label}{rec}\n"));
             if let Some(desc) = &opt.description {
+                let desc = crate::truncate_utf8(desc, 200);
                 out.push_str(&format!("     {desc}\n"));
             }
         }
     }
-    out
+    crate::truncate_utf8(&out, 3500).to_string()
 }
 
 /// Build a marker like "1a" / "2b" for question `qi` option `oi`.

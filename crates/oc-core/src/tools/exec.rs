@@ -72,6 +72,44 @@ pub(crate) fn compute_max_output_chars(context_window_tokens: Option<u32>) -> us
     }
 }
 
+/// Shared handling for `ApprovalCheckError::TimedOut` in the exec path.
+/// Returns `Ok(())` when the configured timeout action is Proceed and
+/// `Err(..)` (after marking the process session Failed) when Deny.
+async fn handle_exec_approval_timeout(
+    session_id: &str,
+    command: &str,
+    timeout_secs: u64,
+) -> Result<()> {
+    match approval_timeout_action() {
+        crate::config::ApprovalTimeoutAction::Deny => {
+            let mut registry = get_registry().lock().await;
+            registry.mark_exited(session_id, None, None, ProcessStatus::Failed);
+            app_warn!(
+                "tool",
+                "exec",
+                "Approval timed out after {}s; blocking command execution: {}",
+                timeout_secs,
+                command
+            );
+            Err(anyhow::anyhow!(
+                "Command execution denied: approval timed out after {}s: {}",
+                timeout_secs,
+                command
+            ))
+        }
+        crate::config::ApprovalTimeoutAction::Proceed => {
+            app_warn!(
+                "tool",
+                "exec",
+                "Approval timed out after {}s; proceeding by config: {}",
+                timeout_secs,
+                command
+            );
+            Ok(())
+        }
+    }
+}
+
 pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Result<String> {
     let command = args
         .get("command")
@@ -247,38 +285,7 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
                         ));
                     }
                     Err(ApprovalCheckError::TimedOut { timeout_secs }) => {
-                        match approval_timeout_action() {
-                            crate::config::ApprovalTimeoutAction::Deny => {
-                                let mut registry = get_registry().lock().await;
-                                registry.mark_exited(
-                                    &session_id,
-                                    None,
-                                    None,
-                                    ProcessStatus::Failed,
-                                );
-                                app_warn!(
-                                    "tool",
-                                    "exec",
-                                    "Approval timed out after {}s; blocking command execution: {}",
-                                    timeout_secs,
-                                    command
-                                );
-                                return Err(anyhow::anyhow!(
-                                    "Command execution denied: approval timed out after {}s: {}",
-                                    timeout_secs,
-                                    command
-                                ));
-                            }
-                            crate::config::ApprovalTimeoutAction::Proceed => {
-                                app_warn!(
-                                    "tool",
-                                    "exec",
-                                    "Approval timed out after {}s; proceeding by config: {}",
-                                    timeout_secs,
-                                    command
-                                );
-                            }
-                        }
+                        handle_exec_approval_timeout(&session_id, command, timeout_secs).await?;
                     }
                     Err(e) => {
                         app_warn!(
@@ -315,38 +322,8 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
                             ));
                         }
                         Err(ApprovalCheckError::TimedOut { timeout_secs }) => {
-                            match approval_timeout_action() {
-                                crate::config::ApprovalTimeoutAction::Deny => {
-                                    let mut registry = get_registry().lock().await;
-                                    registry.mark_exited(
-                                        &session_id,
-                                        None,
-                                        None,
-                                        ProcessStatus::Failed,
-                                    );
-                                    app_warn!(
-                                        "tool",
-                                        "exec",
-                                        "Approval timed out after {}s; blocking command execution: {}",
-                                        timeout_secs,
-                                        command
-                                    );
-                                    return Err(anyhow::anyhow!(
-                                        "Command execution denied: approval timed out after {}s: {}",
-                                        timeout_secs,
-                                        command
-                                    ));
-                                }
-                                crate::config::ApprovalTimeoutAction::Proceed => {
-                                    app_warn!(
-                                        "tool",
-                                        "exec",
-                                        "Approval timed out after {}s; proceeding by config: {}",
-                                        timeout_secs,
-                                        command
-                                    );
-                                }
-                            }
+                            handle_exec_approval_timeout(&session_id, command, timeout_secs)
+                                .await?;
                         }
                         Err(e) => {
                             app_warn!(

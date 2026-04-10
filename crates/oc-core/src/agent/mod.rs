@@ -83,6 +83,7 @@ impl AssistantAgent {
             manual_memory_saved: std::sync::atomic::AtomicBool::new(false),
             auto_approve_tools: false,
             last_tier2_compaction_at: std::sync::Mutex::new(None),
+            agent_caps_cache: std::sync::Mutex::new(None),
         }
     }
 
@@ -125,6 +126,7 @@ impl AssistantAgent {
             manual_memory_saved: std::sync::atomic::AtomicBool::new(false),
             auto_approve_tools: false,
             last_tier2_compaction_at: std::sync::Mutex::new(None),
+            agent_caps_cache: std::sync::Mutex::new(None),
         }
     }
 
@@ -193,6 +195,7 @@ impl AssistantAgent {
             manual_memory_saved: std::sync::atomic::AtomicBool::new(false),
             auto_approve_tools: false,
             last_tier2_compaction_at: std::sync::Mutex::new(None),
+            agent_caps_cache: std::sync::Mutex::new(None),
         }
     }
 
@@ -237,6 +240,35 @@ impl AssistantAgent {
     /// Set the agent ID (for memory context and home directory).
     pub fn set_agent_id(&mut self, id: &str) {
         self.agent_id = id.to_string();
+        *self
+            .agent_caps_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
+    }
+
+    /// Return cached per-session snapshot of the fields used from `agent.json`
+    /// on hot paths (`build_tool_schemas`, `tool_context_with_usage`,
+    /// `subagent_tool_enabled`). Loads from disk on first call, then reuses
+    /// until `set_agent_id` invalidates the cache.
+    fn agent_caps(&self) -> std::sync::Arc<types::AgentCapsCache> {
+        let mut guard = self
+            .agent_caps_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if let Some(ref cached) = *guard {
+            return cached.clone();
+        }
+        let caps = crate::agent_loader::load_agent(&self.agent_id)
+            .map(|def| types::AgentCapsCache {
+                agent_tool_filter: def.config.capabilities.tools.clone(),
+                require_approval_base: def.config.capabilities.require_approval.clone(),
+                sandbox: def.config.capabilities.sandbox,
+                subagents_enabled: def.config.subagents.enabled,
+            })
+            .unwrap_or_default();
+        let arc = std::sync::Arc::new(caps);
+        *guard = Some(arc.clone());
+        arc
     }
 
     /// Set extra context to append to the system prompt.
@@ -371,9 +403,8 @@ impl AssistantAgent {
         provider: tools::ToolProvider,
     ) -> Vec<serde_json::Value> {
         let deferred_enabled = crate::config::cached_config().deferred_tools.enabled;
-        let agent_tool_filter = crate::agent_loader::load_agent(&self.agent_id)
-            .map(|def| def.config.capabilities.tools)
-            .unwrap_or_default();
+        let caps = self.agent_caps();
+        let agent_tool_filter = &caps.agent_tool_filter;
 
         let mut schemas = if deferred_enabled {
             let mut s = tools::get_core_tools_for_provider(provider);
@@ -416,7 +447,7 @@ impl AssistantAgent {
             let name = extract_tool_name(t);
             tools::tool_visible_with_filters(
                 name,
-                &agent_tool_filter,
+                agent_tool_filter,
                 &self.denied_tools,
                 &self.skill_allowed_tools,
                 plan_allowed_tools,
@@ -473,9 +504,7 @@ impl AssistantAgent {
         if self.subagent_depth >= crate::subagent::max_depth_for_agent(&self.agent_id) {
             return false;
         }
-        crate::agent_loader::load_agent(&self.agent_id)
-            .map(|def| def.config.subagents.enabled)
-            .unwrap_or(true)
+        self.agent_caps().subagents_enabled
     }
 
     /// Get the agent's home directory path.
@@ -491,15 +520,9 @@ impl AssistantAgent {
         &self,
         used_tokens: Option<u32>,
     ) -> tools::ToolExecContext {
-        let agent_def = crate::agent_loader::load_agent(&self.agent_id);
-        let agent_tool_filter = agent_def
-            .as_ref()
-            .map(|def| def.config.capabilities.tools.clone())
-            .unwrap_or_default();
-        let mut require_approval = agent_def
-            .as_ref()
-            .map(|def| def.config.capabilities.require_approval.clone())
-            .unwrap_or_default();
+        let caps = self.agent_caps();
+        let agent_tool_filter = caps.agent_tool_filter.clone();
+        let mut require_approval = caps.require_approval_base.clone();
         // Merge plan agent ask tools (e.g., exec requires approval during planning)
         if let types::PlanAgentMode::PlanAgent { ask_tools, .. } = &self.plan_agent_mode {
             for tool in ask_tools {
@@ -508,10 +531,7 @@ impl AssistantAgent {
                 }
             }
         }
-        let force_sandbox = agent_def
-            .as_ref()
-            .map(|def| def.config.capabilities.sandbox)
-            .unwrap_or(false);
+        let force_sandbox = caps.sandbox;
         tools::ToolExecContext {
             context_window_tokens: Some(self.context_window),
             used_tokens,
