@@ -81,7 +81,7 @@
 
 ### PlanQuestion / PlanQuestionOption / PlanQuestionGroup
 
-定义在 `crates/oc-core/src/plan/types.rs:142-206`。结构体名保留 `PlanQuestion*` 前缀是为了与已序列化的历史 session 和长期存在的 `plan_question_request` 事件保持二进制兼容。
+定义在 `crates/oc-core/src/plan/types.rs`。结构体名保留 `PlanQuestion*` 前缀是为了与已序列化的历史 session 和长期存在的 `plan_question_request` 事件保持二进制兼容。
 
 ```rust
 pub struct PlanQuestionOption {
@@ -115,7 +115,7 @@ pub struct PlanQuestionGroup {
 }
 ```
 
-所有结构体 `#[serde(rename_all = "camelCase")]`，前端 TypeScript 类型在 `src/components/chat/plan-mode/PlanQuestionBlock.tsx:26-59` 中镜像定义。
+所有结构体 `#[serde(rename_all = "camelCase")]`，前端 TypeScript 类型在 `src/components/chat/plan-mode/PlanQuestionBlock.tsx` 中镜像定义。
 
 ### PlanQuestionAnswer
 
@@ -142,7 +142,7 @@ pub const TOOL_ASK_USER_QUESTION: &str = "ask_user_question";
 pub const TOOL_PLAN_QUESTION: &str = "plan_question"; // legacy alias
 ```
 
-**Schema 定义**：`crates/oc-core/src/tools/definitions/plan_tools.rs:41-133` 中的 `get_ask_user_question_tool()`。关键 flag：
+**Schema 定义**：`crates/oc-core/src/tools/definitions/plan_tools.rs` 中的 `get_ask_user_question_tool()`。关键 flag：
 
 | 字段 | 值 | 含义 |
 |------|-----|------|
@@ -150,7 +150,7 @@ pub const TOOL_PLAN_QUESTION: &str = "plan_question"; // legacy alias
 | `deferred` | `false` | 始终发送给模型，不走延迟加载机制 |
 | `always_load` | `true` | 即使开启 `deferredTools.enabled` 也强制加载 |
 
-工具在 `core_tools.rs:914` 通过 `tools.push(super::plan_tools::get_ask_user_question_tool())` 统一注入。dispatch 在 `tools/execution.rs:379`：
+工具在 `core_tools.rs` 通过 `tools.push(super::plan_tools::get_ask_user_question_tool())` 统一注入。dispatch 在 `tools/execution.rs`：
 
 ```rust
 TOOL_ASK_USER_QUESTION | TOOL_PLAN_QUESTION => {
@@ -160,13 +160,13 @@ TOOL_ASK_USER_QUESTION | TOOL_PLAN_QUESTION => {
 
 两个工具名共享一套执行路径，alias 零迁移。
 
-**系统提示词注入**：`system_prompt/constants.rs:205-216` 的 `TOOL_DESC_ASK_USER_QUESTION` 在动态系统提示词拼装阶段挂载到 `ask_user_question` key，随 Agent 的 `capabilities.tools` 过滤后注入。提示词明确约束：
+**系统提示词注入**：`system_prompt/constants.rs` 的 `TOOL_DESC_ASK_USER_QUESTION` 在动态系统提示词拼装阶段挂载到 `ask_user_question` key，随 Agent 的 `capabilities.tools` 过滤后注入。提示词明确约束：
 - 1–4 个问题、每题 2–4 个选项
 - 推荐项首位并带 `(Recommended)` 标签
 - **禁止**用来询问 "is my plan ready?"（应使用 `submit_plan`）
 - **禁止**用来询问 "should I run this command?"（应使用工具审批机制）
 
-**并发安全标记**：`tools/definitions/registry.rs:34` 将 `TOOL_PLAN_QUESTION` 加入 `CONCURRENT_SAFE_TOOL_NAMES`。虽然工具本身会阻塞等待用户回答，但从 tool loop 的角度看它无写入副作用，允许与其他 read-only 工具并发调度。
+**并发安全标记**：`tools/definitions/registry.rs` 将 `TOOL_PLAN_QUESTION` 加入 `CONCURRENT_SAFE_TOOL_NAMES`。虽然工具本身会阻塞等待用户回答，但从 tool loop 的角度看它无写入副作用，允许与其他 read-only 工具并发调度。
 
 ### tools/plan_question.rs 执行流程
 
@@ -197,9 +197,9 @@ flowchart TD
 
 **关键实现点**（带行号参考）：
 
-1. **`plan::get_plan_owner_session_id` 路由**（`plan_question.rs:141`）：Plan Mode 子 Agent 中触发的问题会透过该函数查到父 session id，事件最终发到主对话的 UI，而不是子 Agent 的孤岛 session。`source` 字段同步被设置为 `"plan"` 或 `"normal"`，UI 和 IM listener 可据此调整样式。
+1. **`plan::get_plan_owner_session_id` 路由**（`plan_question.rs`）：Plan Mode 子 Agent 中触发的问题会透过该函数查到父 session id，事件最终发到主对话的 UI，而不是子 Agent 的孤岛 session。`source` 字段同步被设置为 `"plan"` 或 `"normal"`，UI 和 IM listener 可据此调整样式。
 
-2. **有效超时计算**（`plan_question.rs:144-165`）：
+2. **有效超时计算**（`plan_question.rs`）：
 
    ```rust
    let global_default = crate::config::cached_config().plan_question_timeout_secs;
@@ -214,11 +214,11 @@ flowchart TD
 
    组级超时取**所有 per-question 超时的最大值**作为 wall-clock 门限；`timeout_at` 同时写入 DB，便于 UI 渲染倒计时和启动期扫描过期行。`0` 表示无限期等待。
 
-3. **持久化先于发射**（`plan_question.rs:177`）：`persist_pending_group` 在 `bus.emit` 之前调用，确保即使 emit 失败或进程立即崩溃，DB 也留有 pending 痕迹供下次启动识别并清理。
+3. **持久化先于发射**（`plan_question.rs`）：`persist_pending_group` 在 `bus.emit` 之前调用，确保即使 emit 失败或进程立即崩溃，DB 也留有 pending 痕迹供下次启动识别并清理。
 
-4. **EventBus 序列化失败的回滚**（`plan_question.rs:206-211`）：若 `serde_json::to_value(&group)` 失败，会同步 `cancel_pending_plan_question` 撤销 oneshot 并 `mark_group_answered` 翻转 DB 行状态，避免留下永远没有接收端的 pending 记录。
+4. **EventBus 序列化失败的回滚**（`plan_question.rs`）：若 `serde_json::to_value(&group)` 失败，会同步 `cancel_pending_plan_question` 撤销 oneshot 并 `mark_group_answered` 翻转 DB 行状态，避免留下永远没有接收端的 pending 记录。
 
-5. **最终清理**（`plan_question.rs:237-238`）：无论 Answered / Cancelled / TimedOut，都会：
+5. **最终清理**（`plan_question.rs`）：无论 Answered / Cancelled / TimedOut，都会：
    - `plan::mark_group_answered(&request_id)` 把 DB 行翻到 `answered`
    - `channel::worker::ask_user::drop_pending_by_request_id(&request_id)` 清理 IM 端的 button/text pending map，防止僵尸条目累积
 
@@ -245,7 +245,7 @@ static PENDING_PLAN_QUESTIONS: OnceLock<
 
 ### SQLite 持久化（`ask_user_questions` 表）
 
-文件：`crates/oc-core/src/session/db.rs:199-335`
+文件：`crates/oc-core/src/session/db.rs`
 
 Schema（作为 session DB migration 创建）：
 
@@ -278,7 +278,7 @@ CREATE INDEX IF NOT EXISTS idx_ask_user_status  ON ask_user_questions(status);
 
 ### 启动期清理与每日 purge
 
-文件：`crates/oc-core/src/app_init.rs:219-281` 的 `start_background_tasks()`。
+文件：`crates/oc-core/src/app_init.rs` 的 `start_background_tasks()`。
 
 **启动期（两步）**：
 
@@ -287,7 +287,7 @@ CREATE INDEX IF NOT EXISTS idx_ask_user_status  ON ask_user_questions(status);
 
 第二步为什么不保留？因为内存 oneshot map 在进程启动时是空的，任何试图从 DB "恢复" 的 pending 都无法被新进程答复：UI 提交时 `submit_plan_question_response` 会找不到接收端并返回 "No pending plan question request"。一刀切翻到 answered 比留下"僵尸幽灵"要干净得多。
 
-**守护进程模式下的每日 purge**（`app_init.rs:264-280`）：
+**守护进程模式下的每日 purge**（`app_init.rs`）：
 
 ```rust
 let mut ticker = tokio::time::interval(Duration::from_secs(86_400));
@@ -304,14 +304,14 @@ loop {
 
 ### EventBus 事件双名发射
 
-文件：`crates/oc-core/src/plan/questions.rs:14-18`
+文件：`crates/oc-core/src/plan/questions.rs`
 
 ```rust
 pub const EVENT_ASK_USER_REQUEST: &str = "ask_user_request";        // 主名
 pub const EVENT_PLAN_QUESTION_REQUEST: &str = "plan_question_request"; // 别名
 ```
 
-`plan_question.rs:195-196` 在 emit 时同时发两个名字：
+`plan_question.rs` 在 emit 时同时发两个名字：
 
 ```rust
 bus.emit(plan::EVENT_ASK_USER_REQUEST, event_data.clone());
@@ -322,9 +322,9 @@ bus.emit(plan::EVENT_PLAN_QUESTION_REQUEST, event_data);
 
 | 订阅方 | 订阅事件 |
 |--------|---------|
-| Desktop UI (`usePlanMode.ts:293-294`) | `ask_user_request` + `plan_question_request`（双重订阅，兼容老代码） |
+| Desktop UI (`usePlanMode.ts`) | `ask_user_request` + `plan_question_request`（双重订阅，兼容老代码） |
 | HTTP/WS server | `ask_user_request` 转发为 WS 帧 |
-| IM channel listener (`channel/worker/ask_user.rs:254`) | 只监听 `ask_user_request` |
+| IM channel listener (`channel/worker/ask_user.rs`) | 只监听 `ask_user_request` |
 
 ### 超时解析与 default_values 合成
 
@@ -334,7 +334,7 @@ bus.emit(plan::EVENT_PLAN_QUESTION_REQUEST, event_data);
 2. **`Ok(Ok(answers))`**：正常回答路径，走 `format_answers_for_llm`。
 3. **`Err(_elapsed)`**：`tokio::time::timeout` 触发。此时调用 `cancel_pending_plan_question(&request_id)` 手动从 map 移除 sender，然后走 `synthesize_default_answers` 合成回退答案。
 
-**`synthesize_default_answers` 规则**（`plan_question.rs:281-306`）：
+**`synthesize_default_answers` 规则**（`plan_question.rs`）：
 
 ```rust
 for q in questions {
@@ -351,7 +351,7 @@ for q in questions {
 
 即允许 `default_values` 混合使用「已有选项 value」和「任意自由文本」两种形式，后者会被合并到 `custom_input` 字段（逗号分隔）。
 
-**LLM 返回 JSON**（`plan_question.rs:309-358`）：
+**LLM 返回 JSON**（`plan_question.rs`）：
 
 ```jsonc
 {
@@ -363,7 +363,7 @@ for q in questions {
 }
 ```
 
-该字符串会直接作为 tool_result 回注到 Tool Loop 下一轮。前端的 `PlanQuestionResult`（`PlanResultBlocks.tsx:7-52`）解析同一份 JSON 渲染成可折叠的已回答摘要卡片。
+该字符串会直接作为 tool_result 回注到 Tool Loop 下一轮。前端的 `PlanQuestionResult`（`PlanResultBlocks.tsx`）解析同一份 JSON 渲染成可折叠的已回答摘要卡片。
 
 ---
 
@@ -371,7 +371,7 @@ for q in questions {
 
 ### 事件订阅与渲染入口
 
-订阅逻辑集中在 `src/components/chat/plan-mode/usePlanMode.ts:278-299`：
+订阅逻辑集中在 `src/components/chat/plan-mode/usePlanMode.ts`：
 
 ```ts
 useEffect(() => {
@@ -389,7 +389,7 @@ useEffect(() => {
 
 双事件订阅对应后端的双名发射，保证迁移期老代码路径仍能工作。handler 通过 `group.sessionId !== currentSessionId` 过滤当前会话，避免切换 session 时显示错位。
 
-`setPendingQuestionGroup` 存储的组会被 `MessageList.tsx:158-167` 条件渲染：
+`setPendingQuestionGroup` 存储的组会被 `MessageList.tsx` 条件渲染：
 
 ```tsx
 {pendingQuestionGroup && (
@@ -418,7 +418,7 @@ const [focusedOption, setFocusedOption] = useState<Record<string, string>>({})
 
 每个问题对应一个独立的 `QuestionState`，以 `question_id` 为 key。`focusedOption` 记录每题当前 hover / selected 的 option，用于右侧并排 preview pane 的联动。
 
-**`toggleOption` 行为分单选/多选**（`PlanQuestionBlock.tsx:169-188`）：
+**`toggleOption` 行为分单选/多选**（`PlanQuestionBlock.tsx`）：
 
 ```ts
 if (multiSelect) {
@@ -430,7 +430,7 @@ if (multiSelect) {
 }
 ```
 
-**UI 分类图标**（`:284-292`）根据 `q.template` 字段切换：
+**UI 分类图标** 根据 `q.template` 字段切换：
 
 | template | 图标 | 颜色 |
 |----------|------|------|
@@ -439,15 +439,15 @@ if (multiSelect) {
 | `priority` | `AlertTriangle` | 琥珀色 |
 | 其他 / 无 | `HelpCircle` | 蓝色 |
 
-**选项徽章**（`:352-365`）：
+**选项徽章**：
 - `recommended: true` → `<Star>` + "Recommended" 徽章（琥珀色）
 - `defaultValues` 包含该 option → `<Timer>` + "default" 徽章（灰色），表明若超时将自动选中
 
-**自由文本输入**（`:381-390`）：`q.allow_custom` 为 `true`（默认）时渲染一个 `<Input>`，与按钮选项并列。用户既可以选按钮也可以输文本，两者会一并提交。
+**自由文本输入**：`q.allow_custom` 为 `true`（默认）时渲染一个 `<Input>`，与按钮选项并列。用户既可以选按钮也可以输文本，两者会一并提交。
 
 ### 倒计时与 low-time 告警
 
-`useCountdown` hook（`PlanQuestionBlock.tsx:109-135`）每秒 tick 一次，把 `timeoutAt - now` 同步到 state：
+`useCountdown` hook（`PlanQuestionBlock.tsx`）每秒 tick 一次，把 `timeoutAt - now` 同步到 state：
 
 ```ts
 const tick = () => {
@@ -471,7 +471,7 @@ UI 侧根据 `remaining` 切换三种状态：
 
 ### Preview 渲染（markdown / image / mermaid）
 
-`OptionPreview` 组件（`PlanQuestionBlock.tsx:81-105`）对三种 `previewKind` 做分流：
+`OptionPreview` 组件（`PlanQuestionBlock.tsx`）对三种 `previewKind` 做分流：
 
 - **`image`** → `<img src={preview}>`，`max-h-64`、`object-contain`、`loading="lazy"`
 - **`mermaid`** → 包装为 ```` ```mermaid\n...\n``` ```` 代码块再交给 Streamdown
@@ -484,7 +484,7 @@ const staticPlugins = { code, cjk }
 
 **关键约定**：这里**只使用 `code` + `cjk` 两个基础插件**，不走 `MarkdownRenderer` 的流式 / rAF 包装层。原因是 preview 是一次性渲染的静态内容，没有增量流式需求，省掉 rAF 调度能显著降低渲染开销。该行为与 `AGENTS.md` "Think / Tool 流式块展示约定" 相辅——前者是流式场景，这里是非流式的轻量渲染。
 
-**并排对比布局**（`PlanQuestionBlock.tsx:310-403`）：
+**并排对比布局**（`PlanQuestionBlock.tsx`）：
 
 ```ts
 const hasAnyPreview = useMemo(
@@ -499,11 +499,11 @@ const hasAnyPreview = useMemo(
 
 用户 hover 任意选项时 `onMouseEnter` 同步更新 `focusedOption`，右栏内容随之切换，实现"方案并排对比"交互。
 
-若某题的选项有 preview 但当前 focused option 没有，或者整个 group 都没 preview，则 preview 内联显示在该 option 的 description 下方（`:373`）。
+若某题的选项有 preview 但当前 focused option 没有，或者整个 group 都没 preview，则 preview 内联显示在该 option 的 description 下方。
 
 ### 提交回传路径
 
-`handleSubmit`（`PlanQuestionBlock.tsx:197-240`）构造 `PlanQuestionAnswer[]` 后，**先尝试主命令再 fallback**：
+`handleSubmit`（`PlanQuestionBlock.tsx`）构造 `PlanQuestionAnswer[]` 后，**先尝试主命令再 fallback**：
 
 ```ts
 try {
@@ -517,13 +517,13 @@ try {
 
 这个 fallback 是前端层面的双命令兼容：`respond_ask_user` 是新命令，`respond_plan_question` 是老命令，两者都委托到 `plan::submit_plan_question_response`。任何一方缺失（例如更新后的前端接 pre-update 的后端）都能工作。
 
-提交成功后 `setSubmitted(true)` 使组件立刻隐藏（`:242 if (submitted) return null`），父组件通过 `onSubmitted` 回调把 `pendingQuestionGroup` 清空。
+提交成功后 `setSubmitted(true)` 使组件立刻隐藏（`if (submitted) return null`），父组件通过 `onSubmitted` 回调把 `pendingQuestionGroup` 清空。
 
 ### 会话切换时的 pending 恢复
 
-Tauri 命令 `get_pending_ask_user_group(session_id)`（`src-tauri/src/commands/plan.rs:169-177`）调用 `plan::find_live_pending_group_for_session`，返回最近一条仍有内存接收端的 pending group。前端在切换会话时 invoke 该命令以恢复待回答问题的 UI。
+Tauri 命令 `get_pending_ask_user_group(session_id)`（`src-tauri/src/commands/plan.rs`）调用 `plan::find_live_pending_group_for_session`，返回最近一条仍有内存接收端的 pending group。前端在切换会话时 invoke 该命令以恢复待回答问题的 UI。
 
-对应的 HTTP API 是 `GET /api/plan/{session_id}/pending-ask-user`（`oc-server/src/routes/plan.rs:171-177`）。两者共享同一个 core 实现。
+对应的 HTTP API 是 `GET /api/plan/{session_id}/pending-ask-user`（`oc-server/src/routes/plan.rs`）。两者共享同一个 core 实现。
 
 Server 模式下多客户端连接同一 session 时，已经"live"（内存有 oneshot）的 pending group 就是**跨客户端唯一**的，任何一个客户端先提交答案，其他客户端的同一组 UI 会收到内部 state 的自然失效（oneshot 已被 consume，后续再查 `is_plan_question_live` 返回 false）。
 
@@ -552,7 +552,7 @@ Server 模式下多客户端连接同一 session 时，已经"live"（内存有 
 | IRC | ❌ | text fallback |
 | WhatsApp | ❌ | text fallback |
 
-分流决策在 `spawn_channel_ask_user_listener`（`ask_user.rs:229-357`）内：
+分流决策在 `spawn_channel_ask_user_listener`（`ask_user.rs`）内：
 
 ```rust
 let supports_buttons = registry
@@ -569,7 +569,7 @@ let payload = if supports_buttons {
 
 ### Prompt 格式化与字节预算
 
-`format_prompt(&group)`（`ask_user.rs:128-155`）把 group 序列化成 IM 文本块：
+`format_prompt(&group)`（`ask_user.rs`）把 group 序列化成 IM 文本块：
 
 ```
 ❓ Question from AI
@@ -603,7 +603,7 @@ let payload = if supports_buttons {
 
 ### InlineButton callback_data 协议
 
-`build_buttons(&group)`（`ask_user.rs:177-222`）生成 2D 按钮数组：
+`build_buttons(&group)`（`ask_user.rs`）生成 2D 按钮数组：
 
 ```
 ask_user:{request_id}:select:{question_id}:{option_value}   // 普通选项
@@ -622,7 +622,7 @@ ask_user:{request_id}:cancel                                // 整体取消
 
 ### 文本回复解析规则
 
-`try_handle_ask_user_reply(msg)`（`ask_user.rs:370-479`）作为 dispatcher 前置钩子，在消息被当作普通用户输入之前尝试消费：
+`try_handle_ask_user_reply(msg)`（`ask_user.rs`）作为 dispatcher 前置钩子，在消息被当作普通用户输入之前尝试消费：
 
 **接收键**：`(account_id, chat_id)` → `Vec<PendingAskUser>`，LIFO 处理（后入先出，总是对最新一组问题作答）。
 
@@ -641,7 +641,7 @@ ask_user:{request_id}:cancel                                // 整体取消
 
 完成后从 `TEXT_PENDING` 弹出该组，`into_answers()` 转 `Vec<PlanQuestionAnswer>`，调用 `plan::submit_plan_question_response(request_id, answers)` 回传。
 
-**`parse_marker` 细节**（`ask_user.rs:482-494`）：
+**`parse_marker` 细节**（`ask_user.rs`）：
 
 ```rust
 // "1a" → Some((0, 0))；"10c" → Some((9, 2))
@@ -654,7 +654,7 @@ Some((qi - 1, oi))
 
 ### 统一 callback dispatcher
 
-文件：`channel/worker/ask_user.rs:610-620`
+文件：`channel/worker/ask_user.rs`
 
 ```rust
 pub fn try_dispatch_interactive_callback(data: &str, source: &'static str) -> bool {
@@ -678,15 +678,15 @@ pub fn try_dispatch_interactive_callback(data: &str, source: &'static str) -> bo
 
 | 渠道 | 调用点 | 调用函数 |
 |------|--------|---------|
-| Telegram | `telegram/polling.rs:140` | `is_ask_user_callback` + `handle_ask_user_callback_query` 包一层 answerCallbackQuery |
-| Discord | `discord/gateway.rs:357-361` | `is_ask_user_callback` + `spawn_callback_handler` |
-| Slack | `slack/socket.rs:247` | `try_dispatch_interactive_callback` |
-| QQ Bot | `qqbot/gateway.rs:592` | `try_dispatch_interactive_callback` |
+| Telegram | `telegram/polling.rs` | `is_ask_user_callback` + `handle_ask_user_callback_query` 包一层 answerCallbackQuery |
+| Discord | `discord/gateway.rs` | `is_ask_user_callback` + `spawn_callback_handler` |
+| Slack | `slack/socket.rs` | `try_dispatch_interactive_callback` |
+| QQ Bot | `qqbot/gateway.rs` | `try_dispatch_interactive_callback` |
 | Feishu | `feishu/ws_event.rs` | `try_dispatch_interactive_callback` |
 | LINE | `line/webhook.rs` | `try_dispatch_interactive_callback` |
 | Google Chat | `googlechat/webhook.rs` | `try_dispatch_interactive_callback` |
 
-文本 fallback 的入口是 `channel/worker/dispatcher.rs:130-135`：
+文本 fallback 的入口是 `channel/worker/dispatcher.rs`：
 
 ```rust
 // 0b. Check if this message is a text-reply to a pending ask_user_question
@@ -697,7 +697,7 @@ if super::ask_user::try_handle_ask_user_reply(&msg).await {
 
 整个 worker dispatcher 的消息路由顺序是：approval 回复 → ask_user 回复 → 斜杠命令 → Chat Engine 对话。任一前置步骤消费掉消息后就 `return`，不会重复投递。
 
-**启动时机**：`app_init.rs:178-182` 在 channel dispatcher 启动后紧接着 `spawn_channel_ask_user_listener(channel_db.clone(), registry.clone())`，保证 EventBus 广播不会丢。listener 自身做 `broadcast::RecvError::Lagged(n)` 告警但不退出，`Closed` 时才 break。
+**启动时机**：`app_init.rs` 在 channel dispatcher 启动后紧接着 `spawn_channel_ask_user_listener(channel_db.clone(), registry.clone())`，保证 EventBus 广播不会丢。listener 自身做 `broadcast::RecvError::Lagged(n)` 告警但不退出，`Closed` 时才 break。
 
 ---
 
@@ -711,7 +711,7 @@ if super::ask_user::try_handle_ask_user_reply(&msg).await {
 | `respond_plan_question` | 同上 | `()` | Legacy alias，保留便于老代码调用 |
 | `get_pending_ask_user_group` | `session_id` | `Option<PlanQuestionGroup>` | 切换会话时恢复 pending |
 
-两者都委托到 `plan::submit_plan_question_response`。注册在 `src-tauri/src/lib.rs:398-399` 的 `invoke_handler!` 宏。
+两者都委托到 `plan::submit_plan_question_response`。注册在 `src-tauri/src/lib.rs` 的 `invoke_handler!` 宏。
 
 **HTTP 路由**（`crates/oc-server/src/routes/plan.rs`）：
 
@@ -721,9 +721,9 @@ if super::ask_user::try_handle_ask_user_reply(&msg).await {
 | `POST` | `/api/ask_user/respond` | `respond_plan_question`（同函数） | 主路径 |
 | `GET` | `/api/plan/{session_id}/pending-ask-user` | `get_pending_ask_user_group` | 查询恢复 |
 
-两条 POST 路径挂在同一个 handler 上，在 `crates/oc-server/src/lib.rs:244-251` 一次性注册。
+两条 POST 路径挂在同一个 handler 上，在 `crates/oc-server/src/lib.rs` 一次性注册。
 
-**前端 Transport 映射**（`src/lib/transport-http.ts:131-133`）：
+**前端 Transport 映射**（`src/lib/transport-http.ts`）：
 
 ```ts
 respond_plan_question:           { method: "POST",   path: "/api/plan/question-response" },
@@ -731,7 +731,7 @@ respond_ask_user:                { method: "POST",   path: "/api/ask_user/respon
 get_pending_ask_user_group:      { method: "GET",    path: "/api/plan/{sessionId}/pending-ask-user" },
 ```
 
-**EventBus 事件**（`plan/questions.rs:14-18`）：
+**EventBus 事件**（`plan/questions.rs`）：
 
 | 事件名 | 方向 | 订阅方 |
 |--------|-----|--------|
@@ -742,7 +742,7 @@ get_pending_ask_user_group:      { method: "GET",    path: "/api/plan/{sessionId
 
 ## 配置项
 
-**全局默认超时**（`crates/oc-core/src/config/mod.rs:313-316`）：
+**全局默认超时**（`crates/oc-core/src/config/mod.rs`）：
 
 ```rust
 /// Timeout in seconds for plan_question tool waiting for user response.
@@ -754,10 +754,10 @@ pub plan_question_timeout_secs: u64,
 - 默认值：**1800 秒（30 分钟）**
 - `0` 表示无限等待（依赖 cancel 或手动答复）
 - 配置读写命令：
-  - Tauri：`get_plan_question_timeout` / `set_plan_question_timeout`（`commands/config.rs:600-610`）
-  - HTTP：`GET/POST /api/config/plan-question-timeout`（`routes/config.rs:230-240`）
+  - Tauri：`get_plan_question_timeout` / `set_plan_question_timeout`（`commands/config.rs`）
+  - HTTP：`GET/POST /api/config/plan-question-timeout`（`routes/config.rs`）
 
-**优先级**（在 `plan_question.rs:144-156`）：
+**优先级**（在 `plan_question.rs`）：
 
 ```
 max(所有 per-question timeout_secs) > 0 ? 用该值 : 全局 plan_question_timeout_secs
@@ -767,7 +767,7 @@ max(所有 per-question timeout_secs) > 0 ? 用该值 : 全局 plan_question_tim
 
 **与 approval_timeout 的关系**：两者独立，互不影响。`approval_timeout_secs` 控制工具审批等待，`plan_question_timeout_secs` 控制 `ask_user_question` 等待。默认值也不同（300 vs 1800），反映交互语义：审批应快速响应，而结构化问答可能需要用户更多思考时间。
 
-**数据保留**：SQLite `ask_user_questions` 表的 answered 行自动保留 **7 天**（`app_init.rs:228` 的 `purge_old_answered_ask_user_groups(7)`），目前不可配置。
+**数据保留**：SQLite `ask_user_questions` 表的 answered 行自动保留 **7 天**（`app_init.rs` 的 `purge_old_answered_ask_user_groups(7)`），目前不可配置。
 
 ---
 
@@ -777,13 +777,13 @@ max(所有 per-question timeout_secs) > 0 ? 用该值 : 全局 plan_question_tim
 
 2. **僵尸行识别**：内存 oneshot map 与 DB 行的双轨设计——答复通过 `is_plan_question_live` 在 `find_live_pending_group_for_session` 中过滤后只返回 live 行。进程重启后 `expire_pending_ask_user_groups` 把所有旧 pending 翻成 answered，禁止跨进程"恢复"幽灵。
 
-3. **会话级隔离**：`handler` 在前端检查 `group.sessionId !== currentSessionId`，IM listener 通过 `channel_db.get_conversation_by_session(group.session_id)` 精确路由到原发渠道。不存在 session 或非 IM session 的场景会静默跳过（`:275 Ok(None) => continue`）。
+3. **会话级隔离**：`handler` 在前端检查 `group.sessionId !== currentSessionId`，IM listener 通过 `channel_db.get_conversation_by_session(group.session_id)` 精确路由到原发渠道。不存在 session 或非 IM session 的场景会静默跳过（`Ok(None) => continue`）。
 
 4. **UTF-8 安全截断**：所有 prompt 字段都走 `crate::truncate_utf8`，禁止字节索引切片。这是 `AGENTS.md` 的硬性规定。
 
 5. **子 Agent 路由**：Plan Mode 的子 Agent 会触发 `ask_user_question` 时，`get_plan_owner_session_id` 把事件和 DB 行都记在**父 session** 上，否则事件发到子 session 的孤岛 UI 中会完全丢失。
 
-6. **Cancel 的语义**：`cancel_pending_plan_question` 只从内存 map 移除 sender，不会主动把 DB 行翻到 answered。后者由 tool execution 的最终清理块完成（`plan_question.rs:237 mark_group_answered`）。这种分层避免了取消流程意外写竞。
+6. **Cancel 的语义**：`cancel_pending_plan_question` 只从内存 map 移除 sender，不会主动把 DB 行翻到 answered。后者由 tool execution 的最终清理块完成（`plan_question.rs` 的 `mark_group_answered`）。这种分层避免了取消流程意外写竞。
 
 7. **tool loop 并发语义**：虽然 `plan_question` 挂在 `CONCURRENT_SAFE_TOOL_NAMES` 里，但一次 `execute()` 调用会阻塞整个 tool call 直到用户答复或超时。若模型在同一轮里发起多个 `ask_user_question`，它们会**并发触发**多个独立 event，UI 会一个接一个渲染为 `pendingQuestionGroup`——取决于前端当前是否允许同时显示多组。当前实现只保留最新一组（`setPendingQuestionGroup` 覆盖式写入），其他组的 oneshot 仍会在用户提交最新组后继续等待，直到各自 timeout。**推荐模型一次只发一组 ask_user_question**，这点在系统提示词中有明示。
 
@@ -793,7 +793,7 @@ max(所有 per-question timeout_secs) > 0 ? 用该值 : 全局 plan_question_tim
 
 ## 与 plan_question 的历史关系
 
-该工具最初叫 `plan_question`，是 Plan Mode 内部的需求澄清工具，受 Plan Agent 的 allow-list 约束（`plan/types.rs:256` 的 `allowed_tools`）只在 Planning / Review 阶段可用。本次泛化做了以下改动：
+该工具最初叫 `plan_question`，是 Plan Mode 内部的需求澄清工具，受 Plan Agent 的 allow-list 约束（`plan/types.rs` 的 `allowed_tools`）只在 Planning / Review 阶段可用。本次泛化做了以下改动：
 
 | 维度 | 之前 `plan_question` | 现在 `ask_user_question` |
 |------|---------------------|-----------------------|
@@ -812,7 +812,7 @@ max(所有 per-question timeout_secs) > 0 ? 用该值 : 全局 plan_question_tim
 - `TOOL_PLAN_QUESTION` 常量保留，dispatcher 同时识别两个名字
 - `plan_question_request` 事件仍然发射，老前端照常工作
 - 历史 session DB 里的 `plan_question` 工具调用不需要重写，`is_core_tool` 和 `INTERNAL_TOOL_NAMES` 两套分类都涵盖两个名字
-- `plan/types.rs:256` 的 Plan Agent `allowed_tools` 已把 `"ask_user_question"` 列入 allow-list
+- `plan/types.rs` 的 Plan Agent `allowed_tools` 已把 `"ask_user_question"` 列入 allow-list
 
 ---
 
@@ -821,47 +821,47 @@ max(所有 per-question timeout_secs) > 0 ? 用该值 : 全局 plan_question_tim
 **后端核心**：
 
 - `crates/oc-core/src/tools/plan_question.rs` — 工具执行入口、超时处理、结果格式化
-- `crates/oc-core/src/tools/definitions/plan_tools.rs:41-133` — 工具 schema 定义
-- `crates/oc-core/src/tools/execution.rs:379-381` — dispatch 分派
-- `crates/oc-core/src/tools/definitions/registry.rs:34` — 并发安全标记
-- `crates/oc-core/src/plan/types.rs:142-216` — `PlanQuestion*` 数据结构
+- `crates/oc-core/src/tools/definitions/plan_tools.rs` — 工具 schema 定义
+- `crates/oc-core/src/tools/execution.rs` — dispatch 分派
+- `crates/oc-core/src/tools/definitions/registry.rs` — 并发安全标记
+- `crates/oc-core/src/plan/types.rs` — `PlanQuestion*` 数据结构
 - `crates/oc-core/src/plan/questions.rs` — 内存 pending registry、持久化 helper、事件常量
-- `crates/oc-core/src/plan/mod.rs:50-55` — 模块 re-export
-- `crates/oc-core/src/session/db.rs:199-335` — `ask_user_questions` 表 CRUD
-- `crates/oc-core/src/app_init.rs:178-281` — listener 启动 + 启动清理 + 每日 purge
-- `crates/oc-core/src/system_prompt/constants.rs:205-252` — 系统提示词描述
-- `crates/oc-core/src/config/mod.rs:133-316` — `plan_question_timeout_secs` 配置项
+- `crates/oc-core/src/plan/mod.rs` — 模块 re-export
+- `crates/oc-core/src/session/db.rs` — `ask_user_questions` 表 CRUD
+- `crates/oc-core/src/app_init.rs` — listener 启动 + 启动清理 + 每日 purge
+- `crates/oc-core/src/system_prompt/constants.rs` — 系统提示词描述
+- `crates/oc-core/src/config/mod.rs` — `plan_question_timeout_secs` 配置项
 
 **IM 渠道**：
 
 - `crates/oc-core/src/channel/worker/ask_user.rs` — IM listener、button / text fallback、统一 dispatcher
-- `crates/oc-core/src/channel/worker/dispatcher.rs:130-135` — 消息路由前置钩子
+- `crates/oc-core/src/channel/worker/dispatcher.rs` — 消息路由前置钩子
 - `crates/oc-core/src/channel/worker/mod.rs` — 模块声明
-- `crates/oc-core/src/channel/telegram/polling.rs:134-397` — Telegram callback 接入
-- `crates/oc-core/src/channel/discord/gateway.rs:357-361` — Discord callback 接入
-- `crates/oc-core/src/channel/slack/socket.rs:247` — Slack callback 接入
-- `crates/oc-core/src/channel/qqbot/gateway.rs:592` — QQ Bot callback 接入
+- `crates/oc-core/src/channel/telegram/polling.rs` — Telegram callback 接入
+- `crates/oc-core/src/channel/discord/gateway.rs` — Discord callback 接入
+- `crates/oc-core/src/channel/slack/socket.rs` — Slack callback 接入
+- `crates/oc-core/src/channel/qqbot/gateway.rs` — QQ Bot callback 接入
 - `crates/oc-core/src/channel/feishu/ws_event.rs` / `line/webhook.rs` / `googlechat/webhook.rs` — 其他渠道接入
 
 **命令层（Tauri）**：
 
-- `src-tauri/src/commands/plan.rs:159-191` — `respond_plan_question` / `respond_ask_user` / `get_pending_ask_user_group`
-- `src-tauri/src/lib.rs:398-399` — invoke_handler 注册
-- `src-tauri/src/commands/config.rs:600-610` — 全局超时读写
+- `src-tauri/src/commands/plan.rs` — `respond_plan_question` / `respond_ask_user` / `get_pending_ask_user_group`
+- `src-tauri/src/lib.rs` — invoke_handler 注册
+- `src-tauri/src/commands/config.rs` — 全局超时读写
 
 **HTTP 路由（oc-server）**：
 
-- `crates/oc-server/src/routes/plan.rs:156-177` — Q&A 响应 + 获取 pending
-- `crates/oc-server/src/routes/config.rs:230-240` — 全局超时读写
-- `crates/oc-server/src/lib.rs:244-254` — Router 注册
+- `crates/oc-server/src/routes/plan.rs` — Q&A 响应 + 获取 pending
+- `crates/oc-server/src/routes/config.rs` — 全局超时读写
+- `crates/oc-server/src/lib.rs` — Router 注册
 
 **前端**：
 
 - `src/components/chat/plan-mode/PlanQuestionBlock.tsx` — 主组件（含 preview、倒计时、双命令 fallback）
-- `src/components/chat/plan-mode/usePlanMode.ts:278-299` — 事件订阅
-- `src/components/chat/MessageList.tsx:158-167` — 条件渲染
-- `src/components/chat/message/PlanResultBlocks.tsx:7-52` — 已回答摘要卡片
-- `src/lib/transport-http.ts:131-133` — HTTP API 映射
+- `src/components/chat/plan-mode/usePlanMode.ts` — 事件订阅
+- `src/components/chat/MessageList.tsx` — 条件渲染
+- `src/components/chat/message/PlanResultBlocks.tsx` — 已回答摘要卡片
+- `src/lib/transport-http.ts` — HTTP API 映射
 
 **国际化**：
 
