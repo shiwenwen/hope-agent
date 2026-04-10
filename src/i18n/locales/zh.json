@@ -226,6 +226,11 @@
     "acp_spawn": "启动 ACP Agent",
     "submit_plan": "提交计划",
     "amend_plan": "修改计划",
+    "ask_user": {
+      "cancelled": "用户取消了提问",
+      "no_answers": "未作答",
+      "timed_out": "超时,已应用默认值"
+    },
     "rawCall": "查看原始调用",
     "loadingSkill": "加载技能: {{name}}",
     "elapsed": "耗时 {{time}}"

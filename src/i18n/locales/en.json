@@ -226,6 +226,11 @@
     "acp_spawn": "Spawn ACP Agent",
     "submit_plan": "Submit Plan",
     "amend_plan": "Amend Plan",
+    "ask_user": {
+      "cancelled": "User cancelled the question",
+      "no_answers": "No answers provided",
+      "timed_out": "Timed out — default values applied"
+    },
     "rawCall": "View raw call",
     "loadingSkill": "Loading skill: {{name}}",
     "elapsed": "Elapsed {{time}}"

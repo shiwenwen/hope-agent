@@ -28,6 +28,9 @@ import {
   PanelRight,
   Info,
   ExternalLink,
+  HelpCircle,
+  Check,
+  Timer,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { ToolCall } from "@/types/chat"
@@ -148,11 +151,42 @@ function getDisplayArgs(name: string, args: string): string {
         return parsed.path || args
       case "canvas":
         return `${parsed.action || ""}${parsed.title ? ` "${parsed.title}"` : ""}${parsed.project_id ? ` (${parsed.project_id.slice(0, 8)})` : ""}`
+      case "ask_user_question":
+      case "plan_question":
+        return parsed.context || `${(parsed.questions || []).length} question(s)`
       default:
         return args
     }
   } catch {
     return args
+  }
+}
+
+interface AskUserAnswer {
+  question: string
+  selected: string[]
+  customInput?: string | null
+}
+
+/** Parse the JSON result returned by ask_user_question / plan_question. */
+function parseAskUserAnswers(
+  result: string | undefined,
+): { answers: AskUserAnswer[]; timedOut: boolean; cancelled: boolean } | null {
+  if (!result) return null
+  const trimmed = result.trim()
+  if (trimmed.startsWith("The user cancelled")) {
+    return { answers: [], timedOut: false, cancelled: true }
+  }
+  try {
+    const parsed = JSON.parse(trimmed)
+    if (!Array.isArray(parsed?.answers)) return null
+    return {
+      answers: parsed.answers as AskUserAnswer[],
+      timedOut: !!parsed.timedOut,
+      cancelled: false,
+    }
+  } catch {
+    return null
   }
 }
 
@@ -217,6 +251,14 @@ export default function ToolCallBlock({ tool, shimmer }: { tool: ToolCall; shimm
     ? t("tools.loadingSkill", { name: skillName })
     : t(`tools.${tool.name}`, tool.name)
   const displayArgs = skillName ? "" : getDisplayArgs(tool.name, tool.arguments)
+
+  const askUserOutcome = useMemo(
+    () =>
+      tool.name === "ask_user_question" || tool.name === "plan_question"
+        ? parseAskUserAnswers(tool.result)
+        : null,
+    [tool.name, tool.result],
+  )
 
   // Canvas reopen logic
   const canvasInfo = useMemo(() => {
@@ -320,6 +362,52 @@ export default function ToolCallBlock({ tool, shimmer }: { tool: ToolCall; shimm
               />
             </button>
           ))}
+        </div>
+      )}
+      {/* ask_user_question answers card */}
+      {askUserOutcome && !isRunning && (
+        <div className="ml-5 mt-1.5 mb-1 rounded-md border border-blue-500/20 bg-blue-500/5 px-3 py-2 space-y-1.5 text-xs">
+          {askUserOutcome.cancelled ? (
+            <div className="text-muted-foreground italic">
+              {t("tools.ask_user.cancelled")}
+            </div>
+          ) : askUserOutcome.answers.length === 0 ? (
+            <div className="text-muted-foreground italic">
+              {t("tools.ask_user.no_answers")}
+            </div>
+          ) : (
+            askUserOutcome.answers.map((a, i) => {
+              const parts: string[] = [...a.selected]
+              if (a.customInput) parts.push(a.customInput)
+              return (
+                <div key={i} className="flex items-start gap-2">
+                  <HelpCircle className="h-3 w-3 mt-0.5 text-blue-500 shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-muted-foreground">{a.question}</div>
+                    {parts.length > 0 && (
+                      <div className="mt-0.5 flex flex-wrap gap-1">
+                        {parts.map((p, j) => (
+                          <span
+                            key={j}
+                            className="inline-flex items-center gap-1 rounded-full bg-blue-500/10 text-blue-600 px-2 py-0.5"
+                          >
+                            <Check className="h-2.5 w-2.5" />
+                            {p}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )
+            })
+          )}
+          {askUserOutcome.timedOut && (
+            <div className="text-[10px] text-amber-600 flex items-center gap-1 pt-0.5">
+              <Timer className="h-2.5 w-2.5" />
+              {t("tools.ask_user.timed_out")}
+            </div>
+          )}
         </div>
       )}
       {/* Canvas preview card */}
