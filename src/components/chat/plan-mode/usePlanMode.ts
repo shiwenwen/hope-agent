@@ -265,17 +265,27 @@ export function usePlanMode(
     })
   }, [currentSessionId])
 
-  // Listen for plan_question_request events
+  // Listen for ask_user_request / plan_question_request events (alias).
+  // ask_user_question is the canonical tool name; plan_question_request is
+  // kept as a legacy alias so historical sessions and older code paths keep
+  // working. The backend emits both event names for the same payload.
   useEffect(() => {
-    return getTransport().listen("plan_question_request", (raw) => {
+    const handler = (raw: unknown) => {
       try {
-        const group: PlanQuestionGroup = JSON.parse(raw as string)
+        const group: PlanQuestionGroup =
+          typeof raw === "string" ? JSON.parse(raw) : (raw as PlanQuestionGroup)
         if (group.sessionId !== currentSessionId) return
         setPendingQuestionGroup(group)
       } catch {
         // ignore parse errors
       }
-    })
+    }
+    const unsubscribeNew = getTransport().listen("ask_user_request", handler)
+    const unsubscribeLegacy = getTransport().listen("plan_question_request", handler)
+    return () => {
+      unsubscribeNew?.()
+      unsubscribeLegacy?.()
+    }
   }, [currentSessionId])
 
   // Listen for plan_subagent_status events (plan sub-agent running/completed)

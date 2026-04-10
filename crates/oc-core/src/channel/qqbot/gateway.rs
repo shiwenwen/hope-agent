@@ -589,14 +589,10 @@ async fn handle_gateway_message(
                             .pointer("/data/resolved/button_data")
                             .and_then(|v| v.as_str())
                         {
-                            if crate::channel::worker::approval::is_approval_callback(
+                            crate::channel::worker::ask_user::try_dispatch_interactive_callback(
                                 button_data,
-                            ) {
-                                crate::channel::worker::approval::spawn_callback_handler(
-                                    button_data,
-                                    "qqbot::gateway",
-                                );
-                            }
+                                "qqbot::gateway",
+                            );
                         }
                     }
                 }

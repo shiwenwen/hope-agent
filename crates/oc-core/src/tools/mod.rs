@@ -39,9 +39,9 @@ pub use approval::{
     set_tool_permission_mode, submit_approval_response, ApprovalResponse, ToolPermissionMode,
 };
 pub use definitions::{
-    get_amend_plan_tool, get_available_tools, get_canvas_tool, get_core_tools,
-    get_core_tools_for_provider, get_deferred_tools, get_image_generate_tool_dynamic,
-    get_notification_tool, get_plan_question_tool, get_plan_step_tool, get_subagent_tool,
+    get_amend_plan_tool, get_ask_user_question_tool, get_available_tools, get_canvas_tool,
+    get_core_tools, get_core_tools_for_provider, get_deferred_tools,
+    get_image_generate_tool_dynamic, get_notification_tool, get_plan_step_tool, get_subagent_tool,
     get_submit_plan_tool, get_tool_search_tool, get_tools_for_provider, get_web_search_tool,
     is_concurrent_safe, is_core_tool, is_internal_tool,
 };
@@ -82,6 +82,9 @@ pub const TOOL_CANVAS: &str = "canvas";
 pub const TOOL_ACP_SPAWN: &str = "acp_spawn";
 pub const TOOL_GET_WEATHER: &str = "get_weather";
 pub const TOOL_UPDATE_PLAN_STEP: &str = "update_plan_step";
+pub const TOOL_ASK_USER_QUESTION: &str = "ask_user_question";
+/// Deprecated alias for `ask_user_question`. Still recognised by the dispatcher
+/// and system prompt to keep historical sessions working.
 pub const TOOL_PLAN_QUESTION: &str = "plan_question";
 pub const TOOL_SUBMIT_PLAN: &str = "submit_plan";
 pub const TOOL_AMEND_PLAN: &str = "amend_plan";

@@ -1,6 +1,8 @@
 use crate::acp_control;
 use crate::channel;
+use crate::config::AppConfig;
 use crate::cron;
+use crate::globals::AppState;
 use crate::globals::{
     ACP_MANAGER, APP_LOGGER, CHANNEL_DB, CHANNEL_REGISTRY, CRON_DB, EVENT_BUS,
     IDLE_EXTRACT_HANDLES, MEMORY_BACKEND, SESSION_DB, SUBAGENT_CANCELS,
@@ -8,10 +10,8 @@ use crate::globals::{
 use crate::logging::{self, AppLogger, LogDB};
 use crate::memory;
 use crate::paths;
-use crate::config::AppConfig;
 use crate::session::{self, SessionDB};
 use crate::subagent;
-use crate::globals::AppState;
 
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -175,6 +175,12 @@ pub fn init_app_state(initial_store: AppConfig) -> AppState {
             registry.clone(),
         );
 
+        // Spawn the IM channel ask_user_question listener
+        channel::worker::ask_user::spawn_channel_ask_user_listener(
+            channel_db.clone(),
+            registry.clone(),
+        );
+
         let _ = CHANNEL_REGISTRY.set(registry);
         let _ = CHANNEL_DB.set(channel_db);
     }
@@ -213,6 +219,71 @@ pub fn init_app_state(initial_store: AppConfig) -> AppState {
 /// Start background async tasks that require a tokio runtime.
 /// Must be called from within a tokio async context (e.g., Tauri's `.setup()` or a server runtime).
 pub async fn start_background_tasks() {
+    // Resume unanswered ask_user_question groups from previous session.
+    // Re-emits the event so any connected frontend or IM channel can continue
+    // the interrupted Q&A. Pending groups whose timeout already elapsed are
+    // skipped; they will be cleaned up as part of normal execution next time
+    // the user opens the session (no-op on the backend side since the oneshot
+    // sender was dropped when the app shut down).
+    // Delegate to a background task so startup never blocks on DB reads or
+    // listener readiness.
+    tokio::spawn(async move {
+        // Housekeeping: drop answered rows older than 7 days before loading,
+        // so the `ask_user_questions` table doesn't grow unbounded.
+        if let Some(db) = crate::get_session_db() {
+            if let Err(e) = db.purge_old_answered_ask_user_groups(7) {
+                app_warn!(
+                    "ask_user",
+                    "resume",
+                    "Failed to purge old ask_user rows: {}",
+                    e
+                );
+            }
+        }
+
+        let Some(db) = crate::get_session_db() else {
+            return;
+        };
+        let groups = match db.list_pending_ask_user_groups() {
+            Ok(v) => v,
+            Err(e) => {
+                app_warn!(
+                    "ask_user",
+                    "resume",
+                    "Failed to load pending ask_user groups: {}",
+                    e
+                );
+                return;
+            }
+        };
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let Some(bus) = crate::globals::get_event_bus() else {
+            return;
+        };
+        for group in groups {
+            if let Some(ts) = group.timeout_at {
+                if ts > 0 && ts < now {
+                    // Expired while offline — mark answered so it's never replayed again.
+                    let _ = db.mark_ask_user_answered(&group.request_id);
+                    continue;
+                }
+            }
+            if let Ok(payload) = serde_json::to_value(&group) {
+                bus.emit(crate::plan::EVENT_ASK_USER_REQUEST, payload.clone());
+                bus.emit(crate::plan::EVENT_PLAN_QUESTION_REQUEST, payload);
+                app_info!(
+                    "ask_user",
+                    "resume",
+                    "Re-emitted pending ask_user group {}",
+                    group.request_id
+                );
+            }
+        }
+    });
+
     // Auto-start enabled channel accounts
     if let Some(registry) = CHANNEL_REGISTRY.get() {
         let registry = registry.clone();

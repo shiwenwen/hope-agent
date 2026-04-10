@@ -1532,12 +1532,17 @@
       "shortcut": "⌘+Enter 发送"
     },
     "question": {
-      "title": "计划确认",
+      "title": "需要你的确认",
       "submit": "提交回答",
       "retry": "重试",
       "answered": "已回答",
       "customPlaceholder": "输入自定义回答...",
-      "recommended": "推荐"
+      "recommended": "推荐",
+      "multiSelect": "多选",
+      "default": "默认",
+      "preview": "预览",
+      "timeoutHint": "剩余时间",
+      "timedOut": "已超时"
     }
   },
   "canvas": {

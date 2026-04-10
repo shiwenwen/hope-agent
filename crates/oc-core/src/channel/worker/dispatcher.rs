@@ -60,29 +60,34 @@ pub fn spawn_dispatcher(
         .spawn(move || {
             let rt = tokio::runtime::Runtime::new().expect("channel dispatcher runtime");
             rt.block_on(async move {
-        app_info!("channel", "worker", "Inbound message dispatcher started (max_concurrent={})", MAX_CONCURRENT_INBOUND);
-        let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_INBOUND));
+                app_info!(
+                    "channel",
+                    "worker",
+                    "Inbound message dispatcher started (max_concurrent={})",
+                    MAX_CONCURRENT_INBOUND
+                );
+                let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_INBOUND));
 
-        while let Some(msg) = inbound_rx.recv().await {
-            let registry = registry.clone();
-            let channel_db = channel_db.clone();
-            let permit = semaphore.clone().acquire_owned().await;
+                while let Some(msg) = inbound_rx.recv().await {
+                    let registry = registry.clone();
+                    let channel_db = channel_db.clone();
+                    let permit = semaphore.clone().acquire_owned().await;
 
-            // Handle each message in a separate task, limited by semaphore
-            tokio::spawn(async move {
-                let _permit = permit; // held until task completes
-                if let Err(e) = handle_inbound_message(&registry, &channel_db, msg).await {
-                    app_error!(
-                        "channel",
-                        "worker",
-                        "Failed to handle inbound message: {}",
-                        e
-                    );
+                    // Handle each message in a separate task, limited by semaphore
+                    tokio::spawn(async move {
+                        let _permit = permit; // held until task completes
+                        if let Err(e) = handle_inbound_message(&registry, &channel_db, msg).await {
+                            app_error!(
+                                "channel",
+                                "worker",
+                                "Failed to handle inbound message: {}",
+                                e
+                            );
+                        }
+                    });
                 }
-            });
-        }
 
-        app_info!("channel", "worker", "Inbound message dispatcher stopped");
+                app_info!("channel", "worker", "Inbound message dispatcher stopped");
             });
         })
         .expect("spawn channel dispatcher thread");
@@ -116,6 +121,18 @@ async fn handle_inbound_message(
             "channel",
             "worker",
             "[{}] Message consumed as approval reply from {}",
+            channel_id_str,
+            sender_label
+        );
+        return Ok(());
+    }
+
+    // 0b. Check if this message is a text-reply to a pending ask_user_question
+    if super::ask_user::try_handle_ask_user_reply(&msg).await {
+        app_info!(
+            "channel",
+            "worker",
+            "[{}] Message consumed as ask_user reply from {}",
             channel_id_str,
             sender_label
         );

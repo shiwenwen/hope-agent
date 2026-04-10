@@ -107,7 +107,11 @@ pub fn create_webhook_handler(
                 Some(events) => events.clone(),
                 None => {
                     // LINE sends a verification event with empty events array
-                    app_debug!("channel", "line", "Webhook received empty events (verification)");
+                    app_debug!(
+                        "channel",
+                        "line",
+                        "Webhook received empty events (verification)"
+                    );
                     return WebhookResponse {
                         status: 200,
                         body: r#"{"status":"ok"}"#.to_string(),
@@ -130,38 +134,22 @@ pub fn create_webhook_handler(
 
                 match event_type {
                     "message" => {
-                        handle_message_event(
-                            event,
-                            &api,
-                            &account_id,
-                            &inbound_tx,
-                            &reply_tokens,
-                        )
-                        .await;
+                        handle_message_event(event, &api, &account_id, &inbound_tx, &reply_tokens)
+                            .await;
                     }
                     "follow" => {
                         let user_id = event
                             .pointer("/source/userId")
                             .and_then(|v| v.as_str())
                             .unwrap_or("unknown");
-                        app_info!(
-                            "channel",
-                            "line",
-                            "New follower: {}",
-                            user_id
-                        );
+                        app_info!("channel", "line", "New follower: {}", user_id);
                     }
                     "unfollow" => {
                         let user_id = event
                             .pointer("/source/userId")
                             .and_then(|v| v.as_str())
                             .unwrap_or("unknown");
-                        app_info!(
-                            "channel",
-                            "line",
-                            "User unfollowed: {}",
-                            user_id
-                        );
+                        app_info!("channel", "line", "User unfollowed: {}", user_id);
                     }
                     "join" => {
                         let source_type = event
@@ -203,35 +191,20 @@ pub fn create_webhook_handler(
                                 .and_then(|v| v.as_str())
                                 .unwrap_or("unknown")
                         };
-                        app_info!(
-                            "channel",
-                            "line",
-                            "Bot left {} {}",
-                            source_type,
-                            source_id
-                        );
+                        app_info!("channel", "line", "Bot left {} {}", source_type, source_id);
                     }
                     "postback" => {
                         if let Some(postback_data) =
                             event.pointer("/postback/data").and_then(|v| v.as_str())
                         {
-                            if crate::channel::worker::approval::is_approval_callback(
+                            crate::channel::worker::ask_user::try_dispatch_interactive_callback(
                                 postback_data,
-                            ) {
-                                crate::channel::worker::approval::spawn_callback_handler(
-                                    postback_data,
-                                    "line",
-                                );
-                            }
+                                "line",
+                            );
                         }
                     }
                     other => {
-                        app_debug!(
-                            "channel",
-                            "line",
-                            "Unhandled event type: {}",
-                            other
-                        );
+                        app_debug!("channel", "line", "Unhandled event type: {}", other);
                     }
                 }
             }
@@ -264,7 +237,10 @@ async fn handle_message_event(
 
     // Currently only handle text messages
     let text = if msg_type == "text" {
-        message.get("text").and_then(|v| v.as_str()).map(String::from)
+        message
+            .get("text")
+            .and_then(|v| v.as_str())
+            .map(String::from)
     } else {
         // For non-text messages, set descriptive text
         Some(format!("[{}]", msg_type))
@@ -326,10 +302,7 @@ async fn handle_message_event(
         match source_type {
             "group" => {
                 // For group messages, try group member profile first
-                let group_id = source
-                    .get("groupId")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
+                let group_id = source.get("groupId").and_then(|v| v.as_str()).unwrap_or("");
                 if !group_id.is_empty() {
                     match api.get_group_member_profile(group_id, &user_id).await {
                         Ok(profile) => profile
@@ -338,22 +311,22 @@ async fn handle_message_event(
                             .map(String::from),
                         Err(_) => {
                             // Fall back to regular profile
-                            api.get_profile(&user_id)
-                                .await
-                                .ok()
-                                .and_then(|p| p.get("displayName").and_then(|v| v.as_str()).map(String::from))
+                            api.get_profile(&user_id).await.ok().and_then(|p| {
+                                p.get("displayName")
+                                    .and_then(|v| v.as_str())
+                                    .map(String::from)
+                            })
                         }
                     }
                 } else {
                     None
                 }
             }
-            _ => {
-                api.get_profile(&user_id)
-                    .await
-                    .ok()
-                    .and_then(|p| p.get("displayName").and_then(|v| v.as_str()).map(String::from))
-            }
+            _ => api.get_profile(&user_id).await.ok().and_then(|p| {
+                p.get("displayName")
+                    .and_then(|v| v.as_str())
+                    .map(String::from)
+            }),
         }
     } else {
         None
@@ -377,10 +350,7 @@ async fn handle_message_event(
     let timestamp = event
         .get("timestamp")
         .and_then(|v| v.as_i64())
-        .map(|ts| {
-            chrono::DateTime::from_timestamp_millis(ts)
-                .unwrap_or_else(chrono::Utc::now)
-        })
+        .map(|ts| chrono::DateTime::from_timestamp_millis(ts).unwrap_or_else(chrono::Utc::now))
         .unwrap_or_else(chrono::Utc::now);
 
     let msg_ctx = MsgContext {
@@ -403,12 +373,7 @@ async fn handle_message_event(
     };
 
     if let Err(e) = inbound_tx.send(msg_ctx).await {
-        app_error!(
-            "channel",
-            "line",
-            "Failed to send inbound message: {}",
-            e
-        );
+        app_error!("channel", "line", "Failed to send inbound message: {}", e);
     }
 }
 
@@ -430,7 +395,8 @@ mod tests {
 
         let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).unwrap();
         mac.update(body);
-        let expected = base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes());
+        let expected =
+            base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes());
 
         assert!(verify_signature(body, &expected, secret));
     }

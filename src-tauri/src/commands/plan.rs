@@ -166,6 +166,20 @@ pub async fn respond_plan_question(
         .map_err(|e| e.to_string())
 }
 
+/// Canonical name for the interactive Q&A response command.
+/// Forwards to [`respond_plan_question`] and is available in any conversation
+/// (not only Plan Mode). Kept as a separate command so the Transport layer can
+/// pick the preferred name while historical code paths keep working.
+#[tauri::command]
+pub async fn respond_ask_user(
+    request_id: String,
+    answers: Vec<PlanQuestionAnswer>,
+) -> Result<(), String> {
+    plan::submit_plan_question_response(&request_id, answers)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn get_plan_versions(session_id: String) -> Result<Vec<PlanVersionInfo>, String> {
     plan::list_plan_versions(&session_id).map_err(|e| e.to_string())

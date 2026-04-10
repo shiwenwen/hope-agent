@@ -1,4 +1,5 @@
 pub(crate) mod approval;
+pub(crate) mod ask_user;
 mod dispatcher;
 mod media;
 mod slash;

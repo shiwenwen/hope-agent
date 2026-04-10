@@ -245,6 +245,10 @@ fn build_router_with_cors(
             "/plan/question-response",
             post(routes::plan::respond_plan_question),
         )
+        .route(
+            "/ask_user/respond",
+            post(routes::plan::respond_plan_question),
+        )
         .route("/plan/{sid}/versions", get(routes::plan::get_plan_versions))
         .route(
             "/plan/version/load",

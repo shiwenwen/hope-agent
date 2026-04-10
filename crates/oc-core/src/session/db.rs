@@ -196,9 +196,110 @@ impl SessionDB {
             conn.execute_batch("ALTER TABLE sessions ADD COLUMN plan_steps TEXT;")?;
         }
 
+        // Migration: pending ask_user_question groups for resume-after-restart.
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS ask_user_questions (
+                request_id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                timeout_at INTEGER,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                answered_at TEXT,
+                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_ask_user_session ON ask_user_questions(session_id);
+            CREATE INDEX IF NOT EXISTS idx_ask_user_status ON ask_user_questions(status);",
+        )?;
+
         Ok(Self {
             conn: Mutex::new(conn),
         })
+    }
+
+    // ── ask_user_question Persistence ────────────────────────────
+
+    /// Save (or replace) a pending ask_user_question group. Called before the
+    /// request is emitted so a restart can resume it.
+    pub fn save_ask_user_group(
+        &self,
+        group: &crate::plan::PlanQuestionGroup,
+    ) -> anyhow::Result<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let payload = serde_json::to_string(group)?;
+        conn.execute(
+            "INSERT OR REPLACE INTO ask_user_questions
+                (request_id, session_id, payload, status, timeout_at, created_at)
+             VALUES (?1, ?2, ?3, 'pending', ?4,
+                     COALESCE((SELECT created_at FROM ask_user_questions WHERE request_id = ?1),
+                              datetime('now')))",
+            params![
+                group.request_id,
+                group.session_id,
+                payload,
+                group.timeout_at.map(|n| n as i64),
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Mark a pending ask_user_question group as answered. Idempotent.
+    pub fn mark_ask_user_answered(&self, request_id: &str) -> anyhow::Result<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        conn.execute(
+            "UPDATE ask_user_questions
+                SET status = 'answered', answered_at = datetime('now')
+                WHERE request_id = ?1 AND status = 'pending'",
+            params![request_id],
+        )?;
+        Ok(())
+    }
+
+    /// Drop answered rows older than `retain_days` days so the
+    /// `ask_user_questions` table doesn't accumulate indefinitely.
+    pub fn purge_old_answered_ask_user_groups(&self, retain_days: u32) -> anyhow::Result<usize> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let cutoff = format!("-{} days", retain_days);
+        let n = conn.execute(
+            "DELETE FROM ask_user_questions
+                WHERE status = 'answered'
+                  AND answered_at IS NOT NULL
+                  AND answered_at < datetime('now', ?1)",
+            params![cutoff],
+        )?;
+        Ok(n)
+    }
+
+    /// Load all still-pending ask_user_question groups. Used on app startup
+    /// to re-emit events so the frontend can continue any interrupted Q&A.
+    pub fn list_pending_ask_user_groups(
+        &self,
+    ) -> anyhow::Result<Vec<crate::plan::PlanQuestionGroup>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT payload FROM ask_user_questions WHERE status = 'pending' ORDER BY created_at ASC",
+        )?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        let mut out = Vec::new();
+        for row in rows {
+            let payload = row?;
+            if let Ok(group) = serde_json::from_str::<crate::plan::PlanQuestionGroup>(&payload) {
+                out.push(group);
+            }
+        }
+        Ok(out)
     }
 
     // ── Session CRUD ─────────────────────────────────────────────

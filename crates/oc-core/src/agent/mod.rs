@@ -334,8 +334,9 @@ impl AssistantAgent {
     ) {
         match &self.plan_agent_mode {
             types::PlanAgentMode::PlanAgent { allowed_tools, .. } => {
-                // Add plan-specific tools
-                tool_schemas.push(tools::get_plan_question_tool().to_provider_schema(provider));
+                // ask_user_question is now a core/always-loaded tool (injected via
+                // get_available_tools), so we only need to add the plan-specific
+                // submit tool here. Plan-mode allow-list still controls visibility.
                 tool_schemas.push(tools::get_submit_plan_tool().to_provider_schema(provider));
                 // Filter to allow-list only
                 tool_schemas.retain(|t| {

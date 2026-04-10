@@ -79,7 +79,16 @@ impl ToolDefinition {
 
 /// Core tools that are always loaded (never deferred).
 pub(crate) const CORE_TOOL_NAMES: &[&str] = &[
-    "exec", "process", "read", "write", "edit", "ls", "grep", "find", "apply_patch",
+    "exec",
+    "process",
+    "read",
+    "write",
+    "edit",
+    "ls",
+    "grep",
+    "find",
+    "apply_patch",
+    "ask_user_question",
 ];
 
 /// Check if a tool name is a core tool (always loaded).

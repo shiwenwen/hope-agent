@@ -2,10 +2,10 @@ use serde_json::json;
 
 use super::super::{
     TOOL_AGENTS_LIST, TOOL_APPLY_PATCH, TOOL_BROWSER, TOOL_DELETE_MEMORY, TOOL_EDIT, TOOL_EXEC,
-    TOOL_FIND, TOOL_GET_WEATHER, TOOL_GREP, TOOL_IMAGE, TOOL_LS, TOOL_MANAGE_CRON,
-    TOOL_MEMORY_GET, TOOL_PDF, TOOL_PROCESS, TOOL_READ, TOOL_RECALL_MEMORY, TOOL_SAVE_MEMORY,
-    TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEND, TOOL_SESSION_STATUS,
-    TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY, TOOL_WEB_FETCH, TOOL_WRITE,
+    TOOL_FIND, TOOL_GET_WEATHER, TOOL_GREP, TOOL_IMAGE, TOOL_LS, TOOL_MANAGE_CRON, TOOL_MEMORY_GET,
+    TOOL_PDF, TOOL_PROCESS, TOOL_READ, TOOL_RECALL_MEMORY, TOOL_SAVE_MEMORY, TOOL_SESSIONS_HISTORY,
+    TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEND, TOOL_SESSION_STATUS, TOOL_UPDATE_CORE_MEMORY,
+    TOOL_UPDATE_MEMORY, TOOL_WEB_FETCH, TOOL_WRITE,
 };
 use super::types::{is_core_tool, ToolDefinition};
 
@@ -910,6 +910,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             }),
         },
     ];
+    // ── Ask User Question (interactive Q&A, always available) ──
+    tools.push(super::plan_tools::get_ask_user_question_tool());
+
     // Mark non-core tools as deferred, core tools as always_load
     for tool in &mut tools {
         if is_core_tool(&tool.name) {

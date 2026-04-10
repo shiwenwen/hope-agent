@@ -281,12 +281,10 @@ async fn handle_ws_message(
             if let Some(event_data) = event.event {
                 if let Some(action) = event_data.get("action") {
                     if let Some(value) = action.get("value").and_then(|v| v.as_str()) {
-                        if crate::channel::worker::approval::is_approval_callback(value) {
-                            crate::channel::worker::approval::spawn_callback_handler(
-                                value,
-                                "feishu:gateway",
-                            );
-                        }
+                        crate::channel::worker::ask_user::try_dispatch_interactive_callback(
+                            value,
+                            "feishu:gateway",
+                        );
                     }
                 }
             }
@@ -322,10 +320,7 @@ async fn handle_message_event(
         .message
         .ok_or_else(|| anyhow::anyhow!("Missing message in message event"))?;
 
-    let sender_id = sender
-        .sender_id
-        .and_then(|s| s.open_id)
-        .unwrap_or_default();
+    let sender_id = sender.sender_id.and_then(|s| s.open_id).unwrap_or_default();
 
     let chat_id = message.chat_id.unwrap_or_default();
     let message_id = message.message_id.unwrap_or_default();
@@ -405,8 +400,10 @@ fn clean_mention_tags(text: &str) -> String {
         // Match @_user_N optionally followed by a space
         if let Some(start) = result.find("@_user_") {
             let rest = &result[start + 7..]; // skip "@_user_"
-            // Find where the digits end
-            let digit_end = rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(rest.len());
+                                             // Find where the digits end
+            let digit_end = rest
+                .find(|c: char| !c.is_ascii_digit())
+                .unwrap_or(rest.len());
             if digit_end > 0 {
                 let end = start + 7 + digit_end;
                 // Also consume a trailing space if present

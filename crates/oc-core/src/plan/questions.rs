@@ -3,7 +3,19 @@ use std::collections::HashMap;
 use std::sync::OnceLock;
 use tokio::sync::Mutex as TokioMutex;
 
-use super::types::PlanQuestionAnswer;
+use super::types::{PlanQuestionAnswer, PlanQuestionGroup};
+
+// ── EventBus event names ─────────────────────────────────────────
+//
+// The tool backend emits BOTH names for every group so historical listeners
+// keep working (`plan_question_request` is the legacy name that pre-dates the
+// rename to the generic `ask_user_question` tool).
+
+/// Canonical event name for an interactive user-question request.
+pub const EVENT_ASK_USER_REQUEST: &str = "ask_user_request";
+/// Legacy alias for [`EVENT_ASK_USER_REQUEST`]. Still emitted for
+/// backwards compatibility with older frontend code paths.
+pub const EVENT_PLAN_QUESTION_REQUEST: &str = "plan_question_request";
 
 // ── Pending Plan Questions Registry (oneshot pattern) ────────────
 
@@ -46,4 +58,24 @@ pub async fn submit_plan_question_response(
 pub async fn cancel_pending_plan_question(request_id: &str) {
     let mut pending = get_pending_questions().lock().await;
     pending.remove(request_id);
+}
+
+// ── SQLite Persistence ──────────────────────────────────────────
+
+/// Persist a pending question group so a restart can resume it.
+/// No-op when the session DB isn't initialised (e.g. during tests).
+pub fn persist_pending_group(group: &PlanQuestionGroup) -> Result<()> {
+    let Some(db) = crate::get_session_db() else {
+        return Ok(());
+    };
+    db.save_ask_user_group(group)
+}
+
+/// Mark a persisted question group as answered so it won't be replayed on
+/// next startup. No-op when the session DB isn't initialised.
+pub fn mark_group_answered(request_id: &str) -> Result<()> {
+    let Some(db) = crate::get_session_db() else {
+        return Ok(());
+    };
+    db.mark_ask_user_answered(request_id)
 }

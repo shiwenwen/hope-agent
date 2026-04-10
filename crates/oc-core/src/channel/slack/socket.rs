@@ -224,10 +224,7 @@ async fn handle_envelope(
         }
     }
 
-    let envelope_type = envelope
-        .get("type")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let envelope_type = envelope.get("type").and_then(|v| v.as_str()).unwrap_or("");
 
     match envelope_type {
         "events_api" => {
@@ -246,16 +243,11 @@ async fn handle_envelope(
             if let Some(payload) = envelope.get("payload") {
                 if let Some(actions) = payload.get("actions").and_then(|v| v.as_array()) {
                     for action in actions {
-                        if let Some(action_id) =
-                            action.get("action_id").and_then(|v| v.as_str())
-                        {
-                            if crate::channel::worker::approval::is_approval_callback(action_id)
-                            {
-                                crate::channel::worker::approval::spawn_callback_handler(
-                                    action_id,
-                                    "slack::socket",
-                                );
-                            }
+                        if let Some(action_id) = action.get("action_id").and_then(|v| v.as_str()) {
+                            crate::channel::worker::ask_user::try_dispatch_interactive_callback(
+                                action_id,
+                                "slack::socket",
+                            );
                         }
                     }
                 }
@@ -381,9 +373,7 @@ async fn handle_slash_command(
         .get("user_id")
         .and_then(|v| v.as_str())
         .unwrap_or("unknown");
-    let user_name = payload
-        .get("user_name")
-        .and_then(|v| v.as_str());
+    let user_name = payload.get("user_name").and_then(|v| v.as_str());
     let channel_id = payload
         .get("channel_id")
         .and_then(|v| v.as_str())
@@ -397,10 +387,7 @@ async fn handle_slash_command(
     };
 
     let timestamp = chrono::Utc::now();
-    let message_id = format!(
-        "slash_{}",
-        timestamp.timestamp_millis()
-    );
+    let message_id = format!("slash_{}", timestamp.timestamp_millis());
 
     let msg_ctx = MsgContext {
         channel_id: ChannelId::Slack,

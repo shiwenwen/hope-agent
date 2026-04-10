@@ -85,21 +85,14 @@ pub fn create_webhook_handler(
                         .pointer("/action/actionMethodName")
                         .and_then(|v| v.as_str())
                     {
-                        if crate::channel::worker::approval::is_approval_callback(action) {
-                            crate::channel::worker::approval::spawn_callback_handler(
-                                action,
-                                "googlechat",
-                            );
-                        }
+                        crate::channel::worker::ask_user::try_dispatch_interactive_callback(
+                            action,
+                            "googlechat",
+                        );
                     }
                 }
                 other => {
-                    app_debug!(
-                        "channel",
-                        "googlechat",
-                        "Ignoring event type: {}",
-                        other
-                    );
+                    app_debug!("channel", "googlechat", "Ignoring event type: {}", other);
                 }
             }
 
@@ -148,10 +141,7 @@ async fn handle_message_event(
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
-    let space_type = space
-        .get("type")
-        .and_then(|v| v.as_str())
-        .unwrap_or("ROOM");
+    let space_type = space.get("type").and_then(|v| v.as_str()).unwrap_or("ROOM");
     let space_display_name = space
         .get("displayName")
         .and_then(|v| v.as_str())

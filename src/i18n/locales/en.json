@@ -1532,12 +1532,17 @@
       "shortcut": "⌘+Enter to send"
     },
     "question": {
-      "title": "Planning Questions",
+      "title": "AI needs your input",
       "submit": "Submit Answers",
       "retry": "Retry",
       "answered": "Answered",
       "customPlaceholder": "Enter custom answer...",
-      "recommended": "Recommended"
+      "recommended": "Recommended",
+      "multiSelect": "multi",
+      "default": "default",
+      "preview": "Preview",
+      "timeoutHint": "Time remaining",
+      "timedOut": "timed out"
     }
   },
   "canvas": {

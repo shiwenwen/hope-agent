@@ -131,10 +131,14 @@ async fn convert_update(
             convert_message(api, msg, account_id, bot_id, bot_username).await
         }
         UpdateKind::CallbackQuery(cb) => {
-            // Handle approval callbacks directly (don't create MsgContext)
+            // Handle approval / ask_user callbacks directly (don't create MsgContext)
             if let Some(data) = cb.data.as_ref() {
                 if crate::channel::worker::approval::is_approval_callback(data) {
                     handle_approval_callback_query(api, cb).await;
+                    return None;
+                }
+                if crate::channel::worker::ask_user::is_ask_user_callback(data) {
+                    handle_ask_user_callback_query(api, cb).await;
                     return None;
                 }
             }
@@ -306,10 +310,7 @@ async fn download_inbound_media_to_temp(
 /// Handle an approval callback query: submit the approval response, answer the
 /// callback query to dismiss the loading spinner, and edit the message to show
 /// the result (removing the inline keyboard).
-async fn handle_approval_callback_query(
-    api: &TelegramBotApi,
-    cb: &teloxide::types::CallbackQuery,
-) {
+async fn handle_approval_callback_query(api: &TelegramBotApi, cb: &teloxide::types::CallbackQuery) {
     let data = match cb.data.as_ref() {
         Some(d) => d,
         None => return,
@@ -322,7 +323,10 @@ async fn handle_approval_callback_query(
     };
 
     // Answer the callback query to dismiss the loading spinner
-    if let Err(e) = api.answer_callback_query(&cb.id.0, Some(&result_text)).await {
+    if let Err(e) = api
+        .answer_callback_query(&cb.id.0, Some(&result_text))
+        .await
+    {
         app_warn!(
             "channel",
             "telegram::polling",
@@ -340,7 +344,10 @@ async fn handle_approval_callback_query(
         let original_text = msg.text().unwrap_or("Tool approval");
         let updated_text = format!("{}\n\n{}", original_text, result_text);
 
-        if let Err(e) = api.edit_message_text(chat_id, message_id, &updated_text, None).await {
+        if let Err(e) = api
+            .edit_message_text(chat_id, message_id, &updated_text, None)
+            .await
+        {
             app_warn!(
                 "channel",
                 "telegram::polling",
@@ -357,6 +364,50 @@ async fn handle_approval_callback_query(
                 "Failed to remove approval keyboard: {}",
                 e
             );
+        }
+    }
+}
+
+/// Handle an ask_user callback query: update in-progress answer state (or
+/// submit if the last question just got answered), answer the callback query
+/// to dismiss the loading spinner, and optionally remove the inline keyboard
+/// when the group is fully resolved.
+async fn handle_ask_user_callback_query(api: &TelegramBotApi, cb: &teloxide::types::CallbackQuery) {
+    let data = match cb.data.as_ref() {
+        Some(d) => d,
+        None => return,
+    };
+
+    let result_text =
+        match crate::channel::worker::ask_user::handle_ask_user_callback(data).await {
+            Ok(label) => label.to_string(),
+            Err(e) => format!("Error: {}", e),
+        };
+
+    if let Err(e) = api
+        .answer_callback_query(&cb.id.0, Some(&result_text))
+        .await
+    {
+        app_warn!(
+            "channel",
+            "telegram::polling",
+            "Failed to answer ask_user callback query: {}",
+            e
+        );
+    }
+
+    // Only remove keyboard when the whole group is done (Answered / Cancelled).
+    let finished = result_text.contains("Answered") || result_text.contains("Cancelled");
+    if finished {
+        if let Some(msg) = cb.message.as_ref().and_then(|m| m.regular_message()) {
+            let chat_id = msg.chat.id.0;
+            let message_id = msg.id.0;
+            let original_text = msg.text().unwrap_or("Question");
+            let updated_text = format!("{}\n\n{}", original_text, result_text);
+            let _ = api
+                .edit_message_text(chat_id, message_id, &updated_text, None)
+                .await;
+            let _ = api.remove_inline_keyboard(chat_id, message_id).await;
         }
     }
 }

@@ -81,29 +81,28 @@ pub async fn run_gateway_loop(
         }
 
         // Determine WSS URL
-        let gateway_url = if let (Some(ref resume_url), Some(_)) =
-            (&resume_gateway_url, &session_id)
-        {
-            // Use resume URL if we have a session to resume
-            format!("{}?v=10&encoding=json", resume_url)
-        } else {
-            // Get fresh gateway URL from REST API
-            match api.get_gateway_bot().await {
-                Ok(info) => {
-                    let url = info["url"].as_str().unwrap_or("wss://gateway.discord.gg");
-                    format!("{}?v=10&encoding=json", url)
+        let gateway_url =
+            if let (Some(ref resume_url), Some(_)) = (&resume_gateway_url, &session_id) {
+                // Use resume URL if we have a session to resume
+                format!("{}?v=10&encoding=json", resume_url)
+            } else {
+                // Get fresh gateway URL from REST API
+                match api.get_gateway_bot().await {
+                    Ok(info) => {
+                        let url = info["url"].as_str().unwrap_or("wss://gateway.discord.gg");
+                        format!("{}?v=10&encoding=json", url)
+                    }
+                    Err(e) => {
+                        app_warn!(
+                            "channel",
+                            "discord::gateway",
+                            "Failed to get gateway URL: {}, using default",
+                            e
+                        );
+                        "wss://gateway.discord.gg?v=10&encoding=json".to_string()
+                    }
                 }
-                Err(e) => {
-                    app_warn!(
-                        "channel",
-                        "discord::gateway",
-                        "Failed to get gateway URL: {}, using default",
-                        e
-                    );
-                    "wss://gateway.discord.gg?v=10&encoding=json".to_string()
-                }
-            }
-        };
+            };
 
         // Connect
         let mut ws = match WsConnection::connect(&gateway_url).await {
@@ -355,6 +354,29 @@ pub async fn run_gateway_loop(
                                                     &custom_id_owned,
                                                 ).await;
                                             });
+                                        } else if crate::channel::worker::ask_user::is_ask_user_callback(custom_id) {
+                                            // Dispatch ask_user callback (uses generic
+                                            // spawn_callback_handler; Discord interaction
+                                            // ack is best-effort via update_message below).
+                                            crate::channel::worker::ask_user::spawn_callback_handler(
+                                                custom_id,
+                                                "discord::gateway",
+                                            );
+                                            // Acknowledge the interaction (type 6 = DEFERRED_UPDATE_MESSAGE)
+                                            // so Discord doesn't show "interaction failed".
+                                            let api_clone = api.clone();
+                                            let interaction_id = d["id"].as_str().unwrap_or("").to_string();
+                                            let interaction_token = d["token"].as_str().unwrap_or("").to_string();
+                                            tokio::spawn(async move {
+                                                let _ = api_clone
+                                                    .create_interaction_response(
+                                                        &interaction_id,
+                                                        &interaction_token,
+                                                        6,
+                                                        None,
+                                                    )
+                                                    .await;
+                                            });
                                         }
                                         // Don't pass component interactions to convert_interaction
                                     } else if let Some(ctx) = convert_interaction(
@@ -570,8 +592,7 @@ fn convert_message_create(
         let text_mentions_bot = text
             .as_ref()
             .map(|t| {
-                t.contains(&format!("<@{}>", bot_id))
-                    || t.contains(&format!("<@!{}>", bot_id))
+                t.contains(&format!("<@{}>", bot_id)) || t.contains(&format!("<@!{}>", bot_id))
             })
             .unwrap_or(false);
 
@@ -605,7 +626,10 @@ fn convert_message_create(
     if let Some(attachments) = d.get("attachments").and_then(|v| v.as_array()) {
         for att in attachments {
             let file_id = att["id"].as_str().unwrap_or("").to_string();
-            let file_url = att.get("url").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let file_url = att
+                .get("url")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
             let mime_type = att
                 .get("content_type")
                 .and_then(|v| v.as_str())
@@ -661,9 +685,7 @@ fn convert_message_create(
     }
 
     // Chat title: use guild name if available, otherwise None
-    let chat_title = d
-        .get("guild_id")
-        .and_then(|_| None::<String>); // Guild name not available in MESSAGE_CREATE
+    let chat_title = d.get("guild_id").and_then(|_| None::<String>); // Guild name not available in MESSAGE_CREATE
 
     Some(MsgContext {
         channel_id: ChannelId::Discord,
@@ -694,10 +716,11 @@ async fn handle_approval_component(
     custom_id: &str,
 ) {
     // Handle the approval
-    let result_text = match crate::channel::worker::approval::handle_approval_callback(custom_id).await {
-        Ok(label) => label.to_string(),
-        Err(e) => format!("Error: {}", e),
-    };
+    let result_text =
+        match crate::channel::worker::approval::handle_approval_callback(custom_id).await {
+            Ok(label) => label.to_string(),
+            Err(e) => format!("Error: {}", e),
+        };
 
     // Respond with UPDATE_MESSAGE (type=7) to edit the original message
     // and remove the buttons
@@ -720,10 +743,7 @@ async fn handle_approval_component(
 }
 
 /// Convert a Discord INTERACTION_CREATE event (slash command) to a synthetic MsgContext.
-fn convert_interaction(
-    d: &serde_json::Value,
-    account_id: &str,
-) -> Option<MsgContext> {
+fn convert_interaction(d: &serde_json::Value, account_id: &str) -> Option<MsgContext> {
     // Only handle application command interactions (type=2)
     let interaction_type = d["type"].as_u64()?;
     if interaction_type != 2 {

@@ -1,6 +1,8 @@
 use serde_json::json;
 
-use super::super::{TOOL_AMEND_PLAN, TOOL_PLAN_QUESTION, TOOL_SUBMIT_PLAN, TOOL_UPDATE_PLAN_STEP};
+use super::super::{
+    TOOL_AMEND_PLAN, TOOL_ASK_USER_QUESTION, TOOL_SUBMIT_PLAN, TOOL_UPDATE_PLAN_STEP,
+};
 use super::types::ToolDefinition;
 
 /// Tool for updating plan step status (conditionally injected during Executing state).
@@ -30,20 +32,35 @@ pub fn get_plan_step_tool() -> ToolDefinition {
     }
 }
 
-/// Tool for sending structured questions to the user during plan creation.
-pub fn get_plan_question_tool() -> ToolDefinition {
+/// Tool for asking the user structured questions at any point in a conversation.
+///
+/// Generalised from the original `plan_question` tool: available outside Plan
+/// Mode, supports rich markdown/image previews, per-question timeouts with
+/// default fall-backs, IM channel native buttons, and persistence across app
+/// restarts.
+pub fn get_ask_user_question_tool() -> ToolDefinition {
     ToolDefinition {
-        name: TOOL_PLAN_QUESTION.into(),
-        description: "Send structured questions to the user during plan creation. Each question includes suggested options that render as an interactive UI. The user can select options or provide custom input. Use this to clarify requirements, confirm design decisions, and gather preferences before submitting the final plan.".into(),
+        name: TOOL_ASK_USER_QUESTION.into(),
+        description: "Ask the user one or more structured questions with multiple-choice options. \
+Use this whenever you need to clarify requirements, pick between approaches, or confirm a \
+decision before continuing. Each question renders as an interactive UI in the desktop app, \
+as native buttons in IM channels that support them (Telegram, Slack, Feishu, QQ, Discord, \
+LINE, Google Chat), and as a text fallback (reply 1a/1b/2a) in the rest. \n\n\
+Guidelines: 1–4 questions per call, 2–4 options per question. Prefer single-select. Mark your \
+recommended choice as the first option with '(Recommended)' in the label. Use `preview` for \
+mockups, code comparisons or diagram snippets. Set `default_values` + `timeout_secs` when the \
+answer can safely fall back (useful for cron / background / IM async flows). Do NOT use this \
+tool to ask 'is my plan ready?' — in Plan Mode use `submit_plan` instead."
+            .into(),
         internal: true,
         deferred: false,
-        always_load: false,
+        always_load: true,
         parameters: json!({
             "type": "object",
             "properties": {
                 "questions": {
                     "type": "array",
-                    "description": "List of questions to ask the user",
+                    "description": "List of questions to ask the user (1-4 recommended)",
                     "items": {
                         "type": "object",
                         "properties": {
@@ -53,25 +70,31 @@ pub fn get_plan_question_tool() -> ToolDefinition {
                             },
                             "text": {
                                 "type": "string",
-                                "description": "The question text to display to the user"
+                                "description": "The question text to display to the user. Should end with '?'."
+                            },
+                            "header": {
+                                "type": "string",
+                                "description": "Very short chip/tag label (max ~12 chars) shown next to the question, e.g. 'Auth', 'Framework', 'Scope'"
                             },
                             "options": {
                                 "type": "array",
-                                "description": "Suggested options for the user to choose from (2-5 recommended)",
+                                "description": "Suggested options (2-4 recommended). A free-form 'Other' input is added automatically when allow_custom is true.",
                                 "items": {
                                     "type": "object",
                                     "properties": {
                                         "value": { "type": "string", "description": "Option identifier" },
-                                        "label": { "type": "string", "description": "Display text" },
-                                        "description": { "type": "string", "description": "Additional explanation" },
-                                        "recommended": { "type": "boolean", "description": "Mark as recommended option (renders with ★ badge)", "default": false }
+                                        "label": { "type": "string", "description": "Display text (1-5 words)" },
+                                        "description": { "type": "string", "description": "Additional explanation of the option or its trade-offs" },
+                                        "recommended": { "type": "boolean", "description": "Mark as recommended (renders with ★ badge). Put recommended option first.", "default": false },
+                                        "preview": { "type": "string", "description": "Optional rich preview body for visual comparison: markdown (code/tables), image URL, or mermaid source. Displayed side-by-side with the option list." },
+                                        "previewKind": { "type": "string", "description": "Preview kind: 'markdown' (default), 'image', or 'mermaid'", "enum": ["markdown", "image", "mermaid"] }
                                     },
                                     "required": ["value", "label"]
                                 }
                             },
                             "allow_custom": {
                                 "type": "boolean",
-                                "description": "Whether to show a custom input field (default: true)",
+                                "description": "Whether to show a free-form custom input field (default: true)",
                                 "default": true
                             },
                             "multi_select": {
@@ -81,8 +104,18 @@ pub fn get_plan_question_tool() -> ToolDefinition {
                             },
                             "template": {
                                 "type": "string",
-                                "description": "Question template category for specialized UI rendering: 'scope', 'tech_choice', 'priority'",
+                                "description": "Optional UI category: 'scope', 'tech_choice', 'priority'",
                                 "enum": ["scope", "tech_choice", "priority"]
+                            },
+                            "timeout_secs": {
+                                "type": "integer",
+                                "description": "Per-question timeout in seconds. When exceeded, default_values are auto-applied. 0 or missing = use global default.",
+                                "minimum": 0
+                            },
+                            "default_values": {
+                                "type": "array",
+                                "description": "Option values used automatically if the question times out. Each entry must be an existing option value, or a free-form custom string.",
+                                "items": { "type": "string" }
                             }
                         },
                         "required": ["question_id", "text", "options"]

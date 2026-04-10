@@ -202,6 +202,19 @@ const TOOL_DESC_GET_WEATHER: &str = "\
   - Params: location (city name or lat,lon, optional — defaults to user's location), forecast_days (1-16)\n\
   - Returns current temperature, humidity, wind, weather conditions, and daily forecast";
 
+pub(super) const TOOL_DESC_ASK_USER_QUESTION: &str =
+    "- ask_user_question: Ask the user 1–4 structured questions with options. Use this \
+whenever requirements are ambiguous, you need to pick between approaches, or you need \
+confirmation before acting on a load-bearing decision. Prefer this over guessing.\n\
+  - Params: questions (array 1–4), context (optional explanatory text)\n\
+  - Per question: question_id, text, options (2–4 each), allow_custom (default true), multi_select \
+(default false), template (scope/tech_choice/priority), header (≤12 char chip), timeout_secs, default_values\n\
+  - Per option: value, label, description, recommended (mark the first recommended option with \
+'(Recommended)' in label), preview (markdown / image URL / mermaid source for visual comparison), previewKind\n\
+  - When timeout_secs elapses the tool auto-returns using default_values — useful for cron / background flows\n\
+  - Do NOT use to ask 'is my plan ready?' — in Plan Mode use submit_plan; and do NOT use to ask \
+'should I run this command?' — tool approval has its own mechanism";
+
 /// Tool name → description mapping for dynamic assembly.
 pub(super) const TOOL_DESCRIPTIONS: &[(&str, &str)] = &[
     ("exec", TOOL_DESC_EXEC),
@@ -236,5 +249,5 @@ pub(super) const TOOL_DESCRIPTIONS: &[(&str, &str)] = &[
     ("canvas", TOOL_DESC_CANVAS),
     ("acp_spawn", TOOL_DESC_ACP_SPAWN),
     ("get_weather", TOOL_DESC_GET_WEATHER),
+    ("ask_user_question", TOOL_DESC_ASK_USER_QUESTION),
 ];
-
