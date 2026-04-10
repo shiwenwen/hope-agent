@@ -166,6 +166,16 @@ pub async fn respond_plan_question(
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub async fn get_pending_ask_user_group(
+    session_id: String,
+    app_state: tauri::State<'_, crate::AppState>,
+) -> Result<Option<oc_core::plan::PlanQuestionGroup>, String> {
+    oc_core::plan::find_live_pending_group_for_session(&app_state.session_db, &session_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Canonical name for the interactive Q&A response command.
 /// Forwards to [`respond_plan_question`] and is available in any conversation
 /// (not only Plan Mode). Kept as a separate command so the Transport layer can

@@ -397,6 +397,7 @@ pub fn run() {
             commands::plan::update_plan_step_status,
             commands::plan::respond_plan_question,
             commands::plan::respond_ask_user,
+            commands::plan::get_pending_ask_user_group,
             commands::plan::get_plan_versions,
             commands::plan::load_plan_version_content,
             commands::plan::restore_plan_version,

@@ -49,9 +49,9 @@ pub use git::{
 
 // Questions
 pub use questions::{
-    cancel_pending_plan_question, mark_group_answered, persist_pending_group,
-    register_plan_question, submit_plan_question_response, EVENT_ASK_USER_REQUEST,
-    EVENT_PLAN_QUESTION_REQUEST,
+    cancel_pending_plan_question, find_live_pending_group_for_session, is_plan_question_live,
+    mark_group_answered, persist_pending_group, register_plan_question,
+    submit_plan_question_response, EVENT_ASK_USER_REQUEST, EVENT_PLAN_QUESTION_REQUEST,
 };
 
 // Subagent

@@ -219,50 +219,41 @@ pub fn init_app_state(initial_store: AppConfig) -> AppState {
 /// Start background async tasks that require a tokio runtime.
 /// Must be called from within a tokio async context (e.g., Tauri's `.setup()` or a server runtime).
 pub async fn start_background_tasks() {
-    // Resume unanswered ask_user_question groups from previous session,
-    // then keep a daily purge running so the `ask_user_questions` table
-    // doesn't grow unbounded during long-lived server mode.
+    // Clean up the `ask_user_questions` table: drop old answered rows and
+    // expire any still-pending rows left behind by a previous process
+    // (their in-memory oneshots are gone, so the UI could not deliver
+    // answers to them anyway).
     tokio::spawn(async move {
         if let Some(db) = crate::get_session_db() {
             if let Err(e) = db.purge_old_answered_ask_user_groups(7) {
                 app_warn!(
                     "ask_user",
-                    "resume",
+                    "startup",
                     "Failed to purge old ask_user rows: {}",
                     e
                 );
             }
         }
 
-        let Some(db) = crate::get_session_db() else {
-            return;
-        };
-        // list_pending_ask_user_groups already drops expired rows inside a
-        // single UPDATE and caps the row count.
-        let groups = match db.list_pending_ask_user_groups() {
-            Ok(v) => v,
-            Err(e) => {
-                app_warn!(
+        // Expire any rows left pending by a previous process. The in-memory
+        // oneshot registry is empty at startup, so a "resume" would produce
+        // orphaned UI entries whose submissions fail with "No pending plan
+        // question request".
+        if let Some(db) = crate::get_session_db() {
+            match db.expire_pending_ask_user_groups() {
+                Ok(0) => {}
+                Ok(n) => app_info!(
                     "ask_user",
-                    "resume",
-                    "Failed to load pending ask_user groups: {}",
+                    "startup",
+                    "Expired {} orphaned pending ask_user rows from previous process",
+                    n
+                ),
+                Err(e) => app_warn!(
+                    "ask_user",
+                    "startup",
+                    "Failed to expire pending ask_user rows: {}",
                     e
-                );
-                return;
-            }
-        };
-        if let Some(bus) = crate::globals::get_event_bus() {
-            for group in groups {
-                if let Ok(payload) = serde_json::to_value(&group) {
-                    bus.emit(crate::plan::EVENT_ASK_USER_REQUEST, payload.clone());
-                    bus.emit(crate::plan::EVENT_PLAN_QUESTION_REQUEST, payload);
-                    app_info!(
-                        "ask_user",
-                        "resume",
-                        "Re-emitted pending ask_user group {}",
-                        group.request_id
-                    );
-                }
+                ),
             }
         }
     });

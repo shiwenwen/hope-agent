@@ -122,6 +122,30 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
         });
     }
 
+    // Bridge oc-core EventBus → Tauri frontend (app_handle.emit).
+    // Without this, events like `ask_user_request` / `plan_amended` emitted
+    // from oc-core never reach the WebView.
+    {
+        use tauri::Emitter;
+        use tokio::sync::broadcast::error::RecvError;
+        let app_handle = app.handle().clone();
+        let bus = oc_core::get_event_bus()
+            .cloned()
+            .expect("EventBus must be initialized before bridge spawn");
+        tauri::async_runtime::spawn(async move {
+            let mut rx = bus.subscribe();
+            loop {
+                match rx.recv().await {
+                    Ok(event) => {
+                        let _ = app_handle.emit(&event.name, &event.payload);
+                    }
+                    Err(RecvError::Lagged(_)) => continue,
+                    Err(RecvError::Closed) => break,
+                }
+            }
+        });
+    }
+
     // Start cron scheduler on dedicated thread with its own tokio runtime
     if let (Some(cron_db), Ok(db_path)) = (CRON_DB.get(), session::db_path()) {
         if let Ok(session_db) = SessionDB::open(&db_path) {

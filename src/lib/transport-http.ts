@@ -129,6 +129,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   plan_rollback:                   { method: "POST",   path: "/api/plan/{sessionId}/rollback" },
   cancel_plan_subagent:            { method: "POST",   path: "/api/plan/{sessionId}/cancel" },
   respond_plan_question:           { method: "POST",   path: "/api/plan/question-response" },
+  respond_ask_user:                { method: "POST",   path: "/api/ask_user/respond" },
+  get_pending_ask_user_group:      { method: "GET",    path: "/api/plan/{sessionId}/pending-ask-user" },
   set_plan_subagent:               { method: "POST",   path: "/api/config/plan-subagent" },
   get_plan_subagent:               { method: "GET",    path: "/api/config/plan-subagent" },
   set_plan_question_timeout:       { method: "POST",   path: "/api/config/plan-question-timeout" },

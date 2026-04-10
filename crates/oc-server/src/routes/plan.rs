@@ -167,6 +167,15 @@ pub async fn respond_plan_question(
     Ok(Json(json!({ "submitted": true })))
 }
 
+/// `GET /api/plan/{session_id}/pending-ask-user`
+pub async fn get_pending_ask_user_group(
+    Path(session_id): Path<String>,
+) -> Result<Json<Value>, AppError> {
+    let db = session_db()?;
+    let group = plan::find_live_pending_group_for_session(&db, &session_id).await?;
+    Ok(Json(json!(group)))
+}
+
 /// `GET /api/plan/{session_id}/versions`
 pub async fn get_plan_versions(
     Path(session_id): Path<String>,

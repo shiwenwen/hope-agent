@@ -155,10 +155,20 @@ export function usePlanMode(
     // Session exists now — clear pre-session flag
     preSessionPlanRef.current = false
 
-    // Always clear stale question UI on session switch
-    queueMicrotask(() => {
-      setPendingQuestionGroup(null)
-    })
+    // Clear stale question UI, then restore any still-pending group for the
+    // target session from the backend (handles "switch away before answering"
+    // and "reopen a session that had unanswered questions").
+    setPendingQuestionGroup(null)
+    getTransport()
+      .call<PlanQuestionGroup | null>("get_pending_ask_user_group", {
+        sessionId: currentSessionId,
+      })
+      .then((group) => {
+        if (group && group.sessionId === currentSessionId) {
+          setPendingQuestionGroup(group)
+        }
+      })
+      .catch(() => {})
 
     // If frontend already has a non-off plan state (entered before session existed),
     // sync it TO the backend instead of reading FROM backend

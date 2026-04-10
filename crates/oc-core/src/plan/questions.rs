@@ -60,6 +60,30 @@ pub async fn cancel_pending_plan_question(request_id: &str) {
     pending.remove(request_id);
 }
 
+/// Check whether a request_id is currently awaited by a live tool call
+/// (in-memory oneshot registered). Used to filter out zombie rows left over
+/// from a previous process that can no longer receive answers.
+pub async fn is_plan_question_live(request_id: &str) -> bool {
+    get_pending_questions().lock().await.contains_key(request_id)
+}
+
+/// Return the most recent still-pending question group for the given session
+/// that is also awaited by a live in-memory oneshot. Zombie DB rows whose
+/// tool call no longer exists are skipped so the frontend never tries to
+/// answer them.
+pub async fn find_live_pending_group_for_session(
+    db: &crate::session::SessionDB,
+    session_id: &str,
+) -> anyhow::Result<Option<PlanQuestionGroup>> {
+    let groups = db.list_pending_ask_user_groups_for_session(session_id)?;
+    for group in groups.into_iter().rev() {
+        if is_plan_question_live(&group.request_id).await {
+            return Ok(Some(group));
+        }
+    }
+    Ok(None)
+}
+
 // ── SQLite Persistence ──────────────────────────────────────────
 
 /// Persist a pending question group so a restart can resume it.

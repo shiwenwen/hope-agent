@@ -246,6 +246,24 @@ impl SessionDB {
         Ok(())
     }
 
+    /// Mark every still-pending ask_user_question row as answered. Called on
+    /// app startup because any rows left behind from a previous process have
+    /// no live in-memory oneshot to deliver answers to — restoring them in
+    /// the UI would produce "No pending plan question request" errors.
+    pub fn expire_pending_ask_user_groups(&self) -> anyhow::Result<usize> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let n = conn.execute(
+            "UPDATE ask_user_questions
+                SET status = 'answered', answered_at = datetime('now')
+                WHERE status = 'pending'",
+            [],
+        )?;
+        Ok(n)
+    }
+
     /// Mark a pending ask_user_question group as answered. Idempotent.
     pub fn mark_ask_user_answered(&self, request_id: &str) -> anyhow::Result<()> {
         let conn = self
@@ -279,13 +297,12 @@ impl SessionDB {
         Ok(n)
     }
 
-    /// Load all still-pending ask_user_question groups whose timeout has not
-    /// elapsed. Used on app startup to re-emit events so the frontend can
-    /// continue any interrupted Q&A. Already-expired rows are eagerly marked
-    /// answered in a single statement so they never get loaded here. Capped
-    /// at 500 rows as a safety bound.
-    pub fn list_pending_ask_user_groups(
+    /// Load still-pending ask_user_question groups for a single session.
+    /// Used by the frontend to restore the question panel when switching back
+    /// to a session that had unanswered questions.
+    pub fn list_pending_ask_user_groups_for_session(
         &self,
+        session_id: &str,
     ) -> anyhow::Result<Vec<crate::plan::PlanQuestionGroup>> {
         let conn = self
             .conn
@@ -302,11 +319,11 @@ impl SessionDB {
         )?;
         let mut stmt = conn.prepare(
             "SELECT payload FROM ask_user_questions
-                WHERE status = 'pending'
+                WHERE status = 'pending' AND session_id = ?1
                 ORDER BY created_at ASC
-                LIMIT 500",
+                LIMIT 50",
         )?;
-        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        let rows = stmt.query_map(params![session_id], |row| row.get::<_, String>(0))?;
         let mut out = Vec::new();
         for row in rows {
             let payload = row?;

@@ -249,6 +249,10 @@ fn build_router_with_cors(
             "/ask_user/respond",
             post(routes::plan::respond_plan_question),
         )
+        .route(
+            "/plan/{sid}/pending-ask-user",
+            get(routes::plan::get_pending_ask_user_group),
+        )
         .route("/plan/{sid}/versions", get(routes::plan::get_plan_versions))
         .route(
             "/plan/version/load",
