@@ -7,9 +7,11 @@
 mod cost;
 mod detail_queries;
 mod filters;
+mod insights;
 mod queries;
 mod types;
 
 pub use detail_queries::*;
+pub use insights::*;
 pub use queries::*;
 pub use types::*;

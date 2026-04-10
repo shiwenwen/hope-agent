@@ -11,6 +11,8 @@ import {
   PieChart,
   Pie,
   Cell,
+  AreaChart,
+  Area,
 } from "recharts"
 import {
   Cpu,
@@ -27,9 +29,16 @@ import { cn } from "@/lib/utils"
 import type { SystemMetrics } from "./types"
 import { formatBytes, formatUptime } from "./types"
 
+export interface SystemHistoryPoint {
+  t: number
+  cpu: number
+  mem: number
+}
+
 interface SystemMetricsSectionProps {
   data: SystemMetrics | null
   loading: boolean
+  history?: SystemHistoryPoint[]
 }
 
 function SectionSkeleton({ height }: { height: number }) {
@@ -95,8 +104,18 @@ function getCpuColor(percent: number): string {
 const SystemMetricsSection = React.memo(function SystemMetricsSection({
   data,
   loading,
+  history,
 }: SystemMetricsSectionProps) {
   const { t } = useTranslation()
+
+  const historyData = useMemo(() => {
+    if (!history) return []
+    return history.map((h) => ({
+      t: h.t,
+      cpu: Number(h.cpu.toFixed(2)),
+      mem: Number(h.mem.toFixed(2)),
+    }))
+  }, [history])
 
   const memPieData = useMemo(() => {
     if (!data) return []
@@ -378,6 +397,91 @@ const SystemMetricsSection = React.memo(function SystemMetricsSection({
             </BarChart>
           </ResponsiveContainer>
         </div>
+
+        {/* Live resource history (client-side ring buffer, refreshed via auto-refresh) */}
+        {historyData.length > 1 && (
+          <div className="bg-card border rounded-xl p-4 space-y-3 lg:col-span-2">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-medium flex items-center gap-2">
+                <Cpu className="h-4 w-4 text-amber-500" />
+                {t("dashboard.system.liveHistory")}
+              </h3>
+              <span className="text-[11px] text-muted-foreground">
+                {historyData.length} {t("dashboard.system.samples")}
+              </span>
+            </div>
+            <ResponsiveContainer width="100%" height={180}>
+              <AreaChart
+                data={historyData}
+                margin={{ top: 5, right: 16, left: 0, bottom: 0 }}
+              >
+                <defs>
+                  <linearGradient id="cpuGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#f59e0b" stopOpacity={0.45} />
+                    <stop offset="100%" stopColor="#f59e0b" stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="memGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#a855f7" stopOpacity={0.45} />
+                    <stop offset="100%" stopColor="#a855f7" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                <XAxis
+                  dataKey="t"
+                  tick={{ fontSize: 10 }}
+                  className="fill-muted-foreground"
+                  tickFormatter={(v: number) =>
+                    new Date(v).toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })
+                  }
+                  minTickGap={24}
+                />
+                <YAxis
+                  tick={{ fontSize: 10 }}
+                  className="fill-muted-foreground"
+                  tickFormatter={(v: number) => `${v.toFixed(0)}%`}
+                />
+                <RechartsTooltip
+                  contentStyle={{
+                    backgroundColor: "var(--color-popover)",
+                    border: "1px solid var(--color-border)",
+                    borderRadius: "8px",
+                    fontSize: "12px",
+                    color: "var(--color-popover-foreground)",
+                  }}
+                  labelFormatter={(v: number) =>
+                    new Date(v).toLocaleTimeString()
+                  }
+                  formatter={(value: number, name: string) => [
+                    `${value.toFixed(2)}%`,
+                    name === "cpu"
+                      ? t("dashboard.system.cpuUsage")
+                      : t("dashboard.system.memRss"),
+                  ]}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="cpu"
+                  stroke="#f59e0b"
+                  strokeWidth={2}
+                  fill="url(#cpuGrad)"
+                />
+                <Area
+                  type="monotone"
+                  dataKey="mem"
+                  stroke="#a855f7"
+                  strokeWidth={2}
+                  fill="url(#memGrad)"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+            <p className="text-center text-[11px] text-muted-foreground">
+              {t("dashboard.system.liveHistoryHint")}
+            </p>
+          </div>
+        )}
       </div>
     </div>
   )
