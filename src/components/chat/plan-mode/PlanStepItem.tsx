@@ -1,4 +1,9 @@
+import { Fragment, type ReactNode } from "react"
 import { Circle, Loader2, CheckCircle, XCircle, MinusCircle } from "lucide-react"
+import { Streamdown } from "streamdown"
+import { code } from "@streamdown/code"
+import { cjk } from "@streamdown/cjk"
+import "streamdown/styles.css"
 import { cn } from "@/lib/utils"
 import { formatDuration, type ParsedPlanStep } from "./planParser"
 import type { PlanStep } from "./usePlanMode"
@@ -8,6 +13,34 @@ type StepLike = ParsedPlanStep | PlanStep
 interface PlanStepItemProps {
   step: StepLike
   detailed?: boolean
+}
+
+// ── Inline markdown via Streamdown ────────────────────────────────
+// Streamdown has no native `inline` mode; by default it wraps content
+// in `<div class="space-y-4 ..."><p>…</p></div>`. For single-line step
+// titles we unwrap both layers:
+//   1. `className="contents"` on Streamdown hides the outer div from
+//      layout (`display: contents`), so its block-ness / margin classes
+//      don't affect flow.
+//   2. `components={{ p: Fragment }}` removes the `<p>` wrapper, so
+//      inline children (<strong>, <em>, <code>, text) flow inline.
+// Only `code` + `cjk` plugins are loaded — same minimal bundle that
+// PlanQuestionBlock uses per AGENTS.md.
+const inlinePlugins = { code, cjk }
+const inlineComponents = {
+  p: ({ children }: { children?: ReactNode }) => <Fragment>{children}</Fragment>,
+}
+
+function InlineMarkdown({ text }: { text: string }) {
+  return (
+    <Streamdown
+      className="contents"
+      plugins={inlinePlugins}
+      components={inlineComponents}
+    >
+      {text}
+    </Streamdown>
+  )
 }
 
 export function PlanStepItem({ step, detailed }: PlanStepItemProps) {
@@ -43,10 +76,12 @@ export function PlanStepItem({ step, detailed }: PlanStepItemProps) {
             step.status === "completed" && "line-through text-muted-foreground"
           )}
         >
-          {step.title}
+          <InlineMarkdown text={step.title} />
         </span>
         {detailed && "description" in step && step.description && (
-          <p className="text-xs text-muted-foreground mt-0.5">{step.description}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            <InlineMarkdown text={step.description} />
+          </p>
         )}
       </div>
 

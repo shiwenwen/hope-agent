@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Plan 步骤标题 Markdown 渲染**：修复 `PlanStepItem` 把 `**HTML 结构**` 等步骤标题里的行内 markdown 当成纯文本展示的问题。复用 `PlanQuestionBlock` 的 Streamdown 轻量栈（只加载 `code` + `cjk` 插件），新增 `InlineMarkdown` 包装组件，通过 `className="contents"`（让 Streamdown 外层 `<div class="space-y-4 …">` 从布局中消失）+ `components={{ p: Fragment }}`（剥掉默认 `<p>` 包装）让单行标题以纯 inline 节点流入父级 `<span>`，保持列表密度。同时应用于 `step.title` 和 `step.description`
+
 ### Added
 
 - **通用 `ask_user_question` 工具**：把原 Plan Mode 专用的 `plan_question` 升级为全局可用的交互式追问工具，任何对话（普通聊天 / Plan Mode / 子 Agent / Skill）中都可以让模型向用户提出结构化问题。相比 claude-code 的 `AskUserQuestion` 增强了 4 点能力：(1) **IM 渠道原生按钮**，Telegram / Slack / 飞书 / QQ Bot / Discord / LINE / Google Chat 收到按钮，WeChat / Signal / iMessage / IRC / WhatsApp 收到文本 fallback（`1a`/`2b` 或 `done`）；(2) **Markdown 富预览**，`option.preview` 支持 markdown / 图片 URL / mermaid，复用 Streamdown 轻量栈，单选时右侧 side-by-side 展示；(3) **per-question 超时 + 默认值**，`timeout_secs` + `default_values` 到点自动回退，适合 cron / 后台 / IM 异步；(4) **持久化 + 断点续答**，pending 组写入 session SQLite `ask_user_questions` 表，`start_background_tasks` 启动时重放未完成事件。新增字段 `header`（≤12 字符 chip 标签）、`preview` / `previewKind`。工具名 `ask_user_question` 成为主名称，`plan_question` 保留为 dispatcher alias + 事件别名以兼容历史会话。新增 Tauri 命令 `respond_ask_user` 和 HTTP 路由 `POST /ask_user/respond`，前端 `PlanQuestionBlock` 同步渲染倒计时、preview 面板、header chip、default badge。IM 端新增 `crates/oc-core/src/channel/worker/ask_user.rs` worker 模块，统一通过 `try_dispatch_interactive_callback` 在各渠道插件路由 approval / ask_user 两类回调
