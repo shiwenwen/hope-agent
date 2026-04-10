@@ -1,5 +1,9 @@
-import type { ReactNode } from "react"
+import { Fragment, type ReactNode } from "react"
 import { Circle, Loader2, CheckCircle, XCircle, MinusCircle } from "lucide-react"
+import { Streamdown } from "streamdown"
+import { code } from "@streamdown/code"
+import { cjk } from "@streamdown/cjk"
+import "streamdown/styles.css"
 import { cn } from "@/lib/utils"
 import { formatDuration, type ParsedPlanStep } from "./planParser"
 import type { PlanStep } from "./usePlanMode"
@@ -11,101 +15,32 @@ interface PlanStepItemProps {
   detailed?: boolean
 }
 
-/**
- * Lightweight inline markdown renderer for plan step titles/descriptions.
- *
- * Supports `**bold**`, `*italic*`, `` `code` ``, `~~strike~~` and leaves
- * everything else as plain text. Block-level markdown is intentionally not
- * supported since step titles are single-line.
- */
-function renderInlineMarkdown(text: string): ReactNode[] {
-  const nodes: ReactNode[] = []
-  let buffer = ""
-  let i = 0
-  let key = 0
+// ── Inline markdown via Streamdown ────────────────────────────────
+// Streamdown has no native `inline` mode; by default it wraps content
+// in `<div class="space-y-4 ..."><p>…</p></div>`. For single-line step
+// titles we unwrap both layers:
+//   1. `className="contents"` on Streamdown hides the outer div from
+//      layout (`display: contents`), so its block-ness / margin classes
+//      don't affect flow.
+//   2. `components={{ p: Fragment }}` removes the `<p>` wrapper, so
+//      inline children (<strong>, <em>, <code>, text) flow inline.
+// Only `code` + `cjk` plugins are loaded — same minimal bundle that
+// PlanQuestionBlock uses per AGENTS.md.
+const inlinePlugins = { code, cjk }
+const inlineComponents = {
+  p: ({ children }: { children?: ReactNode }) => <Fragment>{children}</Fragment>,
+}
 
-  const flushBuffer = () => {
-    if (buffer) {
-      nodes.push(buffer)
-      buffer = ""
-    }
-  }
-
-  while (i < text.length) {
-    const ch = text[i]
-
-    // Backslash escape (\* \` etc.)
-    if (ch === "\\" && i + 1 < text.length) {
-      buffer += text[i + 1]
-      i += 2
-      continue
-    }
-
-    // **bold**
-    if (ch === "*" && text[i + 1] === "*") {
-      const end = text.indexOf("**", i + 2)
-      if (end > i + 2) {
-        flushBuffer()
-        nodes.push(
-          <strong key={key++} className="font-semibold">
-            {renderInlineMarkdown(text.slice(i + 2, end))}
-          </strong>
-        )
-        i = end + 2
-        continue
-      }
-    }
-
-    // *italic* (require non-space after opening and non-space before closing)
-    if (ch === "*" && text[i + 1] && text[i + 1] !== "*" && text[i + 1] !== " ") {
-      const end = text.indexOf("*", i + 1)
-      if (end > i + 1 && text[end - 1] !== " ") {
-        flushBuffer()
-        nodes.push(
-          <em key={key++}>{renderInlineMarkdown(text.slice(i + 1, end))}</em>
-        )
-        i = end + 1
-        continue
-      }
-    }
-
-    // `inline code`
-    if (ch === "`") {
-      const end = text.indexOf("`", i + 1)
-      if (end > i + 1) {
-        flushBuffer()
-        nodes.push(
-          <code
-            key={key++}
-            className="px-1 py-0.5 rounded bg-muted text-[0.85em] font-mono"
-          >
-            {text.slice(i + 1, end)}
-          </code>
-        )
-        i = end + 1
-        continue
-      }
-    }
-
-    // ~~strikethrough~~
-    if (ch === "~" && text[i + 1] === "~") {
-      const end = text.indexOf("~~", i + 2)
-      if (end > i + 2) {
-        flushBuffer()
-        nodes.push(
-          <s key={key++}>{renderInlineMarkdown(text.slice(i + 2, end))}</s>
-        )
-        i = end + 2
-        continue
-      }
-    }
-
-    buffer += ch
-    i++
-  }
-
-  flushBuffer()
-  return nodes
+function InlineMarkdown({ text }: { text: string }) {
+  return (
+    <Streamdown
+      className="contents"
+      plugins={inlinePlugins}
+      components={inlineComponents}
+    >
+      {text}
+    </Streamdown>
+  )
 }
 
 export function PlanStepItem({ step, detailed }: PlanStepItemProps) {
@@ -141,11 +76,11 @@ export function PlanStepItem({ step, detailed }: PlanStepItemProps) {
             step.status === "completed" && "line-through text-muted-foreground"
           )}
         >
-          {renderInlineMarkdown(step.title)}
+          <InlineMarkdown text={step.title} />
         </span>
         {detailed && "description" in step && step.description && (
           <p className="text-xs text-muted-foreground mt-0.5">
-            {renderInlineMarkdown(step.description)}
+            <InlineMarkdown text={step.description} />
           </p>
         )}
       </div>

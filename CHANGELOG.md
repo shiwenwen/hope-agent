@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Plan 步骤标题 Markdown 渲染**：修复 `PlanStepItem` 把 `**HTML 结构**` 等步骤标题里的行内 markdown 当成纯文本展示的问题。新增轻量行内 markdown 解析器，支持 `**bold**` / `*italic*` / `` `code` `` / `~~strike~~` / `\` 转义，同时应用于 `step.title` 和 `step.description`。故意不走 Streamdown / MarkdownRenderer 以避免把单行标题塞进 `<p>` 块级包装，保持列表密度
+- **Plan 步骤标题 Markdown 渲染**：修复 `PlanStepItem` 把 `**HTML 结构**` 等步骤标题里的行内 markdown 当成纯文本展示的问题。复用 `PlanQuestionBlock` 的 Streamdown 轻量栈（只加载 `code` + `cjk` 插件），新增 `InlineMarkdown` 包装组件，通过 `className="contents"`（让 Streamdown 外层 `<div class="space-y-4 …">` 从布局中消失）+ `components={{ p: Fragment }}`（剥掉默认 `<p>` 包装）让单行标题以纯 inline 节点流入父级 `<span>`，保持列表密度。同时应用于 `step.title` 和 `step.description`
 
 ### Added
 
