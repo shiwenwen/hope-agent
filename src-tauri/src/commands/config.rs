@@ -56,7 +56,9 @@ pub async fn get_notification_config() -> Result<oc_core::config::NotificationCo
 }
 
 #[tauri::command]
-pub async fn save_notification_config(config: oc_core::config::NotificationConfig) -> Result<(), String> {
+pub async fn save_notification_config(
+    config: oc_core::config::NotificationConfig,
+) -> Result<(), String> {
     let mut store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     store.notification = config;
     oc_core::config::save_config(&store).map_err(|e| e.to_string())
@@ -316,7 +318,9 @@ pub async fn get_server_config() -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
-pub async fn save_server_config(config: oc_core::config::EmbeddedServerConfig) -> Result<(), String> {
+pub async fn save_server_config(
+    config: oc_core::config::EmbeddedServerConfig,
+) -> Result<(), String> {
     let mut store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     store.server = config;
     oc_core::config::save_config(&store).map_err(|e| e.to_string())
@@ -484,6 +488,35 @@ pub async fn get_tool_timeout() -> Result<u64, String> {
 pub async fn set_tool_timeout(seconds: u64) -> Result<(), String> {
     let mut store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     store.tool_timeout = seconds;
+    oc_core::config::save_config(&store).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_approval_timeout() -> Result<u64, String> {
+    let store = oc_core::config::load_config().map_err(|e| e.to_string())?;
+    Ok(store.approval_timeout_secs)
+}
+
+#[tauri::command]
+pub async fn set_approval_timeout(seconds: u64) -> Result<(), String> {
+    let mut store = oc_core::config::load_config().map_err(|e| e.to_string())?;
+    store.approval_timeout_secs = seconds;
+    oc_core::config::save_config(&store).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_approval_timeout_action() -> Result<oc_core::config::ApprovalTimeoutAction, String>
+{
+    let store = oc_core::config::load_config().map_err(|e| e.to_string())?;
+    Ok(store.approval_timeout_action)
+}
+
+#[tauri::command]
+pub async fn set_approval_timeout_action(
+    action: oc_core::config::ApprovalTimeoutAction,
+) -> Result<(), String> {
+    let mut store = oc_core::config::load_config().map_err(|e| e.to_string())?;
+    store.approval_timeout_action = action;
     oc_core::config::save_config(&store).map_err(|e| e.to_string())
 }
 

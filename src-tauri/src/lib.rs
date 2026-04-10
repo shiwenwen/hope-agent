@@ -1,11 +1,11 @@
 // ── Local Tauri-specific modules ──────────────────────────────────
-mod globals;
 mod app_init;
+mod commands;
+mod globals;
 mod setup;
 mod shortcuts;
-mod tray;
-mod commands;
 mod tauri_wrappers;
+mod tray;
 
 // ── Re-export all business logic from oc-core ────────────────────
 // This makes `crate::agent`, `crate::session`, etc. resolve to oc-core's modules,
@@ -55,20 +55,19 @@ pub use oc_core::weather;
 pub use oc_core::weather_location_macos;
 
 // Re-export oc-core utility functions (truncate_utf8, default_true, etc.)
-pub use oc_core::{truncate_utf8, default_true, sql_u64, sql_opt_u64};
+pub use oc_core::{default_true, sql_opt_u64, sql_u64, truncate_utf8};
 
 // Re-export oc-core global accessors and types
-pub use oc_core::{
-    get_logger, get_memory_backend, get_session_db, get_subagent_cancels,
-    get_acp_manager, get_channel_db, get_channel_registry, get_cron_db,
-    get_event_bus, set_event_bus,
-};
-pub use oc_core::{
-    AppState, APP_LOGGER, ACP_MANAGER, CHANNEL_DB, CHANNEL_REGISTRY, CRON_DB,
-    EVENT_BUS, MEMORY_BACKEND, SESSION_DB, SUBAGENT_CANCELS, APP_STATE,
-};
-pub use oc_core::init_app_state;
 pub use oc_core::event_bus;
+pub use oc_core::init_app_state;
+pub use oc_core::{
+    get_acp_manager, get_channel_db, get_channel_registry, get_cron_db, get_event_bus, get_logger,
+    get_memory_backend, get_session_db, get_subagent_cancels, set_event_bus,
+};
+pub use oc_core::{
+    AppState, ACP_MANAGER, APP_LOGGER, APP_STATE, CHANNEL_DB, CHANNEL_REGISTRY, CRON_DB, EVENT_BUS,
+    MEMORY_BACKEND, SESSION_DB, SUBAGENT_CANCELS,
+};
 
 // ── Local re-exports ─────────────────────────────────────────────
 pub use globals::get_app_handle;
@@ -266,6 +265,10 @@ pub fn run() {
             // Tool timeout
             commands::config::get_tool_timeout,
             commands::config::set_tool_timeout,
+            commands::config::get_approval_timeout,
+            commands::config::set_approval_timeout,
+            commands::config::get_approval_timeout_action,
+            commands::config::set_approval_timeout_action,
             // Tool result disk persistence
             commands::config::get_tool_result_disk_threshold,
             commands::config::set_tool_result_disk_threshold,

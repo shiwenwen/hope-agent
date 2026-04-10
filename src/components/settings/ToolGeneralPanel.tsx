@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { WeatherSection } from "@/components/settings/WeatherSection"
 import { cn } from "@/lib/utils"
 import { Check, Loader2 } from "lucide-react"
@@ -21,6 +22,8 @@ interface ToolLimitsConfig {
   maxVisionPages: number
 }
 
+type ApprovalTimeoutAction = "deny" | "proceed"
+
 const DEFAULT_LIMITS: ToolLimitsConfig = {
   maxImages: 10,
   maxPdfs: 5,
@@ -31,6 +34,10 @@ export default function ToolGeneralPanel() {
   const { t } = useTranslation()
   const [toolTimeout, setToolTimeout] = useState(300)
   const [savedTimeout, setSavedTimeout] = useState(300)
+  const [approvalTimeout, setApprovalTimeout] = useState(300)
+  const [savedApprovalTimeout, setSavedApprovalTimeout] = useState(300)
+  const [approvalTimeoutAction, setApprovalTimeoutAction] = useState<ApprovalTimeoutAction>("deny")
+  const [savedApprovalTimeoutAction, setSavedApprovalTimeoutAction] = useState<ApprovalTimeoutAction>("deny")
   const [diskThreshold, setDiskThreshold] = useState(50)
   const [savedDiskThreshold, setSavedDiskThreshold] = useState(50)
 
@@ -53,6 +60,16 @@ export default function ToolGeneralPanel() {
     getTransport().call<number>("get_tool_timeout")
       .then((v) => { if (!cancelled) { setToolTimeout(v); setSavedTimeout(v); } })
       .catch((e) => logger.error("settings", "ToolGeneralPanel::load", "Failed to load tool timeout", e))
+
+    // Load approval timeout
+    getTransport().call<number>("get_approval_timeout")
+      .then((v) => { if (!cancelled) { setApprovalTimeout(v); setSavedApprovalTimeout(v); } })
+      .catch((e) => logger.error("settings", "ToolGeneralPanel::load", "Failed to load approval timeout", e))
+
+    // Load approval timeout action
+    getTransport().call<ApprovalTimeoutAction>("get_approval_timeout_action")
+      .then((v) => { if (!cancelled) { setApprovalTimeoutAction(v); setSavedApprovalTimeoutAction(v); } })
+      .catch((e) => logger.error("settings", "ToolGeneralPanel::load", "Failed to load approval timeout action", e))
 
     // Load disk persistence threshold (bytes → KB for display)
     getTransport().call<number>("get_tool_result_disk_threshold")
@@ -91,6 +108,26 @@ export default function ToolGeneralPanel() {
       logger.error("settings", "ToolGeneralPanel::save", "Failed to save tool timeout", e)
     }
   }, [savedTimeout])
+
+  const saveApprovalTimeout = useCallback(async (value: number) => {
+    try {
+      await getTransport().call("set_approval_timeout", { seconds: value })
+      setSavedApprovalTimeout(value)
+    } catch (e) {
+      setApprovalTimeout(savedApprovalTimeout)
+      logger.error("settings", "ToolGeneralPanel::save", "Failed to save approval timeout", e)
+    }
+  }, [savedApprovalTimeout])
+
+  const saveApprovalTimeoutAction = useCallback(async (value: ApprovalTimeoutAction) => {
+    try {
+      await getTransport().call("set_approval_timeout_action", { action: value })
+      setSavedApprovalTimeoutAction(value)
+    } catch (e) {
+      setApprovalTimeoutAction(savedApprovalTimeoutAction)
+      logger.error("settings", "ToolGeneralPanel::save", "Failed to save approval timeout action", e)
+    }
+  }, [savedApprovalTimeoutAction])
 
   const saveDiskThreshold = useCallback(async (kb: number) => {
     try {
@@ -160,6 +197,51 @@ export default function ToolGeneralPanel() {
               />
               <span className="text-xs text-muted-foreground whitespace-nowrap">{t("settings.seconds")}</span>
             </div>
+          </div>
+
+          <div className="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-secondary/40 transition-colors">
+            <div className="space-y-0.5">
+              <div className="text-sm font-medium">{t("settings.approvalTimeout")}</div>
+              <div className="text-xs text-muted-foreground">{t("settings.approvalTimeoutDesc")}</div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                min={0}
+                step={30}
+                value={approvalTimeout}
+                onChange={(e) => setApprovalTimeout(Number(e.target.value))}
+                onBlur={() => {
+                  const clamped = Math.max(0, Math.round(approvalTimeout))
+                  setApprovalTimeout(clamped)
+                  if (clamped !== savedApprovalTimeout) saveApprovalTimeout(clamped)
+                }}
+                className="w-24 h-8 text-sm text-right"
+              />
+              <span className="text-xs text-muted-foreground whitespace-nowrap">{t("settings.seconds")}</span>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-secondary/40 transition-colors">
+            <div className="space-y-0.5">
+              <div className="text-sm font-medium">{t("settings.approvalTimeoutAction")}</div>
+              <div className="text-xs text-muted-foreground">{t("settings.approvalTimeoutActionDesc")}</div>
+            </div>
+            <Select
+              value={approvalTimeoutAction}
+              onValueChange={(value: ApprovalTimeoutAction) => {
+                setApprovalTimeoutAction(value)
+                void saveApprovalTimeoutAction(value)
+              }}
+            >
+              <SelectTrigger className="w-40 h-8 text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="deny">{t("settings.approvalTimeoutActionDeny")}</SelectItem>
+                <SelectItem value="proceed">{t("settings.approvalTimeoutActionProceed")}</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Disk Persistence Threshold */}

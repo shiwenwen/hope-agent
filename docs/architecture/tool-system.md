@@ -265,7 +265,7 @@ flowchart TD
 | **始终允许**（AllowAlways） | Auto 模式：写入 `exec-approvals.json` allowlist；AskEveryTime 模式：等同于 AllowOnce（不写 allowlist） |
 | **拒绝**（Deny） | 工具返回错误 `"Tool '{}' execution denied by user"` |
 
-审批超时 5 分钟自动拒绝。
+审批等待超时默认 5 分钟，可通过 `config.json` 的 `approvalTimeoutSecs` 配置，`0` 表示不限时。超时后的行为由 `approvalTimeoutAction` 控制：默认 `deny`，阻止工具执行；可选 `proceed`，记录 warning 后继续执行工具。
 
 ### IM Channel 审批交互
 

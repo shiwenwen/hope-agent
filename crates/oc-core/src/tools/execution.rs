@@ -11,13 +11,14 @@ use super::{
 };
 use super::{apply_patch, edit, exec, find, grep, ls, process, read, write};
 use super::{
-    approval, TOOL_ACP_SPAWN, TOOL_AGENTS_LIST, TOOL_AMEND_PLAN, TOOL_APPLY_PATCH, TOOL_BROWSER,
-    TOOL_CANVAS, TOOL_DELETE_MEMORY, TOOL_EDIT, TOOL_EXEC, TOOL_FIND, TOOL_GET_WEATHER, TOOL_GREP,
-    TOOL_IMAGE, TOOL_IMAGE_GENERATE, TOOL_LS, TOOL_MANAGE_CRON, TOOL_MEMORY_GET, TOOL_PDF,
-    TOOL_PLAN_QUESTION, TOOL_PROCESS, TOOL_READ, TOOL_RECALL_MEMORY, TOOL_SAVE_MEMORY,
-    TOOL_SEND_NOTIFICATION, TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEND,
-    TOOL_SESSION_STATUS, TOOL_SUBAGENT, TOOL_SUBMIT_PLAN, TOOL_UPDATE_CORE_MEMORY,
-    TOOL_UPDATE_MEMORY, TOOL_UPDATE_PLAN_STEP, TOOL_WEB_FETCH, TOOL_WEB_SEARCH, TOOL_WRITE,
+    approval, TOOL_ACP_SPAWN, TOOL_AGENTS_LIST, TOOL_AMEND_PLAN, TOOL_APPLY_PATCH,
+    TOOL_ASK_USER_QUESTION, TOOL_BROWSER, TOOL_CANVAS, TOOL_DELETE_MEMORY, TOOL_EDIT, TOOL_EXEC,
+    TOOL_FIND, TOOL_GET_WEATHER, TOOL_GREP, TOOL_IMAGE, TOOL_IMAGE_GENERATE, TOOL_LS,
+    TOOL_MANAGE_CRON, TOOL_MEMORY_GET, TOOL_PDF, TOOL_PLAN_QUESTION, TOOL_PROCESS, TOOL_READ,
+    TOOL_RECALL_MEMORY, TOOL_SAVE_MEMORY, TOOL_SEND_NOTIFICATION, TOOL_SESSIONS_HISTORY,
+    TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEND, TOOL_SESSION_STATUS, TOOL_SUBAGENT, TOOL_SUBMIT_PLAN,
+    TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY, TOOL_UPDATE_PLAN_STEP, TOOL_WEB_FETCH,
+    TOOL_WEB_SEARCH, TOOL_WRITE,
 };
 
 /// Load the user-configured tool timeout from config.json. Returns `None`
@@ -256,6 +257,33 @@ pub async fn execute_tool_with_context(
             Ok(approval::ApprovalResponse::Deny) => {
                 return Err(anyhow::anyhow!("Tool '{}' execution denied by user", name));
             }
+            Err(approval::ApprovalCheckError::TimedOut { timeout_secs }) => {
+                match approval::approval_timeout_action() {
+                    crate::config::ApprovalTimeoutAction::Deny => {
+                        app_warn!(
+                            "tool",
+                            "approval",
+                            "Tool '{}' approval timed out after {}s; blocking execution",
+                            name,
+                            timeout_secs
+                        );
+                        return Err(anyhow::anyhow!(
+                            "Tool '{}' execution denied: approval timed out after {}s",
+                            name,
+                            timeout_secs
+                        ));
+                    }
+                    crate::config::ApprovalTimeoutAction::Proceed => {
+                        app_warn!(
+                            "tool",
+                            "approval",
+                            "Tool '{}' approval timed out after {}s; proceeding by config",
+                            name,
+                            timeout_secs
+                        );
+                    }
+                }
+            }
             Err(e) => {
                 app_warn!(
                     "tool",
@@ -348,7 +376,9 @@ pub async fn execute_tool_with_context(
             TOOL_CANVAS => canvas::tool_canvas(args, ctx).await,
             TOOL_GET_WEATHER => weather::tool_get_weather(args).await,
             TOOL_UPDATE_PLAN_STEP => Ok(plan_step::execute(args, ctx.session_id.as_deref()).await),
-            TOOL_PLAN_QUESTION => Ok(plan_question::execute(args, ctx.session_id.as_deref()).await),
+            TOOL_ASK_USER_QUESTION | TOOL_PLAN_QUESTION => {
+                Ok(plan_question::execute(args, ctx.session_id.as_deref()).await)
+            }
             TOOL_SUBMIT_PLAN => Ok(submit_plan::execute(args, ctx.session_id.as_deref()).await),
             TOOL_AMEND_PLAN => Ok(amend_plan::execute(args, ctx.session_id.as_deref()).await),
             super::TOOL_TOOL_SEARCH => super::tool_search::tool_search(args, ctx).await,

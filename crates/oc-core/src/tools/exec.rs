@@ -8,8 +8,9 @@ use crate::process_registry::{
 };
 
 use super::approval::{
-    add_to_allowlist, check_and_request_approval, get_tool_permission_mode, is_command_allowed,
-    ApprovalResponse, ToolPermissionMode,
+    add_to_allowlist, approval_timeout_action, check_and_request_approval,
+    get_tool_permission_mode, is_command_allowed, ApprovalCheckError, ApprovalResponse,
+    ToolPermissionMode,
 };
 
 pub(crate) const DEFAULT_EXEC_TIMEOUT_SECS: u64 = 1800; // 30 minutes, aligned with OpenClaw
@@ -245,6 +246,40 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
                             command
                         ));
                     }
+                    Err(ApprovalCheckError::TimedOut { timeout_secs }) => {
+                        match approval_timeout_action() {
+                            crate::config::ApprovalTimeoutAction::Deny => {
+                                let mut registry = get_registry().lock().await;
+                                registry.mark_exited(
+                                    &session_id,
+                                    None,
+                                    None,
+                                    ProcessStatus::Failed,
+                                );
+                                app_warn!(
+                                    "tool",
+                                    "exec",
+                                    "Approval timed out after {}s; blocking command execution: {}",
+                                    timeout_secs,
+                                    command
+                                );
+                                return Err(anyhow::anyhow!(
+                                    "Command execution denied: approval timed out after {}s: {}",
+                                    timeout_secs,
+                                    command
+                                ));
+                            }
+                            crate::config::ApprovalTimeoutAction::Proceed => {
+                                app_warn!(
+                                    "tool",
+                                    "exec",
+                                    "Approval timed out after {}s; proceeding by config: {}",
+                                    timeout_secs,
+                                    command
+                                );
+                            }
+                        }
+                    }
                     Err(e) => {
                         app_warn!(
                             "tool",
@@ -278,6 +313,40 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
                                 "Command execution denied by user: {}",
                                 command
                             ));
+                        }
+                        Err(ApprovalCheckError::TimedOut { timeout_secs }) => {
+                            match approval_timeout_action() {
+                                crate::config::ApprovalTimeoutAction::Deny => {
+                                    let mut registry = get_registry().lock().await;
+                                    registry.mark_exited(
+                                        &session_id,
+                                        None,
+                                        None,
+                                        ProcessStatus::Failed,
+                                    );
+                                    app_warn!(
+                                        "tool",
+                                        "exec",
+                                        "Approval timed out after {}s; blocking command execution: {}",
+                                        timeout_secs,
+                                        command
+                                    );
+                                    return Err(anyhow::anyhow!(
+                                        "Command execution denied: approval timed out after {}s: {}",
+                                        timeout_secs,
+                                        command
+                                    ));
+                                }
+                                crate::config::ApprovalTimeoutAction::Proceed => {
+                                    app_warn!(
+                                        "tool",
+                                        "exec",
+                                        "Approval timed out after {}s; proceeding by config: {}",
+                                        timeout_secs,
+                                        command
+                                    );
+                                }
+                            }
                         }
                         Err(e) => {
                             app_warn!(

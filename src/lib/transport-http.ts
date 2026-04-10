@@ -283,8 +283,15 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   set_autostart_enabled:           { method: "POST",   path: "/api/config/autostart" },
 
   // -- Tools --
+  get_tool_timeout:                { method: "GET",    path: "/api/config/tool-timeout" },
   set_tool_timeout:                { method: "POST",   path: "/api/config/tool-timeout" },
+  get_approval_timeout:            { method: "GET",    path: "/api/config/approval-timeout" },
+  set_approval_timeout:            { method: "POST",   path: "/api/config/approval-timeout" },
+  get_approval_timeout_action:     { method: "GET",    path: "/api/config/approval-timeout-action" },
+  set_approval_timeout_action:     { method: "POST",   path: "/api/config/approval-timeout-action" },
+  get_tool_result_disk_threshold:  { method: "GET",    path: "/api/config/tool-result-threshold" },
   set_tool_result_disk_threshold:  { method: "POST",   path: "/api/config/tool-result-threshold" },
+  get_tool_limits:                 { method: "GET",    path: "/api/config/tool-limits" },
   set_tool_limits:                 { method: "POST",   path: "/api/config/tool-limits" },
 
   // -- Crash / Recovery --

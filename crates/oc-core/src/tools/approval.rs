@@ -1,6 +1,7 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::OnceLock;
 use tokio::sync::Mutex as TokioMutex;
 
@@ -143,6 +144,35 @@ fn extract_command_prefix(command: &str) -> String {
         .to_string()
 }
 
+fn approval_timeout_secs() -> u64 {
+    crate::config::cached_config().approval_timeout_secs
+}
+
+pub(crate) fn approval_timeout_action() -> crate::config::ApprovalTimeoutAction {
+    crate::config::cached_config().approval_timeout_action
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ApprovalCheckError {
+    RequestSerialization,
+    EventBusUnavailable,
+    Cancelled,
+    TimedOut { timeout_secs: u64 },
+}
+
+impl fmt::Display for ApprovalCheckError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::RequestSerialization => write!(f, "Failed to serialize approval request"),
+            Self::EventBusUnavailable => write!(f, "EventBus not available for approval events"),
+            Self::Cancelled => write!(f, "Approval request cancelled"),
+            Self::TimedOut { timeout_secs } => {
+                write!(f, "Approval request timed out ({}s)", timeout_secs)
+            }
+        }
+    }
+}
+
 /// Request approval from the user for a command.
 /// Emits an EventBus event and waits for the response via oneshot channel.
 /// `session_id` is used by the IM channel approval listener to route the
@@ -151,9 +181,10 @@ pub(crate) async fn check_and_request_approval(
     command: &str,
     cwd: &str,
     session_id: Option<&str>,
-) -> Result<ApprovalResponse> {
+) -> std::result::Result<ApprovalResponse, ApprovalCheckError> {
     let request_id = create_session_id();
     let (tx, rx) = tokio::sync::oneshot::channel();
+    let timeout_secs = approval_timeout_secs();
 
     // Register the pending approval
     {
@@ -170,7 +201,14 @@ pub(crate) async fn check_and_request_approval(
     };
 
     if let Some(bus) = crate::globals::get_event_bus() {
-        let event_data = serde_json::to_value(&request)?;
+        let event_data = match serde_json::to_value(&request) {
+            Ok(value) => value,
+            Err(_) => {
+                let mut pending = get_pending_approvals().lock().await;
+                pending.remove(&request_id);
+                return Err(ApprovalCheckError::RequestSerialization);
+            }
+        };
         bus.emit("approval_required", event_data);
         app_info!(
             "tool",
@@ -183,14 +221,21 @@ pub(crate) async fn check_and_request_approval(
         // No EventBus available, clean up and return error
         let mut pending = get_pending_approvals().lock().await;
         pending.remove(&request_id);
-        return Err(anyhow::anyhow!(
-            "EventBus not available for approval events"
-        ));
+        return Err(ApprovalCheckError::EventBusUnavailable);
     }
 
-    // Wait for response with timeout (5 minutes)
-    match tokio::time::timeout(std::time::Duration::from_secs(300), rx).await {
-        Ok(Ok(response)) => {
+    let wait_result = if timeout_secs == 0 {
+        rx.await.map_err(|_| "cancelled")
+    } else {
+        match tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), rx).await {
+            Ok(Ok(response)) => Ok(response),
+            Ok(Err(_)) => Err("cancelled"),
+            Err(_) => Err("timeout"),
+        }
+    };
+
+    match wait_result {
+        Ok(response) => {
             if let Some(logger) = crate::get_logger() {
                 let response_str = match &response {
                     ApprovalResponse::AllowOnce => "allow_once",
@@ -204,7 +249,7 @@ pub(crate) async fn check_and_request_approval(
             }
             Ok(response)
         }
-        Ok(Err(_)) => {
+        Err("cancelled") => {
             if let Some(logger) = crate::get_logger() {
                 logger.log(
                     "warn",
@@ -216,9 +261,9 @@ pub(crate) async fn check_and_request_approval(
                     None,
                 );
             }
-            Err(anyhow::anyhow!("Approval request cancelled"))
+            Err(ApprovalCheckError::Cancelled)
         }
-        Err(_) => {
+        Err("timeout") => {
             // Timeout — clean up
             let mut pending = get_pending_approvals().lock().await;
             pending.remove(&request_id);
@@ -227,13 +272,17 @@ pub(crate) async fn check_and_request_approval(
                     "warn",
                     "tool",
                     "approval::timeout",
-                    &format!("Approval timed out for '{}'", command),
+                    &format!(
+                        "Approval timed out for '{}' after {}s",
+                        command, timeout_secs
+                    ),
                     None,
                     None,
                     None,
                 );
             }
-            Err(anyhow::anyhow!("Approval request timed out (5 min)"))
+            Err(ApprovalCheckError::TimedOut { timeout_secs })
         }
+        Err(_) => unreachable!(),
     }
 }

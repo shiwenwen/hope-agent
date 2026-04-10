@@ -71,8 +71,8 @@ pub async fn save_proxy_config(
 // ── Compact Config ──────────────────────────────────────────────
 
 /// `GET /api/config/compact` -- get context compaction config.
-pub async fn get_compact_config(
-) -> Result<Json<oc_core::context_compact::CompactConfig>, AppError> {
+pub async fn get_compact_config() -> Result<Json<oc_core::context_compact::CompactConfig>, AppError>
+{
     let store = load_config()?;
     Ok(Json(store.compact))
 }
@@ -90,8 +90,8 @@ pub async fn save_compact_config(
 // ── Notification Config ─────────────────────────────────────────
 
 /// `GET /api/config/notification` -- get notification config.
-pub async fn get_notification_config(
-) -> Result<Json<oc_core::config::NotificationConfig>, AppError> {
+pub async fn get_notification_config() -> Result<Json<oc_core::config::NotificationConfig>, AppError>
+{
     let store = load_config()?;
     Ok(Json(store.notification))
 }
@@ -102,6 +102,106 @@ pub async fn save_notification_config(
 ) -> Result<Json<Value>, AppError> {
     let mut store = load_config()?;
     store.notification = config;
+    save_config(&store)?;
+    Ok(Json(json!({ "saved": true })))
+}
+
+// ── Tool Config ─────────────────────────────────────────────────
+
+/// `GET /api/config/tool-timeout` -- get tool execution timeout (seconds).
+pub async fn get_tool_timeout() -> Result<Json<Value>, AppError> {
+    let store = load_config()?;
+    Ok(Json(json!(store.tool_timeout)))
+}
+
+/// `POST /api/config/tool-timeout` -- set tool execution timeout (seconds).
+pub async fn set_tool_timeout(Json(body): Json<Value>) -> Result<Json<Value>, AppError> {
+    let seconds = body.get("seconds").and_then(|v| v.as_u64()).unwrap_or(300);
+    let mut store = load_config()?;
+    store.tool_timeout = seconds;
+    save_config(&store)?;
+    Ok(Json(json!({ "saved": true })))
+}
+
+/// `GET /api/config/approval-timeout` -- get tool approval wait timeout (seconds).
+pub async fn get_approval_timeout() -> Result<Json<Value>, AppError> {
+    let store = load_config()?;
+    Ok(Json(json!(store.approval_timeout_secs)))
+}
+
+/// `POST /api/config/approval-timeout` -- set tool approval wait timeout (seconds).
+pub async fn set_approval_timeout(Json(body): Json<Value>) -> Result<Json<Value>, AppError> {
+    let seconds = body.get("seconds").and_then(|v| v.as_u64()).unwrap_or(300);
+    let mut store = load_config()?;
+    store.approval_timeout_secs = seconds;
+    save_config(&store)?;
+    Ok(Json(json!({ "saved": true })))
+}
+
+/// `GET /api/config/approval-timeout-action` -- get approval timeout action.
+pub async fn get_approval_timeout_action() -> Result<Json<Value>, AppError> {
+    let store = load_config()?;
+    Ok(Json(json!(store.approval_timeout_action)))
+}
+
+/// `POST /api/config/approval-timeout-action` -- set approval timeout action.
+pub async fn set_approval_timeout_action(Json(body): Json<Value>) -> Result<Json<Value>, AppError> {
+    let action = match body.get("action").and_then(|v| v.as_str()) {
+        Some("proceed") => oc_core::config::ApprovalTimeoutAction::Proceed,
+        _ => oc_core::config::ApprovalTimeoutAction::Deny,
+    };
+    let mut store = load_config()?;
+    store.approval_timeout_action = action;
+    save_config(&store)?;
+    Ok(Json(json!({ "saved": true })))
+}
+
+/// `GET /api/config/tool-result-threshold` -- get disk persistence threshold (bytes).
+pub async fn get_tool_result_disk_threshold() -> Result<Json<Value>, AppError> {
+    let store = load_config()?;
+    Ok(Json(json!(store
+        .tool_result_disk_threshold
+        .unwrap_or(50_000))))
+}
+
+/// `POST /api/config/tool-result-threshold` -- set disk persistence threshold (bytes).
+pub async fn set_tool_result_disk_threshold(
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, AppError> {
+    let bytes = body.get("bytes").and_then(|v| v.as_u64()).unwrap_or(50_000) as usize;
+    let mut store = load_config()?;
+    store.tool_result_disk_threshold = Some(bytes);
+    save_config(&store)?;
+    Ok(Json(json!({ "saved": true })))
+}
+
+/// `GET /api/config/tool-limits` -- get tool image/pdf limits.
+pub async fn get_tool_limits() -> Result<Json<Value>, AppError> {
+    let store = load_config()?;
+    Ok(Json(json!({
+        "maxImages": store.image.max_images,
+        "maxPdfs": store.pdf.max_pdfs,
+        "maxVisionPages": store.pdf.max_vision_pages,
+    })))
+}
+
+/// `POST /api/config/tool-limits` -- set tool image/pdf limits.
+pub async fn set_tool_limits(Json(body): Json<Value>) -> Result<Json<Value>, AppError> {
+    let config = body.get("config").cloned().unwrap_or(Value::Null);
+    let max_images = config
+        .get("maxImages")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(10) as usize;
+    let max_pdfs = config.get("maxPdfs").and_then(|v| v.as_u64()).unwrap_or(5) as usize;
+    let max_vision_pages = config
+        .get("maxVisionPages")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(10) as usize;
+
+    let mut store = load_config()?;
+    store.image.max_images = max_images;
+    store.pdf.max_pdfs = max_pdfs;
+    store.pdf.max_vision_pages = max_vision_pages;
     save_config(&store)?;
     Ok(Json(json!({ "saved": true })))
 }
@@ -134,10 +234,7 @@ pub async fn get_plan_question_timeout() -> Result<Json<Value>, AppError> {
 
 /// `POST /api/config/plan-question-timeout` -- set plan question timeout (seconds).
 pub async fn set_plan_question_timeout(Json(body): Json<Value>) -> Result<Json<Value>, AppError> {
-    let secs = body
-        .get("secs")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(1800);
+    let secs = body.get("secs").and_then(|v| v.as_u64()).unwrap_or(1800);
     let mut store = load_config()?;
     store.plan_question_timeout_secs = secs;
     save_config(&store)?;
