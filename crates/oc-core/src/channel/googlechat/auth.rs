@@ -169,8 +169,7 @@ impl GoogleChatAuth {
         let encoding_key = EncodingKey::from_rsa_pem(self.credentials.private_key.as_bytes())
             .map_err(|e| anyhow!("Failed to parse RSA private key: {}", e))?;
 
-        encode(&header, &claims, &encoding_key)
-            .map_err(|e| anyhow!("Failed to sign JWT: {}", e))
+        encode(&header, &claims, &encoding_key).map_err(|e| anyhow!("Failed to sign JWT: {}", e))
     }
 
     /// Get the client email (useful for display/logging).

@@ -41,9 +41,8 @@ pub async fn add_account(
             .next()
             .unwrap_or("0000")
     );
-    let parsed_channel_id: ChannelId =
-        serde_json::from_value(Value::String(channel_id.clone()))
-            .map_err(|e| anyhow!("Invalid channel_id '{}': {}", channel_id, e))?;
+    let parsed_channel_id: ChannelId = serde_json::from_value(Value::String(channel_id.clone()))
+        .map_err(|e| anyhow!("Invalid channel_id '{}': {}", channel_id, e))?;
 
     let account = ChannelAccountConfig {
         id: id.clone(),
@@ -148,8 +147,7 @@ pub async fn remove_account(account_id: &str) -> Result<()> {
     crate::config::save_config(&store)?;
 
     if matches!(removed_channel_id, Some(ChannelId::WeChat)) {
-        super::wechat::clear_persisted_account_state(account_id)
-            .map_err(|e| anyhow!("{}", e))?;
+        super::wechat::clear_persisted_account_state(account_id).map_err(|e| anyhow!("{}", e))?;
     }
 
     Ok(())

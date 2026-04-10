@@ -3,7 +3,9 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use oc_core::plan::{self, PlanModeState, PlanQuestionAnswer, PlanStep, PlanStepStatus, PlanVersionInfo};
+use oc_core::plan::{
+    self, PlanModeState, PlanQuestionAnswer, PlanStep, PlanStepStatus, PlanVersionInfo,
+};
 
 use crate::error::AppError;
 use crate::routes::helpers::session_db;
@@ -62,9 +64,7 @@ pub async fn set_plan_mode(
 }
 
 /// `GET /api/plan/{session_id}/content`
-pub async fn get_plan_content(
-    Path(session_id): Path<String>,
-) -> Result<Json<Value>, AppError> {
+pub async fn get_plan_content(Path(session_id): Path<String>) -> Result<Json<Value>, AppError> {
     let content = plan::load_plan_file(&session_id)?;
     Ok(Json(json!({ "content": content })))
 }
@@ -222,18 +222,14 @@ pub async fn plan_rollback(Path(session_id): Path<String>) -> Result<Json<Value>
 }
 
 /// `GET /api/plan/{session_id}/checkpoint`
-pub async fn get_plan_checkpoint(
-    Path(session_id): Path<String>,
-) -> Result<Json<Value>, AppError> {
+pub async fn get_plan_checkpoint(Path(session_id): Path<String>) -> Result<Json<Value>, AppError> {
     Ok(Json(json!({
         "checkpoint": plan::get_checkpoint_ref(&session_id).await,
     })))
 }
 
 /// `GET /api/plan/{session_id}/file-path`
-pub async fn get_plan_file_path(
-    Path(session_id): Path<String>,
-) -> Result<Json<Value>, AppError> {
+pub async fn get_plan_file_path(Path(session_id): Path<String>) -> Result<Json<Value>, AppError> {
     let path = if let Some(meta) = plan::get_plan_meta(&session_id).await {
         if !meta.file_path.is_empty() {
             Some(meta.file_path)
@@ -247,9 +243,7 @@ pub async fn get_plan_file_path(
 }
 
 /// `POST /api/plan/{session_id}/cancel`
-pub async fn cancel_plan_subagent(
-    Path(session_id): Path<String>,
-) -> Result<Json<Value>, AppError> {
+pub async fn cancel_plan_subagent(Path(session_id): Path<String>) -> Result<Json<Value>, AppError> {
     if let Some(run_id) = plan::get_active_plan_run_id(&session_id).await {
         let cancels = oc_core::get_subagent_cancels()
             .ok_or_else(|| AppError::internal("Cancel registry not initialized"))?;

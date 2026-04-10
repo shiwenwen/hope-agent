@@ -55,9 +55,7 @@ impl SlackApi {
             }
         }
 
-        let client = builder
-            .build()
-            .unwrap_or_else(|_| reqwest::Client::new());
+        let client = builder.build().unwrap_or_else(|_| reqwest::Client::new());
 
         Self {
             client,

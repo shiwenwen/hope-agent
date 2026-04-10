@@ -1,9 +1,9 @@
-use crate::agent_config::AgentDefinition;
-use crate::skills;
-use crate::user_config;
 use super::constants::MAX_FILE_CHARS;
 use super::helpers::truncate;
 use super::sections::*;
+use crate::agent_config::AgentDefinition;
+use crate::skills;
+use crate::user_config;
 
 // ── Build System Prompt ──────────────────────────────────────────
 
@@ -46,7 +46,9 @@ pub fn build(
         ));
 
         // # Project Context — assembled in OpenClaw order
-        let mut project_ctx = String::from("# Project Context\n\nThe following project context files have been loaded:");
+        let mut project_ctx = String::from(
+            "# Project Context\n\nThe following project context files have been loaded:",
+        );
 
         let openclaw_files: [(&str, &Option<String>); 4] = [
             ("AGENTS.md", &definition.agents_md),

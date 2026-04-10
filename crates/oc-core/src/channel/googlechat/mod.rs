@@ -78,9 +78,7 @@ impl GoogleChatPlugin {
         accounts
             .get(account_id)
             .map(|a| a.api.clone())
-            .ok_or_else(|| {
-                anyhow::anyhow!("Google Chat account '{}' is not running", account_id)
-            })
+            .ok_or_else(|| anyhow::anyhow!("Google Chat account '{}' is not running", account_id))
     }
 }
 
@@ -128,12 +126,9 @@ impl ChannelPlugin for GoogleChatPlugin {
         let api = Arc::new(GoogleChatApi::new(auth));
 
         // Validate credentials by listing spaces
-        api.list_spaces().await.map_err(|e| {
-            anyhow::anyhow!(
-                "Google Chat credential validation failed: {}",
-                e
-            )
-        })?;
+        api.list_spaces()
+            .await
+            .map_err(|e| anyhow::anyhow!("Google Chat credential validation failed: {}", e))?;
 
         app_info!(
             "channel",
@@ -144,8 +139,7 @@ impl ChannelPlugin for GoogleChatPlugin {
 
         // Start webhook server and register handler
         let webhook_server = get_or_start_webhook_server().await?;
-        let handler =
-            webhook::create_webhook_handler(api.clone(), account.id.clone(), inbound_tx);
+        let handler = webhook::create_webhook_handler(api.clone(), account.id.clone(), inbound_tx);
         webhook_server
             .register_handler("googlechat", &account.id, handler)
             .await;
@@ -160,13 +154,7 @@ impl ChannelPlugin for GoogleChatPlugin {
         // Store running account state
         {
             let mut accounts = self.accounts.lock().await;
-            accounts.insert(
-                account.id.clone(),
-                RunningAccount {
-                    api,
-                    cancel,
-                },
-            );
+            accounts.insert(account.id.clone(), RunningAccount { api, cancel });
         }
 
         Ok(())
@@ -183,12 +171,7 @@ impl ChannelPlugin for GoogleChatPlugin {
             account.cancel.cancel();
         }
 
-        app_info!(
-            "channel",
-            "googlechat",
-            "Stopped account '{}'",
-            account_id
-        );
+        app_info!("channel", "googlechat", "Stopped account '{}'", account_id);
         Ok(())
     }
 
@@ -321,11 +304,7 @@ impl ChannelPlugin for GoogleChatPlugin {
     }
 
     fn check_access(&self, account: &ChannelAccountConfig, msg: &MsgContext) -> bool {
-        crate::channel::traits::default_check_access(
-            account,
-            msg,
-            &[ChatType::Dm, ChatType::Group],
-        )
+        crate::channel::traits::default_check_access(account, msg, &[ChatType::Dm, ChatType::Group])
     }
 
     fn markdown_to_native(&self, markdown: &str) -> String {

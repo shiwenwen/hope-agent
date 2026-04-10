@@ -69,9 +69,7 @@ pub async fn update_provider(
 }
 
 /// `DELETE /api/providers/{id}` — delete a provider.
-pub async fn delete_provider(
-    Path(id): Path<String>,
-) -> Result<Json<Value>, AppError> {
+pub async fn delete_provider(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
     let mut store = oc_core::config::load_config()?;
     let len_before = store.providers.len();
     store.providers.retain(|p| p.id != id);
@@ -89,9 +87,7 @@ pub async fn delete_provider(
 }
 
 /// `POST /api/providers/test` — test provider connection.
-pub async fn test_provider(
-    Json(config): Json<ProviderConfig>,
-) -> Result<Json<Value>, AppError> {
+pub async fn test_provider(Json(config): Json<ProviderConfig>) -> Result<Json<Value>, AppError> {
     // Delegate to the same test logic used by the Tauri command.
     // We reimplement a lightweight version here — ping the models endpoint.
     use std::time::{Duration, Instant};
@@ -166,13 +162,11 @@ pub async fn test_provider(
                 "url": url,
             })))
         }
-        oc_core::provider::ApiType::Codex => {
-            Ok(Json(json!({
-                "success": true,
-                "message": "Codex uses OAuth, no test needed",
-                "latencyMs": 0,
-            })))
-        }
+        oc_core::provider::ApiType::Codex => Ok(Json(json!({
+            "success": true,
+            "message": "Codex uses OAuth, no test needed",
+            "latencyMs": 0,
+        }))),
     }
 }
 
@@ -194,9 +188,7 @@ pub struct ReorderBody {
 }
 
 /// `POST /api/providers/reorder` — reorder providers.
-pub async fn reorder_providers(
-    Json(body): Json<ReorderBody>,
-) -> Result<Json<Value>, AppError> {
+pub async fn reorder_providers(Json(body): Json<ReorderBody>) -> Result<Json<Value>, AppError> {
     let mut store = oc_core::config::load_config()?;
     let mut reordered = Vec::with_capacity(body.provider_ids.len());
     for id in &body.provider_ids {

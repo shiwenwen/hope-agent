@@ -9,7 +9,12 @@ pub async fn overview(
     Json(filter): Json<DashboardFilter>,
 ) -> Result<Json<OverviewStats>, AppError> {
     let s = app_state()?;
-    Ok(Json(query_overview(&s.session_db, &s.log_db, &s.cron_db, &filter)?))
+    Ok(Json(query_overview(
+        &s.session_db,
+        &s.log_db,
+        &s.cron_db,
+        &filter,
+    )?))
 }
 
 pub async fn token_usage(
@@ -53,29 +58,44 @@ pub async fn system_metrics() -> Result<Json<dashboard::SystemMetrics>, AppError
 pub async fn session_list(
     Json(filter): Json<DashboardFilter>,
 ) -> Result<Json<Vec<dashboard::DashboardSessionItem>>, AppError> {
-    Ok(Json(dashboard::query_session_list(&app_state()?.session_db, &filter)?))
+    Ok(Json(dashboard::query_session_list(
+        &app_state()?.session_db,
+        &filter,
+    )?))
 }
 
 pub async fn message_list(
     Json(filter): Json<DashboardFilter>,
 ) -> Result<Json<Vec<dashboard::DashboardMessageItem>>, AppError> {
-    Ok(Json(dashboard::query_message_list(&app_state()?.session_db, &filter)?))
+    Ok(Json(dashboard::query_message_list(
+        &app_state()?.session_db,
+        &filter,
+    )?))
 }
 
 pub async fn tool_call_list(
     Json(filter): Json<DashboardFilter>,
 ) -> Result<Json<Vec<dashboard::DashboardToolCallItem>>, AppError> {
-    Ok(Json(dashboard::query_tool_call_list(&app_state()?.session_db, &filter)?))
+    Ok(Json(dashboard::query_tool_call_list(
+        &app_state()?.session_db,
+        &filter,
+    )?))
 }
 
 pub async fn error_list(
     Json(filter): Json<DashboardFilter>,
 ) -> Result<Json<Vec<dashboard::DashboardErrorItem>>, AppError> {
-    Ok(Json(dashboard::query_error_list(&app_state()?.log_db, &filter)?))
+    Ok(Json(dashboard::query_error_list(
+        &app_state()?.log_db,
+        &filter,
+    )?))
 }
 
 pub async fn agent_list(
     Json(filter): Json<DashboardFilter>,
 ) -> Result<Json<Vec<dashboard::DashboardAgentItem>>, AppError> {
-    Ok(Json(dashboard::query_agent_list(&app_state()?.session_db, &filter)?))
+    Ok(Json(dashboard::query_agent_list(
+        &app_state()?.session_db,
+        &filter,
+    )?))
 }

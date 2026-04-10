@@ -27,8 +27,9 @@ pub fn query_overview(
     // Session count
     let f = build_session_filter(filter, "s", None);
     let sql = format!("SELECT COUNT(*) FROM sessions s {}", f.where_sql);
-    let total_sessions: u64 =
-        sess_conn.query_row(&sql, params_ref(&f.params).as_slice(), |r| crate::sql_u64(r, 0))?;
+    let total_sessions: u64 = sess_conn.query_row(&sql, params_ref(&f.params).as_slice(), |r| {
+        crate::sql_u64(r, 0)
+    })?;
 
     // Message count + token sums + tool calls + errors
     let f = build_session_filter(filter, "s", Some("m"));
@@ -54,8 +55,9 @@ pub fn query_overview(
         "SELECT COUNT(DISTINCT s.agent_id) FROM sessions s {}",
         f.where_sql
     );
-    let active_agents: u64 =
-        sess_conn.query_row(&sql, params_ref(&f.params).as_slice(), |r| crate::sql_u64(r, 0))?;
+    let active_agents: u64 = sess_conn.query_row(&sql, params_ref(&f.params).as_slice(), |r| {
+        crate::sql_u64(r, 0)
+    })?;
 
     // Query average TTFT
     let f = build_session_filter(filter, "s", Some("m"));
@@ -406,8 +408,9 @@ pub fn query_tasks(
         .lock()
         .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
-    let total_jobs: u64 =
-        cron_conn.query_row("SELECT COUNT(*) FROM cron_jobs", [], |r| crate::sql_u64(r, 0))?;
+    let total_jobs: u64 = cron_conn.query_row("SELECT COUNT(*) FROM cron_jobs", [], |r| {
+        crate::sql_u64(r, 0)
+    })?;
     let active_jobs: u64 = cron_conn.query_row(
         "SELECT COUNT(*) FROM cron_jobs WHERE status = 'active'",
         [],
@@ -446,7 +449,12 @@ pub fn query_tasks(
     );
     let (total_runs, success_runs, failed_runs, avg_duration_ms): (u64, u64, u64, f64) = cron_conn
         .query_row(&sql, params_ref(&cron_params).as_slice(), |r| {
-            Ok((crate::sql_u64(r, 0)?, crate::sql_u64(r, 1)?, crate::sql_u64(r, 2)?, r.get(3)?))
+            Ok((
+                crate::sql_u64(r, 0)?,
+                crate::sql_u64(r, 1)?,
+                crate::sql_u64(r, 2)?,
+                r.get(3)?,
+            ))
         })?;
 
     drop(cron_conn);

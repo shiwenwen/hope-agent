@@ -177,7 +177,12 @@ impl ChannelPlugin for SignalPlugin {
             if let Some(ref mut daemon) = running.daemon {
                 daemon.stop().await;
             }
-            app_info!("channel", "signal", "Stopped Signal account '{}'", account_id);
+            app_info!(
+                "channel",
+                "signal",
+                "Stopped Signal account '{}'",
+                account_id
+            );
         }
         Ok(())
     }
@@ -229,9 +234,12 @@ impl ChannelPlugin for SignalPlugin {
         message_id: &str,
     ) -> Result<()> {
         let client = self.get_client(account_id).await?;
-        let timestamp: i64 = message_id
-            .parse()
-            .map_err(|_| anyhow::anyhow!("Invalid Signal message ID (expected timestamp): {}", message_id))?;
+        let timestamp: i64 = message_id.parse().map_err(|_| {
+            anyhow::anyhow!(
+                "Invalid Signal message ID (expected timestamp): {}",
+                message_id
+            )
+        })?;
         client.delete_message(chat_id, timestamp).await
     }
 
@@ -286,11 +294,7 @@ impl ChannelPlugin for SignalPlugin {
     }
 
     fn check_access(&self, account: &ChannelAccountConfig, msg: &MsgContext) -> bool {
-        crate::channel::traits::default_check_access(
-            account,
-            msg,
-            &[ChatType::Dm, ChatType::Group],
-        )
+        crate::channel::traits::default_check_access(account, msg, &[ChatType::Dm, ChatType::Group])
     }
 
     fn markdown_to_native(&self, markdown: &str) -> String {

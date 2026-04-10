@@ -8,9 +8,7 @@ use types::{CommandCategory, CommandResult, SlashCommandDef};
 
 /// List all available slash commands (for UI menu rendering).
 /// Includes both built-in commands and user-invocable skill commands.
-pub async fn list_slash_commands(
-    state: &AppState,
-) -> Result<Vec<SlashCommandDef>, String> {
+pub async fn list_slash_commands(state: &AppState) -> Result<Vec<SlashCommandDef>, String> {
     let mut commands = registry::all_commands();
 
     // Append user-invocable skills as Skill category commands

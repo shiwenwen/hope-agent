@@ -19,7 +19,9 @@ pub fn photo_to_inbound(photos: &[PhotoSize]) -> Option<InboundMedia> {
 
 /// Create an InputFile from a URL string.
 pub fn input_file_from_url(url: &str) -> Result<InputFile> {
-    let parsed = url.parse().map_err(|e| anyhow::anyhow!("Invalid URL '{}': {}", url, e))?;
+    let parsed = url
+        .parse()
+        .map_err(|e| anyhow::anyhow!("Invalid URL '{}': {}", url, e))?;
     Ok(InputFile::url(parsed))
 }
 

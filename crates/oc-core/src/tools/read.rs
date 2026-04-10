@@ -146,14 +146,12 @@ fn compute_adaptive_read_max_bytes(
             // Remaining tokens: total window minus already used
             let remaining = match used_tokens {
                 Some(used) if used < window => window - used,
-                Some(_) => 0, // context fully consumed or overflowed
+                Some(_) => 0,   // context fully consumed or overflowed
                 None => window, // no usage info → fall back to full window
             };
 
             // Dynamic share: allocate a smaller fraction of remaining as context fills up
-            let utilization = used_tokens
-                .map(|u| u as f64 / window as f64)
-                .unwrap_or(0.0);
+            let utilization = used_tokens.map(|u| u as f64 / window as f64).unwrap_or(0.0);
             let share = if utilization > 0.8 {
                 0.10 // tight: 10% of remaining
             } else if utilization > 0.5 {

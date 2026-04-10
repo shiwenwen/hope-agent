@@ -168,10 +168,7 @@ pub(super) async fn dispatch_slash_for_channel(
             provider_id,
             model_id,
         }) => {
-            if let Err(e) =
-                set_active_model_core(&provider_id, &model_id, app_state)
-                    .await
-            {
+            if let Err(e) = set_active_model_core(&provider_id, &model_id, app_state).await {
                 app_warn!("channel", "worker", "Failed to switch model: {}", e);
             } else if let Some(bus) = crate::get_event_bus() {
                 bus.emit(
@@ -191,15 +188,10 @@ pub(super) async fn dispatch_slash_for_channel(
 
         // ── Reasoning effort — persist + notify frontend ──
         Some(CommandAction::SetEffort { effort }) => {
-            if let Err(e) =
-                set_reasoning_effort_core(&effort, app_state).await
-            {
+            if let Err(e) = set_reasoning_effort_core(&effort, app_state).await {
                 app_warn!("channel", "worker", "Failed to set effort: {}", e);
             } else if let Some(bus) = crate::get_event_bus() {
-                bus.emit(
-                    "slash:effort_changed",
-                    serde_json::json!(effort),
-                );
+                bus.emit("slash:effort_changed", serde_json::json!(effort));
             }
             Ok(ChannelSlashOutcome::Reply {
                 content: result.content,
@@ -348,8 +340,8 @@ async fn set_active_model_core(
     model_id: &str,
     state: &crate::globals::AppState,
 ) -> Result<(), String> {
-    use crate::provider::{ActiveModel, ApiType};
     use crate::agent::AssistantAgent;
+    use crate::provider::{ActiveModel, ApiType};
 
     let mut store = state.config.lock().await;
 
@@ -403,8 +395,8 @@ async fn compact_context_now_core(
     session_id: &str,
     state: &crate::globals::AppState,
 ) -> Result<crate::context_compact::CompactResult, String> {
-    use crate::context_compact;
     use crate::chat_engine::save_agent_context;
+    use crate::context_compact;
 
     let agent = state.agent.lock().await;
     let agent = agent.as_ref().ok_or("No active agent")?;

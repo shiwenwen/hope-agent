@@ -1,8 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::{
-    app_log, get_deploy_progress, helpers::*, info, STATUS_CACHE_TTL_SECS, STATUS_LOCK,
-};
+use super::{app_log, get_deploy_progress, helpers::*, info, STATUS_CACHE_TTL_SECS, STATUS_LOCK};
 
 // ── Public Status ────────────────────────────────────────────────
 

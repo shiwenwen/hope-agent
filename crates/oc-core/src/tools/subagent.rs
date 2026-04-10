@@ -535,8 +535,7 @@ async fn action_spawn_and_wait(args: &Value, ctx: &ToolExecContext) -> Result<St
 
     // Poll for completion within foreground timeout
     let session_db = get_session_db()?;
-    let deadline =
-        std::time::Instant::now() + std::time::Duration::from_secs(fg_timeout);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(fg_timeout);
 
     loop {
         let run = session_db

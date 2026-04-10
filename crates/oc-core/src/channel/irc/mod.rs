@@ -144,13 +144,8 @@ impl ChannelPlugin for IrcPlugin {
         let account_id = account.id.clone();
         let nick = creds.nick.clone();
 
-        let client = IrcClient::connect_and_run(
-            creds,
-            account_id.clone(),
-            inbound_tx,
-            cancel,
-        )
-        .await?;
+        let client =
+            IrcClient::connect_and_run(creds, account_id.clone(), inbound_tx, cancel).await?;
 
         let confirmed_nick = client.nick().to_string();
 
@@ -183,12 +178,7 @@ impl ChannelPlugin for IrcPlugin {
         let mut accounts = self.accounts.lock().await;
         if let Some(mut running) = accounts.remove(account_id) {
             running.client.close().await;
-            app_info!(
-                "channel",
-                "irc",
-                "Stopped IRC account '{}'",
-                account_id
-            );
+            app_info!("channel", "irc", "Stopped IRC account '{}'", account_id);
         }
         Ok(())
     }
@@ -209,10 +199,7 @@ impl ChannelPlugin for IrcPlugin {
                 return Ok(DeliveryResult::ok("empty"));
             }
 
-            running
-                .client
-                .send_privmsg(chat_id, text)
-                .await?;
+            running.client.send_privmsg(chat_id, text).await?;
 
             return Ok(DeliveryResult::ok(uuid::Uuid::new_v4().to_string()));
         }
@@ -249,11 +236,7 @@ impl ChannelPlugin for IrcPlugin {
     }
 
     fn check_access(&self, account: &ChannelAccountConfig, msg: &MsgContext) -> bool {
-        crate::channel::traits::default_check_access(
-            account,
-            msg,
-            &[ChatType::Dm, ChatType::Group],
-        )
+        crate::channel::traits::default_check_access(account, msg, &[ChatType::Dm, ChatType::Group])
     }
 
     fn markdown_to_native(&self, markdown: &str) -> String {

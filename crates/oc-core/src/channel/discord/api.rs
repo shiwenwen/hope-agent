@@ -149,10 +149,7 @@ impl DiscordApi {
         message_id: &str,
         content: &str,
     ) -> Result<serde_json::Value> {
-        let url = self.url(&format!(
-            "/channels/{}/messages/{}",
-            channel_id, message_id
-        ));
+        let url = self.url(&format!("/channels/{}/messages/{}", channel_id, message_id));
 
         let body = serde_json::json!({ "content": content });
 
@@ -175,10 +172,7 @@ impl DiscordApi {
 
     /// DELETE /channels/{channel_id}/messages/{message_id} — delete a message.
     pub async fn delete_message(&self, channel_id: &str, message_id: &str) -> Result<()> {
-        let url = self.url(&format!(
-            "/channels/{}/messages/{}",
-            channel_id, message_id
-        ));
+        let url = self.url(&format!("/channels/{}/messages/{}", channel_id, message_id));
 
         let resp = self
             .client

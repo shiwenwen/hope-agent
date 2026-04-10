@@ -37,7 +37,10 @@ mod tests {
     #[test]
     fn test_link_conversion() {
         let input = "[click here](https://example.com)";
-        assert_eq!(markdown_to_signal(input), "click here (https://example.com)");
+        assert_eq!(
+            markdown_to_signal(input),
+            "click here (https://example.com)"
+        );
     }
 
     #[test]

@@ -38,7 +38,13 @@ pub(crate) async fn execute_job(
             return;
         }
         Err(e) => {
-            app_error!("cron", "executor", "Failed to claim job '{}': {}", job.name, e);
+            app_error!(
+                "cron",
+                "executor",
+                "Failed to claim job '{}': {}",
+                job.name,
+                e
+            );
             return;
         }
     }

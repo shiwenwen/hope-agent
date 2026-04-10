@@ -163,11 +163,7 @@ mod tests {
     #[test]
     fn test_find_round_safe_boundary_no_metadata() {
         // Without metadata, target_index is returned as-is (backward compat)
-        let messages = vec![
-            msg("user", None),
-            msg("assistant", None),
-            msg("user", None),
-        ];
+        let messages = vec![msg("user", None), msg("assistant", None), msg("user", None)];
         assert_eq!(find_round_safe_boundary(&messages, 1), 1);
         assert_eq!(find_round_safe_boundary(&messages, 2), 2);
     }

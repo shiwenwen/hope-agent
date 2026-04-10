@@ -7,8 +7,7 @@ use crate::error::AppError;
 // ── Handlers ────────────────────────────────────────────────────
 
 /// `GET /api/agents` -- list all agents.
-pub async fn list_agents(
-) -> Result<Json<Vec<oc_core::agent_config::AgentSummary>>, AppError> {
+pub async fn list_agents() -> Result<Json<Vec<oc_core::agent_config::AgentSummary>>, AppError> {
     let agents = oc_core::agent_loader::list_agents()?;
     Ok(Json(agents))
 }
@@ -31,9 +30,7 @@ pub async fn save_agent(
 }
 
 /// `DELETE /api/agents/{id}` -- delete an agent and all its files.
-pub async fn delete_agent(
-    Path(id): Path<String>,
-) -> Result<Json<Value>, AppError> {
+pub async fn delete_agent(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
     oc_core::agent_loader::delete_agent(&id)?;
     Ok(Json(json!({ "deleted": true })))
 }

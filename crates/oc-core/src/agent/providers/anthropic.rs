@@ -43,8 +43,12 @@ impl AssistantAgent {
 
         // Build messages from conversation history + new user message (with optional image attachments)
         // Normalize history in case previous turns were from a different provider (failover / model switch)
-        let mut messages =
-            Self::normalize_history_for_anthropic(&self.conversation_history.lock().unwrap_or_else(|e| e.into_inner()));
+        let mut messages = Self::normalize_history_for_anthropic(
+            &self
+                .conversation_history
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()),
+        );
         let user_content = build_user_content_anthropic(message, attachments);
         Self::push_user_message(&mut messages, user_content);
 
@@ -67,7 +71,8 @@ impl AssistantAgent {
 
         // LLM memory selection: filter to most relevant memories
         let mut system_prompt = system_prompt;
-        self.select_memories_if_needed(&mut system_prompt, message).await;
+        self.select_memories_if_needed(&mut system_prompt, message)
+            .await;
 
         // Save cache-safe params for side_query reuse (prompt cache sharing)
         self.save_cache_safe_params(
@@ -304,7 +309,11 @@ impl AssistantAgent {
                     "input": args,
                 }));
             }
-            crate::context_compact::push_and_stamp(&mut messages, json!({ "role": "assistant", "content": assistant_content }), round);
+            crate::context_compact::push_and_stamp(
+                &mut messages,
+                json!({ "role": "assistant", "content": assistant_content }),
+                round,
+            );
 
             // Log tool loop progress
             if let Some(logger) = crate::get_logger() {
@@ -382,8 +391,13 @@ impl AssistantAgent {
                     let is_tool_error = result.starts_with("Tool error:");
                     let (clean_result, media_urls) = extract_media_urls(&result);
                     emit_tool_result(
-                        on_delta, &call_id, &name, &clean_result, elapsed_ms,
-                        is_tool_error, &media_urls,
+                        on_delta,
+                        &call_id,
+                        &name,
+                        &clean_result,
+                        elapsed_ms,
+                        is_tool_error,
+                        &media_urls,
                     );
                     tool_results.push(json!({
                         "type": "tool_result",
@@ -412,8 +426,13 @@ impl AssistantAgent {
                 let is_tool_error = result.starts_with("Tool error:");
                 let (clean_result, media_urls) = extract_media_urls(&result);
                 emit_tool_result(
-                    on_delta, &tc.call_id, &tc.name, &clean_result, tool_elapsed_ms,
-                    is_tool_error, &media_urls,
+                    on_delta,
+                    &tc.call_id,
+                    &tc.name,
+                    &clean_result,
+                    tool_elapsed_ms,
+                    is_tool_error,
+                    &media_urls,
                 );
 
                 tool_results.push(json!({
@@ -422,7 +441,11 @@ impl AssistantAgent {
                     "content": build_anthropic_tool_result_content(&clean_result),
                 }));
             }
-            crate::context_compact::push_and_stamp(&mut messages, json!({ "role": "user", "content": tool_results }), round);
+            crate::context_compact::push_and_stamp(
+                &mut messages,
+                json!({ "role": "user", "content": tool_results }),
+                round,
+            );
 
             // Track manual memory writes for extraction mutual exclusion
             self.check_manual_memory_save(&tool_calls);
@@ -453,14 +476,21 @@ impl AssistantAgent {
                 messages.push(json!({ "role": "assistant", "content": final_content }));
             }
         }
-        *self.conversation_history.lock().unwrap_or_else(|e| e.into_inner()) = messages;
+        *self
+            .conversation_history
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = messages;
 
         // Emit accumulated usage (with TTFT)
         emit_usage(on_delta, &total_usage, model, first_ttft_ms);
 
         // Log chat completion summary
         if let Some(logger) = crate::get_logger() {
-            let history_len = self.conversation_history.lock().unwrap_or_else(|e| e.into_inner()).len();
+            let history_len = self
+                .conversation_history
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .len();
             logger.log(
                 "info",
                 "agent",

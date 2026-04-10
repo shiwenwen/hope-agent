@@ -107,10 +107,7 @@ pub enum CommandAction {
     ViewSystemPrompt,
     /// Skill fork: the skill was dispatched to a sub-agent.
     /// The frontend should show a "skill running in background" indicator.
-    SkillFork {
-        run_id: String,
-        skill_name: String,
-    },
+    SkillFork { run_id: String, skill_name: String },
 }
 
 impl SlashCommandDef {

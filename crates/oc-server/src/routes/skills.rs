@@ -61,9 +61,7 @@ pub struct DirBody {
 }
 
 /// `POST /api/skills/extra-dirs`
-pub async fn add_extra_skills_dir(
-    Json(body): Json<DirBody>,
-) -> Result<Json<Value>, AppError> {
+pub async fn add_extra_skills_dir(Json(body): Json<DirBody>) -> Result<Json<Value>, AppError> {
     let mut store = state()?.config.lock().await;
     if !store.extra_skills_dirs.contains(&body.dir) {
         store.extra_skills_dirs.push(body.dir);
@@ -74,9 +72,7 @@ pub async fn add_extra_skills_dir(
 }
 
 /// `DELETE /api/skills/extra-dirs?dir=...`
-pub async fn remove_extra_skills_dir(
-    Query(body): Query<DirBody>,
-) -> Result<Json<Value>, AppError> {
+pub async fn remove_extra_skills_dir(Query(body): Query<DirBody>) -> Result<Json<Value>, AppError> {
     let mut store = state()?.config.lock().await;
     store.extra_skills_dirs.retain(|d| d != &body.dir);
     oc_core::config::save_config(&store)?;
@@ -107,13 +103,13 @@ pub async fn toggle_skill(
 
 /// `GET /api/skills/env-check`
 pub async fn get_skill_env_check() -> Result<Json<Value>, AppError> {
-    Ok(Json(json!({ "enabled": state()?.config.lock().await.skill_env_check })))
+    Ok(Json(
+        json!({ "enabled": state()?.config.lock().await.skill_env_check }),
+    ))
 }
 
 /// `PUT /api/skills/env-check`
-pub async fn set_skill_env_check(
-    Json(body): Json<ToggleBody>,
-) -> Result<Json<Value>, AppError> {
+pub async fn set_skill_env_check(Json(body): Json<ToggleBody>) -> Result<Json<Value>, AppError> {
     let mut store = state()?.config.lock().await;
     store.skill_env_check = body.enabled;
     oc_core::config::save_config(&store)?;

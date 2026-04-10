@@ -59,13 +59,13 @@ pub mod weather;
 pub mod weather_location_macos;
 
 // ── Re-exports ────────────────────────────────────────────────────
-pub use util::*;
+pub use app_init::{init_app_state, start_background_tasks};
 #[allow(deprecated)]
 pub use globals::{
-    get_acp_manager, get_app_handle, get_app_state, get_event_bus, get_channel_db,
-    get_channel_registry, get_cron_db, get_logger, get_memory_backend, get_session_db,
-    get_subagent_cancels, set_app_state, set_event_bus, AppState,
-    APP_LOGGER, ACP_MANAGER, CHANNEL_DB, CHANNEL_REGISTRY, CRON_DB, EVENT_BUS,
-    MEMORY_BACKEND, SESSION_DB, SUBAGENT_CANCELS, APP_STATE,
+    get_acp_manager, get_app_handle, get_app_state, get_channel_db, get_channel_registry,
+    get_cron_db, get_event_bus, get_logger, get_memory_backend, get_session_db,
+    get_subagent_cancels, set_app_state, set_event_bus, AppState, ACP_MANAGER, APP_LOGGER,
+    APP_STATE, CHANNEL_DB, CHANNEL_REGISTRY, CRON_DB, EVENT_BUS, MEMORY_BACKEND, SESSION_DB,
+    SUBAGENT_CANCELS,
 };
-pub use app_init::{init_app_state, start_background_tasks};
+pub use util::*;

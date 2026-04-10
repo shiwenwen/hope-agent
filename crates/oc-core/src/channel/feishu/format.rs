@@ -125,10 +125,7 @@ fn strip_inline_formatting(line: &str) -> String {
 
 /// Collect characters until a two-character marker is found.
 /// Returns the collected content (marker consumed).
-fn collect_until_marker(
-    chars: &mut std::iter::Peekable<std::str::Chars>,
-    marker: &str,
-) -> String {
+fn collect_until_marker(chars: &mut std::iter::Peekable<std::str::Chars>, marker: &str) -> String {
     let marker_chars: Vec<char> = marker.chars().collect();
     let mut buf = String::new();
 
@@ -153,10 +150,7 @@ fn collect_until_marker(
 
 /// Collect characters until a single-character delimiter is found.
 /// Returns the collected content (delimiter consumed).
-fn collect_until_char(
-    chars: &mut std::iter::Peekable<std::str::Chars>,
-    delim: char,
-) -> String {
+fn collect_until_char(chars: &mut std::iter::Peekable<std::str::Chars>, delim: char) -> String {
     let mut buf = String::new();
     for c in chars.by_ref() {
         if c == delim {
@@ -178,12 +172,18 @@ mod tests {
 
     #[test]
     fn test_bold_stripped() {
-        assert_eq!(markdown_to_feishu_text("this is **bold** text"), "this is bold text");
+        assert_eq!(
+            markdown_to_feishu_text("this is **bold** text"),
+            "this is bold text"
+        );
     }
 
     #[test]
     fn test_italic_stripped() {
-        assert_eq!(markdown_to_feishu_text("this is *italic* text"), "this is italic text");
+        assert_eq!(
+            markdown_to_feishu_text("this is *italic* text"),
+            "this is italic text"
+        );
     }
 
     #[test]
@@ -237,7 +237,8 @@ mod tests {
     #[test]
     fn test_mixed_formatting() {
         let input = "# Welcome\n\nThis is **bold** and *italic*.\n\n> A quote\n\n```\ncode\n```\n\n[link](https://x.com)";
-        let expected = "Welcome\n\nThis is bold and italic.\n\nA quote\n\ncode\n\nlink (https://x.com)";
+        let expected =
+            "Welcome\n\nThis is bold and italic.\n\nA quote\n\ncode\n\nlink (https://x.com)";
         assert_eq!(markdown_to_feishu_text(input), expected);
     }
 

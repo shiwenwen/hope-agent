@@ -245,8 +245,8 @@ impl SqliteMemoryBackend {
                     .query_row("SELECT COUNT(*) FROM embedding_cache", [], |row| row.get(0))
                     .unwrap_or(0);
                 if count as usize > cache_cfg.max_entries {
-                    let to_delete =
-                        (count as usize - cache_cfg.max_entries + cache_cfg.max_entries / 10) as i64;
+                    let to_delete = (count as usize - cache_cfg.max_entries
+                        + cache_cfg.max_entries / 10) as i64;
                     let _ = conn.execute(
                         "DELETE FROM embedding_cache WHERE rowid IN (SELECT rowid FROM embedding_cache ORDER BY created_at ASC LIMIT ?1)",
                         params![to_delete],

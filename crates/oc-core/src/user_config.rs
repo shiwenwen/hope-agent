@@ -91,7 +91,6 @@ pub struct UserConfig {
     pub weather_longitude: Option<f64>,
 }
 
-
 // ── Persistence ──────────────────────────────────────────────────
 
 /// Load user config from ~/.opencomputer/user.json

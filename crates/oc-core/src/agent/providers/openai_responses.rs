@@ -47,8 +47,12 @@ impl AssistantAgent {
             });
 
         // Normalize history in case previous turns were from a different provider (failover / model switch)
-        let mut input =
-            Self::normalize_history_for_responses(&self.conversation_history.lock().unwrap_or_else(|e| e.into_inner()));
+        let mut input = Self::normalize_history_for_responses(
+            &self
+                .conversation_history
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()),
+        );
         let user_content = build_user_content_responses(message, attachments);
         Self::push_user_message(&mut input, user_content);
 
@@ -65,14 +69,11 @@ impl AssistantAgent {
 
         // LLM memory selection: filter to most relevant memories
         let mut system_prompt = system_prompt;
-        self.select_memories_if_needed(&mut system_prompt, message).await;
+        self.select_memories_if_needed(&mut system_prompt, message)
+            .await;
 
         // Save cache-safe params for side_query reuse (prompt cache sharing)
-        self.save_cache_safe_params(
-            system_prompt.clone(),
-            tool_schemas.clone(),
-            input.clone(),
-        );
+        self.save_cache_safe_params(system_prompt.clone(), tool_schemas.clone(), input.clone());
 
         let max_rounds = get_max_tool_rounds();
         let max_rounds = if max_rounds == 0 {
@@ -304,11 +305,8 @@ impl AssistantAgent {
             }
 
             // Estimate current token usage for adaptive tool output sizing
-            let estimated_used = crate::context_compact::estimate_request_tokens(
-                &system_prompt,
-                &input,
-                16384,
-            );
+            let estimated_used =
+                crate::context_compact::estimate_request_tokens(&system_prompt, &input, 16384);
 
             // Execute tools with concurrent-safe tools in parallel, sequential tools in order.
             // Partition tool calls into concurrent-safe and sequential groups.
@@ -352,24 +350,37 @@ impl AssistantAgent {
                     let is_tool_error = result.starts_with("Tool error:");
                     let (clean_result, media_urls) = extract_media_urls(&result);
                     emit_tool_result(
-                        on_delta, &call_id, &name, &clean_result, elapsed_ms,
-                        is_tool_error, &media_urls,
+                        on_delta,
+                        &call_id,
+                        &name,
+                        &clean_result,
+                        elapsed_ms,
+                        is_tool_error,
+                        &media_urls,
                     );
 
                     let (text_output, image_items) = build_responses_tool_result(&clean_result);
 
-                    crate::context_compact::push_and_stamp(&mut input, json!({
-                        "type": "function_call",
-                        "id": call_id,
-                        "call_id": call_id,
-                        "name": name,
-                        "arguments": arguments,
-                    }), round);
-                    crate::context_compact::push_and_stamp(&mut input, json!({
-                        "type": "function_call_output",
-                        "call_id": call_id,
-                        "output": text_output,
-                    }), round);
+                    crate::context_compact::push_and_stamp(
+                        &mut input,
+                        json!({
+                            "type": "function_call",
+                            "id": call_id,
+                            "call_id": call_id,
+                            "name": name,
+                            "arguments": arguments,
+                        }),
+                        round,
+                    );
+                    crate::context_compact::push_and_stamp(
+                        &mut input,
+                        json!({
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": text_output,
+                        }),
+                        round,
+                    );
                     for img_item in image_items {
                         input.push(img_item);
                     }
@@ -395,24 +406,37 @@ impl AssistantAgent {
                 let is_tool_error = result.starts_with("Tool error:");
                 let (clean_result, media_urls) = extract_media_urls(&result);
                 emit_tool_result(
-                    on_delta, &tc.call_id, &tc.name, &clean_result, tool_elapsed_ms,
-                    is_tool_error, &media_urls,
+                    on_delta,
+                    &tc.call_id,
+                    &tc.name,
+                    &clean_result,
+                    tool_elapsed_ms,
+                    is_tool_error,
+                    &media_urls,
                 );
 
                 let (text_output, image_items) = build_responses_tool_result(&clean_result);
 
-                crate::context_compact::push_and_stamp(&mut input, json!({
-                    "type": "function_call",
-                    "id": tc.call_id,
-                    "call_id": tc.call_id,
-                    "name": tc.name,
-                    "arguments": tc.arguments,
-                }), round);
-                crate::context_compact::push_and_stamp(&mut input, json!({
-                    "type": "function_call_output",
-                    "call_id": tc.call_id,
-                    "output": text_output,
-                }), round);
+                crate::context_compact::push_and_stamp(
+                    &mut input,
+                    json!({
+                        "type": "function_call",
+                        "id": tc.call_id,
+                        "call_id": tc.call_id,
+                        "name": tc.name,
+                        "arguments": tc.arguments,
+                    }),
+                    round,
+                );
+                crate::context_compact::push_and_stamp(
+                    &mut input,
+                    json!({
+                        "type": "function_call_output",
+                        "call_id": tc.call_id,
+                        "output": text_output,
+                    }),
+                    round,
+                );
                 for img_item in image_items {
                     input.push(img_item);
                 }
@@ -444,14 +468,21 @@ impl AssistantAgent {
                 "status": "completed"
             }));
         }
-        *self.conversation_history.lock().unwrap_or_else(|e| e.into_inner()) = input;
+        *self
+            .conversation_history
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = input;
 
         // Emit accumulated usage (with TTFT)
         emit_usage(on_delta, &total_usage, model, first_ttft_ms);
 
         // Log chat completion summary
         if let Some(logger) = crate::get_logger() {
-            let history_len = self.conversation_history.lock().unwrap_or_else(|e| e.into_inner()).len();
+            let history_len = self
+                .conversation_history
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .len();
             logger.log(
                 "info",
                 "agent",

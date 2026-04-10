@@ -111,7 +111,7 @@ pub fn markdown_to_qqbot_text(md: &str) -> String {
 
             if found_bracket && chars.peek() == Some(&'(') {
                 chars.next(); // consume (
-                // Skip the URL
+                              // Skip the URL
                 let mut depth = 1;
                 while let Some(c) = chars.next() {
                     if c == '(' {

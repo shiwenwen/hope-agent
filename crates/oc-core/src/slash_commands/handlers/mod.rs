@@ -6,8 +6,8 @@ pub mod session;
 pub mod utility;
 
 use crate::get_memory_backend;
-use crate::slash_commands::types::CommandResult;
 use crate::globals::AppState;
+use crate::slash_commands::types::CommandResult;
 
 /// Dispatch a parsed command to the appropriate handler.
 pub async fn dispatch(
@@ -230,9 +230,8 @@ async fn dispatch_skill_fork(
 ) -> Result<CommandResult, String> {
     use crate::slash_commands::types::CommandAction;
 
-    let parent_session_id = session_id.ok_or_else(|| {
-        "Cannot fork skill: no session context".to_string()
-    })?;
+    let parent_session_id =
+        session_id.ok_or_else(|| "Cannot fork skill: no session context".to_string())?;
 
     // Build task from user args or a default instruction
     let task = if args.is_empty() {
@@ -282,7 +281,8 @@ async fn dispatch_skill_fork(
     Ok(CommandResult {
         content: format!(
             "Skill **{}** forked to sub-agent (run: {}). Result will be injected when complete.",
-            skill.name, &run_id[..8]
+            skill.name,
+            &run_id[..8]
         ),
         action: Some(CommandAction::SkillFork {
             run_id,

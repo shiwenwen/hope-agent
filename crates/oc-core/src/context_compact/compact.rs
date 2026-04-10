@@ -110,10 +110,7 @@ pub fn microcompact(messages: &mut [Value], config: &CompactConfig) -> usize {
 }
 
 /// Extract the tool name for a tool_result message using the tool_use_id→name map.
-fn get_tool_name_for_result(
-    msg: &Value,
-    id_to_name: &HashMap<String, String>,
-) -> Option<String> {
+fn get_tool_name_for_result(msg: &Value, id_to_name: &HashMap<String, String>) -> Option<String> {
     // OpenAI Chat: role=tool with name field directly
     if let Some(name) = msg.get("name").and_then(|n| n.as_str()) {
         return Some(name.to_string());

@@ -104,7 +104,10 @@ impl CronDB {
 
         let notify = input.notify_on_complete.unwrap_or(true);
 
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         conn.execute(
             "INSERT INTO cron_jobs (id, name, description, schedule_json, payload_json, status, next_run_at, max_failures, notify_on_complete, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, 'active', ?6, ?7, ?8, ?9, ?9)",
@@ -147,7 +150,10 @@ impl CronDB {
             job.next_run_at.clone()
         };
 
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         conn.execute(
             "UPDATE cron_jobs SET name=?1, description=?2, schedule_json=?3, payload_json=?4, status=?5, next_run_at=?6, max_failures=?7, notify_on_complete=?8, updated_at=?9
              WHERE id=?10",
@@ -161,14 +167,20 @@ impl CronDB {
 
     /// Delete a job by ID.
     pub fn delete_job(&self, id: &str) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         conn.execute("DELETE FROM cron_jobs WHERE id=?1", params![id])?;
         Ok(())
     }
 
     /// Get a single job by ID.
     pub fn get_job(&self, id: &str) -> Result<Option<CronJob>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
             "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete
              FROM cron_jobs WHERE id=?1"
@@ -183,7 +195,10 @@ impl CronDB {
 
     /// List all jobs.
     pub fn list_jobs(&self) -> Result<Vec<CronJob>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
             "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete
              FROM cron_jobs ORDER BY created_at DESC"
@@ -206,7 +221,10 @@ impl CronDB {
     /// Get all jobs that are due for execution (status=active, not running, next_run_at <= now).
     pub fn get_due_jobs(&self, now: &DateTime<Utc>) -> Result<Vec<CronJob>> {
         let now_str = now.to_rfc3339();
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
             "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete
              FROM cron_jobs WHERE status='active' AND running_at IS NULL AND next_run_at IS NOT NULL AND next_run_at <= ?1"
@@ -226,7 +244,10 @@ impl CronDB {
         let now = Utc::now().to_rfc3339();
         let new_status = if enabled { "active" } else { "paused" };
 
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
 
         // If re-enabling, recompute next_run_at
         if enabled {
@@ -256,7 +277,10 @@ impl CronDB {
         let now = Utc::now();
         let now_str = now.to_rfc3339();
 
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
 
         if success {
             // Success: reset failures, compute next run
@@ -320,7 +344,10 @@ impl CronDB {
 
     /// Add a run log entry. Returns the log ID.
     pub fn add_run_log(&self, log: &CronRunLog) -> Result<i64> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         conn.execute(
             "INSERT INTO cron_run_logs (job_id, session_id, status, started_at, finished_at, duration_ms, result_preview, error)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
@@ -334,7 +361,10 @@ impl CronDB {
 
     /// Get run logs for a job, ordered by most recent first.
     pub fn get_run_logs(&self, job_id: &str, limit: usize) -> Result<Vec<CronRunLog>> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
             "SELECT id, job_id, session_id, status, started_at, finished_at, duration_ms, result_preview, error
              FROM cron_run_logs WHERE job_id=?1 ORDER BY started_at DESC LIMIT ?2"
@@ -458,7 +488,10 @@ impl CronDB {
         let window_start = (*time - Duration::minutes(2)).to_rfc3339();
         let window_end = (*time + Duration::minutes(2)).to_rfc3339();
 
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
             "SELECT id, job_id, session_id, status, started_at, finished_at, duration_ms, result_preview, error
              FROM cron_run_logs WHERE job_id=?1 AND started_at >= ?2 AND started_at <= ?3
@@ -486,7 +519,10 @@ impl CronDB {
 
     /// Mark orphaned runs (started but never finished) as error.
     pub fn recover_orphaned_runs(&self) -> Result<usize> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let count = conn.execute(
             "UPDATE cron_run_logs SET status='error', error='Interrupted by app shutdown', finished_at=datetime('now')
              WHERE finished_at IS NULL",
@@ -500,7 +536,10 @@ impl CronDB {
     pub fn claim_job_for_execution(&self, job: &CronJob) -> Result<bool> {
         let now = Utc::now();
         let now_str = now.to_rfc3339();
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
 
         // Compute next scheduled time
         let next_run = match &job.schedule {
@@ -519,7 +558,10 @@ impl CronDB {
 
     /// Atomically claim a job for execution. Returns `false` if already running.
     pub fn try_mark_running(&self, id: &str) -> Result<bool> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let now = chrono::Utc::now().to_rfc3339();
         let rows = conn.execute(
             "UPDATE cron_jobs SET running_at=?1 WHERE id=?2 AND running_at IS NULL",
@@ -530,7 +572,10 @@ impl CronDB {
 
     /// Clear running_at after job execution completes (called by execute_job).
     pub fn clear_running(&self, id: &str) -> Result<()> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         conn.execute(
             "UPDATE cron_jobs SET running_at=NULL WHERE id=?1",
             params![id],
@@ -540,7 +585,10 @@ impl CronDB {
 
     /// Clear all stale running_at markers (for startup recovery after crash).
     pub fn clear_all_running(&self) -> Result<usize> {
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let count = conn.execute(
             "UPDATE cron_jobs SET running_at=NULL WHERE running_at IS NOT NULL",
             [],
@@ -551,7 +599,10 @@ impl CronDB {
     /// Mark missed one-shot At jobs as 'missed'.
     pub fn mark_missed_at_jobs(&self) -> Result<usize> {
         let now = Utc::now().to_rfc3339();
-        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         // Find active At jobs whose next_run_at is in the past
         let count = conn.execute(
             "UPDATE cron_jobs SET status='missed', updated_at=?1

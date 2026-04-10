@@ -303,9 +303,13 @@ pub async fn exec_in_sandbox(
     };
 
     // Resolve absolute path for the working directory mount
-    let host_cwd = std::path::Path::new(cwd)
-        .canonicalize()
-        .map_err(|e| anyhow::anyhow!("Cannot resolve sandbox working directory '{}': {}. Ensure the path exists.", cwd, e))?;
+    let host_cwd = std::path::Path::new(cwd).canonicalize().map_err(|e| {
+        anyhow::anyhow!(
+            "Cannot resolve sandbox working directory '{}': {}. Ensure the path exists.",
+            cwd,
+            e
+        )
+    })?;
 
     // Validate bind mount path
     validate_bind_mount(&host_cwd)?;
@@ -399,13 +403,16 @@ pub async fn exec_in_sandbox(
     let container_id = container.id.clone();
 
     // Start container
-    if let Err(e) = docker
-        .start_container(&container_id, None)
-        .await
-    {
+    if let Err(e) = docker.start_container(&container_id, None).await {
         // Synchronously clean up the failed container before returning error
         if let Err(cleanup_err) = cleanup_container(&docker, &container_id).await {
-            app_warn!("sandbox", "docker", "Failed to cleanup container {}: {}", crate::truncate_utf8(&container_id, 12), cleanup_err);
+            app_warn!(
+                "sandbox",
+                "docker",
+                "Failed to cleanup container {}: {}",
+                crate::truncate_utf8(&container_id, 12),
+                cleanup_err
+            );
         }
         return Err(anyhow::anyhow!("Failed to start container: {}", e));
     }
@@ -435,10 +442,22 @@ pub async fn exec_in_sandbox(
             app_warn!("sandbox", "docker", "Container wait error: {}", e);
             // Try to stop and cleanup
             if let Err(stop_err) = docker.stop_container(&container_id, None).await {
-                app_warn!("sandbox", "docker", "Failed to stop container {}: {}", crate::truncate_utf8(&container_id, 12), stop_err);
+                app_warn!(
+                    "sandbox",
+                    "docker",
+                    "Failed to stop container {}: {}",
+                    crate::truncate_utf8(&container_id, 12),
+                    stop_err
+                );
             }
             if let Err(cleanup_err) = cleanup_container(&docker, &container_id).await {
-                app_warn!("sandbox", "docker", "Failed to cleanup container {}: {}", crate::truncate_utf8(&container_id, 12), cleanup_err);
+                app_warn!(
+                    "sandbox",
+                    "docker",
+                    "Failed to cleanup container {}: {}",
+                    crate::truncate_utf8(&container_id, 12),
+                    cleanup_err
+                );
             }
             return Err(anyhow::anyhow!("Container execution failed: {}", e));
         }
@@ -460,7 +479,13 @@ pub async fn exec_in_sandbox(
 
     // Cleanup container
     if let Err(e) = cleanup_container(&docker, &container_id).await {
-        app_warn!("sandbox", "docker", "Failed to cleanup container {}: {}", crate::truncate_utf8(&container_id, 12), e);
+        app_warn!(
+            "sandbox",
+            "docker",
+            "Failed to cleanup container {}: {}",
+            crate::truncate_utf8(&container_id, 12),
+            e
+        );
     }
 
     Ok(SandboxResult {

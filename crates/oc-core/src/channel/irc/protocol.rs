@@ -102,8 +102,7 @@ mod tests {
 
     #[test]
     fn test_parse_privmsg() {
-        let msg =
-            parse_irc_line(":nick!user@host PRIVMSG #channel :Hello world").unwrap();
+        let msg = parse_irc_line(":nick!user@host PRIVMSG #channel :Hello world").unwrap();
         assert_eq!(msg.prefix.as_deref(), Some("nick!user@host"));
         assert_eq!(msg.command, "PRIVMSG");
         assert_eq!(msg.params, vec!["#channel", "Hello world"]);
@@ -119,8 +118,7 @@ mod tests {
 
     #[test]
     fn test_parse_welcome() {
-        let msg =
-            parse_irc_line(":server 001 mynick :Welcome to the IRC network").unwrap();
+        let msg = parse_irc_line(":server 001 mynick :Welcome to the IRC network").unwrap();
         assert_eq!(msg.prefix.as_deref(), Some("server"));
         assert_eq!(msg.command, "001");
         assert_eq!(msg.params, vec!["mynick", "Welcome to the IRC network"]);
@@ -169,8 +167,7 @@ mod tests {
 
     #[test]
     fn test_parse_privmsg_dm() {
-        let msg =
-            parse_irc_line(":alice!alice@host PRIVMSG mybot :hi there").unwrap();
+        let msg = parse_irc_line(":alice!alice@host PRIVMSG mybot :hi there").unwrap();
         assert_eq!(msg.command, "PRIVMSG");
         assert_eq!(msg.params, vec!["mybot", "hi there"]);
     }

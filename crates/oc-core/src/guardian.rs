@@ -180,10 +180,9 @@ pub fn run_guardian(child_args: Vec<String>, config: GuardianConfig) -> ! {
                 crash_count += 1;
                 last_crash_time = Some(Instant::now());
 
-                let signal_info =
-                    crate::crash_journal::signal_name_from_exit_code(exit_code)
-                        .map(|s| format!(" ({})", s))
-                        .unwrap_or_default();
+                let signal_info = crate::crash_journal::signal_name_from_exit_code(exit_code)
+                    .map(|s| format!(" ({})", s))
+                    .unwrap_or_default();
 
                 eprintln!(
                     "[Guardian] Crash detected ({}/{}): exit code {}{}",
@@ -217,11 +216,7 @@ pub fn run_guardian(child_args: Vec<String>, config: GuardianConfig) -> ! {
                 // Exponential backoff
                 let delay_idx =
                     (crash_count as usize - 1).min(config.backoff_delays.len().saturating_sub(1));
-                let delay = config
-                    .backoff_delays
-                    .get(delay_idx)
-                    .copied()
-                    .unwrap_or(30);
+                let delay = config.backoff_delays.get(delay_idx).copied().unwrap_or(30);
                 eprintln!("[Guardian] Restarting in {} second(s)...", delay);
                 std::thread::sleep(Duration::from_secs(delay));
             }

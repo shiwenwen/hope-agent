@@ -12,7 +12,9 @@ use crate::cron::{self, CronPayload, CronSchedule, NewCronJob};
 /// to break the type-level recursion: tool_manage_cron → execute_job → agent.chat
 /// → execute_tool_with_context → tool_manage_cron. Without the boxing, the compiler
 /// cannot compute the infinite recursive future type to verify `Send`.
-pub(crate) fn tool_manage_cron(args: &Value) -> Pin<Box<dyn Future<Output = Result<String>> + Send + '_>> {
+pub(crate) fn tool_manage_cron(
+    args: &Value,
+) -> Pin<Box<dyn Future<Output = Result<String>> + Send + '_>> {
     Box::pin(async move {
         let cron_db =
             crate::get_cron_db().ok_or_else(|| anyhow::anyhow!("Cron service not initialized"))?;

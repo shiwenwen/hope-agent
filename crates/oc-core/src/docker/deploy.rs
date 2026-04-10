@@ -3,7 +3,7 @@ use std::sync::atomic::Ordering;
 use tokio::process::Command;
 
 use super::{
-    helpers::*, info, CONTAINER_NAME, DEPLOYING, DEPLOY_PROGRESS, DeployProgress, IMAGE,
+    helpers::*, info, DeployProgress, CONTAINER_NAME, DEPLOYING, DEPLOY_PROGRESS, IMAGE,
     STATUS_LOCK,
 };
 

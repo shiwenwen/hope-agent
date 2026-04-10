@@ -63,11 +63,11 @@ pub struct ListRunsQuery {
 }
 
 /// `GET /api/acp/runs?parent_session_id=...`
-pub async fn list_runs(
-    Query(q): Query<ListRunsQuery>,
-) -> Result<Json<Vec<AcpRun>>, AppError> {
+pub async fn list_runs(Query(q): Query<ListRunsQuery>) -> Result<Json<Vec<AcpRun>>, AppError> {
     if let Some(manager) = oc_core::get_acp_manager() {
-        Ok(Json(manager.list_runs(q.parent_session_id.as_deref()).await))
+        Ok(Json(
+            manager.list_runs(q.parent_session_id.as_deref()).await,
+        ))
     } else if let Some(db) = oc_core::get_session_db() {
         if let Some(pid) = q.parent_session_id {
             Ok(Json(db.list_acp_runs(&pid)?))
@@ -107,9 +107,7 @@ pub async fn get_config() -> Result<Json<AcpControlConfig>, AppError> {
 }
 
 /// `PUT /api/acp/config`
-pub async fn set_config(
-    Json(config): Json<AcpControlConfig>,
-) -> Result<Json<Value>, AppError> {
+pub async fn set_config(Json(config): Json<AcpControlConfig>) -> Result<Json<Value>, AppError> {
     let mut store = oc_core::config::load_config()?;
     store.acp_control = config;
     oc_core::config::save_config(&store)?;

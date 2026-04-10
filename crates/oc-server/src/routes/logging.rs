@@ -42,9 +42,7 @@ pub struct ClearLogsQuery {
 }
 
 /// `POST /api/logs/clear`
-pub async fn clear_logs(
-    Query(q): Query<ClearLogsQuery>,
-) -> Result<Json<Value>, AppError> {
+pub async fn clear_logs(Query(q): Query<ClearLogsQuery>) -> Result<Json<Value>, AppError> {
     let n = app_state()?.log_db.clear(q.before_date.as_deref())?;
     Ok(Json(json!({ "removed": n })))
 }
@@ -75,9 +73,7 @@ pub struct ReadFileQuery {
 }
 
 /// `GET /api/logs/file?filename=...`
-pub async fn read_log_file(
-    Query(q): Query<ReadFileQuery>,
-) -> Result<Json<Value>, AppError> {
+pub async fn read_log_file(Query(q): Query<ReadFileQuery>) -> Result<Json<Value>, AppError> {
     let content = logging::read_log_file(&q.filename, q.tail_lines)?;
     Ok(Json(json!({ "content": content })))
 }
@@ -133,7 +129,11 @@ pub async fn frontend_log_batch(
             .get("level")
             .and_then(|v| v.as_str())
             .unwrap_or("info");
-        let level = if valid.contains(&level) { level } else { "info" };
+        let level = if valid.contains(&level) {
+            level
+        } else {
+            "info"
+        };
         let category = entry
             .get("category")
             .and_then(|v| v.as_str())
@@ -163,15 +163,12 @@ pub struct ExportLogsBody {
 }
 
 /// `POST /api/logs/export`
-pub async fn export_logs(
-    Json(body): Json<ExportLogsBody>,
-) -> Result<Json<Value>, AppError> {
+pub async fn export_logs(Json(body): Json<ExportLogsBody>) -> Result<Json<Value>, AppError> {
     let logs = app_state()?.log_db.export(&body.filter)?;
     let out = match body.format.as_str() {
         "csv" => {
-            let mut csv = String::from(
-                "id,timestamp,level,category,source,message,session_id,agent_id\n",
-            );
+            let mut csv =
+                String::from("id,timestamp,level,category,source,message,session_id,agent_id\n");
             for log in &logs {
                 csv.push_str(&format!(
                     "{},{},{},{},{},\"{}\",{},{}\n",

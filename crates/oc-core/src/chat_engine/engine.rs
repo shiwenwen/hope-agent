@@ -329,12 +329,14 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         let round_messages = agent
                             .get_conversation_history()
                             .len()
-                            .saturating_sub(history_len_before) as u32;
+                            .saturating_sub(history_len_before)
+                            as u32;
                         agent.accumulate_extraction_stats(round_tokens, round_messages);
                     }
 
                     let idle_timeout =
-                        run_memory_extraction_inline(&agent_id, &session_id, model_ref, &agent).await;
+                        run_memory_extraction_inline(&agent_id, &session_id, model_ref, &agent)
+                            .await;
 
                     // Schedule idle extraction if inline didn't trigger (tracking not reset)
                     if idle_timeout > 0 {

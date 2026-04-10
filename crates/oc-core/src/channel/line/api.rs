@@ -146,11 +146,7 @@ impl LineApi {
     }
 
     /// GET /v2/bot/group/{groupId}/member/{userId}/profile - Get group member profile.
-    pub async fn get_group_member_profile(
-        &self,
-        group_id: &str,
-        user_id: &str,
-    ) -> Result<Value> {
+    pub async fn get_group_member_profile(&self, group_id: &str, user_id: &str) -> Result<Value> {
         let url = format!(
             "{}/v2/bot/group/{}/member/{}/profile",
             self.base_url, group_id, user_id

@@ -238,10 +238,7 @@ impl FeishuApi {
 
     /// Update an existing message.
     pub async fn update_message(&self, message_id: &str, text: &str) -> Result<()> {
-        let url = format!(
-            "{}/open-apis/im/v1/messages/{}",
-            self.base_url, message_id
-        );
+        let url = format!("{}/open-apis/im/v1/messages/{}", self.base_url, message_id);
         let content = serde_json::json!({ "text": text }).to_string();
         let body = serde_json::json!({
             "msg_type": "text",
@@ -286,10 +283,7 @@ impl FeishuApi {
 
     /// Delete an existing message.
     pub async fn delete_message(&self, message_id: &str) -> Result<()> {
-        let url = format!(
-            "{}/open-apis/im/v1/messages/{}",
-            self.base_url, message_id
-        );
+        let url = format!("{}/open-apis/im/v1/messages/{}", self.base_url, message_id);
 
         let resp = self
             .authorized_request(reqwest::Method::DELETE, &url)

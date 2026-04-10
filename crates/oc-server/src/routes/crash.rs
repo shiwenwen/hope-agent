@@ -61,9 +61,7 @@ pub struct RestoreBody {
 }
 
 /// `POST /api/crash/backups/restore`
-pub async fn restore_backup(
-    Json(body): Json<RestoreBody>,
-) -> Result<Json<Value>, AppError> {
+pub async fn restore_backup(Json(body): Json<RestoreBody>) -> Result<Json<Value>, AppError> {
     backup::restore_backup(&body.name).map_err(AppError::internal)?;
     Ok(Json(json!({ "restored": true })))
 }
@@ -76,7 +74,9 @@ pub async fn create_backup() -> Result<Json<Value>, AppError> {
 
 /// `GET /api/crash/guardian`
 pub async fn get_guardian_enabled() -> Result<Json<Value>, AppError> {
-    Ok(Json(json!({ "enabled": guardian::get_enabled_from_config()? })))
+    Ok(Json(
+        json!({ "enabled": guardian::get_enabled_from_config()? }),
+    ))
 }
 
 #[derive(serde::Deserialize)]
@@ -85,9 +85,7 @@ pub struct GuardianBody {
 }
 
 /// `PUT /api/crash/guardian`
-pub async fn set_guardian_enabled(
-    Json(body): Json<GuardianBody>,
-) -> Result<Json<Value>, AppError> {
+pub async fn set_guardian_enabled(Json(body): Json<GuardianBody>) -> Result<Json<Value>, AppError> {
     guardian::set_enabled_in_config(body.enabled)?;
     Ok(Json(json!({ "saved": true })))
 }

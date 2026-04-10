@@ -156,8 +156,7 @@ impl IrcClient {
         inbound_tx: mpsc::Sender<MsgContext>,
         cancel: CancellationToken,
     ) -> Result<Self> {
-        let (writer, mut reader) =
-            Self::connect_raw(&creds.server, creds.port, creds.tls).await?;
+        let (writer, mut reader) = Self::connect_raw(&creds.server, creds.port, creds.tls).await?;
 
         // Register with the server
         if let Some(ref pass) = creds.password {
@@ -178,11 +177,8 @@ impl IrcClient {
         // NickServ identification
         if let Some(ref ns_pass) = creds.nickserv_password {
             if !ns_pass.is_empty() {
-                Self::send_raw_with(
-                    &writer,
-                    &format!("PRIVMSG NickServ :IDENTIFY {}", ns_pass),
-                )
-                .await?;
+                Self::send_raw_with(&writer, &format!("PRIVMSG NickServ :IDENTIFY {}", ns_pass))
+                    .await?;
             }
         }
 
@@ -235,12 +231,14 @@ impl IrcClient {
 
         loop {
             if tokio::time::Instant::now() >= deadline {
-                return Err(anyhow!("IRC registration timed out (no RPL_WELCOME within 30s)"));
+                return Err(anyhow!(
+                    "IRC registration timed out (no RPL_WELCOME within 30s)"
+                ));
             }
 
             let mut line_buf = String::new();
-            let read_result = tokio::time::timeout_at(deadline, reader.read_line(&mut line_buf))
-                .await;
+            let read_result =
+                tokio::time::timeout_at(deadline, reader.read_line(&mut line_buf)).await;
 
             match read_result {
                 Ok(Ok(0)) => {
@@ -324,12 +322,23 @@ impl IrcClient {
 
         loop {
             // Read lines from the current connection
-            let disconnect_reason =
-                Self::read_loop(&mut reader, &writer, &account_id, &mut current_nick, &inbound_tx, &cancel)
-                    .await;
+            let disconnect_reason = Self::read_loop(
+                &mut reader,
+                &writer,
+                &account_id,
+                &mut current_nick,
+                &inbound_tx,
+                &cancel,
+            )
+            .await;
 
             if cancel.is_cancelled() {
-                app_info!("channel", "irc", "Event loop cancelled for account '{}'", account_id);
+                app_info!(
+                    "channel",
+                    "irc",
+                    "Event loop cancelled for account '{}'",
+                    account_id
+                );
                 return;
             }
 
@@ -371,7 +380,8 @@ impl IrcClient {
                     // Re-register
                     if let Some(ref pass) = creds.password {
                         if !pass.is_empty() {
-                            let _ = Self::send_raw_with(&new_writer, &format!("PASS {}", pass)).await;
+                            let _ =
+                                Self::send_raw_with(&new_writer, &format!("PASS {}", pass)).await;
                         }
                     }
                     let _ = Self::send_raw_with(&new_writer, &format!("NICK {}", creds.nick)).await;
@@ -518,7 +528,8 @@ impl IrcClient {
                     }
 
                     // Determine chat type and chat_id
-                    let (chat_type, chat_id) = if target.starts_with('#') || target.starts_with('&') {
+                    let (chat_type, chat_id) = if target.starts_with('#') || target.starts_with('&')
+                    {
                         (ChatType::Group, target.to_string())
                     } else {
                         // DM: chat_id is the sender's nick
@@ -526,9 +537,7 @@ impl IrcClient {
                     };
 
                     // Check if bot was mentioned
-                    let was_mentioned = text
-                        .to_lowercase()
-                        .contains(&current_nick.to_lowercase());
+                    let was_mentioned = text.to_lowercase().contains(&current_nick.to_lowercase());
 
                     let msg_ctx = MsgContext {
                         channel_id: ChannelId::Irc,
@@ -623,8 +632,7 @@ impl IrcClient {
     /// Probe an IRC server by connecting and waiting for RPL_WELCOME.
     /// Returns the confirmed nick on success.
     pub async fn probe(creds: &IrcCredentials) -> Result<String> {
-        let (writer, mut reader) =
-            Self::connect_raw(&creds.server, creds.port, creds.tls).await?;
+        let (writer, mut reader) = Self::connect_raw(&creds.server, creds.port, creds.tls).await?;
 
         if let Some(ref pass) = creds.password {
             if !pass.is_empty() {

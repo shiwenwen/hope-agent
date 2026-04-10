@@ -29,12 +29,10 @@ impl ChatStreamRegistry {
     /// Returns a receiver for new subscribers.
     pub async fn subscribe(&self, session_id: &str) -> broadcast::Receiver<String> {
         let mut map = self.sessions.write().await;
-        let tx = map
-            .entry(session_id.to_string())
-            .or_insert_with(|| {
-                let (tx, _) = broadcast::channel(256);
-                tx
-            });
+        let tx = map.entry(session_id.to_string()).or_insert_with(|| {
+            let (tx, _) = broadcast::channel(256);
+            tx
+        });
         tx.subscribe()
     }
 

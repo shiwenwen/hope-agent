@@ -48,8 +48,15 @@ pub async fn run_extraction(
     model_id: &str,
     main_agent: Option<&AssistantAgent>,
 ) {
-    if let Err(e) =
-        do_extraction(messages, agent_id, session_id, provider_config, model_id, main_agent).await
+    if let Err(e) = do_extraction(
+        messages,
+        agent_id,
+        session_id,
+        provider_config,
+        model_id,
+        main_agent,
+    )
+    .await
     {
         app_warn!("memory", "auto_extract", "Extraction failed: {}", e);
     }
@@ -553,7 +560,15 @@ async fn run_idle_extraction(agent_id: &str, session_id: &str, expected_updated_
             session_id,
             agent_id
         );
-        run_extraction(&history, agent_id, session_id, prov, &extract_model_id, None).await;
+        run_extraction(
+            &history,
+            agent_id,
+            session_id,
+            prov,
+            &extract_model_id,
+            None,
+        )
+        .await;
     }
 }
 

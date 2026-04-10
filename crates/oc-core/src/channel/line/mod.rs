@@ -59,9 +59,7 @@ impl LinePlugin {
             .and_then(|v| v.as_str())
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| {
-                anyhow::anyhow!("Missing 'channelAccessToken' in LINE credentials")
-            })
+            .ok_or_else(|| anyhow::anyhow!("Missing 'channelAccessToken' in LINE credentials"))
     }
 
     /// Extract channel secret from credentials JSON.
@@ -85,10 +83,7 @@ impl LinePlugin {
     }
 
     /// Get the API and reply token store for a running account.
-    async fn get_account_state(
-        &self,
-        account_id: &str,
-    ) -> Result<(Arc<LineApi>, ReplyTokenStore)> {
+    async fn get_account_state(&self, account_id: &str) -> Result<(Arc<LineApi>, ReplyTokenStore)> {
         let accounts = self.accounts.lock().await;
         accounts
             .get(account_id)
@@ -188,13 +183,7 @@ impl ChannelPlugin for LinePlugin {
         // Store running account
         {
             let mut accounts = self.accounts.lock().await;
-            accounts.insert(
-                account.id.clone(),
-                RunningAccount {
-                    api,
-                    reply_tokens,
-                },
-            );
+            accounts.insert(account.id.clone(), RunningAccount { api, reply_tokens });
         }
 
         Ok(())
@@ -212,12 +201,7 @@ impl ChannelPlugin for LinePlugin {
             ws.unregister_handler("line", account_id).await;
         }
 
-        app_info!(
-            "channel",
-            "line",
-            "Stopped account '{}'",
-            account_id
-        );
+        app_info!("channel", "line", "Stopped account '{}'", account_id);
         Ok(())
     }
 
@@ -307,12 +291,7 @@ impl ChannelPlugin for LinePlugin {
 
         // Fall back to push API
         api.push_message(chat_id, messages).await?;
-        app_debug!(
-            "channel",
-            "line",
-            "Pushed message to chat {}",
-            chat_id
-        );
+        app_debug!("channel", "line", "Pushed message to chat {}", chat_id);
         Ok(DeliveryResult::ok("push"))
     }
 
@@ -353,11 +332,7 @@ impl ChannelPlugin for LinePlugin {
     }
 
     fn check_access(&self, account: &ChannelAccountConfig, msg: &MsgContext) -> bool {
-        crate::channel::traits::default_check_access(
-            account,
-            msg,
-            &[ChatType::Dm, ChatType::Group],
-        )
+        crate::channel::traits::default_check_access(account, msg, &[ChatType::Dm, ChatType::Group])
     }
 
     fn markdown_to_native(&self, markdown: &str) -> String {

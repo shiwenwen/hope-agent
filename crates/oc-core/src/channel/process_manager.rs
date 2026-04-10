@@ -26,7 +26,12 @@ impl ManagedProcess {
             .stderr(Stdio::piped())
             .kill_on_drop(true)
             .spawn()
-            .with_context(|| format!("Failed to spawn '{}'. Is it installed and in your PATH?", program))?;
+            .with_context(|| {
+                format!(
+                    "Failed to spawn '{}'. Is it installed and in your PATH?",
+                    program
+                )
+            })?;
 
         let stdout = child.stdout.take().expect("stdout piped");
         let stderr = child.stderr.take().expect("stderr piped");

@@ -23,7 +23,8 @@ pub(super) fn convert_inbound_media_to_attachments(
         let Some(ref file_url) = m.file_url else {
             continue;
         };
-        let persisted_path = persist_channel_media_to_session(session_att_dir.as_deref(), m, file_url);
+        let persisted_path =
+            persist_channel_media_to_session(session_att_dir.as_deref(), m, file_url);
         let effective_path = persisted_path.as_deref().unwrap_or(file_url);
         let mime = m
             .mime_type

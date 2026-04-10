@@ -11,9 +11,7 @@ pub struct WriteExportBody {
 }
 
 /// `POST /api/misc/write-export-file`
-pub async fn write_export_file(
-    Json(body): Json<WriteExportBody>,
-) -> Result<Json<Value>, AppError> {
+pub async fn write_export_file(Json(body): Json<WriteExportBody>) -> Result<Json<Value>, AppError> {
     std::fs::write(&body.path, body.content)
         .map_err(|e| AppError::internal(format!("Failed to write export file: {}", e)))?;
     Ok(Json(json!({ "ok": true })))

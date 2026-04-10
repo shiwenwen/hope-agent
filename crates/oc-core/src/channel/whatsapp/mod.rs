@@ -116,9 +116,7 @@ impl ChannelPlugin for WhatsAppPlugin {
         if !health.connected {
             return Err(anyhow::anyhow!(
                 "WhatsApp bridge is not connected: {}",
-                health
-                    .error
-                    .unwrap_or_else(|| "unknown error".to_string())
+                health.error.unwrap_or_else(|| "unknown error".to_string())
             ));
         }
 
@@ -211,9 +209,7 @@ impl ChannelPlugin for WhatsAppPlugin {
                 probe_ok: Some(health.connected),
                 error: health.error,
                 uptime_secs: None,
-                bot_name: health
-                    .account_name
-                    .or(health.phone),
+                bot_name: health.account_name.or(health.phone),
             }),
             Err(err) => Ok(ChannelHealth {
                 is_running: false,
@@ -227,11 +223,7 @@ impl ChannelPlugin for WhatsAppPlugin {
     }
 
     fn check_access(&self, account: &ChannelAccountConfig, msg: &MsgContext) -> bool {
-        crate::channel::traits::default_check_access(
-            account,
-            msg,
-            &[ChatType::Dm, ChatType::Group],
-        )
+        crate::channel::traits::default_check_access(account, msg, &[ChatType::Dm, ChatType::Group])
     }
 
     fn markdown_to_native(&self, markdown: &str) -> String {
@@ -251,9 +243,7 @@ impl ChannelPlugin for WhatsAppPlugin {
         if !health.connected {
             return Err(anyhow::anyhow!(
                 "WhatsApp bridge is not connected: {}",
-                health
-                    .error
-                    .unwrap_or_else(|| "unknown error".to_string())
+                health.error.unwrap_or_else(|| "unknown error".to_string())
             ));
         }
 

@@ -321,9 +321,11 @@ impl AcpRuntime for StdioAcpRuntime {
 
         loop {
             if cancel.load(Ordering::Relaxed) {
-                let _ = event_tx.send(AcpStreamEvent::Done {
-                    stop_reason: "cancelled".into(),
-                }).await;
+                let _ = event_tx
+                    .send(AcpStreamEvent::Done {
+                        stop_reason: "cancelled".into(),
+                    })
+                    .await;
                 return Ok(AcpTurnResult {
                     stop_reason: "cancelled".into(),
                     response_text: accumulated_text,
@@ -364,9 +366,11 @@ impl AcpRuntime for StdioAcpRuntime {
                         .unwrap_or("end_turn")
                         .to_string();
                 }
-                let _ = event_tx.send(AcpStreamEvent::Done {
-                    stop_reason: stop_reason.clone(),
-                }).await;
+                let _ = event_tx
+                    .send(AcpStreamEvent::Done {
+                        stop_reason: stop_reason.clone(),
+                    })
+                    .await;
                 break;
             }
 
@@ -387,9 +391,11 @@ impl AcpRuntime for StdioAcpRuntime {
                                     .and_then(|t| t.as_str())
                                 {
                                     accumulated_text.push_str(text);
-                                    let _ = event_tx.send(AcpStreamEvent::TextDelta {
-                                        content: text.to_string(),
-                                    }).await;
+                                    let _ = event_tx
+                                        .send(AcpStreamEvent::TextDelta {
+                                            content: text.to_string(),
+                                        })
+                                        .await;
                                 }
                             }
                             "agent_thought_chunk" => {
@@ -398,9 +404,11 @@ impl AcpRuntime for StdioAcpRuntime {
                                     .and_then(|c| c.get("text"))
                                     .and_then(|t| t.as_str())
                                 {
-                                    let _ = event_tx.send(AcpStreamEvent::ThinkingDelta {
-                                        content: text.to_string(),
-                                    }).await;
+                                    let _ = event_tx
+                                        .send(AcpStreamEvent::ThinkingDelta {
+                                            content: text.to_string(),
+                                        })
+                                        .await;
                                 }
                             }
                             "tool_call" => {
@@ -420,12 +428,14 @@ impl AcpRuntime for StdioAcpRuntime {
                                     .unwrap_or("in_progress")
                                     .to_string();
 
-                                let _ = event_tx.send(AcpStreamEvent::ToolCall {
-                                    tool_call_id: call_id.clone(),
-                                    name: name.clone(),
-                                    status: status.clone(),
-                                    arguments: None,
-                                }).await;
+                                let _ = event_tx
+                                    .send(AcpStreamEvent::ToolCall {
+                                        tool_call_id: call_id.clone(),
+                                        name: name.clone(),
+                                        status: status.clone(),
+                                        arguments: None,
+                                    })
+                                    .await;
 
                                 if status == "in_progress" {
                                     tool_calls.push(AcpToolCallSummary {
@@ -455,11 +465,13 @@ impl AcpRuntime for StdioAcpRuntime {
                                     .and_then(|t| t.as_str())
                                     .map(|s| crate::truncate_utf8(s, 2048).to_string());
 
-                                let _ = event_tx.send(AcpStreamEvent::ToolResult {
-                                    tool_call_id: call_id,
-                                    status,
-                                    result_preview: preview,
-                                }).await;
+                                let _ = event_tx
+                                    .send(AcpStreamEvent::ToolResult {
+                                        tool_call_id: call_id,
+                                        status,
+                                        result_preview: preview,
+                                    })
+                                    .await;
                             }
                             "usage_update" => {
                                 let input = update
@@ -472,10 +484,12 @@ impl AcpRuntime for StdioAcpRuntime {
                                     .unwrap_or(0);
                                 total_input = input;
                                 total_output = output;
-                                let _ = event_tx.send(AcpStreamEvent::Usage {
-                                    input_tokens: input,
-                                    output_tokens: output,
-                                }).await;
+                                let _ = event_tx
+                                    .send(AcpStreamEvent::Usage {
+                                        input_tokens: input,
+                                        output_tokens: output,
+                                    })
+                                    .await;
                             }
                             _ => {}
                         }

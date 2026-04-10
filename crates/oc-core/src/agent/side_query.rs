@@ -42,11 +42,7 @@ impl AssistantAgent {
     /// - Non-streaming, single-turn, no tool loop, no compaction
     /// - Falls back to a minimal request if no cache-safe params are available
     /// - Returns response text + usage metrics (including cache hit info)
-    pub async fn side_query(
-        &self,
-        instruction: &str,
-        max_tokens: u32,
-    ) -> Result<SideQueryResult> {
+    pub async fn side_query(&self, instruction: &str, max_tokens: u32) -> Result<SideQueryResult> {
         let client =
             crate::provider::apply_proxy(reqwest::Client::builder().user_agent(&self.user_agent))
                 .build()
@@ -262,9 +258,7 @@ impl AssistantAgent {
         cached: Option<&CacheSafeParams>,
         expected_format: ProviderFormat,
     ) -> Result<SideQueryResult> {
-        let body = if let Some(params) =
-            cached.filter(|p| p.provider_format == expected_format)
-        {
+        let body = if let Some(params) = cached.filter(|p| p.provider_format == expected_format) {
             // Tools included for prefix alignment
             let mut input = params.conversation_history.clone();
             Self::push_user_message(&mut input, json!(instruction));
@@ -373,9 +367,7 @@ fn extract_responses_text(result: &serde_json::Value) -> String {
                 .filter(|item| item.get("type").and_then(|t| t.as_str()) == Some("message"))
                 .filter_map(|item| item.get("content").and_then(|c| c.as_array()))
                 .flat_map(|blocks| blocks.iter())
-                .filter(|block| {
-                    block.get("type").and_then(|t| t.as_str()) == Some("output_text")
-                })
+                .filter(|block| block.get("type").and_then(|t| t.as_str()) == Some("output_text"))
                 .filter_map(|block| block.get("text").and_then(|t| t.as_str()))
                 .collect::<Vec<_>>()
                 .join("")

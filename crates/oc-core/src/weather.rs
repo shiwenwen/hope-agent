@@ -440,7 +440,10 @@ pub async fn refresh_weather_cache() {
 
             // Notify frontend about weather cache update
             if let Some(bus) = crate::get_event_bus() {
-                bus.emit("weather-cache-updated", serde_json::to_value(&resp.current).unwrap_or_default());
+                bus.emit(
+                    "weather-cache-updated",
+                    serde_json::to_value(&resp.current).unwrap_or_default(),
+                );
             }
         }
         Err(e) => {
@@ -493,7 +496,10 @@ pub async fn force_refresh_weather() -> Result<Option<WeatherData>> {
 
     // Notify frontend about weather cache update
     if let Some(bus) = crate::get_event_bus() {
-        bus.emit("weather-cache-updated", serde_json::to_value(&resp.current).unwrap_or_default());
+        bus.emit(
+            "weather-cache-updated",
+            serde_json::to_value(&resp.current).unwrap_or_default(),
+        );
     }
 
     Ok(Some(resp.current))

@@ -423,11 +423,7 @@ impl MemoryBackend for SqliteMemoryBackend {
     /// Load candidate memories for prompt injection.
     /// Returns agent-scoped + optionally global memories, ordered by updated_at DESC.
     /// Used directly by `build_prompt_summary` and by LLM memory selection.
-    fn load_prompt_candidates(
-        &self,
-        agent_id: &str,
-        shared: bool,
-    ) -> Result<Vec<MemoryEntry>> {
+    fn load_prompt_candidates(&self, agent_id: &str, shared: bool) -> Result<Vec<MemoryEntry>> {
         let mut all_memories = Vec::new();
 
         // Agent-scoped memories
@@ -742,7 +738,10 @@ impl MemoryBackend for SqliteMemoryBackend {
     }
 
     fn has_embedder(&self) -> bool {
-        self.embedder.read().unwrap_or_else(|e| e.into_inner()).is_some()
+        self.embedder
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_some()
     }
 }
 

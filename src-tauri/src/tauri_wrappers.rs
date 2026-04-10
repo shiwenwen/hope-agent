@@ -91,7 +91,9 @@ pub async fn get_canvas_config() -> Result<oc_core::tools::canvas::CanvasConfig,
 }
 
 #[tauri::command]
-pub async fn save_canvas_config(config: oc_core::tools::canvas::CanvasConfig) -> Result<(), String> {
+pub async fn save_canvas_config(
+    config: oc_core::tools::canvas::CanvasConfig,
+) -> Result<(), String> {
     oc_core::tools::canvas::save_canvas_config(config).await
 }
 

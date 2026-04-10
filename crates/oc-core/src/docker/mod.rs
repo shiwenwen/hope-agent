@@ -1,12 +1,12 @@
-mod status;
 mod deploy;
-mod lifecycle;
 mod helpers;
+mod lifecycle;
 mod proxy;
+mod status;
 
-pub use status::*;
 pub use deploy::*;
 pub use lifecycle::*;
+pub use status::*;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -51,7 +51,11 @@ pub(crate) fn get_deploy_progress() -> (bool, Option<String>, Vec<String>) {
         return (false, None, vec![]);
     }
     let guard = DEPLOY_PROGRESS.lock().unwrap_or_else(|e| {
-        app_warn!("docker", "deploy", "DEPLOY_PROGRESS lock poisoned, recovering");
+        app_warn!(
+            "docker",
+            "deploy",
+            "DEPLOY_PROGRESS lock poisoned, recovering"
+        );
         e.into_inner()
     });
     (true, guard.step.clone(), guard.logs.clone())

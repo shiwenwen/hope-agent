@@ -194,10 +194,7 @@ impl ChannelPlugin for DiscordPlugin {
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("Missing 'id' in Discord user response"))?
             .to_string();
-        let bot_username = me["username"]
-            .as_str()
-            .unwrap_or("unknown")
-            .to_string();
+        let bot_username = me["username"].as_str().unwrap_or("unknown").to_string();
 
         // Get application ID from the bot user object
         // The bot's user ID is also the application ID for bot applications
@@ -303,19 +300,10 @@ impl ChannelPlugin for DiscordPlugin {
             }
 
             let msg = api
-                .create_message(
-                    chat_id,
-                    text,
-                    reply_to,
-                    thread_id,
-                    components.as_deref(),
-                )
+                .create_message(chat_id, text, reply_to, thread_id, components.as_deref())
                 .await?;
 
-            let msg_id = msg["id"]
-                .as_str()
-                .unwrap_or("unknown")
-                .to_string();
+            let msg_id = msg["id"].as_str().unwrap_or("unknown").to_string();
             return Ok(DeliveryResult::ok(msg_id));
         }
 
@@ -492,9 +480,7 @@ impl ChannelPlugin for DiscordPlugin {
         let token = Self::extract_token(credentials)?;
         let api = DiscordApi::new(&token, None);
         let me = api.get_current_user().await?;
-        let username = me["username"]
-            .as_str()
-            .unwrap_or("unknown");
+        let username = me["username"].as_str().unwrap_or("unknown");
         Ok(username.to_string())
     }
 }

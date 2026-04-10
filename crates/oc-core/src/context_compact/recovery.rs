@@ -19,10 +19,10 @@ use super::config::CompactConfig;
 /// Primary names reference constants from `crate::tools`; aliases match the dispatcher.
 const FILE_WRITE_TOOLS: &[&str] = &[
     crate::tools::TOOL_WRITE,       // "write"
-    "write_file",                    // alias accepted by dispatcher
-    crate::tools::TOOL_EDIT,         // "edit"
-    "patch_file",                    // alias accepted by dispatcher
-    crate::tools::TOOL_APPLY_PATCH,  // "apply_patch"
+    "write_file",                   // alias accepted by dispatcher
+    crate::tools::TOOL_EDIT,        // "edit"
+    "patch_file",                   // alias accepted by dispatcher
+    crate::tools::TOOL_APPLY_PATCH, // "apply_patch"
 ];
 
 /// Max total bytes for all recovery content (~25K tokens).
@@ -112,10 +112,7 @@ pub fn build_recovery_message(
                     break;
                 }
 
-                recovery_parts.push(format!(
-                    "<file path=\"{}\">\n{}\n</file>",
-                    path, truncated
-                ));
+                recovery_parts.push(format!("<file path=\"{}\">\n{}\n</file>", path, truncated));
                 total_chars += truncated.len() + overhead;
             }
             Err(_) => {

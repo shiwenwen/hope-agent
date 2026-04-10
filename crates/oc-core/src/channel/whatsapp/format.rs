@@ -85,10 +85,7 @@ mod tests {
 
     #[test]
     fn test_strips_images() {
-        assert_eq!(
-            markdown_to_whatsapp("![alt](https://img.png)"),
-            ""
-        );
+        assert_eq!(markdown_to_whatsapp("![alt](https://img.png)"), "");
     }
 
     #[test]

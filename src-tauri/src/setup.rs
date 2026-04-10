@@ -96,9 +96,9 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
             let db_path = session::db_path().expect("session db path");
             Arc::new(SessionDB::open(&db_path).expect("open session db"))
         });
-        let event_bus = oc_core::get_event_bus().cloned().unwrap_or_else(|| {
-            Arc::new(oc_core::event_bus::BroadcastEventBus::new(256))
-        });
+        let event_bus = oc_core::get_event_bus()
+            .cloned()
+            .unwrap_or_else(|| Arc::new(oc_core::event_bus::BroadcastEventBus::new(256)));
         let ctx = Arc::new(oc_server::AppContext {
             session_db,
             event_bus,
@@ -152,15 +152,12 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
             } else {
                 binding.keys.clone()
             };
-            if let Ok(shortcut) =
-                key_to_register.parse::<tauri_plugin_global_shortcut::Shortcut>()
+            if let Ok(shortcut) = key_to_register.parse::<tauri_plugin_global_shortcut::Shortcut>()
             {
                 if let Err(e) = app.global_shortcut().register(shortcut) {
                     eprintln!(
                         "[setup] Failed to register shortcut '{}' ({}): {}",
-                        binding.id,
-                        key_to_register,
-                        e
+                        binding.id, key_to_register, e
                     );
                 }
             }

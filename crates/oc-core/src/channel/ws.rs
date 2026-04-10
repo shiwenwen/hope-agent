@@ -22,10 +22,7 @@ impl WsConnection {
     }
 
     /// Connect with custom HTTP headers (e.g. Authorization).
-    pub async fn connect_with_headers(
-        url: &str,
-        headers: Vec<(&str, &str)>,
-    ) -> Result<Self> {
+    pub async fn connect_with_headers(url: &str, headers: Vec<(&str, &str)>) -> Result<Self> {
         let mut builder = Request::builder().uri(url);
         for (key, value) in headers {
             builder = builder.header(key, value);

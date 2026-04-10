@@ -189,7 +189,9 @@ impl LogDB {
         let count_sql = format!("SELECT COUNT(*) FROM logs {}", where_sql);
         let params_ref: Vec<&dyn rusqlite::types::ToSql> =
             param_values.iter().map(|p| p.as_ref()).collect();
-        let total: u64 = conn.query_row(&count_sql, params_ref.as_slice(), |row| crate::sql_u64(row, 0))?;
+        let total: u64 = conn.query_row(&count_sql, params_ref.as_slice(), |row| {
+            crate::sql_u64(row, 0)
+        })?;
 
         // Query page
         let offset = (page.saturating_sub(1)) * page_size;
@@ -234,7 +236,9 @@ impl LogDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
-        let total: u64 = conn.query_row("SELECT COUNT(*) FROM logs", [], |row| crate::sql_u64(row, 0))?;
+        let total: u64 = conn.query_row("SELECT COUNT(*) FROM logs", [], |row| {
+            crate::sql_u64(row, 0)
+        })?;
 
         let mut by_level = HashMap::new();
         {

@@ -199,7 +199,9 @@ async fn action_update(args: &Value) -> Result<String> {
     let language = args.get("language").and_then(|v| v.as_str());
     let version_message = args.get("version_message").and_then(|v| v.as_str());
 
-    let max_versions = crate::config::cached_config().canvas.max_versions_per_project;
+    let max_versions = crate::config::cached_config()
+        .canvas
+        .max_versions_per_project;
 
     let project = project::update_project(
         &db,

@@ -210,7 +210,10 @@ impl QqBotApi {
                 }),
             )
         } else {
-            return Err(anyhow!("Keyboard buttons not supported for this QQ Bot chat type: {}", crate::truncate_utf8(chat_id, 100)));
+            return Err(anyhow!(
+                "Keyboard buttons not supported for this QQ Bot chat type: {}",
+                crate::truncate_utf8(chat_id, 100)
+            ));
         };
 
         if let Some(id) = msg_id {

@@ -40,8 +40,12 @@ impl AssistantAgent {
         let tool_schemas = self.build_tool_schemas(ToolProvider::OpenAI);
 
         // Normalize history in case previous turns were from a different provider (failover / model switch)
-        let mut messages =
-            Self::normalize_history_for_chat(&self.conversation_history.lock().unwrap_or_else(|e| e.into_inner()));
+        let mut messages = Self::normalize_history_for_chat(
+            &self
+                .conversation_history
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()),
+        );
         let user_content = build_user_content_openai_chat(message, attachments);
         Self::push_user_message(&mut messages, user_content);
 
@@ -59,7 +63,8 @@ impl AssistantAgent {
 
         // LLM memory selection: filter to most relevant memories
         let mut system_prompt = system_prompt;
-        self.select_memories_if_needed(&mut system_prompt, message).await;
+        self.select_memories_if_needed(&mut system_prompt, message)
+            .await;
 
         // Save cache-safe params for side_query reuse (prompt cache sharing)
         self.save_cache_safe_params(
@@ -321,11 +326,8 @@ impl AssistantAgent {
             crate::context_compact::push_and_stamp(&mut messages, assistant_msg, round);
 
             // Estimate current token usage for adaptive tool output sizing
-            let estimated_used = crate::context_compact::estimate_request_tokens(
-                &system_prompt,
-                &messages,
-                16384,
-            );
+            let estimated_used =
+                crate::context_compact::estimate_request_tokens(&system_prompt, &messages, 16384);
 
             // Execute tools with concurrent-safe tools in parallel, sequential tools in order.
             // Partition tool calls into concurrent-safe and sequential groups.
@@ -369,14 +371,23 @@ impl AssistantAgent {
                     let is_tool_error = result.starts_with("Tool error:");
                     let (clean_result, media_urls) = extract_media_urls(&result);
                     emit_tool_result(
-                        on_delta, &call_id, &name, &clean_result, elapsed_ms,
-                        is_tool_error, &media_urls,
+                        on_delta,
+                        &call_id,
+                        &name,
+                        &clean_result,
+                        elapsed_ms,
+                        is_tool_error,
+                        &media_urls,
                     );
-                    crate::context_compact::push_and_stamp(&mut messages, json!({
-                        "role": "tool",
-                        "tool_call_id": call_id,
-                        "content": build_openai_chat_tool_result_content(&clean_result),
-                    }), round);
+                    crate::context_compact::push_and_stamp(
+                        &mut messages,
+                        json!({
+                            "role": "tool",
+                            "tool_call_id": call_id,
+                            "content": build_openai_chat_tool_result_content(&clean_result),
+                        }),
+                        round,
+                    );
                 }
             }
 
@@ -399,15 +410,24 @@ impl AssistantAgent {
                 let is_tool_error = result.starts_with("Tool error:");
                 let (clean_result, media_urls) = extract_media_urls(&result);
                 emit_tool_result(
-                    on_delta, &tc.call_id, &tc.name, &clean_result, tool_elapsed_ms,
-                    is_tool_error, &media_urls,
+                    on_delta,
+                    &tc.call_id,
+                    &tc.name,
+                    &clean_result,
+                    tool_elapsed_ms,
+                    is_tool_error,
+                    &media_urls,
                 );
 
-                crate::context_compact::push_and_stamp(&mut messages, json!({
-                    "role": "tool",
-                    "tool_call_id": tc.call_id,
-                    "content": build_openai_chat_tool_result_content(&clean_result),
-                }), round);
+                crate::context_compact::push_and_stamp(
+                    &mut messages,
+                    json!({
+                        "role": "tool",
+                        "tool_call_id": tc.call_id,
+                        "content": build_openai_chat_tool_result_content(&clean_result),
+                    }),
+                    round,
+                );
             }
 
             // Track manual memory writes for extraction mutual exclusion
@@ -433,14 +453,21 @@ impl AssistantAgent {
             }
             messages.push(final_msg);
         }
-        *self.conversation_history.lock().unwrap_or_else(|e| e.into_inner()) = messages;
+        *self
+            .conversation_history
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = messages;
 
         // Emit accumulated usage (with TTFT)
         emit_usage(on_delta, &total_usage, model, first_ttft_ms);
 
         // Log chat completion summary
         if let Some(logger) = crate::get_logger() {
-            let history_len = self.conversation_history.lock().unwrap_or_else(|e| e.into_inner()).len();
+            let history_len = self
+                .conversation_history
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .len();
             logger.log(
                 "info",
                 "agent",

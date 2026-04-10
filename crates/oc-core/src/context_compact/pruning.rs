@@ -112,8 +112,7 @@ pub fn prune_old_context(
     }
 
     // Step 4: Collect prunable tool results, sorted by priority (highest first)
-    let mut prunable =
-        collect_prunable_tool_results(messages, prune_start, cutoff, config);
+    let mut prunable = collect_prunable_tool_results(messages, prune_start, cutoff, config);
     let total_msgs = messages.len();
     prunable.sort_by(|a, b| {
         let pa = prune_priority(a.msg_index, total_msgs, a.content_chars);

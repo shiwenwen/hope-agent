@@ -1,12 +1,12 @@
 use crate::acp_control;
 use crate::agent::AssistantAgent;
 use crate::channel;
+use crate::config::AppConfig;
 use crate::cron;
 use crate::event_bus::EventBus;
 use crate::logging::{AppLogger, LogDB};
 use crate::memory;
 use crate::oauth::TokenData;
-use crate::config::AppConfig;
 use crate::session::SessionDB;
 use crate::subagent;
 
@@ -28,16 +28,13 @@ pub static ACP_MANAGER: std::sync::OnceLock<Arc<acp_control::AcpSessionManager>>
     std::sync::OnceLock::new();
 pub static CHANNEL_REGISTRY: std::sync::OnceLock<Arc<channel::ChannelRegistry>> =
     std::sync::OnceLock::new();
-pub static CHANNEL_DB: std::sync::OnceLock<Arc<channel::ChannelDB>> =
-    std::sync::OnceLock::new();
+pub static CHANNEL_DB: std::sync::OnceLock<Arc<channel::ChannelDB>> = std::sync::OnceLock::new();
 pub static APP_STATE: std::sync::OnceLock<Arc<AppState>> = std::sync::OnceLock::new();
 
 /// Registry for idle extraction delayed tasks, keyed by session_id.
 /// Each entry holds (AbortHandle, agent_id, updated_at_snapshot) for deferred extraction.
 pub static IDLE_EXTRACT_HANDLES: std::sync::OnceLock<
-    std::sync::Mutex<
-        std::collections::HashMap<String, (tokio::task::AbortHandle, String, String)>,
-    >,
+    std::sync::Mutex<std::collections::HashMap<String, (tokio::task::AbortHandle, String, String)>>,
 > = std::sync::OnceLock::new();
 
 // ── Accessor functions ─────────────────────────────────────────
@@ -59,7 +56,9 @@ pub fn set_event_bus(bus: Arc<dyn EventBus>) {
 
 /// Deprecated: returns `None` unconditionally.
 /// Callers should migrate to `get_event_bus()` + `EventBus::emit()`.
-#[deprecated(note = "Use get_event_bus() instead — Tauri AppHandle is no longer available in oc-core")]
+#[deprecated(
+    note = "Use get_event_bus() instead — Tauri AppHandle is no longer available in oc-core"
+)]
 pub fn get_app_handle() -> Option<&'static Arc<dyn EventBus>> {
     None
 }

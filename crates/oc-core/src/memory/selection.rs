@@ -60,10 +60,7 @@ pub(crate) fn parse_selection_response(response: &str) -> Vec<i64> {
 
     // Parse as JSON array of numbers
     match serde_json::from_str::<Vec<serde_json::Value>>(json_str) {
-        Ok(arr) => arr
-            .iter()
-            .filter_map(|v| v.as_i64())
-            .collect(),
+        Ok(arr) => arr.iter().filter_map(|v| v.as_i64()).collect(),
         Err(_) => Vec::new(),
     }
 }
@@ -108,10 +105,7 @@ mod tests {
 
     #[test]
     fn test_parse_selection_response_with_markdown() {
-        assert_eq!(
-            parse_selection_response("```json\n[5, 2]\n```"),
-            vec![5, 2]
-        );
+        assert_eq!(parse_selection_response("```json\n[5, 2]\n```"), vec![5, 2]);
     }
 
     #[test]

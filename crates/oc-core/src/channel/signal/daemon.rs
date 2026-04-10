@@ -61,7 +61,7 @@ impl SignalDaemon {
     pub fn is_running(&mut self) -> bool {
         match self.process {
             Some(ref mut p) => match p.try_wait() {
-                Ok(None) => true,   // still running
+                Ok(None) => true,     // still running
                 Ok(Some(_)) => false, // exited
                 Err(_) => false,
             },
@@ -72,7 +72,12 @@ impl SignalDaemon {
     /// Graceful shutdown: SIGTERM, wait up to 5s, then SIGKILL.
     pub async fn stop(&mut self) {
         if let Some(ref mut process) = self.process {
-            app_info!("channel", "signal-daemon", "Stopping signal-cli daemon on port {}", self.port);
+            app_info!(
+                "channel",
+                "signal-daemon",
+                "Stopping signal-cli daemon on port {}",
+                self.port
+            );
             process.shutdown(Duration::from_secs(5)).await;
         }
         self.process = None;

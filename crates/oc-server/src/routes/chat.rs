@@ -163,8 +163,9 @@ pub async fn chat(
     let web_search_enabled = oc_core::tools::web_search::has_enabled_provider(&store.web_search);
     let notification_enabled = store.notification.enabled;
     let image_gen_config = {
-        if oc_core::tools::image_generate::has_configured_provider_from_config(&store.image_generate)
-        {
+        if oc_core::tools::image_generate::has_configured_provider_from_config(
+            &store.image_generate,
+        ) {
             let mut cfg = store.image_generate.clone();
             oc_core::tools::image_generate::backfill_providers(&mut cfg);
             Some(cfg)
@@ -228,7 +229,9 @@ pub async fn chat(
     let result = oc_core::chat_engine::run_chat_engine(engine_params).await;
 
     // Clean up per-session cancel flag
-    { ctx.chat_cancels.write().unwrap().remove(&sid); }
+    {
+        ctx.chat_cancels.write().unwrap().remove(&sid);
+    }
 
     let result = result.map_err(|e| AppError::internal(e))?;
 
@@ -248,7 +251,9 @@ pub async fn stop_chat(
         cancel.store(true, Ordering::SeqCst);
         Ok(Json(json!({ "stopped": true })))
     } else {
-        Ok(Json(json!({ "stopped": false, "reason": "no active chat for session" })))
+        Ok(Json(
+            json!({ "stopped": false, "reason": "no active chat for session" }),
+        ))
     }
 }
 

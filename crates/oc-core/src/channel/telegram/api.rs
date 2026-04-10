@@ -2,8 +2,8 @@ use crate::channel::types::InlineButton;
 use anyhow::Result;
 use std::path::Path;
 use std::time::Duration;
-use teloxide::prelude::*;
 use teloxide::net::Download;
+use teloxide::prelude::*;
 use teloxide::types::{
     BotCommand, CallbackQueryId, ChatAction, ChatId, InlineKeyboardButton, InlineKeyboardMarkup,
     InputFile, Me, MessageId, ParseMode as TgParseMode, ReplyParameters, ThreadId,
@@ -263,11 +263,7 @@ impl TelegramBotApi {
     }
 
     /// POST editMessageReplyMarkup — remove inline keyboard from a message.
-    pub async fn remove_inline_keyboard(
-        &self,
-        chat_id: i64,
-        message_id: i32,
-    ) -> Result<()> {
+    pub async fn remove_inline_keyboard(&self, chat_id: i64, message_id: i32) -> Result<()> {
         self.bot
             .edit_message_reply_markup(ChatId(chat_id), MessageId(message_id))
             .await

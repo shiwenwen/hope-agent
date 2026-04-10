@@ -57,11 +57,19 @@ impl SignalClient {
             .with_context(|| format!("Failed to read Signal RPC response for '{}'", method))?;
 
         if text.is_empty() {
-            anyhow::bail!("Signal RPC empty response (status {}) for '{}'", status, method);
+            anyhow::bail!(
+                "Signal RPC empty response (status {}) for '{}'",
+                status,
+                method
+            );
         }
 
-        let parsed: Value = serde_json::from_str(&text)
-            .with_context(|| format!("Signal RPC malformed JSON (status {}) for '{}'", status, method))?;
+        let parsed: Value = serde_json::from_str(&text).with_context(|| {
+            format!(
+                "Signal RPC malformed JSON (status {}) for '{}'",
+                status, method
+            )
+        })?;
 
         // Check for JSON-RPC error
         if let Some(err) = parsed.get("error") {
@@ -163,9 +171,17 @@ impl SignalClient {
 
             let url = format!("{}/api/v1/events?account={}", self.base_url, self.account);
 
-            app_info!("channel", "signal-sse", "Connecting to SSE endpoint: {}", url);
+            app_info!(
+                "channel",
+                "signal-sse",
+                "Connecting to SSE endpoint: {}",
+                url
+            );
 
-            match self.connect_sse(&url, &account_id, &inbound_tx, &cancel).await {
+            match self
+                .connect_sse(&url, &account_id, &inbound_tx, &cancel)
+                .await
+            {
                 Ok(()) => {
                     // Clean exit (cancel was triggered)
                     break;
@@ -193,7 +209,12 @@ impl SignalClient {
             }
         }
 
-        app_info!("channel", "signal-sse", "SSE loop exiting for account {}", account_id);
+        app_info!(
+            "channel",
+            "signal-sse",
+            "SSE loop exiting for account {}",
+            account_id
+        );
     }
 
     /// Connect to the SSE endpoint and process events until disconnect or cancel.
@@ -293,14 +314,12 @@ impl SignalClient {
         account_id: &str,
         inbound_tx: &mpsc::Sender<MsgContext>,
     ) -> Result<()> {
-        let envelope: Value = serde_json::from_str(data)
-            .context("Failed to parse SSE event data as JSON")?;
+        let envelope: Value =
+            serde_json::from_str(data).context("Failed to parse SSE event data as JSON")?;
 
         // The envelope structure from signal-cli:
         // { "envelope": { "source": "+123...", "sourceName": "Alice", "dataMessage": { ... }, ... } }
-        let env = envelope
-            .get("envelope")
-            .unwrap_or(&envelope);
+        let env = envelope.get("envelope").unwrap_or(&envelope);
 
         let data_message = match env.get("dataMessage") {
             Some(dm) => dm,
@@ -392,7 +411,11 @@ impl SignalClient {
         };
 
         if inbound_tx.send(msg).await.is_err() {
-            app_warn!("channel", "signal-sse", "Inbound channel closed, dropping message");
+            app_warn!(
+                "channel",
+                "signal-sse",
+                "Inbound channel closed, dropping message"
+            );
         }
 
         Ok(())
@@ -406,10 +429,7 @@ impl SignalClient {
         };
 
         for mention in mentions {
-            let number = mention
-                .get("number")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let number = mention.get("number").and_then(|v| v.as_str()).unwrap_or("");
             if number == self.account {
                 return true;
             }

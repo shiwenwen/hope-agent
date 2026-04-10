@@ -1,5 +1,5 @@
-use oc_core::config::AppConfig;
 use crate::AppState;
+use oc_core::config::AppConfig;
 
 /// Initialize all databases, subsystems, and construct the `AppState`.
 /// Delegates to oc-core's `init_app_state` which sets up all OnceLocks.

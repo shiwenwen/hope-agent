@@ -58,11 +58,13 @@ pub fn service_status() -> Result<String> {
 pub fn stop_server() -> Result<()> {
     let pid_path = crate::paths::root_dir()?.join("server.pid");
     if !pid_path.exists() {
-        bail!("PID file not found at {:?} — is the server running?", pid_path);
+        bail!(
+            "PID file not found at {:?} — is the server running?",
+            pid_path
+        );
     }
 
-    let pid_str = std::fs::read_to_string(&pid_path)
-        .context("Failed to read PID file")?;
+    let pid_str = std::fs::read_to_string(&pid_path).context("Failed to read PID file")?;
     let pid: u32 = pid_str
         .trim()
         .parse()
@@ -199,8 +201,7 @@ fn uninstall_launchd() -> Result<()> {
         );
     }
 
-    std::fs::remove_file(&plist)
-        .with_context(|| format!("Failed to remove plist {:?}", plist))?;
+    std::fs::remove_file(&plist).with_context(|| format!("Failed to remove plist {:?}", plist))?;
 
     Ok(())
 }
@@ -225,7 +226,11 @@ fn status_launchd() -> Result<String> {
         for line in stdout.lines() {
             let parts: Vec<&str> = line.split('\t').collect();
             if parts.len() >= 3 {
-                pid = if parts[0] == "-" { "not running" } else { parts[0] };
+                pid = if parts[0] == "-" {
+                    "not running"
+                } else {
+                    parts[0]
+                };
                 exit_status = parts[1];
             }
         }
@@ -254,11 +259,7 @@ fn unit_path() -> Result<PathBuf> {
 }
 
 #[cfg(target_os = "linux")]
-fn install_systemd(
-    exe_path: &str,
-    bind_addr: &str,
-    api_key: Option<&str>,
-) -> Result<String> {
+fn install_systemd(exe_path: &str, bind_addr: &str, api_key: Option<&str>) -> Result<String> {
     let unit = unit_path()?;
 
     let mut exec_start = format!("{} server --bind {}", exe_path, bind_addr);

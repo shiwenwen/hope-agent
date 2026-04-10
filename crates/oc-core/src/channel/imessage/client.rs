@@ -7,7 +7,7 @@ use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio_util::sync::CancellationToken;
 
 use crate::channel::process_manager::ManagedProcess;
-use crate::channel::types::{ChatType, ChannelId, MsgContext};
+use crate::channel::types::{ChannelId, ChatType, MsgContext};
 
 /// Default timeout for RPC calls in milliseconds.
 const RPC_TIMEOUT_MS: u64 = 10_000;
@@ -60,7 +60,11 @@ impl IMessageClient {
     /// - `imsg_path`: Path to the `imsg` binary (defaults to "imsg" if empty).
     /// - `db_path`: Optional path to the iMessage database.
     pub fn start(imsg_path: &str, db_path: Option<&str>) -> Result<Self> {
-        let binary = if imsg_path.is_empty() { "imsg" } else { imsg_path };
+        let binary = if imsg_path.is_empty() {
+            "imsg"
+        } else {
+            imsg_path
+        };
 
         let mut args = vec!["rpc"];
         // db_path needs to live long enough for the borrow
@@ -211,22 +215,16 @@ impl IMessageClient {
                                         .unwrap_or("imsg rpc error");
                                     let _ = sender.send(Err(anyhow::anyhow!("{}", msg)));
                                 } else {
-                                    let result = parsed
-                                        .get("result")
-                                        .cloned()
-                                        .unwrap_or(Value::Null);
+                                    let result =
+                                        parsed.get("result").cloned().unwrap_or(Value::Null);
                                     let _ = sender.send(Ok(result));
                                 }
                             }
-                        } else if let Some(method) = parsed.get("method").and_then(|v| v.as_str())
-                        {
+                        } else if let Some(method) = parsed.get("method").and_then(|v| v.as_str()) {
                             // Server-initiated notification (no "id")
                             if method == "message" || method == "newMessage" {
                                 if let Some(params) = parsed.get("params") {
-                                    match Self::parse_notification(
-                                        params,
-                                        &account_id,
-                                    ) {
+                                    match Self::parse_notification(params, &account_id) {
                                         Some(msg_ctx) => {
                                             if inbound_tx.send(msg_ctx).await.is_err() {
                                                 app_warn!(
@@ -265,8 +263,7 @@ impl IMessageClient {
                         // Fail all pending requests
                         let mut map = pending.lock().await;
                         for (_, sender) in map.drain() {
-                            let _ =
-                                sender.send(Err(anyhow::anyhow!("imsg rpc process exited")));
+                            let _ = sender.send(Err(anyhow::anyhow!("imsg rpc process exited")));
                         }
                         break;
                     }
@@ -310,11 +307,7 @@ impl IMessageClient {
     }
 
     /// Send a JSON-RPC request and wait for the response.
-    pub async fn rpc_call(
-        &self,
-        method: &str,
-        params: Value,
-    ) -> Result<Value> {
+    pub async fn rpc_call(&self, method: &str, params: Value) -> Result<Value> {
         let id = {
             let mut next = self.next_id.lock().await;
             let id = *next;
@@ -347,16 +340,9 @@ impl IMessageClient {
         }
 
         // Wait for response with timeout
-        match tokio::time::timeout(
-            std::time::Duration::from_millis(RPC_TIMEOUT_MS),
-            rx,
-        )
-        .await
-        {
+        match tokio::time::timeout(std::time::Duration::from_millis(RPC_TIMEOUT_MS), rx).await {
             Ok(Ok(result)) => result,
-            Ok(Err(_)) => {
-                Err(anyhow::anyhow!("imsg rpc response channel dropped"))
-            }
+            Ok(Err(_)) => Err(anyhow::anyhow!("imsg rpc response channel dropped")),
             Err(_) => {
                 // Timeout: remove from pending
                 let mut map = self.pending.lock().await;
@@ -401,7 +387,8 @@ impl IMessageClient {
 
     /// Subscribe to new message notifications.
     pub async fn watch_subscribe(&self) -> Result<Value> {
-        self.rpc_call("watch.subscribe", serde_json::json!({})).await
+        self.rpc_call("watch.subscribe", serde_json::json!({}))
+            .await
     }
 
     /// Stop the RPC client and shut down the child process.
@@ -428,10 +415,7 @@ impl IMessageClient {
     ///
     /// The notification `params` should contain a `message` object with the
     /// `IMessagePayload` fields.
-    fn parse_notification(
-        params: &Value,
-        account_id: &str,
-    ) -> Option<MsgContext> {
+    fn parse_notification(params: &Value, account_id: &str) -> Option<MsgContext> {
         // The params may contain a "message" wrapper or be the message directly
         let message_val = params.get("message").unwrap_or(params);
 

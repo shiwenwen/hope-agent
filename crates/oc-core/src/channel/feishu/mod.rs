@@ -37,9 +37,7 @@ impl FeishuPlugin {
     }
 
     /// Extract credentials from the JSON config blob.
-    fn extract_credentials(
-        credentials: &serde_json::Value,
-    ) -> Result<(String, String, String)> {
+    fn extract_credentials(credentials: &serde_json::Value) -> Result<(String, String, String)> {
         let app_id = credentials
             .get("appId")
             .and_then(|v| v.as_str())
@@ -197,9 +195,7 @@ impl ChannelPlugin for FeishuPlugin {
             });
 
             let reply_to = payload.reply_to_message_id.as_deref();
-            let msg_id = api
-                .send_interactive_card(chat_id, card, reply_to)
-                .await?;
+            let msg_id = api.send_interactive_card(chat_id, card, reply_to).await?;
             return Ok(DeliveryResult::ok(msg_id));
         }
 

@@ -145,12 +145,7 @@ impl ChannelPlugin for SlackPlugin {
         // Spawn Socket Mode loop
         let account_id = account.id.clone();
         tokio::spawn(socket::run_socket_mode(
-            api,
-            app_token,
-            account_id,
-            bot_id,
-            inbound_tx,
-            cancel,
+            api, app_token, account_id, bot_id, inbound_tx, cancel,
         ));
 
         Ok(())

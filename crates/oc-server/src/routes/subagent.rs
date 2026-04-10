@@ -21,9 +21,7 @@ pub async fn list_subagent_runs(
 }
 
 /// `GET /api/subagent/runs/{run_id}`
-pub async fn get_subagent_run(
-    Path(run_id): Path<String>,
-) -> Result<Json<Value>, AppError> {
+pub async fn get_subagent_run(Path(run_id): Path<String>) -> Result<Json<Value>, AppError> {
     Ok(Json(serde_json::to_value(
         state()?.session_db.get_subagent_run(&run_id)?,
     )?))

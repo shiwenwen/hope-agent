@@ -24,9 +24,7 @@ fn main() {
     }
 
     // Child mode: spawned by Guardian via --child-mode arg or legacy OPENCOMPUTER_CHILD env
-    if (args.len() >= 2 && args[1] == "--child-mode")
-        || env::var("OPENCOMPUTER_CHILD").is_ok()
-    {
+    if (args.len() >= 2 && args[1] == "--child-mode") || env::var("OPENCOMPUTER_CHILD").is_ok() {
         run_child();
     } else if cfg!(debug_assertions) {
         // Dev mode — skip guardian, run app directly

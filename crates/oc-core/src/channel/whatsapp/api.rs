@@ -59,12 +59,8 @@ impl WhatsAppApi {
 
     /// POST /api/typing — send a typing indicator.
     pub async fn send_typing(&self, chat_id: &str) -> Result<()> {
-        self.post(
-            "api/typing",
-            json!({ "chatId": chat_id }),
-            10_000,
-        )
-        .await?;
+        self.post("api/typing", json!({ "chatId": chat_id }), 10_000)
+            .await?;
         Ok(())
     }
 

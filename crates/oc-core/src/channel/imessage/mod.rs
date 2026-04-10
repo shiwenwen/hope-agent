@@ -107,8 +107,7 @@ impl ChannelPlugin for IMessagePlugin {
         );
 
         // Start the RPC client
-        let imsg_client =
-            client::IMessageClient::start(&imsg_path, db_path.as_deref())?;
+        let imsg_client = client::IMessageClient::start(&imsg_path, db_path.as_deref())?;
 
         // Subscribe to watch notifications
         if let Err(e) = imsg_client.watch_subscribe().await {
@@ -153,9 +152,7 @@ impl ChannelPlugin for IMessagePlugin {
         _inbound_tx: mpsc::Sender<MsgContext>,
         _cancel: CancellationToken,
     ) -> Result<()> {
-        Err(anyhow::anyhow!(
-            "iMessage is only supported on macOS"
-        ))
+        Err(anyhow::anyhow!("iMessage is only supported on macOS"))
     }
 
     async fn stop_account(&self, account_id: &str) -> Result<()> {
@@ -185,9 +182,9 @@ impl ChannelPlugin for IMessagePlugin {
         payload: &ReplyPayload,
     ) -> Result<DeliveryResult> {
         let accounts = self.accounts.lock().await;
-        let running = accounts.get(account_id).ok_or_else(|| {
-            anyhow::anyhow!("iMessage account '{}' is not running", account_id)
-        })?;
+        let running = accounts
+            .get(account_id)
+            .ok_or_else(|| anyhow::anyhow!("iMessage account '{}' is not running", account_id))?;
 
         if let Some(ref text) = payload.text {
             if text.is_empty() {
@@ -225,26 +222,22 @@ impl ChannelPlugin for IMessagePlugin {
         _chat_id: &str,
         _payload: &ReplyPayload,
     ) -> Result<DeliveryResult> {
-        Err(anyhow::anyhow!(
-            "iMessage is only supported on macOS"
-        ))
+        Err(anyhow::anyhow!("iMessage is only supported on macOS"))
     }
 
     #[cfg(target_os = "macos")]
     async fn send_typing(&self, account_id: &str, chat_id: &str) -> Result<()> {
         let accounts = self.accounts.lock().await;
-        let running = accounts.get(account_id).ok_or_else(|| {
-            anyhow::anyhow!("iMessage account '{}' is not running", account_id)
-        })?;
+        let running = accounts
+            .get(account_id)
+            .ok_or_else(|| anyhow::anyhow!("iMessage account '{}' is not running", account_id))?;
 
         running.client.send_typing(chat_id).await
     }
 
     #[cfg(not(target_os = "macos"))]
     async fn send_typing(&self, _account_id: &str, _chat_id: &str) -> Result<()> {
-        Err(anyhow::anyhow!(
-            "iMessage is only supported on macOS"
-        ))
+        Err(anyhow::anyhow!("iMessage is only supported on macOS"))
     }
 
     #[cfg(target_os = "macos")]
@@ -313,11 +306,7 @@ impl ChannelPlugin for IMessagePlugin {
     }
 
     fn check_access(&self, account: &ChannelAccountConfig, msg: &MsgContext) -> bool {
-        crate::channel::traits::default_check_access(
-            account,
-            msg,
-            &[ChatType::Dm, ChatType::Group],
-        )
+        crate::channel::traits::default_check_access(account, msg, &[ChatType::Dm, ChatType::Group])
     }
 
     fn markdown_to_native(&self, markdown: &str) -> String {
@@ -338,24 +327,18 @@ impl ChannelPlugin for IMessagePlugin {
         }
 
         // Try to probe by listing conversations
-        let temp_client =
-            client::IMessageClient::start(&imsg_path, db_path.as_deref())?;
+        let temp_client = client::IMessageClient::start(&imsg_path, db_path.as_deref())?;
         let result = temp_client.list_conversations().await;
         temp_client.stop().await;
 
         match result {
             Ok(_) => Ok("iMessage".to_string()),
-            Err(e) => Err(anyhow::anyhow!(
-                "Failed to connect to iMessage: {}",
-                e
-            )),
+            Err(e) => Err(anyhow::anyhow!("Failed to connect to iMessage: {}", e)),
         }
     }
 
     #[cfg(not(target_os = "macos"))]
     async fn validate_credentials(&self, _credentials: &serde_json::Value) -> Result<String> {
-        Err(anyhow::anyhow!(
-            "iMessage is only supported on macOS"
-        ))
+        Err(anyhow::anyhow!("iMessage is only supported on macOS"))
     }
 }

@@ -22,7 +22,9 @@ pub async fn list_plugins() -> Result<Json<Vec<Value>>, AppError> {
 
 /// `GET /api/channel/accounts`
 pub async fn list_accounts() -> Result<Json<Vec<ChannelAccountConfig>>, AppError> {
-    Ok(Json(oc_core::config::cached_config().channels.accounts.clone()))
+    Ok(Json(
+        oc_core::config::cached_config().channels.accounts.clone(),
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -83,17 +85,13 @@ pub async fn update_account(
 }
 
 /// `DELETE /api/channel/accounts/{id}`
-pub async fn remove_account(
-    Path(account_id): Path<String>,
-) -> Result<Json<Value>, AppError> {
+pub async fn remove_account(Path(account_id): Path<String>) -> Result<Json<Value>, AppError> {
     accounts::remove_account(&account_id).await?;
     Ok(Json(json!({ "deleted": true })))
 }
 
 /// `POST /api/channel/accounts/{id}/start`
-pub async fn start_account(
-    Path(account_id): Path<String>,
-) -> Result<Json<Value>, AppError> {
+pub async fn start_account(Path(account_id): Path<String>) -> Result<Json<Value>, AppError> {
     let account = oc_core::config::cached_config()
         .channels
         .find_account(&account_id)
@@ -107,9 +105,7 @@ pub async fn start_account(
 }
 
 /// `POST /api/channel/accounts/{id}/stop`
-pub async fn stop_account(
-    Path(account_id): Path<String>,
-) -> Result<Json<Value>, AppError> {
+pub async fn stop_account(Path(account_id): Path<String>) -> Result<Json<Value>, AppError> {
     registry()?
         .stop_account(&account_id)
         .await
@@ -149,14 +145,12 @@ pub struct ValidateBody {
 }
 
 /// `POST /api/channel/validate`
-pub async fn validate_credentials(
-    Json(body): Json<ValidateBody>,
-) -> Result<Json<Value>, AppError> {
+pub async fn validate_credentials(Json(body): Json<ValidateBody>) -> Result<Json<Value>, AppError> {
     let parsed: ChannelId = serde_json::from_value(Value::String(body.channel_id.clone()))
         .map_err(|e| AppError::bad_request(format!("Invalid channel_id: {}", e)))?;
-    let plugin = registry()?
-        .get_plugin(&parsed)
-        .ok_or_else(|| AppError::not_found(format!("No plugin for channel: {}", body.channel_id)))?;
+    let plugin = registry()?.get_plugin(&parsed).ok_or_else(|| {
+        AppError::not_found(format!("No plugin for channel: {}", body.channel_id))
+    })?;
     let info = plugin
         .validate_credentials(&body.credentials)
         .await

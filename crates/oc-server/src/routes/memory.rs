@@ -48,11 +48,16 @@ fn get_backend() -> Result<&'static std::sync::Arc<dyn oc_core::memory::MemoryBa
 }
 
 /// Parse scope from query params: explicit `scope` JSON or shorthand `agent_id`.
-fn parse_scope(scope: &Option<String>, agent_id: &Option<String>) -> Option<oc_core::memory::MemoryScope> {
+fn parse_scope(
+    scope: &Option<String>,
+    agent_id: &Option<String>,
+) -> Option<oc_core::memory::MemoryScope> {
     if let Some(s) = scope {
         serde_json::from_str(s).ok()
     } else {
-        agent_id.as_ref().map(|id| oc_core::memory::MemoryScope::Agent { id: id.clone() })
+        agent_id
+            .as_ref()
+            .map(|id| oc_core::memory::MemoryScope::Agent { id: id.clone() })
     }
 }
 
@@ -87,18 +92,14 @@ pub async fn update_memory(
 }
 
 /// `DELETE /api/memory/{id}` -- delete a memory entry.
-pub async fn delete_memory(
-    Path(id): Path<i64>,
-) -> Result<Json<Value>, AppError> {
+pub async fn delete_memory(Path(id): Path<i64>) -> Result<Json<Value>, AppError> {
     let backend = get_backend()?;
     backend.delete(id)?;
     Ok(Json(json!({ "deleted": true })))
 }
 
 /// `GET /api/memory/{id}` -- get a single memory entry.
-pub async fn get_memory(
-    Path(id): Path<i64>,
-) -> Result<Json<Value>, AppError> {
+pub async fn get_memory(Path(id): Path<i64>) -> Result<Json<Value>, AppError> {
     let backend = get_backend()?;
     let entry = backend
         .get(id)?
@@ -132,9 +133,7 @@ pub async fn search_memories(
 }
 
 /// `GET /api/memory/count` -- get total memory count.
-pub async fn memory_count(
-    Query(q): Query<CountQuery>,
-) -> Result<Json<Value>, AppError> {
+pub async fn memory_count(Query(q): Query<CountQuery>) -> Result<Json<Value>, AppError> {
     let backend = get_backend()?;
     let scope = parse_scope(&q.scope, &q.agent_id);
     let count = backend.count(scope.as_ref())?;

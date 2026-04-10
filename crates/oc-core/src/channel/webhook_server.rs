@@ -20,7 +20,9 @@ pub const DEFAULT_WEBHOOK_PORT: u16 = 1456;
 
 /// A webhook handler receives the raw request body and headers, returns a response body.
 pub type WebhookHandlerFn = Arc<
-    dyn Fn(WebhookRequest) -> std::pin::Pin<Box<dyn std::future::Future<Output = WebhookResponse> + Send>>
+    dyn Fn(
+            WebhookRequest,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = WebhookResponse> + Send>>
         + Send
         + Sync,
 >;
