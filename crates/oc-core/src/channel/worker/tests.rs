@@ -13,6 +13,7 @@ fn caps(supports_draft: bool, supports_edit: bool) -> ChannelCapabilities {
         supports_threads: true,
         supports_media: Vec::new(),
         supports_typing: true,
+        supports_buttons: false,
         max_message_length: Some(4096),
     }
 }

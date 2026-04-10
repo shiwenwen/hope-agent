@@ -206,10 +206,10 @@ impl AssistantAgent {
     /// (save_memory / update_core_memory). If so, set the mutual exclusion
     /// flag to skip auto-extraction for this round.
     pub(crate) fn check_manual_memory_save(&self, tool_calls: &[api_types::FunctionCallItem]) {
-        if tool_calls
-            .iter()
-            .any(|tc| tc.name == crate::tools::TOOL_SAVE_MEMORY || tc.name == crate::tools::TOOL_UPDATE_CORE_MEMORY)
-        {
+        if tool_calls.iter().any(|tc| {
+            tc.name == crate::tools::TOOL_SAVE_MEMORY
+                || tc.name == crate::tools::TOOL_UPDATE_CORE_MEMORY
+        }) {
             self.manual_memory_saved
                 .store(true, std::sync::atomic::Ordering::SeqCst);
         }
@@ -365,8 +365,14 @@ impl AssistantAgent {
     /// - Plan mode tool injection/filtering
     /// - Denied tools filtering (depth-based policy)
     /// - Skill allowed-tools filtering
-    pub(crate) fn build_tool_schemas(&self, provider: tools::ToolProvider) -> Vec<serde_json::Value> {
+    pub(crate) fn build_tool_schemas(
+        &self,
+        provider: tools::ToolProvider,
+    ) -> Vec<serde_json::Value> {
         let deferred_enabled = crate::config::cached_config().deferred_tools.enabled;
+        let agent_tool_filter = crate::agent_loader::load_agent(&self.agent_id)
+            .map(|def| def.config.capabilities.tools)
+            .unwrap_or_default();
 
         let mut schemas = if deferred_enabled {
             let mut s = tools::get_core_tools_for_provider(provider);
@@ -385,8 +391,7 @@ impl AssistantAgent {
             }
             if let Some(ref img_config) = self.image_gen_config {
                 s.push(
-                    tools::get_image_generate_tool_dynamic(img_config)
-                        .to_provider_schema(provider),
+                    tools::get_image_generate_tool_dynamic(img_config).to_provider_schema(provider),
                 );
             }
             if self.canvas_enabled {
@@ -401,21 +406,21 @@ impl AssistantAgent {
         // Plan Agent / Executing Agent tool injection
         self.apply_plan_tools(&mut schemas, provider);
 
-        // Filter out denied tools (depth-based tool policy)
-        if !self.denied_tools.is_empty() {
-            schemas.retain(|t| {
-                let name = extract_tool_name(t);
-                !self.denied_tools.iter().any(|d| d.as_str() == name)
-            });
-        }
+        let plan_allowed_tools: &[String] = match &self.plan_agent_mode {
+            types::PlanAgentMode::PlanAgent { allowed_tools, .. } => allowed_tools,
+            _ => &[],
+        };
 
-        // Filter to skill-allowed tools (when a skill restricts available tools)
-        if !self.skill_allowed_tools.is_empty() {
-            schemas.retain(|t| {
-                let name = extract_tool_name(t);
-                self.skill_allowed_tools.iter().any(|a| a == name)
-            });
-        }
+        schemas.retain(|t| {
+            let name = extract_tool_name(t);
+            tools::tool_visible_with_filters(
+                name,
+                &agent_tool_filter,
+                &self.denied_tools,
+                &self.skill_allowed_tools,
+                plan_allowed_tools,
+            )
+        });
 
         schemas
     }
@@ -486,6 +491,10 @@ impl AssistantAgent {
         used_tokens: Option<u32>,
     ) -> tools::ToolExecContext {
         let agent_def = crate::agent_loader::load_agent(&self.agent_id);
+        let agent_tool_filter = agent_def
+            .as_ref()
+            .map(|def| def.config.capabilities.tools.clone())
+            .unwrap_or_default();
         let mut require_approval = agent_def
             .as_ref()
             .map(|def| def.config.capabilities.require_approval.clone())
@@ -510,6 +519,9 @@ impl AssistantAgent {
             agent_id: Some(self.agent_id.clone()),
             subagent_depth: self.subagent_depth,
             require_approval,
+            agent_tool_filter,
+            denied_tools: self.denied_tools.clone(),
+            skill_allowed_tools: self.skill_allowed_tools.clone(),
             force_sandbox,
             plan_mode_allow_paths: self.plan_mode_allow_paths.clone(),
             plan_mode_allowed_tools: match &self.plan_agent_mode {
@@ -654,7 +666,11 @@ impl AssistantAgent {
                 LlmProvider::OpenAIResponses { model, .. } => ("OpenAIResponses", model.as_str()),
                 LlmProvider::Codex { model, .. } => ("Codex", model.as_str()),
             };
-            let history_len = self.conversation_history.lock().unwrap_or_else(|e| e.into_inner()).len();
+            let history_len = self
+                .conversation_history
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .len();
             let msg_preview = if message.len() > 200 {
                 format!("{}...", crate::truncate_utf8(message, 200))
             } else {

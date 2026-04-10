@@ -54,6 +54,13 @@ pub struct ToolExecContext {
     /// Tool names that require user approval before execution.
     /// `["*"]` means all tools require approval.
     pub require_approval: Vec<String>,
+    /// Agent-level tool filter from `agent.json` capabilities.tools.
+    /// Internal system tools are exempt at this layer to preserve existing UI semantics.
+    pub agent_tool_filter: crate::agent_config::FilterConfig,
+    /// Tools removed by sub-agent depth policy or other schema-level denies.
+    pub denied_tools: Vec<String>,
+    /// Active skill-level tool whitelist. When non-empty, only these tools are allowed.
+    pub skill_allowed_tools: Vec<String>,
     /// Whether the agent forces Docker sandbox mode for all exec commands.
     pub force_sandbox: bool,
     /// Plan mode file-pattern allow rules: when set, write/edit tools targeting these
@@ -77,6 +84,9 @@ impl Default for ToolExecContext {
             agent_id: None,
             subagent_depth: 0,
             require_approval: Vec::new(),
+            agent_tool_filter: crate::agent_config::FilterConfig::default(),
+            denied_tools: Vec::new(),
+            skill_allowed_tools: Vec::new(),
             force_sandbox: false,
             plan_mode_allow_paths: Vec::new(),
             plan_mode_allowed_tools: Vec::new(),
@@ -89,6 +99,51 @@ impl ToolExecContext {
     /// Returns the default path for tools: agent home if set, otherwise ".".
     pub fn default_path(&self) -> &str {
         self.home_dir.as_deref().unwrap_or(".")
+    }
+
+    /// Whether the tool is visible under the current combined restrictions.
+    pub fn is_tool_visible(&self, name: &str) -> bool {
+        super::tool_visible_with_filters(
+            name,
+            &self.agent_tool_filter,
+            &self.denied_tools,
+            &self.skill_allowed_tools,
+            &self.plan_mode_allowed_tools,
+        )
+    }
+
+    /// Human-readable reason when a tool is blocked by the current restrictions.
+    pub fn tool_visibility_error(&self, name: &str) -> Option<String> {
+        if !super::agent_tool_filter_allows(name, &self.agent_tool_filter) {
+            return Some(format!(
+                "Agent tool filter: tool '{}' is disabled for this agent.",
+                name
+            ));
+        }
+        if self.denied_tools.iter().any(|t| t == name) {
+            return Some(format!(
+                "Tool policy restriction: tool '{}' is denied in the current agent context.",
+                name
+            ));
+        }
+        if !self.skill_allowed_tools.is_empty()
+            && !self.skill_allowed_tools.iter().any(|t| t == name)
+        {
+            return Some(format!(
+                "Skill restriction: tool '{}' is not allowed by the active skill.",
+                name
+            ));
+        }
+        if !self.plan_mode_allowed_tools.is_empty()
+            && !self.plan_mode_allowed_tools.iter().any(|t| t == name)
+        {
+            return Some(format!(
+                "Plan Mode restriction: tool '{}' is not allowed during planning. Allowed: {}",
+                name,
+                self.plan_mode_allowed_tools.join(", ")
+            ));
+        }
+        None
     }
 }
 
@@ -142,6 +197,14 @@ pub async fn execute_tool_with_context(
     ctx: &ToolExecContext,
 ) -> anyhow::Result<String> {
     let start = std::time::Instant::now();
+
+    // ── Tool visibility / policy gate ─────────────────────────────
+    // Defense-in-depth: enforce the same effective visibility rules used for
+    // schema generation and tool_search, so a tool cannot execute if it was
+    // hidden by Agent filter, denied_tools, skill allowlist, or Plan Mode.
+    if let Some(err) = ctx.tool_visibility_error(name) {
+        return Err(anyhow::anyhow!(err));
+    }
 
     // ── Tool-level approval gate ─────────────────────────────────
     // Check session-level permission mode and tool-level approval requirements.
@@ -247,19 +310,6 @@ pub async fn execute_tool_with_context(
         }
     }
 
-    // ── Plan Mode tool whitelist enforcement (defense-in-depth) ────
-    // When plan_mode_allowed_tools is set, reject any tool not in the list.
-    // This supplements the schema-level filtering done in providers.
-    if !ctx.plan_mode_allowed_tools.is_empty()
-        && !ctx.plan_mode_allowed_tools.iter().any(|t| t == name)
-    {
-        return Err(anyhow::anyhow!(
-            "Plan Mode restriction: tool '{}' is not allowed during planning. Allowed: {}",
-            name,
-            ctx.plan_mode_allowed_tools.join(", ")
-        ));
-    }
-
     let dispatch = async {
         match name {
             TOOL_EXEC => exec::tool_exec(args, ctx).await,
@@ -301,7 +351,7 @@ pub async fn execute_tool_with_context(
             TOOL_PLAN_QUESTION => Ok(plan_question::execute(args, ctx.session_id.as_deref()).await),
             TOOL_SUBMIT_PLAN => Ok(submit_plan::execute(args, ctx.session_id.as_deref()).await),
             TOOL_AMEND_PLAN => Ok(amend_plan::execute(args, ctx.session_id.as_deref()).await),
-            super::TOOL_TOOL_SEARCH => super::tool_search::tool_search(args).await,
+            super::TOOL_TOOL_SEARCH => super::tool_search::tool_search(args, ctx).await,
             _ => Err(anyhow::anyhow!("Unknown tool: {}", name)),
         }
     };

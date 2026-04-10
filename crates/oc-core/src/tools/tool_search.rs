@@ -1,18 +1,18 @@
 use anyhow::Result;
 use serde_json::Value;
 
-use super::definitions::{get_available_tools, ToolDefinition};
+use super::{
+    definitions::{get_available_tools, ToolDefinition},
+    ToolExecContext,
+};
 
 /// Handle the tool_search meta-tool: find tools by query and return their full schemas.
 ///
 /// Supports two query forms:
 /// - `"select:name1,name2"` — exact match by tool name
 /// - `"keyword1 keyword2"` — fuzzy search by name/description relevance
-pub(crate) async fn tool_search(args: &Value) -> Result<String> {
-    let query = args
-        .get("query")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+pub(crate) async fn tool_search(args: &Value, ctx: &ToolExecContext) -> Result<String> {
+    let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
     let max_results = args
         .get("max_results")
         .and_then(|v| v.as_u64())
@@ -29,6 +29,8 @@ pub(crate) async fn tool_search(args: &Value) -> Result<String> {
         }
     }
 
+    candidates.retain(|t| ctx.is_tool_visible(&t.name));
+
     let total_deferred = candidates.iter().filter(|t| t.deferred).count();
 
     // Select mode: "select:name1,name2" for exact matching
@@ -39,10 +41,7 @@ pub(crate) async fn tool_search(args: &Value) -> Result<String> {
             .filter(|t| names.iter().any(|n| n.eq_ignore_ascii_case(&t.name)))
             .collect();
 
-        let results: Vec<Value> = matched
-            .iter()
-            .map(|t| tool_to_schema(t))
-            .collect();
+        let results: Vec<Value> = matched.iter().map(|t| tool_to_schema(t)).collect();
 
         return Ok(serde_json::to_string_pretty(&serde_json::json!({
             "matched_tools": results.len(),
@@ -87,10 +86,7 @@ pub(crate) async fn tool_search(args: &Value) -> Result<String> {
     scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
     scored.truncate(max_results);
 
-    let results: Vec<Value> = scored
-        .iter()
-        .map(|(_, t)| tool_to_schema(t))
-        .collect();
+    let results: Vec<Value> = scored.iter().map(|(_, t)| tool_to_schema(t)).collect();
 
     Ok(serde_json::to_string_pretty(&serde_json::json!({
         "matched_tools": results.len(),
@@ -136,7 +132,9 @@ mod tests {
     #[tokio::test]
     async fn test_select_query() {
         let args = json!({ "query": "select:read,write" });
-        let result = tool_search(&args).await.unwrap();
+        let result = tool_search(&args, &ToolExecContext::default())
+            .await
+            .unwrap();
         let parsed: Value = serde_json::from_str(&result).unwrap();
         assert!(parsed["matched_tools"].as_u64().unwrap() >= 2);
     }
@@ -144,7 +142,9 @@ mod tests {
     #[tokio::test]
     async fn test_keyword_query() {
         let args = json!({ "query": "memory", "max_results": 3 });
-        let result = tool_search(&args).await.unwrap();
+        let result = tool_search(&args, &ToolExecContext::default())
+            .await
+            .unwrap();
         let parsed: Value = serde_json::from_str(&result).unwrap();
         assert!(parsed["matched_tools"].as_u64().unwrap() > 0);
         assert!(parsed["matched_tools"].as_u64().unwrap() <= 3);
@@ -153,8 +153,24 @@ mod tests {
     #[tokio::test]
     async fn test_empty_query() {
         let args = json!({ "query": "xyznonexistent" });
-        let result = tool_search(&args).await.unwrap();
+        let result = tool_search(&args, &ToolExecContext::default())
+            .await
+            .unwrap();
         let parsed: Value = serde_json::from_str(&result).unwrap();
         assert_eq!(parsed["matched_tools"].as_u64().unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_agent_filter_hides_denied_tools() {
+        let args = json!({ "query": "select:read,write" });
+        let mut ctx = ToolExecContext::default();
+        ctx.agent_tool_filter.deny = vec!["write".to_string()];
+
+        let result = tool_search(&args, &ctx).await.unwrap();
+        let parsed: Value = serde_json::from_str(&result).unwrap();
+        let tools = parsed["tools"].as_array().unwrap();
+
+        assert_eq!(parsed["matched_tools"].as_u64().unwrap(), 1);
+        assert_eq!(tools[0]["name"].as_str().unwrap(), "read");
     }
 }

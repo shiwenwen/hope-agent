@@ -226,7 +226,7 @@ fn build_tools_section(filter: &FilterConfig) -> String {
     let no_filter = filter.allow.is_empty() && filter.deny.is_empty();
     let descs: Vec<&str> = TOOL_DESCRIPTIONS
         .iter()
-        .filter(|(name, _)| no_filter || filter.is_allowed(name))
+        .filter(|(name, _)| no_filter || crate::tools::agent_tool_filter_allows(name, filter))
         .map(|(_, desc)| *desc)
         .collect();
     format!("# Available Tools\n\n{}", descs.join("\n\n"))
@@ -237,6 +237,8 @@ fn build_tools_section(filter: &FilterConfig) -> String {
 - `allow` 非空 → 只注入白名单中的工具
 - `deny` 非空 → 排除黑名单中的工具
 - 过滤后为空 → 不注入工具段
+- **internal 工具例外**：Agent 设置 UI 不暴露 internal system tools，因此 `FilterConfig` 在这一层默认保留 internal 工具描述
+- **共享同一套过滤语义**：Section ⑥ 使用的 `FilterConfig` 语义与 `agent/mod.rs` 的 `build_tool_schemas()`、`tool_search` 结果过滤和执行层兜底保持一致，都是 Agent 级基线工具权限的一部分
 
 **代码位置**：`crates/oc-core/src/system_prompt/sections.rs` — `build_tools_section()`
 

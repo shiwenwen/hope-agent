@@ -1,7 +1,7 @@
-use crate::agent_config::{FilterConfig, PersonalityConfig};
-use crate::skills;
 use super::constants::*;
 use super::helpers::{current_date, find_git_root, hostname, os_version};
+use crate::agent_config::{FilterConfig, PersonalityConfig};
+use crate::skills;
 
 // ── Section Builders ─────────────────────────────────────────────
 
@@ -12,7 +12,7 @@ pub(super) fn build_tools_section(filter: &FilterConfig) -> String {
 
     let descs: Vec<&str> = TOOL_DESCRIPTIONS
         .iter()
-        .filter(|(name, _)| no_filter || filter.is_allowed(name))
+        .filter(|(name, _)| no_filter || crate::tools::agent_tool_filter_allows(name, filter))
         .map(|(_, desc)| *desc)
         .collect();
 
@@ -48,7 +48,11 @@ pub(super) fn build_deferred_tools_section() -> Option<String> {
         String::new(),
     ];
     for tool in &deferred {
-        let short_desc = tool.description.split('.').next().unwrap_or(&tool.description);
+        let short_desc = tool
+            .description
+            .split('.')
+            .next()
+            .unwrap_or(&tool.description);
         lines.push(format!("- **{}**: {}", tool.name, short_desc));
     }
     // Also include conditionally-injected deferred tools

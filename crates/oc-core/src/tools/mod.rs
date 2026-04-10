@@ -27,11 +27,11 @@ pub(crate) mod read;
 mod sessions;
 pub(crate) mod subagent;
 mod submit_plan;
+pub(crate) mod tool_search;
 mod weather;
 pub mod web_fetch;
 pub mod web_search;
 mod write;
-pub(crate) mod tool_search;
 
 // ── Public Re-exports ─────────────────────────────────────────────
 
@@ -89,6 +89,33 @@ pub const TOOL_TOOL_SEARCH: &str = "tool_search";
 
 // ── Shared Helpers ────────────────────────────────────────────────
 
+/// Agent-level tool filter semantics.
+///
+/// Internal system tools are always allowed here because the Agent settings UI
+/// only exposes user-facing built-in tools. Stronger restrictions such as
+/// denied_tools / skill_allowed_tools / Plan Mode still apply separately.
+pub fn agent_tool_filter_allows(name: &str, filter: &crate::agent_config::FilterConfig) -> bool {
+    if is_internal_tool(name) {
+        return true;
+    }
+    filter.is_allowed(name)
+}
+
+/// Combined tool visibility check shared by schema generation, tool_search, and
+/// execution-layer defense-in-depth.
+pub fn tool_visible_with_filters(
+    name: &str,
+    agent_filter: &crate::agent_config::FilterConfig,
+    denied_tools: &[String],
+    skill_allowed_tools: &[String],
+    plan_mode_allowed_tools: &[String],
+) -> bool {
+    agent_tool_filter_allows(name, agent_filter)
+        && !denied_tools.iter().any(|t| t == name)
+        && (skill_allowed_tools.is_empty() || skill_allowed_tools.iter().any(|t| t == name))
+        && (plan_mode_allowed_tools.is_empty() || plan_mode_allowed_tools.iter().any(|t| t == name))
+}
+
 /// Extract a string value from a Value that might be a plain string, `{type:"text", text:"..."}`,
 /// or an array of such objects (e.g. `[{type:"text", text:"..."}]`).
 pub(crate) fn extract_string_param(val: &Value) -> Option<&str> {
@@ -123,6 +150,54 @@ pub(crate) fn expand_tilde(path: &str) -> String {
         }
     }
     path.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::agent_config::FilterConfig;
+
+    use super::{agent_tool_filter_allows, tool_visible_with_filters, TOOL_TOOL_SEARCH};
+
+    #[test]
+    fn agent_filter_keeps_internal_tools_visible() {
+        let filter = FilterConfig {
+            allow: vec!["read".to_string()],
+            deny: vec![],
+        };
+        assert!(agent_tool_filter_allows(TOOL_TOOL_SEARCH, &filter));
+    }
+
+    #[test]
+    fn combined_visibility_applies_all_restrictions() {
+        let filter = FilterConfig {
+            allow: vec!["read".to_string(), "write".to_string()],
+            deny: vec!["write".to_string()],
+        };
+
+        assert!(tool_visible_with_filters("read", &filter, &[], &[], &[]));
+        assert!(!tool_visible_with_filters("write", &filter, &[], &[], &[]));
+        assert!(!tool_visible_with_filters(
+            "read",
+            &filter,
+            &[],
+            &["write".to_string()],
+            &[]
+        ));
+        assert!(!tool_visible_with_filters(
+            "read",
+            &filter,
+            &["read".to_string()],
+            &[],
+            &[]
+        ));
+        assert!(!tool_visible_with_filters(
+            "read",
+            &filter,
+            &[],
+            &[],
+            &["write".to_string()]
+        ));
+    }
 }
 
 // ── Provider Enum ─────────────────────────────────────────────────

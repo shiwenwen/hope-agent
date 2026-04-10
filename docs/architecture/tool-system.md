@@ -95,12 +95,12 @@ flowchart LR
 
 ## 权限控制架构
 
-系统中存在 **四个独立的权限控制维度**，按作用阶段分为两大类：
+系统中存在 **四个独立的工具控制维度**，按生效层级分为三大类：
 
 | 类别 | 维度 | 作用 | 配置位置 |
 |------|------|------|----------|
-| **可见性控制** | Agent 工具过滤（FilterConfig） | 决定 LLM **能看到**哪些工具 | Agent 设置 → 能力 → 工具 → 工具注入 |
-| **可见性控制** | 子 Agent 工具拒绝（denied_tools） | 从 LLM 可见的工具列表中移除 | Agent 设置 → 子 Agent |
+| **Agent 基线权限** | Agent 工具过滤（FilterConfig） | 统一裁剪 system prompt、tool schema、`tool_search` 结果，并在执行层兜底拒绝 | Agent 设置 → 能力 → 工具 → 工具注入 |
+| **Schema 可见性** | 子 Agent 工具拒绝（denied_tools） | 从实际发送给 LLM API 的 tool schema 中移除 | Agent 设置 → 子 Agent |
 | **执行审批** | 会话权限模式（ToolPermissionMode） | 决定工具执行前**是否弹审批** | 输入框盾牌按钮 |
 | **执行审批** | Agent 审批列表（require_approval） | 指定哪些工具需要审批 | Agent 设置 → 能力 → 工具 → 工具审批 |
 
@@ -112,7 +112,12 @@ flowchart LR
 
 **源码**：`agent_config.rs` → `AgentConfig.capabilities.tools: FilterConfig`
 **UI**：Agent 设置面板 → 能力 → 工具子 tab → 工具注入折叠段落
-**生效位置**：`system_prompt/build.rs:build_tools_section()` — 构建系统提示词时过滤工具描述
+**生效位置**：
+
+- `system_prompt/build.rs:build_tools_section()` — 过滤 system prompt 中的工具描述
+- `agent/mod.rs:build_tool_schemas()` — 过滤实际发送给 LLM API 的 `tool_schemas`
+- `tools/tool_search.rs` — 过滤 deferred tool discovery 结果
+- `tools/execution.rs:execute_tool_with_context()` — 执行层 defense-in-depth 兜底拒绝
 
 ```rust
 pub struct FilterConfig {
@@ -129,22 +134,33 @@ allow 非空 且 工具不在 allow 中 → 拒绝
 其他 → 允许
 ```
 
-- 默认值：`allow=[]`, `deny=[]`（即不过滤，所有工具可见）
-- **作用范围**：影响系统提示词中的工具描述（Section ⑥），但目前**不影响**实际发送给 LLM 的 tool schema 列表（仅在提示词中标注"Only the following tools are enabled"）
+- 默认值：`allow=[]`, `deny=[]`（即不过滤，所有用户可配置工具均可见）
+- **作用范围**：这是 Agent 级**硬过滤**。同一份 `FilterConfig` 会同时影响 prompt 描述、Provider tool schema、`tool_search` 返回结果和执行层校验
+- **internal 工具例外**：internal system tools（UI 中隐藏不可关闭的工具，如 `tool_search`、部分 plan / memory / canvas 能力）在这一层始终保留；若需要进一步限制，依赖 `denied_tools`、skill allowlist 或 Plan Mode 白名单
+
+**这样设计的理由**：
+
+- **UI 语义一致**：设置面板写的是“选择该 Agent 可使用的内置工具”，硬过滤才符合用户直觉
+- **避免 deferred tools 绕过**：如果只裁剪 prompt 或主 schema，模型仍可能通过 `tool_search` 发现被禁用工具；统一过滤后不会出现这类旁路
+- **执行层防绕过**：即使未来某个 Provider 解析异常、历史消息注入异常，执行层仍会按同一规则拒绝被禁用工具
+- **保持层次分工**：`FilterConfig` 负责 Agent 级基础权限；`denied_tools` 负责子 Agent / 深度分层收紧；skill allowlist 和 Plan Mode 负责更强的上下文级收紧
 
 ### 2. 子 Agent 工具拒绝（denied_tools）
 
 **源码**：`agent_config.rs` → `SubagentConfig.denied_tools: Vec<String>`
-**生效位置**：四种 Provider 实现（`anthropic.rs` / `openai_chat.rs` / `openai_responses.rs` / `codex.rs`）中 `tool_schemas.retain()` 过滤
+**生效位置**：`agent/mod.rs:build_tool_schemas()` — 在统一 schema 过滤阶段移除
 
 ```rust
-// 所有 Provider 中的统一逻辑
-if !self.denied_tools.is_empty() {
-    tool_schemas.retain(|t| {
-        let name = t.get("name").and_then(|v| v.as_str()).unwrap_or("");
-        !self.denied_tools.contains(&name.to_string())
-    });
-}
+schemas.retain(|t| {
+    let name = extract_tool_name(t);
+    tools::tool_visible_with_filters(
+        name,
+        &agent_tool_filter,
+        &self.denied_tools,
+        &self.skill_allowed_tools,
+        plan_allowed_tools,
+    )
+});
 ```
 
 - **作用范围**：从实际发送给 LLM API 的 tool schema 中移除，LLM 完全不知道这些工具的存在
@@ -172,8 +188,8 @@ pub enum ToolPermissionMode {
 
 ### 4. Agent 审批列表（require_approval）
 
-**源码**：`agent_config.rs` → `BehaviorConfig.require_approval: Vec<String>`
-**UI**：Agent 设置面板 → 行为标签页（三种模式：全部/无/自定义）
+**源码**：`agent_config.rs` → `CapabilitiesConfig.require_approval: Vec<String>`
+**UI**：Agent 设置面板 → 能力 → 工具 → 工具审批（三种模式：全部/无/自定义）
 **生效位置**：`tools/execution.rs:tool_needs_approval()`
 
 | 配置值 | 效果 |
@@ -188,11 +204,13 @@ pub enum ToolPermissionMode {
 
 ## 完整决策流程
 
+> **说明**：下图描述的是“schema 可见性 + 执行审批”的硬控制链路。`FilterConfig` 已并入这条链路，会先裁剪 `tool_schemas`，并在执行层再次兜底校验。
+
 ```mermaid
 flowchart TD
     Start([工具调用触发]) --> InSchema{工具是否在 Provider<br/>tool_schemas 中？}
 
-    InSchema -- "不在（被 denied_tools 移除）" --> Blocked[/LLM 根本不会调用/]
+    InSchema -- "不在（被 capabilities.tools / denied_tools / skill / Plan 裁剪）" --> Blocked[/LLM 根本不会调用/]
     InSchema -- 在 --> IsInternal{是 internal tool？<br/><small>plan_question / submit_plan<br/>update_plan_step / canvas ...</small>}
 
     IsInternal -- 是 --> DirectExec[✅ 直接执行<br/>永不审批]
@@ -451,14 +469,16 @@ block-beta
 | `crates/oc-core/src/tools/execution.rs` | 统一审批门（`execute_tool_with_context`）、Plan Mode 路径检查 |
 | `crates/oc-core/src/tools/exec.rs` | exec 独立命令级审批逻辑 |
 | `crates/oc-core/src/tools/definitions.rs` | Internal Tool 集合（`INTERNAL_TOOL_NAMES`）、`is_internal_tool()`、`is_concurrent_safe()` |
-| `crates/oc-core/src/agent_config.rs` | `FilterConfig`（allow/deny）、`BehaviorConfig.require_approval`、`SubagentConfig.denied_tools` |
-| `crates/oc-core/src/agent/mod.rs` | `tool_context()` 构建 ToolExecContext，传递 require_approval |
-| `crates/oc-core/src/agent/providers/*.rs` | denied_tools 过滤 tool_schemas |
+| `crates/oc-core/src/agent_config.rs` | `FilterConfig`（allow/deny）、`CapabilitiesConfig.require_approval`、`SubagentConfig.denied_tools` |
+| `crates/oc-core/src/agent/mod.rs` | `build_tool_schemas()` 统一过滤 schema；`tool_context()` 构建 ToolExecContext，传递 require_approval 与工具限制 |
+| `crates/oc-core/src/agent/providers/*.rs` | 消费已过滤后的 `tool_schemas` 并发送 API 请求 |
 | `crates/oc-core/src/system_prompt/` | `build_tools_section()` 按 FilterConfig 过滤提示词 |
+| `crates/oc-core/src/tools/tool_search.rs` | `tool_search` 按当前 Agent/Skill/Plan 限制过滤可发现工具 |
+| `crates/oc-core/src/tools/execution.rs` | 工具执行前按当前限制做 defense-in-depth 校验 |
 | `src-tauri/src/commands/chat.rs` | Tauri 命令层：解析前端 tool_permission_mode 参数并设置全局模式 |
 | `crates/oc-server/src/routes/chat.rs` | HTTP 路由层：REST API + WebSocket 流式推送 |
 | `src/components/chat/ChatInput.tsx` | 盾牌按钮 UI（三态切换） |
 | `src/components/chat/ApprovalDialog.tsx` | 审批弹窗 UI |
-| `src/components/settings/agent-panel/tabs/BehaviorTab.tsx` | Agent 审批配置 UI |
+| `src/components/settings/agent-panel/tabs/CapabilitiesTab.tsx` | Agent 能力配置 UI（工具注入 / 审批 / 技能） |
 | `crates/oc-core/src/channel/worker/approval.rs` | IM Channel 审批交互（EventBus 监听、按钮/文本发送、回调处理） |
 | `src/components/settings/channel-panel/EditAccountDialog.tsx` | Channel 设置中的 auto_approve_tools 开关 |
