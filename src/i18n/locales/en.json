@@ -221,7 +221,6 @@
     "subagent": "Sub-Agent",
     "update_plan_step": "Update Plan Step",
     "ask_user_question": "Ask User",
-    "plan_question": "Ask User",
     "tool_search": "Search Tools",
     "acp_spawn": "Spawn ACP Agent",
     "submit_plan": "Submit Plan",

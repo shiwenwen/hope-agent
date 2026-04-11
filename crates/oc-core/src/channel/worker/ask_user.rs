@@ -13,7 +13,7 @@ use tokio::sync::Mutex;
 use crate::channel::db::ChannelDB;
 use crate::channel::registry::ChannelRegistry;
 use crate::channel::types::{InlineButton, ReplyPayload};
-use crate::plan::{self, PlanQuestionAnswer, PlanQuestionGroup};
+use crate::plan::{self, AskUserQuestionAnswer, AskUserQuestionGroup};
 
 /// Callback data prefix for ask_user buttons across all channels.
 pub(crate) const ASK_USER_PREFIX: &str = "ask_user:";
@@ -31,12 +31,12 @@ struct QuestionProgress {
 #[derive(Debug, Clone)]
 struct PendingAskUser {
     request_id: String,
-    group: PlanQuestionGroup,
+    group: AskUserQuestionGroup,
     progress: HashMap<String, QuestionProgress>,
 }
 
 impl PendingAskUser {
-    fn new(group: PlanQuestionGroup) -> Self {
+    fn new(group: AskUserQuestionGroup) -> Self {
         let mut progress = HashMap::new();
         for q in &group.questions {
             progress.insert(q.question_id.clone(), QuestionProgress::default());
@@ -48,7 +48,7 @@ impl PendingAskUser {
         }
     }
 
-    fn into_answers(self) -> Vec<PlanQuestionAnswer> {
+    fn into_answers(self) -> Vec<AskUserQuestionAnswer> {
         self.group
             .questions
             .iter()
@@ -58,7 +58,7 @@ impl PendingAskUser {
                     .get(&q.question_id)
                     .cloned()
                     .unwrap_or_default();
-                PlanQuestionAnswer {
+                AskUserQuestionAnswer {
                     question_id: q.question_id.clone(),
                     selected: prog.selected,
                     custom_input: prog.custom_input,
@@ -125,7 +125,7 @@ pub async fn drop_pending_by_request_id(request_id: &str) {
 /// text reply. Each field is individually truncated, and the full prompt is
 /// clamped to ~3500 bytes so it fits inside the strictest IM payload limit
 /// (Discord 2000 / Telegram 4096 / Slack 3000 / LINE 5000).
-fn format_prompt(group: &PlanQuestionGroup) -> String {
+fn format_prompt(group: &AskUserQuestionGroup) -> String {
     let mut out = String::new();
     out.push_str("❓ Question from AI\n");
     if let Some(ctx) = &group.context {
@@ -161,7 +161,7 @@ fn option_marker(qi: usize, oi: usize) -> String {
 }
 
 /// Extra hint text sent to channels without button support.
-fn text_reply_hint(group: &PlanQuestionGroup) -> String {
+fn text_reply_hint(group: &AskUserQuestionGroup) -> String {
     let has_multi = group.questions.iter().any(|q| q.multi_select);
     if has_multi {
         "\nReply with option markers like `1a` (single-select) or `1a,1c` (multi-select). Type `done` when finished."
@@ -174,7 +174,7 @@ fn text_reply_hint(group: &PlanQuestionGroup) -> String {
 /// Build inline button rows for button-capable channels.
 /// Each question's options form one row; multi-select questions get a
 /// trailing "Done" button row.
-fn build_buttons(group: &PlanQuestionGroup) -> Vec<Vec<InlineButton>> {
+fn build_buttons(group: &AskUserQuestionGroup) -> Vec<Vec<InlineButton>> {
     let mut rows: Vec<Vec<InlineButton>> = Vec::new();
     for (qi, q) in group.questions.iter().enumerate() {
         let mut row = Vec::new();
@@ -255,7 +255,7 @@ pub fn spawn_channel_ask_user_listener(
                 continue;
             }
 
-            let group: PlanQuestionGroup = match serde_json::from_value(event.payload.clone()) {
+            let group: AskUserQuestionGroup = match serde_json::from_value(event.payload.clone()) {
                 Ok(g) => g,
                 Err(e) => {
                     app_warn!(
@@ -396,7 +396,7 @@ pub async fn try_handle_ask_user_reply(
             pending_map.remove(&key);
         }
         drop(pending_map);
-        plan::cancel_pending_plan_question(&request_id).await;
+        plan::cancel_pending_ask_user_question(&request_id).await;
         return true;
     }
 
@@ -464,7 +464,7 @@ pub async fn try_handle_ask_user_reply(
         }
         drop(pending_map);
         let answers = pending.into_answers();
-        if let Err(e) = plan::submit_plan_question_response(&request_id, answers).await {
+        if let Err(e) = plan::submit_ask_user_question_response(&request_id, answers).await {
             app_warn!(
                 "channel",
                 "ask_user",
@@ -522,7 +522,7 @@ pub async fn handle_ask_user_callback(callback_data: &str) -> anyhow::Result<&'s
     match action {
         "cancel" => {
             get_button_pending().lock().await.remove(&request_id);
-            plan::cancel_pending_plan_question(&request_id).await;
+            plan::cancel_pending_ask_user_question(&request_id).await;
             Ok("❌ Cancelled")
         }
         "select" => {
@@ -571,7 +571,7 @@ pub async fn handle_ask_user_callback(callback_data: &str) -> anyhow::Result<&'s
             if should_submit {
                 if let Some(pending) = pending_for_submit {
                     let answers = pending.into_answers();
-                    plan::submit_plan_question_response(&request_id, answers).await?;
+                    plan::submit_ask_user_question_response(&request_id, answers).await?;
                     return Ok("✅ Answered");
                 }
             }
@@ -584,7 +584,7 @@ pub async fn handle_ask_user_callback(callback_data: &str) -> anyhow::Result<&'s
             };
             drop(map);
             let answers = pending.into_answers();
-            plan::submit_plan_question_response(&request_id, answers).await?;
+            plan::submit_ask_user_question_response(&request_id, answers).await?;
             Ok("✅ Answered")
         }
         _ => Err(anyhow::anyhow!("Unknown ask_user action: {}", action)),

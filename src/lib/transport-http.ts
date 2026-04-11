@@ -128,13 +128,12 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   restore_plan_version:            { method: "POST",   path: "/api/plan/{sessionId}/version/restore" },
   plan_rollback:                   { method: "POST",   path: "/api/plan/{sessionId}/rollback" },
   cancel_plan_subagent:            { method: "POST",   path: "/api/plan/{sessionId}/cancel" },
-  respond_plan_question:           { method: "POST",   path: "/api/plan/question-response" },
-  respond_ask_user:                { method: "POST",   path: "/api/ask_user/respond" },
+  respond_ask_user_question:       { method: "POST",   path: "/api/ask_user/respond" },
   get_pending_ask_user_group:      { method: "GET",    path: "/api/plan/{sessionId}/pending-ask-user" },
   set_plan_subagent:               { method: "POST",   path: "/api/config/plan-subagent" },
   get_plan_subagent:               { method: "GET",    path: "/api/config/plan-subagent" },
-  set_plan_question_timeout:       { method: "POST",   path: "/api/config/plan-question-timeout" },
-  get_plan_question_timeout:       { method: "GET",    path: "/api/config/plan-question-timeout" },
+  set_ask_user_question_timeout:   { method: "POST",   path: "/api/config/ask-user-question-timeout" },
+  get_ask_user_question_timeout:   { method: "GET",    path: "/api/config/ask-user-question-timeout" },
 
   // -- Cron --
   cron_list_jobs:                  { method: "GET",    path: "/api/cron/jobs" },

@@ -221,7 +221,6 @@
     "subagent": "子 Agent",
     "update_plan_step": "更新计划步骤",
     "ask_user_question": "向用户提问",
-    "plan_question": "向用户提问",
     "tool_search": "查找工具",
     "acp_spawn": "启动 ACP Agent",
     "submit_plan": "提交计划",

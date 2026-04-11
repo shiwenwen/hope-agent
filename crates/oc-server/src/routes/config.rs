@@ -226,17 +226,19 @@ pub async fn set_plan_subagent(Json(body): Json<Value>) -> Result<Json<Value>, A
     Ok(Json(json!({ "saved": true })))
 }
 
-/// `GET /api/config/plan-question-timeout` -- get plan question timeout (seconds).
-pub async fn get_plan_question_timeout() -> Result<Json<Value>, AppError> {
+/// `GET /api/config/ask-user-question-timeout` -- get ask_user_question timeout (seconds).
+pub async fn get_ask_user_question_timeout() -> Result<Json<Value>, AppError> {
     let store = load_config()?;
-    Ok(Json(json!(store.plan_question_timeout_secs)))
+    Ok(Json(json!(store.ask_user_question_timeout_secs)))
 }
 
-/// `POST /api/config/plan-question-timeout` -- set plan question timeout (seconds).
-pub async fn set_plan_question_timeout(Json(body): Json<Value>) -> Result<Json<Value>, AppError> {
+/// `POST /api/config/ask-user-question-timeout` -- set ask_user_question timeout (seconds).
+pub async fn set_ask_user_question_timeout(
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, AppError> {
     let secs = body.get("secs").and_then(|v| v.as_u64()).unwrap_or(1800);
     let mut store = load_config()?;
-    store.plan_question_timeout_secs = secs;
+    store.ask_user_question_timeout_secs = secs;
     save_config(&store)?;
     Ok(Json(json!({ "saved": true })))
 }

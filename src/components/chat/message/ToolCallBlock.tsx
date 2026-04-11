@@ -152,7 +152,6 @@ function getDisplayArgs(name: string, args: string): string {
       case "canvas":
         return `${parsed.action || ""}${parsed.title ? ` "${parsed.title}"` : ""}${parsed.project_id ? ` (${parsed.project_id.slice(0, 8)})` : ""}`
       case "ask_user_question":
-      case "plan_question":
         return parsed.context || `${(parsed.questions || []).length} question(s)`
       default:
         return args
@@ -168,7 +167,7 @@ interface AskUserAnswer {
   customInput?: string | null
 }
 
-/** Parse the JSON result returned by ask_user_question / plan_question. */
+/** Parse the JSON result returned by ask_user_question. */
 function parseAskUserAnswers(
   result: string | undefined,
 ): { answers: AskUserAnswer[]; timedOut: boolean; cancelled: boolean } | null {
@@ -254,7 +253,7 @@ export default function ToolCallBlock({ tool, shimmer }: { tool: ToolCall; shimm
 
   const askUserOutcome = useMemo(
     () =>
-      tool.name === "ask_user_question" || tool.name === "plan_question"
+      tool.name === "ask_user_question"
         ? parseAskUserAnswers(tool.result)
         : null,
     [tool.name, tool.result],

@@ -13,8 +13,8 @@ mod types;
 
 // Types
 pub use types::{
-    PlanAgentConfig, PlanMeta, PlanModeState, PlanQuestion, PlanQuestionAnswer, PlanQuestionGroup,
-    PlanQuestionOption, PlanStep, PlanStepStatus, PlanVersionInfo,
+    AskUserQuestion, AskUserQuestionAnswer, AskUserQuestionGroup, AskUserQuestionOption,
+    PlanAgentConfig, PlanMeta, PlanModeState, PlanStep, PlanStepStatus, PlanVersionInfo,
 };
 
 // Constants
@@ -49,9 +49,9 @@ pub use git::{
 
 // Questions
 pub use questions::{
-    cancel_pending_plan_question, find_live_pending_group_for_session, is_plan_question_live,
-    mark_group_answered, persist_pending_group, register_plan_question,
-    submit_plan_question_response, EVENT_ASK_USER_REQUEST, EVENT_PLAN_QUESTION_REQUEST,
+    cancel_pending_ask_user_question, find_live_pending_group_for_session,
+    is_ask_user_question_live, mark_group_answered, persist_pending_group,
+    register_ask_user_question, submit_ask_user_question_response, EVENT_ASK_USER_REQUEST,
 };
 
 // Subagent

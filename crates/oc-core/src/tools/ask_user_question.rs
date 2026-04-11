@@ -1,4 +1,4 @@
-//! Execution backend for the `ask_user_question` tool (historical name: `plan_question`).
+//! Execution backend for the `ask_user_question` tool.
 //!
 //! The tool is registered globally via [`crate::tools::get_ask_user_question_tool`]
 //! and is available in both normal conversations and Plan Mode. Features:
@@ -10,7 +10,9 @@
 //! - Pending groups persisted to SQLite for resume after restart
 //! - IM channel integration via EventBus (`ask_user_request` event)
 
-use crate::plan::{self, PlanQuestion, PlanQuestionAnswer, PlanQuestionGroup, PlanQuestionOption};
+use crate::plan::{
+    self, AskUserQuestion, AskUserQuestionAnswer, AskUserQuestionGroup, AskUserQuestionOption,
+};
 use crate::process_registry::create_session_id;
 use serde_json::Value;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -65,7 +67,7 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
                             .or_else(|| opt.get("preview_kind"))
                             .and_then(|v| v.as_str())
                             .map(|s| s.to_string());
-                        Some(PlanQuestionOption {
+                        Some(AskUserQuestionOption {
                             value,
                             label,
                             description,
@@ -117,7 +119,7 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
             })
             .unwrap_or_default();
 
-        questions.push(PlanQuestion {
+        questions.push(AskUserQuestion {
             question_id,
             text,
             options,
@@ -143,7 +145,7 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
     let source = Some(if plan_owner.is_some() { "plan" } else { "normal" }.to_string());
 
     // Resolve effective group timeout: max(per-question timeouts, global default).
-    let global_default = crate::config::cached_config().plan_question_timeout_secs;
+    let global_default = crate::config::cached_config().ask_user_question_timeout_secs;
     let per_q_max = questions
         .iter()
         .filter_map(|q| q.timeout_secs)
@@ -164,7 +166,7 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
         None
     };
 
-    let group = PlanQuestionGroup {
+    let group = AskUserQuestionGroup {
         request_id: request_id.clone(),
         session_id: effective_sid.clone(),
         questions: questions.clone(),
@@ -186,14 +188,13 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
 
     // Create oneshot channel + register pending.
     let (tx, rx) = tokio::sync::oneshot::channel();
-    plan::register_plan_question(request_id.clone(), tx).await;
+    plan::register_ask_user_question(request_id.clone(), tx).await;
 
-    // Emit event (both new and legacy names for compatibility).
+    // Emit event.
     if let Some(bus) = crate::globals::get_event_bus() {
         match serde_json::to_value(&group) {
             Ok(event_data) => {
-                bus.emit(plan::EVENT_ASK_USER_REQUEST, event_data.clone());
-                bus.emit(plan::EVENT_PLAN_QUESTION_REQUEST, event_data);
+                bus.emit(plan::EVENT_ASK_USER_REQUEST, event_data);
                 app_info!(
                     "ask_user",
                     "emit",
@@ -204,13 +205,13 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
                 );
             }
             Err(e) => {
-                plan::cancel_pending_plan_question(&request_id).await;
+                plan::cancel_pending_ask_user_question(&request_id).await;
                 let _ = plan::mark_group_answered(&request_id);
                 return format!("Error: failed to serialize question: {}", e);
             }
         }
     } else {
-        plan::cancel_pending_plan_question(&request_id).await;
+        plan::cancel_pending_ask_user_question(&request_id).await;
         let _ = plan::mark_group_answered(&request_id);
         return "Error: EventBus not available for ask_user events".to_string();
     }
@@ -226,7 +227,7 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
             Ok(Ok(answers)) => Outcome::Answered(answers),
             Ok(Err(_)) => Outcome::Cancelled,
             Err(_) => {
-                plan::cancel_pending_plan_question(&request_id).await;
+                plan::cancel_pending_ask_user_question(&request_id).await;
                 Outcome::TimedOut
             }
         }
@@ -272,13 +273,13 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
 }
 
 enum Outcome {
-    Answered(Vec<PlanQuestionAnswer>),
+    Answered(Vec<AskUserQuestionAnswer>),
     Cancelled,
     TimedOut,
 }
 
 /// Construct synthetic answers from each question's `default_values` after a timeout.
-fn synthesize_default_answers(questions: &[PlanQuestion]) -> Vec<PlanQuestionAnswer> {
+fn synthesize_default_answers(questions: &[AskUserQuestion]) -> Vec<AskUserQuestionAnswer> {
     let mut out = Vec::new();
     for q in questions {
         if q.default_values.is_empty() {
@@ -296,7 +297,7 @@ fn synthesize_default_answers(questions: &[PlanQuestion]) -> Vec<PlanQuestionAns
                 });
             }
         }
-        out.push(PlanQuestionAnswer {
+        out.push(AskUserQuestionAnswer {
             question_id: q.question_id.clone(),
             selected,
             custom_input: custom,
@@ -307,8 +308,8 @@ fn synthesize_default_answers(questions: &[PlanQuestion]) -> Vec<PlanQuestionAns
 
 /// Format user answers as JSON for both LLM consumption and frontend rendering.
 fn format_answers_for_llm(
-    questions: &[PlanQuestion],
-    answers: &[PlanQuestionAnswer],
+    questions: &[AskUserQuestion],
+    answers: &[AskUserQuestionAnswer],
     timed_out: bool,
 ) -> String {
     let mut items = Vec::new();

@@ -526,7 +526,7 @@ export default function ChatScreen({
           bottomRef={bottomRef}
           sessionId={session.currentSessionId}
           pendingQuestionGroup={planMode.pendingQuestionGroup}
-          onQuestionSubmitted={() => { /* PlanQuestionBlock handles its own submitted state */ }}
+          onQuestionSubmitted={() => { /* AskUserQuestionBlock handles its own submitted state */ }}
           planCardData={planMode.planCardInfo ? {
             title: planMode.planCardInfo.title,
             steps: planMode.planSteps,

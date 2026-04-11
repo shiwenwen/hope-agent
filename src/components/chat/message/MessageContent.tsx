@@ -3,7 +3,7 @@ import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import ToolCallBlock from "./ToolCallBlock"
 import ToolCallGroup from "./ToolCallGroup"
 import ThinkingBlock from "./ThinkingBlock"
-import { PlanQuestionResult, SubmitPlanResult } from "./PlanResultBlocks"
+import { AskUserQuestionResult, SubmitPlanResult } from "./PlanResultBlocks"
 import type { ContentBlock } from "@/types/chat"
 import type { Message } from "@/types/chat"
 
@@ -51,11 +51,11 @@ export function AssistantContentBlocks({
       )
       i++
     } else if (block.type === "tool_call") {
-      // Render plan_question as Q&A summary card (result contains formatted answers)
-      if (block.tool.name === "plan_question") {
+      // Render ask_user_question as Q&A summary card (result contains formatted answers)
+      if (block.tool.name === "ask_user_question") {
         if (block.tool.result) {
           elements.push(
-            <PlanQuestionResult key={block.tool.callId} result={block.tool.result} />,
+            <AskUserQuestionResult key={block.tool.callId} result={block.tool.result} />,
           )
         }
         i++
@@ -83,7 +83,7 @@ export function AssistantContentBlocks({
         blocks[j].type === "tool_call"
       ) {
         const tb = blocks[j] as { type: "tool_call"; tool: { name: string } }
-        if (tb.tool.name === "plan_question" || tb.tool.name === "submit_plan") break // stop grouping at plan tools
+        if (tb.tool.name === "ask_user_question" || tb.tool.name === "submit_plan") break // stop grouping at plan tools
         group.push(blocks[j])
         j++
       }

@@ -130,7 +130,7 @@ pub(crate) fn default_approval_timeout() -> u64 {
     300
 }
 
-pub(crate) fn default_plan_question_timeout() -> u64 {
+pub(crate) fn default_ask_user_question_timeout() -> u64 {
     1800
 }
 
@@ -310,10 +310,10 @@ pub struct AppConfig {
     #[serde(default)]
     pub plan_subagent: bool,
 
-    /// Timeout in seconds for plan_question tool waiting for user response.
+    /// Timeout in seconds for ask_user_question tool waiting for user response.
     /// Default: 1800 (30 minutes). 0 = no timeout (wait forever).
-    #[serde(default = "default_plan_question_timeout")]
-    pub plan_question_timeout_secs: u64,
+    #[serde(default = "default_ask_user_question_timeout")]
+    pub ask_user_question_timeout_secs: u64,
 
     /// IM channel configuration (Telegram, Discord, Slack, etc.)
     #[serde(default)]
@@ -370,7 +370,7 @@ impl Default for AppConfig {
             plans_directory: None,
             temperature: None,
             plan_subagent: false,
-            plan_question_timeout_secs: default_plan_question_timeout(),
+            ask_user_question_timeout_secs: default_ask_user_question_timeout(),
             channels: crate::channel::ChannelStoreConfig::default(),
             deferred_tools: DeferredToolsConfig::default(),
             server: EmbeddedServerConfig::default(),

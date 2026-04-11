@@ -132,17 +132,12 @@ impl PlanMeta {
     }
 }
 
-// ── Ask User Question (Interactive Q&A, legacy name: Plan Question) ──
-//
-// These types back the generic `ask_user_question` tool. The struct names keep
-// the `PlanQuestion*` prefix for backwards compatibility with serialized
-// session history and the long-standing `plan_question_request` event, but the
-// feature is now available outside Plan Mode.
+// ── Ask User Question (Interactive Q&A) ──
 
 /// A single question option for the user to choose from.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PlanQuestionOption {
+pub struct AskUserQuestionOption {
     pub value: String,
     pub label: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -162,10 +157,10 @@ pub struct PlanQuestionOption {
 /// A structured question sent by LLM to the user.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PlanQuestion {
+pub struct AskUserQuestion {
     pub question_id: String,
     pub text: String,
-    pub options: Vec<PlanQuestionOption>,
+    pub options: Vec<AskUserQuestionOption>,
     #[serde(default = "crate::default_true")]
     pub allow_custom: bool,
     #[serde(default)]
@@ -189,10 +184,10 @@ pub struct PlanQuestion {
 /// A group of questions sent together.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PlanQuestionGroup {
+pub struct AskUserQuestionGroup {
     pub request_id: String,
     pub session_id: String,
-    pub questions: Vec<PlanQuestion>,
+    pub questions: Vec<AskUserQuestion>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context: Option<String>,
     /// Where this question originated from: "plan" | "normal" | skill id.
@@ -208,7 +203,7 @@ pub struct PlanQuestionGroup {
 /// User's answer to a single question
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PlanQuestionAnswer {
+pub struct AskUserQuestionAnswer {
     pub question_id: String,
     pub selected: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

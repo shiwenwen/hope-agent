@@ -4,7 +4,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use oc_core::plan::{
-    self, PlanModeState, PlanQuestionAnswer, PlanStep, PlanStepStatus, PlanVersionInfo,
+    self, AskUserQuestionAnswer, PlanModeState, PlanStep, PlanStepStatus, PlanVersionInfo,
 };
 
 use crate::error::AppError;
@@ -156,14 +156,14 @@ pub async fn update_plan_step_status(
 #[derive(Debug, Deserialize)]
 pub struct RespondQuestionBody {
     pub request_id: String,
-    pub answers: Vec<PlanQuestionAnswer>,
+    pub answers: Vec<AskUserQuestionAnswer>,
 }
 
-/// `POST /api/plan/question-response`
-pub async fn respond_plan_question(
+/// `POST /api/ask_user/respond`
+pub async fn respond_ask_user_question(
     Json(body): Json<RespondQuestionBody>,
 ) -> Result<Json<Value>, AppError> {
-    plan::submit_plan_question_response(&body.request_id, body.answers).await?;
+    plan::submit_ask_user_question_response(&body.request_id, body.answers).await?;
     Ok(Json(json!({ "submitted": true })))
 }
 

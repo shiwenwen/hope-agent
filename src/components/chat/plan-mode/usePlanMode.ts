@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
-import type { PlanQuestionGroup } from "./PlanQuestionBlock"
+import type { AskUserQuestionGroup } from "../ask-user/AskUserQuestionBlock"
 
 export type PlanModeState = "off" | "planning" | "review" | "executing" | "paused" | "completed"
 
@@ -32,7 +32,7 @@ export interface UsePlanModeReturn {
   progress: number
   completedCount: number
   planCardInfo: PlanCardInfo | null
-  pendingQuestionGroup: PlanQuestionGroup | null
+  pendingQuestionGroup: AskUserQuestionGroup | null
   planSubagentRunning: boolean
   enterPlanMode: () => Promise<void>
   exitPlanMode: () => Promise<void>
@@ -54,7 +54,7 @@ export function usePlanMode(
   const [planContent, setPlanContent] = useState<string>("")
   const [showPanel, setShowPanel] = useState(false)
   const [planCardInfo, setPlanCardInfo] = useState<PlanCardInfo | null>(null)
-  const [pendingQuestionGroup, setPendingQuestionGroup] = useState<PlanQuestionGroup | null>(null)
+  const [pendingQuestionGroup, setPendingQuestionGroup] = useState<AskUserQuestionGroup | null>(null)
   const [planSubagentRunning, setPlanSubagentRunning] = useState(false)
 
   // Track whether plan mode was entered in the current no-session context
@@ -160,7 +160,7 @@ export function usePlanMode(
     // and "reopen a session that had unanswered questions").
     setPendingQuestionGroup(null)
     getTransport()
-      .call<PlanQuestionGroup | null>("get_pending_ask_user_group", {
+      .call<AskUserQuestionGroup | null>("get_pending_ask_user_group", {
         sessionId: currentSessionId,
       })
       .then((group) => {
@@ -275,27 +275,19 @@ export function usePlanMode(
     })
   }, [currentSessionId])
 
-  // Listen for ask_user_request / plan_question_request events (alias).
-  // ask_user_question is the canonical tool name; plan_question_request is
-  // kept as a legacy alias so historical sessions and older code paths keep
-  // working. The backend emits both event names for the same payload.
+  // Listen for ask_user_request events emitted by the ask_user_question tool.
   useEffect(() => {
     const handler = (raw: unknown) => {
       try {
-        const group: PlanQuestionGroup =
-          typeof raw === "string" ? JSON.parse(raw) : (raw as PlanQuestionGroup)
+        const group: AskUserQuestionGroup =
+          typeof raw === "string" ? JSON.parse(raw) : (raw as AskUserQuestionGroup)
         if (group.sessionId !== currentSessionId) return
         setPendingQuestionGroup(group)
       } catch {
         // ignore parse errors
       }
     }
-    const unsubscribeNew = getTransport().listen("ask_user_request", handler)
-    const unsubscribeLegacy = getTransport().listen("plan_question_request", handler)
-    return () => {
-      unsubscribeNew?.()
-      unsubscribeLegacy?.()
-    }
+    return getTransport().listen("ask_user_request", handler)
   }, [currentSessionId])
 
   // Listen for plan_subagent_status events (plan sub-agent running/completed)

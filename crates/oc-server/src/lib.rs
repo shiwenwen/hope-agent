@@ -179,12 +179,12 @@ fn build_router_with_cors(
             post(routes::config::set_plan_subagent),
         )
         .route(
-            "/config/plan-question-timeout",
-            get(routes::config::get_plan_question_timeout),
+            "/config/ask-user-question-timeout",
+            get(routes::config::get_ask_user_question_timeout),
         )
         .route(
-            "/config/plan-question-timeout",
-            post(routes::config::set_plan_question_timeout),
+            "/config/ask-user-question-timeout",
+            post(routes::config::set_ask_user_question_timeout),
         )
         .route("/config/server", get(routes::config::get_server_config))
         .route("/config/server", put(routes::config::save_server_config))
@@ -247,12 +247,8 @@ fn build_router_with_cors(
             post(routes::plan::update_plan_step_status),
         )
         .route(
-            "/plan/question-response",
-            post(routes::plan::respond_plan_question),
-        )
-        .route(
             "/ask_user/respond",
-            post(routes::plan::respond_plan_question),
+            post(routes::plan::respond_ask_user_question),
         )
         .route(
             "/plan/{sid}/pending-ask-user",
