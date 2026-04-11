@@ -184,6 +184,7 @@ pub async fn get_available_models() -> Result<Json<Vec<AvailableModel>>, AppErro
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ReorderBody {
     pub provider_ids: Vec<String>,
 }

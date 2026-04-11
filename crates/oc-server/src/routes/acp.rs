@@ -67,6 +67,7 @@ pub async fn refresh_backends() -> Result<Json<Value>, AppError> {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ListRunsQuery {
     pub parent_session_id: Option<String>,
 }

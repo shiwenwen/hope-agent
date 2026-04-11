@@ -8,6 +8,7 @@ use crate::error::AppError;
 // ── Query / Body Types ──────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ListMemoryQuery {
     pub limit: Option<usize>,
     pub offset: Option<usize>,
@@ -24,12 +25,14 @@ pub struct UpdateMemoryBody {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CountQuery {
     pub scope: Option<String>,
     pub agent_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StatsQuery {
     pub scope: Option<String>,
     pub agent_id: Option<String>,

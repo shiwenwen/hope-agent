@@ -9,11 +9,12 @@ use crate::error::AppError;
 use crate::routes::helpers::app_state as state;
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ListQuery {
     pub session_id: String,
 }
 
-/// `GET /api/subagent/runs?session_id=...`
+/// `GET /api/subagent/runs?sessionId=...`
 pub async fn list_subagent_runs(
     Query(q): Query<ListQuery>,
 ) -> Result<Json<Vec<subagent::SubagentRun>>, AppError> {

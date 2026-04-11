@@ -11,6 +11,7 @@ use crate::AppContext;
 // ── Query / Body Types ──────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ListSessionsQuery {
     pub agent_id: Option<String>,
     pub limit: Option<u32>,
@@ -18,6 +19,7 @@ pub struct ListSessionsQuery {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateSessionBody {
     pub agent_id: Option<String>,
 }

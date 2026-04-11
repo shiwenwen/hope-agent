@@ -6,6 +6,7 @@ use serde_json::{json, Value};
 use crate::error::AppError;
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SnapshotBody {
     pub data_url: Option<String>,
     pub error: Option<String>,
