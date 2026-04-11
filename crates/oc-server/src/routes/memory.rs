@@ -8,6 +8,7 @@ use crate::error::AppError;
 // ── Query / Body Types ──────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ListMemoryQuery {
     pub limit: Option<usize>,
     pub offset: Option<usize>,
@@ -24,12 +25,14 @@ pub struct UpdateMemoryBody {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CountQuery {
     pub scope: Option<String>,
     pub agent_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StatsQuery {
     pub scope: Option<String>,
     pub agent_id: Option<String>,
@@ -45,6 +48,18 @@ pub struct ImportPromptQuery {
 fn get_backend() -> Result<&'static std::sync::Arc<dyn oc_core::memory::MemoryBackend>, AppError> {
     oc_core::get_memory_backend()
         .ok_or_else(|| AppError::internal("Memory backend not initialized"))
+}
+
+/// Body wrapper for `memory_add` — frontend ships `{ entry: <NewMemory> }`.
+#[derive(Debug, Deserialize)]
+pub struct AddMemoryBody {
+    pub entry: oc_core::memory::NewMemory,
+}
+
+/// Body wrapper for `memory_search` — frontend ships `{ query: <MemorySearchQuery> }`.
+#[derive(Debug, Deserialize)]
+pub struct SearchMemoryBody {
+    pub query: oc_core::memory::MemorySearchQuery,
 }
 
 /// Parse scope from query params: explicit `scope` JSON or shorthand `agent_id`.
@@ -74,10 +89,10 @@ fn parse_types(types: &Option<String>) -> Option<Vec<oc_core::memory::MemoryType
 
 /// `POST /api/memory` -- add a new memory entry.
 pub async fn add_memory(
-    Json(entry): Json<oc_core::memory::NewMemory>,
+    Json(body): Json<AddMemoryBody>,
 ) -> Result<Json<Value>, AppError> {
     let backend = get_backend()?;
-    let id = backend.add(entry)?;
+    let id = backend.add(body.entry)?;
     Ok(Json(json!({ "id": id })))
 }
 
@@ -125,10 +140,10 @@ pub async fn list_memories(
 
 /// `POST /api/memory/search` -- semantic search over memories.
 pub async fn search_memories(
-    Json(query): Json<oc_core::memory::MemorySearchQuery>,
+    Json(body): Json<SearchMemoryBody>,
 ) -> Result<Json<Vec<oc_core::memory::MemoryEntry>>, AppError> {
     let backend = get_backend()?;
-    let results = backend.search(&query)?;
+    let results = backend.search(&body.query)?;
     Ok(Json(results))
 }
 
@@ -159,4 +174,80 @@ pub async fn import_from_ai_prompt(
     let locale = q.locale.as_deref().unwrap_or("en");
     let prompt = oc_core::memory::import_prompt::import_from_ai_prompt(locale);
     Ok(Json(prompt.to_string()))
+}
+
+// ── Pin / Batch / Re-embed / Global memory.md ─────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct TogglePinBody {
+    pub pinned: bool,
+}
+
+/// `POST /api/memory/{id}/pin` — toggle the pinned status of a memory.
+pub async fn toggle_pin(
+    Path(id): Path<i64>,
+    Json(body): Json<TogglePinBody>,
+) -> Result<Json<Value>, AppError> {
+    let backend = get_backend()?;
+    backend.toggle_pin(id, body.pinned)?;
+    Ok(Json(json!({ "ok": true, "pinned": body.pinned })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DeleteBatchBody {
+    pub ids: Vec<i64>,
+}
+
+/// `POST /api/memory/delete-batch` — delete multiple memories at once.
+pub async fn delete_batch(
+    Json(body): Json<DeleteBatchBody>,
+) -> Result<Json<Value>, AppError> {
+    let backend = get_backend()?;
+    let deleted = backend.delete_batch(&body.ids)?;
+    Ok(Json(json!({ "deleted": deleted })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ReembedBody {
+    #[serde(default)]
+    pub ids: Option<Vec<i64>>,
+}
+
+/// `POST /api/memory/reembed` — regenerate embeddings for a subset of (or
+/// all) memories.
+pub async fn reembed(Json(body): Json<ReembedBody>) -> Result<Json<Value>, AppError> {
+    let backend = get_backend()?;
+    let count = match body.ids {
+        Some(ids) if !ids.is_empty() => backend.reembed_batch(&ids)?,
+        _ => backend.reembed_all()?,
+    };
+    Ok(Json(json!({ "updated": count })))
+}
+
+/// `GET /api/memory/global-md` — read the user's global `memory.md` file.
+pub async fn get_global_memory_md() -> Result<Json<Value>, AppError> {
+    let path = oc_core::paths::root_dir()?.join("memory.md");
+    let content = if path.exists() {
+        Some(
+            std::fs::read_to_string(&path)
+                .map_err(|e| AppError::internal(e.to_string()))?,
+        )
+    } else {
+        None
+    };
+    Ok(Json(json!({ "content": content })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct MemoryMdBody {
+    pub content: String,
+}
+
+/// `PUT /api/memory/global-md` — write the user's global `memory.md` file.
+pub async fn save_global_memory_md(
+    Json(body): Json<MemoryMdBody>,
+) -> Result<Json<Value>, AppError> {
+    let path = oc_core::paths::root_dir()?.join("memory.md");
+    std::fs::write(&path, body.content).map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(json!({ "saved": true })))
 }

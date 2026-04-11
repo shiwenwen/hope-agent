@@ -74,6 +74,22 @@ fn build_router_with_cors(
             "/sessions/{id}/messages",
             get(routes::sessions::get_session_messages),
         )
+        .route(
+            "/sessions/{id}/read",
+            post(routes::sessions::mark_session_read),
+        )
+        .route(
+            "/sessions/read-batch",
+            post(routes::sessions::mark_session_read_batch),
+        )
+        .route(
+            "/sessions/read-all",
+            post(routes::sessions::mark_all_sessions_read),
+        )
+        .route(
+            "/sessions/{id}/compact",
+            post(routes::sessions::compact_context_now),
+        )
         // Chat
         .route("/chat", post(routes::chat::chat))
         .route("/chat/stop", post(routes::chat::stop_chat))
@@ -81,7 +97,13 @@ fn build_router_with_cors(
             "/chat/approval/{request_id}",
             post(routes::chat::respond_to_approval),
         )
+        .route(
+            "/chat/approval",
+            post(routes::chat::respond_to_approval_body),
+        )
+        .route("/chat/attachment", post(routes::chat::save_attachment))
         .route("/chat/system-prompt", get(routes::chat::get_system_prompt))
+        .route("/system-prompt", post(routes::chat::get_system_prompt_post))
         .route("/chat/tools", get(routes::chat::list_tools))
         // Providers
         .route("/providers", get(routes::providers::list_providers))
@@ -93,12 +115,39 @@ fn build_router_with_cors(
         )
         .route("/providers/test", post(routes::providers::test_provider))
         .route(
+            "/providers/test-embedding",
+            post(routes::providers::test_embedding),
+        )
+        .route(
+            "/providers/test-image",
+            post(routes::providers::test_image_generate),
+        )
+        .route(
             "/providers/active-model",
             get(routes::providers::get_active_model),
         )
         .route(
             "/providers/active-model",
             put(routes::providers::set_active_model),
+        )
+        // Models (aliases under /api/models/*)
+        .route("/models", get(routes::models::list_available_models))
+        .route("/models/active", get(routes::models::get_active_model))
+        .route("/models/active", post(routes::models::set_active_model))
+        .route("/models/fallback", get(routes::models::get_fallback_models))
+        .route("/models/fallback", post(routes::models::set_fallback_models))
+        .route(
+            "/models/reasoning-effort",
+            post(routes::models::set_reasoning_effort),
+        )
+        .route("/models/settings", get(routes::models::get_current_settings))
+        .route(
+            "/models/temperature",
+            get(routes::models::get_global_temperature),
+        )
+        .route(
+            "/models/temperature",
+            post(routes::models::set_global_temperature),
         )
         // Memory
         .route("/memory", post(routes::memory::add_memory))
@@ -112,6 +161,17 @@ fn build_router_with_cors(
         .route(
             "/memory/import-from-ai-prompt",
             get(routes::memory::import_from_ai_prompt),
+        )
+        .route("/memory/{id}/pin", post(routes::memory::toggle_pin))
+        .route("/memory/delete-batch", post(routes::memory::delete_batch))
+        .route("/memory/reembed", post(routes::memory::reembed))
+        .route(
+            "/memory/global-md",
+            get(routes::memory::get_global_memory_md),
+        )
+        .route(
+            "/memory/global-md",
+            put(routes::memory::save_global_memory_md),
         )
         // Config
         .route("/config/user", get(routes::config::get_user_config))
@@ -188,11 +248,135 @@ fn build_router_with_cors(
         )
         .route("/config/server", get(routes::config::get_server_config))
         .route("/config/server", put(routes::config::save_server_config))
+        // Config — memory
+        .route(
+            "/config/embedding",
+            get(routes::config::get_embedding_config),
+        )
+        .route(
+            "/config/embedding",
+            put(routes::config::save_embedding_config),
+        )
+        .route(
+            "/config/embedding/presets",
+            get(routes::config::get_embedding_presets),
+        )
+        .route(
+            "/config/embedding-cache",
+            get(routes::config::get_embedding_cache_config),
+        )
+        .route(
+            "/config/embedding-cache",
+            put(routes::config::save_embedding_cache_config),
+        )
+        .route("/config/dedup", get(routes::config::get_dedup_config))
+        .route("/config/dedup", put(routes::config::save_dedup_config))
+        .route(
+            "/config/hybrid-search",
+            get(routes::config::get_hybrid_search_config),
+        )
+        .route(
+            "/config/hybrid-search",
+            put(routes::config::save_hybrid_search_config),
+        )
+        .route("/config/mmr", get(routes::config::get_mmr_config))
+        .route("/config/mmr", put(routes::config::save_mmr_config))
+        .route(
+            "/config/multimodal",
+            get(routes::config::get_multimodal_config),
+        )
+        .route(
+            "/config/multimodal",
+            put(routes::config::save_multimodal_config),
+        )
+        .route(
+            "/config/temporal-decay",
+            get(routes::config::get_temporal_decay_config),
+        )
+        .route(
+            "/config/temporal-decay",
+            put(routes::config::save_temporal_decay_config),
+        )
+        .route("/config/extract", get(routes::config::get_extract_config))
+        .route("/config/extract", put(routes::config::save_extract_config))
+        // Config — tools
+        .route(
+            "/config/web-fetch",
+            get(routes::config::get_web_fetch_config),
+        )
+        .route(
+            "/config/web-fetch",
+            put(routes::config::save_web_fetch_config),
+        )
+        .route(
+            "/config/image-generate",
+            get(routes::config::get_image_generate_config),
+        )
+        .route(
+            "/config/image-generate",
+            put(routes::config::save_image_generate_config),
+        )
+        .route("/config/canvas", get(routes::config::get_canvas_config))
+        .route("/config/canvas", put(routes::config::save_canvas_config))
+        .route("/config/sandbox", get(routes::config::get_sandbox_config))
+        .route("/config/sandbox", put(routes::config::set_sandbox_config))
+        // Config — shortcuts
+        .route(
+            "/config/shortcuts",
+            get(routes::config::get_shortcut_config),
+        )
+        .route(
+            "/config/shortcuts",
+            put(routes::config::save_shortcut_config),
+        )
+        .route(
+            "/config/shortcuts/pause",
+            post(routes::config::set_shortcuts_paused),
+        )
+        // Config — theme / language / UI
+        .route("/config/theme", get(routes::config::get_theme))
+        .route("/config/theme", post(routes::config::set_theme))
+        .route("/config/window-theme", post(routes::config::set_window_theme))
+        .route("/config/language", get(routes::config::get_language))
+        .route("/config/language", post(routes::config::set_language))
+        .route(
+            "/config/ui-effects",
+            get(routes::config::get_ui_effects_enabled),
+        )
+        .route(
+            "/config/ui-effects",
+            post(routes::config::set_ui_effects_enabled),
+        )
+        .route(
+            "/config/autostart",
+            get(routes::config::get_autostart_enabled),
+        )
+        .route(
+            "/config/autostart",
+            post(routes::config::set_autostart_enabled),
+        )
         // Agents
         .route("/agents", get(routes::agents::list_agents))
+        .route("/agents/template", get(routes::agents::get_agent_template))
         .route("/agents/{id}", get(routes::agents::get_agent))
         .route("/agents/{id}", put(routes::agents::save_agent))
         .route("/agents/{id}", delete(routes::agents::delete_agent))
+        .route(
+            "/agents/{id}/markdown",
+            get(routes::agents::get_agent_markdown),
+        )
+        .route(
+            "/agents/{id}/markdown",
+            put(routes::agents::save_agent_markdown),
+        )
+        .route(
+            "/agents/{id}/memory-md",
+            get(routes::agents::get_agent_memory_md),
+        )
+        .route(
+            "/agents/{id}/memory-md",
+            put(routes::agents::save_agent_memory_md),
+        )
         // Cron
         .route("/cron/jobs", get(routes::cron::list_jobs))
         .route("/cron/jobs", post(routes::cron::create_job))
@@ -404,6 +588,7 @@ fn build_router_with_cors(
         )
         // ACP Control
         .route("/acp/backends", get(routes::acp::list_backends))
+        .route("/acp/health-check", get(routes::acp::health_check))
         .route("/acp/refresh", post(routes::acp::refresh_backends))
         .route("/acp/runs", get(routes::acp::list_runs))
         .route("/acp/runs/{run_id}/kill", post(routes::acp::kill_run))
@@ -444,6 +629,7 @@ fn build_router_with_cors(
             "/canvas/eval/{request_id}",
             post(routes::canvas::canvas_submit_eval_result),
         )
+        .route("/canvas/show", post(routes::canvas::show_canvas_panel))
         // Providers extras
         .route(
             "/providers/available-models",
@@ -457,7 +643,43 @@ fn build_router_with_cors(
         .route(
             "/misc/write-export-file",
             post(routes::misc::write_export_file),
-        );
+        )
+        // SearXNG Docker
+        .route("/searxng/status", get(routes::searxng::status))
+        .route("/searxng/deploy", post(routes::searxng::deploy))
+        .route("/searxng/start", post(routes::searxng::start))
+        .route("/searxng/stop", post(routes::searxng::stop))
+        .route("/searxng", delete(routes::searxng::remove))
+        // Auth
+        .route(
+            "/auth/codex/start",
+            post(routes::auth::start_codex_auth),
+        )
+        .route(
+            "/auth/codex/finalize",
+            post(routes::auth::finalize_codex_auth),
+        )
+        // System (desktop-only stubs)
+        .route(
+            "/system/restart",
+            post(routes::system::request_app_restart),
+        )
+        // Desktop (desktop-only stubs)
+        .route("/desktop/open-url", post(routes::desktop::open_url))
+        .route(
+            "/desktop/open-directory",
+            post(routes::desktop::open_directory),
+        )
+        .route(
+            "/desktop/reveal-in-folder",
+            post(routes::desktop::reveal_in_folder),
+        )
+        // Dev tools
+        .route("/dev/clear-sessions", post(routes::dev::clear_sessions))
+        .route("/dev/clear-cron", post(routes::dev::clear_cron))
+        .route("/dev/clear-memory", post(routes::dev::clear_memory))
+        .route("/dev/reset-config", post(routes::dev::reset_config))
+        .route("/dev/clear-all", post(routes::dev::clear_all));
 
     let ws_routes = Router::new()
         .route("/events", get(ws::events::events_ws))

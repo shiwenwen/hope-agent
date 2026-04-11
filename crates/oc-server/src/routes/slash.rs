@@ -17,6 +17,7 @@ pub async fn list_slash_commands(
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ExecuteBody {
     pub session_id: Option<String>,
     pub agent_id: String,

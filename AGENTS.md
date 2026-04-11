@@ -159,7 +159,7 @@ crates/oc-server/src/   HTTP/WS 守护进程
   config.rs             ServerConfig（bind_addr / api_key / cors_origins）
   error.rs              统一错误处理
   middleware.rs          API Key 鉴权中间件（Bearer header + ?token= query param）
-  routes/               REST API 路由处理（sessions/chat/providers/config/agents/memory/health）
+  routes/               REST API 路由处理（sessions/chat/providers/models/config/agents/memory/auth/searxng/system/desktop/dev/acp/canvas/... 共 28 个模块）
   ws/                   WebSocket（events 事件推送 + chat_stream 流式聊天）
 ```
 

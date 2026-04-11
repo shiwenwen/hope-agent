@@ -46,6 +46,15 @@ pub async fn list_backends() -> Result<Json<Vec<AcpBackendInfo>>, AppError> {
     Ok(Json(backends))
 }
 
+/// `GET /api/acp/health-check` — alias for `list_backends`.
+///
+/// The frontend distinguishes "just list" from "also probe health" via a
+/// separate invoke target. Both call sites are satisfied by the same
+/// underlying probe.
+pub async fn health_check() -> Result<Json<Vec<AcpBackendInfo>>, AppError> {
+    list_backends().await
+}
+
 /// `POST /api/acp/refresh`
 pub async fn refresh_backends() -> Result<Json<Value>, AppError> {
     if let Some(_manager) = oc_core::get_acp_manager() {
@@ -58,6 +67,7 @@ pub async fn refresh_backends() -> Result<Json<Value>, AppError> {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ListRunsQuery {
     pub parent_session_id: Option<String>,
 }

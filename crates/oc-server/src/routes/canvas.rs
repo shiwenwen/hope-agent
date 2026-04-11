@@ -6,6 +6,7 @@ use serde_json::{json, Value};
 use crate::error::AppError;
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SnapshotBody {
     pub data_url: Option<String>,
     pub error: Option<String>,
@@ -37,4 +38,11 @@ pub async fn canvas_submit_eval_result(
         .await
         .map_err(|e| AppError::internal(e))?;
     Ok(Json(json!({ "ok": true })))
+}
+
+/// `POST /api/canvas/show` — desktop-only: ask the shell to focus the canvas
+/// panel for a given project. Server mode has no window to show, so this
+/// just acknowledges the request.
+pub async fn show_canvas_panel(Json(_body): Json<Value>) -> Result<Json<Value>, AppError> {
+    Ok(Json(json!({ "ok": true, "note": "desktop-only" })))
 }

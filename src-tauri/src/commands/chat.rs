@@ -31,32 +31,8 @@ pub async fn save_attachment(
     _mime_type: String,
     data: Vec<u8>,
 ) -> Result<String, String> {
-    // Use temp directory if no session ID yet (new chat)
-    let att_dir = match &session_id {
-        Some(sid) if !sid.is_empty() => {
-            crate::paths::attachments_dir(sid).map_err(|e| e.to_string())?
-        }
-        _ => {
-            let root = crate::paths::root_dir().map_err(|e| e.to_string())?;
-            root.join("attachments").join("_temp")
-        }
-    };
-    std::fs::create_dir_all(&att_dir)
-        .map_err(|e| format!("Failed to create attachments dir: {}", e))?;
-
-    // Generate unique filename with timestamp to avoid collisions
-    let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-    let safe_name = file_name.replace(['/', '\\', ':'], "_");
-    let filename = format!("{}_{}", ts, safe_name);
-    let file_path = att_dir.join(&filename);
-
-    std::fs::write(&file_path, &data)
-        .map_err(|e| format!("Failed to write attachment {}: {}", file_name, e))?;
-
-    Ok(file_path.to_string_lossy().to_string())
+    oc_core::attachments::save_attachment_bytes(session_id.as_deref(), &file_name, &data)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

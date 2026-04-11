@@ -16,8 +16,15 @@ use crate::ws::chat_stream::ChatStreamRegistry;
 use crate::AppContext;
 
 // ── Request / Response Types ───────────────────────────────────
+//
+// All HTTP request bodies use `#[serde(rename_all = "camelCase")]` because
+// the frontend `transport-http.ts::call()` ships args as-is via
+// `JSON.stringify(remainingArgs)`. Frontend code uses camelCase keys
+// throughout (`sessionId`, `agentId`, `requestId`, ...), so the matching
+// HTTP body structs MUST accept camelCase to deserialize successfully.
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ChatRequest {
     pub message: String,
     #[serde(default)]
@@ -37,14 +44,19 @@ pub struct ChatRequest {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ChatResponse {
     pub session_id: String,
     pub response: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct StopChatRequest {
-    pub session_id: String,
+    /// When omitted, cancels every running chat (mirrors the Tauri command's
+    /// "stop the current chat" semantics — frontend calls `stop_chat` with
+    /// no args).
+    pub session_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -52,8 +64,40 @@ pub struct ApprovalRequest {
     pub response: String,
 }
 
+/// Body-based approval response: alias for `/api/chat/approval` (no path
+/// param) — matches the frontend `respond_to_approval` command which sends
+/// `{requestId, response}` in the JSON body.
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApprovalBodyRequest {
+    pub request_id: String,
+    pub response: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveAttachmentBody {
+    #[serde(default)]
+    pub session_id: Option<String>,
+    pub file_name: String,
+    #[serde(default)]
+    pub mime_type: Option<String>,
+    /// Raw bytes. Frontend ships `Array.from(new Uint8Array(buf))` which
+    /// JSON-encodes as a sequence of numbers — serde deserializes that into
+    /// `Vec<u8>` natively.
+    pub data: Vec<u8>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SystemPromptQuery {
+    pub agent_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemPromptBody {
+    #[serde(default)]
     pub agent_id: Option<String>,
 }
 
@@ -241,20 +285,34 @@ pub async fn chat(
     }))
 }
 
-/// `POST /api/chat/stop` — stop ongoing chat for a session.
+/// `POST /api/chat/stop` — stop ongoing chat(s).
+///
+/// When the request body provides `sessionId`, only that session's cancel
+/// flag is flipped. Otherwise every running chat is cancelled (this matches
+/// the desktop Tauri command which has no per-session targeting). Accepts
+/// either `{}` or omitted body — `axum::Json` with a `Default` body handles
+/// `{}`; for a completely empty body the Tauri caller wouldn't reach this
+/// route anyway.
 pub async fn stop_chat(
     State(ctx): State<Arc<AppContext>>,
     Json(body): Json<StopChatRequest>,
 ) -> Result<Json<Value>, AppError> {
     let cancels = ctx.chat_cancels.read().unwrap();
-    if let Some(cancel) = cancels.get(&body.session_id) {
-        cancel.store(true, Ordering::SeqCst);
-        Ok(Json(json!({ "stopped": true })))
-    } else {
-        Ok(Json(
+    if let Some(sid) = body.session_id.as_deref() {
+        if let Some(cancel) = cancels.get(sid) {
+            cancel.store(true, Ordering::SeqCst);
+            return Ok(Json(json!({ "stopped": true, "scope": "session" })));
+        }
+        return Ok(Json(
             json!({ "stopped": false, "reason": "no active chat for session" }),
-        ))
+        ));
     }
+    let mut count = 0usize;
+    for cancel in cancels.values() {
+        cancel.store(true, Ordering::SeqCst);
+        count += 1;
+    }
+    Ok(Json(json!({ "stopped": true, "scope": "all", "count": count })))
 }
 
 /// `POST /api/chat/approval/{request_id}` — respond to a tool approval request.
@@ -296,6 +354,62 @@ pub async fn get_system_prompt(
         ("unknown".to_string(), "Unknown".to_string())
     };
 
+    let prompt = oc_core::agent::build_system_prompt(&agent_id, &model, &provider_name);
+    Ok(Json(json!({ "system_prompt": prompt })))
+}
+
+/// `POST /api/chat/approval` — body-based alias of `respond_to_approval`.
+///
+/// Frontend `transport-http` maps `respond_to_approval` to this path without
+/// a `{request_id}` path parameter; the id ships in the JSON body instead.
+pub async fn respond_to_approval_body(
+    Json(body): Json<ApprovalBodyRequest>,
+) -> Result<Json<Value>, AppError> {
+    let approval_response = match body.response.as_str() {
+        "allow_once" => tools::ApprovalResponse::AllowOnce,
+        "allow_always" => tools::ApprovalResponse::AllowAlways,
+        "deny" => tools::ApprovalResponse::Deny,
+        _ => {
+            return Err(AppError::bad_request(format!(
+                "Invalid approval response: {}. Expected: allow_once, allow_always, deny",
+                body.response
+            )));
+        }
+    };
+    tools::submit_approval_response(&body.request_id, approval_response).await?;
+    Ok(Json(json!({ "approved": true })))
+}
+
+/// `POST /api/chat/attachment` — persist an uploaded attachment and return its
+/// absolute path so it can be referenced in a subsequent `POST /api/chat`.
+pub async fn save_attachment(
+    Json(body): Json<SaveAttachmentBody>,
+) -> Result<Json<Value>, AppError> {
+    let path = oc_core::attachments::save_attachment_bytes(
+        body.session_id.as_deref(),
+        &body.file_name,
+        &body.data,
+    )
+    .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(json!({ "path": path })))
+}
+
+/// `POST /api/system-prompt` — body-based alias of `get_system_prompt`.
+pub async fn get_system_prompt_post(
+    Json(body): Json<SystemPromptBody>,
+) -> Result<Json<Value>, AppError> {
+    let agent_id = body.agent_id.unwrap_or_else(|| "default".to_string());
+    let store = oc_core::config::cached_config();
+    let (model, provider_name) = if let Some(ref active) = store.active_model {
+        let prov = store.providers.iter().find(|p| p.id == active.provider_id);
+        let model_id = active.model_id.clone();
+        let pname = prov
+            .map(|p| p.api_type.display_name().to_string())
+            .unwrap_or_else(|| "Unknown".to_string());
+        (model_id, pname)
+    } else {
+        ("unknown".to_string(), "Unknown".to_string())
+    };
     let prompt = oc_core::agent::build_system_prompt(&agent_id, &model, &provider_name);
     Ok(Json(json!({ "system_prompt": prompt })))
 }

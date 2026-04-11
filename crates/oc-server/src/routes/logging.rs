@@ -9,6 +9,7 @@ use crate::error::AppError;
 use crate::routes::helpers::app_state;
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct QueryLogsBody {
     pub filter: logging::LogFilter,
     #[serde(default)]
@@ -36,14 +37,19 @@ pub async fn get_log_stats() -> Result<Json<logging::LogStats>, AppError> {
     Ok(Json(app_state()?.log_db.get_stats(&db_path)?))
 }
 
-#[derive(Debug, Deserialize)]
-pub struct ClearLogsQuery {
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ClearLogsBody {
     pub before_date: Option<String>,
 }
 
 /// `POST /api/logs/clear`
-pub async fn clear_logs(Query(q): Query<ClearLogsQuery>) -> Result<Json<Value>, AppError> {
-    let n = app_state()?.log_db.clear(q.before_date.as_deref())?;
+///
+/// Frontend ships `{beforeDate: null}` in the JSON body (it's a POST), so
+/// we extract via `Json` rather than `Query`. Default impl lets empty /
+/// missing body deserialize to "clear everything".
+pub async fn clear_logs(Json(body): Json<ClearLogsBody>) -> Result<Json<Value>, AppError> {
+    let n = app_state()?.log_db.clear(body.before_date.as_deref())?;
     Ok(Json(json!({ "removed": n })))
 }
 
@@ -52,12 +58,17 @@ pub async fn get_log_config() -> Result<Json<logging::LogConfig>, AppError> {
     Ok(Json(app_state()?.logger.get_config()))
 }
 
+#[derive(Debug, Deserialize)]
+pub struct LogConfigBody {
+    pub config: logging::LogConfig,
+}
+
 /// `PUT /api/logs/config`
 pub async fn save_log_config(
-    Json(config): Json<logging::LogConfig>,
+    Json(body): Json<LogConfigBody>,
 ) -> Result<Json<Value>, AppError> {
-    logging::save_log_config(&config)?;
-    app_state()?.logger.update_config(config);
+    logging::save_log_config(&body.config)?;
+    app_state()?.logger.update_config(body.config);
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -67,6 +78,7 @@ pub async fn list_log_files() -> Result<Json<Vec<logging::LogFileInfo>>, AppErro
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ReadFileQuery {
     pub filename: String,
     pub tail_lines: Option<u32>,
@@ -84,6 +96,7 @@ pub async fn get_log_file_path() -> Result<Json<Value>, AppError> {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FrontendLogBody {
     pub level: String,
     pub category: String,

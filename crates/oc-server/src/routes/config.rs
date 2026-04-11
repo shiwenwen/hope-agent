@@ -1,4 +1,5 @@
 use axum::Json;
+use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::error::AppError;
@@ -13,6 +14,18 @@ fn save_config(store: &oc_core::config::AppConfig) -> Result<(), AppError> {
     Ok(oc_core::config::save_config(store)?)
 }
 
+/// Generic body wrapper used by every `save_*_config` handler.
+///
+/// All Tauri `save_*_config(config: T)` commands take a single struct
+/// parameter named `config`. The frontend HTTP transport mirrors that by
+/// shipping `{ config: <T> }` rather than `<T>` directly. Without this
+/// wrapper, axum's `Json<T>` extractor would fail because it would look
+/// for top-level fields of `T` directly in the body.
+#[derive(Debug, Deserialize)]
+pub struct ConfigBody<T> {
+    pub config: T,
+}
+
 // ── User Config ─────────────────────────────────────────────────
 
 /// `GET /api/config/user` -- get user config.
@@ -23,9 +36,9 @@ pub async fn get_user_config() -> Result<Json<oc_core::user_config::UserConfig>,
 
 /// `PUT /api/config/user` -- save user config.
 pub async fn save_user_config(
-    Json(config): Json<oc_core::user_config::UserConfig>,
+    Json(body): Json<ConfigBody<oc_core::user_config::UserConfig>>,
 ) -> Result<Json<Value>, AppError> {
-    oc_core::user_config::save_user_config_to_disk(&config)?;
+    oc_core::user_config::save_user_config_to_disk(&body.config)?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -42,10 +55,10 @@ pub async fn get_web_search_config(
 
 /// `PUT /api/config/web-search` -- save web search config.
 pub async fn save_web_search_config(
-    Json(config): Json<oc_core::tools::web_search::WebSearchConfig>,
+    Json(body): Json<ConfigBody<oc_core::tools::web_search::WebSearchConfig>>,
 ) -> Result<Json<Value>, AppError> {
     let mut store = load_config()?;
-    store.web_search = config;
+    store.web_search = body.config;
     save_config(&store)?;
     Ok(Json(json!({ "saved": true })))
 }
@@ -60,10 +73,10 @@ pub async fn get_proxy_config() -> Result<Json<oc_core::provider::ProxyConfig>, 
 
 /// `PUT /api/config/proxy` -- save proxy config.
 pub async fn save_proxy_config(
-    Json(config): Json<oc_core::provider::ProxyConfig>,
+    Json(body): Json<ConfigBody<oc_core::provider::ProxyConfig>>,
 ) -> Result<Json<Value>, AppError> {
     let mut store = load_config()?;
-    store.proxy = config;
+    store.proxy = body.config;
     save_config(&store)?;
     Ok(Json(json!({ "saved": true })))
 }
@@ -79,10 +92,10 @@ pub async fn get_compact_config() -> Result<Json<oc_core::context_compact::Compa
 
 /// `PUT /api/config/compact` -- save context compaction config.
 pub async fn save_compact_config(
-    Json(config): Json<oc_core::context_compact::CompactConfig>,
+    Json(body): Json<ConfigBody<oc_core::context_compact::CompactConfig>>,
 ) -> Result<Json<Value>, AppError> {
     let mut store = load_config()?;
-    store.compact = config;
+    store.compact = body.config;
     save_config(&store)?;
     Ok(Json(json!({ "saved": true })))
 }
@@ -98,10 +111,10 @@ pub async fn get_notification_config() -> Result<Json<oc_core::config::Notificat
 
 /// `PUT /api/config/notification` -- save notification config.
 pub async fn save_notification_config(
-    Json(config): Json<oc_core::config::NotificationConfig>,
+    Json(body): Json<ConfigBody<oc_core::config::NotificationConfig>>,
 ) -> Result<Json<Value>, AppError> {
     let mut store = load_config()?;
-    store.notification = config;
+    store.notification = body.config;
     save_config(&store)?;
     Ok(Json(json!({ "saved": true })))
 }
@@ -266,10 +279,324 @@ pub async fn get_server_config() -> Result<Json<Value>, AppError> {
 
 /// `PUT /api/config/server` -- save embedded server config.
 pub async fn save_server_config(
-    Json(config): Json<oc_core::config::EmbeddedServerConfig>,
+    Json(body): Json<ConfigBody<oc_core::config::EmbeddedServerConfig>>,
 ) -> Result<Json<Value>, AppError> {
     let mut store = load_config()?;
-    store.server = config;
+    store.server = body.config;
     save_config(&store)?;
     Ok(Json(json!({ "saved": true, "restartRequired": true })))
+}
+
+// ── Memory / Embedding Configs ──────────────────────────────────
+
+/// `GET /api/config/embedding` -- get embedding provider config.
+pub async fn get_embedding_config(
+) -> Result<Json<oc_core::memory::EmbeddingConfig>, AppError> {
+    let store = load_config()?;
+    Ok(Json(store.embedding))
+}
+
+/// `PUT /api/config/embedding` -- save embedding provider config.
+pub async fn save_embedding_config(
+    Json(body): Json<ConfigBody<oc_core::memory::EmbeddingConfig>>,
+) -> Result<Json<Value>, AppError> {
+    let mut store = load_config()?;
+    store.embedding = body.config;
+    save_config(&store)?;
+    Ok(Json(json!({ "saved": true })))
+}
+
+/// `GET /api/config/embedding/presets` -- list built-in embedding presets.
+pub async fn get_embedding_presets(
+) -> Result<Json<Vec<oc_core::memory::EmbeddingPreset>>, AppError> {
+    Ok(Json(oc_core::memory::embedding_presets()))
+}
+
+/// `GET /api/config/embedding-cache` -- get embedding cache config.
+pub async fn get_embedding_cache_config(
+) -> Result<Json<oc_core::memory::EmbeddingCacheConfig>, AppError> {
+    let store = load_config()?;
+    Ok(Json(store.embedding_cache))
+}
+
+/// `PUT /api/config/embedding-cache` -- save embedding cache config.
+pub async fn save_embedding_cache_config(
+    Json(body): Json<ConfigBody<oc_core::memory::EmbeddingCacheConfig>>,
+) -> Result<Json<Value>, AppError> {
+    let mut store = load_config()?;
+    store.embedding_cache = body.config;
+    save_config(&store)?;
+    Ok(Json(json!({ "saved": true })))
+}
+
+/// `GET /api/config/dedup` -- get memory deduplication config.
+pub async fn get_dedup_config() -> Result<Json<oc_core::memory::DedupConfig>, AppError> {
+    let store = load_config()?;
+    Ok(Json(store.dedup))
+}
+
+/// `PUT /api/config/dedup` -- save memory deduplication config.
+pub async fn save_dedup_config(
+    Json(body): Json<ConfigBody<oc_core::memory::DedupConfig>>,
+) -> Result<Json<Value>, AppError> {
+    let mut store = load_config()?;
+    store.dedup = body.config;
+    save_config(&store)?;
+    Ok(Json(json!({ "saved": true })))
+}
+
+/// `GET /api/config/hybrid-search` -- get hybrid search weights.
+pub async fn get_hybrid_search_config(
+) -> Result<Json<oc_core::memory::HybridSearchConfig>, AppError> {
+    let store = load_config()?;
+    Ok(Json(store.hybrid_search))
+}
+
+/// `PUT /api/config/hybrid-search` -- save hybrid search weights.
+pub async fn save_hybrid_search_config(
+    Json(body): Json<ConfigBody<oc_core::memory::HybridSearchConfig>>,
+) -> Result<Json<Value>, AppError> {
+    let mut store = load_config()?;
+    store.hybrid_search = body.config;
+    save_config(&store)?;
+    Ok(Json(json!({ "saved": true })))
+}
+
+/// `GET /api/config/mmr` -- get MMR reranking config.
+pub async fn get_mmr_config() -> Result<Json<oc_core::memory::MmrConfig>, AppError> {
+    let store = load_config()?;
+    Ok(Json(store.mmr))
+}
+
+/// `PUT /api/config/mmr` -- save MMR reranking config.
+pub async fn save_mmr_config(
+    Json(body): Json<ConfigBody<oc_core::memory::MmrConfig>>,
+) -> Result<Json<Value>, AppError> {
+    let mut store = load_config()?;
+    store.mmr = body.config;
+    save_config(&store)?;
+    Ok(Json(json!({ "saved": true })))
+}
+
+/// `GET /api/config/multimodal` -- get multimodal embedding config.
+pub async fn get_multimodal_config(
+) -> Result<Json<oc_core::memory::MultimodalConfig>, AppError> {
+    let store = load_config()?;
+    Ok(Json(store.multimodal))
+}
+
+/// `PUT /api/config/multimodal` -- save multimodal embedding config.
+pub async fn save_multimodal_config(
+    Json(body): Json<ConfigBody<oc_core::memory::MultimodalConfig>>,
+) -> Result<Json<Value>, AppError> {
+    let mut store = load_config()?;
+    store.multimodal = body.config;
+    save_config(&store)?;
+    Ok(Json(json!({ "saved": true })))
+}
+
+/// `GET /api/config/temporal-decay` -- get temporal decay config.
+pub async fn get_temporal_decay_config(
+) -> Result<Json<oc_core::memory::TemporalDecayConfig>, AppError> {
+    let store = load_config()?;
+    Ok(Json(store.temporal_decay))
+}
+
+/// `PUT /api/config/temporal-decay` -- save temporal decay config.
+pub async fn save_temporal_decay_config(
+    Json(body): Json<ConfigBody<oc_core::memory::TemporalDecayConfig>>,
+) -> Result<Json<Value>, AppError> {
+    let mut store = load_config()?;
+    store.temporal_decay = body.config;
+    save_config(&store)?;
+    Ok(Json(json!({ "saved": true })))
+}
+
+/// `GET /api/config/extract` -- get memory auto-extract config.
+pub async fn get_extract_config(
+) -> Result<Json<oc_core::memory::MemoryExtractConfig>, AppError> {
+    let store = load_config()?;
+    Ok(Json(store.memory_extract))
+}
+
+/// `PUT /api/config/extract` -- save memory auto-extract config.
+pub async fn save_extract_config(
+    Json(body): Json<ConfigBody<oc_core::memory::MemoryExtractConfig>>,
+) -> Result<Json<Value>, AppError> {
+    let mut store = load_config()?;
+    store.memory_extract = body.config;
+    save_config(&store)?;
+    Ok(Json(json!({ "saved": true })))
+}
+
+// ── Web Fetch / Image Generate / Canvas ────────────────────────
+
+/// `GET /api/config/web-fetch` -- get web fetch tool config.
+pub async fn get_web_fetch_config(
+) -> Result<Json<oc_core::tools::web_fetch::WebFetchConfig>, AppError> {
+    let store = load_config()?;
+    Ok(Json(store.web_fetch))
+}
+
+/// `PUT /api/config/web-fetch` -- save web fetch tool config.
+pub async fn save_web_fetch_config(
+    Json(body): Json<ConfigBody<oc_core::tools::web_fetch::WebFetchConfig>>,
+) -> Result<Json<Value>, AppError> {
+    let mut store = load_config()?;
+    store.web_fetch = body.config;
+    save_config(&store)?;
+    Ok(Json(json!({ "saved": true })))
+}
+
+/// `GET /api/config/image-generate` -- get image generation config.
+pub async fn get_image_generate_config(
+) -> Result<Json<oc_core::tools::image_generate::ImageGenConfig>, AppError> {
+    let store = load_config()?;
+    let mut config = store.image_generate;
+    oc_core::tools::image_generate::backfill_providers(&mut config);
+    Ok(Json(config))
+}
+
+/// `PUT /api/config/image-generate` -- save image generation config.
+pub async fn save_image_generate_config(
+    Json(body): Json<ConfigBody<oc_core::tools::image_generate::ImageGenConfig>>,
+) -> Result<Json<Value>, AppError> {
+    let mut store = load_config()?;
+    store.image_generate = body.config;
+    save_config(&store)?;
+    Ok(Json(json!({ "saved": true })))
+}
+
+/// `GET /api/config/canvas` -- get canvas tool config.
+pub async fn get_canvas_config(
+) -> Result<Json<oc_core::tools::canvas::CanvasConfig>, AppError> {
+    let store = load_config()?;
+    Ok(Json(store.canvas))
+}
+
+/// `PUT /api/config/canvas` -- save canvas tool config.
+pub async fn save_canvas_config(
+    Json(body): Json<ConfigBody<oc_core::tools::canvas::CanvasConfig>>,
+) -> Result<Json<Value>, AppError> {
+    let mut store = load_config()?;
+    store.canvas = body.config;
+    save_config(&store)?;
+    Ok(Json(json!({ "saved": true })))
+}
+
+// ── Shortcuts ───────────────────────────────────────────────────
+
+/// `GET /api/config/shortcuts` -- get global keyboard shortcut config.
+pub async fn get_shortcut_config() -> Result<Json<oc_core::config::ShortcutConfig>, AppError> {
+    let store = load_config()?;
+    Ok(Json(store.shortcuts))
+}
+
+/// `PUT /api/config/shortcuts` -- save global keyboard shortcut config.
+///
+/// Only persists the config — the actual OS-level shortcut registration is
+/// performed by the Tauri desktop shell. In headless server mode this is a
+/// no-op beyond saving the value.
+pub async fn save_shortcut_config(
+    Json(body): Json<ConfigBody<oc_core::config::ShortcutConfig>>,
+) -> Result<Json<Value>, AppError> {
+    let mut store = load_config()?;
+    store.shortcuts = body.config;
+    save_config(&store)?;
+    Ok(Json(json!({ "saved": true, "note": "desktop-only registration" })))
+}
+
+/// `POST /api/config/shortcuts/pause` -- temporarily pause shortcut capture.
+///
+/// Desktop-only: in headless mode this is a no-op. Returns 200 regardless.
+pub async fn set_shortcuts_paused(Json(_body): Json<Value>) -> Result<Json<Value>, AppError> {
+    Ok(Json(json!({ "ok": true, "note": "desktop-only" })))
+}
+
+// ── Theme / Language / UI ──────────────────────────────────────
+
+/// `GET /api/config/theme` -- get UI theme ("auto" | "light" | "dark").
+pub async fn get_theme() -> Result<Json<Value>, AppError> {
+    let store = load_config()?;
+    Ok(Json(json!(store.theme)))
+}
+
+/// `POST /api/config/theme` -- set UI theme.
+pub async fn set_theme(Json(body): Json<Value>) -> Result<Json<Value>, AppError> {
+    let theme = body
+        .get("theme")
+        .and_then(|v| v.as_str())
+        .unwrap_or("auto")
+        .to_string();
+    let mut store = load_config()?;
+    store.theme = theme;
+    save_config(&store)?;
+    Ok(Json(json!({ "saved": true })))
+}
+
+/// `POST /api/config/window-theme` -- desktop-only, no-op in server mode.
+pub async fn set_window_theme(Json(_body): Json<Value>) -> Result<Json<Value>, AppError> {
+    Ok(Json(json!({ "ok": true, "note": "desktop-only" })))
+}
+
+/// `GET /api/config/language` -- get UI language code.
+pub async fn get_language() -> Result<Json<Value>, AppError> {
+    let store = load_config()?;
+    Ok(Json(json!(store.language)))
+}
+
+/// `POST /api/config/language` -- set UI language code.
+pub async fn set_language(Json(body): Json<Value>) -> Result<Json<Value>, AppError> {
+    let language = body
+        .get("language")
+        .and_then(|v| v.as_str())
+        .unwrap_or("auto")
+        .to_string();
+    let mut store = load_config()?;
+    store.language = language;
+    save_config(&store)?;
+    Ok(Json(json!({ "saved": true })))
+}
+
+/// `GET /api/config/ui-effects` -- get UI background effects toggle.
+pub async fn get_ui_effects_enabled() -> Result<Json<Value>, AppError> {
+    let store = load_config()?;
+    Ok(Json(json!(store.ui_effects_enabled)))
+}
+
+/// `POST /api/config/ui-effects` -- set UI background effects toggle.
+pub async fn set_ui_effects_enabled(Json(body): Json<Value>) -> Result<Json<Value>, AppError> {
+    let enabled = body
+        .get("enabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    let mut store = load_config()?;
+    store.ui_effects_enabled = enabled;
+    save_config(&store)?;
+    Ok(Json(json!({ "saved": true })))
+}
+
+/// `GET /api/config/autostart` -- desktop-only, always reports false in server mode.
+pub async fn get_autostart_enabled() -> Result<Json<Value>, AppError> {
+    Ok(Json(json!(false)))
+}
+
+/// `POST /api/config/autostart` -- desktop-only, no-op in server mode.
+pub async fn set_autostart_enabled(Json(_body): Json<Value>) -> Result<Json<Value>, AppError> {
+    Ok(Json(json!({ "ok": true, "note": "desktop-only" })))
+}
+
+// ── Sandbox ────────────────────────────────────────────────────
+
+/// `GET /api/config/sandbox` -- get Docker sandbox config.
+pub async fn get_sandbox_config() -> Result<Json<oc_core::sandbox::SandboxConfig>, AppError> {
+    Ok(Json(oc_core::sandbox::load_sandbox_config()?))
+}
+
+/// `PUT /api/config/sandbox` -- save Docker sandbox config.
+pub async fn set_sandbox_config(
+    Json(body): Json<ConfigBody<oc_core::sandbox::SandboxConfig>>,
+) -> Result<Json<Value>, AppError> {
+    oc_core::sandbox::save_sandbox_config(&body.config)?;
+    Ok(Json(json!({ "saved": true })))
 }

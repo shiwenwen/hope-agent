@@ -11,6 +11,7 @@ use crate::AppContext;
 // ── Query / Body Types ──────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ListSessionsQuery {
     pub agent_id: Option<String>,
     pub limit: Option<u32>,
@@ -18,6 +19,7 @@ pub struct ListSessionsQuery {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateSessionBody {
     pub agent_id: Option<String>,
 }
@@ -102,4 +104,61 @@ pub async fn get_session_messages(
         .unwrap_or(50);
     let (messages, total) = ctx.session_db.load_session_messages_latest(&id, limit)?;
     Ok(Json(json!({ "messages": messages, "total": total })))
+}
+
+// ── Read-state / Compact ───────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadBatchBody {
+    pub session_ids: Vec<String>,
+}
+
+/// `POST /api/sessions/:id/read` — mark a single session as read.
+pub async fn mark_session_read(
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, AppError> {
+    ctx.session_db.mark_session_read(&id)?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+/// `POST /api/sessions/read-batch` — mark a list of sessions as read.
+pub async fn mark_session_read_batch(
+    State(ctx): State<Arc<AppContext>>,
+    Json(body): Json<ReadBatchBody>,
+) -> Result<Json<Value>, AppError> {
+    let count = body.session_ids.len();
+    ctx.session_db.mark_session_read_batch(&body.session_ids)?;
+    Ok(Json(json!({ "ok": true, "count": count })))
+}
+
+/// `POST /api/sessions/read-all` — mark every session as read.
+pub async fn mark_all_sessions_read(
+    State(ctx): State<Arc<AppContext>>,
+) -> Result<Json<Value>, AppError> {
+    ctx.session_db.mark_all_sessions_read()?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+/// `POST /api/sessions/:id/compact` — stub: manual context compaction.
+///
+/// In the Tauri desktop shell this runs against the live in-memory agent.
+/// The HTTP server is stateless (each `POST /api/chat` spins up a fresh
+/// agent), so there is no persistent conversation to compact here. Returns
+/// a zero-result so the settings UI can still display a value. The response
+/// uses camelCase to match `oc_core::context_compact::CompactResult`'s
+/// `#[serde(rename_all = "camelCase")]`.
+pub async fn compact_context_now(
+    State(_ctx): State<Arc<AppContext>>,
+    Path(_id): Path<String>,
+) -> Result<Json<Value>, AppError> {
+    Ok(Json(json!({
+        "tierApplied": 0,
+        "tokensBefore": 0,
+        "tokensAfter": 0,
+        "messagesAffected": 0,
+        "description": "not_supported_in_server_mode",
+        "details": null,
+    })))
 }

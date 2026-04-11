@@ -10,6 +10,7 @@ pub mod event_bus;
 
 // ── Initialization ────────────────────────────────────────────────
 pub mod app_init;
+pub mod attachments;
 pub mod globals;
 mod util;
 

@@ -28,6 +28,7 @@ pub async fn list_accounts() -> Result<Json<Vec<ChannelAccountConfig>>, AppError
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AddAccountBody {
     pub channel_id: String,
     pub label: String,
@@ -53,6 +54,7 @@ pub async fn add_account(Json(body): Json<AddAccountBody>) -> Result<Json<Value>
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UpdateAccountBody {
     pub label: Option<String>,
     pub enabled: Option<bool>,
@@ -139,6 +141,7 @@ pub async fn health_all() -> Result<Json<Vec<(String, ChannelHealth)>>, AppError
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ValidateBody {
     pub channel_id: String,
     pub credentials: Value,
@@ -159,6 +162,7 @@ pub async fn validate_credentials(Json(body): Json<ValidateBody>) -> Result<Json
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TestMessageBody {
     pub chat_id: String,
     pub text: String,
@@ -183,6 +187,7 @@ pub async fn send_test_message(
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ListSessionsQuery {
     pub channel_id: String,
     pub account_id: String,
@@ -216,6 +221,7 @@ pub async fn list_sessions(
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WeChatStartLoginBody {
     #[serde(default)]
     pub account_id: Option<String>,
@@ -231,6 +237,7 @@ pub async fn wechat_start_login(
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WeChatWaitLoginBody {
     pub session_key: String,
     pub timeout_ms: Option<u64>,
