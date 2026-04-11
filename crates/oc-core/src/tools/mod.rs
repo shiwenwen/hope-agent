@@ -20,7 +20,7 @@ mod ls;
 mod memory;
 mod notification;
 pub(crate) mod pdf;
-mod plan_question;
+mod ask_user_question;
 mod plan_step;
 mod process;
 pub(crate) mod read;
@@ -83,9 +83,6 @@ pub const TOOL_ACP_SPAWN: &str = "acp_spawn";
 pub const TOOL_GET_WEATHER: &str = "get_weather";
 pub const TOOL_UPDATE_PLAN_STEP: &str = "update_plan_step";
 pub const TOOL_ASK_USER_QUESTION: &str = "ask_user_question";
-/// Deprecated alias for `ask_user_question`. Still recognised by the dispatcher
-/// and system prompt to keep historical sessions working.
-pub const TOOL_PLAN_QUESTION: &str = "plan_question";
 pub const TOOL_SUBMIT_PLAN: &str = "submit_plan";
 pub const TOOL_AMEND_PLAN: &str = "amend_plan";
 pub const TOOL_TOOL_SEARCH: &str = "tool_search";

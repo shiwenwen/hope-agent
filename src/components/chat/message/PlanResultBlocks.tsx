@@ -4,8 +4,8 @@ import { cn } from "@/lib/utils"
 import { getTransport } from "@/lib/transport-provider"
 import { Check, ChevronRight, ClipboardList, FolderOpen, PanelRight } from "lucide-react"
 
-/** Collapsible Q&A summary for plan_question tool results */
-export function PlanQuestionResult({ result }: { result: string }) {
+/** Collapsible Q&A summary for ask_user_question tool results */
+export function AskUserQuestionResult({ result }: { result: string }) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
 

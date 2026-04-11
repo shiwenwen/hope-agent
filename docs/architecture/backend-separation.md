@@ -222,7 +222,7 @@ sequenceDiagram
 | `subagent_event` | subagent/helpers.rs | 子 Agent 生命周期 |
 | `parent_agent_stream` | subagent/helpers.rs | 子 Agent 结果注入主对话 |
 | `core_memory_updated` | tools/memory.rs | 记忆变更 |
-| `plan_question_request` | tools/plan_question.rs | Plan 向用户提问 |
+| `ask_user_request` | tools/ask_user_question.rs | 向用户发起结构化问答 |
 | `cron:run_completed` | cron/executor.rs | 定时任务完成 |
 | `acp_control_event` | acp_control/events.rs | ACP 运行生命周期 |
 

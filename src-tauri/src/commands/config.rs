@@ -596,15 +596,15 @@ pub async fn set_plan_subagent(enabled: bool) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn get_plan_question_timeout() -> Result<u64, String> {
+pub async fn get_ask_user_question_timeout() -> Result<u64, String> {
     let store = oc_core::config::load_config().map_err(|e| e.to_string())?;
-    Ok(store.plan_question_timeout_secs)
+    Ok(store.ask_user_question_timeout_secs)
 }
 
 #[tauri::command]
-pub async fn set_plan_question_timeout(secs: u64) -> Result<(), String> {
+pub async fn set_ask_user_question_timeout(secs: u64) -> Result<(), String> {
     let mut store = oc_core::config::load_config().map_err(|e| e.to_string())?;
-    store.plan_question_timeout_secs = secs;
+    store.ask_user_question_timeout_secs = secs;
     oc_core::config::save_config(&store).map_err(|e| e.to_string())
 }
 

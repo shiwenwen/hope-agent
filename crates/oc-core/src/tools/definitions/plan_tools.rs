@@ -34,10 +34,9 @@ pub fn get_plan_step_tool() -> ToolDefinition {
 
 /// Tool for asking the user structured questions at any point in a conversation.
 ///
-/// Generalised from the original `plan_question` tool: available outside Plan
-/// Mode, supports rich markdown/image previews, per-question timeouts with
-/// default fall-backs, IM channel native buttons, and persistence across app
-/// restarts.
+/// Available in any conversation (not only Plan Mode). Supports rich
+/// markdown/image previews, per-question timeouts with default fall-backs,
+/// IM channel native buttons, and persistence across app restarts.
 pub fn get_ask_user_question_tool() -> ToolDefinition {
     ToolDefinition {
         name: TOOL_ASK_USER_QUESTION.into(),
@@ -136,7 +135,7 @@ tool to ask 'is my plan ready?' — in Plan Mode use `submit_plan` instead."
 pub fn get_submit_plan_tool() -> ToolDefinition {
     ToolDefinition {
         name: TOOL_SUBMIT_PLAN.into(),
-        description: "Submit the final implementation plan after gathering requirements through plan_question. The plan should be structured as markdown with phased checklists. This transitions the plan to Review mode where the user can approve and start execution.".into(),
+        description: "Submit the final implementation plan after gathering requirements through ask_user_question. The plan should be structured as markdown with phased checklists. This transitions the plan to Review mode where the user can approve and start execution.".into(),
         internal: true,
         deferred: false,
         always_load: false,

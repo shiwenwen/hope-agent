@@ -25,7 +25,7 @@ interface PlanStepItemProps {
 //   2. `components={{ p: Fragment }}` removes the `<p>` wrapper, so
 //      inline children (<strong>, <em>, <code>, text) flow inline.
 // Only `code` + `cjk` plugins are loaded — same minimal bundle that
-// PlanQuestionBlock uses per AGENTS.md.
+// AskUserQuestionBlock uses per AGENTS.md.
 const inlinePlugins = { code, cjk }
 const inlineComponents = {
   p: ({ children }: { children?: ReactNode }) => <Fragment>{children}</Fragment>,

@@ -1,5 +1,5 @@
 use crate::plan::{
-    self, PlanModeState, PlanQuestionAnswer, PlanStep, PlanStepStatus, PlanVersionInfo,
+    self, AskUserQuestionAnswer, PlanModeState, PlanStep, PlanStepStatus, PlanVersionInfo,
 };
 use oc_core::app_info;
 
@@ -157,35 +157,22 @@ pub async fn update_plan_step_status(
 }
 
 #[tauri::command]
-pub async fn respond_plan_question(
-    request_id: String,
-    answers: Vec<PlanQuestionAnswer>,
-) -> Result<(), String> {
-    plan::submit_plan_question_response(&request_id, answers)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
 pub async fn get_pending_ask_user_group(
     session_id: String,
     app_state: tauri::State<'_, crate::AppState>,
-) -> Result<Option<oc_core::plan::PlanQuestionGroup>, String> {
+) -> Result<Option<oc_core::plan::AskUserQuestionGroup>, String> {
     oc_core::plan::find_live_pending_group_for_session(&app_state.session_db, &session_id)
         .await
         .map_err(|e| e.to_string())
 }
 
-/// Canonical name for the interactive Q&A response command.
-/// Forwards to [`respond_plan_question`] and is available in any conversation
-/// (not only Plan Mode). Kept as a separate command so the Transport layer can
-/// pick the preferred name while historical code paths keep working.
+/// Submit the user's answers to an `ask_user_question` tool call.
 #[tauri::command]
-pub async fn respond_ask_user(
+pub async fn respond_ask_user_question(
     request_id: String,
-    answers: Vec<PlanQuestionAnswer>,
+    answers: Vec<AskUserQuestionAnswer>,
 ) -> Result<(), String> {
-    plan::submit_plan_question_response(&request_id, answers)
+    plan::submit_ask_user_question_response(&request_id, answers)
         .await
         .map_err(|e| e.to_string())
 }

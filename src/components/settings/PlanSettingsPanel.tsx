@@ -14,7 +14,7 @@ export default function PlanSettingsPanel() {
   useEffect(() => {
     Promise.all([
       getTransport().call<boolean>("get_plan_subagent"),
-      getTransport().call<number>("get_plan_question_timeout"),
+      getTransport().call<number>("get_ask_user_question_timeout"),
     ])
       .then(([subagent, timeout]) => {
         setPlanSubagent(subagent)
@@ -41,7 +41,7 @@ export default function PlanSettingsPanel() {
   async function handleTimeoutCommit(value: number[]) {
     const secs = value[0]
     try {
-      await getTransport().call("set_plan_question_timeout", { secs })
+      await getTransport().call("set_ask_user_question_timeout", { secs })
     } catch (e) {
       logger.error("settings", "PlanSettingsPanel::saveTimeout", "Failed to save", e)
     }

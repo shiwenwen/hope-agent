@@ -21,9 +21,9 @@ import {
   Timer,
 } from "lucide-react"
 
-// ── Types (backend: PlanQuestion*; tool name: ask_user_question) ──
+// ── Types (mirror of oc-core `AskUserQuestion*` types) ──
 
-export interface PlanQuestionOption {
+export interface AskUserQuestionOption {
   value: string
   label: string
   description?: string
@@ -33,10 +33,10 @@ export interface PlanQuestionOption {
   previewKind?: "markdown" | "image" | "mermaid"
 }
 
-export interface PlanQuestion {
+export interface AskUserQuestion {
   questionId: string
   text: string
-  options: PlanQuestionOption[]
+  options: AskUserQuestionOption[]
   allowCustom: boolean
   multiSelect: boolean
   template?: string
@@ -48,24 +48,24 @@ export interface PlanQuestion {
   defaultValues?: string[]
 }
 
-export interface PlanQuestionGroup {
+export interface AskUserQuestionGroup {
   requestId: string
   sessionId: string
-  questions: PlanQuestion[]
+  questions: AskUserQuestion[]
   context?: string
   source?: string
   /** Unix timestamp (seconds) after which pending answers auto-fall back. */
   timeoutAt?: number
 }
 
-export interface PlanQuestionAnswer {
+export interface AskUserQuestionAnswer {
   questionId: string
   selected: string[]
   customInput?: string
 }
 
-interface PlanQuestionBlockProps {
-  group: PlanQuestionGroup
+interface AskUserQuestionBlockProps {
+  group: AskUserQuestionGroup
   onSubmitted?: () => void
 }
 
@@ -78,7 +78,7 @@ interface QuestionState {
 
 const staticPlugins = { code, cjk }
 
-function OptionPreview({ option }: { option: PlanQuestionOption }) {
+function OptionPreview({ option }: { option: AskUserQuestionOption }) {
   const kind = option.previewKind ?? "markdown"
   const preview = option.preview ?? ""
   if (!preview) return null
@@ -146,7 +146,7 @@ function formatRemaining(secs: number): string {
 
 // ── Main component ───────────────────────────────────────────────
 
-export default function PlanQuestionBlock({ group, onSubmitted }: PlanQuestionBlockProps) {
+export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQuestionBlockProps) {
   const { t } = useTranslation()
   const [submitted, setSubmitted] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -198,7 +198,7 @@ export default function PlanQuestionBlock({ group, onSubmitted }: PlanQuestionBl
     setSubmitting(true)
     setError(null)
     try {
-      const answerList: PlanQuestionAnswer[] = group.questions.map((q) => {
+      const answerList: AskUserQuestionAnswer[] = group.questions.map((q) => {
         const state = answers[q.questionId]
         return {
           questionId: q.questionId,
@@ -206,30 +206,17 @@ export default function PlanQuestionBlock({ group, onSubmitted }: PlanQuestionBl
           customInput: state?.customInput || undefined,
         }
       })
-      try {
-        await getTransport().call("respond_ask_user", {
-          requestId: group.requestId,
-          answers: answerList,
-        })
-      } catch (primaryErr) {
-        logger.warn(
-          "ask_user",
-          "PlanQuestionBlock::submit",
-          "respond_ask_user failed, falling back to respond_plan_question",
-          String(primaryErr)
-        )
-        await getTransport().call("respond_plan_question", {
-          requestId: group.requestId,
-          answers: answerList,
-        })
-      }
+      await getTransport().call("respond_ask_user_question", {
+        requestId: group.requestId,
+        answers: answerList,
+      })
       setSubmitted(true)
       onSubmitted?.()
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       logger.error(
         "ask_user",
-        "PlanQuestionBlock::submit",
+        "AskUserQuestionBlock::submit",
         "Failed to submit ask_user response",
         msg
       )

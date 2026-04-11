@@ -7,7 +7,7 @@ use super::constants::{PLAN_MODE_SYSTEM_PROMPT, PLAN_SUBAGENT_CONTEXT_NOTICE};
 use super::types::PlanAgentConfig;
 
 // ── Plan Sub-Agent Session Registry ─────────────────────────────
-// Maps child_session_id → parent info, so plan tools (plan_question, submit_plan)
+// Maps child_session_id → parent info, so plan tools (ask_user_question, submit_plan)
 // can route events to the parent session instead of the sub-agent session.
 
 struct PlanSubagentInfo {
@@ -116,7 +116,7 @@ pub async fn spawn_plan_subagent(
         parent_session_id: parent_session_id.to_string(),
         parent_agent_id: parent_agent_id.to_string(),
         depth: 1,
-        timeout_secs: Some(3600), // 1 hour — plan_question can wait 10 min each
+        timeout_secs: Some(3600), // 1 hour — ask_user_question can wait 10 min each
         model_override: None,
         label: Some("Plan Creation".to_string()),
         attachments: Vec::new(),

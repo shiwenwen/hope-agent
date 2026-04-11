@@ -3,9 +3,9 @@ import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import MessageBubble from "./MessageBubble"
 import MessageContextMenu from "./MessageContextMenu"
-import PlanQuestionBlock from "./plan-mode/PlanQuestionBlock"
+import AskUserQuestionBlock from "./ask-user/AskUserQuestionBlock"
 import PlanCardBlock from "./plan-mode/PlanCardBlock"
-import type { PlanQuestionGroup } from "./plan-mode/PlanQuestionBlock"
+import type { AskUserQuestionGroup } from "./ask-user/AskUserQuestionBlock"
 import type { PlanCardData } from "./plan-mode/PlanCardBlock"
 import type { Message, AgentSummaryForSidebar } from "@/types/chat"
 import type { PlanModeState, PlanStep } from "./plan-mode/usePlanMode"
@@ -21,7 +21,7 @@ interface MessageListProps {
   bottomRef: React.RefObject<HTMLDivElement | null>
   // Plan mode
   sessionId?: string | null
-  pendingQuestionGroup?: PlanQuestionGroup | null
+  pendingQuestionGroup?: AskUserQuestionGroup | null
   onQuestionSubmitted?: () => void
   planCardData?: PlanCardData | null
   planState?: PlanModeState
@@ -154,11 +154,11 @@ export default function MessageList({
           />
         </div>
       ))}
-      {/* Plan Question Block (interactive Q&A during planning) */}
+      {/* Ask-user Question Block (interactive Q&A) */}
       {pendingQuestionGroup && (
         <div className="flex justify-start">
           <div className="max-w-[85%] w-full">
-            <PlanQuestionBlock
+            <AskUserQuestionBlock
               group={pendingQuestionGroup}
               onSubmitted={onQuestionSubmitted}
             />

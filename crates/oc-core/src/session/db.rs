@@ -223,7 +223,7 @@ impl SessionDB {
     /// request is emitted so a restart can resume it.
     pub fn save_ask_user_group(
         &self,
-        group: &crate::plan::PlanQuestionGroup,
+        group: &crate::plan::AskUserQuestionGroup,
     ) -> anyhow::Result<()> {
         let conn = self
             .conn
@@ -249,7 +249,7 @@ impl SessionDB {
     /// Mark every still-pending ask_user_question row as answered. Called on
     /// app startup because any rows left behind from a previous process have
     /// no live in-memory oneshot to deliver answers to — restoring them in
-    /// the UI would produce "No pending plan question request" errors.
+    /// the UI would produce "No pending ask_user_question request" errors.
     pub fn expire_pending_ask_user_groups(&self) -> anyhow::Result<usize> {
         let conn = self
             .conn
@@ -303,7 +303,7 @@ impl SessionDB {
     pub fn list_pending_ask_user_groups_for_session(
         &self,
         session_id: &str,
-    ) -> anyhow::Result<Vec<crate::plan::PlanQuestionGroup>> {
+    ) -> anyhow::Result<Vec<crate::plan::AskUserQuestionGroup>> {
         let conn = self
             .conn
             .lock()
@@ -327,7 +327,7 @@ impl SessionDB {
         let mut out = Vec::new();
         for row in rows {
             let payload = row?;
-            if let Ok(group) = serde_json::from_str::<crate::plan::PlanQuestionGroup>(&payload) {
+            if let Ok(group) = serde_json::from_str::<crate::plan::AskUserQuestionGroup>(&payload) {
                 out.push(group);
             }
         }

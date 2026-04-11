@@ -32,7 +32,7 @@ pub struct ToolDefinition {
 | agents_list, sessions_list | image_generate, sessions_send |
 | session_status, sessions_history | update_core_memory, manage_cron |
 | image, pdf, get_weather | send_notification, acp_spawn |
-| plan_question | submit_plan, amend_plan, update_plan_step |
+| ask_user_question | submit_plan, amend_plan, update_plan_step |
 
 查询接口：`tools::is_concurrent_safe(name: &str) -> bool`
 
@@ -211,7 +211,7 @@ flowchart TD
     Start([工具调用触发]) --> InSchema{工具是否在 Provider<br/>tool_schemas 中？}
 
     InSchema -- "不在（被 capabilities.tools / denied_tools / skill / Plan 裁剪）" --> Blocked[/LLM 根本不会调用/]
-    InSchema -- 在 --> IsInternal{是 internal tool？<br/><small>plan_question / submit_plan<br/>update_plan_step / canvas ...</small>}
+    InSchema -- 在 --> IsInternal{是 internal tool？<br/><small>ask_user_question / submit_plan<br/>update_plan_step / canvas ...</small>}
 
     IsInternal -- 是 --> DirectExec[✅ 直接执行<br/>永不审批]
     IsInternal -- 否 --> IsSkillRead{是 SKILL.md 读取？<br/><small>read 工具 + 路径以 SKILL.md 结尾</small>}
@@ -337,7 +337,7 @@ pub const PLAN_MODE_PATH_AWARE_TOOLS: &[&str] = &["write", "edit"];
 
 | 配置项 | 值 | 效果 |
 |--------|-----|------|
-| `PlanAgentConfig.allowed_tools` | `["read", "ls", "grep", "find", "glob", "web_search", "web_fetch", "exec", "plan_question", "submit_plan", "write", "edit", "recall_memory", "memory_get", "subagent"]` | Plan Agent 白名单，仅这些工具对 LLM 可见 |
+| `PlanAgentConfig.allowed_tools` | `["read", "ls", "grep", "find", "glob", "web_search", "web_fetch", "exec", "ask_user_question", "submit_plan", "write", "edit", "recall_memory", "memory_get", "subagent"]` | Plan Agent 白名单，仅这些工具对 LLM 可见 |
 | `PLAN_MODE_DENIED_TOOLS` | `["write", "edit", "apply_patch", "canvas"]` | 追加到 `denied_tools`，从 LLM tool schema 中移除 |
 | `PLAN_MODE_ASK_TOOLS` | `["exec"]` | 追加到 `ask_tools`，exec 在 Planning 阶段始终弹审批 |
 
@@ -346,7 +346,7 @@ pub const PLAN_MODE_PATH_AWARE_TOOLS: &[&str] = &["write", "edit"];
 | 状态 | Agent 模式 | 工具集 |
 |------|-----------|--------|
 | Off | 正常 | Agent 配置的完整工具集 |
-| Planning / Review | PlanAgent | 白名单工具 + path-restricted `write`/`edit` + 条件注入 `plan_question`/`submit_plan` |
+| Planning / Review | PlanAgent | 白名单工具 + path-restricted `write`/`edit` + 条件注入 `ask_user_question`/`submit_plan` |
 | Executing / Paused | ExecutingAgent | 全量工具 + 条件注入 `update_plan_step`/`amend_plan` |
 | Completed | ExecutingAgent | 全量工具 + 注入 `PLAN_COMPLETED_SYSTEM_PROMPT` |
 
@@ -409,7 +409,7 @@ Planning/Review 状态下 spawn 的子 Agent 自动继承 `PLAN_MODE_DENIED_TOOL
 
 通过 `ToolDefinition.internal = true` 标记，`is_internal_tool()` 检查。包括：
 
-- Plan Mode 工具：`plan_question` / `submit_plan` / `update_plan_step` / `amend_plan`
+- Plan Mode 工具：`ask_user_question` / `submit_plan` / `update_plan_step` / `amend_plan`
 - 条件注入工具：`send_notification` / `subagent` / `image_generate` / `canvas` / `acp_spawn`
 - 其他内部工具：由 `INTERNAL_TOOL_NAMES` 静态集合管理
 
