@@ -206,6 +206,51 @@ pub async fn reorder_providers(Json(body): Json<ReorderBody>) -> Result<Json<Val
     Ok(Json(json!({ "reordered": true })))
 }
 
+/// `POST /api/providers/test-embedding` — ping an embedding provider.
+///
+/// Returns the JSON blob produced by `oc_core::provider::test::test_embedding`
+/// wrapped in an `Ok` (success) or propagated as a 500 AppError (failure).
+pub async fn test_embedding(
+    Json(config): Json<oc_core::memory::EmbeddingConfig>,
+) -> Result<Json<Value>, AppError> {
+    match oc_core::provider::test::test_embedding(config).await {
+        Ok(payload) => {
+            let v: Value = serde_json::from_str(&payload).unwrap_or(Value::String(payload));
+            Ok(Json(v))
+        }
+        Err(payload) => {
+            let v: Value = serde_json::from_str(&payload).unwrap_or(Value::String(payload));
+            Ok(Json(v))
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TestImageBody {
+    pub provider_id: String,
+    pub api_key: String,
+    #[serde(default)]
+    pub base_url: Option<String>,
+}
+
+/// `POST /api/providers/test-image` — ping an image-generation provider.
+pub async fn test_image_generate(
+    Json(body): Json<TestImageBody>,
+) -> Result<Json<Value>, AppError> {
+    match oc_core::provider::test::test_image_generate(body.provider_id, body.api_key, body.base_url)
+        .await
+    {
+        Ok(payload) => {
+            let v: Value = serde_json::from_str(&payload).unwrap_or(Value::String(payload));
+            Ok(Json(v))
+        }
+        Err(payload) => {
+            let v: Value = serde_json::from_str(&payload).unwrap_or(Value::String(payload));
+            Ok(Json(v))
+        }
+    }
+}
+
 /// `PUT /api/providers/active-model` — set the active model.
 pub async fn set_active_model(
     Json(body): Json<SetActiveModelRequest>,

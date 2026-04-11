@@ -52,8 +52,37 @@ pub struct ApprovalRequest {
     pub response: String,
 }
 
+/// Body-based approval response: alias for `/api/chat/approval` (no path
+/// param) — matches the frontend `respond_to_approval` command which sends
+/// `{request_id, response}` in the JSON body.
+#[derive(Debug, Deserialize)]
+pub struct ApprovalBodyRequest {
+    pub request_id: String,
+    pub response: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SaveAttachmentBody {
+    #[serde(default)]
+    pub session_id: Option<String>,
+    pub file_name: String,
+    #[serde(default)]
+    pub mime_type: Option<String>,
+    /// Raw bytes. Accepts either a byte array (default serde) or a base64
+    /// string — axum's `Json` extractor with `Vec<u8>` already handles both
+    /// depending on the caller's serializer. The frontend uses a plain
+    /// byte array via JS `Array.from(uint8)`.
+    pub data: Vec<u8>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct SystemPromptQuery {
+    pub agent_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SystemPromptBody {
+    #[serde(default)]
     pub agent_id: Option<String>,
 }
 
@@ -296,6 +325,62 @@ pub async fn get_system_prompt(
         ("unknown".to_string(), "Unknown".to_string())
     };
 
+    let prompt = oc_core::agent::build_system_prompt(&agent_id, &model, &provider_name);
+    Ok(Json(json!({ "system_prompt": prompt })))
+}
+
+/// `POST /api/chat/approval` — body-based alias of `respond_to_approval`.
+///
+/// Frontend `transport-http` maps `respond_to_approval` to this path without
+/// a `{request_id}` path parameter; the id ships in the JSON body instead.
+pub async fn respond_to_approval_body(
+    Json(body): Json<ApprovalBodyRequest>,
+) -> Result<Json<Value>, AppError> {
+    let approval_response = match body.response.as_str() {
+        "allow_once" => tools::ApprovalResponse::AllowOnce,
+        "allow_always" => tools::ApprovalResponse::AllowAlways,
+        "deny" => tools::ApprovalResponse::Deny,
+        _ => {
+            return Err(AppError::bad_request(format!(
+                "Invalid approval response: {}. Expected: allow_once, allow_always, deny",
+                body.response
+            )));
+        }
+    };
+    tools::submit_approval_response(&body.request_id, approval_response).await?;
+    Ok(Json(json!({ "approved": true })))
+}
+
+/// `POST /api/chat/attachment` — persist an uploaded attachment and return its
+/// absolute path so it can be referenced in a subsequent `POST /api/chat`.
+pub async fn save_attachment(
+    Json(body): Json<SaveAttachmentBody>,
+) -> Result<Json<Value>, AppError> {
+    let path = oc_core::attachments::save_attachment_bytes(
+        body.session_id.as_deref(),
+        &body.file_name,
+        &body.data,
+    )
+    .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(json!({ "path": path })))
+}
+
+/// `POST /api/system-prompt` — body-based alias of `get_system_prompt`.
+pub async fn get_system_prompt_post(
+    Json(body): Json<SystemPromptBody>,
+) -> Result<Json<Value>, AppError> {
+    let agent_id = body.agent_id.unwrap_or_else(|| "default".to_string());
+    let store = oc_core::config::cached_config();
+    let (model, provider_name) = if let Some(ref active) = store.active_model {
+        let prov = store.providers.iter().find(|p| p.id == active.provider_id);
+        let model_id = active.model_id.clone();
+        let pname = prov
+            .map(|p| p.api_type.display_name().to_string())
+            .unwrap_or_else(|| "Unknown".to_string());
+        (model_id, pname)
+    } else {
+        ("unknown".to_string(), "Unknown".to_string())
+    };
     let prompt = oc_core::agent::build_system_prompt(&agent_id, &model, &provider_name);
     Ok(Json(json!({ "system_prompt": prompt })))
 }

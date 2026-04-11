@@ -160,3 +160,79 @@ pub async fn import_from_ai_prompt(
     let prompt = oc_core::memory::import_prompt::import_from_ai_prompt(locale);
     Ok(Json(prompt.to_string()))
 }
+
+// ── Pin / Batch / Re-embed / Global memory.md ─────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct TogglePinBody {
+    pub pinned: bool,
+}
+
+/// `POST /api/memory/{id}/pin` — toggle the pinned status of a memory.
+pub async fn toggle_pin(
+    Path(id): Path<i64>,
+    Json(body): Json<TogglePinBody>,
+) -> Result<Json<Value>, AppError> {
+    let backend = get_backend()?;
+    backend.toggle_pin(id, body.pinned)?;
+    Ok(Json(json!({ "ok": true, "pinned": body.pinned })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DeleteBatchBody {
+    pub ids: Vec<i64>,
+}
+
+/// `POST /api/memory/delete-batch` — delete multiple memories at once.
+pub async fn delete_batch(
+    Json(body): Json<DeleteBatchBody>,
+) -> Result<Json<Value>, AppError> {
+    let backend = get_backend()?;
+    let deleted = backend.delete_batch(&body.ids)?;
+    Ok(Json(json!({ "deleted": deleted })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ReembedBody {
+    #[serde(default)]
+    pub ids: Option<Vec<i64>>,
+}
+
+/// `POST /api/memory/reembed` — regenerate embeddings for a subset of (or
+/// all) memories.
+pub async fn reembed(Json(body): Json<ReembedBody>) -> Result<Json<Value>, AppError> {
+    let backend = get_backend()?;
+    let count = match body.ids {
+        Some(ids) if !ids.is_empty() => backend.reembed_batch(&ids)?,
+        _ => backend.reembed_all()?,
+    };
+    Ok(Json(json!({ "updated": count })))
+}
+
+/// `GET /api/memory/global-md` — read the user's global `memory.md` file.
+pub async fn get_global_memory_md() -> Result<Json<Value>, AppError> {
+    let path = oc_core::paths::root_dir()?.join("memory.md");
+    let content = if path.exists() {
+        Some(
+            std::fs::read_to_string(&path)
+                .map_err(|e| AppError::internal(e.to_string()))?,
+        )
+    } else {
+        None
+    };
+    Ok(Json(json!({ "content": content })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct MemoryMdBody {
+    pub content: String,
+}
+
+/// `PUT /api/memory/global-md` — write the user's global `memory.md` file.
+pub async fn save_global_memory_md(
+    Json(body): Json<MemoryMdBody>,
+) -> Result<Json<Value>, AppError> {
+    let path = oc_core::paths::root_dir()?.join("memory.md");
+    std::fs::write(&path, body.content).map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(json!({ "saved": true })))
+}
