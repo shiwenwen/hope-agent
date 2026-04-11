@@ -26,6 +26,16 @@ pub struct OverviewStats {
     pub avg_ttft_ms: Option<f64>,
 }
 
+/// Current overview + previous-period baseline for delta computation.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OverviewStatsWithDelta {
+    pub current: OverviewStats,
+    /// Previous period shifted by the same span as the current range.
+    /// `None` when no valid previous window (e.g. start_date unset).
+    pub previous: Option<OverviewStats>,
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TokenUsageTrend {
@@ -251,4 +261,108 @@ pub struct DashboardAgentItem {
     pub message_count: u64,
     pub total_tokens: u64,
     pub last_active_at: String,
+}
+
+// ── Insights Types (Phase 2 enhancements) ───────────────────────
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CostTrendPoint {
+    pub date: String,
+    pub cost_usd: f64,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DashboardCostTrend {
+    pub points: Vec<CostTrendPoint>,
+    pub total_cost_usd: f64,
+    pub peak_day: Option<String>,
+    pub peak_cost_usd: f64,
+    pub avg_daily_cost_usd: f64,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HeatmapCell {
+    /// 0 = Sunday, 6 = Saturday (SQLite strftime('%w'))
+    pub weekday: u8,
+    pub hour: u8,
+    pub message_count: u64,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DashboardHeatmap {
+    pub cells: Vec<HeatmapCell>,
+    pub max_value: u64,
+    pub total: u64,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HourlyBucket {
+    pub hour: u8,
+    pub message_count: u64,
+    pub session_count: u64,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DashboardHourlyDistribution {
+    pub buckets: Vec<HourlyBucket>,
+    pub peak_hour: Option<u8>,
+    pub peak_message_count: u64,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TopSession {
+    pub id: String,
+    pub title: Option<String>,
+    pub agent_id: String,
+    pub model_id: Option<String>,
+    pub total_tokens: u64,
+    pub message_count: u64,
+    pub estimated_cost_usd: f64,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelEfficiency {
+    pub model_id: String,
+    pub provider_name: String,
+    pub total_tokens: u64,
+    pub total_cost_usd: f64,
+    pub avg_ttft_ms: Option<f64>,
+    pub message_count: u64,
+    pub avg_tokens_per_message: f64,
+    pub avg_cost_per_1k_tokens: f64,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HealthBreakdown {
+    /// 0..=100 overall score
+    pub score: u8,
+    pub log_error_rate_percent: f64,
+    pub tool_error_rate_percent: f64,
+    pub cron_success_rate_percent: f64,
+    pub subagent_success_rate_percent: f64,
+    /// Status: "excellent" | "good" | "warning" | "critical"
+    pub status: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DashboardInsights {
+    pub health: HealthBreakdown,
+    pub cost_trend: DashboardCostTrend,
+    pub heatmap: DashboardHeatmap,
+    pub hourly: DashboardHourlyDistribution,
+    pub top_sessions: Vec<TopSession>,
+    pub model_efficiency: Vec<ModelEfficiency>,
 }

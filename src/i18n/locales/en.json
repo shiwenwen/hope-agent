@@ -1571,13 +1571,66 @@
   },
   "dashboard": {
     "title": "Dashboard",
+    "lastRefresh": "Last refresh",
+    "refresh": "Refresh now",
+    "export": "Export CSV",
+    "autoRefresh": {
+      "off": "Manual",
+      "30s": "30 sec",
+      "1m": "1 min",
+      "5m": "5 min"
+    },
     "tabs": {
+      "insights": "Insights",
       "tokens": "Token Usage",
       "tools": "Tool Usage",
       "sessions": "Sessions",
       "errors": "Errors",
       "tasks": "Tasks",
       "system": "System"
+    },
+    "insights": {
+      "healthScore": "Health Score",
+      "status": {
+        "excellent": "Excellent",
+        "good": "Good",
+        "warning": "Warning",
+        "critical": "Critical"
+      },
+      "logErrorRate": "Log Error Rate",
+      "toolErrorRate": "Tool Error Rate",
+      "cronSuccessRate": "Cron Success",
+      "subagentSuccessRate": "Subagent Success",
+      "costTrend": "Cost Trend",
+      "total": "Total",
+      "avgDaily": "Avg/day",
+      "peak": "Peak",
+      "cost": "Cost",
+      "heatmap": "Activity Heatmap",
+      "totalMessages": "Total Messages",
+      "less": "Less",
+      "more": "More",
+      "weekday": {
+        "sun": "Sun",
+        "mon": "Mon",
+        "tue": "Tue",
+        "wed": "Wed",
+        "thu": "Thu",
+        "fri": "Fri",
+        "sat": "Sat"
+      },
+      "hourly": "Hourly Distribution",
+      "peakHour": "Peak hour",
+      "messages": "Messages",
+      "sessions": "Sessions",
+      "msgs": "msgs",
+      "topSessions": "Top Sessions",
+      "modelEfficiency": "Model Efficiency",
+      "model": "Model",
+      "tokens": "Tokens",
+      "tokensPerMsg": "Tokens/msg",
+      "costPer1k": "Cost / 1k",
+      "ttft": "TTFT"
     },
     "granularity": {
       "day": "Day",
@@ -1696,7 +1749,10 @@
       "ofSystem": "of System",
       "diskIO": "Disk I/O",
       "diskRead": "Read",
-      "diskWrite": "Write"
+      "diskWrite": "Write",
+      "liveHistory": "Live Resource Usage",
+      "liveHistoryHint": "Enable auto-refresh to record CPU / memory samples over time",
+      "samples": "samples"
     },
     "noData": "No data available",
     "loading": "Loading...",

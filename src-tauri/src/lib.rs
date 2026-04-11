@@ -382,6 +382,8 @@ pub fn run() {
             commands::dashboard::dashboard_tool_call_list,
             commands::dashboard::dashboard_error_list,
             commands::dashboard::dashboard_agent_list,
+            commands::dashboard::dashboard_overview_delta,
+            commands::dashboard::dashboard_insights,
             // Developer tools (thin wrappers over oc-core)
             tauri_wrappers::dev_clear_sessions,
             tauri_wrappers::dev_clear_cron,

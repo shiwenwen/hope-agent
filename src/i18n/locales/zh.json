@@ -1571,13 +1571,66 @@
   },
   "dashboard": {
     "title": "数据大盘",
+    "lastRefresh": "最近刷新",
+    "refresh": "立即刷新",
+    "export": "导出 CSV",
+    "autoRefresh": {
+      "off": "手动刷新",
+      "30s": "30 秒",
+      "1m": "1 分钟",
+      "5m": "5 分钟"
+    },
     "tabs": {
+      "insights": "综合概览",
       "tokens": "Token 用量",
       "tools": "工具使用",
       "sessions": "会话分析",
       "errors": "异常监控",
       "tasks": "任务统计",
       "system": "系统监控"
+    },
+    "insights": {
+      "healthScore": "系统健康度",
+      "status": {
+        "excellent": "优秀",
+        "good": "良好",
+        "warning": "预警",
+        "critical": "告警"
+      },
+      "logErrorRate": "日志错误率",
+      "toolErrorRate": "工具错误率",
+      "cronSuccessRate": "定时任务成功率",
+      "subagentSuccessRate": "子 Agent 成功率",
+      "costTrend": "费用趋势",
+      "total": "累计",
+      "avgDaily": "日均",
+      "peak": "峰值",
+      "cost": "费用",
+      "heatmap": "活跃度热力图",
+      "totalMessages": "消息总数",
+      "less": "少",
+      "more": "多",
+      "weekday": {
+        "sun": "周日",
+        "mon": "周一",
+        "tue": "周二",
+        "wed": "周三",
+        "thu": "周四",
+        "fri": "周五",
+        "sat": "周六"
+      },
+      "hourly": "小时分布",
+      "peakHour": "峰值时段",
+      "messages": "消息数",
+      "sessions": "会话数",
+      "msgs": "条消息",
+      "topSessions": "Top 会话",
+      "modelEfficiency": "模型效率对比",
+      "model": "模型",
+      "tokens": "Token 数",
+      "tokensPerMsg": "平均/消息",
+      "costPer1k": "每千 Token",
+      "ttft": "首 Token"
     },
     "granularity": {
       "day": "按天",
@@ -1696,7 +1749,10 @@
       "ofSystem": "占系统",
       "diskIO": "磁盘 I/O",
       "diskRead": "读取",
-      "diskWrite": "写入"
+      "diskWrite": "写入",
+      "liveHistory": "实时资源曲线",
+      "liveHistoryHint": "开启自动刷新后，此处会实时记录 CPU / 内存占用",
+      "samples": "个采样"
     },
     "noData": "暂无数据",
     "loading": "加载中...",

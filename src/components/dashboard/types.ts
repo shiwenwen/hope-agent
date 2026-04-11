@@ -19,6 +19,11 @@ export interface OverviewStats {
   avgTtftMs: number | null
 }
 
+export interface OverviewStatsWithDelta {
+  current: OverviewStats
+  previous: OverviewStats | null
+}
+
 export interface TokenUsageTrend {
   date: string
   inputTokens: number
@@ -209,6 +214,116 @@ export interface CronJob {
 }
 
 export type Granularity = "day" | "week" | "month"
+
+// ── Insights Types (Phase 2) ────────────────────────────────────
+
+export interface CostTrendPoint {
+  date: string
+  costUsd: number
+  inputTokens: number
+  outputTokens: number
+}
+
+export interface DashboardCostTrend {
+  points: CostTrendPoint[]
+  totalCostUsd: number
+  peakDay: string | null
+  peakCostUsd: number
+  avgDailyCostUsd: number
+}
+
+export interface HeatmapCell {
+  weekday: number // 0=Sun..6=Sat
+  hour: number // 0..23
+  messageCount: number
+}
+
+export interface DashboardHeatmap {
+  cells: HeatmapCell[]
+  maxValue: number
+  total: number
+}
+
+export interface HourlyBucket {
+  hour: number
+  messageCount: number
+  sessionCount: number
+}
+
+export interface DashboardHourlyDistribution {
+  buckets: HourlyBucket[]
+  peakHour: number | null
+  peakMessageCount: number
+}
+
+export interface TopSession {
+  id: string
+  title: string | null
+  agentId: string
+  modelId: string | null
+  totalTokens: number
+  messageCount: number
+  estimatedCostUsd: number
+  updatedAt: string
+}
+
+export interface ModelEfficiency {
+  modelId: string
+  providerName: string
+  totalTokens: number
+  totalCostUsd: number
+  avgTtftMs: number | null
+  messageCount: number
+  avgTokensPerMessage: number
+  avgCostPer1kTokens: number
+}
+
+export interface HealthBreakdown {
+  score: number
+  logErrorRatePercent: number
+  toolErrorRatePercent: number
+  cronSuccessRatePercent: number
+  subagentSuccessRatePercent: number
+  status: "excellent" | "good" | "warning" | "critical"
+}
+
+export interface DashboardInsights {
+  health: HealthBreakdown
+  costTrend: DashboardCostTrend
+  heatmap: DashboardHeatmap
+  hourly: DashboardHourlyDistribution
+  topSessions: TopSession[]
+  modelEfficiency: ModelEfficiency[]
+}
+
+export type AutoRefreshInterval = "off" | "30s" | "1m" | "5m"
+
+export function autoRefreshMs(interval: AutoRefreshInterval): number {
+  switch (interval) {
+    case "30s": return 30_000
+    case "1m": return 60_000
+    case "5m": return 300_000
+    default: return 0
+  }
+}
+
+/** Format percentage delta between current and previous. */
+export function computeDelta(current: number, previous: number): number | null {
+  if (!Number.isFinite(current) || !Number.isFinite(previous)) return null
+  if (previous === 0) {
+    if (current === 0) return 0
+    return null // infinite delta — don't display a number
+  }
+  return ((current - previous) / previous) * 100
+}
+
+/** Format a delta percent to a "+12.3%" or "-4.5%" string. */
+export function formatDelta(delta: number | null): string {
+  if (delta == null) return ""
+  const sign = delta > 0 ? "+" : ""
+  if (Math.abs(delta) >= 1000) return `${sign}${(delta / 1000).toFixed(1)}K%`
+  return `${sign}${delta.toFixed(1)}%`
+}
 
 /** Format large numbers as "1.2M", "45.6K", etc. */
 export function formatNumber(n: number): string {
