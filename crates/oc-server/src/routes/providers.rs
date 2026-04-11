@@ -10,6 +10,7 @@ use crate::error::AppError;
 // ── Request / Response Types ───────────────────────────────────
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SetActiveModelRequest {
     pub provider_id: String,
     pub model_id: String,
@@ -206,26 +207,33 @@ pub async fn reorder_providers(Json(body): Json<ReorderBody>) -> Result<Json<Val
     Ok(Json(json!({ "reordered": true })))
 }
 
+/// Body wrapper: matches the Tauri command signature
+/// `test_embedding(config: EmbeddingConfig)`. The frontend ships
+/// `{ config: embeddingConfig }` (the param name is `config`), not the
+/// EmbeddingConfig directly.
+#[derive(Debug, Deserialize)]
+pub struct TestEmbeddingBody {
+    pub config: oc_core::memory::EmbeddingConfig,
+}
+
 /// `POST /api/providers/test-embedding` — ping an embedding provider.
 ///
-/// Returns the JSON blob produced by `oc_core::provider::test::test_embedding`
-/// wrapped in an `Ok` (success) or propagated as a 500 AppError (failure).
+/// Returns the JSON blob produced by `oc_core::provider::test::test_embedding`.
+/// On error returns 200 with the failure payload (the frontend reads
+/// `success: bool` from the body) so behaviour matches the Tauri command,
+/// which always returns the JSON string.
 pub async fn test_embedding(
-    Json(config): Json<oc_core::memory::EmbeddingConfig>,
+    Json(body): Json<TestEmbeddingBody>,
 ) -> Result<Json<Value>, AppError> {
-    match oc_core::provider::test::test_embedding(config).await {
-        Ok(payload) => {
-            let v: Value = serde_json::from_str(&payload).unwrap_or(Value::String(payload));
-            Ok(Json(v))
-        }
-        Err(payload) => {
-            let v: Value = serde_json::from_str(&payload).unwrap_or(Value::String(payload));
-            Ok(Json(v))
-        }
-    }
+    let payload = oc_core::provider::test::test_embedding(body.config)
+        .await
+        .unwrap_or_else(|e| e);
+    let v: Value = serde_json::from_str(&payload).unwrap_or(Value::String(payload));
+    Ok(Json(v))
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TestImageBody {
     pub provider_id: String,
     pub api_key: String,
@@ -237,18 +245,15 @@ pub struct TestImageBody {
 pub async fn test_image_generate(
     Json(body): Json<TestImageBody>,
 ) -> Result<Json<Value>, AppError> {
-    match oc_core::provider::test::test_image_generate(body.provider_id, body.api_key, body.base_url)
-        .await
-    {
-        Ok(payload) => {
-            let v: Value = serde_json::from_str(&payload).unwrap_or(Value::String(payload));
-            Ok(Json(v))
-        }
-        Err(payload) => {
-            let v: Value = serde_json::from_str(&payload).unwrap_or(Value::String(payload));
-            Ok(Json(v))
-        }
-    }
+    let payload = oc_core::provider::test::test_image_generate(
+        body.provider_id,
+        body.api_key,
+        body.base_url,
+    )
+    .await
+    .unwrap_or_else(|e| e);
+    let v: Value = serde_json::from_str(&payload).unwrap_or(Value::String(payload));
+    Ok(Json(v))
 }
 
 /// `PUT /api/providers/active-model` — set the active model.

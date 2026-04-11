@@ -106,6 +106,7 @@ pub async fn get_plan_steps(
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UpdateStepBody {
     pub step_index: usize,
     pub status: String,
@@ -154,6 +155,7 @@ pub async fn update_plan_step_status(
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RespondQuestionBody {
     pub request_id: String,
     pub answers: Vec<AskUserQuestionAnswer>,
@@ -184,6 +186,7 @@ pub async fn get_plan_versions(
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LoadVersionQuery {
     pub file_path: String,
 }
@@ -197,6 +200,7 @@ pub async fn load_plan_version_content(
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RestoreVersionBody {
     pub file_path: String,
 }

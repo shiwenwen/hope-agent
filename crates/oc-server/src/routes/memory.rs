@@ -47,6 +47,18 @@ fn get_backend() -> Result<&'static std::sync::Arc<dyn oc_core::memory::MemoryBa
         .ok_or_else(|| AppError::internal("Memory backend not initialized"))
 }
 
+/// Body wrapper for `memory_add` — frontend ships `{ entry: <NewMemory> }`.
+#[derive(Debug, Deserialize)]
+pub struct AddMemoryBody {
+    pub entry: oc_core::memory::NewMemory,
+}
+
+/// Body wrapper for `memory_search` — frontend ships `{ query: <MemorySearchQuery> }`.
+#[derive(Debug, Deserialize)]
+pub struct SearchMemoryBody {
+    pub query: oc_core::memory::MemorySearchQuery,
+}
+
 /// Parse scope from query params: explicit `scope` JSON or shorthand `agent_id`.
 fn parse_scope(
     scope: &Option<String>,
@@ -74,10 +86,10 @@ fn parse_types(types: &Option<String>) -> Option<Vec<oc_core::memory::MemoryType
 
 /// `POST /api/memory` -- add a new memory entry.
 pub async fn add_memory(
-    Json(entry): Json<oc_core::memory::NewMemory>,
+    Json(body): Json<AddMemoryBody>,
 ) -> Result<Json<Value>, AppError> {
     let backend = get_backend()?;
-    let id = backend.add(entry)?;
+    let id = backend.add(body.entry)?;
     Ok(Json(json!({ "id": id })))
 }
 
@@ -125,10 +137,10 @@ pub async fn list_memories(
 
 /// `POST /api/memory/search` -- semantic search over memories.
 pub async fn search_memories(
-    Json(query): Json<oc_core::memory::MemorySearchQuery>,
+    Json(body): Json<SearchMemoryBody>,
 ) -> Result<Json<Vec<oc_core::memory::MemoryEntry>>, AppError> {
     let backend = get_backend()?;
-    let results = backend.search(&query)?;
+    let results = backend.search(&body.query)?;
     Ok(Json(results))
 }
 

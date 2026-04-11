@@ -19,19 +19,32 @@ pub async fn get_job(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
     Ok(Json(serde_json::to_value(job)?))
 }
 
+/// Body wrapper used by `cron_create_job` / `cron_update_job` — frontend
+/// ships `{ job: <CronJob> }` to mirror the Tauri command's single
+/// `job:` parameter.
+#[derive(Debug, Deserialize)]
+pub struct CreateJobBody {
+    pub job: cron::NewCronJob,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateJobBody {
+    pub job: cron::CronJob,
+}
+
 /// `POST /api/cron/jobs`
 pub async fn create_job(
-    Json(body): Json<cron::NewCronJob>,
+    Json(body): Json<CreateJobBody>,
 ) -> Result<Json<cron::CronJob>, AppError> {
-    Ok(Json(db()?.add_job(&body)?))
+    Ok(Json(db()?.add_job(&body.job)?))
 }
 
 /// `PUT /api/cron/jobs/{id}`
 pub async fn update_job(
     Path(_id): Path<String>,
-    Json(body): Json<cron::CronJob>,
+    Json(body): Json<UpdateJobBody>,
 ) -> Result<Json<Value>, AppError> {
-    db()?.update_job(&body)?;
+    db()?.update_job(&body.job)?;
     Ok(Json(json!({ "updated": true })))
 }
 

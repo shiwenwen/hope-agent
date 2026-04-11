@@ -107,6 +107,7 @@ pub async fn get_session_messages(
 // ── Read-state / Compact ───────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ReadBatchBody {
     pub session_ids: Vec<String>,
 }
@@ -125,8 +126,9 @@ pub async fn mark_session_read_batch(
     State(ctx): State<Arc<AppContext>>,
     Json(body): Json<ReadBatchBody>,
 ) -> Result<Json<Value>, AppError> {
+    let count = body.session_ids.len();
     ctx.session_db.mark_session_read_batch(&body.session_ids)?;
-    Ok(Json(json!({ "ok": true, "count": body.session_ids.len() })))
+    Ok(Json(json!({ "ok": true, "count": count })))
 }
 
 /// `POST /api/sessions/read-all` — mark every session as read.
@@ -142,16 +144,18 @@ pub async fn mark_all_sessions_read(
 /// In the Tauri desktop shell this runs against the live in-memory agent.
 /// The HTTP server is stateless (each `POST /api/chat` spins up a fresh
 /// agent), so there is no persistent conversation to compact here. Returns
-/// a zero-result so settings UI can still display a value.
+/// a zero-result so the settings UI can still display a value. The response
+/// uses camelCase to match `oc_core::context_compact::CompactResult`'s
+/// `#[serde(rename_all = "camelCase")]`.
 pub async fn compact_context_now(
     State(_ctx): State<Arc<AppContext>>,
     Path(_id): Path<String>,
 ) -> Result<Json<Value>, AppError> {
     Ok(Json(json!({
-        "tier_applied": 0,
-        "tokens_before": 0,
-        "tokens_after": 0,
-        "messages_affected": 0,
+        "tierApplied": 0,
+        "tokensBefore": 0,
+        "tokensAfter": 0,
+        "messagesAffected": 0,
         "description": "not_supported_in_server_mode",
         "details": null,
     })))

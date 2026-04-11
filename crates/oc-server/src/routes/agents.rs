@@ -21,12 +21,19 @@ pub async fn get_agent(
     Ok(Json(def.config))
 }
 
+/// Body wrapper for `save_agent_config_cmd` — frontend ships
+/// `{ id, config: <AgentConfig> }` (id is in the path).
+#[derive(Debug, Deserialize)]
+pub struct SaveAgentBody {
+    pub config: oc_core::agent_config::AgentConfig,
+}
+
 /// `PUT /api/agents/{id}` -- save (create or update) an agent's config.
 pub async fn save_agent(
     Path(id): Path<String>,
-    Json(config): Json<oc_core::agent_config::AgentConfig>,
+    Json(body): Json<SaveAgentBody>,
 ) -> Result<Json<Value>, AppError> {
-    oc_core::agent_loader::save_agent_config(&id, &config)?;
+    oc_core::agent_loader::save_agent_config(&id, &body.config)?;
     Ok(Json(json!({ "saved": true })))
 }
 

@@ -1,4 +1,5 @@
 use axum::Json;
+use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::error::AppError;
@@ -13,6 +14,18 @@ fn save_config(store: &oc_core::config::AppConfig) -> Result<(), AppError> {
     Ok(oc_core::config::save_config(store)?)
 }
 
+/// Generic body wrapper used by every `save_*_config` handler.
+///
+/// All Tauri `save_*_config(config: T)` commands take a single struct
+/// parameter named `config`. The frontend HTTP transport mirrors that by
+/// shipping `{ config: <T> }` rather than `<T>` directly. Without this
+/// wrapper, axum's `Json<T>` extractor would fail because it would look
+/// for top-level fields of `T` directly in the body.
+#[derive(Debug, Deserialize)]
+pub struct ConfigBody<T> {
+    pub config: T,
+}
+
 // ── User Config ─────────────────────────────────────────────────
 
 /// `GET /api/config/user` -- get user config.
@@ -23,9 +36,9 @@ pub async fn get_user_config() -> Result<Json<oc_core::user_config::UserConfig>,
 
 /// `PUT /api/config/user` -- save user config.
 pub async fn save_user_config(
-    Json(config): Json<oc_core::user_config::UserConfig>,
+    Json(body): Json<ConfigBody<oc_core::user_config::UserConfig>>,
 ) -> Result<Json<Value>, AppError> {
-    oc_core::user_config::save_user_config_to_disk(&config)?;
+    oc_core::user_config::save_user_config_to_disk(&body.config)?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -42,10 +55,10 @@ pub async fn get_web_search_config(
 
 /// `PUT /api/config/web-search` -- save web search config.
 pub async fn save_web_search_config(
-    Json(config): Json<oc_core::tools::web_search::WebSearchConfig>,
+    Json(body): Json<ConfigBody<oc_core::tools::web_search::WebSearchConfig>>,
 ) -> Result<Json<Value>, AppError> {
     let mut store = load_config()?;
-    store.web_search = config;
+    store.web_search = body.config;
     save_config(&store)?;
     Ok(Json(json!({ "saved": true })))
 }
@@ -60,10 +73,10 @@ pub async fn get_proxy_config() -> Result<Json<oc_core::provider::ProxyConfig>, 
 
 /// `PUT /api/config/proxy` -- save proxy config.
 pub async fn save_proxy_config(
-    Json(config): Json<oc_core::provider::ProxyConfig>,
+    Json(body): Json<ConfigBody<oc_core::provider::ProxyConfig>>,
 ) -> Result<Json<Value>, AppError> {
     let mut store = load_config()?;
-    store.proxy = config;
+    store.proxy = body.config;
     save_config(&store)?;
     Ok(Json(json!({ "saved": true })))
 }
@@ -79,10 +92,10 @@ pub async fn get_compact_config() -> Result<Json<oc_core::context_compact::Compa
 
 /// `PUT /api/config/compact` -- save context compaction config.
 pub async fn save_compact_config(
-    Json(config): Json<oc_core::context_compact::CompactConfig>,
+    Json(body): Json<ConfigBody<oc_core::context_compact::CompactConfig>>,
 ) -> Result<Json<Value>, AppError> {
     let mut store = load_config()?;
-    store.compact = config;
+    store.compact = body.config;
     save_config(&store)?;
     Ok(Json(json!({ "saved": true })))
 }
@@ -98,10 +111,10 @@ pub async fn get_notification_config() -> Result<Json<oc_core::config::Notificat
 
 /// `PUT /api/config/notification` -- save notification config.
 pub async fn save_notification_config(
-    Json(config): Json<oc_core::config::NotificationConfig>,
+    Json(body): Json<ConfigBody<oc_core::config::NotificationConfig>>,
 ) -> Result<Json<Value>, AppError> {
     let mut store = load_config()?;
-    store.notification = config;
+    store.notification = body.config;
     save_config(&store)?;
     Ok(Json(json!({ "saved": true })))
 }
@@ -266,10 +279,10 @@ pub async fn get_server_config() -> Result<Json<Value>, AppError> {
 
 /// `PUT /api/config/server` -- save embedded server config.
 pub async fn save_server_config(
-    Json(config): Json<oc_core::config::EmbeddedServerConfig>,
+    Json(body): Json<ConfigBody<oc_core::config::EmbeddedServerConfig>>,
 ) -> Result<Json<Value>, AppError> {
     let mut store = load_config()?;
-    store.server = config;
+    store.server = body.config;
     save_config(&store)?;
     Ok(Json(json!({ "saved": true, "restartRequired": true })))
 }
@@ -285,10 +298,10 @@ pub async fn get_embedding_config(
 
 /// `PUT /api/config/embedding` -- save embedding provider config.
 pub async fn save_embedding_config(
-    Json(config): Json<oc_core::memory::EmbeddingConfig>,
+    Json(body): Json<ConfigBody<oc_core::memory::EmbeddingConfig>>,
 ) -> Result<Json<Value>, AppError> {
     let mut store = load_config()?;
-    store.embedding = config;
+    store.embedding = body.config;
     save_config(&store)?;
     Ok(Json(json!({ "saved": true })))
 }
@@ -308,10 +321,10 @@ pub async fn get_embedding_cache_config(
 
 /// `PUT /api/config/embedding-cache` -- save embedding cache config.
 pub async fn save_embedding_cache_config(
-    Json(config): Json<oc_core::memory::EmbeddingCacheConfig>,
+    Json(body): Json<ConfigBody<oc_core::memory::EmbeddingCacheConfig>>,
 ) -> Result<Json<Value>, AppError> {
     let mut store = load_config()?;
-    store.embedding_cache = config;
+    store.embedding_cache = body.config;
     save_config(&store)?;
     Ok(Json(json!({ "saved": true })))
 }
@@ -324,10 +337,10 @@ pub async fn get_dedup_config() -> Result<Json<oc_core::memory::DedupConfig>, Ap
 
 /// `PUT /api/config/dedup` -- save memory deduplication config.
 pub async fn save_dedup_config(
-    Json(config): Json<oc_core::memory::DedupConfig>,
+    Json(body): Json<ConfigBody<oc_core::memory::DedupConfig>>,
 ) -> Result<Json<Value>, AppError> {
     let mut store = load_config()?;
-    store.dedup = config;
+    store.dedup = body.config;
     save_config(&store)?;
     Ok(Json(json!({ "saved": true })))
 }
@@ -341,10 +354,10 @@ pub async fn get_hybrid_search_config(
 
 /// `PUT /api/config/hybrid-search` -- save hybrid search weights.
 pub async fn save_hybrid_search_config(
-    Json(config): Json<oc_core::memory::HybridSearchConfig>,
+    Json(body): Json<ConfigBody<oc_core::memory::HybridSearchConfig>>,
 ) -> Result<Json<Value>, AppError> {
     let mut store = load_config()?;
-    store.hybrid_search = config;
+    store.hybrid_search = body.config;
     save_config(&store)?;
     Ok(Json(json!({ "saved": true })))
 }
@@ -357,10 +370,10 @@ pub async fn get_mmr_config() -> Result<Json<oc_core::memory::MmrConfig>, AppErr
 
 /// `PUT /api/config/mmr` -- save MMR reranking config.
 pub async fn save_mmr_config(
-    Json(config): Json<oc_core::memory::MmrConfig>,
+    Json(body): Json<ConfigBody<oc_core::memory::MmrConfig>>,
 ) -> Result<Json<Value>, AppError> {
     let mut store = load_config()?;
-    store.mmr = config;
+    store.mmr = body.config;
     save_config(&store)?;
     Ok(Json(json!({ "saved": true })))
 }
@@ -374,10 +387,10 @@ pub async fn get_multimodal_config(
 
 /// `PUT /api/config/multimodal` -- save multimodal embedding config.
 pub async fn save_multimodal_config(
-    Json(config): Json<oc_core::memory::MultimodalConfig>,
+    Json(body): Json<ConfigBody<oc_core::memory::MultimodalConfig>>,
 ) -> Result<Json<Value>, AppError> {
     let mut store = load_config()?;
-    store.multimodal = config;
+    store.multimodal = body.config;
     save_config(&store)?;
     Ok(Json(json!({ "saved": true })))
 }
@@ -391,10 +404,10 @@ pub async fn get_temporal_decay_config(
 
 /// `PUT /api/config/temporal-decay` -- save temporal decay config.
 pub async fn save_temporal_decay_config(
-    Json(config): Json<oc_core::memory::TemporalDecayConfig>,
+    Json(body): Json<ConfigBody<oc_core::memory::TemporalDecayConfig>>,
 ) -> Result<Json<Value>, AppError> {
     let mut store = load_config()?;
-    store.temporal_decay = config;
+    store.temporal_decay = body.config;
     save_config(&store)?;
     Ok(Json(json!({ "saved": true })))
 }
@@ -408,10 +421,10 @@ pub async fn get_extract_config(
 
 /// `PUT /api/config/extract` -- save memory auto-extract config.
 pub async fn save_extract_config(
-    Json(config): Json<oc_core::memory::MemoryExtractConfig>,
+    Json(body): Json<ConfigBody<oc_core::memory::MemoryExtractConfig>>,
 ) -> Result<Json<Value>, AppError> {
     let mut store = load_config()?;
-    store.memory_extract = config;
+    store.memory_extract = body.config;
     save_config(&store)?;
     Ok(Json(json!({ "saved": true })))
 }
@@ -427,10 +440,10 @@ pub async fn get_web_fetch_config(
 
 /// `PUT /api/config/web-fetch` -- save web fetch tool config.
 pub async fn save_web_fetch_config(
-    Json(config): Json<oc_core::tools::web_fetch::WebFetchConfig>,
+    Json(body): Json<ConfigBody<oc_core::tools::web_fetch::WebFetchConfig>>,
 ) -> Result<Json<Value>, AppError> {
     let mut store = load_config()?;
-    store.web_fetch = config;
+    store.web_fetch = body.config;
     save_config(&store)?;
     Ok(Json(json!({ "saved": true })))
 }
@@ -446,10 +459,10 @@ pub async fn get_image_generate_config(
 
 /// `PUT /api/config/image-generate` -- save image generation config.
 pub async fn save_image_generate_config(
-    Json(config): Json<oc_core::tools::image_generate::ImageGenConfig>,
+    Json(body): Json<ConfigBody<oc_core::tools::image_generate::ImageGenConfig>>,
 ) -> Result<Json<Value>, AppError> {
     let mut store = load_config()?;
-    store.image_generate = config;
+    store.image_generate = body.config;
     save_config(&store)?;
     Ok(Json(json!({ "saved": true })))
 }
@@ -463,10 +476,10 @@ pub async fn get_canvas_config(
 
 /// `PUT /api/config/canvas` -- save canvas tool config.
 pub async fn save_canvas_config(
-    Json(config): Json<oc_core::tools::canvas::CanvasConfig>,
+    Json(body): Json<ConfigBody<oc_core::tools::canvas::CanvasConfig>>,
 ) -> Result<Json<Value>, AppError> {
     let mut store = load_config()?;
-    store.canvas = config;
+    store.canvas = body.config;
     save_config(&store)?;
     Ok(Json(json!({ "saved": true })))
 }
@@ -485,10 +498,10 @@ pub async fn get_shortcut_config() -> Result<Json<oc_core::config::ShortcutConfi
 /// performed by the Tauri desktop shell. In headless server mode this is a
 /// no-op beyond saving the value.
 pub async fn save_shortcut_config(
-    Json(config): Json<oc_core::config::ShortcutConfig>,
+    Json(body): Json<ConfigBody<oc_core::config::ShortcutConfig>>,
 ) -> Result<Json<Value>, AppError> {
     let mut store = load_config()?;
-    store.shortcuts = config;
+    store.shortcuts = body.config;
     save_config(&store)?;
     Ok(Json(json!({ "saved": true, "note": "desktop-only registration" })))
 }
@@ -582,8 +595,8 @@ pub async fn get_sandbox_config() -> Result<Json<oc_core::sandbox::SandboxConfig
 
 /// `PUT /api/config/sandbox` -- save Docker sandbox config.
 pub async fn set_sandbox_config(
-    Json(config): Json<oc_core::sandbox::SandboxConfig>,
+    Json(body): Json<ConfigBody<oc_core::sandbox::SandboxConfig>>,
 ) -> Result<Json<Value>, AppError> {
-    oc_core::sandbox::save_sandbox_config(&config)?;
+    oc_core::sandbox::save_sandbox_config(&body.config)?;
     Ok(Json(json!({ "saved": true })))
 }

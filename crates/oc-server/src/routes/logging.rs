@@ -52,12 +52,17 @@ pub async fn get_log_config() -> Result<Json<logging::LogConfig>, AppError> {
     Ok(Json(app_state()?.logger.get_config()))
 }
 
+#[derive(Debug, Deserialize)]
+pub struct LogConfigBody {
+    pub config: logging::LogConfig,
+}
+
 /// `PUT /api/logs/config`
 pub async fn save_log_config(
-    Json(config): Json<logging::LogConfig>,
+    Json(body): Json<LogConfigBody>,
 ) -> Result<Json<Value>, AppError> {
-    logging::save_log_config(&config)?;
-    app_state()?.logger.update_config(config);
+    logging::save_log_config(&body.config)?;
+    app_state()?.logger.update_config(body.config);
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -84,6 +89,7 @@ pub async fn get_log_file_path() -> Result<Json<Value>, AppError> {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FrontendLogBody {
     pub level: String,
     pub category: String,

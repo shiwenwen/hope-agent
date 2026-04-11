@@ -16,8 +16,15 @@ use crate::ws::chat_stream::ChatStreamRegistry;
 use crate::AppContext;
 
 // ── Request / Response Types ───────────────────────────────────
+//
+// All HTTP request bodies use `#[serde(rename_all = "camelCase")]` because
+// the frontend `transport-http.ts::call()` ships args as-is via
+// `JSON.stringify(remainingArgs)`. Frontend code uses camelCase keys
+// throughout (`sessionId`, `agentId`, `requestId`, ...), so the matching
+// HTTP body structs MUST accept camelCase to deserialize successfully.
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ChatRequest {
     pub message: String,
     #[serde(default)]
@@ -37,14 +44,19 @@ pub struct ChatRequest {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ChatResponse {
     pub session_id: String,
     pub response: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct StopChatRequest {
-    pub session_id: String,
+    /// When omitted, cancels every running chat (mirrors the Tauri command's
+    /// "stop the current chat" semantics — frontend calls `stop_chat` with
+    /// no args).
+    pub session_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -54,33 +66,36 @@ pub struct ApprovalRequest {
 
 /// Body-based approval response: alias for `/api/chat/approval` (no path
 /// param) — matches the frontend `respond_to_approval` command which sends
-/// `{request_id, response}` in the JSON body.
+/// `{requestId, response}` in the JSON body.
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ApprovalBodyRequest {
     pub request_id: String,
     pub response: String,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SaveAttachmentBody {
     #[serde(default)]
     pub session_id: Option<String>,
     pub file_name: String,
     #[serde(default)]
     pub mime_type: Option<String>,
-    /// Raw bytes. Accepts either a byte array (default serde) or a base64
-    /// string — axum's `Json` extractor with `Vec<u8>` already handles both
-    /// depending on the caller's serializer. The frontend uses a plain
-    /// byte array via JS `Array.from(uint8)`.
+    /// Raw bytes. Frontend ships `Array.from(new Uint8Array(buf))` which
+    /// JSON-encodes as a sequence of numbers — serde deserializes that into
+    /// `Vec<u8>` natively.
     pub data: Vec<u8>,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SystemPromptQuery {
     pub agent_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SystemPromptBody {
     #[serde(default)]
     pub agent_id: Option<String>,
@@ -270,20 +285,34 @@ pub async fn chat(
     }))
 }
 
-/// `POST /api/chat/stop` — stop ongoing chat for a session.
+/// `POST /api/chat/stop` — stop ongoing chat(s).
+///
+/// When the request body provides `sessionId`, only that session's cancel
+/// flag is flipped. Otherwise every running chat is cancelled (this matches
+/// the desktop Tauri command which has no per-session targeting). Accepts
+/// either `{}` or omitted body — `axum::Json` with a `Default` body handles
+/// `{}`; for a completely empty body the Tauri caller wouldn't reach this
+/// route anyway.
 pub async fn stop_chat(
     State(ctx): State<Arc<AppContext>>,
     Json(body): Json<StopChatRequest>,
 ) -> Result<Json<Value>, AppError> {
     let cancels = ctx.chat_cancels.read().unwrap();
-    if let Some(cancel) = cancels.get(&body.session_id) {
-        cancel.store(true, Ordering::SeqCst);
-        Ok(Json(json!({ "stopped": true })))
-    } else {
-        Ok(Json(
+    if let Some(sid) = body.session_id.as_deref() {
+        if let Some(cancel) = cancels.get(sid) {
+            cancel.store(true, Ordering::SeqCst);
+            return Ok(Json(json!({ "stopped": true, "scope": "session" })));
+        }
+        return Ok(Json(
             json!({ "stopped": false, "reason": "no active chat for session" }),
-        ))
+        ));
     }
+    let mut count = 0usize;
+    for cancel in cancels.values() {
+        cancel.store(true, Ordering::SeqCst);
+        count += 1;
+    }
+    Ok(Json(json!({ "stopped": true, "scope": "all", "count": count })))
 }
 
 /// `POST /api/chat/approval/{request_id}` — respond to a tool approval request.

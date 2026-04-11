@@ -15,6 +15,7 @@ use crate::error::AppError;
 // ── Request / Response types ───────────────────────────────────
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SetActiveModelBody {
     pub provider_id: String,
     pub model_id: String,
@@ -35,6 +36,10 @@ pub struct SetTemperatureBody {
     pub temperature: Option<f64>,
 }
 
+/// Mirror of the Tauri `CurrentSettings` struct. Field names stay
+/// snake_case (no `rename_all`) to match what the desktop returns — frontend
+/// reads `result.reasoning_effort` directly. See `ChatScreen.tsx`:
+///   `getTransport().call<{ model: string; reasoning_effort: string }>("get_current_settings")`
 #[derive(Debug, Serialize)]
 pub struct CurrentSettings {
     pub model: String,
