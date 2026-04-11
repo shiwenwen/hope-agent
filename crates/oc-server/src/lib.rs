@@ -231,6 +231,11 @@ fn build_router_with_cors(
         )
         .route("/dashboard/error-list", post(routes::dashboard::error_list))
         .route("/dashboard/agent-list", post(routes::dashboard::agent_list))
+        .route(
+            "/dashboard/overview-delta",
+            post(routes::dashboard::overview_delta),
+        )
+        .route("/dashboard/insights", post(routes::dashboard::insights))
         // Plan Mode
         .route("/plan/{sid}/mode", get(routes::plan::get_plan_mode))
         .route("/plan/{sid}/mode", post(routes::plan::set_plan_mode))

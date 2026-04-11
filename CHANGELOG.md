@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **数据大盘"综合概览"升级**：新增 Insights 首屏 Tab，把散落在各 Tab 的关键指标聚合成一屏，让用户一眼看懂系统运行状态：(1) **系统健康度环形仪表**：基于日志错误率、工具错误率、定时任务成功率、子 Agent 成功率四维加权，0–100 分，状态分 excellent/good/warning/critical 四档，后端 `query_health_score()` 内联计算；(2) **费用趋势折线图**：按天聚合消息 token × 模型定价，展示累计/日均/峰值，含日均参考线；(3) **7×24 活跃度热力图**：按周几 × 小时 hover 高亮，紫色强度映射消息密度；(4) **小时分布柱状图**：0–23 时消息量 + 峰值时段；(5) **Top 10 会话排行**：按 token 消耗排序，金银铜牌样式 + 单击 drill-down；(6) **模型效率对比**：每模型消息数、tokens、tokens/msg、cost/1k、TTFT，支持按模型 drill-down 过滤。后端新增 `crates/oc-core/src/dashboard/insights.rs`（`query_insights` / `query_overview_with_delta` / `query_cost_trend` / `query_activity_heatmap` / `query_hourly_distribution` / `query_top_sessions` / `query_model_efficiency` / `query_health_score`），Tauri 命令 `dashboard_insights` + `dashboard_overview_delta`，HTTP 路由 `POST /dashboard/insights` + `POST /dashboard/overview-delta`
+- **Overview Cards 同比 Delta**：9 张关键指标卡新增"较上期"涨跌百分比徽章，后端 `query_overview_with_delta` 自动按相同时间跨度左移一窗取 previous baseline 并返回 `OverviewStatsWithDelta { current, previous }`。前端 `DeltaBadge` 用向上/向下箭头 + 绿红配色区分好坏（错误、TTFT 倒转语义）
+- **仪表盘自动刷新 + CSV 导出**：大盘 Header 新增自动刷新选择器（关闭 / 30 秒 / 1 分钟 / 5 分钟）和导出按钮。自动刷新复用现有加载路径，触发 overview + current tab 数据同步。导出按钮根据当前 Tab 导出 tokens / tools / sessions / errors / insights 的聚合数据为 CSV 文件。Header 新增"最近刷新"时间戳
+- **系统监控实时资源曲线**：System Tab 在自动刷新开启后，客户端持有最多 60 个采样的环形缓冲，渲染 CPU / 内存使用率的面积图（双通道），带时间轴 tooltip，省去后端历史库支持
+
 ### Fixed
 
 - **Plan 步骤标题 Markdown 渲染**：修复 `PlanStepItem` 把 `**HTML 结构**` 等步骤标题里的行内 markdown 当成纯文本展示的问题。复用 `PlanQuestionBlock` 的 Streamdown 轻量栈（只加载 `code` + `cjk` 插件），新增 `InlineMarkdown` 包装组件，通过 `className="contents"`（让 Streamdown 外层 `<div class="space-y-4 …">` 从布局中消失）+ `components={{ p: Fragment }}`（剥掉默认 `<p>` 包装）让单行标题以纯 inline 节点流入父级 `<span>`，保持列表密度。同时应用于 `step.title` 和 `step.description`

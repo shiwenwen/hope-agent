@@ -57,7 +57,7 @@ src/                    前端（React + TypeScript）
       web-search-panel/ 搜索设置面板
     common/             共享组件（导航栏/Markdown 渲染/Provider 图标）
     ui/                 shadcn/ui 基础组件
-    dashboard/          数据大盘（recharts 图表）
+    dashboard/          数据大盘（recharts 图表 + 综合 Insights 健康度/热力图/Top 会话）
     cron/               定时任务管理组件
   hooks/                全局自定义 hooks（useClickOutside/useTheme/useUrlPreview）
   lib/
@@ -147,7 +147,7 @@ crates/oc-core/src/     核心业务逻辑（零 Tauri 依赖）
   system_prompt/        系统提示词模块化拼装（constants/build/sections/helpers 拆分）
   chat_engine/          聊天引擎（types/context/engine 拆分）
   docker/               Docker 服务管理（status/deploy/lifecycle/helpers/proxy 拆分）
-  dashboard/            数据大盘聚合查询（types/cost/filters/queries/detail_queries 拆分）
+  dashboard/            数据大盘聚合查询（types/cost/filters/queries/detail_queries/insights 拆分）
   logging/              统一日志（types/db/file_writer/app_logger/file_ops/config 拆分）
 ```
 
@@ -226,6 +226,7 @@ src-tauri/src/          Tauri 薄壳（命令层 + 桌面集成）
 - **工具结果磁盘持久化**：工具结果超过阈值（默认 50KB，`config.json` → `toolResultDiskThreshold` 可配置）时写入 `~/.opencomputer/tool_results/{session_id}/`，上下文仅保留 head+tail 预览 + 路径引用
 - **工具审批等待超时**：审批等待时长由 `config.json` 的 `approvalTimeoutSecs` 控制，默认 300 秒，`0` 表示不限时。超时后的动作由 `approvalTimeoutAction` 控制：默认 `deny` 阻止执行，也可设为 `proceed` 在记录 warning 后继续执行工具
 - **数据存储**：所有数据统一在 `~/.opencomputer/`，`paths.rs` 集中管理
+- **数据大盘 Insights**：`dashboard/insights.rs` 提供综合分析查询：`query_overview_with_delta`（同环比 delta，按相同时间跨度左移取 previous baseline）、`query_cost_trend`（日度费用累计 + 峰值/日均）、`query_activity_heatmap`（7×24 活跃度网格）、`query_hourly_distribution`（0–23 时消息 + 峰值时段）、`query_top_sessions`（按 token 消耗的 Top N）、`query_model_efficiency`（每模型 tokens/msg、cost/1k、TTFT 对比）、`query_health_score`（四维加权健康度 0–100）和一次性 `query_insights` orchestrator。前端 Dashboard 默认 Tab 为 `InsightsSection`，同时 Header 提供 `autoRefreshMs` 定时轮询（30s/1m/5m）和 CSV 导出能力；System Tab 客户端持有最多 60 个采样点的环形缓冲绘制 CPU/内存实时曲线
 - **IM Channel 架构**：`channel/` 目录统一承载 Telegram / WeChat 等渠道插件；Telegram 走 Bot API 轮询，WeChat 走 OpenClaw 兼容的二维码登录 + iLink HTTP 长轮询协议，渠道状态文件统一落在 `~/.opencomputer/channels/`。入站媒体管道：polling 收集 `InboundMedia`（Telegram/WeChat 入站媒体下载到 channel inbound-temp）→ worker 转为 `Attachment`（图片 base64 / 文件 path）并复制归档到会话目录 `~/.opencomputer/attachments/{session_id}/` → `ChatEngineParams.attachments` → `agent.chat()` 多模态接口。WeChat 通道完整能力：typing 指示器（24h TTL + 5s keepalive + cancel）、入站媒体下载解密（图片/视频/语音/文件）、出站媒体 AES-128-ECB 加密上传 CDN（3 次 5xx 重试）、会话过期暂停 1h、QR 登录自动刷新 3 次。**斜杠命令同步**：Telegram Bot 启动时自动调用 `setMyCommands` 同步内置命令到 Bot 菜单，`SlashCommandDef::description_en()` 提供英文描述
 - **IM Channel 工具审批交互**：工具需要审批时，`channel/worker/approval.rs` 监听 EventBus `"approval_required"` 事件，通过 `ChannelDB.get_conversation_by_session()` 反查 IM 渠道信息，按 `ChannelCapabilities.supports_buttons` 决定发送方式：支持按钮的渠道（Telegram/Discord/Slack/飞书/QQ Bot/LINE/Google Chat）发送平台原生交互按钮，不支持的渠道（WeChat/Signal/iMessage/IRC/WhatsApp）发送文本提示（回复 1/2/3）。按钮回调通过各渠道原生机制路由回 `submit_approval_response()`。`ChannelAccountConfig.auto_approve_tools` 为 `true` 时，该渠道的所有工具调用自动审批，通过 `ChatEngineParams` → `AssistantAgent` → `ToolExecContext.auto_approve_tools` 传递到执行层，跳过审批门控
 - **SearXNG Docker 代理注入**：`web_search.searxng_docker_use_proxy` 控制是否向 Docker SearXNG 写入 `settings.yml` 的 `outgoing.proxies` 和代理环境变量；适用于系统 VPN 场景，修改后在下次启动或重新部署容器时生效

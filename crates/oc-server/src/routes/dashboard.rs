@@ -99,3 +99,27 @@ pub async fn agent_list(
         &filter,
     )?))
 }
+
+pub async fn overview_delta(
+    Json(filter): Json<DashboardFilter>,
+) -> Result<Json<OverviewStatsWithDelta>, AppError> {
+    let s = app_state()?;
+    Ok(Json(dashboard::query_overview_with_delta(
+        &s.session_db,
+        &s.log_db,
+        &s.cron_db,
+        &filter,
+    )?))
+}
+
+pub async fn insights(
+    Json(filter): Json<DashboardFilter>,
+) -> Result<Json<DashboardInsights>, AppError> {
+    let s = app_state()?;
+    Ok(Json(dashboard::query_insights(
+        &s.session_db,
+        &s.log_db,
+        &s.cron_db,
+        &filter,
+    )?))
+}

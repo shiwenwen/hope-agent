@@ -99,3 +99,31 @@ pub async fn dashboard_agent_list(
 ) -> Result<Vec<dashboard::DashboardAgentItem>, String> {
     dashboard::query_agent_list(&state.session_db, &filter).map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub async fn dashboard_overview_delta(
+    filter: DashboardFilter,
+    state: State<'_, AppState>,
+) -> Result<dashboard::OverviewStatsWithDelta, String> {
+    dashboard::query_overview_with_delta(
+        &state.session_db,
+        &state.log_db,
+        &state.cron_db,
+        &filter,
+    )
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn dashboard_insights(
+    filter: DashboardFilter,
+    state: State<'_, AppState>,
+) -> Result<dashboard::DashboardInsights, String> {
+    dashboard::query_insights(
+        &state.session_db,
+        &state.log_db,
+        &state.cron_db,
+        &filter,
+    )
+    .map_err(|e| e.to_string())
+}
