@@ -128,3 +128,47 @@ pub async fn mark_all_sessions_read_cmd(state: State<'_, AppState>) -> Result<()
         .mark_all_sessions_read()
         .map_err(|e| e.to_string())
 }
+
+/// Search message history (FTS5) across sessions.
+///
+/// `types` accepts any combination of `"regular"`, `"cron"`, `"subagent"`,
+/// `"channel"`. Passing `None` or an empty vec returns results from all
+/// session types.
+#[tauri::command]
+pub async fn search_sessions_cmd(
+    query: String,
+    agent_id: Option<String>,
+    types: Option<Vec<String>>,
+    limit: Option<u32>,
+    state: State<'_, AppState>,
+) -> Result<Vec<session::SessionSearchResult>, String> {
+    let limit = limit.unwrap_or(80) as usize;
+
+    let parsed_types: Option<Vec<session::SessionTypeFilter>> = types.map(|list| {
+        list.iter()
+            .filter_map(|s| session::SessionTypeFilter::parse(s))
+            .collect()
+    });
+    let type_slice = parsed_types.as_deref();
+
+    state
+        .session_db
+        .search_messages(&query, agent_id.as_deref(), type_slice, limit)
+        .map_err(|e| e.to_string())
+}
+
+/// Load a window of messages centred on a target message id (used by search
+/// result "jump to message" flow).
+#[tauri::command]
+pub async fn load_session_messages_around_cmd(
+    session_id: String,
+    target_message_id: i64,
+    before: u32,
+    after: u32,
+    state: State<'_, AppState>,
+) -> Result<(Vec<session::SessionMessage>, u32), String> {
+    state
+        .session_db
+        .load_session_messages_around(&session_id, target_message_id, before, after)
+        .map_err(|e| e.to_string())
+}

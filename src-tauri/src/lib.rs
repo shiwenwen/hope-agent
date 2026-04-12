@@ -308,6 +308,8 @@ pub fn run() {
             commands::session::load_session_messages_cmd,
             commands::session::load_session_messages_latest_cmd,
             commands::session::load_session_messages_before_cmd,
+            commands::session::load_session_messages_around_cmd,
+            commands::session::search_sessions_cmd,
             commands::session::get_session_cmd,
             commands::session::delete_session_cmd,
             commands::session::rename_session_cmd,

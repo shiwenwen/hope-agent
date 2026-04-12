@@ -16,6 +16,9 @@ import {
   Bot,
   MessageSquarePlus,
 } from "lucide-react"
+import { getTransport } from "@/lib/transport-provider"
+import { logger } from "@/lib/logger"
+import type { SessionSearchResult } from "@/types/chat"
 import type { ChatSidebarProps, SessionFilterType } from "./types"
 import AgentSection from "./AgentSection"
 import SessionList from "./SessionList"
@@ -73,6 +76,40 @@ export default function ChatSidebar({
 
   // Agent filter state (single-select)
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
+
+  // ── History search ─────────────────────────────────────────────
+  const [searchQuery, setSearchQuery] = useState("")
+  const [searchResults, setSearchResults] = useState<SessionSearchResult[] | null>(null)
+  const [searching, setSearching] = useState(false)
+
+  useEffect(() => {
+    const q = searchQuery.trim()
+    if (!q) {
+      setSearchResults(null)
+      setSearching(false)
+      return
+    }
+    setSearching(true)
+    const timer = setTimeout(async () => {
+      try {
+        const results = await getTransport().call<SessionSearchResult[]>(
+          "search_sessions_cmd",
+          {
+            query: q,
+            agentId: selectedAgentId ?? undefined,
+            limit: 80,
+          },
+        )
+        setSearchResults(results)
+      } catch (err) {
+        logger.error("chat", "ChatSidebar::search", "search failed", err)
+        setSearchResults([])
+      } finally {
+        setSearching(false)
+      }
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [searchQuery, selectedAgentId])
 
   const filteredSessions = (() => {
     const list =
@@ -302,6 +339,11 @@ export default function ChatSidebar({
               onCancelRename={cancelRename}
               getAgentInfo={getAgentInfo}
               formatRelativeTime={formatRelativeTime}
+              searchQuery={searchQuery}
+              onSearchQueryChange={setSearchQuery}
+              searchResults={searchResults}
+              searching={searching}
+              agents={agents}
             />
           </div>
         </div>

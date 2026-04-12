@@ -138,6 +138,29 @@ export interface SessionMessage {
   thinking?: string | null
 }
 
+/**
+ * A single message match from a full-text session search.
+ *
+ * `contentSnippet` may contain `<mark>...</mark>` tags wrapping matched
+ * tokens. Render with care (whitelist `<mark>` only).
+ */
+export interface SessionSearchResult {
+  messageId: number
+  sessionId: string
+  sessionTitle: string | null
+  agentId: string
+  messageRole: string
+  contentSnippet: string
+  timestamp: string
+  relevanceRank: number
+  isCron: boolean
+  parentSessionId: string | null
+  channelType: string | null
+  channelChatType: string | null
+}
+
+export type SessionSearchType = "regular" | "cron" | "subagent" | "channel"
+
 export interface AgentSummaryForSidebar {
   id: string
   name: string
