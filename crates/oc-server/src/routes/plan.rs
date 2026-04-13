@@ -3,9 +3,8 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use oc_core::plan::{
-    self, AskUserQuestionAnswer, PlanModeState, PlanStep, PlanStepStatus, PlanVersionInfo,
-};
+use oc_core::ask_user::{self as ask_user_mod, AskUserQuestionAnswer};
+use oc_core::plan::{self, PlanModeState, PlanStep, PlanStepStatus, PlanVersionInfo};
 
 use crate::error::AppError;
 use crate::routes::helpers::session_db;
@@ -165,7 +164,7 @@ pub struct RespondQuestionBody {
 pub async fn respond_ask_user_question(
     Json(body): Json<RespondQuestionBody>,
 ) -> Result<Json<Value>, AppError> {
-    plan::submit_ask_user_question_response(&body.request_id, body.answers).await?;
+    ask_user_mod::submit_ask_user_question_response(&body.request_id, body.answers).await?;
     Ok(Json(json!({ "submitted": true })))
 }
 
@@ -173,8 +172,7 @@ pub async fn respond_ask_user_question(
 pub async fn get_pending_ask_user_group(
     Path(session_id): Path<String>,
 ) -> Result<Json<Value>, AppError> {
-    let db = session_db()?;
-    let group = plan::find_live_pending_group_for_session(&db, &session_id).await?;
+    let group = ask_user_mod::find_live_pending_group_for_session(&session_id).await?;
     Ok(Json(json!(group)))
 }
 

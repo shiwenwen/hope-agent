@@ -1,6 +1,6 @@
 # OpenComputer 提示词系统技术文档
 
-> 返回 [文档索引](../README.md) | 更新时间：2026-04-05
+> 返回 [文档索引](../README.md) | 更新时间：2026-04-13
 
 ## 目录
 
@@ -18,6 +18,7 @@
   - [执行阶段 Prompt](#执行阶段-prompt)
   - [完成阶段 Prompt](#完成阶段-prompt)
   - [子 Agent 上下文隔离](#子-agent-上下文隔离)
+- [Human-in-the-loop（人机协作硬约束）](#human-in-the-loop人机协作硬约束)
 - [Memory Guidelines（记忆指导）](#memory-guidelines记忆指导)
 - [上下文压缩提示词](#上下文压缩提示词)
   - [4 层渐进式压缩](#4-层渐进式压缩)
@@ -34,7 +35,7 @@
 
 ## 概述
 
-OpenComputer 的提示词系统采用**模块化组装**架构，由 `system_prompt::build()` 统一编排。System Prompt 由最多 12 个独立段落（section）按固定顺序拼接，每段可独立启用/禁用/过滤，支持 Agent 级别的差异化配置。支持三种互斥的组装模式：**结构化模式**（默认 GUI 配置）、**自定义模式**（自由 Markdown）、**OpenClaw 兼容模式**（4 文件配置）。
+OpenComputer 的提示词系统采用**模块化组装**架构，由 `system_prompt::build()` 统一编排。System Prompt 由若干独立段落（section）按固定顺序拼接，每段可独立启用/禁用/过滤，支持 Agent 级别的差异化配置。其中工具描述（⑥）、Deferred Tools（⑥b）、Human-in-the-loop（⑥c）、Memory Guidelines（8d）、Sandbox Mode（⑪）等关键行为指引以编译时常量形式硬编码进二进制，用户无法通过自定义 agent.md 覆盖。支持三种互斥的组装模式：**结构化模式**（默认 GUI 配置）、**自定义模式**（自由 Markdown）、**OpenClaw 兼容模式**（4 文件配置）。
 
 ```mermaid
 graph TD
@@ -42,7 +43,8 @@ graph TD
         direction LR
         S1["① Identity"] --> S2["② agent.md / Project Context"] --> S3["③ persona.md"]
         S4["④ User Context"] --> S5["⑤ tools.md"] --> S6["⑥ Tool Descriptions (filtered)"]
-        S7["⑦ Skills (filtered)"] --> S8["⑧ Memory Guidelines"]
+        S6 --> S6c["⑥c Human-in-the-loop (hardcoded, conditional)"]
+        S6c --> S7["⑦ Skills (filtered)"] --> S8["⑧ Memory Guidelines"]
         S9["⑨ Runtime Info"] --> S10["⑩ SubAgent Delegation"] --> S11["⑪ Sandbox Mode"]
         S12["⑫ reserved"] --> S13["⑬ ACP Ext Agents"]
     end
@@ -96,6 +98,7 @@ graph LR
     AD --> S4["④ persona.md"]
     AD --> S5["⑤ tools.md"]
     AD --> S6["⑥ Tool Descriptions (FilterConfig)"]
+    S6 --> S6c["⑥c Human-in-the-loop guidance (hardcoded, only if ask_user_question is enabled)"]
     AD --> S7["⑦ Skills (FilterConfig)"]
     AD --> S8["⑧ Memory"]
     S8 --> S8a["8a: Core Memory (Global)"]
@@ -149,7 +152,7 @@ The following project context files have been loaded:
 
 **文件存储**：`~/.opencomputer/agents/{id}/agents.md`、`identity.md`、`soul.md`（`tools.md` 复用现有文件）
 
-**模板预填充**：首次启用时，空文件自动填充适配后的 OpenClaw 官方模板（`crates/oc-core/templates/openclaw_*.md`，纯英文）
+**模板预填充**：首次启用时，空文件自动填充内置的 4 文件模板（`crates/oc-core/templates/openclaw_*.md`，纯英文）
 
 **UI 行为**：启用后，Identity/Personality tab 禁用（显示提示），BehaviorTab 工具指导只读，MemoryTab 提示核心记忆与 OpenClaw MEMORY.md 兼容
 
@@ -216,6 +219,7 @@ The following project context files have been loaded:
 | **其他**     | canvas             | `TOOL_DESC_CANVAS`             | 富内容制品                                               |
 |              | manage_cron        | `TOOL_DESC_MANAGE_CRON`        | 定时任务管理                                             |
 |              | send_notification  | `TOOL_DESC_SEND_NOTIFICATION`  | 系统通知                                                 |
+|              | ask_user_question  | `TOOL_DESC_ASK_USER_QUESTION`  | 结构化交互问答；**WHEN / WHEN NOT / HOW 三段触发规则**   |
 
 **代码位置**：`crates/oc-core/src/system_prompt/constants.rs`
 
@@ -302,6 +306,32 @@ Phase 5: Review & Refinement   → 用户审核，inline comment 修订
 - 执行 Agent **不会**看到你的探索历史
 - 计划必须**自包含**：关键细节、来源引用、前置条件
 - "The plan IS the only context"
+
+---
+
+## Human-in-the-loop（人机协作硬约束）
+
+**位置**：`system_prompt/build.rs` 的 ⑥c 段，紧跟工具描述之后（Tool definitions → Deferred tools → **Human-in-the-loop** → Skills）
+
+**注入条件**：仅当 agent 启用了 `ask_user_question` 工具（通过 `agent_tool_filter_allows()` 检查）。完全不能交互的 agent 跳过该段，避免灌输不可执行的规则。
+
+**为什么硬编码而非走 `agent.md` 模板**：[agent.en.md](../../crates/oc-core/templates/agent.en.md) / `agent.zh.md` 是默认模板，用户可以在 `~/.opencomputer/agents/{id}/agent.md` 自定义甚至彻底重写。如果把人机交互规则放模板里，用户改 agent.md 时可能整段删掉，行为约束就丢了。所以这段指引以 `HUMAN_IN_THE_LOOP_GUIDANCE` 常量形式编译进二进制，由 `build.rs` 用 `sections.push(HUMAN_IN_THE_LOOP_GUIDANCE.to_string())` 直接注入，不可篡改。参考已有的 Sandbox Mode（⑪）和 Memory Guidelines（8d）也是同样的硬编码范式。
+
+**指引内容三段结构**：
+
+| 段落 | 用途 | 要点 |
+|------|------|------|
+| **Ask the user when** | 强触发器 | 不可逆/高代价操作（删 >5 文件 / DB 迁移 / force push / 依赖 major bump）、真实歧义、多路径相近、即将硬编码假设、≥2 次失败 |
+| **Do NOT ask when** | 反触发器（刹车） | 可自查的、低成本可撤销、纯风格/格式/命名 |
+| **How to ask** | 节流约束 | 相关问题合并成一次调用、每任务 ≤2 次、优先前置 |
+
+**与工具描述层的协同**：`TOOL_DESC_ASK_USER_QUESTION`（⑥ Tool Descriptions）也包含同样的 WHEN / WHEN NOT / HOW 三段，但聚焦于**工具调用的具体规则**（参数语法、Plan Mode 禁令、tool approval 边界）。⑥c Human-in-the-loop 段则提供**全局思维框架**，告诉模型把 ask_user_question 视作"主动协作的常规通道"而非"卡住时的兜底升级"。两层重复但措辞不同 —— 工具描述说"怎么问"，全局指引说"何时切换到问的模式"。
+
+**与 Claude Code 的差异**：Claude Code 在 system prompt 中只是 2 处嵌入式提及（"失败 ≥ 2 次后升级" + "工具被拒时澄清"），把 AskUserQuestion 定位为模糊的"卡住时的升级路径"。OpenComputer 用独立段落给出**触发器 + 反触发器 + 节流**三件套，让边界可执行而非靠模型自由发挥。详细对比见 [ask-user.md](ask-user.md)。
+
+**代码位置**：
+- 常量：`crates/oc-core/src/system_prompt/constants.rs` — `HUMAN_IN_THE_LOOP_GUIDANCE`
+- 注入：`crates/oc-core/src/system_prompt/build.rs` — ⑥c 段（`build()` 函数中 `build_deferred_tools_section()` 之后）
 
 ---
 
@@ -487,7 +517,7 @@ including UUIDs, hashes, IDs, tokens, hostnames, IPs, ports, URLs, and file name
 | 文件                                            | 内容                                                                      |
 | ----------------------------------------------- | ------------------------------------------------------------------------- |
 | `crates/oc-core/src/system_prompt/build.rs`     | **核心**：三模式组装（结构化/自定义/OpenClaw）、13 段拼接逻辑             |
-| `crates/oc-core/src/system_prompt/constants.rs` | 32 个工具描述常量、3 个行为指导常量                                       |
+| `crates/oc-core/src/system_prompt/constants.rs` | 33 个工具描述常量、`HUMAN_IN_THE_LOOP_GUIDANCE` 等行为指导常量            |
 | `crates/oc-core/src/system_prompt/sections.rs`  | 各 section builder（personality/tools/skills/runtime/subagent/acp）       |
 | `crates/oc-core/src/agent_config.rs`            | Agent 配置结构（personality/tools/skills/memory/subagents/openclaw_mode） |
 | `crates/oc-core/src/agent_loader.rs`            | Agent 加载（agent.json + md 文件 + OpenClaw 模板）                        |

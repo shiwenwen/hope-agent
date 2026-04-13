@@ -48,7 +48,7 @@ pub async fn submit_ask_user_question_response(
     }
 }
 
-/// Cancel a pending question (e.g., on plan exit).
+/// Cancel a pending question (e.g., on timeout or user cancel).
 pub async fn cancel_pending_ask_user_question(request_id: &str) {
     let mut pending = get_pending_questions().lock().await;
     pending.remove(request_id);
@@ -66,9 +66,11 @@ pub async fn is_ask_user_question_live(request_id: &str) -> bool {
 /// tool call no longer exists are skipped so the frontend never tries to
 /// answer them.
 pub async fn find_live_pending_group_for_session(
-    db: &crate::session::SessionDB,
     session_id: &str,
 ) -> anyhow::Result<Option<AskUserQuestionGroup>> {
+    let Some(db) = crate::get_session_db() else {
+        return Ok(None);
+    };
     let groups = db.list_pending_ask_user_groups_for_session(session_id)?;
     for group in groups.into_iter().rev() {
         if is_ask_user_question_live(&group.request_id).await {

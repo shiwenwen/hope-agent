@@ -2,7 +2,7 @@
 
 > 返回 [文档索引](../README.md)
 >
-> 更新时间：2026-04-10
+> 更新时间：2026-04-13
 
 ## 目录
 
@@ -71,7 +71,7 @@
 - **Group**：一组相关问题的集合，共享 `context`、`source`（`plan` / `normal` / skill id）、`timeout_at`。
 - **Question**：组内单个问题，拥有独立的 `question_id`、选项列表、`multi_select`、`timeout_secs`、`default_values`。
 - **Option**：单个选项，可选 `description` / `recommended` / `preview` / `previewKind`。
-- **Pending Oneshot**：`tokio::sync::oneshot::Sender` 注册在内存 `PENDING_PLAN_QUESTIONS` map 中，键为 `request_id`。
+- **Pending Oneshot**：`tokio::sync::oneshot::Sender` 注册在内存 `PENDING_ASK_USER_QUESTIONS` map 中，键为 `request_id`。
 - **Persisted Group**：同一个 group 同步写入 SQLite `ask_user_questions` 表，status 为 `pending` / `answered`。内存 oneshot 与 DB 行双轨存在，是为了在 App 崩溃或重启后能识别「僵尸行」（有 DB 记录但无内存接收端）。
 
 ---
@@ -80,7 +80,7 @@
 
 ### AskUserQuestion / AskUserQuestionOption / AskUserQuestionGroup
 
-定义在 `crates/oc-core/src/plan/types.rs`。结构体名保留 `AskUserQuestion*` 前缀是为了与已序列化的历史 session 和长期存在的 `ask_user_request` 事件保持二进制兼容。
+定义在 `crates/oc-core/src/ask_user/types.rs`（独立模块，不依赖 plan）。结构体名保留 `AskUserQuestion*` 前缀是为了与已序列化的历史 session 和长期存在的 `ask_user_request` 事件保持二进制兼容。
 
 ```rust
 pub struct AskUserQuestionOption {
@@ -148,7 +148,7 @@ pub const TOOL_ASK_USER_QUESTION: &str = "ask_user_question";
 | `deferred` | `false` | 始终发送给模型，不走延迟加载机制 |
 | `always_load` | `true` | 即使开启 `deferredTools.enabled` 也强制加载 |
 
-工具在 `core_tools.rs` 通过 `tools.push(super::plan_tools::get_ask_user_question_tool())` 统一注入。dispatch 在 `tools/execution.rs`：
+工具在 `core_tools.rs` 通过 `tools.push(super::plan_tools::get_ask_user_question_tool())` 统一注入（schema 定义仍在 `plan_tools.rs` 因为工具在 Plan Mode 中也被使用，但工具本身不依赖 plan 模块）。dispatch 在 `tools/execution.rs`：
 
 ```rust
 TOOL_ASK_USER_QUESTION => {
@@ -156,11 +156,20 @@ TOOL_ASK_USER_QUESTION => {
 }
 ```
 
-**系统提示词注入**：`system_prompt/constants.rs` 的 `TOOL_DESC_ASK_USER_QUESTION` 在动态系统提示词拼装阶段挂载到 `ask_user_question` key，随 Agent 的 `capabilities.tools` 过滤后注入。提示词明确约束：
-- 1–4 个问题、每题 2–4 个选项
-- 推荐项首位并带 `(Recommended)` 标签
-- **禁止**用来询问 "is my plan ready?"（应使用 `submit_plan`）
-- **禁止**用来询问 "should I run this command?"（应使用工具审批机制）
+**系统提示词注入**（两层设计）：
+
+1. **⑥ 工具描述层** —— `system_prompt/constants.rs` 的 `TOOL_DESC_ASK_USER_QUESTION` 在动态系统提示词拼装阶段挂载到 `ask_user_question` key，随 Agent 的 `capabilities.tools` 过滤后注入。这一层只保留**工具调用规则**（参数语法、推荐项标注、Plan Mode 和 tool approval 两道禁令），指向下面的全局指引段而不重复展开 WHEN / WHEN NOT / HOW。
+   - 1–4 个问题、每题 2–4 个选项
+   - 推荐项首位并带 `(Recommended)` 标签
+   - **禁止**用来询问 "is my plan ready?"（应使用 `submit_plan`）
+   - **禁止**用来询问 "should I run this command?"（应使用工具审批机制）
+
+2. **⑥c 全局 Human-in-the-loop 段** —— `system_prompt/constants.rs` 的 `HUMAN_IN_THE_LOOP_GUIDANCE` 常量，由 `system_prompt/build.rs` 在 Tool definitions 之后条件注入（仅当 Agent 通过 `agent_tool_filter_allows(TOOL_ASK_USER_QUESTION, …)` 检查时）。这一层是**全局思维框架**，提供 WHEN / WHEN NOT / HOW 三段触发规则：
+   - **Ask the user when**：不可逆或高代价操作（删 >5 文件、DB 迁移、force push、依赖 major bump）、真实歧义、多路径相近、即将硬编码假设、≥2 次失败
+   - **Do NOT ask when**：可通过 read/grep/ls 自查的、AGENTS.md / CLAUDE.md 已规定的、低成本可撤销操作（创建测试文件、加日志）、纯风格/命名/格式
+   - **How to ask**（节流）：相关问题合并成一次调用（最多 4 题）、每任务 ≤2 次、优先前置（执行前）而非中途打断、若想问第二次先考虑能否自己查
+
+**为什么硬编码而非走 agent.md 模板**：`HUMAN_IN_THE_LOOP_GUIDANCE` 以编译时常量形式嵌入二进制，由 `build.rs` 用 `sections.push(HUMAN_IN_THE_LOOP_GUIDANCE.to_string())` 注入，用户无法通过自定义 `~/.opencomputer/agents/{id}/agent.md` 覆盖。参考已有的 Sandbox Mode、Memory Guidelines 也是同样硬编码范式。这是和 Claude Code 的关键差异 —— Claude Code 在 system prompt 里只有 2 处嵌入式提及（"失败 ≥2 次后升级" + "工具被拒时澄清"），边界模糊靠模型自行理解；OpenComputer 用独立段落 + 触发器 + 反触发器 + 节流三件套，让模型在真正值得问的时候更有信心开口，同时避免滥用。详见 [prompt-system.md](prompt-system.md#human-in-the-loop人机协作硬约束)。
 
 **并发安全标记**：`tools/definitions/registry.rs` 将 `TOOL_ASK_USER_QUESTION` 加入 `CONCURRENT_SAFE_TOOL_NAMES`。虽然工具本身会阻塞等待用户回答，但从 tool loop 的角度看它无写入副作用，允许与其他 read-only 工具并发调度。
 
@@ -193,7 +202,7 @@ flowchart TD
 
 **关键实现点**（带行号参考）：
 
-1. **`plan::get_plan_owner_session_id` 路由**（`ask_user_question.rs`）：Plan Mode 子 Agent 中触发的问题会透过该函数查到父 session id，事件最终发到主对话的 UI，而不是子 Agent 的孤岛 session。`source` 字段同步被设置为 `"plan"` 或 `"normal"`，UI 和 IM listener 可据此调整样式。
+1. **`plan::get_plan_owner_session_id` 路由**（`ask_user_question.rs`）：Plan Mode 子 Agent 中触发的问题会透过该函数查到父 session id，事件最终发到主对话的 UI，而不是子 Agent 的孤岛 session。`source` 字段同步被设置为 `"plan"` 或 `"normal"`，UI 和 IM listener 可据此调整样式。注意：这是 ask_user 模块对 plan 模块的唯一依赖点（仅用于子 Agent 路由查询），其余逻辑完全独立。
 
 2. **有效超时计算**（`ask_user_question.rs`）：
 
@@ -215,15 +224,15 @@ flowchart TD
 4. **EventBus 序列化失败的回滚**（`ask_user_question.rs`）：若 `serde_json::to_value(&group)` 失败，会同步 `cancel_pending_ask_user_question` 撤销 oneshot 并 `mark_group_answered` 翻转 DB 行状态，避免留下永远没有接收端的 pending 记录。
 
 5. **最终清理**（`ask_user_question.rs`）：无论 Answered / Cancelled / TimedOut，都会：
-   - `plan::mark_group_answered(&request_id)` 把 DB 行翻到 `answered`
+   - `ask_user::mark_group_answered(&request_id)` 把 DB 行翻到 `answered`
    - `channel::worker::ask_user::drop_pending_by_request_id(&request_id)` 清理 IM 端的 button/text pending map，防止僵尸条目累积
 
 ### Pending Registry（内存 oneshot 注册表）
 
-文件：`crates/oc-core/src/plan/questions.rs`
+文件：`crates/oc-core/src/ask_user/questions.rs`
 
 ```rust
-static PENDING_PLAN_QUESTIONS: OnceLock<
+static PENDING_ASK_USER_QUESTIONS: OnceLock<
     TokioMutex<HashMap<String, tokio::sync::oneshot::Sender<Vec<AskUserQuestionAnswer>>>>,
 > = OnceLock::new();
 ```
@@ -300,7 +309,7 @@ loop {
 
 ### EventBus 事件发射
 
-文件：`crates/oc-core/src/plan/questions.rs`
+文件：`crates/oc-core/src/ask_user/questions.rs`
 
 ```rust
 pub const EVENT_ASK_USER_REQUEST: &str = "ask_user_request";
@@ -309,7 +318,7 @@ pub const EVENT_ASK_USER_REQUEST: &str = "ask_user_request";
 `ask_user_question.rs` 在 emit 时发一个事件：
 
 ```rust
-bus.emit(plan::EVENT_ASK_USER_REQUEST, event_data);
+bus.emit(ask_user::EVENT_ASK_USER_REQUEST, event_data);
 ```
 
 前端和 IM listener 统一订阅同一事件：
@@ -504,13 +513,13 @@ await getTransport().call("respond_ask_user_question", {
 })
 ```
 
-Tauri 端注册为 `respond_ask_user_question`，HTTP 端对应 `POST /api/ask_user/respond`，两者都委托到 `plan::submit_ask_user_question_response`。
+Tauri 端注册为 `respond_ask_user_question`，HTTP 端对应 `POST /api/ask_user/respond`，两者都委托到 `ask_user::submit_ask_user_question_response`。
 
 提交成功后 `setSubmitted(true)` 使组件立刻隐藏（`if (submitted) return null`），父组件通过 `onSubmitted` 回调把 `pendingQuestionGroup` 清空。
 
 ### 会话切换时的 pending 恢复
 
-Tauri 命令 `get_pending_ask_user_group(session_id)`（`src-tauri/src/commands/plan.rs`）调用 `plan::find_live_pending_group_for_session`，返回最近一条仍有内存接收端的 pending group。前端在切换会话时 invoke 该命令以恢复待回答问题的 UI。
+Tauri 命令 `get_pending_ask_user_group(session_id)`（`src-tauri/src/commands/plan.rs`）调用 `ask_user::find_live_pending_group_for_session(&session_id)`，返回最近一条仍有内存接收端的 pending group。前端在切换会话时 invoke 该命令以恢复待回答问题的 UI。实现内部通过 `crate::get_session_db()` 拿 DB 句柄，调用方不需要传 `&SessionDB`。
 
 对应的 HTTP API 是 `GET /api/plan/{session_id}/pending-ask-user`（`oc-server/src/routes/plan.rs`）。两者共享同一个 core 实现。
 
@@ -628,7 +637,7 @@ ask_user:{request_id}:cancel                                // 整体取消
 - `should_finish = (text == "done") || !group.has_any_multi_select`
 - `is_complete()`：每题至少有一个 `selected` 或 `custom_input`
 
-完成后从 `TEXT_PENDING` 弹出该组，`into_answers()` 转 `Vec<AskUserQuestionAnswer>`，调用 `plan::submit_ask_user_question_response(request_id, answers)` 回传。
+完成后从 `TEXT_PENDING` 弹出该组，`into_answers()` 转 `Vec<AskUserQuestionAnswer>`，调用 `ask_user::submit_ask_user_question_response(request_id, answers)` 回传。
 
 **`parse_marker` 细节**（`ask_user.rs`）：
 
@@ -699,7 +708,7 @@ if super::ask_user::try_handle_ask_user_reply(&msg).await {
 | `respond_ask_user_question` | `request_id`, `answers` | `()` | 提交 Q&A 回答 |
 | `get_pending_ask_user_group` | `session_id` | `Option<AskUserQuestionGroup>` | 切换会话时恢复 pending |
 
-委托到 `plan::submit_ask_user_question_response`。注册在 `src-tauri/src/lib.rs` 的 `invoke_handler!` 宏。
+委托到 `ask_user::submit_ask_user_question_response`。注册在 `src-tauri/src/lib.rs` 的 `invoke_handler!` 宏。
 
 **HTTP 路由**（`crates/oc-server/src/routes/plan.rs`）：
 
@@ -717,7 +726,7 @@ respond_ask_user_question:       { method: "POST",   path: "/api/ask_user/respon
 get_pending_ask_user_group:      { method: "GET",    path: "/api/plan/{sessionId}/pending-ask-user" },
 ```
 
-**EventBus 事件**（`plan/questions.rs`）：
+**EventBus 事件**（`ask_user/questions.rs`）：
 
 | 事件名 | 方向 | 订阅方 |
 |--------|-----|--------|
@@ -780,13 +789,13 @@ max(所有 per-question timeout_secs) > 0 ? 用该值 : 全局 ask_user_question
 
 **后端核心**：
 
+- `crates/oc-core/src/ask_user/mod.rs` — 独立模块入口、re-export
+- `crates/oc-core/src/ask_user/types.rs` — `AskUserQuestion*` 数据结构
+- `crates/oc-core/src/ask_user/questions.rs` — 内存 pending registry、持久化 helper、事件常量
 - `crates/oc-core/src/tools/ask_user_question.rs` — 工具执行入口、超时处理、结果格式化
 - `crates/oc-core/src/tools/definitions/plan_tools.rs` — 工具 schema 定义
 - `crates/oc-core/src/tools/execution.rs` — dispatch 分派
 - `crates/oc-core/src/tools/definitions/registry.rs` — 并发安全标记
-- `crates/oc-core/src/plan/types.rs` — `AskUserQuestion*` 数据结构
-- `crates/oc-core/src/plan/questions.rs` — 内存 pending registry、持久化 helper、事件常量
-- `crates/oc-core/src/plan/mod.rs` — 模块 re-export
 - `crates/oc-core/src/session/db.rs` — `ask_user_questions` 表 CRUD
 - `crates/oc-core/src/app_init.rs` — listener 启动 + 启动清理 + 每日 purge
 - `crates/oc-core/src/system_prompt/constants.rs` — 系统提示词描述
@@ -825,4 +834,4 @@ max(所有 per-question timeout_secs) > 0 ? 用该值 : 全局 ask_user_question
 
 **国际化**：
 
-- `src/i18n/locales/zh.json` / `en.json` — `planMode.question.*` 命名空间
+- `src/i18n/locales/zh.json` / `en.json` — `ask_user.*` 命名空间

@@ -46,7 +46,7 @@
 Plan Mode 是 OpenComputer 的可视化交互计划模式，实现六态状态机驱动的完整规划-审查-执行工作流。
 
 **双模式架构**：Planning 阶段支持两种模式（通过 `config.json` 的 `plan_subagent` 字段切换）：
-- **内联模式**（默认，`plan_subagent: false`）：主 Agent 内联制定计划，上下文连续，与 Claude Code 行为一致
+- **内联模式**（默认，`plan_subagent: false`）：主 Agent 内联制定计划，上下文连续
 - **子 Agent 模式**（`plan_subagent: true`）：独立子 Agent 负责探索信息和制定计划，主 Agent 上下文不被规划阶段的探索细节占用，执行阶段更干净
 
 两种模式共用同一套 5 阶段规划流程（深度探索→需求澄清→架构设计→计划编写→审查优化）和以逻辑单元为中心的富细节计划格式。用户可在 Review 阶段审查计划、请求修改、浏览版本历史。批准后进入 Executing 阶段，实时追踪步骤进度，支持暂停/恢复、执行中修改计划、Git Checkpoint 一键回滚。
@@ -122,8 +122,8 @@ graph TB
 | **PlanModeState** | 六态枚举：Off / Planning / Review / Executing / Paused / Completed |
 | **PlanStep** | 计划中的单个步骤，包含 index、phase、title、description、status、duration |
 | **PlanMeta** | 计划元数据，包含 state、steps、file_path、version、checkpoint_ref、paused_at_step 等 |
-| **AskUserQuestion** | 结构化问答，包含选项、多选、自定义输入、recommended 标记、template 分类 |
-| **ask_user_question** | Planning 阶段的交互问答工具，LLM 发起结构化提问，前端渲染可视化卡片 |
+| **AskUserQuestion** | 结构化问答（独立模块 `ask_user/`），包含选项、多选、自定义输入、recommended 标记、template 分类 |
+| **ask_user_question** | 通用交互问答工具（不限于 Plan Mode），LLM 发起结构化提问，前端渲染可视化卡片。详见 [ask-user 架构文档](ask-user.md) |
 | **submit_plan** | Planning 阶段的计划提交工具，触发 Planning→Review 状态转换 |
 | **update_plan_step** | Executing 阶段的步骤进度工具，LLM 实时报告执行进度 |
 | **amend_plan** | Executing/Paused 阶段的计划修改工具，支持插入/删除/更新步骤 |
@@ -234,35 +234,8 @@ pub struct PlanStep {
     pub duration_ms: Option<u64>,
 }
 
-// 交互问答
-pub struct AskUserQuestion {
-    pub question_id: String,
-    pub text: String,
-    pub options: Vec<AskUserQuestionOption>,
-    pub allow_custom: bool,
-    pub multi_select: bool,
-    pub template: Option<String>,  // "scope" / "tech_choice" / "priority"
-}
-
-pub struct AskUserQuestionOption {
-    pub value: String,
-    pub label: String,
-    pub description: Option<String>,
-    pub recommended: bool,         // 前端显示 ★ 标记
-}
-
-pub struct AskUserQuestionGroup {
-    pub request_id: String,
-    pub session_id: String,
-    pub questions: Vec<AskUserQuestion>,
-    pub context: Option<String>,
-}
-
-pub struct AskUserQuestionAnswer {
-    pub question_id: String,
-    pub selected: Vec<String>,
-    pub custom_input: Option<String>,
-}
+// 交互问答（定义在独立模块 ask_user/types.rs，不依赖 plan）
+// 详见 ask-user.md
 
 pub struct PlanVersionInfo {
     pub version: u32,
@@ -283,10 +256,8 @@ pub async fn update_plan_steps(session_id: &str, steps: Vec<PlanStep>)
 pub async fn update_step_status(session_id: &str, index: usize, status: PlanStepStatus, duration_ms: Option<u64>)
 pub async fn restore_from_db(session_id: &str, plan_mode_str: &str)  // 崩溃恢复
 
-// 交互问答
-pub async fn register_ask_user_question(request_id: String, sender: oneshot::Sender<Vec<AskUserQuestionAnswer>>)
-pub async fn submit_ask_user_question_response(request_id: &str, answers: Vec<AskUserQuestionAnswer>) -> Result<()>
-pub async fn cancel_pending_ask_user_question(request_id: &str)
+// 交互问答（已迁移到独立模块 ask_user/，详见 ask-user.md）
+// ask_user::register_ask_user_question / submit_ask_user_question_response / cancel_pending_ask_user_question
 
 // 文件 I/O
 pub fn save_plan_file(session_id: &str, content: &str) -> Result<String>

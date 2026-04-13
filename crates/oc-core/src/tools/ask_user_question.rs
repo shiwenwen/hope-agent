@@ -1,16 +1,11 @@
 //! Execution backend for the `ask_user_question` tool.
 //!
-//! The tool is registered globally via [`crate::tools::get_ask_user_question_tool`]
-//! and is available in both normal conversations and Plan Mode. Features:
-//!
-//! - 1–4 structured questions per call, 2–4 options each
-//! - Single- or multi-select, with optional free-form custom input
-//! - Rich markdown / image / mermaid previews per option
-//! - Per-question timeout with auto-fallback to `default_values`
-//! - Pending groups persisted to SQLite for resume after restart
-//! - IM channel integration via EventBus (`ask_user_request` event)
+//! Types and the pending-question registry live in [`crate::ask_user`]; this
+//! module only handles tool-call execution: parsing args, persisting the
+//! group, awaiting the answer (with timeout / default fallback), and
+//! formatting the result for the LLM.
 
-use crate::plan::{
+use crate::ask_user::{
     self, AskUserQuestion, AskUserQuestionAnswer, AskUserQuestionGroup, AskUserQuestionOption,
 };
 use crate::process_registry::create_session_id;
@@ -140,7 +135,7 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
 
     // Route to parent session if this is a plan sub-agent. Cache the lookup
     // so the `source` tag can reuse it without a second DB round-trip.
-    let plan_owner = plan::get_plan_owner_session_id(sid).await;
+    let plan_owner = crate::plan::get_plan_owner_session_id(sid).await;
     let effective_sid = plan_owner.clone().unwrap_or_else(|| sid.to_string());
     let source = Some(if plan_owner.is_some() { "plan" } else { "normal" }.to_string());
 
@@ -176,7 +171,7 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
     };
 
     // Persist the pending group before emitting so restarts can resume it.
-    if let Err(e) = plan::persist_pending_group(&group) {
+    if let Err(e) = ask_user::persist_pending_group(&group) {
         app_warn!(
             "ask_user",
             "persist",
@@ -188,13 +183,13 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
 
     // Create oneshot channel + register pending.
     let (tx, rx) = tokio::sync::oneshot::channel();
-    plan::register_ask_user_question(request_id.clone(), tx).await;
+    ask_user::register_ask_user_question(request_id.clone(), tx).await;
 
     // Emit event.
     if let Some(bus) = crate::globals::get_event_bus() {
         match serde_json::to_value(&group) {
             Ok(event_data) => {
-                bus.emit(plan::EVENT_ASK_USER_REQUEST, event_data);
+                bus.emit(ask_user::EVENT_ASK_USER_REQUEST, event_data);
                 app_info!(
                     "ask_user",
                     "emit",
@@ -205,14 +200,14 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
                 );
             }
             Err(e) => {
-                plan::cancel_pending_ask_user_question(&request_id).await;
-                let _ = plan::mark_group_answered(&request_id);
+                ask_user::cancel_pending_ask_user_question(&request_id).await;
+                let _ = ask_user::mark_group_answered(&request_id);
                 return format!("Error: failed to serialize question: {}", e);
             }
         }
     } else {
-        plan::cancel_pending_ask_user_question(&request_id).await;
-        let _ = plan::mark_group_answered(&request_id);
+        ask_user::cancel_pending_ask_user_question(&request_id).await;
+        let _ = ask_user::mark_group_answered(&request_id);
         return "Error: EventBus not available for ask_user events".to_string();
     }
 
@@ -227,7 +222,7 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
             Ok(Ok(answers)) => Outcome::Answered(answers),
             Ok(Err(_)) => Outcome::Cancelled,
             Err(_) => {
-                plan::cancel_pending_ask_user_question(&request_id).await;
+                ask_user::cancel_pending_ask_user_question(&request_id).await;
                 Outcome::TimedOut
             }
         }
@@ -235,7 +230,7 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
 
     // Final cleanup: mark persisted row answered and drop any IM-side pending
     // state so stale entries don't accumulate in the button/text maps.
-    let _ = plan::mark_group_answered(&request_id);
+    let _ = ask_user::mark_group_answered(&request_id);
     crate::channel::worker::ask_user::drop_pending_by_request_id(&request_id).await;
 
     match result {

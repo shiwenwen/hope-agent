@@ -237,7 +237,7 @@ impl SessionDB {
     /// request is emitted so a restart can resume it.
     pub fn save_ask_user_group(
         &self,
-        group: &crate::plan::AskUserQuestionGroup,
+        group: &crate::ask_user::AskUserQuestionGroup,
     ) -> anyhow::Result<()> {
         let conn = self
             .conn
@@ -317,7 +317,7 @@ impl SessionDB {
     pub fn list_pending_ask_user_groups_for_session(
         &self,
         session_id: &str,
-    ) -> anyhow::Result<Vec<crate::plan::AskUserQuestionGroup>> {
+    ) -> anyhow::Result<Vec<crate::ask_user::AskUserQuestionGroup>> {
         let conn = self
             .conn
             .lock()
@@ -341,7 +341,7 @@ impl SessionDB {
         let mut out = Vec::new();
         for row in rows {
             let payload = row?;
-            if let Ok(group) = serde_json::from_str::<crate::plan::AskUserQuestionGroup>(&payload) {
+            if let Ok(group) = serde_json::from_str::<crate::ask_user::AskUserQuestionGroup>(&payload) {
                 out.push(group);
             }
         }

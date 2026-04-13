@@ -2,7 +2,6 @@ mod constants;
 mod file_io;
 mod git;
 mod parser;
-mod questions;
 mod store;
 mod subagent;
 #[cfg(test)]
@@ -13,7 +12,6 @@ mod types;
 
 // Types
 pub use types::{
-    AskUserQuestion, AskUserQuestionAnswer, AskUserQuestionGroup, AskUserQuestionOption,
     PlanAgentConfig, PlanMeta, PlanModeState, PlanStep, PlanStepStatus, PlanVersionInfo,
 };
 
@@ -45,13 +43,6 @@ pub use parser::parse_plan_steps;
 pub use git::{
     cleanup_checkpoint, create_checkpoint_for_session, create_git_checkpoint, get_checkpoint_ref,
     rollback_to_checkpoint,
-};
-
-// Questions
-pub use questions::{
-    cancel_pending_ask_user_question, find_live_pending_group_for_session,
-    is_ask_user_question_live, mark_group_answered, persist_pending_group,
-    register_ask_user_question, submit_ask_user_question_response, EVENT_ASK_USER_REQUEST,
 };
 
 // Subagent

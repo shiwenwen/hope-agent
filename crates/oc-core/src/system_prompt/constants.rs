@@ -218,17 +218,40 @@ const TOOL_DESC_TASK_LIST: &str = "\
   - Use to review progress or recover task ids after long tool chains";
 
 pub(super) const TOOL_DESC_ASK_USER_QUESTION: &str =
-    "- ask_user_question: Ask the user 1–4 structured questions with options. Use this \
-whenever requirements are ambiguous, you need to pick between approaches, or you need \
-confirmation before acting on a load-bearing decision. Prefer this over guessing.\n\
+    "- ask_user_question: Ask the user 1–4 structured questions with options. \
+See the Human-in-the-loop section below for when (and when not) to use this tool.\n\
   - Params: questions (array 1–4), context (optional explanatory text)\n\
   - Per question: question_id, text, options (2–4 each), allow_custom (default true), multi_select \
 (default false), template (scope/tech_choice/priority), header (≤12 char chip), timeout_secs, default_values\n\
   - Per option: value, label, description, recommended (mark the first recommended option with \
 '(Recommended)' in label), preview (markdown / image URL / mermaid source for visual comparison), previewKind\n\
   - When timeout_secs elapses the tool auto-returns using default_values — useful for cron / background flows\n\
-  - Do NOT use to ask 'is my plan ready?' — in Plan Mode use submit_plan; and do NOT use to ask \
-'should I run this command?' — tool approval has its own mechanism";
+  - Do NOT use for Plan Mode readiness ('is my plan ready?') — use submit_plan instead\n\
+  - Do NOT use for tool approval ('should I run this command?') — the approval mechanism handles it";
+
+/// Hardcoded human-in-the-loop guidance section. Injected by `build.rs`
+/// whenever the agent has access to `ask_user_question`. Kept as a hardcoded
+/// constant (not in the agent.md template) so users cannot accidentally drop
+/// the rules when customizing their agent.md.
+pub(super) const HUMAN_IN_THE_LOOP_GUIDANCE: &str = "# Human-in-the-loop
+
+Effective collaboration depends on knowing when to ask vs. when to act. Use `ask_user_question` as the standard channel for structured questions — not as a last-resort escape hatch.
+
+**Ask the user** when:
+- About to perform an irreversible or high-cost action (deleting >5 files, DB migration, force push, dependency major bump)
+- The request is genuinely ambiguous with no obviously correct interpretation
+- Multiple viable approaches with comparable tradeoffs exist
+- You're stuck after ≥2 failed attempts on the same problem — escalate instead of thrashing
+
+**Do NOT ask** when:
+- The answer is discoverable via read/grep/ls or already documented in AGENTS.md / CLAUDE.md / existing code — investigate first
+- The operation is low-cost and reversible (creating a test file, adding a log line) — just do it
+- It's a pure style / formatting / naming detail the user likely has no opinion on
+
+**How to ask**:
+- Batch related questions into a single `ask_user_question` call (up to 4 questions)
+- At most 1–2 calls per task; prefer asking early (before execution) over mid-task interruptions
+- If you find yourself about to ask a second time, reconsider whether you can investigate instead";
 
 /// Tool name → description mapping for dynamic assembly.
 pub(super) const TOOL_DESCRIPTIONS: &[(&str, &str)] = &[
