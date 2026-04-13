@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`/recap` 深度复盘功能**：基于每个 session 的 LLM 语义分析（目标/成果/摩擦点/满意度等 facet），结合现有 Dashboard 量化数据（token/cost/工具/健康度），生成一份多维度的定性分析报告。能力：(1) **三种呈现入口**：Dashboard 新增 "Recap" Tab（历史报告切换 + 生成按钮 + 导出 HTML）、聊天内 `/recap` 流式生成、独立 self-contained HTML 报告；(2) **Session 级 LLM facet 提取**：通过 `side_query` 侧查询走 prompt-cache 友好路径，严格 JSON 输出的 facet schema（`underlyingGoal` / `goalCategories` / `outcome` / `userSatisfaction` / `agentHelpfulness` / `sessionType` / `frictionCounts` / `primarySuccess` / `briefSummary` / `userInstructions`），长 transcript (>30KB) 按 UTF-8 char boundary 分块（首+尾+中心采样）+ merge call 合并；(3) **全量缓存**：`session_facets` 表按 `(session_id, last_message_ts, analysis_model, schema_version)` 缓存，主对话新消息会自动失效；`recap_reports` 表缓存完整报告，支持历史切换；(4) **11 个并行 AI 章节**：`project_areas` / `interaction_style` / `what_works` / `friction_analysis` / `agent_tool_optimization` (OC 特有) / `memory_skill_recommendations` (OC 特有) / `cost_optimization` (OC 特有) / `suggestions` / `on_the_horizon` / `fun_ending`，以及依赖其他章节的 `at_a_glance` 综合摘要；(5) **智能默认 + 灵活筛选**：默认 Incremental 模式自动从"上次报告以来"分析新 session，`/recap --range=7d|30d` 切换 Full 模式，`/recap --full` 跳转 Dashboard Recap Tab；(6) **独立 HTML 导出**：纯 Rust renderer，inline SVG 图表（KPI 卡片 + 健康度 + facet 柱状图 + 7×24 热力图）、最小 Markdown → HTML、inline CSS 双色主题（prefers-color-scheme）；(7) **独立分析 Agent 配置**：`config.json` 新增 `recap` 字段（`analysisAgent` / `defaultRangeDays` / `maxSessionsPerReport` / `facetConcurrency` / `cacheRetentionDays`），未配置时回退 active_model；(8) **架构分层**：业务逻辑全部在 `crates/oc-core/src/recap/`（`types.rs` / `db.rs` / `facets.rs` / `aggregate.rs` / `sections.rs` / `report.rs` / `renderer.rs` / `api.rs`），`src-tauri/src/commands/recap.rs` 与 `crates/oc-server/src/routes/recap.rs` 均为薄壳；新增 Tauri 命令 `recap_generate` / `recap_list_reports` / `recap_get_report` / `recap_delete_report` / `recap_export_html`，HTTP 路由 `POST /api/recap/generate` / `POST /api/recap/reports` / `GET /api/recap/reports/{id}` / `DELETE /api/recap/reports/{id}` / `POST /api/recap/reports/{id}/export`；(9) **进度流式推送**：生成过程通过 EventBus `recap_progress` 事件实时推送 `started` / `extractingFacets` / `aggregatingDashboard` / `generatingSections` / `persisting` / `done` / `failed` 阶段，前端订阅渲染实时进度；(10) **数据路径**：`~/.opencomputer/recap/recap.db`（独立于 session DB 避免锁争用）、`~/.opencomputer/reports/`（导出 HTML 默认目录）。`CommandAction` 新增 `RecapCard { report_id }` 和 `OpenDashboardTab { tab }` 两个变体。特性包括 per-session facet + 多章节并行生成 + 成就/摩擦双面分析，以及 **全量缓存 + 历史切换 + 可交互 Dashboard Tab + 独立分析 Agent + 聊天内流式卡片 + 三个 OpenComputer 特有章节（Agent/工具优化、Memory/Skill 建议、成本优化）**。已知限制（follow-up）：`cron` 定时自动生成和 `opencomputer recap --export` CLI 子命令尚未接入，可通过外部 cron 调用 HTTP API 曲线救国
 - **补齐 oc-server HTTP/WebSocket 路由**：对照前端 `src/lib/transport-http.ts` 的 `COMMAND_MAP` 把所有缺失路由一次性补齐，让 `opencomputer server` 守护进程 / Web 模式与 Tauri IPC 达到功能对等。具体新增：(1) **会话已读 / 手动压缩**：`POST /api/sessions/{id}/read`、`POST /api/sessions/read-batch`、`POST /api/sessions/read-all`、`POST /api/sessions/{id}/compact`；(2) **聊天**：`POST /api/chat/approval`（body-based 不带 path 参数的 alias）、`POST /api/chat/attachment`（附件上传）、`POST /api/system-prompt`（POST alias）；(3) **Provider 连接测试**：`POST /api/providers/test-embedding`、`POST /api/providers/test-image`；(4) **新路由分组 `/api/models/*`**：`GET /api/models`、`GET|POST /api/models/active`、`GET|POST /api/models/fallback`、`POST /api/models/reasoning-effort`、`GET /api/models/settings`、`GET|POST /api/models/temperature`；(5) **Agent 文件**：`GET|PUT /api/agents/{id}/markdown`、`GET|PUT /api/agents/{id}/memory-md`、`GET /api/agents/template`；(6) **Memory 操作**：`POST /api/memory/{id}/pin`、`POST /api/memory/delete-batch`、`POST /api/memory/reembed`、`GET|PUT /api/memory/global-md`；(7) **记忆配置 16 条**：`embedding` / `embedding-cache` / `dedup` / `hybrid-search` / `mmr` / `multimodal` / `temporal-decay` / `extract` 每组 GET/PUT + `GET /api/config/embedding/presets`；(8) **工具配置**：`GET|PUT /api/config/web-fetch`、`GET|PUT /api/config/image-generate`、`GET|PUT /api/config/canvas`、`GET|PUT /api/config/sandbox`、`GET|PUT /api/config/shortcuts`、`POST /api/config/shortcuts/pause`；(9) **主题 / 语言 / UI**：`GET|POST /api/config/theme`、`POST /api/config/window-theme`、`GET|POST /api/config/language`、`GET|POST /api/config/ui-effects`、`GET|POST /api/config/autostart`；(10) **SearXNG Docker**：`GET /api/searxng/status`、`POST /api/searxng/deploy`、`POST /api/searxng/start|stop`、`DELETE /api/searxng`；(11) **Codex OAuth**：`POST /api/auth/codex/start`、`POST /api/auth/codex/finalize`（共享进程级 Mutex 跨两次请求传递 TokenData）；(12) **ACP 健康检查 + Canvas 显示**：`GET /api/acp/health-check`、`POST /api/canvas/show`；(13) **Dev 重置**：`POST /api/dev/{clear-sessions,clear-cron,clear-memory,reset-config,clear-all}`；(14) **桌面专属 stub**：`POST /api/system/restart`、`POST /api/desktop/{open-url,open-directory,reveal-in-folder}` 均返回 `{ok: false, note: "desktop-only"}` 避免 404。为了保持"业务逻辑在 oc-core"的架构约束，顺便把原来只在 `src-tauri/src/commands/` 里的 `save_attachment` / `test_embedding` / `test_image_generate` 主体下沉到 `crates/oc-core/src/attachments.rs` 和 `crates/oc-core/src/provider/test.rs`，HTTP 路由和 Tauri 命令共用。总计新增 40+ 条路由 / 6 个新 routes 模块
 - **数据大盘"综合概览"升级**：新增 Insights 首屏 Tab，把散落在各 Tab 的关键指标聚合成一屏，让用户一眼看懂系统运行状态：(1) **系统健康度环形仪表**：基于日志错误率、工具错误率、定时任务成功率、子 Agent 成功率四维加权，0–100 分，状态分 excellent/good/warning/critical 四档，后端 `query_health_score()` 内联计算；(2) **费用趋势折线图**：按天聚合消息 token × 模型定价，展示累计/日均/峰值，含日均参考线；(3) **7×24 活跃度热力图**：按周几 × 小时 hover 高亮，紫色强度映射消息密度；(4) **小时分布柱状图**：0–23 时消息量 + 峰值时段；(5) **Top 10 会话排行**：按 token 消耗排序，金银铜牌样式 + 单击 drill-down；(6) **模型效率对比**：每模型消息数、tokens、tokens/msg、cost/1k、TTFT，支持按模型 drill-down 过滤。后端新增 `crates/oc-core/src/dashboard/insights.rs`（`query_insights` / `query_overview_with_delta` / `query_cost_trend` / `query_activity_heatmap` / `query_hourly_distribution` / `query_top_sessions` / `query_model_efficiency` / `query_health_score`），Tauri 命令 `dashboard_insights` + `dashboard_overview_delta`，HTTP 路由 `POST /dashboard/insights` + `POST /dashboard/overview-delta`
 - **Overview Cards 同比 Delta**：9 张关键指标卡新增"较上期"涨跌百分比徽章，后端 `query_overview_with_delta` 自动按相同时间跨度左移一窗取 previous baseline 并返回 `OverviewStatsWithDelta { current, previous }`。前端 `DeltaBadge` 用向上/向下箭头 + 绿红配色区分好坏（错误、TTFT 倒转语义）
@@ -17,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`ask_user_question` 提问时机优化**：把工具描述从一句劝导式 "Prefer this over guessing" 改为 **WHEN TO USE / WHEN NOT TO USE / HOW TO ASK** 三段结构化触发规则。同时在 [build.rs](crates/oc-core/src/system_prompt/build.rs) 新增硬编码 ⑥c 段落 `HUMAN_IN_THE_LOOP_GUIDANCE`，独立于 `agent.md` 模板（用户无法通过自定义 agent.md 覆盖掉），仅当 agent 启用了 `ask_user_question` 工具时才注入。规则三大要点：(1) **5 条强触发器** —— 不可逆操作（删 >5 文件 / DB 迁移 / force push / 依赖 major bump）、真实歧义、多路径相近、即将硬编码假设、≥2 次失败；(2) **6 条反触发器** —— 可自查的、纯风格、已有规范、低成本可撤销、Plan Mode readiness（用 submit_plan）、tool approval（走审批机制）；(3) **节流约束** —— 相关问题合并成一次调用、每任务 ≤2 次、优先前置而非中途打断。OpenComputer 把 ask_user_question 定位为"主动协作的常规工具 + 严格边界"，以反触发器和节流双重刹车避免模型打扰
+- **`ask_user_question` 模块物理独立**：将 `AskUserQuestion*` 类型定义和 pending registry 从 `plan/types.rs` + `plan/questions.rs` 抽取到独立的 `crates/oc-core/src/ask_user/` 模块（`types.rs` + `questions.rs` + `mod.rs`）。所有调用方（`tools/ask_user_question.rs`、`channel/worker/ask_user.rs`、`oc-server/routes/plan.rs`、`src-tauri/commands/plan.rs`、`session/db.rs`）的 import 路径从 `crate::plan::` 迁移到 `crate::ask_user::`。ask_user 对 plan 模块的唯一残留依赖是 `plan::get_plan_owner_session_id()`（用于子 Agent 路由查询）
 - **移除 `plan_question` 旧名兼容，统一为 `ask_user_question`**：OpenComputer 是全新应用，无历史 session / 持久化数据需要兼容，一次性清理掉 `plan_question` 过渡期代码。涉及：(1) 删除 `TOOL_PLAN_QUESTION` 常量和 dispatcher alias 分支；(2) 删除 EventBus `plan_question_request` 事件双发和前端双订阅，只保留 `ask_user_request`；(3) 重命名类型 `PlanQuestion*` → `AskUserQuestion*`、内部函数 `register_plan_question` → `register_ask_user_question`、配置字段 `plan_question_timeout_secs` → `ask_user_question_timeout_secs`、模块文件 `tools/plan_question.rs` → `tools/ask_user_question.rs`；(4) 删除 Tauri `respond_plan_question` 命令，保留唯一的 `respond_ask_user_question`；(5) 移除 HTTP `/api/plan/question-response` 路由和 `/api/config/plan-question-timeout` 路由，改为 `/api/ask_user/respond` + `/api/config/ask-user-question-timeout`；(6) 前端组件 `PlanQuestionBlock` 重命名并移动到 `src/components/chat/ask-user/AskUserQuestionBlock.tsx`，`PlanQuestionResult` → `AskUserQuestionResult`；(7) i18n 移除 `plan_question` 重复条目。SQLite 表 `ask_user_questions` 已是规范命名保持不动
 
 ### Fixed
@@ -25,7 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **通用 `ask_user_question` 工具**：全局可用的交互式追问工具，任何对话（普通聊天 / Plan Mode / 子 Agent / Skill）中都可以让模型向用户提出结构化问题。相比 claude-code 的 `AskUserQuestion` 增强了 4 点能力：(1) **IM 渠道原生按钮**，Telegram / Slack / 飞书 / QQ Bot / Discord / LINE / Google Chat 收到按钮，WeChat / Signal / iMessage / IRC / WhatsApp 收到文本 fallback（`1a`/`2b` 或 `done`）；(2) **Markdown 富预览**，`option.preview` 支持 markdown / 图片 URL / mermaid，复用 Streamdown 轻量栈，单选时右侧 side-by-side 展示；(3) **per-question 超时 + 默认值**，`timeout_secs` + `default_values` 到点自动回退，适合 cron / 后台 / IM 异步；(4) **持久化 + 断点续答**，pending 组写入 session SQLite `ask_user_questions` 表，`start_background_tasks` 启动时重放未完成事件。新增字段 `header`（≤12 字符 chip 标签）、`preview` / `previewKind`。新增 Tauri 命令 `respond_ask_user_question` 和 HTTP 路由 `POST /ask_user/respond`，前端 `AskUserQuestionBlock` 渲染倒计时、preview 面板、header chip、default badge。IM 端新增 `crates/oc-core/src/channel/worker/ask_user.rs` worker 模块，统一通过 `try_dispatch_interactive_callback` 在各渠道插件路由 approval / ask_user 两类回调
+- **通用 `ask_user_question` 工具**：全局可用的交互式追问工具，任何对话（普通聊天 / Plan Mode / 子 Agent / Skill）中都可以让模型向用户提出结构化问题。核心能力 4 点：(1) **IM 渠道原生按钮**，Telegram / Slack / 飞书 / QQ Bot / Discord / LINE / Google Chat 收到按钮，WeChat / Signal / iMessage / IRC / WhatsApp 收到文本 fallback（`1a`/`2b` 或 `done`）；(2) **Markdown 富预览**，`option.preview` 支持 markdown / 图片 URL / mermaid，复用 Streamdown 轻量栈，单选时右侧 side-by-side 展示；(3) **per-question 超时 + 默认值**，`timeout_secs` + `default_values` 到点自动回退，适合 cron / 后台 / IM 异步；(4) **持久化 + 断点续答**，pending 组写入 session SQLite `ask_user_questions` 表，`start_background_tasks` 启动时重放未完成事件。新增字段 `header`（≤12 字符 chip 标签）、`preview` / `previewKind`。新增 Tauri 命令 `respond_ask_user_question` 和 HTTP 路由 `POST /ask_user/respond`，前端 `AskUserQuestionBlock` 渲染倒计时、preview 面板、header chip、default badge。IM 端新增 `crates/oc-core/src/channel/worker/ask_user.rs` worker 模块，统一通过 `try_dispatch_interactive_callback` 在各渠道插件路由 approval / ask_user 两类回调
 - **记忆模块"从其他 AI 导入"**：设置 → 记忆面板工具栏新增 Sparkles 图标按钮，弹出双步骤对话框 —— 第 1 步展示本地化提示词模板（按当前界面语言返回 zh/en，其他语言回退英文），用户复制后粘贴到 ChatGPT / Claude / Gemini 等外部 AI；第 2 步把 AI 返回的 JSON 粘回，解析后复用现有 `memory_import` 命令批量写入（dedup 默认开启）。前端自动剥离 ```` ```json ```` 代码块围栏。模板文件位于 `crates/oc-core/templates/memory_import_from_ai.{en,zh}.md`，通过 `include_str!` 编译期嵌入，新增 `memory::import_prompt::import_from_ai_prompt(locale)` 加载函数、`memory_get_import_from_ai_prompt` Tauri 命令和 `GET /api/memory/import-from-ai-prompt` HTTP 路由
 - **Agent 工具注入 UI**：Agent 设置 → 能力 → 工具子 tab 新增"工具注入"折叠段落，可在 Agent 级别启用/禁用具体内置工具。Internal 系统工具（plan_question/save_memory/canvas 等 22 个）自动隐藏不可关闭。后端统一复用 `FilterConfig` 在 system prompt、Provider `tool_schemas`、`tool_search` 结果和执行层做一致过滤
 - **工具审批等待超时可配置**：新增全局 `approvalTimeoutSecs` 和 `approvalTimeoutAction` 配置及设置面板入口。`approvalTimeoutSecs` 默认 300 秒，`0` 表示不限时；`approvalTimeoutAction` 默认 `deny`，审批超时后阻止执行，也可切换为 `proceed` 在记录 warning 后继续执行工具
@@ -136,7 +139,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 向后兼容：`path` 参数依然正常工作，行为不变
 
 - **微信 IM 渠道（WeChat Channel）**
-  - 后端新增原生 `wechat` Channel 插件，直接兼容 OpenClaw Weixin 使用的 iLink HTTP 协议，不依赖 OpenClaw 宿主
+  - 后端新增原生 `wechat` Channel 插件，基于 iLink HTTP 协议直接对接微信，无需第三方宿主
   - 支持二维码登录流程：前端设置面板可发起扫码、轮询登录状态并保存返回的 token / baseUrl
   - 支持 WeChat 私聊长轮询收消息、`context_token` 持久化、会话恢复后继续回复
   - WeChat 账号纳入现有 ChannelRegistry / SessionDB / Channel worker 流水线，与 Telegram 共用 Agent、Slash Command、会话映射与上下文
@@ -210,7 +213,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Tool 调用项（单条与分组）新增耗时显示：运行中实时更新，完成后展示后端返回的最终 duration
   - Tool 调用流事件补充 `startedAtMs`/`durationMs` 前端字段，统一支持实时耗时与完成态耗时展示
   - Tool 完成时若后端未返回 `duration_ms`，前端会基于 `startedAtMs` 自动补算并写入最终耗时；历史消息回放也会读取 `toolDurationMs` 还原工具耗时
-- **System Prompt 工具描述重构 + 行为指导增强**（参考 Claude Code System Prompts）
+- **System Prompt 工具描述重构 + 行为指导增强**
   - 工具描述从单一 60 行常量拆分为 31 个独立 per-tool 常量，每个工具包含详细使用指南、最佳实践和常见陷阱
   - `build_tools_section()` 重写为按 agent allow/deny 配置动态组装，只注入授权工具的描述，减少无关 token 消耗
   - 新增 3 个行为指导段：
@@ -221,7 +224,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Plan Mode 架构重构：双模式支持 + 计划质量提升**
   - 支持**子 Agent 模式**（`plan_subagent: true`）和**内联模式**（默认），通过全局设置切换
   - 子 Agent 模式：Planning 阶段由独立子 Agent 执行，探索上下文不污染主 Agent 对话历史
-  - 内联模式：与 Claude Code 一致，主 Agent 内联制定计划，保持上下文连续性
+  - 内联模式：主 Agent 内联制定计划，保持上下文连续性
   - 新增 `PLAN_SUBAGENT_SESSIONS` 注册表，plan_question 和 submit_plan 事件自动路由到父 session
   - `SpawnParams` 扩展 `plan_agent_mode` / `plan_mode_allow_paths` / `skip_parent_injection` / `extra_system_context` 字段
   - 新增 `cancel_plan_subagent` Tauri 命令，退出 Plan Mode 时自动取消活跃的计划子 Agent
@@ -280,7 +283,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **图片生成能力增强**：追平 OpenClaw，全面增强图片生成工具
+- **图片生成能力增强**：全面增强图片生成工具
   - **新增 MiniMax Provider**：支持 image-01 模型，最多生成 9 张图片，支持 aspectRatio 和参考图编辑
   - **图片编辑支持**：Google（最多 5 张参考图）、Fal（1 张）、MiniMax（1 张）均支持参考图输入编辑
   - **aspectRatio 参数**：支持 10 种比例（1:1, 2:3, 3:2, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, 21:9），Google/Fal/MiniMax 可用
@@ -296,7 +299,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 新增 5 个后端查询命令：`dashboard_session_list` / `dashboard_message_list` / `dashboard_tool_call_list` / `dashboard_error_list` / `dashboard_agent_list`
   - 6 种详情列表：会话列表、消息列表、工具调用列表、错误日志列表、Agent 列表、定时任务列表
   - 卡片点击 toggle 展开/收起，活跃卡片高亮边框，列表复用全局 DashboardFilter
-- **Plan Mode 深度增强**：对标 OpenCode/Claude Code，全面提升计划模式的可靠性、灵活性和智能水平
+- **Plan Mode 深度增强**：全面提升计划模式的可靠性、灵活性和智能水平
   - **步骤进度持久化**：plan_steps 列持久化到 SessionDB，崩溃/重启后步骤进度完整恢复（P0）
   - **子 Agent 安全继承**：Planning/Review 状态下 spawn 的子 Agent 自动继承 PLAN_MODE_DENIED_TOOLS 限制，修复工具限制泄漏安全漏洞（P0）
   - **exec 审批激活**：Planning/Review 状态下 exec 工具需要用户审批，激活原有定义但从未生效的 PLAN_MODE_ASK_TOOLS（P0）
@@ -355,7 +358,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **ACP 控制面（ACP Control Plane）**：让模型能启动和管理外部 ACP Agent（Claude Code、Codex CLI、Gemini CLI 等）
+- **ACP 控制面（ACP Control Plane）**：让模型能启动和管理外部 ACP 兼容的 Agent 进程
   - `AcpRuntime` trait 可插拔后端抽象 + `StdioAcpRuntime` 子进程 stdio/NDJSON 实现
   - `AcpRuntimeRegistry` 全局后端注册表 + 自动发现（扫描 $PATH 中的 claude/codex/gemini）
   - `AcpSessionManager` 会话生命周期管理（spawn/check/kill/steer + 异步 tokio::spawn 执行）
@@ -378,7 +381,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 完整 failover 支持：复用现有模型链降级策略（RateLimit 重试 + 多模型降级）
   - 会话持久化：共享 SessionDB，ACP 会话与桌面端会话数据互通
   - 新增 `src-tauri/src/acp/` 模块目录（7 个文件：`mod.rs`/`types.rs`/`protocol.rs`/`event_mapper.rs`/`session.rs`/`agent.rs`/`server.rs`）
-- **技能系统全面升级**：追平并超越 OpenClaw 的 skill 系统能力
+- **技能系统全面升级**
   - **懒加载 Prompt 注入**：系统提示词仅注入技能目录（名称+描述+路径），LLM 按需 read SKILL.md 全文，大幅节省 token
   - **三层预算降级**：Full（名称+描述+路径）→ Compact（名称+路径）→ 二分搜索截断，确保技能数量增长不会溢出 prompt
   - **路径压缩**：home 目录替换为 `~`，每个技能节省 ~5-6 tokens
@@ -743,7 +746,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `provider.rs`：`AppConfig` 新增 `fallback_models` 字段 + `resolve_model_chain()` / `parse_model_ref()` / `find_provider()` 辅助函数
   - 新增 Tauri 命令：`get_fallback_models` / `set_fallback_models`
   - `chat` 命令重构为支持 primary + fallback 模型链按序尝试
-- **智能降级错误分类**（参考 OpenClaw）：新增 `failover.rs` 模块
+- **智能降级错误分类**：新增 `failover.rs` 模块
   - `FailoverReason` 枚举：RateLimit / Overloaded / Timeout / Auth / Billing / ModelNotFound / ContextOverflow / Unknown
   - `classify_error()`：基于 HTTP 状态码 + 错误消息模式匹配，自动分类 API 错误
   - `ContextOverflow` 错误终止返回，不降级（小窗口模型会更差）
@@ -849,7 +852,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **新增 `web_search` 工具**：AI 可搜索网页获取最新信息（基于 DuckDuckGo，无需 API Key）
 - **新增 `web_fetch` 工具**：AI 可抓取网页内容，自动提取正文并清理 HTML 标签
 - **新增 `patch_file` 工具**：基于搜索替换的精确文件编辑，比 write_file 覆写更安全
-- **`exec` 工具全面升级**（对齐 OpenClaw）：
+- **`exec` 工具全面升级**：
   - 默认超时从 120s 调整为 1800s（30 分钟），最大支持 7200s（2 小时）
   - 新增 `env` 参数支持自定义环境变量
   - 新增 `background` 参数支持后台执行，立即返回 session ID
@@ -874,7 +877,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - AllowAlways 自动将命令前缀加入 allowlist（持久化至 `~/.opencomputer/exec-approvals.json`）
   - 新增 `respond_to_approval` Tauri 命令
   - 全局 `APP_HANDLE` 存储用于事件发射
-- **`read_file` 工具增强**（对齐 OpenClaw）：
+- **`read_file` 工具增强**：
   - 自适应分页：根据模型 context window 自动计算单页大小（20% 上下文），循环拼接最多 8 页
   - 新增 `offset`/`limit` 参数支持行级分页读取（1-based 行号），大文件可分段读取
   - 自动检测图片文件（PNG/JPEG/GIF/WebP/BMP/TIFF/ICO）并返回 base64 编码数据
@@ -885,11 +888,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 文本输出带行号格式，截断时提示行范围/字节数/续读偏移量
   - 新增 `image` crate 依赖（v0.25）用于图片解码和缩放
   - 工具名从 `read_file` 改为 `read`（保留 `read_file` 别名兼容）
-- **`write` 工具增强**（对齐 OpenClaw）：
+- **`write` 工具增强**：
   - 工具名从 `write_file` 改为 `write`（保留 `write_file` 别名兼容）
   - 兼容 `file_path` 参数别名
   - 结构化参数解析：`path` 和 `content` 均支持 `{type:"text", text:"..."}` 嵌套格式
-- **`edit` 工具增强**（对齐 OpenClaw）：
+- **`edit` 工具增强**：
   - 工具名从 `patch_file` 改为 `edit`（保留 `patch_file` 别名兼容）
   - 兼容 `oldText`/`old_string`/`newText`/`new_string`/`file_path` 参数别名
   - 结构化参数解析：所有参数均支持 `{type:"text", text:"..."}` 嵌套格式
@@ -897,7 +900,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 写后恢复（Post-write Recovery）：两层防护
     - 写入错误恢复：写操作报错后检查文件是否已正确更新，避免假失败
     - 重复编辑恢复：old_text 不存在但 new_text 已存在时视为已应用，避免重试报错
-- **`ls` 工具增强**（对齐 OpenClaw）：
+- **`ls` 工具增强**：
   - 工具名从 `list_dir` 改为 `ls`（保留 `list_dir` 别名兼容）
   - 新增 `limit` 参数（默认 500 条）
   - 新增 50KB 输出字节上限，防止超大目录撑爆上下文
@@ -907,25 +910,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 跳过无法 stat 的条目（不报错）
   - 空目录返回 "(empty directory)"
   - 兼容 `file_path` 参数别名 + 结构化参数解析
-- **新增 `grep` 工具**（对齐 OpenClaw）：搜索文件内容
+- **新增 `grep` 工具**：搜索文件内容
   - 原生 Rust 实现（`ignore` + `regex` crate），无需系统安装 ripgrep
   - 支持正则和字面量搜索（`literal` 参数）
   - 支持 `glob` 文件过滤、`ignore_case` 大小写、`context` 上下文行
   - 默认 100 条匹配限制，每行最长 500 字符，50KB 输出上限
   - 自动尊重 `.gitignore`，跳过二进制文件
-- **新增 `find` 工具**（对齐 OpenClaw）：按 glob 模式查找文件
+- **新增 `find` 工具**：按 glob 模式查找文件
   - 原生 Rust 实现（`ignore` + `glob` crate），无需系统安装 fd
   - 默认 1000 条结果限制，50KB 输出上限
   - 自动尊重 `.gitignore`，支持 `~` 路径展开
   - 输出相对路径，匹配文件名和完整路径
-- **新增 `apply_patch` 工具**（对齐 OpenClaw）：多文件补丁操作
+- **新增 `apply_patch` 工具**：多文件补丁操作
   - 支持 `*** Begin Patch` / `*** End Patch` 格式
   - `*** Add File: <path>` — 创建新文件
   - `*** Update File: <path>` — 修改文件（`@@` 上下文 + `-`/`+` 行）
   - `*** Delete File: <path>` — 删除文件
   - `*** Move to: <path>` — 在 Update 中移动文件
   - 3-pass fuzzy matching（精确 → 去尾空白 → 全 trim），容忍空白差异
-  - 不限 Provider（OpenClaw 限 OpenAI only，我们全 Provider 可用）
+  - 全 Provider 可用，不限 API 类型
 - **新增依赖**：`regex`、`ignore`、`glob` crate
 - **命令审批对话框 UI**：前端 `ApprovalDialog` 组件
   - 监听 Tauri `approval_required` 事件，弹出全屏遮罩审批对话框
@@ -970,7 +973,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **默认工具审批模式**：新建 Agent 默认改为所有工具均需审批（`requireApproval: ["*"]`），原为仅 `exec` 需审批
 - **全面替换原生 HTML 表单组件**：`SettingsView`、各对话框中所有原生 `<select>` / `<input>` / `<textarea>` 统一替换为 shadcn/ui 封装组件（Select / Input / Textarea），保证 UI 和交互一致性
 - **i18n 翻译补全**：所有 12 种语言补齐缺失的翻译键，Provider 模板名称和描述完整国际化
-- **内置 Provider 模板升级**（同步 OpenClaw 最新变更）：
+- **内置 Provider 模板升级**：
   - xAI：Grok 3 → Grok 4，base URL 加 `/v1`
   - 智谱 AI：base URL 升级到 `/v4`，模型扩展为 5 个（GLM-5 / GLM-5 Turbo / GLM-4.7 / GLM-4.7 Flash / GLM-4.7 FlashX），全部支持 reasoning
   - Kimi Coding：新增推荐模型 `kimi-code`，保留 `k2p5` 兼容

@@ -14,7 +14,7 @@ const PERSONA_MD: &str = "persona.md";
 const TOOLS_MD: &str = "tools.md";
 const MEMORY_MD: &str = "memory.md";
 
-/// OpenClaw-compatible markdown files.
+/// 4-file markdown prompt mode files.
 const AGENTS_MD: &str = "agents.md";
 const IDENTITY_MD: &str = "identity.md";
 const SOUL_MD: &str = "soul.md";
@@ -150,7 +150,7 @@ fn default_persona_md(locale: &str) -> &'static str {
     }
 }
 
-/// OpenClaw template (English only, no i18n).
+/// 4-file mode templates (English only, no i18n).
 fn openclaw_template(name: &str) -> Option<&'static str> {
     match name {
         "openclaw_agents" => Some(include_str!("../templates/openclaw_agents.md")),
@@ -165,7 +165,7 @@ fn openclaw_template(name: &str) -> Option<&'static str> {
 /// `name`: "agent", "persona", or "openclaw_agents"/"openclaw_identity"/"openclaw_soul"/"openclaw_tools"
 /// `locale`: language code like "zh", "en", "ja" etc. (ignored for openclaw templates)
 pub fn get_template(name: &str, locale: &str) -> Option<String> {
-    // OpenClaw templates (locale-independent)
+    // 4-file mode templates (locale-independent)
     if let Some(tpl) = openclaw_template(name) {
         return Some(tpl.to_string());
     }
@@ -239,7 +239,7 @@ pub fn load_agent(id: &str) -> Result<AgentDefinition> {
     let tools_guide = read_optional_md(&dir, TOOLS_MD)?;
     let memory_md = read_optional_md(&dir, MEMORY_MD)?;
 
-    // Load OpenClaw-compatible markdown files (only when mode is enabled)
+    // Load the 4-file markdown prompt set (only when mode is enabled)
     let (agents_md, identity_md, soul_md) = if config.openclaw_mode {
         (
             read_optional_md(&dir, AGENTS_MD)?,

@@ -44,7 +44,7 @@ pub struct AgentConfig {
     #[serde(default)]
     pub use_custom_prompt: bool,
 
-    /// If true, use OpenClaw-compatible 4-file prompt mode
+    /// If true, use the 4-file markdown prompt mode
     /// (AGENTS.md, IDENTITY.md, SOUL.md, TOOLS.md)
     #[serde(default)]
     pub openclaw_mode: bool,
@@ -89,7 +89,7 @@ impl Default for AgentConfig {
 // ── Personality Config ──────────────────────────────────────────
 
 /// Structured personality & identity for the Agent.
-/// Inspired by OpenClaw's IDENTITY.md + SOUL.md, but as GUI-friendly fields.
+/// GUI-friendly fields that mirror the IDENTITY.md + SOUL.md file layout.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PersonalityConfig {
@@ -421,13 +421,13 @@ pub struct AgentDefinition {
     /// tools.md content — custom tool usage guidance
     pub tools_guide: Option<String>,
 
-    /// agents.md content — OpenClaw AGENTS.md (workspace rules/instructions)
+    /// agents.md content — workspace rules/instructions
     pub agents_md: Option<String>,
 
-    /// identity.md content — OpenClaw IDENTITY.md (agent identity metadata)
+    /// identity.md content — agent identity metadata
     pub identity_md: Option<String>,
 
-    /// soul.md content — OpenClaw SOUL.md (personality/values/tone)
+    /// soul.md content — personality/values/tone
     pub soul_md: Option<String>,
 
     /// Global memory.md content — shared core memory across all agents

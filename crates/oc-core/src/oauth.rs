@@ -135,7 +135,7 @@ pub async fn start_oauth_flow(auth_result: Arc<Mutex<Option<Result<TokenData>>>>
     let code_challenge = generate_code_challenge(&code_verifier);
     let state = uuid::Uuid::new_v4().to_string();
 
-    // Build the authorization URL (matching OpenClaw's createAuthorizationFlow)
+    // Build the authorization URL with PKCE challenge.
     let auth_url = format!(
         "{}?response_type=code&client_id={}&redirect_uri={}&scope={}&code_challenge={}&code_challenge_method=S256&state={}&id_token_add_organizations=true&codex_cli_simplified_flow=true&originator=opencomputer",
         AUTH_URL,
@@ -179,7 +179,7 @@ pub async fn start_oauth_flow(auth_result: Arc<Mutex<Option<Result<TokenData>>>>
 
 /// Runs a tiny HTTP server that listens for the OAuth callback
 fn run_callback_server(expected_state: &str, code_verifier: &str) -> Result<TokenData> {
-    // Bind to 127.0.0.1 (matching OpenClaw's security practice)
+    // Bind to loopback only so the callback is never exposed externally.
     let addr = format!("127.0.0.1:{}", REDIRECT_PORT);
     let server = tiny_http::Server::http(&addr)
         .map_err(|e| anyhow!("Failed to start callback server on {}: {}", addr, e))?;

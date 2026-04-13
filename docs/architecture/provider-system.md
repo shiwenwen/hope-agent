@@ -261,7 +261,7 @@ Provider 通过 `on_delta` 回调实时推送 JSON 事件：
 2. SSE 响应中，`response.output_item.done` 事件携带完整 reasoning item（含加密内容）
 3. 通过 raw JSON 解析捕获完整 reasoning item（保留所有字段）
 4. reasoning items 存入 `conversation_history`，下一轮原样回传
-5. 对齐 OpenClaw 的 `thinkingSignature` 机制
+5. 与 Anthropic `thinkingSignature` 机制等价，保留思考块完整性
 
 **SSE 事件处理：**
 

@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 // ── Channel ID ───────────────────────────────────────────────────
-// Matches OpenClaw CHAT_CHANNEL_ORDER exactly.
+// Enum variants ordered to match the canonical channel display order.
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -75,7 +75,7 @@ pub enum MediaType {
 }
 
 // ── DM Policy ────────────────────────────────────────────────────
-// Compatible with OpenClaw's dmPolicy config.
+// Direct-message access policy per channel account.
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -92,7 +92,7 @@ impl Default for DmPolicy {
 }
 
 // ── Group Policy ─────────────────────────────────────────────────
-// Compatible with OpenClaw's groupPolicy config.
+// Group-message access policy per channel account.
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -112,7 +112,7 @@ impl Default for GroupPolicy {
 }
 
 // ── Telegram Group Config ────────────────────────────────────────
-// Per-group configuration, compatible with OpenClaw's TelegramGroupConfig.
+// Per-group configuration for Telegram chats and forums.
 
 /// Per-topic configuration within a group or DM.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -205,7 +205,7 @@ pub struct ChannelMeta {
 }
 
 // ── Channel Capabilities ─────────────────────────────────────────
-// Static feature advertisement per channel, matching OpenClaw's schema.
+// Static feature advertisement per channel (used by UI and approval UX).
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -348,7 +348,7 @@ pub struct SecurityConfig {
     #[serde(default)]
     pub admin_ids: Vec<String>,
 
-    // ── New layered group/channel config (OpenClaw-compatible) ────
+    // ── Layered group / channel config ────────────────────────────
     /// Account-level group policy (open | allowlist | disabled).
     #[serde(default)]
     pub group_policy: GroupPolicy,

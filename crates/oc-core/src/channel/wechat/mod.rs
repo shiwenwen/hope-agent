@@ -330,8 +330,7 @@ impl ChannelPlugin for WeChatPlugin {
         ChannelMeta {
             id: ChannelId::WeChat,
             display_name: "WeChat".to_string(),
-            description: "WeChat direct messages via OpenClaw-compatible iLink HTTP API"
-                .to_string(),
+            description: "WeChat direct messages via the iLink HTTP API".to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
         }
     }

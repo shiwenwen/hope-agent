@@ -2,7 +2,6 @@
 //
 //  Classifies API errors to determine whether to retry the same model,
 //  fall back to the next model, or surface the error directly.
-//  Inspired by OpenClaw's failover-error.ts.
 
 use serde::Serialize;
 

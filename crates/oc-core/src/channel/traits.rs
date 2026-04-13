@@ -8,16 +8,8 @@ use super::types::*;
 /// Core channel plugin contract.
 ///
 /// Each IM channel (Telegram, Discord, Slack, etc.) implements this trait.
-/// Designed to be compatible with OpenClaw's ChannelPlugin adapter pattern,
-/// but flattened into a single trait for Rust ergonomics.
-///
-/// OpenClaw adapter mapping:
-/// - GatewayAdapter  → start_account / stop_account
-/// - OutboundAdapter → send_message / send_typing / edit_message / delete_message
-/// - StatusAdapter   → probe
-/// - SecurityAdapter → check_access
-/// - SetupAdapter    → validate_credentials
-/// - Format/Chunking → markdown_to_native / chunk_message
+/// Responsibilities are grouped into six sections:
+/// lifecycle, outbound, status, security, format conversion, and setup.
 #[async_trait]
 pub trait ChannelPlugin: Send + Sync + 'static {
     // ── Metadata ──────────────────────────────────────────────────
@@ -28,7 +20,7 @@ pub trait ChannelPlugin: Send + Sync + 'static {
     /// Advertised capabilities of this channel.
     fn capabilities(&self) -> ChannelCapabilities;
 
-    // ── Lifecycle (OpenClaw GatewayAdapter) ──────────────────────
+    // ── Lifecycle ─────────────────────────────────────────────────
 
     /// Start listening for messages on the given account.
     ///
@@ -45,7 +37,7 @@ pub trait ChannelPlugin: Send + Sync + 'static {
     /// Stop a running account. Called before app shutdown or account removal.
     async fn stop_account(&self, account_id: &str) -> Result<()>;
 
-    // ── Outbound (OpenClaw OutboundAdapter) ──────────────────────
+    // ── Outbound ──────────────────────────────────────────────────
 
     /// Send a message to a chat on this channel.
     async fn send_message(
@@ -98,12 +90,12 @@ pub trait ChannelPlugin: Send + Sync + 'static {
         ))
     }
 
-    // ── Status (OpenClaw StatusAdapter) ──────────────────────────
+    // ── Status ────────────────────────────────────────────────────
 
     /// Probe the channel account to check health/connectivity.
     async fn probe(&self, account: &ChannelAccountConfig) -> Result<ChannelHealth>;
 
-    // ── Security (OpenClaw SecurityAdapter) ──────────────────────
+    // ── Security ──────────────────────────────────────────────────
 
     /// Check whether the sender in `msg` is allowed based on `account` security rules.
     fn check_access(&self, account: &ChannelAccountConfig, msg: &MsgContext) -> bool;
@@ -121,7 +113,7 @@ pub trait ChannelPlugin: Send + Sync + 'static {
         chunk_text(text, max_len)
     }
 
-    // ── Setup (OpenClaw SetupAdapter) ────────────────────────────
+    // ── Setup ─────────────────────────────────────────────────────
 
     /// Validate the given credentials and return the bot name / account label.
     /// Used during account setup to verify the token/API key is valid.

@@ -595,7 +595,7 @@ impl AssistantAgent {
                             }
                         }
 
-                        // Reasoning summary part done — add paragraph separator (align with OpenClaw)
+                        // Reasoning summary part done — add paragraph separator between parts.
                         "response.reasoning_summary_part.done" => {
                             collected_thinking.push_str("\n\n");
                             emit_thinking_delta(on_delta, "\n\n");

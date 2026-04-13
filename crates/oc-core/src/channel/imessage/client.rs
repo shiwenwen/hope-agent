@@ -12,7 +12,7 @@ use crate::channel::types::{ChannelId, ChatType, MsgContext};
 /// Default timeout for RPC calls in milliseconds.
 const RPC_TIMEOUT_MS: u64 = 10_000;
 
-/// iMessage RPC notification payload, matching the OpenClaw `IMessagePayload` type.
+/// iMessage RPC notification payload exchanged with the imsg CLI.
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct IMessagePayload {
     pub id: Option<i64>,

@@ -13,10 +13,10 @@ use super::approval::{
     ToolPermissionMode,
 };
 
-pub(crate) const DEFAULT_EXEC_TIMEOUT_SECS: u64 = 1800; // 30 minutes, aligned with OpenClaw
+pub(crate) const DEFAULT_EXEC_TIMEOUT_SECS: u64 = 1800; // 30 minutes
 pub(crate) const MAX_EXEC_TIMEOUT_SECS: u64 = 7200; // 2 hours max
 
-/// Default output truncation (200K chars, aligned with OpenClaw's DEFAULT_MAX_OUTPUT)
+/// Default output truncation (200K chars)
 pub(crate) const DEFAULT_MAX_OUTPUT_CHARS: usize = 200_000;
 /// Minimum output truncation for small-context models
 pub(crate) const MIN_MAX_OUTPUT_CHARS: usize = 8_000;

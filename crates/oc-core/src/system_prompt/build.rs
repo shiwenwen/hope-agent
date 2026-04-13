@@ -1,4 +1,4 @@
-use super::constants::MAX_FILE_CHARS;
+use super::constants::{HUMAN_IN_THE_LOOP_GUIDANCE, MAX_FILE_CHARS};
 use super::helpers::truncate;
 use super::sections::*;
 use crate::agent_config::AgentDefinition;
@@ -16,8 +16,9 @@ use crate::user_config;
 /// ④ User context — from user.json
 /// ⑤ tools.md — custom tool guidance
 /// ⑥ Tool definitions — per-tool descriptions (filtered by agent config)
+/// ⑥b Deferred tools listing (conditional)
+/// ⑥c Human-in-the-loop guidance (conditional, hardcoded)
 /// ⑦ Skills — available skill descriptions (filtered)
-/// ⑦b Behavior guidance — output efficiency, action safety, task execution
 /// ⑧ Memory — injected from memory backend
 /// ⑨ Runtime info — date, OS, etc.
 /// ⑩ Sub-agent delegation (conditional)
@@ -37,7 +38,7 @@ pub fn build(
     let arch = std::env::consts::ARCH;
 
     if definition.config.openclaw_mode {
-        // ── OpenClaw compatible mode: 4-file prompt (AGENTS.md, SOUL.md, IDENTITY.md, TOOLS.md) ──
+        // ── 4-file markdown prompt mode (AGENTS.md, SOUL.md, IDENTITY.md, TOOLS.md) ──
 
         // Minimal identity line
         sections.push(format!(
@@ -45,19 +46,19 @@ pub fn build(
             definition.config.name, os, arch
         ));
 
-        // # Project Context — assembled in OpenClaw order
+        // # Project Context — fixed 4-file order
         let mut project_ctx = String::from(
             "# Project Context\n\nThe following project context files have been loaded:",
         );
 
-        let openclaw_files: [(&str, &Option<String>); 4] = [
+        let project_files: [(&str, &Option<String>); 4] = [
             ("AGENTS.md", &definition.agents_md),
             ("SOUL.md", &definition.soul_md),
             ("IDENTITY.md", &definition.identity_md),
             ("TOOLS.md", &definition.tools_guide),
         ];
         let mut has_soul = false;
-        for (name, content) in &openclaw_files {
+        for (name, content) in &project_files {
             if let Some(md) = content.as_deref().filter(|s| !s.trim().is_empty()) {
                 project_ctx.push_str(&format!("\n\n## {}\n\n", name));
                 project_ctx.push_str(&truncate(md, MAX_FILE_CHARS));
@@ -152,7 +153,7 @@ pub fn build(
         }
     }
 
-    // ⑤ tools.md (skip in OpenClaw mode — already included in Project Context)
+    // ⑤ tools.md (skip in 4-file mode — already included in Project Context)
     if !definition.config.openclaw_mode {
         if let Some(guide) = &definition.tools_guide {
             sections.push(truncate(guide, MAX_FILE_CHARS));
@@ -165,6 +166,16 @@ pub fn build(
     // ⑥b Deferred tools listing (when deferred loading is enabled)
     if let Some(deferred_section) = build_deferred_tools_section() {
         sections.push(deferred_section);
+    }
+
+    // ⑥c Human-in-the-loop guidance — hardcoded so it cannot be overridden by
+    // a user-customized agent.md. Only emitted when the agent has access to
+    // the `ask_user_question` tool (agents with no interactive surface skip it).
+    if crate::tools::agent_tool_filter_allows(
+        crate::tools::TOOL_ASK_USER_QUESTION,
+        &definition.config.capabilities.tools,
+    ) {
+        sections.push(HUMAN_IN_THE_LOOP_GUIDANCE.to_string());
     }
 
     // ⑦ Skills (filtered by agent config)

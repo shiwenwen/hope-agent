@@ -58,7 +58,7 @@ pub(super) fn spawn_channel_stream_task(
         let mut accumulated = String::new();
         let mut preview_message_id: Option<String> = None;
         let mut dirty = false;
-        // 1s aligns better with Telegram edit limits and OpenClaw's draft preview cadence.
+        // 1s cadence keeps us under Telegram's edit rate limit while feeling live.
         let mut interval = tokio::time::interval(std::time::Duration::from_millis(1000));
         // Don't fire immediately
         interval.tick().await;
