@@ -525,6 +525,8 @@ export default function ChatScreen({
           scrollContainerRef={scrollContainerRef}
           bottomRef={bottomRef}
           sessionId={session.currentSessionId}
+          pendingScrollTarget={session.pendingScrollTarget}
+          onScrollTargetHandled={session.clearPendingScrollTarget}
           pendingQuestionGroup={planMode.pendingQuestionGroup}
           onQuestionSubmitted={() => { /* AskUserQuestionBlock handles its own submitted state */ }}
           planCardData={planMode.planCardInfo ? {

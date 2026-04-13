@@ -33,7 +33,9 @@ interface EndpointDef {
 const COMMAND_MAP: Record<string, EndpointDef> = {
   // -- Sessions --
   list_sessions_cmd:               { method: "GET",    path: "/api/sessions" },
+  search_sessions_cmd:             { method: "GET",    path: "/api/sessions/search" },
   load_session_messages_latest_cmd:{ method: "GET",    path: "/api/sessions/{sessionId}/messages" },
+  load_session_messages_around_cmd:{ method: "GET",    path: "/api/sessions/{sessionId}/messages/around" },
   delete_session_cmd:              { method: "DELETE", path: "/api/sessions/{sessionId}" },
   rename_session_cmd:              { method: "PATCH",  path: "/api/sessions/{sessionId}" },
   mark_session_read_cmd:           { method: "POST",   path: "/api/sessions/{sessionId}/read" },

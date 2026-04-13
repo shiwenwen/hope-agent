@@ -21,6 +21,12 @@ interface MessageListProps {
   bottomRef: React.RefObject<HTMLDivElement | null>
   // Plan mode
   sessionId?: string | null
+  /**
+   * Database id of a message to scroll into view (set when jumping from a
+   * history search result). Cleared via `onScrollTargetHandled` once applied.
+   */
+  pendingScrollTarget?: number | null
+  onScrollTargetHandled?: () => void
   pendingQuestionGroup?: AskUserQuestionGroup | null
   onQuestionSubmitted?: () => void
   planCardData?: PlanCardData | null
@@ -45,6 +51,8 @@ export default function MessageList({
   scrollContainerRef,
   bottomRef,
   sessionId,
+  pendingScrollTarget,
+  onScrollTargetHandled,
   pendingQuestionGroup,
   onQuestionSubmitted,
   planCardData,
@@ -79,6 +87,33 @@ export default function MessageList({
       document.removeEventListener("scroll", close, true)
     }
   }, [contextMenu])
+
+  // Scroll a specific message into view + highlight it (used when jumping
+  // from a history search result). Runs whenever the pending target or the
+  // message list changes — retries on the next tick until the DOM node is
+  // present, then clears the pending target.
+  useEffect(() => {
+    if (pendingScrollTarget === null || pendingScrollTarget === undefined) return
+    if (messages.length === 0) return
+
+    const target = pendingScrollTarget
+    const container = scrollContainerRef.current
+    if (!container) return
+
+    const el = container.querySelector<HTMLElement>(
+      `[data-message-id="${target}"]`,
+    )
+    if (!el) return
+
+    el.scrollIntoView({ behavior: "smooth", block: "center" })
+    el.classList.add("message-hit-pulse")
+    const timer = setTimeout(() => {
+      el.classList.remove("message-hit-pulse")
+    }, 2000)
+
+    onScrollTargetHandled?.()
+    return () => clearTimeout(timer)
+  }, [pendingScrollTarget, messages, scrollContainerRef, onScrollTargetHandled])
 
   function handleContextMenu(e: React.MouseEvent, index: number) {
     const msg = messages[index]
@@ -127,8 +162,9 @@ export default function MessageList({
       {messages.map((msg, i) => (
         <div
           key={msg.dbId ?? `${msg.role}-${msg.timestamp ?? i}`}
+          data-message-id={msg.dbId ?? undefined}
           className={cn(
-            "flex",
+            "flex rounded-lg transition-colors",
             msg.role === "event" || msg.isSubagentResult || msg.isCronTrigger
               ? "justify-center"
               : msg.role === "user" && !msg.fromAgentId
