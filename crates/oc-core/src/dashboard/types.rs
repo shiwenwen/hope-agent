@@ -1,6 +1,6 @@
 // ── Dashboard Types ─────────────────────────────────────────────
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DashboardFilter {
     pub start_date: Option<String>,

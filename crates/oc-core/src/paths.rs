@@ -119,6 +119,23 @@ pub fn cron_db_path() -> Result<PathBuf> {
     Ok(root_dir()?.join("cron.db"))
 }
 
+// ── Recap ───────────────────────────────────────────────────────
+
+/// Recap directory: ~/.opencomputer/recap/
+pub fn recap_dir() -> Result<PathBuf> {
+    Ok(root_dir()?.join("recap"))
+}
+
+/// Recap database path: ~/.opencomputer/recap/recap.db
+pub fn recap_db_path() -> Result<PathBuf> {
+    Ok(recap_dir()?.join("recap.db"))
+}
+
+/// Generated reports output directory: ~/.opencomputer/reports/
+pub fn reports_dir() -> Result<PathBuf> {
+    Ok(root_dir()?.join("reports"))
+}
+
 // ── Memory ──────────────────────────────────────────────────────
 
 /// Memory database path: ~/.opencomputer/memory.db
@@ -243,6 +260,8 @@ pub fn ensure_dirs() -> Result<()> {
         canvas_dir()?,
         canvas_projects_dir()?,
         plans_dir()?,
+        recap_dir()?,
+        reports_dir()?,
     ];
     for dir in &dirs_to_create {
         std::fs::create_dir_all(dir)?;

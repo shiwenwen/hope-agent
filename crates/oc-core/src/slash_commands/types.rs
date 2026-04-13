@@ -108,6 +108,12 @@ pub enum CommandAction {
     /// Skill fork: the skill was dispatched to a sub-agent.
     /// The frontend should show a "skill running in background" indicator.
     SkillFork { run_id: String, skill_name: String },
+    /// Recap: a recap report is being generated in the background.
+    /// Frontend renders a streaming card subscribed to WS `recap_progress`
+    /// events filtered by this `report_id`.
+    RecapCard { report_id: String },
+    /// Navigate to a specific Dashboard tab (e.g. `"recap"`, `"insights"`).
+    OpenDashboardTab { tab: String },
 }
 
 impl SlashCommandDef {
@@ -141,6 +147,7 @@ impl SlashCommandDef {
             "permission" => "Set tool permission mode",
             "plan" => "Enter/exit plan mode",
             "prompts" => "View system prompt",
+            "recap" => "Generate a deep analysis recap report",
             _ => "Command",
         }
         .to_string()

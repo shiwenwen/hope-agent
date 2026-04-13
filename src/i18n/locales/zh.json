@@ -1486,6 +1486,7 @@
     "permission": { "description": "设置工具权限模式（auto/ask/full）" },
     "plan": { "description": "进入/退出计划模式" },
     "prompts": { "description": "查看系统提示词" },
+    "recap": { "description": "生成深度复盘报告" },
     "categories": {
       "session": "会话",
       "model": "模型",
@@ -1578,6 +1579,29 @@
     "popOutActive": "已在独立窗口中打开",
     "reattach": "收回到面板"
   },
+  "recap": {
+    "generate": "生成",
+    "generating": "生成中…",
+    "history": "历史报告",
+    "noReports": "尚未生成任何报告，点击生成开始第一次复盘。",
+    "selectReport": "从历史下拉列表中选择一份报告。",
+    "exportHtml": "导出 HTML",
+    "exportedTo": "已导出到 {{path}}",
+    "delete": "删除",
+    "confirmDelete": "确认删除这份报告？",
+    "range": {
+      "incremental": "上次报告以来",
+      "days": "最近 {{n}} 天"
+    },
+    "progress": {
+      "started": "开始（{{n}} 个会话）",
+      "extractingFacets": "提取 facet {{done}}/{{total}}",
+      "aggregating": "执行 Dashboard 查询…",
+      "generatingSections": "生成章节 {{done}}/{{total}}",
+      "persisting": "持久化报告…",
+      "done": "完成"
+    }
+  },
   "dashboard": {
     "title": "数据大盘",
     "lastRefresh": "最近刷新",
@@ -1596,7 +1620,8 @@
       "sessions": "会话分析",
       "errors": "异常监控",
       "tasks": "任务统计",
-      "system": "系统监控"
+      "system": "系统监控",
+      "recap": "复盘"
     },
     "insights": {
       "healthScore": "系统健康度",

@@ -19,6 +19,7 @@ pub mod misc;
 pub mod models;
 pub mod plan;
 pub mod providers;
+pub mod recap;
 pub mod searxng;
 pub mod sessions;
 pub mod skills;

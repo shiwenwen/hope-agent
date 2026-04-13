@@ -45,6 +45,7 @@ pub mod permissions;
 pub mod plan;
 pub mod process_registry;
 pub mod provider;
+pub mod recap;
 pub mod sandbox;
 pub mod self_diagnosis;
 pub mod service_install;

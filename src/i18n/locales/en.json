@@ -1486,6 +1486,7 @@
     "permission": { "description": "Set tool permission mode (auto/ask/full)" },
     "plan": { "description": "Enter/exit plan mode" },
     "prompts": { "description": "View system prompt" },
+    "recap": { "description": "Generate a deep analysis recap report" },
     "categories": {
       "session": "Session",
       "model": "Model",
@@ -1578,6 +1579,29 @@
     "popOutActive": "Opened in separate window",
     "reattach": "Back to Panel"
   },
+  "recap": {
+    "generate": "Generate",
+    "generating": "Generating…",
+    "history": "History",
+    "noReports": "No reports yet. Click Generate to build your first recap.",
+    "selectReport": "Select a report from the history dropdown.",
+    "exportHtml": "Export HTML",
+    "exportedTo": "Exported to {{path}}",
+    "delete": "Delete",
+    "confirmDelete": "Delete this report?",
+    "range": {
+      "incremental": "Since last report",
+      "days": "Last {{n}} days"
+    },
+    "progress": {
+      "started": "Starting ({{n}} sessions)",
+      "extractingFacets": "Extracting facets {{done}}/{{total}}",
+      "aggregating": "Running dashboard queries…",
+      "generatingSections": "Generating sections {{done}}/{{total}}",
+      "persisting": "Persisting report…",
+      "done": "Done"
+    }
+  },
   "dashboard": {
     "title": "Dashboard",
     "lastRefresh": "Last refresh",
@@ -1596,7 +1620,8 @@
       "sessions": "Sessions",
       "errors": "Errors",
       "tasks": "Tasks",
-      "system": "System"
+      "system": "System",
+      "recap": "Recap"
     },
     "insights": {
       "healthScore": "Health Score",

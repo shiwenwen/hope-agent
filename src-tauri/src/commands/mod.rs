@@ -13,6 +13,7 @@ pub mod memory;
 pub mod misc;
 pub mod plan;
 pub mod provider;
+pub mod recap;
 pub mod session;
 pub mod skills;
 pub mod subagent;

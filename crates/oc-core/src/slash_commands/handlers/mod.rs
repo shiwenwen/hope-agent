@@ -2,6 +2,7 @@ pub mod agent;
 pub mod memory;
 pub mod model;
 pub mod plan;
+pub mod recap;
 pub mod session;
 pub mod utility;
 
@@ -72,6 +73,12 @@ pub async fn dispatch(
         }
         "export" => utility::handle_export(&state.session_db, session_id),
         "usage" => utility::handle_usage(&state.session_db, session_id),
+        "recap" => {
+            let state_arc = crate::globals::get_app_state()
+                .ok_or_else(|| "AppState not initialized".to_string())?
+                .clone();
+            recap::handle_recap(&state_arc, session_id, args).await
+        }
         "search" => utility::handle_search(args),
         "prompts" => Ok(utility::handle_prompts()),
 

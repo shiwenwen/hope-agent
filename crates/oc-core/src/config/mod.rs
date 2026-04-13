@@ -142,6 +142,55 @@ pub(crate) fn default_language() -> String {
     "auto".to_string()
 }
 
+// ── Recap Config ────────────────────────────────────────────────
+
+fn default_recap_default_range_days() -> u32 {
+    30
+}
+fn default_recap_max_sessions_per_report() -> u32 {
+    500
+}
+fn default_recap_facet_concurrency() -> u8 {
+    4
+}
+fn default_recap_cache_retention_days() -> u32 {
+    180
+}
+
+/// Configuration for the `/recap` deep-analysis report feature.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecapConfig {
+    /// Agent ID used to extract per-session facets and generate report sections.
+    /// `None` falls back to the first available agent.
+    #[serde(default)]
+    pub analysis_agent: Option<String>,
+    /// Default time window (days) when no prior report exists.
+    #[serde(default = "default_recap_default_range_days")]
+    pub default_range_days: u32,
+    /// Hard cap on number of sessions analyzed in a single report.
+    #[serde(default = "default_recap_max_sessions_per_report")]
+    pub max_sessions_per_report: u32,
+    /// Concurrency for per-session facet extraction.
+    #[serde(default = "default_recap_facet_concurrency")]
+    pub facet_concurrency: u8,
+    /// Days to retain cached session facets before garbage collection.
+    #[serde(default = "default_recap_cache_retention_days")]
+    pub cache_retention_days: u32,
+}
+
+impl Default for RecapConfig {
+    fn default() -> Self {
+        Self {
+            analysis_agent: None,
+            default_range_days: default_recap_default_range_days(),
+            max_sessions_per_report: default_recap_max_sessions_per_report(),
+            facet_concurrency: default_recap_facet_concurrency(),
+            cache_retention_days: default_recap_cache_retention_days(),
+        }
+    }
+}
+
 // ── Embedded Server Config ──────────────────────────────────────
 
 fn default_server_bind() -> String {
@@ -326,6 +375,10 @@ pub struct AppConfig {
     /// Embedded HTTP/WS server configuration
     #[serde(default)]
     pub server: EmbeddedServerConfig,
+
+    /// Recap (deep session analysis) configuration
+    #[serde(default)]
+    pub recap: RecapConfig,
 }
 
 impl Default for AppConfig {
@@ -374,6 +427,7 @@ impl Default for AppConfig {
             channels: crate::channel::ChannelStoreConfig::default(),
             deferred_tools: DeferredToolsConfig::default(),
             server: EmbeddedServerConfig::default(),
+            recap: RecapConfig::default(),
         }
     }
 }

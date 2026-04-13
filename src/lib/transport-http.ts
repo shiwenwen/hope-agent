@@ -160,6 +160,13 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   dashboard_error_list:            { method: "POST",   path: "/api/dashboard/error-list" },
   dashboard_agent_list:            { method: "POST",   path: "/api/dashboard/agent-list" },
 
+  // -- Recap --
+  recap_generate:                  { method: "POST",   path: "/api/recap/generate" },
+  recap_list_reports:              { method: "POST",   path: "/api/recap/reports" },
+  recap_get_report:                { method: "GET",    path: "/api/recap/reports/{id}" },
+  recap_delete_report:             { method: "DELETE", path: "/api/recap/reports/{id}" },
+  recap_export_html:               { method: "POST",   path: "/api/recap/reports/{id}/export" },
+
   // -- Logging --
   query_logs_cmd:                  { method: "POST",   path: "/api/logs/query" },
   frontend_log:                    { method: "POST",   path: "/api/logs/frontend" },

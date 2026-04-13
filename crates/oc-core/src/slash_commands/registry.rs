@@ -232,6 +232,20 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
             arg_options: None,
             description_raw: None,
         },
+        SlashCommandDef {
+            name: "recap".into(),
+            category: CommandCategory::Utility,
+            description_key: "slashCommands.recap.description".into(),
+            has_args: true,
+            args_optional: true,
+            arg_placeholder: Some("[--full|--range=7d|--range=30d]".into()),
+            arg_options: Some(vec![
+                "--full".into(),
+                "--range=7d".into(),
+                "--range=30d".into(),
+            ]),
+            description_raw: None,
+        },
     ]
 }
 

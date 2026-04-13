@@ -363,3 +363,107 @@ export function formatDuration(ms: number): string {
   if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`
   return `${(ms / 60_000).toFixed(1)}m`
 }
+
+// ── Recap Types ────────────────────────────────────────────────
+
+export type Outcome =
+  | "fully_achieved"
+  | "mostly_achieved"
+  | "partial"
+  | "failed"
+  | "unclear"
+
+export interface FrictionCounts {
+  toolErrors: number
+  misunderstanding: number
+  repetition: number
+  userCorrection: number
+  stuck: number
+  other: number
+}
+
+export interface SessionFacet {
+  sessionId: string
+  underlyingGoal: string
+  goalCategories: string[]
+  outcome: Outcome
+  userSatisfaction: number | null
+  agentHelpfulness: number | null
+  sessionType: string
+  frictionCounts: FrictionCounts
+  frictionDetail: string[]
+  primarySuccess: string | null
+  briefSummary: string
+  userInstructions: string[]
+}
+
+export interface FacetSummary {
+  totalFacets: number
+  goalHistogram: [string, number][]
+  outcomeDistribution: [string, number][]
+  sessionTypeDistribution: [string, number][]
+  frictionTop: [string, number][]
+  satisfactionDistribution: [number, number][]
+  repeatUserInstructions: [string, number][]
+  successExamples: string[]
+  frictionExamples: string[]
+}
+
+export interface QuantitativeStats {
+  overview: OverviewStatsWithDelta
+  health: HealthBreakdown
+  costTrend: DashboardCostTrend
+  heatmap: DashboardHeatmap
+  hourly: DashboardHourlyDistribution
+  topSessions: TopSession[]
+  modelEfficiency: ModelEfficiency[]
+}
+
+export interface AiSection {
+  key: string
+  title: string
+  markdown: string
+}
+
+export interface ReportMeta {
+  id: string
+  title: string
+  rangeStart: string
+  rangeEnd: string
+  sessionCount: number
+  generatedAt: string
+  analysisModel: string
+  filters: DashboardFilter
+  schemaVersion: number
+}
+
+export interface RecapReport {
+  meta: ReportMeta
+  quantitative: QuantitativeStats
+  facetSummary: FacetSummary
+  sections: AiSection[]
+}
+
+export interface RecapReportSummary {
+  id: string
+  title: string
+  rangeStart: string
+  rangeEnd: string
+  sessionCount: number
+  generatedAt: string
+  analysisModel: string
+  htmlPath: string | null
+}
+
+export type GenerateMode =
+  | { mode: "incremental" }
+  | { mode: "full"; filters: DashboardFilter }
+
+export type RecapProgress =
+  | { phase: "started"; reportId: string; totalSessions: number }
+  | { phase: "extractingFacets"; completed: number; total: number }
+  | { phase: "aggregatingDashboard" }
+  | { phase: "generatingSections"; completed: number; total: number }
+  | { phase: "persisting" }
+  | { phase: "done"; reportId: string }
+  | { phase: "failed"; reportId: string; message: string }

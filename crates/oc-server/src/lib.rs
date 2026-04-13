@@ -420,6 +420,15 @@ fn build_router_with_cors(
             post(routes::dashboard::overview_delta),
         )
         .route("/dashboard/insights", post(routes::dashboard::insights))
+        // Recap
+        .route("/recap/generate", post(routes::recap::generate))
+        .route("/recap/reports", post(routes::recap::list_reports))
+        .route("/recap/reports/{id}", get(routes::recap::get_report))
+        .route("/recap/reports/{id}", delete(routes::recap::delete_report))
+        .route(
+            "/recap/reports/{id}/export",
+            post(routes::recap::export_html),
+        )
         // Plan Mode
         .route("/plan/{sid}/mode", get(routes::plan::get_plan_mode))
         .route("/plan/{sid}/mode", post(routes::plan::set_plan_mode))

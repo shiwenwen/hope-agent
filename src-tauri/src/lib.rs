@@ -384,6 +384,12 @@ pub fn run() {
             commands::dashboard::dashboard_agent_list,
             commands::dashboard::dashboard_overview_delta,
             commands::dashboard::dashboard_insights,
+            // Recap (deep analysis reports)
+            commands::recap::recap_generate,
+            commands::recap::recap_list_reports,
+            commands::recap::recap_get_report,
+            commands::recap::recap_delete_report,
+            commands::recap::recap_export_html,
             // Developer tools (thin wrappers over oc-core)
             tauri_wrappers::dev_clear_sessions,
             tauri_wrappers::dev_clear_cron,

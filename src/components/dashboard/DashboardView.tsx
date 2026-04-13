@@ -29,6 +29,7 @@ import SessionSection from "./SessionSection"
 import ErrorSection from "./ErrorSection"
 import TaskSection from "./TaskSection"
 import SystemMetricsSection from "./SystemMetricsSection"
+import RecapTab from "./recap/RecapTab"
 import type {
   DashboardFilter as DashboardFilterState,
   OverviewStatsWithDelta,
@@ -464,6 +465,7 @@ export default function DashboardView({ onBack }: { onBack: () => void }) {
               <TabsTrigger value="errors">{t("dashboard.tabs.errors")}</TabsTrigger>
               <TabsTrigger value="tasks">{t("dashboard.tabs.tasks")}</TabsTrigger>
               <TabsTrigger value="system">{t("dashboard.tabs.system")}</TabsTrigger>
+              <TabsTrigger value="recap">{t("dashboard.tabs.recap")}</TabsTrigger>
             </TabsList>
             {showGranularity && (
               <div className="flex gap-1">
@@ -525,6 +527,9 @@ export default function DashboardView({ onBack }: { onBack: () => void }) {
               history={systemHistory}
               loading={loading}
             />
+          </TabsContent>
+          <TabsContent value="recap">
+            <RecapTab />
           </TabsContent>
         </Tabs>
       </div>
