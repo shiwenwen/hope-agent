@@ -187,6 +187,17 @@ export interface SubagentRun {
   outputTokens?: number
 }
 
+export type TaskStatus = "pending" | "in_progress" | "completed"
+
+export interface Task {
+  id: number
+  sessionId: string
+  content: string
+  status: TaskStatus
+  createdAt: string
+  updatedAt: string
+}
+
 export interface ParentAgentStreamEvent {
   eventType: "started" | "delta" | "done" | "error"
   parentSessionId: string

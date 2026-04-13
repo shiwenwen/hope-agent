@@ -31,6 +31,7 @@ import {
   HelpCircle,
   Check,
   Timer,
+  ListChecks,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { ToolCall } from "@/types/chat"
@@ -69,6 +70,9 @@ const TOOL_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
   image_generate: ImagePlus,
   pdf: FileText,
   canvas: PanelRight,
+  task_create: ListChecks,
+  task_update: ListChecks,
+  task_list: ListChecks,
 }
 
 /** Check if a read tool call targets a SKILL.md file, return skill name if so */

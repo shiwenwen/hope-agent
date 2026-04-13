@@ -3,9 +3,19 @@ import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import ToolCallBlock from "./ToolCallBlock"
 import ToolCallGroup from "./ToolCallGroup"
 import ThinkingBlock from "./ThinkingBlock"
+import TaskBlock from "./TaskBlock"
 import { AskUserQuestionResult, SubmitPlanResult } from "./PlanResultBlocks"
 import type { ContentBlock } from "@/types/chat"
 import type { Message } from "@/types/chat"
+
+const TASK_TOOL_NAMES = new Set(["task_create", "task_update", "task_list"])
+const NO_GROUP_TOOLS = new Set([
+  "ask_user_question",
+  "submit_plan",
+  "task_create",
+  "task_update",
+  "task_list",
+])
 
 interface MessageContentProps {
   msg: Message
@@ -61,6 +71,11 @@ export function AssistantContentBlocks({
         i++
         continue
       }
+      if (TASK_TOOL_NAMES.has(block.tool.name)) {
+        elements.push(<TaskBlock key={block.tool.callId} tool={block.tool} />)
+        i++
+        continue
+      }
       // Render submit_plan inline as a compact plan card
       if (block.tool.name === "submit_plan") {
         if (block.tool.result) {
@@ -83,7 +98,7 @@ export function AssistantContentBlocks({
         blocks[j].type === "tool_call"
       ) {
         const tb = blocks[j] as { type: "tool_call"; tool: { name: string } }
-        if (tb.tool.name === "ask_user_question" || tb.tool.name === "submit_plan") break // stop grouping at plan tools
+        if (NO_GROUP_TOOLS.has(tb.tool.name)) break
         group.push(blocks[j])
         j++
       }

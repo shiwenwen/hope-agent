@@ -3,6 +3,7 @@ mod extra_tools;
 mod plan_tools;
 mod registry;
 mod special_tools;
+mod task_tools;
 mod types;
 
 // ── Public Re-exports ─────────────────────────────────────────────

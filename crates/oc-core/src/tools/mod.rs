@@ -27,6 +27,7 @@ pub(crate) mod read;
 mod sessions;
 pub(crate) mod subagent;
 mod submit_plan;
+mod task;
 pub(crate) mod tool_search;
 mod weather;
 pub mod web_fetch;
@@ -86,6 +87,9 @@ pub const TOOL_ASK_USER_QUESTION: &str = "ask_user_question";
 pub const TOOL_SUBMIT_PLAN: &str = "submit_plan";
 pub const TOOL_AMEND_PLAN: &str = "amend_plan";
 pub const TOOL_TOOL_SEARCH: &str = "tool_search";
+pub const TOOL_TASK_CREATE: &str = "task_create";
+pub const TOOL_TASK_UPDATE: &str = "task_update";
+pub const TOOL_TASK_LIST: &str = "task_list";
 
 // ── Shared Helpers ────────────────────────────────────────────────
 

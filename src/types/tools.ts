@@ -20,6 +20,9 @@ export const TOOL_MANAGE_CRON = "manage_cron" as const
 export const TOOL_BROWSER = "browser" as const
 export const TOOL_SEND_NOTIFICATION = "send_notification" as const
 export const TOOL_SUBAGENT = "subagent" as const
+export const TOOL_TASK_CREATE = "task_create" as const
+export const TOOL_TASK_UPDATE = "task_update" as const
+export const TOOL_TASK_LIST = "task_list" as const
 
 /**
  * @deprecated Use the `internal` flag from `list_builtin_tools` API response instead.
@@ -55,4 +58,7 @@ export const TOOL_I18N_KEY: Record<string, string> = {
   [TOOL_BROWSER]: "Browser",
   [TOOL_SEND_NOTIFICATION]: "SendNotification",
   [TOOL_SUBAGENT]: "Subagent",
+  [TOOL_TASK_CREATE]: "TaskCreate",
+  [TOOL_TASK_UPDATE]: "TaskUpdate",
+  [TOOL_TASK_LIST]: "TaskList",
 }

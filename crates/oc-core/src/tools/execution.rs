@@ -7,7 +7,7 @@ use super::{
 };
 use super::{
     agents, amend_plan, ask_user_question, canvas, image, image_generate, pdf, plan_step, sessions,
-    submit_plan,
+    submit_plan, task,
 };
 use super::{apply_patch, edit, exec, find, grep, ls, process, read, write};
 use super::{
@@ -16,9 +16,9 @@ use super::{
     TOOL_FIND, TOOL_GET_WEATHER, TOOL_GREP, TOOL_IMAGE, TOOL_IMAGE_GENERATE, TOOL_LS,
     TOOL_MANAGE_CRON, TOOL_MEMORY_GET, TOOL_PDF, TOOL_PROCESS, TOOL_READ, TOOL_RECALL_MEMORY,
     TOOL_SAVE_MEMORY, TOOL_SEND_NOTIFICATION, TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST,
-    TOOL_SESSIONS_SEND, TOOL_SESSION_STATUS, TOOL_SUBAGENT, TOOL_SUBMIT_PLAN,
-    TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY, TOOL_UPDATE_PLAN_STEP, TOOL_WEB_FETCH,
-    TOOL_WEB_SEARCH, TOOL_WRITE,
+    TOOL_SESSIONS_SEND, TOOL_SESSION_STATUS, TOOL_SUBAGENT, TOOL_SUBMIT_PLAN, TOOL_TASK_CREATE,
+    TOOL_TASK_LIST, TOOL_TASK_UPDATE, TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY,
+    TOOL_UPDATE_PLAN_STEP, TOOL_WEB_FETCH, TOOL_WEB_SEARCH, TOOL_WRITE,
 };
 
 /// Load the user-configured tool timeout from config.json. Returns `None`
@@ -381,6 +381,13 @@ pub async fn execute_tool_with_context(
             }
             TOOL_SUBMIT_PLAN => Ok(submit_plan::execute(args, ctx.session_id.as_deref()).await),
             TOOL_AMEND_PLAN => Ok(amend_plan::execute(args, ctx.session_id.as_deref()).await),
+            TOOL_TASK_CREATE => {
+                Ok(task::tool_task_create(args, ctx.session_id.as_deref()).await)
+            }
+            TOOL_TASK_UPDATE => {
+                Ok(task::tool_task_update(args, ctx.session_id.as_deref()).await)
+            }
+            TOOL_TASK_LIST => Ok(task::tool_task_list(args, ctx.session_id.as_deref()).await),
             super::TOOL_TOOL_SEARCH => super::tool_search::tool_search(args, ctx).await,
             _ => Err(anyhow::anyhow!("Unknown tool: {}", name)),
         }

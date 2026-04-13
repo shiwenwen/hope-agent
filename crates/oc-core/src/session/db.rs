@@ -212,6 +212,20 @@ impl SessionDB {
             CREATE INDEX IF NOT EXISTS idx_ask_user_status ON ask_user_questions(status);",
         )?;
 
+        // Migration: session-scoped task management (TaskV2-style)
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                content TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_tasks_session_id ON tasks(session_id);",
+        )?;
+
         Ok(Self {
             conn: Mutex::new(conn),
         })

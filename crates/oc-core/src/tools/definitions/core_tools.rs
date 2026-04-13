@@ -913,6 +913,11 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
     // ── Ask User Question (interactive Q&A, always available) ──
     tools.push(super::plan_tools::get_ask_user_question_tool());
 
+    // ── Task Management (session-scoped TODO tracking, always available) ──
+    tools.push(super::task_tools::get_task_create_tool());
+    tools.push(super::task_tools::get_task_update_tool());
+    tools.push(super::task_tools::get_task_list_tool());
+
     // Mark non-core tools as deferred, core tools as always_load
     for tool in &mut tools {
         if is_core_tool(&tool.name) {

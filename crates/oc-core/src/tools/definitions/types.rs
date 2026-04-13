@@ -89,6 +89,9 @@ pub(crate) const CORE_TOOL_NAMES: &[&str] = &[
     "find",
     "apply_patch",
     "ask_user_question",
+    "task_create",
+    "task_update",
+    "task_list",
 ];
 
 /// Check if a tool name is a core tool (always loaded).

@@ -202,6 +202,21 @@ const TOOL_DESC_GET_WEATHER: &str = "\
   - Params: location (city name or lat,lon, optional — defaults to user's location), forecast_days (1-16)\n\
   - Returns current temperature, humidity, wind, weather conditions, and daily forecast";
 
+const TOOL_DESC_TASK_CREATE: &str = "\
+- task_create: Create a trackable task for the current session.\n\
+  - Use proactively for 3+ step or non-trivial multi-step work; skip for single trivial actions\n\
+  - Returns the full task list as JSON with the new task appended (status 'pending')";
+
+const TOOL_DESC_TASK_UPDATE: &str = "\
+- task_update: Update an existing task by id.\n\
+  - Lifecycle: pending → in_progress → completed. Only ONE task in_progress at a time\n\
+  - Mark completed only when fully done; call immediately after finishing, do not batch\n\
+  - Returns the full task list as JSON";
+
+const TOOL_DESC_TASK_LIST: &str = "\
+- task_list: List all tasks in the current session as JSON.\n\
+  - Use to review progress or recover task ids after long tool chains";
+
 pub(super) const TOOL_DESC_ASK_USER_QUESTION: &str =
     "- ask_user_question: Ask the user 1–4 structured questions with options. Use this \
 whenever requirements are ambiguous, you need to pick between approaches, or you need \
@@ -250,4 +265,7 @@ pub(super) const TOOL_DESCRIPTIONS: &[(&str, &str)] = &[
     ("acp_spawn", TOOL_DESC_ACP_SPAWN),
     ("get_weather", TOOL_DESC_GET_WEATHER),
     ("ask_user_question", TOOL_DESC_ASK_USER_QUESTION),
+    ("task_create", TOOL_DESC_TASK_CREATE),
+    ("task_update", TOOL_DESC_TASK_UPDATE),
+    ("task_list", TOOL_DESC_TASK_LIST),
 ];
