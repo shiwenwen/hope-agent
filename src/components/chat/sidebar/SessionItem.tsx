@@ -32,7 +32,7 @@ interface SessionItemProps {
   renamingSessionId: string | null
   renameValue: string
   renameInputRef: React.RefObject<HTMLInputElement | null>
-  onSwitchSession: (sessionId: string) => void
+  onSwitchSession: (sessionId: string, opts?: { targetMessageId?: number }) => void
   onDeleteClick: (sessionId: string, e: React.MouseEvent) => void
   onStartRename: (sessionId: string, currentTitle: string) => void
   onRenameValueChange: (value: string) => void

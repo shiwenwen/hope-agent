@@ -130,6 +130,26 @@
   animation: fade-slide-in 0.2s ease-out both;
 }
 
+/* Pulse highlight for the message that matched a history search result */
+@keyframes message-hit-pulse {
+  0% {
+    background-color: color-mix(in srgb, var(--primary) 35%, transparent);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 55%, transparent);
+  }
+  60% {
+    background-color: color-mix(in srgb, var(--primary) 20%, transparent);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 30%, transparent);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+.message-hit-pulse {
+  animation: message-hit-pulse 2s ease-out both;
+}
+
 /* Shimmer highlight sweep across text (thinking / tool titles while running) */
 @keyframes text-shimmer {
   from {

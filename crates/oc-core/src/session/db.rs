@@ -936,11 +936,17 @@ impl SessionDB {
     // ── History Search ──────────────────────────────────────────
 
     /// Search message history using FTS5 full-text search.
-    /// Returns matching messages with session context, excluding cron and sub-agent sessions.
+    ///
+    /// Returns matching messages with session context and a highlighted snippet
+    /// (containing `<mark>...</mark>` tags around matched terms).
+    ///
+    /// `types` filters by session type (regular / cron / subagent / channel);
+    /// `None` means "all types".
     pub fn search_messages(
         &self,
         query: &str,
         agent_id: Option<&str>,
+        types: Option<&[SessionTypeFilter]>,
         limit: usize,
     ) -> Result<Vec<SessionSearchResult>> {
         let conn = self
@@ -953,56 +959,158 @@ impl SessionDB {
             return Ok(Vec::new());
         }
 
-        let (agent_clause, agent_param) = if let Some(aid) = agent_id {
-            ("AND s.agent_id = ?2".to_string(), Some(aid.to_string()))
+        // Build dynamic WHERE / params. ?1 is the FTS query; subsequent params
+        // are added below in order.
+        let mut where_clauses: Vec<String> = Vec::new();
+        let mut params_vec: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        params_vec.push(Box::new(fts_query));
+
+        if let Some(aid) = agent_id {
+            let idx = params_vec.len() + 1;
+            where_clauses.push(format!("s.agent_id = ?{}", idx));
+            params_vec.push(Box::new(aid.to_string()));
+        }
+
+        // Session type filter — channel presence is detected via LEFT JOIN.
+        if let Some(type_list) = types {
+            if !type_list.is_empty() {
+                let mut type_clauses: Vec<String> = Vec::new();
+                for t in type_list {
+                    match t {
+                        SessionTypeFilter::Regular => type_clauses.push(
+                            "(s.is_cron = 0 AND s.parent_session_id IS NULL AND cc.channel_id IS NULL)".to_string(),
+                        ),
+                        SessionTypeFilter::Cron => {
+                            type_clauses.push("s.is_cron = 1".to_string())
+                        }
+                        SessionTypeFilter::Subagent => {
+                            type_clauses.push("s.parent_session_id IS NOT NULL".to_string())
+                        }
+                        SessionTypeFilter::Channel => {
+                            type_clauses.push("cc.channel_id IS NOT NULL".to_string())
+                        }
+                    }
+                }
+                where_clauses.push(format!("({})", type_clauses.join(" OR ")));
+            }
+        }
+
+        let where_sql = if where_clauses.is_empty() {
+            String::new()
         } else {
-            (String::new(), None)
+            format!(" AND {}", where_clauses.join(" AND "))
         };
 
         let sql = format!(
-            "SELECT m.id, m.session_id, m.role, m.content, m.timestamp, s.title, fts.rank
+            "SELECT m.id, m.session_id, m.role,
+                    snippet(messages_fts, 0, '<mark>', '</mark>', '…', 16) AS snippet,
+                    m.timestamp,
+                    s.title, s.agent_id, s.is_cron, s.parent_session_id,
+                    cc.channel_id, cc.chat_type,
+                    fts.rank
              FROM messages_fts fts
              JOIN messages m ON m.id = fts.rowid
              JOIN sessions s ON s.id = m.session_id
-             WHERE messages_fts MATCH ?1
-               AND s.is_cron = 0
-               AND s.parent_session_id IS NULL
-               {}
+             LEFT JOIN channel_conversations cc ON cc.session_id = s.id
+             WHERE messages_fts MATCH ?1{}
              ORDER BY fts.rank
              LIMIT {}",
-            agent_clause, limit
+            where_sql, limit
         );
 
         let mut stmt = conn.prepare(&sql)?;
 
-        let mut params_vec: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
-        params_vec.push(Box::new(fts_query));
-        if let Some(aid) = agent_param {
-            params_vec.push(Box::new(aid));
-        }
         let param_refs: Vec<&dyn rusqlite::types::ToSql> =
             params_vec.iter().map(|p| p.as_ref()).collect();
 
         let rows = stmt.query_map(param_refs.as_slice(), |row| {
             Ok(SessionSearchResult {
+                message_id: row.get(0)?,
                 session_id: row.get(1)?,
-                session_title: row.get(5)?,
                 message_role: row.get(2)?,
-                content_snippet: {
-                    let content: String = row.get(3)?;
-                    if content.len() > 300 {
-                        format!("{}...", crate::truncate_utf8(&content, 300))
-                    } else {
-                        content
-                    }
-                },
+                content_snippet: row.get(3)?,
                 timestamp: row.get(4)?,
-                relevance_rank: row.get::<_, f64>(6).unwrap_or(0.0),
+                session_title: row.get(5)?,
+                agent_id: row.get(6)?,
+                is_cron: row.get::<_, i64>(7).unwrap_or(0) != 0,
+                parent_session_id: row.get(8)?,
+                channel_type: row.get(9)?,
+                channel_chat_type: row.get(10)?,
+                relevance_rank: row.get::<_, f64>(11).unwrap_or(0.0),
             })
         })?;
 
         let results: Vec<SessionSearchResult> = rows.filter_map(|r| r.ok()).collect();
         Ok(results)
+    }
+
+    /// Load a window of messages around a target message id.
+    ///
+    /// Returns `(messages_in_asc_order, total_count)`. The window contains up
+    /// to `before` messages with `id <= target_message_id` (inclusive of the
+    /// target) and up to `after` messages with `id > target_message_id`.
+    pub fn load_session_messages_around(
+        &self,
+        session_id: &str,
+        target_message_id: i64,
+        before: u32,
+        after: u32,
+    ) -> Result<(Vec<SessionMessage>, u32)> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+
+        let total: u32 = conn.query_row(
+            "SELECT COUNT(*) FROM messages WHERE session_id = ?1",
+            params![session_id],
+            |row| row.get(0),
+        )?;
+
+        // Load `before` messages with id <= target (DESC, then reverse).
+        let mut before_stmt = conn.prepare(
+            "SELECT id, session_id, role, content, timestamp,
+                    attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
+                    tool_call_id, tool_name, tool_arguments, tool_result,
+                    tool_duration_ms, is_error, thinking, ttft_ms
+             FROM messages
+             WHERE session_id = ?1 AND id <= ?2
+             ORDER BY id DESC
+             LIMIT ?3",
+        )?;
+        let before_rows = before_stmt.query_map(
+            params![session_id, target_message_id, before],
+            |row| Self::row_to_session_message(row),
+        )?;
+        let mut before_msgs = Vec::new();
+        for row in before_rows {
+            before_msgs.push(row?);
+        }
+        before_msgs.reverse();
+
+        // Load `after` messages with id > target (ASC).
+        let mut after_stmt = conn.prepare(
+            "SELECT id, session_id, role, content, timestamp,
+                    attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
+                    tool_call_id, tool_name, tool_arguments, tool_result,
+                    tool_duration_ms, is_error, thinking, ttft_ms
+             FROM messages
+             WHERE session_id = ?1 AND id > ?2
+             ORDER BY id ASC
+             LIMIT ?3",
+        )?;
+        let after_rows = after_stmt.query_map(
+            params![session_id, target_message_id, after],
+            |row| Self::row_to_session_message(row),
+        )?;
+        let mut after_msgs = Vec::new();
+        for row in after_rows {
+            after_msgs.push(row?);
+        }
+
+        let mut messages = before_msgs;
+        messages.extend(after_msgs);
+        Ok((messages, total))
     }
 }
 
@@ -1016,14 +1124,50 @@ fn sanitize_fts_query(query: &str) -> String {
     tokens.join(" ")
 }
 
+/// Filter for `search_messages` by session type.
+#[derive(Debug, Clone, Copy)]
+pub enum SessionTypeFilter {
+    /// Regular chat session (not cron / subagent / channel).
+    Regular,
+    /// Cron-triggered session (`is_cron = 1`).
+    Cron,
+    /// Sub-agent session (`parent_session_id IS NOT NULL`).
+    Subagent,
+    /// IM channel session (present in `channel_conversations`).
+    Channel,
+}
+
+impl SessionTypeFilter {
+    /// Parse a string (as received from commands / HTTP) into a filter.
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.to_ascii_lowercase().as_str() {
+            "regular" | "session" => Some(Self::Regular),
+            "cron" => Some(Self::Cron),
+            "subagent" | "sub_agent" => Some(Self::Subagent),
+            "channel" => Some(Self::Channel),
+            _ => None,
+        }
+    }
+}
+
 /// Result from searching session message history.
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionSearchResult {
+    pub message_id: i64,
     pub session_id: String,
     pub session_title: Option<String>,
+    pub agent_id: String,
     pub message_role: String,
+    /// Context snippet containing `<mark>...</mark>` around matched terms.
     pub content_snippet: String,
     pub timestamp: String,
     pub relevance_rank: f64,
+    pub is_cron: bool,
+    pub parent_session_id: Option<String>,
+    /// Source channel plugin id (e.g. "telegram", "wechat"), when this session
+    /// originates from an IM channel.
+    pub channel_type: Option<String>,
+    /// IM channel chat kind (e.g. "dm", "group") when applicable.
+    pub channel_chat_type: Option<String>,
 }

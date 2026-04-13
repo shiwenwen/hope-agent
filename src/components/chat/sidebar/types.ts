@@ -7,7 +7,7 @@ export interface ChatSidebarProps {
   loadingSessionIds: Set<string>
   panelWidth: number
   onPanelWidthChange: (width: number) => void
-  onSwitchSession: (sessionId: string) => void
+  onSwitchSession: (sessionId: string, opts?: { targetMessageId?: number }) => void
   onNewChat: (agentId: string) => void
   onDeleteSession: (sessionId: string) => void
   onEditAgent?: (agentId: string) => void

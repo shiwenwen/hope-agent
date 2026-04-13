@@ -90,6 +90,11 @@ fn build_router_with_cors(
             "/sessions/{id}/compact",
             post(routes::sessions::compact_context_now),
         )
+        .route("/sessions/search", get(routes::sessions::search_sessions))
+        .route(
+            "/sessions/{id}/messages/around",
+            get(routes::sessions::get_session_messages_around),
+        )
         // Chat
         .route("/chat", post(routes::chat::chat))
         .route("/chat/stop", post(routes::chat::stop_chat))

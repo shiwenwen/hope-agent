@@ -41,6 +41,13 @@ export interface UseChatSessionReturn {
   loadingMore: boolean
   hasMoreSessions: boolean
   loadingMoreSessions: boolean
+  /**
+   * When set (from a search result click), MessageList should scroll to the
+   * message with this `id` and briefly highlight it. Must be reset to `null`
+   * by the consumer after the scroll has been applied.
+   */
+  pendingScrollTarget: number | null
+  clearPendingScrollTarget: () => void
 
   // Refs
   sessionCacheRef: React.MutableRefObject<Map<string, Message[]>>
@@ -51,7 +58,10 @@ export interface UseChatSessionReturn {
   // Handlers
   reloadSessions: () => Promise<void>
   reloadAgents: () => Promise<void>
-  handleSwitchSession: (sessionId: string) => Promise<void>
+  handleSwitchSession: (
+    sessionId: string,
+    opts?: { targetMessageId?: number },
+  ) => Promise<void>
   handleNewChat: (agentId: string) => Promise<void>
   handleDeleteSession: (sessionId: string) => Promise<void>
   handleLoadMore: () => Promise<void>
@@ -89,6 +99,8 @@ export function useChatSession({
   const [agentName, setAgentName] = useState("")
   const [loading, setLoading] = useState(false)
   const [loadingSessionIds, setLoadingSessionIds] = useState<Set<string>>(new Set())
+  const [pendingScrollTarget, setPendingScrollTarget] = useState<number | null>(null)
+  const clearPendingScrollTarget = useCallback(() => setPendingScrollTarget(null), [])
 
   const currentSessionIdRef = useRef<string | null>(null)
   const switchVersionRef = useRef(0)
@@ -224,28 +236,46 @@ export function useChatSession({
 
   // Switch to an existing session
   const handleSwitchSession = useCallback(
-    async (sessionId: string) => {
-      if (!sessionId || sessionId === currentSessionIdRef.current) return
+    async (sessionId: string, opts?: { targetMessageId?: number }) => {
+      const targetMessageId = opts?.targetMessageId
+      // Always reload when jumping to a specific message; otherwise skip if
+      // already viewing the same session.
+      if (!sessionId) return
+      if (targetMessageId === undefined && sessionId === currentSessionIdRef.current) {
+        return
+      }
 
       const version = ++switchVersionRef.current
 
-      // Save current session's messages to cache
-      // (cache is already maintained by updateSessionMessages)
-
-      // If target session is in cache (e.g. still loading), restore from cache
+      // If target session is in cache and we don't need to jump to a specific
+      // message, restore immediately.
       const cached = sessionCacheRef.current.get(sessionId)
-      if (cached) {
+      if (targetMessageId === undefined && cached) {
         setMessages(cached)
         setHasMore(hasMoreRef.current.get(sessionId) ?? false)
         setLoading(loadingSessionsRef.current.has(sessionId))
         setCurrentSessionId(sessionId)
       } else {
-        // Load latest PAGE_SIZE messages from DB
         try {
-          const [msgs, total] = await getTransport().call<[SessionMessage[], number]>(
-            "load_session_messages_latest_cmd",
-            { sessionId, limit: PAGE_SIZE },
-          )
+          let msgs: SessionMessage[]
+          let total: number
+          if (targetMessageId !== undefined) {
+            // Load a window around the target message for jump-to-message.
+            ;[msgs, total] = await getTransport().call<[SessionMessage[], number]>(
+              "load_session_messages_around_cmd",
+              {
+                sessionId,
+                targetMessageId,
+                before: 40,
+                after: 20,
+              },
+            )
+          } else {
+            ;[msgs, total] = await getTransport().call<[SessionMessage[], number]>(
+              "load_session_messages_latest_cmd",
+              { sessionId, limit: PAGE_SIZE },
+            )
+          }
           const [currentSessions] = await getTransport().call<[SessionMeta[], number]>("list_sessions_cmd", {})
           const sessionMeta = currentSessions.find((s) => s.id === sessionId)
           const parentSession = sessionMeta?.parentSessionId
@@ -270,6 +300,10 @@ export function useChatSession({
           })
           return
         }
+      }
+
+      if (targetMessageId !== undefined) {
+        setPendingScrollTarget(targetMessageId)
       }
 
       if (switchVersionRef.current !== version) return // stale switch
@@ -437,6 +471,8 @@ export function useChatSession({
     loadingMore,
     hasMoreSessions,
     loadingMoreSessions,
+    pendingScrollTarget,
+    clearPendingScrollTarget,
     sessionCacheRef,
     loadingSessionsRef,
     hasMoreRef,

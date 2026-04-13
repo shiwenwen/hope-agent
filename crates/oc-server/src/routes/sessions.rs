@@ -20,6 +20,24 @@ pub struct ListSessionsQuery {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SearchSessionsQuery {
+    pub query: String,
+    pub agent_id: Option<String>,
+    /// Comma-separated list of session types (`regular,cron,subagent,channel`).
+    pub types: Option<String>,
+    pub limit: Option<u32>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MessagesAroundQuery {
+    pub target_message_id: i64,
+    pub before: Option<u32>,
+    pub after: Option<u32>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateSessionBody {
     pub agent_id: Option<String>,
 }
@@ -89,6 +107,43 @@ pub async fn rename_session(
 ) -> Result<Json<Value>, AppError> {
     ctx.session_db.update_session_title(&id, &body.title)?;
     Ok(Json(json!({ "updated": true })))
+}
+
+/// `GET /api/sessions/search` — full-text search message history.
+pub async fn search_sessions(
+    State(ctx): State<Arc<AppContext>>,
+    Query(q): Query<SearchSessionsQuery>,
+) -> Result<Json<Vec<oc_core::session::SessionSearchResult>>, AppError> {
+    let limit = q.limit.unwrap_or(80) as usize;
+
+    let parsed_types: Option<Vec<oc_core::session::SessionTypeFilter>> = q.types.as_ref().map(|s| {
+        s.split(',')
+            .map(|t| t.trim())
+            .filter(|t| !t.is_empty())
+            .filter_map(oc_core::session::SessionTypeFilter::parse)
+            .collect()
+    });
+    let type_slice = parsed_types.as_deref();
+
+    let results = ctx
+        .session_db
+        .search_messages(&q.query, q.agent_id.as_deref(), type_slice, limit)?;
+    Ok(Json(results))
+}
+
+/// `GET /api/sessions/:id/messages/around?targetMessageId=N&before=40&after=20`
+/// — load a window of messages centred on a target id.
+pub async fn get_session_messages_around(
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+    Query(q): Query<MessagesAroundQuery>,
+) -> Result<Json<Value>, AppError> {
+    let before = q.before.unwrap_or(40);
+    let after = q.after.unwrap_or(20);
+    let (messages, total) =
+        ctx.session_db
+            .load_session_messages_around(&id, q.target_message_id, before, after)?;
+    Ok(Json(json!({ "messages": messages, "total": total })))
 }
 
 /// `GET /api/sessions/:id/messages?limit=N` — load latest messages for a session.
