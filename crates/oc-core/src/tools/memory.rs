@@ -164,7 +164,7 @@ pub(crate) async fn tool_recall_memory(args: &Value) -> Result<String> {
         if include_history {
             if let Some(session_db) = crate::get_session_db() {
                 let history_results = session_db
-                    .search_messages(&query_text_clone, agent_id_clone.as_deref(), 5)
+                    .search_messages(&query_text_clone, agent_id_clone.as_deref(), None, 5)
                     .unwrap_or_default();
 
                 if !history_results.is_empty() {
