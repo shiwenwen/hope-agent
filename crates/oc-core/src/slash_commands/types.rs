@@ -114,6 +114,55 @@ pub enum CommandAction {
     RecapCard { report_id: String },
     /// Navigate to a specific Dashboard tab (e.g. `"recap"`, `"insights"`).
     OpenDashboardTab { tab: String },
+    /// Show a structured context-window breakdown card.
+    /// Desktop: renders a segmented bar + per-category detail card.
+    /// IM channels: falls back to `CommandResult.content` markdown.
+    ShowContextBreakdown { breakdown: ContextBreakdown },
+}
+
+/// Structured per-category context window usage snapshot.
+/// All token counts use the char/4 heuristic consistent with
+/// `context_compact::estimate_tokens`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextBreakdown {
+    /// Maximum context window for the active model (tokens).
+    pub context_window: u32,
+    /// Reserved output budget (tokens).
+    pub max_output_tokens: u32,
+    /// Base system prompt excluding memory/skills/tool-descriptions sections.
+    pub system_prompt_tokens: u32,
+    /// JSON tool schemas sent to the API (`tools:` array).
+    pub tool_schemas_tokens: u32,
+    /// Tool descriptions embedded inside the system prompt.
+    pub tool_descriptions_tokens: u32,
+    /// Memory section injected into the system prompt (core + SQLite + guidelines).
+    pub memory_tokens: u32,
+    /// Skill descriptions injected into the system prompt.
+    pub skill_tokens: u32,
+    /// Conversation history (user/assistant messages + tool results).
+    pub messages_tokens: u32,
+    /// Total used (sum of the categories above + reserved output).
+    pub used_total: u32,
+    /// Free space (context_window - used_total). Saturates at 0.
+    pub free_space: u32,
+    /// Usage percentage (0.0–100.0).
+    pub usage_pct: f32,
+    /// Tier of the most recent compaction (None = never compacted this session).
+    pub last_compact_tier: Option<u8>,
+    /// Seconds since the most recent Tier 2+ compaction.
+    pub last_compact_secs_ago: Option<u64>,
+    /// Seconds until the next Tier 2+ compaction is allowed (cache TTL throttle).
+    /// `Some(0)` or `None` means no cooldown.
+    pub next_compact_allowed_in_secs: Option<u64>,
+    /// Active model display label (e.g. "claude-sonnet-4-6").
+    pub active_model: String,
+    /// Active model provider display name.
+    pub active_provider: String,
+    /// Active agent ID.
+    pub active_agent: String,
+    /// Number of messages in the active conversation history.
+    pub message_count: u32,
 }
 
 impl SlashCommandDef {
@@ -148,6 +197,7 @@ impl SlashCommandDef {
             "plan" => "Enter/exit plan mode",
             "prompts" => "View system prompt",
             "recap" => "Generate a deep analysis recap report",
+            "context" => "Show context window breakdown",
             _ => "Command",
         }
         .to_string()

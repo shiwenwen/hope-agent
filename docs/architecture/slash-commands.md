@@ -19,6 +19,8 @@ crates/oc-core/src/slash_commands/
     ├── memory.rs   # 记忆类命令
     ├── agent.rs    # Agent 类命令
     ├── plan.rs     # 计划模式命令
+    ├── recap.rs    # /recap 深度复盘
+    ├── context.rs  # /context 上下文窗口明细
     └── utility.rs  # 工具类命令
 ```
 
@@ -149,6 +151,9 @@ sequenceDiagram
 | `/usage` | 无 | 显示当前会话的 Token 用量统计（输入/输出/总数/轮数） | `DisplayOnly` |
 | `/permission` | `<mode>` 必需 | 设置工具权限模式 | `SetToolPermission` |
 | `/search` | `<query>` 必需 | 将搜索请求传递给 LLM 处理 | `PassThrough` |
+| `/prompts` | 无 | 查看当前 Agent 的完整 system prompt | `ViewSystemPrompt` |
+| `/context` | 无 | 查看上下文窗口使用明细（分类 token 占比、压缩状态） | `ShowContextBreakdown` |
+| `/recap` | `[--full\|--range=7d\|--range=30d]` | 生成深度复盘报告（后台流式），`--full` 跳转 Dashboard | `RecapCard` 或 `OpenDashboardTab` |
 
 **`/permission` 可选值**：
 
@@ -201,6 +206,32 @@ stateDiagram-v2
 
 ---
 
+## `/context` 上下文窗口明细
+
+`/context` 计算当前会话的上下文窗口占用，按类别拆出 token 数与占比，供用户判断是否需要 `/compact`。桌面端返回结构化 `ShowContextBreakdown { breakdown }` action，由 [`ContextBreakdownCard`](../../src/components/chat/context-view/ContextBreakdownCard.tsx) 渲染为分段条形图 + 分类明细 + 一键 Compact/System Prompt 按钮；IM 渠道降级为 `content` 字段的 Unicode 条形图 + 分类列表 markdown。
+
+**分类维度**（全部使用 `context_compact::estimation` 的 `char / 4` 口径，与实际 API 计费可能相差 10–20%）：
+
+| 类别 | 含义 | 计算方式 |
+|---|---|---|
+| System prompt | 基础系统提示词（扣除 memory/skill/tool-descriptions 三段后） | [`system_prompt::compute_breakdown`](../../crates/oc-core/src/system_prompt/breakdown.rs) 的总 char − 其他 3 段 |
+| Tool schemas | JSON 工具 schema（API 请求的 `tools:` 数组） | `AssistantAgent::build_tool_schemas(Anthropic)` 序列化后 char 数 |
+| Tool descriptions | system prompt 中的工具说明段（`# Available Tools`） | `build_tools_section(filter)` 产物 char |
+| Memory | 注入的记忆段（Core Memory + SQLite 候选 + Guidelines） | `build(…, memory_ctx, …)` − `build(…, None, …)` 的 diff |
+| Skills | system prompt 中的技能说明段 | `build_skills_section(filter, env_check)` 产物 char |
+| Messages | 会话历史（含 tool_use/tool_result） | `AssistantAgent::get_conversation_history()` 全量 JSON 序列化 char |
+| Reserved output | 预留输出 budget | 常量 `16_384`，对齐 `run_compaction` |
+| Free space | 剩余空间 | `context_window − sum(上述)`，饱和到 0 |
+
+**压缩状态**：读取 `AssistantAgent.last_tier2_compaction_at` 和 `CompactConfig.cache_ttl_secs` 算出 `last_compact_secs_ago` 与 `next_compact_allowed_in_secs`，卡片内显示倒计时并在 cache TTL 未过期时禁用 "Compact now" 按钮（与 `agent/context.rs::run_compaction` 的节流策略一致）。
+
+**入口**：
+- 聊天输入框 `/context`（与其他命令同构）
+- 右上角「会话状态」弹层 → 「📊 View context」按钮 → 调 `execute_slash_command` 后把 action 交给 `ChatScreen.handleCommandAction` 统一分发
+- IM 渠道（Telegram bot menu 通过 `description_en()` 自动同步）
+
+---
+
 ## CommandAction 类型一览
 
 `CommandResult.action` 字段告诉前端需要执行什么副作用：
@@ -219,6 +250,9 @@ stateDiagram-v2
 | `StopStream` | 停止流式输出 | `/stop` | ✅ 通过 `ChannelCancelRegistry` 取消活跃流 | — |
 | `Compact` | 触发上下文压缩 | `/compact` | ✅ 调用 `compact_context_now_core` 执行压缩 | — |
 | `ViewSystemPrompt` | 查看系统提示词 | `/prompts` | ✅ 构建完整 system prompt 作为回复返回 | — |
+| `ShowContextBreakdown` | 显示上下文窗口分类占比卡片 | `/context` | ⚡ 降级为 `content` 文本（Unicode 条形 + 分类列表 + 压缩状态） | — |
+| `RecapCard` | 渲染 `/recap` 流式生成卡片 | `/recap [--range=Nd]` | ⚡ 降级为提示文本（IM 不订阅 `recap_progress` 事件） | `recap_progress` |
+| `OpenDashboardTab` | 切换到指定 Dashboard Tab | `/recap --full` | ⚡ 降级为提示文本（IM 无 Dashboard UI） | — |
 | `EnterPlanMode` | 进入计划模式 | `/plan` | ✅ DB 状态已持久化 + 回复确认 | `slash:plan_changed` |
 | `ExitPlanMode` | 退出计划模式 | `/plan exit` | ✅ DB 状态已持久化 + Git 检查点清理 | `slash:plan_changed` |
 | `ApprovePlan` | 批准并开始执行计划 | `/plan approve` | ✅ DB 状态已持久化 + Git 检查点创建 | `slash:plan_changed` |
@@ -294,3 +328,6 @@ Channel 对有 `arg_options` 的命令提供 inline keyboard 按钮：
 | `/usage` | Utility | 无 | 是 | Token 用量 |
 | `/permission` | Utility | `<mode>` | 否 | 工具权限模式 |
 | `/search` | Utility | `<query>` | 否 | 搜索网络 |
+| `/prompts` | Utility | 无 | 否 | 查看系统提示词 |
+| `/context` | Utility | 无 | 是 | 上下文窗口占用明细 |
+| `/recap` | Utility | `[--full\|--range=Nd]` | 否 | 生成深度复盘报告 |

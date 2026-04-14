@@ -13,6 +13,7 @@ import MessageUrlPreviews from "./MessageUrlPreviews"
 import { AssistantContentBlocks, AssistantLegacyContent } from "./MessageContent"
 import type { Message, AgentSummaryForSidebar } from "@/types/chat"
 import ModelPickerCard from "@/components/chat/ModelPickerCard"
+import ContextBreakdownCard from "@/components/chat/context-view/ContextBreakdownCard"
 
 export interface MessageBubbleProps {
   msg: Message
@@ -32,6 +33,8 @@ export interface MessageBubbleProps {
   onOpenPlanPanel?: () => void
   // Model switching
   onSwitchModel?: (providerId: string, modelId: string) => void
+  // View system prompt (triggered from context breakdown card)
+  onViewSystemPrompt?: () => void
 }
 
 function CronTriggerBubble({ msg, t }: { msg: Message; t: (key: string) => string }) {
@@ -86,6 +89,7 @@ function MessageBubbleInner({
   sessionId,
   onOpenPlanPanel,
   onSwitchModel,
+  onViewSystemPrompt,
 }: MessageBubbleProps) {
   const { t } = useTranslation()
   const [detailsIndex, setDetailsIndex] = useState<number | null>(null)
@@ -107,6 +111,15 @@ function MessageBubbleInner({
         <ModelPickerCard
           data={msg.modelPickerData}
           onSelect={(providerId, modelId) => onSwitchModel?.(providerId, modelId)}
+        />
+      )
+    }
+    // Context window breakdown card
+    if (msg.contextBreakdownData) {
+      return (
+        <ContextBreakdownCard
+          data={msg.contextBreakdownData}
+          onViewSystemPrompt={onViewSystemPrompt}
         />
       )
     }

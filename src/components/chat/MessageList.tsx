@@ -39,6 +39,7 @@ interface MessageListProps {
   onResumePlan?: () => void
   planSubagentRunning?: boolean
   onSwitchModel?: (providerId: string, modelId: string) => void
+  onViewSystemPrompt?: () => void
 }
 
 export default function MessageList({
@@ -65,6 +66,7 @@ export default function MessageList({
   onResumePlan,
   planSubagentRunning,
   onSwitchModel,
+  onViewSystemPrompt,
 }: MessageListProps) {
   const { t } = useTranslation()
   const [hoveredMsgIndex, setHoveredMsgIndex] = useState<number | null>(null)
@@ -187,6 +189,7 @@ export default function MessageList({
             sessionId={sessionId}
             onOpenPlanPanel={onOpenPlanPanel}
             onSwitchModel={onSwitchModel}
+            onViewSystemPrompt={onViewSystemPrompt}
           />
         </div>
       ))}

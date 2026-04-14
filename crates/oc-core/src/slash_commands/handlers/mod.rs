@@ -1,4 +1,5 @@
 pub mod agent;
+pub mod context;
 pub mod memory;
 pub mod model;
 pub mod plan;
@@ -81,6 +82,7 @@ pub async fn dispatch(
         }
         "search" => utility::handle_search(args),
         "prompts" => Ok(utility::handle_prompts()),
+        "context" => context::handle_context(state, session_id, agent_id, args).await,
 
         _ => {
             // Check if it matches a user-invocable skill command

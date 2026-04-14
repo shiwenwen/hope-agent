@@ -35,6 +35,29 @@ export type CommandAction =
   | { type: "pausePlan" }
   | { type: "resumePlan" }
   | { type: "viewSystemPrompt" }
+  | { type: "showContextBreakdown"; breakdown: ContextBreakdown }
+
+/** Per-category context window usage snapshot (mirrors Rust `ContextBreakdown`). */
+export interface ContextBreakdown {
+  contextWindow: number
+  maxOutputTokens: number
+  systemPromptTokens: number
+  toolSchemasTokens: number
+  toolDescriptionsTokens: number
+  memoryTokens: number
+  skillTokens: number
+  messagesTokens: number
+  usedTotal: number
+  freeSpace: number
+  usagePct: number
+  lastCompactTier?: number | null
+  lastCompactSecsAgo?: number | null
+  nextCompactAllowedInSecs?: number | null
+  activeModel: string
+  activeProvider: string
+  activeAgent: string
+  messageCount: number
+}
 
 /** A model entry in the model picker card */
 export interface ModelPickerItem {

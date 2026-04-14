@@ -99,6 +99,7 @@
     "compactDone": "已压缩，节省 {{saved}} tokens，影响 {{affected}} 条消息",
     "compactNoChange": "当前上下文无需压缩",
     "compactFailed": "压缩失败",
+    "viewContext": "查看上下文",
     "toolPermission": "工具权限",
     "toolPermissionAuto": "自动决策",
     "toolPermissionAsk": "每次询问",
@@ -1491,6 +1492,7 @@
     "plan": { "description": "进入/退出计划模式" },
     "prompts": { "description": "查看系统提示词" },
     "recap": { "description": "生成深度复盘报告" },
+    "context": { "description": "查看上下文占用明细" },
     "categories": {
       "session": "会话",
       "model": "模型",
@@ -1582,6 +1584,24 @@
     "popOut": "独立窗口",
     "popOutActive": "已在独立窗口中打开",
     "reattach": "收回到面板"
+  },
+  "context": {
+    "title": "上下文窗口",
+    "used": "已用",
+    "systemPrompt": "系统提示词",
+    "toolSchemas": "工具 Schema",
+    "toolDescriptions": "工具说明",
+    "memory": "记忆",
+    "skills": "技能",
+    "messages": "消息",
+    "reservedOutput": "预留输出",
+    "freeSpace": "剩余空间",
+    "lastCompact": "上次压缩",
+    "ago": "前",
+    "compactAllowedIn": "下次压缩",
+    "cacheTtlProtection": "缓存 TTL 保护",
+    "viewSystemPrompt": "系统提示词",
+    "estimateNote": "估算值（按字符数÷4），可能与实际计费相差 10%–20%。"
   },
   "recap": {
     "generate": "生成",

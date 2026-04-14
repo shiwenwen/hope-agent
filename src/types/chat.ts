@@ -60,6 +60,8 @@ export interface Message {
     activeProviderId?: string
     activeModelId?: string
   }
+  /** Context window breakdown data for rendering the /context card */
+  contextBreakdownData?: import("@/components/chat/slash-commands/types").ContextBreakdown
   /** Database row ID, used for deduplication during streaming append */
   dbId?: number
   /** If true, this message is currently being streamed (channel streaming) */

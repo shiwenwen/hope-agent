@@ -233,6 +233,16 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
             description_raw: None,
         },
         SlashCommandDef {
+            name: "context".into(),
+            category: CommandCategory::Utility,
+            description_key: "slashCommands.context.description".into(),
+            has_args: false,
+            args_optional: false,
+            arg_placeholder: None,
+            arg_options: None,
+            description_raw: None,
+        },
+        SlashCommandDef {
             name: "recap".into(),
             category: CommandCategory::Utility,
             description_key: "slashCommands.recap.description".into(),

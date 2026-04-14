@@ -405,6 +405,16 @@ export default function ChatScreen({
         case "viewSystemPrompt":
           loadSystemPrompt()
           break
+        case "showContextBreakdown": {
+          const contextMsg: Message = {
+            role: "event",
+            content: "",
+            timestamp: new Date().toISOString(),
+            contextBreakdownData: action.breakdown,
+          }
+          session.setMessages((prev) => [...prev, contextMsg])
+          break
+        }
       }
     },
     [session, stream, handleModelChange, handleEffortChange, compacting, planMode, loadSystemPrompt], // eslint-disable-line react-hooks/exhaustive-deps
@@ -511,6 +521,7 @@ export default function ChatScreen({
           onRenameSession={handleRenameSession}
           onViewSystemPrompt={loadSystemPrompt}
           systemPromptLoading={systemPromptLoading}
+          onCommandAction={handleCommandAction}
         />
 
         <CrashRecoveryBanner />
@@ -543,6 +554,7 @@ export default function ChatScreen({
           onResumePlan={planMode.resumeExecution}
           planSubagentRunning={planMode.planSubagentRunning}
           onSwitchModel={(providerId, modelId) => handleModelChange(`${providerId}::${modelId}`)}
+          onViewSystemPrompt={loadSystemPrompt}
         />
 
         {/* Memory extraction toast */}

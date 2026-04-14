@@ -25,6 +25,12 @@ interface ChatTitleBarProps {
   onRenameSession?: (sessionId: string, title: string) => void
   onViewSystemPrompt?: () => void
   systemPromptLoading?: boolean
+  /**
+   * Dispatches a slash command action back to ChatScreen's handler.
+   * Used by the "View context" popover button to trigger `/context`
+   * without going through the text input.
+   */
+  onCommandAction?: (action: import("@/components/chat/slash-commands/types").CommandAction) => void
 }
 
 export default function ChatTitleBar({
@@ -43,6 +49,7 @@ export default function ChatTitleBar({
   onOpenAgentSettings,
   onViewSystemPrompt,
   systemPromptLoading,
+  onCommandAction,
 }: ChatTitleBarProps) {
   const { t } = useTranslation()
   const [showStatus, setShowStatus] = useState(false)
@@ -330,6 +337,31 @@ export default function ChatTitleBar({
                           {compacting ? t("chat.compacting") : t("chat.compactNow")}
                         </button>
                       )}
+                      {/* View context breakdown */}
+                      <button
+                        className="w-full mt-1 px-2 py-1 text-[11px] rounded-md border border-border/50 text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors flex items-center justify-center gap-1"
+                        onClick={async () => {
+                          try {
+                            const result = await getTransport().call<{
+                              content: string
+                              action?: import("@/components/chat/slash-commands/types").CommandAction
+                            }>("execute_slash_command", {
+                              sessionId: currentSessionId,
+                              agentId: currentAgentId,
+                              commandText: "/context",
+                            })
+                            setShowStatus(false)
+                            if (result.action) {
+                              onCommandAction?.(result.action)
+                            }
+                          } catch (e) {
+                            logger.error("ui", "ChatTitleBar::viewContext", "View context failed", e)
+                          }
+                        }}
+                      >
+                        <BarChart3 className="h-3 w-3" />
+                        {t("chat.viewContext", "View context")}
+                      </button>
                     </div>
                   )
                 })()}

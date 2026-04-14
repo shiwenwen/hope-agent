@@ -99,6 +99,7 @@
     "compactDone": "Compressed, saved {{saved}} tokens, {{affected}} messages affected",
     "compactNoChange": "Context does not need compression",
     "compactFailed": "Compression failed",
+    "viewContext": "View context",
     "toolPermission": "Tool Permission",
     "toolPermissionAuto": "Auto",
     "toolPermissionAsk": "Ask Every Time",
@@ -1491,6 +1492,7 @@
     "plan": { "description": "Enter/exit plan mode" },
     "prompts": { "description": "View system prompt" },
     "recap": { "description": "Generate a deep analysis recap report" },
+    "context": { "description": "Show context window breakdown" },
     "categories": {
       "session": "Session",
       "model": "Model",
@@ -1582,6 +1584,24 @@
     "popOut": "Pop Out",
     "popOutActive": "Opened in separate window",
     "reattach": "Back to Panel"
+  },
+  "context": {
+    "title": "Context window",
+    "used": "Used",
+    "systemPrompt": "System prompt",
+    "toolSchemas": "Tool schemas",
+    "toolDescriptions": "Tool descriptions",
+    "memory": "Memory",
+    "skills": "Skills",
+    "messages": "Messages",
+    "reservedOutput": "Reserved output",
+    "freeSpace": "Free space",
+    "lastCompact": "Last compact",
+    "ago": "ago",
+    "compactAllowedIn": "Next compact in",
+    "cacheTtlProtection": "cache TTL protection",
+    "viewSystemPrompt": "System prompt",
+    "estimateNote": "Estimated (char÷4); may differ from billed usage by 10–20%."
   },
   "recap": {
     "generate": "Generate",
