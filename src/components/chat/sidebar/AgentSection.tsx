@@ -2,7 +2,7 @@ import { useRef } from "react"
 import { convertFileSrc } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
-import { IconTip } from "@/components/ui/tooltip"
+import { IconTip, Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -76,13 +76,14 @@ export default function AgentSection({
             const isSelected = selectedAgentId === agent.id
             return (
               <ContextMenu key={agent.id}>
+                <Tooltip>
                 <ContextMenuTrigger asChild>
+                  <TooltipTrigger asChild>
                   <div
                     className={cn(
                       "flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs transition-colors truncate group/agent",
                       isSelected ? "bg-primary/10" : "hover:bg-secondary/60",
                     )}
-                    title={agent.description || agent.name}
                   >
                     {/* Clickable area: single click = toggle filter, double click = new chat */}
                     <button
@@ -152,7 +153,10 @@ export default function AgentSection({
                       </button>
                     </IconTip>
                   </div>
+                  </TooltipTrigger>
                 </ContextMenuTrigger>
+                <TooltipContent>{agent.description || agent.name}</TooltipContent>
+                </Tooltip>
                 {onEditAgent && (
                   <ContextMenuContent>
                     <ContextMenuItem onClick={() => onEditAgent(agent.id)}>
