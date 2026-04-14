@@ -11,6 +11,7 @@ pub fn get_task_create_tool() -> ToolDefinition {
         internal: true,
         deferred: false,
         always_load: false,
+        async_capable: false,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -32,6 +33,7 @@ pub fn get_task_update_tool() -> ToolDefinition {
         internal: true,
         deferred: false,
         always_load: false,
+        async_capable: false,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -59,6 +61,7 @@ pub fn get_task_list_tool() -> ToolDefinition {
         internal: true,
         deferred: false,
         always_load: false,
+        async_capable: false,
         parameters: json!({
             "type": "object",
             "properties": {},

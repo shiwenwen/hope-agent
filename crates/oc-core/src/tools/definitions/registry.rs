@@ -8,7 +8,7 @@ use super::super::{
     TOOL_WEB_SEARCH,
 };
 use super::core_tools::get_available_tools;
-use super::extra_tools::{get_canvas_tool, get_notification_tool};
+use super::extra_tools::{get_canvas_tool, get_notification_tool, get_web_search_tool};
 use super::special_tools::{get_acp_spawn_tool, get_image_generate_tool, get_subagent_tool};
 use super::types::ToolDefinition;
 
@@ -63,12 +63,42 @@ static INTERNAL_TOOL_NAMES: LazyLock<HashSet<String>> = LazyLock::new(|| {
             set.insert(t.name);
         }
     }
+    // job_status is auto-internal: querying job state never requires approval.
+    set.insert("job_status".to_string());
     set
 });
 
 /// Check if a tool is an internal capability tool (never requires approval).
 pub fn is_internal_tool(name: &str) -> bool {
     INTERNAL_TOOL_NAMES.contains(name)
+}
+
+/// Cached set of async-capable tool names — derived from ToolDefinition.async_capable
+/// on both core and conditionally-injected tools.
+static ASYNC_CAPABLE_TOOL_NAMES: LazyLock<HashSet<String>> = LazyLock::new(|| {
+    let mut set: HashSet<String> = get_available_tools()
+        .into_iter()
+        .filter(|t| t.async_capable)
+        .map(|t| t.name)
+        .collect();
+    for t in [
+        get_web_search_tool(),
+        get_image_generate_tool(),
+        get_notification_tool(),
+        get_subagent_tool(),
+        get_canvas_tool(),
+        get_acp_spawn_tool(),
+    ] {
+        if t.async_capable {
+            set.insert(t.name);
+        }
+    }
+    set
+});
+
+/// Check if a tool is async-capable (supports `run_in_background` / auto-background).
+pub fn is_async_capable(name: &str) -> bool {
+    ASYNC_CAPABLE_TOOL_NAMES.contains(name)
 }
 
 /// Returns all tool schemas formatted for the given provider

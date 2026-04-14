@@ -8,17 +8,21 @@
 
 ## 工具定义
 
-每个工具由 `ToolDefinition` 结构体定义（`tools/definitions.rs`）：
+每个工具由 `ToolDefinition` 结构体定义（`tools/definitions/types.rs`）：
 
 ```rust
 pub struct ToolDefinition {
     pub name: String,
     pub description: String,
-    pub parameters: Value,       // JSON Schema
-    pub internal: bool,          // 内部工具免审批
-    pub concurrent_safe: bool,   // 并发安全标记
+    pub parameters: Value,    // JSON Schema
+    pub internal: bool,       // 内部工具免审批
+    pub deferred: bool,       // 延迟加载（默认不进 schema，靠 tool_search 发现）
+    pub always_load: bool,    // deferred 的反义豁免
+    pub async_capable: bool,  // 可被 detach 成后台 job
 }
 ```
+
+`concurrent_safe` 不在结构体上，而是由 `registry::is_concurrent_safe()` 查一份硬编码 `CONCURRENT_SAFE_TOOL_NAMES` 集合。`async_capable` 为 `true` 的工具，schema 在生成时会自动注入一个 `run_in_background?: boolean` 参数（见下文“异步 Tool 执行”）。
 
 ### 并发安全标记
 
@@ -48,13 +52,14 @@ pub struct ToolDefinition {
 - **deferred**：开启延迟工具加载时默认不发送给 LLM，需通过 `tool_search` 元工具按需发现
 - **internal**：`is_internal_tool()` 返回 true，**永不弹审批**（条件注入时依然遵守 Agent 权限过滤）
 - **concurrent_safe**：同一轮 tool_call 可与其他安全工具并行执行（见上一节表格）
+- **async_capable**：支持 `run_in_background: true` 参数把整轮调用 detach 成后台 job，详见 [异步 Tool 执行](#异步-tool-执行async_capable) 小节
 - **条件注入**：只有在对应能力开关/上下文满足时才加入 tool schema
 
 ### 1. Shell 执行与进程管理
 
 | 工具 | 类别 | 标记 | 说明 |
 |------|------|------|------|
-| `exec` | Shell | always_load | 执行 shell 命令，返回 stdout/stderr。参数：`command` (必填)、`cwd`、`timeout`（秒，默认 1800，上限 7200）、`env`、`background`（立即后台化并返回 session_id）、`yield_ms`（后台化前的前台等待时间，默认 10000ms）、`pty`（伪终端）、`sandbox`（Docker 沙箱）。有独立的命令级审批流程（见 exec 流程图）。 |
+| `exec` | Shell | always_load, **async_capable** | 执行 shell 命令，返回 stdout/stderr。参数：`command` (必填)、`cwd`、`timeout`（秒，默认 1800，上限 7200）、`env`、`background`（exec 自身的 PTY 后台会话）、`yield_ms`、`pty`、`sandbox`（Docker 沙箱）、`run_in_background`（detach 整轮 tool call 成 async job，与 `background` 互斥语义见下文）。有独立的命令级审批流程（见 exec 流程图）。 |
 | `process` | Shell | always_load | 管理 `exec` 创建的后台会话。`action`：`list` / `poll`（按 timeout 等待）/ `log`（含 offset/limit 分页）/ `write`（向 stdin 写入）/ `kill` / `clear` / `remove`。除 `list` 外均需 `session_id`。 |
 
 ### 2. 文件系统
@@ -74,7 +79,7 @@ pub struct ToolDefinition {
 | 工具 | 标记 | 说明 |
 |------|------|------|
 | `web_fetch` | deferred, concurrent_safe | 抓取 URL 并用 Mozilla Readability 提取正文。`extract_mode`：`markdown`（默认，保留链接/标题/列表）或 `text`。`max_chars` 受服务器端上限约束。 |
-| `web_search` | 条件注入, concurrent_safe | 网络搜索（需在设置中启用 Web Search）。参数：`query` (必填)、`count`、`country`（ISO 3166-1 alpha-2）、`language`（ISO 639-1）、`freshness`（`day`/`week`/`month`/`year`）。不同 provider（Brave / SearXNG / Perplexity / Google / Tavily）支持的过滤参数不同。 |
+| `web_search` | 条件注入, concurrent_safe, **async_capable** | 网络搜索（需在设置中启用 Web Search）。参数：`query` (必填)、`count`、`country`（ISO 3166-1 alpha-2）、`language`（ISO 639-1）、`freshness`（`day`/`week`/`month`/`year`）、`run_in_background`。不同 provider（Brave / SearXNG / Perplexity / Google / Tavily）支持的过滤参数不同。 |
 
 ### 4. 记忆系统
 
@@ -107,7 +112,7 @@ pub struct ToolDefinition {
 |------|------|------|
 | `image` | deferred, internal, concurrent_safe | 图像视觉分析。单图 shorthand：`path` 或 `url`；多图走 `images: [{type, ...}]`（最多 10 张，type 可为 `file`/`url`/`clipboard`/`screenshot`，screenshot 可指定 `monitor`）。支持 PNG/JPEG/GIF/WebP/BMP/TIFF，自动缩放过大图片，原始像素直接送模型。`prompt` 描述分析意图。 |
 | `pdf` | deferred, internal, concurrent_safe | PDF 文本提取或视觉解析。`mode`：`auto`（默认，优先文本提取，扫描件自动回退 vision）/ `text` / `vision`。支持 `path`/`url` 单文件或 `pdfs` 数组（默认最多 5，上限 10）。`pages` 支持 `1-5,7,10-12` 语法，`max_chars` 控制文本模式输出长度。 |
-| `image_generate` | 条件注入 | 文生图 / 图生图。`action`：`generate`（默认）/ `list`（列出已启用 provider 与能力）。参数（随启用 provider 动态）：`prompt`、`image`/`images`（参考图）、`size`、`aspectRatio`、`resolution`（`1K`/`2K`/`4K`）、`n`、`model`。默认 `auto`，按优先级顺序失败自动降级。图片落盘并附到消息。 |
+| `image_generate` | 条件注入, **async_capable** | 文生图 / 图生图。`action`：`generate`（默认）/ `list`（列出已启用 provider 与能力）。参数（随启用 provider 动态）：`prompt`、`image`/`images`（参考图）、`size`、`aspectRatio`、`resolution`（`1K`/`2K`/`4K`）、`n`、`model`、`run_in_background`。默认 `auto`，按优先级顺序失败自动降级。图片落盘并附到消息。 |
 
 ### 8. 会话与跨会话通信
 
@@ -170,6 +175,7 @@ pub struct ToolDefinition {
 | 工具 | 标记 | 说明 |
 |------|------|------|
 | `tool_search` | always_load, internal | 延迟工具发现（仅 `deferredTools.enabled` 时启用）。`query`：`select:name1,name2` 精确选取或关键词模糊检索。`max_results` 默认 5，上限 20。返回 deferred 工具完整 schema 以便后续直接调用。 |
+| `job_status` | always_load, internal | 查询/等待 async tool job。参数：`job_id`（必填，对应 async-capable 工具返回的 synthetic id）、`block`（默认 false 即时快照；true 阻塞至终态）、`timeout_ms`（默认 60000，上限 600000）。阻塞模式下 `tokio::select!` 同时监听 EventBus `async_tool_job:completed` 事件和 200ms 兜底轮询，命中后从独立的 `async_jobs.db` 读出结果预览/磁盘路径/错误。仅当 `asyncTools.enabled = true` 时注入。 |
 
 ---
 
@@ -185,7 +191,207 @@ flowchart TD
     F --> G["下一轮 API 调用（或退出 loop）"]
 ```
 
-每个工具执行都通过 `tokio::select!` 与 cancel flag 竞争，支持用户随时取消。
+每个工具执行都通过 `tokio::select!` 与 cancel flag 竞争，支持用户随时取消。`async_capable` 工具调用进入 `execute_tool_with_context` 后会先经过下文的“异步决策”三道闸；显式后台或自动后台化时**会立即把 synthetic `{job_id, status: "started"}` 当作合法 tool_result 写回**，对话不阻塞继续推进，真实结果走异步注入回流。
+
+---
+
+## 异步 Tool 执行（async_capable）
+
+长耗时工具（`exec` / `web_search` / `image_generate`）支持把整轮 tool call detach 成后台 job，立即返回 synthetic 结果，让 LLM 可以继续推进对话；真实结果完成后通过会话注入回流，模型靠 `job_id` 关联回去。这条机制完全不改 Anthropic / OpenAI 的 tool_use ↔ tool_result 配对协议，只是把"真实输出"和"配对响应"在时间上解耦。
+
+### 决策三道闸
+
+`tools/execution.rs:decide_async_path()` 在通过可见性 / 审批 / Plan-mode 路径门后立即决策。`bypass_async_dispatch=true` 的 ctx（递归再入路径）整段跳过，保证不会无限套娃。
+
+```mermaid
+flowchart TD
+    Start([工具调用通过审批 + 路径门]) --> CheckBypass{ctx.bypass_async_dispatch?}
+    CheckBypass -- true --> SyncPath[Sync 同步分发<br/><small>auto-bg 内层 / explicit-bg 内层</small>]
+    CheckBypass -- false --> CheckCap{is_async_capable name?}
+    CheckCap -- 否 --> SyncPath
+    CheckCap -- 是 --> CheckEnabled{config.asyncTools.enabled?}
+    CheckEnabled -- 否 --> SyncPath
+    CheckEnabled -- 是 --> CheckPolicy{Agent async_tool_policy}
+    CheckPolicy -- never-background --> SyncPath
+    CheckPolicy -- "其他" --> CheckExplicit{args.run_in_background == true?}
+    CheckExplicit -- 是 --> Tier1[Tier 1: ImmediateBackground<br/>JobOrigin::Explicit]
+    CheckExplicit -- 否 --> CheckAlways{policy == always-background?}
+    CheckAlways -- 是 --> Tier2[Tier 2: ImmediateBackground<br/>JobOrigin::PolicyForced]
+    CheckAlways -- 否 --> CheckBudget{autoBackgroundSecs > 0?}
+    CheckBudget -- 否 --> SyncPath
+    CheckBudget -- 是 --> Tier3[Tier 3: AutoBackgroundEligible]
+
+    Tier1 --> ExplicitSpawn[spawn_explicit_job<br/>立即返回 synthetic]
+    Tier2 --> ExplicitSpawn
+    Tier3 --> AutoBgRun[dispatch_with_auto_background<br/>同步预算赛跑]
+
+    AutoBgRun --> Race{在预算内完成?}
+    Race -- 是 --> InlineResult[把真实结果作为 tool_result 返回]
+    Race -- 否 --> AutoBgDetach[原地 detach 成 job<br/>返回 synthetic auto_backgrounded]
+
+    style Tier1 fill:#fff3cd,stroke:#ffc107
+    style Tier2 fill:#fff3cd,stroke:#ffc107
+    style Tier3 fill:#d4edda,stroke:#28a745
+    style ExplicitSpawn fill:#cfe2ff,stroke:#0d6efd
+    style AutoBgDetach fill:#cfe2ff,stroke:#0d6efd
+    style InlineResult fill:#d4edda,stroke:#28a745
+    style SyncPath fill:#e2e3e5,stroke:#6c757d
+```
+
+| Tier | 触发 | 行为 |
+|------|------|------|
+| **1. Explicit** | `args.run_in_background = true` | 立即 detach，模型主动 opt-in |
+| **2. Policy Forced** | `AgentConfig.capabilities.async_tool_policy = "always-background"` | 立即 detach，无视 args |
+| **3. Auto-Background** | `model-decide` 策略 + `asyncTools.autoBackgroundSecs > 0`（默认 30s） | 先同步跑，超预算再 detach，结果不丢 |
+
+### Auto-Background 的相位机
+
+Tier 3 是最微妙的一档。`async_jobs::spawn::dispatch_with_auto_background` 用 OS 线程 + `tokio::current_thread` 运行 dispatch（避免对工具 future 的 Send 约束），主线程通过共享 `Arc<Mutex<Phase>>` + `Notify` 等待结果，原子状态转换防止"主线程已超时但 OS 线程刚好完成"的双终结竞态：
+
+```mermaid
+stateDiagram-v2
+    [*] --> Pending: 主线程开始等待
+    Pending --> ResultReady: OS 线程在预算内完成
+    Pending --> DetachedRunning: 主线程超时, OS 线程仍在跑
+    DetachedRunning --> DetachedDone: OS 线程完成
+    ResultReady --> Consumed: 主线程取走结果
+    DetachedDone --> [*]: OS 线程自行 finalize_job + 调度注入
+    Consumed --> [*]: 主线程把真实 result 作为 tool_result 返回
+```
+
+- `Pending → ResultReady → Consumed`：预算内完成，跟同步执行没区别
+- `Pending → DetachedRunning → DetachedDone`：主线程预算到，原子转移所有权；OS 线程检测到 `DetachedRunning`，独立写 DB + 触发注入
+- 这条相位机是为了避免简单的 `oneshot::timeout` 模式在边界情况下丢结果 —— oneshot 在 timeout 触发瞬间被 drop，OS 线程的 `tx.send` 静默失败，结果消失
+
+### Job 持久化
+
+独立 SQLite 文件 `~/.opencomputer/async_jobs.db`（`async_jobs/db.rs`），不和 session DB 共享锁，避免热路径阻塞：
+
+```sql
+CREATE TABLE async_tool_jobs (
+    job_id          TEXT PRIMARY KEY,        -- "job_<uuid simple>"
+    session_id      TEXT,
+    agent_id        TEXT,
+    tool_name       TEXT NOT NULL,
+    tool_call_id    TEXT,
+    args_json       TEXT NOT NULL,
+    status          TEXT NOT NULL,           -- running / completed / failed / interrupted / timed_out
+    result_preview  TEXT,                    -- inline 预览（head + tail）
+    result_path     TEXT,                    -- 大结果 spool 磁盘路径
+    error           TEXT,
+    created_at      INTEGER NOT NULL,
+    completed_at    INTEGER,
+    injected        INTEGER NOT NULL DEFAULT 0,
+    origin          TEXT NOT NULL DEFAULT 'explicit'  -- explicit / policy_forced / auto_backgrounded
+);
+```
+
+**大结果 spool**：超过 `asyncTools.inlineResultBytes`（默认 4096）的输出写到 `~/.opencomputer/async_jobs/{job_id}.txt`，DB 只存 head/tail 预览 + 路径。后续 `job_status` / 注入消息引用磁盘路径，模型可以用 `read` 工具拉全文。
+
+### Synthetic 响应格式
+
+模型在 tool_result 里看到的（任何 origin 通用）：
+
+```json
+{
+  "job_id": "job_4f9bd1...",
+  "status": "started",
+  "tool": "exec",
+  "origin": "explicit",
+  "hint": "The tool is running in the background. Continue with other work; the result will be auto-injected as a `<tool-job-result>` user message when ready. To actively wait, call `job_status` with `block: true`."
+}
+```
+
+`origin = "auto_backgrounded"` 的 hint 会换成强调"超过同步预算被自动后台化"的措辞，便于模型追溯发生了什么。
+
+### 结果回流（注入）
+
+job 终态后，`async_jobs::spawn::finalize_job` 经 `async_jobs::injection::dispatch_injection` 把结果注入回父会话。这条路复用 `subagent::injection::inject_and_run_parent`，共享 `ACTIVE_CHAT_SESSIONS` / `SESSION_IDLE_NOTIFY` / `PENDING_INJECTIONS` 的会话空闲检测和重试队列：
+
+```mermaid
+sequenceDiagram
+    participant LLM as LLM 主对话
+    participant Tool as 工具执行
+    participant DB as async_jobs.db
+    participant Job as Job OS 线程
+    participant Inj as injection 派送
+
+    LLM->>Tool: tool_call(exec, run_in_background=true)
+    Tool->>DB: INSERT status=running
+    Tool->>Job: spawn (tokio current_thread)
+    Tool-->>LLM: synthetic {job_id, status: started}
+    LLM->>LLM: 继续推进对话 / 调其他工具
+    Job->>Job: dispatch + 真实输出
+    Job->>DB: UPDATE status=completed + preview / spool path
+    Job->>Inj: dispatch_injection
+    Inj->>Inj: 等会话空闲（ACTIVE_CHAT_SESSIONS / SESSION_IDLE_NOTIFY）
+    Inj->>LLM: 注入 [Tool Job Completion] + <tool-job-result job-id="..."> user 消息
+    Inj->>DB: UPDATE injected=1
+    LLM->>LLM: 模型读到结果, 按 job-id 关联回原 tool_call
+```
+
+注入消息结构（XML 包裹便于模型解析）：
+
+```text
+[Tool Job Completion — auto-delivered]
+<tool-job-result job-id="job_4f9bd1..." tool="exec" status="completed">
+<output>
+... preview 或磁盘路径引用 ...
+</output>
+</tool-job-result>
+```
+
+失败 / 超时 / 中断走 `<error>` 子标签。注入时若父会话忙，请求进 `PENDING_INJECTIONS` 队列等下次空闲（与子 Agent 注入完全同源）。
+
+### 重启回放
+
+`app_init::start_background_tasks` 启动时调用 `async_jobs::replay_pending_jobs()`：
+
+1. 扫描 `status='running'` 行：本地进程已死，无法续跑 → 改为 `interrupted`，附 error 文案后入注入队列
+2. 扫描 `status in (completed/failed/timed_out/interrupted) AND injected=0`：上次进程崩在注入之前 → 重新派送
+
+### 配置
+
+`AppConfig.async_tools`（`config.json` → `asyncTools`）：
+
+| 字段 | 默认 | 含义 |
+|------|------|------|
+| `enabled` | `true` | 总开关，关闭后所有 async-capable 工具退化为纯同步执行，`job_status` 工具也不注入 |
+| `autoBackgroundSecs` | `30` | Tier 3 同步预算。`0` 关闭自动后台化，仅保留 Tier 1/2 |
+| `maxJobSecs` | `1800` | 后台 job 的硬墙时；超时 → status=`timed_out` 并注入失败消息 |
+| `inlineResultBytes` | `4096` | 注入消息内联 preview 上限；超过时 spool 到磁盘并注入路径引用 |
+
+`AgentConfig.capabilities.async_tool_policy`（`agent.json`）：
+
+- `model-decide`（默认）：尊重 `args.run_in_background`，未指定时走 Tier 3 自动后台化
+- `always-background`：所有 async-capable 工具一律 detach
+- `never-background`：禁用 async 路径（Tier 1/2/3 全不触发）
+
+### 递归再入与权限
+
+显式后台 + 自动后台 都通过把工具的 `execute_tool_with_context` 在新线程上**递归再入**完成实际工作。再入时必须设置：
+
+- `bypass_async_dispatch = true`：跳过 async 决策，直奔 sync dispatch，避免 `always-background` 策略触发死循环
+- `auto_approve_tools = true`：外层已经过审批门，内层不能再弹（背景线程没有 UI 接驳的审批 channel）
+
+可见性 / Plan-mode 路径检查仍会在内层走一遍，作为 belt-and-suspenders。
+
+### 关键源文件
+
+| 文件 | 职责 |
+|------|------|
+| `crates/oc-core/src/async_jobs/mod.rs` | `set_async_jobs_db` / `replay_pending_jobs` 入口 |
+| `crates/oc-core/src/async_jobs/types.rs` | `AsyncJob` / `AsyncJobStatus` / `JobOrigin` |
+| `crates/oc-core/src/async_jobs/db.rs` | 独立 SQLite 表 + CRUD |
+| `crates/oc-core/src/async_jobs/spawn.rs` | `spawn_explicit_job`、`dispatch_with_auto_background`、相位机、result spool |
+| `crates/oc-core/src/async_jobs/injection.rs` | 注入消息构造 + 复用 `subagent::injection::inject_and_run_parent` |
+| `crates/oc-core/src/tools/job_status.rs` | `job_status` 工具实现（snapshot / blocking） |
+| `crates/oc-core/src/tools/execution.rs` | `decide_async_path` + 三道闸路由 + `bypass_async_dispatch` 递归保护 |
+| `crates/oc-core/src/tools/definitions/types.rs` | `ToolDefinition.async_capable` + schema 自动注入 `run_in_background` |
+| `crates/oc-core/src/system_prompt/sections.rs` | `build_async_tools_section` 教模型何时使用 / 怎么解析 `<tool-job-result>` |
+| `crates/oc-core/src/config/mod.rs` | `AsyncToolsConfig` |
+| `crates/oc-core/src/agent_config.rs` | `AsyncToolPolicy` 枚举 + `CapabilitiesConfig.async_tool_policy` |
+| `crates/oc-core/src/paths.rs` | `async_jobs_db_path` / `async_jobs_dir` / `async_job_result_path` |
 
 ---
 
@@ -603,7 +809,9 @@ block-beta
 | `crates/oc-core/src/tools/approval.rs` | ToolPermissionMode 定义、审批请求/响应、Allowlist 管理 |
 | `crates/oc-core/src/tools/execution.rs` | 统一审批门（`execute_tool_with_context`）、Plan Mode 路径检查 |
 | `crates/oc-core/src/tools/exec.rs` | exec 独立命令级审批逻辑 |
-| `crates/oc-core/src/tools/definitions.rs` | Internal Tool 集合（`INTERNAL_TOOL_NAMES`）、`is_internal_tool()`、`is_concurrent_safe()` |
+| `crates/oc-core/src/tools/definitions/registry.rs` | Internal Tool 集合（`INTERNAL_TOOL_NAMES`）、`is_internal_tool()` / `is_async_capable()` / `is_concurrent_safe()` |
+| `crates/oc-core/src/async_jobs/` | 异步 Tool 执行（types/db/spawn/injection），独立 `~/.opencomputer/async_jobs.db` |
+| `crates/oc-core/src/tools/job_status.rs` | `job_status` 工具：snapshot / 阻塞等待 EventBus + 200ms 轮询兜底 |
 | `crates/oc-core/src/agent_config.rs` | `FilterConfig`（allow/deny）、`CapabilitiesConfig.require_approval`、`SubagentConfig.denied_tools` |
 | `crates/oc-core/src/agent/mod.rs` | `build_tool_schemas()` 统一过滤 schema；`tool_context()` 构建 ToolExecContext，传递 require_approval 与工具限制 |
 | `crates/oc-core/src/agent/providers/*.rs` | 消费已过滤后的 `tool_schemas` 并发送 API 请求 |

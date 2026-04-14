@@ -264,6 +264,7 @@ impl AssistantAgent {
                 require_approval_base: def.config.capabilities.require_approval.clone(),
                 sandbox: def.config.capabilities.sandbox,
                 subagents_enabled: def.config.subagents.enabled,
+                async_tool_policy: def.config.capabilities.async_tool_policy,
             })
             .unwrap_or_default();
         let arc = std::sync::Arc::new(caps);
@@ -435,6 +436,14 @@ impl AssistantAgent {
             s
         };
 
+        // job_status is always loaded so the model can poll backgrounded tool jobs
+        // regardless of deferred-loading settings.
+        if crate::config::cached_config().async_tools.enabled {
+            schemas.push(
+                tools::job_status::get_job_status_tool().to_provider_schema(provider),
+            );
+        }
+
         // Plan Agent / Executing Agent tool injection
         self.apply_plan_tools(&mut schemas, provider);
 
@@ -550,6 +559,8 @@ impl AssistantAgent {
                 _ => Vec::new(),
             },
             auto_approve_tools: self.auto_approve_tools,
+            async_tool_policy: caps.async_tool_policy,
+            bypass_async_dispatch: false,
         }
     }
 

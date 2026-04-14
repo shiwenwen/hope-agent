@@ -102,6 +102,18 @@ pub fn init_app_state(initial_store: AppConfig) -> AppState {
     ));
     let _ = CRON_DB.set(cron_db.clone());
 
+    // Initialize the async_jobs DB used by the background tool execution feature.
+    // Failure here is non-fatal — async tools simply degrade to sync mode if the
+    // DB cannot be opened.
+    match paths::async_jobs_db_path()
+        .and_then(|p| crate::async_jobs::AsyncJobsDB::open(&p))
+    {
+        Ok(db) => crate::async_jobs::set_async_jobs_db(Arc::new(db)),
+        Err(e) => eprintln!(
+            "[WARN] Failed to open async_jobs DB ({e}); async tool backgrounding disabled"
+        ),
+    }
+
     // Log system startup
     logger.log(
         "info",
@@ -297,6 +309,13 @@ pub async fn start_background_tasks() {
             }
         });
     }
+
+    // Replay async tool jobs left over from the previous process: mark
+    // `running` rows as interrupted (their host process is gone) and inject
+    // any terminal-but-not-injected results back into their parent sessions.
+    tokio::spawn(async move {
+        crate::async_jobs::replay_pending_jobs();
+    });
 
     // Auto-discover ACP backends
     if let Some(acp_mgr) = ACP_MANAGER.get() {

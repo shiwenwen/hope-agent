@@ -11,6 +11,7 @@ pub fn get_subagent_tool() -> ToolDefinition {
         internal: false,
         deferred: false,
         always_load: false,
+        async_capable: false,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -108,6 +109,7 @@ pub fn get_acp_spawn_tool() -> ToolDefinition {
         internal: false,
         deferred: false,
         always_load: false,
+        async_capable: false,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -170,6 +172,7 @@ pub fn get_tool_search_tool() -> ToolDefinition {
         internal: true,
         deferred: false,
         always_load: true,
+        async_capable: false,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -330,6 +333,7 @@ pub fn get_image_generate_tool_dynamic(
         internal: false,
         deferred: false,
         always_load: false,
+        async_capable: true,
         parameters: json!({
             "type": "object",
             "properties": {

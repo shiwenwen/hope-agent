@@ -7,10 +7,11 @@ use super::types::ToolDefinition;
 pub fn get_web_search_tool() -> ToolDefinition {
     ToolDefinition {
         name: TOOL_WEB_SEARCH.into(),
-        description: "Search the web for information. Returns relevant results with titles, URLs, and snippets. Use this when the user asks about current events, recent information, or anything that requires up-to-date knowledge.".into(),
+        description: "Search the web for information. Returns relevant results with titles, URLs, and snippets. Use this when the user asks about current events, recent information, or anything that requires up-to-date knowledge. Pass `run_in_background: true` for slow providers or large result sets so the conversation can continue while the search runs.".into(),
         internal: false,
         deferred: false,
         always_load: false,
+        async_capable: true,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -50,6 +51,7 @@ pub fn get_notification_tool() -> ToolDefinition {
         internal: true,
         deferred: false,
         always_load: false,
+        async_capable: false,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -76,6 +78,7 @@ pub fn get_canvas_tool() -> ToolDefinition {
         internal: true,
         deferred: false,
         always_load: false,
+        async_capable: false,
         parameters: json!({
             "type": "object",
             "properties": {

@@ -105,6 +105,63 @@ impl Default for DeferredToolsConfig {
     }
 }
 
+// ── Async Tools Config ──────────────────────────────────────────
+
+/// Configuration for the async tool execution feature.
+///
+/// Async-capable tools (e.g. `exec`, `web_search`, `image_generate`) can be
+/// detached into background jobs in three ways:
+/// 1. The model passes `run_in_background: true` in tool args (explicit opt-in).
+/// 2. The agent policy forces it (`async_tool_policy = "always-background"`).
+/// 3. A sync call exceeds `auto_background_secs` (auto-transfer fallback).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AsyncToolsConfig {
+    /// Master switch. When false, all tool calls run synchronously regardless
+    /// of `run_in_background` / agent policy.
+    #[serde(default = "crate::default_true")]
+    pub enabled: bool,
+    /// Auto-background budget for sync calls of async-capable tools.
+    /// When a sync call exceeds this many seconds, the still-running future
+    /// is transferred to a background async job and a synthetic job_id is
+    /// returned to the model so the conversation can continue. The real
+    /// result is delivered later via auto-injection. Default: 30. Set to 0
+    /// to disable auto-backgrounding.
+    #[serde(default = "default_async_auto_background_secs")]
+    pub auto_background_secs: u64,
+    /// Maximum time (seconds) a backgrounded job may run before being killed.
+    /// Default: 1800 (30 min). 0 = no per-job limit (still bounded by
+    /// `tool_timeout`).
+    #[serde(default = "default_async_max_job_secs")]
+    pub max_job_secs: u64,
+    /// Number of result bytes to inline in the synthetic completion notification.
+    /// Larger results are spooled to `~/.opencomputer/async_jobs/<job_id>.txt`
+    /// and only a head/tail preview is injected. Default: 4096.
+    #[serde(default = "default_async_inline_result_bytes")]
+    pub inline_result_bytes: usize,
+}
+
+fn default_async_auto_background_secs() -> u64 {
+    30
+}
+fn default_async_max_job_secs() -> u64 {
+    1800
+}
+fn default_async_inline_result_bytes() -> usize {
+    4096
+}
+
+impl Default for AsyncToolsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            auto_background_secs: default_async_auto_background_secs(),
+            max_job_secs: default_async_max_job_secs(),
+            inline_result_bytes: default_async_inline_result_bytes(),
+        }
+    }
+}
+
 /// What to do when a tool approval request times out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -379,6 +436,10 @@ pub struct AppConfig {
     /// Recap (deep session analysis) configuration
     #[serde(default)]
     pub recap: RecapConfig,
+
+    /// Async tool execution configuration (run_in_background, auto-background, etc.)
+    #[serde(default)]
+    pub async_tools: AsyncToolsConfig,
 }
 
 impl Default for AppConfig {
@@ -428,6 +489,7 @@ impl Default for AppConfig {
             deferred_tools: DeferredToolsConfig::default(),
             server: EmbeddedServerConfig::default(),
             recap: RecapConfig::default(),
+            async_tools: AsyncToolsConfig::default(),
         }
     }
 }

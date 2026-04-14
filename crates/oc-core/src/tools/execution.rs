@@ -6,20 +6,22 @@ use super::{
     acp_spawn, browser, cron, memory, notification, subagent, weather, web_fetch, web_search,
 };
 use super::{
-    agents, amend_plan, ask_user_question, canvas, image, image_generate, pdf, plan_step, sessions,
-    submit_plan, task,
+    agents, amend_plan, ask_user_question, canvas, image, image_generate, job_status, pdf,
+    plan_step, sessions, submit_plan, task,
 };
 use super::{apply_patch, edit, exec, find, grep, ls, process, read, write};
 use super::{
     approval, TOOL_ACP_SPAWN, TOOL_AGENTS_LIST, TOOL_AMEND_PLAN, TOOL_APPLY_PATCH,
     TOOL_ASK_USER_QUESTION, TOOL_BROWSER, TOOL_CANVAS, TOOL_DELETE_MEMORY, TOOL_EDIT, TOOL_EXEC,
-    TOOL_FIND, TOOL_GET_WEATHER, TOOL_GREP, TOOL_IMAGE, TOOL_IMAGE_GENERATE, TOOL_LS,
-    TOOL_MANAGE_CRON, TOOL_MEMORY_GET, TOOL_PDF, TOOL_PROCESS, TOOL_READ, TOOL_RECALL_MEMORY,
-    TOOL_SAVE_MEMORY, TOOL_SEND_NOTIFICATION, TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST,
-    TOOL_SESSIONS_SEND, TOOL_SESSION_STATUS, TOOL_SUBAGENT, TOOL_SUBMIT_PLAN, TOOL_TASK_CREATE,
-    TOOL_TASK_LIST, TOOL_TASK_UPDATE, TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY,
-    TOOL_UPDATE_PLAN_STEP, TOOL_WEB_FETCH, TOOL_WEB_SEARCH, TOOL_WRITE,
+    TOOL_FIND, TOOL_GET_WEATHER, TOOL_GREP, TOOL_IMAGE, TOOL_IMAGE_GENERATE, TOOL_JOB_STATUS,
+    TOOL_LS, TOOL_MANAGE_CRON, TOOL_MEMORY_GET, TOOL_PDF, TOOL_PROCESS, TOOL_READ,
+    TOOL_RECALL_MEMORY, TOOL_SAVE_MEMORY, TOOL_SEND_NOTIFICATION, TOOL_SESSIONS_HISTORY,
+    TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEND, TOOL_SESSION_STATUS, TOOL_SUBAGENT, TOOL_SUBMIT_PLAN,
+    TOOL_TASK_CREATE, TOOL_TASK_LIST, TOOL_TASK_UPDATE, TOOL_UPDATE_CORE_MEMORY,
+    TOOL_UPDATE_MEMORY, TOOL_UPDATE_PLAN_STEP, TOOL_WEB_FETCH, TOOL_WEB_SEARCH, TOOL_WRITE,
 };
+use crate::agent_config::AsyncToolPolicy;
+use crate::async_jobs::{self, JobOrigin};
 
 /// Load the user-configured tool timeout from config.json. Returns `None`
 /// when the user explicitly set 0 (disabled). The serde default in
@@ -73,6 +75,13 @@ pub struct ToolExecContext {
     pub plan_mode_allowed_tools: Vec<String>,
     /// When true, automatically approve all tool calls (IM channel auto-approve mode).
     pub auto_approve_tools: bool,
+    /// Per-agent async tool backgrounding policy (mirrors AgentConfig.capabilities.async_tool_policy).
+    pub async_tool_policy: AsyncToolPolicy,
+    /// Internal flag set by the async-job spawner when re-dispatching an
+    /// async-capable tool inside a background runtime. Prevents infinite
+    /// recursion: even if the tool is async-capable and the policy is
+    /// `always-background`, this single re-dispatch runs synchronously.
+    pub bypass_async_dispatch: bool,
 }
 
 impl Default for ToolExecContext {
@@ -92,6 +101,8 @@ impl Default for ToolExecContext {
             plan_mode_allow_paths: Vec::new(),
             plan_mode_allowed_tools: Vec::new(),
             auto_approve_tools: false,
+            async_tool_policy: AsyncToolPolicy::default(),
+            bypass_async_dispatch: false,
         }
     }
 }
@@ -156,6 +167,52 @@ pub async fn execute_tool(name: &str, args: &Value) -> anyhow::Result<String> {
     execute_tool_with_context(name, args, &ToolExecContext::default()).await
 }
 
+/// Outcome of the async-tool dispatch decision.
+#[derive(Debug, Clone, Copy)]
+enum AsyncDecision {
+    /// Tool is sync-only — run through the normal dispatch + tool_timeout path.
+    Sync,
+    /// Tool is async-capable but the model didn't opt in and the policy is
+    /// `model-decide`. Race the dispatch against `auto_background_secs`.
+    AutoBackgroundEligible,
+    /// Tool must be detached immediately (explicit `run_in_background: true`
+    /// or policy `always-background`).
+    ImmediateBackground(JobOrigin),
+}
+
+/// Inspect tool metadata, args, and agent policy to decide whether this call
+/// should detach immediately, become eligible for auto-background, or run
+/// purely synchronously. Recursion-safe via `bypass_async_dispatch`.
+fn decide_async_path(name: &str, args: &Value, ctx: &ToolExecContext) -> AsyncDecision {
+    if ctx.bypass_async_dispatch {
+        return AsyncDecision::Sync;
+    }
+    if !super::is_async_capable(name) {
+        return AsyncDecision::Sync;
+    }
+    let cfg = crate::config::cached_config();
+    if !cfg.async_tools.enabled {
+        return AsyncDecision::Sync;
+    }
+    if matches!(ctx.async_tool_policy, AsyncToolPolicy::NeverBackground) {
+        return AsyncDecision::Sync;
+    }
+    let explicit_bg = args
+        .get("run_in_background")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    if explicit_bg {
+        return AsyncDecision::ImmediateBackground(JobOrigin::Explicit);
+    }
+    if matches!(ctx.async_tool_policy, AsyncToolPolicy::AlwaysBackground) {
+        return AsyncDecision::ImmediateBackground(JobOrigin::PolicyForced);
+    }
+    if cfg.async_tools.auto_background_secs > 0 {
+        return AsyncDecision::AutoBackgroundEligible;
+    }
+    AsyncDecision::Sync
+}
+
 /// Check if a read tool call targets a SKILL.md file (pre-authorized by skill system).
 fn is_skill_read(name: &str, args: &Value) -> bool {
     if name != TOOL_READ {
@@ -206,6 +263,11 @@ pub async fn execute_tool_with_context(
     if let Some(err) = ctx.tool_visibility_error(name) {
         return Err(anyhow::anyhow!(err));
     }
+
+    // Async-tool decision is computed up front but acted on after the
+    // approval + plan-mode gates have run (so user-facing safeguards apply
+    // once at submission time, then the work detaches).
+    let async_decision = decide_async_path(name, args, ctx);
 
     // ── Tool-level approval gate ─────────────────────────────────
     // Check session-level permission mode and tool-level approval requirements.
@@ -338,6 +400,34 @@ pub async fn execute_tool_with_context(
         }
     }
 
+    // Short-circuit: explicit / policy-forced background spawn. The synthetic
+    // job_id is returned to the LLM as the tool result; the real work runs on
+    // a dedicated OS thread via `async_jobs::spawn_explicit_job`.
+    if let AsyncDecision::ImmediateBackground(origin) = async_decision {
+        let raw = async_jobs::spawn_explicit_job(name, args.clone(), ctx.clone(), origin)?;
+        // Skip the disk-persist tail since the synthetic JSON is small and
+        // mirrors the same shape `job_status` returns later.
+        return Ok(raw);
+    }
+
+    // Auto-background path: detour through the budget-aware helper which
+    // re-enters this function with `bypass_async_dispatch = true`, runs the
+    // dispatch on an OS thread, and either returns the inline result or
+    // detaches into a job and returns a synthetic.
+    if matches!(async_decision, AsyncDecision::AutoBackgroundEligible) {
+        let auto_bg_secs = crate::config::cached_config().async_tools.auto_background_secs;
+        let mut inner_ctx = ctx.clone();
+        inner_ctx.bypass_async_dispatch = true;
+        // Approval already ran at this outer layer — silence the inner re-entry.
+        inner_ctx.auto_approve_tools = true;
+        let raw = async_jobs::dispatch_with_auto_background(name, args, &inner_ctx, auto_bg_secs)
+            .await?;
+        // The auto-bg helper already routed the result through this function
+        // recursively (inner_ctx.bypass_async_dispatch=true) so disk-persist
+        // and logging fired inside that nested call. Return as-is.
+        return Ok(raw);
+    }
+
     let dispatch = async {
         match name {
             TOOL_EXEC => exec::tool_exec(args, ctx).await,
@@ -388,6 +478,7 @@ pub async fn execute_tool_with_context(
                 Ok(task::tool_task_update(args, ctx.session_id.as_deref()).await)
             }
             TOOL_TASK_LIST => Ok(task::tool_task_list(args, ctx.session_id.as_deref()).await),
+            TOOL_JOB_STATUS => job_status::tool_job_status(args).await,
             super::TOOL_TOOL_SEARCH => super::tool_search::tool_search(args, ctx).await,
             _ => Err(anyhow::anyhow!("Unknown tool: {}", name)),
         }

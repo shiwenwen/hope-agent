@@ -13,10 +13,11 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
     let mut tools = vec![
         ToolDefinition {
             name: TOOL_EXEC.into(),
-            description: "Execute a shell command. Returns stdout/stderr. Supports background execution with yield_ms/background params.".into(),
+            description: "Execute a shell command. Returns stdout/stderr. Supports background execution with yield_ms/background params. Also supports `run_in_background: true` to detach the entire tool call as an async job whose result is auto-injected when ready.".into(),
             internal: false,
             deferred: false,
             always_load: false,
+            async_capable: true,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -64,6 +65,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             internal: false,
             deferred: false,
             always_load: false,
+            async_capable: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -103,6 +105,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             internal: false,
             deferred: false,
             always_load: false,
+            async_capable: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -129,6 +132,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             internal: false,
             deferred: false,
             always_load: false,
+            async_capable: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -151,6 +155,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             internal: false,
             deferred: false,
             always_load: false,
+            async_capable: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -177,6 +182,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             internal: false,
             deferred: false,
             always_load: false,
+            async_capable: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -199,6 +205,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             internal: false,
             deferred: false,
             always_load: false,
+            async_capable: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -241,6 +248,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             internal: false,
             deferred: false,
             always_load: false,
+            async_capable: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -267,6 +275,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             internal: false,
             deferred: false,
             always_load: false,
+            async_capable: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -285,6 +294,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             internal: false,
             deferred: false,
             always_load: false,
+            async_capable: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -312,6 +322,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             internal: true,
             deferred: false,
             always_load: false,
+            async_capable: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -349,6 +360,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             internal: true,
             deferred: false,
             always_load: false,
+            async_capable: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -380,6 +392,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             internal: true,
             deferred: false,
             always_load: false,
+            async_capable: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -407,6 +420,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             internal: true,
             deferred: false,
             always_load: false,
+            async_capable: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -426,6 +440,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             internal: true,
             deferred: false,
             always_load: false,
+            async_capable: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -487,6 +502,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             internal: false,
             deferred: false,
             always_load: false,
+            async_capable: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -628,6 +644,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             internal: true,
             deferred: false,
             always_load: false,
+            async_capable: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -647,6 +664,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             internal: true,
             deferred: false,
             always_load: false,
+            async_capable: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -676,6 +694,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             internal: true,
             deferred: false,
             always_load: false,
+            async_capable: false,
             parameters: json!({
                 "type": "object",
                 "properties": {},
@@ -690,6 +709,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             internal: true,
             deferred: false,
             always_load: false,
+            async_capable: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -717,6 +737,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             internal: true,
             deferred: false,
             always_load: false,
+            async_capable: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -736,6 +757,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             internal: true,
             deferred: false,
             always_load: false,
+            async_capable: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -767,6 +789,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             internal: true,
             deferred: false,
             always_load: false,
+            async_capable: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -798,6 +821,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             internal: true,
             deferred: false,
             always_load: false,
+            async_capable: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -852,6 +876,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             internal: true,
             deferred: false,
             always_load: false,
+            async_capable: false,
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -893,6 +918,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             internal: true,
             deferred: false,
             always_load: false,
+            async_capable: false,
             parameters: json!({
                 "type": "object",
                 "properties": {

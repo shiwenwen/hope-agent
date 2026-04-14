@@ -16,6 +16,7 @@ mod find;
 mod grep;
 pub(crate) mod image;
 pub mod image_generate;
+pub(crate) mod job_status;
 mod ls;
 mod memory;
 mod notification;
@@ -44,7 +45,7 @@ pub use definitions::{
     get_core_tools, get_core_tools_for_provider, get_deferred_tools,
     get_image_generate_tool_dynamic, get_notification_tool, get_plan_step_tool, get_subagent_tool,
     get_submit_plan_tool, get_tool_search_tool, get_tools_for_provider, get_web_search_tool,
-    is_concurrent_safe, is_core_tool, is_internal_tool,
+    is_async_capable, is_concurrent_safe, is_core_tool, is_internal_tool,
 };
 pub use execution::{execute_tool_with_context, ToolExecContext};
 
@@ -90,6 +91,7 @@ pub const TOOL_TOOL_SEARCH: &str = "tool_search";
 pub const TOOL_TASK_CREATE: &str = "task_create";
 pub const TOOL_TASK_UPDATE: &str = "task_update";
 pub const TOOL_TASK_LIST: &str = "task_list";
+pub const TOOL_JOB_STATUS: &str = "job_status";
 
 // ── Shared Helpers ────────────────────────────────────────────────
 

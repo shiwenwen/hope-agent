@@ -13,6 +13,7 @@ pub fn get_plan_step_tool() -> ToolDefinition {
         internal: true,
         deferred: false,
         always_load: false,
+        async_capable: false,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -54,6 +55,7 @@ tool to ask 'is my plan ready?' — in Plan Mode use `submit_plan` instead."
         internal: true,
         deferred: false,
         always_load: true,
+        async_capable: false,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -139,6 +141,7 @@ pub fn get_submit_plan_tool() -> ToolDefinition {
         internal: true,
         deferred: false,
         always_load: false,
+        async_capable: false,
         parameters: json!({
             "type": "object",
             "properties": {
@@ -165,6 +168,7 @@ pub fn get_amend_plan_tool() -> ToolDefinition {
         internal: true,
         deferred: false,
         always_load: false,
+        async_capable: false,
         parameters: json!({
             "type": "object",
             "properties": {

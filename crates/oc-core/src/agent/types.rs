@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::agent_config::FilterConfig;
+use crate::agent_config::{AsyncToolPolicy, FilterConfig};
 use crate::provider::ThinkingStyle;
 
 /// Snapshot of the fields read from `agent.json` on every chat / tool-loop
@@ -12,6 +12,7 @@ pub(super) struct AgentCapsCache {
     pub require_approval_base: Vec<String>,
     pub sandbox: bool,
     pub subagents_enabled: bool,
+    pub async_tool_policy: AsyncToolPolicy,
 }
 
 impl Default for AgentCapsCache {
@@ -24,6 +25,7 @@ impl Default for AgentCapsCache {
             require_approval_base: Vec::new(),
             sandbox: false,
             subagents_enabled: true,
+            async_tool_policy: AsyncToolPolicy::default(),
         }
     }
 }

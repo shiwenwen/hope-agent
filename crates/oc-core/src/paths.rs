@@ -119,6 +119,23 @@ pub fn cron_db_path() -> Result<PathBuf> {
     Ok(root_dir()?.join("cron.db"))
 }
 
+// ── Async Tool Jobs ─────────────────────────────────────────────
+
+/// Async tool jobs database path: ~/.opencomputer/async_jobs.db
+pub fn async_jobs_db_path() -> Result<PathBuf> {
+    Ok(root_dir()?.join("async_jobs.db"))
+}
+
+/// Async tool jobs result spool directory: ~/.opencomputer/async_jobs/
+pub fn async_jobs_dir() -> Result<PathBuf> {
+    Ok(root_dir()?.join("async_jobs"))
+}
+
+/// Per-job result file: ~/.opencomputer/async_jobs/{job_id}.txt
+pub fn async_job_result_path(job_id: &str) -> Result<PathBuf> {
+    Ok(async_jobs_dir()?.join(format!("{}.txt", job_id)))
+}
+
 // ── Recap ───────────────────────────────────────────────────────
 
 /// Recap directory: ~/.opencomputer/recap/
@@ -262,6 +279,7 @@ pub fn ensure_dirs() -> Result<()> {
         plans_dir()?,
         recap_dir()?,
         reports_dir()?,
+        async_jobs_dir()?,
     ];
     for dir in &dirs_to_create {
         std::fs::create_dir_all(dir)?;

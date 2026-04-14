@@ -181,6 +181,20 @@ impl FilterConfig {
 
 // ── Capabilities Config ──────────────────────────────────────────
 
+/// Per-agent override for async tool backgrounding behavior.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum AsyncToolPolicy {
+    /// Default: respect `run_in_background` from the model and auto-background
+    /// after the configured budget.
+    #[default]
+    ModelDecide,
+    /// Force every async-capable tool call into a background job.
+    AlwaysBackground,
+    /// Disable async backgrounding entirely for this agent.
+    NeverBackground,
+}
+
 /// Agent capabilities: what the agent can do and how.
 /// Merges the former BehaviorConfig with top-level tools/skills filters.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -210,6 +224,10 @@ pub struct CapabilitiesConfig {
     /// Skill visibility filter (allow/deny by skill name)
     #[serde(default)]
     pub skills: FilterConfig,
+
+    /// Async tool backgrounding policy override. Default: model-decide.
+    #[serde(default)]
+    pub async_tool_policy: AsyncToolPolicy,
 }
 
 fn default_max_rounds() -> u32 {
@@ -233,6 +251,7 @@ impl Default for CapabilitiesConfig {
             skill_env_check: default_skill_env_check(),
             tools: FilterConfig::default(),
             skills: FilterConfig::default(),
+            async_tool_policy: AsyncToolPolicy::default(),
         }
     }
 }

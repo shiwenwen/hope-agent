@@ -168,6 +168,11 @@ pub fn build(
         sections.push(deferred_section);
     }
 
+    // ⑥b² Async tool execution guide (when the feature is enabled)
+    if let Some(async_section) = build_async_tools_section() {
+        sections.push(async_section);
+    }
+
     // ⑥c Human-in-the-loop guidance — hardcoded so it cannot be overridden by
     // a user-customized agent.md. Only emitted when the agent has access to
     // the `ask_user_question` tool (agents with no interactive surface skip it).
@@ -357,6 +362,11 @@ pub fn build_legacy(model: Option<&str>, provider: Option<&str>) -> String {
     // Deferred tools listing
     if let Some(deferred_section) = build_deferred_tools_section() {
         sections.push(deferred_section);
+    }
+
+    // Async tool execution guide
+    if let Some(async_section) = build_async_tools_section() {
+        sections.push(async_section);
     }
 
     // Skills

@@ -15,7 +15,7 @@ pub use plan_tools::{
 };
 pub use registry::{
     get_core_tools, get_core_tools_for_provider, get_deferred_tools, get_tools_for_provider,
-    is_concurrent_safe, is_internal_tool,
+    is_async_capable, is_concurrent_safe, is_internal_tool,
 };
 pub use special_tools::{
     get_acp_spawn_tool, get_image_generate_tool, get_image_generate_tool_dynamic,
