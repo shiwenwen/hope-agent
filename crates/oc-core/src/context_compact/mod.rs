@@ -22,7 +22,7 @@ mod types;
 // ── Hardcoded Constants (safety baselines, not user-configurable) ──
 
 /// General text chars-per-token estimate
-const CHARS_PER_TOKEN: usize = 4;
+pub const CHARS_PER_TOKEN: usize = 4;
 /// Tool results are more compact (openclaw: TOOL_RESULT_CHARS_PER_TOKEN_ESTIMATE = 2)
 #[allow(dead_code)]
 const TOOL_RESULT_CHARS_PER_TOKEN: usize = 2;

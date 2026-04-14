@@ -6,13 +6,10 @@
 // `ShowContextBreakdown` action for rich rendering on the desktop UI,
 // plus a Unicode-bar markdown fallback in `content` for IM channels.
 
+use crate::context_compact::CHARS_PER_TOKEN;
 use crate::globals::AppState;
 use crate::slash_commands::types::{CommandAction, CommandResult, ContextBreakdown};
 
-/// Rough char-to-token ratio used everywhere in `context_compact`.
-const CHARS_PER_TOKEN: usize = 4;
-
-/// Convert a char count to an approximate token count (char/4 heuristic).
 fn chars_to_tokens(chars: usize) -> u32 {
     (chars / CHARS_PER_TOKEN) as u32
 }

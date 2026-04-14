@@ -144,9 +144,9 @@ export default function ContextBreakdownCard({
           </span>
         </div>
         <div className="flex items-center gap-2 text-xs text-muted-foreground shrink-0">
-          <span className="truncate max-w-[200px]" title={`${data.activeProvider} / ${data.activeModel}`}>
-            {data.activeModel}
-          </span>
+          <IconTip label={`${data.activeProvider} / ${data.activeModel}`}>
+            <span className="truncate max-w-[200px]">{data.activeModel}</span>
+          </IconTip>
         </div>
       </div>
 

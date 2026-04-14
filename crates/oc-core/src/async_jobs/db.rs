@@ -128,9 +128,9 @@ impl AsyncJobsDB {
             "SELECT job_id, session_id, agent_id, tool_name, tool_call_id,
                     args_json, status, result_preview, result_path, error,
                     created_at, completed_at, injected, origin
-             FROM async_tool_jobs WHERE status='running'",
+             FROM async_tool_jobs WHERE status=?1",
         )?;
-        let rows = stmt.query_map([], row_to_job)?;
+        let rows = stmt.query_map(params![AsyncJobStatus::Running.as_str()], row_to_job)?;
         let mut out = Vec::new();
         for r in rows {
             out.push(r?);
@@ -147,10 +147,18 @@ impl AsyncJobsDB {
                     args_json, status, result_preview, result_path, error,
                     created_at, completed_at, injected, origin
              FROM async_tool_jobs
-             WHERE status IN ('completed','failed','interrupted','timed_out')
+             WHERE status IN (?1, ?2, ?3, ?4)
                AND injected=0",
         )?;
-        let rows = stmt.query_map([], row_to_job)?;
+        let rows = stmt.query_map(
+            params![
+                AsyncJobStatus::Completed.as_str(),
+                AsyncJobStatus::Failed.as_str(),
+                AsyncJobStatus::Interrupted.as_str(),
+                AsyncJobStatus::TimedOut.as_str(),
+            ],
+            row_to_job,
+        )?;
         let mut out = Vec::new();
         for r in rows {
             out.push(r?);
