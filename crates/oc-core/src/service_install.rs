@@ -22,7 +22,7 @@ pub fn install_service(bind_addr: &str, api_key: Option<&str>) -> Result<String>
     return install_launchd(&exe_path, bind_addr, api_key, &log_path);
 
     #[cfg(target_os = "linux")]
-    return install_systemd(&exe_path, bind_addr, api_key);
+    return install_systemd(&exe_path, bind_addr, api_key, &log_path);
 
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     bail!("Service installation is not supported on this platform")
@@ -259,13 +259,31 @@ fn unit_path() -> Result<PathBuf> {
 }
 
 #[cfg(target_os = "linux")]
-fn install_systemd(exe_path: &str, bind_addr: &str, api_key: Option<&str>) -> Result<String> {
+fn install_systemd(
+    exe_path: &str,
+    bind_addr: &str,
+    api_key: Option<&str>,
+    log_path: &str,
+) -> Result<String> {
     let unit = unit_path()?;
 
     let mut exec_start = format!("{} server --bind {}", exe_path, bind_addr);
     if let Some(key) = api_key {
         exec_start.push_str(&format!(" --api-key {}", key));
     }
+
+    let stdout_log = format!("{}/server.stdout.log", log_path);
+    let stderr_log = format!("{}/server.stderr.log", log_path);
+
+    // Pre-create log files so systemd's append: redirection always has a target.
+    let _ = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&stdout_log);
+    let _ = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&stderr_log);
 
     let content = format!(
         "[Unit]\n\
@@ -276,10 +294,14 @@ fn install_systemd(exe_path: &str, bind_addr: &str, api_key: Option<&str>) -> Re
          ExecStart={exec}\n\
          Restart=on-failure\n\
          RestartSec=3\n\
+         StandardOutput=append:{stdout}\n\
+         StandardError=append:{stderr}\n\
          \n\
          [Install]\n\
          WantedBy=default.target\n",
         exec = exec_start,
+        stdout = stdout_log,
+        stderr = stderr_log,
     );
 
     std::fs::write(&unit, &content)
@@ -299,11 +321,47 @@ fn install_systemd(exe_path: &str, bind_addr: &str, api_key: Option<&str>) -> Re
         bail!("systemctl enable failed with status {}", status);
     }
 
+    // Enable linger so the user service keeps running after logout (and auto-starts at boot).
+    // Requires polkit authorization; on some distros this needs sudo. Failure is non-fatal.
+    let linger_note = enable_linger_for_current_user();
+
     Ok(format!(
-        "Service installed and started.\n  Unit: {}\n  Bind: {}",
+        "Service installed and started.\n  Unit: {}\n  Bind: {}\n  Logs: {}/server.{{stdout,stderr}}.log\n  {}",
         unit.display(),
         bind_addr,
+        log_path,
+        linger_note,
     ))
+}
+
+#[cfg(target_os = "linux")]
+fn enable_linger_for_current_user() -> String {
+    let user = std::env::var("USER").unwrap_or_default();
+    if user.is_empty() {
+        return "Linger: skipped (USER env not set; run `loginctl enable-linger <user>` manually)".to_string();
+    }
+
+    let output = std::process::Command::new("loginctl")
+        .args(["enable-linger", &user])
+        .output();
+
+    match output {
+        Ok(out) if out.status.success() => {
+            format!("Linger: enabled for {} (service survives logout)", user)
+        }
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            format!(
+                "Linger: not enabled ({}). Run `sudo loginctl enable-linger {}` manually so the service survives logout.",
+                stderr.trim(),
+                user
+            )
+        }
+        Err(e) => format!(
+            "Linger: loginctl unavailable ({}). Run `sudo loginctl enable-linger {}` manually.",
+            e, user
+        ),
+    }
 }
 
 #[cfg(target_os = "linux")]
