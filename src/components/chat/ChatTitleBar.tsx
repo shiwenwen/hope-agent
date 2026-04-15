@@ -3,7 +3,7 @@ import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { IconTip } from "@/components/ui/tooltip"
-import { Settings, Copy, BarChart3, Pencil, Zap, Check, X, FileText, Loader2 } from "lucide-react"
+import { Settings, Copy, BarChart3, Pencil, Zap, Check, X, FileText, Loader2, Search } from "lucide-react"
 import ChannelIcon from "@/components/common/ChannelIcon"
 import { formatMessageTime } from "./chatUtils"
 import { logger } from "@/lib/logger"
@@ -31,6 +31,10 @@ interface ChatTitleBarProps {
    * without going through the text input.
    */
   onCommandAction?: (action: import("@/components/chat/slash-commands/types").CommandAction) => void
+  /** Toggles the in-session "find in page" search bar. */
+  onToggleSearch?: () => void
+  /** Whether the in-session search bar is currently open (controls active styling). */
+  searchOpen?: boolean
 }
 
 export default function ChatTitleBar({
@@ -50,6 +54,8 @@ export default function ChatTitleBar({
   onViewSystemPrompt,
   systemPromptLoading,
   onCommandAction,
+  onToggleSearch,
+  searchOpen,
 }: ChatTitleBarProps) {
   const { t } = useTranslation()
   const [showStatus, setShowStatus] = useState(false)
@@ -161,6 +167,20 @@ export default function ChatTitleBar({
         )}
       </div>
       <div className="flex items-end gap-1">
+          {/* In-session Search Button */}
+          {currentSessionId && onToggleSearch && (
+            <IconTip label={t("chat.sessionSearch")}>
+              <button
+                className={cn(
+                  "pb-1.5 text-muted-foreground hover:text-foreground transition-colors",
+                  searchOpen && "text-foreground",
+                )}
+                onClick={onToggleSearch}
+              >
+                <Search className="h-4 w-4" />
+              </button>
+            </IconTip>
+          )}
           {/* Compact Context Button */}
           {currentSessionId && (
             <div className="relative">
