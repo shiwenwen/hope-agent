@@ -12,6 +12,7 @@ export type SettingsSection =
   | "profile"
   | "chat"
   | "plan"
+  | "recap"
   | "logs"
   | "health"
   | "about"

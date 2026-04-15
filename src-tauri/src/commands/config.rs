@@ -608,6 +608,21 @@ pub async fn set_ask_user_question_timeout(secs: u64) -> Result<(), String> {
     oc_core::config::save_config(&store).map_err(|e| e.to_string())
 }
 
+// ── Recap Config ────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn get_recap_config() -> Result<oc_core::config::RecapConfig, String> {
+    let store = oc_core::config::load_config().map_err(|e| e.to_string())?;
+    Ok(store.recap)
+}
+
+#[tauri::command]
+pub async fn save_recap_config(config: oc_core::config::RecapConfig) -> Result<(), String> {
+    let mut store = oc_core::config::load_config().map_err(|e| e.to_string())?;
+    store.recap = config;
+    oc_core::config::save_config(&store).map_err(|e| e.to_string())
+}
+
 // ── Weather ─────────────────────────────────────────────────────
 
 /// Search cities by name using Open-Meteo Geocoding API.
@@ -647,6 +662,23 @@ pub async fn refresh_weather() -> Result<Option<crate::weather::WeatherData>, St
     crate::weather::force_refresh_weather()
         .await
         .map_err(|e| e.to_string())
+}
+
+// ── Async Tools ───────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn get_async_tools_config() -> Result<oc_core::config::AsyncToolsConfig, String> {
+    let store = oc_core::config::load_config().map_err(|e| e.to_string())?;
+    Ok(store.async_tools)
+}
+
+#[tauri::command]
+pub async fn save_async_tools_config(
+    config: oc_core::config::AsyncToolsConfig,
+) -> Result<(), String> {
+    let mut store = oc_core::config::load_config().map_err(|e| e.to_string())?;
+    store.async_tools = config;
+    oc_core::config::save_config(&store).map_err(|e| e.to_string())
 }
 
 // ── Deferred Tool Loading ─────────────────────────────────────────

@@ -95,6 +95,10 @@ fn build_router_with_cors(
             "/sessions/{id}/messages/around",
             get(routes::sessions::get_session_messages_around),
         )
+        .route(
+            "/sessions/{id}/messages/search",
+            get(routes::sessions::search_session_messages),
+        )
         // Chat
         .route("/chat", post(routes::chat::chat))
         .route("/chat/stop", post(routes::chat::stop_chat))
@@ -193,6 +197,32 @@ fn build_router_with_cors(
         .route("/config/proxy", put(routes::config::save_proxy_config))
         .route("/config/compact", get(routes::config::get_compact_config))
         .route("/config/compact", put(routes::config::save_compact_config))
+        .route("/config/recap", get(routes::config::get_recap_config))
+        .route("/config/recap", put(routes::config::save_recap_config))
+        .route(
+            "/config/async-tools",
+            get(routes::config::get_async_tools_config),
+        )
+        .route(
+            "/config/async-tools",
+            put(routes::config::save_async_tools_config),
+        )
+        .route(
+            "/config/deferred-tools",
+            get(routes::config::get_deferred_tools_config),
+        )
+        .route(
+            "/config/deferred-tools",
+            put(routes::config::save_deferred_tools_config),
+        )
+        .route(
+            "/config/memory-selection",
+            get(routes::config::get_memory_selection_config),
+        )
+        .route(
+            "/config/memory-selection",
+            put(routes::config::save_memory_selection_config),
+        )
         .route(
             "/config/notification",
             get(routes::config::get_notification_config),
@@ -592,6 +622,10 @@ fn build_router_with_cors(
         )
         // Subagent
         .route("/subagent/runs", get(routes::subagent::list_subagent_runs))
+        .route(
+            "/subagent/runs/batch",
+            post(routes::subagent::get_subagent_runs_batch),
+        )
         .route(
             "/subagent/runs/{run_id}",
             get(routes::subagent::get_subagent_run),

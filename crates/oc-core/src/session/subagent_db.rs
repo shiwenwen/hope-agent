@@ -92,6 +92,40 @@ impl SessionDB {
         }
     }
 
+    /// Batch variant of [`get_subagent_run`]. Returns a `HashMap` keyed by
+    /// `run_id` so callers can look up by id without index coupling. Missing
+    /// ids simply don't appear in the map.
+    pub fn get_subagent_runs_batch(
+        &self,
+        run_ids: &[String],
+    ) -> Result<std::collections::HashMap<String, crate::subagent::SubagentRun>> {
+        if run_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let placeholders = crate::sql_in_placeholders(run_ids.len());
+        let sql = format!(
+            "SELECT run_id, parent_session_id, parent_agent_id, child_agent_id, child_session_id,
+                    task, status, result, error, depth, model_used, started_at, finished_at, duration_ms,
+                    label, attachment_count, input_tokens, output_tokens
+             FROM subagent_runs WHERE run_id IN ({placeholders})"
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let params_dyn: Vec<&dyn rusqlite::ToSql> =
+            run_ids.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+        let rows = stmt.query_map(params_dyn.as_slice(), Self::row_to_subagent_run)?;
+
+        let mut out = std::collections::HashMap::with_capacity(run_ids.len());
+        for row in rows {
+            let run = row?;
+            out.insert(run.run_id.clone(), run);
+        }
+        Ok(out)
+    }
+
     /// List all sub-agent runs for a parent session, ordered by started_at DESC.
     pub fn list_subagent_runs(
         &self,

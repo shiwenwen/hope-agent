@@ -282,6 +282,12 @@ pub fn run() {
             commands::config::set_plan_subagent,
             commands::config::get_ask_user_question_timeout,
             commands::config::set_ask_user_question_timeout,
+            // Recap
+            commands::config::get_recap_config,
+            commands::config::save_recap_config,
+            // Async tool execution
+            commands::config::get_async_tools_config,
+            commands::config::save_async_tools_config,
             // Deferred tool loading
             commands::config::get_deferred_tools_config,
             commands::config::save_deferred_tools_config,
@@ -310,6 +316,7 @@ pub fn run() {
             commands::session::load_session_messages_before_cmd,
             commands::session::load_session_messages_around_cmd,
             commands::session::search_sessions_cmd,
+            commands::session::search_session_messages_cmd,
             commands::session::get_session_cmd,
             commands::session::delete_session_cmd,
             commands::session::rename_session_cmd,
@@ -343,6 +350,7 @@ pub fn run() {
             // Sub-agent management
             commands::subagent::list_subagent_runs,
             commands::subagent::get_subagent_run,
+            commands::subagent::get_subagent_runs_batch,
             commands::subagent::kill_subagent,
             // Crash recovery & backup
             commands::crash::get_crash_recovery_info,

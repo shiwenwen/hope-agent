@@ -110,6 +110,12 @@ export interface SessionMeta {
   updatedAt: string
   messageCount: number
   unreadCount: number
+  /**
+   * Number of pending interactions awaiting the user (sum of pending tool
+   * approvals + pending ask_user_question groups). Drives the sidebar
+   * "needs your response" indicator on non-active sessions.
+   */
+  pendingInteractionCount: number
   isCron: boolean
   parentSessionId?: string | null
   channelInfo?: {

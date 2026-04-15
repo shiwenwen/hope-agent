@@ -102,15 +102,16 @@ pub fn init_app_state(initial_store: AppConfig) -> AppState {
     ));
     let _ = CRON_DB.set(cron_db.clone());
 
-    // Initialize the async_jobs DB used by the background tool execution feature.
-    // Failure here is non-fatal — async tools simply degrade to sync mode if the
-    // DB cannot be opened.
+    // Failure here is non-fatal — async tools degrade to sync mode if the DB cannot be opened.
     match paths::async_jobs_db_path()
         .and_then(|p| crate::async_jobs::AsyncJobsDB::open(&p))
     {
         Ok(db) => crate::async_jobs::set_async_jobs_db(Arc::new(db)),
-        Err(e) => eprintln!(
-            "[WARN] Failed to open async_jobs DB ({e}); async tool backgrounding disabled"
+        Err(e) => crate::app_warn!(
+            "async_jobs",
+            "init",
+            "Failed to open async_jobs DB ({}); async tool backgrounding disabled",
+            e
         ),
     }
 
@@ -274,7 +275,8 @@ pub async fn start_background_tasks() {
     // server/launchd/systemd deployments where start_background_tasks only
     // runs once at boot.
     tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(86_400));
+        let mut ticker =
+            tokio::time::interval(std::time::Duration::from_secs(crate::SECS_PER_DAY));
         ticker.tick().await; // skip immediate tick (startup path already purged)
         loop {
             ticker.tick().await;
@@ -316,6 +318,15 @@ pub async fn start_background_tasks() {
     tokio::spawn(async move {
         crate::async_jobs::replay_pending_jobs();
     });
+
+    // Retention sweep for async_jobs (rows + spool files). Runs once at
+    // startup and then once per day. Disabled entirely when both
+    // `retention_secs` and `orphan_grace_secs` are `0`.
+    crate::async_jobs::spawn_retention_loop();
+
+    // Retention sweep for recap session facets. Runs once at startup and
+    // then once per day. Disabled when `recap.cache_retention_days == 0`.
+    crate::recap::spawn_facet_retention_loop();
 
     // Auto-discover ACP backends
     if let Some(acp_mgr) = ACP_MANAGER.get() {

@@ -15,6 +15,12 @@ pub enum AsyncJobStatus {
 }
 
 impl AsyncJobStatus {
+    /// SQL fragment enumerating all terminal status strings for a
+    /// `status IN (...)` clause. Single source of truth so adding a new
+    /// variant can't silently skip purge / replay logic.
+    pub const TERMINAL_STATUS_SQL_LIST: &'static str =
+        "'completed','failed','interrupted','timed_out'";
+
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Running => "running",
@@ -25,13 +31,14 @@ impl AsyncJobStatus {
         }
     }
 
-    pub fn parse(s: &str) -> Self {
+    pub fn parse(s: &str) -> Option<Self> {
         match s {
-            "completed" => Self::Completed,
-            "failed" => Self::Failed,
-            "interrupted" => Self::Interrupted,
-            "timed_out" => Self::TimedOut,
-            _ => Self::Running,
+            "running" => Some(Self::Running),
+            "completed" => Some(Self::Completed),
+            "failed" => Some(Self::Failed),
+            "interrupted" => Some(Self::Interrupted),
+            "timed_out" => Some(Self::TimedOut),
+            _ => None,
         }
     }
 

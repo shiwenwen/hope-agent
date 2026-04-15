@@ -28,6 +28,22 @@ pub async fn get_subagent_run(Path(run_id): Path<String>) -> Result<Json<Value>,
     )?))
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchBody {
+    pub run_ids: Vec<String>,
+}
+
+/// `POST /api/subagent/runs/batch` — fetch multiple runs by id in one
+/// round-trip. Body: `{"runIds": ["run_a", "run_b", ...]}`.
+pub async fn get_subagent_runs_batch(
+    Json(body): Json<BatchBody>,
+) -> Result<Json<Value>, AppError> {
+    Ok(Json(serde_json::to_value(
+        state()?.session_db.get_subagent_runs_batch(&body.run_ids)?,
+    )?))
+}
+
 /// `POST /api/subagent/runs/{run_id}/kill`
 pub async fn kill_subagent(Path(run_id): Path<String>) -> Result<Json<Value>, AppError> {
     let s = state()?;

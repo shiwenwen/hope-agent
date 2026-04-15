@@ -38,6 +38,13 @@ pub struct MessagesAroundQuery {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SearchInSessionQuery {
+    pub query: String,
+    pub limit: Option<u32>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateSessionBody {
     pub agent_id: Option<String>,
 }
@@ -72,9 +79,12 @@ pub async fn list_sessions(
     State(ctx): State<Arc<AppContext>>,
     Query(q): Query<ListSessionsQuery>,
 ) -> Result<Json<PaginatedSessions>, AppError> {
-    let (sessions, total) =
+    let (mut sessions, total) =
         ctx.session_db
             .list_sessions_paged(q.agent_id.as_deref(), q.limit, q.offset)?;
+
+    oc_core::session::enrich_pending_interactions(&mut sessions, &ctx.session_db).await?;
+
     Ok(Json(PaginatedSessions { sessions, total }))
 }
 
@@ -127,7 +137,22 @@ pub async fn search_sessions(
 
     let results = ctx
         .session_db
-        .search_messages(&q.query, q.agent_id.as_deref(), type_slice, limit)?;
+        .search_messages(&q.query, q.agent_id.as_deref(), None, type_slice, limit)?;
+    Ok(Json(results))
+}
+
+/// `GET /api/sessions/:id/messages/search?query=...&limit=...` — FTS5
+/// full-text search scoped to a single session (used by the in-chat
+/// "find in page" search bar).
+pub async fn search_session_messages(
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+    Query(q): Query<SearchInSessionQuery>,
+) -> Result<Json<Vec<oc_core::session::SessionSearchResult>>, AppError> {
+    let limit = q.limit.unwrap_or(200) as usize;
+    let results = ctx
+        .session_db
+        .search_messages(&q.query, None, Some(&id), None, limit)?;
     Ok(Json(results))
 }
 

@@ -21,10 +21,16 @@ pub async fn list_sessions_cmd(
     offset: Option<u32>,
     state: State<'_, AppState>,
 ) -> Result<(Vec<session::SessionMeta>, u32), String> {
-    state
+    let (mut sessions, total) = state
         .session_db
         .list_sessions_paged(agent_id.as_deref(), limit, offset)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    session::enrich_pending_interactions(&mut sessions, &state.session_db)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok((sessions, total))
 }
 
 #[tauri::command]
@@ -153,7 +159,23 @@ pub async fn search_sessions_cmd(
 
     state
         .session_db
-        .search_messages(&query, agent_id.as_deref(), type_slice, limit)
+        .search_messages(&query, agent_id.as_deref(), None, type_slice, limit)
+        .map_err(|e| e.to_string())
+}
+
+/// Search message history within a single session (FTS5). Used by the
+/// in-chat "find in page" search bar.
+#[tauri::command]
+pub async fn search_session_messages_cmd(
+    session_id: String,
+    query: String,
+    limit: Option<u32>,
+    state: State<'_, AppState>,
+) -> Result<Vec<session::SessionSearchResult>, String> {
+    let limit = limit.unwrap_or(200) as usize;
+    state
+        .session_db
+        .search_messages(&query, None, Some(&session_id), None, limit)
         .map_err(|e| e.to_string())
 }
 

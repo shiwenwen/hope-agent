@@ -14,12 +14,14 @@
 
 pub(crate) mod db;
 pub(crate) mod injection;
+pub(crate) mod retention;
 pub(crate) mod spawn;
 pub(crate) mod types;
 
 use std::sync::{Arc, OnceLock};
 
-pub use db::AsyncJobsDB;
+pub use db::{AsyncJobsDB, PurgeStats};
+pub use retention::{run_once as run_retention_once, spawn_background_loop as spawn_retention_loop};
 pub use spawn::{dispatch_with_auto_background, spawn_explicit_job, synthetic_started_result};
 pub use types::{AsyncJob, AsyncJobStatus, JobOrigin};
 

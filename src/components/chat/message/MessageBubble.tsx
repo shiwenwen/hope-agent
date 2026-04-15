@@ -31,6 +31,8 @@ export interface MessageBubbleProps {
   // Plan mode
   sessionId?: string | null
   onOpenPlanPanel?: () => void
+  // Session switching (used by SubagentBlock's "jump to child session" button)
+  onSwitchSession?: (sessionId: string) => void
   // Model switching
   onSwitchModel?: (providerId: string, modelId: string) => void
   // View system prompt (triggered from context breakdown card)
@@ -88,6 +90,7 @@ function MessageBubbleInner({
   onCopy,
   sessionId,
   onOpenPlanPanel,
+  onSwitchSession,
   onSwitchModel,
   onViewSystemPrompt,
 }: MessageBubbleProps) {
@@ -218,6 +221,7 @@ function MessageBubbleInner({
               isLast={isLast}
               sessionId={sessionId}
               onOpenPlanPanel={onOpenPlanPanel}
+              onSwitchSession={onSwitchSession}
             />
           ) : msg.role === "assistant" ? (
             <AssistantLegacyContent msg={msg} loading={loading} isLast={isLast} />

@@ -25,6 +25,17 @@ pub async fn get_subagent_run(
 }
 
 #[tauri::command]
+pub async fn get_subagent_runs_batch(
+    run_ids: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<std::collections::HashMap<String, subagent::SubagentRun>, String> {
+    state
+        .session_db
+        .get_subagent_runs_batch(&run_ids)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn kill_subagent(run_id: String, state: State<'_, AppState>) -> Result<String, String> {
     // Verify run exists
     let run = state

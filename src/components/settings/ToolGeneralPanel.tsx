@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
+import { Switch } from "@/components/ui/switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { WeatherSection } from "@/components/settings/WeatherSection"
 import { cn } from "@/lib/utils"
@@ -40,6 +41,7 @@ export default function ToolGeneralPanel() {
   const [savedApprovalTimeoutAction, setSavedApprovalTimeoutAction] = useState<ApprovalTimeoutAction>("deny")
   const [diskThreshold, setDiskThreshold] = useState(50)
   const [savedDiskThreshold, setSavedDiskThreshold] = useState(50)
+  const [deferredToolsEnabled, setDeferredToolsEnabled] = useState(false)
 
   const [limits, setLimits] = useState<ToolLimitsConfig>(DEFAULT_LIMITS)
   const [savedLimitsSnapshot, setSavedLimitsSnapshot] = useState("")
@@ -75,6 +77,11 @@ export default function ToolGeneralPanel() {
     getTransport().call<number>("get_tool_result_disk_threshold")
       .then((v) => { if (!cancelled) { const kb = Math.round(v / 1000); setDiskThreshold(kb); setSavedDiskThreshold(kb); } })
       .catch((e) => logger.error("settings", "ToolGeneralPanel::load", "Failed to load disk threshold", e))
+
+    // Load deferred tools config
+    getTransport().call<{ enabled: boolean }>("get_deferred_tools_config")
+      .then((cfg) => { if (!cancelled) setDeferredToolsEnabled(cfg?.enabled ?? false) })
+      .catch((e) => logger.error("settings", "ToolGeneralPanel::load", "Failed to load deferred tools config", e))
 
     // Load user config
     getTransport().call<UserConfig>("get_user_config")
@@ -128,6 +135,21 @@ export default function ToolGeneralPanel() {
       logger.error("settings", "ToolGeneralPanel::save", "Failed to save approval timeout action", e)
     }
   }, [savedApprovalTimeoutAction])
+
+  const handleDeferredToolsChange = useCallback(async (enabled: boolean) => {
+    setDeferredToolsEnabled(enabled)
+    try {
+      await getTransport().call("save_deferred_tools_config", { config: { enabled } })
+    } catch (e) {
+      setDeferredToolsEnabled(!enabled)
+      logger.error(
+        "settings",
+        "ToolGeneralPanel::save",
+        "Failed to save deferred tools config",
+        e,
+      )
+    }
+  }, [])
 
   const saveDiskThreshold = useCallback(async (kb: number) => {
     try {
@@ -266,6 +288,20 @@ export default function ToolGeneralPanel() {
               />
               <span className="text-xs text-muted-foreground whitespace-nowrap">{t("settings.kb")}</span>
             </div>
+          </div>
+
+          {/* Deferred Tool Loading */}
+          <div className="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-secondary/40 transition-colors">
+            <div className="space-y-0.5 pr-4">
+              <div className="text-sm font-medium">{t("settings.deferredToolsEnabled")}</div>
+              <div className="text-xs text-muted-foreground">
+                {t("settings.deferredToolsEnabledDesc")}
+              </div>
+            </div>
+            <Switch
+              checked={deferredToolsEnabled}
+              onCheckedChange={handleDeferredToolsChange}
+            />
           </div>
 
           <div className="border-t border-border/50" />

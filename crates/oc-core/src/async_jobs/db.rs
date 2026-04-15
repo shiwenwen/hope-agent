@@ -1,8 +1,17 @@
 use anyhow::{Context, Result};
 use rusqlite::{params, Connection, OptionalExtension};
+use std::collections::HashSet;
 use std::sync::Mutex;
 
 use super::types::{AsyncJob, AsyncJobStatus};
+
+/// Row-level result of a retention sweep.
+#[derive(Debug, Clone, Default)]
+pub struct PurgeStats {
+    pub rows_deleted: u64,
+    pub spool_files_deleted: u64,
+    pub spool_bytes_freed: u64,
+}
 
 /// SQLite-backed persistence for async tool jobs.
 ///
@@ -138,27 +147,111 @@ impl AsyncJobsDB {
         Ok(out)
     }
 
+    /// Return the set of all `result_path` values currently referenced by the
+    /// DB. Used by orphan spool-file cleanup to know which files on disk are
+    /// still "owned" by a row.
+    pub fn list_all_spool_paths(&self) -> Result<HashSet<String>> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let mut stmt = conn.prepare(
+            "SELECT result_path FROM async_tool_jobs WHERE result_path IS NOT NULL",
+        )?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        let mut out = HashSet::new();
+        for r in rows {
+            out.insert(r?);
+        }
+        Ok(out)
+    }
+
+    /// Delete terminal job rows whose `completed_at < cutoff_ts` along with
+    /// their on-disk spool files. Only touches `completed / failed /
+    /// interrupted / timed_out` rows — `running` jobs are never purged even if
+    /// they appear stale (they're handled by replay).
+    ///
+    /// Uses `DELETE ... RETURNING` so the row delete is atomic with the id/path
+    /// capture — a single table scan instead of SELECT + DELETE. Spool-file
+    /// cleanup runs outside the mutex after the DB row is gone; any leftover
+    /// file on failure is caught by the orphan sweep in `retention.rs`.
+    pub fn purge_terminal_older_than(&self, cutoff_ts: i64) -> Result<PurgeStats> {
+        let mut stats = PurgeStats::default();
+
+        let deleted_rows: Vec<(String, Option<String>)> = {
+            let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+            let sql = format!(
+                "DELETE FROM async_tool_jobs
+                 WHERE status IN ({})
+                   AND completed_at IS NOT NULL
+                   AND completed_at < ?1
+                 RETURNING job_id, result_path",
+                AsyncJobStatus::TERMINAL_STATUS_SQL_LIST
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map(params![cutoff_ts], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+            })?;
+            let mut out = Vec::new();
+            for r in rows {
+                out.push(r?);
+            }
+            out
+        };
+
+        stats.rows_deleted = deleted_rows.len() as u64;
+        if deleted_rows.is_empty() {
+            return Ok(stats);
+        }
+
+        for (job_id, spool_path) in &deleted_rows {
+            let Some(path) = spool_path else { continue };
+            match std::fs::metadata(path) {
+                Ok(meta) => {
+                    let bytes = meta.len();
+                    match std::fs::remove_file(path) {
+                        Ok(()) => {
+                            stats.spool_files_deleted += 1;
+                            stats.spool_bytes_freed += bytes;
+                        }
+                        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                        Err(e) => crate::app_warn!(
+                            "async_jobs",
+                            "purge",
+                            "Failed to delete spool file {} for job {}: {}",
+                            path,
+                            job_id,
+                            e
+                        ),
+                    }
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => crate::app_warn!(
+                    "async_jobs",
+                    "purge",
+                    "Failed to stat spool file {} for job {}: {}",
+                    path,
+                    job_id,
+                    e
+                ),
+            }
+        }
+
+        Ok(stats)
+    }
+
     /// All terminal jobs that have not yet been injected — used by startup
     /// replay to push pending notifications back into their parent sessions.
     pub fn list_pending_injection(&self) -> Result<Vec<AsyncJob>> {
         let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
-        let mut stmt = conn.prepare(
+        let sql = format!(
             "SELECT job_id, session_id, agent_id, tool_name, tool_call_id,
                     args_json, status, result_preview, result_path, error,
                     created_at, completed_at, injected, origin
              FROM async_tool_jobs
-             WHERE status IN (?1, ?2, ?3, ?4)
+             WHERE status IN ({})
                AND injected=0",
-        )?;
-        let rows = stmt.query_map(
-            params![
-                AsyncJobStatus::Completed.as_str(),
-                AsyncJobStatus::Failed.as_str(),
-                AsyncJobStatus::Interrupted.as_str(),
-                AsyncJobStatus::TimedOut.as_str(),
-            ],
-            row_to_job,
-        )?;
+            AsyncJobStatus::TERMINAL_STATUS_SQL_LIST
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map([], row_to_job)?;
         let mut out = Vec::new();
         for r in rows {
             out.push(r?);
@@ -170,6 +263,15 @@ impl AsyncJobsDB {
 fn row_to_job(row: &rusqlite::Row<'_>) -> rusqlite::Result<AsyncJob> {
     let injected: i32 = row.get(12)?;
     let status_str: String = row.get(6)?;
+    let status = AsyncJobStatus::parse(&status_str).unwrap_or_else(|| {
+        crate::app_warn!(
+            "async_jobs",
+            "row_to_job",
+            "Unknown status '{}' in DB; defaulting to Interrupted",
+            status_str
+        );
+        AsyncJobStatus::Interrupted
+    });
     Ok(AsyncJob {
         job_id: row.get(0)?,
         session_id: row.get(1)?,
@@ -177,7 +279,7 @@ fn row_to_job(row: &rusqlite::Row<'_>) -> rusqlite::Result<AsyncJob> {
         tool_name: row.get(3)?,
         tool_call_id: row.get(4)?,
         args_json: row.get(5)?,
-        status: AsyncJobStatus::parse(&status_str),
+        status,
         result_preview: row.get(7)?,
         result_path: row.get(8)?,
         error: row.get(9)?,

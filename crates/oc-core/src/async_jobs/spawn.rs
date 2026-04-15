@@ -492,15 +492,9 @@ fn truncate_preview(output: &str, max_bytes: usize) -> String {
     let head_budget = max_bytes.saturating_mul(2) / 3;
     let tail_budget = max_bytes.saturating_sub(head_budget);
     let head = crate::truncate_utf8(output, head_budget);
-    let mut tail_start = output.len().saturating_sub(tail_budget);
-    while tail_start < output.len() && !output.is_char_boundary(tail_start) {
-        tail_start += 1;
-    }
-    let tail = &output[tail_start..];
+    let tail = crate::truncate_utf8_tail(output, tail_budget);
     let omitted = output.len().saturating_sub(head.len() + tail.len());
-    format!(
-        "{head}\n\n[...{omitted} bytes omitted...]\n\n{tail}",
-    )
+    format!("{head}\n\n[...{omitted} bytes omitted...]\n\n{tail}")
 }
 
 fn emit_completion_event(job_id: &str, tool_name: &str, status: &str) {

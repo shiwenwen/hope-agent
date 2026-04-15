@@ -73,6 +73,9 @@ pub async fn tool_job_status(args: &Value) -> Result<String> {
                             }
                         }
                     }
+                    // Unrelated event (or recv error): skip the fallback DB poll
+                    // this iteration and wait for the next event / tick.
+                    continue;
                 }
                 _ = tokio::time::sleep(poll_window) => {}
             }

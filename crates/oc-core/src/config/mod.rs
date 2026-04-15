@@ -139,6 +139,19 @@ pub struct AsyncToolsConfig {
     /// and only a head/tail preview is injected. Default: 4096.
     #[serde(default = "default_async_inline_result_bytes")]
     pub inline_result_bytes: usize,
+    /// Retention period for terminal async job rows + their spool files.
+    /// Jobs whose `completed_at` is older than this are purged by a daily
+    /// background task (plus one sweep at startup). Default: 30 days.
+    /// `0` disables retention entirely.
+    #[serde(default = "default_async_retention_secs")]
+    pub retention_secs: u64,
+    /// Orphan spool file grace period. Files under `~/.opencomputer/async_jobs/`
+    /// whose name is not referenced by any row and whose mtime is older than
+    /// this many seconds are considered orphaned and deleted. Default: 24h.
+    /// The grace window prevents races with in-flight writes from freshly
+    /// started jobs whose DB row hasn't committed yet.
+    #[serde(default = "default_async_orphan_grace_secs")]
+    pub orphan_grace_secs: u64,
 }
 
 fn default_async_auto_background_secs() -> u64 {
@@ -150,6 +163,12 @@ fn default_async_max_job_secs() -> u64 {
 fn default_async_inline_result_bytes() -> usize {
     4096
 }
+fn default_async_retention_secs() -> u64 {
+    30 * crate::SECS_PER_DAY
+}
+fn default_async_orphan_grace_secs() -> u64 {
+    24 * crate::SECS_PER_HOUR
+}
 
 impl Default for AsyncToolsConfig {
     fn default() -> Self {
@@ -158,6 +177,8 @@ impl Default for AsyncToolsConfig {
             auto_background_secs: default_async_auto_background_secs(),
             max_job_secs: default_async_max_job_secs(),
             inline_result_bytes: default_async_inline_result_bytes(),
+            retention_secs: default_async_retention_secs(),
+            orphan_grace_secs: default_async_orphan_grace_secs(),
         }
     }
 }

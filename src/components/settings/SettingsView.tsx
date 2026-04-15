@@ -23,6 +23,7 @@ import {
   Cable,
   ClipboardList,
   MessageCircle,
+  LineChart,
 } from "lucide-react"
 import type { ProviderConfig } from "@/components/settings/ProviderSettings"
 import ProviderSetup from "@/components/settings/ProviderSetup"
@@ -32,6 +33,7 @@ import ModelConfigPanel from "@/components/settings/ModelConfigPanel"
 import ToolSettingsPanel from "@/components/settings/ToolSettingsPanel"
 import ChatSettingsPanel from "@/components/settings/ChatSettingsPanel"
 import PlanSettingsPanel from "@/components/settings/PlanSettingsPanel"
+import RecapSettingsPanel from "@/components/settings/RecapSettingsPanel"
 import SkillsPanel from "@/components/settings/skills-panel"
 import AgentPanel from "@/components/settings/AgentPanel"
 import UserProfilePanel from "@/components/settings/profile-panel"
@@ -93,6 +95,11 @@ const SECTIONS: SettingsSectionItem[] = [
     id: "plan",
     icon: <ClipboardList className="h-4 w-4" />,
     labelKey: "settings.plan",
+  },
+  {
+    id: "recap",
+    icon: <LineChart className="h-4 w-4" />,
+    labelKey: "settings.recap",
   },
   {
     id: "tools",
@@ -261,6 +268,7 @@ export default function SettingsView({
             {activeSection === "permissions" && <PermissionsPanel />}
             {activeSection === "chat" && <ChatSettingsPanel />}
             {activeSection === "plan" && <PlanSettingsPanel />}
+            {activeSection === "recap" && <RecapSettingsPanel />}
             {activeSection === "health" && <CrashHistoryPanel />}
             {activeSection === "logs" && <LogPanel />}
             {activeSection === "about" && <AboutPanel />}
