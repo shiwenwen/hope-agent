@@ -1,8 +1,17 @@
 use anyhow::{Context, Result};
 use rusqlite::{params, Connection, OptionalExtension};
+use std::collections::HashSet;
 use std::sync::Mutex;
 
 use super::types::{AsyncJob, AsyncJobStatus};
+
+/// Row-level result of a retention sweep.
+#[derive(Debug, Clone, Default)]
+pub struct PurgeStats {
+    pub rows_deleted: u64,
+    pub spool_files_deleted: u64,
+    pub spool_bytes_freed: u64,
+}
 
 /// SQLite-backed persistence for async tool jobs.
 ///
@@ -136,6 +145,109 @@ impl AsyncJobsDB {
             out.push(r?);
         }
         Ok(out)
+    }
+
+    /// Return the set of all `result_path` values currently referenced by the
+    /// DB. Used by orphan spool-file cleanup to know which files on disk are
+    /// still "owned" by a row.
+    pub fn list_all_spool_paths(&self) -> Result<HashSet<String>> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let mut stmt = conn.prepare(
+            "SELECT result_path FROM async_tool_jobs WHERE result_path IS NOT NULL",
+        )?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        let mut out = HashSet::new();
+        for r in rows {
+            out.insert(r?);
+        }
+        Ok(out)
+    }
+
+    /// Delete terminal job rows whose `completed_at < cutoff_ts` along with
+    /// their on-disk spool files. Only touches `completed / failed /
+    /// interrupted / timed_out` rows — `running` jobs are never purged even if
+    /// they appear stale (they're handled by replay).
+    ///
+    /// Spool-file deletion is best-effort: a missing or unreadable file is
+    /// logged but does not prevent the DB row from being deleted, since the
+    /// row is the source of truth for "this job still exists".
+    pub fn purge_terminal_older_than(&self, cutoff_ts: i64) -> Result<PurgeStats> {
+        let mut stats = PurgeStats::default();
+
+        // Collect spool paths + ids to delete first (single query), then
+        // delete files outside the transaction, then delete the rows.
+        let to_delete: Vec<(String, Option<String>)> = {
+            let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+            let mut stmt = conn.prepare(
+                "SELECT job_id, result_path
+                 FROM async_tool_jobs
+                 WHERE status IN ('completed','failed','interrupted','timed_out')
+                   AND completed_at IS NOT NULL
+                   AND completed_at < ?1",
+            )?;
+            let rows = stmt.query_map(params![cutoff_ts], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+            })?;
+            let mut out = Vec::new();
+            for r in rows {
+                out.push(r?);
+            }
+            out
+        };
+
+        if to_delete.is_empty() {
+            return Ok(stats);
+        }
+
+        for (job_id, spool_path) in &to_delete {
+            if let Some(path) = spool_path {
+                match std::fs::metadata(path) {
+                    Ok(meta) => {
+                        let bytes = meta.len();
+                        match std::fs::remove_file(path) {
+                            Ok(()) => {
+                                stats.spool_files_deleted += 1;
+                                stats.spool_bytes_freed += bytes;
+                            }
+                            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                            Err(e) => {
+                                crate::app_warn!(
+                                    "async_jobs",
+                                    "purge",
+                                    "Failed to delete spool file {} for job {}: {}",
+                                    path,
+                                    job_id,
+                                    e
+                                );
+                            }
+                        }
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(e) => {
+                        crate::app_warn!(
+                            "async_jobs",
+                            "purge",
+                            "Failed to stat spool file {} for job {}: {}",
+                            path,
+                            job_id,
+                            e
+                        );
+                    }
+                }
+            }
+        }
+
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let deleted = conn.execute(
+            "DELETE FROM async_tool_jobs
+             WHERE status IN ('completed','failed','interrupted','timed_out')
+               AND completed_at IS NOT NULL
+               AND completed_at < ?1",
+            params![cutoff_ts],
+        )?;
+        stats.rows_deleted = deleted as u64;
+
+        Ok(stats)
     }
 
     /// All terminal jobs that have not yet been injected — used by startup

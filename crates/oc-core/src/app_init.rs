@@ -318,6 +318,11 @@ pub async fn start_background_tasks() {
         crate::async_jobs::replay_pending_jobs();
     });
 
+    // Retention sweep for async_jobs (rows + spool files). Runs once at
+    // startup and then once per day. Disabled entirely when both
+    // `retention_secs` and `orphan_grace_secs` are `0`.
+    crate::async_jobs::spawn_retention_loop();
+
     // Auto-discover ACP backends
     if let Some(acp_mgr) = ACP_MANAGER.get() {
         let store = crate::config::cached_config();
