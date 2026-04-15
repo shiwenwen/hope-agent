@@ -4,7 +4,16 @@ use serde_json::Value;
 use crate::memory::{self, AddResult, MemoryScope, MemorySearchQuery, MemoryType, NewMemory};
 
 /// Tool: save_memory — persist information for future conversations.
-pub(crate) async fn tool_save_memory(args: &Value) -> Result<String> {
+///
+/// When the active session belongs to a project and the model did not pass
+/// an explicit `scope` argument, the new memory defaults to the Project
+/// scope so it stays inside that project. This mirrors the behavior of
+/// `memory_extract::resolve_extract_scope` so manual and auto-extracted
+/// memories land in the same place for project sessions.
+pub(crate) async fn tool_save_memory(
+    args: &Value,
+    ctx: &super::ToolExecContext,
+) -> Result<String> {
     let content = args
         .get("content")
         .and_then(|v| v.as_str())
@@ -12,10 +21,25 @@ pub(crate) async fn tool_save_memory(args: &Value) -> Result<String> {
 
     let memory_type = args.get("type").and_then(|v| v.as_str()).unwrap_or("user");
 
-    let scope_str = args
-        .get("scope")
-        .and_then(|v| v.as_str())
-        .unwrap_or("global");
+    // Detect the current session's project via ctx so we can default
+    // project-session memories to the right scope without the model having
+    // to pass `scope="project"` and `project_id` every time.
+    let session_project_id: Option<String> = ctx
+        .session_id
+        .as_deref()
+        .and_then(|sid| crate::get_session_db()?.get_session(sid).ok().flatten())
+        .and_then(|s| s.project_id);
+
+    // Resolve the scope string. When the model omits `scope`:
+    //   * session is in a project → Project scope (so knowledge stays local)
+    //   * otherwise                → Global scope (pre-project behavior)
+    let explicit_scope = args.get("scope").and_then(|v| v.as_str());
+    let default_scope = if session_project_id.is_some() {
+        "project"
+    } else {
+        "global"
+    };
+    let scope_str = explicit_scope.unwrap_or(default_scope);
 
     let agent_id = args
         .get("agent_id")
@@ -39,7 +63,7 @@ pub(crate) async fn tool_save_memory(args: &Value) -> Result<String> {
 
     // Resolve scope string. `project` requires a project context, either
     // passed explicitly via `project_id` or reachable via the current
-    // session (looked up from the global session DB).
+    // session (looked up from the global session DB / ctx).
     let scope = match scope_str {
         "agent" => MemoryScope::Agent {
             id: agent_id.to_string(),
@@ -49,6 +73,7 @@ pub(crate) async fn tool_save_memory(args: &Value) -> Result<String> {
                 .get("project_id")
                 .and_then(|v| v.as_str())
                 .map(String::from)
+                .or_else(|| session_project_id.clone())
                 .or_else(|| {
                     let sid = args.get("session_id").and_then(|v| v.as_str())?;
                     let db = crate::get_session_db()?;
@@ -72,7 +97,7 @@ pub(crate) async fn tool_save_memory(args: &Value) -> Result<String> {
         content: content.to_string(),
         tags,
         source: "auto".to_string(),
-        source_session_id: None,
+        source_session_id: ctx.session_id.clone(),
         pinned,
         attachment_path: None,
         attachment_mime: None,

@@ -70,18 +70,27 @@ pub(crate) async fn tool_project_read_file(
     let full_path = base.join(ext_rel);
 
     // Defense-in-depth: ensure the resolved path is still inside the project's
-    // extracted directory. Rejects any `..` tricks hiding in the stored rel path.
+    // extracted directory. Fails closed — if either canonicalization fails we
+    // refuse the read instead of falling back to the raw (possibly tricked)
+    // path. The extracted dir must exist because we only set `extracted_path`
+    // after a successful upload which creates the dir.
     let allowed_root = crate::paths::project_extracted_dir(&project_id)?;
-    let canonical_full = std::fs::canonicalize(&full_path).unwrap_or(full_path.clone());
-    let canonical_root =
-        std::fs::canonicalize(&allowed_root).unwrap_or(allowed_root.clone());
+    let canonical_root = std::fs::canonicalize(&allowed_root).map_err(|e| {
+        anyhow::anyhow!(
+            "project extracted dir unavailable for '{}': {}",
+            project_id,
+            e
+        )
+    })?;
+    let canonical_full = std::fs::canonicalize(&full_path)
+        .map_err(|e| anyhow::anyhow!("project file '{}' unavailable: {}", file.name, e))?;
     if !canonical_full.starts_with(&canonical_root) {
         return Err(anyhow::anyhow!(
             "Refusing to read outside the project's extracted directory"
         ));
     }
 
-    let content = tokio::fs::read_to_string(&full_path)
+    let content = tokio::fs::read_to_string(&canonical_full)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to read '{}': {}", file.name, e))?;
 

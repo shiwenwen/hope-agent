@@ -74,6 +74,11 @@ impl ProjectDB {
 
     /// Create a new project.
     pub fn create(&self, input: CreateProjectInput) -> Result<Project> {
+        let trimmed_name = input.name.trim();
+        if trimmed_name.is_empty() {
+            anyhow::bail!("project name cannot be empty");
+        }
+        let name = trimmed_name.to_string();
         let id = uuid::Uuid::new_v4().to_string();
         let now = chrono::Utc::now().timestamp_millis();
 
@@ -89,7 +94,7 @@ impl ProjectDB {
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 0)",
             params![
                 id,
-                input.name,
+                name,
                 normalize_optional(input.description.as_deref()),
                 normalize_optional(input.instructions.as_deref()),
                 normalize_optional(input.emoji.as_deref()),
@@ -103,7 +108,7 @@ impl ProjectDB {
 
         Ok(Project {
             id,
-            name: input.name,
+            name,
             description: normalize_optional(input.description.as_deref())
                 .map(str::to_string),
             instructions: normalize_optional(input.instructions.as_deref())
@@ -172,9 +177,13 @@ impl ProjectDB {
         }
 
         if let Some(name) = &patch.name {
+            let trimmed = name.trim();
+            if trimmed.is_empty() {
+                anyhow::bail!("project name cannot be empty");
+            }
             let idx = params_vec.len() + 1;
             sets.push(format!("name = ?{}", idx));
-            params_vec.push(Box::new(name.clone()));
+            params_vec.push(Box::new(trimmed.to_string()));
         }
         push_str_field(&mut sets, &mut params_vec, "description", &patch.description);
         push_str_field(
@@ -235,27 +244,53 @@ impl ProjectDB {
     }
 
     /// Delete a project. Sessions are **kept** (their `project_id` is cleared);
-    /// project files and project-scoped memories are cascade-deleted by the
-    /// caller (see `delete_cascade` which orchestrates cross-DB cleanup).
+    /// project files (and their disk paths, via the returned list) must be
+    /// cleaned up by the caller; project-scoped memories are cross-database
+    /// and also wiped by the caller — see `delete_project_cascade`.
     ///
-    /// This method only touches rows that live in the session database.
+    /// All rows inside the session database are touched inside a single
+    /// `IMMEDIATE` transaction so a crash mid-delete cannot leave a
+    /// half-deleted project (e.g. sessions unassigned but project row still
+    /// present).
     pub fn delete(&self, id: &str) -> Result<Vec<ProjectFile>> {
-        // Unassign sessions first so they survive the cascade.
-        let _ = self.session_db.clear_project_from_sessions(id)?;
-
-        // Snapshot the files we're about to delete so the caller can clean
-        // up their bytes on disk.
-        let files = self.list_files(id)?;
-
-        let conn = self
+        let mut conn = self
             .session_db
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        // FK ON DELETE CASCADE on project_files will drop them for us, but
-        // we also rely on SQLite `PRAGMA foreign_keys=ON` which SessionDB
-        // enables at open time.
-        conn.execute("DELETE FROM projects WHERE id = ?1", params![id])?;
+
+        let tx = conn.transaction()?;
+
+        // Step 1: snapshot files for the caller (before the cascade drops them).
+        let files = {
+            let mut stmt = tx.prepare(
+                "SELECT id, project_id, name, original_filename, mime_type, size_bytes,
+                        file_path, extracted_path, extracted_chars, summary,
+                        created_at, updated_at
+                 FROM project_files
+                 WHERE project_id = ?1
+                 ORDER BY created_at DESC",
+            )?;
+            let rows = stmt.query_map(params![id], row_to_project_file)?;
+            let mut out = Vec::new();
+            for r in rows {
+                out.push(r?);
+            }
+            out
+        };
+
+        // Step 2: detach sessions so they survive the cascade.
+        tx.execute(
+            "UPDATE sessions SET project_id = NULL WHERE project_id = ?1",
+            params![id],
+        )?;
+
+        // Step 3: delete the project row. FK ON DELETE CASCADE on project_files
+        // drops the file rows automatically (PRAGMA foreign_keys=ON is set at
+        // SessionDB::open time).
+        tx.execute("DELETE FROM projects WHERE id = ?1", params![id])?;
+
+        tx.commit()?;
         Ok(files)
     }
 

@@ -419,8 +419,10 @@ pub(super) fn build_project_context_section(project: &Project) -> String {
 
     out.push_str(
         "\nAll memories, files, and context below that live inside this project are \
-         shared across every session in it. Memories you save will default to the \
-         project scope unless you explicitly choose another scope.\n",
+         shared across every session in it. When you call `save_memory` from this \
+         session, the new memory defaults to the **project** scope (shared only \
+         inside this project). Pass `scope='global'` or `scope='agent'` explicitly \
+         if you want a memory to escape the project boundary.\n",
     );
 
     out

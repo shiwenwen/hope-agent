@@ -445,7 +445,7 @@ pub async fn execute_tool_with_context(
             TOOL_APPLY_PATCH => apply_patch::tool_apply_patch(args).await,
             TOOL_WEB_SEARCH => web_search::tool_web_search(args).await,
             TOOL_WEB_FETCH => web_fetch::tool_web_fetch(args).await,
-            TOOL_SAVE_MEMORY => memory::tool_save_memory(args).await,
+            TOOL_SAVE_MEMORY => memory::tool_save_memory(args, ctx).await,
             TOOL_RECALL_MEMORY => memory::tool_recall_memory(args).await,
             TOOL_UPDATE_MEMORY => memory::tool_update_memory(args).await,
             TOOL_DELETE_MEMORY => memory::tool_delete_memory(args).await,

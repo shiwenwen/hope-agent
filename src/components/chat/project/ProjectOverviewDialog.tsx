@@ -10,7 +10,7 @@
 
 import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { FolderKanban, MessageSquarePlus, Pencil, Trash2 } from "lucide-react"
+import { MessageSquarePlus, Pencil, Trash2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -272,6 +272,3 @@ function StatCard({ label, value }: { label: string; value: number }) {
   )
 }
 
-// Unused import guard (keeps the icon import from being flagged while we
-// keep the dialog minimal in the first iteration).
-void FolderKanban
