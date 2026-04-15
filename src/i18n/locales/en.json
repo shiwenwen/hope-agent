@@ -256,6 +256,14 @@
     "group": {
       "running": "Running {{count}} agents",
       "finished": "{{count}} agents finished"
+    },
+    "status": {
+      "spawning": "Spawning",
+      "running": "Running",
+      "completed": "Completed",
+      "error": "Error",
+      "timeout": "Timeout",
+      "killed": "Killed"
     }
   },
   "settings": {

@@ -256,6 +256,14 @@
     "group": {
       "running": "正在运行 {{count}} 个 Agent",
       "finished": "已完成 {{count}} 个 Agent"
+    },
+    "status": {
+      "spawning": "启动中",
+      "running": "运行中",
+      "completed": "已完成",
+      "error": "出错",
+      "timeout": "超时",
+      "killed": "已终止"
     }
   },
   "settings": {

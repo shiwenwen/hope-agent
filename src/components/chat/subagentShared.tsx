@@ -38,27 +38,25 @@ export const FAILED_STATUSES = new Set(["error", "timeout", "killed"])
 
 export interface StatusDisplay {
   icon: React.ReactNode
-  label: string
   color: string
 }
 
+// Status label text lives in i18n (subagent.status.*), not here — call
+// t(`subagent.status.${status}`) at the use site.
 export const statusConfig: Record<string, StatusDisplay> = {
   spawning: {
     icon: <Loader2 className="h-3 w-3 animate-spin" />,
-    label: "Spawning",
     color: "text-blue-500",
   },
   running: {
     icon: <Loader2 className="h-3 w-3 animate-spin" />,
-    label: "Running",
     color: "text-blue-500",
   },
   completed: {
     icon: <CheckCircle className="h-3 w-3" />,
-    label: "Completed",
     color: "text-green-500",
   },
-  error: { icon: <XCircle className="h-3 w-3" />, label: "Error", color: "text-red-500" },
-  timeout: { icon: <Clock className="h-3 w-3" />, label: "Timeout", color: "text-orange-500" },
-  killed: { icon: <Skull className="h-3 w-3" />, label: "Killed", color: "text-gray-500" },
+  error: { icon: <XCircle className="h-3 w-3" />, color: "text-red-500" },
+  timeout: { icon: <Clock className="h-3 w-3" />, color: "text-orange-500" },
+  killed: { icon: <Skull className="h-3 w-3" />, color: "text-gray-500" },
 }

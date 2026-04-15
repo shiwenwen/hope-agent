@@ -133,7 +133,7 @@ export default function SubagentBlock({ runId, agentId, task, initialStatus }: S
           className={cn("flex items-center gap-1 transition-colors duration-200", config.color)}
         >
           {config.icon}
-          <span>{config.label}</span>
+          <span>{t(`subagent.status.${status}`, status)}</span>
         </span>
         {durationMs !== undefined && (
           <span className="text-muted-foreground">{(durationMs / 1000).toFixed(1)}s</span>
