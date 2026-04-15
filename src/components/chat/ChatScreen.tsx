@@ -31,6 +31,10 @@ import { usePlanMode } from "./plan-mode/usePlanMode"
 import { useModelState } from "./hooks/useModelState"
 import SystemPromptDialog from "./SystemPromptDialog"
 import { PlanPanel } from "./plan-mode/PlanPanel"
+import { useProjects } from "./project/hooks/useProjects"
+import ProjectDialog from "./project/ProjectDialog"
+import ProjectOverviewDialog from "./project/ProjectOverviewDialog"
+import type { Project, ProjectMeta } from "@/types/project"
 
 interface ChatScreenProps {
   onOpenAgentSettings?: (agentId: string) => void
@@ -102,7 +106,54 @@ export default function ChatScreen({
   const reloadSessions = session.reloadSessions
   const currentAgentId = session.currentAgentId
   const handleNewChat = session.handleNewChat
+  const handleNewChatInProject = session.handleNewChatInProject
   const currentSessionId = session.currentSessionId
+
+  // ── Projects ────────────────────────────────────────────────
+  const {
+    projects,
+    createProject,
+    updateProject,
+    deleteProject,
+  } = useProjects()
+
+  const [projectDialogOpen, setProjectDialogOpen] = useState(false)
+  const [projectDialogMode, setProjectDialogMode] = useState<"create" | "edit">("create")
+  const [projectDialogInitial, setProjectDialogInitial] = useState<Project | null>(null)
+
+  const [projectOverviewOpen, setProjectOverviewOpen] = useState(false)
+  const [projectOverviewTarget, setProjectOverviewTarget] = useState<ProjectMeta | null>(null)
+
+  const [projectDeleteTarget, setProjectDeleteTarget] = useState<Project | null>(null)
+
+  const openCreateProject = useCallback(() => {
+    setProjectDialogMode("create")
+    setProjectDialogInitial(null)
+    setProjectDialogOpen(true)
+  }, [])
+
+  const openEditProject = useCallback((project: Project) => {
+    setProjectDialogMode("edit")
+    setProjectDialogInitial(project)
+    setProjectDialogOpen(true)
+  }, [])
+
+  const openProjectOverview = useCallback((project: ProjectMeta) => {
+    setProjectOverviewTarget(project)
+    setProjectOverviewOpen(true)
+  }, [])
+
+  const confirmDeleteProject = useCallback(async () => {
+    if (!projectDeleteTarget) return
+    const ok = await deleteProject(projectDeleteTarget.id)
+    setProjectDeleteTarget(null)
+    if (ok) {
+      setProjectOverviewOpen(false)
+      // If the active session belonged to this project, reload so its
+      // projectId flips to null for the sidebar indicator.
+      reloadSessions()
+    }
+  }, [deleteProject, projectDeleteTarget, reloadSessions])
 
   // Rename session handler
   const handleRenameSession = useCallback(async (sessionId: string, title: string) => {
@@ -484,6 +535,7 @@ export default function ChatScreen({
       <ChatSidebar
         sessions={session.sessions}
         agents={session.agents}
+        projects={projects}
         currentSessionId={session.currentSessionId}
         loadingSessionIds={session.loadingSessionIds}
         panelWidth={panelWidth}
@@ -497,7 +549,61 @@ export default function ChatScreen({
         hasMoreSessions={session.hasMoreSessions}
         loadingMoreSessions={session.loadingMoreSessions}
         onLoadMoreSessions={session.handleLoadMoreSessions}
+        onOpenProject={openProjectOverview}
+        onAddProject={openCreateProject}
       />
+
+      {/* Project create/edit dialog */}
+      <ProjectDialog
+        open={projectDialogOpen}
+        mode={projectDialogMode}
+        initialProject={projectDialogInitial}
+        agents={session.agents}
+        onOpenChange={setProjectDialogOpen}
+        onCreate={createProject}
+        onUpdate={updateProject}
+      />
+
+      {/* Project overview dialog (tabs: overview/sessions/files/instructions) */}
+      <ProjectOverviewDialog
+        open={projectOverviewOpen}
+        project={projectOverviewTarget}
+        onOpenChange={setProjectOverviewOpen}
+        onEdit={(p) => {
+          setProjectOverviewOpen(false)
+          openEditProject(p)
+        }}
+        onDelete={(p) => setProjectDeleteTarget(p)}
+        onNewSessionInProject={(projectId, defaultAgentId) => {
+          void handleNewChatInProject(projectId, defaultAgentId)
+        }}
+        onOpenSession={(sid) => session.handleSwitchSession(sid)}
+        onUpdateProject={updateProject}
+      />
+
+      {/* Project delete confirmation */}
+      <AlertDialog
+        open={!!projectDeleteTarget}
+        onOpenChange={(o) => !o && setProjectDeleteTarget(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("project.deleteConfirm.title")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("project.deleteConfirm.body")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={confirmDeleteProject}
+            >
+              {t("common.delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Command Approval Dialog */}
       <ApprovalDialog
