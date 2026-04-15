@@ -39,6 +39,8 @@ pub async fn submit_ask_user_question_response(
     let mut pending = get_pending_questions().lock().await;
     if let Some(sender) = pending.remove(request_id) {
         let _ = sender.send(answers);
+        drop(pending);
+        crate::tools::approval::emit_pending_interactions_changed(None);
         Ok(())
     } else {
         Err(anyhow::anyhow!(
@@ -52,6 +54,8 @@ pub async fn submit_ask_user_question_response(
 pub async fn cancel_pending_ask_user_question(request_id: &str) {
     let mut pending = get_pending_questions().lock().await;
     pending.remove(request_id);
+    drop(pending);
+    crate::tools::approval::emit_pending_interactions_changed(None);
 }
 
 /// Check whether a request_id is currently awaited by a live tool call

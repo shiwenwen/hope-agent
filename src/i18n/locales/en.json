@@ -50,6 +50,8 @@
     "filterSubagent": "Delegated",
     "markAllRead": "Mark all as read",
     "markAsRead": "Mark as read",
+    "pendingInteractionHint": "Waiting for your response",
+    "pendingInteractionInline": "Waiting for response · {{count}}",
     "renameSession": "Rename",
     "renameSessionPlaceholder": "Enter new title...",
     "howCanIHelp": "How can I help you today?",

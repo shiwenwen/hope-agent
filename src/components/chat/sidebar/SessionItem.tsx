@@ -19,6 +19,7 @@ import {
   Pencil,
   Network,
   CheckCheck,
+  BellRing,
 } from "lucide-react"
 import type { SessionMeta, AgentSummaryForSidebar } from "@/types/chat"
 import ChannelIcon from "@/components/common/ChannelIcon"
@@ -64,6 +65,10 @@ export default function SessionItem({
 }: SessionItemProps) {
   const { t } = useTranslation()
 
+  const pendingInteractionCount = session.pendingInteractionCount ?? 0
+  const hasPending =
+    !isActive && !session.channelInfo && pendingInteractionCount > 0
+
   const handleMarkAsRead = useCallback(async () => {
     if (session.unreadCount === 0) return
     try {
@@ -86,7 +91,9 @@ export default function SessionItem({
             "flex items-center gap-2.5 w-full px-2.5 py-2 rounded-lg text-left transition-colors group cursor-pointer",
             isActive
               ? "bg-secondary/70 border border-border/50"
-              : "hover:bg-secondary/40",
+              : hasPending
+                ? "bg-amber-500/10 hover:bg-amber-500/15 border-l-2 border-l-amber-500 pl-[8px]"
+                : "hover:bg-secondary/40",
           )}
           onClick={() => onSwitchSession(session.id)}
           onKeyDown={(e) => {
@@ -129,6 +136,21 @@ export default function SessionItem({
               >
                 {session.unreadCount > 99 ? "99+" : session.unreadCount}
               </span>
+            )}
+            {hasPending && (
+              <IconTip label={t("chat.pendingInteractionHint")}>
+                <span
+                  className="absolute -bottom-1 -left-1.5 z-10 min-w-[16px] h-[16px] px-0.5 rounded-full text-white text-[9px] font-bold flex items-center justify-center border border-background pointer-events-none leading-none animate-pulse"
+                  style={{
+                    background:
+                      "linear-gradient(135deg, #fbbf24 0%, #f59e0b 50%, #d97706 100%)",
+                    boxShadow:
+                      "0 2px 6px rgba(217, 119, 6, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.3)",
+                  }}
+                >
+                  {pendingInteractionCount > 99 ? "99+" : pendingInteractionCount}
+                </span>
+              </IconTip>
             )}
           </div>
 
@@ -195,14 +217,29 @@ export default function SessionItem({
               )}
             </div>
             <div className="text-[11px] text-muted-foreground truncate">
-              {agent?.name || session.agentId}
-              <span className="mx-1">·</span>
               {isLoading ? (
-                <span className="text-primary animate-pulse">
-                  {t("chat.thinking") || "执行中..."}
+                <>
+                  {agent?.name || session.agentId}
+                  <span className="mx-1">·</span>
+                  <span className="text-primary animate-pulse">
+                    {t("chat.thinking") || "执行中..."}
+                  </span>
+                </>
+              ) : hasPending ? (
+                <span className="flex items-center gap-1 text-amber-500 font-medium">
+                  <BellRing className="h-3 w-3 shrink-0" />
+                  <span className="truncate">
+                    {t("chat.pendingInteractionInline", {
+                      count: pendingInteractionCount,
+                    })}
+                  </span>
                 </span>
               ) : (
-                formatRelativeTime(session.updatedAt)
+                <>
+                  {agent?.name || session.agentId}
+                  <span className="mx-1">·</span>
+                  {formatRelativeTime(session.updatedAt)}
+                </>
               )}
             </div>
           </div>
