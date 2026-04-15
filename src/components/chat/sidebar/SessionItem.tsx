@@ -140,7 +140,7 @@ export default function SessionItem({
             {hasPending && (
               <IconTip label={t("chat.pendingInteractionHint")}>
                 <span
-                  className="absolute -bottom-1 -left-1.5 z-10 min-w-[16px] h-[16px] px-0.5 rounded-full text-white text-[9px] font-bold flex items-center justify-center border border-background pointer-events-none leading-none animate-pulse"
+                  className="absolute -bottom-1 -left-1.5 z-10 min-w-[16px] h-[16px] px-0.5 rounded-full text-white text-[9px] font-bold flex items-center justify-center border border-background leading-none animate-pulse cursor-pointer"
                   style={{
                     background:
                       "linear-gradient(135deg, #fbbf24 0%, #f59e0b 50%, #d97706 100%)",
