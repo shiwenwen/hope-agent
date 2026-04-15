@@ -37,12 +37,33 @@ pub(crate) async fn tool_save_memory(args: &Value) -> Result<String> {
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
-    let scope = if scope_str == "agent" {
-        MemoryScope::Agent {
+    // Resolve scope string. `project` requires a project context, either
+    // passed explicitly via `project_id` or reachable via the current
+    // session (looked up from the global session DB).
+    let scope = match scope_str {
+        "agent" => MemoryScope::Agent {
             id: agent_id.to_string(),
+        },
+        "project" => {
+            let pid = args
+                .get("project_id")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+                .or_else(|| {
+                    let sid = args.get("session_id").and_then(|v| v.as_str())?;
+                    let db = crate::get_session_db()?;
+                    db.get_session(sid).ok().flatten().and_then(|s| s.project_id)
+                });
+            match pid {
+                Some(id) => MemoryScope::Project { id },
+                None => {
+                    return Err(anyhow::anyhow!(
+                        "scope=project requires 'project_id' (or a session_id belonging to a project)"
+                    ))
+                }
+            }
         }
-    } else {
-        MemoryScope::Global
+        _ => MemoryScope::Global,
     };
 
     let entry = NewMemory {
@@ -140,6 +161,7 @@ pub(crate) async fn tool_recall_memory(args: &Value) -> Result<String> {
                 let scope_label = match &mem.scope {
                     MemoryScope::Global => "global".to_string(),
                     MemoryScope::Agent { id } => format!("agent:{}", id),
+                    MemoryScope::Project { id } => format!("project:{}", id),
                 };
                 let pin_marker = if mem.pinned { "★ " } else { "" };
                 let tags_str = if mem.tags.is_empty() {
@@ -283,6 +305,7 @@ pub(crate) async fn tool_memory_get(args: &Value) -> Result<String> {
                 let scope_label = match &mem.scope {
                     MemoryScope::Global => "global".to_string(),
                     MemoryScope::Agent { id } => format!("agent:{}", id),
+                    MemoryScope::Project { id } => format!("project:{}", id),
                 };
                 let tags_str = if mem.tags.is_empty() {
                     String::new()
