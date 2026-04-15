@@ -100,6 +100,81 @@ pub async fn save_compact_config(
     Ok(Json(json!({ "saved": true })))
 }
 
+// ── Async Tools Config ──────────────────────────────────────────
+
+/// `GET /api/config/async-tools` -- get async tool execution config.
+pub async fn get_async_tools_config(
+) -> Result<Json<oc_core::config::AsyncToolsConfig>, AppError> {
+    let store = load_config()?;
+    Ok(Json(store.async_tools))
+}
+
+/// `PUT /api/config/async-tools` -- save async tool execution config.
+pub async fn save_async_tools_config(
+    Json(body): Json<ConfigBody<oc_core::config::AsyncToolsConfig>>,
+) -> Result<Json<Value>, AppError> {
+    let mut store = load_config()?;
+    store.async_tools = body.config;
+    save_config(&store)?;
+    Ok(Json(json!({ "saved": true })))
+}
+
+// ── Deferred Tools Config ───────────────────────────────────────
+
+/// `GET /api/config/deferred-tools` -- get deferred tool loading config.
+pub async fn get_deferred_tools_config(
+) -> Result<Json<oc_core::config::DeferredToolsConfig>, AppError> {
+    let store = load_config()?;
+    Ok(Json(store.deferred_tools))
+}
+
+/// `PUT /api/config/deferred-tools` -- save deferred tool loading config.
+pub async fn save_deferred_tools_config(
+    Json(body): Json<ConfigBody<oc_core::config::DeferredToolsConfig>>,
+) -> Result<Json<Value>, AppError> {
+    let mut store = load_config()?;
+    store.deferred_tools = body.config;
+    save_config(&store)?;
+    Ok(Json(json!({ "saved": true })))
+}
+
+// ── Memory Selection Config ─────────────────────────────────────
+
+/// `GET /api/config/memory-selection` -- get LLM memory selection config.
+pub async fn get_memory_selection_config(
+) -> Result<Json<oc_core::memory::MemorySelectionConfig>, AppError> {
+    let store = load_config()?;
+    Ok(Json(store.memory_selection))
+}
+
+/// `PUT /api/config/memory-selection` -- save LLM memory selection config.
+pub async fn save_memory_selection_config(
+    Json(body): Json<ConfigBody<oc_core::memory::MemorySelectionConfig>>,
+) -> Result<Json<Value>, AppError> {
+    let mut store = load_config()?;
+    store.memory_selection = body.config;
+    save_config(&store)?;
+    Ok(Json(json!({ "saved": true })))
+}
+
+// ── Recap Config ────────────────────────────────────────────────
+
+/// `GET /api/config/recap` -- get recap config.
+pub async fn get_recap_config() -> Result<Json<oc_core::config::RecapConfig>, AppError> {
+    let store = load_config()?;
+    Ok(Json(store.recap))
+}
+
+/// `PUT /api/config/recap` -- save recap config.
+pub async fn save_recap_config(
+    Json(body): Json<ConfigBody<oc_core::config::RecapConfig>>,
+) -> Result<Json<Value>, AppError> {
+    let mut store = load_config()?;
+    store.recap = body.config;
+    save_config(&store)?;
+    Ok(Json(json!({ "saved": true })))
+}
+
 // ── Notification Config ─────────────────────────────────────────
 
 /// `GET /api/config/notification` -- get notification config.

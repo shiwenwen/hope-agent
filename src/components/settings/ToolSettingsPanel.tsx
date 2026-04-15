@@ -5,6 +5,7 @@ import WebSearchPanel from "@/components/settings/WebSearchPanel"
 import WebFetchPanel from "@/components/settings/WebFetchPanel"
 import ImageGeneratePanel from "@/components/settings/ImageGeneratePanel"
 import CanvasSettingsPanel from "@/components/settings/CanvasSettingsPanel"
+import AsyncToolsPanel from "@/components/settings/AsyncToolsPanel"
 
 export default function ToolSettingsPanel() {
   const { t } = useTranslation()
@@ -18,6 +19,7 @@ export default function ToolSettingsPanel() {
           <TabsTrigger value="webFetch">{t("settings.webFetch")}</TabsTrigger>
           <TabsTrigger value="imageGenerate">{t("settings.imageGenerate")}</TabsTrigger>
           <TabsTrigger value="canvas">{t("settings.canvas")}</TabsTrigger>
+          <TabsTrigger value="asyncTools">{t("settings.asyncTools")}</TabsTrigger>
         </TabsList>
       </div>
       <TabsContent value="general" className="flex-1 min-h-0 overflow-hidden mt-0 flex flex-col">
@@ -34,6 +36,9 @@ export default function ToolSettingsPanel() {
       </TabsContent>
       <TabsContent value="canvas" className="flex-1 min-h-0 overflow-hidden mt-0 flex flex-col">
         <CanvasSettingsPanel />
+      </TabsContent>
+      <TabsContent value="asyncTools" className="flex-1 min-h-0 overflow-hidden mt-0 flex flex-col">
+        <AsyncToolsPanel />
       </TabsContent>
     </Tabs>
   )

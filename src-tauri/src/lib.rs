@@ -282,6 +282,12 @@ pub fn run() {
             commands::config::set_plan_subagent,
             commands::config::get_ask_user_question_timeout,
             commands::config::set_ask_user_question_timeout,
+            // Recap
+            commands::config::get_recap_config,
+            commands::config::save_recap_config,
+            // Async tool execution
+            commands::config::get_async_tools_config,
+            commands::config::save_async_tools_config,
             // Deferred tool loading
             commands::config::get_deferred_tools_config,
             commands::config::save_deferred_tools_config,

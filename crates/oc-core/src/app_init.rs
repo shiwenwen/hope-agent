@@ -324,6 +324,10 @@ pub async fn start_background_tasks() {
     // `retention_secs` and `orphan_grace_secs` are `0`.
     crate::async_jobs::spawn_retention_loop();
 
+    // Retention sweep for recap session facets. Runs once at startup and
+    // then once per day. Disabled when `recap.cache_retention_days == 0`.
+    crate::recap::spawn_facet_retention_loop();
+
     // Auto-discover ACP backends
     if let Some(acp_mgr) = ACP_MANAGER.get() {
         let store = crate::config::cached_config();

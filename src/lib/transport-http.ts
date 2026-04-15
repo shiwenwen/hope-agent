@@ -162,7 +162,17 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   dashboard_error_list:            { method: "POST",   path: "/api/dashboard/error-list" },
   dashboard_agent_list:            { method: "POST",   path: "/api/dashboard/agent-list" },
 
+  // -- Async / Deferred tools + Memory selection --
+  get_async_tools_config:          { method: "GET",    path: "/api/config/async-tools" },
+  save_async_tools_config:         { method: "PUT",    path: "/api/config/async-tools" },
+  get_deferred_tools_config:       { method: "GET",    path: "/api/config/deferred-tools" },
+  save_deferred_tools_config:      { method: "PUT",    path: "/api/config/deferred-tools" },
+  get_memory_selection_config:     { method: "GET",    path: "/api/config/memory-selection" },
+  save_memory_selection_config:    { method: "PUT",    path: "/api/config/memory-selection" },
+
   // -- Recap --
+  get_recap_config:                { method: "GET",    path: "/api/config/recap" },
+  save_recap_config:               { method: "PUT",    path: "/api/config/recap" },
   recap_generate:                  { method: "POST",   path: "/api/recap/generate" },
   recap_list_reports:              { method: "POST",   path: "/api/recap/reports" },
   recap_get_report:                { method: "GET",    path: "/api/recap/reports/{id}" },

@@ -13,6 +13,7 @@ interface HybridSearchConfig { vectorWeight: number; textWeight: number; rrfK: n
 interface MmrConfig { enabled: boolean; lambda: number }
 interface EmbeddingCacheConfig { enabled: boolean; maxEntries: number }
 interface MultimodalConfig { enabled: boolean; modalities: string[]; maxFileBytes: number }
+interface MemorySelectionConfig { enabled: boolean; threshold: number; maxSelected: number }
 
 type MemoryData = ReturnType<typeof useMemoryData>
 
@@ -28,6 +29,7 @@ export default function HybridSearchConfigSection({ data }: HybridSearchConfigPr
   const [mmrConfig, setMmrConfig] = useState<MmrConfig>({ enabled: true, lambda: 0.7 })
   const [cacheConfig, setCacheConfig] = useState<EmbeddingCacheConfig>({ enabled: true, maxEntries: 10000 })
   const [multimodalConfig, setMultimodalConfig] = useState<MultimodalConfig>({ enabled: false, modalities: ["image", "audio"], maxFileBytes: 10 * 1024 * 1024 })
+  const [selectionConfig, setSelectionConfig] = useState<MemorySelectionConfig>({ enabled: false, threshold: 8, maxSelected: 5 })
   const [searchTuningExpanded, setSearchTuningExpanded] = useState(false)
 
   useEffect(() => {
@@ -35,6 +37,7 @@ export default function HybridSearchConfigSection({ data }: HybridSearchConfigPr
     getTransport().call<MmrConfig>("get_mmr_config").then(setMmrConfig).catch(() => {})
     getTransport().call<EmbeddingCacheConfig>("get_embedding_cache_config").then(setCacheConfig).catch(() => {})
     getTransport().call<MultimodalConfig>("get_multimodal_config").then(setMultimodalConfig).catch(() => {})
+    getTransport().call<MemorySelectionConfig>("get_memory_selection_config").then(setSelectionConfig).catch(() => {})
   }, [])
 
   return (
@@ -250,6 +253,82 @@ export default function HybridSearchConfigSection({ data }: HybridSearchConfigPr
                   {!(embeddingConfig.providerType === "google" && embeddingConfig.apiModel?.includes("embedding-2")) && (
                     <p className="text-xs text-amber-500">{t("settings.memoryMultimodalRequiresGemini")}</p>
                   )}
+                </div>
+              )}
+            </div>
+
+            {/* LLM memory selection */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-medium">{t("settings.memorySelection")}</label>
+                <Switch
+                  checked={selectionConfig.enabled}
+                  onCheckedChange={(v) => {
+                    const updated = { ...selectionConfig, enabled: v }
+                    setSelectionConfig(updated)
+                    getTransport().call("save_memory_selection_config", { config: updated }).catch(() => {})
+                  }}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">{t("settings.memorySelectionDesc")}</p>
+              {selectionConfig.enabled && (
+                <div className="space-y-2 pl-1">
+                  <div className="flex items-center gap-3">
+                    <label className="text-xs text-muted-foreground whitespace-nowrap min-w-[140px]">
+                      {t("settings.memorySelectionThreshold")}
+                    </label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={50}
+                      value={selectionConfig.threshold}
+                      onChange={(e) => {
+                        const raw = parseInt(e.target.value)
+                        if (!Number.isFinite(raw)) return
+                        setSelectionConfig((prev) => ({ ...prev, threshold: raw }))
+                      }}
+                      onBlur={() => {
+                        setSelectionConfig((prev) => {
+                          const clamped = Math.max(1, Math.min(50, prev.threshold || 1))
+                          const updated = { ...prev, threshold: clamped }
+                          getTransport().call("save_memory_selection_config", { config: updated }).catch(() => {})
+                          return updated
+                        })
+                      }}
+                      className="h-7 text-xs w-20"
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground/70 pl-[148px]">
+                    {t("settings.memorySelectionThresholdDesc")}
+                  </p>
+                  <div className="flex items-center gap-3">
+                    <label className="text-xs text-muted-foreground whitespace-nowrap min-w-[140px]">
+                      {t("settings.memorySelectionMaxSelected")}
+                    </label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={20}
+                      value={selectionConfig.maxSelected}
+                      onChange={(e) => {
+                        const raw = parseInt(e.target.value)
+                        if (!Number.isFinite(raw)) return
+                        setSelectionConfig((prev) => ({ ...prev, maxSelected: raw }))
+                      }}
+                      onBlur={() => {
+                        setSelectionConfig((prev) => {
+                          const clamped = Math.max(1, Math.min(20, prev.maxSelected || 1))
+                          const updated = { ...prev, maxSelected: clamped }
+                          getTransport().call("save_memory_selection_config", { config: updated }).catch(() => {})
+                          return updated
+                        })
+                      }}
+                      className="h-7 text-xs w-20"
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground/70 pl-[148px]">
+                    {t("settings.memorySelectionMaxSelectedDesc")}
+                  </p>
                 </div>
               )}
             </div>
