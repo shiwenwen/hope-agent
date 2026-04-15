@@ -1,6 +1,7 @@
 use super::constants::*;
 use super::helpers::{current_date, find_git_root, hostname, os_version};
 use crate::agent_config::{FilterConfig, PersonalityConfig};
+use crate::project::{Project, ProjectFile};
 use crate::skills;
 
 // ── Section Builders ─────────────────────────────────────────────
@@ -375,4 +376,155 @@ pub(super) fn build_acp_section() -> String {
          External agents run asynchronously. Use check(run_id, wait=true) to block until completion.",
         backend_lines.join("\n")
     )
+}
+
+// ── Project sections ────────────────────────────────────────────
+
+/// Build a "Current Project" section describing the project this session
+/// belongs to: name, optional description, and optional custom instructions.
+///
+/// Injected into the system prompt right before the Memory section so the
+/// LLM is primed with project context before reading project memories.
+pub(super) fn build_project_context_section(project: &Project) -> String {
+    let mut out = String::from("# Current Project\n\n");
+
+    let title = match &project.emoji {
+        Some(e) if !e.trim().is_empty() => format!("{} **{}**", e, project.name),
+        _ => format!("**{}**", project.name),
+    };
+    out.push_str(&format!(
+        "You are currently working inside project {}.\n",
+        title
+    ));
+
+    if let Some(desc) = project
+        .description
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        out.push_str(&format!("\nDescription: {}\n", desc));
+    }
+
+    if let Some(instr) = project
+        .instructions
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        out.push_str("\n## Project Instructions\n\n");
+        out.push_str(&super::helpers::truncate(instr, MAX_FILE_CHARS));
+        out.push('\n');
+    }
+
+    out.push_str(
+        "\nAll memories, files, and context below that live inside this project are \
+         shared across every session in it. Memories you save will default to the \
+         project scope unless you explicitly choose another scope.\n",
+    );
+
+    out
+}
+
+/// Build a "Project Files" section listing uploaded project files (Layer 1:
+/// directory catalog), plus optionally inlining small files whose full
+/// content fits inside the inline byte budget (Layer 2).
+///
+/// The LLM can read any listed file on demand via the `project_read_file`
+/// tool (Layer 3), which is enforced to only open files within the current
+/// session's project.
+pub(super) fn build_project_files_section(
+    project_id: &str,
+    files: &[ProjectFile],
+    inline_budget_bytes: usize,
+) -> String {
+    if files.is_empty() {
+        return String::new();
+    }
+
+    let mut out = String::from("# Project Files\n\n");
+    out.push_str(
+        "The following files are shared across every session in this project. \
+         Use `project_read_file(file_id=..., offset=..., limit=...)` (or `name=...`) \
+         to open any of them on demand.\n\n",
+    );
+
+    // Layer 1: catalog — always emitted, cheap.
+    out.push_str("## Available Files\n\n");
+    for f in files {
+        let size_kb = f.size_bytes as f64 / 1024.0;
+        let icon = file_icon_for_mime(f.mime_type.as_deref());
+        let extracted_note = match f.extracted_chars {
+            Some(n) if n > 0 => format!("{} chars extracted", n),
+            _ => "binary — not readable as text".to_string(),
+        };
+        out.push_str(&format!(
+            "- {} **{}** — {:.1} KB, {}  \n  `file_id: {}`\n",
+            icon, f.name, size_kb, extracted_note, f.id
+        ));
+    }
+
+    // Layer 2: inline small text files up to the byte budget.
+    let mut inlined_bytes = 0usize;
+    let mut inline_buf = String::new();
+    for f in files {
+        let ext_path = match &f.extracted_path {
+            Some(p) if !p.is_empty() => p,
+            _ => continue,
+        };
+        let chars = f.extracted_chars.unwrap_or(0);
+        if chars <= 0 || chars > 4096 {
+            continue;
+        }
+        let base = match crate::paths::projects_dir() {
+            Ok(d) => d,
+            Err(_) => break,
+        };
+        let full = base.join(ext_path);
+        let text = match std::fs::read_to_string(&full) {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+        if inlined_bytes + text.len() > inline_budget_bytes {
+            continue;
+        }
+        inline_buf.push_str(&format!(
+            "\n### {} (full content)\n\n```\n{}\n```\n",
+            f.name, text
+        ));
+        inlined_bytes += text.len();
+    }
+
+    if !inline_buf.is_empty() {
+        out.push_str("\n## Inlined Small Files\n");
+        out.push_str(&inline_buf);
+    }
+
+    let _ = project_id; // currently unused; reserved for per-project budget overrides
+    out
+}
+
+/// Pick a short emoji/icon label for the given MIME type. Keeps the catalog
+/// compact without pulling in an actual icon font.
+fn file_icon_for_mime(mime: Option<&str>) -> &'static str {
+    let mime = mime.unwrap_or("");
+    if mime.starts_with("image/") {
+        "🖼️"
+    } else if mime.starts_with("audio/") {
+        "🎵"
+    } else if mime.starts_with("video/") {
+        "🎬"
+    } else if mime == "application/pdf" {
+        "📄"
+    } else if mime.contains("word") || mime.contains("officedocument") {
+        "📝"
+    } else if mime.contains("spreadsheet") || mime.contains("excel") {
+        "📊"
+    } else if mime.contains("zip") || mime.contains("compressed") || mime.contains("tar") {
+        "🗜️"
+    } else if mime.starts_with("text/") || mime.contains("json") || mime.contains("xml") {
+        "📃"
+    } else {
+        "📁"
+    }
 }

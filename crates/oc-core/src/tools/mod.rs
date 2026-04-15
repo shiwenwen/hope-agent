@@ -24,6 +24,7 @@ pub(crate) mod pdf;
 mod ask_user_question;
 mod plan_step;
 mod process;
+mod project_read_file;
 pub(crate) mod read;
 mod sessions;
 pub(crate) mod subagent;
@@ -92,6 +93,7 @@ pub const TOOL_TASK_CREATE: &str = "task_create";
 pub const TOOL_TASK_UPDATE: &str = "task_update";
 pub const TOOL_TASK_LIST: &str = "task_list";
 pub const TOOL_JOB_STATUS: &str = "job_status";
+pub const TOOL_PROJECT_READ_FILE: &str = "project_read_file";
 
 // ── Shared Helpers ────────────────────────────────────────────────
 

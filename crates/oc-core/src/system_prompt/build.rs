@@ -2,8 +2,14 @@ use super::constants::{HUMAN_IN_THE_LOOP_GUIDANCE, MAX_FILE_CHARS};
 use super::helpers::truncate;
 use super::sections::*;
 use crate::agent_config::AgentDefinition;
+use crate::project::{Project, ProjectFile};
 use crate::skills;
 use crate::user_config;
+
+/// Default inline budget for small project-file contents, in bytes.
+/// Kept conservative so the "Project Files" section never blows up the
+/// prompt size on its own.
+const DEFAULT_PROJECT_FILES_INLINE_BUDGET: usize = 8 * 1024;
 
 // ── Build System Prompt ──────────────────────────────────────────
 
@@ -23,7 +29,8 @@ use crate::user_config;
 /// ⑨ Runtime info — date, OS, etc.
 /// ⑩ Sub-agent delegation (conditional)
 /// ⑪ Sandbox mode (conditional)
-/// ⑫ (reserved for project context — not yet implemented)
+/// ⑦b Current Project (conditional — when session belongs to a project)
+/// ⑦c Project Files catalog + small-file inlining (conditional)
 /// ⑬ ACP external agents (conditional)
 pub fn build(
     definition: &AgentDefinition,
@@ -31,6 +38,8 @@ pub fn build(
     provider: Option<&str>,
     memory_context: Option<&str>,
     agent_home: Option<&str>,
+    project: Option<&Project>,
+    project_files: &[ProjectFile],
 ) -> String {
     let mut sections: Vec<String> = Vec::new();
 
@@ -189,6 +198,28 @@ pub fn build(
         definition.config.capabilities.skill_env_check,
     ));
 
+    // ⑦b Current Project — injected before Memory so the LLM knows which
+    // project context it's in before reading project-scoped memories.
+    // Only in non-openclaw mode (openclaw already uses a "Project Context"
+    // heading for its 4-file markdown pack).
+    if !definition.config.openclaw_mode {
+        if let Some(proj) = project {
+            sections.push(build_project_context_section(proj));
+
+            // ⑦c Project Files — catalog + inlined small files
+            if !project_files.is_empty() {
+                let files_section = build_project_files_section(
+                    &proj.id,
+                    project_files,
+                    DEFAULT_PROJECT_FILES_INLINE_BUDGET,
+                );
+                if !files_section.is_empty() {
+                    sections.push(files_section);
+                }
+            }
+        }
+    }
+
     // ⑧ Memory
     if definition.config.memory.enabled {
         let mut memory_section = String::new();
@@ -282,8 +313,6 @@ pub fn build(
             sections.push(acp_section);
         }
     }
-
-    // ⑫ Project context — not yet implemented
 
     // ⑭ Weather context (from cached weather data)
     if let Some(weather_text) = crate::weather::get_weather_for_prompt() {
