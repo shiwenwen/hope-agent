@@ -98,10 +98,18 @@ export default function SubagentBlock({
   const nameTooltip = agentMissing ? t("subagent.deletedAgentTooltip") : undefined
 
   const canViewSession = !!(onSwitchSession && childSessionId)
+  const rowInteractive = isTerminal || canViewSession
 
   return (
     <div className="my-1.5 rounded-lg border border-border bg-secondary/50 text-xs">
-      <div className="flex items-center hover:bg-secondary/80 rounded-lg transition-colors">
+      <div
+        className={cn(
+          "flex items-center rounded-lg transition-colors",
+          // Only show row-hover tint when *something* in the row is actually
+          // interactable — otherwise disabled rows visually fake affordance.
+          rowInteractive && "hover:bg-secondary/80",
+        )}
+      >
         <button
           type="button"
           className="flex items-center gap-1.5 flex-1 min-w-0 px-2.5 py-1.5 text-left disabled:cursor-default"
@@ -162,7 +170,9 @@ export default function SubagentBlock({
               <button
                 type="button"
                 className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
-                onClick={() => onSwitchSession!(childSessionId!)}
+                onClick={() => {
+                  if (onSwitchSession && childSessionId) onSwitchSession(childSessionId)
+                }}
                 aria-label={t("subagent.viewChildSession")}
               >
                 <ArrowUpRight className="h-3 w-3" />

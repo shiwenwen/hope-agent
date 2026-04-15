@@ -284,10 +284,16 @@ function SubagentRow({
   const canExpand = isTerminal && hasContent
   const childSessionId = state?.childSessionId
   const canViewSession = !!(onSwitchSession && childSessionId)
+  const rowInteractive = canExpand || canViewSession
 
   return (
     <div className="text-[11px]">
-      <div className="flex items-center hover:bg-secondary/60 transition-colors">
+      <div
+        className={cn(
+          "flex items-center transition-colors",
+          rowInteractive && "hover:bg-secondary/60",
+        )}
+      >
         <button
           type="button"
           className="flex items-center gap-1.5 flex-1 min-w-0 px-2.5 py-1 text-left disabled:cursor-default"
@@ -346,7 +352,9 @@ function SubagentRow({
               <button
                 type="button"
                 className="p-0.5 rounded hover:bg-secondary text-muted-foreground/50 hover:text-foreground transition-colors"
-                onClick={() => onSwitchSession!(childSessionId!)}
+                onClick={() => {
+                  if (onSwitchSession && childSessionId) onSwitchSession(childSessionId)
+                }}
                 aria-label={t("subagent.viewChildSession")}
               >
                 <ArrowUpRight className="h-3 w-3" />
