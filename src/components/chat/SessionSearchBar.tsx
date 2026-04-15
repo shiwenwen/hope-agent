@@ -4,6 +4,7 @@ import { ChevronUp, ChevronDown, Loader2, Search, X } from "lucide-react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
+import { renderHighlightedSnippet } from "@/lib/highlight"
 import { IconTip } from "@/components/ui/tooltip"
 import type { SessionSearchResult } from "@/types/chat"
 
@@ -18,22 +19,8 @@ interface SessionSearchBarProps {
   focusSignal?: number
 }
 
-/**
- * Escape HTML then restore `<mark>`/`</mark>` tags only (the whitelisted
- * tags emitted by FTS5 `snippet()`). Mirrors the XSS-safe helper used by
- * the sidebar's `SearchResultItem`.
- */
-function renderHighlightedSnippet(raw: string): string {
-  const escaped = raw
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;")
-  return escaped
-    .replace(/&lt;mark&gt;/g, '<mark class="bg-primary/30 text-foreground rounded px-0.5">')
-    .replace(/&lt;\/mark&gt;/g, "</mark>")
-}
+const ICON_BUTTON_CLASS =
+  "shrink-0 p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-secondary disabled:opacity-40 disabled:pointer-events-none transition-colors"
 
 /**
  * In-session "find in page" search bar. Non-persistent — mounted only
@@ -180,7 +167,7 @@ export default function SessionSearchBar({
             type="button"
             onClick={gotoPrev}
             disabled={total === 0}
-            className="shrink-0 p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-secondary disabled:opacity-40 disabled:pointer-events-none transition-colors"
+            className={ICON_BUTTON_CLASS}
           >
             <ChevronUp className="h-4 w-4" />
           </button>
@@ -190,17 +177,13 @@ export default function SessionSearchBar({
             type="button"
             onClick={gotoNext}
             disabled={total === 0}
-            className="shrink-0 p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-secondary disabled:opacity-40 disabled:pointer-events-none transition-colors"
+            className={ICON_BUTTON_CLASS}
           >
             <ChevronDown className="h-4 w-4" />
           </button>
         </IconTip>
         <IconTip label={t("chat.sessionSearchClose")}>
-          <button
-            type="button"
-            onClick={onClose}
-            className="shrink-0 p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
-          >
+          <button type="button" onClick={onClose} className={ICON_BUTTON_CLASS}>
             <X className="h-4 w-4" />
           </button>
         </IconTip>
