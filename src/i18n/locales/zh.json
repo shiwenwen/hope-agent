@@ -57,6 +57,8 @@
     "filterSubagent": "委派任务",
     "markAllRead": "全部已读",
     "markAsRead": "标记已读",
+    "pendingInteractionHint": "等待您的回应",
+    "pendingInteractionInline": "等待回应 · {{count}} 项",
     "renameSession": "重命名",
     "renameSessionPlaceholder": "输入新标题...",
     "howCanIHelp": "有什么可以帮你的？",

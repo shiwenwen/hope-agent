@@ -15,6 +15,11 @@ pub struct SessionMeta {
     pub updated_at: String,
     pub message_count: i64,
     pub unread_count: i64,
+    /// Number of pending interactions waiting on the user for this session
+    /// (sum of pending tool approvals + pending ask_user_question groups).
+    /// Populated at the command/route layer, not in `list_sessions_paged`.
+    #[serde(default)]
+    pub pending_interaction_count: i64,
     pub is_cron: bool,
     /// If this session was created by a sub-agent spawn, stores the parent session ID.
     pub parent_session_id: Option<String>,

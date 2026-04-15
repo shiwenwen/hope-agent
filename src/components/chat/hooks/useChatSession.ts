@@ -215,6 +215,33 @@ export function useChatSession({
     })
   }, [reloadSessions, t])
 
+  // Listen for pending-interaction lifecycle events so the sidebar refreshes
+  // its `pendingInteractionCount` for non-active sessions in near-real-time.
+  // Coalesce bursts via a 300ms trailing debounce — the underlying query is
+  // cheap but we don't need to thrash the list.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const schedule = () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => {
+        timer = null
+        reloadSessions()
+      }, 300)
+    }
+    const offApproval = getTransport().listen("approval_required", schedule)
+    const offAskUser = getTransport().listen("ask_user_request", schedule)
+    const offChanged = getTransport().listen(
+      "session_pending_interactions_changed",
+      schedule,
+    )
+    return () => {
+      if (timer) clearTimeout(timer)
+      offApproval()
+      offAskUser()
+      offChanged()
+    }
+  }, [reloadSessions])
+
   // Listen for sub-agent events — manage loading state + refresh sidebar
   useEffect(() => {
     return getTransport().listen("subagent_event", (raw) => {

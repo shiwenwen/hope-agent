@@ -1,5 +1,6 @@
 use anyhow::Result;
 use rusqlite::{params, Connection};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -311,6 +312,35 @@ impl SessionDB {
         Ok(n)
     }
 
+    /// Count still-pending ask_user_question groups grouped by session id.
+    /// Powers the "needs your response" indicator on the sidebar session list.
+    /// Expired-but-not-yet-answered rows are excluded so we don't double-count
+    /// zombies from a previous process; a periodic sweep elsewhere flips them
+    /// to `answered`.
+    pub fn count_pending_ask_user_groups_per_session(&self) -> Result<HashMap<String, i64>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT session_id, COUNT(*)
+                FROM ask_user_questions
+               WHERE status = 'pending'
+                 AND (timeout_at IS NULL OR timeout_at = 0
+                      OR timeout_at > strftime('%s','now'))
+               GROUP BY session_id",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })?;
+        let mut out: HashMap<String, i64> = HashMap::new();
+        for row in rows {
+            let (sid, count) = row?;
+            out.insert(sid, count);
+        }
+        Ok(out)
+    }
+
     /// Load still-pending ask_user_question groups for a single session.
     /// Used by the frontend to restore the question panel when switching back
     /// to a session that had unanswered questions.
@@ -386,6 +416,7 @@ impl SessionDB {
             updated_at: now,
             message_count: 0,
             unread_count: 0,
+            pending_interaction_count: 0,
             is_cron: false,
             parent_session_id: parent_session_id.map(|s| s.to_string()),
             plan_mode: "off".to_string(),
@@ -446,6 +477,7 @@ impl SessionDB {
                 updated_at: row.get(7)?,
                 message_count: row.get(8)?,
                 unread_count: row.get(9)?,
+                pending_interaction_count: 0,
                 is_cron: row.get::<_, i64>(10).unwrap_or(0) != 0,
                 parent_session_id: row.get(11)?,
                 plan_mode: row
@@ -887,6 +919,7 @@ impl SessionDB {
                 updated_at: row.get(7)?,
                 message_count: row.get(8)?,
                 unread_count: row.get(9)?,
+                pending_interaction_count: 0,
                 is_cron: row.get::<_, i64>(10).unwrap_or(0) != 0,
                 parent_session_id: row.get(11)?,
                 plan_mode: row

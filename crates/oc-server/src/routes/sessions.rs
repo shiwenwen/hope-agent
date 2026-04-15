@@ -79,9 +79,22 @@ pub async fn list_sessions(
     State(ctx): State<Arc<AppContext>>,
     Query(q): Query<ListSessionsQuery>,
 ) -> Result<Json<PaginatedSessions>, AppError> {
-    let (sessions, total) =
+    let (mut sessions, total) =
         ctx.session_db
             .list_sessions_paged(q.agent_id.as_deref(), q.limit, q.offset)?;
+
+    // Merge per-session "needs your response" counts so the sidebar can show
+    // an indicator on non-active sessions awaiting tool approval or ask_user.
+    let approvals = oc_core::tools::approval::pending_approvals_per_session().await;
+    let ask_users = ctx.session_db.count_pending_ask_user_groups_per_session()?;
+    if !approvals.is_empty() || !ask_users.is_empty() {
+        for s in &mut sessions {
+            let a = approvals.get(&s.id).copied().unwrap_or(0);
+            let qu = ask_users.get(&s.id).copied().unwrap_or(0);
+            s.pending_interaction_count = a + qu;
+        }
+    }
+
     Ok(Json(PaginatedSessions { sessions, total }))
 }
 

@@ -21,10 +21,27 @@ pub async fn list_sessions_cmd(
     offset: Option<u32>,
     state: State<'_, AppState>,
 ) -> Result<(Vec<session::SessionMeta>, u32), String> {
-    state
+    let (mut sessions, total) = state
         .session_db
         .list_sessions_paged(agent_id.as_deref(), limit, offset)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    // Merge per-session "needs your response" counts so the sidebar can show
+    // an indicator on non-active sessions awaiting tool approval or ask_user.
+    let approvals = crate::tools::approval::pending_approvals_per_session().await;
+    let ask_users = state
+        .session_db
+        .count_pending_ask_user_groups_per_session()
+        .map_err(|e| e.to_string())?;
+    if !approvals.is_empty() || !ask_users.is_empty() {
+        for s in &mut sessions {
+            let a = approvals.get(&s.id).copied().unwrap_or(0);
+            let q = ask_users.get(&s.id).copied().unwrap_or(0);
+            s.pending_interaction_count = a + q;
+        }
+    }
+
+    Ok((sessions, total))
 }
 
 #[tauri::command]

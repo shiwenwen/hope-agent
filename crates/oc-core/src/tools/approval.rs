@@ -60,27 +60,63 @@ pub enum ApprovalResponse {
     Deny,
 }
 
-/// Global approval request registry
-static PENDING_APPROVALS: OnceLock<
-    TokioMutex<HashMap<String, tokio::sync::oneshot::Sender<ApprovalResponse>>>,
-> = OnceLock::new();
+/// In-memory entry for a pending approval. Stores the oneshot sender plus the
+/// originating session id so we can aggregate counts per session for the
+/// sidebar "needs your response" indicator.
+struct PendingApprovalEntry {
+    sender: tokio::sync::oneshot::Sender<ApprovalResponse>,
+    session_id: Option<String>,
+}
 
-fn get_pending_approvals(
-) -> &'static TokioMutex<HashMap<String, tokio::sync::oneshot::Sender<ApprovalResponse>>> {
+/// Global approval request registry
+static PENDING_APPROVALS: OnceLock<TokioMutex<HashMap<String, PendingApprovalEntry>>> =
+    OnceLock::new();
+
+fn get_pending_approvals() -> &'static TokioMutex<HashMap<String, PendingApprovalEntry>> {
     PENDING_APPROVALS.get_or_init(|| TokioMutex::new(HashMap::new()))
+}
+
+/// Count pending approvals grouped by session id. Approvals registered without
+/// a session id (e.g. global commands triggered outside any chat) are skipped.
+pub async fn pending_approvals_per_session() -> HashMap<String, i64> {
+    let pending = get_pending_approvals().lock().await;
+    let mut out: HashMap<String, i64> = HashMap::new();
+    for entry in pending.values() {
+        if let Some(sid) = entry.session_id.as_ref() {
+            *out.entry(sid.clone()).or_insert(0) += 1;
+        }
+    }
+    out
 }
 
 /// Submit an approval response (called by Tauri command from frontend)
 pub async fn submit_approval_response(request_id: &str, response: ApprovalResponse) -> Result<()> {
     let mut pending = get_pending_approvals().lock().await;
-    if let Some(sender) = pending.remove(request_id) {
-        let _ = sender.send(response);
+    if let Some(entry) = pending.remove(request_id) {
+        let session_id = entry.session_id.clone();
+        let _ = entry.sender.send(response);
+        drop(pending);
+        emit_pending_interactions_changed(session_id.as_deref());
         Ok(())
     } else {
         Err(anyhow::anyhow!(
             "No pending approval request: {}",
             request_id
         ))
+    }
+}
+
+/// Broadcast to the frontend that some session's pending-interaction count
+/// likely changed so the sidebar should reload its list. Payload carries an
+/// optional `session_id` for clients that want to optimise; a missing id means
+/// "any session, please refresh".
+pub fn emit_pending_interactions_changed(session_id: Option<&str>) {
+    if let Some(bus) = crate::globals::get_event_bus() {
+        let payload = match session_id {
+            Some(sid) => serde_json::json!({ "sessionId": sid }),
+            None => serde_json::json!({}),
+        };
+        bus.emit("session_pending_interactions_changed", payload);
     }
 }
 
@@ -189,7 +225,13 @@ pub(crate) async fn check_and_request_approval(
     // Register the pending approval
     {
         let mut pending = get_pending_approvals().lock().await;
-        pending.insert(request_id.clone(), tx);
+        pending.insert(
+            request_id.clone(),
+            PendingApprovalEntry {
+                sender: tx,
+                session_id: session_id.map(|s| s.to_string()),
+            },
+        );
     }
 
     // Emit event to frontend
@@ -265,8 +307,11 @@ pub(crate) async fn check_and_request_approval(
         }
         Err("timeout") => {
             // Timeout — clean up
-            let mut pending = get_pending_approvals().lock().await;
-            pending.remove(&request_id);
+            {
+                let mut pending = get_pending_approvals().lock().await;
+                pending.remove(&request_id);
+            }
+            emit_pending_interactions_changed(session_id);
             if let Some(logger) = crate::get_logger() {
                 logger.log(
                     "warn",
