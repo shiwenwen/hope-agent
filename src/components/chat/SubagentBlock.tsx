@@ -1,66 +1,17 @@
 import { useState, useEffect } from "react"
 import { useTranslation } from "react-i18next"
-import { ChevronRight, Users, CheckCircle, XCircle, Clock, Loader2, Skull, Paperclip } from "lucide-react"
+import { ChevronRight, Users, Paperclip } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { getTransport } from "@/lib/transport-provider"
 import type { AgentSummaryForSidebar, SubagentEvent, SubagentRun } from "@/types/chat"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
+import { loadAgents, statusConfig, TERMINAL_STATUSES } from "./subagentShared"
 
 interface SubagentBlockProps {
   runId: string
   agentId: string
   task: string
   initialStatus?: string
-}
-
-// ── Shared agent metadata cache (module-level, cross-instance) ─────────
-// One SubagentBlock may render many times in the same session; coalesce
-// list_agents calls via a single in-flight promise + 30s TTL.
-let agentCache: Map<string, AgentSummaryForSidebar> | null = null
-let agentCacheAt = 0
-let inflight: Promise<Map<string, AgentSummaryForSidebar>> | null = null
-const AGENT_CACHE_TTL_MS = 30_000
-
-function loadAgents(): Promise<Map<string, AgentSummaryForSidebar>> {
-  const now = Date.now()
-  if (agentCache && now - agentCacheAt < AGENT_CACHE_TTL_MS) {
-    return Promise.resolve(agentCache)
-  }
-  if (inflight) return inflight
-  inflight = getTransport()
-    .call<AgentSummaryForSidebar[]>("list_agents")
-    .then((list) => {
-      agentCache = new Map(list.map((a) => [a.id, a]))
-      agentCacheAt = Date.now()
-      inflight = null
-      return agentCache
-    })
-    .catch((e) => {
-      inflight = null
-      throw e
-    })
-  return inflight
-}
-
-const statusConfig: Record<string, { icon: React.ReactNode; label: string; color: string }> = {
-  spawning: {
-    icon: <Loader2 className="h-3 w-3 animate-spin" />,
-    label: "Spawning",
-    color: "text-blue-500",
-  },
-  running: {
-    icon: <Loader2 className="h-3 w-3 animate-spin" />,
-    label: "Running",
-    color: "text-blue-500",
-  },
-  completed: {
-    icon: <CheckCircle className="h-3 w-3" />,
-    label: "Completed",
-    color: "text-green-500",
-  },
-  error: { icon: <XCircle className="h-3 w-3" />, label: "Error", color: "text-red-500" },
-  timeout: { icon: <Clock className="h-3 w-3" />, label: "Timeout", color: "text-orange-500" },
-  killed: { icon: <Skull className="h-3 w-3" />, label: "Killed", color: "text-gray-500" },
 }
 
 export default function SubagentBlock({ runId, agentId, task, initialStatus }: SubagentBlockProps) {
@@ -129,7 +80,7 @@ export default function SubagentBlock({ runId, agentId, task, initialStatus }: S
     })
   }, [runId])
 
-  const isTerminal = ["completed", "error", "timeout", "killed"].includes(status)
+  const isTerminal = TERMINAL_STATUSES.has(status)
   const config = statusConfig[status] || statusConfig.error
   const toolLabel = t("tools.subagent")
   const friendlyName = label || agentMeta?.name || agentId

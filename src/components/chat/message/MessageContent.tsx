@@ -4,8 +4,9 @@ import ToolCallBlock from "./ToolCallBlock"
 import ToolCallGroup from "./ToolCallGroup"
 import ThinkingBlock from "./ThinkingBlock"
 import TaskBlock from "./TaskBlock"
+import SubagentGroup, { type SubagentGroupRun } from "@/components/chat/SubagentGroup"
 import { AskUserQuestionResult, SubmitPlanResult } from "./PlanResultBlocks"
-import type { ContentBlock } from "@/types/chat"
+import type { ContentBlock, ToolCall } from "@/types/chat"
 import type { Message } from "@/types/chat"
 
 const TASK_TOOL_NAMES = new Set(["task_create", "task_update", "task_list"])
@@ -15,7 +16,35 @@ const NO_GROUP_TOOLS = new Set([
   "task_create",
   "task_update",
   "task_list",
+  // subagent spawns are handled by a dedicated SubagentGroup path below;
+  // never let them fall into the generic tool-call group.
+  "subagent",
 ])
+
+/** Parse a tool_call block as a subagent spawn with a resolved run_id. */
+function parseSubagentSpawn(tool: ToolCall): SubagentGroupRun | null {
+  if (tool.name !== "subagent") return null
+  let args: { action?: string; agent_id?: string; task?: string } = {}
+  try {
+    args = JSON.parse(tool.arguments)
+  } catch {
+    return null
+  }
+  if (args.action !== "spawn") return null
+  if (!tool.result) return null
+  let runId: string | undefined
+  try {
+    runId = JSON.parse(tool.result).run_id
+  } catch {
+    return null
+  }
+  if (!runId) return null
+  return {
+    runId,
+    agentId: args.agent_id || "default",
+    task: args.task || "",
+  }
+}
 
 interface MessageContentProps {
   msg: Message
@@ -87,6 +116,42 @@ export function AssistantContentBlocks({
             <SubmitPlanResult key={block.tool.callId} title={title} sessionId={sessionId} onOpenPanel={onOpenPlanPanel} />,
           )
         }
+        i++
+        continue
+      }
+      // subagent spawn → collect consecutive spawns into a dedicated group
+      if (block.tool.name === "subagent") {
+        const parsed = parseSubagentSpawn(block.tool)
+        if (parsed) {
+          const runs: SubagentGroupRun[] = [parsed]
+          let j = i + 1
+          while (j < blocks.length) {
+            const nb = blocks[j]
+            if (nb.type !== "tool_call" || nb.tool.name !== "subagent") break
+            const nextParsed = parseSubagentSpawn(nb.tool)
+            if (!nextParsed) break
+            runs.push(nextParsed)
+            j++
+          }
+          if (runs.length >= 2) {
+            // Key on the concatenated runIds so React remounts the group
+            // (instead of re-running effects) when the underlying run set
+            // actually changes.
+            const groupKey = `sgrp-${runs.map((r) => r.runId).join("|")}`
+            elements.push(<SubagentGroup key={groupKey} runs={runs} />)
+            i = j
+            continue
+          }
+          // Single subagent spawn → fall through to the default ToolCallBlock
+          // path which already renders SubagentBlock.
+          elements.push(<ToolCallBlock key={block.tool.callId} tool={block.tool} />)
+          i++
+          continue
+        }
+        // Non-spawn subagent action (check / list / kill) or still in-flight
+        // → render individually. NO_GROUP_TOOLS prevents it from joining the
+        // generic tool-call group below.
+        elements.push(<ToolCallBlock key={block.tool.callId} tool={block.tool} />)
         i++
         continue
       }

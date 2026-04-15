@@ -252,7 +252,11 @@
     "skill": "Loaded {{count}} skills"
   },
   "subagent": {
-    "deletedAgentTooltip": "This agent has been deleted"
+    "deletedAgentTooltip": "This agent has been deleted",
+    "group": {
+      "running": "Running {{count}} agents",
+      "finished": "{{count}} agents finished"
+    }
   },
   "settings": {
     "title": "Settings",

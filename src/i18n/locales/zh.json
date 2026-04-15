@@ -252,7 +252,11 @@
     "skill": "加载了 {{count}} 个技能"
   },
   "subagent": {
-    "deletedAgentTooltip": "该 Agent 已被删除"
+    "deletedAgentTooltip": "该 Agent 已被删除",
+    "group": {
+      "running": "正在运行 {{count}} 个 Agent",
+      "finished": "已完成 {{count}} 个 Agent"
+    }
   },
   "settings": {
     "title": "设置",
