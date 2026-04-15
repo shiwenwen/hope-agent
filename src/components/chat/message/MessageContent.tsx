@@ -91,6 +91,7 @@ interface MessageContentProps {
   isLast: boolean
   sessionId?: string | null
   onOpenPlanPanel?: () => void
+  onSwitchSession?: (sessionId: string) => void
 }
 
 /** Renders assistant content blocks (thinking, text, tool calls) with grouping logic */
@@ -100,6 +101,7 @@ export function AssistantContentBlocks({
   isLast,
   sessionId,
   onOpenPlanPanel,
+  onSwitchSession,
 }: MessageContentProps) {
   const blocks = msg.contentBlocks!
   const elements: React.ReactNode[] = []
@@ -180,7 +182,9 @@ export function AssistantContentBlocks({
             // (instead of re-running effects) when the underlying run set
             // actually changes.
             const groupKey = `sgrp-${runs.map((r) => r.runId).join("|")}`
-            elements.push(<SubagentGroup key={groupKey} runs={runs} />)
+            elements.push(
+              <SubagentGroup key={groupKey} runs={runs} onSwitchSession={onSwitchSession} />,
+            )
           } else {
             // Single run (plain spawn, spawn_and_wait, or batch_spawn w/ 1 task)
             // → render SubagentBlock directly so batch_spawn's single case
@@ -193,6 +197,7 @@ export function AssistantContentBlocks({
                 runId={run.runId}
                 agentId={run.agentId}
                 task={run.task}
+                onSwitchSession={onSwitchSession}
               />,
             )
           }

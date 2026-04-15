@@ -40,6 +40,8 @@ interface MessageListProps {
   planSubagentRunning?: boolean
   onSwitchModel?: (providerId: string, modelId: string) => void
   onViewSystemPrompt?: () => void
+  /** Jump to another session (e.g. a sub-agent's child session). */
+  onSwitchSession?: (sessionId: string) => void
 }
 
 export default function MessageList({
@@ -67,6 +69,7 @@ export default function MessageList({
   planSubagentRunning,
   onSwitchModel,
   onViewSystemPrompt,
+  onSwitchSession,
 }: MessageListProps) {
   const { t } = useTranslation()
   const [hoveredMsgIndex, setHoveredMsgIndex] = useState<number | null>(null)
@@ -188,6 +191,7 @@ export default function MessageList({
             onCopy={handleCopyMessage}
             sessionId={sessionId}
             onOpenPlanPanel={onOpenPlanPanel}
+            onSwitchSession={onSwitchSession}
             onSwitchModel={onSwitchModel}
             onViewSystemPrompt={onViewSystemPrompt}
           />

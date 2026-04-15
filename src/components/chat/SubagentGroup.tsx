@@ -1,10 +1,19 @@
 import { useState, useEffect } from "react"
 import { useTranslation } from "react-i18next"
-import { ChevronRight, Users, CheckCircle, XCircle, Loader2 } from "lucide-react"
+import {
+  ChevronRight,
+  Users,
+  CheckCircle,
+  XCircle,
+  Loader2,
+  ArrowUpRight,
+  Paperclip,
+} from "lucide-react"
 import { cn } from "@/lib/utils"
 import { getTransport } from "@/lib/transport-provider"
 import type { AgentSummaryForSidebar, SubagentEvent, SubagentRun } from "@/types/chat"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
+import { IconTip } from "@/components/ui/tooltip"
 import {
   loadAgents,
   statusConfig,
@@ -20,6 +29,7 @@ export interface SubagentGroupRun {
 
 interface SubagentGroupProps {
   runs: SubagentGroupRun[]
+  onSwitchSession?: (sessionId: string) => void
 }
 
 interface RunState {
@@ -32,9 +42,10 @@ interface RunState {
   inputTokens?: number
   outputTokens?: number
   attachmentCount?: number
+  childSessionId?: string
 }
 
-export default function SubagentGroup({ runs }: SubagentGroupProps) {
+export default function SubagentGroup({ runs, onSwitchSession }: SubagentGroupProps) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
   const [states, setStates] = useState<Map<string, RunState>>(() => {
@@ -86,6 +97,7 @@ export default function SubagentGroup({ runs }: SubagentGroupProps) {
               inputTokens: run.inputTokens,
               outputTokens: run.outputTokens,
               attachmentCount: run.attachmentCount,
+              childSessionId: run.childSessionId,
             })
             return next
           })
@@ -233,6 +245,7 @@ export default function SubagentGroup({ runs }: SubagentGroupProps) {
               state={states.get(run.runId)}
               agentMeta={agentMetas.get(run.agentId)}
               agentMetasLoaded={metadataLoaded}
+              onSwitchSession={onSwitchSession}
             />
           ))}
         </div>
@@ -246,9 +259,16 @@ interface SubagentRowProps {
   state: RunState | undefined
   agentMeta: AgentSummaryForSidebar | undefined
   agentMetasLoaded: boolean
+  onSwitchSession?: (sessionId: string) => void
 }
 
-function SubagentRow({ run, state, agentMeta, agentMetasLoaded }: SubagentRowProps) {
+function SubagentRow({
+  run,
+  state,
+  agentMeta,
+  agentMetasLoaded,
+  onSwitchSession,
+}: SubagentRowProps) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
 
@@ -261,66 +281,88 @@ function SubagentRow({ run, state, agentMeta, agentMetasLoaded }: SubagentRowPro
   const agentMissing = agentMetasLoaded && !agentMeta
   const nameTooltip = agentMissing ? t("subagent.deletedAgentTooltip") : undefined
   const hasContent = !!(state?.resultFull || state?.error)
-
   const canExpand = isTerminal && hasContent
+  const childSessionId = state?.childSessionId
+  const canViewSession = !!(onSwitchSession && childSessionId)
 
   return (
     <div className="text-[11px]">
-      <button
-        type="button"
-        className="flex items-center gap-1.5 w-full px-2.5 py-1 text-left hover:bg-secondary/60 transition-colors disabled:hover:bg-transparent disabled:cursor-default"
-        onClick={() => canExpand && setExpanded(!expanded)}
-        disabled={!canExpand}
-        aria-expanded={canExpand ? expanded : undefined}
-      >
-        {!isTerminal ? (
-          <span className="animate-spin h-3 w-3 border border-current border-t-transparent rounded-full shrink-0 text-muted-foreground/60" />
-        ) : hasContent ? (
-          <ChevronRight
-            className={cn(
-              "h-3 w-3 shrink-0 text-muted-foreground/40 transition-transform duration-150",
-              expanded && "rotate-90",
-            )}
-          />
-        ) : (
-          <span className="h-3 w-3 shrink-0" />
-        )}
-        {emoji ? (
-          <span className="shrink-0 leading-none" aria-hidden>
-            {emoji}
-          </span>
-        ) : (
-          <Users className="h-3 w-3 shrink-0 text-muted-foreground/50" />
-        )}
-        <span
-          className="font-medium text-foreground truncate max-w-[40%]"
-          title={nameTooltip || friendlyName}
+      <div className="flex items-center hover:bg-secondary/60 transition-colors">
+        <button
+          type="button"
+          className="flex items-center gap-1.5 flex-1 min-w-0 px-2.5 py-1 text-left disabled:cursor-default"
+          onClick={() => canExpand && setExpanded(!expanded)}
+          disabled={!canExpand}
+          aria-expanded={canExpand ? expanded : undefined}
         >
-          {friendlyName}
-        </span>
-        <span className="text-muted-foreground/70 truncate flex-1 min-w-0">{run.task}</span>
-        <span className={cn("flex items-center gap-0.5 shrink-0", config.color)}>
-          {config.icon}
-        </span>
-        {state?.durationMs !== undefined && (
-          <span className="text-muted-foreground/60 shrink-0 tabular-nums text-[10px]">
-            {(state.durationMs / 1000).toFixed(1)}s
+          {!isTerminal ? (
+            <span className="animate-spin h-3 w-3 border border-current border-t-transparent rounded-full shrink-0 text-muted-foreground/60" />
+          ) : hasContent ? (
+            <ChevronRight
+              className={cn(
+                "h-3 w-3 shrink-0 text-muted-foreground/40 transition-transform duration-150",
+                expanded && "rotate-90",
+              )}
+            />
+          ) : (
+            <span className="h-3 w-3 shrink-0" />
+          )}
+          {emoji ? (
+            <span className="shrink-0 leading-none" aria-hidden>
+              {emoji}
+            </span>
+          ) : (
+            <Users className="h-3 w-3 shrink-0 text-muted-foreground/50" />
+          )}
+          <span
+            className="font-medium text-foreground truncate max-w-[40%]"
+            title={nameTooltip || friendlyName}
+          >
+            {friendlyName}
           </span>
-        )}
-        {state?.inputTokens !== undefined && state?.outputTokens !== undefined && (
-          <span className="text-muted-foreground/60 shrink-0 tabular-nums text-[10px]">
-            {state.inputTokens.toLocaleString()}↑ {state.outputTokens.toLocaleString()}↓
-          </span>
-        )}
-      </button>
+          {state?.attachmentCount !== undefined && state.attachmentCount > 0 && (
+            <span className="flex items-center gap-0.5 text-muted-foreground/70 shrink-0">
+              <Paperclip className="h-2.5 w-2.5" />
+              {state.attachmentCount}
+            </span>
+          )}
+          <span className="text-muted-foreground/70 truncate flex-1 min-w-0">{run.task}</span>
+        </button>
+        {/* Right action area — sibling of main button to avoid nested interactive elements. */}
+        <div className="flex items-center gap-1.5 pr-2 shrink-0">
+          <span className={cn("flex items-center gap-0.5", config.color)}>{config.icon}</span>
+          {state?.durationMs !== undefined && (
+            <span className="text-muted-foreground/60 tabular-nums text-[10px]">
+              {(state.durationMs / 1000).toFixed(1)}s
+            </span>
+          )}
+          {state?.inputTokens !== undefined && state?.outputTokens !== undefined && (
+            <span className="text-muted-foreground/60 tabular-nums text-[10px]">
+              {state.inputTokens.toLocaleString()}↑ {state.outputTokens.toLocaleString()}↓
+            </span>
+          )}
+          {canViewSession && (
+            <IconTip label={t("subagent.viewChildSession")}>
+              <button
+                type="button"
+                className="p-0.5 rounded hover:bg-secondary text-muted-foreground/50 hover:text-foreground transition-colors"
+                onClick={() => onSwitchSession!(childSessionId!)}
+                aria-label={t("subagent.viewChildSession")}
+              >
+                <ArrowUpRight className="h-3 w-3" />
+              </button>
+            </IconTip>
+          )}
+        </div>
+      </div>
 
       <div
         className={cn(
           "overflow-hidden transition-all duration-200 ease-out",
-          expanded && hasContent ? "max-h-96 opacity-100" : "max-h-0 opacity-0",
+          expanded && hasContent ? "max-h-[600px] opacity-100" : "max-h-0 opacity-0",
         )}
       >
-        <div className="px-2.5 pb-2 pt-0.5 max-h-96 overflow-y-auto">
+        <div className="px-2.5 pb-2 pt-0.5 max-h-[600px] overflow-y-auto">
           {state?.error && (
             <pre className="whitespace-pre-wrap text-red-400 bg-background rounded p-2 text-[11px] leading-relaxed">
               {state.error}

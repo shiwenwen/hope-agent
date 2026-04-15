@@ -555,6 +555,9 @@ export default function ChatScreen({
           planSubagentRunning={planMode.planSubagentRunning}
           onSwitchModel={(providerId, modelId) => handleModelChange(`${providerId}::${modelId}`)}
           onViewSystemPrompt={loadSystemPrompt}
+          onSwitchSession={(sid) => {
+            void session.handleSwitchSession(sid)
+          }}
         />
 
         {/* Memory extraction toast */}

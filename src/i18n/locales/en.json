@@ -253,6 +253,7 @@
   },
   "subagent": {
     "deletedAgentTooltip": "This agent has been deleted",
+    "viewChildSession": "Open sub-agent session",
     "group": {
       "running": "Running {{count}} agents",
       "finished": "{{count}} agents finished"

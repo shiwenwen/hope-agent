@@ -253,6 +253,7 @@
   },
   "subagent": {
     "deletedAgentTooltip": "该 Agent 已被删除",
+    "viewChildSession": "查看子 Agent 会话",
     "group": {
       "running": "正在运行 {{count}} 个 Agent",
       "finished": "已完成 {{count}} 个 Agent"
