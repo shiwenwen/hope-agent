@@ -333,7 +333,7 @@
     "memoryType_reference": "参照",
     "memoryScope": "スコープ",
     "memoryScopeGlobal": "グローバル",
-    "memoryScopeAgent": "Agent",
+    "memoryScopeAgent": "Agent 専用",
     "memoryContent": "内容",
     "memoryContentPlaceholder": "AI に何を覚えさせたいですか？",
     "memoryTags": "タグ",
