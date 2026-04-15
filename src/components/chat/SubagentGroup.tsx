@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { useTranslation } from "react-i18next"
 import {
   ChevronRight,
@@ -56,7 +56,6 @@ export default function SubagentGroup({ runs, onSwitchSession }: SubagentGroupPr
   const [agentMetas, setAgentMetas] = useState<Map<string, AgentSummaryForSidebar>>(new Map())
   const [metadataLoaded, setMetadataLoaded] = useState(false)
 
-  // Hydrate agent metadata (shared cache across all SubagentBlock / SubagentGroup)
   useEffect(() => {
     let cancelled = false
     loadAgents()
@@ -66,8 +65,8 @@ export default function SubagentGroup({ runs, onSwitchSession }: SubagentGroupPr
         setMetadataLoaded(true)
       })
       .catch(() => {
-        // Mark loaded so rows can fall back to agentId; failure means we
-        // have nothing better to show than the technical id anyway.
+        // On failure, still mark loaded so rows fall back to the agentId
+        // instead of spinning forever.
         if (!cancelled) setMetadataLoaded(true)
       })
     return () => {
@@ -75,9 +74,9 @@ export default function SubagentGroup({ runs, onSwitchSession }: SubagentGroupPr
     }
   }, [])
 
-  // Hydrate each run from DB on mount. Parent keys this component on the
-  // concatenated runIds, so a change in the run set remounts the group and
-  // runs this effect fresh — safe to use empty deps + closure `runs`.
+  // Parent keys this component on the concatenated runIds, so a change in the
+  // run set remounts the group and re-runs these effects fresh — safe to use
+  // empty deps + closure `runs`.
   useEffect(() => {
     let cancelled = false
     for (const { runId } of runs) {
@@ -110,8 +109,6 @@ export default function SubagentGroup({ runs, onSwitchSession }: SubagentGroupPr
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Single event listener for the whole group — filters by runId set.
-  // Same rationale as above: parent remounts on run-set change.
   useEffect(() => {
     const runIds = new Set(runs.map((r) => r.runId))
     return getTransport().listen("subagent_event", (raw) => {
@@ -136,11 +133,7 @@ export default function SubagentGroup({ runs, onSwitchSession }: SubagentGroupPr
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Aggregate stats — computed inline each render. useMemo would be wasted
-  // because the parent passes a new `runs` array reference on every render
-  // (although it's content-stable within this instance's lifetime). The loop
-  // is O(N) over N ≤ ~10 runs — negligible.
-  const agg = (() => {
+  const agg = useMemo(() => {
     let running = 0
     let completed = 0
     let failed = 0
@@ -166,7 +159,7 @@ export default function SubagentGroup({ runs, onSwitchSession }: SubagentGroupPr
       totalOutputTokens,
       total: runs.length,
     }
-  })()
+  }, [runs, states])
 
   const anyRunning = agg.running > 0
   const headerLabel = anyRunning
@@ -214,20 +207,20 @@ export default function SubagentGroup({ runs, onSwitchSession }: SubagentGroupPr
             </span>
           )}
         </div>
-        <span className="flex-1" />
-        {(agg.totalInputTokens > 0 || agg.totalOutputTokens > 0) && (
-          <span className="text-[10px] text-muted-foreground shrink-0 tabular-nums">
-            {agg.totalInputTokens.toLocaleString()}↑ {agg.totalOutputTokens.toLocaleString()}↓
-          </span>
-        )}
-        {/* Only show aggregate duration once all runs are terminal, otherwise
-            the sum of completed-only durations is misleading (it's neither
-            wall-clock nor per-run elapsed). */}
-        {!anyRunning && agg.totalDurationMs > 0 && (
-          <span className="text-muted-foreground shrink-0 tabular-nums">
-            {(agg.totalDurationMs / 1000).toFixed(1)}s
-          </span>
-        )}
+        <div className="ml-auto flex items-center gap-1.5 shrink-0">
+          {(agg.totalInputTokens > 0 || agg.totalOutputTokens > 0) && (
+            <span className="text-[10px] text-muted-foreground tabular-nums">
+              {agg.totalInputTokens.toLocaleString()}↑ {agg.totalOutputTokens.toLocaleString()}↓
+            </span>
+          )}
+          {/* Aggregate duration only once all runs are terminal — a partial sum
+              is neither wall-clock nor per-run elapsed, so it's misleading. */}
+          {!anyRunning && agg.totalDurationMs > 0 && (
+            <span className="text-muted-foreground tabular-nums">
+              {(agg.totalDurationMs / 1000).toFixed(1)}s
+            </span>
+          )}
+        </div>
       </button>
 
       {/* Expanded rows */}
@@ -320,12 +313,11 @@ function SubagentRow({
           ) : (
             <Users className="h-3 w-3 shrink-0 text-muted-foreground/50" />
           )}
-          <span
-            className="font-medium text-foreground truncate max-w-[40%]"
-            title={nameTooltip || friendlyName}
-          >
-            {friendlyName}
-          </span>
+          <IconTip label={nameTooltip || friendlyName}>
+            <span className="font-medium text-foreground truncate max-w-[40%]">
+              {friendlyName}
+            </span>
+          </IconTip>
           {state?.attachmentCount !== undefined && state.attachmentCount > 0 && (
             <span className="flex items-center gap-0.5 text-muted-foreground/70 shrink-0">
               <Paperclip className="h-2.5 w-2.5" />

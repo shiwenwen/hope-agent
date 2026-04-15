@@ -162,6 +162,15 @@ impl AsyncJobsDB {
 fn row_to_job(row: &rusqlite::Row<'_>) -> rusqlite::Result<AsyncJob> {
     let injected: i32 = row.get(12)?;
     let status_str: String = row.get(6)?;
+    let status = AsyncJobStatus::parse(&status_str).unwrap_or_else(|| {
+        crate::app_warn!(
+            "async_jobs",
+            "row_to_job",
+            "Unknown status '{}' in DB; defaulting to Interrupted",
+            status_str
+        );
+        AsyncJobStatus::Interrupted
+    });
     Ok(AsyncJob {
         job_id: row.get(0)?,
         session_id: row.get(1)?,
@@ -169,7 +178,7 @@ fn row_to_job(row: &rusqlite::Row<'_>) -> rusqlite::Result<AsyncJob> {
         tool_name: row.get(3)?,
         tool_call_id: row.get(4)?,
         args_json: row.get(5)?,
-        status: AsyncJobStatus::parse(&status_str),
+        status,
         result_preview: row.get(7)?,
         result_path: row.get(8)?,
         error: row.get(9)?,

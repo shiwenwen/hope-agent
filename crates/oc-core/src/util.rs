@@ -16,6 +16,19 @@ pub fn truncate_utf8(s: &str, max_bytes: usize) -> &str {
     &s[..end]
 }
 
+/// Return the suffix of `s` that is at most `max_bytes` bytes, aligned to a valid
+/// UTF-8 char boundary (complement of `truncate_utf8`).
+pub fn truncate_utf8_tail(s: &str, max_bytes: usize) -> &str {
+    if s.len() <= max_bytes {
+        return s;
+    }
+    let mut start = s.len() - max_bytes;
+    while start < s.len() && !s.is_char_boundary(start) {
+        start += 1;
+    }
+    &s[start..]
+}
+
 /// Read a non-negative i64 column as u64 (rusqlite 0.39+ removed u64 FromSql).
 pub fn sql_u64(row: &rusqlite::Row, idx: usize) -> rusqlite::Result<u64> {
     row.get::<_, i64>(idx).map(|v| v as u64)

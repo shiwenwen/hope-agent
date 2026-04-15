@@ -25,13 +25,14 @@ impl AsyncJobStatus {
         }
     }
 
-    pub fn parse(s: &str) -> Self {
+    pub fn parse(s: &str) -> Option<Self> {
         match s {
-            "completed" => Self::Completed,
-            "failed" => Self::Failed,
-            "interrupted" => Self::Interrupted,
-            "timed_out" => Self::TimedOut,
-            _ => Self::Running,
+            "running" => Some(Self::Running),
+            "completed" => Some(Self::Completed),
+            "failed" => Some(Self::Failed),
+            "interrupted" => Some(Self::Interrupted),
+            "timed_out" => Some(Self::TimedOut),
+            _ => None,
         }
     }
 

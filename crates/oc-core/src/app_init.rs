@@ -102,15 +102,16 @@ pub fn init_app_state(initial_store: AppConfig) -> AppState {
     ));
     let _ = CRON_DB.set(cron_db.clone());
 
-    // Initialize the async_jobs DB used by the background tool execution feature.
-    // Failure here is non-fatal — async tools simply degrade to sync mode if the
-    // DB cannot be opened.
+    // Failure here is non-fatal — async tools degrade to sync mode if the DB cannot be opened.
     match paths::async_jobs_db_path()
         .and_then(|p| crate::async_jobs::AsyncJobsDB::open(&p))
     {
         Ok(db) => crate::async_jobs::set_async_jobs_db(Arc::new(db)),
-        Err(e) => eprintln!(
-            "[WARN] Failed to open async_jobs DB ({e}); async tool backgrounding disabled"
+        Err(e) => crate::app_warn!(
+            "async_jobs",
+            "init",
+            "Failed to open async_jobs DB ({}); async tool backgrounding disabled",
+            e
         ),
     }
 

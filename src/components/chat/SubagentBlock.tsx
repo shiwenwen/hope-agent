@@ -134,12 +134,11 @@ export default function SubagentBlock({
           ) : (
             <Users className="h-3 w-3 shrink-0 text-muted-foreground" />
           )}
-          <span
-            className="font-medium text-foreground truncate max-w-[40%]"
-            title={nameTooltip || friendlyName}
-          >
-            {friendlyName}
-          </span>
+          <IconTip label={nameTooltip || friendlyName}>
+            <span className="font-medium text-foreground truncate max-w-[40%]">
+              {friendlyName}
+            </span>
+          </IconTip>
           <span className="text-[10px] text-muted-foreground shrink-0 hidden sm:inline">
             {toolLabel}
           </span>

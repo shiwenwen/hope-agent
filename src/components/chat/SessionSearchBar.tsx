@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { useTranslation } from "react-i18next"
 import { ChevronUp, ChevronDown, Loader2, Search, X } from "lucide-react"
 import { getTransport } from "@/lib/transport-provider"
@@ -35,36 +35,27 @@ export default function SessionSearchBar({
 }: SessionSearchBarProps) {
   const { t } = useTranslation()
   const [query, setQuery] = useState("")
-  const [results, setResults] = useState<SessionSearchResult[]>([])
+  // Sorted by messageId asc so ↑/↓ map to earlier/later in the conversation;
+  // FTS5 returns rows by relevance rank which is unintuitive for navigation.
+  const [sortedResults, setSortedResults] = useState<SessionSearchResult[]>([])
   const [currentIndex, setCurrentIndex] = useState(0)
   const [searching, setSearching] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
-  // Track the latest onJumpTo without retriggering effects / callbacks
-  // that would otherwise re-run on every parent render.
+  // Latest onJumpTo held in a ref so effects don't re-run on parent rerenders.
   const onJumpToRef = useRef(onJumpTo)
   useEffect(() => {
     onJumpToRef.current = onJumpTo
   }, [onJumpTo])
 
-  // Sort matches by messageId ascending so ↑/↓ map to "earlier/later" in the
-  // conversation (FTS5 returns them by relevance rank which is unintuitive
-  // for navigation).
-  const sortedResults = useMemo(
-    () => [...results].sort((a, b) => a.messageId - b.messageId),
-    [results],
-  )
-
-  // Focus on mount + whenever the parent signals a re-open request.
   useEffect(() => {
     inputRef.current?.focus()
     inputRef.current?.select()
   }, [focusSignal])
 
-  // Debounced search. Fires 250ms after the user stops typing.
   useEffect(() => {
     const q = query.trim()
     if (!q) {
-      setResults([])
+      setSortedResults([])
       setSearching(false)
       return
     }
@@ -79,11 +70,12 @@ export default function SessionSearchBar({
             limit: 200,
           },
         )
-        setResults(list ?? [])
+        const next = (list ?? []).slice().sort((a, b) => a.messageId - b.messageId)
+        setSortedResults(next)
         setCurrentIndex(0)
       } catch (err) {
         logger.error("chat", "SessionSearchBar::search", "search failed", err)
-        setResults([])
+        setSortedResults([])
       } finally {
         setSearching(false)
       }
@@ -91,7 +83,6 @@ export default function SessionSearchBar({
     return () => clearTimeout(timer)
   }, [query, sessionId])
 
-  // Auto-jump to the current match whenever it changes.
   useEffect(() => {
     if (sortedResults.length === 0) return
     const safeIndex = Math.min(currentIndex, sortedResults.length - 1)
