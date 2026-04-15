@@ -1,0 +1,352 @@
+//! HTTP handlers for the Project feature. Thin axum wrappers over
+//! `oc_core::project` — uses `AppContext.project_db` + `session_db`.
+
+use axum::extract::{Path, Query, State};
+use axum::http::StatusCode;
+use axum::Json;
+use serde::Deserialize;
+use serde_json::{json, Value};
+use std::sync::Arc;
+
+use oc_core::memory::{MemoryEntry, MemoryScope};
+use oc_core::project::{
+    delete_project_cascade, delete_project_file as delete_file_pipeline,
+    upload_project_file, CreateProjectInput, Project, ProjectFile, ProjectMeta,
+    UpdateProjectInput, UploadInput, MAX_PROJECT_FILE_BYTES,
+};
+use oc_core::session::{ProjectFilter, SessionMeta};
+
+use crate::error::AppError;
+use crate::routes::sessions::PaginatedSessions;
+use crate::AppContext;
+
+// ── Query / Body Types ──────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListProjectsQuery {
+    #[serde(default)]
+    pub include_archived: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchiveProjectBody {
+    pub archived: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MoveSessionBody {
+    /// `None` removes the session from its current project.
+    #[serde(default)]
+    pub project_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UploadProjectFileBody {
+    pub file_name: String,
+    #[serde(default)]
+    pub mime_type: Option<String>,
+    /// Raw file bytes. Serde accepts a JSON number array from the client.
+    pub data: Vec<u8>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenameProjectFileBody {
+    pub name: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadProjectFileQuery {
+    #[serde(default)]
+    pub offset: Option<u32>,
+    #[serde(default)]
+    pub limit: Option<u32>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListMemoriesQuery {
+    #[serde(default)]
+    pub limit: Option<u32>,
+    #[serde(default)]
+    pub offset: Option<u32>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListProjectSessionsQuery {
+    #[serde(default)]
+    pub limit: Option<u32>,
+    #[serde(default)]
+    pub offset: Option<u32>,
+}
+
+// ── Project CRUD ────────────────────────────────────────────────
+
+/// `GET /api/projects`
+pub async fn list_projects(
+    State(ctx): State<Arc<AppContext>>,
+    Query(q): Query<ListProjectsQuery>,
+) -> Result<Json<Vec<ProjectMeta>>, AppError> {
+    let mut projects = ctx.project_db.list(q.include_archived.unwrap_or(false))?;
+
+    // Enrich with cross-DB memory counts (memory.db is separate).
+    if let Some(backend) = oc_core::get_memory_backend() {
+        for meta in &mut projects {
+            if let Ok(n) = backend.count_by_project(&meta.project.id) {
+                meta.memory_count = n as u32;
+            }
+        }
+    }
+
+    Ok(Json(projects))
+}
+
+/// `GET /api/projects/:id`
+pub async fn get_project(
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+) -> Result<Json<Project>, AppError> {
+    let project = ctx
+        .project_db
+        .get(&id)?
+        .ok_or_else(|| anyhow::anyhow!("project not found: {}", id))?;
+    Ok(Json(project))
+}
+
+/// `POST /api/projects`
+pub async fn create_project(
+    State(ctx): State<Arc<AppContext>>,
+    Json(body): Json<CreateProjectInput>,
+) -> Result<Json<Project>, AppError> {
+    let project = ctx.project_db.create(body)?;
+
+    let _ = ctx.event_bus.emit(
+        "project:created",
+        json!({ "projectId": project.id }),
+    );
+    Ok(Json(project))
+}
+
+/// `PATCH /api/projects/:id`
+pub async fn update_project(
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+    Json(patch): Json<UpdateProjectInput>,
+) -> Result<Json<Project>, AppError> {
+    let project = ctx.project_db.update(&id, patch)?;
+    let _ = ctx.event_bus.emit(
+        "project:updated",
+        json!({ "projectId": project.id }),
+    );
+    Ok(Json(project))
+}
+
+/// `DELETE /api/projects/:id`
+pub async fn delete_project(
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, AppError> {
+    let deleted = delete_project_cascade(&id, &ctx.project_db)?;
+    if deleted {
+        let _ = ctx
+            .event_bus
+            .emit("project:deleted", json!({ "projectId": id }));
+    }
+    Ok(Json(json!({ "deleted": deleted })))
+}
+
+/// `POST /api/projects/:id/archive`
+pub async fn archive_project(
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+    Json(body): Json<ArchiveProjectBody>,
+) -> Result<Json<Project>, AppError> {
+    let patch = UpdateProjectInput {
+        archived: Some(body.archived),
+        ..Default::default()
+    };
+    let project = ctx.project_db.update(&id, patch)?;
+    let _ = ctx.event_bus.emit(
+        "project:updated",
+        json!({ "projectId": project.id }),
+    );
+    Ok(Json(project))
+}
+
+// ── Session ↔ Project binding ───────────────────────────────────
+
+/// `GET /api/projects/:id/sessions`
+pub async fn list_project_sessions(
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+    Query(q): Query<ListProjectSessionsQuery>,
+) -> Result<Json<PaginatedSessions>, AppError> {
+    let (mut sessions, total) = ctx.session_db.list_sessions_paged(
+        None,
+        ProjectFilter::InProject(&id),
+        q.limit,
+        q.offset,
+    )?;
+    oc_core::session::enrich_pending_interactions(&mut sessions, &ctx.session_db).await?;
+    Ok(Json(PaginatedSessions { sessions, total }))
+}
+
+/// `PATCH /api/sessions/:id/project`
+pub async fn move_session_to_project(
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+    Json(body): Json<MoveSessionBody>,
+) -> Result<Json<Value>, AppError> {
+    ctx.session_db
+        .set_session_project(&id, body.project_id.as_deref())?;
+
+    // Return updated session meta so the frontend can refresh cache.
+    let session: Option<SessionMeta> = ctx.session_db.get_session(&id)?;
+    Ok(Json(json!({ "session": session })))
+}
+
+// ── Project Files ───────────────────────────────────────────────
+
+/// `GET /api/projects/:id/files`
+pub async fn list_project_files(
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<ProjectFile>>, AppError> {
+    let files = ctx.project_db.list_files(&id)?;
+    Ok(Json(files))
+}
+
+/// `POST /api/projects/:id/files` — JSON `{fileName, mimeType?, data}` body.
+pub async fn upload_project_file_route(
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+    Json(body): Json<UploadProjectFileBody>,
+) -> Result<(StatusCode, Json<ProjectFile>), AppError> {
+    if body.data.len() > MAX_PROJECT_FILE_BYTES {
+        return Err(AppError::from(anyhow::anyhow!(
+            "project file too large: {} bytes (max {} bytes)",
+            body.data.len(),
+            MAX_PROJECT_FILE_BYTES
+        )));
+    }
+
+    let project_db = ctx.project_db.clone();
+    let project_id = id.clone();
+    let file_name = body.file_name.clone();
+    let mime_type = body.mime_type.clone();
+    let data = body.data;
+
+    let file = tokio::task::spawn_blocking(move || -> anyhow::Result<ProjectFile> {
+        upload_project_file(
+            UploadInput {
+                project_id: &project_id,
+                original_filename: &file_name,
+                mime_type: mime_type.as_deref(),
+                data: &data,
+            },
+            &project_db,
+        )
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!("upload task join error: {}", e))??;
+
+    let _ = ctx.event_bus.emit(
+        "project:file_uploaded",
+        json!({ "projectId": file.project_id, "fileId": file.id }),
+    );
+    Ok((StatusCode::CREATED, Json(file)))
+}
+
+/// `DELETE /api/projects/:id/files/:fid`
+pub async fn delete_project_file_route(
+    State(ctx): State<Arc<AppContext>>,
+    Path((id, fid)): Path<(String, String)>,
+) -> Result<Json<Value>, AppError> {
+    let project_db = ctx.project_db.clone();
+    let file_id = fid.clone();
+    let deleted =
+        tokio::task::spawn_blocking(move || delete_file_pipeline(&file_id, &project_db))
+            .await
+            .map_err(|e| anyhow::anyhow!("delete task join error: {}", e))??;
+
+    if deleted {
+        let _ = ctx.event_bus.emit(
+            "project:file_deleted",
+            json!({ "projectId": id, "fileId": fid }),
+        );
+    }
+    Ok(Json(json!({ "deleted": deleted })))
+}
+
+/// `PATCH /api/projects/:id/files/:fid`
+pub async fn rename_project_file_route(
+    State(ctx): State<Arc<AppContext>>,
+    Path((_id, fid)): Path<(String, String)>,
+    Json(body): Json<RenameProjectFileBody>,
+) -> Result<Json<Value>, AppError> {
+    ctx.project_db.rename_file(&fid, &body.name)?;
+    Ok(Json(json!({ "renamed": true })))
+}
+
+/// `GET /api/projects/:id/files/:fid/content`
+pub async fn read_project_file_content(
+    State(ctx): State<Arc<AppContext>>,
+    Path((id, fid)): Path<(String, String)>,
+    Query(q): Query<ReadProjectFileQuery>,
+) -> Result<Json<Value>, AppError> {
+    let file = ctx
+        .project_db
+        .get_file(&id, &fid)?
+        .ok_or_else(|| anyhow::anyhow!("file {} not found in project {}", fid, id))?;
+
+    let ext_rel = file
+        .extracted_path
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("file has no extracted text (binary)"))?;
+
+    let base = oc_core::paths::projects_dir()?;
+    let full = base.join(ext_rel);
+    let content = tokio::fs::read_to_string(&full).await?;
+
+    let lines: Vec<&str> = content.lines().collect();
+    let total = lines.len();
+    let offset = q.offset.unwrap_or(0) as usize;
+    let limit = q.limit.unwrap_or(1000).min(10_000) as usize;
+
+    let start = offset.min(total);
+    let end = (start + limit).min(total);
+    let snippet = lines[start..end].join("\n");
+
+    Ok(Json(json!({
+        "content": snippet,
+        "total": total,
+        "offset": start,
+        "limit": end - start,
+    })))
+}
+
+// ── Project Memories ────────────────────────────────────────────
+
+/// `GET /api/projects/:id/memories`
+pub async fn list_project_memories(
+    State(_ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+    Query(q): Query<ListMemoriesQuery>,
+) -> Result<Json<Vec<MemoryEntry>>, AppError> {
+    let backend = oc_core::get_memory_backend()
+        .ok_or_else(|| anyhow::anyhow!("memory backend not initialized"))?;
+    let scope = MemoryScope::Project { id };
+    let entries = backend.list(
+        Some(&scope),
+        None,
+        q.limit.unwrap_or(200) as usize,
+        q.offset.unwrap_or(0) as usize,
+    )?;
+    Ok(Json(entries))
+}

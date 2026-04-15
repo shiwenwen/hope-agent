@@ -10,6 +10,7 @@ use axum::Router;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
 use oc_core::event_bus::EventBus;
+use oc_core::project::ProjectDB;
 use oc_core::session::SessionDB;
 
 pub mod config;
@@ -25,6 +26,7 @@ pub use config::ServerConfig;
 /// Shared application state passed to all handlers via `State<Arc<AppContext>>`.
 pub struct AppContext {
     pub session_db: Arc<SessionDB>,
+    pub project_db: Arc<ProjectDB>,
     pub event_bus: Arc<dyn EventBus>,
     /// Per-session broadcast channels for chat streaming via WebSocket.
     pub chat_streams: Arc<ws::chat_stream::ChatStreamRegistry>,
@@ -90,7 +92,49 @@ fn build_router_with_cors(
             "/sessions/{id}/compact",
             post(routes::sessions::compact_context_now),
         )
+        .route(
+            "/sessions/{id}/project",
+            patch(routes::projects::move_session_to_project),
+        )
         .route("/sessions/search", get(routes::sessions::search_sessions))
+        // Projects
+        .route("/projects", get(routes::projects::list_projects))
+        .route("/projects", post(routes::projects::create_project))
+        .route("/projects/{id}", get(routes::projects::get_project))
+        .route("/projects/{id}", patch(routes::projects::update_project))
+        .route("/projects/{id}", delete(routes::projects::delete_project))
+        .route(
+            "/projects/{id}/archive",
+            post(routes::projects::archive_project),
+        )
+        .route(
+            "/projects/{id}/sessions",
+            get(routes::projects::list_project_sessions),
+        )
+        .route(
+            "/projects/{id}/files",
+            get(routes::projects::list_project_files),
+        )
+        .route(
+            "/projects/{id}/files",
+            post(routes::projects::upload_project_file_route),
+        )
+        .route(
+            "/projects/{id}/files/{fid}",
+            delete(routes::projects::delete_project_file_route),
+        )
+        .route(
+            "/projects/{id}/files/{fid}",
+            patch(routes::projects::rename_project_file_route),
+        )
+        .route(
+            "/projects/{id}/files/{fid}/content",
+            get(routes::projects::read_project_file_content),
+        )
+        .route(
+            "/projects/{id}/memories",
+            get(routes::projects::list_project_memories),
+        )
         .route(
             "/sessions/{id}/messages/around",
             get(routes::sessions::get_session_messages_around),
