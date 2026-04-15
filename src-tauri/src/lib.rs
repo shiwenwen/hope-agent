@@ -344,6 +344,7 @@ pub fn run() {
             // Sub-agent management
             commands::subagent::list_subagent_runs,
             commands::subagent::get_subagent_run,
+            commands::subagent::get_subagent_runs_batch,
             commands::subagent::kill_subagent,
             // Crash recovery & backup
             commands::crash::get_crash_recovery_info,

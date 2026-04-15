@@ -597,6 +597,10 @@ fn build_router_with_cors(
         // Subagent
         .route("/subagent/runs", get(routes::subagent::list_subagent_runs))
         .route(
+            "/subagent/runs/batch",
+            post(routes::subagent::get_subagent_runs_batch),
+        )
+        .route(
             "/subagent/runs/{run_id}",
             get(routes::subagent::get_subagent_run),
         )

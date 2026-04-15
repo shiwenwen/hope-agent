@@ -79,14 +79,16 @@ export default function SubagentGroup({ runs, onSwitchSession }: SubagentGroupPr
   // empty deps + closure `runs`.
   useEffect(() => {
     let cancelled = false
-    for (const { runId } of runs) {
-      getTransport()
-        .call<SubagentRun | null>("get_subagent_run", { runId })
-        .then((run) => {
-          if (cancelled || !run) return
-          setStates((prev) => {
-            const next = new Map(prev)
-            next.set(runId, {
+    const runIds = runs.map((r) => r.runId)
+    getTransport()
+      .call<Array<SubagentRun | null>>("get_subagent_runs_batch", { runIds })
+      .then((results) => {
+        if (cancelled || !Array.isArray(results)) return
+        setStates((prev) => {
+          const next = new Map(prev)
+          results.forEach((run, idx) => {
+            if (!run) return
+            next.set(runIds[idx], {
               status: run.status,
               resultFull: run.result,
               error: run.error,
@@ -98,11 +100,11 @@ export default function SubagentGroup({ runs, onSwitchSession }: SubagentGroupPr
               attachmentCount: run.attachmentCount,
               childSessionId: run.childSessionId,
             })
-            return next
           })
+          return next
         })
-        .catch(() => {})
-    }
+      })
+      .catch(() => {})
     return () => {
       cancelled = true
     }

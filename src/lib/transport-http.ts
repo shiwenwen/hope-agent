@@ -268,6 +268,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   // -- Subagent --
   list_subagent_runs:              { method: "GET",    path: "/api/subagent/runs" },
   get_subagent_run:                { method: "GET",    path: "/api/subagent/runs/{runId}" },
+  get_subagent_runs_batch:         { method: "POST",   path: "/api/subagent/runs/batch" },
   kill_subagent:                   { method: "POST",   path: "/api/subagent/runs/{runId}/kill" },
 
   // -- Weather --
