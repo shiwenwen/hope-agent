@@ -43,15 +43,22 @@ export default function SubagentGroup({ runs }: SubagentGroupProps) {
     return init
   })
   const [agentMetas, setAgentMetas] = useState<Map<string, AgentSummaryForSidebar>>(new Map())
+  const [metadataLoaded, setMetadataLoaded] = useState(false)
 
   // Hydrate agent metadata (shared cache across all SubagentBlock / SubagentGroup)
   useEffect(() => {
     let cancelled = false
     loadAgents()
       .then((m) => {
-        if (!cancelled) setAgentMetas(m)
+        if (cancelled) return
+        setAgentMetas(m)
+        setMetadataLoaded(true)
       })
-      .catch(() => {})
+      .catch(() => {
+        // Mark loaded so rows can fall back to agentId; failure means we
+        // have nothing better to show than the technical id anyway.
+        if (!cancelled) setMetadataLoaded(true)
+      })
     return () => {
       cancelled = true
     }
@@ -196,7 +203,10 @@ export default function SubagentGroup({ runs }: SubagentGroupProps) {
             {agg.totalInputTokens.toLocaleString()}↑ {agg.totalOutputTokens.toLocaleString()}↓
           </span>
         )}
-        {agg.totalDurationMs > 0 && (
+        {/* Only show aggregate duration once all runs are terminal, otherwise
+            the sum of completed-only durations is misleading (it's neither
+            wall-clock nor per-run elapsed). */}
+        {!anyRunning && agg.totalDurationMs > 0 && (
           <span className="text-muted-foreground shrink-0 tabular-nums">
             {(agg.totalDurationMs / 1000).toFixed(1)}s
           </span>
@@ -217,7 +227,7 @@ export default function SubagentGroup({ runs }: SubagentGroupProps) {
               run={run}
               state={states.get(run.runId)}
               agentMeta={agentMetas.get(run.agentId)}
-              agentMetasLoaded={agentMetas.size > 0}
+              agentMetasLoaded={metadataLoaded}
             />
           ))}
         </div>

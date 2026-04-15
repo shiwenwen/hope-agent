@@ -5,6 +5,7 @@ import ToolCallGroup from "./ToolCallGroup"
 import ThinkingBlock from "./ThinkingBlock"
 import TaskBlock from "./TaskBlock"
 import SubagentGroup, { type SubagentGroupRun } from "@/components/chat/SubagentGroup"
+import SubagentBlock from "@/components/chat/SubagentBlock"
 import { AskUserQuestionResult, SubmitPlanResult } from "./PlanResultBlocks"
 import type { ContentBlock, ToolCall } from "@/types/chat"
 import type { Message } from "@/types/chat"
@@ -21,29 +22,67 @@ const NO_GROUP_TOOLS = new Set([
   "subagent",
 ])
 
-/** Parse a tool_call block as a subagent spawn with a resolved run_id. */
-function parseSubagentSpawn(tool: ToolCall): SubagentGroupRun | null {
-  if (tool.name !== "subagent") return null
-  let args: { action?: string; agent_id?: string; task?: string } = {}
+/** Extract zero or more subagent runs from a tool_call block. Handles:
+ *   - action=spawn            → 1 run (if runId present)
+ *   - action=spawn_and_wait   → 1 run (foreground or backgrounded)
+ *   - action=batch_spawn      → N runs from result.runs[] (only "spawned" entries)
+ */
+function extractSubagentRuns(tool: ToolCall): SubagentGroupRun[] {
+  if (tool.name !== "subagent") return []
+  if (!tool.result) return []
+  let args: {
+    action?: string
+    agent_id?: string
+    task?: string
+    tasks?: Array<{ agent_id?: string; task?: string }>
+  } = {}
   try {
     args = JSON.parse(tool.arguments)
   } catch {
-    return null
+    return []
   }
-  if (args.action !== "spawn") return null
-  if (!tool.result) return null
-  let runId: string | undefined
+  let result: unknown
   try {
-    runId = JSON.parse(tool.result).run_id
+    result = JSON.parse(tool.result)
   } catch {
-    return null
+    return []
   }
-  if (!runId) return null
-  return {
-    runId,
-    agentId: args.agent_id || "default",
-    task: args.task || "",
+  if (!result || typeof result !== "object") return []
+
+  if (args.action === "spawn" || args.action === "spawn_and_wait") {
+    const runId = (result as { run_id?: unknown }).run_id
+    if (typeof runId !== "string" || !runId) return []
+    return [
+      {
+        runId,
+        agentId: args.agent_id || "default",
+        task: args.task || "",
+      },
+    ]
   }
+
+  if (args.action === "batch_spawn") {
+    const runs = (result as { runs?: unknown }).runs
+    if (!Array.isArray(runs)) return []
+    const taskDefs = Array.isArray(args.tasks) ? args.tasks : []
+    const out: SubagentGroupRun[] = []
+    for (let idx = 0; idx < runs.length; idx++) {
+      const r = runs[idx]
+      if (!r || typeof r !== "object") continue
+      const obj = r as { status?: unknown; run_id?: unknown }
+      if (obj.status !== "spawned") continue
+      if (typeof obj.run_id !== "string" || !obj.run_id) continue
+      const def = taskDefs[idx] || {}
+      out.push({
+        runId: obj.run_id,
+        agentId: def.agent_id || "default",
+        task: def.task || "",
+      })
+    }
+    return out
+  }
+
+  return []
 }
 
 interface MessageContentProps {
@@ -119,18 +158,21 @@ export function AssistantContentBlocks({
         i++
         continue
       }
-      // subagent spawn → collect consecutive spawns into a dedicated group
+      // subagent spawn / batch_spawn / spawn_and_wait → dedicated rendering
       if (block.tool.name === "subagent") {
-        const parsed = parseSubagentSpawn(block.tool)
-        if (parsed) {
-          const runs: SubagentGroupRun[] = [parsed]
+        const firstRuns = extractSubagentRuns(block.tool)
+        if (firstRuns.length > 0) {
+          // Collect additional consecutive subagent blocks that also expose
+          // one-or-more runs — covers "N parallel spawn calls" and "1 spawn
+          // followed by 1 batch_spawn" alike.
+          const runs: SubagentGroupRun[] = [...firstRuns]
           let j = i + 1
           while (j < blocks.length) {
             const nb = blocks[j]
             if (nb.type !== "tool_call" || nb.tool.name !== "subagent") break
-            const nextParsed = parseSubagentSpawn(nb.tool)
-            if (!nextParsed) break
-            runs.push(nextParsed)
+            const nextRuns = extractSubagentRuns(nb.tool)
+            if (nextRuns.length === 0) break
+            runs.push(...nextRuns)
             j++
           }
           if (runs.length >= 2) {
@@ -139,18 +181,28 @@ export function AssistantContentBlocks({
             // actually changes.
             const groupKey = `sgrp-${runs.map((r) => r.runId).join("|")}`
             elements.push(<SubagentGroup key={groupKey} runs={runs} />)
-            i = j
-            continue
+          } else {
+            // Single run (plain spawn, spawn_and_wait, or batch_spawn w/ 1 task)
+            // → render SubagentBlock directly so batch_spawn's single case
+            // also gets the rich UI (the legacy ToolCallBlock path only
+            // detects action="spawn").
+            const run = runs[0]
+            elements.push(
+              <SubagentBlock
+                key={run.runId}
+                runId={run.runId}
+                agentId={run.agentId}
+                task={run.task}
+              />,
+            )
           }
-          // Single subagent spawn → fall through to the default ToolCallBlock
-          // path which already renders SubagentBlock.
-          elements.push(<ToolCallBlock key={block.tool.callId} tool={block.tool} />)
-          i++
+          i = j
           continue
         }
-        // Non-spawn subagent action (check / list / kill) or still in-flight
-        // → render individually. NO_GROUP_TOOLS prevents it from joining the
-        // generic tool-call group below.
+        // Non-spawn-like subagent action (check / list / kill / steer / etc)
+        // or spawn still in-flight without a run_id yet → render individually.
+        // NO_GROUP_TOOLS prevents it from falling into the generic tool-call
+        // group below.
         elements.push(<ToolCallBlock key={block.tool.callId} tool={block.tool} />)
         i++
         continue
