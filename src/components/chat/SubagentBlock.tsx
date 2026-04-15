@@ -90,8 +90,11 @@ export default function SubagentBlock({ runId, agentId, task, initialStatus }: S
   return (
     <div className="my-1.5 rounded-lg border border-border bg-secondary/50 text-xs">
       <button
-        className="flex items-center gap-1.5 w-full px-2.5 py-1.5 text-left hover:bg-secondary/80 rounded-lg transition-colors"
+        type="button"
+        className="flex items-center gap-1.5 w-full px-2.5 py-1.5 text-left hover:bg-secondary/80 rounded-lg transition-colors disabled:hover:bg-transparent disabled:cursor-default"
         onClick={() => isTerminal && setExpanded(!expanded)}
+        disabled={!isTerminal}
+        aria-expanded={isTerminal ? expanded : undefined}
       >
         {!isTerminal ? (
           <span className="animate-spin h-3 w-3 border border-current border-t-transparent rounded-full shrink-0" />
@@ -110,7 +113,10 @@ export default function SubagentBlock({ runId, agentId, task, initialStatus }: S
         ) : (
           <Users className="h-3 w-3 shrink-0 text-muted-foreground" />
         )}
-        <span className="font-medium text-foreground shrink-0" title={nameTooltip}>
+        <span
+          className="font-medium text-foreground truncate max-w-[40%]"
+          title={nameTooltip || friendlyName}
+        >
           {friendlyName}
         </span>
         <span className="text-[10px] text-muted-foreground shrink-0 hidden sm:inline">
@@ -122,7 +128,7 @@ export default function SubagentBlock({ runId, agentId, task, initialStatus }: S
             {attachmentCount}
           </span>
         )}
-        <span className="text-muted-foreground truncate flex-1">{task}</span>
+        <span className="text-muted-foreground truncate flex-1 min-w-0">{task}</span>
         <span
           className={cn("flex items-center gap-1 transition-colors duration-200", config.color)}
         >

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect } from "react"
 import { useTranslation } from "react-i18next"
 import { ChevronRight, Users, CheckCircle, XCircle, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -124,8 +124,11 @@ export default function SubagentGroup({ runs }: SubagentGroupProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Aggregate stats
-  const agg = useMemo(() => {
+  // Aggregate stats — computed inline each render. useMemo would be wasted
+  // because the parent passes a new `runs` array reference on every render
+  // (although it's content-stable within this instance's lifetime). The loop
+  // is O(N) over N ≤ ~10 runs — negligible.
+  const agg = (() => {
     let running = 0
     let completed = 0
     let failed = 0
@@ -151,7 +154,7 @@ export default function SubagentGroup({ runs }: SubagentGroupProps) {
       totalOutputTokens,
       total: runs.length,
     }
-  }, [runs, states])
+  })()
 
   const anyRunning = agg.running > 0
   const headerLabel = anyRunning
@@ -161,8 +164,10 @@ export default function SubagentGroup({ runs }: SubagentGroupProps) {
   return (
     <div className="my-1.5 rounded-lg border border-border bg-secondary/50 text-xs">
       <button
+        type="button"
         className="flex items-center gap-1.5 w-full px-2.5 py-1.5 text-left hover:bg-secondary/80 rounded-lg transition-colors"
         onClick={() => setExpanded(!expanded)}
+        aria-expanded={expanded}
       >
         {anyRunning ? (
           <span className="animate-spin h-3 w-3 border border-current border-t-transparent rounded-full shrink-0" />
@@ -257,11 +262,16 @@ function SubagentRow({ run, state, agentMeta, agentMetasLoaded }: SubagentRowPro
   const nameTooltip = agentMissing ? t("subagent.deletedAgentTooltip") : undefined
   const hasContent = !!(state?.resultFull || state?.error)
 
+  const canExpand = isTerminal && hasContent
+
   return (
     <div className="text-[11px]">
       <button
-        className="flex items-center gap-1.5 w-full px-2.5 py-1 text-left hover:bg-secondary/60 transition-colors"
-        onClick={() => isTerminal && hasContent && setExpanded(!expanded)}
+        type="button"
+        className="flex items-center gap-1.5 w-full px-2.5 py-1 text-left hover:bg-secondary/60 transition-colors disabled:hover:bg-transparent disabled:cursor-default"
+        onClick={() => canExpand && setExpanded(!expanded)}
+        disabled={!canExpand}
+        aria-expanded={canExpand ? expanded : undefined}
       >
         {!isTerminal ? (
           <span className="animate-spin h-3 w-3 border border-current border-t-transparent rounded-full shrink-0 text-muted-foreground/60" />
@@ -282,10 +292,13 @@ function SubagentRow({ run, state, agentMeta, agentMetasLoaded }: SubagentRowPro
         ) : (
           <Users className="h-3 w-3 shrink-0 text-muted-foreground/50" />
         )}
-        <span className="font-medium text-foreground shrink-0" title={nameTooltip}>
+        <span
+          className="font-medium text-foreground truncate max-w-[40%]"
+          title={nameTooltip || friendlyName}
+        >
           {friendlyName}
         </span>
-        <span className="text-muted-foreground/70 truncate flex-1">{run.task}</span>
+        <span className="text-muted-foreground/70 truncate flex-1 min-w-0">{run.task}</span>
         <span className={cn("flex items-center gap-0.5 shrink-0", config.color)}>
           {config.icon}
         </span>
