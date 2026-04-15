@@ -95,6 +95,10 @@ fn build_router_with_cors(
             "/sessions/{id}/messages/around",
             get(routes::sessions::get_session_messages_around),
         )
+        .route(
+            "/sessions/{id}/messages/search",
+            get(routes::sessions::search_session_messages),
+        )
         // Chat
         .route("/chat", post(routes::chat::chat))
         .route("/chat/stop", post(routes::chat::stop_chat))

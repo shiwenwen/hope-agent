@@ -48,6 +48,13 @@ export interface UseChatSessionReturn {
    */
   pendingScrollTarget: number | null
   clearPendingScrollTarget: () => void
+  /**
+   * Scroll the current session to a specific message and briefly highlight
+   * it. If the target is not in the currently loaded window, reloads a
+   * window of messages centred on the target first. Used by the in-chat
+   * "find in page" search bar.
+   */
+  jumpToMessage: (messageId: number) => Promise<void>
 
   // Refs
   sessionCacheRef: React.MutableRefObject<Map<string, Message[]>>
@@ -108,11 +115,18 @@ export function useChatSession({
   const loadingSessionsRef = useRef<Set<string>>(new Set())
   const hasMoreRef = useRef<Map<string, boolean>>(new Map())
   const oldestDbIdRef = useRef<Map<string, number>>(new Map())
+  // Mirror of `messages` so `jumpToMessage` can synchronously check whether
+  // a target message is already loaded without stale-closure hazards.
+  const messagesRef = useRef<Message[]>([])
 
   // Keep ref in sync with state
   useEffect(() => {
     currentSessionIdRef.current = currentSessionId
   }, [currentSessionId])
+
+  useEffect(() => {
+    messagesRef.current = messages
+  }, [messages])
 
   // --- Session pagination sub-hook ---
   const {
@@ -372,6 +386,24 @@ export function useChatSession({
     ],
   )
 
+  // Jump to a specific message within the *current* session. If the target
+  // is already in the loaded window, just sets `pendingScrollTarget` to let
+  // MessageList scroll & pulse. Otherwise reloads a window of messages
+  // centred on the target (delegating to handleSwitchSession).
+  const jumpToMessage = useCallback(
+    async (messageId: number) => {
+      const sid = currentSessionIdRef.current
+      if (!sid) return
+      const exists = messagesRef.current.some((m) => m.dbId === messageId)
+      if (exists) {
+        setPendingScrollTarget(messageId)
+        return
+      }
+      await handleSwitchSession(sid, { targetMessageId: messageId })
+    },
+    [handleSwitchSession],
+  )
+
   // Navigate to a specific session when initialSessionId changes
   useEffect(() => {
     if (!initialSessionId) return
@@ -473,6 +505,7 @@ export function useChatSession({
     loadingMoreSessions,
     pendingScrollTarget,
     clearPendingScrollTarget,
+    jumpToMessage,
     sessionCacheRef,
     loadingSessionsRef,
     hasMoreRef,
