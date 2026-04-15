@@ -251,6 +251,9 @@
     "other": "工具调用 {{count}} 次",
     "skill": "加载了 {{count}} 个技能"
   },
+  "subagent": {
+    "deletedAgentTooltip": "该 Agent 已被删除"
+  },
   "settings": {
     "title": "设置",
     "general": "通用",

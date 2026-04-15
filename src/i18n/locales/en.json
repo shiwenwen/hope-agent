@@ -251,6 +251,9 @@
     "other": "Tool calls: {{count}}",
     "skill": "Loaded {{count}} skills"
   },
+  "subagent": {
+    "deletedAgentTooltip": "This agent has been deleted"
+  },
   "settings": {
     "title": "Settings",
     "general": "General",

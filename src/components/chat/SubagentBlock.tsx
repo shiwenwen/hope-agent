@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react"
+import { useTranslation } from "react-i18next"
 import { ChevronRight, Users, CheckCircle, XCircle, Clock, Loader2, Skull, Paperclip } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { getTransport } from "@/lib/transport-provider"
-import type { SubagentEvent, SubagentRun } from "@/types/chat"
+import type { AgentSummaryForSidebar, SubagentEvent, SubagentRun } from "@/types/chat"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 
 interface SubagentBlockProps {
@@ -10,6 +11,35 @@ interface SubagentBlockProps {
   agentId: string
   task: string
   initialStatus?: string
+}
+
+// ── Shared agent metadata cache (module-level, cross-instance) ─────────
+// One SubagentBlock may render many times in the same session; coalesce
+// list_agents calls via a single in-flight promise + 30s TTL.
+let agentCache: Map<string, AgentSummaryForSidebar> | null = null
+let agentCacheAt = 0
+let inflight: Promise<Map<string, AgentSummaryForSidebar>> | null = null
+const AGENT_CACHE_TTL_MS = 30_000
+
+function loadAgents(): Promise<Map<string, AgentSummaryForSidebar>> {
+  const now = Date.now()
+  if (agentCache && now - agentCacheAt < AGENT_CACHE_TTL_MS) {
+    return Promise.resolve(agentCache)
+  }
+  if (inflight) return inflight
+  inflight = getTransport()
+    .call<AgentSummaryForSidebar[]>("list_agents")
+    .then((list) => {
+      agentCache = new Map(list.map((a) => [a.id, a]))
+      agentCacheAt = Date.now()
+      inflight = null
+      return agentCache
+    })
+    .catch((e) => {
+      inflight = null
+      throw e
+    })
+  return inflight
 }
 
 const statusConfig: Record<string, { icon: React.ReactNode; label: string; color: string }> = {
@@ -34,6 +64,7 @@ const statusConfig: Record<string, { icon: React.ReactNode; label: string; color
 }
 
 export default function SubagentBlock({ runId, agentId, task, initialStatus }: SubagentBlockProps) {
+  const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
   const [status, setStatus] = useState(initialStatus || "spawning")
   const [resultFull, setResultFull] = useState<string | undefined>()
@@ -44,6 +75,26 @@ export default function SubagentBlock({ runId, agentId, task, initialStatus }: S
   const [inputTokens, setInputTokens] = useState<number | undefined>()
   const [outputTokens, setOutputTokens] = useState<number | undefined>()
   const [attachmentCount, setAttachmentCount] = useState(0)
+  const [agentMeta, setAgentMeta] = useState<AgentSummaryForSidebar | undefined>()
+  const [agentMissing, setAgentMissing] = useState(false)
+
+  // Resolve agentId → friendly name + emoji via shared cache
+  useEffect(() => {
+    let cancelled = false
+    loadAgents()
+      .then((m) => {
+        if (cancelled) return
+        const meta = m.get(agentId)
+        setAgentMeta(meta)
+        setAgentMissing(!meta)
+      })
+      .catch(() => {
+        /* keep fallback to agentId */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [agentId])
 
   // Hydrate from DB on mount (handles re-mount after switching sessions)
   useEffect(() => {
@@ -80,7 +131,10 @@ export default function SubagentBlock({ runId, agentId, task, initialStatus }: S
 
   const isTerminal = ["completed", "error", "timeout", "killed"].includes(status)
   const config = statusConfig[status] || statusConfig.error
-  const displayName = label || agentId
+  const toolLabel = t("tools.subagent")
+  const friendlyName = label || agentMeta?.name || agentId
+  const emoji = agentMeta?.emoji?.trim() || null
+  const nameTooltip = agentMissing ? t("subagent.deletedAgentTooltip") : undefined
 
   return (
     <div className="my-1.5 rounded-lg border border-border bg-secondary/50 text-xs">
@@ -98,17 +152,26 @@ export default function SubagentBlock({ runId, agentId, task, initialStatus }: S
             )}
           />
         )}
-        <Users className="h-3 w-3 shrink-0 text-muted-foreground" />
-        <span className="font-medium text-foreground">subagent</span>
+        {emoji ? (
+          <span className="shrink-0 leading-none" aria-hidden>
+            {emoji}
+          </span>
+        ) : (
+          <Users className="h-3 w-3 shrink-0 text-muted-foreground" />
+        )}
+        <span className="font-medium text-foreground shrink-0" title={nameTooltip}>
+          {friendlyName}
+        </span>
+        <span className="text-[10px] text-muted-foreground shrink-0 hidden sm:inline">
+          {toolLabel}
+        </span>
         {attachmentCount > 0 && (
           <span className="flex items-center gap-0.5 text-muted-foreground">
             <Paperclip className="h-2.5 w-2.5" />
             {attachmentCount}
           </span>
         )}
-        <span className="text-muted-foreground truncate flex-1">
-          {displayName}: {task}
-        </span>
+        <span className="text-muted-foreground truncate flex-1">{task}</span>
         <span
           className={cn("flex items-center gap-1 transition-colors duration-200", config.color)}
         >
