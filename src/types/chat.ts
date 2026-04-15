@@ -118,6 +118,11 @@ export interface SessionMeta {
   pendingInteractionCount: number
   isCron: boolean
   parentSessionId?: string | null
+  /**
+   * When set, this session belongs to a Project — project-scoped memories
+   * and shared files are automatically injected into its system prompt.
+   */
+  projectId?: string | null
   channelInfo?: {
     channelId: string
     accountId: string

@@ -35,6 +35,20 @@ pub struct ArchiveProjectBody {
     pub archived: bool,
 }
 
+/// Body wrapper for `update_project_cmd`. Frontend ships
+/// `{ id, patch: <UpdateProjectInput> }` (id is in the path).
+#[derive(Debug, Deserialize)]
+pub struct UpdateProjectBody {
+    pub patch: UpdateProjectInput,
+}
+
+/// Body wrapper for `create_project_cmd`. Frontend ships `{ input: CreateProjectInput }`
+/// so the same JSON object works on both the Tauri and HTTP transports.
+#[derive(Debug, Deserialize)]
+pub struct CreateProjectBody {
+    pub input: CreateProjectInput,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MoveSessionBody {
@@ -122,9 +136,9 @@ pub async fn get_project(
 /// `POST /api/projects`
 pub async fn create_project(
     State(ctx): State<Arc<AppContext>>,
-    Json(body): Json<CreateProjectInput>,
+    Json(body): Json<CreateProjectBody>,
 ) -> Result<Json<Project>, AppError> {
-    let project = ctx.project_db.create(body)?;
+    let project = ctx.project_db.create(body.input)?;
 
     let _ = ctx.event_bus.emit(
         "project:created",
@@ -137,9 +151,9 @@ pub async fn create_project(
 pub async fn update_project(
     State(ctx): State<Arc<AppContext>>,
     Path(id): Path<String>,
-    Json(patch): Json<UpdateProjectInput>,
+    Json(body): Json<UpdateProjectBody>,
 ) -> Result<Json<Project>, AppError> {
-    let project = ctx.project_db.update(&id, patch)?;
+    let project = ctx.project_db.update(&id, body.patch)?;
     let _ = ctx.event_bus.emit(
         "project:updated",
         json!({ "projectId": project.id }),

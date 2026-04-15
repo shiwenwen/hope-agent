@@ -31,6 +31,22 @@ interface EndpointDef {
  * gains more routes.
  */
 const COMMAND_MAP: Record<string, EndpointDef> = {
+  // -- Projects --
+  list_projects_cmd:               { method: "GET",    path: "/api/projects" },
+  get_project_cmd:                 { method: "GET",    path: "/api/projects/{id}" },
+  create_project_cmd:              { method: "POST",   path: "/api/projects" },
+  update_project_cmd:              { method: "PATCH",  path: "/api/projects/{id}" },
+  delete_project_cmd:              { method: "DELETE", path: "/api/projects/{id}" },
+  archive_project_cmd:             { method: "POST",   path: "/api/projects/{id}/archive" },
+  list_project_sessions_cmd:       { method: "GET",    path: "/api/projects/{id}/sessions" },
+  move_session_to_project_cmd:     { method: "PATCH",  path: "/api/sessions/{sessionId}/project" },
+  list_project_files_cmd:          { method: "GET",    path: "/api/projects/{id}/files" },
+  upload_project_file_cmd:         { method: "POST",   path: "/api/projects/{projectId}/files" },
+  delete_project_file_cmd:         { method: "DELETE", path: "/api/projects/{projectId}/files/{fileId}" },
+  rename_project_file_cmd:         { method: "PATCH",  path: "/api/projects/{projectId}/files/{fileId}" },
+  read_project_file_content_cmd:   { method: "GET",    path: "/api/projects/{projectId}/files/{fileId}/content" },
+  list_project_memories_cmd:       { method: "GET",    path: "/api/projects/{id}/memories" },
+
   // -- Sessions --
   list_sessions_cmd:               { method: "GET",    path: "/api/sessions" },
   search_sessions_cmd:             { method: "GET",    path: "/api/sessions/search" },
