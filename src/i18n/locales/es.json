@@ -45,7 +45,7 @@
     "untitledSession": "Sin título",
     "filterAll": "Todo",
     "filterSessions": "Sesiones",
-    "filterCron": "Cron",
+    "filterCron": "Tareas Cron",
     "filterChannel": "Canal",
     "filterSubagent": "Delegadas",
     "markAllRead": "Marcar todo como leído",
@@ -110,7 +110,7 @@
     "statusCache": "Caché",
     "fallbackTitle": "Cambio de Modelo",
     "fallbackReason": "Motivo",
-    "fallbackFrom": "Original",
+    "fallbackFrom": "Modelo original",
     "fallbackTo": "Alternativo",
     "fallbackProgress": "Cadena de Cambio",
     "fallbackError": "Detalles del Error",
@@ -171,12 +171,12 @@
   },
   "model": {
     "modelConfig": "Configuración del Modelo",
-    "modelId": "ID del Modelo",
+    "modelId": "ID de modelo",
     "displayName": "Nombre para Mostrar",
     "supportedInputTypes": "Tipos de Entrada Soportados",
     "text": "Texto",
     "image": "Imagen",
-    "video": "Video",
+    "video": "Vídeo",
     "reasoning": "Razonamiento / Pensamiento",
     "inputCost": "Costo de Entrada ($/1M tokens)",
     "outputCost": "Costo de Salida ($/1M tokens)",
@@ -857,7 +857,7 @@
     "toolTaskUpdateDesc": "Actualizar el estado o contenido de una tarea existente",
     "toolTaskListName": "Listar tareas",
     "toolTaskListDesc": "Listar todas las tareas de la sesión actual",
-    "agentSandbox": "Docker Sandbox",
+    "agentSandbox": "Sandbox Docker",
     "agentSandboxDesc": "Ejecutar comandos en contenedor Docker",
     "agentSkillEnvCheck": "Verificación de Entorno",
     "agentSkillEnvCheckDesc": "Antes de inyectar una habilidad, verifica que los binarios, variables de entorno y SO necesarios estén disponibles; omite si no se cumplen",
@@ -880,7 +880,7 @@
     "agentVibePlaceholder": "Ej: cálido y paciente, agudo y directo...",
     "agentTone": "Tono",
     "agentToneFormal": "Formal",
-    "agentToneCasual": "Casual",
+    "agentToneCasual": "Informal",
     "agentTonePlayful": "Divertido",
     "agentToneProfessional": "Profesional",
     "agentToneWarm": "Cálido",
@@ -972,7 +972,7 @@
     "modelFallbackNotice": "Modelo principal no disponible, cambiado a {{model}}",
     "avatarCropTitle": "Recortar Avatar",
     "avatarZoom": "Zoom",
-    "logs": "Registros",
+    "logs": "Logs",
     "logsDesc": "Ver y gestionar registros detallados de ejecución. Filtrar por nivel, categoría y palabras clave.",
     "logsTotal": "Total",
     "logsConfig": "Configuración",
@@ -1070,7 +1070,7 @@
   },
   "theme": {
     "title": "Tema",
-    "auto": "Automático",
+    "auto": "Auto",
     "light": "Claro",
     "dark": "Oscuro",
     "autoDesc": "Seguir la configuración del sistema",
@@ -1311,33 +1311,33 @@
   },
   "health": {
     "refresh": "Actualizar",
-    "refreshTooltip": "Refresh crash history and backup list",
-    "createBackup": "Create Backup",
-    "createBackupTooltip": "Back up current configuration files",
-    "restart": "Restart App",
-    "restartTooltip": "Safely restart the application",
-    "clearHistory": "Clear History",
-    "clearConfirmTitle": "Clear Crash History",
-    "clearConfirmDesc": "Are you sure you want to clear all crash history? This action cannot be undone.",
-    "totalCrashes": "Total Crashes",
-    "recentCrashes": "Recent Records",
-    "lastBackup": "Last Backup",
-    "crashHistory": "Crash History",
-    "noCrashes": "No crash records. The application is running normally.",
-    "cause": "Cause",
-    "recommendations": "Recommendations",
-    "autoFixes": "Auto Fixes",
-    "autoFixesApplied": "Auto-fixes applied",
-    "diagnosedBy": "Diagnosed by",
-    "backups": "Configuration Backups",
-    "noBackups": "No backups available",
-    "restore": "Restore",
-    "restoreConfirmTitle": "Restore Backup",
-    "restoreConfirmDesc": "Are you sure you want to restore from this backup? Your current configuration will be overwritten.",
-    "guardianEnabled": "Self-Healing",
-    "guardianEnabledDesc": "When enabled, the app will automatically restart on abnormal exits, and perform backup and AI-powered diagnosis on consecutive crashes. Takes effect on next launch.",
-    "recoveryBannerTitle": "App recovered from a crash",
-    "recoveryBannerDesc": "The app crashed {{count}} time(s) before this launch and was automatically restarted."
+    "refreshTooltip": "Refrescar historial de fallos y lista de copias",
+    "createBackup": "Crear copia de seguridad",
+    "createBackupTooltip": "Hacer copia de los archivos de configuración actuales",
+    "restart": "Reiniciar app",
+    "restartTooltip": "Reiniciar la aplicación de forma segura",
+    "clearHistory": "Borrar historial",
+    "clearConfirmTitle": "Borrar historial de fallos",
+    "clearConfirmDesc": "¿Seguro que quieres borrar todo el historial de fallos? Esta acción no se puede deshacer.",
+    "totalCrashes": "Fallos totales",
+    "recentCrashes": "Registros recientes",
+    "lastBackup": "Última copia",
+    "crashHistory": "Historial de fallos",
+    "noCrashes": "Sin registros de fallos. La aplicación está funcionando con normalidad.",
+    "cause": "Causa",
+    "recommendations": "Recomendaciones",
+    "autoFixes": "Arreglos automáticos",
+    "autoFixesApplied": "Arreglos automáticos aplicados",
+    "diagnosedBy": "Diagnosticado por",
+    "backups": "Copias de seguridad",
+    "noBackups": "No hay copias disponibles",
+    "restore": "Restaurar",
+    "restoreConfirmTitle": "Restaurar copia",
+    "restoreConfirmDesc": "¿Seguro que quieres restaurar desde esta copia? Tu configuración actual será sobrescrita.",
+    "guardianEnabled": "Auto-reparación",
+    "guardianEnabledDesc": "Cuando está activada, la app se reiniciará automáticamente tras cierres anómalos y realizará copia de seguridad y diagnóstico con IA en caso de fallos consecutivos. Se aplica al próximo arranque.",
+    "recoveryBannerTitle": "La app se recuperó de un fallo",
+    "recoveryBannerDesc": "La app falló {{count}} veces antes de este arranque y se reinició automáticamente."
   },
   "approval": {
     "title": "Confirmación de ejecución",
@@ -1355,55 +1355,55 @@
   "provider_templates": {
     "anthropic": {
       "name": "Anthropic",
-      "description": "Claude series models"
+      "description": "Modelos de la serie Claude"
     },
     "openai": {
       "name": "OpenAI",
-      "description": "GPT series models (Responses API)"
+      "description": "Modelos GPT (Responses API)"
     },
     "openai-chat": {
       "name": "OpenAI (Chat)",
-      "description": "GPT series — Chat Completions API"
+      "description": "Serie GPT — Chat Completions API"
     },
     "deepseek": {
       "name": "DeepSeek",
-      "description": "DeepSeek series reasoning models"
+      "description": "Modelos de razonamiento de la serie DeepSeek"
     },
     "google-gemini": {
       "name": "Google Gemini",
-      "description": "Gemini series multimodal models"
+      "description": "Modelos multimodales de la serie Gemini"
     },
     "xai": {
       "name": "xAI",
-      "description": "Grok series models"
+      "description": "Modelos Grok"
     },
     "mistral": {
       "name": "Mistral",
-      "description": "Mistral series European models"
+      "description": "Modelos europeos de la serie Mistral"
     },
     "openrouter": {
       "name": "OpenRouter",
-      "description": "Multi-model aggregation gateway, hundreds of models with one key"
+      "description": "Puerta de enlace multi-modelo, cientos de modelos con una sola key"
     },
     "groq": {
       "name": "Groq",
-      "description": "Ultra-high-speed LPU inference"
+      "description": "Inferencia LPU ultra rápida"
     },
     "moonshot": {
       "name": "Moonshot AI (Kimi)",
-      "description": "Kimi series long-context models"
+      "description": "Modelos Kimi de contexto largo"
     },
     "qwen": {
       "name": "Qwen",
-      "description": "Alibaba Cloud DashScope models"
+      "description": "Modelos de Alibaba Cloud DashScope"
     },
     "volcengine": {
       "name": "Volcengine (Doubao)",
-      "description": "ByteDance Doubao series models"
+      "description": "Modelos ByteDance Doubao"
     },
     "zhipu": {
       "name": "Zhipu AI (Z.AI)",
-      "description": "GLM series models"
+      "description": "Modelos GLM"
     },
     "minimax": {
       "name": "MiniMax",
@@ -1411,19 +1411,19 @@
     },
     "kimi-coding": {
       "name": "Kimi Coding",
-      "description": "Kimi for Coding (Anthropic compatible)"
+      "description": "Kimi for Coding (compatible con Anthropic)"
     },
     "xiaomi": {
       "name": "Xiaomi MiMo",
-      "description": "MiMo series models (Anthropic compatible)"
+      "description": "Modelos MiMo (compatible con Anthropic)"
     },
     "qianfan": {
       "name": "Baidu Qianfan",
-      "description": "Baidu AI Cloud Qianfan Platform"
+      "description": "Plataforma Qianfan de Baidu AI Cloud"
     },
     "modelstudio": {
       "name": "阿里云百炼",
-      "description": "阿里云 大模型服务平台，支持Coding Plan"
+      "description": "Plataforma de modelos grandes de Alibaba Cloud, compatible con Coding Plan"
     },
     "nvidia": {
       "name": "NVIDIA",
@@ -1431,204 +1431,204 @@
     },
     "together": {
       "name": "Together AI",
-      "description": "Open source model cloud inference platform"
+      "description": "Plataforma de inferencia cloud para modelos open source"
     },
     "ollama": {
       "name": "Ollama",
-      "description": "Local + cloud model inference, no API Key required"
+      "description": "Inferencia local + cloud, sin necesidad de API Key"
     },
     "vllm": {
       "name": "vLLM",
-      "description": "High-performance local inference engine"
+      "description": "Motor de inferencia local de alto rendimiento"
     },
     "lm-studio": {
       "name": "LM Studio",
-      "description": "Desktop local model inference"
+      "description": "Inferencia de modelos locales en escritorio"
     },
     "huggingface": {
       "name": "Hugging Face",
-      "description": "HF Inference API for open-source models"
+      "description": "HF Inference API para modelos open source"
     },
     "byteplus": {
       "name": "BytePlus",
-      "description": "BytePlus AI international model platform"
+      "description": "Plataforma internacional de modelos de IA BytePlus"
     },
     "chutes": {
       "name": "Chutes (TEE)",
-      "description": "Trusted Execution Environment AI inference"
+      "description": "Inferencia IA en entornos de ejecución confiables (TEE)"
     },
     "cloudflare-ai": {
       "name": "Cloudflare AI Gateway",
-      "description": "Cloudflare AI gateway proxy"
+      "description": "Puerta de enlace proxy Cloudflare AI"
     },
     "litellm": {
       "name": "LiteLLM",
-      "description": "Unified LLM API proxy gateway"
+      "description": "Puerta de enlace proxy unificada para APIs LLM"
     }
   },
   "slashCommands": {
-    "title": "Commands",
+    "title": "Comandos",
     "new": {
-      "description": "Start a new chat"
+      "description": "Iniciar un chat nuevo"
     },
     "clear": {
-      "description": "Clear conversation"
+      "description": "Borrar la conversación"
     },
     "compact": {
-      "description": "Compress context"
+      "description": "Compactar el contexto"
     },
     "stop": {
-      "description": "Stop current reply"
+      "description": "Detener la respuesta actual"
     },
     "rename": {
-      "description": "Rename session"
+      "description": "Renombrar la sesión"
     },
     "model": {
-      "description": "Switch model"
+      "description": "Cambiar modelo"
     },
     "models": {
-      "description": "List all available models",
-      "cardTitle": "Available Models"
+      "description": "Listar todos los modelos disponibles",
+      "cardTitle": "Modelos disponibles"
     },
     "think": {
-      "description": "Set thinking effort"
+      "description": "Ajustar el esfuerzo de razonamiento"
     },
     "remember": {
-      "description": "Save a memory"
+      "description": "Guardar una memoria"
     },
     "forget": {
-      "description": "Delete a memory"
+      "description": "Eliminar una memoria"
     },
     "memories": {
-      "description": "List memories"
+      "description": "Listar memorias"
     },
     "agent": {
-      "description": "Switch agent"
+      "description": "Cambiar Agent"
     },
     "agents": {
-      "description": "List agents"
+      "description": "Listar agents"
     },
     "help": {
-      "description": "Show all commands"
+      "description": "Mostrar todos los comandos"
     },
     "status": {
-      "description": "Session status"
+      "description": "Estado de la sesión"
     },
     "export": {
-      "description": "Export as Markdown"
+      "description": "Exportar como Markdown"
     },
     "usage": {
-      "description": "Token usage"
+      "description": "Uso de tokens"
     },
     "search": {
-      "description": "Search the web"
+      "description": "Buscar en la web"
     },
     "permission": {
-      "description": "Set tool permission mode (auto/ask/full)"
+      "description": "Ajustar el modo de permisos de herramientas (auto/ask/full)"
     },
     "plan": {
-      "description": "Enter/exit plan mode"
+      "description": "Entrar/salir del plan mode"
     },
     "prompts": {
-      "description": "View system prompt"
+      "description": "Ver el system prompt"
     },
     "recap": {
-      "description": "Generate a deep analysis recap report"
+      "description": "Generar un informe de recap con análisis profundo"
     },
     "context": {
-      "description": "Show context window breakdown"
+      "description": "Mostrar el desglose de la ventana de contexto"
     },
     "categories": {
-      "session": "Session",
-      "model": "Model",
-      "memory": "Memory",
+      "session": "Sesión",
+      "model": "Modelo",
+      "memory": "Memoria",
       "agent": "Agent",
-      "utility": "Utility",
+      "utility": "Utilidad",
       "skill": "Skills"
     },
-    "noResults": "No matching commands",
-    "buttonTip": "Quick Commands"
+    "noResults": "No hay comandos coincidentes",
+    "buttonTip": "Comandos rápidos"
   },
   "planMode": {
     "enter": "Entrar en Plan Mode",
     "indicator": "Plan Mode",
-    "plan": "Execution Plan",
-    "openPanel": "View in panel",
-    "openFolder": "Open folder",
-    "planningInProgress": "Creating plan...",
-    "messageSentToPlanner": "Message forwarded to planning agent",
-    "restricted": "Plan Mode: AI will gather info and collaborate with you to create a plan",
-    "approveAndExecute": "Start Execution",
-    "keepPlanning": "Keep Planning",
-    "exitWithout": "Exit Plan",
-    "showPlan": "Show Plan",
-    "executing": "Executing plan...",
-    "stepsCompleted": "steps completed",
-    "completed": "Completed",
-    "placeholder": "Describe what you want to achieve...",
-    "panelTitle": "Execution Plan",
-    "editorPlaceholder": "Edit plan content here...\n\n## Background\nDescribe the context: what problem to solve, why, and expected outcome\n\n### Phase 1: Analysis\n- [ ] Step description\n\n### Phase 2: Implementation\n- [ ] Step description",
-    "stepsDetected": "steps detected",
+    "plan": "Plan de ejecución",
+    "openPanel": "Ver en el panel",
+    "openFolder": "Abrir carpeta",
+    "planningInProgress": "Creando plan...",
+    "messageSentToPlanner": "Mensaje reenviado al agent de planificación",
+    "restricted": "Plan Mode: la IA recopilará información y colaborará contigo para crear un plan",
+    "approveAndExecute": "Iniciar ejecución",
+    "keepPlanning": "Seguir planificando",
+    "exitWithout": "Salir del plan",
+    "showPlan": "Mostrar plan",
+    "executing": "Ejecutando plan...",
+    "stepsCompleted": "pasos completados",
+    "completed": "Completado",
+    "placeholder": "Describe lo que quieres lograr...",
+    "panelTitle": "Plan de ejecución",
+    "editorPlaceholder": "Edita el contenido del plan aquí...\n\n## Background\nDescribe el contexto: qué problema resolver, por qué y el resultado esperado\n\n### Phase 1: Análisis\n- [ ] Descripción del paso\n\n### Phase 2: Implementación\n- [ ] Descripción del paso",
+    "stepsDetected": "pasos detectados",
     "noSteps": "Sin pasos",
-    "executeCommand": "Start executing the plan. Complete each step in order, calling update_plan_step to track progress.",
-    "planning": "Creating plan...",
-    "pause": "Pause",
-    "resume": "Resume",
-    "pausedBanner": "Plan execution is paused",
+    "executeCommand": "Empieza a ejecutar el plan. Completa cada paso en orden, llamando a update_plan_step para registrar el progreso.",
+    "planning": "Creando plan...",
+    "pause": "Pausar",
+    "resume": "Reanudar",
+    "pausedBanner": "La ejecución del plan está pausada",
     "review": {
-      "badge": "Review"
+      "badge": "Revisión"
     },
     "paused": {
-      "badge": "Paused"
+      "badge": "Pausado"
     },
     "card": {
-      "phases": "phases",
-      "steps": "steps"
+      "phases": "fases",
+      "steps": "pasos"
     },
-    "versions": "Version History",
-    "versionHistory": "Plan Versions",
-    "currentVersion": "Current",
-    "noVersions": "No previous versions",
-    "requestChanges": "Request Changes",
-    "requestChangesPlaceholder": "Describe what you want changed...",
-    "maximize": "Maximize",
-    "minimize": "Minimize",
-    "popOut": "Pop Out",
-    "popOutActive": "Opened in a separate window",
-    "reattach": "Reattach to Panel",
-    "rollback": "Rollback Changes",
+    "versions": "Historial de versiones",
+    "versionHistory": "Versiones del plan",
+    "currentVersion": "Actual",
+    "noVersions": "Sin versiones anteriores",
+    "requestChanges": "Solicitar cambios",
+    "requestChangesPlaceholder": "Describe lo que quieres cambiar...",
+    "maximize": "Maximizar",
+    "minimize": "Minimizar",
+    "popOut": "Abrir en ventana aparte",
+    "popOutActive": "Abierto en ventana aparte",
+    "reattach": "Volver al panel",
+    "rollback": "Revertir cambios",
     "comment": {
-      "hint": "Select text to add comments and collaboratively refine the plan",
-      "placeholder": "Suggest changes for the selected content...",
-      "submit": "Send",
-      "shortcut": "⌘+Enter to send"
+      "hint": "Selecciona texto para añadir comentarios y refinar el plan colaborativamente",
+      "placeholder": "Sugiere cambios para el contenido seleccionado...",
+      "submit": "Enviar",
+      "shortcut": "⌘+Enter para enviar"
     },
     "question": {
-      "title": "AI needs your input",
-      "submit": "Submit Answers",
-      "retry": "Retry",
-      "answered": "Answered",
-      "customPlaceholder": "Enter custom answer...",
-      "recommended": "Recommended",
-      "multiSelect": "multi",
-      "default": "default",
-      "preview": "Preview",
-      "timeoutHint": "Time remaining",
-      "timedOut": "timed out"
+      "title": "La IA necesita tu input",
+      "submit": "Enviar respuestas",
+      "retry": "Reintentar",
+      "answered": "Respondido",
+      "customPlaceholder": "Escribe una respuesta personalizada...",
+      "recommended": "Recomendado",
+      "multiSelect": "múltiple",
+      "default": "por defecto",
+      "preview": "Vista previa",
+      "timeoutHint": "Tiempo restante",
+      "timedOut": "tiempo agotado"
     }
   },
   "canvas": {
-    "refresh": "Refresh",
-    "maximize": "Maximize",
-    "minimize": "Minimize",
-    "close": "Close",
-    "snapshot": "Snapshot",
+    "refresh": "Actualizar",
+    "maximize": "Maximizar",
+    "minimize": "Minimizar",
+    "close": "Cerrar",
+    "snapshot": "Captura",
     "export": "Exportar",
-    "versions": "Version History",
-    "openPreview": "Open Preview",
-    "popOut": "Pop Out",
-    "popOutActive": "Opened in separate window",
-    "reattach": "Back to Panel"
+    "versions": "Historial de versiones",
+    "openPreview": "Abrir vista previa",
+    "popOut": "Abrir en ventana aparte",
+    "popOutActive": "Abierto en ventana aparte",
+    "reattach": "Volver al panel"
   },
   "context": {
     "title": "Ventana de contexto",
@@ -1651,24 +1651,24 @@
   "recap": {
     "generate": "Generar informe",
     "generating": "Generando...",
-    "history": "History",
-    "noReports": "No reports yet. Click Generate to build your first recap.",
-    "selectReport": "Select a report from the history dropdown.",
-    "exportHtml": "Export HTML",
-    "exportedTo": "Exported to {{path}}",
-    "delete": "Delete",
-    "confirmDelete": "Delete this report?",
+    "history": "Historial",
+    "noReports": "Aún no hay informes. Haz clic en Generar para crear tu primer recap.",
+    "selectReport": "Selecciona un informe del menú de historial.",
+    "exportHtml": "Exportar HTML",
+    "exportedTo": "Exportado a {{path}}",
+    "delete": "Eliminar",
+    "confirmDelete": "¿Eliminar este informe?",
     "range": {
-      "incremental": "Since last report",
-      "days": "Last {{n}} days"
+      "incremental": "Desde el último informe",
+      "days": "Últimos {{n}} días"
     },
     "progress": {
-      "started": "Starting ({{n}} sessions)",
-      "extractingFacets": "Extracting facets {{done}}/{{total}}",
-      "aggregating": "Running dashboard queries…",
-      "generatingSections": "Generating sections {{done}}/{{total}}",
-      "persisting": "Persisting report…",
-      "done": "Done"
+      "started": "Iniciando ({{n}} sesiones)",
+      "extractingFacets": "Extrayendo facetas {{done}}/{{total}}",
+      "aggregating": "Ejecutando consultas del dashboard…",
+      "generatingSections": "Generando secciones {{done}}/{{total}}",
+      "persisting": "Guardando informe…",
+      "done": "Hecho"
     }
   },
   "dashboard": {

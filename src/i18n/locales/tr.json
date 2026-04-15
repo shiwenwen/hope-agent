@@ -110,7 +110,7 @@
     "statusCache": "Önbellek",
     "fallbackTitle": "Model Geçişi",
     "fallbackReason": "Neden",
-    "fallbackFrom": "Orijinal",
+    "fallbackFrom": "Orijinal model",
     "fallbackTo": "Yedek",
     "fallbackProgress": "Geçiş Zinciri",
     "fallbackError": "Hata Ayrıntıları",
@@ -430,7 +430,7 @@
     "acpAutoDiscover": "Arka uçları otomatik keşfet",
     "acpAutoDiscoverDesc": "Başlangıçta $PATH'te bilinen ACP agent binarilerini tara",
     "acpMaxConcurrent": "Maksimum eşzamanlı",
-    "acpTimeout": "Zaman aşımı (sn)",
+    "acpTimeout": "Timeout (sn)",
     "acpIdleTtl": "Boşta TTL (sn)",
     "acpBackendId": "Kimlik",
     "acpBinary": "Binari",
@@ -549,7 +549,7 @@
     "webFetchSaved": "Kaydedildi",
     "imageGenerate": "Görüntü oluşturma",
     "imageGenerateDesc": "AI görüntü oluşturma Provider'larını yapılandır (OpenAI, Google, Fal, MiniMax, SiliconFlow, ZhipuAI, Tongyi). Etkinleştirildiğinde Agent, image_generate aracıyla görüntüler oluşturup düzenleyebilir.",
-    "imageGenProviders": "Provider'lar",
+    "imageGenProviders": "Providers",
     "imageGenProviderOpenAI": "OpenAI (DALL-E / gpt-image-1)",
     "imageGenProviderGoogle": "Google (Gemini)",
     "imageGenProviderFal": "Fal (Flux)",
@@ -861,7 +861,7 @@
     "agentSandboxDesc": "Docker konteynerinde komut çalıştır",
     "agentSkillEnvCheck": "Ortam Kontrolü",
     "agentSkillEnvCheckDesc": "Yetenek enjekte etmeden önce gerekli programları, ortam değişkenlerini ve işletim sistemini doğrula; karşılanmazsa atla",
-    "agentPrompts": "İstemler",
+    "agentPrompts": "Promptlar",
     "agentMd": "Ajan Talimatları",
     "agentMdDesc": "Bu Ajanın sorumlulukları, iş akışı ve ilkelerini tanımlayın",
     "agentMdPlaceholder": "Ajan için temel talimatları yazın...",
@@ -880,7 +880,7 @@
     "agentVibePlaceholder": "Örn: sıcak ve sabırlı, keskin ve doğrudan...",
     "agentTone": "Ton",
     "agentToneFormal": "Resmi",
-    "agentToneCasual": "Rahat",
+    "agentToneCasual": "Günlük",
     "agentTonePlayful": "Eğlenceli",
     "agentToneProfessional": "Profesyonel",
     "agentToneWarm": "Sıcak",
@@ -971,8 +971,8 @@
     "agentModelPrimary": "Birincil Model",
     "modelFallbackNotice": "Birincil model kullanılamıyor, {{model}} modeline geçildi",
     "avatarCropTitle": "Avatarı Kırp",
-    "avatarZoom": "Yakınlaştır",
-    "logs": "Günlükler",
+    "avatarZoom": "Yakınlaştırma",
+    "logs": "Loglar",
     "logsDesc": "Ayrıntılı yürütme günlüklerini görüntüleyin ve yönetin. Seviye, kategori ve anahtar kelimeye göre filtreleyin.",
     "logsTotal": "Toplam",
     "logsConfig": "Yapılandırma",
@@ -1054,7 +1054,7 @@
     "losangeles": "Los Angeles (UTC-8)",
     "toronto": "Toronto (UTC-5)",
     "saopaulo": "São Paulo (UTC-3)",
-    "mexicocity": "Meksika (UTC-6)",
+    "mexicocity": "Meksiko (UTC-6)",
     "london": "Londra (UTC+0)",
     "paris": "Paris (UTC+1)",
     "berlin": "Berlin (UTC+1)",
@@ -1311,33 +1311,33 @@
   },
   "health": {
     "refresh": "Yenile",
-    "refreshTooltip": "Refresh crash history and backup list",
-    "createBackup": "Create Backup",
-    "createBackupTooltip": "Back up current configuration files",
-    "restart": "Restart App",
-    "restartTooltip": "Safely restart the application",
-    "clearHistory": "Clear History",
-    "clearConfirmTitle": "Clear Crash History",
-    "clearConfirmDesc": "Are you sure you want to clear all crash history? This action cannot be undone.",
-    "totalCrashes": "Total Crashes",
-    "recentCrashes": "Recent Records",
-    "lastBackup": "Last Backup",
-    "crashHistory": "Crash History",
-    "noCrashes": "No crash records. The application is running normally.",
-    "cause": "Cause",
-    "recommendations": "Recommendations",
-    "autoFixes": "Auto Fixes",
-    "autoFixesApplied": "Auto-fixes applied",
-    "diagnosedBy": "Diagnosed by",
-    "backups": "Configuration Backups",
-    "noBackups": "No backups available",
-    "restore": "Restore",
-    "restoreConfirmTitle": "Restore Backup",
-    "restoreConfirmDesc": "Are you sure you want to restore from this backup? Your current configuration will be overwritten.",
-    "guardianEnabled": "Self-Healing",
-    "guardianEnabledDesc": "When enabled, the app will automatically restart on abnormal exits, and perform backup and AI-powered diagnosis on consecutive crashes. Takes effect on next launch.",
-    "recoveryBannerTitle": "App recovered from a crash",
-    "recoveryBannerDesc": "The app crashed {{count}} time(s) before this launch and was automatically restarted."
+    "refreshTooltip": "Çökme geçmişi ve yedek listesini yenile",
+    "createBackup": "Yedek oluştur",
+    "createBackupTooltip": "Mevcut yapılandırma dosyalarını yedekle",
+    "restart": "Uygulamayı yeniden başlat",
+    "restartTooltip": "Uygulamayı güvenli şekilde yeniden başlat",
+    "clearHistory": "Geçmişi temizle",
+    "clearConfirmTitle": "Çökme geçmişini temizle",
+    "clearConfirmDesc": "Tüm çökme geçmişini temizlemek istediğinizden emin misiniz? Bu işlem geri alınamaz.",
+    "totalCrashes": "Toplam çökme",
+    "recentCrashes": "Son kayıtlar",
+    "lastBackup": "Son yedek",
+    "crashHistory": "Çökme geçmişi",
+    "noCrashes": "Çökme kaydı yok. Uygulama normal çalışıyor.",
+    "cause": "Neden",
+    "recommendations": "Öneriler",
+    "autoFixes": "Otomatik düzeltmeler",
+    "autoFixesApplied": "Otomatik düzeltmeler uygulandı",
+    "diagnosedBy": "Tanıyan",
+    "backups": "Yapılandırma yedekleri",
+    "noBackups": "Kullanılabilir yedek yok",
+    "restore": "Geri yükle",
+    "restoreConfirmTitle": "Yedekten geri yükle",
+    "restoreConfirmDesc": "Bu yedekten geri yüklemek istediğinizden emin misiniz? Mevcut yapılandırmanızın üzerine yazılacak.",
+    "guardianEnabled": "Kendi kendini iyileştirme",
+    "guardianEnabledDesc": "Etkinleştirildiğinde, uygulama anormal çıkışlarda otomatik olarak yeniden başlatılır ve ardışık çökmelerde yedekleme ve AI tanısı gerçekleştirir. Bir sonraki başlatmada geçerli olur.",
+    "recoveryBannerTitle": "Uygulama çökmeden kurtarıldı",
+    "recoveryBannerDesc": "Bu başlatmadan önce uygulama {{count}} kez çöktü ve otomatik olarak yeniden başlatıldı."
   },
   "approval": {
     "title": "Komut Onayı Gerekli",
@@ -1355,55 +1355,55 @@
   "provider_templates": {
     "anthropic": {
       "name": "Anthropic",
-      "description": "Claude series models"
+      "description": "Claude serisi modeller"
     },
     "openai": {
       "name": "OpenAI",
-      "description": "GPT series models (Responses API)"
+      "description": "GPT serisi modeller (Responses API)"
     },
     "openai-chat": {
       "name": "OpenAI (Chat)",
-      "description": "GPT series — Chat Completions API"
+      "description": "GPT serisi — Chat Completions API"
     },
     "deepseek": {
       "name": "DeepSeek",
-      "description": "DeepSeek series reasoning models"
+      "description": "DeepSeek serisi akıl yürütme modelleri"
     },
     "google-gemini": {
       "name": "Google Gemini",
-      "description": "Gemini series multimodal models"
+      "description": "Gemini serisi çok modlu modeller"
     },
     "xai": {
       "name": "xAI",
-      "description": "Grok series models"
+      "description": "Grok serisi modeller"
     },
     "mistral": {
       "name": "Mistral",
-      "description": "Mistral series European models"
+      "description": "Mistral serisi Avrupa modelleri"
     },
     "openrouter": {
       "name": "OpenRouter",
-      "description": "Multi-model aggregation gateway, hundreds of models with one key"
+      "description": "Çok modelli toplama ağ geçidi, tek key ile yüzlerce model"
     },
     "groq": {
       "name": "Groq",
-      "description": "Ultra-high-speed LPU inference"
+      "description": "Ultra yüksek hız LPU çıkarımı"
     },
     "moonshot": {
       "name": "Moonshot AI (Kimi)",
-      "description": "Kimi series long-context models"
+      "description": "Uzun bağlam Kimi serisi modelleri"
     },
     "qwen": {
       "name": "Qwen",
-      "description": "Alibaba Cloud DashScope models"
+      "description": "Alibaba Cloud DashScope modelleri"
     },
     "volcengine": {
       "name": "Volcengine (Doubao)",
-      "description": "ByteDance Doubao series models"
+      "description": "ByteDance Doubao serisi modeller"
     },
     "zhipu": {
       "name": "Zhipu AI (Z.AI)",
-      "description": "GLM series models"
+      "description": "GLM serisi modeller"
     },
     "minimax": {
       "name": "MiniMax",
@@ -1411,19 +1411,19 @@
     },
     "kimi-coding": {
       "name": "Kimi Coding",
-      "description": "Kimi for Coding (Anthropic compatible)"
+      "description": "Kimi for Coding (Anthropic uyumlu)"
     },
     "xiaomi": {
       "name": "Xiaomi MiMo",
-      "description": "MiMo series models (Anthropic compatible)"
+      "description": "MiMo serisi modeller (Anthropic uyumlu)"
     },
     "qianfan": {
       "name": "Baidu Qianfan",
-      "description": "Baidu AI Cloud Qianfan Platform"
+      "description": "Baidu AI Cloud Qianfan platformu"
     },
     "modelstudio": {
       "name": "阿里云百炼",
-      "description": "阿里云 大模型服务平台，支持Coding Plan"
+      "description": "Alibaba Cloud büyük model hizmet platformu, Coding Plan destekler"
     },
     "nvidia": {
       "name": "NVIDIA",
@@ -1431,204 +1431,204 @@
     },
     "together": {
       "name": "Together AI",
-      "description": "Open source model cloud inference platform"
+      "description": "Açık kaynak model bulut çıkarım platformu"
     },
     "ollama": {
       "name": "Ollama",
-      "description": "Local + cloud model inference, no API Key required"
+      "description": "Yerel + bulut model çıkarımı, API Key gerekmez"
     },
     "vllm": {
       "name": "vLLM",
-      "description": "High-performance local inference engine"
+      "description": "Yüksek performanslı yerel çıkarım motoru"
     },
     "lm-studio": {
       "name": "LM Studio",
-      "description": "Desktop local model inference"
+      "description": "Masaüstü yerel model çıkarımı"
     },
     "huggingface": {
       "name": "Hugging Face",
-      "description": "HF Inference API for open-source models"
+      "description": "Açık kaynak modeller için HF Inference API"
     },
     "byteplus": {
       "name": "BytePlus",
-      "description": "BytePlus AI international model platform"
+      "description": "BytePlus AI uluslararası model platformu"
     },
     "chutes": {
       "name": "Chutes (TEE)",
-      "description": "Trusted Execution Environment AI inference"
+      "description": "Güvenilir yürütme ortamı (TEE) AI çıkarımı"
     },
     "cloudflare-ai": {
       "name": "Cloudflare AI Gateway",
-      "description": "Cloudflare AI gateway proxy"
+      "description": "Cloudflare AI ağ geçidi proxy"
     },
     "litellm": {
       "name": "LiteLLM",
-      "description": "Unified LLM API proxy gateway"
+      "description": "Birleşik LLM API proxy ağ geçidi"
     }
   },
   "slashCommands": {
-    "title": "Commands",
+    "title": "Komutlar",
     "new": {
-      "description": "Start a new chat"
+      "description": "Yeni bir sohbet başlat"
     },
     "clear": {
-      "description": "Clear conversation"
+      "description": "Konuşmayı temizle"
     },
     "compact": {
-      "description": "Compress context"
+      "description": "Bağlamı sıkıştır"
     },
     "stop": {
-      "description": "Stop current reply"
+      "description": "Mevcut yanıtı durdur"
     },
     "rename": {
-      "description": "Rename session"
+      "description": "Oturumu yeniden adlandır"
     },
     "model": {
-      "description": "Switch model"
+      "description": "Modeli değiştir"
     },
     "models": {
-      "description": "List all available models",
-      "cardTitle": "Available Models"
+      "description": "Tüm kullanılabilir modelleri listele",
+      "cardTitle": "Kullanılabilir modeller"
     },
     "think": {
-      "description": "Set thinking effort"
+      "description": "Düşünme seviyesini ayarla"
     },
     "remember": {
-      "description": "Save a memory"
+      "description": "Bir hafıza kaydet"
     },
     "forget": {
-      "description": "Delete a memory"
+      "description": "Bir hafızayı sil"
     },
     "memories": {
-      "description": "List memories"
+      "description": "Hafızaları listele"
     },
     "agent": {
-      "description": "Switch agent"
+      "description": "Agent'ı değiştir"
     },
     "agents": {
-      "description": "List agents"
+      "description": "Agents'ı listele"
     },
     "help": {
-      "description": "Show all commands"
+      "description": "Tüm komutları göster"
     },
     "status": {
-      "description": "Session status"
+      "description": "Oturum durumu"
     },
     "export": {
-      "description": "Export as Markdown"
+      "description": "Markdown olarak dışa aktar"
     },
     "usage": {
-      "description": "Token usage"
+      "description": "Token kullanımı"
     },
     "search": {
-      "description": "Search the web"
+      "description": "Web'de ara"
     },
     "permission": {
-      "description": "Set tool permission mode (auto/ask/full)"
+      "description": "Araç izin modunu ayarla (auto/ask/full)"
     },
     "plan": {
-      "description": "Enter/exit plan mode"
+      "description": "Plan mode'a gir/çık"
     },
     "prompts": {
-      "description": "View system prompt"
+      "description": "System prompt'u görüntüle"
     },
     "recap": {
-      "description": "Generate a deep analysis recap report"
+      "description": "Derin analiz ile bir inceleme raporu oluştur"
     },
     "context": {
-      "description": "Show context window breakdown"
+      "description": "Bağlam penceresi dağılımını göster"
     },
     "categories": {
-      "session": "Session",
+      "session": "Oturum",
       "model": "Model",
-      "memory": "Memory",
+      "memory": "Hafıza",
       "agent": "Agent",
-      "utility": "Utility",
+      "utility": "Araçlar",
       "skill": "Skills"
     },
-    "noResults": "No matching commands",
-    "buttonTip": "Quick Commands"
+    "noResults": "Eşleşen komut yok",
+    "buttonTip": "Hızlı komutlar"
   },
   "planMode": {
     "enter": "Plan Mode'a gir",
     "indicator": "Plan Mode",
-    "plan": "Execution Plan",
-    "openPanel": "View in panel",
-    "openFolder": "Open folder",
-    "planningInProgress": "Creating plan...",
-    "messageSentToPlanner": "Message forwarded to planning agent",
-    "restricted": "Plan Mode: AI will gather info and collaborate with you to create a plan",
-    "approveAndExecute": "Start Execution",
-    "keepPlanning": "Keep Planning",
-    "exitWithout": "Exit Plan",
-    "showPlan": "Show Plan",
-    "executing": "Executing plan...",
-    "stepsCompleted": "steps completed",
-    "completed": "Completed",
-    "placeholder": "Describe what you want to achieve...",
-    "panelTitle": "Execution Plan",
-    "editorPlaceholder": "Edit plan content here...\n\n## Background\nDescribe the context: what problem to solve, why, and expected outcome\n\n### Phase 1: Analysis\n- [ ] Step description\n\n### Phase 2: Implementation\n- [ ] Step description",
-    "stepsDetected": "steps detected",
+    "plan": "Yürütme planı",
+    "openPanel": "Panelde görüntüle",
+    "openFolder": "Klasörü aç",
+    "planningInProgress": "Plan oluşturuluyor...",
+    "messageSentToPlanner": "Mesaj planlama Agent'ına iletildi",
+    "restricted": "Plan Mode: AI bilgi toplayacak ve sizinle işbirliği yaparak bir plan oluşturacak",
+    "approveAndExecute": "Yürütmeyi başlat",
+    "keepPlanning": "Planlamaya devam et",
+    "exitWithout": "Plandan çık",
+    "showPlan": "Planı göster",
+    "executing": "Plan yürütülüyor...",
+    "stepsCompleted": "adım tamamlandı",
+    "completed": "Tamamlandı",
+    "placeholder": "Neyi başarmak istediğinizi açıklayın...",
+    "panelTitle": "Yürütme planı",
+    "editorPlaceholder": "Plan içeriğini burada düzenleyin...\n\n## Background\nBağlamı açıklayın: hangi sorun çözülecek, neden ve beklenen sonuç\n\n### Phase 1: Analiz\n- [ ] Adım açıklaması\n\n### Phase 2: Uygulama\n- [ ] Adım açıklaması",
+    "stepsDetected": "adım tespit edildi",
     "noSteps": "Adım yok",
-    "executeCommand": "Start executing the plan. Complete each step in order, calling update_plan_step to track progress.",
-    "planning": "Creating plan...",
-    "pause": "Pause",
-    "resume": "Resume",
-    "pausedBanner": "Plan execution is paused",
+    "executeCommand": "Planı yürütmeye başlayın. Her adımı sırayla tamamlayın ve ilerlemeyi takip etmek için update_plan_step çağırın.",
+    "planning": "Plan oluşturuluyor...",
+    "pause": "Duraklat",
+    "resume": "Devam et",
+    "pausedBanner": "Plan yürütmesi duraklatıldı",
     "review": {
-      "badge": "Review"
+      "badge": "İnceleme"
     },
     "paused": {
-      "badge": "Paused"
+      "badge": "Duraklatıldı"
     },
     "card": {
-      "phases": "phases",
-      "steps": "steps"
+      "phases": "aşama",
+      "steps": "adım"
     },
-    "versions": "Version History",
-    "versionHistory": "Plan Versions",
-    "currentVersion": "Current",
-    "noVersions": "No previous versions",
-    "requestChanges": "Request Changes",
-    "requestChangesPlaceholder": "Describe what you want changed...",
-    "maximize": "Maximize",
-    "minimize": "Minimize",
-    "popOut": "Pop Out",
-    "popOutActive": "Opened in a separate window",
-    "reattach": "Reattach to Panel",
-    "rollback": "Rollback Changes",
+    "versions": "Sürüm geçmişi",
+    "versionHistory": "Plan sürümleri",
+    "currentVersion": "Mevcut",
+    "noVersions": "Önceki sürüm yok",
+    "requestChanges": "Değişiklik iste",
+    "requestChangesPlaceholder": "Neyin değiştirilmesini istediğinizi açıklayın...",
+    "maximize": "Büyüt",
+    "minimize": "Küçült",
+    "popOut": "Ayrı pencerede aç",
+    "popOutActive": "Ayrı pencerede açıldı",
+    "reattach": "Panele geri al",
+    "rollback": "Değişiklikleri geri al",
     "comment": {
-      "hint": "Select text to add comments and collaboratively refine the plan",
-      "placeholder": "Suggest changes for the selected content...",
-      "submit": "Send",
-      "shortcut": "⌘+Enter to send"
+      "hint": "Yorum eklemek ve planı işbirliği içinde geliştirmek için metin seçin",
+      "placeholder": "Seçilen içerik için değişiklik önerin...",
+      "submit": "Gönder",
+      "shortcut": "⌘+Enter göndermek için"
     },
     "question": {
-      "title": "AI needs your input",
-      "submit": "Submit Answers",
-      "retry": "Retry",
-      "answered": "Answered",
-      "customPlaceholder": "Enter custom answer...",
-      "recommended": "Recommended",
-      "multiSelect": "multi",
-      "default": "default",
-      "preview": "Preview",
-      "timeoutHint": "Time remaining",
-      "timedOut": "timed out"
+      "title": "AI girişinizi bekliyor",
+      "submit": "Yanıtları gönder",
+      "retry": "Tekrar dene",
+      "answered": "Yanıtlandı",
+      "customPlaceholder": "Özel yanıt girin...",
+      "recommended": "Önerilen",
+      "multiSelect": "çoklu",
+      "default": "varsayılan",
+      "preview": "Önizleme",
+      "timeoutHint": "Kalan süre",
+      "timedOut": "zaman aşımı"
     }
   },
   "canvas": {
-    "refresh": "Refresh",
-    "maximize": "Maximize",
-    "minimize": "Minimize",
-    "close": "Close",
-    "snapshot": "Snapshot",
+    "refresh": "Yenile",
+    "maximize": "Büyüt",
+    "minimize": "Küçült",
+    "close": "Kapat",
+    "snapshot": "Anlık görüntü",
     "export": "Dışa aktar",
-    "versions": "Version History",
-    "openPreview": "Open Preview",
-    "popOut": "Pop Out",
-    "popOutActive": "Opened in separate window",
-    "reattach": "Back to Panel"
+    "versions": "Sürüm geçmişi",
+    "openPreview": "Önizlemeyi aç",
+    "popOut": "Ayrı pencerede aç",
+    "popOutActive": "Ayrı pencerede açıldı",
+    "reattach": "Panele geri al"
   },
   "context": {
     "title": "Bağlam penceresi",
@@ -1651,24 +1651,24 @@
   "recap": {
     "generate": "Rapor oluştur",
     "generating": "Oluşturuluyor...",
-    "history": "History",
-    "noReports": "No reports yet. Click Generate to build your first recap.",
-    "selectReport": "Select a report from the history dropdown.",
-    "exportHtml": "Export HTML",
-    "exportedTo": "Exported to {{path}}",
-    "delete": "Delete",
-    "confirmDelete": "Delete this report?",
+    "history": "Geçmiş",
+    "noReports": "Henüz rapor yok. İlk incelemenizi oluşturmak için Oluştur'a tıklayın.",
+    "selectReport": "Geçmiş açılır menüsünden bir rapor seçin.",
+    "exportHtml": "HTML dışa aktar",
+    "exportedTo": "{{path}} konumuna dışa aktarıldı",
+    "delete": "Sil",
+    "confirmDelete": "Bu rapor silinsin mi?",
     "range": {
-      "incremental": "Since last report",
-      "days": "Last {{n}} days"
+      "incremental": "Son rapordan beri",
+      "days": "Son {{n}} gün"
     },
     "progress": {
-      "started": "Starting ({{n}} sessions)",
-      "extractingFacets": "Extracting facets {{done}}/{{total}}",
-      "aggregating": "Running dashboard queries…",
-      "generatingSections": "Generating sections {{done}}/{{total}}",
-      "persisting": "Persisting report…",
-      "done": "Done"
+      "started": "Başlatılıyor ({{n}} oturum)",
+      "extractingFacets": "Facet'ler çıkarılıyor {{done}}/{{total}}",
+      "aggregating": "Dashboard sorguları çalıştırılıyor…",
+      "generatingSections": "Bölümler oluşturuluyor {{done}}/{{total}}",
+      "persisting": "Rapor kaydediliyor…",
+      "done": "Bitti"
     }
   },
   "dashboard": {
@@ -1771,8 +1771,8 @@
     },
     "token": {
       "trend": "Token kullanım trendi",
-      "input": "Girdi",
-      "output": "Çıktı",
+      "input": "Giriş",
+      "output": "Çıkış",
       "byModel": "Model bazında dağılım",
       "costTable": "Maliyet dökümü",
       "model": "Model",

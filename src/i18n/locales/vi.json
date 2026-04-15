@@ -107,7 +107,7 @@
     "toolPermissionAutoDesc": "Mô hình quyết định liệu cần phê duyệt hay không",
     "toolPermissionAskDesc": "Mọi lệnh gọi công cụ đều cần xác nhận",
     "toolPermissionFullDesc": "Tự động phê duyệt mọi lệnh gọi công cụ",
-    "statusCache": "Bộ nhớ đệm",
+    "statusCache": "Cache",
     "fallbackTitle": "Chuyển đổi mô hình",
     "fallbackReason": "Lý do",
     "fallbackFrom": "Mô hình gốc",
@@ -531,7 +531,7 @@
     "webFetchDesc": "Cấu hình cách công cụ web_fetch trích xuất nội dung từ URL, bao gồm bộ nhớ đệm, bảo mật và giới hạn nội dung.",
     "webFetchSectionLimits": "Giới hạn nội dung",
     "webFetchSectionNetwork": "Mạng",
-    "webFetchSectionCache": "Bộ nhớ đệm",
+    "webFetchSectionCache": "Cache",
     "webFetchSectionSecurity": "Bảo mật",
     "webFetchMaxChars": "Số ký tự tối đa mặc định",
     "webFetchMaxCharsDesc": "Số ký tự tối đa mặc định trả về cho mô hình",
@@ -857,15 +857,15 @@
     "toolTaskUpdateDesc": "Cập nhật trạng thái hoặc nội dung của tác vụ hiện có",
     "toolTaskListName": "Liệt kê tác vụ",
     "toolTaskListDesc": "Liệt kê tất cả các tác vụ trong phiên hiện tại",
-    "agentSandbox": "Docker Sandbox",
+    "agentSandbox": "Sandbox Docker",
     "agentSandboxDesc": "Thực thi lệnh trong container Docker",
     "agentSkillEnvCheck": "Kiểm tra môi trường",
     "agentSkillEnvCheckDesc": "Trước khi chèn kỹ năng, xác minh các tệp nhị phân, biến môi trường và hệ điều hành cần thiết; bỏ qua nếu không đáp ứng",
-    "agentPrompts": "Lời nhắc",
+    "agentPrompts": "Prompt",
     "agentMd": "Hướng dẫn Agent",
     "agentMdDesc": "Mô tả trách nhiệm, quy trình và nguyên tắc của Agent",
     "agentMdPlaceholder": "Viết hướng dẫn cốt lõi cho Agent...",
-    "agentPersona": "Nhân cách",
+    "agentPersona": "Persona",
     "agentPersonaDesc": "Định nghĩa tính cách, giọng điệu và phong cách giao tiếp",
     "agentPersonaPlaceholder": "Mô tả đặc điểm tính cách...",
     "agentToolsGuide": "Hướng dẫn công cụ",
@@ -1311,33 +1311,33 @@
   },
   "health": {
     "refresh": "Làm mới",
-    "refreshTooltip": "Refresh crash history and backup list",
-    "createBackup": "Create Backup",
-    "createBackupTooltip": "Back up current configuration files",
-    "restart": "Restart App",
-    "restartTooltip": "Safely restart the application",
-    "clearHistory": "Clear History",
-    "clearConfirmTitle": "Clear Crash History",
-    "clearConfirmDesc": "Are you sure you want to clear all crash history? This action cannot be undone.",
-    "totalCrashes": "Total Crashes",
-    "recentCrashes": "Recent Records",
-    "lastBackup": "Last Backup",
-    "crashHistory": "Crash History",
-    "noCrashes": "No crash records. The application is running normally.",
-    "cause": "Cause",
-    "recommendations": "Recommendations",
-    "autoFixes": "Auto Fixes",
-    "autoFixesApplied": "Auto-fixes applied",
-    "diagnosedBy": "Diagnosed by",
-    "backups": "Configuration Backups",
-    "noBackups": "No backups available",
-    "restore": "Restore",
-    "restoreConfirmTitle": "Restore Backup",
-    "restoreConfirmDesc": "Are you sure you want to restore from this backup? Your current configuration will be overwritten.",
-    "guardianEnabled": "Self-Healing",
-    "guardianEnabledDesc": "When enabled, the app will automatically restart on abnormal exits, and perform backup and AI-powered diagnosis on consecutive crashes. Takes effect on next launch.",
-    "recoveryBannerTitle": "App recovered from a crash",
-    "recoveryBannerDesc": "The app crashed {{count}} time(s) before this launch and was automatically restarted."
+    "refreshTooltip": "Làm mới lịch sử sự cố và danh sách sao lưu",
+    "createBackup": "Tạo bản sao lưu",
+    "createBackupTooltip": "Sao lưu các tệp cấu hình hiện tại",
+    "restart": "Khởi động lại ứng dụng",
+    "restartTooltip": "Khởi động lại ứng dụng một cách an toàn",
+    "clearHistory": "Xóa lịch sử",
+    "clearConfirmTitle": "Xóa lịch sử sự cố",
+    "clearConfirmDesc": "Bạn có chắc muốn xóa tất cả lịch sử sự cố? Hành động này không thể hoàn tác.",
+    "totalCrashes": "Tổng số sự cố",
+    "recentCrashes": "Bản ghi gần đây",
+    "lastBackup": "Bản sao lưu cuối",
+    "crashHistory": "Lịch sử sự cố",
+    "noCrashes": "Không có bản ghi sự cố. Ứng dụng đang chạy bình thường.",
+    "cause": "Nguyên nhân",
+    "recommendations": "Khuyến nghị",
+    "autoFixes": "Sửa lỗi tự động",
+    "autoFixesApplied": "Đã áp dụng sửa lỗi tự động",
+    "diagnosedBy": "Chẩn đoán bởi",
+    "backups": "Bản sao lưu cấu hình",
+    "noBackups": "Không có bản sao lưu",
+    "restore": "Khôi phục",
+    "restoreConfirmTitle": "Khôi phục từ bản sao lưu",
+    "restoreConfirmDesc": "Bạn có chắc muốn khôi phục từ bản sao lưu này? Cấu hình hiện tại của bạn sẽ bị ghi đè.",
+    "guardianEnabled": "Tự sửa chữa",
+    "guardianEnabledDesc": "Khi bật, ứng dụng sẽ tự động khởi động lại khi thoát bất thường và thực hiện sao lưu và chẩn đoán AI khi có sự cố liên tiếp. Có hiệu lực khi khởi chạy tiếp theo.",
+    "recoveryBannerTitle": "Ứng dụng đã phục hồi sau sự cố",
+    "recoveryBannerDesc": "Ứng dụng đã gặp sự cố {{count}} lần trước khi khởi chạy này và đã được khởi động lại tự động."
   },
   "approval": {
     "title": "Xác nhận thực thi lệnh",
@@ -1355,55 +1355,55 @@
   "provider_templates": {
     "anthropic": {
       "name": "Anthropic",
-      "description": "Claude series models"
+      "description": "Các mô hình dòng Claude"
     },
     "openai": {
       "name": "OpenAI",
-      "description": "GPT series models (Responses API)"
+      "description": "Các mô hình GPT (Responses API)"
     },
     "openai-chat": {
       "name": "OpenAI (Chat)",
-      "description": "GPT series — Chat Completions API"
+      "description": "Dòng GPT — Chat Completions API"
     },
     "deepseek": {
       "name": "DeepSeek",
-      "description": "DeepSeek series reasoning models"
+      "description": "Các mô hình suy luận dòng DeepSeek"
     },
     "google-gemini": {
       "name": "Google Gemini",
-      "description": "Gemini series multimodal models"
+      "description": "Các mô hình đa phương thức dòng Gemini"
     },
     "xai": {
       "name": "xAI",
-      "description": "Grok series models"
+      "description": "Các mô hình dòng Grok"
     },
     "mistral": {
       "name": "Mistral",
-      "description": "Mistral series European models"
+      "description": "Các mô hình châu Âu dòng Mistral"
     },
     "openrouter": {
       "name": "OpenRouter",
-      "description": "Multi-model aggregation gateway, hundreds of models with one key"
+      "description": "Cổng tổng hợp đa mô hình, hàng trăm mô hình với một key duy nhất"
     },
     "groq": {
       "name": "Groq",
-      "description": "Ultra-high-speed LPU inference"
+      "description": "Suy luận LPU siêu tốc"
     },
     "moonshot": {
       "name": "Moonshot AI (Kimi)",
-      "description": "Kimi series long-context models"
+      "description": "Các mô hình Kimi ngữ cảnh dài"
     },
     "qwen": {
       "name": "Qwen",
-      "description": "Alibaba Cloud DashScope models"
+      "description": "Các mô hình Alibaba Cloud DashScope"
     },
     "volcengine": {
       "name": "Volcengine (Doubao)",
-      "description": "ByteDance Doubao series models"
+      "description": "Các mô hình ByteDance Doubao"
     },
     "zhipu": {
       "name": "Zhipu AI (Z.AI)",
-      "description": "GLM series models"
+      "description": "Các mô hình dòng GLM"
     },
     "minimax": {
       "name": "MiniMax",
@@ -1411,19 +1411,19 @@
     },
     "kimi-coding": {
       "name": "Kimi Coding",
-      "description": "Kimi for Coding (Anthropic compatible)"
+      "description": "Kimi for Coding (tương thích Anthropic)"
     },
     "xiaomi": {
       "name": "Xiaomi MiMo",
-      "description": "MiMo series models (Anthropic compatible)"
+      "description": "Các mô hình MiMo (tương thích Anthropic)"
     },
     "qianfan": {
       "name": "Baidu Qianfan",
-      "description": "Baidu AI Cloud Qianfan Platform"
+      "description": "Nền tảng Qianfan của Baidu AI Cloud"
     },
     "modelstudio": {
       "name": "阿里云百炼",
-      "description": "阿里云 大模型服务平台，支持Coding Plan"
+      "description": "Nền tảng mô hình lớn của Alibaba Cloud, hỗ trợ Coding Plan"
     },
     "nvidia": {
       "name": "NVIDIA",
@@ -1431,204 +1431,204 @@
     },
     "together": {
       "name": "Together AI",
-      "description": "Open source model cloud inference platform"
+      "description": "Nền tảng suy luận đám mây cho các mô hình mã nguồn mở"
     },
     "ollama": {
       "name": "Ollama",
-      "description": "Local + cloud model inference, no API Key required"
+      "description": "Suy luận mô hình cục bộ + đám mây, không cần API Key"
     },
     "vllm": {
       "name": "vLLM",
-      "description": "High-performance local inference engine"
+      "description": "Công cụ suy luận cục bộ hiệu suất cao"
     },
     "lm-studio": {
       "name": "LM Studio",
-      "description": "Desktop local model inference"
+      "description": "Suy luận mô hình cục bộ trên desktop"
     },
     "huggingface": {
       "name": "Hugging Face",
-      "description": "HF Inference API for open-source models"
+      "description": "HF Inference API cho các mô hình mã nguồn mở"
     },
     "byteplus": {
       "name": "BytePlus",
-      "description": "BytePlus AI international model platform"
+      "description": "Nền tảng mô hình AI quốc tế BytePlus"
     },
     "chutes": {
       "name": "Chutes (TEE)",
-      "description": "Trusted Execution Environment AI inference"
+      "description": "Suy luận AI trong môi trường thực thi tin cậy (TEE)"
     },
     "cloudflare-ai": {
       "name": "Cloudflare AI Gateway",
-      "description": "Cloudflare AI gateway proxy"
+      "description": "Cổng proxy Cloudflare AI"
     },
     "litellm": {
       "name": "LiteLLM",
-      "description": "Unified LLM API proxy gateway"
+      "description": "Cổng proxy LLM API thống nhất"
     }
   },
   "slashCommands": {
-    "title": "Commands",
+    "title": "Lệnh",
     "new": {
-      "description": "Start a new chat"
+      "description": "Bắt đầu cuộc trò chuyện mới"
     },
     "clear": {
-      "description": "Clear conversation"
+      "description": "Xóa cuộc trò chuyện"
     },
     "compact": {
-      "description": "Compress context"
+      "description": "Nén ngữ cảnh"
     },
     "stop": {
-      "description": "Stop current reply"
+      "description": "Dừng phản hồi hiện tại"
     },
     "rename": {
-      "description": "Rename session"
+      "description": "Đổi tên phiên"
     },
     "model": {
-      "description": "Switch model"
+      "description": "Chuyển mô hình"
     },
     "models": {
-      "description": "List all available models",
-      "cardTitle": "Available Models"
+      "description": "Liệt kê tất cả mô hình khả dụng",
+      "cardTitle": "Mô hình khả dụng"
     },
     "think": {
-      "description": "Set thinking effort"
+      "description": "Đặt mức độ suy nghĩ"
     },
     "remember": {
-      "description": "Save a memory"
+      "description": "Lưu một bộ nhớ"
     },
     "forget": {
-      "description": "Delete a memory"
+      "description": "Xóa một bộ nhớ"
     },
     "memories": {
-      "description": "List memories"
+      "description": "Liệt kê bộ nhớ"
     },
     "agent": {
-      "description": "Switch agent"
+      "description": "Chuyển Agent"
     },
     "agents": {
-      "description": "List agents"
+      "description": "Liệt kê agents"
     },
     "help": {
-      "description": "Show all commands"
+      "description": "Hiển thị tất cả lệnh"
     },
     "status": {
-      "description": "Session status"
+      "description": "Trạng thái phiên"
     },
     "export": {
-      "description": "Export as Markdown"
+      "description": "Xuất ra Markdown"
     },
     "usage": {
-      "description": "Token usage"
+      "description": "Sử dụng token"
     },
     "search": {
-      "description": "Search the web"
+      "description": "Tìm kiếm trên web"
     },
     "permission": {
-      "description": "Set tool permission mode (auto/ask/full)"
+      "description": "Đặt chế độ quyền công cụ (auto/ask/full)"
     },
     "plan": {
-      "description": "Enter/exit plan mode"
+      "description": "Vào/thoát plan mode"
     },
     "prompts": {
-      "description": "View system prompt"
+      "description": "Xem system prompt"
     },
     "recap": {
-      "description": "Generate a deep analysis recap report"
+      "description": "Tạo báo cáo đánh giá phân tích sâu"
     },
     "context": {
-      "description": "Show context window breakdown"
+      "description": "Hiển thị phân tích cửa sổ ngữ cảnh"
     },
     "categories": {
-      "session": "Session",
-      "model": "Model",
-      "memory": "Memory",
+      "session": "Phiên",
+      "model": "Mô hình",
+      "memory": "Bộ nhớ",
       "agent": "Agent",
-      "utility": "Utility",
+      "utility": "Tiện ích",
       "skill": "Skills"
     },
-    "noResults": "No matching commands",
-    "buttonTip": "Quick Commands"
+    "noResults": "Không có lệnh khớp",
+    "buttonTip": "Lệnh nhanh"
   },
   "planMode": {
     "enter": "Vào Plan Mode",
     "indicator": "Plan Mode",
-    "plan": "Execution Plan",
-    "openPanel": "View in panel",
-    "openFolder": "Open folder",
-    "planningInProgress": "Creating plan...",
-    "messageSentToPlanner": "Message forwarded to planning agent",
-    "restricted": "Plan Mode: AI will gather info and collaborate with you to create a plan",
-    "approveAndExecute": "Start Execution",
-    "keepPlanning": "Keep Planning",
-    "exitWithout": "Exit Plan",
-    "showPlan": "Show Plan",
-    "executing": "Executing plan...",
-    "stepsCompleted": "steps completed",
-    "completed": "Completed",
-    "placeholder": "Describe what you want to achieve...",
-    "panelTitle": "Execution Plan",
-    "editorPlaceholder": "Edit plan content here...\n\n## Background\nDescribe the context: what problem to solve, why, and expected outcome\n\n### Phase 1: Analysis\n- [ ] Step description\n\n### Phase 2: Implementation\n- [ ] Step description",
-    "stepsDetected": "steps detected",
+    "plan": "Kế hoạch thực thi",
+    "openPanel": "Xem trong bảng điều khiển",
+    "openFolder": "Mở thư mục",
+    "planningInProgress": "Đang tạo kế hoạch...",
+    "messageSentToPlanner": "Tin nhắn đã được chuyển đến agent lập kế hoạch",
+    "restricted": "Plan Mode: AI sẽ thu thập thông tin và cộng tác với bạn để tạo kế hoạch",
+    "approveAndExecute": "Bắt đầu thực thi",
+    "keepPlanning": "Tiếp tục lập kế hoạch",
+    "exitWithout": "Thoát kế hoạch",
+    "showPlan": "Hiển thị kế hoạch",
+    "executing": "Đang thực thi kế hoạch...",
+    "stepsCompleted": "bước đã hoàn thành",
+    "completed": "Hoàn thành",
+    "placeholder": "Mô tả điều bạn muốn đạt được...",
+    "panelTitle": "Kế hoạch thực thi",
+    "editorPlaceholder": "Chỉnh sửa nội dung kế hoạch tại đây...\n\n## Background\nMô tả bối cảnh: vấn đề cần giải quyết, tại sao và kết quả mong đợi\n\n### Phase 1: Phân tích\n- [ ] Mô tả bước\n\n### Phase 2: Triển khai\n- [ ] Mô tả bước",
+    "stepsDetected": "bước được phát hiện",
     "noSteps": "Không có bước",
-    "executeCommand": "Start executing the plan. Complete each step in order, calling update_plan_step to track progress.",
-    "planning": "Creating plan...",
-    "pause": "Pause",
-    "resume": "Resume",
-    "pausedBanner": "Plan execution is paused",
+    "executeCommand": "Bắt đầu thực thi kế hoạch. Hoàn thành từng bước theo thứ tự, gọi update_plan_step để theo dõi tiến độ.",
+    "planning": "Đang tạo kế hoạch...",
+    "pause": "Tạm dừng",
+    "resume": "Tiếp tục",
+    "pausedBanner": "Thực thi kế hoạch đã tạm dừng",
     "review": {
-      "badge": "Review"
+      "badge": "Xem xét"
     },
     "paused": {
-      "badge": "Paused"
+      "badge": "Đã tạm dừng"
     },
     "card": {
-      "phases": "phases",
-      "steps": "steps"
+      "phases": "giai đoạn",
+      "steps": "bước"
     },
-    "versions": "Version History",
-    "versionHistory": "Plan Versions",
-    "currentVersion": "Current",
-    "noVersions": "No previous versions",
-    "requestChanges": "Request Changes",
-    "requestChangesPlaceholder": "Describe what you want changed...",
-    "maximize": "Maximize",
-    "minimize": "Minimize",
-    "popOut": "Pop Out",
-    "popOutActive": "Opened in a separate window",
-    "reattach": "Reattach to Panel",
-    "rollback": "Rollback Changes",
+    "versions": "Lịch sử phiên bản",
+    "versionHistory": "Phiên bản kế hoạch",
+    "currentVersion": "Hiện tại",
+    "noVersions": "Không có phiên bản trước",
+    "requestChanges": "Yêu cầu thay đổi",
+    "requestChangesPlaceholder": "Mô tả điều bạn muốn thay đổi...",
+    "maximize": "Phóng to",
+    "minimize": "Thu nhỏ",
+    "popOut": "Mở cửa sổ riêng",
+    "popOutActive": "Đã mở trong cửa sổ riêng",
+    "reattach": "Quay lại bảng điều khiển",
+    "rollback": "Hoàn tác thay đổi",
     "comment": {
-      "hint": "Select text to add comments and collaboratively refine the plan",
-      "placeholder": "Suggest changes for the selected content...",
-      "submit": "Send",
-      "shortcut": "⌘+Enter to send"
+      "hint": "Chọn văn bản để thêm nhận xét và cùng tinh chỉnh kế hoạch",
+      "placeholder": "Đề xuất thay đổi cho nội dung đã chọn...",
+      "submit": "Gửi",
+      "shortcut": "⌘+Enter để gửi"
     },
     "question": {
-      "title": "AI needs your input",
-      "submit": "Submit Answers",
-      "retry": "Retry",
-      "answered": "Answered",
-      "customPlaceholder": "Enter custom answer...",
-      "recommended": "Recommended",
-      "multiSelect": "multi",
-      "default": "default",
-      "preview": "Preview",
-      "timeoutHint": "Time remaining",
-      "timedOut": "timed out"
+      "title": "AI cần bạn cung cấp thông tin",
+      "submit": "Gửi câu trả lời",
+      "retry": "Thử lại",
+      "answered": "Đã trả lời",
+      "customPlaceholder": "Nhập câu trả lời tùy chỉnh...",
+      "recommended": "Khuyến nghị",
+      "multiSelect": "nhiều",
+      "default": "mặc định",
+      "preview": "Xem trước",
+      "timeoutHint": "Thời gian còn lại",
+      "timedOut": "hết thời gian"
     }
   },
   "canvas": {
-    "refresh": "Refresh",
-    "maximize": "Maximize",
-    "minimize": "Minimize",
-    "close": "Close",
-    "snapshot": "Snapshot",
+    "refresh": "Làm mới",
+    "maximize": "Phóng to",
+    "minimize": "Thu nhỏ",
+    "close": "Đóng",
+    "snapshot": "Ảnh chụp",
     "export": "Xuất",
-    "versions": "Version History",
-    "openPreview": "Open Preview",
-    "popOut": "Pop Out",
-    "popOutActive": "Opened in separate window",
-    "reattach": "Back to Panel"
+    "versions": "Lịch sử phiên bản",
+    "openPreview": "Mở xem trước",
+    "popOut": "Mở cửa sổ riêng",
+    "popOutActive": "Đã mở trong cửa sổ riêng",
+    "reattach": "Quay lại bảng điều khiển"
   },
   "context": {
     "title": "Cửa sổ ngữ cảnh",
@@ -1651,24 +1651,24 @@
   "recap": {
     "generate": "Tạo báo cáo",
     "generating": "Đang tạo...",
-    "history": "History",
-    "noReports": "No reports yet. Click Generate to build your first recap.",
-    "selectReport": "Select a report from the history dropdown.",
-    "exportHtml": "Export HTML",
-    "exportedTo": "Exported to {{path}}",
-    "delete": "Delete",
-    "confirmDelete": "Delete this report?",
+    "history": "Lịch sử",
+    "noReports": "Chưa có báo cáo. Nhấn Tạo để xây dựng bản đánh giá đầu tiên.",
+    "selectReport": "Chọn một báo cáo từ danh sách lịch sử.",
+    "exportHtml": "Xuất HTML",
+    "exportedTo": "Đã xuất sang {{path}}",
+    "delete": "Xóa",
+    "confirmDelete": "Xóa báo cáo này?",
     "range": {
-      "incremental": "Since last report",
-      "days": "Last {{n}} days"
+      "incremental": "Từ báo cáo cuối",
+      "days": "{{n}} ngày qua"
     },
     "progress": {
-      "started": "Starting ({{n}} sessions)",
-      "extractingFacets": "Extracting facets {{done}}/{{total}}",
-      "aggregating": "Running dashboard queries…",
-      "generatingSections": "Generating sections {{done}}/{{total}}",
-      "persisting": "Persisting report…",
-      "done": "Done"
+      "started": "Đang bắt đầu ({{n}} phiên)",
+      "extractingFacets": "Đang trích xuất khía cạnh {{done}}/{{total}}",
+      "aggregating": "Đang chạy truy vấn dashboard…",
+      "generatingSections": "Đang tạo phần {{done}}/{{total}}",
+      "persisting": "Đang lưu báo cáo…",
+      "done": "Hoàn tất"
     }
   },
   "dashboard": {

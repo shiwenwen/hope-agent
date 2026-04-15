@@ -430,7 +430,7 @@
     "acpAutoDiscover": "バックエンドを自動検出",
     "acpAutoDiscoverDesc": "起動時に既知の ACP Agent バイナリを $PATH からスキャン",
     "acpMaxConcurrent": "最大同時実行数",
-    "acpTimeout": "タイムアウト（秒）",
+    "acpTimeout": "タイムアウト (秒)",
     "acpIdleTtl": "アイドル TTL（秒）",
     "acpBackendId": "ID",
     "acpBinary": "バイナリ",
@@ -556,7 +556,7 @@
     "imageGenProviderMiniMax": "MiniMax (Image-01)",
     "imageGenProviderSiliconFlow": "SiliconFlow (Qwen-Image / Kolors)",
     "imageGenProviderZhipu": "ZhipuAI (CogView-4)",
-    "imageGenProviderTongyi": "通义万相 (wanx-v1)",
+    "imageGenProviderTongyi": "Tongyi Wanxiang (wanx-v1)",
     "imageGenApiKey": "API キー",
     "imageGenBaseUrl": "Base URL（任意）",
     "imageGenModel": "モデル（任意）",
@@ -1311,33 +1311,33 @@
   },
   "health": {
     "refresh": "更新",
-    "refreshTooltip": "Refresh crash history and backup list",
-    "createBackup": "Create Backup",
-    "createBackupTooltip": "Back up current configuration files",
-    "restart": "Restart App",
-    "restartTooltip": "Safely restart the application",
-    "clearHistory": "Clear History",
-    "clearConfirmTitle": "Clear Crash History",
-    "clearConfirmDesc": "Are you sure you want to clear all crash history? This action cannot be undone.",
-    "totalCrashes": "Total Crashes",
-    "recentCrashes": "Recent Records",
-    "lastBackup": "Last Backup",
-    "crashHistory": "Crash History",
-    "noCrashes": "No crash records. The application is running normally.",
-    "cause": "Cause",
-    "recommendations": "Recommendations",
-    "autoFixes": "Auto Fixes",
-    "autoFixesApplied": "Auto-fixes applied",
-    "diagnosedBy": "Diagnosed by",
-    "backups": "Configuration Backups",
-    "noBackups": "No backups available",
-    "restore": "Restore",
-    "restoreConfirmTitle": "Restore Backup",
-    "restoreConfirmDesc": "Are you sure you want to restore from this backup? Your current configuration will be overwritten.",
-    "guardianEnabled": "Self-Healing",
-    "guardianEnabledDesc": "When enabled, the app will automatically restart on abnormal exits, and perform backup and AI-powered diagnosis on consecutive crashes. Takes effect on next launch.",
-    "recoveryBannerTitle": "App recovered from a crash",
-    "recoveryBannerDesc": "The app crashed {{count}} time(s) before this launch and was automatically restarted."
+    "refreshTooltip": "クラッシュ履歴とバックアップリストを更新",
+    "createBackup": "バックアップを作成",
+    "createBackupTooltip": "現在の設定ファイルをバックアップ",
+    "restart": "アプリを再起動",
+    "restartTooltip": "アプリを安全に再起動",
+    "clearHistory": "履歴を消去",
+    "clearConfirmTitle": "クラッシュ履歴を消去",
+    "clearConfirmDesc": "すべてのクラッシュ履歴を消去してもよろしいですか？この操作は取り消せません。",
+    "totalCrashes": "合計クラッシュ数",
+    "recentCrashes": "最近の記録",
+    "lastBackup": "最終バックアップ",
+    "crashHistory": "クラッシュ履歴",
+    "noCrashes": "クラッシュ記録はありません。アプリは正常に動作しています。",
+    "cause": "原因",
+    "recommendations": "推奨事項",
+    "autoFixes": "自動修正",
+    "autoFixesApplied": "自動修正を適用しました",
+    "diagnosedBy": "診断モデル",
+    "backups": "設定バックアップ",
+    "noBackups": "利用可能なバックアップはありません",
+    "restore": "復元",
+    "restoreConfirmTitle": "バックアップから復元",
+    "restoreConfirmDesc": "このバックアップから復元してもよろしいですか？現在の設定は上書きされます。",
+    "guardianEnabled": "自己修復",
+    "guardianEnabledDesc": "有効にすると、異常終了時にアプリを自動的に再起動し、連続クラッシュ時にバックアップと AI 診断を実行します。次回起動時に有効になります。",
+    "recoveryBannerTitle": "クラッシュから回復しました",
+    "recoveryBannerDesc": "アプリは今回の起動前に {{count}} 回クラッシュし、自動的に再起動されました。"
   },
   "approval": {
     "title": "コマンド実行の確認",
@@ -1355,55 +1355,55 @@
   "provider_templates": {
     "anthropic": {
       "name": "Anthropic",
-      "description": "Claudeシリーズモデル"
+      "description": "Claude シリーズモデル"
     },
     "openai": {
       "name": "OpenAI",
-      "description": "GPTシリーズモデル (Responses API)"
+      "description": "GPT シリーズモデル (Responses API)"
     },
     "openai-chat": {
       "name": "OpenAI (Chat)",
-      "description": "GPTシリーズ — Chat Completions API"
+      "description": "GPT シリーズ — Chat Completions API"
     },
     "deepseek": {
       "name": "DeepSeek",
-      "description": "DeepSeekシリーズ推論モデル"
+      "description": "DeepSeek シリーズ推論モデル"
     },
     "google-gemini": {
       "name": "Google Gemini",
-      "description": "Geminiシリーズマルチモーダルモデル"
+      "description": "Gemini シリーズマルチモーダルモデル"
     },
     "xai": {
       "name": "xAI",
-      "description": "Grokシリーズモデル"
+      "description": "Grok シリーズモデル"
     },
     "mistral": {
       "name": "Mistral",
-      "description": "Mistralシリーズ欧州モデル"
+      "description": "Mistral シリーズのヨーロッパモデル"
     },
     "openrouter": {
       "name": "OpenRouter",
-      "description": "マルチモデル集約ゲートウェイ、1つのキーで数百のモデルを使用"
+      "description": "マルチモデル集約ゲートウェイ、1 つの Key で数百のモデル"
     },
     "groq": {
       "name": "Groq",
-      "description": "超高速LPU推論"
+      "description": "超高速 LPU 推論"
     },
     "moonshot": {
       "name": "Moonshot AI (Kimi)",
-      "description": "Kimiシリーズロングコンテキストモデル"
+      "description": "Kimi シリーズロングコンテキストモデル"
     },
     "qwen": {
       "name": "Qwen",
-      "description": "Alibaba Cloud DashScopeモデル"
+      "description": "Alibaba Cloud DashScope モデル"
     },
     "volcengine": {
       "name": "Volcengine (Doubao)",
-      "description": "ByteDance Doubaoシリーズモデル"
+      "description": "ByteDance Doubao シリーズモデル"
     },
     "zhipu": {
       "name": "Zhipu AI (Z.AI)",
-      "description": "GLMシリーズモデル"
+      "description": "GLM シリーズモデル"
     },
     "minimax": {
       "name": "MiniMax",
@@ -1411,19 +1411,19 @@
     },
     "kimi-coding": {
       "name": "Kimi Coding",
-      "description": "Kimi for Coding (Anthropic互換)"
+      "description": "Kimi for Coding (Anthropic 互換)"
     },
     "xiaomi": {
       "name": "Xiaomi MiMo",
-      "description": "MiMoシリーズモデル (Anthropic互換)"
+      "description": "MiMo シリーズモデル (Anthropic 互換)"
     },
     "qianfan": {
       "name": "Baidu Qianfan",
-      "description": "Baidu AI Cloud Qianfanプラットフォーム"
+      "description": "Baidu AI Cloud 千帆プラットフォーム"
     },
     "modelstudio": {
       "name": "阿里云百炼",
-      "description": "阿里云 大模型服务平台，支持Coding Plan"
+      "description": "Alibaba Cloud 大規模モデルサービスプラットフォーム、Coding Plan 対応"
     },
     "nvidia": {
       "name": "NVIDIA",
@@ -1435,7 +1435,7 @@
     },
     "ollama": {
       "name": "Ollama",
-      "description": "ローカル+クラウドモデル推論、APIキー不要"
+      "description": "ローカル + クラウドモデル推論、API Key 不要"
     },
     "vllm": {
       "name": "vLLM",
@@ -1443,192 +1443,192 @@
     },
     "lm-studio": {
       "name": "LM Studio",
-      "description": "デスクトップローカルモデル推論"
+      "description": "デスクトップのローカルモデル推論"
     },
     "huggingface": {
       "name": "Hugging Face",
-      "description": "HF Inference API for open-source models"
+      "description": "HF Inference API オープンソースモデル"
     },
     "byteplus": {
       "name": "BytePlus",
-      "description": "BytePlus AI international model platform"
+      "description": "BytePlus AI 国際版大規模モデルプラットフォーム"
     },
     "chutes": {
       "name": "Chutes (TEE)",
-      "description": "Trusted Execution Environment AI inference"
+      "description": "TEE 信頼実行環境 AI 推論"
     },
     "cloudflare-ai": {
       "name": "Cloudflare AI Gateway",
-      "description": "Cloudflare AI gateway proxy"
+      "description": "Cloudflare AI ゲートウェイプロキシ"
     },
     "litellm": {
       "name": "LiteLLM",
-      "description": "Unified LLM API proxy gateway"
+      "description": "統合 LLM API プロキシゲートウェイ"
     }
   },
   "slashCommands": {
-    "title": "Commands",
+    "title": "コマンド",
     "new": {
-      "description": "Start a new chat"
+      "description": "新しいチャットを開始"
     },
     "clear": {
-      "description": "Clear conversation"
+      "description": "会話をクリア"
     },
     "compact": {
-      "description": "Compress context"
+      "description": "コンテキストを圧縮"
     },
     "stop": {
-      "description": "Stop current reply"
+      "description": "現在の応答を停止"
     },
     "rename": {
-      "description": "Rename session"
+      "description": "セッション名を変更"
     },
     "model": {
-      "description": "Switch model"
+      "description": "モデルを切り替え"
     },
     "models": {
-      "description": "List all available models",
-      "cardTitle": "Available Models"
+      "description": "利用可能なすべてのモデルを一覧表示",
+      "cardTitle": "利用可能なモデル"
     },
     "think": {
-      "description": "Set thinking effort"
+      "description": "思考レベルを設定"
     },
     "remember": {
-      "description": "Save a memory"
+      "description": "記憶を保存"
     },
     "forget": {
-      "description": "Delete a memory"
+      "description": "記憶を削除"
     },
     "memories": {
-      "description": "List memories"
+      "description": "記憶一覧"
     },
     "agent": {
-      "description": "Switch agent"
+      "description": "Agent を切り替え"
     },
     "agents": {
-      "description": "List agents"
+      "description": "Agent 一覧を表示"
     },
     "help": {
-      "description": "Show all commands"
+      "description": "すべてのコマンドを表示"
     },
     "status": {
-      "description": "Session status"
+      "description": "セッション状態"
     },
     "export": {
-      "description": "Export as Markdown"
+      "description": "Markdown としてエクスポート"
     },
     "usage": {
-      "description": "Token usage"
+      "description": "トークン使用量"
     },
     "search": {
-      "description": "Search the web"
+      "description": "ウェブを検索"
     },
     "permission": {
-      "description": "Set tool permission mode (auto/ask/full)"
+      "description": "ツール権限モードを設定 (auto/ask/full)"
     },
     "plan": {
-      "description": "Enter/exit plan mode"
+      "description": "プランモードに入る/終了"
     },
     "prompts": {
-      "description": "View system prompt"
+      "description": "システムプロンプトを表示"
     },
     "recap": {
-      "description": "Generate a deep analysis recap report"
+      "description": "深い分析レビューレポートを生成"
     },
     "context": {
-      "description": "Show context window breakdown"
+      "description": "コンテキストウィンドウの内訳を表示"
     },
     "categories": {
-      "session": "Session",
-      "model": "Model",
-      "memory": "Memory",
+      "session": "セッション",
+      "model": "モデル",
+      "memory": "記憶",
       "agent": "Agent",
-      "utility": "Utility",
-      "skill": "Skills"
+      "utility": "ユーティリティ",
+      "skill": "スキル"
     },
-    "noResults": "No matching commands",
-    "buttonTip": "Quick Commands"
+    "noResults": "一致するコマンドはありません",
+    "buttonTip": "クイックコマンド"
   },
   "planMode": {
     "enter": "プランモードに入る",
-    "indicator": "Plan Mode",
-    "plan": "Execution Plan",
-    "openPanel": "View in panel",
-    "openFolder": "Open folder",
-    "planningInProgress": "Creating plan...",
-    "messageSentToPlanner": "Message forwarded to planning agent",
-    "restricted": "Plan Mode: AI will gather info and collaborate with you to create a plan",
-    "approveAndExecute": "Start Execution",
-    "keepPlanning": "Keep Planning",
-    "exitWithout": "Exit Plan",
-    "showPlan": "Show Plan",
-    "executing": "Executing plan...",
-    "stepsCompleted": "steps completed",
-    "completed": "Completed",
-    "placeholder": "Describe what you want to achieve...",
-    "panelTitle": "Execution Plan",
-    "editorPlaceholder": "Edit plan content here...\n\n## Background\nDescribe the context: what problem to solve, why, and expected outcome\n\n### Phase 1: Analysis\n- [ ] Step description\n\n### Phase 2: Implementation\n- [ ] Step description",
-    "stepsDetected": "steps detected",
+    "indicator": "プランモード",
+    "plan": "実行プラン",
+    "openPanel": "パネルで表示",
+    "openFolder": "フォルダを開く",
+    "planningInProgress": "プラン作成中...",
+    "messageSentToPlanner": "メッセージを計画 Agent に転送しました",
+    "restricted": "プランモード: AI が情報を収集し、あなたと協力してプランを作成します",
+    "approveAndExecute": "実行開始",
+    "keepPlanning": "計画を続ける",
+    "exitWithout": "プランを終了",
+    "showPlan": "プランを表示",
+    "executing": "プラン実行中...",
+    "stepsCompleted": "ステップ完了",
+    "completed": "完了",
+    "placeholder": "達成したいことを記述してください...",
+    "panelTitle": "実行プラン",
+    "editorPlaceholder": "ここでプラン内容を編集...\n\n## Background\n背景を記述：解決すべき問題、理由、期待される成果\n\n### Phase 1: 分析\n- [ ] ステップの説明\n\n### Phase 2: 実装\n- [ ] ステップの説明",
+    "stepsDetected": "ステップを検出",
     "noSteps": "ステップがありません",
-    "executeCommand": "Start executing the plan. Complete each step in order, calling update_plan_step to track progress.",
-    "planning": "Creating plan...",
-    "pause": "Pause",
-    "resume": "Resume",
-    "pausedBanner": "Plan execution is paused",
+    "executeCommand": "プランの実行を開始。各ステップを順に完了し、update_plan_step を呼んで進捗を追跡してください。",
+    "planning": "プラン作成中...",
+    "pause": "一時停止",
+    "resume": "再開",
+    "pausedBanner": "プラン実行が一時停止されています",
     "review": {
-      "badge": "Review"
+      "badge": "レビュー"
     },
     "paused": {
-      "badge": "Paused"
+      "badge": "一時停止中"
     },
     "card": {
-      "phases": "phases",
-      "steps": "steps"
+      "phases": "フェーズ",
+      "steps": "ステップ"
     },
-    "versions": "Version History",
-    "versionHistory": "Plan Versions",
-    "currentVersion": "Current",
-    "noVersions": "No previous versions",
-    "requestChanges": "Request Changes",
-    "requestChangesPlaceholder": "Describe what you want changed...",
-    "maximize": "Maximize",
-    "minimize": "Minimize",
-    "popOut": "Pop Out",
-    "popOutActive": "Opened in a separate window",
-    "reattach": "Reattach to Panel",
-    "rollback": "Rollback Changes",
+    "versions": "バージョン履歴",
+    "versionHistory": "プランバージョン",
+    "currentVersion": "現在",
+    "noVersions": "過去バージョンはありません",
+    "requestChanges": "変更を依頼",
+    "requestChangesPlaceholder": "変更したい内容を記述...",
+    "maximize": "最大化",
+    "minimize": "最小化",
+    "popOut": "別ウィンドウで開く",
+    "popOutActive": "別ウィンドウで開いています",
+    "reattach": "パネルに戻す",
+    "rollback": "変更をロールバック",
     "comment": {
-      "hint": "Select text to add comments and collaboratively refine the plan",
-      "placeholder": "Suggest changes for the selected content...",
-      "submit": "Send",
-      "shortcut": "⌘+Enter to send"
+      "hint": "テキストを選択してコメントを追加し、協力してプランを精緻化",
+      "placeholder": "選択した内容への変更を提案...",
+      "submit": "送信",
+      "shortcut": "⌘+Enter で送信"
     },
     "question": {
-      "title": "AI needs your input",
-      "submit": "Submit Answers",
-      "retry": "Retry",
-      "answered": "Answered",
-      "customPlaceholder": "Enter custom answer...",
-      "recommended": "Recommended",
-      "multiSelect": "multi",
-      "default": "default",
-      "preview": "Preview",
-      "timeoutHint": "Time remaining",
-      "timedOut": "timed out"
+      "title": "入力が必要です",
+      "submit": "回答を送信",
+      "retry": "再試行",
+      "answered": "回答済み",
+      "customPlaceholder": "カスタム回答を入力...",
+      "recommended": "推奨",
+      "multiSelect": "複数選択",
+      "default": "既定",
+      "preview": "プレビュー",
+      "timeoutHint": "残り時間",
+      "timedOut": "タイムアウト"
     }
   },
   "canvas": {
-    "refresh": "Refresh",
-    "maximize": "Maximize",
-    "minimize": "Minimize",
-    "close": "Close",
-    "snapshot": "Snapshot",
+    "refresh": "更新",
+    "maximize": "最大化",
+    "minimize": "最小化",
+    "close": "閉じる",
+    "snapshot": "スナップショット",
     "export": "エクスポート",
-    "versions": "Version History",
-    "openPreview": "Open Preview",
-    "popOut": "Pop Out",
-    "popOutActive": "Opened in separate window",
-    "reattach": "Back to Panel"
+    "versions": "バージョン履歴",
+    "openPreview": "プレビューを開く",
+    "popOut": "別ウィンドウで開く",
+    "popOutActive": "別ウィンドウで開いています",
+    "reattach": "パネルに戻す"
   },
   "context": {
     "title": "コンテキストウィンドウ",
@@ -1651,24 +1651,24 @@
   "recap": {
     "generate": "レポートを生成",
     "generating": "生成中...",
-    "history": "History",
-    "noReports": "No reports yet. Click Generate to build your first recap.",
-    "selectReport": "Select a report from the history dropdown.",
-    "exportHtml": "Export HTML",
-    "exportedTo": "Exported to {{path}}",
-    "delete": "Delete",
-    "confirmDelete": "Delete this report?",
+    "history": "履歴",
+    "noReports": "まだレポートはありません。生成をクリックして最初のレポートを作成してください。",
+    "selectReport": "履歴ドロップダウンからレポートを選択してください。",
+    "exportHtml": "HTML エクスポート",
+    "exportedTo": "{{path}} にエクスポートしました",
+    "delete": "削除",
+    "confirmDelete": "このレポートを削除しますか？",
     "range": {
-      "incremental": "Since last report",
-      "days": "Last {{n}} days"
+      "incremental": "前回のレポート以降",
+      "days": "最近 {{n}} 日"
     },
     "progress": {
-      "started": "Starting ({{n}} sessions)",
-      "extractingFacets": "Extracting facets {{done}}/{{total}}",
-      "aggregating": "Running dashboard queries…",
-      "generatingSections": "Generating sections {{done}}/{{total}}",
-      "persisting": "Persisting report…",
-      "done": "Done"
+      "started": "開始 ({{n}} セッション)",
+      "extractingFacets": "Facet を抽出中 {{done}}/{{total}}",
+      "aggregating": "ダッシュボードクエリを実行中…",
+      "generatingSections": "セクションを生成中 {{done}}/{{total}}",
+      "persisting": "レポートを保存中…",
+      "done": "完了"
     }
   },
   "dashboard": {

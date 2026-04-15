@@ -549,7 +549,7 @@
     "webFetchSaved": "저장됨",
     "imageGenerate": "이미지 생성",
     "imageGenerateDesc": "AI 이미지 생성 Provider (OpenAI, Google, Fal, MiniMax, SiliconFlow, ZhipuAI, Tongyi) 구성. 활성화 후 Agent 가 image_generate 도구로 이미지를 생성하고 편집할 수 있습니다.",
-    "imageGenProviders": "Provider",
+    "imageGenProviders": "Providers",
     "imageGenProviderOpenAI": "OpenAI (DALL-E / gpt-image-1)",
     "imageGenProviderGoogle": "Google (Gemini)",
     "imageGenProviderFal": "Fal (Flux)",
@@ -767,7 +767,7 @@
     "weatherLongitude": "경도",
     "weatherAdvanced": "수동 좌표",
     "weatherPreview": "현재 날씨",
-    "weatherTemp": "기온",
+    "weatherTemp": "온도",
     "weatherFeelsLike": "체감",
     "weatherCond": "날씨",
     "weatherHumidity": "습도",
@@ -880,7 +880,7 @@
     "agentVibePlaceholder": "예: 따뜻하고 인내심 있는, 날카롭고 직접적인...",
     "agentTone": "톤",
     "agentToneFormal": "격식체",
-    "agentToneCasual": "비격식",
+    "agentToneCasual": "캐주얼",
     "agentTonePlayful": "발랄",
     "agentToneProfessional": "전문적",
     "agentToneWarm": "따뜻한",
@@ -1311,33 +1311,33 @@
   },
   "health": {
     "refresh": "새로 고침",
-    "refreshTooltip": "Refresh crash history and backup list",
-    "createBackup": "Create Backup",
-    "createBackupTooltip": "Back up current configuration files",
-    "restart": "Restart App",
-    "restartTooltip": "Safely restart the application",
-    "clearHistory": "Clear History",
-    "clearConfirmTitle": "Clear Crash History",
-    "clearConfirmDesc": "Are you sure you want to clear all crash history? This action cannot be undone.",
-    "totalCrashes": "Total Crashes",
-    "recentCrashes": "Recent Records",
-    "lastBackup": "Last Backup",
-    "crashHistory": "Crash History",
-    "noCrashes": "No crash records. The application is running normally.",
-    "cause": "Cause",
-    "recommendations": "Recommendations",
-    "autoFixes": "Auto Fixes",
-    "autoFixesApplied": "Auto-fixes applied",
-    "diagnosedBy": "Diagnosed by",
-    "backups": "Configuration Backups",
-    "noBackups": "No backups available",
-    "restore": "Restore",
-    "restoreConfirmTitle": "Restore Backup",
-    "restoreConfirmDesc": "Are you sure you want to restore from this backup? Your current configuration will be overwritten.",
-    "guardianEnabled": "Self-Healing",
-    "guardianEnabledDesc": "When enabled, the app will automatically restart on abnormal exits, and perform backup and AI-powered diagnosis on consecutive crashes. Takes effect on next launch.",
-    "recoveryBannerTitle": "App recovered from a crash",
-    "recoveryBannerDesc": "The app crashed {{count}} time(s) before this launch and was automatically restarted."
+    "refreshTooltip": "충돌 기록 및 백업 목록 새로 고침",
+    "createBackup": "백업 만들기",
+    "createBackupTooltip": "현재 구성 파일 백업",
+    "restart": "앱 재시작",
+    "restartTooltip": "애플리케이션을 안전하게 재시작",
+    "clearHistory": "기록 지우기",
+    "clearConfirmTitle": "충돌 기록 지우기",
+    "clearConfirmDesc": "모든 충돌 기록을 지우시겠습니까? 이 작업은 취소할 수 없습니다.",
+    "totalCrashes": "총 충돌 수",
+    "recentCrashes": "최근 기록",
+    "lastBackup": "마지막 백업",
+    "crashHistory": "충돌 기록",
+    "noCrashes": "충돌 기록이 없습니다. 애플리케이션이 정상적으로 실행 중입니다.",
+    "cause": "원인",
+    "recommendations": "권장 사항",
+    "autoFixes": "자동 수정",
+    "autoFixesApplied": "자동 수정이 적용됨",
+    "diagnosedBy": "진단 모델",
+    "backups": "설정 백업",
+    "noBackups": "사용 가능한 백업이 없습니다",
+    "restore": "복원",
+    "restoreConfirmTitle": "백업에서 복원",
+    "restoreConfirmDesc": "이 백업에서 복원하시겠습니까? 현재 구성이 덮어씌워집니다.",
+    "guardianEnabled": "자가 복구",
+    "guardianEnabledDesc": "활성화하면 비정상 종료 시 앱이 자동으로 재시작되고, 연속 충돌 시 백업과 AI 진단을 수행합니다. 다음 시작 시 적용됩니다.",
+    "recoveryBannerTitle": "충돌에서 복구됨",
+    "recoveryBannerDesc": "이번 시작 전에 앱이 {{count}} 번 충돌했으며 자동으로 재시작되었습니다."
   },
   "approval": {
     "title": "명령 실행 확인",
@@ -1355,55 +1355,55 @@
   "provider_templates": {
     "anthropic": {
       "name": "Anthropic",
-      "description": "Claude series models"
+      "description": "Claude 시리즈 모델"
     },
     "openai": {
       "name": "OpenAI",
-      "description": "GPT series models (Responses API)"
+      "description": "GPT 시리즈 모델 (Responses API)"
     },
     "openai-chat": {
       "name": "OpenAI (Chat)",
-      "description": "GPT series — Chat Completions API"
+      "description": "GPT 시리즈 — Chat Completions API"
     },
     "deepseek": {
       "name": "DeepSeek",
-      "description": "DeepSeek series reasoning models"
+      "description": "DeepSeek 시리즈 추론 모델"
     },
     "google-gemini": {
       "name": "Google Gemini",
-      "description": "Gemini series multimodal models"
+      "description": "Gemini 시리즈 멀티모달 모델"
     },
     "xai": {
       "name": "xAI",
-      "description": "Grok series models"
+      "description": "Grok 시리즈 모델"
     },
     "mistral": {
       "name": "Mistral",
-      "description": "Mistral series European models"
+      "description": "Mistral 시리즈 유럽 모델"
     },
     "openrouter": {
       "name": "OpenRouter",
-      "description": "Multi-model aggregation gateway, hundreds of models with one key"
+      "description": "멀티모델 집계 게이트웨이, 하나의 Key 로 수백 개 모델"
     },
     "groq": {
       "name": "Groq",
-      "description": "Ultra-high-speed LPU inference"
+      "description": "초고속 LPU 추론"
     },
     "moonshot": {
       "name": "Moonshot AI (Kimi)",
-      "description": "Kimi series long-context models"
+      "description": "Kimi 시리즈 긴 컨텍스트 모델"
     },
     "qwen": {
       "name": "Qwen",
-      "description": "Alibaba Cloud DashScope models"
+      "description": "Alibaba Cloud DashScope 모델"
     },
     "volcengine": {
       "name": "Volcengine (Doubao)",
-      "description": "ByteDance Doubao series models"
+      "description": "ByteDance Doubao 시리즈 모델"
     },
     "zhipu": {
       "name": "Zhipu AI (Z.AI)",
-      "description": "GLM series models"
+      "description": "GLM 시리즈 모델"
     },
     "minimax": {
       "name": "MiniMax",
@@ -1411,19 +1411,19 @@
     },
     "kimi-coding": {
       "name": "Kimi Coding",
-      "description": "Kimi for Coding (Anthropic compatible)"
+      "description": "Kimi for Coding (Anthropic 호환)"
     },
     "xiaomi": {
       "name": "Xiaomi MiMo",
-      "description": "MiMo series models (Anthropic compatible)"
+      "description": "MiMo 시리즈 모델 (Anthropic 호환)"
     },
     "qianfan": {
       "name": "Baidu Qianfan",
-      "description": "Baidu AI Cloud Qianfan Platform"
+      "description": "Baidu AI Cloud 천범 플랫폼"
     },
     "modelstudio": {
       "name": "阿里云百炼",
-      "description": "阿里云 大模型服务平台，支持Coding Plan"
+      "description": "Alibaba Cloud 대모델 서비스 플랫폼, Coding Plan 지원"
     },
     "nvidia": {
       "name": "NVIDIA",
@@ -1431,204 +1431,204 @@
     },
     "together": {
       "name": "Together AI",
-      "description": "Open source model cloud inference platform"
+      "description": "오픈소스 모델 클라우드 추론 플랫폼"
     },
     "ollama": {
       "name": "Ollama",
-      "description": "Local + cloud model inference, no API Key required"
+      "description": "로컬 + 클라우드 모델 추론, API Key 불필요"
     },
     "vllm": {
       "name": "vLLM",
-      "description": "High-performance local inference engine"
+      "description": "고성능 로컬 추론 엔진"
     },
     "lm-studio": {
       "name": "LM Studio",
-      "description": "Desktop local model inference"
+      "description": "데스크톱 로컬 모델 추론"
     },
     "huggingface": {
       "name": "Hugging Face",
-      "description": "HF Inference API for open-source models"
+      "description": "HF Inference API 오픈소스 모델"
     },
     "byteplus": {
       "name": "BytePlus",
-      "description": "BytePlus AI international model platform"
+      "description": "BytePlus AI 국제 모델 플랫폼"
     },
     "chutes": {
       "name": "Chutes (TEE)",
-      "description": "Trusted Execution Environment AI inference"
+      "description": "TEE 신뢰 실행 환경 AI 추론"
     },
     "cloudflare-ai": {
       "name": "Cloudflare AI Gateway",
-      "description": "Cloudflare AI gateway proxy"
+      "description": "Cloudflare AI 게이트웨이 프록시"
     },
     "litellm": {
       "name": "LiteLLM",
-      "description": "Unified LLM API proxy gateway"
+      "description": "통합 LLM API 프록시 게이트웨이"
     }
   },
   "slashCommands": {
-    "title": "Commands",
+    "title": "명령",
     "new": {
-      "description": "Start a new chat"
+      "description": "새 채팅 시작"
     },
     "clear": {
-      "description": "Clear conversation"
+      "description": "대화 지우기"
     },
     "compact": {
-      "description": "Compress context"
+      "description": "컨텍스트 압축"
     },
     "stop": {
-      "description": "Stop current reply"
+      "description": "현재 응답 중지"
     },
     "rename": {
-      "description": "Rename session"
+      "description": "세션 이름 변경"
     },
     "model": {
-      "description": "Switch model"
+      "description": "모델 전환"
     },
     "models": {
-      "description": "List all available models",
-      "cardTitle": "Available Models"
+      "description": "사용 가능한 모든 모델 나열",
+      "cardTitle": "사용 가능한 모델"
     },
     "think": {
-      "description": "Set thinking effort"
+      "description": "사고 수준 설정"
     },
     "remember": {
-      "description": "Save a memory"
+      "description": "기억 저장"
     },
     "forget": {
-      "description": "Delete a memory"
+      "description": "기억 삭제"
     },
     "memories": {
-      "description": "List memories"
+      "description": "기억 목록"
     },
     "agent": {
-      "description": "Switch agent"
+      "description": "Agent 전환"
     },
     "agents": {
-      "description": "List agents"
+      "description": "Agent 목록"
     },
     "help": {
-      "description": "Show all commands"
+      "description": "모든 명령 표시"
     },
     "status": {
-      "description": "Session status"
+      "description": "세션 상태"
     },
     "export": {
-      "description": "Export as Markdown"
+      "description": "Markdown 으로 내보내기"
     },
     "usage": {
-      "description": "Token usage"
+      "description": "토큰 사용량"
     },
     "search": {
-      "description": "Search the web"
+      "description": "웹 검색"
     },
     "permission": {
-      "description": "Set tool permission mode (auto/ask/full)"
+      "description": "도구 권한 모드 설정 (auto/ask/full)"
     },
     "plan": {
-      "description": "Enter/exit plan mode"
+      "description": "계획 모드 진입/종료"
     },
     "prompts": {
-      "description": "View system prompt"
+      "description": "시스템 프롬프트 보기"
     },
     "recap": {
-      "description": "Generate a deep analysis recap report"
+      "description": "심층 분석 회고 리포트 생성"
     },
     "context": {
-      "description": "Show context window breakdown"
+      "description": "컨텍스트 윈도우 내역 표시"
     },
     "categories": {
-      "session": "Session",
-      "model": "Model",
-      "memory": "Memory",
+      "session": "세션",
+      "model": "모델",
+      "memory": "기억",
       "agent": "Agent",
-      "utility": "Utility",
-      "skill": "Skills"
+      "utility": "유틸리티",
+      "skill": "스킬"
     },
-    "noResults": "No matching commands",
-    "buttonTip": "Quick Commands"
+    "noResults": "일치하는 명령이 없습니다",
+    "buttonTip": "빠른 명령"
   },
   "planMode": {
     "enter": "계획 모드 진입",
-    "indicator": "Plan Mode",
-    "plan": "Execution Plan",
-    "openPanel": "View in panel",
-    "openFolder": "Open folder",
-    "planningInProgress": "Creating plan...",
-    "messageSentToPlanner": "Message forwarded to planning agent",
-    "restricted": "Plan Mode: AI will gather info and collaborate with you to create a plan",
-    "approveAndExecute": "Start Execution",
-    "keepPlanning": "Keep Planning",
-    "exitWithout": "Exit Plan",
-    "showPlan": "Show Plan",
-    "executing": "Executing plan...",
-    "stepsCompleted": "steps completed",
-    "completed": "Completed",
-    "placeholder": "Describe what you want to achieve...",
-    "panelTitle": "Execution Plan",
-    "editorPlaceholder": "Edit plan content here...\n\n## Background\nDescribe the context: what problem to solve, why, and expected outcome\n\n### Phase 1: Analysis\n- [ ] Step description\n\n### Phase 2: Implementation\n- [ ] Step description",
-    "stepsDetected": "steps detected",
+    "indicator": "계획 모드",
+    "plan": "실행 계획",
+    "openPanel": "패널에서 보기",
+    "openFolder": "폴더 열기",
+    "planningInProgress": "계획 작성 중...",
+    "messageSentToPlanner": "메시지가 계획 Agent 로 전달되었습니다",
+    "restricted": "계획 모드: AI 가 정보를 수집하고 당신과 협력하여 계획을 작성합니다",
+    "approveAndExecute": "실행 시작",
+    "keepPlanning": "계획 계속",
+    "exitWithout": "계획 종료",
+    "showPlan": "계획 표시",
+    "executing": "계획 실행 중...",
+    "stepsCompleted": "단계 완료",
+    "completed": "완료",
+    "placeholder": "달성하고 싶은 것을 설명하세요...",
+    "panelTitle": "실행 계획",
+    "editorPlaceholder": "여기서 계획 내용을 편집...\n\n## Background\n배경 기술: 해결할 문제, 이유, 예상 결과\n\n### Phase 1: 분석\n- [ ] 단계 설명\n\n### Phase 2: 구현\n- [ ] 단계 설명",
+    "stepsDetected": "단계 감지됨",
     "noSteps": "단계가 없습니다",
-    "executeCommand": "Start executing the plan. Complete each step in order, calling update_plan_step to track progress.",
-    "planning": "Creating plan...",
-    "pause": "Pause",
-    "resume": "Resume",
-    "pausedBanner": "Plan execution is paused",
+    "executeCommand": "계획 실행을 시작하세요. 각 단계를 순서대로 완료하고 update_plan_step 을 호출하여 진행 상황을 추적하세요.",
+    "planning": "계획 작성 중...",
+    "pause": "일시 정지",
+    "resume": "재개",
+    "pausedBanner": "계획 실행이 일시 정지됨",
     "review": {
-      "badge": "Review"
+      "badge": "검토"
     },
     "paused": {
-      "badge": "Paused"
+      "badge": "일시 정지됨"
     },
     "card": {
-      "phases": "phases",
-      "steps": "steps"
+      "phases": "단계",
+      "steps": "단계"
     },
-    "versions": "Version History",
-    "versionHistory": "Plan Versions",
-    "currentVersion": "Current",
-    "noVersions": "No previous versions",
-    "requestChanges": "Request Changes",
-    "requestChangesPlaceholder": "Describe what you want changed...",
-    "maximize": "Maximize",
-    "minimize": "Minimize",
-    "popOut": "Pop Out",
-    "popOutActive": "Opened in a separate window",
-    "reattach": "Reattach to Panel",
-    "rollback": "Rollback Changes",
+    "versions": "버전 기록",
+    "versionHistory": "계획 버전",
+    "currentVersion": "현재",
+    "noVersions": "이전 버전이 없습니다",
+    "requestChanges": "변경 요청",
+    "requestChangesPlaceholder": "변경하고 싶은 내용을 설명...",
+    "maximize": "최대화",
+    "minimize": "최소화",
+    "popOut": "별도 창으로 열기",
+    "popOutActive": "별도 창에서 열림",
+    "reattach": "패널로 되돌리기",
+    "rollback": "변경 사항 롤백",
     "comment": {
-      "hint": "Select text to add comments and collaboratively refine the plan",
-      "placeholder": "Suggest changes for the selected content...",
-      "submit": "Send",
-      "shortcut": "⌘+Enter to send"
+      "hint": "텍스트를 선택하여 코멘트를 추가하고 협력해 계획을 수정하세요",
+      "placeholder": "선택한 내용에 대한 변경 제안...",
+      "submit": "보내기",
+      "shortcut": "⌘+Enter 로 보내기"
     },
     "question": {
-      "title": "AI needs your input",
-      "submit": "Submit Answers",
-      "retry": "Retry",
-      "answered": "Answered",
-      "customPlaceholder": "Enter custom answer...",
-      "recommended": "Recommended",
-      "multiSelect": "multi",
-      "default": "default",
-      "preview": "Preview",
-      "timeoutHint": "Time remaining",
-      "timedOut": "timed out"
+      "title": "입력이 필요합니다",
+      "submit": "답변 제출",
+      "retry": "재시도",
+      "answered": "답변 완료",
+      "customPlaceholder": "사용자 지정 답변 입력...",
+      "recommended": "권장",
+      "multiSelect": "다중 선택",
+      "default": "기본값",
+      "preview": "미리보기",
+      "timeoutHint": "남은 시간",
+      "timedOut": "시간 초과"
     }
   },
   "canvas": {
-    "refresh": "Refresh",
-    "maximize": "Maximize",
-    "minimize": "Minimize",
-    "close": "Close",
-    "snapshot": "Snapshot",
+    "refresh": "새로 고침",
+    "maximize": "최대화",
+    "minimize": "최소화",
+    "close": "닫기",
+    "snapshot": "스냅샷",
     "export": "내보내기",
-    "versions": "Version History",
-    "openPreview": "Open Preview",
-    "popOut": "Pop Out",
-    "popOutActive": "Opened in separate window",
-    "reattach": "Back to Panel"
+    "versions": "버전 기록",
+    "openPreview": "미리보기 열기",
+    "popOut": "별도 창으로 열기",
+    "popOutActive": "별도 창에서 열림",
+    "reattach": "패널로 되돌리기"
   },
   "context": {
     "title": "컨텍스트 윈도우",
@@ -1651,24 +1651,24 @@
   "recap": {
     "generate": "리포트 생성",
     "generating": "생성 중...",
-    "history": "History",
-    "noReports": "No reports yet. Click Generate to build your first recap.",
-    "selectReport": "Select a report from the history dropdown.",
-    "exportHtml": "Export HTML",
-    "exportedTo": "Exported to {{path}}",
-    "delete": "Delete",
-    "confirmDelete": "Delete this report?",
+    "history": "기록",
+    "noReports": "아직 리포트가 없습니다. 생성을 클릭하여 첫 회고를 만드세요.",
+    "selectReport": "기록 드롭다운에서 리포트를 선택하세요.",
+    "exportHtml": "HTML 내보내기",
+    "exportedTo": "{{path}} 에 내보냈습니다",
+    "delete": "삭제",
+    "confirmDelete": "이 리포트를 삭제하시겠습니까?",
     "range": {
-      "incremental": "Since last report",
-      "days": "Last {{n}} days"
+      "incremental": "마지막 리포트 이후",
+      "days": "최근 {{n}} 일"
     },
     "progress": {
-      "started": "Starting ({{n}} sessions)",
-      "extractingFacets": "Extracting facets {{done}}/{{total}}",
-      "aggregating": "Running dashboard queries…",
-      "generatingSections": "Generating sections {{done}}/{{total}}",
-      "persisting": "Persisting report…",
-      "done": "Done"
+      "started": "시작 ({{n}} 개 세션)",
+      "extractingFacets": "Facet 추출 중 {{done}}/{{total}}",
+      "aggregating": "대시보드 쿼리 실행 중…",
+      "generatingSections": "섹션 생성 중 {{done}}/{{total}}",
+      "persisting": "리포트 저장 중…",
+      "done": "완료"
     }
   },
   "dashboard": {

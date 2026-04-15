@@ -110,7 +110,7 @@
     "statusCache": "Cache",
     "fallbackTitle": "Penukaran Model",
     "fallbackReason": "Sebab",
-    "fallbackFrom": "Asal",
+    "fallbackFrom": "Model asal",
     "fallbackTo": "Ganti",
     "fallbackProgress": "Rantai Penukaran",
     "fallbackError": "Butiran Ralat",
@@ -857,7 +857,7 @@
     "toolTaskUpdateDesc": "Kemas kini status atau kandungan tugasan sedia ada",
     "toolTaskListName": "Senaraikan tugasan",
     "toolTaskListDesc": "Senaraikan semua tugasan dalam sesi semasa",
-    "agentSandbox": "Docker Sandbox",
+    "agentSandbox": "Sandbox Docker",
     "agentSandboxDesc": "Jalankan arahan dalam bekas Docker",
     "agentSkillEnvCheck": "Semakan Persekitaran",
     "agentSkillEnvCheckDesc": "Sebelum menyuntik kemahiran, sahkan binari, pemboleh ubah persekitaran dan OS yang diperlukan; langkau jika tidak dipenuhi",
@@ -1054,7 +1054,7 @@
     "losangeles": "Los Angeles (UTC-8)",
     "toronto": "Toronto (UTC-5)",
     "saopaulo": "São Paulo (UTC-3)",
-    "mexicocity": "Bandar Mexico (UTC-6)",
+    "mexicocity": "Mexico City (UTC-6)",
     "london": "London (UTC+0)",
     "paris": "Paris (UTC+1)",
     "berlin": "Berlin (UTC+1)",
@@ -1311,33 +1311,33 @@
   },
   "health": {
     "refresh": "Muat semula",
-    "refreshTooltip": "Refresh crash history and backup list",
-    "createBackup": "Create Backup",
-    "createBackupTooltip": "Back up current configuration files",
-    "restart": "Restart App",
-    "restartTooltip": "Safely restart the application",
-    "clearHistory": "Clear History",
-    "clearConfirmTitle": "Clear Crash History",
-    "clearConfirmDesc": "Are you sure you want to clear all crash history? This action cannot be undone.",
-    "totalCrashes": "Total Crashes",
-    "recentCrashes": "Recent Records",
-    "lastBackup": "Last Backup",
-    "crashHistory": "Crash History",
-    "noCrashes": "No crash records. The application is running normally.",
-    "cause": "Cause",
-    "recommendations": "Recommendations",
-    "autoFixes": "Auto Fixes",
-    "autoFixesApplied": "Auto-fixes applied",
-    "diagnosedBy": "Diagnosed by",
-    "backups": "Configuration Backups",
-    "noBackups": "No backups available",
-    "restore": "Restore",
-    "restoreConfirmTitle": "Restore Backup",
-    "restoreConfirmDesc": "Are you sure you want to restore from this backup? Your current configuration will be overwritten.",
-    "guardianEnabled": "Self-Healing",
-    "guardianEnabledDesc": "When enabled, the app will automatically restart on abnormal exits, and perform backup and AI-powered diagnosis on consecutive crashes. Takes effect on next launch.",
-    "recoveryBannerTitle": "App recovered from a crash",
-    "recoveryBannerDesc": "The app crashed {{count}} time(s) before this launch and was automatically restarted."
+    "refreshTooltip": "Muat semula sejarah kerosakan dan senarai sandaran",
+    "createBackup": "Cipta sandaran",
+    "createBackupTooltip": "Sandarkan fail konfigurasi semasa",
+    "restart": "Mulakan semula aplikasi",
+    "restartTooltip": "Mulakan semula aplikasi dengan selamat",
+    "clearHistory": "Kosongkan sejarah",
+    "clearConfirmTitle": "Kosongkan sejarah kerosakan",
+    "clearConfirmDesc": "Adakah anda pasti mahu mengosongkan semua sejarah kerosakan? Tindakan ini tidak boleh dibatalkan.",
+    "totalCrashes": "Jumlah kerosakan",
+    "recentCrashes": "Rekod terkini",
+    "lastBackup": "Sandaran terakhir",
+    "crashHistory": "Sejarah kerosakan",
+    "noCrashes": "Tiada rekod kerosakan. Aplikasi berjalan normal.",
+    "cause": "Punca",
+    "recommendations": "Syor",
+    "autoFixes": "Pembaikan automatik",
+    "autoFixesApplied": "Pembaikan automatik dilaksanakan",
+    "diagnosedBy": "Didiagnosis oleh",
+    "backups": "Sandaran konfigurasi",
+    "noBackups": "Tiada sandaran tersedia",
+    "restore": "Pulihkan",
+    "restoreConfirmTitle": "Pulihkan sandaran",
+    "restoreConfirmDesc": "Adakah anda pasti mahu memulihkan daripada sandaran ini? Konfigurasi semasa anda akan ditulis ganti.",
+    "guardianEnabled": "Baik pulih kendiri",
+    "guardianEnabledDesc": "Apabila didayakan, aplikasi akan dimulakan semula secara automatik pada keluar abnormal, dan melakukan sandaran dan diagnosis AI pada kerosakan berturut-turut. Berkuat kuasa pada permulaan seterusnya.",
+    "recoveryBannerTitle": "Aplikasi pulih daripada kerosakan",
+    "recoveryBannerDesc": "Aplikasi mengalami kerosakan {{count}} kali sebelum permulaan ini dan telah dimulakan semula secara automatik."
   },
   "approval": {
     "title": "Pengesahan Pelaksanaan Perintah",
@@ -1355,55 +1355,55 @@
   "provider_templates": {
     "anthropic": {
       "name": "Anthropic",
-      "description": "Claude series models"
+      "description": "Model siri Claude"
     },
     "openai": {
       "name": "OpenAI",
-      "description": "GPT series models (Responses API)"
+      "description": "Model GPT (Responses API)"
     },
     "openai-chat": {
       "name": "OpenAI (Chat)",
-      "description": "GPT series — Chat Completions API"
+      "description": "Siri GPT — Chat Completions API"
     },
     "deepseek": {
       "name": "DeepSeek",
-      "description": "DeepSeek series reasoning models"
+      "description": "Model penaakulan siri DeepSeek"
     },
     "google-gemini": {
       "name": "Google Gemini",
-      "description": "Gemini series multimodal models"
+      "description": "Model multimodal siri Gemini"
     },
     "xai": {
       "name": "xAI",
-      "description": "Grok series models"
+      "description": "Model siri Grok"
     },
     "mistral": {
       "name": "Mistral",
-      "description": "Mistral series European models"
+      "description": "Model Eropah siri Mistral"
     },
     "openrouter": {
       "name": "OpenRouter",
-      "description": "Multi-model aggregation gateway, hundreds of models with one key"
+      "description": "Get laluan agregasi multi-model, ratusan model dengan satu key"
     },
     "groq": {
       "name": "Groq",
-      "description": "Ultra-high-speed LPU inference"
+      "description": "Inferens LPU berkelajuan tinggi"
     },
     "moonshot": {
       "name": "Moonshot AI (Kimi)",
-      "description": "Kimi series long-context models"
+      "description": "Model Kimi konteks panjang"
     },
     "qwen": {
       "name": "Qwen",
-      "description": "Alibaba Cloud DashScope models"
+      "description": "Model Alibaba Cloud DashScope"
     },
     "volcengine": {
       "name": "Volcengine (Doubao)",
-      "description": "ByteDance Doubao series models"
+      "description": "Model ByteDance Doubao"
     },
     "zhipu": {
       "name": "Zhipu AI (Z.AI)",
-      "description": "GLM series models"
+      "description": "Model siri GLM"
     },
     "minimax": {
       "name": "MiniMax",
@@ -1411,19 +1411,19 @@
     },
     "kimi-coding": {
       "name": "Kimi Coding",
-      "description": "Kimi for Coding (Anthropic compatible)"
+      "description": "Kimi for Coding (serasi Anthropic)"
     },
     "xiaomi": {
       "name": "Xiaomi MiMo",
-      "description": "MiMo series models (Anthropic compatible)"
+      "description": "Model MiMo (serasi Anthropic)"
     },
     "qianfan": {
       "name": "Baidu Qianfan",
-      "description": "Baidu AI Cloud Qianfan Platform"
+      "description": "Platform Qianfan Baidu AI Cloud"
     },
     "modelstudio": {
       "name": "阿里云百炼",
-      "description": "阿里云 大模型服务平台，支持Coding Plan"
+      "description": "Platform model besar Alibaba Cloud, menyokong Coding Plan"
     },
     "nvidia": {
       "name": "NVIDIA",
@@ -1431,204 +1431,204 @@
     },
     "together": {
       "name": "Together AI",
-      "description": "Open source model cloud inference platform"
+      "description": "Platform inferens awan untuk model sumber terbuka"
     },
     "ollama": {
       "name": "Ollama",
-      "description": "Local + cloud model inference, no API Key required"
+      "description": "Inferens model tempatan + awan, tidak perlu API Key"
     },
     "vllm": {
       "name": "vLLM",
-      "description": "High-performance local inference engine"
+      "description": "Enjin inferens tempatan berprestasi tinggi"
     },
     "lm-studio": {
       "name": "LM Studio",
-      "description": "Desktop local model inference"
+      "description": "Inferens model tempatan desktop"
     },
     "huggingface": {
       "name": "Hugging Face",
-      "description": "HF Inference API for open-source models"
+      "description": "HF Inference API untuk model sumber terbuka"
     },
     "byteplus": {
       "name": "BytePlus",
-      "description": "BytePlus AI international model platform"
+      "description": "Platform model AI antarabangsa BytePlus"
     },
     "chutes": {
       "name": "Chutes (TEE)",
-      "description": "Trusted Execution Environment AI inference"
+      "description": "Inferens AI dalam persekitaran pelaksanaan dipercayai (TEE)"
     },
     "cloudflare-ai": {
       "name": "Cloudflare AI Gateway",
-      "description": "Cloudflare AI gateway proxy"
+      "description": "Get laluan proksi Cloudflare AI"
     },
     "litellm": {
       "name": "LiteLLM",
-      "description": "Unified LLM API proxy gateway"
+      "description": "Get laluan proksi LLM API bersatu"
     }
   },
   "slashCommands": {
-    "title": "Commands",
+    "title": "Arahan",
     "new": {
-      "description": "Start a new chat"
+      "description": "Mulakan sembang baharu"
     },
     "clear": {
-      "description": "Clear conversation"
+      "description": "Kosongkan perbualan"
     },
     "compact": {
-      "description": "Compress context"
+      "description": "Mampatkan konteks"
     },
     "stop": {
-      "description": "Stop current reply"
+      "description": "Hentikan respons semasa"
     },
     "rename": {
-      "description": "Rename session"
+      "description": "Namakan semula sesi"
     },
     "model": {
-      "description": "Switch model"
+      "description": "Tukar model"
     },
     "models": {
-      "description": "List all available models",
-      "cardTitle": "Available Models"
+      "description": "Senaraikan semua model tersedia",
+      "cardTitle": "Model tersedia"
     },
     "think": {
-      "description": "Set thinking effort"
+      "description": "Tetapkan tahap pemikiran"
     },
     "remember": {
-      "description": "Save a memory"
+      "description": "Simpan ingatan"
     },
     "forget": {
-      "description": "Delete a memory"
+      "description": "Padam ingatan"
     },
     "memories": {
-      "description": "List memories"
+      "description": "Senaraikan ingatan"
     },
     "agent": {
-      "description": "Switch agent"
+      "description": "Tukar Agent"
     },
     "agents": {
-      "description": "List agents"
+      "description": "Senaraikan agents"
     },
     "help": {
-      "description": "Show all commands"
+      "description": "Tunjukkan semua arahan"
     },
     "status": {
-      "description": "Session status"
+      "description": "Status sesi"
     },
     "export": {
-      "description": "Export as Markdown"
+      "description": "Eksport sebagai Markdown"
     },
     "usage": {
-      "description": "Token usage"
+      "description": "Penggunaan token"
     },
     "search": {
-      "description": "Search the web"
+      "description": "Cari di web"
     },
     "permission": {
-      "description": "Set tool permission mode (auto/ask/full)"
+      "description": "Tetapkan mod kebenaran alat (auto/ask/full)"
     },
     "plan": {
-      "description": "Enter/exit plan mode"
+      "description": "Masuk/keluar plan mode"
     },
     "prompts": {
-      "description": "View system prompt"
+      "description": "Lihat system prompt"
     },
     "recap": {
-      "description": "Generate a deep analysis recap report"
+      "description": "Jana laporan tinjauan analisis mendalam"
     },
     "context": {
-      "description": "Show context window breakdown"
+      "description": "Tunjukkan pecahan tetingkap konteks"
     },
     "categories": {
-      "session": "Session",
+      "session": "Sesi",
       "model": "Model",
-      "memory": "Memory",
+      "memory": "Ingatan",
       "agent": "Agent",
-      "utility": "Utility",
+      "utility": "Utiliti",
       "skill": "Skills"
     },
-    "noResults": "No matching commands",
-    "buttonTip": "Quick Commands"
+    "noResults": "Tiada arahan yang sepadan",
+    "buttonTip": "Arahan pantas"
   },
   "planMode": {
     "enter": "Masuk Plan Mode",
     "indicator": "Plan Mode",
-    "plan": "Execution Plan",
-    "openPanel": "View in panel",
-    "openFolder": "Open folder",
-    "planningInProgress": "Creating plan...",
-    "messageSentToPlanner": "Message forwarded to planning agent",
-    "restricted": "Plan Mode: AI will gather info and collaborate with you to create a plan",
-    "approveAndExecute": "Start Execution",
-    "keepPlanning": "Keep Planning",
-    "exitWithout": "Exit Plan",
-    "showPlan": "Show Plan",
-    "executing": "Executing plan...",
-    "stepsCompleted": "steps completed",
-    "completed": "Completed",
-    "placeholder": "Describe what you want to achieve...",
-    "panelTitle": "Execution Plan",
-    "editorPlaceholder": "Edit plan content here...\n\n## Background\nDescribe the context: what problem to solve, why, and expected outcome\n\n### Phase 1: Analysis\n- [ ] Step description\n\n### Phase 2: Implementation\n- [ ] Step description",
-    "stepsDetected": "steps detected",
+    "plan": "Pelan pelaksanaan",
+    "openPanel": "Lihat dalam panel",
+    "openFolder": "Buka folder",
+    "planningInProgress": "Mencipta pelan...",
+    "messageSentToPlanner": "Mesej dihantar kepada Agent perancangan",
+    "restricted": "Plan Mode: AI akan mengumpul maklumat dan bekerjasama dengan anda untuk mencipta pelan",
+    "approveAndExecute": "Mula pelaksanaan",
+    "keepPlanning": "Teruskan merancang",
+    "exitWithout": "Keluar dari pelan",
+    "showPlan": "Tunjuk pelan",
+    "executing": "Melaksanakan pelan...",
+    "stepsCompleted": "langkah selesai",
+    "completed": "Selesai",
+    "placeholder": "Terangkan apa yang anda mahu capai...",
+    "panelTitle": "Pelan pelaksanaan",
+    "editorPlaceholder": "Edit kandungan pelan di sini...\n\n## Background\nTerangkan konteks: apa masalah yang perlu diselesaikan, mengapa, dan hasil yang dijangka\n\n### Phase 1: Analisis\n- [ ] Penerangan langkah\n\n### Phase 2: Pelaksanaan\n- [ ] Penerangan langkah",
+    "stepsDetected": "langkah dikesan",
     "noSteps": "Tiada langkah",
-    "executeCommand": "Start executing the plan. Complete each step in order, calling update_plan_step to track progress.",
-    "planning": "Creating plan...",
-    "pause": "Pause",
-    "resume": "Resume",
-    "pausedBanner": "Plan execution is paused",
+    "executeCommand": "Mula melaksanakan pelan. Selesaikan setiap langkah mengikut urutan, memanggil update_plan_step untuk menjejak kemajuan.",
+    "planning": "Mencipta pelan...",
+    "pause": "Jeda",
+    "resume": "Sambung",
+    "pausedBanner": "Pelaksanaan pelan dijeda",
     "review": {
-      "badge": "Review"
+      "badge": "Semakan"
     },
     "paused": {
-      "badge": "Paused"
+      "badge": "Dijeda"
     },
     "card": {
-      "phases": "phases",
-      "steps": "steps"
+      "phases": "fasa",
+      "steps": "langkah"
     },
-    "versions": "Version History",
-    "versionHistory": "Plan Versions",
-    "currentVersion": "Current",
-    "noVersions": "No previous versions",
-    "requestChanges": "Request Changes",
-    "requestChangesPlaceholder": "Describe what you want changed...",
-    "maximize": "Maximize",
-    "minimize": "Minimize",
-    "popOut": "Pop Out",
-    "popOutActive": "Opened in a separate window",
-    "reattach": "Reattach to Panel",
-    "rollback": "Rollback Changes",
+    "versions": "Sejarah versi",
+    "versionHistory": "Versi pelan",
+    "currentVersion": "Semasa",
+    "noVersions": "Tiada versi sebelumnya",
+    "requestChanges": "Minta perubahan",
+    "requestChangesPlaceholder": "Terangkan apa yang anda mahu diubah...",
+    "maximize": "Maksimumkan",
+    "minimize": "Minimumkan",
+    "popOut": "Buka dalam tetingkap berasingan",
+    "popOutActive": "Dibuka dalam tetingkap berasingan",
+    "reattach": "Kembali ke panel",
+    "rollback": "Gulung balik perubahan",
     "comment": {
-      "hint": "Select text to add comments and collaboratively refine the plan",
-      "placeholder": "Suggest changes for the selected content...",
-      "submit": "Send",
-      "shortcut": "⌘+Enter to send"
+      "hint": "Pilih teks untuk menambah komen dan memurnikan pelan secara kolaboratif",
+      "placeholder": "Cadangkan perubahan untuk kandungan yang dipilih...",
+      "submit": "Hantar",
+      "shortcut": "⌘+Enter untuk hantar"
     },
     "question": {
-      "title": "AI needs your input",
-      "submit": "Submit Answers",
-      "retry": "Retry",
-      "answered": "Answered",
-      "customPlaceholder": "Enter custom answer...",
-      "recommended": "Recommended",
-      "multiSelect": "multi",
-      "default": "default",
-      "preview": "Preview",
-      "timeoutHint": "Time remaining",
-      "timedOut": "timed out"
+      "title": "AI memerlukan input anda",
+      "submit": "Hantar jawapan",
+      "retry": "Cuba lagi",
+      "answered": "Dijawab",
+      "customPlaceholder": "Masukkan jawapan tersuai...",
+      "recommended": "Disyorkan",
+      "multiSelect": "berbilang",
+      "default": "lalai",
+      "preview": "Pratonton",
+      "timeoutHint": "Masa yang tinggal",
+      "timedOut": "tamat masa"
     }
   },
   "canvas": {
-    "refresh": "Refresh",
-    "maximize": "Maximize",
-    "minimize": "Minimize",
-    "close": "Close",
+    "refresh": "Muat semula",
+    "maximize": "Maksimumkan",
+    "minimize": "Minimumkan",
+    "close": "Tutup",
     "snapshot": "Snapshot",
     "export": "Eksport",
-    "versions": "Version History",
-    "openPreview": "Open Preview",
-    "popOut": "Pop Out",
-    "popOutActive": "Opened in separate window",
-    "reattach": "Back to Panel"
+    "versions": "Sejarah versi",
+    "openPreview": "Buka pratonton",
+    "popOut": "Buka dalam tetingkap berasingan",
+    "popOutActive": "Dibuka dalam tetingkap berasingan",
+    "reattach": "Kembali ke panel"
   },
   "context": {
     "title": "Tetingkap konteks",
@@ -1651,24 +1651,24 @@
   "recap": {
     "generate": "Jana laporan",
     "generating": "Menjana...",
-    "history": "History",
-    "noReports": "No reports yet. Click Generate to build your first recap.",
-    "selectReport": "Select a report from the history dropdown.",
-    "exportHtml": "Export HTML",
-    "exportedTo": "Exported to {{path}}",
-    "delete": "Delete",
-    "confirmDelete": "Delete this report?",
+    "history": "Sejarah",
+    "noReports": "Belum ada laporan. Klik Jana untuk membina tinjauan pertama anda.",
+    "selectReport": "Pilih laporan dari menu lungsur sejarah.",
+    "exportHtml": "Eksport HTML",
+    "exportedTo": "Dieksport ke {{path}}",
+    "delete": "Padam",
+    "confirmDelete": "Padamkan laporan ini?",
     "range": {
-      "incremental": "Since last report",
-      "days": "Last {{n}} days"
+      "incremental": "Sejak laporan terakhir",
+      "days": "{{n}} hari lepas"
     },
     "progress": {
-      "started": "Starting ({{n}} sessions)",
-      "extractingFacets": "Extracting facets {{done}}/{{total}}",
-      "aggregating": "Running dashboard queries…",
-      "generatingSections": "Generating sections {{done}}/{{total}}",
-      "persisting": "Persisting report…",
-      "done": "Done"
+      "started": "Memulakan ({{n}} sesi)",
+      "extractingFacets": "Mengekstrak fasad {{done}}/{{total}}",
+      "aggregating": "Menjalankan pertanyaan dashboard…",
+      "generatingSections": "Menjana bahagian {{done}}/{{total}}",
+      "persisting": "Menyimpan laporan…",
+      "done": "Selesai"
     }
   },
   "dashboard": {

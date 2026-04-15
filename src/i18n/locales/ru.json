@@ -110,7 +110,7 @@
     "statusCache": "Кэш",
     "fallbackTitle": "Переключение модели",
     "fallbackReason": "Причина",
-    "fallbackFrom": "Исходная",
+    "fallbackFrom": "Исходная модель",
     "fallbackTo": "Резервная",
     "fallbackProgress": "Цепочка переключения",
     "fallbackError": "Детали ошибки",
@@ -549,7 +549,7 @@
     "webFetchSaved": "Сохранено",
     "imageGenerate": "Генерация изображений",
     "imageGenerateDesc": "Настройка Provider AI-генерации изображений (OpenAI, Google, Fal, MiniMax, SiliconFlow, ZhipuAI, Tongyi). После включения Agent сможет создавать и редактировать изображения через инструмент image_generate.",
-    "imageGenProviders": "Provider",
+    "imageGenProviders": "Providers",
     "imageGenProviderOpenAI": "OpenAI (DALL-E / gpt-image-1)",
     "imageGenProviderGoogle": "Google (Gemini)",
     "imageGenProviderFal": "Fal (Flux)",
@@ -857,7 +857,7 @@
     "toolTaskUpdateDesc": "Обновить статус или содержимое существующей задачи",
     "toolTaskListName": "Список задач",
     "toolTaskListDesc": "Список всех задач в текущей сессии",
-    "agentSandbox": "Docker Sandbox",
+    "agentSandbox": "Docker-песочница",
     "agentSandboxDesc": "Выполнение команд в контейнере Docker",
     "agentSkillEnvCheck": "Проверка окружения",
     "agentSkillEnvCheckDesc": "Перед внедрением навыка проверяет наличие необходимых программ, переменных окружения и ОС; пропускает при несоответствии",
@@ -1226,7 +1226,7 @@
     "everyDayAt": "Каждый день в",
     "atTime": "В",
     "everyMonthOn": "Каждый месяц",
-    "daySuffix": "числа",
+    "daySuffix": "",
     "editExpression": "Редактировать выражение",
     "cronExpression": "Cron-выражение",
     "cronHelp": "Формат: сек мин час день месяц день_недели (например 0 0 9 * * 1-5 = пн–пт 9:00)",
@@ -1311,33 +1311,33 @@
   },
   "health": {
     "refresh": "Обновить",
-    "refreshTooltip": "Refresh crash history and backup list",
-    "createBackup": "Create Backup",
-    "createBackupTooltip": "Back up current configuration files",
-    "restart": "Restart App",
-    "restartTooltip": "Safely restart the application",
-    "clearHistory": "Clear History",
-    "clearConfirmTitle": "Clear Crash History",
-    "clearConfirmDesc": "Are you sure you want to clear all crash history? This action cannot be undone.",
-    "totalCrashes": "Total Crashes",
-    "recentCrashes": "Recent Records",
-    "lastBackup": "Last Backup",
-    "crashHistory": "Crash History",
-    "noCrashes": "No crash records. The application is running normally.",
-    "cause": "Cause",
-    "recommendations": "Recommendations",
-    "autoFixes": "Auto Fixes",
-    "autoFixesApplied": "Auto-fixes applied",
-    "diagnosedBy": "Diagnosed by",
-    "backups": "Configuration Backups",
-    "noBackups": "No backups available",
-    "restore": "Restore",
-    "restoreConfirmTitle": "Restore Backup",
-    "restoreConfirmDesc": "Are you sure you want to restore from this backup? Your current configuration will be overwritten.",
-    "guardianEnabled": "Self-Healing",
-    "guardianEnabledDesc": "When enabled, the app will automatically restart on abnormal exits, and perform backup and AI-powered diagnosis on consecutive crashes. Takes effect on next launch.",
-    "recoveryBannerTitle": "App recovered from a crash",
-    "recoveryBannerDesc": "The app crashed {{count}} time(s) before this launch and was automatically restarted."
+    "refreshTooltip": "Обновить историю сбоев и список резервных копий",
+    "createBackup": "Создать резервную копию",
+    "createBackupTooltip": "Сделать резервную копию текущих файлов конфигурации",
+    "restart": "Перезапустить приложение",
+    "restartTooltip": "Безопасно перезапустить приложение",
+    "clearHistory": "Очистить историю",
+    "clearConfirmTitle": "Очистить историю сбоев",
+    "clearConfirmDesc": "Очистить всю историю сбоев? Это действие нельзя отменить.",
+    "totalCrashes": "Всего сбоев",
+    "recentCrashes": "Недавние записи",
+    "lastBackup": "Последняя копия",
+    "crashHistory": "История сбоев",
+    "noCrashes": "Нет записей о сбоях. Приложение работает нормально.",
+    "cause": "Причина",
+    "recommendations": "Рекомендации",
+    "autoFixes": "Автоисправления",
+    "autoFixesApplied": "Автоисправления применены",
+    "diagnosedBy": "Диагностировано",
+    "backups": "Резервные копии",
+    "noBackups": "Резервных копий нет",
+    "restore": "Восстановить",
+    "restoreConfirmTitle": "Восстановить из резервной копии",
+    "restoreConfirmDesc": "Восстановить из этой резервной копии? Текущая конфигурация будет перезаписана.",
+    "guardianEnabled": "Самовосстановление",
+    "guardianEnabledDesc": "При включении приложение будет автоматически перезапускаться при аварийных выходах и выполнять резервное копирование и AI-диагностику при последовательных сбоях. Применяется при следующем запуске.",
+    "recoveryBannerTitle": "Приложение восстановлено после сбоя",
+    "recoveryBannerDesc": "Приложение сбоило {{count}} раз(а) до этого запуска и было автоматически перезапущено."
   },
   "approval": {
     "title": "Подтверждение выполнения",
@@ -1355,55 +1355,55 @@
   "provider_templates": {
     "anthropic": {
       "name": "Anthropic",
-      "description": "Claude series models"
+      "description": "Модели серии Claude"
     },
     "openai": {
       "name": "OpenAI",
-      "description": "GPT series models (Responses API)"
+      "description": "Модели GPT (Responses API)"
     },
     "openai-chat": {
       "name": "OpenAI (Chat)",
-      "description": "GPT series — Chat Completions API"
+      "description": "Серия GPT — Chat Completions API"
     },
     "deepseek": {
       "name": "DeepSeek",
-      "description": "DeepSeek series reasoning models"
+      "description": "Модели рассуждений серии DeepSeek"
     },
     "google-gemini": {
       "name": "Google Gemini",
-      "description": "Gemini series multimodal models"
+      "description": "Мультимодальные модели серии Gemini"
     },
     "xai": {
       "name": "xAI",
-      "description": "Grok series models"
+      "description": "Модели серии Grok"
     },
     "mistral": {
       "name": "Mistral",
-      "description": "Mistral series European models"
+      "description": "Европейские модели серии Mistral"
     },
     "openrouter": {
       "name": "OpenRouter",
-      "description": "Multi-model aggregation gateway, hundreds of models with one key"
+      "description": "Мульти-модельный шлюз, сотни моделей по одному ключу"
     },
     "groq": {
       "name": "Groq",
-      "description": "Ultra-high-speed LPU inference"
+      "description": "Сверхбыстрый LPU-инференс"
     },
     "moonshot": {
       "name": "Moonshot AI (Kimi)",
-      "description": "Kimi series long-context models"
+      "description": "Модели Kimi с длинным контекстом"
     },
     "qwen": {
       "name": "Qwen",
-      "description": "Alibaba Cloud DashScope models"
+      "description": "Модели Alibaba Cloud DashScope"
     },
     "volcengine": {
       "name": "Volcengine (Doubao)",
-      "description": "ByteDance Doubao series models"
+      "description": "Модели ByteDance Doubao"
     },
     "zhipu": {
       "name": "Zhipu AI (Z.AI)",
-      "description": "GLM series models"
+      "description": "Модели серии GLM"
     },
     "minimax": {
       "name": "MiniMax",
@@ -1411,19 +1411,19 @@
     },
     "kimi-coding": {
       "name": "Kimi Coding",
-      "description": "Kimi for Coding (Anthropic compatible)"
+      "description": "Kimi for Coding (совместим с Anthropic)"
     },
     "xiaomi": {
       "name": "Xiaomi MiMo",
-      "description": "MiMo series models (Anthropic compatible)"
+      "description": "Модели MiMo (совместим с Anthropic)"
     },
     "qianfan": {
       "name": "Baidu Qianfan",
-      "description": "Baidu AI Cloud Qianfan Platform"
+      "description": "Платформа Qianfan от Baidu AI Cloud"
     },
     "modelstudio": {
       "name": "阿里云百炼",
-      "description": "阿里云 大模型服务平台，支持Coding Plan"
+      "description": "Платформа больших моделей Alibaba Cloud с поддержкой Coding Plan"
     },
     "nvidia": {
       "name": "NVIDIA",
@@ -1431,204 +1431,204 @@
     },
     "together": {
       "name": "Together AI",
-      "description": "Open source model cloud inference platform"
+      "description": "Облачная платформа инференса open-source моделей"
     },
     "ollama": {
       "name": "Ollama",
-      "description": "Local + cloud model inference, no API Key required"
+      "description": "Локальный + облачный инференс, без API Key"
     },
     "vllm": {
       "name": "vLLM",
-      "description": "High-performance local inference engine"
+      "description": "Высокопроизводительный локальный движок инференса"
     },
     "lm-studio": {
       "name": "LM Studio",
-      "description": "Desktop local model inference"
+      "description": "Локальный инференс моделей на десктопе"
     },
     "huggingface": {
       "name": "Hugging Face",
-      "description": "HF Inference API for open-source models"
+      "description": "HF Inference API для open-source моделей"
     },
     "byteplus": {
       "name": "BytePlus",
-      "description": "BytePlus AI international model platform"
+      "description": "Международная платформа моделей BytePlus AI"
     },
     "chutes": {
       "name": "Chutes (TEE)",
-      "description": "Trusted Execution Environment AI inference"
+      "description": "AI-инференс в доверенной среде выполнения (TEE)"
     },
     "cloudflare-ai": {
       "name": "Cloudflare AI Gateway",
-      "description": "Cloudflare AI gateway proxy"
+      "description": "Прокси-шлюз Cloudflare AI"
     },
     "litellm": {
       "name": "LiteLLM",
-      "description": "Unified LLM API proxy gateway"
+      "description": "Единый прокси-шлюз для LLM API"
     }
   },
   "slashCommands": {
-    "title": "Commands",
+    "title": "Команды",
     "new": {
-      "description": "Start a new chat"
+      "description": "Начать новый чат"
     },
     "clear": {
-      "description": "Clear conversation"
+      "description": "Очистить беседу"
     },
     "compact": {
-      "description": "Compress context"
+      "description": "Сжать контекст"
     },
     "stop": {
-      "description": "Stop current reply"
+      "description": "Остановить текущий ответ"
     },
     "rename": {
-      "description": "Rename session"
+      "description": "Переименовать сессию"
     },
     "model": {
-      "description": "Switch model"
+      "description": "Сменить модель"
     },
     "models": {
-      "description": "List all available models",
-      "cardTitle": "Available Models"
+      "description": "Список всех доступных моделей",
+      "cardTitle": "Доступные модели"
     },
     "think": {
-      "description": "Set thinking effort"
+      "description": "Установить уровень размышлений"
     },
     "remember": {
-      "description": "Save a memory"
+      "description": "Сохранить запись памяти"
     },
     "forget": {
-      "description": "Delete a memory"
+      "description": "Удалить запись памяти"
     },
     "memories": {
-      "description": "List memories"
+      "description": "Список записей памяти"
     },
     "agent": {
-      "description": "Switch agent"
+      "description": "Сменить Agent"
     },
     "agents": {
-      "description": "List agents"
+      "description": "Список agents"
     },
     "help": {
-      "description": "Show all commands"
+      "description": "Показать все команды"
     },
     "status": {
-      "description": "Session status"
+      "description": "Статус сессии"
     },
     "export": {
-      "description": "Export as Markdown"
+      "description": "Экспорт в Markdown"
     },
     "usage": {
-      "description": "Token usage"
+      "description": "Использование токенов"
     },
     "search": {
-      "description": "Search the web"
+      "description": "Поиск в сети"
     },
     "permission": {
-      "description": "Set tool permission mode (auto/ask/full)"
+      "description": "Установить режим разрешения инструментов (auto/ask/full)"
     },
     "plan": {
-      "description": "Enter/exit plan mode"
+      "description": "Войти/выйти из Plan Mode"
     },
     "prompts": {
-      "description": "View system prompt"
+      "description": "Просмотр system prompt"
     },
     "recap": {
-      "description": "Generate a deep analysis recap report"
+      "description": "Сформировать отчёт с глубоким анализом"
     },
     "context": {
-      "description": "Show context window breakdown"
+      "description": "Показать разбивку окна контекста"
     },
     "categories": {
-      "session": "Session",
-      "model": "Model",
-      "memory": "Memory",
+      "session": "Сессия",
+      "model": "Модель",
+      "memory": "Память",
       "agent": "Agent",
-      "utility": "Utility",
+      "utility": "Утилиты",
       "skill": "Skills"
     },
-    "noResults": "No matching commands",
-    "buttonTip": "Quick Commands"
+    "noResults": "Подходящих команд нет",
+    "buttonTip": "Быстрые команды"
   },
   "planMode": {
     "enter": "Войти в Plan Mode",
     "indicator": "Plan Mode",
-    "plan": "Execution Plan",
-    "openPanel": "View in panel",
-    "openFolder": "Open folder",
-    "planningInProgress": "Creating plan...",
-    "messageSentToPlanner": "Message forwarded to planning agent",
-    "restricted": "Plan Mode: AI will gather info and collaborate with you to create a plan",
-    "approveAndExecute": "Start Execution",
-    "keepPlanning": "Keep Planning",
-    "exitWithout": "Exit Plan",
-    "showPlan": "Show Plan",
-    "executing": "Executing plan...",
-    "stepsCompleted": "steps completed",
-    "completed": "Completed",
-    "placeholder": "Describe what you want to achieve...",
-    "panelTitle": "Execution Plan",
-    "editorPlaceholder": "Edit plan content here...\n\n## Background\nDescribe the context: what problem to solve, why, and expected outcome\n\n### Phase 1: Analysis\n- [ ] Step description\n\n### Phase 2: Implementation\n- [ ] Step description",
-    "stepsDetected": "steps detected",
+    "plan": "План выполнения",
+    "openPanel": "Открыть в панели",
+    "openFolder": "Открыть папку",
+    "planningInProgress": "Создание плана...",
+    "messageSentToPlanner": "Сообщение передано планирующему Agent",
+    "restricted": "Plan Mode: ИИ соберёт информацию и создаст план вместе с вами",
+    "approveAndExecute": "Начать выполнение",
+    "keepPlanning": "Продолжить планирование",
+    "exitWithout": "Выйти из плана",
+    "showPlan": "Показать план",
+    "executing": "Выполнение плана...",
+    "stepsCompleted": "шагов выполнено",
+    "completed": "Завершено",
+    "placeholder": "Опишите, чего вы хотите достичь...",
+    "panelTitle": "План выполнения",
+    "editorPlaceholder": "Редактируйте содержимое плана здесь...\n\n## Background\nОпишите контекст: какую задачу решить, почему и ожидаемый результат\n\n### Phase 1: Анализ\n- [ ] Описание шага\n\n### Phase 2: Реализация\n- [ ] Описание шага",
+    "stepsDetected": "шагов обнаружено",
     "noSteps": "Нет шагов",
-    "executeCommand": "Start executing the plan. Complete each step in order, calling update_plan_step to track progress.",
-    "planning": "Creating plan...",
-    "pause": "Pause",
-    "resume": "Resume",
-    "pausedBanner": "Plan execution is paused",
+    "executeCommand": "Начните выполнение плана. Завершайте каждый шаг по порядку, вызывая update_plan_step для отслеживания прогресса.",
+    "planning": "Создание плана...",
+    "pause": "Пауза",
+    "resume": "Возобновить",
+    "pausedBanner": "Выполнение плана приостановлено",
     "review": {
-      "badge": "Review"
+      "badge": "Проверка"
     },
     "paused": {
-      "badge": "Paused"
+      "badge": "На паузе"
     },
     "card": {
-      "phases": "phases",
-      "steps": "steps"
+      "phases": "фаз",
+      "steps": "шагов"
     },
-    "versions": "Version History",
-    "versionHistory": "Plan Versions",
-    "currentVersion": "Current",
-    "noVersions": "No previous versions",
-    "requestChanges": "Request Changes",
-    "requestChangesPlaceholder": "Describe what you want changed...",
-    "maximize": "Maximize",
-    "minimize": "Minimize",
-    "popOut": "Pop Out",
-    "popOutActive": "Opened in a separate window",
-    "reattach": "Reattach to Panel",
-    "rollback": "Rollback Changes",
+    "versions": "История версий",
+    "versionHistory": "Версии плана",
+    "currentVersion": "Текущая",
+    "noVersions": "Нет предыдущих версий",
+    "requestChanges": "Запросить изменения",
+    "requestChangesPlaceholder": "Опишите, что вы хотите изменить...",
+    "maximize": "Развернуть",
+    "minimize": "Свернуть",
+    "popOut": "Открыть в отдельном окне",
+    "popOutActive": "Открыто в отдельном окне",
+    "reattach": "Вернуть в панель",
+    "rollback": "Откатить изменения",
     "comment": {
-      "hint": "Select text to add comments and collaboratively refine the plan",
-      "placeholder": "Suggest changes for the selected content...",
-      "submit": "Send",
-      "shortcut": "⌘+Enter to send"
+      "hint": "Выделите текст для добавления комментариев и совместной доработки плана",
+      "placeholder": "Предложите изменения для выделенного...",
+      "submit": "Отправить",
+      "shortcut": "⌘+Enter для отправки"
     },
     "question": {
-      "title": "AI needs your input",
-      "submit": "Submit Answers",
-      "retry": "Retry",
-      "answered": "Answered",
-      "customPlaceholder": "Enter custom answer...",
-      "recommended": "Recommended",
-      "multiSelect": "multi",
-      "default": "default",
-      "preview": "Preview",
-      "timeoutHint": "Time remaining",
-      "timedOut": "timed out"
+      "title": "ИИ нужен ваш ввод",
+      "submit": "Отправить ответы",
+      "retry": "Повторить",
+      "answered": "Отвечено",
+      "customPlaceholder": "Введите свой ответ...",
+      "recommended": "Рекомендуется",
+      "multiSelect": "мульти",
+      "default": "по умолчанию",
+      "preview": "Предпросмотр",
+      "timeoutHint": "Осталось времени",
+      "timedOut": "таймаут"
     }
   },
   "canvas": {
-    "refresh": "Refresh",
-    "maximize": "Maximize",
-    "minimize": "Minimize",
-    "close": "Close",
-    "snapshot": "Snapshot",
+    "refresh": "Обновить",
+    "maximize": "Развернуть",
+    "minimize": "Свернуть",
+    "close": "Закрыть",
+    "snapshot": "Снимок",
     "export": "Экспорт",
-    "versions": "Version History",
-    "openPreview": "Open Preview",
-    "popOut": "Pop Out",
-    "popOutActive": "Opened in separate window",
-    "reattach": "Back to Panel"
+    "versions": "История версий",
+    "openPreview": "Открыть предпросмотр",
+    "popOut": "Открыть в отдельном окне",
+    "popOutActive": "Открыто в отдельном окне",
+    "reattach": "Вернуть в панель"
   },
   "context": {
     "title": "Окно контекста",
@@ -1651,24 +1651,24 @@
   "recap": {
     "generate": "Сформировать отчёт",
     "generating": "Формирование...",
-    "history": "History",
-    "noReports": "No reports yet. Click Generate to build your first recap.",
-    "selectReport": "Select a report from the history dropdown.",
-    "exportHtml": "Export HTML",
-    "exportedTo": "Exported to {{path}}",
-    "delete": "Delete",
-    "confirmDelete": "Delete this report?",
+    "history": "История",
+    "noReports": "Отчётов пока нет. Нажмите Сформировать, чтобы создать первый разбор.",
+    "selectReport": "Выберите отчёт из выпадающего списка истории.",
+    "exportHtml": "Экспорт HTML",
+    "exportedTo": "Экспортировано в {{path}}",
+    "delete": "Удалить",
+    "confirmDelete": "Удалить этот отчёт?",
     "range": {
-      "incremental": "Since last report",
-      "days": "Last {{n}} days"
+      "incremental": "С последнего отчёта",
+      "days": "Последние {{n}} дней"
     },
     "progress": {
-      "started": "Starting ({{n}} sessions)",
-      "extractingFacets": "Extracting facets {{done}}/{{total}}",
-      "aggregating": "Running dashboard queries…",
-      "generatingSections": "Generating sections {{done}}/{{total}}",
-      "persisting": "Persisting report…",
-      "done": "Done"
+      "started": "Запуск ({{n}} сессий)",
+      "extractingFacets": "Извлечение фасетов {{done}}/{{total}}",
+      "aggregating": "Выполнение запросов дашборда…",
+      "generatingSections": "Генерация разделов {{done}}/{{total}}",
+      "persisting": "Сохранение отчёта…",
+      "done": "Готово"
     }
   },
   "dashboard": {

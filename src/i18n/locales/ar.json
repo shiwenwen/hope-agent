@@ -78,8 +78,8 @@
     "modifiedFiles": "الملفات المعدّلة",
     "openFile": "انقر لفتح الملف",
     "revealInFolder": "إظهار في المجلد",
-    "inputTokens": "الإدخال",
-    "outputTokens": "الإخراج",
+    "inputTokens": "إدخال",
+    "outputTokens": "إخراج",
     "totalTokens": "الإجمالي",
     "cronTrigger": "مهمة مجدولة",
     "cronTaskStarted": "تم تشغيل مهمة مجدولة",
@@ -107,7 +107,7 @@
     "toolPermissionAutoDesc": "النموذج يقرر ما إذا كانت الموافقة مطلوبة",
     "toolPermissionAskDesc": "كل استدعاء أداة يتطلب تأكيداً",
     "toolPermissionFullDesc": "الموافقة تلقائياً على جميع استدعاءات الأدوات",
-    "statusCache": "التخزين المؤقت",
+    "statusCache": "ذاكرة مؤقتة",
     "fallbackTitle": "تبديل النموذج",
     "fallbackReason": "السبب",
     "fallbackFrom": "النموذج الأصلي",
@@ -171,7 +171,7 @@
   },
   "model": {
     "modelConfig": "إعداد النموذج",
-    "modelId": "معرّف النموذج",
+    "modelId": "معرف النموذج",
     "displayName": "اسم العرض",
     "supportedInputTypes": "أنواع الإدخال المدعومة",
     "text": "نص",
@@ -328,7 +328,7 @@
     "memoryExport": "تصدير كـ Markdown",
     "memoryType": "النوع",
     "memoryType_user": "المستخدم",
-    "memoryType_feedback": "الملاحظات",
+    "memoryType_feedback": "ملاحظات",
     "memoryType_project": "المشروع",
     "memoryType_reference": "مرجع",
     "memoryScope": "النطاق",
@@ -407,7 +407,7 @@
     "memoryMultimodalDesc": "تفعيل embedding ملفات الصور/الصوت. مدعوم فقط مع نموذج Google Gemini gemini-embedding-2-preview.",
     "memoryMultimodalModalities": "الأنواع المدعومة",
     "memoryMultimodalImage": "الصور",
-    "memoryMultimodalAudio": "الصوت",
+    "memoryMultimodalAudio": "صوت",
     "memoryMultimodalMaxSize": "الحد الأقصى لحجم الملف",
     "memoryMultimodalRequiresGemini": "يتطلب embedding متعدد الوسائط Google Gemini مع نموذج gemini-embedding-2-preview",
     "memoryStatsTotal": "إجمالي {{count}}",
@@ -531,7 +531,7 @@
     "webFetchDesc": "تكوين كيفية استخراج أداة web_fetch للمحتوى من URLs، بما في ذلك التخزين المؤقت والأمان وحدود المحتوى.",
     "webFetchSectionLimits": "حدود المحتوى",
     "webFetchSectionNetwork": "الشبكة",
-    "webFetchSectionCache": "التخزين المؤقت",
+    "webFetchSectionCache": "ذاكرة مؤقتة",
     "webFetchSectionSecurity": "الأمان",
     "webFetchMaxChars": "الحد الأقصى الافتراضي للأحرف",
     "webFetchMaxCharsDesc": "الحد الأقصى الافتراضي للأحرف المعادة إلى النموذج",
@@ -857,11 +857,11 @@
     "toolTaskUpdateDesc": "تحديث حالة أو محتوى مهمة موجودة",
     "toolTaskListName": "قائمة المهام",
     "toolTaskListDesc": "عرض جميع المهام في الجلسة الحالية",
-    "agentSandbox": "بيئة Docker المعزولة",
+    "agentSandbox": "Docker Sandbox",
     "agentSandboxDesc": "تنفيذ الأوامر في حاوية Docker",
     "agentSkillEnvCheck": "فحص البيئة",
     "agentSkillEnvCheckDesc": "قبل حقن المهارة، تحقق من توفر البرامج والمتغيرات البيئية ونظام التشغيل المطلوبة؛ تخطٍ إذا لم تتوفر",
-    "agentPrompts": "التعليمات",
+    "agentPrompts": "البرومبتات",
     "agentMd": "تعليمات الوكيل",
     "agentMdDesc": "صف مسؤوليات الوكيل وسير العمل والمبادئ",
     "agentMdPlaceholder": "اكتب التعليمات الأساسية...",
@@ -880,7 +880,7 @@
     "agentVibePlaceholder": "مثال: دافئ وصبور، حاد ومباشر...",
     "agentTone": "النبرة",
     "agentToneFormal": "رسمي",
-    "agentToneCasual": "غير رسمي",
+    "agentToneCasual": "عادي",
     "agentTonePlayful": "مرح",
     "agentToneProfessional": "احترافي",
     "agentToneWarm": "دافئ",
@@ -971,7 +971,7 @@
     "agentModelPrimary": "النموذج الرئيسي",
     "modelFallbackNotice": "النموذج الرئيسي غير متاح، تم التبديل إلى {{model}}",
     "avatarCropTitle": "اقتصاص الصورة الرمزية",
-    "avatarZoom": "تكبير",
+    "avatarZoom": "التكبير",
     "logs": "السجلات",
     "logsDesc": "عرض وإدارة سجلات التنفيذ المفصلة. تصفية حسب المستوى والفئة والكلمات المفتاحية.",
     "logsTotal": "الإجمالي",
@@ -1311,33 +1311,33 @@
   },
   "health": {
     "refresh": "تحديث",
-    "refreshTooltip": "Refresh crash history and backup list",
-    "createBackup": "Create Backup",
-    "createBackupTooltip": "Back up current configuration files",
-    "restart": "Restart App",
-    "restartTooltip": "Safely restart the application",
-    "clearHistory": "Clear History",
-    "clearConfirmTitle": "Clear Crash History",
-    "clearConfirmDesc": "Are you sure you want to clear all crash history? This action cannot be undone.",
-    "totalCrashes": "Total Crashes",
-    "recentCrashes": "Recent Records",
-    "lastBackup": "Last Backup",
-    "crashHistory": "Crash History",
-    "noCrashes": "No crash records. The application is running normally.",
-    "cause": "Cause",
-    "recommendations": "Recommendations",
-    "autoFixes": "Auto Fixes",
-    "autoFixesApplied": "Auto-fixes applied",
-    "diagnosedBy": "Diagnosed by",
-    "backups": "Configuration Backups",
-    "noBackups": "No backups available",
-    "restore": "Restore",
-    "restoreConfirmTitle": "Restore Backup",
-    "restoreConfirmDesc": "Are you sure you want to restore from this backup? Your current configuration will be overwritten.",
-    "guardianEnabled": "Self-Healing",
-    "guardianEnabledDesc": "When enabled, the app will automatically restart on abnormal exits, and perform backup and AI-powered diagnosis on consecutive crashes. Takes effect on next launch.",
-    "recoveryBannerTitle": "App recovered from a crash",
-    "recoveryBannerDesc": "The app crashed {{count}} time(s) before this launch and was automatically restarted."
+    "refreshTooltip": "تحديث سجل الأعطال وقائمة النسخ الاحتياطية",
+    "createBackup": "إنشاء نسخة احتياطية",
+    "createBackupTooltip": "أخذ نسخة احتياطية من ملفات الإعداد الحالية",
+    "restart": "إعادة تشغيل التطبيق",
+    "restartTooltip": "إعادة تشغيل التطبيق بأمان",
+    "clearHistory": "مسح السجل",
+    "clearConfirmTitle": "مسح سجل الأعطال",
+    "clearConfirmDesc": "هل أنت متأكد من مسح كل سجل الأعطال؟ لا يمكن التراجع عن هذا الإجراء.",
+    "totalCrashes": "إجمالي الأعطال",
+    "recentCrashes": "السجلات الأخيرة",
+    "lastBackup": "آخر نسخة احتياطية",
+    "crashHistory": "سجل الأعطال",
+    "noCrashes": "لا توجد سجلات أعطال. التطبيق يعمل بشكل طبيعي.",
+    "cause": "السبب",
+    "recommendations": "التوصيات",
+    "autoFixes": "الإصلاحات التلقائية",
+    "autoFixesApplied": "تم تطبيق الإصلاحات التلقائية",
+    "diagnosedBy": "التشخيص بواسطة",
+    "backups": "نسخ احتياطية للإعدادات",
+    "noBackups": "لا توجد نسخ احتياطية",
+    "restore": "استعادة",
+    "restoreConfirmTitle": "استعادة من نسخة احتياطية",
+    "restoreConfirmDesc": "هل أنت متأكد من الاستعادة من هذه النسخة الاحتياطية؟ سيتم الكتابة فوق إعدادك الحالي.",
+    "guardianEnabled": "الإصلاح الذاتي",
+    "guardianEnabledDesc": "عند التفعيل، سيُعاد تشغيل التطبيق تلقائياً عند الخروج غير الطبيعي، ويُجري النسخ الاحتياطي والتشخيص بالذكاء الاصطناعي عند الأعطال المتتالية. يسري مع التشغيل التالي.",
+    "recoveryBannerTitle": "تم استعادة التطبيق من عطل",
+    "recoveryBannerDesc": "تعرض التطبيق لـ {{count}} عطل(ات) قبل هذا التشغيل وأُعيد تشغيله تلقائياً."
   },
   "approval": {
     "title": "تأكيد تنفيذ الأمر",
@@ -1355,55 +1355,55 @@
   "provider_templates": {
     "anthropic": {
       "name": "Anthropic",
-      "description": "Claude series models"
+      "description": "نماذج سلسلة Claude"
     },
     "openai": {
       "name": "OpenAI",
-      "description": "GPT series models (Responses API)"
+      "description": "نماذج GPT (Responses API)"
     },
     "openai-chat": {
       "name": "OpenAI (Chat)",
-      "description": "GPT series — Chat Completions API"
+      "description": "سلسلة GPT — Chat Completions API"
     },
     "deepseek": {
       "name": "DeepSeek",
-      "description": "DeepSeek series reasoning models"
+      "description": "نماذج استدلال سلسلة DeepSeek"
     },
     "google-gemini": {
       "name": "Google Gemini",
-      "description": "Gemini series multimodal models"
+      "description": "نماذج متعددة الوسائط لسلسلة Gemini"
     },
     "xai": {
       "name": "xAI",
-      "description": "Grok series models"
+      "description": "نماذج سلسلة Grok"
     },
     "mistral": {
       "name": "Mistral",
-      "description": "Mistral series European models"
+      "description": "نماذج أوروبية لسلسلة Mistral"
     },
     "openrouter": {
       "name": "OpenRouter",
-      "description": "Multi-model aggregation gateway, hundreds of models with one key"
+      "description": "بوابة تجميع متعددة النماذج، مئات النماذج بمفتاح واحد"
     },
     "groq": {
       "name": "Groq",
-      "description": "Ultra-high-speed LPU inference"
+      "description": "استدلال LPU فائق السرعة"
     },
     "moonshot": {
       "name": "Moonshot AI (Kimi)",
-      "description": "Kimi series long-context models"
+      "description": "نماذج Kimi بسياق طويل"
     },
     "qwen": {
       "name": "Qwen",
-      "description": "Alibaba Cloud DashScope models"
+      "description": "نماذج Alibaba Cloud DashScope"
     },
     "volcengine": {
       "name": "Volcengine (Doubao)",
-      "description": "ByteDance Doubao series models"
+      "description": "نماذج ByteDance Doubao"
     },
     "zhipu": {
       "name": "Zhipu AI (Z.AI)",
-      "description": "GLM series models"
+      "description": "نماذج سلسلة GLM"
     },
     "minimax": {
       "name": "MiniMax",
@@ -1411,19 +1411,19 @@
     },
     "kimi-coding": {
       "name": "Kimi Coding",
-      "description": "Kimi for Coding (Anthropic compatible)"
+      "description": "Kimi for Coding (متوافق مع Anthropic)"
     },
     "xiaomi": {
       "name": "Xiaomi MiMo",
-      "description": "MiMo series models (Anthropic compatible)"
+      "description": "نماذج MiMo (متوافق مع Anthropic)"
     },
     "qianfan": {
       "name": "Baidu Qianfan",
-      "description": "Baidu AI Cloud Qianfan Platform"
+      "description": "منصة Qianfan من Baidu AI Cloud"
     },
     "modelstudio": {
       "name": "阿里云百炼",
-      "description": "阿里云 大模型服务平台，支持Coding Plan"
+      "description": "منصة نماذج Alibaba Cloud الكبيرة، تدعم Coding Plan"
     },
     "nvidia": {
       "name": "NVIDIA",
@@ -1431,204 +1431,204 @@
     },
     "together": {
       "name": "Together AI",
-      "description": "Open source model cloud inference platform"
+      "description": "منصة استدلال سحابية للنماذج مفتوحة المصدر"
     },
     "ollama": {
       "name": "Ollama",
-      "description": "Local + cloud model inference, no API Key required"
+      "description": "استدلال محلي + سحابي، بدون الحاجة إلى API Key"
     },
     "vllm": {
       "name": "vLLM",
-      "description": "High-performance local inference engine"
+      "description": "محرك استدلال محلي عالي الأداء"
     },
     "lm-studio": {
       "name": "LM Studio",
-      "description": "Desktop local model inference"
+      "description": "استدلال نماذج محلية على سطح المكتب"
     },
     "huggingface": {
       "name": "Hugging Face",
-      "description": "HF Inference API for open-source models"
+      "description": "HF Inference API للنماذج مفتوحة المصدر"
     },
     "byteplus": {
       "name": "BytePlus",
-      "description": "BytePlus AI international model platform"
+      "description": "منصة النماذج الدولية BytePlus AI"
     },
     "chutes": {
       "name": "Chutes (TEE)",
-      "description": "Trusted Execution Environment AI inference"
+      "description": "استدلال AI في بيئة التنفيذ الموثوقة (TEE)"
     },
     "cloudflare-ai": {
       "name": "Cloudflare AI Gateway",
-      "description": "Cloudflare AI gateway proxy"
+      "description": "بوابة وكيل Cloudflare AI"
     },
     "litellm": {
       "name": "LiteLLM",
-      "description": "Unified LLM API proxy gateway"
+      "description": "بوابة وكيل موحدة لواجهات LLM API"
     }
   },
   "slashCommands": {
-    "title": "Commands",
+    "title": "الأوامر",
     "new": {
-      "description": "Start a new chat"
+      "description": "بدء دردشة جديدة"
     },
     "clear": {
-      "description": "Clear conversation"
+      "description": "مسح المحادثة"
     },
     "compact": {
-      "description": "Compress context"
+      "description": "ضغط السياق"
     },
     "stop": {
-      "description": "Stop current reply"
+      "description": "إيقاف الرد الحالي"
     },
     "rename": {
-      "description": "Rename session"
+      "description": "إعادة تسمية الجلسة"
     },
     "model": {
-      "description": "Switch model"
+      "description": "تبديل النموذج"
     },
     "models": {
-      "description": "List all available models",
-      "cardTitle": "Available Models"
+      "description": "قائمة جميع النماذج المتاحة",
+      "cardTitle": "النماذج المتاحة"
     },
     "think": {
-      "description": "Set thinking effort"
+      "description": "تعيين مستوى التفكير"
     },
     "remember": {
-      "description": "Save a memory"
+      "description": "حفظ ذاكرة"
     },
     "forget": {
-      "description": "Delete a memory"
+      "description": "حذف ذاكرة"
     },
     "memories": {
-      "description": "List memories"
+      "description": "قائمة الذاكرات"
     },
     "agent": {
-      "description": "Switch agent"
+      "description": "تبديل Agent"
     },
     "agents": {
-      "description": "List agents"
+      "description": "قائمة Agents"
     },
     "help": {
-      "description": "Show all commands"
+      "description": "عرض جميع الأوامر"
     },
     "status": {
-      "description": "Session status"
+      "description": "حالة الجلسة"
     },
     "export": {
-      "description": "Export as Markdown"
+      "description": "تصدير كـ Markdown"
     },
     "usage": {
-      "description": "Token usage"
+      "description": "استخدام الرموز"
     },
     "search": {
-      "description": "Search the web"
+      "description": "البحث على الويب"
     },
     "permission": {
-      "description": "Set tool permission mode (auto/ask/full)"
+      "description": "تعيين وضع صلاحية الأدوات (auto/ask/full)"
     },
     "plan": {
-      "description": "Enter/exit plan mode"
+      "description": "الدخول/الخروج من Plan Mode"
     },
     "prompts": {
-      "description": "View system prompt"
+      "description": "عرض system prompt"
     },
     "recap": {
-      "description": "Generate a deep analysis recap report"
+      "description": "إنشاء تقرير مراجعة بتحليل عميق"
     },
     "context": {
-      "description": "Show context window breakdown"
+      "description": "عرض تفاصيل نافذة السياق"
     },
     "categories": {
-      "session": "Session",
-      "model": "Model",
-      "memory": "Memory",
+      "session": "الجلسة",
+      "model": "النموذج",
+      "memory": "الذاكرة",
       "agent": "Agent",
-      "utility": "Utility",
+      "utility": "أدوات",
       "skill": "Skills"
     },
-    "noResults": "No matching commands",
-    "buttonTip": "Quick Commands"
+    "noResults": "لا توجد أوامر مطابقة",
+    "buttonTip": "أوامر سريعة"
   },
   "planMode": {
     "enter": "الدخول إلى Plan Mode",
     "indicator": "Plan Mode",
-    "plan": "Execution Plan",
-    "openPanel": "View in panel",
-    "openFolder": "Open folder",
-    "planningInProgress": "Creating plan...",
-    "messageSentToPlanner": "Message forwarded to planning agent",
-    "restricted": "Plan Mode: AI will gather info and collaborate with you to create a plan",
-    "approveAndExecute": "Start Execution",
-    "keepPlanning": "Keep Planning",
-    "exitWithout": "Exit Plan",
-    "showPlan": "Show Plan",
-    "executing": "Executing plan...",
-    "stepsCompleted": "steps completed",
-    "completed": "Completed",
-    "placeholder": "Describe what you want to achieve...",
-    "panelTitle": "Execution Plan",
-    "editorPlaceholder": "Edit plan content here...\n\n## Background\nDescribe the context: what problem to solve, why, and expected outcome\n\n### Phase 1: Analysis\n- [ ] Step description\n\n### Phase 2: Implementation\n- [ ] Step description",
-    "stepsDetected": "steps detected",
+    "plan": "خطة التنفيذ",
+    "openPanel": "عرض في اللوحة",
+    "openFolder": "فتح المجلد",
+    "planningInProgress": "جاري إنشاء الخطة...",
+    "messageSentToPlanner": "تم إعادة توجيه الرسالة إلى agent التخطيط",
+    "restricted": "Plan Mode: سيجمع الذكاء الاصطناعي المعلومات ويتعاون معك لإنشاء خطة",
+    "approveAndExecute": "بدء التنفيذ",
+    "keepPlanning": "متابعة التخطيط",
+    "exitWithout": "الخروج من الخطة",
+    "showPlan": "عرض الخطة",
+    "executing": "جاري تنفيذ الخطة...",
+    "stepsCompleted": "خطوات مكتملة",
+    "completed": "مكتمل",
+    "placeholder": "صِف ما تريد تحقيقه...",
+    "panelTitle": "خطة التنفيذ",
+    "editorPlaceholder": "عدّل محتوى الخطة هنا...\n\n## Background\nصِف السياق: ما المشكلة التي يجب حلها، ولماذا، والنتيجة المتوقعة\n\n### Phase 1: التحليل\n- [ ] وصف الخطوة\n\n### Phase 2: التنفيذ\n- [ ] وصف الخطوة",
+    "stepsDetected": "خطوات مكتشفة",
     "noSteps": "لا توجد خطوات",
-    "executeCommand": "Start executing the plan. Complete each step in order, calling update_plan_step to track progress.",
-    "planning": "Creating plan...",
-    "pause": "Pause",
-    "resume": "Resume",
-    "pausedBanner": "Plan execution is paused",
+    "executeCommand": "ابدأ تنفيذ الخطة. أكمل كل خطوة بالترتيب، واستدعِ update_plan_step لتتبع التقدم.",
+    "planning": "جاري إنشاء الخطة...",
+    "pause": "إيقاف مؤقت",
+    "resume": "استئناف",
+    "pausedBanner": "تنفيذ الخطة متوقف مؤقتاً",
     "review": {
-      "badge": "Review"
+      "badge": "مراجعة"
     },
     "paused": {
-      "badge": "Paused"
+      "badge": "متوقف مؤقتاً"
     },
     "card": {
-      "phases": "phases",
-      "steps": "steps"
+      "phases": "مرحلة",
+      "steps": "خطوة"
     },
-    "versions": "Version History",
-    "versionHistory": "Plan Versions",
-    "currentVersion": "Current",
-    "noVersions": "No previous versions",
-    "requestChanges": "Request Changes",
-    "requestChangesPlaceholder": "Describe what you want changed...",
-    "maximize": "Maximize",
-    "minimize": "Minimize",
-    "popOut": "Pop Out",
-    "popOutActive": "Opened in a separate window",
-    "reattach": "Reattach to Panel",
-    "rollback": "Rollback Changes",
+    "versions": "سجل الإصدارات",
+    "versionHistory": "إصدارات الخطة",
+    "currentVersion": "الحالي",
+    "noVersions": "لا توجد إصدارات سابقة",
+    "requestChanges": "طلب تغييرات",
+    "requestChangesPlaceholder": "صِف ما تريد تغييره...",
+    "maximize": "تكبير",
+    "minimize": "تصغير",
+    "popOut": "فتح في نافذة منفصلة",
+    "popOutActive": "مفتوح في نافذة منفصلة",
+    "reattach": "العودة إلى اللوحة",
+    "rollback": "التراجع عن التغييرات",
     "comment": {
-      "hint": "Select text to add comments and collaboratively refine the plan",
-      "placeholder": "Suggest changes for the selected content...",
-      "submit": "Send",
-      "shortcut": "⌘+Enter to send"
+      "hint": "اختر النص لإضافة التعليقات وتحسين الخطة بشكل تعاوني",
+      "placeholder": "اقترح تغييرات للمحتوى المحدد...",
+      "submit": "إرسال",
+      "shortcut": "⌘+Enter للإرسال"
     },
     "question": {
-      "title": "AI needs your input",
-      "submit": "Submit Answers",
-      "retry": "Retry",
-      "answered": "Answered",
-      "customPlaceholder": "Enter custom answer...",
-      "recommended": "Recommended",
-      "multiSelect": "multi",
-      "default": "default",
-      "preview": "Preview",
-      "timeoutHint": "Time remaining",
-      "timedOut": "timed out"
+      "title": "يحتاج الذكاء الاصطناعي إلى إدخالك",
+      "submit": "إرسال الإجابات",
+      "retry": "إعادة المحاولة",
+      "answered": "تمت الإجابة",
+      "customPlaceholder": "أدخل إجابة مخصصة...",
+      "recommended": "موصى به",
+      "multiSelect": "متعدد",
+      "default": "افتراضي",
+      "preview": "معاينة",
+      "timeoutHint": "الوقت المتبقي",
+      "timedOut": "انتهت المهلة"
     }
   },
   "canvas": {
-    "refresh": "Refresh",
-    "maximize": "Maximize",
-    "minimize": "Minimize",
-    "close": "Close",
-    "snapshot": "Snapshot",
+    "refresh": "تحديث",
+    "maximize": "تكبير",
+    "minimize": "تصغير",
+    "close": "إغلاق",
+    "snapshot": "لقطة",
     "export": "تصدير",
-    "versions": "Version History",
-    "openPreview": "Open Preview",
-    "popOut": "Pop Out",
-    "popOutActive": "Opened in separate window",
-    "reattach": "Back to Panel"
+    "versions": "سجل الإصدارات",
+    "openPreview": "فتح المعاينة",
+    "popOut": "فتح في نافذة منفصلة",
+    "popOutActive": "مفتوح في نافذة منفصلة",
+    "reattach": "العودة إلى اللوحة"
   },
   "context": {
     "title": "نافذة السياق",
@@ -1651,24 +1651,24 @@
   "recap": {
     "generate": "إنشاء تقرير",
     "generating": "جاري الإنشاء...",
-    "history": "History",
-    "noReports": "No reports yet. Click Generate to build your first recap.",
-    "selectReport": "Select a report from the history dropdown.",
-    "exportHtml": "Export HTML",
-    "exportedTo": "Exported to {{path}}",
-    "delete": "Delete",
-    "confirmDelete": "Delete this report?",
+    "history": "السجل",
+    "noReports": "لا توجد تقارير بعد. انقر على إنشاء لبناء أول مراجعة.",
+    "selectReport": "اختر تقريراً من قائمة السجل المنسدلة.",
+    "exportHtml": "تصدير HTML",
+    "exportedTo": "تم التصدير إلى {{path}}",
+    "delete": "حذف",
+    "confirmDelete": "حذف هذا التقرير؟",
     "range": {
-      "incremental": "Since last report",
-      "days": "Last {{n}} days"
+      "incremental": "منذ آخر تقرير",
+      "days": "آخر {{n}} يوم"
     },
     "progress": {
-      "started": "Starting ({{n}} sessions)",
-      "extractingFacets": "Extracting facets {{done}}/{{total}}",
-      "aggregating": "Running dashboard queries…",
-      "generatingSections": "Generating sections {{done}}/{{total}}",
-      "persisting": "Persisting report…",
-      "done": "Done"
+      "started": "البدء ({{n}} جلسة)",
+      "extractingFacets": "استخراج الجوانب {{done}}/{{total}}",
+      "aggregating": "جاري تشغيل استعلامات لوحة المعلومات…",
+      "generatingSections": "إنشاء الأقسام {{done}}/{{total}}",
+      "persisting": "حفظ التقرير…",
+      "done": "تم"
     }
   },
   "dashboard": {
@@ -1679,8 +1679,8 @@
     "autoRefresh": {
       "off": "يدوي",
       "30s": "30 ث",
-      "1m": "1 د",
-      "5m": "5 د"
+      "1m": "1 دقيقة",
+      "5m": "5 دقائق"
     },
     "tabs": {
       "insights": "رؤى",
@@ -1726,12 +1726,12 @@
       "peakHour": "ساعة الذروة",
       "messages": "الرسائل",
       "sessions": "الجلسات",
-      "msgs": "رسالة",
+      "msgs": "رسائل",
       "topSessions": "أعلى الجلسات",
       "modelEfficiency": "كفاءة النماذج",
       "model": "النموذج",
       "tokens": "الرموز",
-      "tokensPerMsg": "رموز/رسالة",
+      "tokensPerMsg": "رمز/رسالة",
       "costPer1k": "التكلفة/1000",
       "ttft": "TTFT"
     },
