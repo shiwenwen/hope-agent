@@ -13,6 +13,7 @@ import ChatTitleBar from "@/components/chat/ChatTitleBar"
 import MessageList from "@/components/chat/MessageList"
 import CrashRecoveryBanner from "@/components/common/CrashRecoveryBanner"
 import CanvasPanel from "@/components/chat/CanvasPanel"
+import SessionSearchBar from "@/components/chat/SessionSearchBar"
 import {
   AlertDialog,
   AlertDialogContent,
@@ -70,6 +71,10 @@ export default function ChatScreen({
   // Context compact state
   const [compacting, setCompacting] = useState(false)
 
+  // In-session "find in page" search bar state
+  const [searchBarOpen, setSearchBarOpen] = useState(false)
+  const [searchFocusSignal, setSearchFocusSignal] = useState(0)
+
   // System prompt viewer state
   const [showSystemPrompt, setShowSystemPrompt] = useState(false)
   const [systemPromptContent, setSystemPromptContent] = useState("")
@@ -115,6 +120,36 @@ export default function ChatScreen({
       reloadSessions()
     }
   }, [sessionsRefreshTrigger, reloadSessions])
+
+  // Close the in-session search bar whenever the active session changes.
+  useEffect(() => {
+    setSearchBarOpen(false)
+  }, [currentSessionId])
+
+  // Cmd/Ctrl+F: open in-session search bar (or re-focus its input if
+  // already open). Only active when a session is loaded.
+  useEffect(() => {
+    if (!currentSessionId) return
+    const handler = (e: KeyboardEvent) => {
+      const isFindKey =
+        (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "f"
+      if (!isFindKey) return
+      // Don't hijack the shortcut if the user is editing inside an
+      // unrelated contenteditable (e.g. a markdown canvas field). Free
+      // inputs (ChatInput textarea etc.) are fine to preempt since there
+      // is no browser find-in-page equivalent for chat history anyway.
+      const target = e.target as HTMLElement | null
+      if (target?.isContentEditable) return
+      e.preventDefault()
+      // Open (or keep open) and bump the focus signal so the search bar
+      // re-focuses its input even if Cmd+F is pressed while it's already
+      // visible.
+      setSearchBarOpen(true)
+      setSearchFocusSignal((n) => n + 1)
+    }
+    window.addEventListener("keydown", handler)
+    return () => window.removeEventListener("keydown", handler)
+  }, [currentSessionId])
 
   // Listen for tray "new-session" event to trigger new chat
   useEffect(() => {
@@ -522,7 +557,21 @@ export default function ChatScreen({
           onViewSystemPrompt={loadSystemPrompt}
           systemPromptLoading={systemPromptLoading}
           onCommandAction={handleCommandAction}
+          onToggleSearch={() => {
+            setSearchBarOpen((v) => !v)
+            setSearchFocusSignal((n) => n + 1)
+          }}
+          searchOpen={searchBarOpen}
         />
+
+        {searchBarOpen && session.currentSessionId && (
+          <SessionSearchBar
+            sessionId={session.currentSessionId}
+            onJumpTo={session.jumpToMessage}
+            onClose={() => setSearchBarOpen(false)}
+            focusSignal={searchFocusSignal}
+          />
+        )}
 
         <CrashRecoveryBanner />
 

@@ -1,6 +1,7 @@
 import { convertFileSrc } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
+import { renderHighlightedSnippet } from "@/lib/highlight"
 import { IconTip } from "@/components/ui/tooltip"
 import { Bot, Timer, Network, MessageSquare } from "lucide-react"
 import ChannelIcon from "@/components/common/ChannelIcon"
@@ -18,27 +19,6 @@ interface SearchResultItemProps {
   sessionMeta: SessionMeta | undefined
   onSwitch: () => void
   formatRelativeTime: (dateStr: string) => string
-}
-
-/**
- * Escape HTML special characters then restore `<mark>`/`</mark>` tags.
- *
- * The backend emits FTS5 `snippet()` output containing `<mark>...</mark>`
- * around matched terms. To prevent XSS from user-authored message content we:
- *   1. Escape *everything* with an HTML entity pass.
- *   2. Turn the now-escaped `&lt;mark&gt;` / `&lt;/mark&gt;` back into raw
- *      tags (the only whitelisted tags).
- */
-function renderHighlightedSnippet(raw: string): string {
-  const escaped = raw
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;")
-  return escaped
-    .replace(/&lt;mark&gt;/g, '<mark class="bg-primary/30 text-foreground rounded px-0.5">')
-    .replace(/&lt;\/mark&gt;/g, "</mark>")
 }
 
 export default function SearchResultItem({

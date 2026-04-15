@@ -987,12 +987,16 @@ impl SessionDB {
     /// Returns matching messages with session context and a highlighted snippet
     /// (containing `<mark>...</mark>` tags around matched terms).
     ///
+    /// `session_id` scopes the search to a single session (used by in-session
+    /// "find in page" search). `None` means "all sessions".
+    ///
     /// `types` filters by session type (regular / cron / subagent / channel);
     /// `None` means "all types".
     pub fn search_messages(
         &self,
         query: &str,
         agent_id: Option<&str>,
+        session_id: Option<&str>,
         types: Option<&[SessionTypeFilter]>,
         limit: usize,
     ) -> Result<Vec<SessionSearchResult>> {
@@ -1016,6 +1020,12 @@ impl SessionDB {
             let idx = params_vec.len() + 1;
             where_clauses.push(format!("s.agent_id = ?{}", idx));
             params_vec.push(Box::new(aid.to_string()));
+        }
+
+        if let Some(sid) = session_id {
+            let idx = params_vec.len() + 1;
+            where_clauses.push(format!("m.session_id = ?{}", idx));
+            params_vec.push(Box::new(sid.to_string()));
         }
 
         // Session type filter — channel presence is detected via LEFT JOIN.
