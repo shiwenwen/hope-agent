@@ -28,7 +28,7 @@ pub async fn get_subagent_run(
 pub async fn get_subagent_runs_batch(
     run_ids: Vec<String>,
     state: State<'_, AppState>,
-) -> Result<Vec<Option<subagent::SubagentRun>>, String> {
+) -> Result<std::collections::HashMap<String, subagent::SubagentRun>, String> {
     state
         .session_db
         .get_subagent_runs_batch(&run_ids)

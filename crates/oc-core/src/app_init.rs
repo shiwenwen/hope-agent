@@ -275,7 +275,8 @@ pub async fn start_background_tasks() {
     // server/launchd/systemd deployments where start_background_tasks only
     // runs once at boot.
     tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(86_400));
+        let mut ticker =
+            tokio::time::interval(std::time::Duration::from_secs(crate::SECS_PER_DAY));
         ticker.tick().await; // skip immediate tick (startup path already purged)
         loop {
             ticker.tick().await;

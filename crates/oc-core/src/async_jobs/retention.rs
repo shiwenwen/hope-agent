@@ -11,6 +11,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use super::get_async_jobs_db;
 use crate::paths;
 
+/// Upper bound on orphan files removed in a single sweep. Prevents a
+/// pathological spool directory (100k+ files) from starving the blocking
+/// pool for minutes; leftovers are picked up on the next daily tick.
+const MAX_ORPHANS_PER_SWEEP: u64 = 10_000;
+
 /// Run one retention + orphan sweep according to the current config. Safe to
 /// call at any time; guarded internally if the DB is not yet initialized.
 pub fn run_once() {
@@ -81,6 +86,15 @@ fn sweep_orphans(
     let mut freed = 0u64;
 
     for entry in std::fs::read_dir(&spool_dir)? {
+        if deleted >= MAX_ORPHANS_PER_SWEEP {
+            crate::app_warn!(
+                "async_jobs",
+                "retention",
+                "Orphan sweep hit cap {}; remainder will be cleaned up next cycle",
+                MAX_ORPHANS_PER_SWEEP
+            );
+            break;
+        }
         let entry = match entry {
             Ok(e) => e,
             Err(_) => continue,
@@ -133,16 +147,21 @@ fn sweep_orphans(
 }
 
 /// Spawn a background task that runs retention once at startup and then once
-/// per day. Returns immediately.
+/// per day. Returns immediately. Skipped entirely when both retention and
+/// orphan sweeps are disabled, so a fully-off config doesn't leave a permanent
+/// 24h ticker running doing nothing.
 pub fn spawn_background_loop() {
-    tokio::spawn(async move {
-        // Initial sweep — detached to avoid blocking startup on a slow sweep.
-        tokio::task::spawn_blocking(run_once);
-    });
+    let cfg = crate::config::cached_config().async_tools.clone();
+    if cfg.retention_secs == 0 && cfg.orphan_grace_secs == 0 {
+        return;
+    }
 
     tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(86_400));
-        ticker.tick().await; // skip immediate tick — startup sweep already ran
+        // Initial sweep, detached — don't block the ticker on a slow first pass.
+        tokio::task::spawn_blocking(run_once);
+
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(crate::SECS_PER_DAY));
+        ticker.tick().await; // interval fires immediately on first tick; consume it
         loop {
             ticker.tick().await;
             tokio::task::spawn_blocking(run_once);

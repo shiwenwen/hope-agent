@@ -78,17 +78,19 @@ export default function SubagentGroup({ runs, onSwitchSession }: SubagentGroupPr
   // run set remounts the group and re-runs these effects fresh — safe to use
   // empty deps + closure `runs`.
   useEffect(() => {
+    if (runs.length === 0) return
     let cancelled = false
     const runIds = runs.map((r) => r.runId)
     getTransport()
-      .call<Array<SubagentRun | null>>("get_subagent_runs_batch", { runIds })
-      .then((results) => {
-        if (cancelled || !Array.isArray(results)) return
+      .call<Record<string, SubagentRun>>("get_subagent_runs_batch", { runIds })
+      .then((byId) => {
+        if (cancelled || !byId) return
         setStates((prev) => {
           const next = new Map(prev)
-          results.forEach((run, idx) => {
-            if (!run) return
-            next.set(runIds[idx], {
+          for (const runId of runIds) {
+            const run = byId[runId]
+            if (!run) continue
+            next.set(runId, {
               status: run.status,
               resultFull: run.result,
               error: run.error,
@@ -100,7 +102,7 @@ export default function SubagentGroup({ runs, onSwitchSession }: SubagentGroupPr
               attachmentCount: run.attachmentCount,
               childSessionId: run.childSessionId,
             })
-          })
+          }
           return next
         })
       })

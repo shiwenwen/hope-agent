@@ -3,6 +3,17 @@ pub fn default_true() -> bool {
     true
 }
 
+/// Number of seconds in an hour. Prefer this over `3600` / `60 * 60` literals.
+pub const SECS_PER_HOUR: u64 = 3_600;
+/// Number of seconds in a day. Prefer this over `86_400` / `24 * 3600` literals.
+pub const SECS_PER_DAY: u64 = 86_400;
+
+/// Produce a comma-separated list of `?` placeholders for a SQL `IN` clause.
+/// Example: `sql_in_placeholders(3)` → `"?,?,?"`.
+pub fn sql_in_placeholders(n: usize) -> String {
+    vec!["?"; n].join(",")
+}
+
 /// Truncate a string to at most `max_bytes` bytes on a valid UTF-8 char boundary.
 pub fn truncate_utf8(s: &str, max_bytes: usize) -> &str {
     if s.len() <= max_bytes {

@@ -164,10 +164,10 @@ fn default_async_inline_result_bytes() -> usize {
     4096
 }
 fn default_async_retention_secs() -> u64 {
-    30 * 86400
+    30 * crate::SECS_PER_DAY
 }
 fn default_async_orphan_grace_secs() -> u64 {
-    24 * 3600
+    24 * crate::SECS_PER_HOUR
 }
 
 impl Default for AsyncToolsConfig {

@@ -168,23 +168,24 @@ impl AsyncJobsDB {
     /// interrupted / timed_out` rows — `running` jobs are never purged even if
     /// they appear stale (they're handled by replay).
     ///
-    /// Spool-file deletion is best-effort: a missing or unreadable file is
-    /// logged but does not prevent the DB row from being deleted, since the
-    /// row is the source of truth for "this job still exists".
+    /// Uses `DELETE ... RETURNING` so the row delete is atomic with the id/path
+    /// capture — a single table scan instead of SELECT + DELETE. Spool-file
+    /// cleanup runs outside the mutex after the DB row is gone; any leftover
+    /// file on failure is caught by the orphan sweep in `retention.rs`.
     pub fn purge_terminal_older_than(&self, cutoff_ts: i64) -> Result<PurgeStats> {
         let mut stats = PurgeStats::default();
 
-        // Collect spool paths + ids to delete first (single query), then
-        // delete files outside the transaction, then delete the rows.
-        let to_delete: Vec<(String, Option<String>)> = {
+        let deleted_rows: Vec<(String, Option<String>)> = {
             let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
-            let mut stmt = conn.prepare(
-                "SELECT job_id, result_path
-                 FROM async_tool_jobs
-                 WHERE status IN ('completed','failed','interrupted','timed_out')
+            let sql = format!(
+                "DELETE FROM async_tool_jobs
+                 WHERE status IN ({})
                    AND completed_at IS NOT NULL
-                   AND completed_at < ?1",
-            )?;
+                   AND completed_at < ?1
+                 RETURNING job_id, result_path",
+                AsyncJobStatus::TERMINAL_STATUS_SQL_LIST
+            );
+            let mut stmt = conn.prepare(&sql)?;
             let rows = stmt.query_map(params![cutoff_ts], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
             })?;
@@ -195,57 +196,43 @@ impl AsyncJobsDB {
             out
         };
 
-        if to_delete.is_empty() {
+        stats.rows_deleted = deleted_rows.len() as u64;
+        if deleted_rows.is_empty() {
             return Ok(stats);
         }
 
-        for (job_id, spool_path) in &to_delete {
-            if let Some(path) = spool_path {
-                match std::fs::metadata(path) {
-                    Ok(meta) => {
-                        let bytes = meta.len();
-                        match std::fs::remove_file(path) {
-                            Ok(()) => {
-                                stats.spool_files_deleted += 1;
-                                stats.spool_bytes_freed += bytes;
-                            }
-                            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                            Err(e) => {
-                                crate::app_warn!(
-                                    "async_jobs",
-                                    "purge",
-                                    "Failed to delete spool file {} for job {}: {}",
-                                    path,
-                                    job_id,
-                                    e
-                                );
-                            }
+        for (job_id, spool_path) in &deleted_rows {
+            let Some(path) = spool_path else { continue };
+            match std::fs::metadata(path) {
+                Ok(meta) => {
+                    let bytes = meta.len();
+                    match std::fs::remove_file(path) {
+                        Ok(()) => {
+                            stats.spool_files_deleted += 1;
+                            stats.spool_bytes_freed += bytes;
                         }
-                    }
-                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                    Err(e) => {
-                        crate::app_warn!(
+                        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                        Err(e) => crate::app_warn!(
                             "async_jobs",
                             "purge",
-                            "Failed to stat spool file {} for job {}: {}",
+                            "Failed to delete spool file {} for job {}: {}",
                             path,
                             job_id,
                             e
-                        );
+                        ),
                     }
                 }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => crate::app_warn!(
+                    "async_jobs",
+                    "purge",
+                    "Failed to stat spool file {} for job {}: {}",
+                    path,
+                    job_id,
+                    e
+                ),
             }
         }
-
-        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
-        let deleted = conn.execute(
-            "DELETE FROM async_tool_jobs
-             WHERE status IN ('completed','failed','interrupted','timed_out')
-               AND completed_at IS NOT NULL
-               AND completed_at < ?1",
-            params![cutoff_ts],
-        )?;
-        stats.rows_deleted = deleted as u64;
 
         Ok(stats)
     }
@@ -254,14 +241,16 @@ impl AsyncJobsDB {
     /// replay to push pending notifications back into their parent sessions.
     pub fn list_pending_injection(&self) -> Result<Vec<AsyncJob>> {
         let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
-        let mut stmt = conn.prepare(
+        let sql = format!(
             "SELECT job_id, session_id, agent_id, tool_name, tool_call_id,
                     args_json, status, result_preview, result_path, error,
                     created_at, completed_at, injected, origin
              FROM async_tool_jobs
-             WHERE status IN ('completed','failed','interrupted','timed_out')
+             WHERE status IN ({})
                AND injected=0",
-        )?;
+            AsyncJobStatus::TERMINAL_STATUS_SQL_LIST
+        );
+        let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map([], row_to_job)?;
         let mut out = Vec::new();
         for r in rows {
