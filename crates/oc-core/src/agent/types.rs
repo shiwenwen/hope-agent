@@ -68,6 +68,7 @@ pub(super) fn read_and_encode_base64(path: &str) -> anyhow::Result<String> {
 }
 
 /// Supported LLM providers
+#[derive(Clone)]
 pub enum LlmProvider {
     /// Anthropic Messages API
     Anthropic {
@@ -174,6 +175,14 @@ pub struct AssistantAgent {
     /// Lazily-populated cache for fields read from `agent.json` on every
     /// chat/tool-loop iteration. Cleared by `set_agent_id`.
     pub(super) agent_caps_cache: std::sync::Mutex<Option<std::sync::Arc<AgentCapsCache>>>,
+    /// Cross-session behavior awareness. Lazily created on first `chat()`
+    /// call once we have a session id and the feature is enabled.
+    pub(crate) cross_session_awareness:
+        std::sync::Mutex<Option<std::sync::Arc<crate::cross_session::SessionAwareness>>>,
+    /// Latest dynamic cross-session suffix to append to the system prompt as
+    /// a separate cache breakpoint. Rebuilt on each chat() turn by
+    /// `prepare_dynamic_suffix`.
+    pub(crate) cross_session_suffix: std::sync::Mutex<Option<std::sync::Arc<String>>>,
 }
 
 /// Cached parameters from the last main chat request.

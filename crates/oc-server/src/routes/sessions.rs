@@ -60,6 +60,13 @@ pub struct RenameSessionBody {
     pub title: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CrossSessionOverrideBody {
+    /// JSON string. `None` or empty clears the override.
+    pub json: Option<String>,
+}
+
 // ── Response wrapper for paginated lists ────────────────────────
 
 #[derive(Debug, Serialize)]
@@ -261,4 +268,24 @@ pub async fn compact_context_now(
         "description": "not_supported_in_server_mode",
         "details": null,
     })))
+}
+
+/// `GET /api/sessions/:id/cross-session-config` — read per-session override JSON.
+pub async fn get_session_cross_session_config(
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, AppError> {
+    let json = ctx.session_db.get_session_cross_session_config_json(&id)?;
+    Ok(Json(json!({ "json": json })))
+}
+
+/// `PUT /api/sessions/:id/cross-session-config` — write or clear override.
+pub async fn set_session_cross_session_config(
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+    Json(body): Json<CrossSessionOverrideBody>,
+) -> Result<Json<Value>, AppError> {
+    ctx.session_db
+        .set_session_cross_session_config_json(&id, body.json.as_deref())?;
+    Ok(Json(json!({ "saved": true })))
 }

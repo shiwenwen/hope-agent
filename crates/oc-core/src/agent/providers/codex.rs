@@ -34,6 +34,7 @@ impl AssistantAgent {
         on_delta: &(impl Fn(&str) + Send),
     ) -> Result<(String, Option<String>)> {
         self.reset_chat_flags();
+        self.refresh_cross_session_suffix(message).await;
 
         let client = reqwest::Client::new();
         let tool_schemas = self.build_tool_schemas(ToolProvider::OpenAI);
@@ -69,9 +70,10 @@ impl AssistantAgent {
         let mut total_usage = ChatUsage::default();
         let mut first_ttft_ms: Option<u64> = None;
         let system_prompt = self.build_full_system_prompt(model, "Codex");
+        let system_prompt_for_budget = self.build_merged_system_prompt(model, "Codex");
 
         // Run context compaction (Tier 1-3) before API call
-        self.run_compaction(&mut input, &system_prompt, 16384, on_delta)
+        self.run_compaction(&mut input, &system_prompt_for_budget, 16384, on_delta)
             .await;
 
         // LLM memory selection: filter to most relevant memories
@@ -108,11 +110,21 @@ impl AssistantAgent {
             // Strip _oc_round metadata before sending to API
             let api_input = crate::context_compact::prepare_messages_for_api(&input);
 
+            let instructions_with_suffix = {
+                let mut s = system_prompt.clone();
+                if let Some(suffix) = self.current_cross_session_suffix() {
+                    if !suffix.is_empty() {
+                        s.push_str("\n\n");
+                        s.push_str(&suffix);
+                    }
+                }
+                s
+            };
             let request = ResponsesRequest {
                 model: model.to_string(),
                 store: false,
                 stream: true,
-                instructions: system_prompt.clone(),
+                instructions: instructions_with_suffix,
                 input: api_input,
                 reasoning: reasoning.as_ref().map(|r| ReasoningConfig {
                     effort: r.effort.clone(),

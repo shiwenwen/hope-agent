@@ -484,6 +484,10 @@ pub async fn execute_tool_with_context(
             TOOL_TASK_LIST => Ok(task::tool_task_list(args, ctx.session_id.as_deref()).await),
             TOOL_JOB_STATUS => job_status::tool_job_status(args).await,
             super::TOOL_TOOL_SEARCH => super::tool_search::tool_search(args, ctx).await,
+            super::TOOL_PEEK_SESSIONS => {
+                crate::cross_session::run_peek_sessions(args, ctx.session_id.as_deref())
+                    .map_err(|e| anyhow::anyhow!(e))
+            }
             _ => Err(anyhow::anyhow!("Unknown tool: {}", name)),
         }
     };

@@ -97,6 +97,12 @@ impl AssistantAgent {
             self.touch_compaction_timer();
         }
 
+        // Tier 2+ already invalidated the prompt cache; piggyback and force
+        // a cross-session suffix rebuild on the next turn at zero extra cost.
+        if compact_result.tier_applied >= 2 {
+            self.force_refresh_cross_session();
+        }
+
         // Log compaction
         if let Some(logger) = crate::get_logger() {
             logger.log(

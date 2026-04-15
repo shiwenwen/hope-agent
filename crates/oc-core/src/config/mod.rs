@@ -461,6 +461,12 @@ pub struct AppConfig {
     /// Async tool execution configuration (run_in_background, auto-background, etc.)
     #[serde(default)]
     pub async_tools: AsyncToolsConfig,
+
+    /// Cross-session behavior awareness configuration.
+    /// Provides each chat with a dynamically-refreshed view of what the user
+    /// is doing in other parallel sessions.
+    #[serde(default)]
+    pub cross_session: crate::cross_session::CrossSessionConfig,
 }
 
 impl Default for AppConfig {
@@ -511,6 +517,7 @@ impl Default for AppConfig {
             server: EmbeddedServerConfig::default(),
             recap: RecapConfig::default(),
             async_tools: AsyncToolsConfig::default(),
+            cross_session: crate::cross_session::CrossSessionConfig::default(),
         }
     }
 }

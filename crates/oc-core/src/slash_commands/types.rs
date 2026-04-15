@@ -198,6 +198,7 @@ impl SlashCommandDef {
             "prompts" => "View system prompt",
             "recap" => "Generate a deep analysis recap report",
             "context" => "Show context window breakdown",
+            "cross-session" => "Toggle cross-session behavior awareness",
             _ => "Command",
         }
         .to_string()

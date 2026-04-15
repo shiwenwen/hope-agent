@@ -34,6 +34,7 @@ impl AssistantAgent {
         on_delta: &(impl Fn(&str) + Send),
     ) -> Result<(String, Option<String>)> {
         self.reset_chat_flags();
+        self.refresh_cross_session_suffix(message).await;
 
         let client =
             crate::provider::apply_proxy(reqwest::Client::builder().user_agent(&self.user_agent))
@@ -59,11 +60,16 @@ impl AssistantAgent {
         let mut first_ttft_ms: Option<u64> = None;
 
         let api_url = build_api_url(base_url, "/v1/messages");
+        // Static prefix (cache-friendly). The dynamic cross-session suffix
+        // is injected as a second `system` text block below so that its
+        // churn does not invalidate the prefix cache.
         let system_prompt = self.build_full_system_prompt(model, "Anthropic");
+        // Merged copy is used only for compaction token-budget accounting.
+        let system_prompt_for_budget = self.build_merged_system_prompt(model, "Anthropic");
 
         // Run context compaction (Tier 1-3) before API call
         let max_tokens: u32 = 16384;
-        self.run_compaction(&mut messages, &system_prompt, max_tokens, on_delta)
+        self.run_compaction(&mut messages, &system_prompt_for_budget, max_tokens, on_delta)
             .await;
 
         // Map thinking effort for Anthropic
@@ -104,12 +110,26 @@ impl AssistantAgent {
                 }
             }
 
-            // Build system prompt with cache_control for Anthropic prompt caching
-            let system_with_cache = json!([{
+            // Build system prompt with cache_control for Anthropic prompt caching.
+            // The static prefix is cached as one block; the dynamic cross-session
+            // suffix (if any) is a second block with its own cache_control so that
+            // changes to it only invalidate the suffix, not the prefix.
+            let cross_session_suffix = self.current_cross_session_suffix();
+            let mut system_blocks = vec![json!({
                 "type": "text",
                 "text": system_prompt,
                 "cache_control": { "type": "ephemeral" }
-            }]);
+            })];
+            if let Some(suffix) = cross_session_suffix.as_deref() {
+                if !suffix.is_empty() {
+                    system_blocks.push(json!({
+                        "type": "text",
+                        "text": suffix,
+                        "cache_control": { "type": "ephemeral" }
+                    }));
+                }
+            }
+            let system_with_cache = json!(system_blocks);
 
             // Add cache_control to the last tool definition (tools are static, worth caching)
             let mut tools_with_cache = tool_schemas.clone();
