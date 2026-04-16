@@ -60,6 +60,39 @@
 @layer base {
   * {
     @apply border-border;
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+  }
+  *:hover {
+    scrollbar-color: hsl(0 0% 70% / 0.4) transparent;
+  }
+  .dark *:hover {
+    scrollbar-color: hsl(0 0% 40% / 0.5) transparent;
+  }
+  /* Webkit (Chrome/Safari/Tauri) */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 3px;
+    transition: background 0.2s;
+  }
+  *:hover::-webkit-scrollbar-thumb {
+    background: hsl(0 0% 70% / 0.4);
+  }
+  *:hover::-webkit-scrollbar-thumb:hover {
+    background: hsl(0 0% 60% / 0.6);
+  }
+  .dark *:hover::-webkit-scrollbar-thumb {
+    background: hsl(0 0% 40% / 0.5);
+  }
+  .dark *:hover::-webkit-scrollbar-thumb:hover {
+    background: hsl(0 0% 50% / 0.6);
   }
   body {
     @apply bg-background text-foreground;
