@@ -115,7 +115,19 @@ export default function ChatScreen({
     createProject,
     updateProject,
     deleteProject,
+    moveSessionToProject,
   } = useProjects()
+
+  // Wrap moveSessionToProject so the sidebar also reloads — otherwise the
+  // moved session keeps rendering under the old "Unassigned" group until
+  // the user manually refreshes.
+  const handleMoveSessionToProject = useCallback(
+    async (sessionId: string, projectId: string | null) => {
+      await moveSessionToProject(sessionId, projectId)
+      await reloadSessions()
+    },
+    [moveSessionToProject, reloadSessions],
+  )
 
   const [projectDialogOpen, setProjectDialogOpen] = useState(false)
   const [projectDialogMode, setProjectDialogMode] = useState<"create" | "edit">("create")
@@ -551,6 +563,7 @@ export default function ChatScreen({
         onLoadMoreSessions={session.handleLoadMoreSessions}
         onOpenProject={openProjectOverview}
         onAddProject={openCreateProject}
+        onMoveSessionToProject={handleMoveSessionToProject}
       />
 
       {/* Project create/edit dialog */}

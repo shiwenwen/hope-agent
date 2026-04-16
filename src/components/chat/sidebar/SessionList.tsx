@@ -21,6 +21,7 @@ import type {
   AgentSummaryForSidebar,
   SessionSearchResult,
 } from "@/types/chat"
+import type { ProjectMeta } from "@/types/project"
 import type { SessionFilterType } from "./types"
 import SessionItem from "./SessionItem"
 import SearchResultItem from "./SearchResultItem"
@@ -62,6 +63,9 @@ interface SessionListProps {
   searchResults: SessionSearchResult[] | null
   searching: boolean
   agents: AgentSummaryForSidebar[]
+  // Projects — drives the per-session "Move to project" submenu
+  projects?: ProjectMeta[]
+  onMoveToProject?: (sessionId: string, projectId: string | null) => void
 }
 
 export default function SessionList({
@@ -90,6 +94,8 @@ export default function SessionList({
   searchResults,
   searching,
   agents,
+  projects = [],
+  onMoveToProject,
 }: SessionListProps) {
   const { t } = useTranslation()
 
@@ -264,6 +270,7 @@ export default function SessionList({
                   session={session}
                   sessions={sessions}
                   agent={agent}
+                  projects={projects}
                   isActive={isActive}
                   isLoading={isLoading}
                   renamingSessionId={renamingSessionId}
@@ -276,6 +283,7 @@ export default function SessionList({
                   onCommitRename={onCommitRename}
                   onCancelRename={onCancelRename}
                   onMarkAllRead={onMarkAllRead}
+                  onMoveToProject={onMoveToProject}
                   getAgentInfo={getAgentInfo}
                   formatRelativeTime={formatRelativeTime}
                 />

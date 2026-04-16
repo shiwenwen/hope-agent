@@ -43,6 +43,7 @@ export default function ChatSidebar({
   onLoadMoreSessions,
   onOpenProject,
   onAddProject,
+  onMoveSessionToProject,
 }: ChatSidebarProps) {
   const { t } = useTranslation()
   const [agentsExpanded, setAgentsExpanded] = useState(true)
@@ -362,6 +363,8 @@ export default function ChatSidebar({
               searchResults={searchResults}
               searching={searching}
               agents={agents}
+              projects={projects}
+              onMoveToProject={onMoveSessionToProject}
             />
           </div>
         </div>

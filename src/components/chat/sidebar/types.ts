@@ -23,6 +23,11 @@ export interface ChatSidebarProps {
   onOpenProject?: (project: ProjectMeta) => void
   /** Triggered by the "+ New Project" sidebar button. */
   onAddProject?: () => void
+  /**
+   * Triggered by the per-session "Move to project" context-menu entry.
+   * Passing `projectId=null` removes the session from its current project.
+   */
+  onMoveSessionToProject?: (sessionId: string, projectId: string | null) => void
 }
 
 export type SessionFilterType = "all" | "session" | "cron" | "subagent" | "channel"
