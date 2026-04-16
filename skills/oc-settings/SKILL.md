@@ -67,7 +67,7 @@ Use `get_settings` and `update_settings` tools to read and modify application se
 | `temporal_decay` | Memory temporal decay | `enabled`, `halfLifeDays` |
 | `mmr` | MMR reranking | `enabled`, `lambda` |
 | `recap` | Recap reports | `analysisAgent`, `defaultRangeDays`, `facetConcurrency` |
-| `cross_session` | Cross-session awareness | `enabled`, `mode` (`structured`/`llm_digest`) |
+| `cross_session` | Behavior awareness | `enabled`, `mode` (`structured`/`llm_digest`) |
 | `shortcuts` | Global keyboard shortcuts | `bindings` (array) |
 | `skills` | Skill management | `extraSkillsDirs`, `disabledSkills`, `skillEnvCheck` |
 

@@ -258,7 +258,7 @@ stateDiagram-v2
 /awareness status         → 显示状态
 ```
 
-> 详见 [行为感知架构文档](cross-session.md)
+> 详见 [行为感知架构文档](behavior-awareness.md)
 
 ---
 
