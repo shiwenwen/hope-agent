@@ -40,7 +40,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   archive_project_cmd:             { method: "POST",   path: "/api/projects/{id}/archive" },
   list_project_sessions_cmd:       { method: "GET",    path: "/api/projects/{id}/sessions" },
   move_session_to_project_cmd:     { method: "PATCH",  path: "/api/sessions/{sessionId}/project" },
-  list_project_files_cmd:          { method: "GET",    path: "/api/projects/{id}/files" },
+  list_project_files_cmd:          { method: "GET",    path: "/api/projects/{projectId}/files" },
   upload_project_file_cmd:         { method: "POST",   path: "/api/projects/{projectId}/files" },
   delete_project_file_cmd:         { method: "DELETE", path: "/api/projects/{projectId}/files/{fileId}" },
   rename_project_file_cmd:         { method: "PATCH",  path: "/api/projects/{projectId}/files/{fileId}" },

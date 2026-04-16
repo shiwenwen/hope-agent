@@ -41,7 +41,7 @@ export function useProjectFiles(projectId: string | null): UseProjectFilesReturn
     setError(null)
     try {
       const data = await getTransport().call<ProjectFile[]>("list_project_files_cmd", {
-        id: pid,
+        projectId: pid,
       })
       setFiles(Array.isArray(data) ? data : [])
     } catch (e) {

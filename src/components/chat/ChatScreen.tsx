@@ -135,7 +135,13 @@ export default function ChatScreen({
   const [projectDialogInitial, setProjectDialogInitial] = useState<Project | null>(null)
 
   const [projectOverviewOpen, setProjectOverviewOpen] = useState(false)
-  const [projectOverviewTarget, setProjectOverviewTarget] = useState<ProjectMeta | null>(null)
+  const [projectOverviewTargetId, setProjectOverviewTargetId] = useState<string | null>(null)
+  // Derive the live target from the projects list so mutations (rename,
+  // archive, file upload) are reflected immediately in the open dialog.
+  const projectOverviewTarget = useMemo(
+    () => (projectOverviewTargetId ? projects.find((p) => p.id === projectOverviewTargetId) ?? null : null),
+    [projects, projectOverviewTargetId],
+  )
 
   const [projectDeleteTarget, setProjectDeleteTarget] = useState<Project | null>(null)
 
@@ -152,21 +158,26 @@ export default function ChatScreen({
   }, [])
 
   const openProjectOverview = useCallback((project: ProjectMeta) => {
-    setProjectOverviewTarget(project)
+    setProjectOverviewTargetId(project.id)
     setProjectOverviewOpen(true)
   }, [])
 
+  const [deletingProject, setDeletingProject] = useState(false)
+
   const confirmDeleteProject = useCallback(async () => {
-    if (!projectDeleteTarget) return
-    const ok = await deleteProject(projectDeleteTarget.id)
-    setProjectDeleteTarget(null)
-    if (ok) {
-      setProjectOverviewOpen(false)
-      // If the active session belonged to this project, reload so its
-      // projectId flips to null for the sidebar indicator.
-      reloadSessions()
+    if (!projectDeleteTarget || deletingProject) return
+    setDeletingProject(true)
+    try {
+      const ok = await deleteProject(projectDeleteTarget.id)
+      setProjectDeleteTarget(null)
+      if (ok) {
+        setProjectOverviewOpen(false)
+        reloadSessions()
+      }
+    } finally {
+      setDeletingProject(false)
     }
-  }, [deleteProject, projectDeleteTarget, reloadSessions])
+  }, [deleteProject, projectDeleteTarget, deletingProject, reloadSessions])
 
   // Rename session handler
   const handleRenameSession = useCallback(async (sessionId: string, title: string) => {
@@ -617,8 +628,9 @@ export default function ChatScreen({
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={confirmDeleteProject}
+              disabled={deletingProject}
             >
-              {t("common.delete")}
+              {deletingProject ? t("common.saving") : t("common.delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

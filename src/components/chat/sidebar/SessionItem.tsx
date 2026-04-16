@@ -27,6 +27,7 @@ import {
   FolderInput,
   FolderMinus,
   FolderKanban,
+  Check,
 } from "lucide-react"
 import type { SessionMeta, AgentSummaryForSidebar } from "@/types/chat"
 import type { ProjectMeta } from "@/types/project"
@@ -315,7 +316,9 @@ export default function SessionItem({
                           disabled={session.projectId === p.id}
                           onClick={() => onMoveToProject(session.id, p.id)}
                         >
-                          {p.emoji ? (
+                          {session.projectId === p.id ? (
+                            <Check className="h-3.5 w-3.5 mr-2 text-primary" />
+                          ) : p.emoji ? (
                             <span className="mr-2 text-sm leading-none">{p.emoji}</span>
                           ) : (
                             <FolderKanban className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
