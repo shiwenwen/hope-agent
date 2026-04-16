@@ -177,6 +177,13 @@ pub fn resolve_for_session(
     }
 }
 
+/// Validate that `override_json` is legal JSON that can be merged into a
+/// `CrossSessionConfig`. Called from the Tauri/HTTP command layer before
+/// persisting to the DB.
+pub fn validate_override(base: &CrossSessionConfig, override_json: &str) -> anyhow::Result<()> {
+    merge_override(base, override_json).map(|_| ())
+}
+
 /// Parse a partial override JSON and apply it on top of the base config.
 fn merge_override(base: &CrossSessionConfig, override_json: &str) -> anyhow::Result<CrossSessionConfig> {
     let override_val: serde_json::Value = serde_json::from_str(override_json)?;

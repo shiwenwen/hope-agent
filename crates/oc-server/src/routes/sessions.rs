@@ -285,6 +285,15 @@ pub async fn set_session_cross_session_config(
     Path(id): Path<String>,
     Json(body): Json<CrossSessionOverrideBody>,
 ) -> Result<Json<Value>, AppError> {
+    // Validate the override JSON before persisting. A round-trip through
+    // merge_override catches both syntax errors and type mismatches.
+    if let Some(ref json_str) = body.json {
+        if !json_str.trim().is_empty() {
+            let base = oc_core::cross_session::CrossSessionConfig::default();
+            oc_core::cross_session::config::validate_override(&base, json_str)
+                .map_err(|e| anyhow::anyhow!("invalid override JSON: {}", e))?;
+        }
+    }
     ctx.session_db
         .set_session_cross_session_config_json(&id, body.json.as_deref())?;
     Ok(Json(json!({ "saved": true })))

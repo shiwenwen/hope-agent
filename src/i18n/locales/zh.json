@@ -748,7 +748,7 @@
       "digestMaxChars": "摘要输出预算（字符）",
       "extractionAgent": "抽取 Agent ID（可选）",
       "extractionAgentPlaceholder": "留空则继承 recap.analysisAgent",
-      "perSessionHint": "每个会话可在聊天窗口内的设置弹层中单独覆盖以上配置",
+      "perSessionHint": "会话级覆盖可通过 /cross-session 命令或 API 设置",
       "reloadDefaults": "重新加载"
     },
     "planSubagent": "计划子 Agent 模式",

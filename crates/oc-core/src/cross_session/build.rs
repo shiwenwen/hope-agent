@@ -16,7 +16,6 @@ use super::config::{CrossSessionConfig, CrossSessionMode};
 /// instructing the model that the feature exists and that a suffix will be
 /// appended.
 pub fn build_prompt_section(
-    _agent_id: &str,
     current_session_id: Option<&str>,
     cfg: &CrossSessionConfig,
 ) -> Result<Option<String>> {

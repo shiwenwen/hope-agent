@@ -748,7 +748,7 @@
       "digestMaxChars": "Digest output budget (chars)",
       "extractionAgent": "Extraction agent ID (optional)",
       "extractionAgentPlaceholder": "Leave empty to inherit recap.analysisAgent",
-      "perSessionHint": "Each chat can override these settings from its in-chat settings panel.",
+      "perSessionHint": "Per-session overrides are available via the /cross-session command or API.",
       "reloadDefaults": "Reload"
     },
     "planSubagent": "Plan Sub-Agent Mode",

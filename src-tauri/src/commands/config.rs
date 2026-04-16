@@ -738,6 +738,14 @@ pub async fn set_session_cross_session_override(
     session_id: String,
     json: Option<String>,
 ) -> Result<(), String> {
+    // Validate before persisting.
+    if let Some(ref j) = json {
+        if !j.trim().is_empty() {
+            let base = oc_core::cross_session::CrossSessionConfig::default();
+            oc_core::cross_session::config::validate_override(&base, j)
+                .map_err(|e| format!("invalid override JSON: {}", e))?;
+        }
+    }
     let db = oc_core::get_session_db().ok_or("Session DB not initialized")?;
     db.set_session_cross_session_config_json(&session_id, json.as_deref())
         .map_err(|e| e.to_string())

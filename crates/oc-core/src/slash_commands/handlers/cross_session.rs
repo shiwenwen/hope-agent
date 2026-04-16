@@ -31,7 +31,7 @@ pub fn handle_cross_session(args: &str) -> Result<CommandResult, String> {
             Some("llm") | Some("llm_digest") | Some("digest") => {
                 set_mode(CrossSessionMode::LlmDigest)
             }
-            _ => Err("Usage: /cross-session mode [off|structured|llm]".to_string()),
+            _ => Err("Usage: /cross-session mode [off|structured|llm|llm_digest|digest]".to_string()),
         },
         "status" => Ok(status_result()),
         other => Err(format!(

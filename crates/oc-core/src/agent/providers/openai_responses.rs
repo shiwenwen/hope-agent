@@ -106,26 +106,27 @@ impl AssistantAgent {
             }
 
             // Strip _oc_round metadata before sending to API
-            let api_input = crate::context_compact::prepare_messages_for_api(&input);
+            let mut api_input = crate::context_compact::prepare_messages_for_api(&input);
 
-            // Append the cross-session dynamic suffix to instructions so the
-            // model sees it; the prefix of the string is still cache-eligible
-            // under OpenAI prefix caching.
-            let instructions_with_suffix = {
-                let mut s = system_prompt.clone();
-                if let Some(suffix) = self.current_cross_session_suffix() {
-                    if !suffix.is_empty() {
-                        s.push_str("\n\n");
-                        s.push_str(&suffix);
-                    }
+            // Inject the dynamic cross-session suffix as a leading system-role
+            // item in the input array. This keeps the static `instructions`
+            // string unchanged across turns so OpenAI's automatic prefix
+            // caching stays effective. The suffix lives outside `instructions`
+            // → suffix churn doesn't invalidate the instruction cache.
+            if let Some(suffix) = self.current_cross_session_suffix() {
+                if !suffix.is_empty() {
+                    api_input.insert(0, json!({
+                        "role": "system",
+                        "content": suffix.as_str()
+                    }));
                 }
-                s
-            };
+            }
+
             let request = ResponsesRequest {
                 model: model.to_string(),
                 store: false,
                 stream: true,
-                instructions: instructions_with_suffix,
+                instructions: system_prompt.clone(),
                 input: api_input,
                 reasoning: reasoning.as_ref().map(|r| ReasoningConfig {
                     effort: r.effort.clone(),

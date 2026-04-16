@@ -24,8 +24,13 @@ pub fn collect_entries(
     current_session_id: &str,
     current_agent_id: Option<&str>,
 ) -> Result<CrossSessionSnapshot> {
-    // Pull a fat candidate list (the client-side filters discard some).
-    let agent_filter: Option<&str> = None;
+    // When same_agent_only is on, push the filter down to SQL so we don't
+    // pull all sessions then discard most of them client-side.
+    let agent_filter: Option<&str> = if cfg.same_agent_only {
+        current_agent_id
+    } else {
+        None
+    };
     let pull_limit = (cfg.max_sessions as u32).saturating_mul(4).max(20);
     let (all_sessions, _total): (Vec<SessionMeta>, u32) =
         db.list_sessions_paged(agent_filter, crate::session::ProjectFilter::All, Some(pull_limit), Some(0))?;
@@ -42,11 +47,14 @@ pub fn collect_entries(
         .into_iter()
         .collect();
 
-    // Lazily-cached RecapDb connection, shared across calls to avoid
-    // reopening SQLite on every refresh (~5ms → ~0ms hot path).
+    // Lazily-cached RecapDb connection. If the first open failed (e.g. file
+    // lock), retry on subsequent calls so we don't permanently degrade.
     static RECAP_DB: Lazy<Mutex<Option<crate::recap::db::RecapDb>>> =
         Lazy::new(|| Mutex::new(crate::recap::db::RecapDb::open_default().ok()));
-    let recap_lock = RECAP_DB.lock().unwrap_or_else(|e| e.into_inner());
+    let mut recap_lock = RECAP_DB.lock().unwrap_or_else(|e| e.into_inner());
+    if recap_lock.is_none() {
+        *recap_lock = crate::recap::db::RecapDb::open_default().ok();
+    }
 
     // Build candidate entries.
     let mut entries: Vec<CrossSessionEntry> = Vec::new();
@@ -149,15 +157,12 @@ pub fn collect_entries(
         });
     }
 
-    // Sort: Active > Recent > Older, then by age_secs ascending (newer first).
+    // Sort: Active first, then Recent, then Older; within each group newer first.
     entries.sort_by(|a, b| {
         let rank_a = activity_rank(&a.activity);
         let rank_b = activity_rank(&b.activity);
         rank_a.cmp(&rank_b).then(a.age_secs.cmp(&b.age_secs))
     });
-    if entries.len() > cfg.max_sessions {
-        entries.truncate(cfg.max_sessions);
-    }
 
     Ok(CrossSessionSnapshot {
         entries,

@@ -38,6 +38,9 @@ pub struct SessionAwareness {
     last_digest_at: Mutex<Option<Instant>>,
     digest_inflight: AtomicBool,
     digest_candidate_hash: AtomicU64,
+    /// Consecutive extraction failure count. After N failures the stale
+    /// `last_digest` is cleared so we don't keep injecting outdated info.
+    digest_consecutive_failures: std::sync::atomic::AtomicU32,
     // ── Last snapshot used to render the suffix (also exposed to peek_tool) ──
     last_snapshot: Mutex<Option<CrossSessionSnapshot>>,
 }
@@ -59,6 +62,7 @@ impl SessionAwareness {
             last_digest_at: Mutex::new(None),
             digest_inflight: AtomicBool::new(false),
             digest_candidate_hash: AtomicU64::new(0),
+            digest_consecutive_failures: std::sync::atomic::AtomicU32::new(0),
             last_snapshot: Mutex::new(None),
         })
     }
@@ -211,14 +215,23 @@ impl SessionAwareness {
         *self.last_digest.lock().unwrap_or_else(|e| e.into_inner()) = Some(text);
         *self.last_digest_at.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
         self.digest_inflight.store(false, Ordering::Release);
+        self.digest_consecutive_failures.store(0, Ordering::Release);
         // Trigger a rebuild next turn so the new digest lands in the suffix.
         self.mark_force_refresh();
     }
 
-    /// Record an LLM extraction failure and cool down.
+    /// Record an LLM extraction failure and cool down. After 3 consecutive
+    /// failures, clear the stale `last_digest` so we don't keep injecting
+    /// outdated information.
     pub fn record_digest_failure(&self) {
         *self.last_digest_at.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
         self.digest_inflight.store(false, Ordering::Release);
+        let prev = self.digest_consecutive_failures.fetch_add(1, Ordering::AcqRel);
+        if prev >= 2 {
+            // 3rd+ failure: evict the stale digest.
+            *self.last_digest.lock().unwrap_or_else(|e| e.into_inner()) = None;
+            self.mark_force_refresh();
+        }
     }
 
     /// Whether the LLM digest path should run this turn.

@@ -112,23 +112,24 @@ impl AssistantAgent {
             }
 
             // Strip _oc_round metadata before sending to API
-            let api_input = crate::context_compact::prepare_messages_for_api(&input);
+            let mut api_input = crate::context_compact::prepare_messages_for_api(&input);
 
-            let instructions_with_suffix = {
-                let mut s = system_prompt.clone();
-                if let Some(suffix) = self.current_cross_session_suffix() {
-                    if !suffix.is_empty() {
-                        s.push_str("\n\n");
-                        s.push_str(&suffix);
-                    }
+            // Same as openai_responses: suffix goes into input[0] as system
+            // message so that the static `instructions` stays cache-friendly.
+            if let Some(suffix) = self.current_cross_session_suffix() {
+                if !suffix.is_empty() {
+                    api_input.insert(0, json!({
+                        "role": "system",
+                        "content": suffix.as_str()
+                    }));
                 }
-                s
-            };
+            }
+
             let request = ResponsesRequest {
                 model: model.to_string(),
                 store: false,
                 stream: true,
-                instructions: instructions_with_suffix,
+                instructions: system_prompt.clone(),
                 input: api_input,
                 reasoning: reasoning.as_ref().map(|r| ReasoningConfig {
                     effort: r.effort.clone(),

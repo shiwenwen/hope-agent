@@ -109,6 +109,13 @@ export default function CrossSessionPanel() {
           )
           setSaveStatus("failed")
           setTimeout(() => setSaveStatus("idle"), 1500)
+          // Rollback: re-fetch actual backend state so UI stays in sync.
+          try {
+            const fresh = await getTransport().call<CrossSessionConfig>(
+              "get_cross_session_config",
+            )
+            setCfg(fresh)
+          } catch { /* best effort */ }
         } finally {
           setSaving(false)
         }
