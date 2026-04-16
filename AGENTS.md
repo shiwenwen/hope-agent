@@ -1,6 +1,6 @@
 # OpenComputer
 
-基于 Tauri 2 + React 19 + Rust 的本地 AI 助手桌面应用，支持 28 个内置 Provider 模板（108 个预设模型），GUI 傻瓜式配置。支持三种运行模式：桌面 GUI（Tauri）、HTTP/WS 守护进程（`opencomputer server`）、ACP stdio（`opencomputer acp`）。
+基于 Tauri 2 + React 19 + Rust 的本地 AI 助手桌面应用，支持 36 个内置 Provider 模板（166 个预设模型），GUI 傻瓜式配置。支持三种运行模式：桌面 GUI（Tauri）、HTTP/WS 守护进程（`opencomputer server`）、ACP stdio（`opencomputer acp`）。
 
 ## 开发命令
 
@@ -141,6 +141,7 @@ crates/oc-core/src/     核心业务逻辑（零 Tauri 依赖）
     sqlite/             SQLite 后端（prompt/backend/trait_impl 拆分）
   context_compact/      上下文压缩（5 层渐进式）
   subagent/             子 Agent 系统
+  team/                 Agent Team 多 Agent 协作（coordinator/messaging/tasks/templates/cleanup）
   cron/                 定时任务调度
   acp/                  ACP 协议服务器（IDE 直连）
   acp_control/          ACP 控制面客户端
