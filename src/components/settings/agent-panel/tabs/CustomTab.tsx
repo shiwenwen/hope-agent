@@ -96,9 +96,12 @@ export default function CustomTab({
 
       {config.openclawMode && (
         <>
-          <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 px-3 py-2">
+          <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 px-3 py-2 space-y-1">
             <p className="text-xs text-blue-600 dark:text-blue-400">
               {t("settings.agentOpenClawModeWarning")}
+            </p>
+            <p className="text-xs text-blue-600 dark:text-blue-400">
+              {t("settings.openclawMemoryMdHint")}
             </p>
           </div>
 
