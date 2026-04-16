@@ -748,8 +748,12 @@
       "digestMaxChars": "摘要输出预算（字符）",
       "extractionAgent": "抽取 Agent ID（可选）",
       "extractionAgentPlaceholder": "留空则继承 recap.analysisAgent",
-      "perSessionHint": "会话级覆盖可通过 /cross-session 命令或 API 设置",
-      "reloadDefaults": "重新加载"
+      "perSessionHint": "会话级覆盖也可通过 /cross-session 命令或 API 设置",
+      "reloadDefaults": "重新加载",
+      "sessionOverride": "会话级覆盖",
+      "enabledForSession": "本会话启用",
+      "modeInherit": "继承全局",
+      "resetOverride": "恢复为全局配置"
     },
     "planSubagent": "计划子 Agent 模式",
     "planSubagentDesc": "开启后 Plan Mode 的计划制定由独立子 Agent 执行，主 Agent 上下文更干净；关闭时在主 Agent 中内联制定计划，保持上下文连续",

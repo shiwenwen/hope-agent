@@ -748,8 +748,12 @@
       "digestMaxChars": "Digest output budget (chars)",
       "extractionAgent": "Extraction agent ID (optional)",
       "extractionAgentPlaceholder": "Leave empty to inherit recap.analysisAgent",
-      "perSessionHint": "Per-session overrides are available via the /cross-session command or API.",
-      "reloadDefaults": "Reload"
+      "perSessionHint": "Per-session overrides are also available via the /cross-session command or API.",
+      "reloadDefaults": "Reload",
+      "sessionOverride": "Session Override",
+      "enabledForSession": "Enabled for this session",
+      "modeInherit": "Inherit global",
+      "resetOverride": "Reset to global"
     },
     "planSubagent": "Plan Sub-Agent Mode",
     "planSubagentDesc": "When enabled, Plan Mode uses a dedicated sub-agent for plan creation (cleaner main context). When disabled, planning runs inline in the main agent (context continuity).",

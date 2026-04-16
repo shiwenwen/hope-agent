@@ -362,7 +362,7 @@ export default function CrossSessionPanel() {
         <div className="mt-4 text-xs text-muted-foreground">
           {t(
             "settings.crossSession.perSessionHint",
-            "Each chat can override these settings from its in-chat settings panel.",
+            "Each chat can override these settings via the eye icon in the input bar.",
           )}
         </div>
 
