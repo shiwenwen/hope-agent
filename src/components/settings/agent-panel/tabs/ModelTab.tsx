@@ -5,16 +5,81 @@ import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
 import { ModelSelector } from "@/components/ui/model-selector"
 import {
-  ArrowDown,
-  ArrowUp,
+  GripVertical,
   Plus,
   X,
   Lightbulb,
   Thermometer,
   RotateCcw,
 } from "lucide-react"
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core"
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+  arrayMove,
+} from "@dnd-kit/sortable"
+import { CSS } from "@dnd-kit/utilities"
 import { Slider } from "@/components/ui/slider"
 import type { AgentConfig, AvailableModel, ActiveModelRef } from "../types"
+
+function SortableFallbackItem({
+  id,
+  index,
+  displayName,
+  onRemove,
+}: {
+  id: string
+  index: number
+  displayName: string
+  onRemove: () => void
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id,
+  })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+    zIndex: isDragging ? 50 : undefined,
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="flex items-center gap-2 px-3 py-2 rounded-lg bg-secondary/40 group"
+    >
+      <div
+        className="cursor-grab active:cursor-grabbing text-muted-foreground/40 hover:text-muted-foreground/70 shrink-0 touch-none"
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical className="h-3.5 w-3.5" />
+      </div>
+      <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium shrink-0">
+        #{index + 1}
+      </span>
+      <span className="text-sm text-foreground flex-1 truncate">
+        {displayName}
+      </span>
+      <button
+        className="p-0.5 text-muted-foreground hover:text-destructive transition-colors opacity-0 group-hover:opacity-100"
+        onClick={onRemove}
+      >
+        <X className="h-3 w-3" />
+      </button>
+    </div>
+  )
+}
 
 interface ModelTabProps {
   config: AgentConfig
@@ -25,6 +90,7 @@ interface ModelTabProps {
 export default function ModelTab({ config, availableModels, updateConfig }: ModelTabProps) {
   const { t } = useTranslation()
   const [addingAgentFallback, setAddingAgentFallback] = useState(false)
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
   const isCustom = !!config.model.primary
   const modelDisplayName = (ref: string) => {
@@ -134,50 +200,29 @@ export default function ModelTab({ config, availableModels, updateConfig }: Mode
                 {t("settings.noFallbackModels")}
               </div>
             ) : (
-              <div className="space-y-1 mb-3">
-                {fallbacks.map((ref, i) => (
-                  <div
-                    key={ref}
-                    className="flex items-center gap-2 px-3 py-2 rounded-lg bg-secondary/40"
-                  >
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium shrink-0">
-                      #{i + 1}
-                    </span>
-                    <span className="text-sm text-foreground flex-1 truncate">
-                      {modelDisplayName(ref)}
-                    </span>
-                    <div className="flex items-center gap-0.5 shrink-0">
-                      <button
-                        className="p-0.5 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30"
-                        onClick={() => {
-                          if (i === 0) return
-                          const newList = [...fallbacks]
-                          ;[newList[i], newList[i - 1]] = [newList[i - 1], newList[i]]
-                          updateConfig({
-                            model: { ...config.model, fallbacks: newList },
-                          })
-                        }}
-                        disabled={i === 0}
-                      >
-                        <ArrowUp className="h-3 w-3" />
-                      </button>
-                      <button
-                        className="p-0.5 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30"
-                        onClick={() => {
-                          if (i === fallbacks.length - 1) return
-                          const newList = [...fallbacks]
-                          ;[newList[i], newList[i + 1]] = [newList[i + 1], newList[i]]
-                          updateConfig({
-                            model: { ...config.model, fallbacks: newList },
-                          })
-                        }}
-                        disabled={i === fallbacks.length - 1}
-                      >
-                        <ArrowDown className="h-3 w-3" />
-                      </button>
-                      <button
-                        className="p-0.5 text-muted-foreground hover:text-destructive transition-colors ml-1"
-                        onClick={() => {
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={(event: DragEndEvent) => {
+                  const { active, over } = event
+                  if (!over || active.id === over.id) return
+                  const oldIndex = fallbacks.indexOf(active.id as string)
+                  const newIndex = fallbacks.indexOf(over.id as string)
+                  if (oldIndex === -1 || newIndex === -1) return
+                  updateConfig({
+                    model: { ...config.model, fallbacks: arrayMove(fallbacks, oldIndex, newIndex) },
+                  })
+                }}
+              >
+                <SortableContext items={fallbacks} strategy={verticalListSortingStrategy}>
+                  <div className="space-y-1 mb-3">
+                    {fallbacks.map((ref, i) => (
+                      <SortableFallbackItem
+                        key={ref}
+                        id={ref}
+                        index={i}
+                        displayName={modelDisplayName(ref)}
+                        onRemove={() => {
                           updateConfig({
                             model: {
                               ...config.model,
@@ -185,13 +230,11 @@ export default function ModelTab({ config, availableModels, updateConfig }: Mode
                             },
                           })
                         }}
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
-                    </div>
+                      />
+                    ))}
                   </div>
-                ))}
-              </div>
+                </SortableContext>
+              </DndContext>
             )}
 
             {/* Add fallback button / selector */}
