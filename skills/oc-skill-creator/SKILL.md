@@ -1,5 +1,5 @@
 ---
-name: skill-creator
+name: oc-skill-creator
 description: "Create, edit, improve, or audit OpenComputer skills. Use when the user wants to: (1) create a new skill from scratch, (2) edit or improve an existing skill, (3) review or clean up a SKILL.md file, (4) run evaluations to test skill effectiveness, (5) optimize skill descriptions for better trigger accuracy. Trigger phrases: 'create a skill', 'make a skill', 'improve this skill', 'review skill', 'audit skill'."
 always: true
 ---

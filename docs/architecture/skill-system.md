@@ -949,8 +949,8 @@ sequenceDiagram
 
 | 技能 | 说明 | 关联工具 |
 |------|------|----------|
-| `skill-creator` | 创建、编辑、改进或审计 OpenComputer 技能。包含评估工作流（agents/grader + comparator + analyzer、references/schemas、scripts/ 聚合脚本、eval-viewer/ 可视化查看器） | — |
-| `settings` | 通过自然语言对话调整应用设置。指导模型使用 `get_settings` / `update_settings` 工具读取和修改 30+ 个配置分类（主题、语言、代理、温度、通知、搜索、记忆等），不直接编辑配置文件 | `get_settings`, `update_settings` |
+| `oc-skill-creator` | 创建、编辑、改进或审计 OpenComputer 技能。包含评估工作流（agents/grader + comparator + analyzer、references/schemas、scripts/ 聚合脚本、eval-viewer/ 可视化查看器） | — |
+| `oc-settings` | 通过自然语言对话调整应用设置。指导模型使用 `get_settings` / `update_settings` 工具读取和修改 30+ 个配置分类（主题、语言、代理、温度、通知、搜索、记忆等），不直接编辑配置文件 | `get_settings`, `update_settings` |
 
 ### settings 技能工具
 

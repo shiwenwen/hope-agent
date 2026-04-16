@@ -1,5 +1,5 @@
 ---
-name: settings
+name: oc-settings
 description: "Manage OpenComputer application settings through conversation. Use when the user wants to view or change: theme, language, proxy, temperature, notifications, tool timeout, context compaction, web search, memory, embedding, recap, cross-session awareness, or any other app configuration. Trigger phrases: 'change settings', 'configure proxy', 'set theme to dark', 'turn off notifications', 'adjust temperature', 'show my settings'. Trigger even when the user doesn't explicitly say 'settings' — any intent to adjust app behavior qualifies."
 always: true
 ---

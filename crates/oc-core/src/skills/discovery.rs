@@ -44,13 +44,14 @@ fn resolve_bundled_skills_dir() -> Option<PathBuf> {
     }
 
     // 3. Dev builds only: workspace root skills/ (CARGO_MANIFEST_DIR is crates/oc-core)
+    //    Use env!() compile-time macro so the path is baked in at build time,
+    //    since the runtime env var is only present under `cargo run`.
     #[cfg(debug_assertions)]
-    if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
-        // Go up two levels: crates/oc-core -> workspace root
-        let workspace_root = PathBuf::from(&manifest_dir)
+    {
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        let workspace_root = Path::new(manifest_dir)
             .parent()
-            .and_then(|p| p.parent())
-            .map(|p| p.to_path_buf());
+            .and_then(|p| p.parent());
         if let Some(root) = workspace_root {
             if let Some(found) = try_skills_dir(root.join("skills")) {
                 return Some(found);
