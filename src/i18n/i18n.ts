@@ -123,4 +123,19 @@ export function setLanguage(code: string) {
   getTransport().call("set_language", { language: code }).catch(() => {})
 }
 
+/**
+ * Listen for backend config:changed events and hot-reload language.
+ * Returns an unlisten function. Should be called once in App.tsx useEffect.
+ */
+export function listenLanguageConfigChange(): () => void {
+  return getTransport().listen("config:changed", (raw) => {
+    try {
+      const payload = typeof raw === "string" ? JSON.parse(raw) : raw
+      if (payload?.category === "language") {
+        initLanguageFromConfig()
+      }
+    } catch { /* ignore */ }
+  })
+}
+
 export default i18n

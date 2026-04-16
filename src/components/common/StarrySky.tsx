@@ -106,11 +106,22 @@ function AppBackgroundInner() {
       applyWeather(payload as WeatherData)
     })
 
+    // Listen for config:changed from backend (e.g. oc-settings skill updates ui_effects)
+    const unlistenConfig = getTransport().listen("config:changed", (raw) => {
+      try {
+        const payload = typeof raw === "string" ? JSON.parse(raw) : raw
+        if (payload?.category === "ui_effects") {
+          loadData()
+        }
+      } catch { /* ignore */ }
+    })
+
     return () => {
       mounted = false
       window.removeEventListener("ui-effects-changed", listener)
       window.removeEventListener("simulate-weather", simulateListener)
       unlistenWeather()
+      unlistenConfig()
     }
   }, [])
 

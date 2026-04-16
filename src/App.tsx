@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, lazy, Suspense } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
-import { initLanguageFromConfig } from "@/i18n/i18n"
+import { initLanguageFromConfig, listenLanguageConfigChange } from "@/i18n/i18n"
+import { listenNotificationConfigChange } from "@/lib/notifications"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { LightboxProvider } from "@/components/common/ImageLightbox"
 import ErrorBoundary from "@/components/common/ErrorBoundary"
@@ -61,7 +62,7 @@ export default function App() {
     return () => document.removeEventListener("keydown", onKeyDown)
   }, [handleOpenSettings])
 
-  // Listen for system tray events
+  // Listen for system tray events + config hot-reload
   useEffect(() => {
     const unlistenSettings = getTransport().listen("open-settings", () => {
       setView("settings")
@@ -69,9 +70,13 @@ export default function App() {
     const unlistenNewSession = getTransport().listen("new-session", () => {
       setView("chat")
     })
+    const unlistenLanguage = listenLanguageConfigChange()
+    const unlistenNotification = listenNotificationConfigChange()
     return () => {
       unlistenSettings()
       unlistenNewSession()
+      unlistenLanguage()
+      unlistenNotification()
     }
   }, [])
 

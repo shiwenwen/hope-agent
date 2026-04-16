@@ -29,6 +29,21 @@ export async function saveNotificationConfig(config: NotificationConfig): Promis
 }
 
 /**
+ * Listen for backend config:changed events and hot-reload notification config.
+ * Returns an unlisten function. Should be called once at app startup.
+ */
+export function listenNotificationConfigChange(): () => void {
+  return getTransport().listen("config:changed", (raw) => {
+    try {
+      const payload = typeof raw === "string" ? JSON.parse(raw) : raw
+      if (payload?.category === "notification") {
+        loadNotificationConfig().catch(() => {})
+      }
+    } catch { /* ignore */ }
+  })
+}
+
+/**
  * Send a native desktop notification.
  * Respects the global toggle and OS permission.
  */

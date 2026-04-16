@@ -162,6 +162,17 @@ fn update_user_config(values: &Value) -> Result<String> {
     let updated: user_config::UserConfig = serde_json::from_value(uc_json.clone())?;
     user_config::save_user_config_to_disk(&updated)?;
 
+    // Notify frontend about user config change
+    if let Some(bus) = crate::get_event_bus() {
+        bus.emit(
+            "config:changed",
+            serde_json::json!({ "category": "user" }),
+        );
+    }
+
+    // Hot-reload: refresh weather cache if weather-related fields changed
+    trigger_weather_refresh_if_needed(values);
+
     Ok(serde_json::to_string_pretty(&json!({
         "category": "user",
         "updated": true,
@@ -254,6 +265,17 @@ fn update_app_config(category: &str, values: &Value) -> Result<String> {
 
     config::save_config(&store)?;
 
+    // Notify frontend about config change so UI can react immediately
+    if let Some(bus) = crate::get_event_bus() {
+        bus.emit(
+            "config:changed",
+            serde_json::json!({ "category": category }),
+        );
+    }
+
+    // Backend hot-reload: trigger side-effects for categories that cache state
+    trigger_backend_hot_reload(category, &store);
+
     // Return the saved value directly from the mutated store (avoids re-reading cache)
     let updated_value = read_category(category)?;
     Ok(serde_json::to_string_pretty(&json!({
@@ -261,6 +283,76 @@ fn update_app_config(category: &str, values: &Value) -> Result<String> {
         "updated": true,
         "settings": updated_value,
     }))?)
+}
+
+/// Trigger backend hot-reload side-effects for categories that cache state in memory.
+fn trigger_backend_hot_reload(category: &str, store: &config::AppConfig) {
+    match category {
+        "embedding" => {
+            // Re-initialize embedding provider when config changes
+            if let Some(backend) = crate::get_memory_backend() {
+                if store.embedding.enabled {
+                    match crate::memory::create_embedding_provider(&store.embedding) {
+                        Ok(provider) => {
+                            backend.set_embedder(provider);
+                            app_info!(
+                                "settings",
+                                "hot_reload",
+                                "Embedding provider re-initialized after config change"
+                            );
+                        }
+                        Err(e) => {
+                            app_warn!(
+                                "settings",
+                                "hot_reload",
+                                "Failed to re-initialize embedding provider: {}",
+                                e
+                            );
+                        }
+                    }
+                } else {
+                    backend.clear_embedder();
+                    app_info!(
+                        "settings",
+                        "hot_reload",
+                        "Embedding provider cleared (disabled)"
+                    );
+                }
+            }
+        }
+        "web_search" => {
+            // SearXNG config may affect Docker container — no cached state to invalidate,
+            // but weather system may use web search indirectly. No action needed.
+        }
+        _ => {} // Other categories: config cache (ArcSwap) already updated by save_config
+    }
+}
+
+/// Trigger weather cache refresh when user_config weather settings change.
+fn trigger_weather_refresh_if_needed(values: &Value) {
+    let dominated_keys = [
+        "weather_enabled",
+        "weatherEnabled",
+        "weather_city",
+        "weatherCity",
+        "weather_latitude",
+        "weatherLatitude",
+        "weather_longitude",
+        "weatherLongitude",
+    ];
+    let needs_refresh = dominated_keys.iter().any(|k| values.get(k).is_some());
+    if needs_refresh {
+        tokio::spawn(async {
+            if let Err(e) = crate::weather::force_refresh_weather().await {
+                app_warn!(
+                    "settings",
+                    "hot_reload",
+                    "Failed to refresh weather after user config change: {}",
+                    e
+                );
+            }
+        });
+    }
 }
 
 /// Merge `patch` into a serializable field using deep JSON merge, then deserialize back.

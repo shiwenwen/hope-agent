@@ -143,6 +143,33 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
             loop {
                 match rx.recv().await {
                     Ok(event) => {
+                        // Hot-reload shortcuts when config:changed with category=shortcuts
+                        if event.name == "config:changed" {
+                            if let Some(cat) = event.payload.get("category").and_then(|v| v.as_str())
+                            {
+                                if cat == "shortcuts" {
+                                    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+                                    crate::shortcuts::clear_chord_state();
+                                    let manager = app_handle.global_shortcut();
+                                    let _ = manager.unregister_all();
+                                    if let Ok(store) = oc_core::config::load_config() {
+                                        for binding in &store.shortcuts.bindings {
+                                            if !binding.enabled || binding.keys.is_empty() {
+                                                continue;
+                                            }
+                                            let key = if binding.is_chord() {
+                                                binding.chord_parts()[0].to_string()
+                                            } else {
+                                                binding.keys.clone()
+                                            };
+                                            if let Ok(sc) = key.parse::<tauri_plugin_global_shortcut::Shortcut>() {
+                                                let _ = manager.register(sc);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         let _ = app_handle.emit(&event.name, &event.payload);
                     }
                     Err(RecvError::Lagged(_)) => continue,

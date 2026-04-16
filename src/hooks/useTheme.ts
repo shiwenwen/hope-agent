@@ -54,6 +54,22 @@ export function useTheme() {
     applyTheme(mode)
   }, [])
 
+  // Listen for config changes from backend (e.g. oc-settings skill updates theme)
+  useEffect(() => {
+    return getTransport().listen("config:changed", (raw) => {
+      try {
+        const payload = typeof raw === "string" ? JSON.parse(raw) : raw
+        if (payload?.category === "theme") {
+          getTransport().call<string>("get_theme").then((stored) => {
+            const mode = (stored === "light" || stored === "dark") ? stored : "auto"
+            setThemeState(mode)
+            applyThemeVisual(mode)
+          }).catch(() => {})
+        }
+      } catch { /* ignore parse errors */ }
+    })
+  }, [])
+
   // Listen for system changes when in "auto" mode
   useEffect(() => {
     const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)")
