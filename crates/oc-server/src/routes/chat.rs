@@ -1,5 +1,7 @@
-use axum::extract::{Path, State};
+use axum::extract::{Multipart, Path, State};
 use axum::Json;
+
+use super::helpers::parse_file_upload;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -74,19 +76,6 @@ pub struct ApprovalBodyRequest {
     pub response: String,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SaveAttachmentBody {
-    #[serde(default)]
-    pub session_id: Option<String>,
-    pub file_name: String,
-    #[serde(default)]
-    pub mime_type: Option<String>,
-    /// Raw bytes. Frontend ships `Array.from(new Uint8Array(buf))` which
-    /// JSON-encodes as a sequence of numbers — serde deserializes that into
-    /// `Vec<u8>` natively.
-    pub data: Vec<u8>,
-}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -392,17 +381,17 @@ pub async fn respond_to_approval_body(
     Ok(Json(json!({ "approved": true })))
 }
 
-/// `POST /api/chat/attachment` — persist an uploaded attachment and return its
-/// absolute path so it can be referenced in a subsequent `POST /api/chat`.
-pub async fn save_attachment(
-    Json(body): Json<SaveAttachmentBody>,
-) -> Result<Json<Value>, AppError> {
-    let path = oc_core::attachments::save_attachment_bytes(
-        body.session_id.as_deref(),
-        &body.file_name,
-        &body.data,
-    )
-    .map_err(|e| AppError::internal(e.to_string()))?;
+/// `POST /api/chat/attachment` — persist an uploaded attachment (multipart/form-data).
+///
+/// Multipart fields: `file` (required), `sessionId` / `fileName` / `mimeType` (optional text).
+pub async fn save_attachment(multipart: Multipart) -> Result<Json<Value>, AppError> {
+    let upload = parse_file_upload(multipart).await?;
+    let session_id = upload.extra_fields.get("sessionId").map(|s| s.as_str());
+
+    let path =
+        oc_core::attachments::save_attachment_bytes(session_id, &upload.file_name, &upload.file_data)
+            .map_err(|e| AppError::internal(e.to_string()))?;
+
     Ok(Json(json!({ "path": path })))
 }
 

@@ -88,9 +88,7 @@ export function useProjectFiles(projectId: string | null): UseProjectFilesReturn
 
       try {
         const buffer = await file.arrayBuffer()
-        // Convert to a plain number array so JSON encoding works for both
-        // the Tauri and HTTP transports (mirrors `save_attachment`).
-        const data = Array.from(new Uint8Array(buffer))
+        const data = getTransport().prepareFileData(buffer, file.type || "application/octet-stream")
 
         const result = await getTransport().call<ProjectFile>("upload_project_file_cmd", {
           projectId: pid,

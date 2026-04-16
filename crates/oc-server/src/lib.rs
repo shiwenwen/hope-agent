@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, RwLock};
 
+use axum::extract::DefaultBodyLimit;
 use axum::routing::{delete, get, patch, post, put};
 use axum::Router;
 use tower_http::cors::{AllowOrigin, CorsLayer};
@@ -117,7 +118,8 @@ fn build_router_with_cors(
         )
         .route(
             "/projects/{id}/files",
-            post(routes::projects::upload_project_file_route),
+            post(routes::projects::upload_project_file_route)
+                .layer(DefaultBodyLimit::max(25 * 1024 * 1024)),
         )
         .route(
             "/projects/{id}/files/{fid}",
@@ -154,7 +156,11 @@ fn build_router_with_cors(
             "/chat/approval",
             post(routes::chat::respond_to_approval_body),
         )
-        .route("/chat/attachment", post(routes::chat::save_attachment))
+        .route(
+            "/chat/attachment",
+            post(routes::chat::save_attachment)
+                .layer(DefaultBodyLimit::max(25 * 1024 * 1024)),
+        )
         .route("/chat/system-prompt", get(routes::chat::get_system_prompt))
         .route("/system-prompt", post(routes::chat::get_system_prompt_post))
         .route("/chat/tools", get(routes::chat::list_tools))

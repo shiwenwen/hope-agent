@@ -184,12 +184,12 @@ export function useChatStream({
             data: btoa(binary),
           })
         } else {
-          const bytes = Array.from(new Uint8Array(arrayBuffer))
+          const data = getTransport().prepareFileData(arrayBuffer, mimeType)
           const filePath = await getTransport().call<string>("save_attachment", {
             sessionId: currentSessionId,
             fileName: file.name,
             mimeType,
-            data: bytes,
+            data,
           })
           attachments.push({
             name: file.name,

@@ -463,9 +463,26 @@ export class HttpTransport implements Transport {
     return this.apiKey ? `${url}${url.includes("?") ? "&" : "?"}token=${encodeURIComponent(this.apiKey)}` : url;
   }
 
+  // ----- prepareFileData -----
+
+  prepareFileData(buffer: ArrayBuffer, mimeType: string): Blob {
+    return new Blob([buffer], { type: mimeType });
+  }
+
   // ----- call -----
 
   async call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+    // --- Special cases: binary uploads use multipart/form-data ---
+    if (command === "save_attachment" && args) {
+      return this.uploadMultipart<T>("/api/chat/attachment", args);
+    }
+    if (command === "upload_project_file_cmd" && args) {
+      const projectId = args.projectId as string;
+      const rest = { ...args };
+      delete rest.projectId;
+      return this.uploadMultipart<T>(`/api/projects/${encodeURIComponent(projectId)}/files`, rest);
+    }
+
     const def = COMMAND_MAP[command];
     if (!def) {
       throw new Error(
@@ -510,6 +527,54 @@ export class HttpTransport implements Transport {
       !contentType.includes("application/json")
     ) {
       return undefined as unknown as T;
+    }
+
+    return (await response.json()) as T;
+  }
+
+  /**
+   * Upload a file using multipart/form-data instead of JSON.
+   * Avoids the ~4× blow-up of encoding raw bytes as a JSON number array.
+   *
+   * The `data` arg may be a `Blob` (zero-copy) or a legacy `number[]`.
+   * All other args are sent as text form fields.
+   */
+  private async uploadMultipart<T>(path: string, args: Record<string, unknown>): Promise<T> {
+    const url = `${this.baseUrl}${path}`;
+    const form = new FormData();
+
+    const rawData = args.data;
+    const fileName = (args.fileName as string) ?? "attachment";
+    const mimeType = (args.mimeType as string) ?? "application/octet-stream";
+
+    let blob: Blob;
+    if (rawData instanceof Blob) {
+      blob = rawData;
+    } else if (Array.isArray(rawData)) {
+      // Legacy fallback: number[] → binary Blob
+      blob = new Blob([new Uint8Array(rawData)], { type: mimeType });
+    } else {
+      throw new Error("[HttpTransport] multipart upload: data must be a Blob or number[]");
+    }
+
+    form.append("file", blob, fileName);
+    // Forward remaining string args as text fields.
+    for (const [k, v] of Object.entries(args)) {
+      if (k === "data") continue;
+      if (v !== undefined && v !== null) form.append(k, String(v));
+    }
+
+    const headers: Record<string, string> = {};
+    if (this.apiKey) {
+      headers["Authorization"] = `Bearer ${this.apiKey}`;
+    }
+    // Do NOT set Content-Type — browser sets multipart boundary automatically.
+
+    const response = await fetch(url, { method: "POST", headers, body: form });
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(`[HttpTransport] POST ${url} returned ${response.status}: ${text}`);
     }
 
     return (await response.json()) as T;

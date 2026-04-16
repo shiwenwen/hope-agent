@@ -29,6 +29,15 @@ export interface Transport {
   call<T>(command: string, args?: Record<string, unknown>): Promise<T>;
 
   /**
+   * Prepare file data for transport.
+   *
+   * Returns a `Blob` (HTTP — multipart, zero-copy) or `number[]`
+   * (Tauri IPC — JSON serialization). Callers pass the result as the
+   * `data` field in `call()` args.
+   */
+  prepareFileData(buffer: ArrayBuffer, mimeType: string): Blob | number[];
+
+  /**
    * Open a streaming channel for chat events.
    *
    * @param sessionId - The session to stream (may be `null` for new sessions).

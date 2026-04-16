@@ -16,6 +16,12 @@ export class TauriTransport implements Transport {
     return invoke<T>(command, args);
   }
 
+  // ----- prepareFileData -----
+
+  prepareFileData(buffer: ArrayBuffer): number[] {
+    return Array.from(new Uint8Array(buffer));
+  }
+
   // ----- openChatStream -----
 
   openChatStream(

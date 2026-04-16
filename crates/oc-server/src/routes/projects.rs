@@ -1,9 +1,11 @@
 //! HTTP handlers for the Project feature. Thin axum wrappers over
 //! `oc_core::project` — uses `AppContext.project_db` + `session_db`.
 
-use axum::extract::{Path, Query, State};
+use axum::extract::{Multipart, Path, Query, State};
 use axum::http::StatusCode;
 use axum::Json;
+
+use super::helpers::parse_file_upload;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -57,15 +59,7 @@ pub struct MoveSessionBody {
     pub project_id: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UploadProjectFileBody {
-    pub file_name: String,
-    #[serde(default)]
-    pub mime_type: Option<String>,
-    /// Raw file bytes. Serde accepts a JSON number array from the client.
-    pub data: Vec<u8>,
-}
+
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -236,25 +230,29 @@ pub async fn list_project_files(
     Ok(Json(files))
 }
 
-/// `POST /api/projects/:id/files` — JSON `{fileName, mimeType?, data}` body.
+/// `POST /api/projects/:id/files` — upload a project file (multipart/form-data).
+///
+/// Multipart fields: `file` (required), `fileName` / `mimeType` (optional text).
 pub async fn upload_project_file_route(
     State(ctx): State<Arc<AppContext>>,
     Path(id): Path<String>,
-    Json(body): Json<UploadProjectFileBody>,
+    multipart: Multipart,
 ) -> Result<(StatusCode, Json<ProjectFile>), AppError> {
-    if body.data.len() > MAX_PROJECT_FILE_BYTES {
+    let upload = parse_file_upload(multipart).await?;
+
+    if upload.file_data.len() > MAX_PROJECT_FILE_BYTES {
         return Err(AppError::from(anyhow::anyhow!(
             "project file too large: {} bytes (max {} bytes)",
-            body.data.len(),
+            upload.file_data.len(),
             MAX_PROJECT_FILE_BYTES
         )));
     }
 
     let project_db = ctx.project_db.clone();
     let project_id = id.clone();
-    let file_name = body.file_name.clone();
-    let mime_type = body.mime_type.clone();
-    let data = body.data;
+    let file_name = upload.file_name;
+    let mime_type = upload.mime_type;
+    let data = upload.file_data;
 
     let file = tokio::task::spawn_blocking(move || -> anyhow::Result<ProjectFile> {
         upload_project_file(
