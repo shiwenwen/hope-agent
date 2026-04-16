@@ -297,6 +297,19 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   get_subagent_runs_batch:         { method: "POST",   path: "/api/subagent/runs/batch" },
   kill_subagent:                   { method: "POST",   path: "/api/subagent/runs/{runId}/kill" },
 
+  // -- Team --
+  list_teams:                      { method: "GET",    path: "/api/teams" },
+  create_team:                     { method: "POST",   path: "/api/teams" },
+  get_team:                        { method: "GET",    path: "/api/teams/{teamId}" },
+  get_team_members:                { method: "GET",    path: "/api/teams/{teamId}/members" },
+  get_team_messages:               { method: "GET",    path: "/api/teams/{teamId}/messages" },
+  get_team_tasks:                  { method: "GET",    path: "/api/teams/{teamId}/tasks" },
+  send_user_team_message:          { method: "POST",   path: "/api/teams/{teamId}/messages" },
+  pause_team:                      { method: "POST",   path: "/api/teams/{teamId}/pause" },
+  resume_team:                     { method: "POST",   path: "/api/teams/{teamId}/resume" },
+  dissolve_team:                   { method: "POST",   path: "/api/teams/{teamId}/dissolve" },
+  list_team_templates:             { method: "GET",    path: "/api/team-templates" },
+
   // -- Weather --
   geocode_search:                  { method: "GET",    path: "/api/weather/geocode" },
   preview_weather:                 { method: "POST",   path: "/api/weather/preview" },

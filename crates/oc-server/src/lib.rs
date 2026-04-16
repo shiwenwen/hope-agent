@@ -684,6 +684,16 @@ fn build_router_with_cors(
             "/subagent/runs/{run_id}/kill",
             post(routes::subagent::kill_subagent),
         )
+        // Agent Team
+        .route("/teams", get(routes::team::list_teams).post(routes::team::create_team))
+        .route("/teams/{id}", get(routes::team::get_team))
+        .route("/teams/{id}/members", get(routes::team::get_team_members))
+        .route("/teams/{id}/messages", get(routes::team::get_team_messages).post(routes::team::send_user_team_message))
+        .route("/teams/{id}/tasks", get(routes::team::get_team_tasks))
+        .route("/teams/{id}/pause", post(routes::team::pause_team))
+        .route("/teams/{id}/resume", post(routes::team::resume_team))
+        .route("/teams/{id}/dissolve", post(routes::team::dissolve_team))
+        .route("/team-templates", get(routes::team::list_team_templates))
         // ACP Control
         .route("/acp/backends", get(routes::acp::list_backends))
         .route("/acp/health-check", get(routes::acp::health_check))

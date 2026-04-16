@@ -256,6 +256,22 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
             ]),
             description_raw: None,
         },
+        SlashCommandDef {
+            name: "team".into(),
+            category: CommandCategory::Agent,
+            description_key: "slashCommands.team.description".into(),
+            has_args: true,
+            args_optional: true,
+            arg_placeholder: Some("[create|status|pause|resume|dissolve]".into()),
+            arg_options: Some(vec![
+                "create".into(),
+                "status".into(),
+                "pause".into(),
+                "resume".into(),
+                "dissolve".into(),
+            ]),
+            description_raw: None,
+        },
     ]
 }
 

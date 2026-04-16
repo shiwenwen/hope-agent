@@ -13,6 +13,9 @@ import ChatTitleBar from "@/components/chat/ChatTitleBar"
 import MessageList from "@/components/chat/MessageList"
 import CrashRecoveryBanner from "@/components/common/CrashRecoveryBanner"
 import CanvasPanel from "@/components/chat/CanvasPanel"
+import TeamPanel from "@/components/team/TeamPanel"
+import TeamMiniIndicator from "@/components/team/TeamMiniIndicator"
+import { useActiveTeam } from "@/components/team/useTeam"
 import SessionSearchBar from "@/components/chat/SessionSearchBar"
 import {
   AlertDialog,
@@ -108,6 +111,16 @@ export default function ChatScreen({
   const handleNewChat = session.handleNewChat
   const handleNewChatInProject = session.handleNewChatInProject
   const currentSessionId = session.currentSessionId
+
+  // ── Team ──────────────────────────────────────────────────
+  const activeTeamId = useActiveTeam(currentSessionId ?? null)
+  const [showTeamPanel, setShowTeamPanel] = useState(false)
+  const [teamPanelWidth, setTeamPanelWidth] = useState(420)
+
+  // Auto-show team panel when a team is created
+  useEffect(() => {
+    if (activeTeamId) setShowTeamPanel(true)
+  }, [activeTeamId])
 
   // ── Projects ────────────────────────────────────────────────
   const {
@@ -701,6 +714,15 @@ export default function ChatScreen({
           searchOpen={searchBarOpen}
         />
 
+        {activeTeamId && !showTeamPanel && (
+          <div className="px-3 py-1 border-b border-border">
+            <TeamMiniIndicator
+              teamId={activeTeamId}
+              onClick={() => setShowTeamPanel(true)}
+            />
+          </div>
+        )}
+
         {searchBarOpen && session.currentSessionId && (
           <SessionSearchBar
             sessionId={session.currentSessionId}
@@ -848,6 +870,17 @@ export default function ChatScreen({
 
       {/* Canvas Preview Panel */}
       <CanvasPanel panelWidth={canvasPanelWidth} onPanelWidthChange={setCanvasPanelWidth} />
+
+      {/* Team Panel */}
+      {activeTeamId && showTeamPanel && (
+        <TeamPanel
+          teamId={activeTeamId}
+          panelWidth={teamPanelWidth}
+          onPanelWidthChange={setTeamPanelWidth}
+          onClose={() => setShowTeamPanel(false)}
+          onSwitchSession={session.handleSwitchSession}
+        />
+      )}
     </>
   )
 }

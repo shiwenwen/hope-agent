@@ -3,7 +3,7 @@ use std::time::Duration;
 use tokio::time::timeout;
 
 use super::{
-    acp_spawn, browser, cron, memory, notification, subagent, weather, web_fetch, web_search,
+    acp_spawn, browser, cron, memory, notification, subagent, team, weather, web_fetch, web_search,
 };
 use super::{
     agents, amend_plan, ask_user_question, canvas, image, image_generate, job_status, pdf,
@@ -19,7 +19,8 @@ use super::{
     TOOL_READ, TOOL_RECALL_MEMORY, TOOL_SAVE_MEMORY, TOOL_SEND_NOTIFICATION, TOOL_SESSIONS_HISTORY,
     TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEND, TOOL_SESSION_STATUS, TOOL_SUBAGENT, TOOL_SUBMIT_PLAN,
     TOOL_TASK_CREATE, TOOL_TASK_LIST, TOOL_TASK_UPDATE, TOOL_UPDATE_CORE_MEMORY,
-    TOOL_UPDATE_MEMORY, TOOL_UPDATE_PLAN_STEP, TOOL_WEB_FETCH, TOOL_WEB_SEARCH, TOOL_WRITE,
+    TOOL_TEAM, TOOL_UPDATE_MEMORY, TOOL_UPDATE_PLAN_STEP, TOOL_WEB_FETCH, TOOL_WEB_SEARCH,
+    TOOL_WRITE,
 };
 use crate::agent_config::AsyncToolPolicy;
 use crate::async_jobs::{self, JobOrigin};
@@ -457,6 +458,7 @@ pub async fn execute_tool_with_context(
             TOOL_BROWSER => browser::tool_browser(args).await,
             TOOL_SEND_NOTIFICATION => notification::tool_send_notification(args, ctx).await,
             TOOL_SUBAGENT => subagent::tool_subagent(args, ctx).await,
+            TOOL_TEAM => team::tool_team(args, ctx).await,
             TOOL_ACP_SPAWN => acp_spawn::tool_acp_spawn(args, ctx).await,
             TOOL_MEMORY_GET => memory::tool_memory_get(args).await,
             TOOL_AGENTS_LIST => agents::tool_agents_list(args).await,

@@ -975,6 +975,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
     tools.push(super::task_tools::get_task_update_tool());
     tools.push(super::task_tools::get_task_list_tool());
 
+    // ── Agent Team (deferred — discovered via tool_search) ──
+    tools.push(super::special_tools::get_team_tool());
+
     // Mark non-core tools as deferred, core tools as always_load
     for tool in &mut tools {
         if is_core_tool(&tool.name) {

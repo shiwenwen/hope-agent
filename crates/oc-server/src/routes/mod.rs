@@ -27,5 +27,6 @@ pub mod skills;
 pub mod slash;
 pub mod subagent;
 pub mod system;
+pub mod team;
 pub mod url_preview;
 pub mod weather;

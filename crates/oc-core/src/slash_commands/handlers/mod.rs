@@ -5,6 +5,7 @@ pub mod model;
 pub mod plan;
 pub mod recap;
 pub mod session;
+pub mod team;
 pub mod utility;
 
 use crate::get_memory_backend;
@@ -64,6 +65,9 @@ pub async fn dispatch(
 
         // ── Plan ──
         "plan" => plan::handle_plan(&state.session_db, session_id, args).await,
+
+        // ── Team ──
+        "team" => team::handle_team(args),
 
         // ── Utility ──
         "permission" => utility::handle_permission(args),

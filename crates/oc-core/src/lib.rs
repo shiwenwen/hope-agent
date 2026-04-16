@@ -56,6 +56,7 @@ pub mod skills;
 pub mod slash_commands;
 pub mod subagent;
 pub mod system_prompt;
+pub mod team;
 pub mod tools;
 pub mod url_preview;
 pub mod user_config;

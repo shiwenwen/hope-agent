@@ -288,6 +288,14 @@ pub fn build(
         }
     }
 
+    // ⑩½ Agent Team (conditionally injected)
+    if definition.config.team.enabled {
+        let team_section = build_team_section();
+        if !team_section.is_empty() {
+            sections.push(team_section);
+        }
+    }
+
     // ⑪ Sandbox mode (conditionally injected)
     if definition.config.capabilities.sandbox {
         sections.push(

@@ -57,6 +57,10 @@ pub struct AgentConfig {
     #[serde(default)]
     pub subagents: SubagentConfig,
 
+    /// Agent Team settings
+    #[serde(default)]
+    pub team: TeamAgentConfig,
+
     /// ACP external agent delegation settings
     #[serde(default)]
     pub acp: crate::acp_control::AgentAcpConfig,
@@ -81,6 +85,7 @@ impl Default for AgentConfig {
             openclaw_mode: false,
             notify_on_complete: None,
             subagents: SubagentConfig::default(),
+            team: TeamAgentConfig::default(),
             acp: crate::acp_control::AgentAcpConfig::default(),
         }
     }
@@ -403,6 +408,48 @@ impl Default for SubagentConfig {
             max_batch_size: None,
             archive_after_minutes: None,
             announce_timeout_secs: None,
+        }
+    }
+}
+
+// ── Team Agent Config ──────────────────────────────────────────
+
+/// Configuration for agent team capabilities.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamAgentConfig {
+    /// Whether this agent can create/lead teams
+    #[serde(default = "crate::default_true")]
+    pub enabled: bool,
+
+    /// Max active teams per agent (default 3)
+    #[serde(default = "default_max_teams")]
+    pub max_active_teams: u32,
+
+    /// Max members per team (default 8)
+    #[serde(default = "default_max_team_members")]
+    pub max_members_per_team: u32,
+
+    /// Default model for team members
+    #[serde(default)]
+    pub member_model: Option<String>,
+}
+
+fn default_max_teams() -> u32 {
+    crate::team::MAX_ACTIVE_TEAMS
+}
+
+fn default_max_team_members() -> u32 {
+    crate::team::DEFAULT_MAX_MEMBERS
+}
+
+impl Default for TeamAgentConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            max_active_teams: default_max_teams(),
+            max_members_per_team: default_max_team_members(),
+            member_model: None,
         }
     }
 }

@@ -333,6 +333,44 @@ pub fn build_subagent_section_with_depth(
 
 // ── ACP Section ─────────────────────────────────────────────────
 
+/// Build the Agent Team section for the system prompt.
+pub(super) fn build_team_section() -> String {
+    "\
+# Agent Teams
+
+You can create and manage teams of specialized agents for coordinated parallel work using the `team` tool.
+
+## When to use teams
+- Full-stack feature development: frontend + backend + tester working simultaneously
+- Code review workflows: writer + reviewer + tester
+- Research + implementation: researcher gathers info, implementer codes
+- Large-scale refactoring: multiple agents modifying different areas
+
+## Quick start
+```
+team(action=\"create\", name=\"Feature Team\", members=[
+  {name: \"Frontend\", task: \"Build React components for the new feature\"},
+  {name: \"Backend\", task: \"Implement API endpoints\"},
+  {name: \"Tester\", role: \"reviewer\", task: \"Write integration tests\"}
+])
+```
+
+## Key actions
+- `create`: Create a team with named members (or use a template)
+- `send_message`: Send a message to a teammate by name or broadcast to all (\"*\")
+- `create_task` / `update_task`: Manage the shared task board
+- `status`: Get a summary of team progress
+- `dissolve`: Shut down the team when done
+
+## Built-in templates
+- Full-Stack Feature (Frontend + Backend + Tester)
+- Code Review (Writer + Reviewer + Tester)
+- Research & Implement (Researcher + Implementer)
+- Large Refactor (Analyst + Refactorer-1 + Refactorer-2 + Tester)
+"
+    .to_string()
+}
+
 /// Build the ACP external agent delegation section for the system prompt.
 pub(super) fn build_acp_section() -> String {
     // Check global config

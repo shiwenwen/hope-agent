@@ -18,4 +18,5 @@ pub mod recap;
 pub mod session;
 pub mod skills;
 pub mod subagent;
+pub mod team;
 pub mod url_preview;

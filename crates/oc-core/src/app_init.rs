@@ -159,6 +159,9 @@ pub fn init_app_state(initial_store: AppConfig) -> AppState {
     // Clean up orphan sub-agent runs from previous app session
     subagent::cleanup_orphan_runs(&session_db);
 
+    // Clean up orphan team members from previous app session
+    crate::team::cleanup::cleanup_orphan_teams(&session_db);
+
     // Initialize IM Channel system
     {
         let (mut registry, inbound_rx) = channel::ChannelRegistry::new(256);

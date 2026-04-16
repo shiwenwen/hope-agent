@@ -367,6 +367,18 @@ pub fn run() {
             commands::subagent::get_subagent_run,
             commands::subagent::get_subagent_runs_batch,
             commands::subagent::kill_subagent,
+            // Team management
+            commands::team::list_teams,
+            commands::team::get_team,
+            commands::team::get_team_members,
+            commands::team::get_team_messages,
+            commands::team::get_team_tasks,
+            commands::team::send_user_team_message,
+            commands::team::list_team_templates,
+            commands::team::create_team,
+            commands::team::pause_team,
+            commands::team::resume_team,
+            commands::team::dissolve_team,
             // Crash recovery & backup
             commands::crash::get_crash_recovery_info,
             commands::crash::get_crash_history,

@@ -1,6 +1,6 @@
 use serde_json::json;
 
-use super::super::{TOOL_ACP_SPAWN, TOOL_IMAGE_GENERATE, TOOL_SUBAGENT, TOOL_TOOL_SEARCH};
+use super::super::{TOOL_ACP_SPAWN, TOOL_IMAGE_GENERATE, TOOL_SUBAGENT, TOOL_TEAM, TOOL_TOOL_SEARCH};
 use super::types::ToolDefinition;
 
 /// Returns the subagent tool definition (conditionally injected when enabled).
@@ -381,6 +381,75 @@ pub fn get_image_generate_tool_dynamic(
             },
             "required": ["prompt"],
             "additionalProperties": false
+        }),
+    }
+}
+
+/// Returns the team tool definition (deferred — discovered via tool_search).
+pub fn get_team_tool() -> ToolDefinition {
+    ToolDefinition {
+        name: TOOL_TEAM.into(),
+        description: "Create and manage agent teams for coordinated multi-agent parallel work. Teams have named members, a shared task board, and inter-member messaging. Use for complex tasks that benefit from parallel specialization (e.g., frontend + backend + tester).".into(),
+        internal: false,
+        deferred: true,
+        always_load: false,
+        async_capable: false,
+        parameters: json!({
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["create", "dissolve", "add_member", "remove_member",
+                             "send_message", "create_task", "update_task", "list_tasks",
+                             "list_members", "status", "pause", "resume"],
+                    "description": "Team action to perform"
+                },
+                "team_id": {
+                    "type": "string",
+                    "description": "Team ID (required for all actions except create)"
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Team name (for create) or member name (for add_member)"
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Team description (for create)"
+                },
+                "members": {
+                    "type": "array",
+                    "description": "Initial members for create: [{name, agent_id?, role?, task}]",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": { "type": "string" },
+                            "agent_id": { "type": "string" },
+                            "role": { "type": "string", "enum": ["worker", "reviewer"] },
+                            "task": { "type": "string" },
+                            "model": { "type": "string" }
+                        },
+                        "required": ["name", "task"]
+                    }
+                },
+                "template": {
+                    "type": "string",
+                    "description": "Template name/ID for create (alternative to members)"
+                },
+                "agent_id": { "type": "string", "description": "Agent ID for add_member" },
+                "role": { "type": "string", "enum": ["worker", "reviewer"], "description": "Member role" },
+                "task": { "type": "string", "description": "Task description for add_member" },
+                "member_id": { "type": "string", "description": "Member ID for remove_member" },
+                "to": { "type": "string", "description": "Recipient name or '*' for broadcast (send_message)" },
+                "content": { "type": "string", "description": "Message or task content" },
+                "task_id": { "type": "integer", "description": "Task ID for update_task" },
+                "status": { "type": "string", "description": "Task status filter or update value" },
+                "owner": { "type": "string", "description": "Task owner member name" },
+                "priority": { "type": "integer", "description": "Task priority (lower = higher)" },
+                "blocked_by": { "type": "array", "items": { "type": "integer" }, "description": "Task IDs that block this task" },
+                "column": { "type": "string", "enum": ["backlog", "todo", "doing", "review", "done"], "description": "Kanban column" },
+                "model": { "type": "string", "description": "Model override for member" }
+            },
+            "required": ["action"]
         }),
     }
 }

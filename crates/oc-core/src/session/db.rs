@@ -239,6 +239,79 @@ impl SessionDB {
             CREATE INDEX IF NOT EXISTS idx_tasks_session_id ON tasks(session_id);",
         )?;
 
+        // Migration: Agent Team tables
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS teams (
+                team_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                lead_session_id TEXT NOT NULL,
+                lead_agent_id TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'active',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                template_id TEXT,
+                config_json TEXT DEFAULT '{}'
+            );
+
+            CREATE TABLE IF NOT EXISTS team_members (
+                member_id TEXT PRIMARY KEY,
+                team_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                agent_id TEXT NOT NULL DEFAULT 'default',
+                role TEXT NOT NULL DEFAULT 'worker',
+                status TEXT NOT NULL DEFAULT 'idle',
+                run_id TEXT,
+                session_id TEXT,
+                color TEXT NOT NULL DEFAULT '#3B82F6',
+                current_task_id INTEGER,
+                model_override TEXT,
+                joined_at TEXT NOT NULL,
+                last_active_at TEXT,
+                input_tokens INTEGER DEFAULT 0,
+                output_tokens INTEGER DEFAULT 0,
+                FOREIGN KEY (team_id) REFERENCES teams(team_id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_team_members_team ON team_members(team_id);
+
+            CREATE TABLE IF NOT EXISTS team_messages (
+                message_id TEXT PRIMARY KEY,
+                team_id TEXT NOT NULL,
+                from_member_id TEXT NOT NULL,
+                to_member_id TEXT,
+                content TEXT NOT NULL,
+                message_type TEXT NOT NULL DEFAULT 'chat',
+                timestamp TEXT NOT NULL,
+                FOREIGN KEY (team_id) REFERENCES teams(team_id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_team_messages_team ON team_messages(team_id, timestamp DESC);
+
+            CREATE TABLE IF NOT EXISTS team_tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                team_id TEXT NOT NULL,
+                content TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                owner_member_id TEXT,
+                priority INTEGER NOT NULL DEFAULT 100,
+                blocked_by TEXT DEFAULT '[]',
+                blocks TEXT DEFAULT '[]',
+                column_name TEXT NOT NULL DEFAULT 'todo',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (team_id) REFERENCES teams(team_id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_team_tasks_team ON team_tasks(team_id);
+
+            CREATE TABLE IF NOT EXISTS team_templates (
+                template_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                members_json TEXT NOT NULL DEFAULT '[]',
+                builtin INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            );",
+        )?;
+
         Ok(Self {
             conn: Mutex::new(conn),
         })
