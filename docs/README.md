@@ -60,6 +60,7 @@
 | [Cron 调度](architecture/cron.md)           | 定时任务调度、Agent 执行、Failover、指数退避      | `cron/`                 |
 | [Docker Sandbox](architecture/sandbox.md) | SearXNG 容器管理、代理注入、网络隔离             | `docker/`, `sandbox.rs` |
 | [Dashboard](architecture/dashboard.md)    | 跨 DB 聚合分析、成本估算、系统指标                | `dashboard/`            |
+| [Recap 深度复盘](architecture/recap.md)      | 逐会话 LLM facet 提取、量化+语义融合报告、HTML 导出 | `recap/`                |
 | [日志系统](architecture/logging.md)           | 非阻塞双写、敏感数据脱敏、文件轮转                  | `logging/`              |
 
 
@@ -72,6 +73,7 @@
 
 | 文档                                          | 说明                                                                               |
 | ------------------------------------------- | -------------------------------------------------------------------------------- |
-| [三项目统一维度对比](research/unified-comparison.md) | OpenComputer vs Claude Code vs OpenClaw 全维度对比（16 维度评分 + Actionable 差距清单 + 演进路线图） |
+| [三项目统一维度对比 v2.1](research/unified-comparison.md) | OpenComputer vs Claude Code vs OpenClaw 全维度对比（16 维度评分 + Actionable 差距清单），基线 2026-04-15 |
+| [2026 Q2 演进路线图](research/roadmap-2026q2.md) | 四阶段路线图：Phase A 架构补课 → Phase B 记忆升级 → Phase C 多 Agent 与 MCP → Phase D 体验生态补足，总计 20–26 周 |
 
 
