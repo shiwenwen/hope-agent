@@ -32,6 +32,7 @@ impl AssistantAgent {
         on_delta: &(impl Fn(&str) + Send),
     ) -> Result<(String, Option<String>)> {
         self.reset_chat_flags();
+        self.refresh_cross_session_suffix(message).await;
 
         let client =
             crate::provider::apply_proxy(reqwest::Client::builder().user_agent(&self.user_agent))
@@ -62,9 +63,11 @@ impl AssistantAgent {
         let mut total_usage = ChatUsage::default();
         let mut first_ttft_ms: Option<u64> = None;
         let system_prompt = self.build_full_system_prompt(model, "OpenAIResponses");
+        let system_prompt_for_budget =
+            self.build_merged_system_prompt(model, "OpenAIResponses");
 
         // Run context compaction (Tier 1-3) before API call
-        self.run_compaction(&mut input, &system_prompt, 16384, on_delta)
+        self.run_compaction(&mut input, &system_prompt_for_budget, 16384, on_delta)
             .await;
 
         // LLM memory selection: filter to most relevant memories
@@ -91,6 +94,10 @@ impl AssistantAgent {
             }
             round_count = round + 1;
 
+            if let Some(ref sid) = self.session_id {
+                crate::cross_session::touch_active_session(sid);
+            }
+
             // Drain steer mailbox: inject any pending steer messages as user messages
             if let Some(ref rid) = self.steer_run_id {
                 for msg in crate::subagent::SUBAGENT_MAILBOX.drain(rid) {
@@ -102,7 +109,21 @@ impl AssistantAgent {
             }
 
             // Strip _oc_round metadata before sending to API
-            let api_input = crate::context_compact::prepare_messages_for_api(&input);
+            let mut api_input = crate::context_compact::prepare_messages_for_api(&input);
+
+            // Inject the dynamic cross-session suffix as a leading system-role
+            // item in the input array. This keeps the static `instructions`
+            // string unchanged across turns so OpenAI's automatic prefix
+            // caching stays effective. The suffix lives outside `instructions`
+            // → suffix churn doesn't invalidate the instruction cache.
+            if let Some(suffix) = self.current_cross_session_suffix() {
+                if !suffix.is_empty() {
+                    api_input.insert(0, json!({
+                        "role": "system",
+                        "content": suffix.as_str()
+                    }));
+                }
+            }
 
             let request = ResponsesRequest {
                 model: model.to_string(),

@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { Switch } from "@/components/ui/switch"
 import ContextCompactPanel from "@/components/settings/ContextCompactPanel"
+import CrossSessionPanel from "@/components/settings/CrossSessionPanel"
 import { invalidateThinkingExpandCache } from "@/components/chat/thinkingCache"
 
 interface ChatConfig {
@@ -74,6 +75,9 @@ export default function ChatSettingsPanel() {
             onCheckedChange={() => toggle("autoExpandThinking")}
           />
         </div>
+
+        {/* 跨会话行为感知 */}
+        <CrossSessionPanel />
 
         {/* 上下文管理 */}
         <ContextCompactPanel />

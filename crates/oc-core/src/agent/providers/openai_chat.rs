@@ -32,6 +32,7 @@ impl AssistantAgent {
         on_delta: &(impl Fn(&str) + Send),
     ) -> Result<(String, Option<String>)> {
         self.reset_chat_flags();
+        self.refresh_cross_session_suffix(message).await;
 
         let client =
             crate::provider::apply_proxy(reqwest::Client::builder().user_agent(&self.user_agent))
@@ -56,9 +57,11 @@ impl AssistantAgent {
         let mut total_usage = ChatUsage::default();
         let mut first_ttft_ms: Option<u64> = None;
         let system_prompt = self.build_full_system_prompt(model, "OpenAIChat");
+        let system_prompt_for_budget =
+            self.build_merged_system_prompt(model, "OpenAIChat");
 
         // Run context compaction (Tier 1-3) before API call
-        self.run_compaction(&mut messages, &system_prompt, 16384, on_delta)
+        self.run_compaction(&mut messages, &system_prompt_for_budget, 16384, on_delta)
             .await;
 
         // LLM memory selection: filter to most relevant memories
@@ -91,6 +94,10 @@ impl AssistantAgent {
             }
             round_count = round + 1;
 
+            if let Some(ref sid) = self.session_id {
+                crate::cross_session::touch_active_session(sid);
+            }
+
             // Drain steer mailbox: inject any pending steer messages as user messages
             if let Some(ref rid) = self.steer_run_id {
                 for msg in crate::subagent::SUBAGENT_MAILBOX.drain(rid) {
@@ -101,8 +108,17 @@ impl AssistantAgent {
                 }
             }
 
-            // Build messages array: system + conversation (strip _oc_round metadata)
+            // Build messages array: system + conversation (strip _oc_round metadata).
+            // OpenAI Chat supports multiple system messages; send the static prefix
+            // as one and the dynamic cross-session suffix as a second so OpenAI's
+            // automatic prefix caching can still hit the first one when the suffix
+            // changes between turns.
             let mut api_messages = vec![json!({ "role": "system", "content": &system_prompt })];
+            if let Some(suffix) = self.current_cross_session_suffix() {
+                if !suffix.is_empty() {
+                    api_messages.push(json!({ "role": "system", "content": suffix.as_str() }));
+                }
+            }
             api_messages.extend(crate::context_compact::prepare_messages_for_api(&messages));
 
             // Build tools array in Chat Completions format

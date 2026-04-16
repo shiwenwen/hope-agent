@@ -198,7 +198,6 @@ impl SessionDB {
         }
 
         // Migration: add project_id column for Project feature.
-        // Nullable — NULL means session does not belong to any project.
         let has_project_id = conn
             .prepare("SELECT project_id FROM sessions LIMIT 1")
             .is_ok();
@@ -206,6 +205,17 @@ impl SessionDB {
             conn.execute_batch(
                 "ALTER TABLE sessions ADD COLUMN project_id TEXT;
                  CREATE INDEX IF NOT EXISTS idx_sessions_project_id ON sessions(project_id);",
+            )?;
+        }
+
+        // Migration: add cross_session_config_json column for per-session
+        // override of the cross-session behavior awareness feature.
+        let has_xs_cfg = conn
+            .prepare("SELECT cross_session_config_json FROM sessions LIMIT 1")
+            .is_ok();
+        if !has_xs_cfg {
+            conn.execute_batch(
+                "ALTER TABLE sessions ADD COLUMN cross_session_config_json TEXT;",
             )?;
         }
 
@@ -1340,6 +1350,106 @@ impl SessionDB {
         let mut messages = before_msgs;
         messages.extend(after_msgs);
         Ok((messages, total))
+    }
+
+    // ── Cross-session awareness helpers ─────────────────────────
+
+    /// Read the per-session override JSON for cross-session awareness, if any.
+    pub fn get_session_cross_session_config_json(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<String>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt =
+            conn.prepare("SELECT cross_session_config_json FROM sessions WHERE id = ?1")?;
+        let mut rows = stmt.query(params![session_id])?;
+        if let Some(row) = rows.next()? {
+            let val: Option<String> = row.get(0)?;
+            return Ok(val.filter(|s| !s.is_empty()));
+        }
+        Ok(None)
+    }
+
+    /// Write (or clear with `None`) the per-session override JSON for
+    /// cross-session awareness.
+    pub fn set_session_cross_session_config_json(
+        &self,
+        session_id: &str,
+        json: Option<&str>,
+    ) -> Result<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        conn.execute(
+            "UPDATE sessions SET cross_session_config_json = ?1 WHERE id = ?2",
+            params![json, session_id],
+        )?;
+        Ok(())
+    }
+
+    /// Return the last user message of a session, truncated to `max_chars`.
+    /// Used as a fallback preview when no SessionFacet is cached.
+    pub fn last_user_message_preview(
+        &self,
+        session_id: &str,
+        max_chars: usize,
+    ) -> Result<Option<String>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT content FROM messages
+             WHERE session_id = ?1 AND role = 'user' AND length(content) > 0
+             ORDER BY id DESC LIMIT 1",
+        )?;
+        let mut rows = stmt.query(params![session_id])?;
+        if let Some(row) = rows.next()? {
+            let content: String = row.get(0)?;
+            let trimmed = crate::truncate_utf8(content.trim(), max_chars).to_string();
+            if trimmed.is_empty() {
+                return Ok(None);
+            }
+            return Ok(Some(trimmed));
+        }
+        Ok(None)
+    }
+
+    /// Return the last N user messages for a session within a time window.
+    /// Used by cross-session LLM extraction to give the model concrete recent activity.
+    pub fn recent_user_messages_for_preview(
+        &self,
+        session_id: &str,
+        since_rfc3339: &str,
+        limit: u32,
+        max_chars_per_msg: usize,
+    ) -> Result<Vec<String>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT content FROM messages
+             WHERE session_id = ?1
+               AND role = 'user'
+               AND length(content) > 0
+               AND timestamp >= ?2
+             ORDER BY id DESC LIMIT ?3",
+        )?;
+        let rows = stmt.query_map(
+            params![session_id, since_rfc3339, limit as i64],
+            |row| row.get::<_, String>(0),
+        )?;
+        let mut out = Vec::new();
+        for row in rows {
+            let content = row?;
+            out.push(crate::truncate_utf8(content.trim(), max_chars_per_msg).to_string());
+        }
+        Ok(out)
     }
 }
 

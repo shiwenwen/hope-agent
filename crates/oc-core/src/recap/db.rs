@@ -91,6 +91,28 @@ impl RecapDb {
         Ok(None)
     }
 
+    /// Return the most recent cached facet for a session, *ignoring* cache
+    /// validity checks. Intended for cross-session awareness where we want a
+    /// best-effort enrichment and will never trigger a new LLM extraction.
+    pub fn get_latest_facet(&self, session_id: &str) -> Result<Option<SessionFacet>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT facet_json FROM session_facets
+             WHERE session_id = ?1
+             ORDER BY last_message_ts DESC LIMIT 1",
+        )?;
+        let mut rows = stmt.query(params![session_id])?;
+        if let Some(row) = rows.next()? {
+            let json: String = row.get(0)?;
+            let facet: SessionFacet = serde_json::from_str(&json)?;
+            return Ok(Some(facet));
+        }
+        Ok(None)
+    }
+
     /// Upsert a facet record.
     pub fn save_facet(
         &self,

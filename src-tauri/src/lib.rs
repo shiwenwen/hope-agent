@@ -249,6 +249,10 @@ pub fn run() {
             commands::config::get_server_config,
             commands::config::save_server_config,
             commands::config::compact_context_now,
+            commands::config::get_cross_session_config,
+            commands::config::save_cross_session_config,
+            commands::config::get_session_cross_session_override,
+            commands::config::set_session_cross_session_override,
             commands::memory::list_local_embedding_models,
             // Theme & Language
             commands::config::get_theme,

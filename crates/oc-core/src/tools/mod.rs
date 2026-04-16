@@ -47,7 +47,7 @@ pub use definitions::{
     get_core_tools, get_core_tools_for_provider, get_deferred_tools,
     get_image_generate_tool_dynamic, get_notification_tool, get_plan_step_tool, get_subagent_tool,
     get_submit_plan_tool, get_tool_search_tool, get_tools_for_provider, get_web_search_tool,
-    is_async_capable, is_concurrent_safe, is_core_tool, is_internal_tool,
+    is_async_capable, is_concurrent_safe, is_core_tool, is_internal_tool, ToolDefinition,
 };
 pub use execution::{execute_tool_with_context, ToolExecContext};
 
@@ -96,6 +96,7 @@ pub const TOOL_TASK_LIST: &str = "task_list";
 pub const TOOL_JOB_STATUS: &str = "job_status";
 pub const TOOL_PROJECT_READ_FILE: &str = "project_read_file";
 pub const TOOL_TEAM: &str = "team";
+pub const TOOL_PEEK_SESSIONS: &str = "peek_sessions";
 
 // ── Shared Helpers ────────────────────────────────────────────────
 

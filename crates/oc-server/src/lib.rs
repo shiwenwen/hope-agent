@@ -97,6 +97,14 @@ fn build_router_with_cors(
             "/sessions/{id}/project",
             patch(routes::projects::move_session_to_project),
         )
+        .route(
+            "/sessions/{id}/cross-session-config",
+            get(routes::sessions::get_session_cross_session_config),
+        )
+        .route(
+            "/sessions/{id}/cross-session-config",
+            patch(routes::sessions::set_session_cross_session_config),
+        )
         .route("/sessions/search", get(routes::sessions::search_sessions))
         // Projects
         .route("/projects", get(routes::projects::list_projects))
@@ -247,6 +255,14 @@ fn build_router_with_cors(
         .route("/config/proxy", put(routes::config::save_proxy_config))
         .route("/config/compact", get(routes::config::get_compact_config))
         .route("/config/compact", put(routes::config::save_compact_config))
+        .route(
+            "/config/cross-session",
+            get(routes::config::get_cross_session_config),
+        )
+        .route(
+            "/config/cross-session",
+            put(routes::config::save_cross_session_config),
+        )
         .route("/config/recap", get(routes::config::get_recap_config))
         .route("/config/recap", put(routes::config::save_recap_config))
         .route(

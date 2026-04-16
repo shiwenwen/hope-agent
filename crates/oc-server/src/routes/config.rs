@@ -675,3 +675,22 @@ pub async fn set_sandbox_config(
     oc_core::sandbox::save_sandbox_config(&body.config)?;
     Ok(Json(json!({ "saved": true })))
 }
+
+// ── Cross-Session Behavior Awareness ─────────────────────────────
+
+/// `GET /api/config/cross-session` -- global cross-session config.
+pub async fn get_cross_session_config(
+) -> Result<Json<oc_core::cross_session::CrossSessionConfig>, AppError> {
+    let store = load_config()?;
+    Ok(Json(store.cross_session))
+}
+
+/// `PUT /api/config/cross-session` -- save global cross-session config.
+pub async fn save_cross_session_config(
+    Json(body): Json<ConfigBody<oc_core::cross_session::CrossSessionConfig>>,
+) -> Result<Json<Value>, AppError> {
+    let mut store = load_config()?;
+    store.cross_session = body.config;
+    save_config(&store)?;
+    Ok(Json(json!({ "saved": true })))
+}

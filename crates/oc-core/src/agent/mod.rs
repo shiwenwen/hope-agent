@@ -85,6 +85,8 @@ impl AssistantAgent {
             auto_approve_tools: false,
             last_tier2_compaction_at: std::sync::Mutex::new(None),
             agent_caps_cache: std::sync::Mutex::new(None),
+            cross_session_awareness: std::sync::Mutex::new(None),
+            cross_session_suffix: std::sync::Mutex::new(None),
         }
     }
 
@@ -129,6 +131,8 @@ impl AssistantAgent {
             auto_approve_tools: false,
             last_tier2_compaction_at: std::sync::Mutex::new(None),
             agent_caps_cache: std::sync::Mutex::new(None),
+            cross_session_awareness: std::sync::Mutex::new(None),
+            cross_session_suffix: std::sync::Mutex::new(None),
         }
     }
 
@@ -199,6 +203,8 @@ impl AssistantAgent {
             auto_approve_tools: false,
             last_tier2_compaction_at: std::sync::Mutex::new(None),
             agent_caps_cache: std::sync::Mutex::new(None),
+            cross_session_awareness: std::sync::Mutex::new(None),
+            cross_session_suffix: std::sync::Mutex::new(None),
         }
     }
 
@@ -306,6 +312,226 @@ impl AssistantAgent {
     /// Set the current session ID (for sub-agent context propagation).
     pub fn set_session_id(&mut self, id: &str) {
         self.session_id = Some(id.to_string());
+        self.init_cross_session_awareness();
+    }
+
+    /// (Re-)initialize cross-session awareness based on the current session
+    /// id. Safe to call multiple times — the first call registers an
+    /// observer, subsequent calls replace the Arc and re-register.
+    fn init_cross_session_awareness(&self) {
+        let Some(sid) = self.session_id.as_deref() else {
+            return;
+        };
+        let Some(db) = crate::get_session_db() else {
+            return;
+        };
+        let cfg = crate::cross_session::resolve_for_session(sid, &db);
+        let aware = crate::cross_session::SessionAwareness::new(sid.to_string(), self.agent_id.clone(), cfg);
+        let mut slot = self
+            .cross_session_awareness
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        *slot = Some(aware);
+    }
+
+    /// Return the currently-held cross-session suffix (if any), for use by
+    /// provider-layer code that needs to inject it as a second system block.
+    pub(crate) fn current_cross_session_suffix(&self) -> Option<std::sync::Arc<String>> {
+        self.cross_session_suffix
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    /// Run the dynamic cross-session refresh for this turn. Called at the
+    /// beginning of every provider `chat_*` method before building the system
+    /// prompt. Cheap when nothing changed; runs bounded LLM extraction inline
+    /// when `mode == LlmDigest` and throttle allows.
+    pub(crate) async fn refresh_cross_session_suffix(&self, user_text: &str) {
+        let Some(sid) = self.session_id.clone() else {
+            return;
+        };
+        // 1. Broadcast dirty bit to peer sessions.
+        crate::cross_session::on_other_session_activity(&sid);
+        // 2. Lazy init.
+        let aware = {
+            let slot = self
+                .cross_session_awareness
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone();
+            if slot.is_some() {
+                slot
+            } else {
+                self.init_cross_session_awareness();
+                self.cross_session_awareness_arc()
+            }
+        };
+        let Some(aware) = aware else {
+            return;
+        };
+        // 3. Maybe run LLM extraction inline (bounded) BEFORE the first suffix
+        //    build so the resulting digest lands in this turn's suffix.
+        if aware.should_run_extraction() && aware.claim_extraction() {
+            self.run_extraction_inline(&aware, user_text).await;
+        }
+        // 4. Build suffix.
+        let Some(db) = crate::get_session_db() else {
+            return;
+        };
+        let suffix = aware.prepare_dynamic_suffix(user_text, &db);
+        let mut slot = self
+            .cross_session_suffix
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        *slot = suffix;
+    }
+
+    /// Execute an LLM digest extraction synchronously with a hard timeout.
+    /// Called only when `should_run_extraction()` returned true and we
+    /// successfully claimed the in-flight lock.
+    async fn run_extraction_inline(
+        &self,
+        aware: &std::sync::Arc<crate::cross_session::SessionAwareness>,
+        user_text: &str,
+    ) {
+        use std::time::Duration;
+        const EXTRACTION_TIMEOUT: Duration = Duration::from_secs(5);
+
+        // Drop guard: ensure digest_inflight is released even if we panic.
+        // On normal paths the explicit record_digest_failure / set_last_digest
+        // calls make this redundant but harmless (idempotent).
+        struct InflightGuard(std::sync::Arc<crate::cross_session::SessionAwareness>);
+        impl Drop for InflightGuard {
+            fn drop(&mut self) {
+                self.0.record_digest_failure();
+            }
+        }
+        let _guard = InflightGuard(std::sync::Arc::clone(aware));
+
+        let cfg = {
+            let guard = aware.cfg.lock().unwrap_or_else(|e| e.into_inner());
+            guard.clone()
+        };
+        // If a custom extraction_agent is configured that differs from the
+        // current agent, we cannot switch providers inline. Fall back to
+        // structured mode with a one-time warning.
+        if let Some(ref ea) = cfg.llm_extraction.extraction_agent {
+            if ea != &self.agent_id {
+                app_info!(
+                    "cross_session",
+                    "run_extraction_inline",
+                    "extraction_agent '{}' differs from current agent '{}'; \
+                     using current agent for extraction (override not yet supported)",
+                    ea,
+                    self.agent_id
+                );
+            }
+        }
+        let Some(db) = crate::get_session_db() else {
+            aware.record_digest_failure();
+            return;
+        };
+        // Collect candidates & compute hash; skip if unchanged.
+        let my_agent = Some(self.agent_id.as_str());
+        let mut snap = match crate::cross_session::collect::collect_entries(
+            &db,
+            &cfg,
+            &self.session_id.clone().unwrap_or_default(),
+            my_agent,
+        ) {
+            Ok(s) if !s.entries.is_empty() => s,
+            _ => {
+                aware.record_digest_failure();
+                return;
+            }
+        };
+        snap.entries.truncate(cfg.llm_extraction.max_candidates);
+        let ids: Vec<String> = snap.entries.iter().map(|e| e.session_id.clone()).collect();
+        let candidates_changed = aware.update_candidate_hash(&ids);
+        if !candidates_changed && aware.has_digest() {
+            aware.record_digest_failure();
+            return;
+        }
+        // Build prompt.
+        let prompt = match crate::cross_session::llm_digest::build_extraction_prompt(
+            &snap.entries,
+            &cfg,
+            &db,
+        ) {
+            Ok(p) if !p.is_empty() => p,
+            _ => {
+                aware.record_digest_failure();
+                return;
+            }
+        };
+        // Append the current user message so the model can compare topics.
+        let prompt = if !user_text.is_empty() {
+            format!(
+                "{}\n\nCurrent conversation's latest user message:\n\"{}\"",
+                prompt,
+                crate::truncate_utf8(user_text, 500)
+            )
+        } else {
+            prompt
+        };
+        // Fire side_query with a hard timeout.
+        let max_tokens =
+            ((cfg.llm_extraction.digest_max_chars / 3) as u32).clamp(256, 2048);
+        let fut = self.side_query(&prompt, max_tokens);
+        match tokio::time::timeout(EXTRACTION_TIMEOUT, fut).await {
+            Ok(Ok(res)) => {
+                let trimmed = res.text.trim();
+                if trimmed.is_empty() {
+                    aware.record_digest_failure();
+                    return;
+                }
+                let truncated = crate::truncate_utf8(trimmed, cfg.llm_extraction.digest_max_chars)
+                    .to_string();
+                aware.set_last_digest(std::sync::Arc::new(truncated));
+            }
+            Ok(Err(e)) => {
+                app_warn!(
+                    "cross_session",
+                    "refresh_cross_session_suffix",
+                    "extraction side_query failed: {}",
+                    e
+                );
+                aware.record_digest_failure();
+            }
+            Err(_) => {
+                app_warn!(
+                    "cross_session",
+                    "refresh_cross_session_suffix",
+                    "extraction timed out after 5s"
+                );
+                aware.record_digest_failure();
+            }
+        }
+    }
+
+    /// Force-refresh the cross-session suffix on the next turn. Called from
+    /// `context_compact` after Tier 2+ compaction since the prompt cache has
+    /// already been invalidated.
+    pub(crate) fn force_refresh_cross_session(&self) {
+        let aware = self
+            .cross_session_awareness
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        if let Some(a) = aware {
+            a.mark_force_refresh();
+        }
+    }
+
+    /// Return the currently held `SessionAwareness` for this agent, if any.
+    fn cross_session_awareness_arc(
+        &self,
+    ) -> Option<std::sync::Arc<crate::cross_session::SessionAwareness>> {
+        self.cross_session_awareness
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     /// Set the sub-agent nesting depth.
@@ -512,6 +738,26 @@ impl AssistantAgent {
         if let Some(extra) = &self.extra_system_context {
             prompt.push_str("\n\n");
             prompt.push_str(extra);
+        }
+        prompt
+    }
+
+    /// Build the "static" system prompt — excludes the dynamic cross-session
+    /// suffix which providers append as a separate cache breakpoint.
+    pub(crate) fn build_static_system_prompt(&self, model: &str, provider: &str) -> String {
+        self.build_full_system_prompt(model, provider)
+    }
+
+    /// Build the merged system prompt string (static prefix + cross-session
+    /// suffix). Used for compaction token budgets and any code path that
+    /// needs a flat string.
+    pub(crate) fn build_merged_system_prompt(&self, model: &str, provider: &str) -> String {
+        let mut prompt = self.build_full_system_prompt(model, provider);
+        if let Some(suffix) = self.current_cross_session_suffix() {
+            if !suffix.is_empty() {
+                prompt.push_str("\n\n");
+                prompt.push_str(&suffix);
+            }
         }
         prompt
     }
