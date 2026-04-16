@@ -263,9 +263,9 @@ interface CrossSessionConfig {
 
 ---
 
-## 斜杠命令：/cross-session
+## 斜杠命令：/awareness
 
-控制全局开关和模式，详见 [斜杠命令文档](slash-commands.md#cross-session-子命令详解)。
+控制全局开关和模式，详见 [斜杠命令文档](slash-commands.md#awareness-子命令详解)。
 
 | 子命令 | 效果 |
 |---|---|
@@ -273,7 +273,7 @@ interface CrossSessionConfig {
 | `on` / `off` | 全局开关，写 `config.json` |
 | `mode structured` / `llm` / `off` | 切换模式 |
 
-别名：`/xsession`。
+别名：`/cross-session`、`/xsession`。
 
 ---
 
@@ -281,10 +281,10 @@ interface CrossSessionConfig {
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/api/config/cross-session` | 读取全局配置 |
-| PUT | `/api/config/cross-session` | 保存全局配置（body: `{config: {...}}`） |
-| GET | `/api/sessions/{id}/cross-session-config` | 读取会话级覆盖 JSON |
-| PATCH | `/api/sessions/{id}/cross-session-config` | 写入会话级覆盖（body: `{json: "..."}` 或 `{json: null}` 清除）|
+| GET | `/api/config/awareness` | 读取全局配置 |
+| PUT | `/api/config/awareness` | 保存全局配置（body: `{config: {...}}`） |
+| GET | `/api/sessions/{id}/awareness-config` | 读取会话级覆盖 JSON |
+| PATCH | `/api/sessions/{id}/awareness-config` | 写入会话级覆盖（body: `{json: "..."}` 或 `{json: null}` 清除）|
 
 Tauri 命令：`get_cross_session_config` / `save_cross_session_config` / `get_session_cross_session_override` / `set_session_cross_session_override`。
 
@@ -323,5 +323,5 @@ Tauri 命令：`get_cross_session_config` / `save_cross_session_config` / `get_s
 
 - `extraction_agent` 配置存在但暂不切换 provider，目前使用当前会话的 agent 跑 side_query（差异时 log 提示）
 - `extraction_model` 配置预留但未接线
-- 会话级覆盖 UI 仅支持 enable/disable + mode，高级字段需通过 API 或 `/cross-session` 命令
+- 会话级覆盖 UI 仅支持 enable/disable + mode，高级字段需通过 API 或 `/awareness` 命令
 - 语义 hint 正则编译失败时 silently return false（每次重试编译，直到用户修复正则）

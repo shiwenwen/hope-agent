@@ -129,7 +129,7 @@ export default function CrossSessionPanel() {
   const disabled = !cfg.enabled
 
   return (
-    <div className="space-y-4 rounded-lg border border-border/60 p-4">
+    <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
           <div className="text-sm font-medium">

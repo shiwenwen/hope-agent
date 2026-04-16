@@ -273,7 +273,7 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
             description_raw: None,
         },
         SlashCommandDef {
-            name: "cross-session".into(),
+            name: "awareness".into(),
             category: CommandCategory::Utility,
             description_key: "slashCommands.crossSession.description".into(),
             has_args: true,

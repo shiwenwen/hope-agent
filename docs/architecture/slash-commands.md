@@ -154,7 +154,7 @@ sequenceDiagram
 | `/prompts` | 无 | 查看当前 Agent 的完整 system prompt | `ViewSystemPrompt` |
 | `/context` | 无 | 查看上下文窗口使用明细（分类 token 占比、压缩状态） | `ShowContextBreakdown` |
 | `/recap` | `[--full\|--range=7d\|--range=30d]` | 生成深度复盘报告（后台流式），`--full` 跳转 Dashboard | `RecapCard` 或 `OpenDashboardTab` |
-| `/cross-session` | `[on\|off\|mode <x>\|status]` | 控制跨会话行为感知功能的全局开关与模式（详见下方） | `DisplayOnly` |
+| `/awareness` | `[on\|off\|mode <x>\|status]` | 控制行为感知功能的全局开关与模式（详见下方） | `DisplayOnly` |
 
 **`/permission` 可选值**：
 
@@ -233,9 +233,9 @@ stateDiagram-v2
 
 ---
 
-## `/cross-session` 子命令详解
+## `/awareness` 子命令详解
 
-跨会话行为感知的全局控制命令。修改的是 `config.json` 的 `crossSession` 字段，全局生效。会话级覆盖通过输入栏的眼睛图标或 API 设置。
+行为感知的全局控制命令。修改的是 `config.json` 的 `crossSession` 字段，全局生效。会话级覆盖通过输入栏的眼睛图标或 API 设置。
 
 | 子命令 | 说明 |
 |---|---|
@@ -247,18 +247,18 @@ stateDiagram-v2
 | `mode llm` / `llm_digest` / `digest` | LLM 摘要模式（额外 side_query 开销） |
 | `status` | 等同无参数，显示详细运行时状态 |
 
-**别名**：`/xsession` 等同 `/cross-session`。
+**别名**：`/cross-session`、`/xsession` 等同 `/awareness`。
 
 **示例**：
 
 ```
-/cross-session                → 显示状态
-/cross-session off            → 全局关闭
-/cross-session mode llm       → 切换到 LLM Digest 模式
-/cross-session status         → 显示状态
+/awareness                → 显示状态
+/awareness off            → 全局关闭
+/awareness mode llm       → 切换到 LLM Digest 模式
+/awareness status         → 显示状态
 ```
 
-> 详见 [跨会话行为感知架构文档](cross-session.md)
+> 详见 [行为感知架构文档](cross-session.md)
 
 ---
 
@@ -332,7 +332,7 @@ Channel 对有 `arg_options` 的命令提供 inline keyboard 按钮：
 | `/think` | `off`, `low`, `medium`, `high`, `xhigh` |
 | `/plan` | `enter`, `exit`, `show`, `approve`, `pause`, `resume` |
 | `/permission` | `auto`, `ask`, `full` |
-| `/cross-session` | `on`, `off`, `mode structured`, `mode llm`, `mode off`, `status` |
+| `/awareness` | `on`, `off`, `mode structured`, `mode llm`, `mode off`, `status` |
 
 ---
 
@@ -362,4 +362,4 @@ Channel 对有 `arg_options` 的命令提供 inline keyboard 按钮：
 | `/prompts` | Utility | 无 | 否 | 查看系统提示词 |
 | `/context` | Utility | 无 | 是 | 上下文窗口占用明细 |
 | `/recap` | Utility | `[--full\|--range=Nd]` | 否 | 生成深度复盘报告 |
-| `/cross-session` | Utility | `[on\|off\|mode <x>\|status]` | 否 | 跨会话行为感知开关 |
+| `/awareness` | Utility | `[on\|off\|mode <x>\|status]` | 否 | 行为感知开关 |

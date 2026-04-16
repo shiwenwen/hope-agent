@@ -98,11 +98,11 @@ fn build_router_with_cors(
             patch(routes::projects::move_session_to_project),
         )
         .route(
-            "/sessions/{id}/cross-session-config",
+            "/sessions/{id}/awareness-config",
             get(routes::sessions::get_session_cross_session_config),
         )
         .route(
-            "/sessions/{id}/cross-session-config",
+            "/sessions/{id}/awareness-config",
             patch(routes::sessions::set_session_cross_session_config),
         )
         .route("/sessions/search", get(routes::sessions::search_sessions))
@@ -256,11 +256,11 @@ fn build_router_with_cors(
         .route("/config/compact", get(routes::config::get_compact_config))
         .route("/config/compact", put(routes::config::save_compact_config))
         .route(
-            "/config/cross-session",
+            "/config/awareness",
             get(routes::config::get_cross_session_config),
         )
         .route(
-            "/config/cross-session",
+            "/config/awareness",
             put(routes::config::save_cross_session_config),
         )
         .route("/config/recap", get(routes::config::get_recap_config))

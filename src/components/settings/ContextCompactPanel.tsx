@@ -182,7 +182,7 @@ export default function ContextCompactPanel() {
 
   return (
     <div className="space-y-4">
-      <div className="border-t border-border/30 pt-4 mt-2">
+      <div>
         <h3 className="text-sm font-medium mb-1">{t("settings.contextCompact")}</h3>
         <p className="text-xs text-muted-foreground">{t("settings.contextCompactDesc")}</p>
       </div>

@@ -134,11 +134,11 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   get_compact_config:              { method: "GET",    path: "/api/config/compact" },
   save_compact_config:             { method: "PUT",    path: "/api/config/compact" },
 
-  // -- Cross-session behavior awareness --
-  get_cross_session_config:        { method: "GET",    path: "/api/config/cross-session" },
-  save_cross_session_config:       { method: "PUT",    path: "/api/config/cross-session" },
-  get_session_cross_session_override: { method: "GET", path: "/api/sessions/{sessionId}/cross-session-config" },
-  set_session_cross_session_override: { method: "PATCH", path: "/api/sessions/{sessionId}/cross-session-config" },
+  // -- Behavior awareness --
+  get_cross_session_config:        { method: "GET",    path: "/api/config/awareness" },
+  save_cross_session_config:       { method: "PUT",    path: "/api/config/awareness" },
+  get_session_cross_session_override: { method: "GET", path: "/api/sessions/{sessionId}/awareness-config" },
+  set_session_cross_session_override: { method: "PATCH", path: "/api/sessions/{sessionId}/awareness-config" },
 
   // -- Plan mode --
   get_plan_mode:                   { method: "GET",    path: "/api/plan/{sessionId}/mode" },

@@ -270,7 +270,7 @@ pub async fn compact_context_now(
     })))
 }
 
-/// `GET /api/sessions/:id/cross-session-config` — read per-session override JSON.
+/// `GET /api/sessions/:id/awareness-config` — read per-session override JSON.
 pub async fn get_session_cross_session_config(
     State(ctx): State<Arc<AppContext>>,
     Path(id): Path<String>,
@@ -279,7 +279,7 @@ pub async fn get_session_cross_session_config(
     Ok(Json(json!({ "json": json })))
 }
 
-/// `PUT /api/sessions/:id/cross-session-config` — write or clear override.
+/// `PATCH /api/sessions/:id/awareness-config` — write or clear override.
 pub async fn set_session_cross_session_config(
     State(ctx): State<Arc<AppContext>>,
     Path(id): Path<String>,

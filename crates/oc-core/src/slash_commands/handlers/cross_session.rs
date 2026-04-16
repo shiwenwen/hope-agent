@@ -1,16 +1,16 @@
-//! `/cross-session` — toggle or inspect the cross-session behavior awareness
+//! `/awareness` — toggle or inspect the cross-session behavior awareness
 //! feature at the global level.
 //!
 //! Subcommands:
-//!   /cross-session                → show current status
-//!   /cross-session on|off         → flip global enabled
-//!   /cross-session mode structured|llm|off
-//!   /cross-session status         → detailed runtime status
+//!   /awareness                → show current status
+//!   /awareness on|off         → flip global enabled
+//!   /awareness mode structured|llm|off
+//!   /awareness status         → detailed runtime status
 
 use crate::cross_session::CrossSessionMode;
 use crate::slash_commands::types::{CommandAction, CommandResult};
 
-/// Handle the `/cross-session` slash command.
+/// Handle the `/awareness` slash command.
 pub fn handle_cross_session(args: &str) -> Result<CommandResult, String> {
     let args_trim = args.trim();
 
@@ -31,11 +31,11 @@ pub fn handle_cross_session(args: &str) -> Result<CommandResult, String> {
             Some("llm") | Some("llm_digest") | Some("digest") => {
                 set_mode(CrossSessionMode::LlmDigest)
             }
-            _ => Err("Usage: /cross-session mode [off|structured|llm|llm_digest|digest]".to_string()),
+            _ => Err("Usage: /awareness mode [off|structured|llm|llm_digest|digest]".to_string()),
         },
         "status" => Ok(status_result()),
         other => Err(format!(
-            "Unknown subcommand '{}'. Try: /cross-session [on|off|mode <x>|status]",
+            "Unknown subcommand '{}'. Try: /awareness [on|off|mode <x>|status]",
             other
         )),
     }
@@ -47,7 +47,7 @@ fn set_enabled(enabled: bool) -> Result<CommandResult, String> {
     crate::config::save_config(&store).map_err(|e| e.to_string())?;
     Ok(CommandResult {
         content: format!(
-            "Cross-session awareness {}.",
+            "Behavior awareness {}.",
             if enabled { "enabled" } else { "disabled" }
         ),
         action: Some(CommandAction::DisplayOnly),
@@ -68,7 +68,7 @@ fn set_mode(mode: CrossSessionMode) -> Result<CommandResult, String> {
         CrossSessionMode::LlmDigest => "llm_digest (extra side_query per turn)",
     };
     Ok(CommandResult {
-        content: format!("Cross-session mode set to **{}**.", label),
+        content: format!("Behavior awareness mode set to **{}**.", label),
         action: Some(CommandAction::DisplayOnly),
     })
 }
@@ -82,7 +82,7 @@ fn status_result() -> CommandResult {
     };
     let active = crate::cross_session::active_snapshot().len();
     let content = format!(
-        "**Cross-Session Awareness**\n\n\
+        "**Behavior Awareness**\n\n\
          - Enabled: `{}`\n\
          - Mode: `{}`\n\
          - Max sessions: `{}`\n\
