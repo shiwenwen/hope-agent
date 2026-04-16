@@ -2,7 +2,7 @@
 
 > 返回 [文档索引](../README.md)
 >
-> 更新时间：2026-03-26
+> 更新时间：2026-04-16
 
 ## 目录
 
@@ -21,6 +21,7 @@
 - [Tauri 命令一览](#tauri-命令一览)
 - [前端 UI](#前端-ui)（含组件结构图）
 - [数据流全景](#数据流全景)（含全链路注入时序图 + 斜杠命令时序图）
+- [内置技能](#内置技能)
 - [与 OpenClaw 对比](#与-openclaw-对比)
 - [编写第一个 Skill](#编写第一个-skill)
 
@@ -66,7 +67,7 @@ graph TB
 
     subgraph 存储层
         CONFIG[(config.json<br/>AppConfig)]
-        FS[("~/.opencomputer/skills/<br/>.opencomputer/skills/<br/>extra dirs")]
+        FS[("skills/ (bundled)<br/>~/.opencomputer/skills/<br/>.opencomputer/skills/<br/>extra dirs")]
     end
 
     subgraph LLM 层
@@ -127,7 +128,8 @@ graph TB
 
 | 来源 | 路径 | 优先级 | 说明 |
 |------|------|--------|------|
-| Extra dirs | 用户通过 UI 导入的目录 | 最低 | `config.json` 的 `extraSkillsDirs` |
+| Bundled | 应用内 `skills/` 目录 | 最低 | 随应用发行的内置技能 |
+| Extra dirs | 用户通过 UI 导入的目录 | 低 | `config.json` 的 `extraSkillsDirs` |
 | Managed | `~/.opencomputer/skills/` | 中 | 全局技能目录 |
 | Project | `.opencomputer/skills/`（相对于 cwd） | 最高 | 项目级覆盖 |
 
@@ -135,7 +137,10 @@ graph TB
 
 ```mermaid
 block-beta
-    columns 3
+    columns 4
+    block:lowest:1
+        B["Bundled<br/>应用内置"]
+    end
     block:low:1
         E["Extra dirs<br/>用户导入"]
     end
@@ -146,8 +151,9 @@ block-beta
         P["Project<br/>.opencomputer/skills/"]
     end
 
-    low --> mid --> high
+    lowest --> low --> mid --> high
 
+    style B fill:#f3e8ff,stroke:#a855f7
     style E fill:#fef3c7,stroke:#f59e0b
     style M fill:#dbeafe,stroke:#3b82f6
     style P fill:#dcfce7,stroke:#22c55e
@@ -262,15 +268,17 @@ install:
 
 ```mermaid
 flowchart TD
-    START([load_all_skills_with_budget]) --> E["1. Extra dirs<br/>用户导入目录"]
+    START([load_all_skills_with_budget]) --> B["0. Bundled<br/>应用内置 skills/"]
+    START --> E["1. Extra dirs<br/>用户导入目录"]
     START --> M["2. Managed<br/>~/.opencomputer/skills/"]
     START --> P["3. Project<br/>.opencomputer/skills/"]
 
+    B --> LOAD_B["load_skills_from_dir<br/>source = bundled"]
     E --> LOAD_E["load_skills_from_dir<br/>source = 目录名"]
     M --> LOAD_M["load_skills_from_dir<br/>source = managed"]
     P --> LOAD_P["load_skills_from_dir<br/>source = project"]
 
-    LOAD_E & LOAD_M & LOAD_P --> SCAN
+    LOAD_B & LOAD_E & LOAD_M & LOAD_P --> SCAN
 
     subgraph SCAN["对每个目录扫描"]
         direction TB
@@ -285,12 +293,13 @@ flowchart TD
     DEDUP --> SORT["按 name 字母排序"]
     SORT --> RESULT(["返回 Vec SkillEntry"])
 
+    style B fill:#f3e8ff,stroke:#a855f7
     style E fill:#fef3c7,stroke:#f59e0b
     style M fill:#dbeafe,stroke:#3b82f6
     style P fill:#dcfce7,stroke:#22c55e
 ```
 
-**优先级覆盖规则**：Project > Managed > Extra dirs，高优先级的同名技能覆盖低优先级的。
+**优先级覆盖规则**：Project > Managed > Extra dirs > Bundled，高优先级的同名技能覆盖低优先级的。
 
 ### 嵌套目录检测
 
@@ -873,7 +882,7 @@ sequenceDiagram
     alt 缓存有效
         CACHE-->>SP: 返回缓存的 entries
     else 缓存失效
-        SP->>LOAD: 扫描 3 层目录
+        SP->>LOAD: 扫描 4 层目录
         LOAD->>LOAD: 解析 frontmatter → 去重 → 排序
         LOAD-->>CACHE: 更新缓存
         LOAD-->>SP: 返回 entries
@@ -926,6 +935,36 @@ sequenceDiagram
 
 ---
 
+## 内置技能
+
+内置技能（Bundled Skills）随应用发行，位于项目根目录 `skills/`，优先级最低。`discovery.rs` 中的 `resolve_bundled_skills_dir()` 按以下顺序定位内置技能目录：
+
+1. 环境变量 `OPENCOMPUTER_BUNDLED_SKILLS_DIR`
+2. 可执行文件同级 / 上级 `skills/` 目录（release 打包）
+3. `CARGO_MANIFEST_DIR` 向上两级的 `skills/`（仅 debug 构建）
+
+同名技能会被高优先级来源（extra/managed/project）覆盖。
+
+### 当前内置技能列表
+
+| 技能 | 说明 | 关联工具 |
+|------|------|----------|
+| `skill-creator` | 创建、编辑、改进或审计 OpenComputer 技能。包含评估工作流（agents/grader + comparator + analyzer、references/schemas、scripts/ 聚合脚本、eval-viewer/ 可视化查看器） | — |
+| `settings` | 通过自然语言对话调整应用设置。指导模型使用 `get_settings` / `update_settings` 工具读取和修改 30+ 个配置分类（主题、语言、代理、温度、通知、搜索、记忆等），不直接编辑配置文件 | `get_settings`, `update_settings` |
+
+### settings 技能工具
+
+`get_settings` 和 `update_settings` 是两个 deferred 工具（通过 `tool_search` 发现），封装了现有 config API：
+
+- **`get_settings(category)`**：读取指定分类的当前设置，返回 JSON。`category: "all"` 返回所有分类概览
+- **`update_settings(category, values)`**：更新指定分类的设置，采用 partial merge 语义（递归深合并），只传需要修改的字段
+
+安全限制：
+- `active_model` / `fallback_models` 为只读分类
+- 不允许修改 Provider 列表、Channel 配置、API Key 等涉及凭据的设置
+
+---
+
 ## 与 OpenClaw 对比
 
 | 维度 | OpenComputer | OpenClaw |
@@ -939,7 +978,7 @@ sequenceDiagram
 | **健康检查** | `get_skills_status` + **GUI 状态徽章** | `openclaw skills check` CLI 输出 |
 | **缓存** | AtomicU64 版本 + 30s TTL（**无额外进程**） | chokidar 文件 watcher + 版本号 |
 | **Skill 命令** | 动态注册为斜杠命令（**Channel-Agnostic**） | 动态注册为斜杠命令 |
-| **Skill 来源** | 3 层（extra/managed/project） | 6 层（extra/bundled/managed/personal/project/workspace） |
+| **Skill 来源** | 4 层（bundled/extra/managed/project） | 6 层（extra/bundled/managed/personal/project/workspace） |
 | **插件集成** | 嵌套 skills/ 检测 | Plugin manifest 声明 |
 | **Skill Marketplace** | — | ClawHub 集成 |
 
