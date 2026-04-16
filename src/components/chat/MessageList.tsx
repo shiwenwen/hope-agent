@@ -164,7 +164,7 @@ export default function MessageList({
           <p className="text-muted-foreground text-sm">{t("chat.howCanIHelp")}</p>
         </div>
       )}
-      {messages.map((msg, i) => (
+      {messages.filter((msg) => !msg.isMeta).map((msg, i) => (
         <div
           key={msg.dbId ?? `${msg.role}-${msg.timestamp ?? i}`}
           data-message-id={msg.dbId ?? undefined}

@@ -182,6 +182,12 @@ export function useSlashCommands(
           agentId: actionsRef.current.agentId,
           commandText,
         })
+        if (result.action?.type === "passThrough" && cmd.category === "skill") {
+          result._isSkillPassThrough = true
+          if (args.trim()) {
+            result._skillArgs = args.trim()
+          }
+        }
         actionsRef.current.onCommandAction(result)
       } catch (err) {
         actionsRef.current.onCommandAction({
@@ -209,7 +215,12 @@ export function useSlashCommands(
         agentId: actionsRef.current.agentId,
         commandText,
       })
-        .then((result) => actionsRef.current.onCommandAction(result))
+        .then((result) => {
+          if (result.action?.type === "passThrough" && cmd.category === "skill") {
+            result._isSkillPassThrough = true
+          }
+          actionsRef.current.onCommandAction(result)
+        })
         .catch((err) =>
           actionsRef.current.onCommandAction({
             content: `Error: ${err}`,
@@ -273,7 +284,17 @@ export function useSlashCommands(
               prev >= filteredOptions.length - 1 ? 0 : prev + 1,
             )
             return true
-          case "Tab":
+          case "Tab": {
+            // Tab: fill option into input box for further editing
+            e.preventDefault()
+            if (filteredOptions[selectedOptionIndex]) {
+              setInput(`/${expandedCmd.name} ${filteredOptions[selectedOptionIndex]} `)
+              setExpandedCmd(null)
+              setIsOpen(false)
+              setForceOpen(false)
+            }
+            return true
+          }
           case "Enter":
             e.preventDefault()
             executeOption(expandedCmd, filteredOptions[selectedOptionIndex])
@@ -305,12 +326,29 @@ export function useSlashCommands(
           )
           return true
 
-        case "Tab":
-        case "Enter": {
+        case "Tab": {
+          // Tab: autocomplete command name into input box
           e.preventDefault()
-          const cmd = filteredCommands[selectedIndex]
-          if (cmd) {
-            executeCommand(cmd)
+          const tabCmd = filteredCommands[selectedIndex]
+          if (tabCmd) {
+            if (tabCmd.argOptions?.length) {
+              setExpandedCmd(tabCmd)
+              setSelectedOptionIndex(0)
+              setInput(`/${tabCmd.name} `)
+            } else {
+              setInput(`/${tabCmd.name} `)
+              setIsOpen(false)
+              setForceOpen(false)
+            }
+          }
+          return true
+        }
+        case "Enter": {
+          // Enter: execute command immediately
+          e.preventDefault()
+          const enterCmd = filteredCommands[selectedIndex]
+          if (enterCmd) {
+            executeCommand(enterCmd)
           }
           return true
         }

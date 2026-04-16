@@ -970,7 +970,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_GET_SETTINGS.into(),
             description: "Read application settings for a given category. Returns the current configuration as JSON. Use category 'all' for an overview of all settings.".into(),
-            internal: false,
+            internal: true,
             deferred: false,
             always_load: false,
             async_capable: false,
@@ -1001,7 +1001,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_UPDATE_SETTINGS.into(),
             description: "Update application settings for a given category. Accepts partial JSON — only the fields you pass are changed, others are preserved. Cannot modify providers, channels, or API keys for security.".into(),
-            internal: false,
+            internal: true,
             deferred: false,
             always_load: false,
             async_capable: false,

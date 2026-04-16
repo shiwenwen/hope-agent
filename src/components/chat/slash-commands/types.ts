@@ -71,6 +71,10 @@ export interface ModelPickerItem {
 export interface CommandResult {
   content: string
   action?: CommandAction
+  /** Frontend-only: set by useSlashCommands when a skill passThrough is detected */
+  _isSkillPassThrough?: boolean
+  /** Frontend-only: user arguments extracted from skill command (e.g. "把主题改成深色") */
+  _skillArgs?: string
 }
 
 /** Category display order */

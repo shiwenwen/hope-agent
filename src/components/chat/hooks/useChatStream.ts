@@ -51,7 +51,7 @@ export interface UseChatStreamReturn {
   setShowCodexAuthExpired: React.Dispatch<React.SetStateAction<boolean>>
   toolPermissionMode: ToolPermissionMode
   setToolPermissionMode: React.Dispatch<React.SetStateAction<ToolPermissionMode>>
-  handleSend: (directText?: string) => Promise<void>
+  handleSend: (directText?: string, options?: { hidden?: boolean }) => Promise<void>
   handleStop: () => Promise<void>
   handleApprovalResponse: (
     requestId: string,
@@ -140,7 +140,7 @@ export function useChatStream({
    * Send a message. If `directText` is provided, use it directly instead of the input box.
    * This avoids flashing text in the input (used by Plan Mode approve).
    */
-  async function handleSend(directText?: string) {
+  async function handleSend(directText?: string, options?: { hidden?: boolean }) {
     const rawText = directText ?? input
     if (!rawText.trim()) return
 
@@ -156,7 +156,7 @@ export function useChatStream({
     setInput("")
     setAttachedFiles([])
     const now = new Date().toISOString()
-    setMessages((prev) => [...prev, { role: "user", content: text, timestamp: now }])
+    setMessages((prev) => [...prev, { role: "user", content: text, timestamp: now, ...(options?.hidden && { isMeta: true }) }])
     setLoading(true)
 
     // Process attached files: images → base64 data, non-images → save to disk via Rust

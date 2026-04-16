@@ -47,6 +47,8 @@ export interface Message {
   subagentResultAgentId?: string
   /** If true, this user message was triggered by a cron job */
   isCronTrigger?: boolean
+  /** If true, this message is a hidden skill prompt — sent to LLM but not shown in the UI */
+  isMeta?: boolean
   /** The cron job name that triggered this message */
   cronJobName?: string
   /** If set, this user message came from an IM channel */

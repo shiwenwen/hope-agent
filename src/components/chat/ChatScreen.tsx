@@ -464,10 +464,16 @@ export default function ChatScreen({
           session.reloadSessions()
           break
         case "passThrough":
-          // Send the message to the LLM as a normal user message
-          stream.setInput(action.message)
-          // Use a small delay so React can update the input before sending
-          setTimeout(() => stream.handleSend(), 50)
+          if (result._isSkillPassThrough) {
+            // Skill: send prompt as hidden message, user args as visible message
+            await stream.handleSend(action.message, { hidden: true })
+            if (result._skillArgs) {
+              stream.handleSend(result._skillArgs)
+            }
+          } else {
+            stream.setInput(action.message)
+            setTimeout(() => stream.handleSend(), 50)
+          }
           break
         case "exportFile":
           try {
