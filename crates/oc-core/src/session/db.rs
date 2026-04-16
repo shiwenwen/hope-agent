@@ -197,6 +197,18 @@ impl SessionDB {
             conn.execute_batch("ALTER TABLE sessions ADD COLUMN plan_steps TEXT;")?;
         }
 
+        // Migration: add project_id column for Project feature.
+        // Nullable — NULL means session does not belong to any project.
+        let has_project_id = conn
+            .prepare("SELECT project_id FROM sessions LIMIT 1")
+            .is_ok();
+        if !has_project_id {
+            conn.execute_batch(
+                "ALTER TABLE sessions ADD COLUMN project_id TEXT;
+                 CREATE INDEX IF NOT EXISTS idx_sessions_project_id ON sessions(project_id);",
+            )?;
+        }
+
         // Migration: pending ask_user_question groups for resume-after-restart.
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS ask_user_questions (
@@ -393,6 +405,32 @@ impl SessionDB {
         agent_id: &str,
         parent_session_id: Option<&str>,
     ) -> Result<SessionMeta> {
+        self.create_session_full(agent_id, parent_session_id, None)
+    }
+
+    /// Create a new session attached to a project.
+    ///
+    /// When `project_id` is `Some`, the session is bound to that project and
+    /// project-scoped memories / files will be automatically injected into its
+    /// system prompt.
+    pub fn create_session_with_project(
+        &self,
+        agent_id: &str,
+        project_id: Option<&str>,
+    ) -> Result<SessionMeta> {
+        crate::memory_extract::flush_all_idle_extractions();
+        self.create_session_full(agent_id, None, project_id)
+    }
+
+    /// Fully-parameterized session creator. Private helper called by the other
+    /// `create_session*` variants so the INSERT statement exists in exactly one
+    /// place.
+    pub(crate) fn create_session_full(
+        &self,
+        agent_id: &str,
+        parent_session_id: Option<&str>,
+        project_id: Option<&str>,
+    ) -> Result<SessionMeta> {
         let id = uuid::Uuid::new_v4().to_string();
         let now = chrono::Utc::now().to_rfc3339();
 
@@ -401,8 +439,9 @@ impl SessionDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         conn.execute(
-            "INSERT INTO sessions (id, agent_id, created_at, updated_at, parent_session_id) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![id, agent_id, now, now, parent_session_id],
+            "INSERT INTO sessions (id, agent_id, created_at, updated_at, parent_session_id, project_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![id, agent_id, now, now, parent_session_id, project_id],
         )?;
 
         Ok(SessionMeta {
@@ -420,22 +459,61 @@ impl SessionDB {
             is_cron: false,
             parent_session_id: parent_session_id.map(|s| s.to_string()),
             plan_mode: "off".to_string(),
+            project_id: project_id.map(|s| s.to_string()),
             channel_info: None,
         })
+    }
+
+    /// Move a session to a project (or remove it from the current project when `project_id` is `None`).
+    pub fn set_session_project(
+        &self,
+        session_id: &str,
+        project_id: Option<&str>,
+    ) -> Result<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        conn.execute(
+            "UPDATE sessions SET project_id = ?1 WHERE id = ?2",
+            params![project_id, session_id],
+        )?;
+        Ok(())
+    }
+
+    /// Clear `project_id` from every session that currently references it.
+    /// Used by `ProjectDB::delete` so deleting a project does not cascade-delete
+    /// its sessions — they simply become unassigned.
+    pub fn clear_project_from_sessions(&self, project_id: &str) -> Result<usize> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let n = conn.execute(
+            "UPDATE sessions SET project_id = NULL WHERE project_id = ?1",
+            params![project_id],
+        )?;
+        Ok(n)
     }
 
     /// List all sessions, ordered by most recently updated.
     /// Optionally filter by agent_id.
     pub fn list_sessions(&self, agent_id: Option<&str>) -> Result<Vec<SessionMeta>> {
-        let (sessions, _) = self.list_sessions_paged(agent_id, None, None)?;
+        let (sessions, _) = self.list_sessions_paged(agent_id, ProjectFilter::All, None, None)?;
         Ok(sessions)
     }
 
     /// Paginated session list. Returns `(sessions, total_count)`.
     /// When `limit` is `None`, all sessions are returned (backwards-compatible).
+    ///
+    /// `project_filter` selects which sessions appear based on their project assignment:
+    /// * [`ProjectFilter::All`] — no project filter (default behavior)
+    /// * [`ProjectFilter::Unassigned`] — only sessions with `project_id IS NULL`
+    /// * [`ProjectFilter::InProject`] — only sessions in the given project
     pub fn list_sessions_paged(
         &self,
         agent_id: Option<&str>,
+        project_filter: ProjectFilter<'_>,
         limit: Option<u32>,
         offset: Option<u32>,
     ) -> Result<(Vec<SessionMeta>, u32)> {
@@ -451,6 +529,7 @@ impl SessionDB {
                         s.is_cron,
                         s.parent_session_id,
                         s.plan_mode,
+                        s.project_id,
                         cc.channel_id, cc.account_id, cc.chat_id, cc.chat_type, cc.sender_name
                  FROM sessions s
                  LEFT JOIN channel_conversations cc ON cc.session_id = s.id";
@@ -458,13 +537,13 @@ impl SessionDB {
         let count_base = "SELECT COUNT(*) FROM sessions s";
 
         let row_mapper = |row: &rusqlite::Row| {
-            let cc_channel_id: Option<String> = row.get(13)?;
+            let cc_channel_id: Option<String> = row.get(14)?;
             let channel_info = cc_channel_id.map(|ch_id| ChannelSessionInfo {
                 channel_id: ch_id,
-                account_id: row.get::<_, String>(14).unwrap_or_default(),
-                chat_id: row.get::<_, String>(15).unwrap_or_default(),
-                chat_type: row.get::<_, String>(16).unwrap_or_default(),
-                sender_name: row.get(17).ok().flatten(),
+                account_id: row.get::<_, String>(15).unwrap_or_default(),
+                chat_id: row.get::<_, String>(16).unwrap_or_default(),
+                chat_type: row.get::<_, String>(17).unwrap_or_default(),
+                sender_name: row.get(18).ok().flatten(),
             });
             Ok(SessionMeta {
                 id: row.get(0)?,
@@ -483,43 +562,61 @@ impl SessionDB {
                 plan_mode: row
                     .get::<_, String>(12)
                     .unwrap_or_else(|_| "off".to_string()),
+                project_id: row.get(13)?,
                 channel_info,
             })
         };
 
-        let mut sessions = Vec::new();
-        let total: u32;
+        // Build dynamic WHERE / params.
+        let mut where_clauses: Vec<String> = Vec::new();
+        let mut params_vec: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+
+        if let Some(aid) = agent_id {
+            let idx = params_vec.len() + 1;
+            where_clauses.push(format!("s.agent_id = ?{}", idx));
+            params_vec.push(Box::new(aid.to_string()));
+        }
+
+        match project_filter {
+            ProjectFilter::All => {}
+            ProjectFilter::Unassigned => {
+                where_clauses.push("s.project_id IS NULL".to_string());
+            }
+            ProjectFilter::InProject(pid) => {
+                let idx = params_vec.len() + 1;
+                where_clauses.push(format!("s.project_id = ?{}", idx));
+                params_vec.push(Box::new(pid.to_string()));
+            }
+        }
+
+        let where_sql = if where_clauses.is_empty() {
+            String::new()
+        } else {
+            format!(" WHERE {}", where_clauses.join(" AND "))
+        };
 
         let pagination_clause = match limit {
             Some(l) => format!(" LIMIT {} OFFSET {}", l, offset.unwrap_or(0)),
             None => String::new(),
         };
 
-        if let Some(agent_id) = agent_id {
-            let count_sql = format!("{} WHERE s.agent_id = ?1", count_base);
-            total = conn.query_row(&count_sql, params![agent_id], |r| r.get::<_, u32>(0))?;
+        let count_sql = format!("{}{}", count_base, where_sql);
+        let sql = format!(
+            "{}{} ORDER BY s.updated_at DESC{}",
+            base_sql, where_sql, pagination_clause
+        );
 
-            let sql = format!(
-                "{} WHERE s.agent_id = ?1 ORDER BY s.updated_at DESC{}",
-                base_sql, pagination_clause
-            );
-            let mut stmt = conn.prepare(&sql)?;
-            let rows = stmt.query_map(params![agent_id], row_mapper)?;
-            for row in rows {
-                sessions.push(row?);
-            }
-        } else {
-            total = conn.query_row(count_base, [], |r| r.get::<_, u32>(0))?;
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params_vec.iter().map(|p| p.as_ref()).collect();
 
-            let sql = format!(
-                "{} ORDER BY s.updated_at DESC{}",
-                base_sql, pagination_clause
-            );
-            let mut stmt = conn.prepare(&sql)?;
-            let rows = stmt.query_map([], row_mapper)?;
-            for row in rows {
-                sessions.push(row?);
-            }
+        let total: u32 =
+            conn.query_row(&count_sql, param_refs.as_slice(), |r| r.get::<_, u32>(0))?;
+
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(param_refs.as_slice(), row_mapper)?;
+        let mut sessions = Vec::new();
+        for row in rows {
+            sessions.push(row?);
         }
 
         Ok((sessions, total))
@@ -893,6 +990,7 @@ impl SessionDB {
                     s.is_cron,
                     s.parent_session_id,
                     s.plan_mode,
+                    s.project_id,
                     cc.channel_id, cc.account_id, cc.chat_id, cc.chat_type, cc.sender_name
              FROM sessions s
              LEFT JOIN channel_conversations cc ON cc.session_id = s.id
@@ -900,13 +998,13 @@ impl SessionDB {
         )?;
 
         let mut rows = stmt.query_map(params![session_id], |row| {
-            let cc_channel_id: Option<String> = row.get(13)?;
+            let cc_channel_id: Option<String> = row.get(14)?;
             let channel_info = cc_channel_id.map(|ch_id| ChannelSessionInfo {
                 channel_id: ch_id,
-                account_id: row.get::<_, String>(14).unwrap_or_default(),
-                chat_id: row.get::<_, String>(15).unwrap_or_default(),
-                chat_type: row.get::<_, String>(16).unwrap_or_default(),
-                sender_name: row.get(17).ok().flatten(),
+                account_id: row.get::<_, String>(15).unwrap_or_default(),
+                chat_id: row.get::<_, String>(16).unwrap_or_default(),
+                chat_type: row.get::<_, String>(17).unwrap_or_default(),
+                sender_name: row.get(18).ok().flatten(),
             });
             Ok(SessionMeta {
                 id: row.get(0)?,
@@ -925,6 +1023,7 @@ impl SessionDB {
                 plan_mode: row
                     .get::<_, String>(12)
                     .unwrap_or_else(|_| "off".to_string()),
+                project_id: row.get(13)?,
                 channel_info,
             })
         })?;
@@ -1179,6 +1278,17 @@ fn sanitize_fts_query(query: &str) -> String {
         .map(|t| format!("\"{}\"", t.replace('"', "")))
         .collect();
     tokens.join(" ")
+}
+
+/// Filter sessions by their project assignment in `list_sessions_paged`.
+#[derive(Debug, Clone, Copy)]
+pub enum ProjectFilter<'a> {
+    /// No project filter — include sessions regardless of project assignment.
+    All,
+    /// Only sessions with `project_id IS NULL` (not belonging to any project).
+    Unassigned,
+    /// Only sessions belonging to the given project id.
+    InProject(&'a str),
 }
 
 /// Filter for `search_messages` by session type.

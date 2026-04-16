@@ -3,9 +3,9 @@ use std::sync::LazyLock;
 
 use super::super::{
     ToolProvider, TOOL_AGENTS_LIST, TOOL_ASK_USER_QUESTION, TOOL_FIND, TOOL_GET_WEATHER, TOOL_GREP,
-    TOOL_IMAGE, TOOL_LS, TOOL_MEMORY_GET, TOOL_PDF, TOOL_READ, TOOL_RECALL_MEMORY,
-    TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST, TOOL_SESSION_STATUS, TOOL_TASK_LIST, TOOL_WEB_FETCH,
-    TOOL_WEB_SEARCH,
+    TOOL_IMAGE, TOOL_LS, TOOL_MEMORY_GET, TOOL_PDF, TOOL_PROJECT_READ_FILE, TOOL_READ,
+    TOOL_RECALL_MEMORY, TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST, TOOL_SESSION_STATUS,
+    TOOL_TASK_LIST, TOOL_WEB_FETCH, TOOL_WEB_SEARCH,
 };
 use super::core_tools::get_available_tools;
 use super::extra_tools::{get_canvas_tool, get_notification_tool, get_web_search_tool};
@@ -17,6 +17,7 @@ use super::types::ToolDefinition;
 static CONCURRENT_SAFE_TOOL_NAMES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
     [
         TOOL_READ,
+        TOOL_PROJECT_READ_FILE,
         TOOL_LS,
         TOOL_GREP,
         TOOL_FIND,

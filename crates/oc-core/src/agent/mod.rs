@@ -9,7 +9,7 @@ mod side_query;
 mod types;
 
 // Re-export public API
-pub use config::build_system_prompt;
+pub use config::{build_system_prompt, build_system_prompt_with_session};
 pub use config::{build_api_url, get_codex_models, USER_AGENT};
 pub use types::{AssistantAgent, Attachment, CodexModel, LlmProvider, PlanAgentMode};
 
@@ -468,7 +468,12 @@ impl AssistantAgent {
 
     /// Build the full system prompt, including any extra context.
     pub(crate) fn build_full_system_prompt(&self, model: &str, provider: &str) -> String {
-        let mut prompt = config::build_system_prompt(&self.agent_id, model, provider);
+        let mut prompt = config::build_system_prompt_with_session(
+            &self.agent_id,
+            model,
+            provider,
+            self.session_id.as_deref(),
+        );
         if self.notification_enabled {
             prompt.push_str("\n\n- **send_notification**: Send a native desktop notification to alert the user about important events, task completions, or findings that need their attention. Parameters: title (optional), body (required).");
         }

@@ -41,8 +41,19 @@ pub fn compute_breakdown(
     memory_context: Option<&str>,
     agent_home: Option<&str>,
 ) -> SystemPromptBreakdown {
-    let full = build(definition, model, provider, memory_context, agent_home);
-    let without_memory = build(definition, model, provider, None, agent_home);
+    // Breakdown is not project-aware (it's used by the /context dashboard,
+    // which measures prompt size outside the chat loop). Pass empty project
+    // context so the output matches the non-project case.
+    let full = build(
+        definition,
+        model,
+        provider,
+        memory_context,
+        agent_home,
+        None,
+        &[],
+    );
+    let without_memory = build(definition, model, provider, None, agent_home, None, &[]);
     let memory_chars = full.len().saturating_sub(without_memory.len());
 
     let skills_chars = build_skills_section(

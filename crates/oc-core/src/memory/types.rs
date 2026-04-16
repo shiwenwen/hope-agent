@@ -46,12 +46,18 @@ impl MemoryType {
     }
 }
 
-/// Memory scope: global (shared across agents) or per-agent (private).
+/// Memory scope: global (shared across agents), per-agent (private to an
+/// agent), or per-project (shared across all sessions inside a project).
+///
+/// Project scope is narrower than Agent scope — it exists so that when a
+/// session belongs to a project, the project's knowledge takes precedence
+/// and does not leak into other projects even if they use the same agent.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub enum MemoryScope {
     Global,
     Agent { id: String },
+    Project { id: String },
 }
 
 /// A stored memory entry.

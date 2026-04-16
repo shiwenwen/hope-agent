@@ -102,8 +102,14 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
             oc_core::set_event_bus(bus.clone());
             bus
         });
+        let project_db = oc_core::get_project_db().cloned().unwrap_or_else(|| {
+            let db = Arc::new(oc_core::project::ProjectDB::new(session_db.clone()));
+            let _ = db.migrate();
+            db
+        });
         let ctx = Arc::new(oc_server::AppContext {
             session_db,
+            project_db,
             event_bus,
             chat_streams: Arc::new(oc_server::ws::chat_stream::ChatStreamRegistry::new()),
             chat_cancels: Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),

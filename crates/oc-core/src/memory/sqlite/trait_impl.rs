@@ -18,9 +18,10 @@ impl MemoryBackend for SqliteMemoryBackend {
         let now = chrono::Utc::now().to_rfc3339();
         let tags_json = serde_json::to_string(&entry.tags)?;
 
-        let (scope_type, scope_agent_id) = match &entry.scope {
-            MemoryScope::Global => ("global", None),
-            MemoryScope::Agent { id } => ("agent", Some(id.as_str())),
+        let (scope_type, scope_agent_id, scope_project_id) = match &entry.scope {
+            MemoryScope::Global => ("global", None, None),
+            MemoryScope::Agent { id } => ("agent", Some(id.as_str()), None),
+            MemoryScope::Project { id } => ("project", None, Some(id.as_str())),
         };
 
         // Generate embedding: multimodal if attachment present + supported, else text-only
@@ -36,12 +37,13 @@ impl MemoryBackend for SqliteMemoryBackend {
             .map(|v| v.iter().flat_map(|f| f.to_le_bytes()).collect());
 
         conn.execute(
-            "INSERT INTO memories (memory_type, scope_type, scope_agent_id, content, tags, source, source_session_id, embedding, pinned, created_at, updated_at, attachment_path, attachment_mime)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            "INSERT INTO memories (memory_type, scope_type, scope_agent_id, scope_project_id, content, tags, source, source_session_id, embedding, pinned, created_at, updated_at, attachment_path, attachment_mime)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             params![
                 entry.memory_type.as_str(),
                 scope_type,
                 scope_agent_id,
+                scope_project_id,
                 entry.content,
                 tags_json,
                 entry.source,
@@ -137,7 +139,7 @@ impl MemoryBackend for SqliteMemoryBackend {
     fn get(&self, id: i64) -> Result<Option<MemoryEntry>> {
         let conn = self.read_conn()?;
         let mut stmt = conn.prepare(
-            "SELECT id, memory_type, scope_type, scope_agent_id, content, tags, source, source_session_id, pinned, created_at, updated_at
+            "SELECT id, memory_type, scope_type, scope_agent_id, scope_project_id, content, tags, source, source_session_id, pinned, created_at, updated_at, attachment_path, attachment_mime
              FROM memories WHERE id = ?1",
         )?;
 
@@ -168,7 +170,7 @@ impl MemoryBackend for SqliteMemoryBackend {
         };
 
         let sql = format!(
-            "SELECT id, memory_type, scope_type, scope_agent_id, content, tags, source, source_session_id, pinned, created_at, updated_at
+            "SELECT id, memory_type, scope_type, scope_agent_id, scope_project_id, content, tags, source, source_session_id, pinned, created_at, updated_at, attachment_path, attachment_mime
              FROM memories
              WHERE {} AND {}
              ORDER BY pinned DESC, updated_at DESC
@@ -341,8 +343,9 @@ impl MemoryBackend for SqliteMemoryBackend {
         };
 
         let sql = format!(
-            "SELECT id, memory_type, scope_type, scope_agent_id, content, tags,
-                    source, source_session_id, pinned, created_at, updated_at
+            "SELECT id, memory_type, scope_type, scope_agent_id, scope_project_id, content, tags,
+                    source, source_session_id, pinned, created_at, updated_at,
+                    attachment_path, attachment_mime
              FROM memories
              WHERE id IN ({}) AND {} AND {}",
             placeholders, scope_clause, type_clause
@@ -416,7 +419,19 @@ impl MemoryBackend for SqliteMemoryBackend {
     }
 
     fn build_prompt_summary(&self, agent_id: &str, shared: bool, budget: usize) -> Result<String> {
-        let candidates = self.load_prompt_candidates(agent_id, shared)?;
+        // Delegate to the project-aware variant with `project_id = None` so
+        // the two code paths share the same ordering / filtering logic.
+        self.build_prompt_summary_with_project(agent_id, None, shared, budget)
+    }
+
+    fn build_prompt_summary_with_project(
+        &self,
+        agent_id: &str,
+        project_id: Option<&str>,
+        shared: bool,
+        budget: usize,
+    ) -> Result<String> {
+        let candidates = self.load_prompt_candidates_with_project(agent_id, project_id, shared)?;
         Ok(format_prompt_summary(&candidates, budget))
     }
 
@@ -424,7 +439,26 @@ impl MemoryBackend for SqliteMemoryBackend {
     /// Returns agent-scoped + optionally global memories, ordered by updated_at DESC.
     /// Used directly by `build_prompt_summary` and by LLM memory selection.
     fn load_prompt_candidates(&self, agent_id: &str, shared: bool) -> Result<Vec<MemoryEntry>> {
+        self.load_prompt_candidates_with_project(agent_id, None, shared)
+    }
+
+    fn load_prompt_candidates_with_project(
+        &self,
+        agent_id: &str,
+        project_id: Option<&str>,
+        shared: bool,
+    ) -> Result<Vec<MemoryEntry>> {
         let mut all_memories = Vec::new();
+
+        // Project-scoped memories first — highest priority when a project
+        // context exists. This ensures budget-based truncation keeps them.
+        if let Some(pid) = project_id {
+            let project_scope = MemoryScope::Project {
+                id: pid.to_string(),
+            };
+            let project_mems = self.list(Some(&project_scope), None, 200, 0)?;
+            all_memories.extend(project_mems);
+        }
 
         // Agent-scoped memories
         let agent_scope = MemoryScope::Agent {
@@ -440,6 +474,12 @@ impl MemoryBackend for SqliteMemoryBackend {
         }
 
         Ok(all_memories)
+    }
+
+    fn count_by_project(&self, project_id: &str) -> Result<usize> {
+        self.count(Some(&MemoryScope::Project {
+            id: project_id.to_string(),
+        }))
     }
 
     fn export_markdown(&self, scope: Option<&MemoryScope>) -> Result<String> {
@@ -481,6 +521,7 @@ impl MemoryBackend for SqliteMemoryBackend {
                 let scope_label = match &entry.scope {
                     MemoryScope::Global => "global".to_string(),
                     MemoryScope::Agent { id } => format!("agent:{}", id),
+                    MemoryScope::Project { id } => format!("project:{}", id),
                 };
                 md.push_str(&format!(
                     "Scope: {} | Source: {} | Updated: {}\n\n",

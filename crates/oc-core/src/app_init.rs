@@ -5,11 +5,12 @@ use crate::cron;
 use crate::globals::AppState;
 use crate::globals::{
     ACP_MANAGER, APP_LOGGER, CHANNEL_DB, CHANNEL_REGISTRY, CRON_DB, EVENT_BUS,
-    IDLE_EXTRACT_HANDLES, MEMORY_BACKEND, SESSION_DB, SUBAGENT_CANCELS,
+    IDLE_EXTRACT_HANDLES, MEMORY_BACKEND, PROJECT_DB, SESSION_DB, SUBAGENT_CANCELS,
 };
 use crate::logging::{self, AppLogger, LogDB};
 use crate::memory;
 use crate::paths;
+use crate::project::ProjectDB;
 use crate::session::{self, SessionDB};
 use crate::subagent;
 
@@ -33,6 +34,16 @@ pub fn init_app_state(initial_store: AppConfig) -> AppState {
         SessionDB::open(&db_path),
         "Cannot open session database",
     ));
+
+    // Initialize the ProjectDB (shares the SessionDB SQLite connection).
+    // Run its table-creation migration so `projects` / `project_files` exist
+    // before any command touches them.
+    let project_db = Arc::new(ProjectDB::new(session_db.clone()));
+    if let Err(e) = project_db.migrate() {
+        eprintln!("[FATAL] Cannot run project DB migration: {e}");
+        panic!("project DB migration failed: {e}");
+    }
+    let _ = PROJECT_DB.set(project_db.clone());
 
     // Initialize the LogDB and AppLogger
     let log_db_path = fatal(logging::db_path(), "Cannot resolve log database path");
@@ -220,6 +231,7 @@ pub fn init_app_state(initial_store: AppConfig) -> AppState {
         codex_token: Mutex::new(None),
         current_agent_id: Mutex::new("default".to_string()),
         session_db,
+        project_db,
         chat_cancel: Arc::new(AtomicBool::new(false)),
         log_db,
         logger,

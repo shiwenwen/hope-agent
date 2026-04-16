@@ -45,6 +45,7 @@ pub mod paths;
 pub mod permissions;
 pub mod plan;
 pub mod process_registry;
+pub mod project;
 pub mod provider;
 pub mod recap;
 pub mod sandbox;
@@ -67,9 +68,9 @@ pub use app_init::{init_app_state, start_background_tasks};
 #[allow(deprecated)]
 pub use globals::{
     get_acp_manager, get_app_handle, get_app_state, get_channel_db, get_channel_registry,
-    get_cron_db, get_event_bus, get_logger, get_memory_backend, get_session_db,
+    get_cron_db, get_event_bus, get_logger, get_memory_backend, get_project_db, get_session_db,
     get_subagent_cancels, set_app_state, set_event_bus, AppState, ACP_MANAGER, APP_LOGGER,
-    APP_STATE, CHANNEL_DB, CHANNEL_REGISTRY, CRON_DB, EVENT_BUS, MEMORY_BACKEND, SESSION_DB,
-    SUBAGENT_CANCELS,
+    APP_STATE, CHANNEL_DB, CHANNEL_REGISTRY, CRON_DB, EVENT_BUS, MEMORY_BACKEND, PROJECT_DB,
+    SESSION_DB, SUBAGENT_CANCELS,
 };
 pub use util::*;

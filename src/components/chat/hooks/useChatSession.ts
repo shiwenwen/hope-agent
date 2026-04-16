@@ -70,6 +70,13 @@ export interface UseChatSessionReturn {
     opts?: { targetMessageId?: number },
   ) => Promise<void>
   handleNewChat: (agentId: string) => Promise<void>
+  /**
+   * Create a new session inside a Project. Pre-materializes the session via
+   * `create_session_cmd` so project context (memories, files, instructions)
+   * is wired in immediately — the subsequent first message reuses the
+   * existing sessionId instead of auto-creating an unassigned one.
+   */
+  handleNewChatInProject: (projectId: string, defaultAgentId?: string | null) => Promise<void>
   handleDeleteSession: (sessionId: string) => Promise<void>
   handleLoadMore: () => Promise<void>
   handleLoadMoreSessions: () => Promise<void>
@@ -486,6 +493,63 @@ export function useChatSession({
     [availableModels, applyModelForDisplay, globalActiveModelRef, setActiveModel, setHasMore],
   )
 
+  // Create a new session inside a Project and materialize it immediately
+  // so project context is active for the first message.
+  const handleNewChatInProject = useCallback(
+    async (projectId: string, defaultAgentId?: string | null) => {
+      try {
+        const agentId = defaultAgentId && defaultAgentId.length > 0 ? defaultAgentId : currentAgentId
+        const created = await getTransport().call<SessionMeta>("create_session_cmd", {
+          agentId,
+          projectId,
+        })
+        setMessages([])
+        setCurrentSessionId(created.id)
+        setLoading(false)
+        setHasMore(false)
+        setCurrentAgentId(created.agentId)
+        const currentAgents = await getTransport()
+          .call<AgentSummaryForSidebar[]>("list_agents")
+          .catch(() => [] as AgentSummaryForSidebar[])
+        const agent = currentAgents.find((a) => a.id === created.agentId)
+        if (agent) {
+          setAgentName(agent.name)
+        }
+        // Apply the agent's configured model (best-effort).
+        try {
+          const agentConfig = await getTransport().call<AgentConfig>("get_agent_config", {
+            id: created.agentId,
+          })
+          if (agentConfig.model.primary) {
+            const modelExists = availableModels.some(
+              (m) => `${m.providerId}::${m.modelId}` === agentConfig.model.primary,
+            )
+            if (modelExists) {
+              applyModelForDisplay(agentConfig.model.primary)
+            }
+          }
+        } catch {
+          // ignore
+        }
+        if (globalActiveModelRef.current) {
+          setActiveModel(globalActiveModelRef.current)
+        }
+      } catch (e) {
+        logger.warn("useChatSession", "handleNewChatInProject failed", e)
+        notify({ title: t("common.saveFailed"), body: String(e) })
+      }
+    },
+    [
+      currentAgentId,
+      availableModels,
+      applyModelForDisplay,
+      globalActiveModelRef,
+      setActiveModel,
+      setHasMore,
+      t,
+    ],
+  )
+
   // Delete a session
   const handleDeleteSession = useCallback(
     async (sessionId: string) => {
@@ -541,6 +605,7 @@ export function useChatSession({
     reloadAgents,
     handleSwitchSession,
     handleNewChat,
+    handleNewChatInProject,
     handleDeleteSession,
     handleLoadMore,
     handleLoadMoreSessions,

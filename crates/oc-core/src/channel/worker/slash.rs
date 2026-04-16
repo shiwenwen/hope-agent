@@ -155,7 +155,12 @@ pub(super) async fn dispatch_slash_for_channel(
                     ("unknown".to_string(), "Unknown".to_string())
                 }
             };
-            let prompt = crate::agent::build_system_prompt(agent_id, &model, &provider);
+            let prompt = crate::agent::build_system_prompt_with_session(
+                agent_id,
+                &model,
+                &provider,
+                Some(session_id),
+            );
             Ok(ChannelSlashOutcome::Reply {
                 content: format!("**System Prompt**\n\n```\n{}\n```", prompt),
                 new_session_id: None,

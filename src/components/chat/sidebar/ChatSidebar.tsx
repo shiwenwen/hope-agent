@@ -22,10 +22,12 @@ import type { SessionSearchResult } from "@/types/chat"
 import type { ChatSidebarProps, SessionFilterType } from "./types"
 import AgentSection from "./AgentSection"
 import SessionList from "./SessionList"
+import ProjectSection from "../project/ProjectSection"
 
 export default function ChatSidebar({
   sessions,
   agents,
+  projects = [],
   currentSessionId,
   loadingSessionIds,
   panelWidth,
@@ -39,9 +41,13 @@ export default function ChatSidebar({
   hasMoreSessions,
   loadingMoreSessions,
   onLoadMoreSessions,
+  onOpenProject,
+  onAddProject,
+  onMoveSessionToProject,
 }: ChatSidebarProps) {
   const { t } = useTranslation()
   const [agentsExpanded, setAgentsExpanded] = useState(true)
+  const [projectsExpanded, setProjectsExpanded] = useState(true)
   const [showNewChatMenu, setShowNewChatMenu] = useState(false)
   const newChatMenuRef = useRef<HTMLDivElement>(null)
   const [deleteConfirmSessionId, setDeleteConfirmSessionId] = useState<string | null>(null)
@@ -305,6 +311,19 @@ export default function ChatSidebar({
               }
             }}
           >
+            {/* Projects section — shown above agents so users reach their
+                active workspace first. Falls back silently when no handler
+                is wired (backwards-compat). */}
+            {(projects.length > 0 || onAddProject) && (
+              <ProjectSection
+                projects={projects}
+                expanded={projectsExpanded}
+                setExpanded={setProjectsExpanded}
+                onAddProject={() => onAddProject?.()}
+                onOpenProject={(p) => onOpenProject?.(p)}
+              />
+            )}
+
             {/* Collapsible Agents section */}
             <AgentSection
               agents={agents}
@@ -344,6 +363,8 @@ export default function ChatSidebar({
               searchResults={searchResults}
               searching={searching}
               agents={agents}
+              projects={projects}
+              onMoveToProject={onMoveSessionToProject}
             />
           </div>
         </div>

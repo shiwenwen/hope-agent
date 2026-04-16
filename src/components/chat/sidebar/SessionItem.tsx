@@ -9,6 +9,10 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
 import {
@@ -20,14 +24,21 @@ import {
   Network,
   CheckCheck,
   BellRing,
+  FolderInput,
+  FolderMinus,
+  FolderKanban,
+  Check,
 } from "lucide-react"
 import type { SessionMeta, AgentSummaryForSidebar } from "@/types/chat"
+import type { ProjectMeta } from "@/types/project"
 import ChannelIcon from "@/components/common/ChannelIcon"
 
 interface SessionItemProps {
   session: SessionMeta
   sessions: SessionMeta[]
   agent: AgentSummaryForSidebar | undefined
+  /** Projects visible in the sidebar — used by the "Move to project" submenu. */
+  projects?: ProjectMeta[]
   isActive: boolean
   isLoading: boolean
   renamingSessionId: string | null
@@ -40,6 +51,11 @@ interface SessionItemProps {
   onCommitRename: () => void
   onCancelRename: () => void
   onMarkAllRead?: () => void
+  /**
+   * Move this session to a project (or remove from current project when
+   * `projectId` is `null`). Only rendered when this callback is provided.
+   */
+  onMoveToProject?: (sessionId: string, projectId: string | null) => void
   getAgentInfo: (agentId: string) => AgentSummaryForSidebar | undefined
   formatRelativeTime: (dateStr: string) => string
 }
@@ -48,6 +64,7 @@ export default function SessionItem({
   session,
   sessions,
   agent,
+  projects = [],
   isActive,
   isLoading,
   renamingSessionId,
@@ -60,6 +77,7 @@ export default function SessionItem({
   onCommitRename,
   onCancelRename,
   onMarkAllRead,
+  onMoveToProject,
   getAgentInfo,
   formatRelativeTime,
 }: SessionItemProps) {
@@ -269,6 +287,61 @@ export default function SessionItem({
           <CheckCheck className="h-4 w-4 mr-2" />
           {t("chat.markAsRead")}
         </ContextMenuItem>
+        {/* Project binding — only when a mover is wired AND this session is
+            a regular chat (not a sub-agent / cron / channel session, which
+            shouldn't be arbitrarily relocated). Channel sessions are filtered
+            here because their lifecycle is tied to the IM conversation. */}
+        {onMoveToProject &&
+          !session.channelInfo &&
+          !session.parentSessionId &&
+          !session.isCron && (
+            <>
+              <ContextMenuSeparator />
+              <ContextMenuSub>
+                <ContextMenuSubTrigger>
+                  <FolderInput className="h-4 w-4 mr-2" />
+                  {t("project.moveToProject")}
+                </ContextMenuSubTrigger>
+                <ContextMenuSubContent>
+                  {projects.filter((p) => !p.archived).length === 0 ? (
+                    <ContextMenuItem disabled>
+                      {t("project.noProjects")}
+                    </ContextMenuItem>
+                  ) : (
+                    projects
+                      .filter((p) => !p.archived)
+                      .map((p) => (
+                        <ContextMenuItem
+                          key={p.id}
+                          disabled={session.projectId === p.id}
+                          onClick={() => onMoveToProject(session.id, p.id)}
+                        >
+                          {session.projectId === p.id ? (
+                            <Check className="h-3.5 w-3.5 mr-2 text-primary" />
+                          ) : p.emoji ? (
+                            <span className="mr-2 text-sm leading-none">{p.emoji}</span>
+                          ) : (
+                            <FolderKanban className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
+                          )}
+                          <span className="truncate">{p.name}</span>
+                        </ContextMenuItem>
+                      ))
+                  )}
+                  {session.projectId && (
+                    <>
+                      <ContextMenuSeparator />
+                      <ContextMenuItem
+                        onClick={() => onMoveToProject(session.id, null)}
+                      >
+                        <FolderMinus className="h-4 w-4 mr-2" />
+                        {t("project.removeFromProject")}
+                      </ContextMenuItem>
+                    </>
+                  )}
+                </ContextMenuSubContent>
+              </ContextMenuSub>
+            </>
+          )}
       </ContextMenuContent>
     </ContextMenu>
   )

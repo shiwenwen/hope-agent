@@ -206,7 +206,7 @@ fn verify_base64_mime(b64: &str, declared_mime: &str) -> &'static str {
 }
 
 /// Read a single page of a text file. Returns (output_text, lines_read, truncated, total_lines).
-fn read_text_page(
+pub(super) fn read_text_page(
     lines: &[&str],
     start_idx: usize,
     max_lines: usize,
