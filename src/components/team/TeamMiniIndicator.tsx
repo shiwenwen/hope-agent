@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react"
 import { Users, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { getTransport } from "@/lib/transport"
+import { getTransport } from "@/lib/transport-provider"
 import type { Team, TeamMember } from "./teamTypes"
 
 interface TeamMiniIndicatorProps {

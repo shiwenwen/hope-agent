@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react"
-import { getTransport } from "@/lib/transport"
+import { getTransport } from "@/lib/transport-provider"
 import type {
   Team,
   TeamMember,

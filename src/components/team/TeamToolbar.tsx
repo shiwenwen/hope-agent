@@ -3,7 +3,7 @@ import { Pause, Play, Trash2 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import { getTransport } from "@/lib/transport"
+import { getTransport } from "@/lib/transport-provider"
 import type { Team } from "./teamTypes"
 
 interface TeamToolbarProps {

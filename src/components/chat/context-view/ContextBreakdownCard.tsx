@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { IconTip } from "@/components/ui/tooltip"
 import { Loader2, Zap, FileText, Eye } from "lucide-react"
-import { getTransport } from "@/lib/transport"
+import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import type { ContextBreakdown } from "@/components/chat/slash-commands/types"
 
