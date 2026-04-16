@@ -115,6 +115,7 @@ export default function ChatScreen({
     createProject,
     updateProject,
     deleteProject,
+    archiveProject,
     moveSessionToProject,
   } = useProjects()
 
@@ -587,6 +588,11 @@ export default function ChatScreen({
           openEditProject(p)
         }}
         onDelete={(p) => setProjectDeleteTarget(p)}
+        onArchive={async (p, archived) => {
+          await archiveProject(p.id, archived)
+          // Close the dialog since archived projects vanish from the sidebar
+          if (archived) setProjectOverviewOpen(false)
+        }}
         onNewSessionInProject={(projectId, defaultAgentId) => {
           void handleNewChatInProject(projectId, defaultAgentId)
         }}

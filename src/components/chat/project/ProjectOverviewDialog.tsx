@@ -10,7 +10,7 @@
 
 import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { MessageSquarePlus, Pencil, Trash2 } from "lucide-react"
+import { MessageSquarePlus, Pencil, Trash2, Archive, ArchiveRestore } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -38,6 +38,7 @@ interface ProjectOverviewDialogProps {
   onOpenChange: (open: boolean) => void
   onEdit: (project: Project) => void
   onDelete: (project: Project) => void
+  onArchive: (project: Project, archived: boolean) => void
   onNewSessionInProject: (projectId: string, defaultAgentId?: string | null) => void
   onOpenSession: (sessionId: string) => void
   onUpdateProject: (id: string, patch: UpdateProjectInput) => Promise<Project | null>
@@ -49,6 +50,7 @@ export default function ProjectOverviewDialog({
   onOpenChange,
   onEdit,
   onDelete,
+  onArchive,
   onNewSessionInProject,
   onOpenSession,
   onUpdateProject,
@@ -125,6 +127,19 @@ export default function ProjectOverviewDialog({
               title={t("common.edit")}
             >
               <Pencil className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onArchive(project, !project.archived)}
+              className="h-8 w-8 p-0 text-muted-foreground"
+              title={project.archived ? t("project.unarchiveProject") : t("project.archiveProject")}
+            >
+              {project.archived ? (
+                <ArchiveRestore className="h-3.5 w-3.5" />
+              ) : (
+                <Archive className="h-3.5 w-3.5" />
+              )}
             </Button>
             <Button
               variant="ghost"
