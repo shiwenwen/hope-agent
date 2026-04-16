@@ -92,6 +92,9 @@ pub struct SaveAttachmentBody {
 #[serde(rename_all = "camelCase")]
 pub struct SystemPromptQuery {
     pub agent_id: Option<String>,
+    /// Optional session id — when set, the returned prompt is built with
+    /// project context (if the session belongs to a project).
+    pub session_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -99,6 +102,10 @@ pub struct SystemPromptQuery {
 pub struct SystemPromptBody {
     #[serde(default)]
     pub agent_id: Option<String>,
+    /// Optional session id — when set, the returned prompt is built with
+    /// project context (if the session belongs to a project).
+    #[serde(default)]
+    pub session_id: Option<String>,
 }
 
 // ── WebSocket-backed EventSink ─────────────────────────────────
@@ -354,7 +361,12 @@ pub async fn get_system_prompt(
         ("unknown".to_string(), "Unknown".to_string())
     };
 
-    let prompt = oc_core::agent::build_system_prompt(&agent_id, &model, &provider_name);
+    let prompt = oc_core::agent::build_system_prompt_with_session(
+        &agent_id,
+        &model,
+        &provider_name,
+        q.session_id.as_deref(),
+    );
     Ok(Json(json!({ "system_prompt": prompt })))
 }
 
@@ -410,7 +422,12 @@ pub async fn get_system_prompt_post(
     } else {
         ("unknown".to_string(), "Unknown".to_string())
     };
-    let prompt = oc_core::agent::build_system_prompt(&agent_id, &model, &provider_name);
+    let prompt = oc_core::agent::build_system_prompt_with_session(
+        &agent_id,
+        &model,
+        &provider_name,
+        body.session_id.as_deref(),
+    );
     Ok(Json(json!({ "system_prompt": prompt })))
 }
 

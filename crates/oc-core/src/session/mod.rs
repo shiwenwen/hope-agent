@@ -6,7 +6,7 @@ mod subagent_db;
 mod tasks;
 mod types;
 
-pub use db::{SessionDB, SessionSearchResult, SessionTypeFilter};
+pub use db::{ProjectFilter, SessionDB, SessionSearchResult, SessionTypeFilter};
 pub use helpers::{auto_title, db_path};
 pub use pending::enrich_pending_interactions;
 pub use tasks::{Task, TaskStatus};

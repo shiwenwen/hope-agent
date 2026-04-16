@@ -121,6 +121,7 @@ pub(crate) const CORE_TOOL_NAMES: &[&str] = &[
     "exec",
     "process",
     "read",
+    "project_read_file",
     "write",
     "edit",
     "ls",

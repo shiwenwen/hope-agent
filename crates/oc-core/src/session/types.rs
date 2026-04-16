@@ -25,6 +25,10 @@ pub struct SessionMeta {
     pub parent_session_id: Option<String>,
     /// Plan mode state for this session: "off" | "planning" | "executing"
     pub plan_mode: String,
+    /// If this session belongs to a project, stores the project ID.
+    /// Project-scoped memories and files are shared across all sessions in the project.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
     /// If this session is linked to an IM channel conversation.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub channel_info: Option<ChannelSessionInfo>,

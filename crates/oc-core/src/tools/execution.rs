@@ -9,13 +9,14 @@ use super::{
     agents, amend_plan, ask_user_question, canvas, image, image_generate, job_status, pdf,
     plan_step, sessions, submit_plan, task,
 };
+use super::project_read_file;
 use super::{apply_patch, edit, exec, find, grep, ls, process, read, write};
 use super::{
     approval, TOOL_ACP_SPAWN, TOOL_AGENTS_LIST, TOOL_AMEND_PLAN, TOOL_APPLY_PATCH,
     TOOL_ASK_USER_QUESTION, TOOL_BROWSER, TOOL_CANVAS, TOOL_DELETE_MEMORY, TOOL_EDIT, TOOL_EXEC,
     TOOL_FIND, TOOL_GET_WEATHER, TOOL_GREP, TOOL_IMAGE, TOOL_IMAGE_GENERATE, TOOL_JOB_STATUS,
-    TOOL_LS, TOOL_MANAGE_CRON, TOOL_MEMORY_GET, TOOL_PDF, TOOL_PROCESS, TOOL_READ,
-    TOOL_RECALL_MEMORY, TOOL_SAVE_MEMORY, TOOL_SEND_NOTIFICATION, TOOL_SESSIONS_HISTORY,
+    TOOL_LS, TOOL_MANAGE_CRON, TOOL_MEMORY_GET, TOOL_PDF, TOOL_PROCESS, TOOL_PROJECT_READ_FILE,
+    TOOL_READ, TOOL_RECALL_MEMORY, TOOL_SAVE_MEMORY, TOOL_SEND_NOTIFICATION, TOOL_SESSIONS_HISTORY,
     TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEND, TOOL_SESSION_STATUS, TOOL_SUBAGENT, TOOL_SUBMIT_PLAN,
     TOOL_TASK_CREATE, TOOL_TASK_LIST, TOOL_TASK_UPDATE, TOOL_UPDATE_CORE_MEMORY,
     TOOL_UPDATE_MEMORY, TOOL_UPDATE_PLAN_STEP, TOOL_WEB_FETCH, TOOL_WEB_SEARCH, TOOL_WRITE,
@@ -433,6 +434,9 @@ pub async fn execute_tool_with_context(
             TOOL_EXEC => exec::tool_exec(args, ctx).await,
             TOOL_PROCESS => process::tool_process(args).await,
             TOOL_READ | "read_file" => read::tool_read_file(args, ctx).await,
+            TOOL_PROJECT_READ_FILE => {
+                project_read_file::tool_project_read_file(args, ctx).await
+            }
             TOOL_WRITE | "write_file" => write::tool_write_file(args).await,
             TOOL_EDIT | "patch_file" => edit::tool_edit(args).await,
             TOOL_LS | "list_dir" => ls::tool_ls(args, ctx).await,
@@ -441,7 +445,7 @@ pub async fn execute_tool_with_context(
             TOOL_APPLY_PATCH => apply_patch::tool_apply_patch(args).await,
             TOOL_WEB_SEARCH => web_search::tool_web_search(args).await,
             TOOL_WEB_FETCH => web_fetch::tool_web_fetch(args).await,
-            TOOL_SAVE_MEMORY => memory::tool_save_memory(args).await,
+            TOOL_SAVE_MEMORY => memory::tool_save_memory(args, ctx).await,
             TOOL_RECALL_MEMORY => memory::tool_recall_memory(args).await,
             TOOL_UPDATE_MEMORY => memory::tool_update_memory(args).await,
             TOOL_DELETE_MEMORY => memory::tool_delete_memory(args).await,

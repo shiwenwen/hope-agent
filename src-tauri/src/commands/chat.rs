@@ -704,9 +704,15 @@ pub async fn respond_to_approval(request_id: String, response: String) -> Result
 // ── System Prompt ────────────────────────────────────────────────
 
 /// Return the assembled system prompt for the current agent + model.
+///
+/// When `session_id` is provided and the session is attached to a project,
+/// the returned prompt includes the "# Current Project" + "# Project Files"
+/// sections and project-scoped memories — matching what the chat loop
+/// actually ships on the next turn.
 #[tauri::command]
 pub async fn get_system_prompt(
     agent_id: Option<String>,
+    session_id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
     let aid = match agent_id {
@@ -729,7 +735,12 @@ pub async fn get_system_prompt(
         }
     };
 
-    Ok(crate::agent::build_system_prompt(&aid, &model, &provider))
+    Ok(crate::agent::build_system_prompt_with_session(
+        &aid,
+        &model,
+        &provider,
+        session_id.as_deref(),
+    ))
 }
 
 // ── Tools Info Commands ───────────────────────────────────────────

@@ -121,6 +121,19 @@ impl SqliteMemoryBackend {
             );
         }
 
+        // Migration: add scope_project_id column for Project scope.
+        // NULL for all pre-existing rows (Global / Agent scope).
+        if conn
+            .prepare("SELECT scope_project_id FROM memories LIMIT 0")
+            .is_err()
+        {
+            let _ = conn.execute_batch(
+                "ALTER TABLE memories ADD COLUMN scope_project_id TEXT;
+                 CREATE INDEX IF NOT EXISTS idx_memories_scope_project
+                     ON memories(scope_type, scope_project_id);",
+            );
+        }
+
         // Create read-only connection pool for concurrent reads (WAL mode enables this)
         let mut readers = Vec::with_capacity(READ_POOL_SIZE);
         for _ in 0..READ_POOL_SIZE {
@@ -502,6 +515,11 @@ impl SqliteMemoryBackend {
 
 /// Returns (where_clause, params) for scope filtering.
 /// `agent_id` is an optional shorthand that means "global + this agent".
+///
+/// Note: the `agent_id` shorthand deliberately does **not** include project
+/// memories. Project scope is narrower than agent scope and must be queried
+/// explicitly via `MemoryScope::Project { id }` to avoid leaking project
+/// context into unrelated sessions.
 pub(crate) fn scope_where(
     scope: Option<&MemoryScope>,
     agent_id: Option<&str>,
@@ -511,6 +529,10 @@ pub(crate) fn scope_where(
             MemoryScope::Global => ("scope_type = 'global'".to_string(), Vec::new()),
             MemoryScope::Agent { id } => (
                 "scope_type = 'agent' AND scope_agent_id = ?".to_string(),
+                vec![Box::new(id.clone()) as Box<dyn rusqlite::types::ToSql>],
+            ),
+            MemoryScope::Project { id } => (
+                "scope_type = 'project' AND scope_project_id = ?".to_string(),
                 vec![Box::new(id.clone()) as Box<dyn rusqlite::types::ToSql>],
             ),
         }
@@ -528,15 +550,20 @@ pub(crate) fn scope_where(
 pub(crate) fn row_to_entry(row: &rusqlite::Row) -> rusqlite::Result<MemoryEntry> {
     let scope_type: String = row.get("scope_type")?;
     let scope_agent_id: Option<String> = row.get("scope_agent_id")?;
+    // scope_project_id may not be present on rows selected before the
+    // migration-added column; tolerate its absence.
+    let scope_project_id: Option<String> = row.get("scope_project_id").ok().flatten();
     let tags_json: String = row.get("tags")?;
     let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
 
-    let scope = if scope_type == "agent" {
-        MemoryScope::Agent {
+    let scope = match scope_type.as_str() {
+        "agent" => MemoryScope::Agent {
             id: scope_agent_id.unwrap_or_default(),
-        }
-    } else {
-        MemoryScope::Global
+        },
+        "project" => MemoryScope::Project {
+            id: scope_project_id.unwrap_or_default(),
+        },
+        _ => MemoryScope::Global,
     };
 
     let memory_type_str: String = row.get("memory_type")?;

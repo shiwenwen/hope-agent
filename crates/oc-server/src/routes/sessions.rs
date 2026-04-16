@@ -14,6 +14,10 @@ use crate::AppContext;
 #[serde(rename_all = "camelCase")]
 pub struct ListSessionsQuery {
     pub agent_id: Option<String>,
+    /// Filter to sessions inside a specific project.
+    pub project_id: Option<String>,
+    /// When `true`, only return sessions not assigned to any project. Overrides `project_id`.
+    pub unassigned: Option<bool>,
     pub limit: Option<u32>,
     pub offset: Option<u32>,
 }
@@ -47,6 +51,8 @@ pub struct SearchInSessionQuery {
 #[serde(rename_all = "camelCase")]
 pub struct CreateSessionBody {
     pub agent_id: Option<String>,
+    /// When set, attaches the new session to this project.
+    pub project_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -70,7 +76,9 @@ pub async fn create_session(
     Json(body): Json<CreateSessionBody>,
 ) -> Result<Json<oc_core::session::SessionMeta>, AppError> {
     let agent_id = body.agent_id.as_deref().unwrap_or("default");
-    let meta = ctx.session_db.create_session(agent_id)?;
+    let meta = ctx
+        .session_db
+        .create_session_with_project(agent_id, body.project_id.as_deref())?;
     Ok(Json(meta))
 }
 
@@ -79,9 +87,21 @@ pub async fn list_sessions(
     State(ctx): State<Arc<AppContext>>,
     Query(q): Query<ListSessionsQuery>,
 ) -> Result<Json<PaginatedSessions>, AppError> {
-    let (mut sessions, total) =
-        ctx.session_db
-            .list_sessions_paged(q.agent_id.as_deref(), q.limit, q.offset)?;
+    // Precedence: explicit `unassigned=true` wins; then `project_id`; else All.
+    let project_filter = if q.unassigned.unwrap_or(false) {
+        oc_core::session::ProjectFilter::Unassigned
+    } else if let Some(ref pid) = q.project_id {
+        oc_core::session::ProjectFilter::InProject(pid.as_str())
+    } else {
+        oc_core::session::ProjectFilter::All
+    };
+
+    let (mut sessions, total) = ctx.session_db.list_sessions_paged(
+        q.agent_id.as_deref(),
+        project_filter,
+        q.limit,
+        q.offset,
+    )?;
 
     oc_core::session::enrich_pending_interactions(&mut sessions, &ctx.session_db).await?;
 

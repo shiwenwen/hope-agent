@@ -7,6 +7,7 @@ use crate::event_bus::EventBus;
 use crate::logging::{AppLogger, LogDB};
 use crate::memory;
 use crate::oauth::TokenData;
+use crate::project::ProjectDB;
 use crate::session::SessionDB;
 use crate::subagent;
 
@@ -22,6 +23,7 @@ pub static MEMORY_BACKEND: std::sync::OnceLock<Arc<dyn memory::MemoryBackend>> =
     std::sync::OnceLock::new();
 pub static CRON_DB: std::sync::OnceLock<Arc<cron::CronDB>> = std::sync::OnceLock::new();
 pub static SESSION_DB: std::sync::OnceLock<Arc<SessionDB>> = std::sync::OnceLock::new();
+pub static PROJECT_DB: std::sync::OnceLock<Arc<ProjectDB>> = std::sync::OnceLock::new();
 pub static SUBAGENT_CANCELS: std::sync::OnceLock<Arc<subagent::SubagentCancelRegistry>> =
     std::sync::OnceLock::new();
 pub static ACP_MANAGER: std::sync::OnceLock<Arc<acp_control::AcpSessionManager>> =
@@ -78,6 +80,11 @@ pub fn get_session_db() -> Option<&'static Arc<SessionDB>> {
     SESSION_DB.get()
 }
 
+/// Get stored ProjectDB for project CRUD + file management
+pub fn get_project_db() -> Option<&'static Arc<ProjectDB>> {
+    PROJECT_DB.get()
+}
+
 /// Get stored SubagentCancelRegistry for sub-agent cancellation
 pub fn get_subagent_cancels() -> Option<&'static Arc<subagent::SubagentCancelRegistry>> {
     SUBAGENT_CANCELS.get()
@@ -123,6 +130,8 @@ pub struct AppState {
     pub current_agent_id: Mutex<String>,
     /// Session database
     pub session_db: Arc<SessionDB>,
+    /// Project database (shares the same SQLite file as `session_db`)
+    pub project_db: Arc<ProjectDB>,
     /// Cancel flag for stopping ongoing chat
     pub chat_cancel: Arc<AtomicBool>,
     /// Log database

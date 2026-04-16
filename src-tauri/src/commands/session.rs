@@ -1,29 +1,42 @@
 use crate::session;
+use crate::session::ProjectFilter;
 use crate::AppState;
 use tauri::State;
 
 #[tauri::command]
 pub async fn create_session_cmd(
     agent_id: Option<String>,
+    project_id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<session::SessionMeta, String> {
     let agent_id = agent_id.unwrap_or_else(|| "default".to_string());
     state
         .session_db
-        .create_session(&agent_id)
+        .create_session_with_project(&agent_id, project_id.as_deref())
         .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn list_sessions_cmd(
     agent_id: Option<String>,
+    project_id: Option<String>,
+    unassigned: Option<bool>,
     limit: Option<u32>,
     offset: Option<u32>,
     state: State<'_, AppState>,
 ) -> Result<(Vec<session::SessionMeta>, u32), String> {
+    // Precedence: explicit `unassigned=true` wins; then `project_id`; else All.
+    let project_filter = if unassigned.unwrap_or(false) {
+        ProjectFilter::Unassigned
+    } else if let Some(ref pid) = project_id {
+        ProjectFilter::InProject(pid.as_str())
+    } else {
+        ProjectFilter::All
+    };
+
     let (mut sessions, total) = state
         .session_db
-        .list_sessions_paged(agent_id.as_deref(), limit, offset)
+        .list_sessions_paged(agent_id.as_deref(), project_filter, limit, offset)
         .map_err(|e| e.to_string())?;
 
     session::enrich_pending_interactions(&mut sessions, &state.session_db)

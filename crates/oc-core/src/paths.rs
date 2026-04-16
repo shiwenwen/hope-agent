@@ -225,6 +225,28 @@ pub fn canvas_db_path() -> Result<PathBuf> {
     Ok(canvas_dir()?.join("canvas.db"))
 }
 
+// ── Projects ────────────────────────────────────────────────────
+
+/// Projects root directory: ~/.opencomputer/projects/
+pub fn projects_dir() -> Result<PathBuf> {
+    Ok(root_dir()?.join("projects"))
+}
+
+/// Specific project directory: ~/.opencomputer/projects/{id}/
+pub fn project_dir(project_id: &str) -> Result<PathBuf> {
+    Ok(projects_dir()?.join(project_id))
+}
+
+/// Project original files directory: ~/.opencomputer/projects/{id}/files/
+pub fn project_files_dir(project_id: &str) -> Result<PathBuf> {
+    Ok(project_dir(project_id)?.join("files"))
+}
+
+/// Project extracted text directory: ~/.opencomputer/projects/{id}/extracted/
+pub fn project_extracted_dir(project_id: &str) -> Result<PathBuf> {
+    Ok(project_dir(project_id)?.join("extracted"))
+}
+
 // ── Plans ───────────────────────────────────────────────────────
 
 /// Plans directory: uses custom `plansDirectory` config if set,
@@ -276,6 +298,7 @@ pub fn ensure_dirs() -> Result<()> {
         generated_images_dir()?,
         canvas_dir()?,
         canvas_projects_dir()?,
+        projects_dir()?,
         plans_dir()?,
         recap_dir()?,
         reports_dir()?,

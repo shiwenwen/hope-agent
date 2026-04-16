@@ -323,6 +323,21 @@ pub fn run() {
             commands::session::mark_session_read_cmd,
             commands::session::mark_session_read_batch_cmd,
             commands::session::mark_all_sessions_read_cmd,
+            // Project management
+            commands::project::list_projects_cmd,
+            commands::project::get_project_cmd,
+            commands::project::create_project_cmd,
+            commands::project::update_project_cmd,
+            commands::project::delete_project_cmd,
+            commands::project::archive_project_cmd,
+            commands::project::list_project_sessions_cmd,
+            commands::project::move_session_to_project_cmd,
+            commands::project::list_project_files_cmd,
+            commands::project::upload_project_file_cmd,
+            commands::project::delete_project_file_cmd,
+            commands::project::rename_project_file_cmd,
+            commands::project::read_project_file_content_cmd,
+            commands::project::list_project_memories_cmd,
             // Window theme
             commands::misc::set_window_theme,
             // Logging

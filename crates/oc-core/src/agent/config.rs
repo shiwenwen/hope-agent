@@ -197,13 +197,43 @@ pub(super) fn apply_thinking_to_chat_body(
 /// Uses the new system_prompt module with AgentDefinition if available,
 /// otherwise falls back to legacy behavior for backward compatibility.
 pub fn build_system_prompt(agent_id: &str, model: &str, provider: &str) -> String {
+    build_system_prompt_with_session(agent_id, model, provider, None)
+}
+
+/// Project-aware variant of [`build_system_prompt`]. When `session_id` is
+/// supplied and its session is attached to a project, the system prompt
+/// includes a "Current Project" section, the project's shared-file catalog,
+/// and memories that are scoped to that project.
+pub fn build_system_prompt_with_session(
+    agent_id: &str,
+    model: &str,
+    provider: &str,
+    session_id: Option<&str>,
+) -> String {
     // Try loading the agent definition
     if let Ok(definition) = crate::agent_loader::load_agent(agent_id) {
-        // Build memory context if enabled
+        // Resolve the current project (if any) via session → session.project_id.
+        let project = session_id
+            .and_then(|sid| crate::get_session_db()?.get_session(sid).ok().flatten())
+            .and_then(|s| s.project_id)
+            .and_then(|pid| crate::get_project_db()?.get(&pid).ok().flatten());
+
+        // Load project files if we have a project.
+        let project_files: Vec<crate::project::ProjectFile> = project
+            .as_ref()
+            .and_then(|p| {
+                crate::get_project_db().and_then(|db| db.list_files(&p.id).ok())
+            })
+            .unwrap_or_default();
+
+        // Build memory context if enabled. When a project is active, prefer
+        // the project-aware loader so project memories take priority in the
+        // prompt budget.
         let memory_context = if definition.config.memory.enabled {
             crate::get_memory_backend().and_then(|b| {
-                b.build_prompt_summary(
+                b.build_prompt_summary_with_project(
                     agent_id,
+                    project.as_ref().map(|p| p.id.as_str()),
                     definition.config.memory.shared,
                     definition.config.memory.prompt_budget,
                 )
@@ -212,6 +242,7 @@ pub fn build_system_prompt(agent_id: &str, model: &str, provider: &str) -> Strin
         } else {
             None
         };
+
         // Resolve agent home directory
         let agent_home = crate::paths::agent_home_dir(agent_id)
             .ok()
@@ -222,6 +253,8 @@ pub fn build_system_prompt(agent_id: &str, model: &str, provider: &str) -> Strin
             Some(provider),
             memory_context.as_deref(),
             agent_home.as_deref(),
+            project.as_ref(),
+            &project_files,
         );
     }
     // Fallback: legacy prompt

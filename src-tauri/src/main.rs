@@ -282,6 +282,14 @@ fn run_server(args: &[String]) {
     // Register global SessionDB so oc-core internals (tools, agent, etc.) can access it
     let _ = oc_core::globals::SESSION_DB.set(session_db.clone());
 
+    // Initialize ProjectDB (shares SessionDB's SQLite connection) and register globally
+    let project_db = Arc::new(oc_core::project::ProjectDB::new(session_db.clone()));
+    if let Err(e) = project_db.migrate() {
+        eprintln!("[server] Fatal: failed to run project DB migration: {}", e);
+        std::process::exit(1);
+    }
+    let _ = oc_core::globals::PROJECT_DB.set(project_db.clone());
+
     // Create event bus
     let event_bus: Arc<dyn oc_core::event_bus::EventBus> =
         Arc::new(oc_core::event_bus::BroadcastEventBus::new(256));
@@ -290,6 +298,7 @@ fn run_server(args: &[String]) {
     // Build server context
     let ctx = Arc::new(oc_server::AppContext {
         session_db,
+        project_db,
         event_bus,
         chat_streams: Arc::new(oc_server::ws::chat_stream::ChatStreamRegistry::new()),
         chat_cancels: Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),

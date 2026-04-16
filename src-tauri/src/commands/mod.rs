@@ -12,6 +12,7 @@ pub mod logging;
 pub mod memory;
 pub mod misc;
 pub mod plan;
+pub mod project;
 pub mod provider;
 pub mod recap;
 pub mod session;

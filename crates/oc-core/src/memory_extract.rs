@@ -12,6 +12,24 @@ use serde_json::Value;
 use crate::agent::AssistantAgent;
 use crate::memory::{AddResult, MemoryScope, MemoryType, NewMemory};
 
+/// Pick the scope to use when auto-saving a memory extracted from `session_id`.
+///
+/// If the session belongs to a project (looked up via the global [`crate::get_session_db`]),
+/// the memory is scoped to that project. Otherwise it falls back to the
+/// agent's private scope, matching pre-project behavior.
+fn resolve_extract_scope(session_id: &str, agent_id: &str) -> MemoryScope {
+    if let Some(db) = crate::get_session_db() {
+        if let Ok(Some(session)) = db.get_session(session_id) {
+            if let Some(pid) = session.project_id {
+                return MemoryScope::Project { id: pid };
+            }
+        }
+    }
+    MemoryScope::Agent {
+        id: agent_id.to_string(),
+    }
+}
+
 // ── Extraction Prompt ───────────────────────────────────────────
 
 const EXTRACTION_PROMPT: &str = r#"Extract any new, memorable facts from the conversation below.
@@ -162,9 +180,10 @@ async fn do_extraction(
     // Save each extracted memory with dedup
     let mut saved_count = 0usize;
     for item in &extracted {
-        let scope = MemoryScope::Agent {
-            id: agent_id.to_string(),
-        };
+        // If the session belongs to a project, write the new memory into
+        // that project's scope so it stays local to the project. Otherwise
+        // fall back to the agent's private scope (pre-project behavior).
+        let scope = resolve_extract_scope(session_id, agent_id);
         let entry = NewMemory {
             memory_type: item.memory_type.clone(),
             scope,
@@ -309,9 +328,7 @@ pub async fn flush_before_compact(
 
     let mut saved_count = 0usize;
     for item in &extracted {
-        let scope = MemoryScope::Agent {
-            id: agent_id.to_string(),
-        };
+        let scope = resolve_extract_scope(session_id, agent_id);
         let entry = NewMemory {
             memory_type: item.memory_type.clone(),
             scope,

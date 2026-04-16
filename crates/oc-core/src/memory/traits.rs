@@ -42,6 +42,49 @@ pub trait MemoryBackend: Send + Sync {
     /// Used by LLM memory selection to get raw entries before filtering.
     fn load_prompt_candidates(&self, agent_id: &str, shared: bool) -> Result<Vec<MemoryEntry>>;
 
+    /// Build a summary string for prompt injection, including an optional
+    /// [`MemoryScope::Project`] source when the current session belongs to a
+    /// project. Project memories take precedence in the returned ordering so
+    /// budget-based truncation preserves project context first.
+    ///
+    /// Default implementation delegates to [`Self::build_prompt_summary`] and
+    /// ignores the project id, so backends can opt in incrementally.
+    fn build_prompt_summary_with_project(
+        &self,
+        agent_id: &str,
+        project_id: Option<&str>,
+        shared: bool,
+        budget: usize,
+    ) -> Result<String> {
+        let _ = project_id;
+        self.build_prompt_summary(agent_id, shared, budget)
+    }
+
+    /// Load candidate memories including project-scoped entries.
+    ///
+    /// Ordering priority: **Project** → Agent → Global. Pinned entries still
+    /// float to the top within their type group via `format_prompt_summary`.
+    ///
+    /// Default implementation delegates to [`Self::load_prompt_candidates`]
+    /// and ignores the project id.
+    fn load_prompt_candidates_with_project(
+        &self,
+        agent_id: &str,
+        project_id: Option<&str>,
+        shared: bool,
+    ) -> Result<Vec<MemoryEntry>> {
+        let _ = project_id;
+        self.load_prompt_candidates(agent_id, shared)
+    }
+
+    /// Count memories assigned to a specific project scope. Used by the
+    /// project list endpoint to display per-project memory counts.
+    fn count_by_project(&self, project_id: &str) -> Result<usize> {
+        self.count(Some(&MemoryScope::Project {
+            id: project_id.to_string(),
+        }))
+    }
+
     /// Export all memories as markdown
     fn export_markdown(&self, scope: Option<&MemoryScope>) -> Result<String>;
 
