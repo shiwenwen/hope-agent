@@ -2,23 +2,30 @@ use std::sync::Arc;
 
 use crate::agent::AssistantAgent;
 use crate::context_compact::CompactConfig;
-use crate::provider::{self, ActiveModel, ApiType, ProviderConfig};
+use crate::provider::{self, ActiveModel, ApiType, AuthProfile, ProviderConfig};
 use crate::session::{self, SessionDB};
 
 // ── Agent Construction ──────────────────────────────────────────────
 
 /// Build an AssistantAgent from provider configs (no State dependency).
+///
+/// When `profile` is `Some`, the agent is constructed with that specific
+/// auth profile's API key and base_url override. When `None`, the first
+/// effective profile (or legacy `api_key`) is used.
 pub(super) fn build_agent_from_snapshot(
     model: &ActiveModel,
     providers: &[ProviderConfig],
     codex_token: &Option<(String, String)>,
     compact_config: &CompactConfig,
+    profile: Option<&AuthProfile>,
 ) -> Option<AssistantAgent> {
     let prov = provider::find_provider(providers, &model.provider_id)?;
 
     let mut agent = if prov.api_type == ApiType::Codex {
         let (access_token, account_id) = codex_token.as_ref()?;
         AssistantAgent::new_openai(access_token, account_id, &model.model_id)
+    } else if let Some(profile) = profile {
+        AssistantAgent::new_from_provider_with_profile(prov, &model.model_id, profile)
     } else {
         AssistantAgent::new_from_provider(prov, &model.model_id)
     };

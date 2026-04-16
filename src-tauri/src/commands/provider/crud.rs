@@ -1,4 +1,4 @@
-use crate::provider::ProviderConfig;
+use crate::provider::{self, ProviderConfig};
 use crate::AppState;
 use tauri::State;
 
@@ -22,9 +22,10 @@ pub async fn add_provider(
         config.base_url,
         config.api_key,
     );
-    // Add models from the incoming config
+    // Add models and auth profiles from the incoming config
     let mut provider_with_models = new_provider;
     provider_with_models.models = config.models;
+    provider_with_models.auth_profiles = config.auth_profiles;
 
     let masked = provider_with_models.masked();
     store.providers.push(provider_with_models);
@@ -43,9 +44,12 @@ pub async fn update_provider(
         existing.api_type = config.api_type;
         existing.base_url = config.base_url;
         // Only update API key if a real key is provided (not the masked version)
-        if !config.api_key.contains("...") && config.api_key != "****" {
+        if !provider::is_masked_key(&config.api_key) {
             existing.api_key = config.api_key;
         }
+        // Merge auth profile keys: preserve real keys when incoming is masked
+        existing.auth_profiles =
+            provider::merge_profile_keys(&existing.auth_profiles, &config.auth_profiles);
         existing.models = config.models;
         existing.enabled = config.enabled;
         existing.user_agent = config.user_agent;

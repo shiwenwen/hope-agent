@@ -20,7 +20,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use serde_json::json;
 
-use crate::provider::{ApiType, ProviderConfig, ThinkingStyle};
+use crate::provider::{ApiType, AuthProfile, ProviderConfig, ThinkingStyle};
 use crate::tools;
 
 use config::{ANTHROPIC_API_URL, ANTHROPIC_MODEL};
@@ -139,26 +139,59 @@ impl AssistantAgent {
         }
     }
 
-    /// Create agent from a ProviderConfig and a specific model ID
+    /// Create agent from a ProviderConfig and a specific model ID.
+    ///
+    /// Uses the first effective auth profile for the API key. For explicit
+    /// profile selection (e.g. during profile rotation), use
+    /// [`new_from_provider_with_profile`].
     pub fn new_from_provider(config: &ProviderConfig, model_id: &str) -> Self {
+        let profiles = config.effective_profiles();
+        if let Some(profile) = profiles.first() {
+            return Self::new_from_provider_with_profile(config, model_id, profile);
+        }
+        // Fallback for Codex or empty-key providers
+        let api_key = config.api_key.clone();
+        let base_url = config.base_url.clone();
+        Self::build_from_key(config, model_id, &api_key, &base_url)
+    }
+
+    /// Create agent from a ProviderConfig with a specific auth profile.
+    /// The profile's API key and optional base_url override are used.
+    pub fn new_from_provider_with_profile(
+        config: &ProviderConfig,
+        model_id: &str,
+        profile: &AuthProfile,
+    ) -> Self {
+        let api_key = profile.api_key.clone();
+        let base_url = config.resolve_base_url(profile).to_string();
+        Self::build_from_key(config, model_id, &api_key, &base_url)
+    }
+
+    /// Internal: build an AssistantAgent from resolved api_key and base_url.
+    fn build_from_key(
+        config: &ProviderConfig,
+        model_id: &str,
+        api_key: &str,
+        base_url: &str,
+    ) -> Self {
         let provider = match config.api_type {
             ApiType::Anthropic => LlmProvider::Anthropic {
-                api_key: config.api_key.clone(),
-                base_url: config.base_url.clone(),
+                api_key: api_key.to_string(),
+                base_url: base_url.to_string(),
                 model: model_id.to_string(),
             },
             ApiType::OpenaiChat => LlmProvider::OpenAIChat {
-                api_key: config.api_key.clone(),
-                base_url: config.base_url.clone(),
+                api_key: api_key.to_string(),
+                base_url: base_url.to_string(),
                 model: model_id.to_string(),
             },
             ApiType::OpenaiResponses => LlmProvider::OpenAIResponses {
-                api_key: config.api_key.clone(),
-                base_url: config.base_url.clone(),
+                api_key: api_key.to_string(),
+                base_url: base_url.to_string(),
                 model: model_id.to_string(),
             },
             ApiType::Codex => LlmProvider::Codex {
-                access_token: config.api_key.clone(),
+                access_token: api_key.to_string(),
                 account_id: String::new(),
                 model: model_id.to_string(),
             },

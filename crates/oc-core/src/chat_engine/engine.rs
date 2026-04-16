@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::provider::ApiType;
+use crate::provider::{ApiType, AuthProfile};
 use crate::session;
 use crate::{context_compact, failover};
 
@@ -61,8 +61,26 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
     let effort_str = reasoning_effort.clone();
 
     for (idx, model_ref) in model_chain.iter().enumerate() {
+        // ── Auth profile selection ──────────────────────────────
+        let current_provider = providers
+            .iter()
+            .find(|p| p.id == model_ref.provider_id);
+        let mut current_profile: Option<AuthProfile> = current_provider
+            .and_then(|prov| failover::select_profile(prov, &session_id));
+        let mut profile_rotated = false;
+        let mut tried_profiles: Vec<String> = Vec::new();
+        if let Some(ref p) = current_profile {
+            tried_profiles.push(p.id.clone());
+        }
+
         let mut agent =
-            match build_agent_from_snapshot(model_ref, &providers, &codex_token, &compact_config) {
+            match build_agent_from_snapshot(
+                model_ref,
+                &providers,
+                &codex_token,
+                &compact_config,
+                current_profile.as_ref(),
+            ) {
                 Some(a) => a,
                 None => {
                     last_error = Some(format!(
@@ -72,29 +90,21 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     continue;
                 }
             };
-        agent.set_agent_id(&agent_id);
-        agent.set_session_id(&session_id);
-        agent.set_web_search_enabled(web_search_enabled);
-        agent.set_notification_enabled(notification_enabled);
-        agent.set_image_generate_config(image_gen_config.clone());
-        agent.set_canvas_enabled(canvas_enabled);
-        agent.set_temperature(resolved_temperature);
-
-        if let Some(ref ctx) = extra_system_context {
-            agent.set_extra_system_context(ctx.clone());
-        }
-        if !skill_allowed_tools.is_empty() {
-            agent.set_skill_allowed_tools(skill_allowed_tools.clone());
-        }
-        if let Some(ref mode) = plan_agent_mode {
-            agent.set_plan_agent_mode(mode.clone());
-        }
-        if let Some(ref paths) = plan_mode_allow_paths {
-            agent.set_plan_mode_allow_paths(paths.clone());
-        }
-        if auto_approve_tools {
-            agent.set_auto_approve_tools(true);
-        }
+        configure_agent(
+            &mut agent,
+            &agent_id,
+            &session_id,
+            web_search_enabled,
+            notification_enabled,
+            image_gen_config.clone(),
+            canvas_enabled,
+            resolved_temperature,
+            extra_system_context.as_deref(),
+            &skill_allowed_tools,
+            plan_agent_mode.as_ref(),
+            plan_mode_allow_paths.as_ref(),
+            auto_approve_tools,
+        );
 
         // Restore conversation history from DB
         restore_agent_context(&db, &session_id, &agent);
@@ -120,7 +130,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
 
         loop {
             // Emit fallback event if this is not the first model
-            if idx > 0 && retry_count == 0 {
+            if idx > 0 && retry_count == 0 && !profile_rotated {
                 let display = {
                     let prov_name = providers
                         .iter()
@@ -275,6 +285,16 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                 Ok((result, thinking)) => {
                     let duration_ms = chat_start.elapsed().as_millis() as u64;
 
+                    // ── Profile rotation: mark success ──────────
+                    if let Some(ref profile) = current_profile {
+                        failover::PROFILE_STICKY.set(
+                            &model_ref.provider_id,
+                            &session_id,
+                            &profile.id,
+                        );
+                        failover::PROFILE_COOLDOWNS.clear(&profile.id);
+                    }
+
                     // Emit usage event with duration
                     let usage_event = serde_json::json!({
                         "type": "usage",
@@ -419,6 +439,76 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         return Err(error_msg);
                     }
 
+                    // ── Auth profile rotation ───────────────────
+                    // On profile-rotatable errors, try the next auth profile
+                    // within the same provider before falling through to
+                    // model-level retry/failover.
+                    if reason.is_profile_rotatable() {
+                        if let Some(ref profile) = current_profile {
+                            failover::PROFILE_COOLDOWNS.mark_cooldown(&profile.id, &reason);
+                        }
+                        if let Some(prov) = current_provider {
+                            if let Some(next) = failover::next_profile(prov, &tried_profiles) {
+                                app_info!(
+                                    "provider",
+                                    "failover",
+                                    "Rotating auth profile for {}::{}: {} -> {} (reason: {:?})",
+                                    model_ref.provider_id,
+                                    model_ref.model_id,
+                                    current_profile.as_ref().map(|p| p.label.as_str()).unwrap_or("?"),
+                                    next.label,
+                                    reason
+                                );
+
+                                // Emit profile_rotation event to frontend
+                                if let Ok(json_str) = serde_json::to_string(&serde_json::json!({
+                                    "type": "profile_rotation",
+                                    "provider_id": model_ref.provider_id,
+                                    "model_id": model_ref.model_id,
+                                    "from_profile": current_profile.as_ref().map(|p| p.label.as_str()),
+                                    "to_profile": next.label,
+                                    "reason": reason,
+                                })) {
+                                    event_sink.send(&json_str);
+                                }
+
+                                tried_profiles.push(next.id.clone());
+                                current_profile = Some(next.clone());
+                                profile_rotated = true;
+
+                                // Rebuild agent with the new profile, preserving conversation history
+                                let history = agent.get_conversation_history();
+                                if let Some(new_agent) = build_agent_from_snapshot(
+                                    model_ref,
+                                    &providers,
+                                    &codex_token,
+                                    &compact_config,
+                                    Some(&next),
+                                ) {
+                                    agent = new_agent;
+                                    configure_agent(
+                                        &mut agent,
+                                        &agent_id,
+                                        &session_id,
+                                        web_search_enabled,
+                                        notification_enabled,
+                                        image_gen_config.clone(),
+                                        canvas_enabled,
+                                        resolved_temperature,
+                                        extra_system_context.as_deref(),
+                                        &skill_allowed_tools,
+                                        plan_agent_mode.as_ref(),
+                                        plan_mode_allow_paths.as_ref(),
+                                        auto_approve_tools,
+                                    );
+                                    agent.set_conversation_history(history);
+                                    retry_count = 0; // reset retries for the new profile
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+
                     // Retryable errors — retry same model with backoff
                     if reason.is_retryable() && retry_count < MAX_RETRIES {
                         retry_count += 1;
@@ -467,4 +557,46 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         last_error.unwrap_or_else(|| "All models in the fallback chain failed.".to_string());
     let _ = db.append_message(&session_id, &session::NewMessage::event(&final_error));
     Err(final_error)
+}
+
+/// Apply common agent configuration. Extracted to avoid duplication between
+/// initial agent setup and profile-rotation rebuild.
+#[allow(clippy::too_many_arguments)]
+fn configure_agent(
+    agent: &mut crate::agent::AssistantAgent,
+    agent_id: &str,
+    session_id: &str,
+    web_search_enabled: bool,
+    notification_enabled: bool,
+    image_gen_config: Option<crate::tools::image_generate::ImageGenConfig>,
+    canvas_enabled: bool,
+    temperature: Option<f64>,
+    extra_system_context: Option<&str>,
+    skill_allowed_tools: &[String],
+    plan_agent_mode: Option<&crate::agent::PlanAgentMode>,
+    plan_mode_allow_paths: Option<&Vec<String>>,
+    auto_approve_tools: bool,
+) {
+    agent.set_agent_id(agent_id);
+    agent.set_session_id(session_id);
+    agent.set_web_search_enabled(web_search_enabled);
+    agent.set_notification_enabled(notification_enabled);
+    agent.set_image_generate_config(image_gen_config);
+    agent.set_canvas_enabled(canvas_enabled);
+    agent.set_temperature(temperature);
+    if let Some(ctx) = extra_system_context {
+        agent.set_extra_system_context(ctx.to_string());
+    }
+    if !skill_allowed_tools.is_empty() {
+        agent.set_skill_allowed_tools(skill_allowed_tools.to_vec());
+    }
+    if let Some(mode) = plan_agent_mode {
+        agent.set_plan_agent_mode(mode.clone());
+    }
+    if let Some(paths) = plan_mode_allow_paths {
+        agent.set_plan_mode_allow_paths(paths.clone());
+    }
+    if auto_approve_tools {
+        agent.set_auto_approve_tools(true);
+    }
 }

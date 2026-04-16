@@ -93,7 +93,7 @@ crates/oc-core/src/     核心业务逻辑（零 Tauri 依赖）
   weather.rs            天气缓存系统与 Open-Meteo API
   weather_location_macos.rs macOS 原生 CoreLocation 定位（objc2 delegate + callback 生命周期）
   paths.rs              统一路径管理（~/.opencomputer/）
-  failover.rs           模型降级 & 重试策略
+  failover.rs           模型降级 & 重试策略 + Auth Profile 轮换（per-profile cooldown / session stickiness）
   sandbox.rs            Docker 沙箱
   oauth.rs              OAuth 认证
   url_preview.rs        URL 预览
@@ -242,6 +242,7 @@ src-tauri/src/          Tauri 薄壳（命令层 + 桌面集成）
 - **SearXNG Docker 代理注入**：`web_search.searxng_docker_use_proxy` 控制是否向 Docker SearXNG 写入 `settings.yml` 的 `outgoing.proxies` 和代理环境变量；适用于系统 VPN 场景，修改后在下次启动或重新部署容器时生效
 - **Side Query（缓存侧查询）**：`AssistantAgent.side_query()` 复用主对话的 system_prompt + tool_schemas + conversation_history 前缀，利用 Anthropic 显式 prompt caching / OpenAI 自动前缀缓存，侧查询（Tier 3 摘要、记忆提取）成本降低约 90%。每轮主请求 compaction 后自动快照 `CacheSafeParams`，侧查询构建字节一致的前缀请求。无缓存参数时退化为普通请求
 - **降级策略**：ContextOverflow 终止 → RateLimit/Overloaded/Timeout 指数退避重试 2 次 → Auth/Billing/ModelNotFound 跳下一模型
+- **Auth Profile 轮换 failover**：`ProviderConfig.auth_profiles: Vec<AuthProfile>` 支持同 Provider 多 API Key。Chat Engine 遇到 RateLimit/Overloaded/Auth/Billing 时先轮换同 Provider 下一个 profile，全部耗尽后再跳模型。每个 profile 持有独立 `api_key` + 可选 `base_url` 覆盖。纯内存 `ProfileCooldownTracker`（按错误类型 30s–600s 冷却）+ `ProfileStickyMap`（session 级亲和）。`AssistantAgent::new_from_provider_with_profile(config, model_id, profile)` 按 profile 构建 agent，现有 `new_from_provider` 委托到 `effective_profiles()[0]` 保持 15+ 调用点零改动。Codex (OAuth) 不参与 profile 轮换。前端 Provider 编辑面板 `AuthProfileEditor` 支持增删改多个 profile
 - **连续消息合并**：`push_user_message()` 自动合并连续 user 消息，兼容 Anthropic role 交替要求
 - **API-Round 消息分组**：Tool loop 中的 assistant + tool_result 消息通过 `_oc_round` 元数据标记为同一 round，压缩切割（Tier 3/4）对齐到 round 边界，确保 tool_use/tool_result 配对不被拆散。元数据在 API 调用前通过 `prepare_messages_for_api()` 剥离。无标记的旧会话退化为原行为
 - **后压缩文件恢复**：Tier 3 摘要后自动扫描被摘要消息中的 write/edit/apply_patch 工具调用，从磁盘读取最近编辑的文件当前内容（最多 5 文件 × 16KB），注入 summary 之后的对话历史，省去额外的 read tool call。预算：释放 token 的 10%，兜底 100K chars

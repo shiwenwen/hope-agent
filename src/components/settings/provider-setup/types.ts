@@ -14,12 +14,21 @@ export interface ModelConfig {
   costOutput: number
 }
 
+export interface AuthProfile {
+  id: string
+  label: string
+  apiKey: string
+  baseUrl?: string
+  enabled: boolean
+}
+
 export interface ProviderConfig {
   id: string
   name: string
   apiType: ApiType
   baseUrl: string
   apiKey: string
+  authProfiles: AuthProfile[]
   models: ModelConfig[]
   enabled: boolean
   userAgent: string

@@ -1,7 +1,7 @@
 //! Helpers operating on provider data inside [`crate::config::AppConfig`].
 
 use super::types::{
-    ActiveModel, ApiType, AvailableModel, ModelConfig, ProviderConfig, ThinkingStyle,
+    ActiveModel, ApiType, AuthProfile, AvailableModel, ModelConfig, ProviderConfig, ThinkingStyle,
 };
 use crate::config::AppConfig;
 
@@ -96,6 +96,38 @@ pub fn find_provider<'a>(
 }
 
 // ── Helper: Create built-in Codex provider ────────────────────────
+
+// ── Auth Profile Key Merge ────────────────────────────────────────
+
+/// Merge incoming auth profiles with existing ones, preserving real API keys
+/// when the incoming key appears to be masked (contains "..." or is "****").
+///
+/// Used by update_provider to avoid overwriting keys with masked values.
+pub fn merge_profile_keys(existing: &[AuthProfile], incoming: &[AuthProfile]) -> Vec<AuthProfile> {
+    incoming
+        .iter()
+        .map(|inc| {
+            if is_masked_key(&inc.api_key) {
+                // Find matching existing profile by ID and use its key
+                if let Some(prev) = existing.iter().find(|e| e.id == inc.id) {
+                    AuthProfile {
+                        api_key: prev.api_key.clone(),
+                        ..inc.clone()
+                    }
+                } else {
+                    inc.clone()
+                }
+            } else {
+                inc.clone()
+            }
+        })
+        .collect()
+}
+
+/// Check if an API key value looks like a masked display string.
+pub fn is_masked_key(key: &str) -> bool {
+    key.contains("...") || key == "****"
+}
 
 /// Create or update the built-in Codex provider with OAuth token info.
 /// Returns the provider ID.
@@ -198,6 +230,7 @@ pub fn ensure_codex_provider(config: &mut AppConfig) -> String {
         api_type: ApiType::Codex,
         base_url: ApiType::Codex.default_base_url().into(),
         api_key: String::new(), // OAuth, no API key
+        auth_profiles: Vec::new(),
         models: codex_models,
         enabled: true,
         user_agent: super::types::default_user_agent(),

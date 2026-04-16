@@ -37,6 +37,7 @@ pub async fn add_provider(
         config.api_key,
     );
     new_provider.models = config.models;
+    new_provider.auth_profiles = config.auth_profiles;
 
     let masked = new_provider.masked();
     store.providers.push(new_provider);
@@ -55,9 +56,12 @@ pub async fn update_provider(
         existing.api_type = config.api_type;
         existing.base_url = config.base_url;
         // Only update API key if a real key is provided (not the masked version)
-        if !config.api_key.contains("...") && config.api_key != "****" {
+        if !provider::is_masked_key(&config.api_key) {
             existing.api_key = config.api_key;
         }
+        // Merge auth profile keys: preserve real keys when incoming is masked
+        existing.auth_profiles =
+            provider::merge_profile_keys(&existing.auth_profiles, &config.auth_profiles);
         existing.models = config.models;
         existing.enabled = config.enabled;
         existing.user_agent = config.user_agent;

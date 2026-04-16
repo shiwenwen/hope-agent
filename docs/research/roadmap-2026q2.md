@@ -79,20 +79,27 @@
 
 **复杂度**：低（依赖 A1 trait 体系）。
 
-### A3. Auth Profile 轮换 failover
+### A3. Auth Profile 轮换 failover — ✅ 已完成（2026-04-16）
 
 **动机**：OC 的 failover 只在模型级工作。同 provider 多 key 场景下（例如两个 Anthropic organization），rate limit 时无法自动切换。
 
-**实施**：
-- `ProviderConfig` 增加 `authProfiles: Vec<AuthProfile>`，每个 profile 持有独立 API key + base_url
-- `AssistantAgent` 调用路径在现有 5 类错误分类之前插入一级"profile 迭代"：
-  - RateLimit / Overloaded → 先试下一个同 provider 的 profile → 都失败再跳模型
-  - Auth / Billing → 跳 profile 而不是跳模型
-- 每 session 记录"当前活跃 profile"实现 cache-friendly stickiness
-- Per-profile cooldown（rate limit 后 N 秒不再尝试）
-- 前端 Provider 设置面板支持添加多个 API key profile
+**实际实施**：
+- `ProviderConfig` 新增 `auth_profiles: Vec<AuthProfile>`（`#[serde(default)]` 向后兼容）。`AuthProfile` 持有 `id`（UUID）、`label`、`api_key`、`base_url: Option<String>`、`enabled`
+- `ProviderConfig::effective_profiles()` 运行时合成：有 profiles 返回它们，否则从 legacy `api_key` 合成单元素列表，Codex 返回空
+- `failover.rs` 新增 `ProfileCooldownTracker`（纯内存，按错误类型 30s–600s）+ `ProfileStickyMap`（session 级亲和）+ `select_profile()` / `next_profile()` 选择函数
+- `AssistantAgent::new_from_provider_with_profile(config, model_id, profile)` 按 profile 构建 agent。`new_from_provider` 委托到 `effective_profiles()[0]`，15+ 调用点零改动
+- `chat_engine/engine.rs` 在错误处理块插入 profile 轮换层：RateLimit/Overloaded/Auth/Billing → mark cooldown → try next profile → 全部耗尽 → fall through 到原有 retry/model failover
+- Provider CRUD（oc-server + src-tauri）支持 `auth_profiles` 增删改 + masked key merge
+- 前端 `AuthProfileEditor` 组件集成到 `ProviderEditPage`
+- i18n（zh + en）
 
-**验收**：单 provider 多 key 配置下，一个 key rate limit 时能自动切到下一个 key，不中断对话。
+**验收**：
+- [x] 单 provider 多 key 配置下，一个 key rate limit 时能自动切到下一个 key，不中断对话
+- [x] 所有 profile 耗尽后正确 fall through 到下一个 model
+- [x] session stickiness（同一 session 内优先使用上次成功的 profile）
+- [x] 旧配置（无 `authProfiles` 字段）正常加载，行为不变
+- [x] cargo check 三 crate 零 error
+- [x] 前端 Provider 设置面板能添加/删除/编辑多个 profile
 
 **复杂度**：中。
 
@@ -456,6 +463,7 @@ Phase D   D1..D17 穿插在各 Phase 之间按需交付
 
 ## 变更记录
 
+- **2026-04-16** — A3 Auth Profile 轮换 failover 完成：`AuthProfile` + `ProfileCooldownTracker` + `ProfileStickyMap` + Chat Engine profile 轮换层 + 前端 AuthProfileEditor
 - **2026-04-16** — A2 可插拔 Compaction Provider 完成：`CompactionProvider` async trait + `DedicatedModelProvider` + 三级 fallback + ACP 同步
 - **2026-04-16** — v2.2：新增 Phase B'（自我学习闭环，对标 Hermes Agent），更新评分预测和时间线
 - **2026-04-15** — 初始版本（配合 unified-comparison.md v2.1 发布）

@@ -26,6 +26,7 @@ import {
   type DragEndEvent,
 } from "@dnd-kit/core"
 import { SortableContext, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable"
+import AuthProfileEditor from "@/components/settings/provider-setup/AuthProfileEditor"
 import {
   ArrowLeft,
   ArrowRight,
@@ -43,20 +44,7 @@ import {
 
 // ── Types ─────────────────────────────────────────────────────────
 
-type ApiType = "anthropic" | "openai-chat" | "openai-responses" | "codex"
-type ThinkingStyleType = "openai" | "anthropic" | "zai" | "qwen" | "none"
-
-interface ProviderConfig {
-  id: string
-  name: string
-  apiType: ApiType
-  baseUrl: string
-  apiKey: string
-  models: ModelConfig[]
-  enabled: boolean
-  userAgent: string
-  thinkingStyle: ThinkingStyleType
-}
+import type { AuthProfile, ProviderConfig } from "@/components/settings/provider-setup/types"
 
 // ── Main Component ────────────────────────────────────────────────
 
@@ -83,6 +71,9 @@ export default function ProviderEditPage({
     provider.thinkingStyle || "openai",
   )
   const [editModels, setEditModels] = useState<ModelConfig[]>([...provider.models])
+  const [editAuthProfiles, setEditAuthProfiles] = useState<AuthProfile[]>(
+    provider.authProfiles ? [...provider.authProfiles] : [],
+  )
   const [saving, setSaving] = useState(false)
   const [testResult, setTestResult] = useState<TestResult | null>(null)
   const [testLoading, setTestLoading] = useState(false)
@@ -138,6 +129,7 @@ export default function ProviderEditPage({
           apiType: editApiType,
           baseUrl: editBaseUrl,
           apiKey: editApiKey,
+          authProfiles: editAuthProfiles,
           userAgent: editUserAgent,
           thinkingStyle: editThinkingStyle,
           models: editModels,
@@ -259,6 +251,12 @@ export default function ProviderEditPage({
                   className="bg-background font-mono text-xs"
                 />
               </div>
+
+              {/* Auth Profiles */}
+              <AuthProfileEditor
+                profiles={editAuthProfiles}
+                onChange={setEditAuthProfiles}
+              />
 
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">

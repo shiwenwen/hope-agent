@@ -1,9 +1,17 @@
-// ── Model Failover: Error Classification ──────────────────────────
+// ── Model Failover: Error Classification & Auth Profile Rotation ───
 //
 //  Classifies API errors to determine whether to retry the same model,
 //  fall back to the next model, or surface the error directly.
+//  Also provides per-profile cooldown tracking and session-sticky
+//  profile selection for multi-key rotation within a single provider.
 
 use serde::Serialize;
+
+use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
+use std::time::Instant;
+
+use crate::provider::{AuthProfile, ProviderConfig};
 
 /// Why a model request failed — drives retry / fallback decisions.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -44,6 +52,27 @@ impl FailoverReason {
     /// Whether this error should trigger context compaction before retry.
     pub fn needs_compaction(&self) -> bool {
         matches!(self, Self::ContextOverflow)
+    }
+
+    /// Whether this error class should trigger rotation to the next auth profile
+    /// within the same provider before falling through to model-level failover.
+    pub fn is_profile_rotatable(&self) -> bool {
+        matches!(
+            self,
+            Self::RateLimit | Self::Overloaded | Self::Auth | Self::Billing
+        )
+    }
+
+    /// Get the cooldown duration (in seconds) for this error type when applied
+    /// to a per-profile cooldown.
+    pub fn profile_cooldown_secs(&self) -> u64 {
+        match self {
+            Self::Overloaded => 30,
+            Self::RateLimit => 60,
+            Self::Auth => 300,
+            Self::Billing => 600,
+            _ => 0,
+        }
     }
 }
 
@@ -195,6 +224,171 @@ fn rand_simple() -> u64 {
     nanos ^ (count.wrapping_mul(6364136223846793005))
 }
 
+// ── Auth Profile Cooldown Tracking ────────────────────────────────
+//
+//  Runtime-only state (not persisted). Tracks per-profile cooldowns after
+//  rate-limit / auth / billing errors to avoid retrying a known-bad key.
+
+struct CooldownEntry {
+    until: Instant,
+}
+
+/// Global per-profile cooldown tracker.
+pub struct ProfileCooldownTracker {
+    entries: Mutex<HashMap<String, CooldownEntry>>,
+}
+
+impl ProfileCooldownTracker {
+    fn new() -> Self {
+        Self {
+            entries: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Mark a profile as cooled down for the given duration.
+    pub fn mark_cooldown(&self, profile_id: &str, reason: &FailoverReason) {
+        let secs = reason.profile_cooldown_secs();
+        if secs == 0 {
+            return;
+        }
+        if let Ok(mut map) = self.entries.lock() {
+            // Prune expired entries opportunistically (cap at 100 to avoid unbounded growth)
+            if map.len() > 100 {
+                let now = Instant::now();
+                map.retain(|_, e| now < e.until);
+            }
+            map.insert(
+                profile_id.to_string(),
+                CooldownEntry {
+                    until: Instant::now() + std::time::Duration::from_secs(secs),
+                },
+            );
+        }
+    }
+
+    /// Check if a profile is available (not in cooldown).
+    pub fn is_available(&self, profile_id: &str) -> bool {
+        if let Ok(map) = self.entries.lock() {
+            match map.get(profile_id) {
+                Some(entry) => Instant::now() >= entry.until,
+                None => true,
+            }
+        } else {
+            true
+        }
+    }
+
+    /// Filter a list of profiles to only those not currently in cooldown.
+    /// Acquires the lock once for all profiles.
+    pub fn filter_available(&self, profiles: &[AuthProfile]) -> Vec<AuthProfile> {
+        let now = Instant::now();
+        if let Ok(map) = self.entries.lock() {
+            profiles
+                .iter()
+                .filter(|p| map.get(&p.id).map_or(true, |e| now >= e.until))
+                .cloned()
+                .collect()
+        } else {
+            profiles.to_vec()
+        }
+    }
+
+    /// Clear the cooldown for a profile (e.g. on success).
+    pub fn clear(&self, profile_id: &str) {
+        if let Ok(mut map) = self.entries.lock() {
+            map.remove(profile_id);
+        }
+    }
+}
+
+pub static PROFILE_COOLDOWNS: LazyLock<ProfileCooldownTracker> =
+    LazyLock::new(ProfileCooldownTracker::new);
+
+// ── Session Profile Stickiness ───────────────────────────────────
+//
+//  Maps (provider_id, session_id) → last-successful profile_id.
+//  Ensures cache-friendly behavior by preferring the same key across turns.
+
+/// Nested HashMap: provider_id → (session_id → profile_id).
+/// Avoids tuple key allocation on every lookup.
+pub struct ProfileStickyMap {
+    map: Mutex<HashMap<String, HashMap<String, String>>>,
+}
+
+/// Cap per-provider session entries to prevent unbounded growth.
+const STICKY_MAX_SESSIONS_PER_PROVIDER: usize = 500;
+
+impl ProfileStickyMap {
+    fn new() -> Self {
+        Self {
+            map: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Get the sticky profile ID for a provider+session pair.
+    pub fn get(&self, provider_id: &str, session_id: &str) -> Option<String> {
+        self.map
+            .lock()
+            .ok()?
+            .get(provider_id)?
+            .get(session_id)
+            .cloned()
+    }
+
+    /// Set the sticky profile ID after a successful request.
+    pub fn set(&self, provider_id: &str, session_id: &str, profile_id: &str) {
+        if let Ok(mut map) = self.map.lock() {
+            let sessions = map.entry(provider_id.to_string()).or_default();
+            // Prune oldest entries if over cap
+            if sessions.len() >= STICKY_MAX_SESSIONS_PER_PROVIDER {
+                sessions.clear();
+            }
+            sessions.insert(session_id.to_string(), profile_id.to_string());
+        }
+    }
+}
+
+pub static PROFILE_STICKY: LazyLock<ProfileStickyMap> = LazyLock::new(ProfileStickyMap::new);
+
+// ── Profile Selection ────────────────────────────────────────────
+
+/// Select the best auth profile for a provider+session combination.
+///
+/// Priority:
+/// 1. Sticky profile from the same session (if still available)
+/// 2. First available (non-cooled-down, enabled) profile
+/// 3. None (all profiles exhausted)
+pub fn select_profile(provider: &ProviderConfig, session_id: &str) -> Option<AuthProfile> {
+    let profiles = provider.effective_profiles();
+    if profiles.is_empty() {
+        return None;
+    }
+
+    // Try sticky profile first
+    if let Some(sticky_id) = PROFILE_STICKY.get(&provider.id, session_id) {
+        if let Some(p) = profiles.iter().find(|p| p.id == sticky_id) {
+            if PROFILE_COOLDOWNS.is_available(&p.id) {
+                return Some(p.clone());
+            }
+        }
+    }
+
+    // Fall back to first available
+    PROFILE_COOLDOWNS
+        .filter_available(&profiles)
+        .into_iter()
+        .next()
+}
+
+/// Get the next profile to try after a failure, excluding already-tried profiles.
+pub fn next_profile(provider: &ProviderConfig, tried: &[String]) -> Option<AuthProfile> {
+    let profiles = provider.effective_profiles();
+    PROFILE_COOLDOWNS
+        .filter_available(&profiles)
+        .into_iter()
+        .find(|p| !tried.contains(&p.id))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -304,7 +498,8 @@ mod tests {
 
     #[test]
     fn test_terminal() {
-        assert!(FailoverReason::ContextOverflow.is_terminal());
+        // ContextOverflow is no longer terminal — it triggers compaction first.
+        assert!(!FailoverReason::ContextOverflow.is_terminal());
         assert!(!FailoverReason::RateLimit.is_terminal());
         assert!(!FailoverReason::Unknown.is_terminal());
     }
@@ -319,5 +514,115 @@ mod tests {
 
         let d_max = retry_delay_ms(10, 1000, 10000);
         assert!(d_max >= 9000 && d_max <= 11000); // clamped to ~10000
+    }
+
+    // ── Profile rotation tests ──────────────────────────────────
+
+    #[test]
+    fn test_is_profile_rotatable() {
+        assert!(FailoverReason::RateLimit.is_profile_rotatable());
+        assert!(FailoverReason::Overloaded.is_profile_rotatable());
+        assert!(FailoverReason::Auth.is_profile_rotatable());
+        assert!(FailoverReason::Billing.is_profile_rotatable());
+        assert!(!FailoverReason::Timeout.is_profile_rotatable());
+        assert!(!FailoverReason::ModelNotFound.is_profile_rotatable());
+        assert!(!FailoverReason::ContextOverflow.is_profile_rotatable());
+        assert!(!FailoverReason::Unknown.is_profile_rotatable());
+    }
+
+    #[test]
+    fn test_profile_cooldown_secs() {
+        assert_eq!(FailoverReason::Overloaded.profile_cooldown_secs(), 30);
+        assert_eq!(FailoverReason::RateLimit.profile_cooldown_secs(), 60);
+        assert_eq!(FailoverReason::Auth.profile_cooldown_secs(), 300);
+        assert_eq!(FailoverReason::Billing.profile_cooldown_secs(), 600);
+        assert_eq!(FailoverReason::Timeout.profile_cooldown_secs(), 0);
+    }
+
+    #[test]
+    fn test_cooldown_tracker_basic() {
+        let tracker = ProfileCooldownTracker::new();
+        assert!(tracker.is_available("p1"));
+
+        tracker.mark_cooldown("p1", &FailoverReason::RateLimit);
+        assert!(!tracker.is_available("p1"));
+        assert!(tracker.is_available("p2"));
+
+        tracker.clear("p1");
+        assert!(tracker.is_available("p1"));
+    }
+
+    #[test]
+    fn test_cooldown_zero_duration_not_tracked() {
+        let tracker = ProfileCooldownTracker::new();
+        tracker.mark_cooldown("p1", &FailoverReason::Timeout); // 0 secs
+        assert!(tracker.is_available("p1"));
+    }
+
+    #[test]
+    fn test_sticky_map_basic() {
+        let sticky = ProfileStickyMap::new();
+        assert!(sticky.get("prov1", "sess1").is_none());
+
+        sticky.set("prov1", "sess1", "profile-a");
+        assert_eq!(sticky.get("prov1", "sess1").as_deref(), Some("profile-a"));
+        assert!(sticky.get("prov1", "sess2").is_none());
+    }
+
+    #[test]
+    fn test_select_profile_basic() {
+        use crate::provider::{ApiType, AuthProfile, ProviderConfig};
+        let mut cfg = ProviderConfig::new(
+            "test".into(),
+            ApiType::Anthropic,
+            "https://api.anthropic.com".into(),
+            String::new(),
+        );
+        cfg.auth_profiles = vec![
+            AuthProfile::new("A".into(), "key-a".into(), None),
+            AuthProfile::new("B".into(), "key-b".into(), None),
+        ];
+
+        let selected = select_profile(&cfg, "sess1");
+        assert!(selected.is_some());
+        assert_eq!(selected.unwrap().api_key, "key-a");
+    }
+
+    #[test]
+    fn test_next_profile_excludes_tried() {
+        use crate::provider::{ApiType, AuthProfile, ProviderConfig};
+        let mut cfg = ProviderConfig::new(
+            "test".into(),
+            ApiType::Anthropic,
+            "https://api.anthropic.com".into(),
+            String::new(),
+        );
+        let p1 = AuthProfile::new("A".into(), "key-a".into(), None);
+        let p1_id = p1.id.clone();
+        let p2 = AuthProfile::new("B".into(), "key-b".into(), None);
+        cfg.auth_profiles = vec![p1, p2];
+
+        let next = next_profile(&cfg, &[p1_id]);
+        assert!(next.is_some());
+        assert_eq!(next.unwrap().api_key, "key-b");
+    }
+
+    #[test]
+    fn test_next_profile_all_tried() {
+        use crate::provider::{ApiType, AuthProfile, ProviderConfig};
+        let mut cfg = ProviderConfig::new(
+            "test".into(),
+            ApiType::Anthropic,
+            "https://api.anthropic.com".into(),
+            String::new(),
+        );
+        let p1 = AuthProfile::new("A".into(), "key-a".into(), None);
+        let p1_id = p1.id.clone();
+        let p2 = AuthProfile::new("B".into(), "key-b".into(), None);
+        let p2_id = p2.id.clone();
+        cfg.auth_profiles = vec![p1, p2];
+
+        let next = next_profile(&cfg, &[p1_id, p2_id]);
+        assert!(next.is_none());
     }
 }

@@ -83,6 +83,7 @@ export default function ProviderSetup({
           apiType,
           baseUrl,
           apiKey: apiKey || "ollama",
+          authProfiles: [],
           userAgent: "claude-code/0.1.0",
           thinkingStyle,
           models,
