@@ -1,4 +1,4 @@
-import { useRef, useEffect, useLayoutEffect } from "react"
+import { useRef, useEffect, useLayoutEffect, useCallback } from "react"
 import type { Message } from "@/types/chat"
 
 interface UseAutoScrollOptions {
@@ -12,24 +12,48 @@ export function useAutoScroll({ loading, messages, currentSessionId }: UseAutoSc
   const bottomRef = useRef<HTMLDivElement>(null)
   const isUserScrolledUpRef = useRef(false)
   const rafIdRef = useRef<number | null>(null)
-  const prevScrollHeightRef = useRef(0)
+  // Track the last message count we handled to avoid duplicate scroll-to-bottom
+  const lastHandledLengthRef = useRef(0)
+
+  const scrollToBottom = useCallback((immediate?: boolean) => {
+    const el = scrollContainerRef.current
+    if (!el) return
+    if (immediate) {
+      el.scrollTop = el.scrollHeight
+    } else {
+      // Use rAF to ensure DOM has updated
+      requestAnimationFrame(() => {
+        el.scrollTop = el.scrollHeight
+      })
+    }
+  }, [])
 
   // Scroll to bottom when switching to a session (after React renders the new messages)
   useLayoutEffect(() => {
     if (!currentSessionId) return
-    const el = scrollContainerRef.current
-    if (el) {
-      el.scrollTop = el.scrollHeight
-    }
-  }, [currentSessionId])
+    scrollToBottom(true)
+  }, [currentSessionId, scrollToBottom])
 
-  // Detect user scrolling up to pause auto-scroll
+  // Detect user scrolling up to pause auto-scroll.
+  // Use hysteresis: a larger threshold to ENTER scrolled-up state,
+  // and a smaller one to LEAVE it (re-enable auto-scroll).
   useEffect(() => {
     const el = scrollContainerRef.current
     if (!el) return
     const handleScroll = () => {
       const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
-      isUserScrolledUpRef.current = distanceFromBottom > 150
+      if (isUserScrolledUpRef.current) {
+        // Already in scrolled-up state: only re-enable auto-scroll
+        // when user scrolls very close to bottom
+        if (distanceFromBottom <= 80) {
+          isUserScrolledUpRef.current = false
+        }
+      } else {
+        // Not scrolled up: only enter scrolled-up state on a decisive scroll
+        if (distanceFromBottom > 300) {
+          isUserScrolledUpRef.current = true
+        }
+      }
     }
     el.addEventListener("scroll", handleScroll, { passive: true })
     return () => el.removeEventListener("scroll", handleScroll)
@@ -43,17 +67,14 @@ export function useAutoScroll({ loading, messages, currentSessionId }: UseAutoSc
     if (loading) {
       // Reset scroll-up detection when new message starts
       isUserScrolledUpRef.current = false
-      prevScrollHeightRef.current = el.scrollHeight
 
       const tick = () => {
         if (!isUserScrolledUpRef.current) {
-          // Lerp toward bottom for silky-smooth scrolling instead of snapping
           const target = el.scrollHeight - el.clientHeight
           const diff = target - el.scrollTop
           if (diff > 1) {
-            // Interpolate: cover 25% of remaining distance per frame (~60fps → ~4 frames to settle)
-            el.scrollTop += diff * 0.25
-          } else if (diff > 0) {
+            // Snap directly to bottom — eliminates lerp-induced jitter
+            // when fighting with user scroll events
             el.scrollTop = target
           }
         }
@@ -68,22 +89,27 @@ export function useAutoScroll({ loading, messages, currentSessionId }: UseAutoSc
         }
       }
     } else {
-      // Streaming ended — do a final smooth scroll to bottom
-      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" })
+      // Streaming ended — snap to bottom if not scrolled up
+      if (!isUserScrolledUpRef.current) {
+        scrollToBottom()
+      }
     }
-  }, [loading])
+  }, [loading, scrollToBottom])
 
   // When user sends a new message, immediately scroll to bottom
   useLayoutEffect(() => {
-    const el = scrollContainerRef.current
-    if (!el) return
-    // Only trigger on user messages being added
-    const lastMsg = messages[messages.length - 1]
-    if (lastMsg?.role === "user") {
+    const len = messages.length
+    if (len === 0 || len === lastHandledLengthRef.current) return
+    lastHandledLengthRef.current = len
+
+    const lastMsg = messages[len - 1]
+    // Scroll for user messages, and also for the first assistant message
+    // that appears right after (the empty placeholder)
+    if (lastMsg?.role === "user" || (len >= 2 && messages[len - 2]?.role === "user" && lastMsg?.role === "assistant")) {
       isUserScrolledUpRef.current = false
-      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" })
+      scrollToBottom()
     }
-  }, [messages.length]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [messages.length, messages, scrollToBottom]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return { scrollContainerRef, bottomRef }
 }
