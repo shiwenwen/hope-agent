@@ -130,4 +130,26 @@ export const localTemplates: ProviderTemplate[] = [
       },
     ],
   },
+  {
+    key: "sglang",
+    name: "SGLang",
+    description: "高性能本地推理引擎",
+    icon: "⚡",
+    apiType: "openai-chat",
+    baseUrl: "http://127.0.0.1:30000",
+    apiKeyPlaceholder: "（无需填写）",
+    requiresApiKey: false,
+    models: [
+      {
+        id: "your-model-id",
+        name: "Your Model",
+        inputTypes: ["text"],
+        contextWindow: 128000,
+        maxTokens: 8192,
+        reasoning: false,
+        costInput: 0,
+        costOutput: 0,
+      },
+    ],
+  },
 ]

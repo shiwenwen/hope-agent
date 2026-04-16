@@ -62,13 +62,199 @@ graph LR
 
 ### 1.2 前端模板
 
-**`src/components/settings/provider-setup/templates.ts`**
+**`src/components/settings/provider-setup/templates/`**
 
-28 个内置 Provider 模板，108+ 个预设模型，覆盖：
-- 国际：Anthropic、OpenAI (×2)、DeepSeek、Google Gemini、xAI、Mistral、OpenRouter、Groq、Together、NVIDIA、Hugging Face
-- 国内：Moonshot、通义千问、火山引擎、智谱、MiniMax、Kimi Coding、小米 MiMo、百度千帆、阿里云百炼、BytePlus
-- 安全/代理：Chutes (TEE)、Cloudflare AI Gateway、LiteLLM
-- 本地：Ollama、vLLM、LM Studio
+36 个内置 Provider 模板，166 个预设模型，分为四个模板文件：
+
+- `international.ts` — 国际 Provider（8 个）
+- `china.ts` — 国内 Provider（10 个）
+- `infrastructure.ts` — 基础设施/聚合 Provider（13 个）
+- `local.ts` — 本地/自托管 Provider（5 个）
+
+#### 国际 Provider（`international.ts`）
+
+| Provider | Key | API 类型 | 模型 ID | 模型名 | 上下文 | 最大输出 | 推理 | 输入 | $/M in | $/M out |
+|----------|-----|---------|---------|--------|--------|---------|------|------|--------|---------|
+| **Anthropic** | `anthropic` | anthropic | `claude-sonnet-4-6` | Claude Sonnet 4.6 | 200K | 8,192 | ❌ | text, image | 3.0 | 15.0 |
+| | | | `claude-opus-4-6` | Claude Opus 4.6 | 200K | 8,192 | ✅ | text, image | 15.0 | 75.0 |
+| | | | `claude-haiku-4-5` | Claude Haiku 4.5 | 200K | 8,192 | ❌ | text, image | 0.8 | 4.0 |
+| **Anthropic (Vertex AI)** | `anthropic-vertex` | anthropic | `claude-opus-4-6` | Claude Opus 4.6 | 1M | 128,000 | ✅ | text, image | 5.0 | 25.0 |
+| | | | `claude-sonnet-4-6` | Claude Sonnet 4.6 | 1M | 128,000 | ✅ | text, image | 3.0 | 15.0 |
+| **OpenAI** | `openai` | openai-responses | `gpt-5.4` | GPT-5.4 | 1.05M | 128,000 | ✅ | text, image | 2.5 | 15.0 |
+| | | | `gpt-5.4-mini` | GPT-5.4 Mini | 400K | 128,000 | ✅ | text, image | 0.75 | 4.5 |
+| | | | `gpt-5.4-nano` | GPT-5.4 Nano | 400K | 128,000 | ✅ | text, image | 0.2 | 1.25 |
+| | | | `o3` | GPT o3 | 200K | 100,000 | ✅ | text, image | 10.0 | 40.0 |
+| | | | `o4-mini` | GPT o4-mini | 200K | 100,000 | ✅ | text, image | 1.1 | 4.4 |
+| **OpenAI (Chat)** | `openai-chat` | openai-chat | `gpt-5.4` | GPT-5.4 | 1.05M | 128,000 | ✅ | text, image | 2.5 | 15.0 |
+| | | | `gpt-5.4-mini` | GPT-5.4 Mini | 400K | 128,000 | ✅ | text, image | 0.75 | 4.5 |
+| | | | `gpt-5.4-nano` | GPT-5.4 Nano | 400K | 128,000 | ✅ | text, image | 0.2 | 1.25 |
+| | | | `o3` | GPT o3 | 200K | 100,000 | ✅ | text, image | 10.0 | 40.0 |
+| | | | `o4-mini` | GPT o4-mini | 200K | 100,000 | ✅ | text, image | 1.1 | 4.4 |
+| **DeepSeek** | `deepseek` | openai-chat | `deepseek-chat` | DeepSeek V3 | 128K | 8,192 | ❌ | text | 0.27 | 1.1 |
+| | | | `deepseek-reasoner` | DeepSeek R1 | 131K | 65,536 | ✅ | text | 0.55 | 2.19 |
+| **Google Gemini** | `google-gemini` | openai-chat | `gemini-2.5-pro` | Gemini 2.5 Pro | 1M | 65,536 | ✅ | text, image, video | 1.25 | 10.0 |
+| | | | `gemini-2.5-flash` | Gemini 2.5 Flash | 1M | 65,536 | ✅ | text, image, video | 0.15 | 0.6 |
+| | | | `gemini-3.1-pro-preview` | Gemini 3.1 Pro | 1M | 65,536 | ✅ | text, image, video | 1.25 | 10.0 |
+| | | | `gemini-3-flash-preview` | Gemini 3.1 Flash | 1M | 65,536 | ❌ | text, image, video | 0.15 | 0.6 |
+| **xAI** | `xai` | openai-chat | `grok-4` | Grok 4 | 256K | 64,000 | ✅ | text | 3.0 | 15.0 |
+| | | | `grok-4-0709` | Grok 4 0709 | 256K | 64,000 | ❌ | text | 3.0 | 15.0 |
+| | | | `grok-4.20-beta-latest-reasoning` | Grok 4.20 Beta (Reasoning) | 2M | 30,000 | ✅ | text, image | 2.0 | 6.0 |
+| | | | `grok-4-fast` | Grok 4 Fast | 2M | 30,000 | ✅ | text, image | 0.2 | 0.5 |
+| | | | `grok-4-1-fast` | Grok 4.1 Fast | 2M | 30,000 | ✅ | text, image | 0.2 | 0.5 |
+| | | | `grok-3` | Grok 3 | 131K | 8,192 | ❌ | text | 3.0 | 15.0 |
+| | | | `grok-3-fast` | Grok 3 Fast | 131K | 8,192 | ❌ | text | 5.0 | 25.0 |
+| | | | `grok-3-mini` | Grok 3 Mini | 131K | 8,192 | ✅ | text | 0.3 | 0.5 |
+| | | | `grok-3-mini-fast` | Grok 3 Mini Fast | 131K | 8,192 | ✅ | text | 0.6 | 4.0 |
+| | | | `grok-code-fast-1` | Grok Code Fast | 256K | 10,000 | ✅ | text | 0.2 | 1.5 |
+| **Mistral** | `mistral` | openai-chat | `mistral-large-latest` | Mistral Large | 262K | 16,384 | ❌ | text, image | 0.5 | 1.5 |
+| | | | `codestral-latest` | Codestral | 256K | 4,096 | ❌ | text | 0.3 | 0.9 |
+| | | | `devstral-medium-latest` | Devstral 2 | 262K | 32,768 | ❌ | text | 0.4 | 2.0 |
+| | | | `magistral-small` | Magistral Small | 128K | 40,000 | ✅ | text | 0.5 | 1.5 |
+| | | | `mistral-medium-2508` | Mistral Medium 3.1 | 262K | 8,192 | ❌ | text, image | 0.4 | 2.0 |
+| | | | `mistral-small-latest` | Mistral Small | 128K | 16,384 | ❌ | text, image | 0.1 | 0.3 |
+| | | | `pixtral-large-latest` | Pixtral Large | 128K | 32,768 | ❌ | text, image | 2.0 | 6.0 |
+
+#### 国内 Provider（`china.ts`）
+
+| Provider | Key | API 类型 | 模型 ID | 模型名 | 上下文 | 最大输出 | 推理 | 输入 | $/M in | $/M out |
+|----------|-----|---------|---------|--------|--------|---------|------|------|--------|---------|
+| **Moonshot AI (Kimi)** | `moonshot` | openai-chat | `kimi-k2.5` | Kimi K2.5 | 262K | 262,144 | ❌ | text, image | 0 | 0 |
+| | | | `kimi-k2-thinking` | Kimi K2 Thinking | 262K | 262,144 | ✅ | text | 0 | 0 |
+| | | | `kimi-k2-thinking-turbo` | Kimi K2 Thinking Turbo | 262K | 262,144 | ✅ | text | 0 | 0 |
+| | | | `kimi-k2-turbo` | Kimi K2 Turbo | 256K | 16,384 | ❌ | text | 0 | 0 |
+| **通义千问 (Qwen)** | `qwen` | openai-chat | `qwen-max` | Qwen Max | 32K | 8,192 | ❌ | text | 2.4 | 9.6 |
+| | | | `qwen-plus` | Qwen Plus | 131K | 8,192 | ❌ | text | 0.8 | 2.0 |
+| | | | `qwen-turbo` | Qwen Turbo | 131K | 8,192 | ❌ | text | 0.3 | 0.6 |
+| | | | `qwq-plus` | QwQ Plus (推理) | 131K | 16,384 | ✅ | text | 1.6 | 4.0 |
+| **火山引擎 (豆包)** | `volcengine` | openai-chat | `doubao-seed-1-8-251228` | Doubao Seed 1.8 | 256K | 4,096 | ❌ | text, image | 0 | 0 |
+| | | | `doubao-seed-code-preview-251028` | Doubao Seed Code | 256K | 4,096 | ❌ | text, image | 0 | 0 |
+| | | | `kimi-k2-5-260127` | Kimi K2.5 | 256K | 4,096 | ❌ | text, image | 0 | 0 |
+| | | | `glm-4-7-251222` | GLM 4.7 | 200K | 4,096 | ❌ | text, image | 0 | 0 |
+| | | | `deepseek-v3-2-251201` | DeepSeek V3.2 | 128K | 4,096 | ❌ | text, image | 0 | 0 |
+| **智谱 AI (Z.AI)** | `zhipu` | openai-chat | `glm-5.1` | GLM-5.1 | 202K | 131,100 | ✅ | text | 1.2 | 4.0 |
+| | | | `glm-5` | GLM-5 | 202K | 131,100 | ✅ | text | 1.0 | 3.2 |
+| | | | `glm-5-turbo` | GLM-5 Turbo | 202K | 131,100 | ✅ | text | 1.2 | 4.0 |
+| | | | `glm-5v-turbo` | GLM-5V Turbo | 202K | 131,100 | ✅ | text, image | 1.2 | 4.0 |
+| | | | `glm-4.7` | GLM-4.7 | 204K | 131,072 | ✅ | text | 0.6 | 2.2 |
+| | | | `glm-4.7-flash` | GLM-4.7 Flash | 200K | 131,072 | ✅ | text | 0.07 | 0.4 |
+| | | | `glm-4.7-flashx` | GLM-4.7 FlashX | 200K | 128,000 | ✅ | text | 0.06 | 0.4 |
+| | | | `glm-4.6` | GLM-4.6 | 204K | 131,072 | ✅ | text | 0.6 | 2.2 |
+| | | | `glm-4.6v` | GLM-4.6V | 128K | 32,768 | ✅ | text, image | 0.3 | 0.9 |
+| | | | `glm-4.5` | GLM-4.5 | 131K | 98,304 | ✅ | text | 0.6 | 2.2 |
+| | | | `glm-4.5-air` | GLM-4.5 Air | 131K | 98,304 | ✅ | text | 0.2 | 1.1 |
+| | | | `glm-4.5-flash` | GLM-4.5 Flash | 131K | 98,304 | ✅ | text | 0 | 0 |
+| | | | `glm-4.5v` | GLM-4.5V | 64K | 16,384 | ✅ | text, image | 0.6 | 1.8 |
+| **MiniMax** | `minimax` | anthropic | `MiniMax-M2.7` | MiniMax M2.7 | 204K | 131,072 | ✅ | text, image | 0.3 | 1.2 |
+| | | | `MiniMax-M2.7-highspeed` | MiniMax M2.7 Highspeed | 204K | 131,072 | ✅ | text, image | 0.3 | 1.2 |
+| | | | `MiniMax-VL-01` | MiniMax VL 01 | 200K | 8,192 | ❌ | text, image | 0.3 | 1.2 |
+| | | | `MiniMax-M2.5` | MiniMax M2.5 | 200K | 8,192 | ✅ | text | 0.3 | 1.2 |
+| **Kimi Coding** | `kimi-coding` | anthropic | `kimi-code` | Kimi Code | 262K | 32,768 | ✅ | text, image | 0 | 0 |
+| | | | `k2p5` | Kimi Code (legacy) | 262K | 32,768 | ✅ | text, image | 0 | 0 |
+| **小米 MiMo** | `xiaomi` | openai-chat | `mimo-v2-pro` | MiMo V2 Pro | 1M | 32,000 | ✅ | text | 0 | 0 |
+| | | | `mimo-v2-omni` | MiMo V2 Omni | 262K | 32,000 | ✅ | text, image | 0 | 0 |
+| | | | `mimo-v2-flash` | MiMo V2 Flash | 262K | 8,192 | ❌ | text | 0 | 0 |
+| **百度千帆** | `qianfan` | openai-chat | `deepseek-v3.2` | DeepSeek V3.2 | 98K | 32,768 | ✅ | text | 0 | 0 |
+| | | | `ernie-5.0-thinking-preview` | ERNIE 5.0 Thinking | 119K | 64,000 | ✅ | text, image | 0 | 0 |
+| **ModelStudio (DashScope)** | `modelstudio` | openai-chat | `qwen3.6-plus` | Qwen 3.6 Plus | 1M | 65,536 | ❌ | text, image | 0 | 0 |
+| | | | `qwen3.5-plus` | Qwen 3.5 Plus | 1M | 65,536 | ❌ | text, image | 0 | 0 |
+| | | | `qwen3-coder-plus` | Qwen 3 Coder Plus | 1M | 65,536 | ❌ | text | 0 | 0 |
+| | | | `qwen3-coder-next` | Qwen 3 Coder Next | 262K | 65,536 | ❌ | text | 0 | 0 |
+| | | | `qwen3-max-2026-01-23` | Qwen 3 Max | 262K | 65,536 | ❌ | text | 0 | 0 |
+| | | | `MiniMax-M2.5` | MiniMax M2.5 | 1M | 65,536 | ✅ | text | 0 | 0 |
+| | | | `glm-5` | GLM-5 | 202K | 16,384 | ❌ | text | 0 | 0 |
+| | | | `glm-4.7` | GLM 4.7 | 202K | 16,384 | ❌ | text | 0 | 0 |
+| | | | `kimi-k2.5` | Kimi K2.5 | 262K | 32,768 | ❌ | text, image | 0 | 0 |
+| **阶跃星辰 (StepFun)** | `stepfun` | openai-chat | `step-3.5-flash` | Step 3.5 Flash | 262K | 65,536 | ✅ | text | 0 | 0 |
+| | | | `step-3.5-flash-2603` | Step 3.5 Flash 2603 | 262K | 65,536 | ✅ | text | 0 | 0 |
+
+#### 基础设施/聚合 Provider（`infrastructure.ts`）
+
+| Provider | Key | API 类型 | 模型 ID | 模型名 | 上下文 | 最大输出 | 推理 | 输入 | $/M in | $/M out |
+|----------|-----|---------|---------|--------|--------|---------|------|------|--------|---------|
+| **OpenRouter** | `openrouter` | openai-chat | `auto` | OpenRouter Auto | 200K | 8,192 | ❌ | text, image | 0 | 0 |
+| | | | `anthropic/claude-sonnet-4-6` | Claude Sonnet 4.6 | 200K | 8,192 | ❌ | text, image | 3.0 | 15.0 |
+| | | | `openai/gpt-4o` | GPT-4o | 128K | 16,384 | ❌ | text, image | 2.5 | 10.0 |
+| | | | `google/gemini-2.5-pro-preview` | Gemini 2.5 Pro | 1M | 65,536 | ✅ | text, image | 1.25 | 10.0 |
+| | | | `deepseek/deepseek-r1` | DeepSeek R1 | 128K | 8,192 | ✅ | text | 0.55 | 2.19 |
+| | | | `openrouter/hunter-alpha` | Hunter Alpha | 1M | 65,536 | ✅ | text | 0 | 0 |
+| | | | `openrouter/healer-alpha` | Healer Alpha | 262K | 65,536 | ✅ | text, image | 0 | 0 |
+| **Groq** | `groq` | openai-chat | `llama-3.3-70b-versatile` | Llama 3.3 70B | 128K | 32,768 | ❌ | text | 0.59 | 0.79 |
+| | | | `mixtral-8x7b-32768` | Mixtral 8x7B | 32K | 32,768 | ❌ | text | 0.24 | 0.24 |
+| **NVIDIA** | `nvidia` | openai-chat | `nvidia/nemotron-3-super-120b-a12b` | Nemotron 3 Super 120B | 262K | 8,192 | ❌ | text | 0 | 0 |
+| | | | `moonshotai/kimi-k2.5` | Kimi K2.5 | 262K | 8,192 | ❌ | text | 0 | 0 |
+| | | | `minimaxai/minimax-m2.5` | MiniMax M2.5 | 196K | 8,192 | ❌ | text | 0 | 0 |
+| | | | `z-ai/glm5` | GLM-5 | 202K | 8,192 | ❌ | text | 0 | 0 |
+| **Together AI** | `together` | openai-chat | `meta-llama/Llama-3.3-70B-Instruct-Turbo` | Llama 3.3 70B Turbo | 131K | 8,192 | ❌ | text | 0.88 | 0.88 |
+| | | | `moonshotai/Kimi-K2.5` | Kimi K2.5 | 262K | 32,768 | ✅ | text, image | 0.5 | 2.8 |
+| | | | `zai-org/GLM-4.7` | GLM 4.7 Fp8 | 202K | 8,192 | ❌ | text | 0.45 | 2.0 |
+| | | | `meta-llama/Llama-4-Scout-17B-16E-Instruct` | Llama 4 Scout 17B | 10M | 32,768 | ❌ | text, image | 0.18 | 0.59 |
+| | | | `meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8` | Llama 4 Maverick 17B | 20M | 32,768 | ❌ | text, image | 0.27 | 0.85 |
+| | | | `deepseek-ai/DeepSeek-V3.1` | DeepSeek V3.1 | 131K | 8,192 | ❌ | text | 0.6 | 1.25 |
+| | | | `deepseek-ai/DeepSeek-R1` | DeepSeek R1 | 131K | 8,192 | ✅ | text | 3.0 | 7.0 |
+| | | | `moonshotai/Kimi-K2-Instruct-0905` | Kimi K2 Instruct | 262K | 8,192 | ❌ | text | 1.0 | 3.0 |
+| **Hugging Face** | `huggingface` | openai-chat | `deepseek-ai/DeepSeek-V3.1` | DeepSeek V3.1 | 131K | 8,192 | ❌ | text | 0.6 | 1.25 |
+| | | | `deepseek-ai/DeepSeek-R1` | DeepSeek R1 | 131K | 8,192 | ✅ | text | 3.0 | 7.0 |
+| | | | `meta-llama/Llama-3.3-70B-Instruct-Turbo` | Llama 3.3 70B Turbo | 131K | 8,192 | ❌ | text | 0.88 | 0.88 |
+| | | | `openai/gpt-oss-120b` | GPT-OSS 120B | 131K | 8,192 | ❌ | text | 0 | 0 |
+| **BytePlus (海外火山)** | `byteplus` | openai-chat | `seed-1-8-251228` | Seed 1.8 | 256K | 4,096 | ❌ | text, image | 0 | 0 |
+| | | | `kimi-k2-5-260127` | Kimi K2.5 | 256K | 4,096 | ❌ | text, image | 0 | 0 |
+| | | | `glm-4-7-251222` | GLM 4.7 | 200K | 4,096 | ❌ | text, image | 0 | 0 |
+| **Chutes (TEE)** | `chutes` | openai-chat | `zai-org/GLM-5-TEE` | GLM-5 TEE | 202K | 65,535 | ✅ | text | 0.95 | 3.15 |
+| | | | `zai-org/GLM-4.7-TEE` | GLM-4.7 TEE | 202K | 65,535 | ✅ | text | 0.4 | 2.0 |
+| | | | `zai-org/GLM-4.7-FP8` | GLM-4.7 FP8 | 202K | 65,535 | ✅ | text | 0.3 | 1.2 |
+| | | | `zai-org/GLM-4.6-TEE` | GLM-4.6 TEE | 202K | 65,536 | ✅ | text | 0.4 | 1.7 |
+| | | | `zai-org/GLM-4.6-FP8` | GLM-4.6 FP8 | 202K | 65,535 | ✅ | text | 0.3 | 1.2 |
+| | | | `zai-org/GLM-4.6V` | GLM-4.6V | 131K | 65,536 | ✅ | text, image | 0.3 | 0.9 |
+| | | | `moonshotai/Kimi-K2.5-TEE` | Kimi K2.5 TEE | 262K | 65,535 | ✅ | text, image | 0.45 | 2.2 |
+| | | | `deepseek-ai/DeepSeek-V3-0324-TEE` | DeepSeek V3 TEE | 163K | 65,536 | ✅ | text | 0.25 | 1.0 |
+| | | | `deepseek-ai/DeepSeek-V3.1-TEE` | DeepSeek V3.1 TEE | 163K | 65,536 | ✅ | text | 0.2 | 0.8 |
+| | | | `deepseek-ai/DeepSeek-V3.2-TEE` | DeepSeek V3.2 TEE | 131K | 65,536 | ✅ | text | 0.28 | 0.42 |
+| | | | `deepseek-ai/DeepSeek-R1-0528-TEE` | DeepSeek R1 0528 TEE | 163K | 65,536 | ✅ | text | 0.45 | 2.15 |
+| | | | `MiniMaxAI/MiniMax-M2.5-TEE` | MiniMax M2.5 TEE | 196K | 65,536 | ✅ | text | 0.3 | 1.1 |
+| | | | `XiaomiMiMo/MiMo-V2-Flash-TEE` | MiMo V2 Flash TEE | 262K | 65,536 | ✅ | text | 0.09 | 0.29 |
+| | | | `openai/gpt-oss-120b-TEE` | GPT-OSS 120B TEE | 131K | 65,536 | ✅ | text | 0.05 | 0.45 |
+| | | | `Qwen/Qwen3-235B-A22B-Instruct-2507-TEE` | Qwen 3 235B TEE | 262K | 65,536 | ✅ | text | 0.08 | 0.55 |
+| | | | `Qwen/Qwen3.5-397B-A17B-TEE` | Qwen 3.5 397B TEE | 262K | 65,536 | ✅ | text, image | 0.55 | 3.5 |
+| | | | `Qwen/Qwen3-Coder-Next-TEE` | Qwen 3 Coder Next TEE | 262K | 65,536 | ✅ | text | 0.12 | 0.75 |
+| | | | `Qwen/Qwen3-32B` | Qwen 3 32B | 40K | 40,960 | ✅ | text | 0.08 | 0.24 |
+| **Fireworks AI** | `fireworks` | openai-chat | `accounts/fireworks/routers/kimi-k2p5-turbo` | Kimi K2.5 Turbo (Fire Pass) | 256K | 256,000 | ❌ | text, image | 0 | 0 |
+| **Arcee** | `arcee` | openai-chat | `trinity-large-thinking` | Trinity Large Thinking | 262K | 80,000 | ✅ | text | 0.25 | 0.9 |
+| | | | `trinity-large-preview` | Trinity Large Preview | 131K | 16,384 | ❌ | text | 0.25 | 1.0 |
+| | | | `trinity-mini` | Trinity Mini 26B | 131K | 80,000 | ❌ | text | 0.045 | 0.15 |
+| **Venice** | `venice` | openai-chat | `kimi-k2-5` | Kimi K2.5 | 256K | 65,536 | ✅ | text, image | 0 | 0 |
+| | | | `deepseek-v3.2` | DeepSeek V3.2 | 160K | 32,768 | ✅ | text | 0 | 0 |
+| | | | `qwen3-coder-480b-a35b-instruct` | Qwen 3 Coder 480B | 256K | 65,536 | ❌ | text | 0 | 0 |
+| | | | `qwen3-5-35b-a3b` | Qwen 3.5 35B | 256K | 65,536 | ✅ | text, image | 0 | 0 |
+| | | | `zai-org-glm-5` | GLM-5 | 198K | 32,000 | ✅ | text | 0 | 0 |
+| | | | `minimax-m25` | MiniMax M2.5 | 198K | 32,768 | ✅ | text | 0 | 0 |
+| | | | `llama-3.3-70b` | Llama 3.3 70B | 128K | 4,096 | ❌ | text | 0 | 0 |
+| | | | `openai-gpt-oss-120b` | GPT-OSS 120B | 128K | 16,384 | ❌ | text | 0 | 0 |
+| **Synthetic** | `synthetic` | anthropic | `hf:MiniMaxAI/MiniMax-M2.5` | MiniMax M2.5 | 192K | 65,536 | ❌ | text | 0 | 0 |
+| | | | `hf:moonshotai/Kimi-K2.5` | Kimi K2.5 | 256K | 8,192 | ✅ | text, image | 0 | 0 |
+| | | | `hf:zai-org/GLM-5` | GLM-5 | 256K | 128,000 | ✅ | text, image | 0 | 0 |
+| | | | `hf:zai-org/GLM-4.7` | GLM-4.7 | 198K | 128,000 | ❌ | text | 0 | 0 |
+| | | | `hf:deepseek-ai/DeepSeek-V3.2` | DeepSeek V3.2 | 159K | 8,192 | ❌ | text | 0 | 0 |
+| | | | `hf:deepseek-ai/DeepSeek-R1-0528` | DeepSeek R1 0528 | 128K | 8,192 | ❌ | text | 0 | 0 |
+| | | | `hf:Qwen/Qwen3-Coder-480B-A35B-Instruct` | Qwen 3 Coder 480B | 256K | 8,192 | ❌ | text | 0 | 0 |
+| | | | `hf:openai/gpt-oss-120b` | GPT-OSS 120B | 128K | 8,192 | ❌ | text | 0 | 0 |
+| **Vercel AI Gateway** | `vercel-ai-gateway` | openai-chat | `anthropic/claude-opus-4.6` | Claude Opus 4.6 | 1M | 128,000 | ✅ | text, image | 5.0 | 25.0 |
+| | | | `openai/gpt-5.4` | GPT-5.4 | 200K | 128,000 | ✅ | text, image | 2.5 | 15.0 |
+| | | | `openai/gpt-5.4-pro` | GPT-5.4 Pro | 200K | 128,000 | ✅ | text, image | 30.0 | 180.0 |
+| **Cloudflare AI Gateway** | `cloudflare-ai` | openai-chat | `claude-sonnet-4-6` | Claude Sonnet 4.6 | 200K | 64,000 | ✅ | text, image | 3.0 | 15.0 |
+
+#### 本地/自托管 Provider（`local.ts`）
+
+| Provider | Key | API 类型 | 模型 ID | 模型名 | 上下文 | 最大输出 | 推理 | 说明 |
+|----------|-----|---------|---------|--------|--------|---------|------|------|
+| **LiteLLM** | `litellm` | openai-chat | `your-model-id` | Your Model | 128K | 8,192 | ❌ | 统一 LLM API 代理网关 |
+| **Ollama** | `ollama` | openai-chat | `glm-4.7-flash` | GLM 4.7 Flash | 128K | 8,192 | ✅ | 本地运行 |
+| | | | `qwen3:32b` | Qwen 3 32B | 128K | 8,192 | ✅ | 本地运行 |
+| | | | `kimi-k2.5:cloud` | Kimi K2.5 (云端) | 256K | 8,192 | ❌ | Ollama 云端代理 |
+| | | | `minimax-m2.5:cloud` | MiniMax M2.5 (云端) | 200K | 8,192 | ✅ | Ollama 云端代理 |
+| | | | `glm-5:cloud` | GLM-5 (云端) | 204K | 131,072 | ✅ | Ollama 云端代理 |
+| **vLLM** | `vllm` | openai-chat | `your-model-id` | Your Model | 128K | 8,192 | ❌ | 高性能本地推理引擎 |
+| **LM Studio** | `lm-studio` | openai-chat | `your-model-id` | Your Model | 128K | 8,192 | ❌ | 桌面端本地推理 |
+| **SGLang** | `sglang` | openai-chat | `your-model-id` | Your Model | 128K | 8,192 | ❌ | 高性能本地推理引擎 |
 
 ---
 
@@ -869,6 +1055,6 @@ flowchart TD
 | Session DB | `crates/oc-core/src/session/` | SQLite 持久化、消息 FTS 搜索 |
 | Chat 命令（桌面） | `src-tauri/src/commands/chat.rs` | Tauri 命令层：主流程编排、模型链迭代、上下文保存恢复 |
 | Chat 路由（HTTP） | `crates/oc-server/src/routes/chat.rs` | HTTP/WS 入口：REST API + WebSocket 流式推送 |
-| 前端模板 | `src/components/settings/provider-setup/templates.ts` | 28 个 Provider 模板 |
+| 前端模板 | `src/components/settings/provider-setup/templates/` | 36 个 Provider 模板（166 个预设模型） |
 | 前端 Hook | `src/components/chat/useChatStream.ts` | 事件处理、delta 批量刷新 |
 | Dashboard 定价 | `crates/oc-core/src/dashboard/` | `estimate_cost()` 50+ 模型定价规则 |
