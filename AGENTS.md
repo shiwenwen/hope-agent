@@ -29,6 +29,7 @@ opencomputer server stop               # 停止服务
 Cargo.toml              Workspace 根（members: crates/oc-core, crates/oc-server, src-tauri）
 skills/                 内置技能（bundled skills，随应用发行）
   skill-creator/        技能创建/编辑/改进工具（含 agents/references/scripts/eval-viewer）
+  settings/             应用设置管理技能（通过 get_settings/update_settings 工具调整配置）
 crates/
   oc-core/              核心业务逻辑（零 Tauri 依赖，纯 Rust 库）
   oc-server/            HTTP/WS 服务器（axum，REST API + WebSocket 流式推送）

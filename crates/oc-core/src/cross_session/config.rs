@@ -188,27 +188,9 @@ pub fn validate_override(base: &CrossSessionConfig, override_json: &str) -> anyh
 fn merge_override(base: &CrossSessionConfig, override_json: &str) -> anyhow::Result<CrossSessionConfig> {
     let override_val: serde_json::Value = serde_json::from_str(override_json)?;
     let mut base_val = serde_json::to_value(base)?;
-    merge_json(&mut base_val, override_val);
+    crate::merge_json(&mut base_val, override_val);
     let merged: CrossSessionConfig = serde_json::from_value(base_val)?;
     Ok(merged)
-}
-
-fn merge_json(dst: &mut serde_json::Value, src: serde_json::Value) {
-    match (dst, src) {
-        (serde_json::Value::Object(dst_map), serde_json::Value::Object(src_map)) => {
-            for (k, v) in src_map {
-                match dst_map.get_mut(&k) {
-                    Some(existing) => merge_json(existing, v),
-                    None => {
-                        dst_map.insert(k, v);
-                    }
-                }
-            }
-        }
-        (dst_slot, src_val) => {
-            *dst_slot = src_val;
-        }
-    }
 }
 
 #[cfg(test)]

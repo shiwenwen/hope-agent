@@ -2,11 +2,11 @@ use serde_json::json;
 
 use super::super::{
     TOOL_AGENTS_LIST, TOOL_APPLY_PATCH, TOOL_BROWSER, TOOL_DELETE_MEMORY, TOOL_EDIT, TOOL_EXEC,
-    TOOL_FIND, TOOL_GET_WEATHER, TOOL_GREP, TOOL_IMAGE, TOOL_LS, TOOL_MANAGE_CRON, TOOL_MEMORY_GET,
-    TOOL_PDF, TOOL_PROCESS, TOOL_PROJECT_READ_FILE, TOOL_READ, TOOL_RECALL_MEMORY,
-    TOOL_SAVE_MEMORY, TOOL_SESSIONS_HISTORY,
-    TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEND, TOOL_SESSION_STATUS, TOOL_UPDATE_CORE_MEMORY,
-    TOOL_UPDATE_MEMORY, TOOL_WEB_FETCH, TOOL_WRITE,
+    TOOL_FIND, TOOL_GET_SETTINGS, TOOL_GET_WEATHER, TOOL_GREP, TOOL_IMAGE, TOOL_LS,
+    TOOL_MANAGE_CRON, TOOL_MEMORY_GET, TOOL_PDF, TOOL_PROCESS, TOOL_PROJECT_READ_FILE, TOOL_READ,
+    TOOL_RECALL_MEMORY, TOOL_SAVE_MEMORY, TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST,
+    TOOL_SESSIONS_SEND, TOOL_SESSION_STATUS, TOOL_UPDATE_MEMORY, TOOL_UPDATE_CORE_MEMORY,
+    TOOL_UPDATE_SETTINGS, TOOL_WEB_FETCH, TOOL_WRITE,
 };
 use super::types::{is_core_tool, ToolDefinition};
 
@@ -963,6 +963,72 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     }
                 },
                 "required": [],
+                "additionalProperties": false
+            }),
+        },
+        // ── Settings ────────────────────────────────────────────
+        ToolDefinition {
+            name: TOOL_GET_SETTINGS.into(),
+            description: "Read application settings for a given category. Returns the current configuration as JSON. Use category 'all' for an overview of all settings.".into(),
+            internal: false,
+            deferred: false,
+            always_load: false,
+            async_capable: false,
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "category": {
+                        "type": "string",
+                        "description": "Settings category to read. Use 'all' for an overview.",
+                        "enum": [
+                            "all", "user", "theme", "language", "ui_effects", "proxy",
+                            "web_search", "web_fetch", "compact", "notification",
+                            "temperature", "tool_timeout", "approval",
+                            "image_generate", "canvas", "image", "pdf",
+                            "async_tools", "deferred_tools",
+                            "memory_extract", "memory_selection", "embedding",
+                            "embedding_cache", "dedup", "hybrid_search",
+                            "temporal_decay", "mmr",
+                            "recap", "cross_session", "shortcuts",
+                            "active_model", "fallback_models", "skills"
+                        ]
+                    }
+                },
+                "required": ["category"],
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: TOOL_UPDATE_SETTINGS.into(),
+            description: "Update application settings for a given category. Accepts partial JSON — only the fields you pass are changed, others are preserved. Cannot modify providers, channels, or API keys for security.".into(),
+            internal: false,
+            deferred: false,
+            always_load: false,
+            async_capable: false,
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "category": {
+                        "type": "string",
+                        "description": "Settings category to update.",
+                        "enum": [
+                            "user", "theme", "language", "ui_effects", "proxy",
+                            "web_search", "web_fetch", "compact", "notification",
+                            "temperature", "tool_timeout", "approval",
+                            "image_generate", "canvas", "image", "pdf",
+                            "async_tools", "deferred_tools",
+                            "memory_extract", "memory_selection", "embedding",
+                            "embedding_cache", "dedup", "hybrid_search",
+                            "temporal_decay", "mmr",
+                            "recap", "cross_session", "shortcuts", "skills"
+                        ]
+                    },
+                    "values": {
+                        "type": "object",
+                        "description": "JSON object with the fields to update. Only include fields you want to change."
+                    }
+                },
+                "required": ["category", "values"],
                 "additionalProperties": false
             }),
         },

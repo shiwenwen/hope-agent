@@ -40,6 +40,26 @@ pub fn truncate_utf8_tail(s: &str, max_bytes: usize) -> &str {
     &s[start..]
 }
 
+/// Recursively merge `src` JSON into `dst`. Object keys are merged deeply;
+/// non-object values in `src` overwrite `dst`.
+pub fn merge_json(dst: &mut serde_json::Value, src: serde_json::Value) {
+    match (dst, src) {
+        (serde_json::Value::Object(dst_map), serde_json::Value::Object(src_map)) => {
+            for (k, v) in src_map {
+                match dst_map.get_mut(&k) {
+                    Some(existing) => merge_json(existing, v),
+                    None => {
+                        dst_map.insert(k, v);
+                    }
+                }
+            }
+        }
+        (dst_slot, src_val) => {
+            *dst_slot = src_val;
+        }
+    }
+}
+
 /// Read a non-negative i64 column as u64 (rusqlite 0.39+ removed u64 FromSql).
 pub fn sql_u64(row: &rusqlite::Row, idx: usize) -> rusqlite::Result<u64> {
     row.get::<_, i64>(idx).map(|v| v as u64)

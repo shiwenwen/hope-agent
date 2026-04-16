@@ -27,6 +27,7 @@ mod process;
 mod project_read_file;
 pub(crate) mod read;
 mod sessions;
+mod settings;
 pub(crate) mod subagent;
 mod submit_plan;
 pub(crate) mod team;
@@ -97,6 +98,8 @@ pub const TOOL_JOB_STATUS: &str = "job_status";
 pub const TOOL_PROJECT_READ_FILE: &str = "project_read_file";
 pub const TOOL_TEAM: &str = "team";
 pub const TOOL_PEEK_SESSIONS: &str = "peek_sessions";
+pub const TOOL_GET_SETTINGS: &str = "get_settings";
+pub const TOOL_UPDATE_SETTINGS: &str = "update_settings";
 
 // ── Shared Helpers ────────────────────────────────────────────────
 
