@@ -59,6 +59,7 @@ impl AssistantAgent {
             extra_system_context: None,
             context_window: 200_000,
             compact_config: crate::context_compact::CompactConfig::default(),
+            context_engine: std::sync::Arc::new(crate::context_compact::DefaultContextEngine),
             token_calibrator: std::sync::Mutex::new(
                 crate::context_compact::TokenEstimateCalibrator::new(),
             ),
@@ -102,6 +103,7 @@ impl AssistantAgent {
             extra_system_context: None,
             context_window: 200_000,
             compact_config: crate::context_compact::CompactConfig::default(),
+            context_engine: std::sync::Arc::new(crate::context_compact::DefaultContextEngine),
             token_calibrator: std::sync::Mutex::new(
                 crate::context_compact::TokenEstimateCalibrator::new(),
             ),
@@ -171,6 +173,7 @@ impl AssistantAgent {
             extra_system_context: None,
             context_window,
             compact_config: crate::context_compact::CompactConfig::default(),
+            context_engine: std::sync::Arc::new(crate::context_compact::DefaultContextEngine),
             token_calibrator: std::sync::Mutex::new(
                 crate::context_compact::TokenEstimateCalibrator::new(),
             ),
@@ -583,6 +586,27 @@ impl AssistantAgent {
     pub fn set_compact_config(&mut self, mut config: crate::context_compact::CompactConfig) {
         config.clamp();
         self.compact_config = config;
+    }
+
+    /// Replace the context engine (default: `DefaultContextEngine`).
+    pub fn set_context_engine(
+        &mut self,
+        engine: std::sync::Arc<dyn crate::context_compact::ContextEngine>,
+    ) {
+        self.context_engine = engine;
+    }
+
+    /// Access the active context engine.
+    pub fn context_engine(&self) -> &dyn crate::context_compact::ContextEngine {
+        &*self.context_engine
+    }
+
+    /// Apply the context engine's optional system prompt addition.
+    pub(super) fn apply_engine_prompt_addition(&self, system_prompt: &mut String) {
+        if let Some(addition) = self.context_engine.system_prompt_addition() {
+            system_prompt.push_str("\n\n");
+            system_prompt.push_str(&addition);
+        }
     }
 
     /// If LLM memory selection is enabled and enough candidates exist,

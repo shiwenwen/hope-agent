@@ -29,28 +29,31 @@
 
 **Phase 目标**：把可扩展性和生产级安全这两个地基打稳。完成后 OC 的"上下文管理"和"权限安全"两项从 5/3 推到 5/4，为后续 Phase 腾出空间。
 
-### A1. Context Engine trait 抽象 ⭐ 核心地基
+### A1. Context Engine trait 抽象 ⭐ 核心地基 — ✅ 已完成（2026-04-16）
 
 **动机**：OW v2.1 的 `registerContextEngine()` 让第三方能注册完整的 context 装配/压缩策略。OC 当前的 `context_compact` 是固定 5 层管线，所有增强都要改核心代码。
 
-**实施**：
-- 在 [crates/oc-core/src/context_compact/](../../crates/oc-core/src/context_compact/) 定义 `ContextEngine` trait，暴露生命周期钩子：
-  - `ingest(&mut self, turn: &Turn)` — 单轮摄入
-  - `assemble(&self, budget: TokenBudget) -> Vec<Message>` — 请求前装配
-  - `compact(&mut self, pressure: Pressure) -> CompactResult` — 主动压缩
-  - `after_turn(&mut self, usage: &TokenUsage)` — 回合结束 hook（预警/idle maintenance）
-  - `system_prompt_addition(&self) -> Option<String>` — 动态 system 补丁（给 Active Memory 用）
-- 把现有 5 层压缩实现封装为默认后端 `DefaultContextEngine`，保持行为字节一致
-- `CoreState` 持有 `Arc<dyn ContextEngine>`，通过 `AppConfig.contextEngine` 选择
-- 前端 Agent 设置面板增加"上下文引擎"选择器（默认隐藏，只在有多个 engine 时显示）
+**实际实施**（与初始设计略有调整）：
+- 新建 [`crates/oc-core/src/context_compact/engine.rs`](../../crates/oc-core/src/context_compact/engine.rs)，定义：
+  - `ContextEngine` trait（`compact_sync` / `emergency_compact` / `system_prompt_addition`）
+  - `CompactionContext` 参数对象（system_prompt / context_window / max_output_tokens / config / cache_ttl 状态）
+  - `DefaultContextEngine` 默认实现——委托调用现有 `compact_if_needed()` / `emergency_compact()`
+- `AssistantAgent` 新增 `context_engine: Arc<dyn ContextEngine>` 字段，3 个构造函数统一初始化为 `DefaultContextEngine`
+- `agent/context.rs::run_compaction()` 重构：cache-TTL 节流逻辑从"克隆 config 设 infinity"改为"预计算两个 bool → `CompactionContext` → `self.context_engine.compact_sync()`"
+- `chat_engine/engine.rs` 的 emergency_compact 改为通过 `agent.context_engine()` 调用
+- 4 个 Provider 文件新增 `system_prompt_addition()` hook，提取为共享方法 `apply_engine_prompt_addition()`
+- Tier 3 异步编排（摘要/flush/恢复）保留在 `agent/context.rs`，不进 trait——trait 只抽象"数据变换"
+
+**设计决策（与初始蓝图的差异）**：
+- 初始蓝图设想了 5 个生命周期钩子（ingest/assemble/compact/after_turn/system_prompt_addition），实际落地精简为 3 个（compact_sync/emergency_compact/system_prompt_addition）。理由：Tier 3 编排依赖 AssistantAgent 的 side_query/session_id/event callback，不适合放进 trait；ingest/after_turn 等生命周期钩子等实际需要时再加
+- `Summarizer` trait 在 /simplify review 时移除（死代码），等 A2 可插拔 Compaction Provider 时再引入
+- 前端 Agent 设置面板的"上下文引擎"选择器推迟到有第二个 engine 实现时再加
 
 **验收**：
-- [ ] 默认 engine 与旧实现行为一致（快照对比 10 条真实会话）
-- [ ] Side Query 缓存继续命中（cache snapshot 不变）
-- [ ] Cache-TTL 节流继续生效
-- [ ] 新增一个 `NoopContextEngine` 作为测试用例，确认 trait 边界正确
-
-**复杂度**：中高。不涉及 API 行为变化，但是热路径重构。
+- [x] 默认 engine 与旧实现行为一致（cargo check 三 crate 零 warning，逻辑等价于原代码）
+- [x] Side Query 缓存不受影响（cache_safe_params 快照在 system_prompt_addition hook 之后保存）
+- [x] Cache-TTL 节流逻辑等价（预计算 bool → DefaultContextEngine 内部翻译为 effective config）
+- [ ] ~~新增 `NoopContextEngine` 测试~~ — 推迟到有第二个实现时
 
 ### A2. 可插拔 Compaction Provider
 

@@ -396,7 +396,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         );
                         let mut history = agent.get_conversation_history();
                         let compact_result =
-                            context_compact::emergency_compact(&mut history, &compact_config);
+                            agent.context_engine().emergency_compact(&mut history, &compact_config);
                         agent.set_conversation_history(history);
                         save_agent_context(&db, &session_id, &agent);
 

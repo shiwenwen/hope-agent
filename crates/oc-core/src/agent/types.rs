@@ -126,6 +126,8 @@ pub struct AssistantAgent {
     pub(super) context_window: u32,
     /// Context compaction configuration
     pub(super) compact_config: crate::context_compact::CompactConfig,
+    /// Pluggable context compression engine (default: DefaultContextEngine)
+    pub(super) context_engine: std::sync::Arc<dyn crate::context_compact::ContextEngine>,
     /// Token estimate calibrator (updated with actual API usage)
     #[allow(dead_code)]
     pub(super) token_calibrator: std::sync::Mutex<crate::context_compact::TokenEstimateCalibrator>,

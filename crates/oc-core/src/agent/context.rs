@@ -36,56 +36,56 @@ impl AssistantAgent {
         /// Usage ratio that overrides cache-TTL throttle to prevent ContextOverflow → Tier 4.
         const CACHE_TTL_EMERGENCY_RATIO: f64 = 0.95;
 
-        // Cache-TTL throttle: skip Tier 2+ if last compaction was recent.
-        // Only clone config when we need to mutate thresholds; borrow otherwise.
-        let mut owned_config;
-        let effective_config = if self.compact_config.cache_ttl_secs > 0 {
-            let within_ttl = {
-                let guard = self
-                    .last_tier2_compaction_at
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner());
-                matches!(*guard, Some(ts) if ts.elapsed().as_secs() < self.compact_config.cache_ttl_secs)
-            };
-            if within_ttl {
-                let tokens_now =
-                    context_compact::estimate_request_tokens(system_prompt, messages, max_tokens);
-                let usage_now = tokens_now as f64 / self.context_window as f64;
-                if usage_now >= CACHE_TTL_EMERGENCY_RATIO {
-                    app_debug!(
-                        "context",
-                        "compact",
-                        "Cache-TTL throttle overridden: usage {:.1}% >= {:.0}%, forcing Tier 2+",
-                        usage_now * 100.0,
-                        CACHE_TTL_EMERGENCY_RATIO * 100.0
+        // Pre-compute cache-TTL throttle state as two booleans for CompactionContext.
+        let (cache_ttl_throttled, cache_ttl_emergency) =
+            if self.compact_config.cache_ttl_secs > 0 {
+                let within_ttl = {
+                    let guard = self
+                        .last_tier2_compaction_at
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner());
+                    matches!(*guard, Some(ts) if ts.elapsed().as_secs() < self.compact_config.cache_ttl_secs)
+                };
+                if within_ttl {
+                    let tokens_now = context_compact::estimate_request_tokens(
+                        system_prompt,
+                        messages,
+                        max_tokens,
                     );
-                    &self.compact_config
+                    let usage_now = tokens_now as f64 / self.context_window as f64;
+                    let emergency = usage_now >= CACHE_TTL_EMERGENCY_RATIO;
+                    if emergency {
+                        app_debug!(
+                            "context",
+                            "compact",
+                            "Cache-TTL throttle overridden: usage {:.1}% >= {:.0}%, forcing Tier 2+",
+                            usage_now * 100.0,
+                            CACHE_TTL_EMERGENCY_RATIO * 100.0
+                        );
+                    } else {
+                        app_debug!(
+                            "context",
+                            "compact",
+                            "Cache-TTL throttle: skipping Tier 2+ (cache still hot)"
+                        );
+                    }
+                    (true, emergency)
                 } else {
-                    owned_config = self.compact_config.clone();
-                    owned_config.soft_trim_ratio = f64::INFINITY;
-                    owned_config.hard_clear_ratio = f64::INFINITY;
-                    owned_config.summarization_threshold = f64::INFINITY;
-                    app_debug!(
-                        "context",
-                        "compact",
-                        "Cache-TTL throttle: skipping Tier 2+ (cache still hot)"
-                    );
-                    &owned_config
+                    (false, false)
                 }
             } else {
-                &self.compact_config
-            }
-        } else {
-            &self.compact_config
-        };
+                (false, false)
+            };
 
-        let compact_result = context_compact::compact_if_needed(
-            messages,
+        let ctx = context_compact::CompactionContext {
             system_prompt,
-            self.context_window,
-            max_tokens,
-            effective_config,
-        );
+            context_window: self.context_window,
+            max_output_tokens: max_tokens,
+            config: &self.compact_config,
+            cache_ttl_throttled,
+            cache_ttl_emergency,
+        };
+        let compact_result = self.context_engine.compact_sync(messages, &ctx);
 
         if compact_result.tier_applied == 0 {
             return;

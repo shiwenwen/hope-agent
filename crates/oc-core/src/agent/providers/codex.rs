@@ -79,6 +79,9 @@ impl AssistantAgent {
         self.select_memories_if_needed(&mut system_prompt, message)
             .await;
 
+        // Context engine hook: optional system prompt addition (e.g. Active Memory)
+        self.apply_engine_prompt_addition(&mut system_prompt);
+
         // Save cache-safe params for side_query reuse (prompt cache sharing)
         self.save_cache_safe_params(system_prompt.clone(), tool_schemas.clone(), input.clone());
 
