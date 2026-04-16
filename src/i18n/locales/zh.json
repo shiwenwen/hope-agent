@@ -1056,6 +1056,7 @@
     "subagentAllowedAgents": "启用的子 Agent",
     "subagentAllowedAgentsHint": "选择允许委派任务的 Agent，取消勾选将禁止委派给该 Agent",
     "subagentMaxConcurrent": "最大并发子 Agent 数",
+    "subagentMaxBatchSize": "批量派发上限",
     "subagentTimeout": "默认超时",
     "subagentTimeoutUnit": "秒",
     "subagentMaxDepth": "最大嵌套深度",

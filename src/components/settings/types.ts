@@ -129,6 +129,7 @@ export interface AgentConfig {
     maxConcurrent: number
     defaultTimeoutSecs: number
     maxSpawnDepth?: number | null
+    maxBatchSize?: number | null
     announceTimeoutSecs?: number | null
     model?: string | null
   }

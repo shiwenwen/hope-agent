@@ -30,6 +30,18 @@ pub fn max_depth_for_agent(agent_id: &str) -> u32 {
         .unwrap_or(DEFAULT_MAX_DEPTH)
 }
 
+/// Default max tasks per batch_spawn call
+const DEFAULT_MAX_BATCH_SIZE: usize = 10;
+
+/// Get the effective max batch size for a specific agent.
+pub fn max_batch_size_for_agent(agent_id: &str) -> usize {
+    crate::agent_loader::load_agent(agent_id)
+        .ok()
+        .and_then(|def| def.config.subagents.max_batch_size)
+        .map(|s| (s as usize).clamp(1, 50))
+        .unwrap_or(DEFAULT_MAX_BATCH_SIZE)
+}
+
 /// Default timeout for sub-agent execution (seconds)
 pub const DEFAULT_TIMEOUT_SECS: u64 = 300;
 

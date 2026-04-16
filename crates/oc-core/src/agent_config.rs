@@ -368,6 +368,10 @@ pub struct SubagentConfig {
     #[serde(default)]
     pub max_spawn_depth: Option<u32>,
 
+    /// Max tasks per batch_spawn call (1-50, default 10)
+    #[serde(default)]
+    pub max_batch_size: Option<u32>,
+
     /// Auto-archive completed runs after N minutes (None = no auto-archive)
     #[serde(default)]
     pub archive_after_minutes: Option<u64>,
@@ -396,6 +400,7 @@ impl Default for SubagentConfig {
             model: None,
             denied_tools: Vec::new(),
             max_spawn_depth: None,
+            max_batch_size: None,
             archive_after_minutes: None,
             announce_timeout_secs: None,
         }

@@ -158,6 +158,26 @@ export default function SubagentPanel({ config, currentAgentId, onChange }: Suba
             </div>
           </div>
 
+          {/* Max batch size */}
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-sm">{t("settings.subagentMaxBatchSize")}</span>
+              <Input
+                type="number"
+                value={config.maxBatchSize ?? 10}
+                onChange={(e) =>
+                  onChange({
+                    ...config,
+                    maxBatchSize: Math.max(1, Math.min(50, Number(e.target.value) || 10)),
+                  })
+                }
+                className="w-20 text-sm"
+                min={1}
+                max={50}
+              />
+            </div>
+          </div>
+
           {/* Default timeout */}
           <div className="space-y-1">
             <span className="text-sm">{t("settings.subagentTimeout")}</span>

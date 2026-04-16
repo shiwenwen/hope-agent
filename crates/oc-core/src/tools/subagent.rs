@@ -346,16 +346,19 @@ async fn action_batch_spawn(args: &Value, ctx: &ToolExecContext) -> Result<Strin
     if tasks.is_empty() {
         return Err(anyhow::anyhow!("'tasks' array cannot be empty"));
     }
-    if tasks.len() > 10 {
-        return Err(anyhow::anyhow!(
-            "batch_spawn supports at most 10 tasks at once"
-        ));
-    }
 
     let parent_session_id = ctx.session_id.as_deref().ok_or_else(|| {
         anyhow::anyhow!("No session context — cannot spawn sub-agents outside a chat session")
     })?;
     let parent_agent_id = ctx.agent_id.as_deref().unwrap_or("default");
+
+    let max_batch = subagent::max_batch_size_for_agent(parent_agent_id);
+    if tasks.len() > max_batch {
+        return Err(anyhow::anyhow!(
+            "batch_spawn supports at most {} tasks at once (current agent config)",
+            max_batch
+        ));
+    }
 
     let session_db = get_session_db()?;
     let cancel_registry = get_cancel_registry()?;

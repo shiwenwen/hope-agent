@@ -252,6 +252,7 @@ export interface SubagentConfig {
   model?: string
   deniedTools: string[]
   maxSpawnDepth?: number
+  maxBatchSize?: number
   archiveAfterMinutes?: number
   announceTimeoutSecs?: number
 }

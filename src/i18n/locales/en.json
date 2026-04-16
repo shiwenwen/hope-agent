@@ -1056,6 +1056,7 @@
     "subagentAllowedAgents": "Enabled Sub-Agents",
     "subagentAllowedAgentsHint": "Select which agents can be delegated to. Unchecked agents will be blocked.",
     "subagentMaxConcurrent": "Max concurrent sub-agents",
+    "subagentMaxBatchSize": "Max batch spawn size",
     "subagentTimeout": "Default timeout",
     "subagentTimeoutUnit": "seconds",
     "subagentMaxDepth": "Max nesting depth",
