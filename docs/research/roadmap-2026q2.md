@@ -55,19 +55,27 @@
 - [x] Cache-TTL 节流逻辑等价（预计算 bool → DefaultContextEngine 内部翻译为 effective config）
 - [ ] ~~新增 `NoopContextEngine` 测试~~ — 推迟到有第二个实现时
 
-### A2. 可插拔 Compaction Provider
+### A2. 可插拔 Compaction Provider — ✅ 已完成（2026-04-16）
 
 **动机**：摘要模型当前硬绑定主对话 Provider，无法用更便宜/更快的专用模型（例如用 Haiku 做摘要而主对话跑 Opus）。
 
-**实施**：
-- 定义 `CompactionProvider` trait：`async fn summarize(&self, messages: &[Message], target_tokens: usize) -> Result<Summary>`
-- 内置两个实现：
-  - `ReuseModelProvider`（当前行为：复用主对话模型 + side_query 缓存）
-  - `DedicatedModelProvider`（配置独立 Provider/model，不共享缓存，牺牲 10% 成本换灵活性）
-- 失败时自动 fallback 到 `ReuseModelProvider`
-- `AppConfig.compact.summaryProvider` 配置项
+**实际实施**（与初始设计略有调整）：
+- 在 [`context_compact/engine.rs`](../../crates/oc-core/src/context_compact/engine.rs) 新增 `CompactionProvider` async trait（`summarize` / `name`）
+- 内置 `DedicatedModelProvider`（[`agent/context.rs`](../../crates/oc-core/src/agent/context.rs)）：使用独立 provider:model 对，通过提取出的 `summarize_direct()` 函数发起 HTTP 调用
+- `AssistantAgent` 新增 `compaction_provider: Option<Arc<dyn CompactionProvider>>`，`summarize_with_model()` 重构为：dedicated provider → side_query → direct HTTP 三级 fallback
+- 现有 `summarization_model` 配置驱动 `DedicatedModelProvider` 构造（`chat_engine/context.rs` + `acp/agent.rs`）
+- 默认行为（`compaction_provider = None`）完全不变，走 side_query 路径
 
-**验收**：默认行为不变；配置 dedicated 后能独立调用且失败优雅回退。
+**设计决策（与初始蓝图的差异）**：
+- 初始蓝图设想 `ReuseModelProvider` + `DedicatedModelProvider` 两个 trait 实现。实际落地 side_query 缓存复用路径保留在 `AssistantAgent::summarize_with_model()` 内部作为默认 fallback，trait 只抽象"独立摘要调用"场景——因为 side_query 需要访问 AssistantAgent 的 `cache_safe_params` 等内部状态，包进 trait 会产生循环依赖
+- 不新增 `summaryProvider` 配置项——复用现有 `summarization_model`（`"providerId:modelId"` 格式），在 agent 构造时解析并注入 `DedicatedModelProvider`
+- 前端 `ContextCompactPanel.tsx` 的摘要模型选择器无需改动，仅更新 hint 文案说明自动 fallback 行为
+
+**验收**：
+- [x] 默认配置（`summarization_model = None`）行为与 A1 完全一致
+- [x] 配置 dedicated model 后使用 `DedicatedModelProvider`，日志显示 provider name
+- [x] dedicated provider 失败时自动 fallback 到 side_query
+- [x] cargo check 三 crate 零 error
 
 **复杂度**：低（依赖 A1 trait 体系）。
 
@@ -448,5 +456,6 @@ Phase D   D1..D17 穿插在各 Phase 之间按需交付
 
 ## 变更记录
 
+- **2026-04-16** — A2 可插拔 Compaction Provider 完成：`CompactionProvider` async trait + `DedicatedModelProvider` + 三级 fallback + ACP 同步
 - **2026-04-16** — v2.2：新增 Phase B'（自我学习闭环，对标 Hermes Agent），更新评分预测和时间线
 - **2026-04-15** — 初始版本（配合 unified-comparison.md v2.1 发布）

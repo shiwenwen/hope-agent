@@ -550,6 +550,13 @@ impl AcpAgent {
         agent.set_agent_id(agent_id);
         agent.set_session_id(session_id);
         agent.set_compact_config(store.compact.clone());
+
+        if let Some(ref model_ref) = store.compact.summarization_model {
+            if let Some(cp) = crate::agent::build_compaction_provider(model_ref, &store.providers) {
+                agent.set_compaction_provider(Some(std::sync::Arc::new(cp)));
+            }
+        }
+
         agent.set_web_search_enabled(crate::tools::web_search::has_enabled_provider(
             &store.web_search,
         ));
@@ -632,6 +639,13 @@ impl AcpAgent {
 
         let mut last_error = String::new();
 
+        // Build CompactionProvider once, reuse across retries
+        let compaction_provider: Option<std::sync::Arc<dyn crate::context_compact::CompactionProvider>> =
+            store.compact.summarization_model.as_ref().and_then(|mr| {
+                crate::agent::build_compaction_provider(mr, &store.providers)
+                    .map(|cp| std::sync::Arc::new(cp) as _)
+            });
+
         for model_ref in &model_chain {
             let prov = match provider::find_provider(&store.providers, &model_ref.provider_id) {
                 Some(p) => p,
@@ -644,6 +658,9 @@ impl AcpAgent {
                 agent.set_agent_id(&agent_id);
                 agent.set_session_id(&session_id_owned);
                 agent.set_compact_config(store.compact.clone());
+                if let Some(ref cp) = compaction_provider {
+                    agent.set_compaction_provider(Some(cp.clone()));
+                }
 
                 // Restore context
                 restore_agent_context(&db_clone, &session_id_owned, &agent);

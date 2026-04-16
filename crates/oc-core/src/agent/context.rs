@@ -339,49 +339,45 @@ impl AssistantAgent {
     }
 
     /// Non-streaming LLM call for context summarization.
-    /// If a custom summarization model is configured, uses that model directly (no cache sharing).
-    /// Otherwise prefers side_query() when cache-safe params are available (prompt cache sharing),
-    /// falls back to direct HTTP call otherwise.
+    /// If a CompactionProvider is configured, tries it first; on failure falls back
+    /// to side_query (prompt cache sharing) or direct HTTP call.
     async fn summarize_with_model(&self, prompt: &str) -> Result<String> {
         use crate::context_compact::SUMMARIZATION_SYSTEM_PROMPT;
 
-        // Check for custom summarization model override
-        if let Some(ref model_ref) = self.compact_config.summarization_model {
-            if let Some((provider_id, model_id)) = model_ref.split_once(':') {
-                let store = crate::config::cached_config();
-                if let Some(provider_config) = store
-                    .providers
-                    .iter()
-                    .find(|p| p.id == provider_id && p.enabled)
-                {
-                    let provider = Self::build_llm_provider(provider_config, model_id);
-                    app_info!(
+        // Try pluggable CompactionProvider first (if configured)
+        if let Some(ref provider) = self.compaction_provider {
+            app_info!(
+                "agent",
+                "summarize",
+                "Trying CompactionProvider '{}' for Tier 3 summarization",
+                provider.name()
+            );
+            match provider
+                .summarize(prompt, self.compact_config.summary_max_tokens)
+                .await
+            {
+                Ok(summary) if !summary.is_empty() => return Ok(summary),
+                Ok(_) => {
+                    app_warn!(
                         "agent",
                         "summarize",
-                        "Using custom summarization model: {} ({}:{})",
-                        provider_config.name,
-                        provider_id,
-                        model_id
+                        "CompactionProvider '{}' returned empty summary, falling back to conversation model",
+                        provider.name()
                     );
-                    return self.summarize_with_provider_direct(&provider, prompt).await;
                 }
-                app_warn!(
-                    "agent",
-                    "summarize",
-                    "Custom summarization provider '{}' not found or disabled, falling back to conversation model",
-                    provider_id
-                );
-            } else {
-                app_warn!(
-                    "agent",
-                    "summarize",
-                    "Invalid summarization_model format '{}' (expected 'providerId:modelId'), falling back to conversation model",
-                    model_ref
-                );
+                Err(e) => {
+                    app_warn!(
+                        "agent",
+                        "summarize",
+                        "CompactionProvider '{}' failed: {}, falling back to conversation model",
+                        provider.name(),
+                        e
+                    );
+                }
             }
         }
 
-        // Try cache-friendly side_query path first
+        // Try cache-friendly side_query path
         let has_cache = self
             .cache_safe_params
             .lock()
@@ -425,12 +421,11 @@ impl AssistantAgent {
         }
 
         // Fallback: direct HTTP call (no cache sharing, used before first chat turn)
-        self.summarize_with_provider_direct(&self.provider, prompt)
-            .await
+        summarize_direct(&self.provider, &self.user_agent, prompt, self.compact_config.summary_max_tokens).await
     }
 
     /// Build an LlmProvider from a ProviderConfig and model ID.
-    fn build_llm_provider(config: &crate::provider::ProviderConfig, model_id: &str) -> LlmProvider {
+    pub(crate) fn build_llm_provider(config: &crate::provider::ProviderConfig, model_id: &str) -> LlmProvider {
         use crate::provider::ApiType;
         match config.api_type {
             ApiType::Anthropic => LlmProvider::Anthropic {
@@ -453,154 +448,6 @@ impl AssistantAgent {
                 account_id: String::new(),
                 model: model_id.to_string(),
             },
-        }
-    }
-
-    /// Direct HTTP summarization call with a specific provider.
-    async fn summarize_with_provider_direct(
-        &self,
-        provider: &LlmProvider,
-        prompt: &str,
-    ) -> Result<String> {
-        use crate::context_compact::SUMMARIZATION_SYSTEM_PROMPT;
-
-        let client =
-            crate::provider::apply_proxy(reqwest::Client::builder().user_agent(&self.user_agent))
-                .build()
-                .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
-
-        match provider {
-            LlmProvider::Anthropic {
-                api_key,
-                base_url,
-                model,
-            } => {
-                let api_url = build_api_url(base_url, "/v1/messages");
-                let body = json!({
-                    "model": model,
-                    "max_tokens": self.compact_config.summary_max_tokens,
-                    "system": SUMMARIZATION_SYSTEM_PROMPT,
-                    "messages": [{ "role": "user", "content": prompt }],
-                });
-                let resp = client
-                    .post(&api_url)
-                    .header("x-api-key", api_key)
-                    .header("anthropic-version", ANTHROPIC_API_VERSION)
-                    .header("content-type", "application/json")
-                    .json(&body)
-                    .send()
-                    .await
-                    .map_err(|e| anyhow::anyhow!("Summarization request failed: {}", e))?;
-
-                if !resp.status().is_success() {
-                    let err = resp.text().await.unwrap_or_default();
-                    return Err(anyhow::anyhow!("Summarization API error: {}", err));
-                }
-
-                let result: serde_json::Value = resp.json().await.map_err(|e| {
-                    anyhow::anyhow!("Failed to parse summarization response: {}", e)
-                })?;
-
-                result
-                    .get("content")
-                    .and_then(|c| c.as_array())
-                    .and_then(|arr| {
-                        arr.iter()
-                            .find(|b| b.get("type").and_then(|t| t.as_str()) == Some("text"))
-                    })
-                    .and_then(|b| b.get("text"))
-                    .and_then(|t| t.as_str())
-                    .map(|s| s.to_string())
-                    .ok_or_else(|| anyhow::anyhow!("No text in summarization response"))
-            }
-            LlmProvider::OpenAIChat {
-                api_key,
-                base_url,
-                model,
-            }
-            | LlmProvider::OpenAIResponses {
-                api_key,
-                base_url,
-                model,
-            } => {
-                let api_url = build_api_url(base_url, "/v1/chat/completions");
-                let body = json!({
-                    "model": model,
-                    "max_tokens": self.compact_config.summary_max_tokens,
-                    "messages": [
-                        { "role": "system", "content": SUMMARIZATION_SYSTEM_PROMPT },
-                        { "role": "user", "content": prompt },
-                    ],
-                });
-                let resp = client
-                    .post(&api_url)
-                    .header("Authorization", format!("Bearer {}", api_key))
-                    .header("content-type", "application/json")
-                    .json(&body)
-                    .send()
-                    .await
-                    .map_err(|e| anyhow::anyhow!("Summarization request failed: {}", e))?;
-
-                if !resp.status().is_success() {
-                    let err = resp.text().await.unwrap_or_default();
-                    return Err(anyhow::anyhow!("Summarization API error: {}", err));
-                }
-
-                let result: serde_json::Value = resp.json().await.map_err(|e| {
-                    anyhow::anyhow!("Failed to parse summarization response: {}", e)
-                })?;
-
-                result
-                    .get("choices")
-                    .and_then(|c| c.get(0))
-                    .and_then(|c| c.get("message"))
-                    .and_then(|m| m.get("content"))
-                    .and_then(|t| t.as_str())
-                    .map(|s| s.to_string())
-                    .ok_or_else(|| anyhow::anyhow!("No text in summarization response"))
-            }
-            LlmProvider::Codex {
-                access_token,
-                account_id,
-                model,
-            } => {
-                let api_url = "https://chatgpt.com/backend-api/codex/v1/chat/completions";
-                let body = json!({
-                    "model": model,
-                    "max_tokens": self.compact_config.summary_max_tokens,
-                    "messages": [
-                        { "role": "system", "content": SUMMARIZATION_SYSTEM_PROMPT },
-                        { "role": "user", "content": prompt },
-                    ],
-                });
-                let resp = client
-                    .post(api_url)
-                    .header("Authorization", format!("Bearer {}", access_token))
-                    .header("X-Account-ID", account_id.as_str())
-                    .header("content-type", "application/json")
-                    .json(&body)
-                    .send()
-                    .await
-                    .map_err(|e| anyhow::anyhow!("Summarization request failed: {}", e))?;
-
-                if !resp.status().is_success() {
-                    let err = resp.text().await.unwrap_or_default();
-                    return Err(anyhow::anyhow!("Summarization API error: {}", err));
-                }
-
-                let result: serde_json::Value = resp.json().await.map_err(|e| {
-                    anyhow::anyhow!("Failed to parse summarization response: {}", e)
-                })?;
-
-                result
-                    .get("choices")
-                    .and_then(|c| c.get(0))
-                    .and_then(|c| c.get("message"))
-                    .and_then(|m| m.get("content"))
-                    .and_then(|t| t.as_str())
-                    .map(|s| s.to_string())
-                    .ok_or_else(|| anyhow::anyhow!("No text in summarization response"))
-            }
         }
     }
 
@@ -847,4 +694,219 @@ impl AssistantAgent {
         }
         messages.push(json!({ "role": "user", "content": new_content }));
     }
+}
+
+// ── Standalone summarization helpers ─────────────────────────────────
+
+/// Direct HTTP summarization call (decoupled from AssistantAgent).
+/// Used by both the default fallback path and `DedicatedModelProvider`.
+pub(crate) async fn summarize_direct(
+    provider: &LlmProvider,
+    user_agent: &str,
+    prompt: &str,
+    max_tokens: u32,
+) -> anyhow::Result<String> {
+    use crate::context_compact::SUMMARIZATION_SYSTEM_PROMPT;
+
+    let client = crate::provider::apply_proxy(reqwest::Client::builder().user_agent(user_agent))
+        .build()
+        .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
+
+    match provider {
+        LlmProvider::Anthropic {
+            api_key,
+            base_url,
+            model,
+        } => {
+            let api_url = build_api_url(base_url, "/v1/messages");
+            let body = json!({
+                "model": model,
+                "max_tokens": max_tokens,
+                "system": SUMMARIZATION_SYSTEM_PROMPT,
+                "messages": [{ "role": "user", "content": prompt }],
+            });
+            let resp = client
+                .post(&api_url)
+                .header("x-api-key", api_key)
+                .header("anthropic-version", ANTHROPIC_API_VERSION)
+                .header("content-type", "application/json")
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| anyhow::anyhow!("Summarization request failed: {}", e))?;
+
+            if !resp.status().is_success() {
+                let err = resp.text().await.unwrap_or_default();
+                return Err(anyhow::anyhow!("Summarization API error: {}", err));
+            }
+
+            let result: serde_json::Value = resp
+                .json()
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to parse summarization response: {}", e))?;
+
+            result
+                .get("content")
+                .and_then(|c| c.as_array())
+                .and_then(|arr| {
+                    arr.iter()
+                        .find(|b| b.get("type").and_then(|t| t.as_str()) == Some("text"))
+                })
+                .and_then(|b| b.get("text"))
+                .and_then(|t| t.as_str())
+                .map(|s| s.to_string())
+                .ok_or_else(|| anyhow::anyhow!("No text in summarization response"))
+        }
+        LlmProvider::OpenAIChat {
+            api_key,
+            base_url,
+            model,
+        }
+        | LlmProvider::OpenAIResponses {
+            api_key,
+            base_url,
+            model,
+        } => {
+            let api_url = build_api_url(base_url, "/v1/chat/completions");
+            let body = json!({
+                "model": model,
+                "max_tokens": max_tokens,
+                "messages": [
+                    { "role": "system", "content": SUMMARIZATION_SYSTEM_PROMPT },
+                    { "role": "user", "content": prompt },
+                ],
+            });
+            let resp = client
+                .post(&api_url)
+                .header("Authorization", format!("Bearer {}", api_key))
+                .header("content-type", "application/json")
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| anyhow::anyhow!("Summarization request failed: {}", e))?;
+
+            if !resp.status().is_success() {
+                let err = resp.text().await.unwrap_or_default();
+                return Err(anyhow::anyhow!("Summarization API error: {}", err));
+            }
+
+            let result: serde_json::Value = resp
+                .json()
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to parse summarization response: {}", e))?;
+
+            result
+                .get("choices")
+                .and_then(|c| c.get(0))
+                .and_then(|c| c.get("message"))
+                .and_then(|m| m.get("content"))
+                .and_then(|t| t.as_str())
+                .map(|s| s.to_string())
+                .ok_or_else(|| anyhow::anyhow!("No text in summarization response"))
+        }
+        LlmProvider::Codex {
+            access_token,
+            account_id,
+            model,
+        } => {
+            let api_url = "https://chatgpt.com/backend-api/codex/v1/chat/completions";
+            let body = json!({
+                "model": model,
+                "max_tokens": max_tokens,
+                "messages": [
+                    { "role": "system", "content": SUMMARIZATION_SYSTEM_PROMPT },
+                    { "role": "user", "content": prompt },
+                ],
+            });
+            let resp = client
+                .post(api_url)
+                .header("Authorization", format!("Bearer {}", access_token))
+                .header("X-Account-ID", account_id.as_str())
+                .header("content-type", "application/json")
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| anyhow::anyhow!("Summarization request failed: {}", e))?;
+
+            if !resp.status().is_success() {
+                let err = resp.text().await.unwrap_or_default();
+                return Err(anyhow::anyhow!("Summarization API error: {}", err));
+            }
+
+            let result: serde_json::Value = resp
+                .json()
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to parse summarization response: {}", e))?;
+
+            result
+                .get("choices")
+                .and_then(|c| c.get(0))
+                .and_then(|c| c.get("message"))
+                .and_then(|m| m.get("content"))
+                .and_then(|t| t.as_str())
+                .map(|s| s.to_string())
+                .ok_or_else(|| anyhow::anyhow!("No text in summarization response"))
+        }
+    }
+}
+
+// ── DedicatedModelProvider ───────────────────────────────────────────
+
+/// Dedicated model provider for Tier 3 summarization.
+/// Uses a specific provider/model pair, independent of the main conversation.
+pub(crate) struct DedicatedModelProvider {
+    provider: LlmProvider,
+    user_agent: String,
+    display_name: String,
+}
+
+impl DedicatedModelProvider {
+    pub(crate) fn new(provider: LlmProvider, user_agent: String, display_name: String) -> Self {
+        Self {
+            provider,
+            user_agent,
+            display_name,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl crate::context_compact::CompactionProvider for DedicatedModelProvider {
+    async fn summarize(&self, prompt: &str, max_tokens: u32) -> anyhow::Result<String> {
+        summarize_direct(&self.provider, &self.user_agent, prompt, max_tokens).await
+    }
+
+    fn name(&self) -> &str {
+        &self.display_name
+    }
+}
+
+/// Parse `"providerId:modelId"` and construct a `DedicatedModelProvider`.
+/// Returns `None` (with a warning log) if the format is invalid or the provider is not found/disabled.
+pub(crate) fn build_compaction_provider(
+    model_ref: &str,
+    providers: &[crate::provider::ProviderConfig],
+) -> Option<DedicatedModelProvider> {
+    let (provider_id, model_id) = match model_ref.split_once(':') {
+        Some(pair) => pair,
+        None => {
+            app_warn!(
+                "agent",
+                "compaction_provider",
+                "Invalid summarization_model format '{}' (expected 'providerId:modelId')",
+                model_ref
+            );
+            return None;
+        }
+    };
+
+    let prov_config = crate::provider::find_provider(providers, provider_id)?;
+    let llm_provider = AssistantAgent::build_llm_provider(prov_config, model_id);
+    let display_name = format!("{}:{}", prov_config.name, model_id);
+
+    Some(DedicatedModelProvider::new(
+        llm_provider,
+        prov_config.user_agent.clone(),
+        display_name,
+    ))
 }

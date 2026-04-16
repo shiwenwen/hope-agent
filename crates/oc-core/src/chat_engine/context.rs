@@ -23,6 +23,13 @@ pub(super) fn build_agent_from_snapshot(
         AssistantAgent::new_from_provider(prov, &model.model_id)
     };
     agent.set_compact_config(compact_config.clone());
+
+    if let Some(ref model_ref) = compact_config.summarization_model {
+        if let Some(cp) = crate::agent::build_compaction_provider(model_ref, providers) {
+            agent.set_compaction_provider(Some(std::sync::Arc::new(cp)));
+        }
+    }
+
     Some(agent)
 }
 

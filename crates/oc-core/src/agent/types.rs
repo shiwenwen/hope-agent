@@ -128,6 +128,9 @@ pub struct AssistantAgent {
     pub(super) compact_config: crate::context_compact::CompactConfig,
     /// Pluggable context compression engine (default: DefaultContextEngine)
     pub(super) context_engine: std::sync::Arc<dyn crate::context_compact::ContextEngine>,
+    /// Optional dedicated summarization provider (Tier 3).
+    /// When Some, tried first for summarization; falls back to side_query on failure.
+    pub(super) compaction_provider: Option<std::sync::Arc<dyn crate::context_compact::CompactionProvider>>,
     /// Token estimate calibrator (updated with actual API usage)
     #[allow(dead_code)]
     pub(super) token_calibrator: std::sync::Mutex<crate::context_compact::TokenEstimateCalibrator>,

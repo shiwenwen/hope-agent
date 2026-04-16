@@ -791,7 +791,7 @@
     "contextCompactSummarizationModelDesc": "选择用于压缩摘要的模型",
     "contextCompactSummarizationModelDefault": "对话模型（默认）",
     "contextCompactSummarizationModelCacheHint": "使用对话模型可复用 prompt 缓存，摘要 token 消耗极低（约 90% 缓存命中）",
-    "contextCompactSummarizationModelCustomHint": "使用独立模型调用，不享受缓存共享，可以使用更便宜的模型降低成本",
+    "contextCompactSummarizationModelCustomHint": "使用独立模型进行摘要，失败时自动回退到对话模型（共享缓存）",
     "contextCompactSummarizationThreshold": "摘要触发阈值",
     "contextCompactSummarizationThresholdDesc": "裁剪后仍超过此值，调用大模型自动摘要旧消息",
     "contextCompactPreserveTurns": "保留最近轮数",

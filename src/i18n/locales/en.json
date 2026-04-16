@@ -791,7 +791,7 @@
     "contextCompactSummarizationModelDesc": "Model used for context summarization",
     "contextCompactSummarizationModelDefault": "Conversation Model (Default)",
     "contextCompactSummarizationModelCacheHint": "Uses prompt cache sharing with conversation model, ~90% cache hit rate for minimal token cost",
-    "contextCompactSummarizationModelCustomHint": "Independent API call without cache sharing, but you can use a cheaper model to reduce cost",
+    "contextCompactSummarizationModelCustomHint": "Uses dedicated model for summarization. On failure, automatically falls back to conversation model with cache sharing",
     "contextCompactSummarizationThreshold": "Summarization threshold",
     "contextCompactSummarizationThresholdDesc": "Trigger LLM summarization of old messages when still exceeding this ratio after pruning",
     "contextCompactPreserveTurns": "Preserve recent turns",

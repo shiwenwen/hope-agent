@@ -96,7 +96,7 @@ PRIORITIZE recent context over older history."#;
 
 pub use compact::{compact_if_needed, emergency_compact, microcompact};
 pub use config::CompactConfig;
-pub use engine::{CompactionContext, ContextEngine, DefaultContextEngine};
+pub use engine::{CompactionContext, CompactionProvider, ContextEngine, DefaultContextEngine};
 pub use estimation::estimate_request_tokens;
 pub use recovery::build_recovery_message;
 pub use round_grouping::{prepare_messages_for_api, push_and_stamp};

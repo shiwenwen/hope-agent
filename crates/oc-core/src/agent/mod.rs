@@ -12,6 +12,7 @@ mod types;
 pub use config::{build_system_prompt, build_system_prompt_with_session};
 pub use config::{build_api_url, get_codex_models, USER_AGENT};
 pub use types::{AssistantAgent, Attachment, CodexModel, LlmProvider, PlanAgentMode};
+pub(crate) use context::build_compaction_provider;
 
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -60,6 +61,7 @@ impl AssistantAgent {
             context_window: 200_000,
             compact_config: crate::context_compact::CompactConfig::default(),
             context_engine: std::sync::Arc::new(crate::context_compact::DefaultContextEngine),
+            compaction_provider: None,
             token_calibrator: std::sync::Mutex::new(
                 crate::context_compact::TokenEstimateCalibrator::new(),
             ),
@@ -106,6 +108,7 @@ impl AssistantAgent {
             context_window: 200_000,
             compact_config: crate::context_compact::CompactConfig::default(),
             context_engine: std::sync::Arc::new(crate::context_compact::DefaultContextEngine),
+            compaction_provider: None,
             token_calibrator: std::sync::Mutex::new(
                 crate::context_compact::TokenEstimateCalibrator::new(),
             ),
@@ -178,6 +181,7 @@ impl AssistantAgent {
             context_window,
             compact_config: crate::context_compact::CompactConfig::default(),
             context_engine: std::sync::Arc::new(crate::context_compact::DefaultContextEngine),
+            compaction_provider: None,
             token_calibrator: std::sync::Mutex::new(
                 crate::context_compact::TokenEstimateCalibrator::new(),
             ),
@@ -845,6 +849,15 @@ impl AssistantAgent {
     /// Access the active context engine.
     pub fn context_engine(&self) -> &dyn crate::context_compact::ContextEngine {
         &*self.context_engine
+    }
+
+    /// Replace the compaction provider (dedicated summarization model).
+    /// `None` = use default side_query / direct HTTP path.
+    pub fn set_compaction_provider(
+        &mut self,
+        provider: Option<std::sync::Arc<dyn crate::context_compact::CompactionProvider>>,
+    ) {
+        self.compaction_provider = provider;
     }
 
     /// Apply the context engine's optional system prompt addition.

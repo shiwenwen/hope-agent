@@ -93,3 +93,18 @@ impl ContextEngine for DefaultContextEngine {
         super::emergency_compact(messages, config)
     }
 }
+
+// ── Compaction Provider (pluggable Tier 3 summarization) ─────────────
+
+/// Pluggable summarization provider for Tier 3 compaction.
+///
+/// When configured, tried first for summarization; on failure the caller
+/// automatically falls back to the default side_query / direct HTTP path.
+#[async_trait::async_trait]
+pub trait CompactionProvider: Send + Sync {
+    /// Summarize conversation content into a concise summary.
+    async fn summarize(&self, prompt: &str, max_tokens: u32) -> anyhow::Result<String>;
+
+    /// Human-readable name for logging.
+    fn name(&self) -> &str;
+}
