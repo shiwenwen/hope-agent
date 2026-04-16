@@ -17,3 +17,6 @@ src-tauri/WixTools/
 .idea/
 *.swp
 tool_comparison.md
+
+# Private research
+docs/research/
