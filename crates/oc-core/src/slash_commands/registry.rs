@@ -256,6 +256,23 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
             ]),
             description_raw: None,
         },
+        SlashCommandDef {
+            name: "cross-session".into(),
+            category: CommandCategory::Utility,
+            description_key: "slashCommands.crossSession.description".into(),
+            has_args: true,
+            args_optional: true,
+            arg_placeholder: Some("[on|off|mode <x>|status]".into()),
+            arg_options: Some(vec![
+                "on".into(),
+                "off".into(),
+                "mode structured".into(),
+                "mode llm".into(),
+                "mode off".into(),
+                "status".into(),
+            ]),
+            description_raw: None,
+        },
     ]
 }
 

@@ -39,6 +39,7 @@
 | [技能系统](architecture/skill-system.md)        | SKILL.md 发现、懒加载、工具隔离、Fork 模式      | `skills/`             |
 | [子 Agent 系统](architecture/subagent.md)      | spawn + 结果注入、Mailbox 实时引导、深度/并发控制 | `subagent/`           |
 | [Side Query 缓存](architecture/side-query.md) | 复用 prompt cache 降低侧查询成本 90%       | `agent/side_query.rs` |
+| [跨会话行为感知](architecture/cross-session.md) | 动态 suffix 注入、三层触发器、LLM Digest、prompt cache 双断点 | `cross_session/` |
 
 
 ## 接入层

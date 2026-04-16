@@ -1,5 +1,6 @@
 pub mod agent;
 pub mod context;
+pub mod cross_session;
 pub mod memory;
 pub mod model;
 pub mod plan;
@@ -83,6 +84,7 @@ pub async fn dispatch(
         "search" => utility::handle_search(args),
         "prompts" => Ok(utility::handle_prompts()),
         "context" => context::handle_context(state, session_id, agent_id, args).await,
+        "cross-session" | "xsession" => cross_session::handle_cross_session(args),
 
         _ => {
             // Check if it matches a user-invocable skill command

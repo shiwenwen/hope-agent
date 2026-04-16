@@ -975,6 +975,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
     tools.push(super::task_tools::get_task_update_tool());
     tools.push(super::task_tools::get_task_list_tool());
 
+    // ── Cross-Session Peek (deferred, read-only) ──
+    tools.push(crate::cross_session::peek_sessions_schema());
+
     // Mark non-core tools as deferred, core tools as always_load
     for tool in &mut tools {
         if is_core_tool(&tool.name) {

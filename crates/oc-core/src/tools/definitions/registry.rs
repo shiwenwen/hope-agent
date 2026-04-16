@@ -34,6 +34,7 @@ static CONCURRENT_SAFE_TOOL_NAMES: LazyLock<HashSet<&'static str>> = LazyLock::n
         TOOL_GET_WEATHER,
         TOOL_ASK_USER_QUESTION,
         TOOL_TASK_LIST,
+        super::super::TOOL_PEEK_SESSIONS,
     ]
     .into_iter()
     .collect()
