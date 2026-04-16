@@ -27,6 +27,8 @@ opencomputer server stop               # 停止服务
 
 ```
 Cargo.toml              Workspace 根（members: crates/oc-core, crates/oc-server, src-tauri）
+skills/                 内置技能（bundled skills，随应用发行）
+  skill-creator/        技能创建/编辑/改进工具（含 agents/references/scripts/eval-viewer）
 crates/
   oc-core/              核心业务逻辑（零 Tauri 依赖，纯 Rust 库）
   oc-server/            HTTP/WS 服务器（axum，REST API + WebSocket 流式推送）
@@ -251,6 +253,7 @@ src-tauri/src/          Tauri 薄壳（命令层 + 桌面集成）
 - **LLM 记忆语义选择**：当候选记忆数 > 阈值（默认 8）时，通过 side_query 调用 LLM 从候选列表中选择最相关的 ≤5 条注入系统提示。选择在 compaction 后、cache 快照前执行，确保精简后的系统提示被缓存。opt-in 配置（`memorySelection.enabled`），失败时退化为全量注入
 - **跨会话行为感知（Cross-Session Behavior Awareness）**：`crates/oc-core/src/cross_session/` 为每个会话挂 `SessionAwareness`，在每轮 user turn 开始前通过三层触发器（脏位 / 时间节流 / 语义 hint）决定是否重建一段 "其它会话此刻在做什么" 的 markdown suffix。默认 `structured` 模式零 LLM 成本（读 `recap.session_facets` + `sessions` + `messages` + 内存 `ActiveSessionRegistry`），opt-in 切到 `llm_digest` 模式走 `AssistantAgent::side_query` 生成自然语言 digest（bounded 5 秒、5 分钟节流、候选集合 hash 跳过、失败 fallback 到结构化路径）。**两段 cache 模型**：provider 把 suffix 作为第二个独立 `cache_control` 系统块（Anthropic）或在 instructions 末尾追加（OpenAI/Codex），suffix 变化不作废静态前缀缓存；内容未变时通过 `last_suffix_hash` 比对复用旧 `Arc<String>`。全局配置在 `AppConfig.cross_session`（设置 → 对话设置面板），会话级覆盖存 `sessions.cross_session_config_json` 列（partial merge 到全局默认），全局 `enabled=false` 是硬闸。默认只纳入普通会话，cron/channel/subagent 默认排除，UI 正向勾选纳入。Compaction Tier 2+ 后 `mark_force_refresh()` 搭便车刷新。新增 deferred 工具 `peek_sessions(query?, limit?)`、斜杠命令 `/cross-session [on|off|mode <x>|status]`、Tauri/HTTP 命令 `get|save_cross_session_config` + `get|set_session_cross_session_override`
 - **统一日志**：前后端日志统一写入 `logging.rs`（SQLite + 纯文本双写），API 请求体自动脱敏（`redact_sensitive`）并截断（32KB）
+- **内置技能（Bundled Skills）**：项目根目录 `skills/` 存放随应用发行的内置技能，`discovery.rs` 的 `resolve_bundled_skills_dir()` 按优先级定位：(1) `OPENCOMPUTER_BUNDLED_SKILLS_DIR` 环境变量 (2) 可执行文件同级/上级 `skills/` 目录（release 打包）(3) `CARGO_MANIFEST_DIR` 向上两级的 `skills/`（dev 构建）。内置技能优先级最低（bundled < extra < managed < project），同名技能被高优先级来源覆盖。首个内置技能：`skill-creator`（技能创建/编辑/改进工具，含 agents/references/scripts/eval-viewer 子目录）
 - **Skill 工具隔离**：SKILL.md frontmatter 支持 `allowed-tools:` 字段，激活时只保留指定工具 schema。空列表 = 全部工具（向后兼容）。Agent 通过 `skill_allowed_tools` 字段在 Provider 层过滤
 - **Plan 执行层权限强制**：`ToolExecContext.plan_mode_allowed_tools` 在执行层白名单检查，与 schema 级过滤形成双重防护（defense-in-depth）
 - **Skill Fork 模式**：SKILL.md frontmatter `context: fork` 指定在子 Agent 中执行，tool_call 不污染主对话。子 Agent 继承 `allowed_tools`，结果通过注入系统自动推送回主对话

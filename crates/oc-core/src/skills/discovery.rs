@@ -1,9 +1,94 @@
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use crate::paths;
 
 use super::frontmatter::parse_frontmatter;
 use super::types::*;
+
+// ── Bundled Skills ──────────────────────────────────────────────
+
+/// Cached bundled skills directory path, resolved once per process.
+static BUNDLED_SKILLS_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
+
+/// Resolve the bundled skills directory shipped with the application.
+///
+/// Search order:
+/// 1. `OPENCOMPUTER_BUNDLED_SKILLS_DIR` env override
+/// 2. Sibling `skills/` next to the executable (release / packaged)
+/// 3. Workspace root `skills/` via `CARGO_MANIFEST_DIR` (dev builds)
+fn resolve_bundled_skills_dir() -> Option<PathBuf> {
+    // 1. Env override
+    if let Ok(dir) = std::env::var("OPENCOMPUTER_BUNDLED_SKILLS_DIR") {
+        let p = PathBuf::from(dir.trim());
+        if p.is_dir() {
+            return Some(p);
+        }
+    }
+
+    // 2. Sibling to executable: <exe_dir>/skills/
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(exe_dir) = exe.parent() {
+            if let Some(found) = try_skills_dir(exe_dir.join("skills")) {
+                return Some(found);
+            }
+            // Also check one level up (e.g., macOS .app bundle: Contents/MacOS/../Resources/skills)
+            if let Some(parent) = exe_dir.parent() {
+                if let Some(found) = try_skills_dir(parent.join("skills"))
+                    .or_else(|| try_skills_dir(parent.join("Resources").join("skills")))
+                {
+                    return Some(found);
+                }
+            }
+        }
+    }
+
+    // 3. Dev builds only: workspace root skills/ (CARGO_MANIFEST_DIR is crates/oc-core)
+    #[cfg(debug_assertions)]
+    if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
+        // Go up two levels: crates/oc-core -> workspace root
+        let workspace_root = PathBuf::from(&manifest_dir)
+            .parent()
+            .and_then(|p| p.parent())
+            .map(|p| p.to_path_buf());
+        if let Some(root) = workspace_root {
+            if let Some(found) = try_skills_dir(root.join("skills")) {
+                return Some(found);
+            }
+        }
+    }
+
+    None
+}
+
+/// Return the path if it's a valid skills directory, None otherwise.
+fn try_skills_dir(candidate: PathBuf) -> Option<PathBuf> {
+    if candidate.is_dir() && looks_like_skills_dir(&candidate) {
+        Some(candidate)
+    } else {
+        None
+    }
+}
+
+/// Quick check: does the directory contain at least one subdirectory with SKILL.md?
+fn looks_like_skills_dir(dir: &Path) -> bool {
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let is_dir = entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false);
+            if is_dir && entry.path().join("SKILL.md").is_file() {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Get the cached bundled skills directory.
+pub fn bundled_skills_dir() -> Option<&'static PathBuf> {
+    BUNDLED_SKILLS_DIR
+        .get_or_init(resolve_bundled_skills_dir)
+        .as_ref()
+}
 
 // ── Path Utilities ───────────────────────────────────────────────
 
@@ -138,7 +223,8 @@ fn load_single_skill(
 /// Load all skills from all configured sources.
 ///
 /// Sources (lowest -> highest precedence):
-/// 1. Extra directories (user-imported, lowest)
+/// 0. Bundled skills (shipped with the application, lowest)
+/// 1. Extra directories (user-imported)
 /// 2. Managed skills (~/.opencomputer/skills/)
 /// 3. Project-specific skills (.opencomputer/skills/ in cwd, highest)
 pub fn load_all_skills_with_extra(extra_dirs: &[String]) -> Vec<SkillEntry> {
@@ -154,6 +240,11 @@ pub fn load_all_skills_with_budget(
 
     // Collect from all sources (lowest precedence first)
     let mut sources: Vec<(PathBuf, String)> = Vec::new();
+
+    // 0. Bundled skills (shipped with the application)
+    if let Some(dir) = bundled_skills_dir() {
+        sources.push((dir.clone(), "bundled".to_string()));
+    }
 
     // 1. Extra directories (user-imported)
     for dir in extra_dirs {
