@@ -97,14 +97,14 @@ const SECTIONS: SettingsSectionItem[] = [
     labelKey: "settings.plan",
   },
   {
-    id: "recap",
-    icon: <LineChart className="h-4 w-4" />,
-    labelKey: "settings.recap",
-  },
-  {
     id: "tools",
     icon: <Wrench className="h-4 w-4" />,
     labelKey: "settings.tools",
+  },
+  {
+    id: "recap",
+    icon: <LineChart className="h-4 w-4" />,
+    labelKey: "settings.recap",
   },
   {
     id: "server",
