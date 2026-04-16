@@ -60,18 +60,22 @@ pub fn run_peek_sessions(
 
     let session_db = crate::get_session_db().ok_or_else(|| "session DB unavailable".to_string())?;
     let cfg_global = crate::config::cached_config().cross_session.clone();
-    // Relax scope for peek: ignore the global enabled flag and type exclusions —
-    // the model is actively asking, so give it everything visible.
+    // Respect the global kill-switch — user explicitly disabled cross-session awareness.
+    if !cfg_global.enabled {
+        return Ok("Cross-session awareness is disabled by the user.".into());
+    }
+    // Relax type exclusions for active peek — model is explicitly asking.
+    // Pull extra candidates (4x limit) so query filtering doesn't miss matches
+    // that lie beyond the top-N by recency.
     let cfg = CrossSessionConfig {
-        enabled: true,
         exclude_cron: false,
         exclude_channel: false,
         exclude_subagents: false,
-        max_sessions: limit,
+        max_sessions: limit * 4,
         ..cfg_global
     };
     let current = current_session_id.unwrap_or("");
-    let mut snap = super::collect::collect_entries(&session_db, &cfg, current)
+    let mut snap = super::collect::collect_entries(&session_db, &cfg, current, None)
         .map_err(|e| format!("collect_entries failed: {}", e))?;
 
     if let Some(q) = query {
@@ -87,6 +91,8 @@ pub fn run_peek_sessions(
                     .unwrap_or(false)
         });
     }
+
+    snap.entries.truncate(limit);
 
     if snap.entries.is_empty() {
         return Ok("No peer sessions match.".into());

@@ -97,6 +97,10 @@ impl AssistantAgent {
             }
             round_count = round + 1;
 
+            if let Some(ref sid) = self.session_id {
+                crate::cross_session::touch_active_session(sid);
+            }
+
             // Drain steer mailbox: inject any pending steer messages as user messages
             if let Some(ref rid) = self.steer_run_id {
                 for msg in crate::subagent::SUBAGENT_MAILBOX.drain(rid) {

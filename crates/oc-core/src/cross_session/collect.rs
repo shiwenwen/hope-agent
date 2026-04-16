@@ -2,7 +2,9 @@
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
-use std::collections::HashSet;
+use once_cell::sync::Lazy;
+use std::collections::{HashMap, HashSet};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use super::config::CrossSessionConfig;
@@ -13,10 +15,14 @@ use crate::recap::types::SessionFacet;
 use crate::session::{SessionDB, SessionMeta};
 
 /// Collect candidate entries for the current session. Never triggers LLM calls.
+///
+/// `current_agent_id` is used when `cfg.same_agent_only` is true to restrict
+/// candidates to the same agent. Pass `None` to skip agent filtering.
 pub fn collect_entries(
     db: &SessionDB,
     cfg: &CrossSessionConfig,
     current_session_id: &str,
+    current_agent_id: Option<&str>,
 ) -> Result<CrossSessionSnapshot> {
     // Pull a fat candidate list (the client-side filters discard some).
     let agent_filter: Option<&str> = None;
@@ -36,9 +42,11 @@ pub fn collect_entries(
         .into_iter()
         .collect();
 
-    // Try to open a RecapDb for facet enrichment. If it fails, that's fine —
-    // we fall back to `title + last_user_message_preview` per entry.
-    let recap_db = crate::recap::db::RecapDb::open_default().ok();
+    // Lazily-cached RecapDb connection, shared across calls to avoid
+    // reopening SQLite on every refresh (~5ms → ~0ms hot path).
+    static RECAP_DB: Lazy<Mutex<Option<crate::recap::db::RecapDb>>> =
+        Lazy::new(|| Mutex::new(crate::recap::db::RecapDb::open_default().ok()));
+    let recap_lock = RECAP_DB.lock().unwrap_or_else(|e| e.into_inner());
 
     // Build candidate entries.
     let mut entries: Vec<CrossSessionEntry> = Vec::new();
@@ -52,13 +60,13 @@ pub fn collect_entries(
         if meta.id == current_session_id {
             continue;
         }
-        // Agent filter (soft).
+        // Agent filter.
         if cfg.same_agent_only {
-            // Respect the caller's agent only — requires current session's agent.
-            // We don't know it here; the caller should pre-set `same_agent_only`
-            // and pass a pre-filtered view. Fall back: trust `agent_filter` above
-            // and still exclude entries where `cfg.same_agent_only && meta.agent_id != current.agent_id`
-            // when the caller supplies it. For now we skip the filter at this layer.
+            if let Some(my_agent) = current_agent_id {
+                if meta.agent_id != my_agent {
+                    continue;
+                }
+            }
         }
         // Type exclusions.
         let kind = classify_session(&meta);
@@ -95,7 +103,7 @@ pub fn collect_entries(
         };
 
         // Facet enrichment.
-        let facet: Option<SessionFacet> = recap_db
+        let facet: Option<SessionFacet> = recap_lock
             .as_ref()
             .and_then(|r| r.get_latest_facet(&meta.id).ok().flatten());
 
@@ -185,10 +193,21 @@ fn classify_session(meta: &SessionMeta) -> SessionKind {
     SessionKind::Regular
 }
 
+/// Thread-local-ish cache for agent name resolution. Avoids hitting disk
+/// for the same agent_id multiple times per snapshot.
+static AGENT_NAME_CACHE: Lazy<Mutex<HashMap<String, Option<String>>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
 fn resolve_agent_name(agent_id: &str) -> Option<String> {
-    crate::agent_loader::load_agent(agent_id)
+    let mut cache = AGENT_NAME_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(cached) = cache.get(agent_id) {
+        return cached.clone();
+    }
+    let name = crate::agent_loader::load_agent(agent_id)
         .ok()
-        .map(|def| def.config.name.clone())
+        .map(|def| def.config.name.clone());
+    cache.insert(agent_id.to_string(), name.clone());
+    name
 }
 
 #[cfg(test)]
@@ -212,6 +231,7 @@ mod tests {
             parent_session_id: None,
             plan_mode: "off".into(),
             channel_info: None,
+            project_id: None,
         }
     }
 

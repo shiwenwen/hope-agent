@@ -6,7 +6,7 @@
 //! with a tight timeout, so it never blocks a turn for more than a few
 //! seconds — and the result is available on the same turn that triggered it.
 
-use super::config::{CrossSessionConfig, LlmExtractionConfig};
+use super::config::CrossSessionConfig;
 use super::types::CrossSessionEntry;
 use crate::session::SessionDB;
 
@@ -31,17 +31,9 @@ for that bullet. Never fabricate progress.\n\
 7. Order bullets: currently active → recent → earlier.\n\
 8. Do NOT include any preamble, headings, or trailing commentary — emit only the bullet list.\n";
 
-/// Build the LLM prompt for the extraction side_query. Public to the crate
-/// so `AssistantAgent::run_extraction_inline` can call it.
-pub fn build_extraction_prompt_pub(
-    candidates: &[CrossSessionEntry],
-    cfg: &CrossSessionConfig,
-    session_db: &SessionDB,
-) -> anyhow::Result<String> {
-    build_extraction_prompt(candidates, cfg, session_db)
-}
-
-fn build_extraction_prompt(
+/// Build the LLM prompt for the extraction side_query. Called from
+/// `AssistantAgent::run_extraction_inline`.
+pub(crate) fn build_extraction_prompt(
     candidates: &[CrossSessionEntry],
     cfg: &CrossSessionConfig,
     session_db: &SessionDB,
@@ -122,9 +114,3 @@ mod tests {
     }
 }
 
-/// Unused drop site for the previous async spawn-based extractor. Kept so
-/// that the module path `llm_digest::reconfigure_concurrency` continues to
-/// exist for any future re-introduction of a global semaphore; currently a
-/// no-op since extraction runs inline and is bounded by the per-session
-/// throttle.
-pub fn reconfigure_concurrency(_new: &LlmExtractionConfig) {}

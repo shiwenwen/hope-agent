@@ -27,6 +27,7 @@ use crate::session::SessionDB;
 /// Dynamic cross-session suffix holder attached to `AssistantAgent`.
 pub struct SessionAwareness {
     pub session_id: String,
+    pub agent_id: String,
     pub cfg: Mutex<CrossSessionConfig>,
     last_suffix: Mutex<Option<Arc<String>>>,
     last_suffix_hash: AtomicU64,
@@ -43,11 +44,12 @@ pub struct SessionAwareness {
 
 impl SessionAwareness {
     /// Create and register a new awareness instance.
-    pub fn new(session_id: impl Into<String>, cfg: CrossSessionConfig) -> Arc<Self> {
+    pub fn new(session_id: impl Into<String>, agent_id: impl Into<String>, cfg: CrossSessionConfig) -> Arc<Self> {
         let session_id = session_id.into();
         super::dirty::register_observer(&session_id);
         Arc::new(Self {
             session_id,
+            agent_id: agent_id.into(),
             cfg: Mutex::new(cfg),
             last_suffix: Mutex::new(None),
             last_suffix_hash: AtomicU64::new(0),
@@ -86,7 +88,12 @@ impl SessionAwareness {
     ) -> Option<Arc<String>> {
         let cfg = self.cfg.lock().unwrap_or_else(|e| e.into_inner()).clone();
         if !cfg.enabled || matches!(cfg.mode, CrossSessionMode::Off) || !cfg.dynamic_enabled {
-            return self.reuse_or_none();
+            // Clear any stale cached suffix so we don't leak old content
+            // after the user disables the feature.
+            let mut slot = self.last_suffix.lock().unwrap_or_else(|e| e.into_inner());
+            *slot = None;
+            self.last_suffix_hash.store(0, Ordering::Release);
+            return None;
         }
 
         let reason = self.decide_refresh(&cfg, user_text);
@@ -99,7 +106,8 @@ impl SessionAwareness {
         }
 
         // Rebuild.
-        let snap = match super::collect::collect_entries(session_db, &cfg, &self.session_id) {
+        let agent_filter = if cfg.same_agent_only { Some(self.agent_id.as_str()) } else { None };
+        let snap = match super::collect::collect_entries(session_db, &cfg, &self.session_id, agent_filter) {
             Ok(s) => s,
             Err(e) => {
                 app_warn!(
@@ -169,9 +177,6 @@ impl SessionAwareness {
         {
             let mut slot = self.last_suffix.lock().unwrap_or_else(|e| e.into_inner());
             *slot = arc_suffix.clone();
-        }
-        if matches!(reason, RefreshReason::Forced) {
-            self.forced_next.store(false, Ordering::Release);
         }
         if let Some(logger) = crate::get_logger() {
             let len = arc_suffix.as_ref().map(|s| s.len()).unwrap_or(0);
@@ -275,7 +280,9 @@ impl SessionAwareness {
     }
 
     fn decide_refresh(&self, cfg: &CrossSessionConfig, user_text: &str) -> RefreshReason {
-        if self.forced_next.load(Ordering::Acquire) {
+        // Consume the forced flag immediately so we don't get stuck in a
+        // rebuild loop when the resulting content is byte-identical.
+        if self.forced_next.swap(false, Ordering::AcqRel) {
             return RefreshReason::Forced;
         }
         // L3: semantic hint wins even within throttle window.
@@ -367,7 +374,7 @@ mod tests {
 
     #[test]
     fn candidate_hash_stable() {
-        let a = SessionAwareness::new("sess-ct-1", CrossSessionConfig::default());
+        let a = SessionAwareness::new("sess-ct-1", "default", CrossSessionConfig::default());
         assert!(a.update_candidate_hash(&["x".into(), "y".into()]));
         assert!(!a.update_candidate_hash(&["y".into(), "x".into()])); // sorted
         assert!(a.update_candidate_hash(&["x".into(), "z".into()]));
@@ -375,7 +382,7 @@ mod tests {
 
     #[test]
     fn claim_extraction_is_one_shot() {
-        let a = SessionAwareness::new("sess-ct-2", CrossSessionConfig::default());
+        let a = SessionAwareness::new("sess-ct-2", "default", CrossSessionConfig::default());
         assert!(a.claim_extraction());
         assert!(!a.claim_extraction());
     }

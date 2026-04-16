@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef, useCallback } from "react"
 import { useTranslation } from "react-i18next"
 import { Loader2, Check, AlertTriangle } from "lucide-react"
 
@@ -85,26 +85,37 @@ export default function CrossSessionPanel() {
       })
   }, [])
 
-  async function save(next: CrossSessionConfig) {
-    setCfg(next)
-    setSaving(true)
-    try {
-      await getTransport().call("save_cross_session_config", { config: next })
-      setSaveStatus("saved")
-      setTimeout(() => setSaveStatus("idle"), 1500)
-    } catch (e) {
-      logger.error(
-        "settings",
-        "CrossSessionPanel::save",
-        "Failed to save cross-session config",
-        e,
-      )
-      setSaveStatus("failed")
-      setTimeout(() => setSaveStatus("idle"), 1500)
-    } finally {
-      setSaving(false)
-    }
-  }
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const save = useCallback(
+    (next: CrossSessionConfig) => {
+      setCfg(next)
+      // Debounce: wait 500ms after the last change before persisting.
+      if (saveTimer.current) clearTimeout(saveTimer.current)
+      saveTimer.current = setTimeout(async () => {
+        setSaving(true)
+        try {
+          await getTransport().call("save_cross_session_config", {
+            config: next,
+          })
+          setSaveStatus("saved")
+          setTimeout(() => setSaveStatus("idle"), 1500)
+        } catch (e) {
+          logger.error(
+            "settings",
+            "CrossSessionPanel::save",
+            "Failed to save cross-session config",
+            e,
+          )
+          setSaveStatus("failed")
+          setTimeout(() => setSaveStatus("idle"), 1500)
+        } finally {
+          setSaving(false)
+        }
+      }, 500)
+    },
+    [],
+  )
 
   if (loading || !cfg) return null
 
@@ -352,14 +363,21 @@ export default function CrossSessionPanel() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() =>
-              save({
-                ...cfg,
-                ...({
-                  // Reset to defaults by reloading from backend, then stripping overrides.
-                } as Partial<CrossSessionConfig>),
-              })
-            }
+            onClick={async () => {
+              try {
+                const fresh = await getTransport().call<CrossSessionConfig>(
+                  "get_cross_session_config",
+                )
+                setCfg(fresh)
+              } catch (e) {
+                logger.error(
+                  "settings",
+                  "CrossSessionPanel::reload",
+                  "Failed to reload config",
+                  e,
+                )
+              }
+            }}
           >
             {t("settings.crossSession.reloadDefaults", "Reload")}
           </Button>

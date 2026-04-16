@@ -323,7 +323,7 @@ impl AssistantAgent {
             return;
         };
         let cfg = crate::cross_session::resolve_for_session(sid, &db);
-        let aware = crate::cross_session::SessionAwareness::new(sid.to_string(), cfg);
+        let aware = crate::cross_session::SessionAwareness::new(sid.to_string(), self.agent_id.clone(), cfg);
         let mut slot = self
             .cross_session_awareness
             .lock()
@@ -390,24 +390,52 @@ impl AssistantAgent {
     async fn run_extraction_inline(
         &self,
         aware: &std::sync::Arc<crate::cross_session::SessionAwareness>,
-        _user_text: &str,
+        user_text: &str,
     ) {
         use std::time::Duration;
         const EXTRACTION_TIMEOUT: Duration = Duration::from_secs(5);
+
+        // Drop guard: ensure digest_inflight is released even if we panic.
+        // On normal paths the explicit record_digest_failure / set_last_digest
+        // calls make this redundant but harmless (idempotent).
+        struct InflightGuard(std::sync::Arc<crate::cross_session::SessionAwareness>);
+        impl Drop for InflightGuard {
+            fn drop(&mut self) {
+                self.0.record_digest_failure();
+            }
+        }
+        let _guard = InflightGuard(std::sync::Arc::clone(aware));
 
         let cfg = {
             let guard = aware.cfg.lock().unwrap_or_else(|e| e.into_inner());
             guard.clone()
         };
+        // If a custom extraction_agent is configured that differs from the
+        // current agent, we cannot switch providers inline. Fall back to
+        // structured mode with a one-time warning.
+        if let Some(ref ea) = cfg.llm_extraction.extraction_agent {
+            if ea != &self.agent_id {
+                app_info!(
+                    "cross_session",
+                    "run_extraction_inline",
+                    "extraction_agent '{}' differs from current agent '{}'; \
+                     using current agent for extraction (override not yet supported)",
+                    ea,
+                    self.agent_id
+                );
+            }
+        }
         let Some(db) = crate::get_session_db() else {
             aware.record_digest_failure();
             return;
         };
         // Collect candidates & compute hash; skip if unchanged.
+        let my_agent = Some(self.agent_id.as_str());
         let mut snap = match crate::cross_session::collect::collect_entries(
             &db,
             &cfg,
             &self.session_id.clone().unwrap_or_default(),
+            my_agent,
         ) {
             Ok(s) if !s.entries.is_empty() => s,
             _ => {
@@ -423,7 +451,7 @@ impl AssistantAgent {
             return;
         }
         // Build prompt.
-        let prompt = match crate::cross_session::llm_digest::build_extraction_prompt_pub(
+        let prompt = match crate::cross_session::llm_digest::build_extraction_prompt(
             &snap.entries,
             &cfg,
             &db,
@@ -433,6 +461,16 @@ impl AssistantAgent {
                 aware.record_digest_failure();
                 return;
             }
+        };
+        // Append the current user message so the model can compare topics.
+        let prompt = if !user_text.is_empty() {
+            format!(
+                "{}\n\nCurrent conversation's latest user message:\n\"{}\"",
+                prompt,
+                crate::truncate_utf8(user_text, 500)
+            )
+        } else {
+            prompt
         };
         // Fire side_query with a hard timeout.
         let max_tokens =

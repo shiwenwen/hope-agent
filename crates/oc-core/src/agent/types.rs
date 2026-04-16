@@ -68,7 +68,6 @@ pub(super) fn read_and_encode_base64(path: &str) -> anyhow::Result<String> {
 }
 
 /// Supported LLM providers
-#[derive(Clone)]
 pub enum LlmProvider {
     /// Anthropic Messages API
     Anthropic {

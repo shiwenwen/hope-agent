@@ -110,20 +110,27 @@ fn render_entry(e: &CrossSessionEntry) -> String {
     line
 }
 
-fn format_age(age_secs: i64) -> String {
+/// Format age as a **coarse bucket** so that the rendered suffix stays
+/// byte-identical across consecutive turns when nothing substantive changed.
+/// Without this, "45s ago" → "67s ago" defeats the hash-based reuse.
+fn format_age(age_secs: i64) -> &'static str {
     if age_secs < 0 {
-        return "just now".into();
+        "just now"
+    } else if age_secs < 60 {
+        "<1 min ago"
+    } else if age_secs < 300 {
+        "<5 min ago"
+    } else if age_secs < 900 {
+        "<15 min ago"
+    } else if age_secs < 3600 {
+        "<1 hour ago"
+    } else if age_secs < 14400 {
+        "<4 hours ago"
+    } else if age_secs < 86400 {
+        "<1 day ago"
+    } else {
+        ">1 day ago"
     }
-    if age_secs < 60 {
-        return format!("{}s ago", age_secs);
-    }
-    if age_secs < 3600 {
-        return format!("{}m ago", age_secs / 60);
-    }
-    if age_secs < 86400 {
-        return format!("{}h ago", age_secs / 3600);
-    }
-    format!("{}d ago", age_secs / 86400)
 }
 
 #[cfg(test)]
@@ -191,10 +198,14 @@ mod tests {
     }
 
     #[test]
-    fn age_formatting() {
-        assert_eq!(format_age(30), "30s ago");
-        assert_eq!(format_age(90), "1m ago");
-        assert_eq!(format_age(7200), "2h ago");
-        assert_eq!(format_age(90_000), "1d ago");
+    fn age_formatting_coarse_buckets() {
+        assert_eq!(format_age(30), "<1 min ago");
+        assert_eq!(format_age(90), "<5 min ago");
+        assert_eq!(format_age(600), "<15 min ago");
+        assert_eq!(format_age(7200), "<4 hours ago");
+        assert_eq!(format_age(90_000), ">1 day ago");
+        // Consecutive values in the same bucket must return the same string.
+        assert_eq!(format_age(10), format_age(55));
+        assert_eq!(format_age(100), format_age(250));
     }
 }

@@ -99,8 +99,23 @@ impl AssistantAgent {
 
         // Tier 2+ already invalidated the prompt cache; piggyback and force
         // a cross-session suffix rebuild on the next turn at zero extra cost.
+        // Respect the per-session `refresh_on_compaction` flag.
         if compact_result.tier_applied >= 2 {
-            self.force_refresh_cross_session();
+            let should_piggyback = self
+                .cross_session_awareness
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_ref()
+                .map(|a| {
+                    a.cfg
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .refresh_on_compaction
+                })
+                .unwrap_or(true);
+            if should_piggyback {
+                self.force_refresh_cross_session();
+            }
         }
 
         // Log compaction
