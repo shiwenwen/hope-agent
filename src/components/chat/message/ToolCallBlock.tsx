@@ -32,6 +32,8 @@ import {
   Check,
   Timer,
   ListChecks,
+  Settings,
+  Wrench,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { ToolCall } from "@/types/chat"
@@ -73,6 +75,8 @@ const TOOL_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
   task_create: ListChecks,
   task_update: ListChecks,
   task_list: ListChecks,
+  get_settings: Settings,
+  update_settings: Settings,
 }
 
 /** Check if a read tool call targets a SKILL.md file, return skill name if so */
@@ -249,7 +253,7 @@ export default function ToolCallBlock({ tool, shimmer }: { tool: ToolCall; shimm
   }, [tool.name, tool.arguments, tool.result])
 
   const skillName = getSkillName(tool.name, tool.arguments)
-  const Icon = skillName ? FileCode : (TOOL_ICONS[tool.name] || Terminal)
+  const Icon = skillName ? FileCode : (TOOL_ICONS[tool.name] || Wrench)
   const toolLabel = skillName
     ? t("tools.loadingSkill", { name: skillName })
     : t(`tools.${tool.name}`, tool.name)
