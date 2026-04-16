@@ -1,5 +1,6 @@
 use crate::agent_config;
 use crate::agent_loader;
+use oc_core::openclaw_import;
 
 #[tauri::command]
 pub async fn list_agents() -> Result<Vec<agent_config::AgentSummary>, String> {
@@ -39,4 +40,17 @@ pub async fn delete_agent(id: String) -> Result<(), String> {
 pub async fn get_agent_template(name: String, locale: String) -> Result<String, String> {
     agent_loader::get_template(&name, &locale)
         .ok_or_else(|| format!("Template not found: {}", name))
+}
+
+#[tauri::command]
+pub async fn scan_openclaw_agents(
+) -> Result<Vec<openclaw_import::OpenClawAgentPreview>, String> {
+    openclaw_import::scan_openclaw_agents().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn import_openclaw_agents(
+    requests: Vec<openclaw_import::ImportAgentRequest>,
+) -> Result<Vec<openclaw_import::ImportResult>, String> {
+    openclaw_import::import_openclaw_agents(&requests).map_err(|e| e.to_string())
 }

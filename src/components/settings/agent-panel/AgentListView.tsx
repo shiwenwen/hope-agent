@@ -9,10 +9,12 @@ import {
   ArrowLeft,
   Bot,
   ChevronRight,
+  Download,
   Plus,
 } from "lucide-react"
 import type { AgentSummary, AgentConfig } from "./types"
 import { DEFAULT_PERSONALITY } from "./types"
+import OpenClawImportDialog from "./OpenClawImportDialog"
 
 // ── Agent Create View ───────────────────────────────────────────
 
@@ -139,6 +141,7 @@ export default function AgentListView({ onEditAgent }: { onEditAgent: (id: strin
   const [agents, setAgents] = useState<AgentSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
 
   async function reload() {
     try {
@@ -174,12 +177,27 @@ export default function AgentListView({ onEditAgent }: { onEditAgent: (id: strin
 
       {/* New Agent button */}
       <button
-        className="flex items-center gap-2 w-full px-3 py-2.5 rounded-lg text-sm text-primary hover:bg-primary/5 transition-colors mb-3"
+        className="flex items-center gap-2 w-full px-3 py-2.5 rounded-lg text-sm text-primary hover:bg-primary/5 transition-colors"
         onClick={() => setCreating(true)}
       >
         <Plus className="h-4 w-4" />
         <span className="font-medium">{t("settings.agentNew")}</span>
       </button>
+
+      {/* Import from OpenClaw button */}
+      <button
+        className="flex items-center gap-2 w-full px-3 py-2.5 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors mb-3"
+        onClick={() => setImportOpen(true)}
+      >
+        <Download className="h-4 w-4" />
+        <span className="font-medium">{t("settings.openclawImportBtn")}</span>
+      </button>
+
+      <OpenClawImportDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        onImported={reload}
+      />
 
       <div className="border-t border-border mb-4" />
 

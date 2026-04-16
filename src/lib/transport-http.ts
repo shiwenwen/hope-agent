@@ -92,6 +92,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   delete_agent:                    { method: "DELETE", path: "/api/agents/{id}" },
   save_agent_markdown:             { method: "PUT",    path: "/api/agents/{id}/markdown" },
   save_agent_memory_md:            { method: "PUT",    path: "/api/agents/{id}/memory-md" },
+  scan_openclaw_agents:            { method: "GET",    path: "/api/agents/openclaw/scan" },
+  import_openclaw_agents:          { method: "POST",   path: "/api/agents/openclaw/import" },
 
   // -- User config --
   get_user_config:                 { method: "GET",    path: "/api/config/user" },

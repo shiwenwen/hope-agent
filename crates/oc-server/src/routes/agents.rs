@@ -108,6 +108,28 @@ pub async fn save_agent_memory_md(
     Ok(Json(json!({ "saved": true })))
 }
 
+// ── OpenClaw import ──────────────────────────────────────────
+
+/// `GET /api/agents/openclaw/scan` — scan OpenClaw agents for import.
+pub async fn scan_openclaw_agents(
+) -> Result<Json<Vec<oc_core::openclaw_import::OpenClawAgentPreview>>, AppError> {
+    let previews = oc_core::openclaw_import::scan_openclaw_agents()?;
+    Ok(Json(previews))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ImportOpenClawBody {
+    pub requests: Vec<oc_core::openclaw_import::ImportAgentRequest>,
+}
+
+/// `POST /api/agents/openclaw/import` — import selected OpenClaw agents.
+pub async fn import_openclaw_agents(
+    Json(body): Json<ImportOpenClawBody>,
+) -> Result<Json<Vec<oc_core::openclaw_import::ImportResult>>, AppError> {
+    let results = oc_core::openclaw_import::import_openclaw_agents(&body.requests)?;
+    Ok(Json(results))
+}
+
 // ── Agent templates ────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]

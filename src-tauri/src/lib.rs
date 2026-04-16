@@ -189,6 +189,8 @@ pub fn run() {
             commands::agent_mgmt::save_agent_markdown,
             commands::agent_mgmt::delete_agent,
             commands::agent_mgmt::get_agent_template,
+            commands::agent_mgmt::scan_openclaw_agents,
+            commands::agent_mgmt::import_openclaw_agents,
             // Memory management
             commands::memory::memory_add,
             commands::memory::memory_update,

@@ -42,6 +42,7 @@ pub mod guardian;
 pub mod memory;
 pub mod memory_extract;
 pub mod oauth;
+pub mod openclaw_import;
 pub mod paths;
 pub mod permissions;
 pub mod plan;
