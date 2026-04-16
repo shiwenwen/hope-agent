@@ -112,12 +112,12 @@ export default function SessionList({
     <>
       {/* Search input */}
       <div className="relative px-3 pt-2 pb-1.5">
-        <Search className="absolute left-5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+        <Search className="absolute left-5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/60 pointer-events-none" />
         <Input
           value={searchQuery}
           onChange={(e) => onSearchQueryChange(e.target.value)}
           placeholder={t("chat.searchPlaceholder")}
-          className="h-7 pl-7 pr-7 text-xs"
+          className="h-7 pl-7 pr-7 text-xs border-none shadow-none bg-muted/50 rounded-md focus-visible:ring-0 focus-visible:bg-muted/80 placeholder:text-muted-foreground/50"
         />
         {searchQuery && (
           <button

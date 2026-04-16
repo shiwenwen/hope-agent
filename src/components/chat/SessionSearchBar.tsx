@@ -131,9 +131,9 @@ export default function SessionSearchBar({
   const currentSnippet = sortedResults[currentIndex]?.contentSnippet ?? ""
 
   return (
-    <div className="px-4 pt-1 pb-2 bg-background border-b border-border/50 animate-in fade-in slide-in-from-top-1 duration-150">
-      <div className="flex items-center gap-2 rounded-lg border border-border bg-secondary/40 px-2 py-1 focus-within:border-primary/60 transition-colors">
-        <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+    <div className="px-4 pt-1 pb-2 bg-background border-b border-border/30 animate-in fade-in slide-in-from-top-1 duration-150">
+      <div className="flex items-center gap-2 rounded-md bg-muted/50 px-2.5 py-1.5 focus-within:bg-muted/80 transition-colors">
+        <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
         <input
           ref={inputRef}
           value={query}
