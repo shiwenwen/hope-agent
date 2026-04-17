@@ -11,8 +11,7 @@ use serde_json::Value;
 /// Detect if text tail contains important content (errors, JSON closing, results).
 /// Reference: openclaw hasImportantTail()
 fn has_important_tail(text: &str) -> bool {
-    let tail_start = text.len().saturating_sub(2000);
-    let tail = &text[tail_start..];
+    let tail = crate::truncate_utf8_tail(text, 2000);
     let lower = tail.to_lowercase();
 
     // Error patterns
@@ -41,13 +40,33 @@ fn has_important_tail(text: &str) -> bool {
     result_patterns.iter().any(|p| lower.contains(p))
 }
 
+/// Snap `pos` down to the nearest valid UTF-8 char boundary (≤ pos).
+fn floor_char_boundary(text: &str, pos: usize) -> usize {
+    let mut p = pos.min(text.len());
+    while p > 0 && !text.is_char_boundary(p) {
+        p -= 1;
+    }
+    p
+}
+
+/// Snap `pos` up to the nearest valid UTF-8 char boundary (≥ pos).
+fn ceil_char_boundary(text: &str, pos: usize) -> usize {
+    let mut p = pos.min(text.len());
+    while p < text.len() && !text.is_char_boundary(p) {
+        p += 1;
+    }
+    p
+}
+
 /// Find a clean cut point near target_pos, preferring structure boundaries.
 /// Improvement over openclaw: recognizes JSON, code blocks, and paragraph boundaries.
+/// Guaranteed to return a valid UTF-8 char boundary.
 pub(super) fn find_structure_boundary(text: &str, target_pos: usize, search_range: f64) -> usize {
-    let search_start = (target_pos as f64 * (1.0 - search_range)) as usize;
-    let search_end = target_pos.min(text.len());
+    let raw_start = (target_pos as f64 * (1.0 - search_range)) as usize;
+    let search_start = floor_char_boundary(text, raw_start);
+    let search_end = floor_char_boundary(text, target_pos.min(text.len()));
     if search_start >= search_end {
-        return target_pos.min(text.len());
+        return search_end;
     }
     let search_slice = &text[search_start..search_end];
 
@@ -70,15 +89,16 @@ pub(super) fn find_structure_boundary(text: &str, target_pos: usize, search_rang
     if let Some(pos) = search_slice.rfind('\n') {
         return search_start + pos + 1;
     }
-    // Fallback: raw position
-    target_pos.min(text.len())
+    // Fallback: snap down to char boundary to avoid slicing mid-codepoint.
+    floor_char_boundary(text, target_pos)
 }
 
 /// Find a forward-looking clean cut point near target_pos.
+/// Guaranteed to return a valid UTF-8 char boundary.
 fn find_structure_boundary_forward(text: &str, target_pos: usize, search_range: f64) -> usize {
-    let search_start = target_pos.min(text.len());
+    let search_start = ceil_char_boundary(text, target_pos.min(text.len()));
     let max_search = (text.len() as f64 * search_range) as usize;
-    let search_end = (search_start + max_search).min(text.len());
+    let search_end = ceil_char_boundary(text, (search_start + max_search).min(text.len()));
     if search_start >= search_end {
         return search_start;
     }

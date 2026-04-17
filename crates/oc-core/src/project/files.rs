@@ -168,9 +168,49 @@ pub fn delete_project_file(file_id: &str, db: &ProjectDB) -> Result<bool> {
 /// Remove every file belonging to a project, both the rows and the on-disk
 /// directory tree. Called when the parent project itself is being deleted.
 pub fn purge_project_files_dir(project_id: &str) {
-    if let Ok(dir) = crate::paths::project_dir(project_id) {
-        let _ = std::fs::remove_dir_all(dir);
+    let Ok(dir) = crate::paths::project_dir(project_id) else {
+        return;
+    };
+    if !dir.exists() {
+        return;
     }
+    // Defense-in-depth: refuse to delete if `dir` canonicalizes outside
+    // the projects root. Project IDs come from `Uuid::new_v4()` today so
+    // this should never trigger, but a traversal-style id (or a symlink
+    // that escaped the root) must not cause `remove_dir_all` to walk
+    // outside `~/.opencomputer/projects/`.
+    let Ok(projects_root) = crate::paths::projects_dir() else {
+        return;
+    };
+    let canonical = match dir.canonicalize() {
+        Ok(p) => p,
+        Err(e) => {
+            app_warn!(
+                "project",
+                "files",
+                "Refusing to purge project {}: canonicalize failed: {}",
+                project_id,
+                e
+            );
+            return;
+        }
+    };
+    let canonical_root = match projects_root.canonicalize() {
+        Ok(p) => p,
+        Err(_) => projects_root.clone(),
+    };
+    if !canonical.starts_with(&canonical_root) {
+        app_error!(
+            "project",
+            "files",
+            "Refusing to purge project {}: resolved path {:?} escapes projects root {:?}",
+            project_id,
+            canonical,
+            canonical_root
+        );
+        return;
+    }
+    let _ = std::fs::remove_dir_all(canonical);
 }
 
 /// Delete a project and every resource attached to it:

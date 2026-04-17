@@ -317,10 +317,41 @@ pub static PROFILE_COOLDOWNS: LazyLock<ProfileCooldownTracker> =
 //  Maps (provider_id, session_id) → last-successful profile_id.
 //  Ensures cache-friendly behavior by preferring the same key across turns.
 
-/// Nested HashMap: provider_id → (session_id → profile_id).
-/// Avoids tuple key allocation on every lookup.
+/// Per-provider LRU of (session_id → profile_id). We need insertion-order
+/// tracking for O(1) "evict oldest" semantics without pulling a full LRU
+/// crate, so sessions live in a side `VecDeque` alongside the map: `get`
+/// looks up in the map, `set` promotes the key to the back, eviction drops
+/// the front. Keeps the whole map bounded without the old "blow away
+/// everything at 500" behavior that destroyed session stickiness for
+/// every long-running process.
+#[derive(Default)]
+struct StickyShard {
+    map: HashMap<String, String>,
+    order: std::collections::VecDeque<String>,
+}
+
+impl StickyShard {
+    fn promote(&mut self, session_id: &str) {
+        if let Some(pos) = self.order.iter().position(|s| s == session_id) {
+            self.order.remove(pos);
+        }
+        self.order.push_back(session_id.to_string());
+    }
+
+    fn insert(&mut self, session_id: &str, profile_id: &str, max: usize) {
+        self.map
+            .insert(session_id.to_string(), profile_id.to_string());
+        self.promote(session_id);
+        while self.order.len() > max {
+            if let Some(evicted) = self.order.pop_front() {
+                self.map.remove(&evicted);
+            }
+        }
+    }
+}
+
 pub struct ProfileStickyMap {
-    map: Mutex<HashMap<String, HashMap<String, String>>>,
+    map: Mutex<HashMap<String, StickyShard>>,
 }
 
 /// Cap per-provider session entries to prevent unbounded growth.
@@ -335,23 +366,22 @@ impl ProfileStickyMap {
 
     /// Get the sticky profile ID for a provider+session pair.
     pub fn get(&self, provider_id: &str, session_id: &str) -> Option<String> {
-        self.map
-            .lock()
-            .ok()?
-            .get(provider_id)?
-            .get(session_id)
-            .cloned()
+        let mut guard = self.map.lock().ok()?;
+        let shard = guard.get_mut(provider_id)?;
+        let profile = shard.map.get(session_id).cloned();
+        if profile.is_some() {
+            shard.promote(session_id);
+        }
+        profile
     }
 
     /// Set the sticky profile ID after a successful request.
+    /// Uses LRU semantics so hitting the cap evicts the single oldest
+    /// session entry instead of wiping every existing stickiness.
     pub fn set(&self, provider_id: &str, session_id: &str, profile_id: &str) {
         if let Ok(mut map) = self.map.lock() {
-            let sessions = map.entry(provider_id.to_string()).or_default();
-            // Prune oldest entries if over cap
-            if sessions.len() >= STICKY_MAX_SESSIONS_PER_PROVIDER {
-                sessions.clear();
-            }
-            sessions.insert(session_id.to_string(), profile_id.to_string());
+            let shard = map.entry(provider_id.to_string()).or_default();
+            shard.insert(session_id, profile_id, STICKY_MAX_SESSIONS_PER_PROVIDER);
         }
     }
 }
@@ -587,6 +617,65 @@ mod tests {
         sticky.set("prov1", "sess1", "profile-a");
         assert_eq!(sticky.get("prov1", "sess1").as_deref(), Some("profile-a"));
         assert!(sticky.get("prov1", "sess2").is_none());
+    }
+
+    #[test]
+    fn test_sticky_map_lru_eviction_preserves_recent() {
+        // Hit the cap + 1 with distinct sessions; oldest is evicted but
+        // newer ones must survive (old `clear()` wiped everything).
+        let sticky = ProfileStickyMap::new();
+        for i in 0..STICKY_MAX_SESSIONS_PER_PROVIDER {
+            sticky.set("prov1", &format!("sess{}", i), "profile-a");
+        }
+        // One past the cap triggers eviction of sess0.
+        sticky.set(
+            "prov1",
+            &format!("sess{}", STICKY_MAX_SESSIONS_PER_PROVIDER),
+            "profile-a",
+        );
+        assert!(
+            sticky.get("prov1", "sess0").is_none(),
+            "oldest entry should have been evicted"
+        );
+        // Recently used entries must still be present.
+        assert_eq!(
+            sticky.get("prov1", "sess1").as_deref(),
+            Some("profile-a"),
+            "recent entries must not be wiped by cap enforcement"
+        );
+        assert_eq!(
+            sticky
+                .get("prov1", &format!("sess{}", STICKY_MAX_SESSIONS_PER_PROVIDER))
+                .as_deref(),
+            Some("profile-a"),
+            "newest entry must be present"
+        );
+    }
+
+    #[test]
+    fn test_sticky_map_lru_promotes_on_get() {
+        let sticky = ProfileStickyMap::new();
+        // Fill up to the cap so the next insert triggers exactly one
+        // eviction. Seed the two oldest entries first so we can observe
+        // the promotion effect before fillers arrive.
+        sticky.set("prov1", "sess-a", "profile-a");
+        sticky.set("prov1", "sess-b", "profile-b");
+        for i in 0..(STICKY_MAX_SESSIONS_PER_PROVIDER - 2) {
+            sticky.set("prov1", &format!("filler{}", i), "profile-a");
+        }
+        // Promote sess-a so sess-b is now the oldest.
+        assert_eq!(sticky.get("prov1", "sess-a").as_deref(), Some("profile-a"));
+        // Next insert overflows the cap by one → pop_front evicts sess-b.
+        sticky.set("prov1", "trigger", "profile-a");
+        assert_eq!(
+            sticky.get("prov1", "sess-a").as_deref(),
+            Some("profile-a"),
+            "promoted entry must survive eviction"
+        );
+        assert!(
+            sticky.get("prov1", "sess-b").is_none(),
+            "untouched older entry should have been evicted"
+        );
     }
 
     #[test]

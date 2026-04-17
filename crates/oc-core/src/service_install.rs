@@ -3,6 +3,49 @@ use std::path::PathBuf;
 
 const SERVICE_LABEL: &str = "com.opencomputer.server";
 
+/// Minimal XML-text escape for plist `<string>` bodies. launchd parses
+/// the plist as XML, so any user-controlled value (home path, api key)
+/// MUST be escaped or `<`/`>`/`&`/quotes in the input will be interpreted
+/// as XML markup — in the worst case injecting extra `<string>` elements
+/// that become additional argv entries to the launched process.
+#[cfg(target_os = "macos")]
+fn xml_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '&' => out.push_str("&amp;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&apos;"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+/// Escape a value for a systemd unit `ExecStart=` line so that whitespace,
+/// quotes and backslashes can't split the command into multiple args or
+/// inject extra tokens. systemd supports double-quoted strings with
+/// backslash escapes — see systemd.exec(5) "Command lines".
+#[cfg(target_os = "linux")]
+fn systemd_escape_arg(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            _ => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
 // ── Public API ────────────────────────────────────────────────────
 
 /// Install OpenComputer as a system service (launchd on macOS, systemd on Linux).
@@ -109,19 +152,23 @@ fn install_launchd(
 ) -> Result<String> {
     let plist = plist_path()?;
 
-    // Build ProgramArguments entries
+    // Build ProgramArguments entries. Every user-controlled value
+    // (exe path, bind addr, api key, log path) is XML-escaped so that
+    // characters like `<`, `>`, `"` or `&` cannot break out of the
+    // surrounding `<string>` element and inject additional argv entries.
     let mut args_xml = format!(
         "        <string>{}</string>\n\
          \x20       <string>server</string>\n\
          \x20       <string>--bind</string>\n\
          \x20       <string>{}</string>",
-        exe_path, bind_addr
+        xml_escape(exe_path),
+        xml_escape(bind_addr)
     );
     if let Some(key) = api_key {
         args_xml.push_str(&format!(
             "\n        <string>--api-key</string>\n\
              \x20       <string>{}</string>",
-            key
+            xml_escape(key)
         ));
     }
 
@@ -149,7 +196,7 @@ fn install_launchd(
 "#,
         label = SERVICE_LABEL,
         args = args_xml,
-        log = log_path,
+        log = xml_escape(log_path),
     );
 
     // Unload the existing service if present (ignore errors)
@@ -267,9 +314,17 @@ fn install_systemd(
 ) -> Result<String> {
     let unit = unit_path()?;
 
-    let mut exec_start = format!("{} server --bind {}", exe_path, bind_addr);
+    // Quote every argv token individually so whitespace / quotes in any
+    // user-controlled value (exe path, bind addr, api key) cannot split
+    // the line into extra tokens or inject shell metacharacters into
+    // `ExecStart`.
+    let mut exec_start = format!(
+        "{} server --bind {}",
+        systemd_escape_arg(exe_path),
+        systemd_escape_arg(bind_addr)
+    );
     if let Some(key) = api_key {
-        exec_start.push_str(&format!(" --api-key {}", key));
+        exec_start.push_str(&format!(" --api-key {}", systemd_escape_arg(key)));
     }
 
     let stdout_log = format!("{}/server.stdout.log", log_path);

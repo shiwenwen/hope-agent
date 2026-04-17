@@ -71,9 +71,7 @@ pub fn dispatch_injection(
                     push_message,
                     db_clone,
                 ));
-                if let Some(jdb) = crate::async_jobs::get_async_jobs_db() {
-                    let _ = jdb.mark_injected(&job_id_for_db);
-                }
+                mark_injected_with_retry(&job_id_for_db);
             }
             Err(e) => app_error!(
                 "async_jobs",
@@ -83,6 +81,61 @@ pub fn dispatch_injection(
             ),
         }
     });
+}
+
+/// Retry `mark_injected` with exponential backoff. If all retries fail,
+/// log an error and emit an EventBus alarm — the row will be replayed on
+/// the next `replay_pending_jobs()` sweep, creating a duplicate
+/// `<tool-job-result>` injection, so surfacing the failure matters.
+fn mark_injected_with_retry(job_id: &str) {
+    const BACKOFFS_MS: &[u64] = &[0, 100, 500, 2_000];
+    let Some(jdb) = crate::async_jobs::get_async_jobs_db() else {
+        app_error!(
+            "async_jobs",
+            "injection",
+            "Cannot mark job {} injected: async_jobs DB is not initialized",
+            job_id
+        );
+        return;
+    };
+    let mut last_err: Option<String> = None;
+    for (attempt, delay_ms) in BACKOFFS_MS.iter().enumerate() {
+        if *delay_ms > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(*delay_ms));
+        }
+        match jdb.mark_injected(job_id) {
+            Ok(()) => return,
+            Err(e) => {
+                last_err = Some(e.to_string());
+                app_warn!(
+                    "async_jobs",
+                    "injection",
+                    "mark_injected({}) attempt {} failed: {}",
+                    job_id,
+                    attempt + 1,
+                    e
+                );
+            }
+        }
+    }
+    let err = last_err.unwrap_or_else(|| "unknown".to_string());
+    app_error!(
+        "async_jobs",
+        "injection",
+        "mark_injected({}) failed after {} attempts: {} — job may be re-injected on restart",
+        job_id,
+        BACKOFFS_MS.len(),
+        &err
+    );
+    if let Some(bus) = crate::globals::get_event_bus() {
+        bus.emit(
+            "async_tool_job:mark_injected_failed",
+            serde_json::json!({
+                "job_id": job_id,
+                "error": err,
+            }),
+        );
+    }
 }
 
 /// Format the user-visible message that gets injected back into the parent

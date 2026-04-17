@@ -139,13 +139,21 @@ impl AssistantAgent {
                 .map(|t| json!({ "type": "function", "function": t }))
                 .collect();
 
+            // On the final allowed round omit `tools` so the model is forced to
+            // produce a text response. Without this, a tool call here would
+            // execute and append tool_results to history that the model never
+            // gets to see, leaving the user with only a "max rounds" notice.
+            let is_final_round = round + 1 == max_rounds;
+
             let mut body = json!({
                 "model": model,
                 "messages": api_messages,
-                "tools": tools_array,
                 "stream": true,
                 "stream_options": { "include_usage": true },
             });
+            if !is_final_round {
+                body["tools"] = json!(tools_array);
+            }
 
             // Apply thinking parameters based on provider's ThinkingStyle
             apply_thinking_to_chat_body(&mut body, &self.thinking_style, reasoning_effort, 16384);
