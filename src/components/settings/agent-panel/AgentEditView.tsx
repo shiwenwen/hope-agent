@@ -415,7 +415,14 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
             />
           )}
 
-          {activeTab === "memory" && <MemoryTab agentId={agentId} openclawMode={config.openclawMode} />}
+          {activeTab === "memory" && (
+            <MemoryTab
+              agentId={agentId}
+              openclawMode={config.openclawMode}
+              config={config}
+              updateConfig={updateConfig}
+            />
+          )}
 
           {activeTab === "subagent" && (
             <SubagentTab

@@ -33,6 +33,7 @@ impl AssistantAgent {
     ) -> Result<(String, Option<String>)> {
         self.reset_chat_flags();
         self.refresh_cross_session_suffix(message).await;
+        self.refresh_active_memory_suffix(message).await;
 
         let client =
             crate::provider::apply_proxy(reqwest::Client::builder().user_agent(&self.user_agent))
@@ -122,6 +123,36 @@ impl AssistantAgent {
                         "role": "system",
                         "content": suffix.as_str()
                     }));
+                }
+            }
+            // Active Memory (Phase B1) — inject after the cross-session suffix
+            // so the ordering stays consistent with Anthropic/OpenAIChat. Same
+            // rationale: lives outside `instructions` so it never invalidates
+            // the instruction-string prefix cache.
+            if let Some(active_suffix) = self.current_active_memory_suffix() {
+                if !active_suffix.is_empty() {
+                    // Find the index immediately after the cross-session suffix
+                    // (if any) so Active Memory sits right after it rather than
+                    // before. `prepare_messages_for_api` never emits a leading
+                    // system item, so any existing system at index 0 is our
+                    // cross-session insertion.
+                    let insert_at = if api_input
+                        .first()
+                        .and_then(|m| m.get("role"))
+                        .and_then(|r| r.as_str())
+                        == Some("system")
+                    {
+                        1
+                    } else {
+                        0
+                    };
+                    api_input.insert(
+                        insert_at,
+                        json!({
+                            "role": "system",
+                            "content": active_suffix.as_str()
+                        }),
+                    );
                 }
             }
 

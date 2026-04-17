@@ -33,6 +33,7 @@ impl AssistantAgent {
     ) -> Result<(String, Option<String>)> {
         self.reset_chat_flags();
         self.refresh_cross_session_suffix(message).await;
+        self.refresh_active_memory_suffix(message).await;
 
         let client =
             crate::provider::apply_proxy(reqwest::Client::builder().user_agent(&self.user_agent))
@@ -117,6 +118,15 @@ impl AssistantAgent {
             if let Some(suffix) = self.current_cross_session_suffix() {
                 if !suffix.is_empty() {
                     api_messages.push(json!({ "role": "system", "content": suffix.as_str() }));
+                }
+            }
+            // Active Memory (Phase B1) — third system message so automatic
+            // prefix caching still hits the earlier two when the recall
+            // sentence changes between turns.
+            if let Some(active_suffix) = self.current_active_memory_suffix() {
+                if !active_suffix.is_empty() {
+                    api_messages
+                        .push(json!({ "role": "system", "content": active_suffix.as_str() }));
                 }
             }
             api_messages.extend(crate::context_compact::prepare_messages_for_api(&messages));

@@ -35,6 +35,7 @@ impl AssistantAgent {
     ) -> Result<(String, Option<String>)> {
         self.reset_chat_flags();
         self.refresh_cross_session_suffix(message).await;
+        self.refresh_active_memory_suffix(message).await;
 
         let client =
             crate::provider::apply_proxy(reqwest::Client::builder().user_agent(&self.user_agent))
@@ -134,6 +135,18 @@ impl AssistantAgent {
                     system_blocks.push(json!({
                         "type": "text",
                         "text": suffix,
+                        "cache_control": { "type": "ephemeral" }
+                    }));
+                }
+            }
+            // Active Memory (Phase B1) — third independent cache block.
+            // Churn here only invalidates the recall sentence, never the
+            // static prefix or the cross-session suffix cache.
+            if let Some(active_suffix) = self.current_active_memory_suffix() {
+                if !active_suffix.is_empty() {
+                    system_blocks.push(json!({
+                        "type": "text",
+                        "text": active_suffix.as_str(),
                         "cache_control": { "type": "ephemeral" }
                     }));
                 }

@@ -1,3 +1,4 @@
+mod active_memory;
 mod api_types;
 mod config;
 mod content;
@@ -89,6 +90,10 @@ impl AssistantAgent {
             agent_caps_cache: std::sync::Mutex::new(None),
             cross_session_awareness: std::sync::Mutex::new(None),
             cross_session_suffix: std::sync::Mutex::new(None),
+            active_memory_state: std::sync::Arc::new(
+                active_memory::ActiveMemoryState::new(),
+            ),
+            active_memory_suffix: std::sync::Mutex::new(None),
         }
     }
 
@@ -136,6 +141,10 @@ impl AssistantAgent {
             agent_caps_cache: std::sync::Mutex::new(None),
             cross_session_awareness: std::sync::Mutex::new(None),
             cross_session_suffix: std::sync::Mutex::new(None),
+            active_memory_state: std::sync::Arc::new(
+                active_memory::ActiveMemoryState::new(),
+            ),
+            active_memory_suffix: std::sync::Mutex::new(None),
         }
     }
 
@@ -242,6 +251,10 @@ impl AssistantAgent {
             agent_caps_cache: std::sync::Mutex::new(None),
             cross_session_awareness: std::sync::Mutex::new(None),
             cross_session_suffix: std::sync::Mutex::new(None),
+            active_memory_state: std::sync::Arc::new(
+                active_memory::ActiveMemoryState::new(),
+            ),
+            active_memory_suffix: std::sync::Mutex::new(None),
         }
     }
 
@@ -369,6 +382,174 @@ impl AssistantAgent {
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         *slot = Some(aware);
+    }
+
+    /// Return the currently-held Active Memory suffix (if any). Provider
+    /// layer calls this when constructing the request to inject the recall
+    /// sentence as another independent cache block.
+    pub(crate) fn current_active_memory_suffix(&self) -> Option<std::sync::Arc<String>> {
+        self.active_memory_suffix
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    /// Refresh the Active Memory suffix for this user turn (Phase B1).
+    ///
+    /// Called at the top of every provider `chat_*` method, right after
+    /// `refresh_cross_session_suffix`. Runs a bounded side_query that
+    /// distills the most relevant memory for `user_text` into a single
+    /// sentence. Degrades silently to no-injection on:
+    /// - config disabled
+    /// - empty shortlist (no candidates matched)
+    /// - side_query timeout / error
+    /// - LLM returned "NONE" or empty string
+    ///
+    /// Never blocks the chat loop longer than `active_memory.timeout_ms`.
+    pub(crate) async fn refresh_active_memory_suffix(&self, user_text: &str) {
+        use std::time::Duration;
+
+        // 1. Load per-agent memory config (single read — we pull both
+        //    `active_memory` and `shared` from the same MemoryConfig so the
+        //    agent.json disk hit stays amortised across the per-turn call).
+        //    Missing agent file behaves as enabled + shared=true.
+        let (cfg, shared_global) = match crate::agent_loader::load_agent(&self.agent_id) {
+            Ok(def) => (
+                def.config.memory.active_memory.clone(),
+                def.config.memory.shared,
+            ),
+            Err(_) => (
+                crate::agent_config::ActiveMemoryConfig::default(),
+                true,
+            ),
+        };
+        if !cfg.enabled {
+            // Clear any stale suffix from a previous enabled turn.
+            *self
+                .active_memory_suffix
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = None;
+            return;
+        }
+
+        let Some(sid) = self.session_id.clone() else {
+            return;
+        };
+        let trimmed = user_text.trim();
+        if trimmed.is_empty() {
+            return;
+        }
+
+        // 2. Cache check — if we already recalled for this exact phrasing
+        //    within the TTL window, reuse without another LLM call.
+        let hash = active_memory::hash_user_text(trimmed);
+        let ttl = Duration::from_secs(cfg.cache_ttl_secs.max(1));
+        if let Some(cached) = self.active_memory_state.get_cached(hash, ttl) {
+            let suffix_arc = cached
+                .as_deref()
+                .map(|text| std::sync::Arc::new(active_memory::format_suffix(text)));
+            *self
+                .active_memory_suffix
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = suffix_arc;
+            return;
+        }
+
+        // 3. Shortlist candidates via the local memory backend. Synchronous
+        //    backend call wrapped in spawn_blocking so SQLite / vector work
+        //    doesn't stall the runtime.
+        let agent_id = self.agent_id.clone();
+        let sid_for_search = sid.clone();
+        let query = trimmed.to_string();
+        let limit = cfg.candidate_limit.max(1);
+
+        let candidates = tokio::task::spawn_blocking(move || {
+            let scopes =
+                active_memory::scopes_for_session(&sid_for_search, &agent_id, shared_global);
+            active_memory::shortlist_candidates(&query, &scopes, limit)
+        })
+        .await
+        .unwrap_or_default();
+
+        if candidates.is_empty() {
+            // Cache the empty decision so we don't re-search for the same
+            // text until the TTL expires.
+            self.active_memory_state.put_cached(hash, None);
+            *self
+                .active_memory_suffix
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = None;
+            return;
+        }
+
+        // 4. Bounded side_query — complete or timeout gracefully.
+        let prompt = active_memory::build_recall_prompt(trimmed, &candidates, cfg.max_chars);
+        let started = std::time::Instant::now();
+        let result = tokio::time::timeout(
+            Duration::from_millis(cfg.timeout_ms),
+            self.side_query(&prompt, cfg.budget_tokens),
+        )
+        .await;
+
+        let recalled: Option<String> = match result {
+            Ok(Ok(res)) => {
+                let trimmed_out = res.text.trim();
+                if trimmed_out.is_empty()
+                    || trimmed_out.eq_ignore_ascii_case("NONE")
+                    || trimmed_out.eq_ignore_ascii_case("NONE.")
+                {
+                    None
+                } else {
+                    // Enforce the configured max_chars bound, defensively.
+                    Some(crate::truncate_utf8(trimmed_out, cfg.max_chars).to_string())
+                }
+            }
+            Ok(Err(e)) => {
+                app_warn!(
+                    "agent",
+                    "active_memory",
+                    "side_query failed: {} ({} candidates, {}ms)",
+                    e,
+                    candidates.len(),
+                    started.elapsed().as_millis()
+                );
+                None
+            }
+            Err(_elapsed) => {
+                app_warn!(
+                    "agent",
+                    "active_memory",
+                    "side_query timed out after {}ms ({} candidates)",
+                    cfg.timeout_ms,
+                    candidates.len()
+                );
+                None
+            }
+        };
+
+        // 5. Cache the outcome (including None) and update the suffix slot.
+        self.active_memory_state
+            .put_cached(hash, recalled.clone());
+
+        let suffix_arc = recalled
+            .as_deref()
+            .map(|text| std::sync::Arc::new(active_memory::format_suffix(text)));
+
+        if let Some(ref _arc) = suffix_arc {
+            app_info!(
+                "agent",
+                "active_memory",
+                "recalled (len={}) from {} candidates in {}ms",
+                recalled.as_deref().map(|s| s.len()).unwrap_or(0),
+                candidates.len(),
+                started.elapsed().as_millis()
+            );
+        }
+
+        *self
+            .active_memory_suffix
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = suffix_arc;
     }
 
     /// Return the currently-held cross-session suffix (if any), for use by

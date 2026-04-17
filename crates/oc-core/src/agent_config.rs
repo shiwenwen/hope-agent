@@ -330,6 +330,79 @@ pub struct MemoryConfig {
     /// Idle timeout in seconds for final extraction (None = inherit global)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extract_idle_timeout_secs: Option<u64>,
+
+    /// Active Memory pre-reply injection (Phase B1).
+    /// When enabled, each user turn triggers a bounded side_query that
+    /// distills the most relevant memory into a short sentence and injects
+    /// it as an independent cache block alongside the system prompt.
+    #[serde(default)]
+    pub active_memory: ActiveMemoryConfig,
+}
+
+/// Active Memory configuration — controls the pre-reply recall injection
+/// (Phase B1). Default is enabled with conservative timeouts; failures and
+/// timeouts degrade silently to the passive memory recall path.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActiveMemoryConfig {
+    /// Whether Active Memory is enabled. Default true.
+    #[serde(default = "crate::default_true")]
+    pub enabled: bool,
+
+    /// Side query timeout in milliseconds. Default 3000. On timeout we
+    /// simply don't append the Active Memory block and fall back to the
+    /// static memory section already in the system prompt.
+    #[serde(default = "default_active_memory_timeout_ms")]
+    pub timeout_ms: u64,
+
+    /// Upper bound (chars) for the recall sentence we ask the LLM for.
+    /// Default 220 (mirrors OpenClaw `active-memory` default maxChars).
+    #[serde(default = "default_active_memory_max_chars")]
+    pub max_chars: usize,
+
+    /// Cache TTL (seconds) keyed by hash(user_message). Repeating the same
+    /// question within the TTL window reuses the cached recall without a
+    /// side_query call. Default 15s.
+    #[serde(default = "default_active_memory_cache_ttl_secs")]
+    pub cache_ttl_secs: u64,
+
+    /// max_tokens budget for the side_query call. Default 512.
+    #[serde(default = "default_active_memory_budget_tokens")]
+    pub budget_tokens: u32,
+
+    /// How many candidate memories to shortlist from the backend before
+    /// asking the LLM to pick the most relevant one. Default 20.
+    #[serde(default = "default_active_memory_candidate_limit")]
+    pub candidate_limit: usize,
+}
+
+fn default_active_memory_timeout_ms() -> u64 {
+    3000
+}
+fn default_active_memory_max_chars() -> usize {
+    220
+}
+fn default_active_memory_cache_ttl_secs() -> u64 {
+    15
+}
+fn default_active_memory_budget_tokens() -> u32 {
+    512
+}
+fn default_active_memory_candidate_limit() -> usize {
+    20
+}
+
+impl Default for ActiveMemoryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            timeout_ms: default_active_memory_timeout_ms(),
+            max_chars: default_active_memory_max_chars(),
+            cache_ttl_secs: default_active_memory_cache_ttl_secs(),
+            budget_tokens: default_active_memory_budget_tokens(),
+            candidate_limit: default_active_memory_candidate_limit(),
+        }
+    }
 }
 
 fn default_memory_budget() -> usize {
@@ -350,6 +423,7 @@ impl Default for MemoryConfig {
             extract_time_threshold_secs: None,
             extract_message_threshold: None,
             extract_idle_timeout_secs: None,
+            active_memory: ActiveMemoryConfig::default(),
         }
     }
 }

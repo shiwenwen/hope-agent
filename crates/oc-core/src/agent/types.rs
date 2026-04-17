@@ -187,6 +187,16 @@ pub struct AssistantAgent {
     /// a separate cache breakpoint. Rebuilt on each chat() turn by
     /// `prepare_dynamic_suffix`.
     pub(crate) cross_session_suffix: std::sync::Mutex<Option<std::sync::Arc<String>>>,
+    /// Active Memory per-agent runtime state (cache + inflight flags).
+    /// Initialized once on construction and reused across all chat() turns.
+    pub(crate) active_memory_state:
+        std::sync::Arc<super::active_memory::ActiveMemoryState>,
+    /// Latest Active Memory recall suffix to append to the system prompt as
+    /// yet another independent cache breakpoint. Rebuilt every user turn by
+    /// `refresh_active_memory_suffix` when the side_query completes in time.
+    /// `None` means: nothing to inject this turn (empty shortlist, LLM said
+    /// NONE, timeout, or feature disabled).
+    pub(crate) active_memory_suffix: std::sync::Mutex<Option<std::sync::Arc<String>>>,
 }
 
 /// Cached parameters from the last main chat request.

@@ -2,17 +2,23 @@ import { useState, useEffect, useCallback } from "react"
 import { useTranslation } from "react-i18next"
 import { getTransport } from "@/lib/transport-provider"
 import { Textarea } from "@/components/ui/textarea"
+import { Input } from "@/components/ui/input"
+import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
 import { Loader2, Check, Save } from "lucide-react"
 import MemoryPanel from "@/components/settings/MemoryPanel"
 import { logger } from "@/lib/logger"
+import type { AgentConfig, ActiveMemoryConfig } from "../types"
+import { DEFAULT_ACTIVE_MEMORY } from "../types"
 
 interface MemoryTabProps {
   agentId: string
   openclawMode?: boolean
+  config: AgentConfig
+  updateConfig: (patch: Partial<AgentConfig>) => void
 }
 
-export default function MemoryTab({ agentId, openclawMode }: MemoryTabProps) {
+export default function MemoryTab({ agentId, openclawMode, config, updateConfig }: MemoryTabProps) {
   const { t } = useTranslation()
   const [content, setContent] = useState("")
   const [originalContent, setOriginalContent] = useState("")
@@ -65,10 +71,122 @@ export default function MemoryTab({ agentId, openclawMode }: MemoryTabProps) {
 
   const hasChanges = content !== originalContent
 
+  const activeMemory: ActiveMemoryConfig =
+    config.memory?.activeMemory ?? { ...DEFAULT_ACTIVE_MEMORY }
+
+  const updateActiveMemory = (patch: Partial<ActiveMemoryConfig>) => {
+    const nextActive = { ...activeMemory, ...patch }
+    const prevMemory = config.memory ?? {
+      enabled: true,
+      shared: true,
+      promptBudget: 5000,
+      activeMemory: { ...DEFAULT_ACTIVE_MEMORY },
+    }
+    updateConfig({
+      memory: {
+        ...prevMemory,
+        activeMemory: nextActive,
+      },
+    })
+  }
+
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-auto">
+      {/* Active Memory (Phase B1) */}
+      <div className="px-6 pt-6 pb-2 shrink-0 w-full">
+        <div className="rounded-lg border border-border/60 bg-secondary/20 p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex flex-col pr-4">
+              <label className="text-sm font-semibold">
+                {t("settings.activeMemoryTitle")}
+              </label>
+              <p className="text-[11px] text-muted-foreground/70 mt-0.5">
+                {t("settings.activeMemoryDesc")}
+              </p>
+            </div>
+            <Switch
+              checked={activeMemory.enabled}
+              onCheckedChange={(v) => updateActiveMemory({ enabled: v })}
+            />
+          </div>
+          {activeMemory.enabled && (
+            <div className="grid grid-cols-2 gap-3 pt-1">
+              <label className="flex flex-col gap-1 text-xs">
+                <span className="text-muted-foreground">
+                  {t("settings.activeMemoryTimeout")}
+                </span>
+                <Input
+                  type="number"
+                  min={200}
+                  max={15000}
+                  step={100}
+                  className="h-8 text-xs"
+                  value={activeMemory.timeoutMs}
+                  onChange={(e) =>
+                    updateActiveMemory({
+                      timeoutMs: Math.max(200, Math.min(15000, Number(e.target.value) || 0)),
+                    })
+                  }
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs">
+                <span className="text-muted-foreground">
+                  {t("settings.activeMemoryCacheTtl")}
+                </span>
+                <Input
+                  type="number"
+                  min={0}
+                  max={600}
+                  className="h-8 text-xs"
+                  value={activeMemory.cacheTtlSecs}
+                  onChange={(e) =>
+                    updateActiveMemory({
+                      cacheTtlSecs: Math.max(0, Math.min(600, Number(e.target.value) || 0)),
+                    })
+                  }
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs">
+                <span className="text-muted-foreground">
+                  {t("settings.activeMemoryMaxChars")}
+                </span>
+                <Input
+                  type="number"
+                  min={40}
+                  max={2000}
+                  className="h-8 text-xs"
+                  value={activeMemory.maxChars}
+                  onChange={(e) =>
+                    updateActiveMemory({
+                      maxChars: Math.max(40, Math.min(2000, Number(e.target.value) || 0)),
+                    })
+                  }
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs">
+                <span className="text-muted-foreground">
+                  {t("settings.activeMemoryCandidateLimit")}
+                </span>
+                <Input
+                  type="number"
+                  min={1}
+                  max={100}
+                  className="h-8 text-xs"
+                  value={activeMemory.candidateLimit}
+                  onChange={(e) =>
+                    updateActiveMemory({
+                      candidateLimit: Math.max(1, Math.min(100, Number(e.target.value) || 0)),
+                    })
+                  }
+                />
+              </label>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Core Memory Editor */}
-      <div className="px-6 pt-6 pb-4 shrink-0 w-full">
+      <div className="px-6 pt-4 pb-4 shrink-0 w-full">
         <div className="flex items-center justify-between mb-1">
           <h3 className="text-sm font-semibold">{t("settings.coreMemory")}</h3>
           {loaded && (
