@@ -183,10 +183,10 @@ export default function SubagentBlock({
       {/* Stats bar — show whenever we have something to display, not just
           terminal. During running, tokens/model start appearing after the
           first child tool round. */}
-      {(modelUsed || inputTokens !== undefined) && (
+      {(modelUsed || inputTokens != null) && (
         <div className="flex items-center gap-2 px-2.5 pb-1 text-[10px] text-muted-foreground">
           {modelUsed && <span>{modelUsed}</span>}
-          {inputTokens !== undefined && outputTokens !== undefined && (
+          {inputTokens != null && outputTokens != null && (
             <span>{inputTokens.toLocaleString()}↑ {outputTokens.toLocaleString()}↓</span>
           )}
         </div>
