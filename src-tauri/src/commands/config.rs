@@ -424,6 +424,21 @@ pub async fn set_ui_effects_enabled(enabled: bool) -> Result<(), String> {
     oc_core::config::save_config(&store).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub async fn get_window_opacity() -> Result<f32, String> {
+    let store = oc_core::config::load_config().map_err(|e| e.to_string())?;
+    Ok(oc_core::config::clamp_window_opacity(store.window_opacity))
+}
+
+#[tauri::command]
+pub async fn set_window_opacity(opacity: f32) -> Result<f32, String> {
+    let mut store = oc_core::config::load_config().map_err(|e| e.to_string())?;
+    let clamped = oc_core::config::clamp_window_opacity(opacity);
+    store.window_opacity = clamped;
+    oc_core::config::save_config(&store).map_err(|e| e.to_string())?;
+    Ok(clamped)
+}
+
 // ── User Config Commands ─────────────────────────────────────────
 
 #[tauri::command]

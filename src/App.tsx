@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, lazy, Suspense } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { initLanguageFromConfig, listenLanguageConfigChange } from "@/i18n/i18n"
+import { initWindowOpacity } from "@/hooks/useWindowOpacity"
 import { listenNotificationConfigChange } from "@/lib/notifications"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { LightboxProvider } from "@/components/common/ImageLightbox"
@@ -86,6 +87,8 @@ export default function App() {
       try {
         // Load language preference from backend config.json
         await initLanguageFromConfig()
+        // Apply saved desktop window opacity before first render
+        initWindowOpacity()
         const avatar = await fetchUserAvatar()
         setUserAvatar(avatar)
         const restored = await getTransport().call<boolean>("try_restore_session")
@@ -151,7 +154,7 @@ export default function App() {
     <ErrorBoundary>
     <TooltipProvider>
     <LightboxProvider>
-    <div className="flex h-screen overflow-hidden bg-background">
+    <div className="flex h-screen overflow-hidden bg-app-window">
       <StarrySky />
       <IconSidebar
         view={view === "loading" || view === "setup" ? "chat" : view}

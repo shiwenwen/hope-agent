@@ -451,6 +451,14 @@ fn build_router_with_cors(
             post(routes::config::set_ui_effects_enabled),
         )
         .route(
+            "/config/window-opacity",
+            get(routes::config::get_window_opacity),
+        )
+        .route(
+            "/config/window-opacity",
+            post(routes::config::set_window_opacity),
+        )
+        .route(
             "/config/autostart",
             get(routes::config::get_autostart_enabled),
         )

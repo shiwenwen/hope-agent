@@ -669,6 +669,28 @@ pub async fn set_ui_effects_enabled(Json(body): Json<Value>) -> Result<Json<Valu
     Ok(Json(json!({ "saved": true })))
 }
 
+/// `GET /api/config/window-opacity` -- get global desktop window opacity (0.3–1.0).
+pub async fn get_window_opacity() -> Result<Json<Value>, AppError> {
+    let store = load_config()?;
+    Ok(Json(json!(oc_core::config::clamp_window_opacity(
+        store.window_opacity
+    ))))
+}
+
+/// `POST /api/config/window-opacity` -- set global desktop window opacity.
+/// Web/server mode persists the value for convenience but has no visual effect.
+pub async fn set_window_opacity(Json(body): Json<Value>) -> Result<Json<Value>, AppError> {
+    let opacity = body
+        .get("opacity")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(1.0) as f32;
+    let mut store = load_config()?;
+    let clamped = oc_core::config::clamp_window_opacity(opacity);
+    store.window_opacity = clamped;
+    save_config(&store)?;
+    Ok(Json(json!({ "saved": true, "opacity": clamped })))
+}
+
 /// `GET /api/config/autostart` -- desktop-only, always reports false in server mode.
 pub async fn get_autostart_enabled() -> Result<Json<Value>, AppError> {
     Ok(Json(json!(false)))

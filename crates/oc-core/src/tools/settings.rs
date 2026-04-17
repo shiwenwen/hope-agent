@@ -14,8 +14,8 @@ const BLOCKED_UPDATE_CATEGORIES: &[&str] = &["active_model", "fallback_models"];
 fn risk_level(category: &str) -> &'static str {
     match category {
         // ── LOW ────────────────────────────────────────────────
-        "user" | "theme" | "language" | "ui_effects" | "notification" | "canvas" | "image"
-        | "pdf" | "image_generate" | "temperature" | "tool_timeout" => "low",
+        "user" | "theme" | "language" | "ui_effects" | "window_opacity" | "notification"
+        | "canvas" | "image" | "pdf" | "image_generate" | "temperature" | "tool_timeout" => "low",
 
         // ── MEDIUM ─────────────────────────────────────────────
         "compact"
@@ -105,6 +105,9 @@ fn read_category(category: &str) -> Result<Value> {
         "theme" => Ok(json!({ "theme": cfg.theme })),
         "language" => Ok(json!({ "language": cfg.language })),
         "ui_effects" => Ok(json!({ "uiEffectsEnabled": cfg.ui_effects_enabled })),
+        "window_opacity" => Ok(json!({
+            "windowOpacity": crate::config::clamp_window_opacity(cfg.window_opacity),
+        })),
         "proxy" => Ok(serde_json::to_value(&cfg.proxy)?),
         "web_search" => Ok(serde_json::to_value(&cfg.web_search)?),
         "web_fetch" => Ok(serde_json::to_value(&cfg.web_fetch)?),
@@ -180,6 +183,7 @@ fn get_all_overview() -> Result<String> {
         "theme": cfg.theme,
         "language": cfg.language,
         "uiEffectsEnabled": cfg.ui_effects_enabled,
+        "windowOpacity": crate::config::clamp_window_opacity(cfg.window_opacity),
         "temperature": cfg.temperature,
         "toolTimeout": cfg.tool_timeout,
         "approvalTimeoutSecs": cfg.approval_timeout_secs,
@@ -212,7 +216,7 @@ fn get_all_overview() -> Result<String> {
     // Expose risk classification so the model can decide when to double-confirm.
     let risk_levels = json!({
         "low": [
-            "user", "theme", "language", "ui_effects", "notification",
+            "user", "theme", "language", "ui_effects", "window_opacity", "notification",
             "canvas", "image", "pdf", "image_generate", "temperature", "tool_timeout"
         ],
         "medium": [
@@ -318,6 +322,13 @@ fn update_app_config(category: &str, values: &Value) -> Result<String> {
         "ui_effects" => {
             if let Some(v) = values.get("uiEffectsEnabled").and_then(|v| v.as_bool()) {
                 store.ui_effects_enabled = v;
+            }
+        }
+        "window_opacity" => {
+            if let Some(v) = values.get("windowOpacity").and_then(|v| v.as_f64()) {
+                store.window_opacity = crate::config::clamp_window_opacity(v as f32);
+            } else {
+                bail!("windowOpacity must be a number between 0.3 and 1.0");
             }
         }
         "temperature" => {

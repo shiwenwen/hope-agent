@@ -57,6 +57,7 @@ If the response includes `sideEffect`, surface it to the user (e.g. "this requir
 | `theme` | `theme` (`auto`/`light`/`dark`) |
 | `language` | `language` (`auto`/`zh`/`en`/…) |
 | `ui_effects` | `uiEffectsEnabled` |
+| `window_opacity` | `windowOpacity` (0.3–1.0, **desktop-only** — ignored in server/web mode). Lower values make the Tauri window translucent over the OS compositor. |
 | `notification` | `enabled` |
 | `canvas` | `enabled` |
 | `image` | `maxImages` |

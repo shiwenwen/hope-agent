@@ -95,11 +95,28 @@
     background: hsl(0 0% 50% / 0.6);
   }
   body {
-    @apply bg-background text-foreground;
+    @apply text-foreground;
+    /* Respects --window-opacity (0.3–1.0) so the Tauri transparent window can
+     * composite the OS desktop behind the UI when the user lowers opacity. */
+    background-color: color-mix(
+      in srgb,
+      var(--color-background) calc(var(--window-opacity, 1) * 100%),
+      transparent
+    );
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     -webkit-font-smoothing: antialiased;
     -webkit-user-select: none;
     user-select: none;
+  }
+  /* Root app container — opt-in replacement for `bg-background` that respects
+   * the window opacity CSS variable. Applied to the outermost app div so the
+   * translucent body underneath actually shows through. */
+  .bg-app-window {
+    background-color: color-mix(
+      in srgb,
+      var(--color-background) calc(var(--window-opacity, 1) * 100%),
+      transparent
+    );
   }
   /* Allow text selection in chat messages, code blocks, and inputs */
   textarea,

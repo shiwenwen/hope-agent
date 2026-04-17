@@ -5,6 +5,7 @@ import LanguageSection from "./LanguageSection"
 import { AutostartToggle, UiEffectsToggle } from "./SystemSection"
 import ShortcutSection from "./ShortcutSection"
 import ProxySection from "./ProxySection"
+import WindowOpacitySection from "./WindowOpacitySection"
 
 export default function GeneralPanel() {
   const { t } = useTranslation()
@@ -26,6 +27,7 @@ export default function GeneralPanel() {
             <ThemeSection />
             <LanguageSection />
             <UiEffectsToggle />
+            <WindowOpacitySection />
           </div>
         </TabsContent>
 

@@ -348,6 +348,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   set_language:                    { method: "POST",   path: "/api/config/language" },
   get_ui_effects_enabled:          { method: "GET",    path: "/api/config/ui-effects" },
   set_ui_effects_enabled:          { method: "POST",   path: "/api/config/ui-effects" },
+  get_window_opacity:              { method: "GET",    path: "/api/config/window-opacity" },
+  set_window_opacity:              { method: "POST",   path: "/api/config/window-opacity" },
   get_autostart_enabled:           { method: "GET",    path: "/api/config/autostart" },
   set_autostart_enabled:           { method: "POST",   path: "/api/config/autostart" },
 
