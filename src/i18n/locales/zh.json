@@ -372,6 +372,8 @@
     "skillsDirAdd": "导入技能目录",
     "skillsDirRemove": "移除此目录",
     "skillsList": "已加载的技能",
+    "skillsListBundled": "内置技能",
+    "skillsListUser": "用户技能",
     "skillFiles": "文件列表",
     "skillEnabled": "已启用",
     "skillDisabled": "已禁用",

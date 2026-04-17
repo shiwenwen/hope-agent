@@ -161,6 +161,20 @@ impl StreamPersister {
         }
     }
 
+    /// Return and clear the trailing text accumulated after the last
+    /// tool_call flush. Used as the final `assistant` row's content so we
+    /// don't double-record text already saved as `text_block` rows — the
+    /// frontend's `parseSessionMessages` concatenates pending `text_block`
+    /// blocks with the assistant row's content, and a full accumulated
+    /// text would appear twice (once per round, once as the final).
+    pub(crate) fn take_trailing_text(&self) -> String {
+        let mut pt = match self.pending_text.lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
+        std::mem::take(&mut *pt)
+    }
+
     /// Flush any remaining thinking buffer at turn end. Run AFTER the
     /// agent.chat() future resolves and BEFORE writing the final
     /// assistant row, so `had_thinking_blocks()` is accurate when the

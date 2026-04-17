@@ -1102,7 +1102,8 @@
     "serverDisconnected": "Desconectado",
     "serverTestConnection": "Testar conexão",
     "serverTestSuccess": "Conexão bem-sucedida",
-    "serverTestFailed": "Conexão falhou"
+    "serverTestFailed": "Conexão falhou",
+    "loading": "Carregando..."
   },
   "tz": {
     "shanghai": "Xangai (UTC+8)",

@@ -1102,7 +1102,8 @@
     "serverDisconnected": "Не подключено",
     "serverTestConnection": "Проверить соединение",
     "serverTestSuccess": "Соединение успешно",
-    "serverTestFailed": "Соединение не удалось"
+    "serverTestFailed": "Соединение не удалось",
+    "loading": "Загрузка..."
   },
   "tz": {
     "shanghai": "Шанхай (UTC+8)",

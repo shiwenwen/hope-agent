@@ -1102,7 +1102,8 @@
     "serverDisconnected": "未連接",
     "serverTestConnection": "測試連接",
     "serverTestSuccess": "連接成功",
-    "serverTestFailed": "連接失敗"
+    "serverTestFailed": "連接失敗",
+    "loading": "載入中..."
   },
   "tz": {
     "shanghai": "上海 (UTC+8)",

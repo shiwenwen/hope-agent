@@ -1,11 +1,6 @@
-//! EventBus-backed broadcast of chat stream deltas.
-//!
-//! Complements the per-call `EventSink` (Tauri IPC Channel / HTTP WebSocket)
-//! with a session-scoped EventBus event so a frontend that reloads (closes its
-//! Channel) can re-subscribe to the same session's ongoing stream.
-//!
-//! Each delta carries a per-session monotonic `seq` (see [`stream_seq`]) so the
-//! frontend can deduplicate between the primary sink and the EventBus path.
+//! EventBus broadcast of chat stream deltas. Runs alongside the per-call
+//! `EventSink` so a reloaded frontend (dead Channel / WebSocket) can keep
+//! receiving events via `listen("chat:stream_delta")`.
 
 use super::stream_seq;
 use crate::globals;

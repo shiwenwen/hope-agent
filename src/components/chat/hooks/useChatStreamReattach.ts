@@ -6,6 +6,10 @@ import { PAGE_SIZE } from "../useChatSession"
 import type { Message, SessionMessage } from "@/types/chat"
 import { handleStreamEvent } from "./useStreamEventHandler"
 
+// Backend constants: see `crates/oc-core/src/chat_engine/stream_broadcast.rs`.
+const EVENT_CHAT_STREAM_DELTA = "chat:stream_delta"
+const EVENT_CHAT_STREAM_END = "chat:stream_end"
+
 export interface UseChatStreamReattachDeps {
   currentSessionId: string | null
   currentSessionIdRef: React.MutableRefObject<string | null>
@@ -38,18 +42,10 @@ interface StreamEndPayload {
 }
 
 /**
- * Global listener for the EventBus-backed chat stream ("chat:stream_delta" /
- * "chat:stream_end"). Survives frontend reloads — when the per-call Tauri
- * `Channel` / WebSocket dies, this hook continues delivering tool_call /
- * tool_result / text_delta / etc. events to the UI so ongoing chats resume
- * rendering after a window refresh.
- *
- * Deduplication is by `_oc_seq` against `lastSeqRef`, which `useChatStream`'s
- * primary-path handler also updates. When the Channel is alive it bumps the
- * cursor first; EventBus arrivals with `seq <= lastSeq` are dropped. When the
- * Channel is dead (post-reload), the cursor is seeded by
- * `handleSwitchSession`'s `get_session_stream_state` call so only truly new
- * events are applied.
+ * EventBus reattach path for the main chat stream. Runs alongside the primary
+ * `Channel` / WebSocket path in useChatStream; when the primary sink dies
+ * (frontend reload), this path keeps the UI updating. Dedup by `_oc_seq`
+ * against `lastSeqRef` — whichever path sees an event first bumps the cursor.
  */
 export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
   const {
@@ -66,15 +62,13 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
     reloadSessions,
   } = deps
 
-  // Independent delta buffers: the EventBus path only drives rendering when
-  // the primary Channel is dead (post-reload). `handleStreamEvent` dedup via
-  // `lastSeqRef` guarantees each event hits at most one path, so these
-  // buffers never race the primary-path `useChatStream` buffers.
+  // Buffers are per-hook, not shared with useChatStream's primary path;
+  // lastSeqRef dedup ensures each event hits at most one path.
   const deltaBufferRef = useRef({ text: "", thinking: "", sid: "" })
   const deltaFlushRafRef = useRef<number | null>(null)
 
   useEffect(() => {
-    const unlisten = getTransport().listen("chat:stream_delta", (raw) => {
+    const unlisten = getTransport().listen(EVENT_CHAT_STREAM_DELTA, (raw) => {
       const payload = raw as StreamDeltaPayload
       if (!payload?.sessionId || typeof payload.seq !== "number") return
 
@@ -92,9 +86,6 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
         return
       }
 
-      // session_created on the bus path can race with the primary-path
-      // session_created that `useChatStream.onmessage` handles specially; we
-      // only need to recognise it here for sessions we don't already track.
       handleStreamEvent(event, sid, {
         updateSessionMessages,
         deltaBufferRef,
@@ -106,10 +97,8 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // On session switch, ask the backend whether the target session currently
-  // has an in-flight chat stream. If so, seed lastSeqRef to the backend's
-  // cursor so events already reflected in the DB snapshot we just loaded are
-  // skipped, and mark the session as loading so the spinner appears.
+  // Seeds lastSeqRef from the backend's cursor on session switch so events
+  // already reflected in the DB snapshot we loaded are skipped.
   useEffect(() => {
     if (!currentSessionId) return
     const sid = currentSessionId
@@ -129,8 +118,7 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
         if (currentSessionIdRef.current === sid) setLoading(true)
       })
       .catch(() => {
-        // Older backend without this command — ignore; primary path still works
-        // for live sessions; reattach gracefully degrades.
+        // Older backend without this command — gracefully degrade.
       })
     return () => {
       cancelled = true
@@ -139,7 +127,7 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
   }, [currentSessionId])
 
   useEffect(() => {
-    const unlisten = getTransport().listen("chat:stream_end", (raw) => {
+    const unlisten = getTransport().listen(EVENT_CHAT_STREAM_END, (raw) => {
       const payload = raw as StreamEndPayload
       if (!payload?.sessionId) return
       const sid = payload.sessionId
@@ -150,8 +138,6 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
 
       if (currentSessionIdRef.current === sid) {
         setLoading(false)
-        // Reload from DB so the final assistant row / synthetic streaming
-        // assistant is replaced by the definitive message list.
         getTransport()
           .call<[SessionMessage[], number]>("load_session_messages_latest_cmd", {
             sessionId: sid,
@@ -164,7 +150,6 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
           })
           .catch(() => {})
       } else {
-        // Off-screen session — drop the cache so next visit reloads fresh.
         sessionCacheRef.current.delete(sid)
       }
       reloadSessions()

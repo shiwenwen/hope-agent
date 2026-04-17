@@ -1102,7 +1102,8 @@
     "serverDisconnected": "غير متصل",
     "serverTestConnection": "اختبار الاتصال",
     "serverTestSuccess": "الاتصال ناجح",
-    "serverTestFailed": "فشل الاتصال"
+    "serverTestFailed": "فشل الاتصال",
+    "loading": "جارٍ التحميل..."
   },
   "tz": {
     "shanghai": "شنغهاي (UTC+8)",

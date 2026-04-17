@@ -8,10 +8,9 @@ use super::stream_broadcast;
 use super::stream_seq;
 use super::types::*;
 
-/// RAII guard that scopes a session's stream lifecycle. [`stream_seq::begin`]
-/// is called at construction; [`stream_seq::end`] + `chat:stream_end` broadcast
-/// run on drop, covering every `run_chat_engine` return path (early exits,
-/// errors, successful completion, panics).
+/// Drop-guarded scope for a session's stream lifecycle. Ensures `stream_seq::end`
+/// + `chat:stream_end` broadcast fire on every `run_chat_engine` return path
+/// (including panics).
 struct StreamLifecycle {
     session_id: String,
 }
@@ -32,10 +31,8 @@ impl Drop for StreamLifecycle {
     }
 }
 
-/// Emit one stream event through the primary per-call sink (Tauri Channel /
-/// WebSocket) and the session-scoped EventBus broadcast at the same time,
-/// injecting a monotonic `_oc_seq` so the frontend can de-duplicate across
-/// the two paths.
+/// Emit one stream event through the per-call sink and the EventBus broadcast,
+/// injecting a monotonic `_oc_seq` shared by both paths.
 fn emit_stream_event(
     event_sink: &std::sync::Arc<dyn EventSink>,
     session_id: &str,
@@ -83,10 +80,6 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         return Err("No model configured for chat execution".to_string());
     }
 
-    // Register the session as actively streaming so the frontend's
-    // `get_session_stream_state` returns `active=true` — and so the EventBus
-    // broadcast carries monotonic `_oc_seq` values. Drop-guarded so every
-    // return path (success, failure, panic) runs end + stream_end broadcast.
     let _stream_lifecycle = StreamLifecycle::begin(&session_id);
 
     let total_models = model_chain.len();
@@ -251,8 +244,12 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     }
 
                     persister.flush_remaining_thinking(&db, &session_id);
-                    let assistant_msg =
-                        persister.build_assistant_message(&result, thinking, duration_ms);
+                    let trailing_text = persister.take_trailing_text();
+                    let assistant_msg = persister.build_assistant_message(
+                        &trailing_text,
+                        thinking,
+                        duration_ms,
+                    );
                     let _ = db.append_message(&session_id, &assistant_msg);
 
                     // Persist conversation context

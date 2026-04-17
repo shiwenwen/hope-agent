@@ -1,13 +1,5 @@
-//! Per-session stream sequence registry for the main chat engine.
-//!
-//! Every chat stream delta carries a monotonically increasing `seq` so the
-//! frontend can de-duplicate events that arrive via two different paths: the
-//! per-call IPC Channel / WebSocket (low-latency primary) and the EventBus
-//! broadcast (survives frontend reloads).
-//!
-//! Lifecycle: [`begin`] is called once when `run_chat` starts for a session,
-//! [`end`] when it completes (success or failure). While a session entry is
-//! present the session is considered "active" from the frontend's perspective.
+//! Per-session monotonic seq counters used to de-duplicate chat stream deltas
+//! between the primary per-call sink path and the EventBus reattach path.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};

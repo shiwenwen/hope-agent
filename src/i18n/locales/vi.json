@@ -1102,7 +1102,8 @@
     "serverDisconnected": "Đã ngắt kết nối",
     "serverTestConnection": "Kiểm tra kết nối",
     "serverTestSuccess": "Kết nối thành công",
-    "serverTestFailed": "Kết nối thất bại"
+    "serverTestFailed": "Kết nối thất bại",
+    "loading": "Đang tải..."
   },
   "tz": {
     "shanghai": "Thượng Hải (UTC+8)",

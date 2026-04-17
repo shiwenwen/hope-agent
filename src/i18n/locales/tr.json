@@ -1102,7 +1102,8 @@
     "serverDisconnected": "Bağlı değil",
     "serverTestConnection": "Bağlantıyı test et",
     "serverTestSuccess": "Bağlantı başarılı",
-    "serverTestFailed": "Bağlantı başarısız"
+    "serverTestFailed": "Bağlantı başarısız",
+    "loading": "Yükleniyor..."
   },
   "tz": {
     "shanghai": "Şanghay (UTC+8)",

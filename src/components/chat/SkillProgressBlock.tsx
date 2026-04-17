@@ -72,7 +72,7 @@ function SkillProgressBlockImpl({ tool, shimmer }: SkillProgressBlockProps) {
         <span className="font-medium text-foreground truncate max-w-[40%]">
           {skillName || "skill"}
         </span>
-        <span className="text-[10px] text-muted-foreground shrink-0 hidden sm:inline">
+        <span className="hidden sm:inline-flex items-center rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground shrink-0">
           {forkMode ? "skill · fork" : "skill · inline"}
         </span>
         {args && (
