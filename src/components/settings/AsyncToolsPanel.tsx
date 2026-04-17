@@ -13,6 +13,7 @@ interface AsyncToolsConfig {
   inlineResultBytes: number
   retentionSecs: number
   orphanGraceSecs: number
+  jobStatusMaxWaitSecs: number
 }
 
 const DEFAULT_CONFIG: AsyncToolsConfig = {
@@ -22,6 +23,7 @@ const DEFAULT_CONFIG: AsyncToolsConfig = {
   inlineResultBytes: 4096,
   retentionSecs: 30 * 86400,
   orphanGraceSecs: 24 * 3600,
+  jobStatusMaxWaitSecs: 7200,
 }
 
 export default function AsyncToolsPanel() {
@@ -80,6 +82,7 @@ export default function AsyncToolsPanel() {
     | "inlineResultBytes"
     | "retentionSecs"
     | "orphanGraceSecs"
+    | "jobStatusMaxWaitSecs"
 
   const updateNumber = (key: NumericKey, min: number) => (raw: number) => {
     const clamped = Number.isFinite(raw) ? Math.max(min, Math.round(raw)) : min
@@ -159,6 +162,33 @@ export default function AsyncToolsPanel() {
                 value={config.maxJobSecs}
                 onChange={(e) => updateNumber("maxJobSecs", 0)(Number(e.target.value))}
                 onBlur={commitNumber("maxJobSecs", 0)}
+                className="w-24 h-8 text-sm text-right"
+              />
+              <span className="text-xs text-muted-foreground whitespace-nowrap">
+                {t("settings.seconds")}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-secondary/40 transition-colors">
+            <div className="space-y-0.5 pr-4">
+              <div className="text-sm font-medium">
+                {t("settings.asyncToolsJobStatusMaxWait")}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {t("settings.asyncToolsJobStatusMaxWaitDesc")}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                min={1}
+                step={60}
+                value={config.jobStatusMaxWaitSecs}
+                onChange={(e) =>
+                  updateNumber("jobStatusMaxWaitSecs", 1)(Number(e.target.value))
+                }
+                onBlur={commitNumber("jobStatusMaxWaitSecs", 1)}
                 className="w-24 h-8 text-sm text-right"
               />
               <span className="text-xs text-muted-foreground whitespace-nowrap">

@@ -760,6 +760,8 @@
     "asyncToolsAutoBackgroundDesc": "同步呼叫超過此時長會自動遷移到背景 job。0 = 關閉自動遷移",
     "asyncToolsMaxJob": "單 job 最大時長",
     "asyncToolsMaxJobDesc": "背景 job 執行時長上限，超時會被 kill。0 = 不限（仍受工具逾時兜底）",
+    "asyncToolsJobStatusMaxWait": "job_status 最大等待時長",
+    "asyncToolsJobStatusMaxWaitDesc": "單次 job_status(block=true) 的等待上限。僅當單 job 最大時長 = 0 時生效，其他情況以單 job 最大時長為準",
     "asyncToolsRetention": "終態 job 保留天數",
     "asyncToolsRetentionDesc": "已完成的 job 與 spool 檔案按此天數由每日清理任務刪除。0 = 永久保留",
     "asyncToolsOrphanGrace": "孤兒 spool 寬限時長",

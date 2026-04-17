@@ -152,6 +152,13 @@ pub struct AsyncToolsConfig {
     /// started jobs whose DB row hasn't committed yet.
     #[serde(default = "default_async_orphan_grace_secs")]
     pub orphan_grace_secs: u64,
+    /// Absolute ceiling for a single `job_status(block=true)` wait, in
+    /// seconds. Used only when `max_job_secs == 0` (unlimited job runtime);
+    /// when `max_job_secs > 0` the ceiling equals `max_job_secs` so the
+    /// `job_status` cap never exceeds the job's own runtime cap. Default:
+    /// 7200 (2h).
+    #[serde(default = "default_async_job_status_max_wait_secs")]
+    pub job_status_max_wait_secs: u64,
 }
 
 fn default_async_auto_background_secs() -> u64 {
@@ -169,6 +176,22 @@ fn default_async_retention_secs() -> u64 {
 fn default_async_orphan_grace_secs() -> u64 {
     24 * crate::SECS_PER_HOUR
 }
+fn default_async_job_status_max_wait_secs() -> u64 {
+    7200
+}
+
+impl AsyncToolsConfig {
+    /// Upper bound on a single `job_status(block=true)` wait, in seconds.
+    /// Mirrors `max_job_secs` when it's positive; otherwise falls back to
+    /// `job_status_max_wait_secs` (clamped to ≥ 1).
+    pub fn job_status_ceiling_secs(&self) -> u64 {
+        if self.max_job_secs == 0 {
+            self.job_status_max_wait_secs.max(1)
+        } else {
+            self.max_job_secs
+        }
+    }
+}
 
 impl Default for AsyncToolsConfig {
     fn default() -> Self {
@@ -179,6 +202,7 @@ impl Default for AsyncToolsConfig {
             inline_result_bytes: default_async_inline_result_bytes(),
             retention_secs: default_async_retention_secs(),
             orphan_grace_secs: default_async_orphan_grace_secs(),
+            job_status_max_wait_secs: default_async_job_status_max_wait_secs(),
         }
     }
 }

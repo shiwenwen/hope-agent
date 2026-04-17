@@ -112,7 +112,9 @@
       "memorySelectionThreshold": "トリガーしきい値",
       "memorySelectionThresholdDesc": "候補がこの数に達した場合にのみ作動します。デフォルト 8。",
       "memorySelectionMaxSelected": "最大選択数",
-      "memorySelectionMaxSelectedDesc": "プロンプトに注入するメモリ数の上限。デフォルト 5。"
+      "memorySelectionMaxSelectedDesc": "プロンプトに注入するメモリ数の上限。デフォルト 5。",
+      "asyncToolsJobStatusMaxWait": "job_status 最大待機時間",
+      "asyncToolsJobStatusMaxWaitDesc": "単一の job_status(block=true) 呼び出しの上限。ジョブごとの最大時間 = 0 の場合のみ適用され、それ以外はジョブごとの最大時間が優先されます。"
     },
     "subagent": {
       "deletedAgentTooltip": "このエージェントは削除されました",
@@ -244,7 +246,9 @@
       "memorySelectionThreshold": "트리거 임계값",
       "memorySelectionThresholdDesc": "이 숫자만큼 후보가 있을 때만 작동합니다. 기본값 8.",
       "memorySelectionMaxSelected": "최대 선택 수",
-      "memorySelectionMaxSelectedDesc": "프롬프트에 주입되는 메모리 수의 상한. 기본값 5."
+      "memorySelectionMaxSelectedDesc": "프롬프트에 주입되는 메모리 수의 상한. 기본값 5.",
+      "asyncToolsJobStatusMaxWait": "job_status 최대 대기 시간",
+      "asyncToolsJobStatusMaxWaitDesc": "단일 job_status(block=true) 호출의 상한. 작업당 최대 시간 = 0일 때만 적용되며, 그렇지 않으면 작업당 최대 시간이 우선합니다."
     },
     "subagent": {
       "deletedAgentTooltip": "이 에이전트는 삭제되었습니다",
@@ -376,7 +380,9 @@
       "memorySelectionThreshold": "觸發閾值",
       "memorySelectionThresholdDesc": "候選數達到此值才觸發，預設 8",
       "memorySelectionMaxSelected": "最多挑選數",
-      "memorySelectionMaxSelectedDesc": "注入系統提示的記憶條數上限，預設 5"
+      "memorySelectionMaxSelectedDesc": "注入系統提示的記憶條數上限，預設 5",
+      "asyncToolsJobStatusMaxWait": "job_status 最大等待時長",
+      "asyncToolsJobStatusMaxWaitDesc": "單次 job_status(block=true) 的等待上限。僅當單 job 最大時長 = 0 時生效，其他情況以單 job 最大時長為準"
     },
     "subagent": {
       "deletedAgentTooltip": "此 Agent 已被刪除",
@@ -508,7 +514,9 @@
       "memorySelectionThreshold": "Tetikleme eşiği",
       "memorySelectionThresholdDesc": "Yalnızca bu kadar aday alındığında devreye girer. Varsayılan 8.",
       "memorySelectionMaxSelected": "Maksimum seçilen",
-      "memorySelectionMaxSelectedDesc": "Prompta enjekte edilen bellek sayısının üst sınırı. Varsayılan 5."
+      "memorySelectionMaxSelectedDesc": "Prompta enjekte edilen bellek sayısının üst sınırı. Varsayılan 5.",
+      "asyncToolsJobStatusMaxWait": "job_status maksimum bekleme",
+      "asyncToolsJobStatusMaxWaitDesc": "Tek bir job_status(block=true) çağrısının üst sınırı. Yalnızca iş başına maksimum süre = 0 olduğunda uygulanır; aksi halde iş başına maksimum süre önceliklidir."
     },
     "subagent": {
       "deletedAgentTooltip": "Bu ajan silindi",
@@ -640,7 +648,9 @@
       "memorySelectionThreshold": "Ngưỡng kích hoạt",
       "memorySelectionThresholdDesc": "Chỉ kích hoạt khi có đủ số ứng viên này. Mặc định 8.",
       "memorySelectionMaxSelected": "Số lượng tối đa chọn",
-      "memorySelectionMaxSelectedDesc": "Giới hạn trên số memory đưa vào prompt. Mặc định 5."
+      "memorySelectionMaxSelectedDesc": "Giới hạn trên số memory đưa vào prompt. Mặc định 5.",
+      "asyncToolsJobStatusMaxWait": "Thời gian chờ tối đa job_status",
+      "asyncToolsJobStatusMaxWaitDesc": "Giới hạn trên cho một lệnh gọi job_status(block=true) duy nhất. Chỉ áp dụng khi thời lượng tối đa mỗi job = 0; ngược lại ưu tiên thời lượng tối đa mỗi job."
     },
     "subagent": {
       "deletedAgentTooltip": "Agent này đã bị xoá",
@@ -772,7 +782,9 @@
       "memorySelectionThreshold": "Limiar de ativação",
       "memorySelectionThresholdDesc": "Ativa apenas com pelo menos este número de candidatos. Padrão 8.",
       "memorySelectionMaxSelected": "Máx. selecionado",
-      "memorySelectionMaxSelectedDesc": "Limite superior de memórias injetadas no prompt. Padrão 5."
+      "memorySelectionMaxSelectedDesc": "Limite superior de memórias injetadas no prompt. Padrão 5.",
+      "asyncToolsJobStatusMaxWait": "Espera máxima do job_status",
+      "asyncToolsJobStatusMaxWaitDesc": "Limite superior para uma única chamada job_status(block=true). Aplicado somente quando a duração máxima por job = 0; caso contrário, a duração máxima por job tem precedência."
     },
     "subagent": {
       "deletedAgentTooltip": "Este agente foi excluído",
@@ -904,7 +916,9 @@
       "memorySelectionThreshold": "Порог срабатывания",
       "memorySelectionThresholdDesc": "Срабатывает только при таком количестве кандидатов. По умолчанию 8.",
       "memorySelectionMaxSelected": "Максимум выбранных",
-      "memorySelectionMaxSelectedDesc": "Верхний предел числа воспоминаний в промпте. По умолчанию 5."
+      "memorySelectionMaxSelectedDesc": "Верхний предел числа воспоминаний в промпте. По умолчанию 5.",
+      "asyncToolsJobStatusMaxWait": "Максимальное ожидание job_status",
+      "asyncToolsJobStatusMaxWaitDesc": "Верхний предел одного вызова job_status(block=true). Применяется только если максимальная длительность задания = 0; иначе приоритет имеет максимальная длительность задания."
     },
     "subagent": {
       "deletedAgentTooltip": "Этот агент был удалён",
@@ -1036,7 +1050,9 @@
       "memorySelectionThreshold": "عتبة التفعيل",
       "memorySelectionThresholdDesc": "يُفعَّل فقط عند بلوغ هذا العدد من المرشحين. الافتراضي 8.",
       "memorySelectionMaxSelected": "الحد الأقصى للاختيار",
-      "memorySelectionMaxSelectedDesc": "الحد الأقصى لعدد الذكريات المُدرجة في التوجيه. الافتراضي 5."
+      "memorySelectionMaxSelectedDesc": "الحد الأقصى لعدد الذكريات المُدرجة في التوجيه. الافتراضي 5.",
+      "asyncToolsJobStatusMaxWait": "الحد الأقصى لانتظار job_status",
+      "asyncToolsJobStatusMaxWaitDesc": "الحد الأعلى لمكالمة job_status(block=true) واحدة. يُطبَّق فقط عندما يكون الحد الأقصى لمدة المهمة = 0، وإلا فإن الحد الأقصى لمدة المهمة يسبقه."
     },
     "subagent": {
       "deletedAgentTooltip": "تم حذف هذا العميل",
@@ -1168,7 +1184,9 @@
       "memorySelectionThreshold": "Umbral de activación",
       "memorySelectionThresholdDesc": "Solo se activa con al menos este número de candidatos. Predeterminado 8.",
       "memorySelectionMaxSelected": "Máximo seleccionado",
-      "memorySelectionMaxSelectedDesc": "Límite superior de memorias inyectadas en el prompt. Predeterminado 5."
+      "memorySelectionMaxSelectedDesc": "Límite superior de memorias inyectadas en el prompt. Predeterminado 5.",
+      "asyncToolsJobStatusMaxWait": "Espera máxima de job_status",
+      "asyncToolsJobStatusMaxWaitDesc": "Límite superior para una única llamada job_status(block=true). Solo se aplica cuando la duración máxima por trabajo = 0; de lo contrario prevalece la duración máxima por trabajo."
     },
     "subagent": {
       "deletedAgentTooltip": "Este agente ha sido eliminado",
@@ -1300,7 +1318,9 @@
       "memorySelectionThreshold": "Ambang pencetus",
       "memorySelectionThresholdDesc": "Hanya diaktifkan apabila bilangan calon ini dicapai. Lalai 8.",
       "memorySelectionMaxSelected": "Maksimum dipilih",
-      "memorySelectionMaxSelectedDesc": "Had atas memori yang disuntik ke prompt. Lalai 5."
+      "memorySelectionMaxSelectedDesc": "Had atas memori yang disuntik ke prompt. Lalai 5.",
+      "asyncToolsJobStatusMaxWait": "Masa menunggu maksimum job_status",
+      "asyncToolsJobStatusMaxWaitDesc": "Had atas untuk satu panggilan job_status(block=true). Hanya digunakan apabila tempoh maksimum setiap kerja = 0; jika tidak, tempoh maksimum setiap kerja diutamakan."
     },
     "subagent": {
       "deletedAgentTooltip": "Agen ini telah dipadam",

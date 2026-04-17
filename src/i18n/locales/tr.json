@@ -760,6 +760,8 @@
     "asyncToolsAutoBackgroundDesc": "Bu süreyi aşan eşzamanlı çağrılar otomatik olarak arka plan işine taşınır. 0 = otomatik aktarımı kapat.",
     "asyncToolsMaxJob": "Maks. iş süresi",
     "asyncToolsMaxJobDesc": "Arka plan işinin çalışabileceği süre sınırı. Aşılırsa sonlandırılır. 0 = iş başına sınır yok.",
+    "asyncToolsJobStatusMaxWait": "job_status maksimum bekleme",
+    "asyncToolsJobStatusMaxWaitDesc": "Tek bir job_status(block=true) çağrısının üst sınırı. Yalnızca iş başına maksimum süre = 0 olduğunda uygulanır; aksi halde iş başına maksimum süre önceliklidir.",
     "asyncToolsRetention": "Sonlanmış iş saklama",
     "asyncToolsRetentionDesc": "Tamamlanmış iş kayıtları ve spool dosyaları bu kadar gün sonra silinir. 0 = süresiz sakla.",
     "asyncToolsOrphanGrace": "Yetim spool bekleme süresi",

@@ -760,6 +760,8 @@
     "asyncToolsAutoBackgroundDesc": "Panggilan segerak melebihi tempoh ini dipindahkan automatik ke kerja latar. 0 = lumpuhkan.",
     "asyncToolsMaxJob": "Tempoh maksimum kerja",
     "asyncToolsMaxJobDesc": "Had masa pelaksanaan kerja latar. Jika melebihi, ia dihentikan. 0 = tiada had per kerja.",
+    "asyncToolsJobStatusMaxWait": "Masa menunggu maksimum job_status",
+    "asyncToolsJobStatusMaxWaitDesc": "Had atas untuk satu panggilan job_status(block=true). Hanya digunakan apabila tempoh maksimum setiap kerja = 0; jika tidak, tempoh maksimum setiap kerja diutamakan.",
     "asyncToolsRetention": "Pengekalan kerja terminal",
     "asyncToolsRetentionDesc": "Rekod kerja selesai dan fail spool dipadam selepas hari ini. 0 = simpan selamanya.",
     "asyncToolsOrphanGrace": "Tempoh ihsan spool yatim",

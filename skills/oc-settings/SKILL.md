@@ -82,7 +82,7 @@ If the response includes `sideEffect`, surface it to the user (e.g. "this requir
 | `web_fetch` | `enabled`, `maxBytes` |
 | `web_search` | `provider`, `searxngUrl`, `tavilyApiKey` |
 | `deferred_tools` | `enabled` |
-| `async_tools` | `enabled`, `autoBackgroundSecs`, `maxJobSecs`, `retentionSecs`, `orphanGraceSecs` |
+| `async_tools` | `enabled`, `autoBackgroundSecs`, `maxJobSecs`, `inlineResultBytes`, `retentionSecs`, `orphanGraceSecs`, `jobStatusMaxWaitSecs` |
 | `approval` | `approvalTimeoutSecs`, `approvalTimeoutAction` (`deny`/`proceed`) |
 | `tool_result_disk_threshold` | `toolResultDiskThreshold` (bytes, null = default 50KB, 0 = disable) |
 | `ask_user_question_timeout` | `askUserQuestionTimeoutSecs` (0 = wait forever) |

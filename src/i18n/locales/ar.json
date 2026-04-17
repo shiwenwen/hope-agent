@@ -760,6 +760,8 @@
     "asyncToolsAutoBackgroundDesc": "الاستدعاءات المتزامنة التي تتجاوز هذه المدة تُنقل تلقائيًا إلى مهمة خلفية. 0 = تعطيل النقل التلقائي.",
     "asyncToolsMaxJob": "الحد الأقصى لمدة المهمة",
     "asyncToolsMaxJobDesc": "الحد الأقصى لمدة تشغيل المهمة الخلفية؛ عند تجاوزه يتم إنهاؤها. 0 = بلا حد لكل مهمة.",
+    "asyncToolsJobStatusMaxWait": "الحد الأقصى لانتظار job_status",
+    "asyncToolsJobStatusMaxWaitDesc": "الحد الأعلى لمكالمة job_status(block=true) واحدة. يُطبَّق فقط عندما يكون الحد الأقصى لمدة المهمة = 0، وإلا فإن الحد الأقصى لمدة المهمة يسبقه.",
     "asyncToolsRetention": "الاحتفاظ بالمهام المكتملة",
     "asyncToolsRetentionDesc": "تُحذف سجلات المهام المكتملة وملفات spool بعد هذا العدد من الأيام. 0 = احتفظ بها دائمًا.",
     "asyncToolsOrphanGrace": "فترة السماح للملفات اليتيمة",

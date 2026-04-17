@@ -53,6 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`job_status` 阻塞等待根治升级**：原实现依赖全局 `BroadcastEventBus`（容量 256）订阅 `async_tool_job:completed` + 200ms 兜底轮询 + 600s 硬上限。`tokio::broadcast` 在订阅者 slow 时返回 `RecvError::Lagged` 会被静默丢弃，极端场景下模型只能靠 200ms 轮询醒，且 600s 与 `max_job_secs` 默认 1800s 不一致导致提前超时。本次新增 [`crates/oc-core/src/async_jobs/wait.rs`](crates/oc-core/src/async_jobs/wait.rs) per-job `tokio::sync::Notify` 注册表：`finalize_job` 在 `update_terminal` 后 `notify_waiters()` 唤醒所有 waiter 并 remove-on-notify；`job_status` 注册后强制重读 DB 关闭 register/finalize race，循环 `tokio::select!(notify.notified(), sleep(backoff))` 指数退避（100ms → ×1.5 → 2s 封顶）作为 Notify 失效防御兜底。`timeout_ms` 默认改为 `min(max_job_secs, 1800)` 秒，硬上限 = `max_job_secs`（当 `max_job_secs = 0` 时生效新增 `asyncTools.jobStatusMaxWaitSecs`，默认 7200s）。EventBus `async_tool_job:completed` emit 保留供未来前端订阅，`job_status` 不再依赖它。多 waiter 并发在同一 job 全部正确唤醒；重启回放下注册表空 + DB 已 terminal 路径零延迟返回
 - **Plan 步骤标题 Markdown 渲染**：修复 `PlanStepItem` 把 `**HTML 结构**` 等步骤标题里的行内 markdown 当成纯文本展示的问题。复用 `AskUserQuestionBlock` 的 Streamdown 轻量栈（只加载 `code` + `cjk` 插件），新增 `InlineMarkdown` 包装组件，通过 `className="contents"`（让 Streamdown 外层 `<div class="space-y-4 …">` 从布局中消失）+ `components={{ p: Fragment }}`（剥掉默认 `<p>` 包装）让单行标题以纯 inline 节点流入父级 `<span>`，保持列表密度。同时应用于 `step.title` 和 `step.description`
 
 ### Added

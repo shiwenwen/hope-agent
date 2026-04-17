@@ -1,17 +1,37 @@
-//! `job_status` tool — query or actively wait on an async tool job.
+//! `job_status` tool — snapshot or actively wait on an async tool job.
 //!
-//! Always available (deferred / discoverable via `tool_search`). The model
-//! uses this when it wants to block on a backgrounded tool call instead of
-//! waiting for the auto-injection.
+//! Always available (deferred / discoverable via `tool_search`). Used by the
+//! model to block on a backgrounded tool call instead of waiting for the
+//! auto-injection. See [`crate::async_jobs::wait`] for the wait registry's
+//! invariants and [`crate::config::AsyncToolsConfig::job_status_ceiling_secs`]
+//! for the timeout cap rule.
 
 use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::Notify;
 
-use crate::async_jobs::{self, AsyncJobStatus};
+use crate::async_jobs::{self, wait, AsyncJobStatus};
 
-const POLL_INTERVAL_MS: u64 = 200;
-const DEFAULT_TIMEOUT_MS: u64 = 60_000;
-const MAX_TIMEOUT_MS: u64 = 600_000;
+const DEFAULT_WAIT_SECS: u64 = 1800;
+const INITIAL_BACKOFF: Duration = Duration::from_millis(100);
+const MAX_BACKOFF: Duration = Duration::from_secs(2);
+
+/// Scope guard that cleans the wait registry on every return path,
+/// including `?` early-returns from DB reads. The `Arc<Notify>` must stay
+/// alive until cleanup so the strong-count check in
+/// [`wait::cleanup_if_last_waiter`] reflects this waiter's ownership.
+struct WaiterGuard {
+    job_id: String,
+    notify: Arc<Notify>,
+}
+
+impl Drop for WaiterGuard {
+    fn drop(&mut self) {
+        wait::cleanup_if_last_waiter(&self.job_id, &self.notify);
+    }
+}
 
 pub async fn tool_job_status(args: &Value) -> Result<String> {
     let job_id = args
@@ -23,11 +43,7 @@ pub async fn tool_job_status(args: &Value) -> Result<String> {
         .get("block")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    let timeout_ms = args
-        .get("timeout_ms")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(DEFAULT_TIMEOUT_MS)
-        .min(MAX_TIMEOUT_MS);
+    let requested_timeout_ms = args.get("timeout_ms").and_then(|v| v.as_u64());
 
     let db = async_jobs::get_async_jobs_db()
         .ok_or_else(|| anyhow!("Async jobs DB not initialized"))?;
@@ -40,47 +56,42 @@ pub async fn tool_job_status(args: &Value) -> Result<String> {
         return Ok(format_job_response(&initial));
     }
 
-    // Blocking mode: subscribe to event bus + fall back to short polling.
-    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
-    let mut rx = match crate::get_event_bus() {
-        Some(bus) => Some(bus.subscribe()),
-        None => None,
+    let _guard = WaiterGuard {
+        job_id: job_id.to_string(),
+        notify: wait::register_waiter(job_id),
     };
+
+    // Post-register recheck closes two race windows:
+    //   (a) `finalize_job` committed between the initial load and register
+    //       (we would otherwise miss the notify_waiters fire entirely).
+    //   (b) Restart-replay: the DB row is already terminal but the in-memory
+    //       registry was freshly initialized with no producer to wake us.
+    let recheck = db
+        .load(job_id)?
+        .ok_or_else(|| anyhow!("Job {} disappeared during wait setup", job_id))?;
+    if recheck.status.is_terminal() {
+        return Ok(format_job_response(&recheck));
+    }
+
+    let effective_timeout = compute_effective_timeout(requested_timeout_ms);
+    let deadline = std::time::Instant::now() + effective_timeout;
+    let mut backoff = INITIAL_BACKOFF;
 
     loop {
         let remaining = deadline.saturating_duration_since(std::time::Instant::now());
         if remaining.is_zero() {
-            // Final check, then return whatever we have.
-            let job = db
-                .load(job_id)?
-                .ok_or_else(|| anyhow!("Job {} disappeared during wait", job_id))?;
-            return Ok(format_job_response(&job));
+            break;
         }
 
-        let poll_window =
-            std::cmp::min(remaining, std::time::Duration::from_millis(POLL_INTERVAL_MS));
-        if let Some(rx_ref) = rx.as_mut() {
-            tokio::select! {
-                event = rx_ref.recv() => {
-                    if let Ok(ev) = event {
-                        if ev.name == "async_tool_job:completed" {
-                            let evt_id = ev.payload.get("job_id").and_then(|v| v.as_str()).unwrap_or("");
-                            if evt_id == job_id {
-                                let job = db
-                                    .load(job_id)?
-                                    .ok_or_else(|| anyhow!("Job {} disappeared after completion", job_id))?;
-                                return Ok(format_job_response(&job));
-                            }
-                        }
-                    }
-                    // Unrelated event (or recv error): skip the fallback DB poll
-                    // this iteration and wait for the next event / tick.
-                    continue;
-                }
-                _ = tokio::time::sleep(poll_window) => {}
+        let sleep_dur = std::cmp::min(backoff, remaining);
+        tokio::select! {
+            _ = _guard.notify.notified() => {}
+            _ = tokio::time::sleep(sleep_dur) => {
+                backoff = std::cmp::min(
+                    backoff.saturating_mul(3) / 2,
+                    MAX_BACKOFF,
+                );
             }
-        } else {
-            tokio::time::sleep(poll_window).await;
         }
 
         let job = db
@@ -90,6 +101,22 @@ pub async fn tool_job_status(args: &Value) -> Result<String> {
             return Ok(format_job_response(&job));
         }
     }
+
+    let final_job = db
+        .load(job_id)?
+        .ok_or_else(|| anyhow!("Job {} disappeared during wait", job_id))?;
+    Ok(format_job_response(&final_job))
+}
+
+fn compute_effective_timeout(requested_ms: Option<u64>) -> Duration {
+    let ceiling = crate::config::cached_config()
+        .async_tools
+        .job_status_ceiling_secs();
+    let requested_secs = match requested_ms {
+        Some(ms) => (ms / 1000).max(1),
+        None => DEFAULT_WAIT_SECS.min(ceiling),
+    };
+    Duration::from_secs(requested_secs.min(ceiling))
 }
 
 fn format_job_response(job: &crate::async_jobs::AsyncJob) -> String {
@@ -165,13 +192,190 @@ pub fn get_job_status_tool() -> super::definitions::ToolDefinition {
                 },
                 "timeout_ms": {
                     "type": "integer",
-                    "description": "Max milliseconds to wait when block=true. Default 60000, max 600000.",
-                    "minimum": 0,
-                    "maximum": 600000
+                    "description": "Max milliseconds to wait when block=true. Defaults to min(max_job_secs, 1800) seconds. Hard cap = max_job_secs (or asyncTools.jobStatusMaxWaitSecs when max_job_secs=0). Values above the cap are clamped.",
+                    "minimum": 1
                 }
             },
             "required": ["job_id"],
             "additionalProperties": false
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::async_jobs::{
+        self,
+        db::AsyncJobsDB,
+        types::{AsyncJob, AsyncJobStatus, JobOrigin},
+    };
+    use std::path::PathBuf;
+    use std::sync::{Arc, Mutex, OnceLock};
+    use std::time::Instant;
+
+    // The async_jobs DB is a process-global `OnceLock`, so all tests in
+    // this module share one fixture and serialize through `TEST_LOCK`.
+    static FIXTURE: OnceLock<TestFixturePath> = OnceLock::new();
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    struct TestFixturePath {
+        // Held only so the module keeps ownership; cleanup on process exit
+        // is acceptable for a unit-test temp SQLite file.
+        _path: PathBuf,
+    }
+
+    fn ensure_fixture() -> &'static TestFixturePath {
+        FIXTURE.get_or_init(|| {
+            let mut path = std::env::temp_dir();
+            path.push(format!(
+                "oc-core-job-status-tests-{}.db",
+                uuid::Uuid::new_v4().simple()
+            ));
+            let db = AsyncJobsDB::open(&path).expect("open db");
+            async_jobs::set_async_jobs_db(Arc::new(db));
+            TestFixturePath { _path: path }
+        })
+    }
+
+    fn fresh_id() -> String {
+        format!("itjob_{}", uuid::Uuid::new_v4().simple())
+    }
+
+    fn insert_running(job_id: &str) {
+        let db = async_jobs::get_async_jobs_db().expect("db");
+        let job = AsyncJob {
+            job_id: job_id.to_string(),
+            session_id: None,
+            agent_id: None,
+            tool_name: "test_tool".into(),
+            tool_call_id: None,
+            args_json: "{}".into(),
+            status: AsyncJobStatus::Running,
+            result_preview: None,
+            result_path: None,
+            error: None,
+            created_at: chrono::Utc::now().timestamp(),
+            completed_at: None,
+            injected: false,
+            origin: JobOrigin::Explicit.as_str().to_string(),
+        };
+        db.insert(&job).expect("insert");
+    }
+
+    fn finalize_ok(job_id: &str, preview: &str) {
+        let db = async_jobs::get_async_jobs_db().expect("db");
+        db.update_terminal(
+            job_id,
+            AsyncJobStatus::Completed,
+            Some(preview),
+            None,
+            None,
+            chrono::Utc::now().timestamp(),
+        )
+        .expect("update_terminal");
+        wait::notify_completion(job_id);
+    }
+
+    #[tokio::test]
+    async fn block_wakes_on_completion_via_notify() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        ensure_fixture();
+        let job_id = fresh_id();
+        insert_running(&job_id);
+
+        let start = Instant::now();
+        let args = json!({ "job_id": job_id, "block": true, "timeout_ms": 5000 });
+
+        let task_id = job_id.clone();
+        let finisher = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            finalize_ok(&task_id, "ok");
+        });
+
+        let out = tool_job_status(&args).await.expect("tool ok");
+        finisher.await.expect("finisher ok");
+        let elapsed = start.elapsed();
+
+        assert!(out.contains("\"status\":\"completed\""), "got {out}");
+        assert!(
+            elapsed < Duration::from_millis(400),
+            "should return promptly via notify path, took {elapsed:?}"
+        );
+        assert_eq!(wait::waiter_count(&job_id), 0);
+    }
+
+    #[tokio::test]
+    async fn block_terminal_on_restart_replay() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        ensure_fixture();
+        let job_id = fresh_id();
+        insert_running(&job_id);
+        // Mark terminal directly, without touching the wait registry —
+        // simulates the state after `replay_pending_jobs` on startup.
+        let db = async_jobs::get_async_jobs_db().expect("db");
+        db.update_terminal(
+            &job_id,
+            AsyncJobStatus::Interrupted,
+            None,
+            None,
+            Some("interrupted"),
+            chrono::Utc::now().timestamp(),
+        )
+        .expect("update_terminal");
+
+        let start = Instant::now();
+        let args = json!({ "job_id": job_id, "block": true, "timeout_ms": 5000 });
+        let out = tool_job_status(&args).await.expect("tool ok");
+        let elapsed = start.elapsed();
+
+        assert!(out.contains("\"status\":\"interrupted\""), "got {out}");
+        assert!(
+            elapsed < Duration::from_millis(50),
+            "must return without parking, took {elapsed:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn cleanup_after_completion_leaves_empty_registry() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        ensure_fixture();
+        let job_id = fresh_id();
+        insert_running(&job_id);
+
+        let task_id = job_id.clone();
+        let finisher = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            finalize_ok(&task_id, "ok");
+        });
+
+        let args = json!({ "job_id": job_id, "block": true, "timeout_ms": 2000 });
+        tool_job_status(&args).await.expect("tool ok");
+        finisher.await.expect("finisher ok");
+
+        assert_eq!(wait::waiter_count(&job_id), 0);
+    }
+
+    #[tokio::test]
+    async fn snapshot_mode_returns_immediately() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        ensure_fixture();
+        let job_id = fresh_id();
+        insert_running(&job_id);
+
+        let args = json!({ "job_id": job_id, "block": false });
+        let out = tool_job_status(&args).await.expect("tool ok");
+        assert!(out.contains("\"status\":\"running\""), "got {out}");
+        // No waiter should have been registered.
+        assert_eq!(wait::waiter_count(&job_id), 0);
+    }
+
+    #[tokio::test]
+    async fn unknown_job_id_errors() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        ensure_fixture();
+        let args = json!({ "job_id": "nonexistent", "block": false });
+        let err = tool_job_status(&args).await.unwrap_err();
+        assert!(err.to_string().contains("Unknown job_id"));
     }
 }

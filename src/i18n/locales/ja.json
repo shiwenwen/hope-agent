@@ -760,6 +760,8 @@
     "asyncToolsAutoBackgroundDesc": "この時間を超える同期呼び出しは自動でバックグラウンドジョブに移行されます。0 で自動移行を無効化。",
     "asyncToolsMaxJob": "ジョブごとの最大時間",
     "asyncToolsMaxJobDesc": "バックグラウンドジョブの最大実行時間。超過すると強制終了されます。0 = ジョブごとの制限なし（ツールのタイムアウトに従う）。",
+    "asyncToolsJobStatusMaxWait": "job_status 最大待機時間",
+    "asyncToolsJobStatusMaxWaitDesc": "単一の job_status(block=true) 呼び出しの上限。ジョブごとの最大時間 = 0 の場合のみ適用され、それ以外はジョブごとの最大時間が優先されます。",
     "asyncToolsRetention": "終了ジョブの保持日数",
     "asyncToolsRetentionDesc": "完了したジョブの行と spool ファイルは、この日数が過ぎると削除されます。0 で無期限保持。",
     "asyncToolsOrphanGrace": "孤立 spool の猶予時間",
