@@ -236,9 +236,10 @@ fn load_single_skill(
 ///
 /// Sources (lowest -> highest precedence):
 /// 0. Bundled skills (shipped with the application, lowest)
-/// 1. Extra directories (user-imported)
-/// 2. Managed skills (~/.opencomputer/skills/)
-/// 3. Project-specific skills (.opencomputer/skills/ in cwd, highest)
+/// 1. Shared skills (~/.agents/skills/, cross-tool convention)
+/// 2. Extra directories (user-imported)
+/// 3. Managed skills (~/.opencomputer/skills/)
+/// 4. Project-specific skills (.opencomputer/skills/ in cwd, highest)
 pub fn load_all_skills_with_extra(extra_dirs: &[String]) -> Vec<SkillEntry> {
     load_all_skills_with_budget(extra_dirs, &SkillPromptBudget::default())
 }
@@ -258,7 +259,15 @@ pub fn load_all_skills_with_budget(
         sources.push((dir.clone(), "bundled".to_string()));
     }
 
-    // 1. Extra directories (user-imported)
+    // 1. Shared skills: ~/.agents/skills/ (cross-tool convention)
+    if let Some(home) = dirs::home_dir() {
+        let shared = home.join(".agents").join("skills");
+        if shared.is_dir() {
+            sources.push((shared, "shared".to_string()));
+        }
+    }
+
+    // 2. Extra directories (user-imported)
     for dir in extra_dirs {
         let path = PathBuf::from(dir);
         if path.is_dir() {
@@ -271,12 +280,12 @@ pub fn load_all_skills_with_budget(
         }
     }
 
-    // 2. Managed skills: ~/.opencomputer/skills/
+    // 3. Managed skills: ~/.opencomputer/skills/
     if let Ok(dir) = paths::skills_dir() {
         sources.push((dir, "managed".to_string()));
     }
 
-    // 3. Project-specific skills: .opencomputer/skills/ relative to cwd
+    // 4. Project-specific skills: .opencomputer/skills/ relative to cwd
     if let Ok(cwd) = std::env::current_dir() {
         let project_skills = cwd.join(".opencomputer").join("skills");
         if project_skills.is_dir() {
