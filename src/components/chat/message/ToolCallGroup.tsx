@@ -8,7 +8,7 @@ import {
   Search,
   Globe,
   Brain,
-  Terminal,
+  Wrench,
   Info,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -56,7 +56,7 @@ const CATEGORY_ICONS: Record<ToolCategory, React.ComponentType<{ className?: str
   search: Search,
   web: Globe,
   memory: Brain,
-  other: Terminal,
+  other: Wrench,
 }
 
 /** Check if a read tool call targets a SKILL.md file, return skill name if so */

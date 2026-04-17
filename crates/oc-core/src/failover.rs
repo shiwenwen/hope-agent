@@ -118,7 +118,10 @@ pub fn classify_error(error_msg: &str) -> FailoverReason {
         return FailoverReason::Overloaded;
     }
 
-    // ── Timeout (retryable) ───────────────────────────────────────
+    // ── Timeout / transport error (retryable) ─────────────────────
+    // Includes reqwest/hyper decode failures which typically occur when
+    // the server closes a chunked/SSE response body mid-stream after
+    // returning 200 headers (seen on dashscope-coding under load).
     if lower.contains("timeout")
         || lower.contains("timed out")
         || lower.contains("etimedout")
@@ -129,6 +132,11 @@ pub fn classify_error(error_msg: &str) -> FailoverReason {
         || lower.contains("connection reset")
         || lower.contains("connection refused")
         || lower.contains("broken pipe")
+        || lower.contains("error decoding response body")
+        || lower.contains("error reading a body from connection")
+        || lower.contains("incomplete message")
+        || lower.contains("unexpected eof")
+        || lower.contains("connection closed before message completed")
     {
         return FailoverReason::Timeout;
     }
@@ -431,6 +439,18 @@ mod tests {
         assert_eq!(classify_error("ETIMEDOUT"), FailoverReason::Timeout);
         assert_eq!(
             classify_error("connection reset by peer"),
+            FailoverReason::Timeout
+        );
+        assert_eq!(
+            classify_error("error decoding response body"),
+            FailoverReason::Timeout
+        );
+        assert_eq!(
+            classify_error("error reading a body from connection"),
+            FailoverReason::Timeout
+        );
+        assert_eq!(
+            classify_error("connection closed before message completed"),
             FailoverReason::Timeout
         );
     }

@@ -34,29 +34,52 @@ export function useAutoScroll({ loading, messages, currentSessionId }: UseAutoSc
     scrollToBottom(true)
   }, [currentSessionId, scrollToBottom])
 
-  // Detect user scrolling up to pause auto-scroll.
-  // Use hysteresis: a larger threshold to ENTER scrolled-up state,
-  // and a smaller one to LEAVE it (re-enable auto-scroll).
+  // Detect user scrolling to pause auto-scroll.
+  //
+  // Two detection paths:
+  // 1. User-initiated input (wheel / touchmove / PageUp / ArrowUp / Home) — flips
+  //    immediately on any upward intent. Essential during streaming, because the
+  //    rAF loop below snaps scrollTop to bottom every frame; a pure
+  //    `distanceFromBottom` threshold can never be reached when trackpad deltas
+  //    get overwritten within 16ms.
+  // 2. Plain scroll events — used only to RESUME auto-scroll once the user
+  //    scrolls back near the bottom (distance ≤ 80px).
   useEffect(() => {
     const el = scrollContainerRef.current
     if (!el) return
-    const handleScroll = () => {
-      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
-      if (isUserScrolledUpRef.current) {
-        // Already in scrolled-up state: only re-enable auto-scroll
-        // when user scrolls very close to bottom
-        if (distanceFromBottom <= 80) {
-          isUserScrolledUpRef.current = false
-        }
-      } else {
-        // Not scrolled up: only enter scrolled-up state on a decisive scroll
-        if (distanceFromBottom > 300) {
-          isUserScrolledUpRef.current = true
-        }
+
+    const pauseAutoScroll = () => {
+      isUserScrolledUpRef.current = true
+    }
+
+    const handleWheel = (e: WheelEvent) => {
+      if (e.deltaY < 0) pauseAutoScroll()
+    }
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "PageUp" || e.key === "ArrowUp" || e.key === "Home") {
+        pauseAutoScroll()
       }
     }
+
+    const handleScroll = () => {
+      if (!isUserScrolledUpRef.current) return
+      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+      if (distanceFromBottom <= 80) {
+        isUserScrolledUpRef.current = false
+      }
+    }
+
+    el.addEventListener("wheel", handleWheel, { passive: true })
+    el.addEventListener("touchmove", pauseAutoScroll, { passive: true })
+    el.addEventListener("keydown", handleKeyDown)
     el.addEventListener("scroll", handleScroll, { passive: true })
-    return () => el.removeEventListener("scroll", handleScroll)
+    return () => {
+      el.removeEventListener("wheel", handleWheel)
+      el.removeEventListener("touchmove", pauseAutoScroll)
+      el.removeEventListener("keydown", handleKeyDown)
+      el.removeEventListener("scroll", handleScroll)
+    }
   }, [])
 
   // rAF loop: smoothly follow content growth during streaming
