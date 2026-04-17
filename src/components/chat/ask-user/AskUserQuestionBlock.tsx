@@ -103,7 +103,7 @@ function OptionPreview({ option }: { option: AskUserQuestionOption }) {
 
   const body = kind === "mermaid" ? "```mermaid\n" + preview + "\n```" : preview
   return (
-    <div className="mt-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs max-h-64 overflow-auto">
+    <div className="mt-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs max-h-[28rem] overflow-auto">
       <Streamdown plugins={staticPlugins}>{body}</Streamdown>
     </div>
   )
@@ -270,44 +270,45 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
         const state = answers[q.questionId]
         const focused = focusedOption[q.questionId]
         const focusedOpt = q.options.find((o) => o.value === focused)
+        const showSidePreview = hasAnyPreview && !!focusedOpt?.preview
         return (
-          <div key={q.questionId} className="space-y-2">
-            <div className="flex items-start gap-2 flex-wrap">
-              {q.template === "scope" ? (
-                <Target className="h-3.5 w-3.5 mt-0.5 text-purple-500 shrink-0" />
-              ) : q.template === "tech_choice" ? (
-                <Layers className="h-3.5 w-3.5 mt-0.5 text-green-500 shrink-0" />
-              ) : q.template === "priority" ? (
-                <AlertTriangle className="h-3.5 w-3.5 mt-0.5 text-amber-500 shrink-0" />
-              ) : (
-                <HelpCircle className="h-3.5 w-3.5 mt-0.5 text-blue-500 shrink-0" />
-              )}
-              <span className="text-sm font-medium">
-                {group.questions.length > 1 && `${qi + 1}. `}
-                {q.text}
-              </span>
-              {q.header && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-600 font-normal uppercase tracking-wide">
-                  {q.header}
+          <div
+            key={q.questionId}
+            className={cn(
+              "space-y-2",
+              showSidePreview &&
+                "md:grid md:grid-cols-[minmax(260px,2fr)_3fr] md:gap-4 md:space-y-0"
+            )}
+          >
+            {/* Left column: title + options */}
+            <div className="space-y-2">
+              <div className="flex items-start gap-2 flex-wrap">
+                {q.template === "scope" ? (
+                  <Target className="h-3.5 w-3.5 mt-0.5 text-purple-500 shrink-0" />
+                ) : q.template === "tech_choice" ? (
+                  <Layers className="h-3.5 w-3.5 mt-0.5 text-green-500 shrink-0" />
+                ) : q.template === "priority" ? (
+                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 text-amber-500 shrink-0" />
+                ) : (
+                  <HelpCircle className="h-3.5 w-3.5 mt-0.5 text-blue-500 shrink-0" />
+                )}
+                <span className="text-sm font-medium">
+                  {group.questions.length > 1 && `${qi + 1}. `}
+                  {q.text}
                 </span>
-              )}
-              {q.multiSelect && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-normal">
-                  {t("planMode.question.multiSelect", { defaultValue: "multi" })}
-                </span>
-              )}
-            </div>
+                {q.header && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-600 font-normal uppercase tracking-wide">
+                    {q.header}
+                  </span>
+                )}
+                {q.multiSelect && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-normal">
+                    {t("planMode.question.multiSelect", { defaultValue: "multi" })}
+                  </span>
+                )}
+              </div>
 
-            {/* Options list + optional side preview pane */}
-            <div
-              className={cn(
-                "pl-5",
-                hasAnyPreview && focusedOpt?.preview
-                  ? "grid grid-cols-1 md:grid-cols-2 gap-3"
-                  : "space-y-1.5"
-              )}
-            >
-              <div className="space-y-1.5">
+              <div className="pl-5 space-y-1.5">
                 {q.options.map((opt) => {
                   const isSelected = state?.selected.has(opt.value) ?? false
                   const isDefault =
@@ -384,19 +385,17 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
                   </div>
                 )}
               </div>
-
-              {/* Side preview pane (rendered when at least one option in the
-                  whole group has a preview and the currently focused option
-                  of this question has one) */}
-              {hasAnyPreview && focusedOpt?.preview && (
-                <div className="hidden md:block">
-                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">
-                    {t("planMode.question.preview", { defaultValue: "Preview" })}: {focusedOpt.label}
-                  </div>
-                  <OptionPreview option={focusedOpt} />
-                </div>
-              )}
             </div>
+
+            {/* Right column: side preview pane aligned to the question's top */}
+            {showSidePreview && (
+              <div className="hidden md:block">
+                <div className="flex items-center text-[10px] uppercase tracking-wide text-muted-foreground mb-1 leading-5 h-5">
+                  {t("planMode.question.preview", { defaultValue: "Preview" })}: {focusedOpt!.label}
+                </div>
+                <OptionPreview option={focusedOpt!} />
+              </div>
+            )}
           </div>
         )
       })}

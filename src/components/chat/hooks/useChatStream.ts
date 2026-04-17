@@ -33,6 +33,11 @@ export interface UseChatStreamOptions {
   activeModel: ActiveModel | null
   reloadSessions: () => Promise<void>
   updateSessionMessages: (sessionId: string, updater: (prev: Message[]) => Message[]) => void
+  /**
+   * Per-session seq cursor shared with `useChatStreamReattach`. Primary-path
+   * `onmessage` bumps it so redundant EventBus events are dropped.
+   */
+  lastSeqRef: React.MutableRefObject<Map<string, number>>
   /** Current plan mode state, passed to backend chat() for reliable sync */
   planMode?: string
   /** Session-level temperature override (0.0–2.0). Overrides agent and global settings. */
@@ -77,6 +82,7 @@ export function useChatStream({
   activeModel,
   reloadSessions,
   updateSessionMessages,
+  lastSeqRef,
   planMode,
   temperatureOverride,
 }: UseChatStreamOptions): UseChatStreamReturn {
@@ -235,6 +241,14 @@ export function useChatStream({
           }
 
           const sid = targetSessionId || "__pending__"
+
+          // Primary path bumps the seq cursor so identical events arriving
+          // later via the EventBus reattach listener are dropped.
+          const seqRaw = event._oc_seq
+          if (typeof seqRaw === "number" && sid !== "__pending__") {
+            const prev = lastSeqRef.current.get(sid) ?? 0
+            if (seqRaw > prev) lastSeqRef.current.set(sid, seqRaw)
+          }
 
           const handled = handleStreamEvent(event, sid, {
             updateSessionMessages,

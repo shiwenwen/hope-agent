@@ -52,6 +52,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   search_sessions_cmd:             { method: "GET",    path: "/api/sessions/search" },
   load_session_messages_latest_cmd:{ method: "GET",    path: "/api/sessions/{sessionId}/messages" },
   load_session_messages_around_cmd:{ method: "GET",    path: "/api/sessions/{sessionId}/messages/around" },
+  get_session_stream_state:        { method: "GET",    path: "/api/sessions/{sessionId}/stream-state" },
   delete_session_cmd:              { method: "DELETE", path: "/api/sessions/{sessionId}" },
   rename_session_cmd:              { method: "PATCH",  path: "/api/sessions/{sessionId}" },
   mark_session_read_cmd:           { method: "POST",   path: "/api/sessions/{sessionId}/read" },

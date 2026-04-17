@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { useChatSession } from "./useChatSession"
 import { useChatStream } from "./useChatStream"
+import { useChatStreamReattach } from "./hooks/useChatStreamReattach"
 import { useAutoScroll } from "./useAutoScroll"
 import { usePlanMode } from "./plan-mode/usePlanMode"
 import { useModelState } from "./hooks/useModelState"
@@ -89,6 +90,12 @@ export default function ChatScreen({
 
   // Plan mode state (declared early so useChatStream can access it)
   const [planModeState, setPlanModeState] = useState<"off" | "planning" | "review" | "executing" | "paused" | "completed">("off")
+
+  // Shared per-session seq cursor for chat stream dedup across the primary
+  // per-call Channel/WS path (useChatStream) and the EventBus reattach path
+  // (useChatStreamReattach). Owned at this level to break the two-way
+  // dependency between the two hooks.
+  const streamSeqRef = useRef<Map<string, number>>(new Map())
 
   // ── Session Hook ────────────────────────────────────────────
   const session = useChatSession({
@@ -339,8 +346,27 @@ export default function ChatScreen({
     activeModel,
     reloadSessions: session.reloadSessions,
     updateSessionMessages: session.updateSessionMessages,
+    lastSeqRef: streamSeqRef,
     planMode: planModeState,
     temperatureOverride: sessionTemperature,
+  })
+
+  // ── Stream Reattach Hook ────────────────────────────────────
+  // Rehydrates chat streaming after frontend reload / window reopen / browser
+  // refresh via EventBus-backed events, deduplicated against `streamSeqRef`
+  // which the primary per-call Channel path also updates.
+  useChatStreamReattach({
+    currentSessionId: session.currentSessionId,
+    currentSessionIdRef: session.currentSessionIdRef,
+    lastSeqRef: streamSeqRef,
+    updateSessionMessages: session.updateSessionMessages,
+    setShowCodexAuthExpired: stream.setShowCodexAuthExpired,
+    setMessages: session.setMessages,
+    setLoading: session.setLoading,
+    loadingSessionsRef: session.loadingSessionsRef,
+    setLoadingSessionIds: session.setLoadingSessionIds,
+    sessionCacheRef: session.sessionCacheRef,
+    reloadSessions: session.reloadSessions,
   })
 
   // ── Plan Mode Hook ─────────────────────────────────────────

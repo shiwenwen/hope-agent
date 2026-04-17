@@ -199,14 +199,12 @@ export default function MessageList({
       ))}
       {/* Ask-user Question Block (interactive Q&A) */}
       {pendingQuestionGroup && (
-        <div className="flex justify-start">
-          <div className="max-w-[85%] w-full">
-            <AskUserQuestionBlock
-              key={pendingQuestionGroup.requestId}
-              group={pendingQuestionGroup}
-              onSubmitted={onQuestionSubmitted}
-            />
-          </div>
+        <div className="w-full">
+          <AskUserQuestionBlock
+            key={pendingQuestionGroup.requestId}
+            group={pendingQuestionGroup}
+            onSubmitted={onQuestionSubmitted}
+          />
         </div>
       )}
 

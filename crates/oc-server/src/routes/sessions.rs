@@ -213,6 +213,16 @@ pub async fn get_session_messages(
     Ok(Json(json!({ "messages": messages, "total": total })))
 }
 
+/// `GET /api/sessions/:id/stream-state` — snapshot of whether the session
+/// currently has an active chat stream + its latest `seq` counter. Frontend
+/// uses this on session switch to decide whether to attach the EventBus
+/// reattach listener for a reloaded window.
+pub async fn get_session_stream_state(
+    Path(id): Path<String>,
+) -> Result<Json<oc_core::chat_engine::SessionStreamState>, AppError> {
+    Ok(Json(oc_core::chat_engine::session_stream_state(&id)))
+}
+
 // ── Read-state / Compact ───────────────────────────────────────
 
 #[derive(Debug, Deserialize)]

@@ -299,5 +299,18 @@ export function parseSessionMessages(
       })
     }
   }
+  // Mid-stream load: if the loop ended with accumulated tool calls / interim
+  // blocks that were never claimed by a final assistant row, surface them as
+  // a synthetic in-progress assistant so the UI renders what has happened so
+  // far and subsequent text/tool deltas have a message to attach to.
+  if (pendingTools.length > 0 || pendingBlocks.length > 0) {
+    displayMessages.push({
+      role: "assistant",
+      content: "",
+      contentBlocks: pendingBlocks.length > 0 ? [...pendingBlocks] : undefined,
+      toolCalls: pendingTools.length > 0 ? [...pendingTools] : undefined,
+      timestamp: new Date().toISOString(),
+    })
+  }
   return displayMessages
 }

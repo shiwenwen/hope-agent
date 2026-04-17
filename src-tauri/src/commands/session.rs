@@ -207,3 +207,14 @@ pub async fn load_session_messages_around_cmd(
         .load_session_messages_around(&session_id, target_message_id, before, after)
         .map_err(|e| e.to_string())
 }
+
+/// Report whether a session currently has an active chat stream running in
+/// the backend. Used by the frontend on session switch to decide whether to
+/// attach the EventBus-backed stream listener for a reloaded window that
+/// lost its per-call Channel.
+#[tauri::command]
+pub async fn get_session_stream_state(
+    session_id: String,
+) -> Result<oc_core::chat_engine::SessionStreamState, String> {
+    Ok(oc_core::chat_engine::session_stream_state(&session_id))
+}

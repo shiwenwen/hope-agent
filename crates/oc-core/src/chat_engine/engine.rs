@@ -4,7 +4,47 @@ use crate::session;
 
 use super::context::*;
 use super::persister::StreamPersister;
+use super::stream_broadcast;
+use super::stream_seq;
 use super::types::*;
+
+/// RAII guard that scopes a session's stream lifecycle. [`stream_seq::begin`]
+/// is called at construction; [`stream_seq::end`] + `chat:stream_end` broadcast
+/// run on drop, covering every `run_chat_engine` return path (early exits,
+/// errors, successful completion, panics).
+struct StreamLifecycle {
+    session_id: String,
+}
+
+impl StreamLifecycle {
+    fn begin(session_id: &str) -> Self {
+        stream_seq::begin(session_id);
+        Self {
+            session_id: session_id.to_string(),
+        }
+    }
+}
+
+impl Drop for StreamLifecycle {
+    fn drop(&mut self) {
+        stream_seq::end(&self.session_id);
+        stream_broadcast::broadcast_stream_end(&self.session_id);
+    }
+}
+
+/// Emit one stream event through the primary per-call sink (Tauri Channel /
+/// WebSocket) and the session-scoped EventBus broadcast at the same time,
+/// injecting a monotonic `_oc_seq` so the frontend can de-duplicate across
+/// the two paths.
+fn emit_stream_event(
+    event_sink: &std::sync::Arc<dyn EventSink>,
+    session_id: &str,
+    event: &str,
+) {
+    let (enveloped, seq) = stream_broadcast::inject_seq(session_id, event);
+    event_sink.send(&enveloped);
+    stream_broadcast::broadcast_delta(session_id, &enveloped, seq);
+}
 
 // ── Core Chat Engine ────────────────────────────────────────────────
 
@@ -42,6 +82,12 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
     if model_chain.is_empty() {
         return Err("No model configured for chat execution".to_string());
     }
+
+    // Register the session as actively streaming so the frontend's
+    // `get_session_stream_state` returns `active=true` — and so the EventBus
+    // broadcast carries monotonic `_oc_seq` values. Drop-guarded so every
+    // return path (success, failure, panic) runs end + stream_end broadcast.
+    let _stream_lifecycle = StreamLifecycle::begin(&session_id);
 
     let total_models = model_chain.len();
     let mut last_error: Option<String> = None;
@@ -154,7 +200,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     "error": last_error.as_deref().unwrap_or(""),
                 });
                 if let Ok(json_str) = serde_json::to_string(&event) {
-                    event_sink.send(&json_str);
+                    emit_stream_event(&event_sink, &session_id, &json_str);
                     let _ = db.append_message(&session_id, &session::NewMessage::event(&json_str));
                 }
             }
@@ -165,6 +211,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
             let persister = StreamPersister::new();
             let persist_cb = persister.build_callback(&db, session_id.clone());
             let event_sink_clone = event_sink.clone();
+            let session_id_for_cb = session_id.clone();
 
             let history_len_before = agent.get_conversation_history().len();
             let chat_start = std::time::Instant::now();
@@ -176,7 +223,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     cancel_clone,
                     move |delta| {
                         persist_cb(delta);
-                        event_sink_clone.send(delta);
+                        emit_stream_event(&event_sink_clone, &session_id_for_cb, delta);
                     },
                 )
                 .await
@@ -200,7 +247,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         "duration_ms": duration_ms,
                     });
                     if let Ok(json_str) = serde_json::to_string(&usage_event) {
-                        event_sink.send(&json_str);
+                        emit_stream_event(&event_sink, &session_id, &json_str);
                     }
 
                     persister.flush_remaining_thinking(&db, &session_id);
@@ -346,7 +393,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                             "type": "context_compacted",
                             "data": compact_result,
                         })) {
-                            event_sink.send(&event_str);
+                            emit_stream_event(&event_sink, &session_id, &event_str);
                         }
 
                         retry_count += 1;
@@ -391,7 +438,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                                     "to_profile": next.label,
                                     "reason": reason,
                                 })) {
-                                    event_sink.send(&json_str);
+                                    emit_stream_event(&event_sink, &session_id, &json_str);
                                 }
 
                                 tried_profiles.push(next.id.clone());
@@ -462,7 +509,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                                 "type": "codex_auth_expired",
                                 "error": &error_msg,
                             })) {
-                                event_sink.send(&json_str);
+                                emit_stream_event(&event_sink, &session_id, &json_str);
                             }
                         }
                     }

@@ -153,6 +153,10 @@ fn build_router_with_cors(
             "/sessions/{id}/messages/search",
             get(routes::sessions::search_session_messages),
         )
+        .route(
+            "/sessions/{id}/stream-state",
+            get(routes::sessions::get_session_stream_state),
+        )
         // Chat
         .route("/chat", post(routes::chat::chat))
         .route("/chat/stop", post(routes::chat::stop_chat))
