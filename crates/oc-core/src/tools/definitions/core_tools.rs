@@ -994,7 +994,8 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                             "active_model", "fallback_models", "skills",
                             "server", "acp_control", "skill_env",
                             "tool_result_disk_threshold",
-                            "ask_user_question_timeout", "plan"
+                            "ask_user_question_timeout", "plan",
+                            "security.ssrf"
                         ]
                     }
                 },
@@ -1014,7 +1015,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                 "properties": {
                     "category": {
                         "type": "string",
-                        "description": "Settings category to update. HIGH-risk: proxy, embedding, shortcuts, skills, server, acp_control, skill_env — require explicit user confirmation first.",
+                        "description": "Settings category to update. HIGH-risk: proxy, embedding, shortcuts, skills, server, acp_control, skill_env, security.ssrf — require explicit user confirmation first.",
                         "enum": [
                             "user", "theme", "language", "ui_effects", "proxy",
                             "web_search", "web_fetch", "compact", "notification",
@@ -1027,7 +1028,8 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                             "recap", "cross_session", "shortcuts", "skills",
                             "server", "acp_control", "skill_env",
                             "tool_result_disk_threshold",
-                            "ask_user_question_timeout", "plan"
+                            "ask_user_question_timeout", "plan",
+                            "security.ssrf"
                         ]
                     },
                     "values": {

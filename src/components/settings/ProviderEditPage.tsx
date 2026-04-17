@@ -3,6 +3,7 @@ import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Switch } from "@/components/ui/switch"
 import { IconTip } from "@/components/ui/tooltip"
 import {
   Select,
@@ -45,6 +46,27 @@ import {
 // ── Types ─────────────────────────────────────────────────────────
 
 import type { AuthProfile, ProviderConfig } from "@/components/settings/provider-setup/types"
+import { isPrivateHost } from "@/lib/urlDetect"
+
+// ── Helpers ───────────────────────────────────────────────────────
+
+function extractHostPort(url: string): string | null {
+  try {
+    const parsed = new URL(url)
+    if (parsed.port) return `${parsed.hostname}:${parsed.port}`
+    return parsed.hostname
+  } catch {
+    return null
+  }
+}
+
+function isPrivateBaseUrl(url: string): boolean {
+  try {
+    return isPrivateHost(new URL(url).hostname)
+  } catch {
+    return false
+  }
+}
 
 // ── Main Component ────────────────────────────────────────────────
 
@@ -69,6 +91,9 @@ export default function ProviderEditPage({
   const [editUserAgent, setEditUserAgent] = useState(provider.userAgent || "claude-code/0.1.0")
   const [editThinkingStyle, setEditThinkingStyle] = useState<ThinkingStyleType>(
     provider.thinkingStyle || "openai",
+  )
+  const [editAllowPrivateNetwork, setEditAllowPrivateNetwork] = useState<boolean>(
+    provider.allowPrivateNetwork ?? false,
   )
   const [editModels, setEditModels] = useState<ModelConfig[]>([...provider.models])
   const [editAuthProfiles, setEditAuthProfiles] = useState<AuthProfile[]>(
@@ -132,9 +157,31 @@ export default function ProviderEditPage({
           authProfiles: editAuthProfiles,
           userAgent: editUserAgent,
           thinkingStyle: editThinkingStyle,
+          allowPrivateNetwork: editAllowPrivateNetwork,
           models: editModels,
         },
       })
+      // Auto-append the base URL host to SSRF trusted_hosts when the user
+      // opts in, so LLM calls to self-hosted Ollama / LM Studio remain allowed
+      // if SSRF enforcement is ever extended to the LLM path.
+      if (editAllowPrivateNetwork) {
+        try {
+          const host = extractHostPort(editBaseUrl)
+          if (host) {
+            const cfg = await getTransport().call<{
+              trustedHosts: string[]
+              [key: string]: unknown
+            }>("get_ssrf_config")
+            if (!cfg.trustedHosts.includes(host)) {
+              await getTransport().call("save_ssrf_config", {
+                config: { ...cfg, trustedHosts: [...cfg.trustedHosts, host] },
+              })
+            }
+          }
+        } catch {
+          // Non-fatal: user can add the host manually in Security settings.
+        }
+      }
       onSave()
     } catch (e) {
       setError(String(e))
@@ -292,6 +339,23 @@ export default function ProviderEditPage({
                   </SelectContent>
                 </Select>
               </div>
+
+              {isPrivateBaseUrl(editBaseUrl) && (
+                <div className="flex items-start justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2.5">
+                  <div className="space-y-0.5">
+                    <div className="text-xs font-medium text-foreground">
+                      {t("provider.allowPrivateNetwork")}
+                    </div>
+                    <div className="text-[11px] text-muted-foreground">
+                      {t("provider.allowPrivateNetworkDesc")}
+                    </div>
+                  </div>
+                  <Switch
+                    checked={editAllowPrivateNetwork}
+                    onCheckedChange={setEditAllowPrivateNetwork}
+                  />
+                </div>
+              )}
 
               {/* Test Connection */}
               <Button

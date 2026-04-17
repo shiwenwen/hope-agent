@@ -214,6 +214,8 @@ pub fn run() {
             commands::config::save_web_search_config,
             commands::config::get_web_fetch_config,
             commands::config::save_web_fetch_config,
+            commands::config::get_ssrf_config,
+            commands::config::save_ssrf_config,
             commands::config::get_image_generate_config,
             commands::config::save_image_generate_config,
             commands::config::get_proxy_config,

@@ -4,7 +4,6 @@ use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
-use std::net::IpAddr;
 use std::sync::Mutex;
 use std::time::Instant;
 
@@ -90,78 +89,17 @@ impl Default for WebFetchConfig {
 }
 
 // ── SSRF Protection ─────────────────────────────────────────────
+//
+// Implementation lives in `crate::security::ssrf`. Thin wrappers preserve the
+// legacy call sites inside this crate.
 
-/// Check if a URL is safe to fetch (not targeting private/internal networks).
+/// Check if a URL is safe to fetch under the Default SSRF policy (no allowlist).
+/// Kept for backward compatibility with existing call sites that don't need
+/// per-tool policy overrides.
 pub(crate) async fn check_ssrf_safe(url_str: &str) -> Result<()> {
-    let parsed = url::Url::parse(url_str).map_err(|e| anyhow::anyhow!("Invalid URL: {}", e))?;
-
-    let host = parsed
-        .host_str()
-        .ok_or_else(|| anyhow::anyhow!("URL has no host"))?;
-
-    let port = parsed.port_or_known_default().unwrap_or(80);
-    let addr_str = format!("{}:{}", host, port);
-
-    let addrs = tokio::net::lookup_host(&addr_str)
+    crate::security::ssrf::check_url(url_str, crate::security::ssrf::SsrfPolicy::Default, &[])
         .await
-        .map_err(|e| anyhow::anyhow!("DNS resolution failed for {}: {}", host, e))?;
-
-    for addr in addrs {
-        let ip = addr.ip();
-        if is_private_ip(&ip) {
-            return Err(anyhow::anyhow!(
-                "SSRF protection: blocked request to private/internal address {} (resolved from {})",
-                ip, host
-            ));
-        }
-    }
-
-    Ok(())
-}
-
-/// Check if an IP address belongs to a private/reserved range.
-pub(crate) fn is_private_ip(ip: &IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(v4) => {
-            v4.is_loopback()                            // 127.0.0.0/8
-                || v4.is_private()                      // 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
-                || v4.is_link_local()                   // 169.254.0.0/16
-                || v4.is_unspecified()                   // 0.0.0.0
-                || v4.octets()[0] == 0                   // 0.0.0.0/8
-                || v4.is_broadcast() // 255.255.255.255
-        }
-        IpAddr::V6(v6) => {
-            v6.is_loopback()                            // ::1
-                || v6.is_unspecified()                   // ::
-                // fc00::/7 (unique local)
-                || (v6.segments()[0] & 0xfe00) == 0xfc00
-                // fe80::/10 (link-local)
-                || (v6.segments()[0] & 0xffc0) == 0xfe80
-        }
-    }
-}
-
-fn is_blocked_host(host: &str) -> bool {
-    if host.eq_ignore_ascii_case("localhost") || host.ends_with(".localhost") {
-        return true;
-    }
-    if let Ok(ip) = host.parse::<IpAddr>() {
-        return is_private_ip(&ip);
-    }
-    false
-}
-
-fn validate_fetch_url(url: &str) -> Result<url::Url> {
-    let parsed = url::Url::parse(url).map_err(|e| anyhow::anyhow!("Invalid URL: {}", e))?;
-    match parsed.scheme() {
-        "http" | "https" => {}
-        _ => {
-            return Err(anyhow::anyhow!(
-                "Invalid URL: only http:// and https:// are supported"
-            ))
-        }
-    }
-    Ok(parsed)
+        .map(|_| ())
 }
 
 // ── Web Fetch Cache ─────────────────────────────────────────────
@@ -434,8 +372,6 @@ pub(crate) async fn tool_web_fetch(args: &Value) -> Result<String> {
         max_chars
     );
 
-    let parsed_url = validate_fetch_url(url)?;
-
     // Check cache
     let ck = cache_key(url, extract_mode);
     if let Some(cached) = read_cache(&ck, config.cache_ttl_minutes) {
@@ -443,23 +379,33 @@ pub(crate) async fn tool_web_fetch(args: &Value) -> Result<String> {
         return Ok(cached);
     }
 
-    // SSRF protection
-    if config.ssrf_protection {
-        check_ssrf_safe(url).await?;
-    }
+    // SSRF protection: policy from AppConfig.ssrf, overridable per-tool.
+    // Legacy `ssrf_protection = false` downgrades the effective policy to AllowPrivate
+    // (preserves "opt out of all SSRF" semantics for existing users).
+    let ssrf_cfg = crate::config::cached_config().ssrf.clone();
+    let effective_policy = if config.ssrf_protection {
+        ssrf_cfg.web_fetch()
+    } else {
+        crate::security::ssrf::SsrfPolicy::AllowPrivate
+    };
+    let trusted_hosts = ssrf_cfg.trusted_hosts.clone();
+    let parsed_url =
+        crate::security::ssrf::check_url(url, effective_policy, &trusted_hosts).await?;
 
     // Build HTTP client with config
     let max_redirects = config.max_redirects;
-    let ssrf_protection = config.ssrf_protection;
+    let redirect_policy_hosts = trusted_hosts.clone();
     let redirect_policy = reqwest::redirect::Policy::custom(move |attempt| {
         if attempt.previous().len() >= max_redirects {
             return attempt.error("too many redirects");
         }
-        if ssrf_protection {
-            if let Some(host) = attempt.url().host_str() {
-                if is_blocked_host(host) {
-                    return attempt.stop();
-                }
+        if let Some(host) = attempt.url().host_str() {
+            if crate::security::ssrf::check_host_blocking_sync(
+                host,
+                effective_policy,
+                &redirect_policy_hosts,
+            ) {
+                return attempt.stop();
             }
         }
         attempt.follow()
@@ -570,9 +516,8 @@ pub(crate) async fn tool_web_fetch(args: &Value) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        extract_readable_text_basic, is_blocked_host, truncate_to_char_count, validate_fetch_url,
-    };
+    use super::{extract_readable_text_basic, truncate_to_char_count};
+    use crate::security::ssrf::{check_host_blocking_sync, SsrfPolicy};
 
     #[test]
     fn extract_text_handles_unicode_without_panicking() {
@@ -593,17 +538,16 @@ mod tests {
     }
 
     #[test]
-    fn validate_fetch_url_rejects_non_http_schemes() {
-        assert!(validate_fetch_url("https://example.com").is_ok());
-        assert!(validate_fetch_url("file:///etc/passwd").is_err());
-        assert!(validate_fetch_url("javascript:alert(1)").is_err());
-    }
-
-    #[test]
     fn blocked_host_detection_covers_local_targets() {
-        assert!(is_blocked_host("localhost"));
-        assert!(is_blocked_host("127.0.0.1"));
-        assert!(is_blocked_host("::1"));
-        assert!(!is_blocked_host("example.com"));
+        // Default policy blocks private / link-local / metadata but allows loopback.
+        // Strict also blocks loopback. We test Strict here to match the original intent.
+        assert!(check_host_blocking_sync("localhost", SsrfPolicy::Strict, &[]));
+        assert!(check_host_blocking_sync("127.0.0.1", SsrfPolicy::Strict, &[]));
+        assert!(check_host_blocking_sync("::1", SsrfPolicy::Strict, &[]));
+        assert!(!check_host_blocking_sync(
+            "example.com",
+            SsrfPolicy::Strict,
+            &[]
+        ));
     }
 }

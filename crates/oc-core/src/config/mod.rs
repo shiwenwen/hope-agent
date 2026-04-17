@@ -329,6 +329,9 @@ pub struct AppConfig {
     /// Web fetch tool configuration
     #[serde(default)]
     pub web_fetch: crate::tools::web_fetch::WebFetchConfig,
+    /// SSRF policy configuration (browser / web_fetch / image_generate / url_preview)
+    #[serde(default)]
+    pub ssrf: crate::security::ssrf::SsrfConfig,
     /// Per-skill environment variable overrides configured by user.
     /// Outer key: skill name, inner key: env var name, value: env var value.
     #[serde(default)]
@@ -489,6 +492,7 @@ impl Default for AppConfig {
             embedding_cache: crate::memory::EmbeddingCacheConfig::default(),
             web_search: crate::tools::web_search::WebSearchConfig::default(),
             web_fetch: crate::tools::web_fetch::WebFetchConfig::default(),
+            ssrf: crate::security::ssrf::SsrfConfig::default(),
             skill_env: std::collections::HashMap::new(),
             compact: crate::context_compact::CompactConfig::default(),
             notification: NotificationConfig::default(),

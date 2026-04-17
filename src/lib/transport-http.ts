@@ -256,6 +256,10 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   get_web_fetch_config:            { method: "GET",    path: "/api/config/web-fetch" },
   save_web_fetch_config:           { method: "PUT",    path: "/api/config/web-fetch" },
 
+  // -- SSRF policy --
+  get_ssrf_config:                 { method: "GET",    path: "/api/config/ssrf" },
+  save_ssrf_config:                { method: "PUT",    path: "/api/config/ssrf" },
+
   // -- SearXNG Docker --
   searxng_docker_status:           { method: "GET",    path: "/api/searxng/status" },
   searxng_docker_deploy:           { method: "POST",   path: "/api/searxng/deploy" },

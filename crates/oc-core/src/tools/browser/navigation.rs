@@ -8,6 +8,11 @@ pub(super) async fn action_navigate(args: &Value) -> Result<String> {
     require_browser().await?;
     let url = get_str(args, "url").ok_or_else(|| anyhow::anyhow!("Missing 'url' parameter"))?;
 
+    {
+        let ssrf_cfg = &crate::config::cached_config().ssrf;
+        crate::security::ssrf::check_url(url, ssrf_cfg.browser(), &ssrf_cfg.trusted_hosts).await?;
+    }
+
     let state = get_browser_state().lock().await;
     let page = state.get_active_page()?;
 
@@ -122,6 +127,11 @@ pub(super) async fn action_list_pages() -> Result<String> {
 pub(super) async fn action_new_page(args: &Value) -> Result<String> {
     require_browser().await?;
     let url = get_str(args, "url").unwrap_or("about:blank");
+
+    if url != "about:blank" {
+        let ssrf_cfg = &crate::config::cached_config().ssrf;
+        crate::security::ssrf::check_url(url, ssrf_cfg.browser(), &ssrf_cfg.trusted_hosts).await?;
+    }
 
     let mut state = get_browser_state().lock().await;
     let browser = state

@@ -37,6 +37,22 @@ pub async fn save_web_fetch_config(config: tools::web_fetch::WebFetchConfig) -> 
 }
 
 #[tauri::command]
+pub async fn get_ssrf_config() -> Result<oc_core::security::ssrf::SsrfConfig, String> {
+    let store = oc_core::config::load_config().map_err(|e| e.to_string())?;
+    Ok(store.ssrf)
+}
+
+#[tauri::command]
+pub async fn save_ssrf_config(
+    config: oc_core::security::ssrf::SsrfConfig,
+) -> Result<(), String> {
+    let _guard = oc_core::backup::scope_save_reason("security.ssrf", "settings-ui");
+    let mut store = oc_core::config::load_config().map_err(|e| e.to_string())?;
+    store.ssrf = config;
+    oc_core::config::save_config(&store).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn get_compact_config() -> Result<context_compact::CompactConfig, String> {
     let store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     Ok(store.compact)

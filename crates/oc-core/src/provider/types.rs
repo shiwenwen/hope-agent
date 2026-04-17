@@ -195,6 +195,13 @@ pub struct ProviderConfig {
     /// Thinking/reasoning parameter format
     #[serde(default)]
     pub thinking_style: ThinkingStyle,
+    /// Explicitly allow this provider's base_url to resolve into a private/loopback
+    /// network. Used for self-hosted Ollama / LM Studio; when true the base host is
+    /// auto-appended to `AppConfig.ssrf.trusted_hosts` by the UI on save.
+    /// Stored here for round-trip fidelity; back-end SSRF enforcement for LLM
+    /// traffic is deferred to Phase B.
+    #[serde(default)]
+    pub allow_private_network: bool,
 }
 
 pub(super) fn default_user_agent() -> String {
@@ -215,6 +222,7 @@ impl ProviderConfig {
             enabled: true,
             user_agent: default_user_agent(),
             thinking_style: ThinkingStyle::default(),
+            allow_private_network: false,
         }
     }
 

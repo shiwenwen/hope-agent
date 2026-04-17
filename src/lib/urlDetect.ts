@@ -22,7 +22,7 @@ const SKIP_EXTENSIONS = new Set([
   "xls", "xlsx", "ppt", "pptx", "exe", "dmg", "iso",
 ])
 
-function isPrivateHost(hostname: string): boolean {
+export function isPrivateHost(hostname: string): boolean {
   return PRIVATE_HOST_PATTERNS.some((p) => p.test(hostname))
 }
 

@@ -99,6 +99,7 @@ If the response includes `sideEffect`, surface it to the user (e.g. "this requir
 | `server` | `bindAddr` (e.g. `127.0.0.1:8420` vs `0.0.0.0:8420`), `apiKey` | Network exposure, requires app restart |
 | `acp_control` | `enabled`, `backends`, `maxConcurrentSessions`, `defaultTimeoutSecs`, `runtimeTtlSecs`, `autoDiscover` | Controls external agent delegation |
 | `skill_env` | Per-skill env vars (may contain secrets) | Stored plaintext in `config.json` |
+| `security.ssrf` | `defaultPolicy` (`strict`/`default`/`allowPrivate`), `trustedHosts` (array), per-tool overrides `browserPolicy` / `webFetchPolicy` / `imageGeneratePolicy` / `urlPreviewPolicy` | Controls whether tools can reach private networks / cloud metadata. Relaxing policy or adding untrusted hosts enables SSRF attack paths |
 
 ### Read-only (cannot be modified via this tool)
 
