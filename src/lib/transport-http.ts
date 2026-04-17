@@ -334,6 +334,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   resume_team:                     { method: "POST",   path: "/api/teams/{teamId}/resume" },
   dissolve_team:                   { method: "POST",   path: "/api/teams/{teamId}/dissolve" },
   list_team_templates:             { method: "GET",    path: "/api/team-templates" },
+  save_team_template:              { method: "POST",   path: "/api/team-templates" },
+  delete_team_template:            { method: "DELETE", path: "/api/team-templates/{templateId}" },
 
   // -- Weather --
   geocode_search:                  { method: "GET",    path: "/api/weather/geocode" },

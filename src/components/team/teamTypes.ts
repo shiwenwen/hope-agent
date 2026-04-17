@@ -36,6 +36,7 @@ export interface TeamMember {
   color: string
   currentTaskId?: number
   modelOverride?: string
+  roleDescription?: string
   joinedAt: string
   lastActiveAt?: string
   inputTokens?: number
@@ -71,7 +72,8 @@ export interface TeamTemplate {
   name: string
   description: string
   members: TeamTemplateMember[]
-  builtin: boolean
+  createdAt?: string
+  updatedAt?: string
 }
 
 export interface TeamTemplateMember {
@@ -80,12 +82,29 @@ export interface TeamTemplateMember {
   agentId: string
   color: string
   description: string
+  modelOverride?: string
+  defaultTaskTemplate?: string
 }
 
 export interface TeamEvent {
   type: string
   payload: unknown
 }
+
+export const TEAM_EVENT_CHANNEL = "team_event"
+
+export const TEAM_EVENT_TYPES = {
+  created: "created",
+  dissolved: "dissolved",
+  paused: "paused",
+  resumed: "resumed",
+  memberJoined: "member_joined",
+  memberStatus: "member_status",
+  message: "message",
+  taskUpdated: "task_updated",
+  templateSaved: "template_saved",
+  templateDeleted: "template_deleted",
+} as const
 
 export interface TeamSummary {
   totalMembers: number

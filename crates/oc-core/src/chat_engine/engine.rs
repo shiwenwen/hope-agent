@@ -1,10 +1,9 @@
-use std::sync::Arc;
-
+use crate::failover;
 use crate::provider::{ApiType, AuthProfile};
 use crate::session;
-use crate::{context_compact, failover};
 
 use super::context::*;
+use super::persister::StreamPersister;
 use super::types::*;
 
 // ── Core Chat Engine ────────────────────────────────────────────────
@@ -163,27 +162,8 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
             let effort_ref = effort_str.as_deref();
             let cancel_clone = cancel.clone();
 
-            // Shared state for capturing usage/TTFT from on_delta
-            let captured_usage: Arc<std::sync::Mutex<CapturedUsage>> =
-                Arc::new(std::sync::Mutex::new(CapturedUsage::default()));
-            let captured_usage_clone = captured_usage.clone();
-
-            // Accumulate text_delta / thinking_delta for ordering preservation
-            let pending_text: Arc<std::sync::Mutex<String>> =
-                Arc::new(std::sync::Mutex::new(String::new()));
-            let pending_text_clone = pending_text.clone();
-            let pending_thinking: Arc<std::sync::Mutex<String>> =
-                Arc::new(std::sync::Mutex::new(String::new()));
-            let pending_thinking_clone = pending_thinking.clone();
-            let thinking_start_time: Arc<std::sync::Mutex<Option<std::time::Instant>>> =
-                Arc::new(std::sync::Mutex::new(None));
-            let thinking_start_clone = thinking_start_time.clone();
-            let had_thinking_blocks: Arc<std::sync::atomic::AtomicBool> =
-                Arc::new(std::sync::atomic::AtomicBool::new(false));
-            let had_thinking_blocks_clone = had_thinking_blocks.clone();
-
-            let db_for_cb = db.clone();
-            let sid_for_cb = session_id.clone();
+            let persister = StreamPersister::new();
+            let persist_cb = persister.build_callback(&db, session_id.clone());
             let event_sink_clone = event_sink.clone();
 
             let history_len_before = agent.get_conversation_history().len();
@@ -195,88 +175,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     effort_ref,
                     cancel_clone,
                     move |delta| {
-                        // Intercept usage events
-                        if let Ok(event) = serde_json::from_str::<serde_json::Value>(delta) {
-                            match event.get("type").and_then(|t| t.as_str()) {
-                                Some("usage") => {
-                                    if let Ok(mut u) = captured_usage_clone.lock() {
-                                        if let Some(v) =
-                                            event.get("input_tokens").and_then(|v| v.as_i64())
-                                        {
-                                            u.input_tokens = Some(v);
-                                        }
-                                        if let Some(v) =
-                                            event.get("output_tokens").and_then(|v| v.as_i64())
-                                        {
-                                            u.output_tokens = Some(v);
-                                        }
-                                        if let Some(v) = event.get("model").and_then(|v| v.as_str())
-                                        {
-                                            u.model = Some(v.to_string());
-                                        }
-                                        if let Some(v) =
-                                            event.get("ttft_ms").and_then(|v| v.as_i64())
-                                        {
-                                            u.ttft_ms = Some(v);
-                                        }
-                                    }
-                                }
-                                Some("thinking_delta") => {
-                                    if let Some(text) =
-                                        event.get("content").and_then(|t| t.as_str())
-                                    {
-                                        // Record start time on first thinking_delta
-                                        if let Ok(mut ts) = thinking_start_clone.lock() {
-                                            if ts.is_none() {
-                                                *ts = Some(std::time::Instant::now());
-                                            }
-                                        }
-                                        if let Ok(mut pk) = pending_thinking_clone.lock() {
-                                            pk.push_str(text);
-                                        }
-                                    }
-                                }
-                                Some("text_delta") => {
-                                    if let Some(text) = event.get("text").and_then(|t| t.as_str()) {
-                                        if let Ok(mut pt) = pending_text_clone.lock() {
-                                            pt.push_str(text);
-                                        }
-                                    }
-                                }
-                                Some("tool_call") => {
-                                    // Flush accumulated thinking before tool_call
-                                    if let Ok(mut pk) = pending_thinking_clone.lock() {
-                                        if !pk.is_empty() {
-                                            let duration = thinking_start_clone
-                                                .lock()
-                                                .ok()
-                                                .and_then(|mut ts| ts.take())
-                                                .map(|t| t.elapsed().as_millis() as i64);
-                                            let thinking_msg =
-                                                session::NewMessage::thinking_block_with_duration(
-                                                    &pk, duration,
-                                                );
-                                            let _ = db_for_cb
-                                                .append_message(&sid_for_cb, &thinking_msg);
-                                            pk.clear();
-                                            had_thinking_blocks_clone
-                                                .store(true, std::sync::atomic::Ordering::SeqCst);
-                                        }
-                                    }
-                                    // Flush accumulated text before tool_call
-                                    if let Ok(mut pt) = pending_text_clone.lock() {
-                                        if !pt.is_empty() {
-                                            let text_msg = session::NewMessage::text_block(&pt);
-                                            let _ =
-                                                db_for_cb.append_message(&sid_for_cb, &text_msg);
-                                            pt.clear();
-                                        }
-                                    }
-                                }
-                                _ => {}
-                            }
-                        }
-                        persist_tool_event(&db_for_cb, &sid_for_cb, delta);
+                        persist_cb(delta);
                         event_sink_clone.send(delta);
                     },
                 )
@@ -304,46 +203,19 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         event_sink.send(&json_str);
                     }
 
-                    // Flush remaining pending thinking
-                    if let Ok(mut pk) = pending_thinking.lock() {
-                        if !pk.is_empty() {
-                            let duration = thinking_start_time
-                                .lock()
-                                .ok()
-                                .and_then(|mut ts| ts.take())
-                                .map(|t| t.elapsed().as_millis() as i64);
-                            let thinking_msg =
-                                session::NewMessage::thinking_block_with_duration(&pk, duration);
-                            let _ = db.append_message(&session_id, &thinking_msg);
-                            pk.clear();
-                            had_thinking_blocks.store(true, std::sync::atomic::Ordering::SeqCst);
-                        }
-                    }
-                    let has_thinking_blocks =
-                        had_thinking_blocks.load(std::sync::atomic::Ordering::SeqCst);
-
-                    // Save assistant reply with metadata
-                    let mut assistant_msg = session::NewMessage::assistant(&result);
-                    assistant_msg.tool_duration_ms = Some(duration_ms as i64);
-                    if !has_thinking_blocks {
-                        assistant_msg.thinking = thinking;
-                    }
-                    if let Ok(u) = captured_usage.lock() {
-                        assistant_msg.tokens_in = u.input_tokens;
-                        assistant_msg.tokens_out = u.output_tokens;
-                        assistant_msg.model = u.model.clone();
-                        assistant_msg.ttft_ms = u.ttft_ms;
-                    }
+                    persister.flush_remaining_thinking(&db, &session_id);
+                    let assistant_msg =
+                        persister.build_assistant_message(&result, thinking, duration_ms);
                     let _ = db.append_message(&session_id, &assistant_msg);
 
                     // Persist conversation context
                     save_agent_context(&db, &session_id, &agent);
 
                     {
+                        let usage_snapshot = persister.usage();
                         let round_tokens = {
-                            let u = captured_usage.lock().unwrap();
-                            let input = u.input_tokens.unwrap_or(0);
-                            let output = u.output_tokens.unwrap_or(0);
+                            let input = usage_snapshot.input_tokens.unwrap_or(0);
+                            let output = usage_snapshot.output_tokens.unwrap_or(0);
                             (input + output) as u32
                         };
                         let round_messages = agent
@@ -365,7 +237,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     // threshold don't pay the cost of starting a task at all.
                     {
                         let round_tokens = {
-                            let u = captured_usage.lock().unwrap();
+                            let u = persister.usage();
                             let input = u.input_tokens.unwrap_or(0);
                             let output = u.output_tokens.unwrap_or(0);
                             (input + output) as usize

@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use crate::AppState;
 use oc_core::team;
 use tauri::State;
@@ -103,24 +101,33 @@ pub async fn create_team(
     template: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<team::Team, String> {
-    let member_specs = if !members.is_empty() {
-        members
+    let (member_specs, resolved_template_id) = if !members.is_empty() {
+        (members, template.clone())
     } else if let Some(ref tpl_name) = template {
         let templates = team::templates::all_templates(&state.session_db);
         let tpl = templates
             .iter()
             .find(|t| t.template_id == *tpl_name || t.name.eq_ignore_ascii_case(tpl_name))
             .ok_or_else(|| format!("Template '{}' not found", tpl_name))?;
-        tpl.members
+        let specs = tpl
+            .members
             .iter()
             .map(|m| team::CreateTeamMemberSpec {
                 name: m.name.clone(),
                 agent_id: m.agent_id.clone(),
                 role: Some(m.role.as_str().to_string()),
-                task: m.description.clone(),
-                model: None,
+                task: m
+                    .default_task_template
+                    .clone()
+                    .filter(|s| !s.trim().is_empty())
+                    .unwrap_or_else(|| {
+                        format!("Work on your role '{}' as part of team '{}'.", m.name, name)
+                    }),
+                model: m.model_override.clone(),
+                description: Some(m.description.clone()).filter(|s| !s.trim().is_empty()),
             })
-            .collect()
+            .collect();
+        (specs, Some(tpl.template_id.clone()))
     } else {
         return Err("Either 'members' or 'template' is required".to_string());
     };
@@ -132,11 +139,27 @@ pub async fn create_team(
         &session_id,
         &agent_id,
         &member_specs,
-        template.as_deref(),
+        resolved_template_id.as_deref(),
         None,
     )
     .await
     .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn save_team_template(
+    template: team::TeamTemplate,
+    state: State<'_, AppState>,
+) -> Result<team::TeamTemplate, String> {
+    team::templates::save_template(&state.session_db, template).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_team_template(
+    template_id: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    team::templates::delete_template(&state.session_db, &template_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

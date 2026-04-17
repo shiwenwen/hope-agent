@@ -25,6 +25,7 @@ import {
   ClipboardList,
   MessageCircle,
   LineChart,
+  Users2,
 } from "lucide-react"
 import type { ProviderConfig } from "@/components/settings/ProviderSettings"
 import ProviderSetup from "@/components/settings/ProviderSetup"
@@ -37,6 +38,7 @@ import PlanSettingsPanel from "@/components/settings/PlanSettingsPanel"
 import RecapSettingsPanel from "@/components/settings/RecapSettingsPanel"
 import SkillsPanel from "@/components/settings/skills-panel"
 import AgentPanel from "@/components/settings/AgentPanel"
+import TeamsPanel from "@/components/settings/teams-panel"
 import UserProfilePanel from "@/components/settings/profile-panel"
 import AboutPanel from "@/components/settings/AboutPanel"
 import LogPanel from "@/components/settings/log-panel"
@@ -72,6 +74,11 @@ const SECTIONS: SettingsSectionItem[] = [
     id: "agents",
     icon: <Bot className="h-4 w-4" />,
     labelKey: "settings.agents",
+  },
+  {
+    id: "teams",
+    icon: <Users2 className="h-4 w-4" />,
+    labelKey: "settings.teams",
   },
   {
     id: "channels",
@@ -265,6 +272,7 @@ export default function SettingsView({
               ))}
             {activeSection === "skills" && <SkillsPanel />}
             {activeSection === "agents" && <AgentPanel initialAgentId={initialAgentId} />}
+            {activeSection === "teams" && <TeamsPanel />}
             {activeSection === "profile" && <UserProfilePanel onSaved={onProfileSaved} />}
             {activeSection === "memory" && <MemoryPanel />}
             {activeSection === "notifications" && <NotificationPanel />}

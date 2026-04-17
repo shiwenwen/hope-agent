@@ -37,7 +37,8 @@ fn risk_level(category: &str) -> &'static str {
         | "ask_user_question_timeout"
         | "plan"
         | "skills_auto_review"
-        | "recall_summary" => "medium",
+        | "recall_summary"
+        | "teams" => "medium",
 
         // ── HIGH ───────────────────────────────────────────────
         "proxy" | "embedding" | "shortcuts" | "skills" | "server" | "acp_control"
@@ -61,6 +62,12 @@ fn side_effect_note(category: &str) -> Option<&'static str> {
         "proxy" => Some("Proxy change affects ALL outgoing HTTP requests immediately."),
         "skill_env" => Some("Environment variables may contain secrets; values are stored in plaintext in config.json."),
         "acp_control" => Some("Affects external agent delegation; restart recommended after backend changes."),
+        "teams" => Some(
+            "Team templates are rows in the team_templates DB table, not AppConfig fields. \
+             To modify, pass values = { \"action\": \"save\", \"template\": {...} } or \
+             { \"action\": \"delete\", \"templateId\": \"...\" }. A saved template becomes \
+             discoverable by the model via team(action=\"list_templates\")."
+        ),
         _ => None,
     }
 }
@@ -151,6 +158,12 @@ fn read_category(category: &str) -> Result<Value> {
         })),
         "skills_auto_review" => Ok(serde_json::to_value(&cfg.skills.auto_review)?),
         "recall_summary" => Ok(serde_json::to_value(&cfg.recall_summary)?),
+        "teams" => {
+            let db = crate::globals::get_session_db()
+                .ok_or_else(|| anyhow::anyhow!("session DB not initialized"))?;
+            let templates = db.list_team_templates()?;
+            Ok(serde_json::to_value(&templates)?)
+        }
         _ => bail!("Unknown settings category: '{category}'"),
     }
 }
@@ -212,7 +225,7 @@ fn get_all_overview() -> Result<String> {
             "cross_session", "web_fetch", "web_search", "deferred_tools",
             "async_tools", "approval", "tool_result_disk_threshold",
             "ask_user_question_timeout", "plan", "skills_auto_review",
-            "recall_summary"
+            "recall_summary", "teams"
         ],
         "high": [
             "proxy", "embedding", "shortcuts", "skills", "server",
@@ -438,6 +451,11 @@ fn update_app_config(category: &str, values: &Value) -> Result<String> {
         }
         "skills_auto_review" => merge_field(&mut store.skills.auto_review, values)?,
         "recall_summary" => merge_field(&mut store.recall_summary, values)?,
+        "teams" => {
+            // Teams are DB rows, not AppConfig fields. Perform CRUD directly on the
+            // team_templates table and return early (skip save_config / hot reload).
+            return update_team_templates(values);
+        }
         _ => bail!("Unknown settings category: '{category}'"),
     }
 
@@ -469,6 +487,61 @@ fn update_app_config(category: &str, values: &Value) -> Result<String> {
         response["sideEffect"] = json!(note);
     }
     Ok(serde_json::to_string_pretty(&response)?)
+}
+
+/// Handle CRUD on the `team_templates` DB table. This category bypasses the
+/// usual AppConfig read-modify-save path because templates live in SQLite.
+fn update_team_templates(values: &Value) -> Result<String> {
+    let action = values
+        .get("action")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "teams: missing 'action'. Expected 'save' (with 'template') or 'delete' (with 'templateId')."
+            )
+        })?;
+
+    let db = crate::globals::get_session_db()
+        .ok_or_else(|| anyhow::anyhow!("session DB not initialized"))?;
+
+    match action {
+        "save" => {
+            let payload = values
+                .get("template")
+                .ok_or_else(|| anyhow::anyhow!("teams.save: missing 'template' payload"))?;
+            let template: crate::team::TeamTemplate =
+                serde_json::from_value(payload.clone())?;
+            if template.template_id.trim().is_empty() {
+                bail!("teams.save: template.templateId must not be empty");
+            }
+            let saved = crate::team::templates::save_template(&db, template)?;
+            Ok(serde_json::to_string_pretty(&json!({
+                "category": "teams",
+                "riskLevel": risk_level("teams"),
+                "action": "save",
+                "updated": true,
+                "template": saved,
+                "sideEffect": side_effect_note("teams"),
+            }))?)
+        }
+        "delete" => {
+            let template_id = values
+                .get("templateId")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| anyhow::anyhow!("teams.delete: missing 'templateId'"))?;
+            crate::team::templates::delete_template(&db, template_id)?;
+            Ok(serde_json::to_string_pretty(&json!({
+                "category": "teams",
+                "riskLevel": risk_level("teams"),
+                "action": "delete",
+                "updated": true,
+                "templateId": template_id,
+            }))?)
+        }
+        other => bail!(
+            "teams: unknown action '{other}'. Expected 'save' or 'delete'."
+        ),
+    }
 }
 
 /// Trigger backend hot-reload side-effects for categories that cache state in memory.

@@ -760,6 +760,8 @@
     "asyncToolsAutoBackgroundDesc": "Các lệnh gọi đồng bộ vượt thời gian này sẽ tự động chuyển sang job nền. 0 = tắt.",
     "asyncToolsMaxJob": "Thời lượng job tối đa",
     "asyncToolsMaxJobDesc": "Giới hạn thời gian chạy tối đa của job nền. Quá hạn sẽ bị kết thúc. 0 = không giới hạn riêng mỗi job.",
+    "asyncToolsJobStatusMaxWait": "Thời gian chờ tối đa job_status",
+    "asyncToolsJobStatusMaxWaitDesc": "Giới hạn trên cho một lệnh gọi job_status(block=true) duy nhất. Chỉ áp dụng khi thời lượng tối đa mỗi job = 0; ngược lại ưu tiên thời lượng tối đa mỗi job.",
     "asyncToolsRetention": "Lưu trữ job đã kết thúc",
     "asyncToolsRetentionDesc": "Bản ghi job đã hoàn tất và file spool sẽ bị dọn sau số ngày này. 0 = giữ mãi.",
     "asyncToolsOrphanGrace": "Khoảng ân hạn spool mồ côi",

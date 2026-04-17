@@ -75,10 +75,12 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
             })
             .unwrap_or_default();
 
-        let allow_custom = q
-            .get("allow_custom")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(true);
+        // 模型可传 `allow_custom` 参数，但当前强制覆盖为 true：
+        // 模型给的选项常常覆盖不到用户真实意图，强制留一个自由文本入口
+        // 避免用户被迫二选一。字段和 schema 都保留着，等未来模型提问质量
+        // 更稳定后可以摘掉这段覆盖恢复模型自主控制。
+        let _model_allow_custom = q.get("allow_custom").and_then(|v| v.as_bool());
+        let allow_custom = true;
         let multi_select = q
             .get("multi_select")
             .and_then(|v| v.as_bool())

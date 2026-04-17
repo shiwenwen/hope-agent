@@ -17,6 +17,7 @@ pub(crate) mod injection;
 pub(crate) mod retention;
 pub(crate) mod spawn;
 pub(crate) mod types;
+pub(crate) mod wait;
 
 use std::sync::{Arc, OnceLock};
 

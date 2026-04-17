@@ -281,6 +281,29 @@ pub(crate) async fn inject_and_run_parent(
     let mut last_error = String::new();
     let mut succeeded = false;
 
+    // Write the push user row BEFORE agent.chat() so intermediate rows
+    // streamed from the callback land between it and the final assistant
+    // row in id order — `parseSessionMessages` on the frontend groups
+    // pending tool/text blocks under the next assistant, so user → tool*
+    // → assistant ordering is load-bearing. Idempotent across re-queued
+    // attempts (cancelled injections are retried via PENDING_INJECTIONS).
+    let user_msg_already_written = session_db
+        .has_injection_user_msg(&parent_session_id, &run_id)
+        .unwrap_or(false);
+    if !user_msg_already_written {
+        let mut user_msg = crate::session::NewMessage::user(&push_message);
+        user_msg.attachments_meta = Some(
+            serde_json::json!({
+                "subagent_result": {
+                    "run_id": &run_id,
+                    "agent_id": &child_agent_id,
+                }
+            })
+            .to_string(),
+        );
+        let _ = session_db.append_message(&parent_session_id, &user_msg);
+    }
+
     'outer: for model_ref in &model_chain {
         let prov = match provider::find_provider(&store.providers, &model_ref.provider_id) {
             Some(p) => p,
@@ -318,8 +341,13 @@ pub(crate) async fn inject_and_run_parent(
             let parent_sid_for_cb = parent_session_id.clone();
             let run_id_for_cb = run_id.clone();
 
+            let persister = crate::chat_engine::persister::StreamPersister::new();
+            let persist_cb = persister.build_callback(&session_db, parent_session_id.clone());
+            let chat_start = std::time::Instant::now();
+
             match agent
                 .chat(&push_message, &[], None, cancel_for_chat, move |delta| {
+                    persist_cb(delta);
                     emit_parent_stream_event(&ParentAgentStreamEvent {
                         event_type: "delta".into(),
                         parent_session_id: parent_sid_for_cb.clone(),
@@ -331,8 +359,11 @@ pub(crate) async fn inject_and_run_parent(
                 })
                 .await
             {
-                Ok((response, _thinking)) => {
-                    // If cancelled during execution, don't write to DB — user's chat takes over
+                Ok((response, thinking)) => {
+                    // Cancelled mid-chat: skip the final assistant row so
+                    // the user's new chat takes over. Intermediate rows
+                    // written by the callback stay — they anchor to the
+                    // push user_msg and accurately reflect what executed.
                     if cancel.load(Ordering::SeqCst) {
                         app_info!(
                             "subagent",
@@ -342,22 +373,11 @@ pub(crate) async fn inject_and_run_parent(
                         );
                         break 'outer;
                     }
-                    // 5. Success: write push message + assistant response to DB
-                    let mut user_msg = crate::session::NewMessage::user(&push_message);
-                    user_msg.attachments_meta = Some(
-                        serde_json::json!({
-                            "subagent_result": {
-                                "run_id": &run_id,
-                                "agent_id": &child_agent_id,
-                            }
-                        })
-                        .to_string(),
-                    );
-                    let _ = session_db.append_message(&parent_session_id, &user_msg);
-                    let _ = session_db.append_message(
-                        &parent_session_id,
-                        &crate::session::NewMessage::assistant(&response),
-                    );
+                    let duration_ms = chat_start.elapsed().as_millis() as u64;
+                    persister.flush_remaining_thinking(&session_db, &parent_session_id);
+                    let assistant_msg =
+                        persister.build_assistant_message(&response, thinking, duration_ms);
+                    let _ = session_db.append_message(&parent_session_id, &assistant_msg);
                     // Save updated conversation history
                     let history = agent.get_conversation_history();
                     if let Ok(json_str) = serde_json::to_string(&history) {
@@ -414,6 +434,15 @@ pub(crate) async fn inject_and_run_parent(
                 }
             }
         }
+    }
+
+    // All models failed (not cancelled): surface a terminal event row so
+    // the log doesn't show a silent user push without a response.
+    if !succeeded && !cancel.load(Ordering::SeqCst) {
+        let _ = session_db.append_message(
+            &parent_session_id,
+            &crate::session::NewMessage::event(&format!("[injection failed] {}", last_error)),
+        );
     }
 
     // 6. Emit final event

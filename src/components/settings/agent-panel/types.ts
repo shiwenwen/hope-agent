@@ -6,8 +6,9 @@ export type {
   AvailableModel,
   ActiveModelRef,
   SkillSummary,
+  ActiveMemoryConfig,
 } from "../types"
-export { DEFAULT_PERSONALITY } from "../types"
+export { DEFAULT_PERSONALITY, DEFAULT_ACTIVE_MEMORY } from "../types"
 
 export type AgentTab = "identity" | "personality" | "capabilities" | "model" | "memory" | "subagent" | "custom"
 

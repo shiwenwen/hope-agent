@@ -79,7 +79,7 @@ tool to ask 'is my plan ready?' — in Plan Mode use `submit_plan` instead."
                             },
                             "options": {
                                 "type": "array",
-                                "description": "Suggested options (2-4 recommended). A free-form 'Other' input is added automatically when allow_custom is true.",
+                                "description": "Suggested options (2-4 recommended). A free-form custom input is also rendered alongside the options so the user can reply with a value you didn't list.",
                                 "items": {
                                     "type": "object",
                                     "properties": {
@@ -95,7 +95,7 @@ tool to ask 'is my plan ready?' — in Plan Mode use `submit_plan` instead."
                             },
                             "allow_custom": {
                                 "type": "boolean",
-                                "description": "Whether to show a free-form custom input field (default: true)",
+                                "description": "Whether to show a free-form custom input field. Currently always treated as true by the runtime regardless of the value sent — kept in the schema for forward compatibility.",
                                 "default": true
                             },
                             "multi_select": {

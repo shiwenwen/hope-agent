@@ -338,7 +338,7 @@ function SubagentRow({
               {(state.durationMs / 1000).toFixed(1)}s
             </span>
           )}
-          {state?.inputTokens !== undefined && state?.outputTokens !== undefined && (
+          {state?.inputTokens != null && state?.outputTokens != null && (
             <span className="text-muted-foreground/60 tabular-nums text-[10px]">
               {state.inputTokens.toLocaleString()}↑ {state.outputTokens.toLocaleString()}↓
             </span>

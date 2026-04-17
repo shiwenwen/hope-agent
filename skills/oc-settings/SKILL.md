@@ -82,13 +82,14 @@ If the response includes `sideEffect`, surface it to the user (e.g. "this requir
 | `web_fetch` | `enabled`, `maxBytes` |
 | `web_search` | `provider`, `searxngUrl`, `tavilyApiKey` |
 | `deferred_tools` | `enabled` |
-| `async_tools` | `enabled`, `autoBackgroundSecs`, `maxJobSecs`, `retentionSecs`, `orphanGraceSecs` |
+| `async_tools` | `enabled`, `autoBackgroundSecs`, `maxJobSecs`, `inlineResultBytes`, `retentionSecs`, `orphanGraceSecs`, `jobStatusMaxWaitSecs` |
 | `approval` | `approvalTimeoutSecs`, `approvalTimeoutAction` (`deny`/`proceed`) |
 | `tool_result_disk_threshold` | `toolResultDiskThreshold` (bytes, null = default 50KB, 0 = disable) |
 | `ask_user_question_timeout` | `askUserQuestionTimeoutSecs` (0 = wait forever) |
 | `plan` | `planSubagent` (bool), `plansDirectory` (string or null) |
 | `skills_auto_review` | `enabled`, `promotion` (`draft`/`auto`), `cooldownSecs`, `tokenThreshold`, `messageThreshold`, `timeoutSecs`, `candidateLimit` (Phase B'1 — when `promotion: "auto"` skip draft review; treat that as HIGH-equivalent and confirm with user) |
 | `recall_summary` | `enabled`, `minHits`, `contextCharBudget`, `timeoutSecs`, `maxTokens`, `includeHistory` (Phase B'3 — opt-in LLM summarization on `recall_memory` output; adds one side_query per call, degrades silently on failure) |
+| `teams` | **Special: DB rows, not AppConfig fields.** `read` returns an array of all user-configured team templates. `update` uses CRUD-style values — `{ "action": "save", "template": {...} }` or `{ "action": "delete", "templateId": "..." }`. Saved templates become discoverable by the model via `team(action="list_templates")`. See "Special: `teams` semantics" below. |
 
 ### HIGH risk — require **explicit user confirmation**
 
@@ -111,6 +112,47 @@ If the response includes `sideEffect`, surface it to the user (e.g. "this requir
 | `fallback_models` | Fallback chain — use Settings UI |
 
 Model / Provider / API Key / IM Channel / per-session configs require the Settings UI.
+
+## Special: `teams` Semantics
+
+Unlike every other category, `teams` does **not** live in `AppConfig` — it targets rows in the `team_templates` SQLite table. The `update_settings` payload is CRUD-shaped:
+
+```json
+// Create or overwrite a template
+{
+  "category": "teams",
+  "values": {
+    "action": "save",
+    "template": {
+      "templateId": "fullstack-py-react",
+      "name": "Full-Stack (Py + React)",
+      "description": "Frontend (React expert) + Backend (Python expert) + Tester",
+      "members": [
+        {
+          "name": "Frontend",
+          "role": "worker",
+          "agentId": "react-expert",
+          "color": "#3B82F6",
+          "description": "You are the frontend specialist. Build React components with TS.",
+          "modelOverride": null,
+          "defaultTaskTemplate": "Implement the UI for the feature."
+        }
+      ]
+    }
+  }
+}
+
+// Delete a template by id
+{
+  "category": "teams",
+  "values": { "action": "delete", "templateId": "fullstack-py-react" }
+}
+```
+
+- `read` returns the full `TeamTemplate[]` — no `values` needed.
+- `templateId` must be non-empty and unique. Each member's `agentId` must point to an existing Agent (check `list_agents` in the Agents panel).
+- Deleting a template does **not** touch any teams that were created from it; `teams.template_id` is a historical reference only.
+- EventBus broadcasts `template_saved` / `template_deleted` so the UI refreshes live.
 
 ## Special: `skill_env` Update Modes
 

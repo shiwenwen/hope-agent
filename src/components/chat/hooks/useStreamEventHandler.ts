@@ -1,5 +1,6 @@
 import type React from "react"
-import type { ContentBlock, Message, MessageUsage } from "@/types/chat"
+import type { ContentBlock, MediaItem, Message } from "@/types/chat"
+import { mergeUsageFromEvent } from "../chatUtils"
 
 export interface StreamEventHandlerDeps {
   updateSessionMessages: (sessionId: string, updater: (prev: Message[]) => Message[]) => void
@@ -86,19 +87,7 @@ export function handleStreamEvent(
       const updated = [...prev]
       const last = updated[updated.length - 1]
       if (!last || last.role !== "assistant") return updated
-      const prevUsage = last.usage || {}
-      const usage: MessageUsage = {
-        ...prevUsage,
-        ...(event.duration_ms != null ? { durationMs: event.duration_ms as number } : {}),
-        ...(event.input_tokens != null ? { inputTokens: event.input_tokens as number } : {}),
-        ...(event.output_tokens != null ? { outputTokens: event.output_tokens as number } : {}),
-        ...(event.cache_creation_input_tokens != null
-          ? { cacheCreationInputTokens: event.cache_creation_input_tokens as number }
-          : {}),
-        ...(event.cache_read_input_tokens != null
-          ? { cacheReadInputTokens: event.cache_read_input_tokens as number }
-          : {}),
-      }
+      const usage = mergeUsageFromEvent(last.usage, event)
       const model = event.model ? String(event.model) : last.model
       updated[updated.length - 1] = { ...last, usage, model }
       return updated
@@ -177,6 +166,10 @@ export function handleStreamEvent(
       }
       case "tool_result": {
         const mediaUrls: string[] | undefined = (event.media_urls as string[])?.length ? (event.media_urls as string[]) : undefined
+        const mediaItems: MediaItem[] | undefined =
+          Array.isArray(event.media_items) && (event.media_items as MediaItem[]).length
+            ? (event.media_items as MediaItem[])
+            : undefined
         const calls = [...(last.toolCalls || [])]
         const idx = calls.findIndex((c) => c.callId === event.call_id)
         const resolvedDurationMs = (event.duration_ms as number | undefined) ?? (
@@ -187,6 +180,7 @@ export function handleStreamEvent(
             ...calls[idx],
             result: event.result as string,
             ...(mediaUrls && { mediaUrls }),
+            ...(mediaItems && { mediaItems }),
             ...(resolvedDurationMs != null ? { durationMs: resolvedDurationMs } : {}),
           }
         }
@@ -197,7 +191,7 @@ export function handleStreamEvent(
         if (blockIdx >= 0) {
           const block = blocks[blockIdx] as {
             type: "tool_call"
-            tool: { callId: string; name: string; arguments: string; result?: string; mediaUrls?: string[] }
+            tool: { callId: string; name: string; arguments: string; result?: string; mediaUrls?: string[]; mediaItems?: MediaItem[] }
           }
           blocks[blockIdx] = {
             type: "tool_call",
@@ -205,6 +199,7 @@ export function handleStreamEvent(
               ...block.tool,
               result: event.result as string,
               ...(mediaUrls && { mediaUrls }),
+              ...(mediaItems && { mediaItems }),
               ...(resolvedDurationMs != null ? { durationMs: resolvedDurationMs } : {}),
             },
           }

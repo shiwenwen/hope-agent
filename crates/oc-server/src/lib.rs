@@ -768,7 +768,14 @@ fn build_router_with_cors(
         .route("/teams/{id}/pause", post(routes::team::pause_team))
         .route("/teams/{id}/resume", post(routes::team::resume_team))
         .route("/teams/{id}/dissolve", post(routes::team::dissolve_team))
-        .route("/team-templates", get(routes::team::list_team_templates))
+        .route(
+            "/team-templates",
+            get(routes::team::list_team_templates).post(routes::team::save_team_template),
+        )
+        .route(
+            "/team-templates/{id}",
+            axum::routing::delete(routes::team::delete_team_template),
+        )
         // ACP Control
         .route("/acp/backends", get(routes::acp::list_backends))
         .route("/acp/health-check", get(routes::acp::health_check))

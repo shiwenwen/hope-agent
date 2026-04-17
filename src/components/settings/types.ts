@@ -4,6 +4,7 @@ export type SettingsSection =
   | "tools"
   | "skills"
   | "agents"
+  | "teams"
   | "memory"
   | "notifications"
   | "sandbox"

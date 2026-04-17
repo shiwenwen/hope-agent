@@ -26,6 +26,7 @@ mod plan_step;
 mod process;
 mod project_read_file;
 pub(crate) mod read;
+mod send_attachment;
 mod sessions;
 mod settings;
 pub(crate) mod subagent;
@@ -102,6 +103,7 @@ pub const TOOL_GET_SETTINGS: &str = "get_settings";
 pub const TOOL_UPDATE_SETTINGS: &str = "update_settings";
 pub const TOOL_LIST_SETTINGS_BACKUPS: &str = "list_settings_backups";
 pub const TOOL_RESTORE_SETTINGS_BACKUP: &str = "restore_settings_backup";
+pub const TOOL_SEND_ATTACHMENT: &str = "send_attachment";
 
 // ── Shared Helpers ────────────────────────────────────────────────
 

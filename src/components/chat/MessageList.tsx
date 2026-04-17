@@ -202,6 +202,7 @@ export default function MessageList({
         <div className="flex justify-start">
           <div className="max-w-[85%] w-full">
             <AskUserQuestionBlock
+              key={pendingQuestionGroup.requestId}
               group={pendingQuestionGroup}
               onSubmitted={onQuestionSubmitted}
             />

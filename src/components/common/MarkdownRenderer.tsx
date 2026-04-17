@@ -1,8 +1,10 @@
-import { useState, useEffect, useRef, useMemo } from "react"
+import { useState, useEffect, useRef, useMemo, type AnchorHTMLAttributes } from "react"
 import { Streamdown, type AnimateOptions } from "streamdown"
 import { code } from "@streamdown/code"
 import { cjk } from "@streamdown/cjk"
 import "streamdown/styles.css"
+import { getTransport } from "@/lib/transport-provider"
+import { cn } from "@/lib/utils"
 
 // Math and mermaid plugins are lazy-loaded on first use to reduce initial bundle size.
 // KaTeX (~300KB) and Mermaid (~200KB) are only loaded when content requires them.
@@ -63,6 +65,40 @@ const streamingAnimation: AnimateOptions = {
   duration: 500,
   easing: "cubic-bezier(0.22, 1, 0.36, 1)",
 }
+
+// Streamdown 默认 linkSafety 弹窗的 "Open link" 按钮调用 window.open，
+// Tauri webview 不支持该行为（点击无反应），改走 open_url 命令调起系统浏览器。
+const linkSafetyDisabled = { enabled: false as const }
+
+function MarkdownLink({
+  href,
+  children,
+  className,
+  node: _node,
+  ...rest
+}: AnchorHTMLAttributes<HTMLAnchorElement> & { node?: unknown }) {
+  const isIncomplete = href === "streamdown:incomplete-link"
+  return (
+    <a
+      {...rest}
+      href={href}
+      className={cn("wrap-anywhere font-medium text-primary underline", className)}
+      data-incomplete={isIncomplete || undefined}
+      data-streamdown="link"
+      onClick={(event) => {
+        if (!href || isIncomplete) return
+        event.preventDefault()
+        void getTransport()
+          .call("open_url", { url: href })
+          .catch(() => {})
+      }}
+    >
+      {children}
+    </a>
+  )
+}
+
+const markdownComponents = { a: MarkdownLink }
 
 /** Start catching up when backlog exceeds this */
 const CATCHUP_THRESHOLD = 60
@@ -177,6 +213,8 @@ export default function MarkdownRenderer({ content, isStreaming = false }: Markd
           plugins={plugins}
           isAnimating={isActive}
           parseIncompleteMarkdown={isActive}
+          linkSafety={linkSafetyDisabled}
+          components={markdownComponents}
         >
           {displayContent}
         </Streamdown>

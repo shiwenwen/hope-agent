@@ -73,6 +73,7 @@ pub struct ToolDefinition {
 | `grep` | always_load, concurrent_safe | 正则/字面量内容搜索，尊重 `.gitignore`。支持 `glob` 过滤、`ignore_case`、`literal`、`context`（上下文行数）、`limit`（默认 100）。 |
 | `find` | always_load, concurrent_safe | 按 glob 模式查找文件，尊重 `.gitignore`。`limit` 默认 1000。 |
 | `apply_patch` | always_load | 使用 `*** Begin Patch / *** End Patch` 格式批量创建/修改/删除/移动文件。支持 `Add File` / `Update File`（`@@` 上下文 + `-/+` 行）/ `Delete File` / `Move to` hunk。 |
+| `project_read_file` | always_load, internal | 读取挂在当前会话所属 Project 下的上传文件（`file_id` 或 `name`）。强制沙箱在 `~/.opencomputer/projects/{id}/extracted/` 下，返回行号分页文本。仅当会话绑定 Project 时生效；非项目文件改用 `read`。 |
 
 ### 3. Web
 
@@ -129,6 +130,7 @@ pub struct ToolDefinition {
 | 工具 | 标记 | 说明 |
 |------|------|------|
 | `subagent` | 条件注入 | 派生并管理子 Agent。`action`：`spawn` / `check`（可 `wait=true` + `wait_timeout` 阻塞）/ `list` / `result` / `kill` / `kill_all` / `steer`（向运行中子 Agent 注入 user 消息纠偏）/ `batch_spawn`（数组 `tasks`）/ `wait_all`（数组 `run_ids`）/ `spawn_and_wait`（`foreground_timeout` 默认 30s，超时自动转后台）。支持 `model` 覆盖、`label` 追踪、`files` 文件附件（UTF-8 / base64）。`timeout_secs` 默认 300，上限 1800。子 Agent 完成结果自动推送回父会话。 |
+| `team` | deferred, internal | Agent Team 多成员协作。`action`：`list_templates`（发现用户预配的模板）/ `create`（支持 `template="<id>"` 一键实例化或 `members=[{name, task, agent_id?, role?, description?}]` 内联）/ `dissolve` / `add_member` / `remove_member` / `send_message` / `create_task` / `update_task` / `list_tasks` / `list_members` / `status` / `pause` / `resume`。成员底层复用 subagent 执行，每个成员可绑定独立 Agent + 模型 + role identity；共享任务板和跨成员消息。 |
 | `acp_spawn` | 条件注入 | 派生外部 ACP Agent（Claude Code / Codex CLI / Gemini CLI 等）。`action`：`spawn` / `check` / `list` / `result` / `kill` / `kill_all` / `steer` / `backends`。参数：`backend`（必填）、`task`、`cwd`、`model`、`timeout_secs`（默认 600，上限 3600）、`label`。外部进程有独立工具集与上下文。 |
 
 ### 10. Plan Mode
@@ -145,7 +147,7 @@ pub struct ToolDefinition {
 
 | 工具 | 标记 | 说明 |
 |------|------|------|
-| `ask_user_question` | always_load, internal, concurrent_safe | 任意对话内向用户发起结构化问答。参数：`questions[]`（建议 1–4 条，每条含 `question_id`、`text`、`header` chip 标签、`options`（2–4 条，每项可选 `recommended`、`description`、`preview` + `previewKind`=`markdown`/`image`/`mermaid`）、`allow_custom`（默认 true）、`multi_select`（默认 false）、`template`（`scope`/`tech_choice`/`priority`）、`timeout_secs`、`default_values`）、`context`。Pending 持久化到 session SQLite，App 重启后重放；IM 渠道按 `supports_buttons` 发送原生按钮或 `1a`/`done`/`cancel` 文本 fallback。 |
+| `ask_user_question` | always_load, internal, concurrent_safe | 任意对话内向用户发起结构化问答。参数：`questions[]`（建议 1–4 条，每条含 `question_id`、`text`、`header` chip 标签、`options`（2–4 条，每项可选 `recommended`、`description`、`preview` + `previewKind`=`markdown`/`image`/`mermaid`）、`allow_custom`（默认 true，当前运行时强制覆盖为 true）、`multi_select`（默认 false）、`template`（`scope`/`tech_choice`/`priority`）、`timeout_secs`、`default_values`）、`context`。Pending 持久化到 session SQLite，App 重启后重放；IM 渠道按 `supports_buttons` 发送原生按钮或 `1a`/`done`/`cancel` 文本 fallback。 |
 
 ### 12. 会话级任务追踪（TODO）
 
@@ -168,6 +170,7 @@ pub struct ToolDefinition {
 | 工具 | 标记 | 说明 |
 |------|------|------|
 | `send_notification` | 条件注入, internal | 发送系统原生桌面通知。参数：`title`、`body`（必填）。用于主动提醒任务完成或需要用户注意的事件。 |
+| `send_attachment` | always_load, internal | 把生成的文件以可下载卡片形式推送到桌面 UI（PDF / 压缩包 / 日志等二进制）。参数：`path`（必填，绝对路径，上限 20 MB）、`display_name`、`description`。自动复制到 `~/.opencomputer/attachments/{session_id}/`，卡片支持打开 / 文件管理器定位。IM 渠道会话不可用（由渠道插件的原生媒体发送代替）。 |
 | `get_weather` | deferred, internal, concurrent_safe | 通过 Open-Meteo 获取天气（免 API key）。`location` 支持城市名或 `latitude,longitude`，省略时使用用户配置位置。`forecast_days` 1–16（默认 1）。 |
 
 ### 15. 元工具
@@ -751,8 +754,15 @@ Planning/Review 状态下 spawn 的子 Agent 自动继承 `PLAN_MODE_DENIED_TOOL
 通过 `ToolDefinition.internal = true` 标记，`is_internal_tool()` 检查。包括：
 
 - Plan Mode 工具：`ask_user_question` / `submit_plan` / `update_plan_step` / `amend_plan`
-- 条件注入工具：`send_notification` / `subagent` / `image_generate` / `canvas` / `acp_spawn`
-- 其他内部工具：由 `INTERNAL_TOOL_NAMES` 静态集合管理
+- 记忆 / Cron：`save_memory` / `recall_memory` / `memory_get` / `update_memory` / `delete_memory` / `update_core_memory` / `manage_cron`
+- 会话只读：`agents_list` / `sessions_list` / `session_status` / `sessions_history` / `sessions_send` / `peek_sessions`
+- 任务追踪：`task_create` / `task_update` / `task_list`
+- 项目文件 / 附件：`project_read_file` / `send_attachment`
+- 多 Agent 协作：`team` / `canvas` / `send_notification`
+- 元工具 / 设置：`tool_search` / `job_status` / `get_settings` / `update_settings` / `list_settings_backups` / `restore_settings_backup`
+- 多模态分析：`image` / `pdf` / `get_weather`
+
+> 注意：`subagent` / `image_generate` / `acp_spawn` / `exec` / `web_fetch` / `web_search` / `browser` 保留审批门控，不在 internal 列表。
 
 ### SKILL.md 读取（技能预授权）
 

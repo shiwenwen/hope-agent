@@ -138,6 +138,7 @@ pub fn spawn_explicit_job(
                     Some(&format!("runtime build failed: {}", e)),
                     now_secs(),
                 );
+                super::wait::notify_completion(&job_id_owned);
                 emit_completion_event(&job_id_owned, &tool_name_owned, "failed");
                 return;
             }
@@ -422,6 +423,9 @@ async fn finalize_job(
         );
     }
 
+    // Wake per-job `job_status(block=true)` waiters; the EventBus emit below
+    // is retained for frontend subscribers only.
+    super::wait::notify_completion(job_id);
     emit_completion_event(job_id, tool_name, status.as_str());
 
     // Schedule injection back into the parent session.

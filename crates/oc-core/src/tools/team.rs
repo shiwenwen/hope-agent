@@ -24,9 +24,11 @@ pub(crate) async fn tool_team(args: &Value, ctx: &ToolExecContext) -> Result<Str
         "status" => action_status(args).await,
         "pause" => action_pause(args).await,
         "resume" => action_resume(args).await,
+        "list_templates" => action_list_templates().await,
         _ => Err(anyhow::anyhow!(
             "Unknown team action '{}'. Valid actions: create, dissolve, add_member, remove_member, \
-             send_message, create_task, update_task, list_tasks, list_members, status, pause, resume",
+             send_message, create_task, update_task, list_tasks, list_members, status, pause, \
+             resume, list_templates",
             action
         )),
     }
@@ -61,33 +63,52 @@ async fn action_create(args: &Value, ctx: &ToolExecContext) -> Result<String> {
         .ok_or_else(|| anyhow::anyhow!("No session context"))?;
     let agent_id = ctx.agent_id.as_deref().unwrap_or("default");
 
-    // Parse member specs
+    // Resolved template (used both as DB source and to stamp team.template_id)
+    let template = if let Some(key) = args.get("template").and_then(|v| v.as_str()) {
+        let templates = team::templates::all_templates(&db);
+        let found = templates
+            .into_iter()
+            .find(|t| t.template_id == key || t.name.eq_ignore_ascii_case(key))
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Template '{}' not found. Call team(action=\"list_templates\") to see available presets.",
+                    key
+                )
+            })?;
+        Some(found)
+    } else {
+        None
+    };
+
+    // Parse member specs (inline members override template members)
     let member_specs: Vec<team::CreateTeamMemberSpec> = if let Some(members) = args.get("members") {
         serde_json::from_value(members.clone())?
-    } else if let Some(template_name) = args.get("template").and_then(|v| v.as_str()) {
-        // Load from template
-        let templates = team::templates::builtin_templates();
-        let tpl = templates
-            .iter()
-            .find(|t| t.template_id == template_name || t.name.eq_ignore_ascii_case(template_name))
-            .ok_or_else(|| anyhow::anyhow!("Template '{}' not found", template_name))?;
+    } else if let Some(tpl) = template.as_ref() {
         tpl.members
             .iter()
             .map(|m| team::CreateTeamMemberSpec {
                 name: m.name.clone(),
                 agent_id: m.agent_id.clone(),
                 role: Some(m.role.as_str().to_string()),
-                task: m.description.clone(),
-                model: None,
+                task: m
+                    .default_task_template
+                    .clone()
+                    .filter(|s| !s.trim().is_empty())
+                    .unwrap_or_else(|| {
+                        format!("Work on your role '{}' as part of team '{}'.", m.name, name)
+                    }),
+                model: m.model_override.clone(),
+                description: Some(m.description.clone()).filter(|s| !s.trim().is_empty()),
             })
             .collect()
     } else {
         return Err(anyhow::anyhow!(
-            "'members' array or 'template' name is required for create"
+            "'members' array or 'template' name is required for create. \
+             Call team(action=\"list_templates\") first to check for a matching preset."
         ));
     };
 
-    let template_id = args.get("template").and_then(|v| v.as_str());
+    let template_id = template.as_ref().map(|t| t.template_id.as_str());
 
     let created = team::coordinator::create_team(
         &db,
@@ -107,13 +128,49 @@ async fn action_create(args: &Value, ctx: &ToolExecContext) -> Result<String> {
         "status": "created",
         "teamId": created.team_id,
         "name": created.name,
+        "templateId": created.template_id,
         "memberCount": members.len(),
         "members": members.iter().map(|m| serde_json::json!({
             "name": m.name,
             "memberId": m.member_id,
+            "agentId": m.agent_id,
             "role": m.role.as_str(),
             "status": m.status.as_str(),
         })).collect::<Vec<_>>(),
+    }))?)
+}
+
+async fn action_list_templates() -> Result<String> {
+    let db = require_db()?;
+    let templates = team::templates::all_templates(&db);
+
+    let summaries: Vec<serde_json::Value> = templates
+        .iter()
+        .map(|t| {
+            serde_json::json!({
+                "templateId": t.template_id,
+                "name": t.name,
+                "description": t.description,
+                "memberCount": t.members.len(),
+                "members": t.members.iter().map(|m| serde_json::json!({
+                    "name": m.name,
+                    "role": m.role.as_str(),
+                    "agentId": m.agent_id,
+                    "description": m.description,
+                    "modelOverride": m.model_override,
+                })).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+
+    Ok(serde_json::to_string_pretty(&serde_json::json!({
+        "total": summaries.len(),
+        "templates": summaries,
+        "hint": if summaries.is_empty() {
+            "No user-configured team templates. Define members inline via the `members` argument in action=\"create\"."
+        } else {
+            "Pick a template whose member roles match your task, then call team(action=\"create\", name=..., template=\"<templateId>\"). Override per-member `task` via the `members` array if needed."
+        },
     }))?)
 }
 
@@ -148,9 +205,12 @@ async fn action_add_member(args: &Value) -> Result<String> {
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("'task' is required"))?;
     let model = args.get("model").and_then(|v| v.as_str());
+    let description = args.get("description").and_then(|v| v.as_str());
 
-    let member =
-        team::coordinator::add_member(&db, &team_id, name, agent_id, role, task, model).await?;
+    let member = team::coordinator::add_member(
+        &db, &team_id, name, agent_id, role, task, model, description,
+    )
+    .await?;
 
     Ok(serde_json::to_string_pretty(&serde_json::json!({
         "status": "added",

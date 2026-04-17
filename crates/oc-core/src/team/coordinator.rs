@@ -75,6 +75,7 @@ pub async fn create_team(
             role,
             &spec.task,
             spec.model.as_deref(),
+            spec.description.as_deref(),
             i,
         )
         .await
@@ -102,6 +103,7 @@ pub async fn spawn_member(
     role: MemberRole,
     task: &str,
     model_override: Option<&str>,
+    role_description: Option<&str>,
     color_index: usize,
 ) -> Result<TeamMember> {
     let member_id = uuid::Uuid::new_v4().to_string();
@@ -119,6 +121,9 @@ pub async fn spawn_member(
         color: pick_member_color(color_index).to_string(),
         current_task_id: None,
         model_override: model_override.map(|s| s.to_string()),
+        role_description: role_description
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty()),
         joined_at: now,
         last_active_at: None,
         input_tokens: Some(0),
@@ -181,6 +186,7 @@ pub async fn add_member(
     role: MemberRole,
     task: &str,
     model_override: Option<&str>,
+    role_description: Option<&str>,
 ) -> Result<TeamMember> {
     let team = db
         .get_team(team_id)?
@@ -212,6 +218,7 @@ pub async fn add_member(
         role,
         task,
         model_override,
+        role_description,
         members.len(),
     )
     .await?;
@@ -354,6 +361,7 @@ pub async fn resume_team(db: &Arc<SessionDB>, team_id: &str) -> Result<()> {
             member.role.clone(),
             &task_text,
             member.model_override.as_deref(),
+            member.role_description.as_deref(),
             i,
         )
         .await
@@ -439,13 +447,21 @@ fn build_member_context(
         .as_deref()
         .unwrap_or("");
 
+    let role_identity_block = member
+        .role_description
+        .as_deref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| format!("### Your Role Identity\n{}\n\n", s))
+        .unwrap_or_default();
+
     Ok(format!(
         r#"## Team Collaboration Context
 You are a member of team "{}".
 - Your name: {}
 - Your role: {:?}
 
-### Teammates
+{}### Teammates
 {}
 
 ### Communication
@@ -462,6 +478,7 @@ You are a member of team "{}".
         team.name,
         member.name,
         member.role,
+        role_identity_block,
         if teammates.is_empty() {
             "(no other members yet)".to_string()
         } else {

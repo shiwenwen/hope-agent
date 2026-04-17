@@ -106,6 +106,25 @@ export function AssistantContentBlocks({
   const blocks = msg.contentBlocks!
   const elements: React.ReactNode[] = []
 
+  // Pre-compute first task_* position + latest task_* tool with a result,
+  // so all task_create / task_update / task_list calls in this message
+  // collapse into a single TaskBlock showing the most recent snapshot
+  // (each result is a full task-list snapshot, so the last one wins).
+  let firstTaskIdx = -1
+  let latestTaskTool: ToolCall | null = null
+  for (let k = 0; k < blocks.length; k++) {
+    const b = blocks[k]
+    if (b.type !== "tool_call" || !TASK_TOOL_NAMES.has(b.tool.name)) continue
+    if (firstTaskIdx === -1) firstTaskIdx = k
+    if (b.tool.result) latestTaskTool = b.tool
+  }
+  if (firstTaskIdx !== -1 && !latestTaskTool) {
+    // No tool has a result yet (first call still in-flight) — fall back to
+    // the earliest one so we at least render the placeholder "no tasks".
+    const first = blocks[firstTaskIdx]
+    if (first.type === "tool_call") latestTaskTool = first.tool
+  }
+
   let i = 0
   while (i < blocks.length) {
     const block = blocks[i]
@@ -142,7 +161,9 @@ export function AssistantContentBlocks({
         continue
       }
       if (TASK_TOOL_NAMES.has(block.tool.name)) {
-        elements.push(<TaskBlock key={block.tool.callId} tool={block.tool} />)
+        if (i === firstTaskIdx && latestTaskTool) {
+          elements.push(<TaskBlock key={latestTaskTool.callId} tool={latestTaskTool} />)
+        }
         i++
         continue
       }

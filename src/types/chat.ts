@@ -5,22 +5,39 @@ export interface AgentInfo {
   avatar?: string | null
 }
 
+/** Structured media item emitted by tools (e.g. send_attachment) — richer than
+ *  mediaUrls; carries filename, MIME, size, and a kind flag used by the UI to
+ *  decide between image preview and file-card rendering. */
+export interface MediaItem {
+  url: string
+  name: string
+  mimeType: string
+  sizeBytes: number
+  kind: "image" | "file"
+}
+
 export interface ToolCall {
   callId: string
   name: string
   arguments: string
   result?: string
   mediaUrls?: string[]
+  mediaItems?: MediaItem[]
   durationMs?: number
   startedAtMs?: number
 }
 
 export interface MessageUsage {
   durationMs?: number
+  /** Cumulative across tool-loop rounds — billing value, not context size. */
   inputTokens?: number
   outputTokens?: number
   cacheCreationInputTokens?: number
   cacheReadInputTokens?: number
+  /** Last round's input tokens — the prompt size the model actually saw.
+   *  Use for context-usage UI; fall back to `inputTokens` when undefined
+   *  (pre-migration turns). */
+  lastInputTokens?: number
 }
 
 /** Ordered content block within an assistant message */
@@ -142,8 +159,11 @@ export interface SessionMessage {
   timestamp: string
   attachmentsMeta?: string | null
   model?: string | null
+  /** Cumulative across tool-loop rounds — see `MessageUsage.inputTokens`. */
   tokensIn?: number | null
   tokensOut?: number | null
+  /** Last round's input tokens — see `MessageUsage.lastInputTokens`. */
+  tokensInLast?: number | null
   toolCallId?: string | null
   toolName?: string | null
   toolArguments?: string | null

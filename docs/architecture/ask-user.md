@@ -96,13 +96,16 @@ pub struct AskUserQuestion {
     pub question_id: String,
     pub text: String,
     pub options: Vec<AskUserQuestionOption>,
-    pub allow_custom: bool,     // 默认 true，允许自由文本
+    pub allow_custom: bool,     // 默认 true，当前运行时强制覆盖为 true
     pub multi_select: bool,     // 默认 false
     pub template: Option<String>,   // scope | tech_choice | priority
     pub header: Option<String>,     // ≤12 char chip 标签
     pub timeout_secs: Option<u64>,  // 0 / None = 继承全局默认
     pub default_values: Vec<String>, // 超时回退答案
 }
+// 注：`allow_custom` 字段和 schema 继续保留，但 `tools/ask_user_question.rs` 解析参数时
+// 会强制覆盖为 true——模型给的选项常常覆盖不到用户真实意图，强制留自由文本入口避免
+// 被迫二选一。等模型提问质量稳定后可以摘掉这段覆盖恢复模型自主控制。
 
 pub struct AskUserQuestionGroup {
     pub request_id: String,
@@ -444,7 +447,7 @@ if (multiSelect) {
 - `recommended: true` → `<Star>` + "Recommended" 徽章（琥珀色）
 - `defaultValues` 包含该 option → `<Timer>` + "default" 徽章（灰色），表明若超时将自动选中
 
-**自由文本输入**：`q.allow_custom` 为 `true`（默认）时渲染一个 `<Input>`，与按钮选项并列。用户既可以选按钮也可以输文本，两者会一并提交。
+**自由文本输入**：`q.allow_custom` 为 `true`（默认）时渲染一个 `<Input>`，与按钮选项并列。用户既可以选按钮也可以输文本，两者会一并提交。当前运行时在 `tools/ask_user_question.rs` 解析入参时把 `allow_custom` 强制覆盖为 `true`，所以模型即便显式传 `false` 用户也依然能看到自由文本框——避免模型给的选项没覆盖用户真实意图时用户被迫二选一。字段和 schema 都保留着，待模型提问质量稳定后可摘除覆盖逻辑。
 
 ### 倒计时与 low-time 告警
 
@@ -631,7 +634,7 @@ ask_user:{request_id}:cancel                                // 整体取消
    - 多选：追加（去重）
    - 单选：覆盖（一直保留最后一个）
 3. **`done`**（忽略大小写）：触发完成检查
-4. **都没解析到 → 自由文本兜底**：找到第一个"没选项也没 custom"的问题，若它的 `allow_custom == true` 就把整段文本写到 `custom_input`
+4. **都没解析到 → 自由文本兜底**：找到第一个"没选项也没 custom"的问题，若它的 `allow_custom == true` 就把整段文本写到 `custom_input`（目前运行时把 `allow_custom` 强制覆盖为 `true`，实际该分支总会命中）
 
 **完成条件**：
 - `should_finish = (text == "done") || !group.has_any_multi_select`

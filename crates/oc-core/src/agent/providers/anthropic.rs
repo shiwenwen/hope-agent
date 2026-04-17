@@ -11,7 +11,7 @@ use super::super::config::{
 use super::super::content::build_user_content_anthropic;
 use super::super::events::{
     build_anthropic_tool_result_content, emit_text_delta, emit_thinking_delta, emit_tool_call,
-    emit_tool_result, emit_usage, extract_media_urls,
+    emit_tool_result, emit_usage, extract_media_items, extract_media_urls,
 };
 use super::super::types::{AssistantAgent, ChatUsage};
 use super::tool_exec_helpers::{execute_tool_with_cancel, log_tool_input, log_tool_output};
@@ -322,10 +322,7 @@ impl AssistantAgent {
             collected_text.push_str(&text);
             collected_thinking.push_str(&thinking);
             last_round_thinking = thinking.clone();
-            total_usage.input_tokens += round_usage.input_tokens;
-            total_usage.output_tokens += round_usage.output_tokens;
-            total_usage.cache_creation_input_tokens += round_usage.cache_creation_input_tokens;
-            total_usage.cache_read_input_tokens += round_usage.cache_read_input_tokens;
+            total_usage.accumulate_round(&round_usage);
 
             // If cancelled, no tool calls, or not tool_use stop reason — done
             if tool_calls.is_empty() || stop_reason.as_deref() != Some("tool_use") {
@@ -432,6 +429,7 @@ impl AssistantAgent {
                     log_tool_output(&call_id, &name, &result, elapsed_ms, round);
                     let is_tool_error = result.starts_with("Tool error:");
                     let (clean_result, media_urls) = extract_media_urls(&result);
+                    let (clean_result, media_items) = extract_media_items(&clean_result);
                     emit_tool_result(
                         on_delta,
                         &call_id,
@@ -440,6 +438,7 @@ impl AssistantAgent {
                         elapsed_ms,
                         is_tool_error,
                         &media_urls,
+                        &media_items,
                     );
                     tool_results.push(json!({
                         "type": "tool_result",
@@ -467,6 +466,7 @@ impl AssistantAgent {
                 log_tool_output(&tc.call_id, &tc.name, &result, tool_elapsed_ms, round);
                 let is_tool_error = result.starts_with("Tool error:");
                 let (clean_result, media_urls) = extract_media_urls(&result);
+                let (clean_result, media_items) = extract_media_items(&clean_result);
                 emit_tool_result(
                     on_delta,
                     &tc.call_id,
@@ -475,6 +475,7 @@ impl AssistantAgent {
                     tool_elapsed_ms,
                     is_tool_error,
                     &media_urls,
+                    &media_items,
                 );
 
                 tool_results.push(json!({
