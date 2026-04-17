@@ -5,8 +5,57 @@ use super::types::*;
 
 // ── MemoryBackend Trait ─────────────────────────────────────────
 
-/// Pluggable memory backend trait.
-/// MVP uses SqliteMemoryBackend; future backends (GraphRAG, Hindsight) implement the same trait.
+/// Pluggable memory backend.
+///
+/// The default implementation is [`super::sqlite::SqliteMemoryBackend`] — a
+/// local SQLite + FTS5 + optional vector index. Alternative backends (remote
+/// services like Honcho, dedicated vector stores like QMD, or bespoke user
+/// backends) can be plugged in by implementing this trait.
+///
+/// ## Implementing a new backend — checklist
+///
+/// 1. **State**: create a struct holding whatever state your backend needs
+///    (HTTP client, cached auth token, local index files, …). Keep it `Send
+///    + Sync`; wrap interior mutability in `Mutex` / `RwLock` as needed.
+/// 2. **CRUD methods** (required): implement `add` / `update` / `delete` /
+///    `get` / `list` / `count` / `stats` / `search`. Return [`anyhow::Error`]
+///    on failure — callers log and degrade gracefully.
+/// 3. **Scope semantics**: honour [`MemoryScope::Global`] / `Agent { id }` /
+///    `Project { id }` in every method that takes a scope. The system prompt
+///    and Active Memory recall pipelines rely on scope isolation.
+/// 4. **Prompt injection**: implement `build_prompt_summary` and optionally
+///    override `build_prompt_summary_with_project` to give project-scoped
+///    memories precedence. Keep the output budget (chars) strictly under
+///    `budget` — the caller slots this directly into the system prompt.
+/// 5. **Search**: `search` must handle an empty query string gracefully
+///    (return recent entries) since Active Memory sometimes passes raw user
+///    text. Populate `MemoryEntry.relevance_score` when your backend can.
+/// 6. **Dedup** (optional but recommended): implement `find_similar` and
+///    `add_with_dedup` — the auto-extraction pipeline uses these to avoid
+///    storing near-duplicates. The default `add_with_dedup` is unaware of
+///    your similarity metric, so it's worth overriding.
+/// 7. **Embeddings** (optional): if your backend can store vectors,
+///    override `set_embedder` / `has_embedder` / `reembed_all` /
+///    `reembed_batch`. Remote backends usually manage embeddings internally
+///    and can leave these as no-ops.
+/// 8. **Lifecycle** (optional): implement `sync` if your backend has an
+///    explicit refresh step (pulling new entries from a remote service).
+///    The default is a no-op so local backends don't need to care.
+/// 9. **Identity**: override `backend_kind()` with a short lowercase tag
+///    (e.g. `"honcho"`, `"qmd"`). This is used in logs and Dashboard
+///    labels; don't reuse `"sqlite"`.
+/// 10. **Wire it up**: call `crate::set_memory_backend(Arc::new(YourBackend))`
+///     during app init before the first `AssistantAgent::chat()`. After that
+///     `crate::get_memory_backend()` returns your backend and every caller
+///     (system prompt, Active Memory, auto-extract, tools) uses it.
+///
+/// Most trait methods are synchronous because the reference implementation
+/// talks to a local SQLite file and the async overhead is not worth it for
+/// that case. When a future remote backend needs async I/O, wrap the
+/// blocking portion in `tokio::task::spawn_blocking` inside the method body
+/// — the call sites are already invoked from async contexts via
+/// `spawn_blocking` in [`crate::agent::active_memory`] and the extraction
+/// pipeline, so throughput is preserved.
 pub trait MemoryBackend: Send + Sync {
     /// Add a new memory, return its ID
     fn add(&self, entry: NewMemory) -> Result<i64>;
@@ -142,6 +191,31 @@ pub trait MemoryBackend: Send + Sync {
     /// Check if an embedder is configured.
     fn has_embedder(&self) -> bool {
         false
+    }
+
+    // ── Backend identity & lifecycle ──
+
+    /// Short lowercase tag identifying the backend implementation.
+    /// Used in logs and Dashboard labels. Each implementation should return
+    /// a distinct value (`"sqlite"`, `"honcho"`, `"qmd"`, …).
+    fn backend_kind(&self) -> &'static str {
+        "unknown"
+    }
+
+    /// Explicit refresh hook for remote backends (no-op for local stores).
+    /// Called by the Dashboard "refresh" action and by scheduled sync jobs
+    /// when the backend kind advertises remote state. Return quickly;
+    /// long-running syncs should be dispatched internally.
+    fn sync(&self) -> Result<()> {
+        Ok(())
+    }
+
+    /// Whether this backend exposes vector search via `search` in addition
+    /// to keyword / FTS. Callers use this to decide whether to ask for
+    /// vector-scored ranking vs. plain text ranking. The default returns
+    /// `true` iff an embedder is configured.
+    fn supports_vectors(&self) -> bool {
+        self.has_embedder()
     }
 }
 

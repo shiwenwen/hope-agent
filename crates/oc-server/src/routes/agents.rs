@@ -75,6 +75,18 @@ pub async fn save_agent_markdown(
     Ok(Json(json!({ "saved": true })))
 }
 
+/// `POST /api/agents/{id}/persona/render-soul-md` — render the agent's
+/// structured `PersonalityConfig` into a SOUL.md markdown draft. Used by the
+/// UI when the user switches the persona authoring surface to SoulMd for
+/// the first time. Does not write to disk — caller persists via
+/// save_agent_markdown when ready.
+pub async fn render_persona_to_soul_md(
+    Path(id): Path<String>,
+) -> Result<Json<Value>, AppError> {
+    let content = oc_core::agent_loader::render_persona_to_soul_md(&id)?;
+    Ok(Json(json!({ "content": content })))
+}
+
 // ── Agent-scoped memory.md ─────────────────────────────────────
 
 /// `GET /api/agents/{id}/memory-md` — read an agent's `memory.md`.

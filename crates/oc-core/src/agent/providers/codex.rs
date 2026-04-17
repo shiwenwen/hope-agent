@@ -36,6 +36,7 @@ impl AssistantAgent {
     ) -> Result<(String, Option<String>)> {
         self.reset_chat_flags();
         self.refresh_cross_session_suffix(message).await;
+        self.refresh_active_memory_suffix(message).await;
 
         let client = reqwest::Client::new();
         let tool_schemas = self.build_tool_schemas(ToolProvider::OpenAI);
@@ -126,6 +127,28 @@ impl AssistantAgent {
                         "role": "system",
                         "content": suffix.as_str()
                     }));
+                }
+            }
+            // Active Memory (Phase B1) — same rationale as openai_responses.
+            if let Some(active_suffix) = self.current_active_memory_suffix() {
+                if !active_suffix.is_empty() {
+                    let insert_at = if api_input
+                        .first()
+                        .and_then(|m| m.get("role"))
+                        .and_then(|r| r.as_str())
+                        == Some("system")
+                    {
+                        1
+                    } else {
+                        0
+                    };
+                    api_input.insert(
+                        insert_at,
+                        json!({
+                            "role": "system",
+                            "content": active_suffix.as_str()
+                        }),
+                    );
                 }
             }
 
@@ -535,6 +558,10 @@ impl AssistantAgent {
                 self.context_window,
                 &self.compact_config,
             );
+
+            // Reactive microcompact: when usage crosses the threshold mid-loop,
+            // clear ephemeral tool_results (Tier 0) to head off emergency compaction.
+            self.reactive_microcompact_in_loop(&mut input, &system_prompt_for_budget, 16384);
         }
 
         let cancelled = cancel.load(Ordering::SeqCst);

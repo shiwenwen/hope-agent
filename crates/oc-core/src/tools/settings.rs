@@ -178,6 +178,8 @@ fn get_all_overview() -> Result<String> {
         "compact": {
             "enabled": cfg.compact.enabled,
             "cacheTtlSecs": cfg.compact.cache_ttl_secs,
+            "reactiveMicrocompactEnabled": cfg.compact.reactive_microcompact_enabled,
+            "reactiveTriggerRatio": cfg.compact.reactive_trigger_ratio,
         },
         "asyncTools": { "enabled": cfg.async_tools.enabled },
         "deferredTools": { "enabled": cfg.deferred_tools.enabled },

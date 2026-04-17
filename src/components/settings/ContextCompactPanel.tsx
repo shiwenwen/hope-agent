@@ -38,6 +38,8 @@ interface CompactConfig {
   summaryMaxTokens: number
   maxHistoryShare: number
   maxCompactionSummaryChars: number
+  reactiveMicrocompactEnabled: boolean
+  reactiveTriggerRatio: number
 }
 
 interface ProviderOption {
@@ -453,6 +455,31 @@ export default function ContextCompactPanel() {
                   max={900}
                   onChange={(v) => update({ cacheTtlSecs: v })}
                 />
+                <div className="flex items-center justify-between px-0 py-1">
+                  <div className="flex flex-col">
+                    <label className="text-sm">
+                      {t("settings.contextCompactReactiveMicrocompact")}
+                    </label>
+                    <span className="text-xs text-muted-foreground">
+                      {t("settings.contextCompactReactiveMicrocompactDesc")}
+                    </span>
+                  </div>
+                  <Switch
+                    checked={config.reactiveMicrocompactEnabled}
+                    onCheckedChange={(v) => update({ reactiveMicrocompactEnabled: v })}
+                  />
+                </div>
+                {config.reactiveMicrocompactEnabled && (
+                  <RatioInput
+                    label={t("settings.contextCompactReactiveTriggerRatio")}
+                    desc={t("settings.contextCompactReactiveTriggerRatioDesc")}
+                    value={config.reactiveTriggerRatio}
+                    min={0.5}
+                    max={0.95}
+                    step={0.05}
+                    onChange={(v) => update({ reactiveTriggerRatio: v })}
+                  />
+                )}
                 <NumberField
                   label={t("settings.contextCompactSoftTrimMaxChars")}
                   desc={t("settings.contextCompactSoftTrimMaxCharsDesc")}

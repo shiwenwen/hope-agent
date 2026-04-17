@@ -94,7 +94,45 @@ export interface AgentSummary {
   hasToolsGuide: boolean
 }
 
+export type PersonaMode = "structured" | "soulMd"
+
+/// Active Memory pre-reply recall configuration (Phase B1).
+export interface ActiveMemoryConfig {
+  enabled: boolean
+  timeoutMs: number
+  maxChars: number
+  cacheTtlSecs: number
+  budgetTokens: number
+  candidateLimit: number
+}
+
+/// Agent-level memory configuration (mirrors Rust MemoryConfig).
+export interface AgentMemoryConfig {
+  enabled: boolean
+  shared: boolean
+  promptBudget: number
+  autoExtract?: boolean | null
+  extractProviderId?: string | null
+  extractModelId?: string | null
+  flushBeforeCompact?: boolean | null
+  extractTokenThreshold?: number | null
+  extractTimeThresholdSecs?: number | null
+  extractMessageThreshold?: number | null
+  extractIdleTimeoutSecs?: number | null
+  activeMemory: ActiveMemoryConfig
+}
+
+export const DEFAULT_ACTIVE_MEMORY: ActiveMemoryConfig = {
+  enabled: true,
+  timeoutMs: 3000,
+  maxChars: 220,
+  cacheTtlSecs: 15,
+  budgetTokens: 512,
+  candidateLimit: 20,
+}
+
 export interface PersonalityConfig {
+  mode?: PersonaMode
   role?: string | null
   vibe?: string | null
   tone?: string | null
@@ -123,6 +161,7 @@ export interface AgentConfig {
   useCustomPrompt: boolean
   openclawMode: boolean
   notifyOnComplete?: boolean | null
+  memory?: AgentMemoryConfig
   subagents: {
     enabled: boolean
     allowedAgents: string[]
@@ -187,6 +226,7 @@ export interface LogQueryResult {
 }
 
 export const DEFAULT_PERSONALITY: PersonalityConfig = {
+  mode: "structured",
   role: null,
   vibe: null,
   tone: null,

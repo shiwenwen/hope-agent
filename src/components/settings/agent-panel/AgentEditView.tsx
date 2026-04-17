@@ -58,14 +58,22 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
           getTransport().call<{ name: string; description: string; internal?: boolean }[]>("list_builtin_tools"),
           getTransport().call<AvailableModel[]>("get_available_models"),
         ])
-        // Fetch OpenClaw files only when mode is enabled
+        // Fetch OpenClaw files only when mode is enabled.
+        // SOUL.md is additionally loaded when the persona authoring surface is
+        // SoulMd (non-openclaw users can still edit it via the Personality tab).
         let ocAgents: string | null = null, ocIdentity: string | null = null, ocSoul: string | null = null
+        const personaSoulMode = cfg.personality?.mode === "soulMd"
         if (cfg.openclawMode) {
           ;[ocAgents, ocIdentity, ocSoul] = await Promise.all([
             getTransport().call<string | null>("get_agent_markdown", { id: agentId, file: "agents.md" }),
             getTransport().call<string | null>("get_agent_markdown", { id: agentId, file: "identity.md" }),
             getTransport().call<string | null>("get_agent_markdown", { id: agentId, file: "soul.md" }),
           ])
+        } else if (personaSoulMode) {
+          ocSoul = await getTransport().call<string | null>(
+            "get_agent_markdown",
+            { id: agentId, file: "soul.md" },
+          )
         }
         setAvailableModels(models)
         setAvailableSkills(skills.filter((s) => s.enabled))
@@ -111,11 +119,17 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
         getTransport().call("save_agent_markdown", { id: agentId, file: "persona.md", content: persona }),
         getTransport().call("save_agent_markdown", { id: agentId, file: "tools.md", content: toolsGuide }),
       ]
-      // Only save OpenClaw files when mode is enabled
+      // Only save OpenClaw files when mode is enabled. SOUL.md is saved
+      // additionally in non-openclaw mode when the persona authoring surface
+      // is set to SoulMd — the two surfaces share the same physical soul.md.
       if (config.openclawMode) {
         mdSaves.push(
           getTransport().call("save_agent_markdown", { id: agentId, file: "agents.md", content: agentsMd }),
           getTransport().call("save_agent_markdown", { id: agentId, file: "identity.md", content: identityMd }),
+          getTransport().call("save_agent_markdown", { id: agentId, file: "soul.md", content: soulMd }),
+        )
+      } else if (config.personality?.mode === "soulMd") {
+        mdSaves.push(
           getTransport().call("save_agent_markdown", { id: agentId, file: "soul.md", content: soulMd }),
         )
       }
@@ -366,9 +380,12 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
 
           {activeTab === "personality" && (
             <PersonalityTab
+              agentId={agentId}
               config={config}
               persona={persona}
               openclawMode={config.openclawMode}
+              soulMd={soulMd}
+              setSoulMd={setSoulMd}
               updatePersonality={updatePersonality}
               setPersona={setPersona}
               textInputProps={textInputProps}
@@ -398,7 +415,14 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
             />
           )}
 
-          {activeTab === "memory" && <MemoryTab agentId={agentId} openclawMode={config.openclawMode} />}
+          {activeTab === "memory" && (
+            <MemoryTab
+              agentId={agentId}
+              openclawMode={config.openclawMode}
+              config={config}
+              updateConfig={updateConfig}
+            />
+          )}
 
           {activeTab === "subagent" && (
             <SubagentTab

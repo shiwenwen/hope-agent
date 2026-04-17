@@ -3,6 +3,13 @@
 /// Maximum characters per injected markdown file.
 pub(super) const MAX_FILE_CHARS: usize = 20_000;
 
+/// Embodiment guidance appended after injecting a SOUL.md block so the
+/// model commits to the persona rather than treating it as ambient text.
+/// Shared between openclaw 4-file mode and the SoulMd persona mode.
+pub(super) const SOUL_EMBODIMENT_GUIDANCE: &str =
+    "If SOUL.md is present, embody its persona and tone throughout all interactions. \
+     Avoid stiff, generic replies; follow its guidance unless higher-priority instructions override it.";
+
 // ── Per-Tool Descriptions ───────────────────────────────────────
 // Each tool has its own detailed description with usage guidelines,
 // best practices, and common pitfalls. Referenced by TOOL_DESCRIPTIONS

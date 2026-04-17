@@ -481,6 +481,10 @@ fn build_router_with_cors(
             put(routes::agents::save_agent_markdown),
         )
         .route(
+            "/agents/{id}/persona/render-soul-md",
+            axum::routing::post(routes::agents::render_persona_to_soul_md),
+        )
+        .route(
             "/agents/{id}/memory-md",
             get(routes::agents::get_agent_memory_md),
         )
@@ -498,6 +502,14 @@ fn build_router_with_cors(
         .route("/cron/jobs/{id}/run", post(routes::cron::run_now))
         .route("/cron/jobs/{id}/logs", get(routes::cron::get_run_logs))
         .route("/cron/calendar", get(routes::cron::get_calendar_events))
+        // Dreaming (offline memory consolidation, Phase B3)
+        .route("/dreaming/run", post(routes::dreaming::run_now))
+        .route("/dreaming/diaries", get(routes::dreaming::list_diaries))
+        .route(
+            "/dreaming/diaries/{filename}",
+            get(routes::dreaming::read_diary),
+        )
+        .route("/dreaming/status", get(routes::dreaming::status))
         // Dashboard
         .route("/dashboard/overview", post(routes::dashboard::overview))
         .route(
