@@ -131,7 +131,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_PROJECT_READ_FILE.into(),
             description: "Read a file that has been uploaded to the CURRENT session's project. Only works when the session is attached to a project; use the `file_id` from the \"Project Files\" section of the system prompt (or `name` as a fallback). Returns extracted text with line-based pagination. Use the regular `read` tool for files outside a project.".into(),
-            internal: false,
+            internal: true,
             deferred: false,
             always_load: false,
             async_capable: false,
@@ -1093,7 +1093,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                           Copies the file into the session's attachments directory and surfaces it as an interactive card with open / reveal-in-folder actions. \
                           Use this after producing a file with exec/write when you want the user to easily save or open the output. \
                           NOT available in IM channel sessions — those use the channel plugin's native media sending.".into(),
-            internal: false,
+            internal: true,
             deferred: false,
             always_load: false,
             async_capable: false,

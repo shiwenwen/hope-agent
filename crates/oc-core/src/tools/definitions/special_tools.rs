@@ -390,7 +390,7 @@ pub fn get_team_tool() -> ToolDefinition {
     ToolDefinition {
         name: TOOL_TEAM.into(),
         description: "Create and manage agent teams for coordinated multi-agent parallel work. Teams have named members (each backed by a subagent), a shared task board, and inter-member messaging. Use for complex tasks that benefit from parallel specialization (e.g., frontend + backend + tester).\n\nBefore creating a team, call `action=\"list_templates\"` to see user-configured presets that may already match your task. Use `template=\"<templateId>\"` in `create` to spawn from a preset (each member can be bound to a specific Agent with its own model/identity). Fall back to inline `members=[{name, task, agent_id?, role?, description?}]` when no preset fits.".into(),
-        internal: false,
+        internal: true,
         deferred: true,
         always_load: false,
         async_capable: false,
