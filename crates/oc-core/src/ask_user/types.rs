@@ -29,6 +29,12 @@ pub struct AskUserQuestion {
     pub question_id: String,
     pub text: String,
     pub options: Vec<AskUserQuestionOption>,
+    /// Whether to render a free-form custom input alongside the options.
+    ///
+    /// 保留该字段以维持原有的开关能力。当前在工具入口强制覆盖为 `true`，
+    /// 因为模型往往给不出完整覆盖用户意图的选项，强制留一个自由文本
+    /// 通道可以避免用户被迫二选一。等未来模型提问质量更稳定后可以把
+    /// 覆盖逻辑摘掉，恢复模型自主控制。
     #[serde(default = "crate::default_true")]
     pub allow_custom: bool,
     #[serde(default)]

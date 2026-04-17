@@ -37,6 +37,11 @@ export interface AskUserQuestion {
   questionId: string
   text: string
   options: AskUserQuestionOption[]
+  /**
+   * Whether to render a free-form custom input. The backend currently forces
+   * this to `true` at parse time (模型给的选项常常覆盖不到用户真实意图,
+   * 强制留自由文本入口避免被迫二选一)，字段保留以维持控制链路。
+   */
   allowCustom: boolean
   multiSelect: boolean
   template?: string
@@ -364,7 +369,10 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
                   )
                 })}
 
-                {/* Custom input */}
+                {/* Custom input — currently always rendered because the
+                    backend forces `allowCustom` to true. Conditional preserved
+                    so the control can be re-enabled once model behavior is
+                    trustworthy. */}
                 {q.allowCustom && (
                   <div className="flex gap-2 mt-1">
                     <Input

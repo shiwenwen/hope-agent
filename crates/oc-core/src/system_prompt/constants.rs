@@ -221,7 +221,8 @@ pub(super) const TOOL_DESC_ASK_USER_QUESTION: &str =
     "- ask_user_question: Ask the user 1–4 structured questions with options. \
 See the Human-in-the-loop section below for when (and when not) to use this tool.\n\
   - Params: questions (array 1–4), context (optional explanatory text)\n\
-  - Per question: question_id, text, options (2–4 each), allow_custom (default true), multi_select \
+  - Per question: question_id, text, options (2–4 each), allow_custom (default true, \
+currently forced to true by the runtime so a free-form input is always rendered), multi_select \
 (default false), template (scope/tech_choice/priority), header (≤12 char chip), timeout_secs, default_values\n\
   - Per option: value, label, description, recommended (mark the first recommended option with \
 '(Recommended)' in label), preview (markdown / image URL / mermaid source for visual comparison), previewKind\n\

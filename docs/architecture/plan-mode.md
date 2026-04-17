@@ -479,7 +479,7 @@ sequenceDiagram
 - `recommended` 选项显示 ★ 标记
 - `template` 控制图标分类（scope / tech_choice / priority）
 - `multi_select` 支持多选
-- `allow_custom` 支持自定义输入
+- `allow_custom` 支持自定义输入（当前运行时强制覆盖为 true，保证每题都有自由文本入口）
 
 ### 计划提交（submit_plan）
 

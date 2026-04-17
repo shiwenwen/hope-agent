@@ -82,7 +82,7 @@ You are in **Plan Mode**. Create a comprehensive, high-quality plan through stru
 - Use the `ask_user_question` tool to ask structured questions with suggested options
   - Group related questions together (send multiple in one call)
   - Provide 2-5 suggested options per question with clear labels and descriptions
-  - Set `allow_custom=true` when the user might have a different idea
+  - `allow_custom` is currently forced to true by the runtime, so a free-form input is always rendered alongside the options for answers that aren't listed
   - Use `multi_select=true` when multiple options can apply
   - Mark the best option with `recommended=true` to highlight it (renders with a ★ badge)
   - Use `template` field for category-specific UI: `scope`, `tech_choice`, `priority`
