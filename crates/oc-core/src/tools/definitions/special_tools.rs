@@ -389,7 +389,7 @@ pub fn get_image_generate_tool_dynamic(
 pub fn get_team_tool() -> ToolDefinition {
     ToolDefinition {
         name: TOOL_TEAM.into(),
-        description: "Create and manage agent teams for coordinated multi-agent parallel work. Teams have named members, a shared task board, and inter-member messaging. Use for complex tasks that benefit from parallel specialization (e.g., frontend + backend + tester).".into(),
+        description: "Create and manage agent teams for coordinated multi-agent parallel work. Teams have named members (each backed by a subagent), a shared task board, and inter-member messaging. Use for complex tasks that benefit from parallel specialization (e.g., frontend + backend + tester).\n\nBefore creating a team, call `action=\"list_templates\"` to see user-configured presets that may already match your task. Use `template=\"<templateId>\"` in `create` to spawn from a preset (each member can be bound to a specific Agent with its own model/identity). Fall back to inline `members=[{name, task, agent_id?, role?, description?}]` when no preset fits.".into(),
         internal: false,
         deferred: true,
         always_load: false,
@@ -401,12 +401,12 @@ pub fn get_team_tool() -> ToolDefinition {
                     "type": "string",
                     "enum": ["create", "dissolve", "add_member", "remove_member",
                              "send_message", "create_task", "update_task", "list_tasks",
-                             "list_members", "status", "pause", "resume"],
-                    "description": "Team action to perform"
+                             "list_members", "status", "pause", "resume", "list_templates"],
+                    "description": "Team action to perform. `list_templates` returns user-configured preset templates (no other arguments needed)."
                 },
                 "team_id": {
                     "type": "string",
-                    "description": "Team ID (required for all actions except create)"
+                    "description": "Team ID (required for all actions except create and list_templates)"
                 },
                 "name": {
                     "type": "string",
@@ -414,11 +414,11 @@ pub fn get_team_tool() -> ToolDefinition {
                 },
                 "description": {
                     "type": "string",
-                    "description": "Team description (for create)"
+                    "description": "Team description (for create) or member role identity description (for add_member — injected into the member's subagent system prompt)."
                 },
                 "members": {
                     "type": "array",
-                    "description": "Initial members for create: [{name, agent_id?, role?, task}]",
+                    "description": "Initial members for create: [{name, agent_id?, role?, task, model?, description?}]. When used together with `template`, inline members override the template's defaults.",
                     "items": {
                         "type": "object",
                         "properties": {
@@ -426,14 +426,15 @@ pub fn get_team_tool() -> ToolDefinition {
                             "agent_id": { "type": "string" },
                             "role": { "type": "string", "enum": ["worker", "reviewer"] },
                             "task": { "type": "string" },
-                            "model": { "type": "string" }
+                            "model": { "type": "string" },
+                            "description": { "type": "string", "description": "Role identity injected into this member's subagent system prompt" }
                         },
                         "required": ["name", "task"]
                     }
                 },
                 "template": {
                     "type": "string",
-                    "description": "Template name/ID for create (alternative to members)"
+                    "description": "Template ID (or case-insensitive name) for create. Call action=\"list_templates\" first to discover available presets."
                 },
                 "agent_id": { "type": "string", "description": "Agent ID for add_member" },
                 "role": { "type": "string", "enum": ["worker", "reviewer"], "description": "Member role" },

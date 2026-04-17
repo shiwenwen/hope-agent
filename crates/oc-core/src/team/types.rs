@@ -196,6 +196,8 @@ pub struct TeamMember {
     pub color: String,
     pub current_task_id: Option<i64>,
     pub model_override: Option<String>,
+    #[serde(default)]
+    pub role_description: Option<String>,
     pub joined_at: String,
     pub last_active_at: Option<String>,
     pub input_tokens: Option<u64>,
@@ -243,7 +245,10 @@ pub struct TeamTemplate {
     pub name: String,
     pub description: String,
     pub members: Vec<TeamTemplateMember>,
-    pub builtin: bool,
+    #[serde(default)]
+    pub created_at: String,
+    #[serde(default)]
+    pub updated_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -254,6 +259,10 @@ pub struct TeamTemplateMember {
     pub agent_id: String,
     pub color: String,
     pub description: String,
+    #[serde(default)]
+    pub model_override: Option<String>,
+    #[serde(default)]
+    pub default_task_template: Option<String>,
 }
 
 // ── Create Team Request (used by coordinator) ───────────────────
@@ -269,6 +278,10 @@ pub struct CreateTeamMemberSpec {
     pub task: String,
     #[serde(default)]
     pub model: Option<String>,
+    /// Optional role identity description injected into the member's subagent
+    /// system prompt (populated from a template's `TeamTemplateMember.description`).
+    #[serde(default)]
+    pub description: Option<String>,
 }
 
 fn default_agent_id() -> String {

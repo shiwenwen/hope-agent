@@ -113,9 +113,9 @@ impl SessionDB {
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         conn.execute(
             "INSERT INTO team_members (member_id, team_id, name, agent_id, role, status,
-             run_id, session_id, color, current_task_id, model_override, joined_at,
-             last_active_at, input_tokens, output_tokens)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+             run_id, session_id, color, current_task_id, model_override, role_description,
+             joined_at, last_active_at, input_tokens, output_tokens)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
             params![
                 member.member_id,
                 member.team_id,
@@ -128,6 +128,7 @@ impl SessionDB {
                 member.color,
                 member.current_task_id,
                 member.model_override,
+                member.role_description,
                 member.joined_at,
                 member.last_active_at,
                 member.input_tokens.unwrap_or(0) as i64,
@@ -144,7 +145,7 @@ impl SessionDB {
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let result = conn.query_row(
             "SELECT member_id, team_id, name, agent_id, role, status,
-                    run_id, session_id, color, current_task_id, model_override,
+                    run_id, session_id, color, current_task_id, model_override, role_description,
                     joined_at, last_active_at, input_tokens, output_tokens
              FROM team_members WHERE member_id = ?1",
             params![member_id],
@@ -164,7 +165,7 @@ impl SessionDB {
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let mut stmt = conn.prepare(
             "SELECT member_id, team_id, name, agent_id, role, status,
-                    run_id, session_id, color, current_task_id, model_override,
+                    run_id, session_id, color, current_task_id, model_override, role_description,
                     joined_at, last_active_at, input_tokens, output_tokens
              FROM team_members WHERE team_id = ?1 ORDER BY joined_at ASC",
         )?;
@@ -260,7 +261,7 @@ impl SessionDB {
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let result = conn.query_row(
             "SELECT member_id, team_id, name, agent_id, role, status,
-                    run_id, session_id, color, current_task_id, model_override,
+                    run_id, session_id, color, current_task_id, model_override, role_description,
                     joined_at, last_active_at, input_tokens, output_tokens
              FROM team_members WHERE team_id = ?1 AND name = ?2",
             params![team_id, name],
@@ -280,7 +281,7 @@ impl SessionDB {
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let result = conn.query_row(
             "SELECT member_id, team_id, name, agent_id, role, status,
-                    run_id, session_id, color, current_task_id, model_override,
+                    run_id, session_id, color, current_task_id, model_override, role_description,
                     joined_at, last_active_at, input_tokens, output_tokens
              FROM team_members WHERE run_id = ?1",
             params![run_id],
@@ -310,8 +311,8 @@ impl SessionDB {
     }
 
     fn row_to_team_member(row: &rusqlite::Row) -> rusqlite::Result<TeamMember> {
-        let input: i64 = row.get(13)?;
-        let output: i64 = row.get(14)?;
+        let input: i64 = row.get(14)?;
+        let output: i64 = row.get(15)?;
         Ok(TeamMember {
             member_id: row.get(0)?,
             team_id: row.get(1)?,
@@ -324,8 +325,9 @@ impl SessionDB {
             color: row.get(8)?,
             current_task_id: row.get(9)?,
             model_override: row.get(10)?,
-            joined_at: row.get(11)?,
-            last_active_at: row.get(12)?,
+            role_description: row.get(11)?,
+            joined_at: row.get(12)?,
+            last_active_at: row.get(13)?,
             input_tokens: Some(input as u64),
             output_tokens: Some(output as u64),
         })
@@ -523,25 +525,47 @@ impl SessionDB {
 
     // ── Team Templates ──────────────────────────────────────────
 
-    pub fn insert_team_template(&self, tpl: &TeamTemplate) -> Result<()> {
+    /// Insert or replace a team template. Returns the stored row with
+    /// server-assigned `created_at` / `updated_at` so callers don't need a
+    /// follow-up SELECT to read back the timestamps.
+    pub fn insert_team_template(&self, tpl: &TeamTemplate) -> Result<TeamTemplate> {
         let conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let members_json = serde_json::to_string(&tpl.members)?;
+        let now = chrono::Utc::now().to_rfc3339();
+        let created_at = if tpl.created_at.is_empty() {
+            now.clone()
+        } else {
+            tpl.created_at.clone()
+        };
+        let updated_at = if tpl.updated_at.is_empty() {
+            now
+        } else {
+            tpl.updated_at.clone()
+        };
         conn.execute(
             "INSERT OR REPLACE INTO team_templates (template_id, name, description,
-             members_json, builtin, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, datetime('now'))",
+             members_json, builtin, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6)",
             params![
                 tpl.template_id,
                 tpl.name,
                 tpl.description,
                 members_json,
-                tpl.builtin as i32,
+                created_at,
+                updated_at,
             ],
         )?;
-        Ok(())
+        Ok(TeamTemplate {
+            template_id: tpl.template_id.clone(),
+            name: tpl.name.clone(),
+            description: tpl.description.clone(),
+            members: tpl.members.clone(),
+            created_at,
+            updated_at,
+        })
     }
 
     pub fn list_team_templates(&self) -> Result<Vec<TeamTemplate>> {
@@ -550,18 +574,18 @@ impl SessionDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let mut stmt = conn.prepare(
-            "SELECT template_id, name, description, members_json, builtin
-             FROM team_templates ORDER BY builtin DESC, name ASC",
+            "SELECT template_id, name, description, members_json, created_at, updated_at
+             FROM team_templates ORDER BY updated_at DESC, name ASC",
         )?;
         let rows = stmt.query_map([], |row| {
             let members_json: String = row.get(3)?;
-            let builtin: i32 = row.get(4)?;
             Ok(TeamTemplate {
                 template_id: row.get(0)?,
                 name: row.get(1)?,
                 description: row.get(2)?,
                 members: serde_json::from_str(&members_json).unwrap_or_default(),
-                builtin: builtin != 0,
+                created_at: row.get(4)?,
+                updated_at: row.get(5)?,
             })
         })?;
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
@@ -573,7 +597,7 @@ impl SessionDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         conn.execute(
-            "DELETE FROM team_templates WHERE template_id = ?1 AND builtin = 0",
+            "DELETE FROM team_templates WHERE template_id = ?1",
             params![template_id],
         )?;
         Ok(())

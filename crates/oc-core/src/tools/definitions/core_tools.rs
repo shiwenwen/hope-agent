@@ -1029,7 +1029,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                             "server", "acp_control", "skill_env",
                             "tool_result_disk_threshold",
                             "ask_user_question_timeout", "plan",
-                            "security.ssrf"
+                            "security.ssrf", "teams"
                         ]
                     },
                     "values": {

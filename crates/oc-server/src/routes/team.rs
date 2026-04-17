@@ -126,24 +126,34 @@ pub struct CreateTeamBody {
 /// `POST /api/teams`
 pub async fn create_team(Json(body): Json<CreateTeamBody>) -> Result<Json<team::Team>, AppError> {
     let s = state()?;
-    let member_specs = if !body.members.is_empty() {
-        body.members
+    let team_name = body.name.clone();
+    let (member_specs, resolved_template_id) = if !body.members.is_empty() {
+        (body.members, body.template.clone())
     } else if let Some(ref tpl_name) = body.template {
         let templates = team::templates::all_templates(&s.session_db);
         let tpl = templates
             .iter()
             .find(|t| t.template_id == *tpl_name || t.name.eq_ignore_ascii_case(tpl_name))
             .ok_or_else(|| AppError::bad_request(format!("Template '{}' not found", tpl_name)))?;
-        tpl.members
+        let specs = tpl
+            .members
             .iter()
             .map(|m| team::CreateTeamMemberSpec {
                 name: m.name.clone(),
                 agent_id: m.agent_id.clone(),
                 role: Some(m.role.as_str().to_string()),
-                task: m.description.clone(),
-                model: None,
+                task: m
+                    .default_task_template
+                    .clone()
+                    .filter(|s| !s.trim().is_empty())
+                    .unwrap_or_else(|| {
+                        format!("Work on your role '{}' as part of team '{}'.", m.name, team_name)
+                    }),
+                model: m.model_override.clone(),
+                description: Some(m.description.clone()).filter(|s| !s.trim().is_empty()),
             })
-            .collect()
+            .collect();
+        (specs, Some(tpl.template_id.clone()))
     } else {
         return Err(AppError::bad_request("Either 'members' or 'template' required"));
     };
@@ -155,10 +165,32 @@ pub async fn create_team(Json(body): Json<CreateTeamBody>) -> Result<Json<team::
         &body.session_id,
         &body.agent_id,
         &member_specs,
-        body.template.as_deref(),
+        resolved_template_id.as_deref(),
         None,
     )
     .await?;
 
     Ok(Json(created))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveTemplateBody {
+    pub template: team::TeamTemplate,
+}
+
+/// `POST /api/team-templates`
+pub async fn save_team_template(
+    Json(body): Json<SaveTemplateBody>,
+) -> Result<Json<team::TeamTemplate>, AppError> {
+    let saved = team::templates::save_template(&state()?.session_db, body.template)?;
+    Ok(Json(saved))
+}
+
+/// `DELETE /api/team-templates/:id`
+pub async fn delete_team_template(
+    Path(template_id): Path<String>,
+) -> Result<Json<Value>, AppError> {
+    team::templates::delete_template(&state()?.session_db, &template_id)?;
+    Ok(Json(json!({ "status": "deleted", "templateId": template_id })))
 }

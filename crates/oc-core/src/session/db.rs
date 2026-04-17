@@ -276,6 +276,7 @@ impl SessionDB {
                 color TEXT NOT NULL DEFAULT '#3B82F6',
                 current_task_id INTEGER,
                 model_override TEXT,
+                role_description TEXT,
                 joined_at TEXT NOT NULL,
                 last_active_at TEXT,
                 input_tokens INTEGER DEFAULT 0,
@@ -318,9 +319,35 @@ impl SessionDB {
                 description TEXT NOT NULL DEFAULT '',
                 members_json TEXT NOT NULL DEFAULT '[]',
                 builtin INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT ''
             );",
         )?;
+
+        // ── Idempotent migrations for team_* tables ─────────────────
+        // team_members.role_description (nullable role identity prompt snippet)
+        let has_role_description = conn
+            .prepare("SELECT role_description FROM team_members LIMIT 1")
+            .is_ok();
+        if !has_role_description {
+            conn.execute_batch(
+                "ALTER TABLE team_members ADD COLUMN role_description TEXT;",
+            )?;
+        }
+
+        // team_templates.updated_at (for ORDER BY)
+        let has_template_updated_at = conn
+            .prepare("SELECT updated_at FROM team_templates LIMIT 1")
+            .is_ok();
+        if !has_template_updated_at {
+            conn.execute_batch(
+                "ALTER TABLE team_templates ADD COLUMN updated_at TEXT NOT NULL DEFAULT '';",
+            )?;
+        }
+
+        // One-time cleanup: drop legacy builtin templates (design moved to user-managed
+        // presets via Settings → Teams panel; see AGENTS.md Team 系统 section).
+        let _ = conn.execute("DELETE FROM team_templates WHERE builtin = 1", []);
 
         Ok(Self {
             conn: Mutex::new(conn),

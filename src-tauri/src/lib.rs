@@ -388,6 +388,8 @@ pub fn run() {
             commands::team::get_team_tasks,
             commands::team::send_user_team_message,
             commands::team::list_team_templates,
+            commands::team::save_team_template,
+            commands::team::delete_team_template,
             commands::team::create_team,
             commands::team::pause_team,
             commands::team::resume_team,
