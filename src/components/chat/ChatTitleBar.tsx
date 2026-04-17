@@ -30,7 +30,7 @@ interface ChatTitleBarProps {
    * Used by the "View context" popover button to trigger `/context`
    * without going through the text input.
    */
-  onCommandAction?: (action: import("@/components/chat/slash-commands/types").CommandAction) => void
+  onCommandAction?: (result: import("@/components/chat/slash-commands/types").CommandResult) => void
   /** Toggles the in-session "find in page" search bar. */
   onToggleSearch?: () => void
   /** Whether the in-session search bar is currently open (controls active styling). */
@@ -371,9 +371,7 @@ export default function ChatTitleBar({
                               commandText: "/context",
                             })
                             setShowStatus(false)
-                            if (result.action) {
-                              onCommandAction?.(result.action)
-                            }
+                            onCommandAction?.(result)
                           } catch (e) {
                             logger.error("ui", "ChatTitleBar::viewContext", "View context failed", e)
                           }

@@ -267,7 +267,15 @@ export function useSlashCommands(
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent): boolean => {
-      if (!isOpen) return false
+      if (!isOpen) {
+        // Guard: isOpen lags shouldBeOpen by one render (useEffect); intercept Enter to prevent sending slash text as message
+        if (e.key === "Enter" && filteredCommands.length > 0) {
+          e.preventDefault()
+          executeCommand(filteredCommands[selectedIndex])
+          return true
+        }
+        return false
+      }
 
       // When submenu is expanded, handle option navigation
       if (expandedCmd && filteredOptions.length > 0) {
