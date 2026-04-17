@@ -66,18 +66,21 @@ pub fn build_skills_prompt(
         argument substitution, and (for `context: fork` skills) sub-agent isolation.\n\
         Only activate the skill most relevant to the current task — do not activate more than one up front.";
 
-    // Full format — when `whenToUse` is set, render it after the
-    // description as a dedicated trigger hint. The model sees
-    // `- name: <what> — when: <trigger>` which outperforms cramming both
-    // concerns into a single description sentence.
+    // Render `- name: <desc> — when: <trigger>` when the author split
+    // the two fields; fall back to `- name: <trigger_text>` otherwise.
     let full_lines: Vec<String> = active
         .iter()
-        .map(|s| match &s.when_to_use {
-            Some(w) if !w.is_empty() && !s.description.is_empty() => {
-                format!("- {}: {} — when: {}", s.name, s.description, w)
+        .map(|s| {
+            let when = s
+                .when_to_use
+                .as_deref()
+                .filter(|w| !w.is_empty());
+            match when {
+                Some(w) if !s.description.is_empty() => {
+                    format!("- {}: {} — when: {}", s.name, s.description, w)
+                }
+                _ => format!("- {}: {}", s.name, s.trigger_text()),
             }
-            Some(w) if !w.is_empty() => format!("- {}: {}", s.name, w),
-            _ => format!("- {}: {}", s.name, s.description),
         })
         .collect();
 

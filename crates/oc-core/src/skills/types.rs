@@ -171,19 +171,13 @@ pub struct SkillInstallSpec {
 pub struct SkillEntry {
     /// Skill identifier (from frontmatter `name`).
     pub name: String,
-    /// Alternate slash-command names for the same skill. Populated from
-    /// frontmatter `aliases: [foo, bar]`. Each alias registers the skill
-    /// under an extra name in the slash catalog; conflicts with existing
-    /// commands or other aliases lose silently (skip + warn).
+    /// Alternate slash-command names; alias conflicts are skipped silently.
     #[serde(default)]
     pub aliases: Vec<String>,
     /// Human-readable description (from frontmatter `description`).
     pub description: String,
-    /// Optional trigger-only guidance. When set, the skill catalog renders
-    /// "when to use" from this field and keeps `description` as a short
-    /// "what it is" line — lets authors keep descriptions terse without
-    /// starving the model's trigger signal. Falls back to `description`
-    /// when unset.
+    /// Optional trigger hint. Catalog falls back to `description` when unset;
+    /// see `SkillEntry::trigger_text`.
     #[serde(default, rename = "whenToUse", alias = "when_to_use")]
     pub when_to_use: Option<String>,
     /// Source category (e.g., "bundled", "managed", "project").
@@ -264,6 +258,32 @@ pub struct SkillEntry {
 }
 
 impl SkillEntry {
+    /// Text used to decide "when should this skill trigger" — the catalog
+    /// renderer and any future scorer should go through here rather than
+    /// branching on `when_to_use.is_some()` at the call site.
+    pub fn trigger_text(&self) -> &str {
+        match self.when_to_use.as_deref() {
+            Some(s) if !s.is_empty() => s,
+            _ => &self.description,
+        }
+    }
+
+    /// Every slash-command name this skill responds to, already normalized.
+    /// Canonical name first, then aliases. Keeps listing and dispatch in
+    /// sync — dispatch iterates, listing flattens.
+    pub fn all_command_names(&self) -> impl Iterator<Item = String> + '_ {
+        std::iter::once(super::slash::normalize_skill_command_name(&self.name)).chain(
+            self.aliases
+                .iter()
+                .map(|a| super::slash::normalize_skill_command_name(a)),
+        )
+    }
+
+    /// Does this skill own the given (already-normalized) command name?
+    pub fn matches_command(&self, command: &str) -> bool {
+        self.all_command_names().any(|n| n == command)
+    }
+
     /// Build a `SkillSummary` from a loaded entry + an enabled/disabled
     /// decision. Centralizes the Tauri/HTTP adapter projections so a new
     /// summary field only needs to be wired up once.

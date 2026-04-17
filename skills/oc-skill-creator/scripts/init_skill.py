@@ -292,11 +292,11 @@ def init_skill(
     install_kinds: list[str],
 ) -> Path | None:
     skill_dir = out_root.resolve() / skill_name
-    if skill_dir.exists():
-        print(f"[ERROR] Skill directory already exists: {skill_dir}")
-        return None
     try:
         skill_dir.mkdir(parents=True, exist_ok=False)
+    except FileExistsError:
+        print(f"[ERROR] Skill directory already exists: {skill_dir}")
+        return None
     except OSError as exc:
         print(f"[ERROR] Could not create {skill_dir}: {exc}")
         return None
