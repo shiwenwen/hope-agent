@@ -16,6 +16,7 @@ import {
   Server,
   Settings2,
   Shield,
+  ShieldCheck,
   User,
   Wrench,
   Bell,
@@ -48,6 +49,7 @@ import SandboxPanel from "@/components/settings/SandboxPanel"
 import AcpControlPanel from "@/components/settings/AcpControlPanel"
 import ChannelPanel from "@/components/settings/channel-panel"
 import ServerPanel from "@/components/settings/ServerPanel"
+import SecurityPanel from "@/components/settings/SecurityPanel"
 import type { SettingsSection, SettingsSectionItem } from "./types"
 
 const SECTIONS: SettingsSectionItem[] = [
@@ -130,6 +132,11 @@ const SECTIONS: SettingsSectionItem[] = [
     id: "permissions",
     icon: <Shield className="h-4 w-4" />,
     labelKey: "settings.permissions",
+  },
+  {
+    id: "security",
+    icon: <ShieldCheck className="h-4 w-4" />,
+    labelKey: "settings.security",
   },
   {
     id: "health",
@@ -266,6 +273,7 @@ export default function SettingsView({
             {activeSection === "acp" && <AcpControlPanel />}
             {activeSection === "channels" && <ChannelPanel />}
             {activeSection === "permissions" && <PermissionsPanel />}
+            {activeSection === "security" && <SecurityPanel />}
             {activeSection === "chat" && <ChatSettingsPanel />}
             {activeSection === "plan" && <PlanSettingsPanel />}
             {activeSection === "recap" && <RecapSettingsPanel />}

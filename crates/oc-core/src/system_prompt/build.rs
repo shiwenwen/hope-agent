@@ -1,4 +1,4 @@
-use super::constants::{HUMAN_IN_THE_LOOP_GUIDANCE, MAX_FILE_CHARS};
+use super::constants::{HUMAN_IN_THE_LOOP_GUIDANCE, MAX_FILE_CHARS, TOOL_CALL_NARRATION_GUIDANCE};
 use super::helpers::truncate;
 use super::sections::*;
 use crate::agent_config::AgentDefinition;
@@ -23,7 +23,8 @@ const DEFAULT_PROJECT_FILES_INLINE_BUDGET: usize = 8 * 1024;
 /// ⑤ tools.md — custom tool guidance
 /// ⑥ Tool definitions — per-tool descriptions (filtered by agent config)
 /// ⑥b Deferred tools listing (conditional)
-/// ⑥c Human-in-the-loop guidance (conditional, hardcoded)
+/// ⑥c Tool-call narration guidance (hardcoded, always injected)
+/// ⑥d Human-in-the-loop guidance (conditional, hardcoded)
 /// ⑦ Skills — available skill descriptions (filtered)
 /// ⑧ Memory — injected from memory backend
 /// ⑨ Runtime info — date, OS, etc.
@@ -182,7 +183,13 @@ pub fn build(
         sections.push(async_section);
     }
 
-    // ⑥c Human-in-the-loop guidance — hardcoded so it cannot be overridden by
+    // ⑥c Tool-call narration guidance — always injected so the model previews
+    // each tool call with one short natural-language sentence (mirrors Claude
+    // Code's "Before your first tool call, briefly state what you're about to
+    // do"). Hardcoded constant so custom agent.md cannot drop it.
+    sections.push(TOOL_CALL_NARRATION_GUIDANCE.to_string());
+
+    // ⑥d Human-in-the-loop guidance — hardcoded so it cannot be overridden by
     // a user-customized agent.md. Only emitted when the agent has access to
     // the `ask_user_question` tool (agents with no interactive surface skip it).
     if crate::tools::agent_tool_filter_allows(
@@ -405,6 +412,9 @@ pub fn build_legacy(model: Option<&str>, provider: Option<&str>) -> String {
     if let Some(async_section) = build_async_tools_section() {
         sections.push(async_section);
     }
+
+    // Tool-call narration guidance (see build() for rationale)
+    sections.push(TOOL_CALL_NARRATION_GUIDANCE.to_string());
 
     // Skills
     if !skills_section.is_empty() {

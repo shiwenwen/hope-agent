@@ -33,6 +33,7 @@ export interface ProviderConfig {
   enabled: boolean
   userAgent: string
   thinkingStyle: ThinkingStyleType
+  allowPrivateNetwork?: boolean
 }
 
 export interface ProviderTemplate {

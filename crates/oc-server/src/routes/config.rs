@@ -523,6 +523,24 @@ pub async fn save_web_fetch_config(
     Ok(Json(json!({ "saved": true })))
 }
 
+/// `GET /api/config/ssrf` -- get SSRF policy config.
+pub async fn get_ssrf_config(
+) -> Result<Json<oc_core::security::ssrf::SsrfConfig>, AppError> {
+    let store = load_config()?;
+    Ok(Json(store.ssrf))
+}
+
+/// `PUT /api/config/ssrf` -- save SSRF policy config.
+pub async fn save_ssrf_config(
+    Json(body): Json<ConfigBody<oc_core::security::ssrf::SsrfConfig>>,
+) -> Result<Json<Value>, AppError> {
+    let _guard = oc_core::backup::scope_save_reason("security.ssrf", "http-api");
+    let mut store = load_config()?;
+    store.ssrf = body.config;
+    save_config(&store)?;
+    Ok(Json(json!({ "saved": true })))
+}
+
 /// `GET /api/config/image-generate` -- get image generation config.
 pub async fn get_image_generate_config(
 ) -> Result<Json<oc_core::tools::image_generate::ImageGenConfig>, AppError> {

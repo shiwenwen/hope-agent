@@ -229,6 +229,22 @@ See the Human-in-the-loop section below for when (and when not) to use this tool
   - Do NOT use for Plan Mode readiness ('is my plan ready?') — use submit_plan instead\n\
   - Do NOT use for tool approval ('should I run this command?') — the approval mechanism handles it";
 
+/// Hardcoded tool-call narration guidance. Injected by `build.rs` in every
+/// mode (structured / custom / legacy) so users cannot drop it by customizing
+/// agent.md. Mirrors Claude Code's "Text output" / "Before your first tool
+/// call" pattern — the API natively interleaves text blocks with tool_use
+/// blocks in streaming, and this prompt tells the model to exploit that so
+/// users see a short natural-language preview before each tool call.
+pub(super) const TOOL_CALL_NARRATION_GUIDANCE: &str = "# Text output (does not apply to tool calls)
+
+Assume users cannot see tool calls or internal reasoning — only your text output. Before your first tool call, state in one sentence what you're about to do. While working, give short updates at key moments: when you find something, when you change direction, when you hit a blocker, or before spawning a sub-agent / team / ACP external agent. Brief is good — silent is not. One sentence per update is almost always enough.
+
+Do not narrate internal deliberation (\"let me think…\", \"I'll now consider…\"). State results and decisions directly. User-facing text should be relevant communication to the user, not a running commentary on your thought process.
+
+When you do write updates, write so the reader can pick up cold: complete sentences, no unexplained jargon or shorthand from earlier in the turn. A clear sentence beats a clear paragraph.
+
+End-of-turn summary: one or two sentences — what changed and what's next. Nothing else.";
+
 /// Hardcoded human-in-the-loop guidance section. Injected by `build.rs`
 /// whenever the agent has access to `ask_user_question`. Kept as a hardcoded
 /// constant (not in the agent.md template) so users cannot accidentally drop

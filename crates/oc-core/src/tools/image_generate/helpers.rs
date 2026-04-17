@@ -89,10 +89,19 @@ pub(super) async fn load_input_image(path_or_url: &str) -> Result<InputImage> {
 
     // HTTP(S) URL
     if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+        let parsed_url = {
+            let ssrf_cfg = &crate::config::cached_config().ssrf;
+            crate::security::ssrf::check_url(
+                trimmed,
+                ssrf_cfg.image_generate(),
+                &ssrf_cfg.trusted_hosts,
+            )
+            .await?
+        };
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
             .build()?;
-        let resp = client.get(trimmed).send().await?;
+        let resp = client.get(parsed_url).send().await?;
         if !resp.status().is_success() {
             anyhow::bail!(
                 "Failed to download image from {} ({})",

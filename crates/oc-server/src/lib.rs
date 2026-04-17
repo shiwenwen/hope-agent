@@ -409,6 +409,8 @@ fn build_router_with_cors(
             "/config/web-fetch",
             put(routes::config::save_web_fetch_config),
         )
+        .route("/config/ssrf", get(routes::config::get_ssrf_config))
+        .route("/config/ssrf", put(routes::config::save_ssrf_config))
         .route(
             "/config/image-generate",
             get(routes::config::get_image_generate_config),

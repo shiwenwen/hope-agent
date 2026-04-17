@@ -19,6 +19,7 @@ export type SettingsSection =
   | "channels"
   | "developer"
   | "server"
+  | "security"
 
 export interface SettingsSectionItem {
   id: SettingsSection

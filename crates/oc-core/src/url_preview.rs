@@ -6,8 +6,6 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use crate::tools::web_fetch::check_ssrf_safe;
-
 // ── Constants ───────────────────────────────────────────────────
 
 const PREVIEW_TIMEOUT_SECS: u64 = 5;
@@ -249,8 +247,15 @@ pub async fn fetch_preview(url_str: &str) -> Result<UrlPreviewMeta> {
         return Ok(cached);
     }
 
-    // SSRF check
-    check_ssrf_safe(url_str).await?;
+    let parsed_url = {
+        let ssrf_cfg = &crate::config::cached_config().ssrf;
+        crate::security::ssrf::check_url(
+            url_str,
+            ssrf_cfg.url_preview(),
+            &ssrf_cfg.trusted_hosts,
+        )
+        .await?
+    };
 
     // Build HTTP client
     let client = reqwest::Client::builder()
@@ -261,7 +266,7 @@ pub async fn fetch_preview(url_str: &str) -> Result<UrlPreviewMeta> {
         .map_err(|e| anyhow::anyhow!("Failed to build HTTP client: {}", e))?;
 
     let resp = client
-        .get(url_str)
+        .get(parsed_url)
         .send()
         .await
         .map_err(|e| anyhow::anyhow!("Request failed: {}", e))?;

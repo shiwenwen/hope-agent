@@ -39,7 +39,7 @@ fn risk_level(category: &str) -> &'static str {
 
         // ── HIGH ───────────────────────────────────────────────
         "proxy" | "embedding" | "shortcuts" | "skills" | "server" | "acp_control"
-        | "skill_env" => "high",
+        | "skill_env" | "security.ssrf" => "high",
 
         // Read-only categories — no risk since they can't be mutated here.
         "active_model" | "fallback_models" | "all" => "low",
@@ -101,6 +101,7 @@ fn read_category(category: &str) -> Result<Value> {
         "proxy" => Ok(serde_json::to_value(&cfg.proxy)?),
         "web_search" => Ok(serde_json::to_value(&cfg.web_search)?),
         "web_fetch" => Ok(serde_json::to_value(&cfg.web_fetch)?),
+        "security.ssrf" => Ok(serde_json::to_value(&cfg.ssrf)?),
         "compact" => Ok(serde_json::to_value(&cfg.compact)?),
         "notification" => Ok(serde_json::to_value(&cfg.notification)?),
         "temperature" => Ok(json!({ "temperature": cfg.temperature })),
@@ -181,6 +182,10 @@ fn get_all_overview() -> Result<String> {
         "asyncTools": { "enabled": cfg.async_tools.enabled },
         "deferredTools": { "enabled": cfg.deferred_tools.enabled },
         "crossSession": { "enabled": cfg.cross_session.enabled },
+        "security": {
+            "ssrfDefaultPolicy": cfg.ssrf.default_policy,
+            "trustedHostsCount": cfg.ssrf.trusted_hosts.len(),
+        },
         "activeModel": cfg.active_model,
         "fallbackModels": cfg.fallback_models.len(),
         "skills": {
@@ -204,7 +209,7 @@ fn get_all_overview() -> Result<String> {
         ],
         "high": [
             "proxy", "embedding", "shortcuts", "skills", "server",
-            "acp_control", "skill_env"
+            "acp_control", "skill_env", "security.ssrf"
         ],
     });
 
@@ -328,6 +333,7 @@ fn update_app_config(category: &str, values: &Value) -> Result<String> {
         "proxy" => merge_field(&mut store.proxy, values)?,
         "web_search" => merge_field(&mut store.web_search, values)?,
         "web_fetch" => merge_field(&mut store.web_fetch, values)?,
+        "security.ssrf" => merge_field(&mut store.ssrf, values)?,
         "compact" => merge_field(&mut store.compact, values)?,
         "notification" => merge_field(&mut store.notification, values)?,
         "image_generate" => merge_field(&mut store.image_generate, values)?,
