@@ -424,6 +424,20 @@ pub async fn set_ui_effects_enabled(enabled: bool) -> Result<(), String> {
     oc_core::config::save_config(&store).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub async fn get_tool_call_narration_enabled() -> Result<bool, String> {
+    let store = oc_core::config::load_config().map_err(|e| e.to_string())?;
+    Ok(store.tool_call_narration_enabled)
+}
+
+#[tauri::command]
+pub async fn set_tool_call_narration_enabled(enabled: bool) -> Result<(), String> {
+    let mut store = oc_core::config::load_config().map_err(|e| e.to_string())?;
+    store.tool_call_narration_enabled = enabled;
+    let _reason = oc_core::backup::scope_save_reason("tool_call_narration", "ui");
+    oc_core::config::save_config(&store).map_err(|e| e.to_string())
+}
+
 // ── User Config Commands ─────────────────────────────────────────
 
 #[tauri::command]

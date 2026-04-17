@@ -89,6 +89,7 @@ If the response includes `sideEffect`, surface it to the user (e.g. "this requir
 | `plan` | `planSubagent` (bool), `plansDirectory` (string or null) |
 | `skills_auto_review` | `enabled`, `promotion` (`draft`/`auto`), `cooldownSecs`, `tokenThreshold`, `messageThreshold`, `timeoutSecs`, `candidateLimit` (Phase B'1 — when `promotion: "auto"` skip draft review; treat that as HIGH-equivalent and confirm with user) |
 | `recall_summary` | `enabled`, `minHits`, `contextCharBudget`, `timeoutSecs`, `maxTokens`, `includeHistory` (Phase B'3 — opt-in LLM summarization on `recall_memory` output; adds one side_query per call, degrades silently on failure) |
+| `tool_call_narration` | `toolCallNarrationEnabled` (bool, default `false`). When `true`, the system prompt tells the model to preface every tool call with a one-sentence announcement (Claude Code style). Some models (e.g. GPT-5.4 via Codex) over-apply this and restate identical intent across consecutive tool calls, causing visible duplication — default is off so users opt in explicitly. |
 | `teams` | **Special: DB rows, not AppConfig fields.** `read` returns an array of all user-configured team templates. `update` uses CRUD-style values — `{ "action": "save", "template": {...} }` or `{ "action": "delete", "templateId": "..." }`. Saved templates become discoverable by the model via `team(action="list_templates")`. See "Special: `teams` semantics" below. |
 
 ### HIGH risk — require **explicit user confirmation**

@@ -519,6 +519,15 @@ pub struct AppConfig {
     /// `session_search` tool output (Phase B'3). Default disabled.
     #[serde(default)]
     pub recall_summary: crate::memory::RecallSummaryConfig,
+
+    /// Whether to inject `TOOL_CALL_NARRATION_GUIDANCE` into the system prompt.
+    /// When enabled, the model announces each tool call with a one-sentence
+    /// preamble (Claude Code style). Some models (e.g. GPT-5.4 via Codex) over-
+    /// apply the rule and restate the same intent across consecutive tool calls,
+    /// which reads as noise. Default `false` — opt-in when you want the
+    /// narration behavior.
+    #[serde(default)]
+    pub tool_call_narration_enabled: bool,
 }
 
 impl Default for AppConfig {
@@ -575,6 +584,7 @@ impl Default for AppConfig {
             dreaming: crate::memory::dreaming::DreamingConfig::default(),
             skills: crate::skills::SkillsConfig::default(),
             recall_summary: crate::memory::RecallSummaryConfig::default(),
+            tool_call_narration_enabled: false,
         }
     }
 }

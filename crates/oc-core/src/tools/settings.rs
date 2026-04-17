@@ -38,6 +38,7 @@ fn risk_level(category: &str) -> &'static str {
         | "plan"
         | "skills_auto_review"
         | "recall_summary"
+        | "tool_call_narration"
         | "teams" => "medium",
 
         // ── HIGH ───────────────────────────────────────────────
@@ -158,6 +159,9 @@ fn read_category(category: &str) -> Result<Value> {
         })),
         "skills_auto_review" => Ok(serde_json::to_value(&cfg.skills.auto_review)?),
         "recall_summary" => Ok(serde_json::to_value(&cfg.recall_summary)?),
+        "tool_call_narration" => Ok(json!({
+            "toolCallNarrationEnabled": cfg.tool_call_narration_enabled,
+        })),
         "teams" => {
             let db = crate::globals::get_session_db()
                 .ok_or_else(|| anyhow::anyhow!("session DB not initialized"))?;
@@ -225,7 +229,7 @@ fn get_all_overview() -> Result<String> {
             "cross_session", "web_fetch", "web_search", "deferred_tools",
             "async_tools", "approval", "tool_result_disk_threshold",
             "ask_user_question_timeout", "plan", "skills_auto_review",
-            "recall_summary", "teams"
+            "recall_summary", "tool_call_narration", "teams"
         ],
         "high": [
             "proxy", "embedding", "shortcuts", "skills", "server",
@@ -451,6 +455,14 @@ fn update_app_config(category: &str, values: &Value) -> Result<String> {
         }
         "skills_auto_review" => merge_field(&mut store.skills.auto_review, values)?,
         "recall_summary" => merge_field(&mut store.recall_summary, values)?,
+        "tool_call_narration" => {
+            if let Some(v) = values
+                .get("toolCallNarrationEnabled")
+                .and_then(|v| v.as_bool())
+            {
+                store.tool_call_narration_enabled = v;
+            }
+        }
         "teams" => {
             // Teams are DB rows, not AppConfig fields. Perform CRUD directly on the
             // team_templates table and return early (skip save_config / hot reload).

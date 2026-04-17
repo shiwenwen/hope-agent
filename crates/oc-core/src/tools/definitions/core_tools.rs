@@ -996,7 +996,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                             "tool_result_disk_threshold",
                             "ask_user_question_timeout", "plan",
                             "security.ssrf", "skills_auto_review",
-                            "recall_summary", "teams"
+                            "recall_summary", "tool_call_narration", "teams"
                         ]
                     }
                 },
@@ -1031,7 +1031,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                             "tool_result_disk_threshold",
                             "ask_user_question_timeout", "plan",
                             "security.ssrf", "skills_auto_review",
-                            "recall_summary", "teams"
+                            "recall_summary", "tool_call_narration", "teams"
                         ]
                     },
                     "values": {

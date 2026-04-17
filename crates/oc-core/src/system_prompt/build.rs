@@ -207,11 +207,10 @@ pub fn build(
         sections.push(async_section);
     }
 
-    // ⑥c Tool-call narration guidance — always injected so the model previews
-    // each tool call with one short natural-language sentence (mirrors Claude
-    // Code's "Before your first tool call, briefly state what you're about to
-    // do"). Hardcoded constant so custom agent.md cannot drop it.
-    sections.push(TOOL_CALL_NARRATION_GUIDANCE.to_string());
+    // ⑥c Tool-call narration guidance — opt-in via `AppConfig.tool_call_narration_enabled`.
+    if crate::config::cached_config().tool_call_narration_enabled {
+        sections.push(TOOL_CALL_NARRATION_GUIDANCE.to_string());
+    }
 
     // ⑥d Human-in-the-loop guidance — hardcoded so it cannot be overridden by
     // a user-customized agent.md. Only emitted when the agent has access to
@@ -441,8 +440,10 @@ pub fn build_legacy(model: Option<&str>, provider: Option<&str>) -> String {
         sections.push(async_section);
     }
 
-    // Tool-call narration guidance (see build() for rationale)
-    sections.push(TOOL_CALL_NARRATION_GUIDANCE.to_string());
+    // Tool-call narration guidance — gated on AppConfig flag (see build())
+    if crate::config::cached_config().tool_call_narration_enabled {
+        sections.push(TOOL_CALL_NARRATION_GUIDANCE.to_string());
+    }
 
     // Skills
     if !skills_section.is_empty() {

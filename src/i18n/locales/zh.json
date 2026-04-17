@@ -768,6 +768,8 @@
     "chatAutoSendDesc": "回复结束后自动发送排队中的消息，关闭则回填到输入框",
     "chatAutoExpandThinking": "自动展开Think过程",
     "chatAutoExpandThinkingDesc": "聊天气泡中的Think过程默认自动展开，关闭后需手动点击展开",
+    "toolCallNarration": "工具调用前说明",
+    "toolCallNarrationDesc": "开启后在系统提示词中要求模型在每次调用工具前用一句话说明意图（Claude Code 风格）。部分模型（如 GPT-5.4）会在连续工具调用间反复复述同一意图，造成重复。默认关闭",
     "crossSession": {
       "title": "行为感知",
       "desc": "让当前会话实时感知其它并行会话中用户正在做的事",

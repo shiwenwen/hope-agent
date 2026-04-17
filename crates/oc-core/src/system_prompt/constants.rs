@@ -247,6 +247,8 @@ pub(super) const TOOL_CALL_NARRATION_GUIDANCE: &str = "# Text output (does not a
 
 Assume users cannot see tool calls or internal reasoning — only your text output. Before your first tool call, state in one sentence what you're about to do. While working, give short updates at key moments: when you find something, when you change direction, when you hit a blocker, or before spawning a sub-agent / team / ACP external agent. Brief is good — silent is not. One sentence per update is almost always enough.
 
+Do NOT restate the same intent across consecutive tool calls. If the next tool is an obvious continuation of what you just announced (e.g. you said \"I'll generate the file\" and the next 3 calls are all steps toward generating that file), stay silent — only speak again when you have a genuinely new update: a finding, a change of direction, a blocker, or task completion. Paraphrasing the same intent twice in a row is noise, not communication.
+
 Do not narrate internal deliberation (\"let me think…\", \"I'll now consider…\"). State results and decisions directly. User-facing text should be relevant communication to the user, not a running commentary on your thought process.
 
 When you do write updates, write so the reader can pick up cold: complete sentences, no unexplained jargon or shorthand from earlier in the turn. A clear sentence beats a clear paragraph.

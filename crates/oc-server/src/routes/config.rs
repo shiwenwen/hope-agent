@@ -669,6 +669,27 @@ pub async fn set_ui_effects_enabled(Json(body): Json<Value>) -> Result<Json<Valu
     Ok(Json(json!({ "saved": true })))
 }
 
+/// `GET /api/config/tool-call-narration` -- get tool-call narration guidance toggle.
+pub async fn get_tool_call_narration_enabled() -> Result<Json<Value>, AppError> {
+    let store = load_config()?;
+    Ok(Json(json!(store.tool_call_narration_enabled)))
+}
+
+/// `POST /api/config/tool-call-narration` -- set tool-call narration guidance toggle.
+pub async fn set_tool_call_narration_enabled(
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, AppError> {
+    let enabled = body
+        .get("enabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let mut store = load_config()?;
+    store.tool_call_narration_enabled = enabled;
+    let _reason = oc_core::backup::scope_save_reason("tool_call_narration", "http");
+    save_config(&store)?;
+    Ok(Json(json!({ "saved": true })))
+}
+
 /// `GET /api/config/autostart` -- desktop-only, always reports false in server mode.
 pub async fn get_autostart_enabled() -> Result<Json<Value>, AppError> {
     Ok(Json(json!(false)))

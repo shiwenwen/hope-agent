@@ -16,18 +16,23 @@ interface ChatConfig {
 export default function ChatSettingsPanel() {
   const { t } = useTranslation()
   const [config, setConfig] = useState<ChatConfig>({ autoSendPending: true, autoExpandThinking: true })
+  const [narrationEnabled, setNarrationEnabled] = useState(false)
   const [loaded, setLoaded] = useState(false)
 
   useEffect(() => {
-    getTransport().call<{ autoSendPending?: boolean; autoExpandThinking?: boolean }>("get_user_config")
-      .then((cfg) => {
+    Promise.all([
+      getTransport().call<{ autoSendPending?: boolean; autoExpandThinking?: boolean }>("get_user_config"),
+      getTransport().call<boolean>("get_tool_call_narration_enabled"),
+    ])
+      .then(([cfg, narration]) => {
         setConfig({
           autoSendPending: cfg.autoSendPending !== false,
           autoExpandThinking: cfg.autoExpandThinking !== false,
         })
-        setLoaded(true)
+        setNarrationEnabled(narration === true)
       })
-      .catch((e: unknown) => logger.error("settings", "ChatSettingsPanel::load", "Failed to load config", e))
+      .catch((e: unknown) => logger.error("settings", "ChatSettingsPanel::load", "Failed to load chat config", e))
+      .finally(() => setLoaded(true))
   }, [])
 
   async function toggle(key: keyof ChatConfig) {
@@ -41,6 +46,17 @@ export default function ChatSettingsPanel() {
       }
     } catch (e) {
       logger.error("settings", "ChatSettingsPanel::save", "Failed to save chat config", e)
+    }
+  }
+
+  async function toggleNarration() {
+    const next = !narrationEnabled
+    setNarrationEnabled(next)
+    try {
+      await getTransport().call("set_tool_call_narration_enabled", { enabled: next })
+    } catch (e) {
+      setNarrationEnabled(!next)
+      logger.error("settings", "ChatSettingsPanel::saveNarration", "Failed to save narration toggle", e)
     }
   }
 
@@ -84,6 +100,20 @@ export default function ChatSettingsPanel() {
               <Switch
                 checked={config.autoExpandThinking}
                 onCheckedChange={() => toggle("autoExpandThinking")}
+              />
+            </div>
+
+            <div
+              className="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-secondary/40 transition-colors cursor-pointer"
+              onClick={toggleNarration}
+            >
+              <div className="space-y-0.5">
+                <div className="text-sm font-medium">{t("settings.toolCallNarration")}</div>
+                <div className="text-xs text-muted-foreground">{t("settings.toolCallNarrationDesc")}</div>
+              </div>
+              <Switch
+                checked={narrationEnabled}
+                onCheckedChange={toggleNarration}
               />
             </div>
           </div>

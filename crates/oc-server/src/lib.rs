@@ -455,6 +455,14 @@ fn build_router_with_cors(
             post(routes::config::set_ui_effects_enabled),
         )
         .route(
+            "/config/tool-call-narration",
+            get(routes::config::get_tool_call_narration_enabled),
+        )
+        .route(
+            "/config/tool-call-narration",
+            post(routes::config::set_tool_call_narration_enabled),
+        )
+        .route(
             "/config/autostart",
             get(routes::config::get_autostart_enabled),
         )
