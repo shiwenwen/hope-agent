@@ -30,7 +30,12 @@ fn resolve_extract_scope(session_id: &str, agent_id: &str) -> MemoryScope {
     }
 }
 
-// ── Extraction Prompt ───────────────────────────────────────────
+// ── Extraction Prompts ──────────────────────────────────────────
+//
+// Phase B'2 introduces the COMBINED prompt: one side_query returns both
+// factual items AND reflective profile traits. The old legacy prompt is
+// kept as a fallback for when `enable_reflection=false`, so operators can
+// roll back without losing extraction quality.
 
 const EXTRACTION_PROMPT: &str = r#"Extract any new, memorable facts from the conversation below.
 Return a JSON array. Each item: {"content":"...","type":"user|feedback|project|reference","tags":["..."]}
@@ -46,6 +51,39 @@ Rules:
 - Be concise — each content should be 1-2 sentences
 - Return [] if nothing worth remembering
 - Maximum 5 items
+
+Known memories:
+{EXISTING}
+
+Conversation (recent):
+{MESSAGES}"#;
+
+const COMBINED_EXTRACT_PROMPT: &str = r#"Output ONE JSON object with TWO arrays:
+{
+  "facts":    [{"content":"...","type":"user|feedback|project|reference","tags":["..."]}],
+  "profile":  [{"content":"...","type":"user|feedback","tags":["profile", ...]}]
+}
+
+"facts" rules (factual extraction — same as before):
+- Extract NEW information not in "Known memories"
+- Types:
+  * "user" for facts ABOUT the user (name, role, location, skills)
+  * "feedback" for preferences ABOUT AI behavior (response style, things to avoid)
+  * "project" for technical/project facts (stack, architecture, goals)
+  * "reference" for URLs / docs / external resources
+- 1–2 sentences each, max 5 items
+- tags are free-form keywords
+
+"profile" rules (REFLECTIVE — user behavior / communication / work style):
+- What did you LEARN about the user themselves in this conversation?
+- Their preferences, communication style, expectations, work habits
+- Skip if nothing new this turn; max 3 items
+- MUST include "profile" as one of the tags
+- type = "user" for persona traits ("prefers terse answers", "native Chinese speaker")
+-        "feedback" for behavior preferences toward AI ("wants confirmation before destructive ops")
+
+If there's nothing new in either dimension, return {"facts":[],"profile":[]}.
+Respond ONLY with the JSON object, no markdown fences.
 
 Known memories:
 {EXISTING}
@@ -123,8 +161,21 @@ async fn do_extraction(
 
     let messages_text = recent.join("\n\n");
 
-    // Build extraction prompt
-    let prompt = EXTRACTION_PROMPT
+    // Phase B'2: single roundtrip returns facts + profile when reflection is on.
+    // Fall back to the legacy facts-only prompt when the user disabled it.
+    let global_extract = crate::memory::load_extract_config();
+    let agent_def = crate::agent_loader::load_agent(agent_id);
+    let agent_mem = agent_def.as_ref().ok().map(|d| &d.config.memory);
+    let reflect_enabled = agent_mem
+        .and_then(|m| m.enable_reflection)
+        .unwrap_or(global_extract.enable_reflection);
+
+    let prompt_template = if reflect_enabled {
+        COMBINED_EXTRACT_PROMPT
+    } else {
+        EXTRACTION_PROMPT
+    };
+    let prompt = prompt_template
         .replace("{EXISTING}", &existing_summary)
         .replace("{MESSAGES}", &messages_text);
 
@@ -184,12 +235,19 @@ async fn do_extraction(
         // that project's scope so it stays local to the project. Otherwise
         // fall back to the agent's private scope (pre-project behavior).
         let scope = resolve_extract_scope(session_id, agent_id);
+        // Phase B'2: profile-tagged items get a distinct `source` so they're
+        // easy to filter in Dashboard queries and in the review UI.
+        let source = if item.tags.iter().any(|t| t == "profile") {
+            "auto-reflect".to_string()
+        } else {
+            "auto".to_string()
+        };
         let entry = NewMemory {
             memory_type: item.memory_type.clone(),
             scope,
             content: item.content.clone(),
             tags: item.tags.clone(),
-            source: "auto".to_string(),
+            source,
             source_session_id: Some(session_id.to_string()),
             pinned: false,
             attachment_path: None,
@@ -360,22 +418,49 @@ struct ExtractedMemory {
 }
 
 fn parse_extraction_response(response: &str) -> Result<Vec<ExtractedMemory>> {
-    // Try to find JSON array in the response (handle markdown fences, extra text)
-    let json_str = extract_json_array(response)
-        .ok_or_else(|| anyhow::anyhow!("No JSON array found in extraction response"))?;
+    // Phase B'2: response may be either the legacy top-level array of items
+    // OR the combined `{facts: [...], profile: [...]}` object. We prefer the
+    // combined shape when the payload is an object (even if it also happens
+    // to contain nested arrays that `extract_json_array` would match).
+    let trimmed = response.trim();
 
+    // Prefer combined-object shape.
+    if let Some(obj_span) = crate::extract_json_span(trimmed, Some('{')) {
+        if let Ok(obj) = serde_json::from_str::<Value>(obj_span) {
+            if obj.get("facts").is_some() || obj.get("profile").is_some() {
+                let facts = obj
+                    .get("facts")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| decode_items(arr, false, 5))
+                    .unwrap_or_default();
+                let profile = obj
+                    .get("profile")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| decode_items(arr, true, 3))
+                    .unwrap_or_default();
+                let mut all = facts;
+                all.extend(profile);
+                return Ok(all);
+            }
+        }
+    }
+
+    // Fall back to legacy array shape.
+    let json_str = extract_json_array(trimmed)
+        .ok_or_else(|| anyhow::anyhow!("No JSON payload found in extraction response"))?;
     let items: Vec<Value> = serde_json::from_str(&json_str)?;
-    let mut result = Vec::new();
+    Ok(decode_items(&items, false, 5))
+}
 
-    for item in items.iter().take(5) {
+fn decode_items(items: &[Value], force_profile_tag: bool, limit: usize) -> Vec<ExtractedMemory> {
+    let mut out = Vec::new();
+    for item in items.iter().take(limit) {
         let content = match item.get("content").and_then(|v| v.as_str()) {
             Some(c) if !c.trim().is_empty() => c.trim().to_string(),
             _ => continue,
         };
-
         let memory_type = item.get("type").and_then(|v| v.as_str()).unwrap_or("user");
-
-        let tags: Vec<String> = item
+        let mut tags: Vec<String> = item
             .get("tags")
             .and_then(|v| v.as_array())
             .map(|arr| {
@@ -384,15 +469,16 @@ fn parse_extraction_response(response: &str) -> Result<Vec<ExtractedMemory>> {
                     .collect()
             })
             .unwrap_or_default();
-
-        result.push(ExtractedMemory {
+        if force_profile_tag && !tags.iter().any(|t| t == "profile") {
+            tags.push("profile".to_string());
+        }
+        out.push(ExtractedMemory {
             content,
             memory_type: MemoryType::from_str(memory_type),
             tags,
         });
     }
-
-    Ok(result)
+    out
 }
 
 fn extract_json_array(text: &str) -> Option<String> {
@@ -595,4 +681,57 @@ fn extract_text_content(msg: &Value) -> Option<String> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_legacy_array_response() {
+        let text = r#"[{"content":"User prefers Chinese","type":"user","tags":["lang"]}]"#;
+        let items = parse_extraction_response(text).unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].content, "User prefers Chinese");
+        assert!(!items[0].tags.iter().any(|t| t == "profile"));
+    }
+
+    #[test]
+    fn parse_combined_response() {
+        let text = r#"{
+          "facts": [{"content":"Lives in Shanghai","type":"user","tags":[]}],
+          "profile": [{"content":"Prefers terse replies","type":"user","tags":[]}]
+        }"#;
+        let items = parse_extraction_response(text).unwrap();
+        assert_eq!(items.len(), 2);
+        // profile item should have "profile" tag injected.
+        let profile_item = items
+            .iter()
+            .find(|i| i.content.contains("terse"))
+            .expect("profile item present");
+        assert!(profile_item.tags.iter().any(|t| t == "profile"));
+        let fact_item = items
+            .iter()
+            .find(|i| i.content.contains("Shanghai"))
+            .expect("fact item present");
+        assert!(!fact_item.tags.iter().any(|t| t == "profile"));
+    }
+
+    #[test]
+    fn parse_combined_response_with_fences() {
+        let text = r#"Here's the JSON:
+```json
+{"facts":[],"profile":[{"content":"Speaks English fluently","type":"user","tags":["lang"]}]}
+```"#;
+        let items = parse_extraction_response(text).unwrap();
+        assert_eq!(items.len(), 1);
+        assert!(items[0].tags.iter().any(|t| t == "profile"));
+    }
+
+    #[test]
+    fn parse_empty_combined() {
+        let text = r#"{"facts":[],"profile":[]}"#;
+        let items = parse_extraction_response(text).unwrap();
+        assert!(items.is_empty());
+    }
 }

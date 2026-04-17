@@ -481,6 +481,11 @@ pub struct AppConfig {
     /// post-conversation skill CRUD pipeline.
     #[serde(default)]
     pub skills: crate::skills::SkillsConfig,
+
+    /// Opt-in LLM summarization layer on top of `recall_memory` /
+    /// `session_search` tool output (Phase B'3). Default disabled.
+    #[serde(default)]
+    pub recall_summary: crate::memory::RecallSummaryConfig,
 }
 
 impl Default for AppConfig {
@@ -535,6 +540,7 @@ impl Default for AppConfig {
             cross_session: crate::cross_session::CrossSessionConfig::default(),
             dreaming: crate::memory::dreaming::DreamingConfig::default(),
             skills: crate::skills::SkillsConfig::default(),
+            recall_summary: crate::memory::RecallSummaryConfig::default(),
         }
     }
 }

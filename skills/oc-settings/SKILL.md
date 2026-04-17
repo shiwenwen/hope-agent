@@ -88,6 +88,7 @@ If the response includes `sideEffect`, surface it to the user (e.g. "this requir
 | `ask_user_question_timeout` | `askUserQuestionTimeoutSecs` (0 = wait forever) |
 | `plan` | `planSubagent` (bool), `plansDirectory` (string or null) |
 | `skills_auto_review` | `enabled`, `promotion` (`draft`/`auto`), `cooldownSecs`, `tokenThreshold`, `messageThreshold`, `timeoutSecs`, `candidateLimit` (Phase B'1 — when `promotion: "auto"` skip draft review; treat that as HIGH-equivalent and confirm with user) |
+| `recall_summary` | `enabled`, `minHits`, `contextCharBudget`, `timeoutSecs`, `maxTokens`, `includeHistory` (Phase B'3 — opt-in LLM summarization on `recall_memory` output; adds one side_query per call, degrades silently on failure) |
 
 ### HIGH risk — require **explicit user confirmation**
 

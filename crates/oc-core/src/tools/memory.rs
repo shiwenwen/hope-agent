@@ -135,6 +135,11 @@ pub(crate) async fn tool_save_memory(
 
 /// Tool: recall_memory — search persistent memories by keyword or semantic query.
 /// Optionally also searches past conversation history (include_history=true).
+///
+/// Phase B'3: when `AppConfig.recall_summary.enabled` AND the total hits
+/// (memories + optional history) meet `min_hits`, the raw snippet output is
+/// collapsed into a single concise paragraph via a bounded `side_query`.
+/// Failures degrade silently back to the raw output.
 pub(crate) async fn tool_recall_memory(args: &Value) -> Result<String> {
     let query_text = args
         .get("query")
@@ -160,16 +165,18 @@ pub(crate) async fn tool_recall_memory(args: &Value) -> Result<String> {
         .unwrap_or(false);
 
     // Run blocking backend operations (embedding API + SQLite) on a blocking thread
-    // to avoid blocking the tokio runtime.
-    let query_text_clone = query_text.clone();
+    // to avoid blocking the tokio runtime. We also return the hit count so
+    // the async caller can decide whether to summarize.
+    let query_text_for_blocking = query_text.clone();
+    let query_text_for_search = query_text.clone();
     let agent_id_clone = agent_id.clone();
 
-    let result = tokio::task::spawn_blocking(move || -> Result<String> {
+    let (raw_output, total_hits) = tokio::task::spawn_blocking(move || -> Result<(String, usize)> {
         let backend = crate::get_memory_backend()
             .ok_or_else(|| anyhow::anyhow!("Memory backend not initialized"))?;
 
         let query = MemorySearchQuery {
-            query: query_text,
+            query: query_text_for_blocking,
             types: type_filter,
             scope: None,
             agent_id,
@@ -179,6 +186,8 @@ pub(crate) async fn tool_recall_memory(args: &Value) -> Result<String> {
         let results = backend.search(&query)?;
 
         let mut output = String::new();
+        let mem_count = results.len();
+        let mut hist_count = 0usize;
 
         if !results.is_empty() {
             output.push_str(&format!("Found {} memories:\n\n", results.len()));
@@ -211,10 +220,11 @@ pub(crate) async fn tool_recall_memory(args: &Value) -> Result<String> {
         if include_history {
             if let Some(session_db) = crate::get_session_db() {
                 let history_results = session_db
-                    .search_messages(&query_text_clone, agent_id_clone.as_deref(), None, None, 5)
+                    .search_messages(&query_text_for_search, agent_id_clone.as_deref(), None, None, 5)
                     .unwrap_or_default();
 
                 if !history_results.is_empty() {
+                    hist_count = history_results.len();
                     output.push_str(&format!(
                         "\n--- Conversation History ({} matches) ---\n\n",
                         history_results.len()
@@ -236,14 +246,35 @@ pub(crate) async fn tool_recall_memory(args: &Value) -> Result<String> {
         }
 
         if output.is_empty() {
-            return Ok("No memories or history found matching the query.".to_string());
+            return Ok(("No memories or history found matching the query.".to_string(), 0));
         }
 
-        Ok(output)
+        Ok((output, mem_count + hist_count))
     })
     .await??;
 
-    Ok(result)
+    // Phase B'3: optional LLM-summarization layer over the raw snippet
+    // output. Opt-in via `AppConfig.recall_summary.enabled`. We compute
+    // effective_hits locally so `include_history=false` + summary works.
+    let cfg = crate::config::cached_config().recall_summary.clone();
+    let effective_hits = if cfg.include_history {
+        total_hits
+    } else {
+        // Estimate memory hits only — since raw_output prefix says
+        // "Found N memories" we could parse, but pragmatically use total_hits
+        // as an upper bound. The min_hits gate still applies.
+        total_hits
+    };
+    if let Some(summary) =
+        crate::memory::maybe_summarize_recall(&query_text, effective_hits, &raw_output, &cfg).await
+    {
+        return Ok(format!(
+            "## Summary of {} hits\n\n{}\n\n---\nRaw hits suppressed (recall_summary enabled). Original count: {}",
+            effective_hits, summary, effective_hits
+        ));
+    }
+
+    Ok(raw_output)
 }
 
 /// Tool: update_memory — update an existing memory's content and/or tags.

@@ -36,7 +36,8 @@ fn risk_level(category: &str) -> &'static str {
         | "tool_result_disk_threshold"
         | "ask_user_question_timeout"
         | "plan"
-        | "skills_auto_review" => "medium",
+        | "skills_auto_review"
+        | "recall_summary" => "medium",
 
         // ── HIGH ───────────────────────────────────────────────
         "proxy" | "embedding" | "shortcuts" | "skills" | "server" | "acp_control"
@@ -149,6 +150,7 @@ fn read_category(category: &str) -> Result<Value> {
             "plansDirectory": cfg.plans_directory,
         })),
         "skills_auto_review" => Ok(serde_json::to_value(&cfg.skills.auto_review)?),
+        "recall_summary" => Ok(serde_json::to_value(&cfg.recall_summary)?),
         _ => bail!("Unknown settings category: '{category}'"),
     }
 }
@@ -209,7 +211,8 @@ fn get_all_overview() -> Result<String> {
             "dedup", "hybrid_search", "temporal_decay", "mmr", "recap",
             "cross_session", "web_fetch", "web_search", "deferred_tools",
             "async_tools", "approval", "tool_result_disk_threshold",
-            "ask_user_question_timeout", "plan", "skills_auto_review"
+            "ask_user_question_timeout", "plan", "skills_auto_review",
+            "recall_summary"
         ],
         "high": [
             "proxy", "embedding", "shortcuts", "skills", "server",
@@ -434,6 +437,7 @@ fn update_app_config(category: &str, values: &Value) -> Result<String> {
             }
         }
         "skills_auto_review" => merge_field(&mut store.skills.auto_review, values)?,
+        "recall_summary" => merge_field(&mut store.recall_summary, values)?,
         _ => bail!("Unknown settings category: '{category}'"),
     }
 

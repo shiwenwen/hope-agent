@@ -182,6 +182,13 @@ pub struct MemoryExtractConfig {
     /// Idle timeout in seconds — trigger final extraction when session is idle for this long (default: 1800 = 30 min). 0 = disabled.
     #[serde(default = "default_extract_idle_timeout_secs")]
     pub extract_idle_timeout_secs: u64,
+    /// Phase B'2 — enable reflective extraction alongside factual extraction.
+    /// When true, each auto-extract pass asks the model to surface user
+    /// profile traits (communication style, work habits) and tags them
+    /// `profile` so they render in the `## About You` system-prompt section.
+    /// Default: true. Runs in the same side_query roundtrip as `facts`.
+    #[serde(default = "crate::default_true")]
+    pub enable_reflection: bool,
 }
 fn default_extract_token_threshold() -> usize {
     8000
@@ -207,6 +214,7 @@ impl Default for MemoryExtractConfig {
             extract_time_threshold_secs: default_extract_time_threshold_secs(),
             extract_message_threshold: default_extract_message_threshold(),
             extract_idle_timeout_secs: default_extract_idle_timeout_secs(),
+            enable_reflection: true,
         }
     }
 }

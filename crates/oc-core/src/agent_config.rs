@@ -331,6 +331,11 @@ pub struct MemoryConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extract_idle_timeout_secs: Option<u64>,
 
+    /// Phase B'2 — per-agent override for reflective extraction. None =
+    /// inherit the global `MemoryExtractConfig.enable_reflection`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enable_reflection: Option<bool>,
+
     /// Active Memory pre-reply injection (Phase B1).
     /// When enabled, each user turn triggers a bounded side_query that
     /// distills the most relevant memory into a short sentence and injects
@@ -423,6 +428,7 @@ impl Default for MemoryConfig {
             extract_time_threshold_secs: None,
             extract_message_threshold: None,
             extract_idle_timeout_secs: None,
+            enable_reflection: None,
             active_memory: ActiveMemoryConfig::default(),
         }
     }
