@@ -979,7 +979,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                 "properties": {
                     "category": {
                         "type": "string",
-                        "description": "Settings category to read. Use 'all' for an overview.",
+                        "description": "Settings category to read. Use 'all' for an overview (includes risk-level groupings).",
                         "enum": [
                             "all", "user", "theme", "language", "ui_effects", "proxy",
                             "web_search", "web_fetch", "compact", "notification",
@@ -990,7 +990,10 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                             "embedding_cache", "dedup", "hybrid_search",
                             "temporal_decay", "mmr",
                             "recap", "cross_session", "shortcuts",
-                            "active_model", "fallback_models", "skills"
+                            "active_model", "fallback_models", "skills",
+                            "server", "acp_control", "skill_env",
+                            "tool_result_disk_threshold",
+                            "ask_user_question_timeout", "plan"
                         ]
                     }
                 },
@@ -1000,7 +1003,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: TOOL_UPDATE_SETTINGS.into(),
-            description: "Update application settings for a given category. Accepts partial JSON — only the fields you pass are changed, others are preserved. Cannot modify providers, channels, or API keys for security.".into(),
+            description: "Update application settings for a given category. Accepts partial JSON — only the fields you pass are changed, others are preserved. Response includes `riskLevel` (low/medium/high); HIGH-risk categories MUST have explicit user confirmation before being called. Cannot modify providers, channels, or API keys for security.".into(),
             internal: true,
             deferred: false,
             always_load: false,
@@ -1010,7 +1013,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                 "properties": {
                     "category": {
                         "type": "string",
-                        "description": "Settings category to update.",
+                        "description": "Settings category to update. HIGH-risk: proxy, embedding, shortcuts, skills, server, acp_control, skill_env — require explicit user confirmation first.",
                         "enum": [
                             "user", "theme", "language", "ui_effects", "proxy",
                             "web_search", "web_fetch", "compact", "notification",
@@ -1020,7 +1023,10 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                             "memory_extract", "memory_selection", "embedding",
                             "embedding_cache", "dedup", "hybrid_search",
                             "temporal_decay", "mmr",
-                            "recap", "cross_session", "shortcuts", "skills"
+                            "recap", "cross_session", "shortcuts", "skills",
+                            "server", "acp_control", "skill_env",
+                            "tool_result_disk_threshold",
+                            "ask_user_question_timeout", "plan"
                         ]
                     },
                     "values": {
