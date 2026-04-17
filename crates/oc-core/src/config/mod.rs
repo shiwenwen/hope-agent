@@ -476,6 +476,11 @@ pub struct AppConfig {
     /// they promote candidates into pinned core memory.
     #[serde(default)]
     pub dreaming: crate::memory::dreaming::DreamingConfig,
+
+    /// Skills automation (Phase B'). Nests `autoReview` knobs that drive the
+    /// post-conversation skill CRUD pipeline.
+    #[serde(default)]
+    pub skills: crate::skills::SkillsConfig,
 }
 
 impl Default for AppConfig {
@@ -529,6 +534,7 @@ impl Default for AppConfig {
             async_tools: AsyncToolsConfig::default(),
             cross_session: crate::cross_session::CrossSessionConfig::default(),
             dreaming: crate::memory::dreaming::DreamingConfig::default(),
+            skills: crate::skills::SkillsConfig::default(),
         }
     }
 }

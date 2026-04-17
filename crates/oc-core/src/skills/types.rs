@@ -28,6 +28,51 @@ pub(super) fn skill_cache_version_raw() -> u64 {
 
 // ── Types ─────────────────────────────────────────────────────────
 
+/// Lifecycle status of a skill. `Draft` skills are excluded from discovery /
+/// prompt injection until a human reviewer promotes them to `Active`. Auto-
+/// generated skills land in `Draft` by default (see `skills::auto_review`).
+/// The `Archived` state is reserved for deactivated skills we keep on disk for
+/// rollback — also hidden from discovery.
+///
+/// Serialized as lowercase string in SKILL.md frontmatter (`status: "draft"`).
+/// Missing field → `Active` (back-compat with pre-B' skills).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SkillStatus {
+    Active,
+    Draft,
+    Archived,
+}
+
+impl Default for SkillStatus {
+    fn default() -> Self {
+        Self::Active
+    }
+}
+
+impl SkillStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::Draft => "draft",
+            Self::Archived => "archived",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "draft" => Self::Draft,
+            "archived" => Self::Archived,
+            _ => Self::Active,
+        }
+    }
+
+    /// Draft/Archived skills are hidden from prompt catalog + tool filtering.
+    pub fn is_discoverable(&self) -> bool {
+        matches!(self, Self::Active)
+    }
+}
+
 /// Configurable limits for skill prompt generation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SkillPromptBudget {
@@ -175,6 +220,19 @@ pub struct SkillEntry {
     /// Parsed from SKILL.md frontmatter `context:` field.
     #[serde(default)]
     pub context_mode: Option<String>,
+    /// Lifecycle status. `Draft` / `Archived` are excluded from discovery
+    /// (and thus prompt + slash + tool_search). Defaults to `Active`.
+    #[serde(default)]
+    pub status: SkillStatus,
+    /// Source hint: "user" for human-authored, "auto-review" for skills
+    /// created by the auto-review pipeline. Informational; does not affect
+    /// discovery. Missing → "user".
+    #[serde(default)]
+    pub authored_by: Option<String>,
+    /// Free-text rationale recorded when this skill was auto-created or
+    /// auto-patched (surfaced in the draft review UI).
+    #[serde(default)]
+    pub rationale: Option<String>,
 }
 
 /// Lightweight summary returned to the frontend.
@@ -206,6 +264,12 @@ pub struct SkillSummary {
     /// Context mode from SKILL.md frontmatter.
     #[serde(default)]
     pub context_mode: Option<String>,
+    /// Lifecycle status (see `SkillStatus`).
+    #[serde(default)]
+    pub status: SkillStatus,
+    /// Source hint: "user" / "auto-review".
+    #[serde(default)]
+    pub authored_by: Option<String>,
 }
 
 /// File metadata inside a skill directory.
@@ -249,6 +313,12 @@ pub struct SkillDetail {
     pub allowed_tools: Vec<String>,
     #[serde(default)]
     pub context_mode: Option<String>,
+    #[serde(default)]
+    pub status: SkillStatus,
+    #[serde(default)]
+    pub authored_by: Option<String>,
+    #[serde(default)]
+    pub rationale: Option<String>,
 }
 
 /// Skill health status for diagnostics.

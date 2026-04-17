@@ -30,6 +30,8 @@ pub async fn get_skills(state: State<'_, AppState>) -> Result<Vec<skills::SkillS
                 always,
                 allowed_tools: e.allowed_tools,
                 context_mode: e.context_mode,
+                status: e.status,
+                authored_by: e.authored_by,
             }
         })
         .collect())
@@ -297,6 +299,68 @@ pub async fn install_skill_dependency(
 
     skills::bump_skill_version();
     Ok(format!("{}{}", output, verification))
+}
+
+// ── Phase B' Auto-Review ────────────────────────────────────────
+
+/// List all skills currently in `draft` status (auto-created, awaiting review).
+#[tauri::command]
+pub async fn list_draft_skills(
+    state: State<'_, AppState>,
+) -> Result<Vec<skills::SkillSummary>, String> {
+    let store = state.config.lock().await;
+    let drafts = skills::author::list_drafts(&store.extra_skills_dirs);
+    let disabled = &store.disabled_skills;
+    Ok(drafts
+        .into_iter()
+        .map(|e| {
+            let enabled = !disabled.contains(&e.name);
+            skills::SkillSummary {
+                requires_env: e.requires.env.clone(),
+                any_bins: e.requires.any_bins.clone(),
+                always: e.requires.always,
+                name: e.name,
+                description: e.description,
+                source: e.source,
+                base_dir: e.base_dir,
+                enabled,
+                skill_key: e.skill_key,
+                user_invocable: e.user_invocable,
+                disable_model_invocation: e.disable_model_invocation,
+                has_install: !e.install.is_empty(),
+                allowed_tools: e.allowed_tools,
+                context_mode: e.context_mode,
+                status: e.status,
+                authored_by: e.authored_by,
+            }
+        })
+        .collect())
+}
+
+/// Flip a draft skill to active. Skill becomes discoverable immediately.
+#[tauri::command]
+pub async fn activate_draft_skill(name: String) -> Result<(), String> {
+    skills::author::set_skill_status(&name, skills::SkillStatus::Active).map_err(|e| e.to_string())
+}
+
+/// Delete a draft skill's directory.
+#[tauri::command]
+pub async fn discard_draft_skill(name: String) -> Result<(), String> {
+    skills::author::delete_skill(&name).map_err(|e| e.to_string())
+}
+
+/// Manually trigger an auto-review cycle for a session, bypassing thresholds.
+/// Returns the `ReviewReport` as JSON.
+#[tauri::command]
+pub async fn trigger_skill_review_now(session_id: String) -> Result<serde_json::Value, String> {
+    let report = skills::auto_review::run_review_cycle(
+        &session_id,
+        skills::auto_review::ReviewTrigger::Manual,
+        None,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    serde_json::to_value(report).map_err(|e| e.to_string())
 }
 
 /// Run an install command and return its output.

@@ -21,6 +21,9 @@ pub(super) struct ParsedFrontmatter {
     pub install: Vec<SkillInstallSpec>,
     pub allowed_tools: Vec<String>,
     pub context_mode: Option<String>,
+    pub status: SkillStatus,
+    pub authored_by: Option<String>,
+    pub rationale: Option<String>,
 }
 
 /// Extract YAML frontmatter from a SKILL.md file content.
@@ -48,6 +51,9 @@ pub(super) fn parse_frontmatter(content: &str) -> Option<ParsedFrontmatter> {
     let mut command_prompt_template: Option<String> = None;
     let mut allowed_tools: Vec<String> = Vec::new();
     let mut context_mode: Option<String> = None;
+    let mut status: SkillStatus = SkillStatus::Active;
+    let mut authored_by: Option<String> = None;
+    let mut rationale: Option<String> = None;
 
     let requires = parse_requires(yaml_block);
     let install = parse_install_specs(yaml_block);
@@ -123,6 +129,24 @@ pub(super) fn parse_frontmatter(content: &str) -> Option<ParsedFrontmatter> {
             if !val.is_empty() {
                 context_mode = Some(val);
             }
+        } else if let Some(rest) = line_trimmed.strip_prefix("status:") {
+            let val = unquote(rest.trim());
+            if !val.is_empty() {
+                status = SkillStatus::from_str(&val);
+            }
+        } else if let Some(rest) = line_trimmed
+            .strip_prefix("authored-by:")
+            .or_else(|| line_trimmed.strip_prefix("authored_by:"))
+        {
+            let val = unquote(rest.trim());
+            if !val.is_empty() {
+                authored_by = Some(val);
+            }
+        } else if let Some(rest) = line_trimmed.strip_prefix("rationale:") {
+            let val = unquote(rest.trim());
+            if !val.is_empty() {
+                rationale = Some(val);
+            }
         }
     }
 
@@ -154,6 +178,9 @@ pub(super) fn parse_frontmatter(content: &str) -> Option<ParsedFrontmatter> {
         install,
         allowed_tools,
         context_mode,
+        status,
+        authored_by,
+        rationale,
     })
 }
 

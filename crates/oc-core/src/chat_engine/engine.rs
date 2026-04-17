@@ -358,6 +358,48 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         run_memory_extraction_inline(&agent_id, &session_id, model_ref, &agent)
                             .await;
 
+                    // Phase B'1: skill auto-review — record this turn's stats and
+                    // spawn a detached review cycle. We don't pass the main agent
+                    // (can't Clone one), so the pipeline falls back to building a
+                    // fresh analysis agent; this costs one extra cold request but
+                    // keeps the main chat path fully non-blocking. Cooldown + dual
+                    // threshold keeps the fire rate low (~few times per day).
+                    {
+                        let round_tokens = {
+                            let u = captured_usage.lock().unwrap();
+                            let input = u.input_tokens.unwrap_or(0);
+                            let output = u.output_tokens.unwrap_or(0);
+                            (input + output) as usize
+                        };
+                        let round_messages = agent
+                            .get_conversation_history()
+                            .len()
+                            .saturating_sub(history_len_before);
+                        crate::skills::auto_review::touch_turn_stats(
+                            &session_id,
+                            round_tokens,
+                            round_messages,
+                        )
+                        .await;
+                        let session_id_for_review = session_id.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) = crate::skills::auto_review::run_review_cycle(
+                                &session_id_for_review,
+                                crate::skills::auto_review::ReviewTrigger::PostTurn,
+                                None,
+                            )
+                            .await
+                            {
+                                app_warn!(
+                                    "skills",
+                                    "auto_review",
+                                    "post-turn review cycle failed: {}",
+                                    e
+                                );
+                            }
+                        });
+                    }
+
                     // Schedule idle extraction if inline didn't trigger (tracking not reset)
                     if idle_timeout > 0 {
                         let tokens_remain = agent

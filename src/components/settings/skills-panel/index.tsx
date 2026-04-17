@@ -5,9 +5,14 @@ import type { SkillSummary } from "../types"
 import type { SkillDetail } from "./types"
 import SkillListView from "./SkillListView"
 import SkillDetailView from "./SkillDetailView"
+import DraftReviewSection from "./DraftReviewSection"
 
 export default function SkillsPanel() {
   const [skills, setSkills] = useState<SkillSummary[]>([])
+  const [drafts, setDrafts] = useState<SkillSummary[]>([])
+  const [draftPending, setDraftPending] = useState<
+    Record<string, "activate" | "discard" | undefined>
+  >({})
   const [extraDirs, setExtraDirs] = useState<string[]>([])
   const [selectedSkill, setSelectedSkill] = useState<SkillDetail | null>(null)
   const [loading, setLoading] = useState(true)
@@ -23,13 +28,21 @@ export default function SkillsPanel() {
 
   const reload = useCallback(async () => {
     try {
-      const [list, dirs, envCheck, status] = await Promise.all([
+      const [list, draftList, dirs, envCheck, status] = await Promise.all([
         getTransport().call<SkillSummary[]>("get_skills"),
+        getTransport()
+          .call<SkillSummary[]>("list_draft_skills")
+          .catch(() => [] as SkillSummary[]),
         getTransport().call<string[]>("get_extra_skills_dirs"),
         getTransport().call<boolean>("get_skill_env_check"),
         getTransport().call<Record<string, Record<string, boolean>>>("get_skills_env_status"),
       ])
-      setSkills(list)
+      // Drafts are returned in `list_draft_skills` and also show up in
+      // `get_skills` (we want one or the other, not both). Hide draft rows
+      // from the main list so only promoted skills appear there.
+      const draftNames = new Set(draftList.map((d) => d.name))
+      setSkills(list.filter((s) => !draftNames.has(s.name)))
+      setDrafts(draftList)
       setExtraDirs(dirs)
       setSkillEnvCheck(envCheck)
       setEnvStatus(status)
@@ -42,7 +55,35 @@ export default function SkillsPanel() {
 
   useEffect(() => {
     reload()
+    const unlisten = getTransport().listen("skills:auto_review_complete", () => {
+      reload()
+    })
+    return unlisten
   }, [reload])
+
+  async function handleActivateDraft(name: string) {
+    setDraftPending((prev) => ({ ...prev, [name]: "activate" }))
+    try {
+      await getTransport().call("activate_draft_skill", { name })
+      await reload()
+    } catch (e) {
+      logger.error("settings", "SkillsPanel::activateDraft", "Failed to activate", e)
+    } finally {
+      setDraftPending((prev) => ({ ...prev, [name]: undefined }))
+    }
+  }
+
+  async function handleDiscardDraft(name: string) {
+    setDraftPending((prev) => ({ ...prev, [name]: "discard" }))
+    try {
+      await getTransport().call("discard_draft_skill", { name })
+      await reload()
+    } catch (e) {
+      logger.error("settings", "SkillsPanel::discardDraft", "Failed to discard", e)
+    } finally {
+      setDraftPending((prev) => ({ ...prev, [name]: undefined }))
+    }
+  }
 
   async function handleOpenDir(path: string) {
     try {
@@ -173,18 +214,31 @@ export default function SkillsPanel() {
 
   // ── Skills List View ───────────────────────────────────────────
   return (
-    <SkillListView
-      skills={skills}
-      extraDirs={extraDirs}
-      loading={loading}
-      skillEnvCheck={skillEnvCheck}
-      envStatus={envStatus}
-      onToggleSkill={handleToggleSkill}
-      onSelectSkill={handleSelectSkill}
-      onOpenDir={handleOpenDir}
-      onAddDir={handleAddDir}
-      onRemoveDir={handleRemoveDir}
-      onSetSkillEnvCheck={handleSetSkillEnvCheck}
-    />
+    <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+      {drafts.length > 0 && (
+        <div className="px-6 pt-4">
+          <DraftReviewSection
+            drafts={drafts}
+            pendingAction={draftPending}
+            onActivate={handleActivateDraft}
+            onDiscard={handleDiscardDraft}
+            onSelectSkill={handleSelectSkill}
+          />
+        </div>
+      )}
+      <SkillListView
+        skills={skills}
+        extraDirs={extraDirs}
+        loading={loading}
+        skillEnvCheck={skillEnvCheck}
+        envStatus={envStatus}
+        onToggleSkill={handleToggleSkill}
+        onSelectSkill={handleSelectSkill}
+        onOpenDir={handleOpenDir}
+        onAddDir={handleAddDir}
+        onRemoveDir={handleRemoveDir}
+        onSetSkillEnvCheck={handleSetSkillEnvCheck}
+      />
+    </div>
   )
 }

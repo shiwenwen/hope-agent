@@ -34,6 +34,8 @@ pub async fn list_skills() -> Result<Json<Vec<skills::SkillSummary>>, AppError> 
                 has_install: !e.install.is_empty(),
                 allowed_tools: e.allowed_tools,
                 context_mode: e.context_mode,
+                status: e.status,
+                authored_by: e.authored_by,
             }
         })
         .collect();
@@ -216,4 +218,70 @@ pub async fn get_skills_status() -> Result<Json<Vec<skills::SkillStatusEntry>>, 
         &store.skill_env,
         &store.skill_allow_bundled,
     )))
+}
+
+// ── Phase B' Auto-Review ────────────────────────────────────────
+
+/// `GET /api/skills/drafts` — list skills in `status: draft`.
+pub async fn list_draft_skills() -> Result<Json<Vec<skills::SkillSummary>>, AppError> {
+    let store = state()?.config.lock().await;
+    let drafts = skills::author::list_drafts(&store.extra_skills_dirs);
+    let disabled = &store.disabled_skills;
+    let out: Vec<skills::SkillSummary> = drafts
+        .into_iter()
+        .map(|e| {
+            let enabled = !disabled.contains(&e.name);
+            skills::SkillSummary {
+                requires_env: e.requires.env.clone(),
+                any_bins: e.requires.any_bins.clone(),
+                always: e.requires.always,
+                name: e.name,
+                description: e.description,
+                source: e.source,
+                base_dir: e.base_dir,
+                enabled,
+                skill_key: e.skill_key,
+                user_invocable: e.user_invocable,
+                disable_model_invocation: e.disable_model_invocation,
+                has_install: !e.install.is_empty(),
+                allowed_tools: e.allowed_tools,
+                context_mode: e.context_mode,
+                status: e.status,
+                authored_by: e.authored_by,
+            }
+        })
+        .collect();
+    Ok(Json(out))
+}
+
+/// `POST /api/skills/{name}/activate` — promote a draft to active.
+pub async fn activate_draft_skill(Path(name): Path<String>) -> Result<Json<Value>, AppError> {
+    skills::author::set_skill_status(&name, skills::SkillStatus::Active)?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+/// `DELETE /api/skills/{name}/draft` — delete a draft skill.
+pub async fn discard_draft_skill(Path(name): Path<String>) -> Result<Json<Value>, AppError> {
+    skills::author::delete_skill(&name)?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TriggerReviewBody {
+    pub session_id: String,
+}
+
+/// `POST /api/skills/review/run` — manually fire the auto-review pipeline.
+pub async fn trigger_skill_review_now(
+    Json(body): Json<TriggerReviewBody>,
+) -> Result<Json<Value>, AppError> {
+    let report = skills::auto_review::run_review_cycle(
+        &body.session_id,
+        skills::auto_review::ReviewTrigger::Manual,
+        None,
+    )
+    .await
+    .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(serde_json::to_value(report).unwrap_or(Value::Null)))
 }

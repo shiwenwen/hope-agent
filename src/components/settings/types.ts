@@ -44,6 +44,10 @@ export interface ActiveModelRef {
   modelId: string
 }
 
+/** Lifecycle status for a skill. `draft` entries are auto-created and hidden
+ * from discovery until a user promotes them via the Skills panel. */
+export type SkillStatus = "active" | "draft" | "archived"
+
 export interface SkillSummary {
   name: string
   description: string
@@ -57,6 +61,8 @@ export interface SkillSummary {
   has_install?: boolean
   any_bins?: string[]
   always?: boolean
+  status?: SkillStatus
+  authored_by?: string
 }
 
 export interface SkillInstallSpec {

@@ -29,6 +29,8 @@ pub fn build_skills_prompt(
         .filter(|s| !disabled.contains(&s.name))
         // Filter by invocation policy: hide from model if disabled
         .filter(|s| s.disable_model_invocation != Some(true))
+        // Draft / Archived skills are never surfaced to the model
+        .filter(|s| s.status.is_discoverable())
         // Bundled allowlist
         .filter(|s| {
             if allow_bundled.is_empty() || s.source != "bundled" {

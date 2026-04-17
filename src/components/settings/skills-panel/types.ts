@@ -1,4 +1,8 @@
-export { type SkillSummary, type SkillInstallSpec } from "../types"
+export {
+  type SkillSummary,
+  type SkillInstallSpec,
+  type SkillStatus,
+} from "../types"
 
 export interface SkillFileInfo {
   name: string
@@ -32,4 +36,7 @@ export interface SkillDetail {
   command_dispatch?: string
   command_tool?: string
   install?: import("../types").SkillInstallSpec[]
+  status?: import("../types").SkillStatus
+  authored_by?: string
+  rationale?: string
 }

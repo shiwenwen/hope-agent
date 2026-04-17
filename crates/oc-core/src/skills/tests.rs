@@ -33,6 +33,9 @@ mod tests {
             install: vec![],
             allowed_tools: vec![],
             context_mode: None,
+            status: SkillStatus::Active,
+            authored_by: None,
+            rationale: None,
         }
     }
 
@@ -56,6 +59,9 @@ mod tests {
             install: vec![],
             allowed_tools: vec![],
             context_mode: None,
+            status: SkillStatus::Active,
+            authored_by: None,
+            rationale: None,
         }
     }
 

@@ -87,6 +87,7 @@ If the response includes `sideEffect`, surface it to the user (e.g. "this requir
 | `tool_result_disk_threshold` | `toolResultDiskThreshold` (bytes, null = default 50KB, 0 = disable) |
 | `ask_user_question_timeout` | `askUserQuestionTimeoutSecs` (0 = wait forever) |
 | `plan` | `planSubagent` (bool), `plansDirectory` (string or null) |
+| `skills_auto_review` | `enabled`, `promotion` (`draft`/`auto`), `cooldownSecs`, `tokenThreshold`, `messageThreshold`, `timeoutSecs`, `candidateLimit` (Phase B'1 — when `promotion: "auto"` skip draft review; treat that as HIGH-equivalent and confirm with user) |
 
 ### HIGH risk — require **explicit user confirmation**
 

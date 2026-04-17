@@ -622,6 +622,19 @@ fn build_router_with_cors(
             get(routes::skills::get_skills_env_status),
         )
         .route("/skills/status", get(routes::skills::get_skills_status))
+        .route("/skills/drafts", get(routes::skills::list_draft_skills))
+        .route(
+            "/skills/review/run",
+            post(routes::skills::trigger_skill_review_now),
+        )
+        .route(
+            "/skills/{name}/activate",
+            post(routes::skills::activate_draft_skill),
+        )
+        .route(
+            "/skills/{name}/draft",
+            delete(routes::skills::discard_draft_skill),
+        )
         .route(
             "/skills/extra-dirs",
             get(routes::skills::get_extra_skills_dirs),

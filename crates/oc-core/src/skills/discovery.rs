@@ -218,6 +218,9 @@ fn load_single_skill(
         install: parsed.install,
         allowed_tools: parsed.allowed_tools,
         context_mode: parsed.context_mode,
+        status: parsed.status,
+        authored_by: parsed.authored_by,
+        rationale: parsed.rationale,
     })
 }
 
@@ -303,6 +306,8 @@ pub fn get_invocable_skills(extra_dirs: &[String], disabled: &[String]) -> Vec<S
         .into_iter()
         .filter(|s| !disabled.contains(&s.name))
         .filter(|s| s.user_invocable != Some(false))
+        // Draft/Archived skills are excluded from slash command registration
+        .filter(|s| s.status.is_discoverable())
         .collect()
 }
 
@@ -355,5 +360,8 @@ pub fn get_skill_content(
         install: entry.install,
         allowed_tools: entry.allowed_tools,
         context_mode: entry.context_mode,
+        status: entry.status,
+        authored_by: entry.authored_by,
+        rationale: entry.rationale,
     })
 }
