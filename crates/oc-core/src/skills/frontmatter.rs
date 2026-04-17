@@ -6,18 +6,13 @@ use super::types::*;
 pub(super) struct ParsedFrontmatter {
     pub name: String,
     pub description: String,
-    /// Optional trigger-only text pulled from `whenToUse:` (a.k.a.
-    /// `when-to-use:`). Kept separate from `description` so the catalog
-    /// can render "what this skill is" and "when to use it" distinctly,
-    /// letting authors keep the first short without starving the trigger.
+    /// See `SkillEntry::when_to_use`.
     pub when_to_use: Option<String>,
     pub requires: SkillRequires,
     #[allow(dead_code)]
     pub body: String,
     pub skill_key: Option<String>,
-    /// Extra slash-command names that should route to this skill (e.g.
-    /// `aliases: [pr-review, review-pr]`). All aliases share the skill's
-    /// handler; conflicts with existing commands lose to the canonical name.
+    /// See `SkillEntry::aliases`.
     pub aliases: Vec<String>,
     pub user_invocable: Option<bool>,
     pub disable_model_invocation: Option<bool>,
@@ -143,8 +138,7 @@ pub(super) fn parse_frontmatter(content: &str) -> Option<ParsedFrontmatter> {
         } else if let Some(rest) = line_trimmed
             .strip_prefix("command-arg-placeholder:")
             .or_else(|| line_trimmed.strip_prefix("command_arg_placeholder:"))
-            // `argumentHint` is Anthropic-common spelling; accept as alias.
-            // If both are present, the last line wins (standard YAML behavior).
+            // Anthropic-common spelling — accept as alias.
             .or_else(|| line_trimmed.strip_prefix("argumentHint:"))
             .or_else(|| line_trimmed.strip_prefix("argument-hint:"))
             .or_else(|| line_trimmed.strip_prefix("argument_hint:"))

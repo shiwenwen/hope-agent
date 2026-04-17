@@ -22,9 +22,19 @@ pub async fn list_slash_commands(state: &AppState) -> Result<Vec<SlashCommandDef
         commands.iter().map(|c| c.name.clone()).collect();
 
     for skill in skill_entries {
-        // Canonical name first — if it collides, the skill gets a suffixed
-        // form; aliases that collide just drop silently (they're supplementary).
-        let mut cmd_name = crate::skills::normalize_skill_command_name(&skill.name);
+        // Hoist the per-skill constants out of the command loop — cloning
+        // them once matches per-alias cost to per-skill cost.
+        let arg_placeholder = skill
+            .command_arg_placeholder
+            .clone()
+            .or_else(|| Some("[args]".into()));
+        let arg_options = skill.command_arg_options.clone();
+        let description_raw = Some(truncate_description(&skill.description, 100));
+
+        let mut names = skill.all_command_names();
+        // Canonical name first: collides with built-ins or earlier skills
+        // → suffix; aliases that collide drop silently (supplementary only).
+        let mut cmd_name = names.next().expect("canonical name always yielded");
         if used_names.contains(&cmd_name) {
             cmd_name = format!("{}_skill", cmd_name);
         }
@@ -35,33 +45,32 @@ pub async fn list_slash_commands(state: &AppState) -> Result<Vec<SlashCommandDef
             counter += 1;
         }
         used_names.insert(cmd_name.clone());
+        commands.push(SlashCommandDef {
+            name: cmd_name,
+            category: CommandCategory::Skill,
+            description_key: String::new(),
+            has_args: true,
+            args_optional: true,
+            arg_placeholder: arg_placeholder.clone(),
+            arg_options: arg_options.clone(),
+            description_raw: description_raw.clone(),
+        });
 
-        let push_cmd = |commands: &mut Vec<SlashCommandDef>, name: String| {
-            commands.push(SlashCommandDef {
-                name,
-                category: CommandCategory::Skill,
-                description_key: String::new(),
-                has_args: true,
-                args_optional: true,
-                arg_placeholder: skill
-                    .command_arg_placeholder
-                    .clone()
-                    .or_else(|| Some("[args]".into())),
-                arg_options: skill.command_arg_options.clone(),
-                description_raw: Some(truncate_description(&skill.description, 100)),
-            });
-        };
-        push_cmd(&mut commands, cmd_name);
-
-        // Extra alias entries — skip any that would collide so we never
-        // silently shadow a built-in or an earlier skill.
-        for alias in &skill.aliases {
-            let alias_cmd = crate::skills::normalize_skill_command_name(alias);
+        for alias_cmd in names {
             if used_names.contains(&alias_cmd) {
                 continue;
             }
             used_names.insert(alias_cmd.clone());
-            push_cmd(&mut commands, alias_cmd);
+            commands.push(SlashCommandDef {
+                name: alias_cmd,
+                category: CommandCategory::Skill,
+                description_key: String::new(),
+                has_args: true,
+                args_optional: true,
+                arg_placeholder: arg_placeholder.clone(),
+                arg_options: arg_options.clone(),
+                description_raw: description_raw.clone(),
+            });
         }
     }
 

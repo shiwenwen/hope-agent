@@ -9,6 +9,11 @@ target/
 src-tauri/target/
 src-tauri/WixTools/
 
+# Python (skill-creator scripts, eval helpers)
+__pycache__/
+*.pyc
+*.pyo
+
 # OpenComputer runtime data
 .opencomputer/
 

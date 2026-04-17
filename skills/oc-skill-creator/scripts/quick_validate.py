@@ -9,6 +9,42 @@ import re
 import yaml
 from pathlib import Path
 
+# Allowed frontmatter keys. Mirrors the Rust frontmatter parser at
+# crates/oc-core/src/skills/frontmatter.rs — whenever a field is added
+# there, add both spellings here (kebab-case and camelCase / snake_case
+# aliases) so scaffolded skills pass validation. The integration test
+# `test_quick_validate::test_accepts_full_frontmatter` fails loudly if
+# this drifts out of sync.
+ALLOWED_PROPERTIES = frozenset({
+    # identity
+    'name', 'description', 'whenToUse', 'when-to-use', 'when_to_use',
+    'aliases',
+    # upstream-compatible optional metadata
+    'license', 'metadata', 'compatibility',
+    # invocation control
+    'user-invocable', 'user_invocable',
+    'disable-model-invocation', 'disable_model_invocation',
+    'skillKey', 'skill_key',
+    # command dispatch
+    'command-dispatch', 'command_dispatch',
+    'command-tool', 'command_tool',
+    'command-arg-mode', 'command_arg_mode',
+    'command-arg-placeholder', 'command_arg_placeholder',
+    'argumentHint', 'argument-hint', 'argument_hint',
+    'command-arg-options', 'command_arg_options',
+    'command-prompt-template', 'command_prompt_template',
+    # execution
+    'context', 'agent', 'effort', 'paths',
+    'allowed-tools', 'allowed_tools',
+    # prerequisites
+    'requires', 'always', 'primaryEnv', 'primary_env',
+    # installation
+    'install',
+    # lifecycle
+    'status', 'authored-by', 'authored_by', 'rationale',
+})
+
+
 def validate_skill(skill_path):
     """Basic validation of a skill"""
     skill_path = Path(skill_path)
@@ -37,9 +73,6 @@ def validate_skill(skill_path):
             return False, "Frontmatter must be a YAML dictionary"
     except yaml.YAMLError as e:
         return False, f"Invalid YAML in frontmatter: {e}"
-
-    # Define allowed properties
-    ALLOWED_PROPERTIES = {'name', 'description', 'license', 'allowed-tools', 'metadata', 'compatibility'}
 
     # Check for unexpected properties (excluding nested keys under metadata)
     unexpected_keys = set(frontmatter.keys()) - ALLOWED_PROPERTIES
