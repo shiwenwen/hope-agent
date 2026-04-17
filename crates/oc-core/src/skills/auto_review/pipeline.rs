@@ -98,9 +98,8 @@ pub async fn run_review_cycle(
         ReviewTrigger::Manual => acquire_manual_gate(session_id, &cfg).await?,
     };
 
-    if !cfg.enabled && trigger == ReviewTrigger::Manual {
-        // Manual explicitly opted in — run anyway. (Disabled only gates automatic path.)
-    }
+    // Manual triggers bypass the `enabled` gate — the user explicitly asked;
+    // `enabled` only gates the automatic `PostTurn` path (which exits above).
 
     let outcome = match run_inner(session_id, &cfg, main_agent).await {
         Ok(report) => report,

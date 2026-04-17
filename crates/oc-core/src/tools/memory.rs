@@ -267,29 +267,22 @@ pub(crate) async fn tool_recall_memory(args: &Value) -> Result<String> {
     }
 
     // Phase B'3: optional LLM-summarization layer over the raw snippet
-    // output. Opt-in via `AppConfig.recall_summary.enabled`. We compute
-    // effective_hits locally so `include_history=false` + summary works.
+    // output. Opt-in via `AppConfig.recall_summary.enabled`. `total_hits` is
+    // already memory-only when `include_history=false` (history snippets are
+    // guarded by that flag at fetch time), so we don't need a second gate here.
     let cfg = crate::config::cached_config().recall_summary.clone();
-    let effective_hits = if cfg.include_history {
-        total_hits
-    } else {
-        // Estimate memory hits only — since raw_output prefix says
-        // "Found N memories" we could parse, but pragmatically use total_hits
-        // as an upper bound. The min_hits gate still applies.
-        total_hits
-    };
     if let Some(summary) =
-        crate::memory::maybe_summarize_recall(&query_text, effective_hits, &raw_output, &cfg).await
+        crate::memory::maybe_summarize_recall(&query_text, total_hits, &raw_output, &cfg).await
     {
         crate::dashboard::emit_learning_event(
             crate::dashboard::EVT_RECALL_SUMMARY_USED,
             None,
             None,
-            Some(&serde_json::json!({ "hits": effective_hits })),
+            Some(&serde_json::json!({ "hits": total_hits })),
         );
         return Ok(format!(
             "## Summary of {} hits\n\n{}\n\n---\nRaw hits suppressed (recall_summary enabled). Original count: {}",
-            effective_hits, summary, effective_hits
+            total_hits, summary, total_hits
         ));
     }
 

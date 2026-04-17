@@ -228,13 +228,16 @@ async fn do_extraction(
         return Ok(());
     }
 
+    // If the session belongs to a project, write the new memory into
+    // that project's scope so it stays local to the project. Otherwise
+    // fall back to the agent's private scope (pre-project behavior).
+    // Resolved once per extraction run (session/agent are constant inside a
+    // turn, so no need to hit the session DB per extracted item).
+    let scope = resolve_extract_scope(session_id, agent_id);
+
     // Save each extracted memory with dedup
     let mut saved_count = 0usize;
     for item in &extracted {
-        // If the session belongs to a project, write the new memory into
-        // that project's scope so it stays local to the project. Otherwise
-        // fall back to the agent's private scope (pre-project behavior).
-        let scope = resolve_extract_scope(session_id, agent_id);
         // Phase B'2: profile-tagged items get a distinct `source` so they're
         // easy to filter in Dashboard queries and in the review UI.
         let source = if item.tags.iter().any(|t| t == "profile") {
@@ -244,7 +247,7 @@ async fn do_extraction(
         };
         let entry = NewMemory {
             memory_type: item.memory_type.clone(),
-            scope,
+            scope: scope.clone(),
             content: item.content.clone(),
             tags: item.tags.clone(),
             source,
@@ -384,12 +387,14 @@ pub async fn flush_before_compact(
         return Ok(0);
     }
 
+    // Resolve once — session/agent are constant inside a flush run.
+    let scope = resolve_extract_scope(session_id, agent_id);
+
     let mut saved_count = 0usize;
     for item in &extracted {
-        let scope = resolve_extract_scope(session_id, agent_id);
         let entry = NewMemory {
             memory_type: item.memory_type.clone(),
-            scope,
+            scope: scope.clone(),
             content: item.content.clone(),
             tags: item.tags.clone(),
             source: "flush".to_string(),

@@ -109,24 +109,26 @@ pub fn query_learning_overview(db: &SessionDB, window_days: u32) -> Result<Learn
         }
     }
 
-    // Breakdown skill_created by source (auto-review vs user).
+    // Breakdown skill_created by source (auto-review vs user). Push the
+    // JSON extraction into SQLite with `json_extract` so we get two rows
+    // instead of one row-per-event; the `COALESCE` maps missing sources
+    // (pre-B'4 data) to "user" to match legacy behavior.
     let mut stmt2 = conn.prepare(
-        "SELECT meta_json FROM learning_events
-         WHERE kind = ?1 AND ts >= ?2",
+        "SELECT COALESCE(json_extract(meta_json, '$.source'), 'user') AS src,
+                COUNT(*)
+         FROM learning_events
+         WHERE kind = ?1 AND ts >= ?2
+         GROUP BY src",
     )?;
-    let metas = stmt2.query_map(params![EVT_SKILL_CREATED, cutoff], |row| {
-        row.get::<_, Option<String>>(0)
+    let rows = stmt2.query_map(params![EVT_SKILL_CREATED, cutoff], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as u64))
     })?;
-    for m in metas {
-        let source = m?
-            .as_deref()
-            .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
-            .and_then(|v| v.get("source").and_then(|s| s.as_str()).map(String::from))
-            .unwrap_or_else(|| "user".to_string());
-        if source == "auto-review" {
-            overview.auto_created_skills += 1;
+    for row in rows {
+        let (src, count) = row?;
+        if src == "auto-review" {
+            overview.auto_created_skills = count;
         } else {
-            overview.user_created_skills += 1;
+            overview.user_created_skills += count;
         }
     }
 
