@@ -5,11 +5,17 @@
 //! the internal types.
 
 use axum::{
-    extract::Path,
+    extract::{Path, Query},
     Json,
 };
 use oc_core::memory::dreaming;
+use serde::Deserialize;
 use serde_json::{json, Value};
+
+#[derive(Debug, Default, Deserialize)]
+pub struct ListDiariesQuery {
+    pub limit: Option<usize>,
+}
 
 use crate::error::AppError;
 
@@ -20,9 +26,12 @@ pub async fn run_now() -> Result<Json<dreaming::DreamReport>, AppError> {
     ))
 }
 
-/// `GET /api/dreaming/diaries` — list available Dream Diary files.
-pub async fn list_diaries() -> Result<Json<Vec<dreaming::DiaryEntry>>, AppError> {
-    Ok(Json(dreaming::list_diaries()?))
+/// `GET /api/dreaming/diaries?limit=N` — list available Dream Diary
+/// files, newest first, optionally capped at `limit`.
+pub async fn list_diaries(
+    Query(q): Query<ListDiariesQuery>,
+) -> Result<Json<Vec<dreaming::DiaryEntry>>, AppError> {
+    Ok(Json(dreaming::list_diaries(q.limit)?))
 }
 
 /// `GET /api/dreaming/diaries/{filename}` — fetch the markdown of a

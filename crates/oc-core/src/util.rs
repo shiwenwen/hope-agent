@@ -69,3 +69,53 @@ pub fn sql_u64(row: &rusqlite::Row, idx: usize) -> rusqlite::Result<u64> {
 pub fn sql_opt_u64(row: &rusqlite::Row, idx: usize) -> rusqlite::Result<Option<u64>> {
     row.get::<_, Option<i64>>(idx).map(|v| v.map(|n| n as u64))
 }
+
+/// Locate the first balanced JSON span starting at the earliest `[` or
+/// `{`. Tolerates leading prose and ```json code fences — anything
+/// before the first bracket is skipped. Tracks string state so brackets
+/// inside strings don't confuse the depth counter. Returns the slice
+/// including both enclosing brackets.
+///
+/// When `preferred_open` is `Some('[')` or `Some('{')`, only the matching
+/// bracket style is considered; otherwise whichever appears first wins.
+/// Used by the LLM response parsers to pluck a JSON envelope out of
+/// mixed text — see `memory_extract::parse_extraction_response` and
+/// `memory::dreaming::scoring::parse_nominations`.
+pub fn extract_json_span(text: &str, preferred_open: Option<char>) -> Option<&str> {
+    let bytes = text.as_bytes();
+    let start = bytes.iter().position(|&b| match preferred_open {
+        Some('[') => b == b'[',
+        Some('{') => b == b'{',
+        _ => b == b'[' || b == b'{',
+    })?;
+    let open = bytes[start];
+    let close = if open == b'[' { b']' } else { b'}' };
+
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escape = false;
+    for (i, &b) in bytes.iter().enumerate().skip(start) {
+        if in_string {
+            if escape {
+                escape = false;
+            } else if b == b'\\' {
+                escape = true;
+            } else if b == b'"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match b {
+            b'"' => in_string = true,
+            x if x == open => depth += 1,
+            x if x == close => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(&text[start..=i]);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}

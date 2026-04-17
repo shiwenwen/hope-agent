@@ -11,10 +11,14 @@ pub async fn dreaming_run_now() -> Result<dreaming::DreamReport, String> {
     Ok(dreaming::manual_run(dreaming::DreamTrigger::Manual).await)
 }
 
-/// List all Dream Diary markdown files (newest first).
+/// List Dream Diary markdown files (newest first). `limit` caps the
+/// returned set so the Dashboard stays responsive after months of daily
+/// cycles; omitting it returns the full set.
 #[tauri::command]
-pub async fn dreaming_list_diaries() -> Result<Vec<dreaming::DiaryEntry>, String> {
-    dreaming::list_diaries().map_err(|e| e.to_string())
+pub async fn dreaming_list_diaries(
+    limit: Option<usize>,
+) -> Result<Vec<dreaming::DiaryEntry>, String> {
+    dreaming::list_diaries(limit).map_err(|e| e.to_string())
 }
 
 /// Read the markdown for a single diary file.

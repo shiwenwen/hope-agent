@@ -30,19 +30,41 @@ use std::hash::{Hash, Hasher};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+use crate::agent_config::ActiveMemoryConfig;
 use crate::memory::{MemoryEntry, MemoryScope, MemorySearchQuery};
 
-/// Per-agent Active Memory runtime state: cache + inflight guard.
+/// Soft cap for the per-session recall cache. Large enough that typical
+/// usage never evicts inside the TTL window; small enough that the O(n)
+/// eviction scan is trivially cheap.
+const MAX_CACHE_ENTRIES: usize = 32;
+
+/// Snapshot of the agent-level config fields Active Memory needs every
+/// user turn. Cached on `ActiveMemoryState` so the hot path doesn't hit
+/// disk (reading `agent.json` + associated markdown files) per turn.
+#[derive(Clone)]
+pub struct CachedAgentConfig {
+    pub active_memory: ActiveMemoryConfig,
+    pub shared_global: bool,
+}
+
+/// Per-agent Active Memory runtime state: recall cache + cached agent
+/// config snapshot.
 pub struct ActiveMemoryState {
     /// LRU-ish cache keyed by hash(user_message). Kept small (<= 32 entries)
     /// because this is a per-session state and users rarely revisit the
     /// exact same phrasing after the TTL expires.
     cache: Mutex<HashMap<u64, CachedRecall>>,
+    /// Cached config snapshot. Lazily filled on the first turn and
+    /// invalidated by [`ActiveMemoryState::invalidate_config`] (called
+    /// from `AssistantAgent::set_agent_id`).
+    agent_config: Mutex<Option<CachedAgentConfig>>,
 }
 
 struct CachedRecall {
-    /// None means "we ran the side_query and the LLM returned NONE / empty".
-    /// We still cache that decision so the next repeat doesn't re-query.
+    /// `None` is a valid cached value meaning "we ran the side_query for
+    /// this user message and the LLM decided nothing was worth recalling
+    /// (returned NONE / empty)". A cache miss (no entry at all) is
+    /// signalled separately by `get_cached` returning `None`.
     text: Option<String>,
     created_at: Instant,
 }
@@ -51,7 +73,33 @@ impl ActiveMemoryState {
     pub fn new() -> Self {
         Self {
             cache: Mutex::new(HashMap::new()),
+            agent_config: Mutex::new(None),
         }
+    }
+
+    /// Return the cached agent-config snapshot, or fetch + cache it.
+    /// The loader is invoked at most once per agent-id lifetime; callers
+    /// must invalidate via [`Self::invalidate_config`] when the agent id
+    /// changes so the next turn re-reads disk.
+    pub fn agent_config_or_load<F>(&self, load: F) -> CachedAgentConfig
+    where
+        F: FnOnce() -> CachedAgentConfig,
+    {
+        let mut guard = self.agent_config.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(cfg) = guard.as_ref() {
+            return cfg.clone();
+        }
+        let cfg = load();
+        *guard = Some(cfg.clone());
+        cfg
+    }
+
+    /// Drop the cached agent-config snapshot. Also clears the recall
+    /// cache because the shortlist scopes and TTL both derive from
+    /// config and may have changed.
+    pub fn invalidate_config(&self) {
+        *self.agent_config.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        self.cache.lock().unwrap_or_else(|e| e.into_inner()).clear();
     }
 
     /// Return the cached recall for this user-text hash if still valid.
@@ -71,10 +119,17 @@ impl ActiveMemoryState {
     pub fn put_cached(&self, hash: u64, text: Option<String>) {
         let mut guard = self.cache.lock().unwrap_or_else(|e| e.into_inner());
         // Cheap cap to avoid unbounded growth when users cycle through
-        // many different phrasings. 32 entries is plenty for one session.
-        if guard.len() >= 32 {
-            // Drop the oldest entry (HashMap has no order; clear half).
-            guard.clear();
+        // many different phrasings. When over capacity, evict the single
+        // oldest entry by `created_at` (O(n) but n <= 32, and eviction
+        // happens at most once per put).
+        if guard.len() >= MAX_CACHE_ENTRIES {
+            if let Some(oldest_key) = guard
+                .iter()
+                .min_by_key(|(_, v)| v.created_at)
+                .map(|(k, _)| *k)
+            {
+                guard.remove(&oldest_key);
+            }
         }
         guard.insert(
             hash,

@@ -306,6 +306,7 @@ impl AssistantAgent {
             .agent_caps_cache
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = None;
+        self.active_memory_state.invalidate_config();
     }
 
     /// Return cached per-session snapshot of the fields used from `agent.json`
@@ -412,20 +413,23 @@ impl AssistantAgent {
     pub(crate) async fn refresh_active_memory_suffix(&self, user_text: &str) {
         use std::time::Duration;
 
-        // 1. Load per-agent memory config (single read — we pull both
-        //    `active_memory` and `shared` from the same MemoryConfig so the
-        //    agent.json disk hit stays amortised across the per-turn call).
-        //    Missing agent file behaves as enabled + shared=true.
-        let (cfg, shared_global) = match crate::agent_loader::load_agent(&self.agent_id) {
-            Ok(def) => (
-                def.config.memory.active_memory.clone(),
-                def.config.memory.shared,
-            ),
-            Err(_) => (
-                crate::agent_config::ActiveMemoryConfig::default(),
-                true,
-            ),
-        };
+        // 1. Resolve per-agent memory config. Cached on ActiveMemoryState
+        //    so the per-turn hot path doesn't re-read agent.json from
+        //    disk; invalidated by `set_agent_id`.
+        let snapshot = self.active_memory_state.agent_config_or_load(|| {
+            match crate::agent_loader::load_agent(&self.agent_id) {
+                Ok(def) => active_memory::CachedAgentConfig {
+                    active_memory: def.config.memory.active_memory.clone(),
+                    shared_global: def.config.memory.shared,
+                },
+                Err(_) => active_memory::CachedAgentConfig {
+                    active_memory: crate::agent_config::ActiveMemoryConfig::default(),
+                    shared_global: true,
+                },
+            }
+        });
+        let cfg = snapshot.active_memory;
+        let shared_global = snapshot.shared_global;
         if !cfg.enabled {
             // Clear any stale suffix from a previous enabled turn.
             *self

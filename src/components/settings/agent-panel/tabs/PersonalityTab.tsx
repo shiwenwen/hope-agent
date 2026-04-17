@@ -7,8 +7,38 @@ import { X } from "lucide-react"
 import { OpenClawHintBanner } from "./CustomTab"
 import { TONE_PRESETS } from "../types"
 import type { AgentConfig, PersonalityConfig, PersonaMode } from "../types"
-import { getTransport } from "@/lib/transport"
-import { logger } from "@/lib/logger"
+
+// Pure, client-side renderer used when the user first switches into the
+// SoulMd editing surface with an empty soul.md. Renders directly from the
+// in-memory config rather than round-tripping to the backend so the user
+// sees the draft instantly and there's no race with the in-flight
+// `updatePersonality({ mode })` save.
+function renderPersonaTemplate(name: string, p: PersonalityConfig): string {
+  const lines: string[] = [`# ${name} — Who You Are\n`]
+  const section = (heading: string, body?: string | null) => {
+    const text = body?.trim()
+    if (text) lines.push(`\n## ${heading}\n\n${text}\n`)
+  }
+  const listSection = (heading: string, items: string[] | undefined) => {
+    const cleaned = (items ?? []).map((s) => s.trim()).filter(Boolean)
+    if (cleaned.length === 0) return
+    lines.push(`\n## ${heading}\n\n`)
+    for (const item of cleaned) lines.push(`- ${item}\n`)
+  }
+  section("Role", p.role)
+  section("Vibe", p.vibe)
+  section("Tone", p.tone)
+  listSection("Traits", p.traits)
+  listSection("Principles", p.principles)
+  section("Boundaries", p.boundaries)
+  section("Quirks", p.quirks)
+  section("Communication Style", p.communicationStyle)
+  const out = lines.join("")
+  if (!out.includes("##")) {
+    return `${out}\n_Describe your persona here: role, tone, values, boundaries, and any quirks that make you distinctive._\n`
+  }
+  return out
+}
 
 interface PersonalityTabProps {
   agentId: string
@@ -29,7 +59,7 @@ interface PersonalityTabProps {
 }
 
 export default function PersonalityTab({
-  agentId,
+  agentId: _agentId,
   config,
   persona,
   openclawMode,
@@ -49,25 +79,11 @@ export default function PersonalityTab({
   // openclaw mode.
   const mode: PersonaMode = config.personality?.mode ?? "structured"
 
-  const handleModeChange = async (next: PersonaMode) => {
+  const handleModeChange = (next: PersonaMode) => {
     if (next === mode) return
     updatePersonality({ mode: next })
-    // First-time switch to SoulMd with an empty editor: render the structured
-    // fields into a markdown draft so the user isn't staring at a blank canvas.
     if (next === "soulMd" && !soulMd.trim()) {
-      try {
-        const res = await getTransport().call<{ content: string } | string | null>(
-          "render_persona_to_soul_md",
-          { id: agentId },
-        )
-        const content =
-          typeof res === "string"
-            ? res
-            : (res && typeof res === "object" && "content" in res ? res.content : "") ?? ""
-        if (content) setSoulMd(content)
-      } catch (e) {
-        logger.error("settings", "PersonalityTab::renderSoulMd", "Failed to render persona", e)
-      }
+      setSoulMd(renderPersonaTemplate(config.name, config.personality))
     }
   }
 
@@ -87,7 +103,7 @@ export default function PersonalityTab({
           </div>
           <div className="flex gap-1.5">
             <button
-              onClick={() => void handleModeChange("structured")}
+              onClick={() => handleModeChange("structured")}
               className={cn(
                 "flex-1 px-3 py-2 text-xs rounded-md transition-colors",
                 mode === "structured"
@@ -98,7 +114,7 @@ export default function PersonalityTab({
               {t("settings.personaModeStructured")}
             </button>
             <button
-              onClick={() => void handleModeChange("soulMd")}
+              onClick={() => handleModeChange("soulMd")}
               className={cn(
                 "flex-1 px-3 py-2 text-xs rounded-md transition-colors",
                 mode === "soulMd"

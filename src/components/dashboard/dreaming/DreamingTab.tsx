@@ -33,15 +33,15 @@ export default function DreamingTab() {
 
   const loadDiaries = useCallback(async () => {
     try {
-      const list = await getTransport().call<DiaryEntry[]>("dreaming_list_diaries")
+      const list = await getTransport().call<DiaryEntry[]>(
+        "dreaming_list_diaries",
+        { limit: 100 },
+      )
       setDiaries(list ?? [])
-      if (!selected && list && list.length > 0) {
-        setSelected(list[0].filename)
-      }
     } catch (e) {
       logger.error("dashboard", "DreamingTab::list", "Failed to list diaries", e)
     }
-  }, [selected])
+  }, [])
 
   const loadContent = useCallback(async (filename: string) => {
     try {
@@ -97,6 +97,15 @@ export default function DreamingTab() {
     })
     return unlisten
   }, [loadDiaries, refreshStatus])
+
+  // Auto-select the newest diary when the list first arrives or after a
+  // refresh — without adding `selected` to loadDiaries' deps, which would
+  // retrigger the listing every time the user picks a different entry.
+  useEffect(() => {
+    if (!selected && diaries.length > 0) {
+      setSelected(diaries[0].filename)
+    }
+  }, [diaries, selected])
 
   useEffect(() => {
     if (selected) void loadContent(selected)

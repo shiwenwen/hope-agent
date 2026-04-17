@@ -32,7 +32,7 @@ mod triggers;
 mod types;
 
 pub use config::{CronTriggerConfig, DreamingConfig, IdleTriggerConfig, PromotionThresholds};
-pub use pipeline::{run_cycle, CycleOutcome};
+pub use pipeline::run_cycle;
 pub use triggers::{
     check_idle_trigger, dreaming_running, manual_run, touch_activity, DreamTrigger,
 };
@@ -51,10 +51,13 @@ pub struct DiaryEntry {
     pub size_bytes: u64,
 }
 
-/// List all Dream Diary markdown files in descending filename order.
+/// List Dream Diary markdown files in descending filename order (newest
+/// first). When `limit` is provided, returns at most that many entries —
+/// protects the Dashboard from blowing up after months of daily cycles.
+///
 /// Filenames are generated from local time (see `narrative::write_diary`),
 /// so lexical sort == reverse chronological.
-pub fn list_diaries() -> Result<Vec<DiaryEntry>> {
+pub fn list_diaries(limit: Option<usize>) -> Result<Vec<DiaryEntry>> {
     let dir = crate::paths::dreams_dir()?;
     if !dir.exists() {
         return Ok(Vec::new());
@@ -91,8 +94,10 @@ pub fn list_diaries() -> Result<Vec<DiaryEntry>> {
             size_bytes: meta.len(),
         });
     }
-    // Sort by filename descending — newest first.
     entries.sort_by(|a, b| b.filename.cmp(&a.filename));
+    if let Some(max) = limit {
+        entries.truncate(max);
+    }
     Ok(entries)
 }
 

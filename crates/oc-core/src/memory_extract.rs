@@ -396,34 +396,13 @@ fn parse_extraction_response(response: &str) -> Result<Vec<ExtractedMemory>> {
 }
 
 fn extract_json_array(text: &str) -> Option<String> {
-    // Try direct parse first
-    if serde_json::from_str::<Vec<Value>>(text.trim()).is_ok() {
-        return Some(text.trim().to_string());
+    let trimmed = text.trim();
+    if serde_json::from_str::<Vec<Value>>(trimmed).is_ok() {
+        return Some(trimmed.to_string());
     }
-
-    // Try to find [...] in the text
-    let start = text.find('[')?;
-    let mut depth = 0;
-    let mut end = None;
-    for (i, ch) in text[start..].char_indices() {
-        match ch {
-            '[' => depth += 1,
-            ']' => {
-                depth -= 1;
-                if depth == 0 {
-                    end = Some(start + i + 1);
-                    break;
-                }
-            }
-            _ => {}
-        }
-    }
-
-    let end = end?;
-    let candidate = &text[start..end];
-    // Validate it's valid JSON
-    if serde_json::from_str::<Vec<Value>>(candidate).is_ok() {
-        Some(candidate.to_string())
+    let span = crate::extract_json_span(text, Some('['))?;
+    if serde_json::from_str::<Vec<Value>>(span).is_ok() {
+        Some(span.to_string())
     } else {
         None
     }

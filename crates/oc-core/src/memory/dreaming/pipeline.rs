@@ -23,14 +23,6 @@ use super::types::DreamReport;
 
 use crate::agent::AssistantAgent;
 
-/// Summarised outcome for structured logging. Full report still flows
-/// back to the caller as-is.
-#[derive(Debug, Clone, Copy)]
-pub enum CycleOutcome {
-    Ran,
-    Skipped,
-}
-
 /// Execute one dreaming cycle and return the report.
 /// `report.note` carries a short reason when a cycle is skipped.
 pub async fn run_cycle(trigger: DreamTrigger) -> DreamReport {
@@ -126,26 +118,30 @@ pub async fn run_cycle(trigger: DreamTrigger) -> DreamReport {
         }
     };
 
-    // 6. Apply promotions (flip pinned=true on each).
-    let promotions = narrative_out.promotions.clone();
+    // 6. Apply promotions (flip pinned=true on each). Render the diary
+    //    before moving `narrative_out` so we only hold one copy of the
+    //    promotion records across the closure boundary.
+    let diary_md = narrative::render_diary_markdown(&narrative_out);
+    let promotions = narrative_out.promotions;
+    let nominated_count = narrative_out.promotions_nominated;
+    let promoted_count = promotions.len();
     let promotions_for_blocking = promotions.clone();
     let pinned = tokio::task::spawn_blocking(move || {
         promotion::apply_promotions(&promotions_for_blocking).unwrap_or_default()
     })
     .await
     .unwrap_or_default();
-    if pinned.len() < promotions.len() {
+    if pinned.len() < promoted_count {
         app_warn!(
             "memory",
             "dreaming::run_cycle",
             "promotions partial: {} pinned of {} nominated",
             pinned.len(),
-            promotions.len()
+            promoted_count
         );
     }
 
     // 7. Write the diary markdown.
-    let diary_md = narrative::render_diary_markdown(&narrative_out);
     let diary_path = match narrative::write_diary(&diary_md) {
         Ok(path) => Some(path.to_string_lossy().to_string()),
         Err(e) => {
@@ -160,23 +156,22 @@ pub async fn run_cycle(trigger: DreamTrigger) -> DreamReport {
     };
 
     let duration_ms = started.elapsed().as_millis() as u64;
+    emit_cycle_event(
+        trigger,
+        candidates.len(),
+        promoted_count,
+        diary_path.clone(),
+        duration_ms,
+    );
     let report = DreamReport {
         trigger,
         candidates_scanned: candidates.len(),
-        candidates_nominated: narrative_out.promotions_nominated,
+        candidates_nominated: nominated_count,
         promoted: promotions,
-        diary_path: diary_path.clone(),
+        diary_path,
         duration_ms,
         note: None,
     };
-
-    emit_cycle_event(
-        trigger,
-        report.candidates_scanned,
-        report.promoted.len(),
-        diary_path,
-        duration_ms,
-    );
 
     app_info!(
         "memory",

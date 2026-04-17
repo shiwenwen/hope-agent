@@ -7,7 +7,7 @@
 use anyhow::Result;
 use chrono::{Duration, Utc};
 
-use crate::memory::{MemoryEntry, MemoryScope, MemorySearchQuery};
+use crate::memory::{MemoryEntry, MemoryScope};
 
 /// Fetch up to `limit` memory entries created in the last `scope_days`,
 /// across Global + all Agent + all Project scopes. Pinned entries are
@@ -63,22 +63,4 @@ pub fn render_candidates_for_prompt(candidates: &[MemoryEntry]) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
-}
-
-/// Placeholder — kept so callers can drive a FTS pre-filter when a more
-/// specific focus query is known. The Light-phase pipeline currently just
-/// calls `collect_candidates` directly.
-#[allow(dead_code)]
-pub fn search_candidates(query: &str, limit: usize) -> Result<Vec<MemoryEntry>> {
-    let Some(backend) = crate::get_memory_backend() else {
-        return Ok(Vec::new());
-    };
-    let q = MemorySearchQuery {
-        query: query.to_string(),
-        scope: None,
-        types: None,
-        agent_id: None,
-        limit: Some(limit),
-    };
-    backend.search(&q)
 }

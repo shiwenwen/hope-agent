@@ -32,7 +32,7 @@ pub fn parse_nominations(text: &str) -> Vec<PromotionRecord> {
     // Tolerate fenced code blocks by extracting the first `[ ... ]` or
     // `{ ... }` span, so an LLM that wrapped its output in ```json ...
     // ``` still parses.
-    let json_slice = extract_json_span(trimmed).unwrap_or(trimmed);
+    let json_slice = crate::extract_json_span(trimmed, None).unwrap_or(trimmed);
 
     // Try array first, then object with "promotions" field.
     let raw_list: Vec<RawNomination> =
@@ -97,46 +97,6 @@ fn coerce_id(v: &serde_json::Value) -> Option<i64> {
     }
     if let Some(s) = v.as_str() {
         return s.trim().parse::<i64>().ok();
-    }
-    None
-}
-
-/// Grab the first balanced JSON array or object from a string. Handles
-/// markdown code fences by letting the scan start wherever the first `[`
-/// or `{` appears.
-fn extract_json_span(text: &str) -> Option<&str> {
-    let bytes = text.as_bytes();
-    let start = bytes
-        .iter()
-        .position(|&b| b == b'[' || b == b'{')?;
-    let open = bytes[start];
-    let close = if open == b'[' { b']' } else { b'}' };
-
-    let mut depth = 0usize;
-    let mut in_string = false;
-    let mut escape = false;
-    for (i, &b) in bytes.iter().enumerate().skip(start) {
-        if in_string {
-            if escape {
-                escape = false;
-            } else if b == b'\\' {
-                escape = true;
-            } else if b == b'"' {
-                in_string = false;
-            }
-            continue;
-        }
-        match b {
-            b'"' => in_string = true,
-            x if x == open => depth += 1,
-            x if x == close => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(&text[start..=i]);
-                }
-            }
-            _ => {}
-        }
     }
     None
 }
