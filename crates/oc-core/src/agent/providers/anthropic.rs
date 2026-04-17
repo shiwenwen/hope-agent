@@ -10,8 +10,9 @@ use super::super::config::{
 };
 use super::super::content::build_user_content_anthropic;
 use super::super::events::{
-    build_anthropic_tool_result_content, emit_text_delta, emit_thinking_delta, emit_tool_call,
-    emit_tool_result, emit_usage, extract_media_items, extract_media_urls,
+    build_anthropic_tool_result_content, emit_max_rounds_notice, emit_text_delta,
+    emit_thinking_delta, emit_tool_call, emit_tool_result, emit_usage, extract_media_items,
+    extract_media_urls,
 };
 use super::super::types::{AssistantAgent, ChatUsage};
 use super::tool_exec_helpers::{execute_tool_with_cancel, log_tool_input, log_tool_output};
@@ -98,6 +99,7 @@ impl AssistantAgent {
             max_rounds
         };
         let mut round_count: u32 = 0;
+        let mut natural_exit = false;
         for round in 0..max_rounds {
             if cancel.load(Ordering::SeqCst) {
                 break;
@@ -326,6 +328,7 @@ impl AssistantAgent {
 
             // If cancelled, no tool calls, or not tool_use stop reason — done
             if tool_calls.is_empty() || stop_reason.as_deref() != Some("tool_use") {
+                natural_exit = true;
                 break;
             }
 
@@ -506,6 +509,11 @@ impl AssistantAgent {
         }
 
         let cancelled = cancel.load(Ordering::SeqCst);
+        let rounds_exhausted = !natural_exit && !cancelled && round_count == max_rounds;
+        if rounds_exhausted {
+            let notice = emit_max_rounds_notice(on_delta, max_rounds);
+            collected_text.push_str(&notice);
+        }
         if collected_text.is_empty() && !cancelled {
             return Err(anyhow::anyhow!("No content received from Anthropic API"));
         }
@@ -555,6 +563,7 @@ impl AssistantAgent {
                         "total_rounds": round_count,
                         "history_length": history_len,
                         "cancelled": cancelled,
+                        "rounds_exhausted": rounds_exhausted,
                         "model": model,
                         "usage": {
                             "input_tokens": total_usage.input_tokens,

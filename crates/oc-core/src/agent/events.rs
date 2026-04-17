@@ -265,6 +265,28 @@ pub(super) fn emit_thinking_delta(on_delta: &(impl Fn(&str) + Send), text: &str)
     );
 }
 
+/// Build the "tool loop rounds exhausted" notice shown to the user when a chat
+/// request hits `max_tool_rounds` without reaching natural termination. The
+/// returned string is appended to the assistant message (for persistence) and
+/// emitted as a text_delta so the UI sees it immediately.
+pub(super) fn build_max_rounds_notice(max_rounds: u32) -> String {
+    format!(
+        "\n\n---\n⚠️ 已达到工具调用轮次上限（{} 轮），本次回复已被强制中止。\n可在设置 → Agent → 能力中调大 `max_tool_rounds`，或重新发起请求让我换个思路再试。",
+        max_rounds
+    )
+}
+
+/// Emit the max-rounds notice as a text_delta AND return it so the caller can
+/// append it to `collected_text` for persistence.
+pub(super) fn emit_max_rounds_notice(
+    on_delta: &(impl Fn(&str) + Send),
+    max_rounds: u32,
+) -> String {
+    let notice = build_max_rounds_notice(max_rounds);
+    emit_text_delta(on_delta, &notice);
+    notice
+}
+
 pub(super) fn emit_usage(
     on_delta: &(impl Fn(&str) + Send),
     usage: &ChatUsage,

@@ -10,8 +10,9 @@ use super::super::api_types::FunctionCallItem;
 use super::super::config::{apply_thinking_to_chat_body, build_api_url, get_max_tool_rounds};
 use super::super::content::build_user_content_openai_chat;
 use super::super::events::{
-    build_openai_chat_tool_result_content, emit_text_delta, emit_thinking_delta, emit_tool_call,
-    emit_tool_result, emit_usage, extract_media_items, extract_media_urls,
+    build_openai_chat_tool_result_content, emit_max_rounds_notice, emit_text_delta,
+    emit_thinking_delta, emit_tool_call, emit_tool_result, emit_usage, extract_media_items,
+    extract_media_urls,
 };
 use super::super::types::{AssistantAgent, Attachment, ChatUsage, ThinkTagFilter};
 use super::tool_exec_helpers::{execute_tool_with_cancel, log_tool_input, log_tool_output};
@@ -89,6 +90,7 @@ impl AssistantAgent {
             max_rounds
         };
         let mut round_count: u32 = 0;
+        let mut natural_exit = false;
         for round in 0..max_rounds {
             if cancel.load(Ordering::SeqCst) {
                 break;
@@ -297,6 +299,7 @@ impl AssistantAgent {
             total_usage.accumulate_round(&round_usage);
 
             if tool_calls.is_empty() {
+                natural_exit = true;
                 break;
             }
 
@@ -476,6 +479,11 @@ impl AssistantAgent {
         }
 
         let cancelled = cancel.load(Ordering::SeqCst);
+        let rounds_exhausted = !natural_exit && !cancelled && round_count == max_rounds;
+        if rounds_exhausted {
+            let notice = emit_max_rounds_notice(on_delta, max_rounds);
+            collected_text.push_str(&notice);
+        }
         if collected_text.is_empty() && !cancelled {
             return Err(anyhow::anyhow!("No content received from OpenAI Chat API"));
         }
@@ -519,6 +527,7 @@ impl AssistantAgent {
                         "total_rounds": round_count,
                         "history_length": history_len,
                         "cancelled": cancelled,
+                        "rounds_exhausted": rounds_exhausted,
                         "model": model,
                         "usage": {
                             "input_tokens": total_usage.input_tokens,

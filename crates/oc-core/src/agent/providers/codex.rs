@@ -13,8 +13,8 @@ use super::super::config::{
 use super::super::content::build_user_content_responses;
 use super::super::errors::{is_retryable_error, os_version, parse_error_response};
 use super::super::events::{
-    build_responses_tool_result, emit_tool_call, emit_tool_result, emit_usage,
-    extract_media_items, extract_media_urls,
+    build_responses_tool_result, emit_max_rounds_notice, emit_tool_call, emit_tool_result,
+    emit_usage, extract_media_items, extract_media_urls,
 };
 use super::super::types::{AssistantAgent, Attachment, ChatUsage};
 use super::tool_exec_helpers::{execute_tool_with_cancel, log_tool_input, log_tool_output};
@@ -96,6 +96,7 @@ impl AssistantAgent {
             max_rounds
         };
         let mut round_count: u32 = 0;
+        let mut natural_exit = false;
         for round in 0..max_rounds {
             if cancel.load(Ordering::SeqCst) {
                 break;
@@ -370,6 +371,7 @@ impl AssistantAgent {
                 for ri in &round_reasoning_items {
                     input.push(ri.clone());
                 }
+                natural_exit = true;
                 break;
             }
 
@@ -562,6 +564,11 @@ impl AssistantAgent {
         }
 
         let cancelled = cancel.load(Ordering::SeqCst);
+        let rounds_exhausted = !natural_exit && !cancelled && round_count == max_rounds;
+        if rounds_exhausted {
+            let notice = emit_max_rounds_notice(on_delta, max_rounds);
+            collected_text.push_str(&notice);
+        }
         if collected_text.is_empty() && !cancelled {
             return Err(anyhow::anyhow!("No content received from Codex API"));
         }
@@ -607,6 +614,7 @@ impl AssistantAgent {
                         "total_rounds": round_count,
                         "history_length": history_len,
                         "cancelled": cancelled,
+                        "rounds_exhausted": rounds_exhausted,
                         "model": model,
                         "usage": {
                             "input_tokens": total_usage.input_tokens,
