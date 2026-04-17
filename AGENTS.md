@@ -310,6 +310,30 @@ src-tauri/src/          Tauri 薄壳（命令层 + 桌面集成）
 - Rust 依赖变更后 `cargo check` 先行验证（workspace 级别）
 - 前端新增 invoke 调用时须同步实现 Transport 的 Tauri 和 HTTP 两种适配
 
+## 设置（Settings）约定
+
+所有用户可操作的配置必须同时具备 **GUI 入口** 和 **`oc-settings` 技能对应能力**，两者零偏差。新增/修改任何进入 `AppConfig` 或 `UserConfig` 且用户需要调整的字段时，**必须在同一 PR 里完成以下三件事**：
+
+1. **前端 GUI**：在 [`src/components/settings/`](src/components/settings/) 对应面板加入控件（shadcn/ui 组件），带即时反馈和三态保存按钮
+2. **Settings 技能能力**：
+   - 在 [`crates/oc-core/src/tools/settings.rs`](crates/oc-core/src/tools/settings.rs) 的 `read_category` / `update_app_config` 加读写分支
+   - 在 `risk_level()`（LOW/MEDIUM/HIGH）和 `get_all_overview()` 的 `riskLevels` map 里显式分级
+   - 如涉及重启/网络暴露/凭据等副作用，在 `side_effect_note()` 补一句提示
+   - 同步更新 [`crates/oc-core/src/tools/definitions/core_tools.rs`](crates/oc-core/src/tools/definitions/core_tools.rs) 里 `get_settings` / `update_settings` 两个 tool 的 `category` enum
+3. **技能文档**：在 [`skills/oc-settings/SKILL.md`](skills/oc-settings/SKILL.md) 的风险等级表里加该分类和字段说明
+
+### 风险等级判定
+
+- **LOW**：UI 偏好、显示配额、不影响成本/安全（theme / language / notification / canvas 等）
+- **MEDIUM**：行为调整，影响上下文、成本或输出质量（compact / memory_* / web_search / approval 等）
+- **HIGH**：安全、网络暴露、全局键位、凭据、需要重启（proxy / embedding / shortcuts / server / skill_env / acp_control 等）
+
+HIGH 级别的分类，Settings 技能在调用 `update_settings` 前必须向用户二次确认。
+
+### 强制留在 GUI 的例外
+
+以下三类继续只走 GUI，不进 `update_settings` 工具：**Provider 列表与 API Key**、**IM Channel 配置**、**`active_model` / `fallback_models` 的写入**。原因是凭据安全和运行时稳定性。这些在技能里以只读形式出现或完全排除。
+
 ## 文档维护
 
 技术文档索引见 [`docs/README.md`](docs/README.md)，分为架构文档（`docs/architecture/`）和调研文档（`docs/research/`）。
