@@ -76,6 +76,10 @@ pub fn save_config(config: &AppConfig) -> Result<()> {
         account_ids.len(),
         account_ids
     );
+    // Autosave the pre-change file so every settings edit is rollback-able.
+    // Failures are logged inside the helper and never block the write.
+    crate::backup::snapshot_before_write(&path, "config");
+
     let data = serde_json::to_string_pretty(config)?;
     std::fs::write(&path, data)?;
 

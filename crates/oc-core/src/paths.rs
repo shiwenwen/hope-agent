@@ -203,6 +203,12 @@ pub fn backups_dir() -> Result<PathBuf> {
     Ok(root_dir()?.join("backups"))
 }
 
+/// Automatic-snapshot directory for config / user_config changes:
+/// ~/.opencomputer/backups/autosave/
+pub fn autosave_dir() -> Result<PathBuf> {
+    Ok(backups_dir()?.join("autosave"))
+}
+
 // ── Canvas ──────────────────────────────────────────────────────
 
 /// Canvas root directory: ~/.opencomputer/canvas/

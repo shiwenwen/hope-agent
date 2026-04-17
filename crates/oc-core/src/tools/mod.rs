@@ -100,6 +100,8 @@ pub const TOOL_TEAM: &str = "team";
 pub const TOOL_PEEK_SESSIONS: &str = "peek_sessions";
 pub const TOOL_GET_SETTINGS: &str = "get_settings";
 pub const TOOL_UPDATE_SETTINGS: &str = "update_settings";
+pub const TOOL_LIST_SETTINGS_BACKUPS: &str = "list_settings_backups";
+pub const TOOL_RESTORE_SETTINGS_BACKUP: &str = "restore_settings_backup";
 
 // ── Shared Helpers ────────────────────────────────────────────────
 

@@ -2,11 +2,12 @@ use serde_json::json;
 
 use super::super::{
     TOOL_AGENTS_LIST, TOOL_APPLY_PATCH, TOOL_BROWSER, TOOL_DELETE_MEMORY, TOOL_EDIT, TOOL_EXEC,
-    TOOL_FIND, TOOL_GET_SETTINGS, TOOL_GET_WEATHER, TOOL_GREP, TOOL_IMAGE, TOOL_LS,
-    TOOL_MANAGE_CRON, TOOL_MEMORY_GET, TOOL_PDF, TOOL_PROCESS, TOOL_PROJECT_READ_FILE, TOOL_READ,
-    TOOL_RECALL_MEMORY, TOOL_SAVE_MEMORY, TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST,
-    TOOL_SESSIONS_SEND, TOOL_SESSION_STATUS, TOOL_UPDATE_MEMORY, TOOL_UPDATE_CORE_MEMORY,
-    TOOL_UPDATE_SETTINGS, TOOL_WEB_FETCH, TOOL_WRITE,
+    TOOL_FIND, TOOL_GET_SETTINGS, TOOL_GET_WEATHER, TOOL_GREP, TOOL_IMAGE,
+    TOOL_LIST_SETTINGS_BACKUPS, TOOL_LS, TOOL_MANAGE_CRON, TOOL_MEMORY_GET, TOOL_PDF, TOOL_PROCESS,
+    TOOL_PROJECT_READ_FILE, TOOL_READ, TOOL_RECALL_MEMORY, TOOL_RESTORE_SETTINGS_BACKUP,
+    TOOL_SAVE_MEMORY, TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEND,
+    TOOL_SESSION_STATUS, TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY, TOOL_UPDATE_SETTINGS,
+    TOOL_WEB_FETCH, TOOL_WRITE,
 };
 use super::types::{is_core_tool, ToolDefinition};
 
@@ -979,7 +980,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                 "properties": {
                     "category": {
                         "type": "string",
-                        "description": "Settings category to read. Use 'all' for an overview.",
+                        "description": "Settings category to read. Use 'all' for an overview (includes risk-level groupings).",
                         "enum": [
                             "all", "user", "theme", "language", "ui_effects", "proxy",
                             "web_search", "web_fetch", "compact", "notification",
@@ -990,7 +991,10 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                             "embedding_cache", "dedup", "hybrid_search",
                             "temporal_decay", "mmr",
                             "recap", "cross_session", "shortcuts",
-                            "active_model", "fallback_models", "skills"
+                            "active_model", "fallback_models", "skills",
+                            "server", "acp_control", "skill_env",
+                            "tool_result_disk_threshold",
+                            "ask_user_question_timeout", "plan"
                         ]
                     }
                 },
@@ -1000,7 +1004,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: TOOL_UPDATE_SETTINGS.into(),
-            description: "Update application settings for a given category. Accepts partial JSON — only the fields you pass are changed, others are preserved. Cannot modify providers, channels, or API keys for security.".into(),
+            description: "Update application settings for a given category. Accepts partial JSON — only the fields you pass are changed, others are preserved. Response includes `riskLevel` (low/medium/high); HIGH-risk categories MUST have explicit user confirmation before being called. Cannot modify providers, channels, or API keys for security.".into(),
             internal: true,
             deferred: false,
             always_load: false,
@@ -1010,7 +1014,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                 "properties": {
                     "category": {
                         "type": "string",
-                        "description": "Settings category to update.",
+                        "description": "Settings category to update. HIGH-risk: proxy, embedding, shortcuts, skills, server, acp_control, skill_env — require explicit user confirmation first.",
                         "enum": [
                             "user", "theme", "language", "ui_effects", "proxy",
                             "web_search", "web_fetch", "compact", "notification",
@@ -1020,7 +1024,10 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                             "memory_extract", "memory_selection", "embedding",
                             "embedding_cache", "dedup", "hybrid_search",
                             "temporal_decay", "mmr",
-                            "recap", "cross_session", "shortcuts", "skills"
+                            "recap", "cross_session", "shortcuts", "skills",
+                            "server", "acp_control", "skill_env",
+                            "tool_result_disk_threshold",
+                            "ask_user_question_timeout", "plan"
                         ]
                     },
                     "values": {
@@ -1029,6 +1036,51 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     }
                 },
                 "required": ["category", "values"],
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: TOOL_LIST_SETTINGS_BACKUPS.into(),
+            description: "List recent automatic settings backups (newest first). Every call to update_settings (or any other code path that writes config.json / user.json) creates a snapshot beforehand. Use this to show the user a rollback history; pass the returned `id` to restore_settings_backup.".into(),
+            internal: true,
+            deferred: false,
+            always_load: false,
+            async_capable: false,
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max number of entries to return (default 20, max 200).",
+                        "minimum": 1,
+                        "maximum": 200
+                    },
+                    "kind": {
+                        "type": "string",
+                        "description": "Optional filter by snapshot kind.",
+                        "enum": ["config", "user"]
+                    }
+                },
+                "required": [],
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: TOOL_RESTORE_SETTINGS_BACKUP.into(),
+            description: "Roll back to a previously-captured automatic settings snapshot. Creates a fresh snapshot of the current state first so the rollback itself is reversible. HIGH risk: ALWAYS confirm with the user (show the entry's timestamp, kind, and category) before calling.".into(),
+            internal: true,
+            deferred: false,
+            always_load: false,
+            async_capable: false,
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "Snapshot ID returned by list_settings_backups (the filename stem, e.g. '2026-04-17T10-30-45-123__config__theme__skill')."
+                    }
+                },
+                "required": ["id"],
                 "additionalProperties": false
             }),
         },

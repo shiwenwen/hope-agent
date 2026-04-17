@@ -26,12 +26,23 @@ pub fn get_enabled_from_config() -> Result<bool> {
 
 /// Set `guardian.enabled` in `~/.opencomputer/config.json` via read-modify-write.
 /// Other top-level fields in the file are preserved.
+///
+/// `guardian` is not part of `AppConfig` (it's a loose JSON field on the raw
+/// config doc) so we can't route through `config::save_config`. We still take
+/// an autosave snapshot directly so the toggle remains rollback-able, matching
+/// the AGENTS.md "all config writes are backed up" invariant.
 pub fn set_enabled_in_config(enabled: bool) -> Result<()> {
     let config_path = crate::paths::config_path()?;
     let content = std::fs::read_to_string(&config_path).unwrap_or_default();
     let mut config: Value = serde_json::from_str(&content).unwrap_or(json!({}));
     config["guardian"] = json!({ "enabled": enabled });
     let json_str = serde_json::to_string_pretty(&config)?;
+    // Snapshot pre-change state so this bypass write still honors the rollback
+    // contract. Labels the entry for visibility in list_settings_backups.
+    {
+        let _g = crate::backup::scope_save_reason("guardian", "guardian");
+        crate::backup::snapshot_before_write(&config_path, "config");
+    }
     std::fs::write(&config_path, json_str)?;
     Ok(())
 }

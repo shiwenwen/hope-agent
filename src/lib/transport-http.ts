@@ -359,6 +359,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   list_backups_cmd:                { method: "GET",    path: "/api/crash/backups" },
   create_backup_cmd:               { method: "POST",   path: "/api/crash/backups" },
   restore_backup_cmd:              { method: "POST",   path: "/api/crash/backups/restore" },
+  list_settings_backups_cmd:       { method: "GET",    path: "/api/settings/backups" },
+  restore_settings_backup_cmd:     { method: "POST",   path: "/api/settings/backups/restore" },
   get_guardian_enabled:            { method: "GET",    path: "/api/crash/guardian" },
   set_guardian_enabled:            { method: "PUT",    path: "/api/crash/guardian" },
   request_app_restart:             { method: "POST",   path: "/api/system/restart" },

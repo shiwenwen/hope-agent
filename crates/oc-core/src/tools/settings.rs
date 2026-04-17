@@ -6,6 +6,63 @@ use crate::user_config;
 
 const BLOCKED_UPDATE_CATEGORIES: &[&str] = &["active_model", "fallback_models"];
 
+/// Risk classification for a settings category.
+/// The skill / model uses this to decide whether to double-confirm with the user.
+/// - `low`: cosmetic / preference changes, trivially reversible
+/// - `medium`: behavioral changes that may affect cost, context, or output quality
+/// - `high`: security, network exposure, global keybindings, or changes that require restart
+fn risk_level(category: &str) -> &'static str {
+    match category {
+        // ── LOW ────────────────────────────────────────────────
+        "user" | "theme" | "language" | "ui_effects" | "notification" | "canvas" | "image"
+        | "pdf" | "image_generate" | "temperature" | "tool_timeout" => "low",
+
+        // ── MEDIUM ─────────────────────────────────────────────
+        "compact"
+        | "memory_extract"
+        | "memory_selection"
+        | "embedding_cache"
+        | "dedup"
+        | "hybrid_search"
+        | "temporal_decay"
+        | "mmr"
+        | "recap"
+        | "cross_session"
+        | "web_fetch"
+        | "web_search"
+        | "deferred_tools"
+        | "async_tools"
+        | "approval"
+        | "tool_result_disk_threshold"
+        | "ask_user_question_timeout"
+        | "plan" => "medium",
+
+        // ── HIGH ───────────────────────────────────────────────
+        "proxy" | "embedding" | "shortcuts" | "skills" | "server" | "acp_control"
+        | "skill_env" => "high",
+
+        // Read-only categories — no risk since they can't be mutated here.
+        "active_model" | "fallback_models" | "all" => "low",
+
+        _ => "medium",
+    }
+}
+
+/// Human-readable note about side effects (e.g. "requires app restart").
+fn side_effect_note(category: &str) -> Option<&'static str> {
+    match category {
+        "server" => Some("Changes take effect on next app restart."),
+        "shortcuts" => Some("Global shortcut re-registration happens immediately; conflicts may silently fail."),
+        "embedding" => {
+            Some("Switching embedding provider/model may invalidate existing vector indexes.")
+        }
+        "proxy" => Some("Proxy change affects ALL outgoing HTTP requests immediately."),
+        "skill_env" => Some("Environment variables may contain secrets; values are stored in plaintext in config.json."),
+        "acp_control" => Some("Affects external agent delegation; restart recommended after backend changes."),
+        _ => None,
+    }
+}
+
 // ── get_settings ────────────────────────────────────────────────
 
 pub(crate) async fn tool_get_settings(args: &Value) -> Result<String> {
@@ -19,10 +76,15 @@ pub(crate) async fn tool_get_settings(args: &Value) -> Result<String> {
     }
 
     let value = read_category(category)?;
-    Ok(serde_json::to_string_pretty(&json!({
+    let mut response = json!({
         "category": category,
+        "riskLevel": risk_level(category),
         "settings": value,
-    }))?)
+    });
+    if let Some(note) = side_effect_note(category) {
+        response["sideEffect"] = json!(note);
+    }
+    Ok(serde_json::to_string_pretty(&response)?)
 }
 
 fn read_category(category: &str) -> Result<Value> {
@@ -71,6 +133,19 @@ fn read_category(category: &str) -> Result<Value> {
             "disabledSkills": cfg.disabled_skills,
             "skillEnvCheck": cfg.skill_env_check,
         })),
+        "server" => Ok(serde_json::to_value(&cfg.server)?),
+        "acp_control" => Ok(serde_json::to_value(&cfg.acp_control)?),
+        "skill_env" => Ok(serde_json::to_value(&cfg.skill_env)?),
+        "tool_result_disk_threshold" => Ok(json!({
+            "toolResultDiskThreshold": cfg.tool_result_disk_threshold,
+        })),
+        "ask_user_question_timeout" => Ok(json!({
+            "askUserQuestionTimeoutSecs": cfg.ask_user_question_timeout_secs,
+        })),
+        "plan" => Ok(json!({
+            "planSubagent": cfg.plan_subagent,
+            "plansDirectory": cfg.plans_directory,
+        })),
         _ => bail!("Unknown settings category: '{category}'"),
     }
 }
@@ -114,10 +189,30 @@ fn get_all_overview() -> Result<String> {
         },
     });
 
+    // Expose risk classification so the model can decide when to double-confirm.
+    let risk_levels = json!({
+        "low": [
+            "user", "theme", "language", "ui_effects", "notification",
+            "canvas", "image", "pdf", "image_generate", "temperature", "tool_timeout"
+        ],
+        "medium": [
+            "compact", "memory_extract", "memory_selection", "embedding_cache",
+            "dedup", "hybrid_search", "temporal_decay", "mmr", "recap",
+            "cross_session", "web_fetch", "web_search", "deferred_tools",
+            "async_tools", "approval", "tool_result_disk_threshold",
+            "ask_user_question_timeout", "plan"
+        ],
+        "high": [
+            "proxy", "embedding", "shortcuts", "skills", "server",
+            "acp_control", "skill_env"
+        ],
+    });
+
     Ok(serde_json::to_string_pretty(&json!({
         "category": "all",
         "overview": overview,
-        "hint": "Use get_settings with a specific category for full details.",
+        "riskLevels": risk_levels,
+        "hint": "Use get_settings with a specific category for full details. HIGH-risk categories require explicit user confirmation before calling update_settings.",
     }))?)
 }
 
@@ -160,7 +255,10 @@ fn update_user_config(values: &Value) -> Result<String> {
     let mut uc_json = serde_json::to_value(&uc)?;
     crate::merge_json(&mut uc_json, values.clone());
     let updated: user_config::UserConfig = serde_json::from_value(uc_json.clone())?;
+    // Tag the autosave snapshot so rollback listings know this came from the skill.
+    let _reason = crate::backup::scope_save_reason("user", "skill");
     user_config::save_user_config_to_disk(&updated)?;
+    drop(_reason);
 
     // Notify frontend about user config change
     if let Some(bus) = crate::get_event_bus() {
@@ -260,10 +358,78 @@ fn update_app_config(category: &str, values: &Value) -> Result<String> {
                 store.skill_env_check = v;
             }
         }
+        "server" => merge_field(&mut store.server, values)?,
+        "acp_control" => merge_field(&mut store.acp_control, values)?,
+        "skill_env" => {
+            // Per-skill env vars: support full replace via `skillEnv` or per-skill
+            // patches via `set` / `remove` to avoid forcing the model to echo
+            // every skill's entire env block.
+            if let Some(v) = values.get("skillEnv") {
+                store.skill_env = serde_json::from_value(v.clone())?;
+            }
+            if let Some(set) = values.get("set").and_then(|v| v.as_object()) {
+                for (skill, vars) in set {
+                    let entry = store.skill_env.entry(skill.clone()).or_default();
+                    if let Some(vars_obj) = vars.as_object() {
+                        for (k, val) in vars_obj {
+                            if let Some(s) = val.as_str() {
+                                entry.insert(k.clone(), s.to_string());
+                            } else if val.is_null() {
+                                entry.remove(k);
+                            } else {
+                                bail!(
+                                    "skill_env.set[{skill}].{k} must be a string or null, got {val}"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some(remove) = values.get("remove").and_then(|v| v.as_array()) {
+                for item in remove {
+                    if let Some(skill) = item.as_str() {
+                        store.skill_env.remove(skill);
+                    }
+                }
+            }
+        }
+        "tool_result_disk_threshold" => {
+            if let Some(v) = values.get("toolResultDiskThreshold") {
+                if v.is_null() {
+                    store.tool_result_disk_threshold = None;
+                } else if let Some(n) = v.as_u64() {
+                    store.tool_result_disk_threshold = Some(n as usize);
+                } else {
+                    bail!("toolResultDiskThreshold must be a non-negative integer or null");
+                }
+            }
+        }
+        "ask_user_question_timeout" => {
+            if let Some(v) = values.get("askUserQuestionTimeoutSecs").and_then(|v| v.as_u64()) {
+                store.ask_user_question_timeout_secs = v;
+            }
+        }
+        "plan" => {
+            if let Some(v) = values.get("planSubagent").and_then(|v| v.as_bool()) {
+                store.plan_subagent = v;
+            }
+            if let Some(v) = values.get("plansDirectory") {
+                if v.is_null() {
+                    store.plans_directory = None;
+                } else if let Some(s) = v.as_str() {
+                    store.plans_directory = Some(s.to_string());
+                } else {
+                    bail!("plansDirectory must be a string or null");
+                }
+            }
+        }
         _ => bail!("Unknown settings category: '{category}'"),
     }
 
+    // Tag the autosave snapshot so rollback listings carry (category, source).
+    let _reason = crate::backup::scope_save_reason(category, "skill");
     config::save_config(&store)?;
+    drop(_reason);
 
     // Notify frontend about config change so UI can react immediately
     if let Some(bus) = crate::get_event_bus() {
@@ -278,11 +444,16 @@ fn update_app_config(category: &str, values: &Value) -> Result<String> {
 
     // Return the saved value directly from the mutated store (avoids re-reading cache)
     let updated_value = read_category(category)?;
-    Ok(serde_json::to_string_pretty(&json!({
+    let mut response = json!({
         "category": category,
+        "riskLevel": risk_level(category),
         "updated": true,
         "settings": updated_value,
-    }))?)
+    });
+    if let Some(note) = side_effect_note(category) {
+        response["sideEffect"] = json!(note);
+    }
+    Ok(serde_json::to_string_pretty(&response)?)
 }
 
 /// Trigger backend hot-reload side-effects for categories that cache state in memory.
@@ -364,4 +535,53 @@ where
     crate::merge_json(&mut current, patch.clone());
     *field = serde_json::from_value(current)?;
     Ok(())
+}
+
+// ── list_settings_backups ───────────────────────────────────────
+
+pub(crate) async fn tool_list_settings_backups(args: &Value) -> Result<String> {
+    let limit = args
+        .get("limit")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(20)
+        .min(200) as usize;
+    let kind_filter = args.get("kind").and_then(|v| v.as_str());
+
+    let mut entries = crate::backup::list_autosaves().map_err(|e| anyhow::anyhow!(e))?;
+    if let Some(k) = kind_filter {
+        entries.retain(|e| e.kind == k);
+    }
+    entries.truncate(limit);
+
+    Ok(serde_json::to_string_pretty(&json!({
+        "count": entries.len(),
+        "backups": entries,
+        "hint": "Use restore_settings_backup({id}) to roll back. A pre-restore snapshot is created automatically so the rollback itself is reversible.",
+    }))?)
+}
+
+// ── restore_settings_backup ─────────────────────────────────────
+
+pub(crate) async fn tool_restore_settings_backup(args: &Value) -> Result<String> {
+    let id = args
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: id"))?;
+
+    let entry = crate::backup::restore_autosave(id).map_err(|e| anyhow::anyhow!(e))?;
+
+    app_info!(
+        "settings",
+        "rollback",
+        "Restored autosave id={} kind={} category={}",
+        entry.id,
+        entry.kind,
+        entry.category
+    );
+
+    Ok(serde_json::to_string_pretty(&json!({
+        "restored": true,
+        "entry": entry,
+        "note": "A pre-restore snapshot of the previous state was also saved so you can undo this rollback.",
+    }))?)
 }

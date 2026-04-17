@@ -111,6 +111,9 @@ pub fn save_user_config_to_disk(config: &UserConfig) -> Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
+    // Autosave the pre-change file so every settings edit is rollback-able.
+    crate::backup::snapshot_before_write(&path, "user");
+
     let data = serde_json::to_string_pretty(config)?;
     std::fs::write(&path, data)?;
     Ok(())
