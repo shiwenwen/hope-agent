@@ -43,7 +43,8 @@ graph TD
         direction LR
         S1["① Identity"] --> S2["② agent.md / Project Context"] --> S3["③ persona.md"]
         S4["④ User Context"] --> S5["⑤ tools.md"] --> S6["⑥ Tool Descriptions (filtered)"]
-        S6 --> S6c["⑥c Human-in-the-loop (hardcoded, conditional)"]
+        S6 --> S6b["⑥c Tool-Call Narration (hardcoded, always)"]
+        S6b --> S6c["⑥d Human-in-the-loop (hardcoded, conditional)"]
         S6c --> S7["⑦ Skills (filtered)"] --> S8["⑧ Memory Guidelines"]
         S9["⑨ Runtime Info"] --> S10["⑩ SubAgent Delegation"] --> S11["⑪ Sandbox Mode"]
         S12["⑫ reserved"] --> S13["⑬ ACP Ext Agents"]
@@ -98,7 +99,8 @@ graph LR
     AD --> S4["④ persona.md"]
     AD --> S5["⑤ tools.md"]
     AD --> S6["⑥ Tool Descriptions (FilterConfig)"]
-    S6 --> S6c["⑥c Human-in-the-loop guidance (hardcoded, only if ask_user_question is enabled)"]
+    S6 --> S6b["⑥c Tool-Call Narration guidance (hardcoded, always injected)"]
+    S6b --> S6c["⑥d Human-in-the-loop guidance (hardcoded, only if ask_user_question is enabled)"]
     AD --> S7["⑦ Skills (FilterConfig)"]
     AD --> S8["⑧ Memory"]
     S8 --> S8a["8a: Core Memory (Global)"]
@@ -309,9 +311,29 @@ Phase 5: Review & Refinement   → 用户审核，inline comment 修订
 
 ---
 
+## Tool-Call Narration（工具调用前叙述）
+
+**位置**：`system_prompt/build.rs` 的 ⑥c 段，紧跟 Async Tools 指南、先于 Human-in-the-loop，`build()` / `build_legacy()` 两条路径都会注入。
+
+**动机**：对齐 Claude Code 的"边说边做"体验。Anthropic Messages API / OpenAI streaming 协议原生支持一个 assistant turn 内 `text_delta` 与 `tool_use` block 交替输出，模型完全可以"先吐一段自然语言预告 → 再 emit 工具调用"。体验核心不在流式或 UI 管线（现有 `MessageList` 按事件顺序渲染已足够），而在 system prompt 是否显式要求模型这样做。
+
+**指令要点**：
+- 第一次工具调用前必须用一句话说清即将做什么
+- 关键节点（发现、转向、阻塞、派子 Agent / Team / ACP 外部 Agent）简报一句
+- 禁止"let me think…"这种内部独白，直接说结果和决策
+- 每轮末一两句收尾：what changed / what's next
+
+**为什么硬编码而非走 `agent.md` 模板**：和 Human-in-the-loop 同样的理由，防止用户自定义 agent.md 时整段删掉导致行为退化。用 `TOOL_CALL_NARRATION_GUIDANCE` 编译常量 + `sections.push(...)` 直接注入。
+
+**代码位置**：
+- 常量：`crates/oc-core/src/system_prompt/constants.rs` — `TOOL_CALL_NARRATION_GUIDANCE`
+- 注入：`crates/oc-core/src/system_prompt/build.rs` — ⑥c 段（`build()` 和 `build_legacy()` 均调用）
+
+---
+
 ## Human-in-the-loop（人机协作硬约束）
 
-**位置**：`system_prompt/build.rs` 的 ⑥c 段，紧跟工具描述之后（Tool definitions → Deferred tools → **Human-in-the-loop** → Skills）
+**位置**：`system_prompt/build.rs` 的 ⑥d 段，紧跟工具描述 / Tool-Call Narration 之后（Tool definitions → Deferred tools → Tool-Call Narration → **Human-in-the-loop** → Skills）
 
 **注入条件**：仅当 agent 启用了 `ask_user_question` 工具（通过 `agent_tool_filter_allows()` 检查）。完全不能交互的 agent 跳过该段，避免灌输不可执行的规则。
 
@@ -331,7 +353,7 @@ Phase 5: Review & Refinement   → 用户审核，inline comment 修订
 
 **代码位置**：
 - 常量：`crates/oc-core/src/system_prompt/constants.rs` — `HUMAN_IN_THE_LOOP_GUIDANCE`
-- 注入：`crates/oc-core/src/system_prompt/build.rs` — ⑥c 段（`build()` 函数中 `build_deferred_tools_section()` 之后）
+- 注入：`crates/oc-core/src/system_prompt/build.rs` — ⑥d 段（`build()` 函数中 Tool-Call Narration 之后）
 
 ---
 
