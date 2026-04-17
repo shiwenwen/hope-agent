@@ -65,6 +65,10 @@ export default function ChatTitleBar({
   const [compactToast, setCompactToast] = useState<{ success: boolean; message: string } | null>(null)
   const compactToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // Session ID copy feedback
+  const [sessionIdCopied, setSessionIdCopied] = useState(false)
+  const sessionIdCopiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   // Inline title editing
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleValue, setTitleValue] = useState("")
@@ -104,6 +108,25 @@ export default function ChatTitleBar({
     document.addEventListener("mousedown", handler)
     return () => document.removeEventListener("mousedown", handler)
   }, [showStatus])
+
+  useEffect(() => {
+    return () => {
+      if (sessionIdCopiedTimer.current) clearTimeout(sessionIdCopiedTimer.current)
+    }
+  }, [])
+
+  const handleCopySessionId = useCallback(async () => {
+    if (!currentSessionId) return
+    try {
+      await navigator.clipboard.writeText(currentSessionId)
+    } catch (e) {
+      logger.error("ui", "ChatTitleBar::copySessionId", "Copy failed", e)
+      return
+    }
+    setSessionIdCopied(true)
+    if (sessionIdCopiedTimer.current) clearTimeout(sessionIdCopiedTimer.current)
+    sessionIdCopiedTimer.current = setTimeout(() => setSessionIdCopied(false), 1500)
+  }, [currentSessionId])
 
   const currentModel = activeModel
     ? availableModels.find(
@@ -435,16 +458,34 @@ export default function ChatTitleBar({
                     <span className="text-muted-foreground shrink-0">
                       🆔 {t("chat.statusSessionId")}
                     </span>
-                    <div
-                      className="flex items-center gap-1.5 ml-auto overflow-hidden text-muted-foreground/80 cursor-pointer hover:text-foreground transition-colors group"
-                      title={currentSessionId}
-                      onClick={() => navigator.clipboard.writeText(currentSessionId)}
-                    >
-                      <span className="font-mono text-[11px] truncate select-all">
-                        {currentSessionId}
-                      </span>
-                      <Copy className="h-3.5 w-3.5 shrink-0 opacity-70 group-hover:opacity-100 transition-opacity" />
-                    </div>
+                    <IconTip label={sessionIdCopied ? t("chat.copied") : t("chat.copy")}>
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        className={cn(
+                          "flex items-center gap-1.5 ml-auto overflow-hidden cursor-pointer transition-colors group",
+                          sessionIdCopied
+                            ? "text-green-600 dark:text-green-500"
+                            : "text-muted-foreground/80 hover:text-foreground",
+                        )}
+                        onClick={handleCopySessionId}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault()
+                            handleCopySessionId()
+                          }
+                        }}
+                      >
+                        <span className="font-mono text-[11px] truncate select-all">
+                          {currentSessionId}
+                        </span>
+                        {sessionIdCopied ? (
+                          <Check className="h-3.5 w-3.5 shrink-0" />
+                        ) : (
+                          <Copy className="h-3.5 w-3.5 shrink-0 opacity-70 group-hover:opacity-100 transition-opacity" />
+                        )}
+                      </div>
+                    </IconTip>
                   </div>
                 )}
                 {/* Message count */}
