@@ -644,10 +644,33 @@ impl AssistantAgent {
                             result.push(json!({ "role": role, "content": text }));
                         }
                     } else {
-                        // String content or tool role messages — pass through (Responses accepts them)
+                        // String-content role message (typically Chat Completions shape).
+                        // Responses API rejects Chat-only fields (`tool_calls`,
+                        // `tool_call_id`) and the `tool` role — it uses separate
+                        // `function_call` / `function_call_output` input items instead.
+                        // Skip the Chat tool-result message entirely; strip the tool
+                        // payload off assistant messages and keep their natural-language
+                        // content (drop if nothing remains).
+                        if item.get("role").and_then(|r| r.as_str()) == Some("tool") {
+                            continue;
+                        }
                         let mut msg = item.clone();
-                        // Strip reasoning_content (not part of Responses API)
-                        msg.as_object_mut().map(|o| o.remove("reasoning_content"));
+                        if let Some(obj) = msg.as_object_mut() {
+                            obj.remove("reasoning_content");
+                            obj.remove("tool_calls");
+                            obj.remove("tool_call_id");
+                        }
+                        let has_content = msg
+                            .get("content")
+                            .map(|c| match c {
+                                serde_json::Value::String(s) => !s.is_empty(),
+                                serde_json::Value::Array(a) => !a.is_empty(),
+                                _ => false,
+                            })
+                            .unwrap_or(false);
+                        if !has_content {
+                            continue;
+                        }
                         result.push(msg);
                     }
                 }
