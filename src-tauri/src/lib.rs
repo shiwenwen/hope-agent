@@ -393,6 +393,8 @@ pub fn run() {
             commands::crash::list_backups_cmd,
             commands::crash::restore_backup_cmd,
             commands::crash::create_backup_cmd,
+            commands::crash::list_settings_backups_cmd,
+            commands::crash::restore_settings_backup_cmd,
             commands::crash::get_guardian_enabled,
             commands::crash::set_guardian_enabled,
             // Sandbox (thin wrappers over oc-core)

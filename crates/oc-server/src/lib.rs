@@ -686,6 +686,14 @@ fn build_router_with_cors(
             "/crash/backups/restore",
             post(routes::crash::restore_backup),
         )
+        .route(
+            "/settings/backups",
+            get(routes::crash::list_settings_backups),
+        )
+        .route(
+            "/settings/backups/restore",
+            post(routes::crash::restore_settings_backup),
+        )
         .route("/crash/guardian", get(routes::crash::get_guardian_enabled))
         .route("/crash/guardian", put(routes::crash::set_guardian_enabled))
         // URL Preview

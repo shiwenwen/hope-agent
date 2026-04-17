@@ -72,6 +72,24 @@ pub async fn create_backup() -> Result<Json<Value>, AppError> {
     Ok(Json(json!({ "name": name })))
 }
 
+/// `GET /api/settings/backups` — list automatic config snapshots
+pub async fn list_settings_backups() -> Result<Json<Vec<backup::AutosaveEntry>>, AppError> {
+    Ok(Json(backup::list_autosaves().map_err(AppError::internal)?))
+}
+
+#[derive(serde::Deserialize)]
+pub struct RestoreAutosaveBody {
+    pub id: String,
+}
+
+/// `POST /api/settings/backups/restore` — roll back to an autosave entry
+pub async fn restore_settings_backup(
+    Json(body): Json<RestoreAutosaveBody>,
+) -> Result<Json<backup::AutosaveEntry>, AppError> {
+    let entry = backup::restore_autosave(&body.id).map_err(AppError::internal)?;
+    Ok(Json(entry))
+}
+
 /// `GET /api/crash/guardian`
 pub async fn get_guardian_enabled() -> Result<Json<Value>, AppError> {
     Ok(Json(

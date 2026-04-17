@@ -67,6 +67,16 @@ pub async fn create_backup_cmd() -> Result<String, String> {
 }
 
 #[tauri::command]
+pub async fn list_settings_backups_cmd() -> Result<Vec<backup::AutosaveEntry>, String> {
+    backup::list_autosaves()
+}
+
+#[tauri::command]
+pub async fn restore_settings_backup_cmd(id: String) -> Result<backup::AutosaveEntry, String> {
+    backup::restore_autosave(&id)
+}
+
+#[tauri::command]
 pub async fn get_guardian_enabled() -> Result<bool, String> {
     crate::guardian::get_enabled_from_config().map_err(|e| e.to_string())
 }
