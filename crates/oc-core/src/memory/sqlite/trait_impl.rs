@@ -790,18 +790,11 @@ impl MemoryBackend for SqliteMemoryBackend {
     }
 
     fn count_profile_memories(&self, window_days: u32) -> Result<u64> {
-        // `tags` is stored as a JSON array string; filter for entries where
-        // it contains the literal "profile" substring + a timestamp guard.
-        // Safe because we match the exact quoted form `"profile"` so a memory
-        // tagged e.g. "profile" will match while "profile_lead" will not.
-        use std::time::{SystemTime, UNIX_EPOCH};
-        let cutoff_secs = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0)
-            - (window_days as i64) * 86_400;
-        // Compare created_at (ISO8601 text) to an epoch — do it in SQL with
-        // strftime('%s', created_at) to avoid pulling rows into userspace.
+        // `tags` is a JSON array string; the exact-quoted `"profile"` LIKE
+        // match keeps `profile_lead` or similar from false-positive. The
+        // created_at column is ISO8601 text, so we compare via strftime('%s')
+        // in SQL to avoid pulling rows into userspace.
+        let cutoff = crate::util::epoch_cutoff_secs(window_days);
         let conn = self
             .readers
             .first()
@@ -813,7 +806,7 @@ impl MemoryBackend for SqliteMemoryBackend {
                 "SELECT COUNT(*) FROM memories
                  WHERE tags LIKE '%\"profile\"%'
                    AND CAST(strftime('%s', created_at) AS INTEGER) >= ?1",
-                params![cutoff_secs],
+                params![cutoff],
                 |row| row.get(0),
             )
             .unwrap_or(0);

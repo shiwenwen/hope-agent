@@ -450,10 +450,13 @@ fn parse_extraction_response(response: &str) -> Result<Vec<ExtractedMemory>> {
         }
     }
 
-    // Fall back to legacy array shape.
-    let json_str = extract_json_array(trimmed)
+    // Fall back to legacy top-level array shape. `extract_json_span` already
+    // returns a bracket-balanced slice, so `serde_json::from_str` below is
+    // the only validator we need — no extra "try parse, then span, then
+    // parse again" dance.
+    let span = crate::extract_json_span(trimmed, Some('['))
         .ok_or_else(|| anyhow::anyhow!("No JSON payload found in extraction response"))?;
-    let items: Vec<Value> = serde_json::from_str(&json_str)?;
+    let items: Vec<Value> = serde_json::from_str(span)?;
     Ok(decode_items(&items, false, 5))
 }
 
@@ -484,19 +487,6 @@ fn decode_items(items: &[Value], force_profile_tag: bool, limit: usize) -> Vec<E
         });
     }
     out
-}
-
-fn extract_json_array(text: &str) -> Option<String> {
-    let trimmed = text.trim();
-    if serde_json::from_str::<Vec<Value>>(trimmed).is_ok() {
-        return Some(trimmed.to_string());
-    }
-    let span = crate::extract_json_span(text, Some('['))?;
-    if serde_json::from_str::<Vec<Value>>(span).is_ok() {
-        Some(span.to_string())
-    } else {
-        None
-    }
 }
 
 // ── Idle Extraction ────────────────────────────────────────────

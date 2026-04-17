@@ -19,24 +19,7 @@ pub async fn list_skills() -> Result<Json<Vec<skills::SkillSummary>>, AppError> 
         .into_iter()
         .map(|e| {
             let enabled = !disabled.contains(&e.name);
-            skills::SkillSummary {
-                requires_env: e.requires.env.clone(),
-                any_bins: e.requires.any_bins.clone(),
-                always: e.requires.always,
-                name: e.name,
-                description: e.description,
-                source: e.source,
-                base_dir: e.base_dir,
-                enabled,
-                skill_key: e.skill_key,
-                user_invocable: e.user_invocable,
-                disable_model_invocation: e.disable_model_invocation,
-                has_install: !e.install.is_empty(),
-                allowed_tools: e.allowed_tools,
-                context_mode: e.context_mode,
-                status: e.status,
-                authored_by: e.authored_by,
-            }
+            e.to_summary(enabled)
         })
         .collect();
     Ok(Json(out))
@@ -231,24 +214,7 @@ pub async fn list_draft_skills() -> Result<Json<Vec<skills::SkillSummary>>, AppE
         .into_iter()
         .map(|e| {
             let enabled = !disabled.contains(&e.name);
-            skills::SkillSummary {
-                requires_env: e.requires.env.clone(),
-                any_bins: e.requires.any_bins.clone(),
-                always: e.requires.always,
-                name: e.name,
-                description: e.description,
-                source: e.source,
-                base_dir: e.base_dir,
-                enabled,
-                skill_key: e.skill_key,
-                user_invocable: e.user_invocable,
-                disable_model_invocation: e.disable_model_invocation,
-                has_install: !e.install.is_empty(),
-                allowed_tools: e.allowed_tools,
-                context_mode: e.context_mode,
-                status: e.status,
-                authored_by: e.authored_by,
-            }
+            e.to_summary(enabled)
         })
         .collect();
     Ok(Json(out))
@@ -276,9 +242,13 @@ pub struct TriggerReviewBody {
 pub async fn trigger_skill_review_now(
     Json(body): Json<TriggerReviewBody>,
 ) -> Result<Json<Value>, AppError> {
+    let gate = skills::auto_review::acquire_manual(&body.session_id).ok_or_else(|| {
+        AppError::bad_request("another review is already running for this session")
+    })?;
     let report = skills::auto_review::run_review_cycle(
         &body.session_id,
         skills::auto_review::ReviewTrigger::Manual,
+        gate,
         None,
     )
     .await

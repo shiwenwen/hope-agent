@@ -8,6 +8,19 @@ pub const SECS_PER_HOUR: u64 = 3_600;
 /// Number of seconds in a day. Prefer this over `86_400` / `24 * 3600` literals.
 pub const SECS_PER_DAY: u64 = 86_400;
 
+/// Return the unix-epoch timestamp (seconds) for `window_days` ago. Used by
+/// Dashboard queries and memory counts that want "rows within the last N
+/// days" — keeps the `now - days * 86_400` arithmetic in one place.
+/// Returns 0 when the system clock is before the epoch.
+pub fn epoch_cutoff_secs(window_days: u32) -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    now - (window_days as i64) * (SECS_PER_DAY as i64)
+}
+
 /// Produce a comma-separated list of `?` placeholders for a SQL `IN` clause.
 /// Example: `sql_in_placeholders(3)` → `"?,?,?"`.
 pub fn sql_in_placeholders(n: usize) -> String {

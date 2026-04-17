@@ -235,6 +235,35 @@ pub struct SkillEntry {
     pub rationale: Option<String>,
 }
 
+impl SkillEntry {
+    /// Build a `SkillSummary` from a loaded entry + an enabled/disabled
+    /// decision. Centralizes the Tauri/HTTP adapter projections so a new
+    /// summary field only needs to be wired up once.
+    pub fn to_summary(self, enabled: bool) -> SkillSummary {
+        let requires_env = self.requires.env.clone();
+        let any_bins = self.requires.any_bins.clone();
+        let always = self.requires.always;
+        SkillSummary {
+            name: self.name,
+            description: self.description,
+            source: self.source,
+            base_dir: self.base_dir,
+            enabled,
+            requires_env,
+            skill_key: self.skill_key,
+            user_invocable: self.user_invocable,
+            disable_model_invocation: self.disable_model_invocation,
+            has_install: !self.install.is_empty(),
+            any_bins,
+            always,
+            allowed_tools: self.allowed_tools,
+            context_mode: self.context_mode,
+            status: self.status,
+            authored_by: self.authored_by,
+        }
+    }
+}
+
 /// Lightweight summary returned to the frontend.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SkillSummary {

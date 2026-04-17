@@ -17,7 +17,7 @@ use crate::truncate_utf8;
 
 use super::config::{AutoReviewPromotion, SkillsAutoReviewConfig};
 use super::prompts::{render_review_user_prompt, REVIEW_SYSTEM};
-use super::triggers::{maybe_trigger_post_turn, AutoReviewGate};
+use super::triggers::{acquire_manual, AutoReviewGate};
 
 /// Which path fired the review.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -67,39 +67,21 @@ pub struct ReviewReport {
     pub error: Option<String>,
 }
 
-/// Entry point: run the review pipeline for `session_id`. This function does
-/// its own locking / guard-acquisition for the `PostTurn` trigger. `Manual`
-/// triggers bypass the cooldown + threshold test but still respect the
-/// per-session AtomicBool guard.
+/// Entry point: run the review pipeline for `session_id`. The caller is
+/// expected to hand in an `AutoReviewGate` acquired from
+/// `triggers::touch_and_maybe_trigger` (PostTurn) or `triggers::acquire_manual`
+/// (Manual). Keeping gate acquisition outside this function lets the
+/// chat_engine skip spawning the background task entirely when thresholds
+/// aren't met, which is the common case on short turns.
 pub async fn run_review_cycle(
     session_id: &str,
     trigger: ReviewTrigger,
+    gate: AutoReviewGate,
     main_agent: Option<&AssistantAgent>,
 ) -> Result<ReviewReport> {
     let started = Instant::now();
+    let _gate = gate; // hold for the duration of the cycle
     let cfg = cached_config().skills.auto_review.clone().sanitize();
-
-    let _gate = match trigger {
-        ReviewTrigger::PostTurn => match maybe_trigger_post_turn(session_id, &cfg).await {
-            Some(gate) => gate,
-            None => {
-                return Ok(ReviewReport {
-                    trigger,
-                    session_id: session_id.to_string(),
-                    outcome: "skipped".to_string(),
-                    skill_id: None,
-                    similarity: None,
-                    rationale: Some("thresholds not met or running".to_string()),
-                    duration_ms: started.elapsed().as_millis() as u64,
-                    error: None,
-                });
-            }
-        },
-        ReviewTrigger::Manual => acquire_manual_gate(session_id, &cfg).await?,
-    };
-
-    // Manual triggers bypass the `enabled` gate — the user explicitly asked;
-    // `enabled` only gates the automatic `PostTurn` path (which exits above).
 
     let outcome = match run_inner(session_id, &cfg, main_agent).await {
         Ok(report) => report,
@@ -129,26 +111,6 @@ pub async fn run_review_cycle(
     }
 
     Ok(with_trigger)
-}
-
-async fn acquire_manual_gate(
-    session_id: &str,
-    cfg: &SkillsAutoReviewConfig,
-) -> Result<AutoReviewGate> {
-    // Manual trigger bypasses thresholds but still respects the running-guard.
-    // We call `maybe_trigger_post_turn` with a temporary override config that
-    // has zero thresholds so it acquires the gate, then let the guard drop
-    // through the normal RAII path.
-    let override_cfg = SkillsAutoReviewConfig {
-        enabled: true,
-        cooldown_secs: 0,
-        token_threshold: 0,
-        message_threshold: 0,
-        ..cfg.clone()
-    };
-    maybe_trigger_post_turn(session_id, &override_cfg)
-        .await
-        .ok_or_else(|| anyhow::anyhow!("another review is already running for this session"))
 }
 
 async fn run_inner(
@@ -222,6 +184,27 @@ async fn query_review_agent(
     main_agent: Option<&AssistantAgent>,
 ) -> Result<String> {
     let timeout = Duration::from_secs(cfg.timeout_secs);
+
+    // Precedence: explicit `review_model` override > main agent's cached prefix
+    // > recap's analysis agent fallback. The override path intentionally
+    // skips main_agent so users pinning a cheap model for review aren't
+    // double-charged via the main chat's cache.
+    if let Some(model_ref) = cfg.review_model.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        if let Some(agent) = build_review_agent_from_model_ref(model_ref) {
+            let fut = agent.side_query(instruction, 4096);
+            let res = tokio::time::timeout(timeout, fut)
+                .await
+                .map_err(|_| anyhow::anyhow!("review side_query timed out (override agent)"))??;
+            return Ok(res.text);
+        }
+        app_warn!(
+            "skills",
+            "auto_review",
+            "review_model '{}' not found in providers; falling back",
+            model_ref
+        );
+    }
+
     if let Some(agent) = main_agent {
         let fut = agent.side_query(instruction, 4096);
         let res = tokio::time::timeout(timeout, fut)
@@ -230,7 +213,6 @@ async fn query_review_agent(
         return Ok(res.text);
     }
 
-    // Fallback: spin up a fresh analysis agent with no cache sharing.
     let config = cached_config();
     let (agent, _model_id) = crate::recap::report::build_analysis_agent(&config)
         .context("build fallback analysis agent for auto-review")?;
@@ -239,6 +221,16 @@ async fn query_review_agent(
         .await
         .map_err(|_| anyhow::anyhow!("review side_query timed out (fallback agent)"))??;
     Ok(res.text)
+}
+
+/// Parse a `providerId:modelId` override (e.g. `"anthropic:claude-haiku-4-5"`)
+/// and build a fresh `AssistantAgent` for it. Returns `None` when the provider
+/// / model isn't configured; callers fall back to the usual chain.
+fn build_review_agent_from_model_ref(model_ref: &str) -> Option<AssistantAgent> {
+    let (provider_id, model_id) = model_ref.split_once(':')?;
+    let config = cached_config();
+    let prov = crate::provider::find_provider(&config.providers, provider_id.trim())?;
+    Some(AssistantAgent::new_from_provider(prov, model_id.trim()))
 }
 
 fn parse_review_response(text: &str) -> Result<ReviewDecision> {

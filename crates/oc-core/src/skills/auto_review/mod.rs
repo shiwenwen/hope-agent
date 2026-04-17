@@ -10,4 +10,6 @@ mod triggers;
 
 pub use config::{AutoReviewPromotion, SkillsAutoReviewConfig};
 pub use pipeline::{run_review_cycle, ReviewDecision, ReviewReport, ReviewTrigger};
-pub use triggers::{maybe_trigger_post_turn, touch_turn_stats, AutoReviewGate};
+pub use triggers::{
+    acquire_manual, sweep_stale, touch_and_maybe_trigger, AutoReviewGate,
+};

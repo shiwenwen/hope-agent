@@ -25,14 +25,37 @@ pub const EVT_RECALL_SUMMARY_USED: &str = "recall_summary_used";
 
 /// Best-effort emitter. Silently no-ops if the session DB hasn't been
 /// initialized (e.g. in unit tests for subsystems that don't need one).
+///
+/// Dispatches the INSERT onto `spawn_blocking` when we're inside a Tokio
+/// runtime so the caller (often a hot path like `tool_recall_memory` or a
+/// skill CRUD op) doesn't wait on the SessionDB writer Mutex. Falls back to
+/// a sync call outside an async context (e.g. from a blocking worker).
 pub fn emit(
     kind: &str,
     session_id: Option<&str>,
     ref_id: Option<&str>,
     meta: Option<&serde_json::Value>,
 ) {
-    if let Some(db) = crate::get_session_db() {
-        db.record_learning_event(kind, session_id, ref_id, meta);
+    let Some(db) = crate::get_session_db().cloned() else {
+        return;
+    };
+    let kind = kind.to_string();
+    let session_id = session_id.map(str::to_string);
+    let ref_id = ref_id.map(str::to_string);
+    let meta = meta.cloned();
+    let write = move || {
+        db.record_learning_event(
+            &kind,
+            session_id.as_deref(),
+            ref_id.as_deref(),
+            meta.as_ref(),
+        );
+    };
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) => {
+            handle.spawn_blocking(write);
+        }
+        Err(_) => write(),
     }
 }
 
@@ -77,7 +100,7 @@ pub struct SkillUsage {
 }
 
 pub fn query_learning_overview(db: &SessionDB, window_days: u32) -> Result<LearningOverview> {
-    let cutoff = cutoff_secs(window_days);
+    let cutoff = crate::util::epoch_cutoff_secs(window_days);
     let conn = db
         .conn
         .lock()
@@ -144,7 +167,7 @@ pub fn query_learning_overview(db: &SessionDB, window_days: u32) -> Result<Learn
 /// Skill-lifecycle timeline for the given window, newest last for easy
 /// charting.
 pub fn query_skill_timeline(db: &SessionDB, window_days: u32) -> Result<Vec<TimelinePoint>> {
-    let cutoff = cutoff_secs(window_days);
+    let cutoff = crate::util::epoch_cutoff_secs(window_days);
     let conn = db
         .conn
         .lock()
@@ -185,7 +208,7 @@ pub fn query_top_skills(
     window_days: u32,
     limit: usize,
 ) -> Result<Vec<SkillUsage>> {
-    let cutoff = cutoff_secs(window_days);
+    let cutoff = crate::util::epoch_cutoff_secs(window_days);
     let conn = db
         .conn
         .lock()
@@ -231,7 +254,7 @@ pub struct RecallStats {
 }
 
 pub fn query_recall_stats(db: &SessionDB, window_days: u32) -> Result<RecallStats> {
-    let cutoff = cutoff_secs(window_days);
+    let cutoff = crate::util::epoch_cutoff_secs(window_days);
     let conn = db
         .conn
         .lock()
@@ -255,15 +278,6 @@ pub fn query_recall_stats(db: &SessionDB, window_days: u32) -> Result<RecallStat
         summarized: summarized as u64,
         window_days,
     })
-}
-
-fn cutoff_secs(window_days: u32) -> i64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
-    now - (window_days as i64) * 86_400
 }
 
 /// Count memories tagged `profile` created within the window. Reads the

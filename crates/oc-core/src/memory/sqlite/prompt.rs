@@ -30,23 +30,18 @@ pub fn format_prompt_summary(entries: &[MemoryEntry], budget: usize) -> String {
 
     let is_profile = |m: &MemoryEntry| m.tags.iter().any(|t| t == "profile");
 
-    // 1. About You — profile-tagged User/Feedback
+    // 1. About You — profile-tagged User/Feedback.
     let mut profile_entries: Vec<&MemoryEntry> = entries
         .iter()
         .filter(|m| {
             matches!(m.memory_type, MemoryType::User | MemoryType::Feedback) && is_profile(m)
         })
         .collect();
-    if !profile_entries.is_empty() {
-        render_section(
-            "## About You\n",
-            &mut profile_entries,
-            &mut result,
-            &mut remaining,
-            &mut has_content,
-            &mut budget_exhausted,
-        );
-    }
+    let section = render_section("## About You\n", &mut profile_entries, remaining);
+    result.push_str(&section.appended);
+    remaining = remaining.saturating_sub(section.consumed);
+    has_content |= section.had_entries;
+    budget_exhausted |= section.budget_exhausted;
 
     let type_order = [
         MemoryType::User,
@@ -59,7 +54,6 @@ pub fn format_prompt_summary(entries: &[MemoryEntry], budget: usize) -> String {
         if budget_exhausted {
             break;
         }
-
         // Non-profile entries only in the per-type sections (profile items
         // were rendered above).
         let mut typed_entries: Vec<&MemoryEntry> = entries
@@ -71,14 +65,11 @@ pub fn format_prompt_summary(entries: &[MemoryEntry], budget: usize) -> String {
             })
             .collect();
         let heading = format!("## {}\n", mem_type.heading());
-        render_section(
-            &heading,
-            &mut typed_entries,
-            &mut result,
-            &mut remaining,
-            &mut has_content,
-            &mut budget_exhausted,
-        );
+        let section = render_section(&heading, &mut typed_entries, remaining);
+        result.push_str(&section.appended);
+        remaining = remaining.saturating_sub(section.consumed);
+        has_content |= section.had_entries;
+        budget_exhausted |= section.budget_exhausted;
     }
 
     if !has_content {
@@ -92,32 +83,55 @@ pub fn format_prompt_summary(entries: &[MemoryEntry], budget: usize) -> String {
     result
 }
 
+/// Output of rendering a single `## Heading\n` section under a char budget.
+/// Returned as a value so `format_prompt_summary` can fold it into the running
+/// state without needing six mutable out-parameters.
+struct SectionRender {
+    /// Rendered chunk — empty when the section had no entries or the heading
+    /// alone didn't fit.
+    appended: String,
+    /// How many chars of the budget this chunk consumed (`appended.len()`
+    /// plus one more for the trailing blank line when present).
+    consumed: usize,
+    /// True iff at least one bullet was emitted.
+    had_entries: bool,
+    /// True iff rendering stopped short because the budget was exhausted mid-way.
+    budget_exhausted: bool,
+}
+
 /// Render one `## Heading\n` section with bulleted entries under the budget.
-/// Updates `result`/`remaining`/`has_content`/`budget_exhausted` in place so
-/// the caller can chain multiple sections and short-circuit when space runs out.
+/// Caller is responsible for folding the result into its running state.
 fn render_section(
     heading: &str,
     entries: &mut Vec<&MemoryEntry>,
-    result: &mut String,
-    remaining: &mut usize,
-    has_content: &mut bool,
-    budget_exhausted: &mut bool,
-) {
-    if *budget_exhausted || entries.is_empty() {
-        return;
+    remaining: usize,
+) -> SectionRender {
+    let empty = SectionRender {
+        appended: String::new(),
+        consumed: 0,
+        had_entries: false,
+        budget_exhausted: false,
+    };
+    if entries.is_empty() {
+        return empty;
+    }
+    if heading.len() > remaining {
+        return SectionRender {
+            budget_exhausted: true,
+            ..empty
+        };
     }
     entries.sort_by(|a, b| {
         b.pinned
             .cmp(&a.pinned)
             .then_with(|| b.updated_at.cmp(&a.updated_at))
     });
-    if heading.len() > *remaining {
-        *budget_exhausted = true;
-        return;
-    }
-    *remaining -= heading.len();
-    result.push_str(heading);
-    let mut section_has_entries = false;
+
+    let mut out = String::with_capacity(heading.len());
+    out.push_str(heading);
+    let mut used = heading.len();
+    let mut had_entries = false;
+    let mut budget_exhausted = false;
 
     for entry in entries.iter() {
         let prefix = if entry.pinned { "★ " } else { "" };
@@ -129,21 +143,25 @@ fn render_section(
         let content_line = entry.content.lines().next().unwrap_or(&entry.content);
         let safe_content = sanitize_for_prompt(content_line);
         let line = format!("- {}{}{}\n", prefix, att_prefix, safe_content);
-        if line.len() > *remaining {
-            *budget_exhausted = true;
+        if used + line.len() > remaining {
+            budget_exhausted = true;
             break;
         }
-        *remaining -= line.len();
-        result.push_str(&line);
-        section_has_entries = true;
+        used += line.len();
+        out.push_str(&line);
+        had_entries = true;
     }
 
-    if section_has_entries {
-        *has_content = true;
-        if *remaining > 1 {
-            result.push('\n');
-            *remaining = remaining.saturating_sub(1);
-        }
+    if had_entries && remaining.saturating_sub(used) > 1 {
+        out.push('\n');
+        used += 1;
+    }
+
+    SectionRender {
+        appended: out,
+        consumed: used,
+        had_entries,
+        budget_exhausted,
     }
 }
 
