@@ -100,6 +100,14 @@ pub struct SpawnParams {
     /// Skill-level tool restriction inherited from parent skill activation.
     /// When non-empty, the sub-agent only has access to these tools.
     pub skill_allowed_tools: Vec<String>,
+    /// Reasoning / thinking effort forwarded to the provider on the sub-agent's
+    /// `chat` call. Skills set this from their `effort:` frontmatter; other
+    /// callers leave `None` to fall back to provider/agent defaults.
+    pub reasoning_effort: Option<String>,
+    /// Skill name when spawned by a `context: fork` skill — propagated to
+    /// `SubagentEvent.skill_name` so the frontend can pick the dedicated
+    /// SkillProgressBlock renderer. `None` for every other caller.
+    pub skill_name: Option<String>,
 }
 
 /// Event payload for streaming parent agent responses back to frontend.
@@ -142,4 +150,10 @@ pub struct SubagentEvent {
     /// Frontend uses this to auto-inject the result into the parent agent's conversation.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result_full: Option<String>,
+    /// Skill name when this sub-agent was spawned by a `context: fork` skill.
+    /// The frontend uses it to mount the dedicated SkillProgressBlock renderer
+    /// instead of the generic SubagentGroup. `None` for `/subagent` spawns,
+    /// team members, and every other caller.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skill_name: Option<String>,
 }

@@ -113,7 +113,14 @@ pub(super) fn build_async_tools_section() -> Option<String> {
 }
 
 /// Build skills section, filtered by agent config.
-pub(super) fn build_skills_section(filter: &FilterConfig, env_check: bool) -> String {
+///
+/// When `session_id` is provided, `paths:` skills activated for that session
+/// are included. Otherwise conditional skills stay hidden.
+pub(super) fn build_skills_section(
+    filter: &FilterConfig,
+    env_check: bool,
+    session_id: Option<&str>,
+) -> String {
     let store = crate::config::cached_config();
     let all_skills =
         skills::load_all_skills_with_budget(&store.extra_skills_dirs, &store.skill_prompt_budget);
@@ -127,6 +134,10 @@ pub(super) fn build_skills_section(filter: &FilterConfig, env_check: bool) -> St
         .filter(|s| filter.is_allowed(&s.name))
         .collect();
 
+    let activated = session_id
+        .map(|sid| skills::activated_skill_names(sid))
+        .unwrap_or_default();
+
     skills::build_skills_prompt(
         &filtered,
         &disabled,
@@ -134,6 +145,7 @@ pub(super) fn build_skills_section(filter: &FilterConfig, env_check: bool) -> St
         &store.skill_env,
         &store.skill_prompt_budget,
         &store.skill_allow_bundled,
+        &activated,
     )
 }
 

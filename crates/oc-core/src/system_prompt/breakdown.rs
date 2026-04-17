@@ -52,13 +52,15 @@ pub fn compute_breakdown(
         agent_home,
         None,
         &[],
+        None,
     );
-    let without_memory = build(definition, model, provider, None, agent_home, None, &[]);
+    let without_memory = build(definition, model, provider, None, agent_home, None, &[], None);
     let memory_chars = full.len().saturating_sub(without_memory.len());
 
     let skills_chars = build_skills_section(
         &definition.config.capabilities.skills,
         definition.config.capabilities.skill_env_check,
+        None,
     )
     .len();
 

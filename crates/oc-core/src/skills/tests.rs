@@ -33,6 +33,9 @@ mod tests {
             install: vec![],
             allowed_tools: vec![],
             context_mode: None,
+            agent: None,
+            effort: None,
+            paths: None,
             status: SkillStatus::Active,
             authored_by: None,
             rationale: None,
@@ -59,6 +62,9 @@ mod tests {
             install: vec![],
             allowed_tools: vec![],
             context_mode: None,
+            agent: None,
+            effort: None,
+            paths: None,
             status: SkillStatus::Active,
             authored_by: None,
             rationale: None,
@@ -113,6 +119,33 @@ Body
         let parsed = parse_frontmatter(content).unwrap();
         assert_eq!(parsed.name, "my-skill");
         assert_eq!(parsed.description, "A simple skill");
+    }
+
+    #[test]
+    fn test_parse_frontmatter_agent_and_effort() {
+        let content = r#"---
+name: heavy-skill
+description: A deep-reasoning skill
+context: fork
+agent: "code-reviewer"
+effort: high
+---
+
+Body
+"#;
+        let parsed = parse_frontmatter(content).unwrap();
+        assert_eq!(parsed.context_mode.as_deref(), Some("fork"));
+        assert_eq!(parsed.agent.as_deref(), Some("code-reviewer"));
+        assert_eq!(parsed.effort.as_deref(), Some("high"));
+    }
+
+    #[test]
+    fn test_parse_frontmatter_agent_effort_absent() {
+        // Leaving agent:/effort: unset must remain None, not empty-string.
+        let content = "---\nname: minimal\ndescription: no overrides\n---\nBody";
+        let parsed = parse_frontmatter(content).unwrap();
+        assert!(parsed.agent.is_none());
+        assert!(parsed.effort.is_none());
     }
 
     #[test]
@@ -207,7 +240,8 @@ install:
                 false,
                 &HashMap::new(),
                 &SkillPromptBudget::default(),
-                &[]
+                &[],
+                &std::collections::HashSet::new(),
             ),
             ""
         );
@@ -227,10 +261,20 @@ install:
             &HashMap::new(),
             &SkillPromptBudget::default(),
             &[],
+            &std::collections::HashSet::new(),
         );
-        assert!(prompt.contains("- github: GitHub ops (read:"));
-        assert!(prompt.contains("SKILL.md"));
-        assert!(prompt.contains("read"));
+        // Catalog entries no longer expose file paths — the `skill` tool looks
+        // skills up by name instead of instructing the model to `read` SKILL.md.
+        assert!(prompt.contains("- github: GitHub ops"));
+        assert!(prompt.contains("skill` tool"));
+        // The list line for this skill must be free of any path reference;
+        // the instructional header still mentions SKILL.md as a don't-do-this.
+        let list_line = prompt
+            .lines()
+            .find(|l| l.starts_with("- github"))
+            .expect("list line present");
+        assert!(!list_line.contains("SKILL.md"));
+        assert!(!list_line.contains("read:"));
     }
 
     #[test]
@@ -243,6 +287,7 @@ install:
             &HashMap::new(),
             &SkillPromptBudget::default(),
             &[],
+            &std::collections::HashSet::new(),
         );
         assert_eq!(prompt, "");
     }
@@ -259,6 +304,7 @@ install:
             &HashMap::new(),
             &SkillPromptBudget::default(),
             &[],
+            &std::collections::HashSet::new(),
         );
         assert_eq!(prompt, "");
     }
@@ -280,9 +326,23 @@ install:
             max_file_bytes: DEFAULT_MAX_SKILL_FILE_BYTES,
             max_candidates_per_root: DEFAULT_MAX_CANDIDATES_PER_ROOT,
         };
-        let prompt = build_skills_prompt(&skills, &[], false, &HashMap::new(), &budget, &[]);
-        // Should either use compact format or be truncated
-        assert!(prompt.contains("read:") || prompt.is_empty());
+        let prompt = build_skills_prompt(
+            &skills,
+            &[],
+            false,
+            &HashMap::new(),
+            &budget,
+            &[],
+            &std::collections::HashSet::new(),
+        );
+        // Should either fall back to compact format (just `- name` per skill),
+        // emit a truncation warning, or be empty when even the header doesn't
+        // fit. In all three cases the result must not exceed the budget
+        // materially (allowing the 120-char warning headroom).
+        assert!(prompt.len() <= budget.max_chars + 200);
+        if !prompt.is_empty() {
+            assert!(prompt.contains("skill` tool"));
+        }
     }
 
     #[test]
@@ -302,6 +362,7 @@ install:
             &HashMap::new(),
             &SkillPromptBudget::default(),
             &["github".to_string()],
+            &std::collections::HashSet::new(),
         );
         assert!(prompt.contains("github"));
         assert!(!prompt.contains("slack")); // blocked by allowlist
@@ -319,6 +380,7 @@ install:
             &HashMap::new(),
             &SkillPromptBudget::default(),
             &[],
+            &std::collections::HashSet::new(),
         );
         assert!(prompt.contains("basic"));
     }

@@ -255,6 +255,7 @@ pub fn build_system_prompt_with_session(
             agent_home.as_deref(),
             project.as_ref(),
             &project_files,
+            session_id,
         );
     }
     // Fallback: legacy prompt

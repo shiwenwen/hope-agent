@@ -21,6 +21,20 @@ pub(super) struct ParsedFrontmatter {
     pub install: Vec<SkillInstallSpec>,
     pub allowed_tools: Vec<String>,
     pub context_mode: Option<String>,
+    /// Agent id to use when running a `context: fork` skill in a sub-agent.
+    /// When unset the sub-agent inherits the parent agent. Must resolve via
+    /// `agent_loader::load_agent`; invalid ids log a warning and fall back.
+    pub agent: Option<String>,
+    /// Reasoning / thinking effort forwarded to the provider at fork time.
+    /// Accepts the same shorthand as `agent::config::clamp_reasoning_effort`:
+    /// `low | medium | high | xhigh | none`.
+    pub effort: Option<String>,
+    /// Gitignore-style path patterns that gate catalog visibility. When set,
+    /// the skill is hidden from the system prompt until the session touches
+    /// a matching file (via read/write/edit/apply_patch), at which point it
+    /// is activated and kept in the catalog for the remainder of the session.
+    /// `None` = always visible (unchanged behavior for skills without paths).
+    pub paths: Option<Vec<String>>,
     pub status: SkillStatus,
     pub authored_by: Option<String>,
     pub rationale: Option<String>,
@@ -51,6 +65,9 @@ pub(super) fn parse_frontmatter(content: &str) -> Option<ParsedFrontmatter> {
     let mut command_prompt_template: Option<String> = None;
     let mut allowed_tools: Vec<String> = Vec::new();
     let mut context_mode: Option<String> = None;
+    let mut agent: Option<String> = None;
+    let mut effort: Option<String> = None;
+    let mut paths: Option<Vec<String>> = None;
     let mut status: SkillStatus = SkillStatus::Active;
     let mut authored_by: Option<String> = None;
     let mut rationale: Option<String> = None;
@@ -129,6 +146,22 @@ pub(super) fn parse_frontmatter(content: &str) -> Option<ParsedFrontmatter> {
             if !val.is_empty() {
                 context_mode = Some(val);
             }
+        } else if let Some(rest) = line_trimmed.strip_prefix("agent:") {
+            let val = unquote(rest.trim());
+            if !val.is_empty() {
+                agent = Some(val);
+            }
+        } else if let Some(rest) = line_trimmed.strip_prefix("effort:") {
+            let val = unquote(rest.trim());
+            if !val.is_empty() {
+                effort = Some(val);
+            }
+        } else if let Some(rest) = line_trimmed.strip_prefix("paths:") {
+            if let Some(arr) = parse_inline_string_array(rest.trim()) {
+                if !arr.is_empty() {
+                    paths = Some(arr);
+                }
+            }
         } else if let Some(rest) = line_trimmed.strip_prefix("status:") {
             let val = unquote(rest.trim());
             if !val.is_empty() {
@@ -178,6 +211,9 @@ pub(super) fn parse_frontmatter(content: &str) -> Option<ParsedFrontmatter> {
         install,
         allowed_tools,
         context_mode,
+        agent,
+        effort,
+        paths,
         status,
         authored_by,
         rationale,

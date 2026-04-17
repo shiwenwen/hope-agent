@@ -151,6 +151,8 @@ pub async fn spawn_member(
         skip_parent_injection: true, // coordinator handles result routing
         extra_system_context: Some(extra_context),
         skill_allowed_tools: Vec::new(),
+        reasoning_effort: None,
+        skill_name: None,
     };
 
     let run_id = subagent::spawn_subagent(params, db.clone(), cancel_registry.clone()).await?;

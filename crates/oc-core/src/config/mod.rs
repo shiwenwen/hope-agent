@@ -224,6 +224,10 @@ fn default_skill_env_check() -> bool {
     true
 }
 
+fn default_conditional_skills_enabled() -> bool {
+    true
+}
+
 pub(crate) fn default_tool_timeout() -> u64 {
     300
 }
@@ -344,6 +348,11 @@ pub struct AppConfig {
     /// Default true. When false, all skills are injected regardless of environment.
     #[serde(default = "default_skill_env_check")]
     pub skill_env_check: bool,
+    /// Kill switch for `paths:` conditional skill activation. Default true.
+    /// When false, every `paths:` skill behaves like a global one (always in
+    /// the catalog) — use to roll back the feature without editing SKILL.md.
+    #[serde(default = "default_conditional_skills_enabled")]
+    pub conditional_skills_enabled: bool,
     /// Embedding model configuration for memory vector search
     #[serde(default)]
     pub embedding: crate::memory::EmbeddingConfig,
@@ -521,6 +530,7 @@ impl Default for AppConfig {
             extra_skills_dirs: Vec::new(),
             disabled_skills: Vec::new(),
             skill_env_check: true,
+            conditional_skills_enabled: true,
             embedding: crate::memory::EmbeddingConfig::default(),
             memory_extract: crate::memory::MemoryExtractConfig::default(),
             memory_selection: crate::memory::MemorySelectionConfig::default(),

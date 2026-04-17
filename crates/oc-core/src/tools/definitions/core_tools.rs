@@ -6,8 +6,8 @@ use super::super::{
     TOOL_LIST_SETTINGS_BACKUPS, TOOL_LS, TOOL_MANAGE_CRON, TOOL_MEMORY_GET, TOOL_PDF, TOOL_PROCESS,
     TOOL_PROJECT_READ_FILE, TOOL_READ, TOOL_RECALL_MEMORY, TOOL_RESTORE_SETTINGS_BACKUP,
     TOOL_SAVE_MEMORY, TOOL_SEND_ATTACHMENT, TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST,
-    TOOL_SESSIONS_SEND, TOOL_SESSION_STATUS, TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY,
-    TOOL_UPDATE_SETTINGS, TOOL_WEB_FETCH, TOOL_WRITE,
+    TOOL_SESSIONS_SEND, TOOL_SESSION_STATUS, TOOL_SKILL, TOOL_UPDATE_CORE_MEMORY,
+    TOOL_UPDATE_MEMORY, TOOL_UPDATE_SETTINGS, TOOL_WEB_FETCH, TOOL_WRITE,
 };
 use super::types::{is_core_tool, ToolDefinition};
 
@@ -1116,6 +1116,35 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     }
                 },
                 "required": ["path"],
+                "additionalProperties": false
+            }),
+        },
+        // ── Skill (activate a skill by name — preferred over read SKILL.md) ──
+        ToolDefinition {
+            name: TOOL_SKILL.into(),
+            description: "Activate a skill from the skill catalog by name. Preferred over \
+                          `read`-ing the SKILL.md file directly — this tool handles loading, \
+                          optional sub-agent isolation (`context: fork` skills), and argument \
+                          substitution. For inline skills it returns the SKILL.md content so \
+                          you can follow its instructions; for fork skills it runs the skill \
+                          in a sub-agent and returns only the final summary.".into(),
+            internal: true,
+            deferred: false,
+            always_load: true,
+            async_capable: false,
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Skill name as shown in the skill catalog (e.g. 'simplify', 'stlc-delivery')."
+                    },
+                    "args": {
+                        "type": "string",
+                        "description": "Optional arguments forwarded to the skill. Replaces `$ARGUMENTS` in the SKILL.md body for inline skills; for fork skills it becomes the task description sent to the sub-agent."
+                    }
+                },
+                "required": ["name"],
                 "additionalProperties": false
             }),
         },

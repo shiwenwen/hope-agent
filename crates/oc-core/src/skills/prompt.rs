@@ -1,6 +1,5 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
-use super::discovery::compact_path;
 use super::requirements::check_requirements;
 use super::types::*;
 
@@ -9,13 +8,17 @@ use super::types::*;
 /// Build the skills section of the system prompt with lazy-load pattern.
 ///
 /// Three-tier progressive degradation:
-/// 1. Full format: `- name: description (read: ~/path/SKILL.md)`
-/// 2. Compact format: `- name (read: ~/path/SKILL.md)` — when full exceeds budget
+/// 1. Full format: `- name: description`
+/// 2. Compact format: `- name` — when full exceeds budget
 /// 3. Truncated: binary-search largest prefix that fits compact budget
 ///
 /// Skills with `disable_model_invocation == true` are excluded from the prompt.
 /// Disabled skills and skills failing env_check are also excluded.
 /// `allow_bundled` restricts which bundled skills are included (empty = all allowed).
+///
+/// Activation uses the internal `skill` tool rather than `read`-ing SKILL.md,
+/// so file paths are deliberately absent from catalog entries — the tool looks
+/// skills up by name.
 pub fn build_skills_prompt(
     skills: &[SkillEntry],
     disabled: &[String],
@@ -23,6 +26,7 @@ pub fn build_skills_prompt(
     skill_env: &HashMap<String, HashMap<String, String>>,
     budget: &SkillPromptBudget,
     allow_bundled: &[String],
+    activated_conditional: &HashSet<String>,
 ) -> String {
     let active: Vec<&SkillEntry> = skills
         .iter()
@@ -40,6 +44,12 @@ pub fn build_skills_prompt(
             allow_bundled.iter().any(|a| a == key || a == &s.name)
         })
         .filter(|s| !env_check || check_requirements(&s.requires, skill_env.get(&s.name)))
+        // `paths:` skills are hidden until activated for this session.
+        // Skills without `paths:` are always visible (unchanged behavior).
+        .filter(|s| match &s.paths {
+            Some(p) if !p.is_empty() => activated_conditional.contains(&s.name),
+            _ => true,
+        })
         .collect();
 
     if active.is_empty() {
@@ -51,22 +61,15 @@ pub fn build_skills_prompt(
 
     // Header
     let header = "\n\nThe following skills provide specialized instructions for specific tasks.\n\
-        Use the `read` tool to load a skill's file when the task matches its name.\n\
-        When a skill file references a relative path, resolve it against the skill \
-        directory (parent of SKILL.md) and use that absolute path in tool commands.\n\
-        Only read the skill most relevant to the current task — do not read more than one skill up front.";
+        Use the `skill` tool to activate a skill by name — e.g. `skill({ name: \"<skill-name>\", args: \"<optional>\" })`.\n\
+        Do NOT `read` SKILL.md files to activate a skill; the `skill` tool handles loading, \
+        argument substitution, and (for `context: fork` skills) sub-agent isolation.\n\
+        Only activate the skill most relevant to the current task — do not activate more than one up front.";
 
     // Try full format first
     let full_lines: Vec<String> = active
         .iter()
-        .map(|s| {
-            format!(
-                "- {}: {} (read: {})",
-                s.name,
-                s.description,
-                compact_path(&s.file_path)
-            )
-        })
+        .map(|s| format!("- {}: {}", s.name, s.description))
         .collect();
 
     let full_text = format!("{}\n{}", header, full_lines.join("\n"));
@@ -78,7 +81,7 @@ pub fn build_skills_prompt(
     // Fall back to compact format (no descriptions)
     let compact_lines: Vec<String> = active
         .iter()
-        .map(|s| format!("- {} (read: {})", s.name, compact_path(&s.file_path)))
+        .map(|s| format!("- {}", s.name))
         .collect();
 
     let compact_text = format!("{}\n{}", header, compact_lines.join("\n"));

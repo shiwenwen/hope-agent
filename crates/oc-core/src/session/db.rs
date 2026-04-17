@@ -348,7 +348,20 @@ impl SessionDB {
             CREATE INDEX IF NOT EXISTS idx_learning_events_ts
                 ON learning_events(ts);
             CREATE INDEX IF NOT EXISTS idx_learning_events_kind_ts
-                ON learning_events(kind, ts);",
+                ON learning_events(kind, ts);
+
+            -- Persists the per-session set of conditional skills
+            -- (SKILL.md `paths:` frontmatter) that have been activated by
+            -- the user or model touching a matching file. Survives App restart
+            -- so `build_skills_prompt` can keep the skill visible.
+            CREATE TABLE IF NOT EXISTS session_skill_activation (
+                session_id TEXT NOT NULL,
+                skill_name TEXT NOT NULL,
+                activated_at TEXT NOT NULL,
+                PRIMARY KEY (session_id, skill_name)
+            );
+            CREATE INDEX IF NOT EXISTS idx_session_skill_activation_session
+                ON session_skill_activation(session_id);",
         )?;
 
         // ── Idempotent migrations for team_* tables ─────────────────
@@ -1161,7 +1174,60 @@ impl SessionDB {
             let _ = std::fs::remove_dir_all(att_dir);
         }
 
+        // Clean up conditional skill activations (no FK cascade set up for
+        // this table — it's keyed by session_id but lives independently).
+        let _ = conn.execute(
+            "DELETE FROM session_skill_activation WHERE session_id = ?1",
+            params![session_id],
+        );
+
         Ok(())
+    }
+
+    /// Persist or update the set of conditional skills activated for a session.
+    /// Returns the actually-new activations (after diffing against DB).
+    pub fn insert_skill_activations(
+        &self,
+        session_id: &str,
+        skill_names: &[String],
+    ) -> Result<Vec<String>> {
+        if skill_names.is_empty() {
+            return Ok(Vec::new());
+        }
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let now = chrono::Utc::now().to_rfc3339();
+        let mut added = Vec::new();
+        for name in skill_names {
+            let changed = conn.execute(
+                "INSERT OR IGNORE INTO session_skill_activation (session_id, skill_name, activated_at)
+                 VALUES (?1, ?2, ?3)",
+                params![session_id, name, now],
+            )?;
+            if changed > 0 {
+                added.push(name.clone());
+            }
+        }
+        Ok(added)
+    }
+
+    /// Load the set of activated conditional skills for a session.
+    pub fn load_skill_activations(&self, session_id: &str) -> Result<Vec<String>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT skill_name FROM session_skill_activation WHERE session_id = ?1",
+        )?;
+        let rows = stmt.query_map(params![session_id], |row| row.get::<_, String>(0))?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
     }
 
     /// Save the agent's conversation_history JSON for a session.

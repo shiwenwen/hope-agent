@@ -44,6 +44,7 @@ pub fn build(
     agent_home: Option<&str>,
     project: Option<&Project>,
     project_files: &[ProjectFile],
+    session_id: Option<&str>,
 ) -> String {
     let mut sections: Vec<String> = Vec::new();
 
@@ -222,10 +223,11 @@ pub fn build(
         sections.push(HUMAN_IN_THE_LOOP_GUIDANCE.to_string());
     }
 
-    // ⑦ Skills (filtered by agent config)
+    // ⑦ Skills (filtered by agent config + per-session `paths:` activation)
     sections.push(build_skills_section(
         &definition.config.capabilities.skills,
         definition.config.capabilities.skill_env_check,
+        session_id,
     ));
 
     // ⑦b Current Project — injected before Memory so the LLM knows which
@@ -401,6 +403,8 @@ pub fn build_legacy(model: Option<&str>, provider: Option<&str>) -> String {
     let store = crate::config::cached_config();
     let available_skills =
         skills::load_all_skills_with_budget(&store.extra_skills_dirs, &store.skill_prompt_budget);
+    // Legacy path has no session context — conditional skills stay hidden.
+    let activated_conditional = std::collections::HashSet::new();
     let skills_section = skills::build_skills_prompt(
         &available_skills,
         &store.disabled_skills,
@@ -408,6 +412,7 @@ pub fn build_legacy(model: Option<&str>, provider: Option<&str>) -> String {
         &store.skill_env,
         &store.skill_prompt_budget,
         &store.skill_allow_bundled,
+        &activated_conditional,
     );
 
     let mut sections = Vec::new();

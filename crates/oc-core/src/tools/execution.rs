@@ -12,6 +12,7 @@ use super::{
 };
 use super::project_read_file;
 use super::send_attachment;
+use super::skill;
 use super::{apply_patch, edit, exec, find, grep, ls, process, read, write};
 use super::{
     approval, TOOL_ACP_SPAWN, TOOL_AGENTS_LIST, TOOL_AMEND_PLAN, TOOL_APPLY_PATCH,
@@ -433,6 +434,15 @@ pub async fn execute_tool_with_context(
         return Ok(raw);
     }
 
+    // ── Conditional skill activation (`paths:` frontmatter) ──────
+    // Scan args for file paths the tool is about to touch, then light up
+    // any `paths:` skills whose patterns match. The skill catalog in the
+    // *next* system-prompt build will include them; we bump skill_version
+    // so the 30s skill cache doesn't swallow this change.
+    if ctx.session_id.is_some() {
+        maybe_activate_conditional_skills(name, args, ctx);
+    }
+
     let dispatch = async {
         match name {
             TOOL_EXEC => exec::tool_exec(args, ctx).await,
@@ -498,6 +508,7 @@ pub async fn execute_tool_with_context(
             TOOL_LIST_SETTINGS_BACKUPS => settings::tool_list_settings_backups(args).await,
             TOOL_RESTORE_SETTINGS_BACKUP => settings::tool_restore_settings_backup(args).await,
             TOOL_SEND_ATTACHMENT => send_attachment::tool_send_attachment(args, ctx).await,
+            super::TOOL_SKILL => skill::tool_skill(args, ctx).await,
             _ => Err(anyhow::anyhow!("Unknown tool: {}", name)),
         }
     };
@@ -618,6 +629,121 @@ fn disk_persist_threshold() -> usize {
 }
 
 /// Write a large tool result to disk and return the file path.
+/// Extract file paths from tool args so `paths:` skill activation can see
+/// what the session is touching. Only the path-aware tools (read/write/edit/
+/// ls/apply_patch) are scanned; other tools return an empty Vec.
+fn extract_touched_paths(tool_name: &str, args: &Value) -> Vec<String> {
+    fn as_str(v: Option<&Value>) -> Option<String> {
+        v.and_then(|x| x.as_str()).map(|s| s.to_string())
+    }
+
+    match tool_name {
+        TOOL_READ | "read_file" | TOOL_WRITE | "write_file" | TOOL_EDIT | "patch_file"
+        | TOOL_LS | "list_dir" => {
+            let mut out = Vec::new();
+            if let Some(p) = as_str(args.get("path")) {
+                out.push(p);
+            }
+            if let Some(p) = as_str(args.get("file_path")) {
+                out.push(p);
+            }
+            out
+        }
+        TOOL_APPLY_PATCH => {
+            // Patch format uses `*** Update File: <path>` / `*** Add File: <path>`.
+            let patch = match args.get("patch").and_then(|v| v.as_str()) {
+                Some(s) => s,
+                None => return Vec::new(),
+            };
+            let mut out = Vec::new();
+            for line in patch.lines() {
+                let trimmed = line.trim_start();
+                for marker in [
+                    "*** Update File: ",
+                    "*** Add File: ",
+                    "*** Delete File: ",
+                ] {
+                    if let Some(path) = trimmed.strip_prefix(marker) {
+                        out.push(path.trim().to_string());
+                    }
+                }
+            }
+            out
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// Cached answer to "are there any `paths:` skills in the current catalog?"
+/// Keyed on `skill_cache_version()` so it invalidates together with the rest
+/// of the skill system when discovery changes. The fast-path lets us skip
+/// the filesystem-scanning `get_invocable_skills` call on every file op when
+/// no skill actually declares `paths:` (the common case).
+static HAS_PATHS_SKILLS_CACHE: std::sync::OnceLock<std::sync::Mutex<Option<(u64, bool)>>> =
+    std::sync::OnceLock::new();
+
+fn any_paths_skills(cfg: &crate::config::AppConfig) -> bool {
+    let current_version = crate::skills::skill_cache_version();
+    let cache = HAS_PATHS_SKILLS_CACHE.get_or_init(|| std::sync::Mutex::new(None));
+    if let Ok(guard) = cache.lock() {
+        if let Some((v, b)) = *guard {
+            if v == current_version {
+                return b;
+            }
+        }
+    }
+
+    let catalog = crate::skills::get_invocable_skills(
+        &cfg.extra_skills_dirs,
+        &cfg.disabled_skills,
+    );
+    let has_any = catalog
+        .iter()
+        .any(|s| s.paths.as_ref().map(|p| !p.is_empty()).unwrap_or(false));
+
+    if let Ok(mut guard) = cache.lock() {
+        *guard = Some((current_version, has_any));
+    }
+    has_any
+}
+
+fn maybe_activate_conditional_skills(name: &str, args: &Value, ctx: &ToolExecContext) {
+    let cfg = crate::config::cached_config();
+    if !cfg.conditional_skills_enabled {
+        return;
+    }
+    let session_id = match ctx.session_id.as_deref() {
+        Some(s) => s,
+        None => return,
+    };
+    let paths = extract_touched_paths(name, args);
+    if paths.is_empty() {
+        return;
+    }
+    // Fast path: if no skill in the catalog declares `paths:`, skip the
+    // full discovery pass. Cache invalidates with skill_cache_version.
+    if !any_paths_skills(&cfg) {
+        return;
+    }
+    let cwd = ctx.home_dir.as_deref().unwrap_or(".");
+    let catalog = crate::skills::get_invocable_skills(
+        &cfg.extra_skills_dirs,
+        &cfg.disabled_skills,
+    );
+    let activated =
+        crate::skills::activate_skills_for_paths(session_id, &paths, cwd, &catalog);
+    if !activated.is_empty() {
+        crate::skills::bump_skill_version();
+        crate::app_info!(
+            "skill",
+            "activation",
+            "Activated conditional skills {:?} in session {}",
+            activated,
+            session_id
+        );
+    }
+}
+
 fn persist_large_result(
     content: &str,
     session_id: Option<&str>,

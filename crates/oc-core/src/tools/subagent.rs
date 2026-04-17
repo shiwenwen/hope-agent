@@ -139,6 +139,8 @@ async fn do_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
         skip_parent_injection: false,
         extra_system_context: None,
         skill_allowed_tools: Vec::new(),
+        reasoning_effort: None,
+        skill_name: None,
     };
 
     let run_id = subagent::spawn_subagent(params, session_db, cancel_registry).await?;
@@ -402,6 +404,8 @@ async fn action_batch_spawn(args: &Value, ctx: &ToolExecContext) -> Result<Strin
             skip_parent_injection: false,
             extra_system_context: None,
             skill_allowed_tools: Vec::new(),
+            reasoning_effort: None,
+            skill_name: None,
         };
 
         match subagent::spawn_subagent(params, session_db.clone(), cancel_registry.clone()).await {

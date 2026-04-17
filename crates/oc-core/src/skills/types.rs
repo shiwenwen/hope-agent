@@ -220,6 +220,21 @@ pub struct SkillEntry {
     /// Parsed from SKILL.md frontmatter `context:` field.
     #[serde(default)]
     pub context_mode: Option<String>,
+    /// Sub-agent id to use when this skill is activated with `context: fork`.
+    /// Looked up via `agent_loader::load_agent`; invalid ids fall back to the
+    /// parent agent at fork time. Parsed from SKILL.md frontmatter `agent:` field.
+    #[serde(default)]
+    pub agent: Option<String>,
+    /// Reasoning / thinking effort forwarded to the provider when this skill
+    /// is forked. Parsed from SKILL.md frontmatter `effort:` field.
+    #[serde(default)]
+    pub effort: Option<String>,
+    /// Conditional-activation glob patterns. When present and non-empty the
+    /// skill is hidden from the catalog until a file matching one of these
+    /// gitignore-style patterns is touched in the current session.
+    /// Parsed from SKILL.md frontmatter `paths:` field.
+    #[serde(default)]
+    pub paths: Option<Vec<String>>,
     /// Lifecycle status. `Draft` / `Archived` are excluded from discovery
     /// (and thus prompt + slash + tool_search). Defaults to `Active`.
     #[serde(default)]
@@ -258,6 +273,8 @@ impl SkillEntry {
             always,
             allowed_tools: self.allowed_tools,
             context_mode: self.context_mode,
+            agent: self.agent,
+            effort: self.effort,
             status: self.status,
             authored_by: self.authored_by,
         }
@@ -293,6 +310,12 @@ pub struct SkillSummary {
     /// Context mode from SKILL.md frontmatter.
     #[serde(default)]
     pub context_mode: Option<String>,
+    /// Sub-agent id for `context: fork` skills.
+    #[serde(default)]
+    pub agent: Option<String>,
+    /// Reasoning effort forwarded at fork time.
+    #[serde(default)]
+    pub effort: Option<String>,
     /// Lifecycle status (see `SkillStatus`).
     #[serde(default)]
     pub status: SkillStatus,
@@ -342,6 +365,12 @@ pub struct SkillDetail {
     pub allowed_tools: Vec<String>,
     #[serde(default)]
     pub context_mode: Option<String>,
+    #[serde(default)]
+    pub agent: Option<String>,
+    #[serde(default)]
+    pub effort: Option<String>,
+    #[serde(default)]
+    pub paths: Option<Vec<String>>,
     #[serde(default)]
     pub status: SkillStatus,
     #[serde(default)]

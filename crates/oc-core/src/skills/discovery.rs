@@ -94,7 +94,10 @@ pub fn bundled_skills_dir() -> Option<&'static PathBuf> {
 // ── Path Utilities ───────────────────────────────────────────────
 
 /// Compact a file path by replacing the home directory prefix with `~`.
-/// Saves ~5-6 tokens per skill path in the prompt.
+/// Retained after the prompt-catalog no longer exposes paths — still useful
+/// for log messages and tests, so marked `allow(dead_code)` rather than
+/// removed.
+#[allow(dead_code)]
 pub(super) fn compact_path(path: &str) -> String {
     if let Some(home) = dirs::home_dir() {
         let home_str = home.to_string_lossy();
@@ -218,6 +221,9 @@ fn load_single_skill(
         install: parsed.install,
         allowed_tools: parsed.allowed_tools,
         context_mode: parsed.context_mode,
+        agent: parsed.agent,
+        effort: parsed.effort,
+        paths: parsed.paths,
         status: parsed.status,
         authored_by: parsed.authored_by,
         rationale: parsed.rationale,
@@ -360,6 +366,9 @@ pub fn get_skill_content(
         install: entry.install,
         allowed_tools: entry.allowed_tools,
         context_mode: entry.context_mode,
+        agent: entry.agent,
+        effort: entry.effort,
+        paths: entry.paths,
         status: entry.status,
         authored_by: entry.authored_by,
         rationale: entry.rationale,

@@ -6,6 +6,7 @@ import ThinkingBlock from "./ThinkingBlock"
 import TaskBlock from "./TaskBlock"
 import SubagentGroup, { type SubagentGroupRun } from "@/components/chat/SubagentGroup"
 import SubagentBlock from "@/components/chat/SubagentBlock"
+import SkillProgressBlock from "@/components/chat/SkillProgressBlock"
 import { AskUserQuestionResult, SubmitPlanResult } from "./PlanResultBlocks"
 import type { ContentBlock, ToolCall } from "@/types/chat"
 import type { Message } from "@/types/chat"
@@ -20,6 +21,8 @@ const NO_GROUP_TOOLS = new Set([
   // subagent spawns are handled by a dedicated SubagentGroup path below;
   // never let them fall into the generic tool-call group.
   "subagent",
+  // skill activations get their own SkillProgressBlock renderer.
+  "skill",
 ])
 
 /** Extract zero or more subagent runs from a tool_call block. Handles:
@@ -178,6 +181,17 @@ export function AssistantContentBlocks({
             <SubmitPlanResult key={block.tool.callId} title={title} sessionId={sessionId} onOpenPanel={onOpenPlanPanel} />,
           )
         }
+        i++
+        continue
+      }
+      // skill activation → dedicated Puzzle-iconed block (covers both inline
+      // and fork modes; fork detection happens inside the component by
+      // looking at the tool_result prefix).
+      if (block.tool.name === "skill") {
+        const isLastTool = loading && isLast && i === blocks.length - 1
+        elements.push(
+          <SkillProgressBlock key={block.tool.callId} tool={block.tool} shimmer={isLastTool} />,
+        )
         i++
         continue
       }

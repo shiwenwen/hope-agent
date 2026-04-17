@@ -248,50 +248,19 @@ async fn dispatch_skill_fork(
     let parent_session_id =
         session_id.ok_or_else(|| "Cannot fork skill: no session context".to_string())?;
 
-    // Build task from user args or a default instruction
-    let task = if args.is_empty() {
-        format!(
-            "Execute the skill '{}'. Follow the instructions in the skill context.",
-            skill.name
-        )
-    } else {
-        format!(
-            "Execute the skill '{}' to: {}. Follow the instructions in the skill context.",
-            skill.name, args
-        )
-    };
-
-    // Read SKILL.md content for extra system context
-    let skill_content = std::fs::read_to_string(&skill.file_path)
-        .unwrap_or_else(|_| format!("Skill: {}\n{}", skill.name, skill.description));
-
-    let session_db = crate::globals::get_session_db()
-        .ok_or_else(|| "Session DB not initialized".to_string())?
-        .clone();
-    let cancel_registry = crate::globals::get_subagent_cancels()
-        .ok_or_else(|| "Cancel registry not initialized".to_string())?
-        .clone();
-
-    let params = crate::subagent::SpawnParams {
-        task,
-        agent_id: agent_id.to_string(),
-        parent_session_id: parent_session_id.to_string(),
-        parent_agent_id: agent_id.to_string(),
-        depth: 1,
-        timeout_secs: Some(600), // 10 minutes for skill execution
-        model_override: None,
-        label: Some(format!("Skill: {}", skill.name)),
-        attachments: Vec::new(),
-        plan_agent_mode: None,
-        plan_mode_allow_paths: Vec::new(),
-        skip_parent_injection: false,
-        extra_system_context: Some(skill_content),
-        skill_allowed_tools: skill.allowed_tools.clone(),
-    };
-
-    let run_id = crate::subagent::spawn_subagent(params, session_db, cancel_registry)
-        .await
-        .map_err(|e| format!("Failed to fork skill: {}", e))?;
+    // Slash command path keeps skip_parent_injection=false so the existing
+    // injection UX (result posted back as a user message) is preserved.
+    // The `skill` tool path sets skip_parent_injection=true and synthesizes
+    // its own tool_result.
+    let run_id = crate::skills::spawn_skill_fork(
+        skill,
+        args,
+        parent_session_id,
+        agent_id,
+        false,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
 
     Ok(CommandResult {
         content: format!(

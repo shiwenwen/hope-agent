@@ -100,6 +100,7 @@ pub async fn spawn_subagent(
         input_tokens: None,
         output_tokens: None,
         result_full: None,
+        skill_name: params.skill_name.clone(),
     });
 
     // 8. Spawn async task
@@ -121,6 +122,8 @@ pub async fn spawn_subagent(
     let skip_parent_injection = params.skip_parent_injection;
     let extra_system_context = params.extra_system_context.clone();
     let skill_allowed_tools = params.skill_allowed_tools.clone();
+    let reasoning_effort = params.reasoning_effort.clone();
+    let skill_name_for_events = params.skill_name.clone();
 
     tokio::spawn(async move {
         let start = std::time::Instant::now();
@@ -147,6 +150,7 @@ pub async fn spawn_subagent(
         let plan_mode_allow_paths_exec = plan_mode_allow_paths.clone();
         let extra_system_context_exec = extra_system_context.clone();
         let skill_allowed_tools_exec = skill_allowed_tools.clone();
+        let reasoning_effort_exec = reasoning_effort.clone();
         let exec_result = std::panic::AssertUnwindSafe(tokio::time::timeout(
             std::time::Duration::from_secs(timeout_secs),
             execute_subagent(
@@ -162,6 +166,7 @@ pub async fn spawn_subagent(
                 plan_mode_allow_paths_exec,
                 extra_system_context_exec,
                 skill_allowed_tools_exec,
+                reasoning_effort_exec,
             ),
         ));
         let result = futures_util::FutureExt::catch_unwind(exec_result).await;
@@ -253,6 +258,7 @@ pub async fn spawn_subagent(
             input_tokens: None, // TODO: extract from agent usage when available
             output_tokens: None,
             result_full: result_text,
+            skill_name: skill_name_for_events.clone(),
         });
 
         // Cleanup cancel flag and steer mailbox
@@ -336,6 +342,7 @@ fn execute_subagent(
     plan_mode_allow_paths: Vec<String>,
     extra_system_context_override: Option<String>,
     skill_allowed_tools: Vec<String>,
+    reasoning_effort: Option<String>,
 ) -> impl std::future::Future<Output = Result<(String, Option<String>)>> + Send {
     async move {
         use crate::agent::AssistantAgent;
@@ -476,8 +483,9 @@ fn execute_subagent(
                 }
 
                 let cancel_clone = cancel.clone();
+                let effort_ref = reasoning_effort.as_deref();
                 match agent
-                    .chat(&task, &attachments, None, cancel_clone, |_delta| {})
+                    .chat(&task, &attachments, effort_ref, cancel_clone, |_delta| {})
                     .await
                 {
                     Ok((response, _thinking)) => {
