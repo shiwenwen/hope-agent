@@ -784,6 +784,10 @@ impl MemoryBackend for SqliteMemoryBackend {
             .unwrap_or_else(|e| e.into_inner())
             .is_some()
     }
+
+    fn backend_kind(&self) -> &'static str {
+        "sqlite"
+    }
 }
 
 // ── Convenience: open default DB ────────────────────────────────
