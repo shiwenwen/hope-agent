@@ -38,8 +38,38 @@ def validate_skill(skill_path):
     except yaml.YAMLError as e:
         return False, f"Invalid YAML in frontmatter: {e}"
 
-    # Define allowed properties
-    ALLOWED_PROPERTIES = {'name', 'description', 'license', 'allowed-tools', 'metadata', 'compatibility'}
+    # Allowed frontmatter keys. Mirrors the Rust frontmatter parser at
+    # crates/oc-core/src/skills/frontmatter.rs — whenever a field is added
+    # there, add both spellings here (kebab-case and camelCase / snake_case
+    # aliases) so scaffolded skills pass validation.
+    ALLOWED_PROPERTIES = {
+        # identity
+        'name', 'description', 'whenToUse', 'when-to-use', 'when_to_use',
+        'aliases',
+        # upstream-compatible optional metadata
+        'license', 'metadata', 'compatibility',
+        # invocation control
+        'user-invocable', 'user_invocable',
+        'disable-model-invocation', 'disable_model_invocation',
+        'skillKey', 'skill_key',
+        # command dispatch
+        'command-dispatch', 'command_dispatch',
+        'command-tool', 'command_tool',
+        'command-arg-mode', 'command_arg_mode',
+        'command-arg-placeholder', 'command_arg_placeholder',
+        'argumentHint', 'argument-hint', 'argument_hint',
+        'command-arg-options', 'command_arg_options',
+        'command-prompt-template', 'command_prompt_template',
+        # execution
+        'context', 'agent', 'effort', 'paths',
+        'allowed-tools', 'allowed_tools',
+        # prerequisites
+        'requires', 'always', 'primaryEnv', 'primary_env',
+        # installation
+        'install',
+        # lifecycle
+        'status', 'authored-by', 'authored_by', 'rationale',
+    }
 
     # Check for unexpected properties (excluding nested keys under metadata)
     unexpected_keys = set(frontmatter.keys()) - ALLOWED_PROPERTIES
