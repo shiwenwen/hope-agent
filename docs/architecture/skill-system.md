@@ -224,14 +224,20 @@ When the user asks about GitHub operations, use the `gh` CLI.
 | 字段 | 类型 | 必需 | 默认值 | 说明 |
 |------|------|------|--------|------|
 | `name` | string | **是** | — | 技能标识符，全局唯一 |
-| `description` | string | 否 | `""` | 人类可读描述，显示在 prompt 和 UI 中 |
+| `description` | string | 否 | `""` | "这是什么"——技能用途描述，显示在 prompt 和 UI 中 |
+| `whenToUse` | string | 否 | — | "什么时候用"——触发提示。写了之后 catalog 渲染为 `- name: <desc> — when: <whenToUse>`；留空则回退到只展示 description。解析时接受 `when-to-use:` / `when_to_use:` 三种拼写 |
+| `aliases` | string[] | 否 | `[]` | 附加斜杠命令名（如 `[pr-review, reviewpr]`）。每个 alias 都注册到斜杠 catalog，与其他命令冲突时静默跳过，不覆盖 canonical name 或内置命令 |
 | `skillKey` | string | 否 | 等于 `name` | 自定义配置查找键 |
 | `always` | bool | 否 | `false` | 为 `true` 时跳过所有 requirements 检查 |
 | `primaryEnv` | string | 否 | — | 主环境变量名，可被 skill apiKey 配置满足 |
 | `user-invocable` | bool | 否 | `true` | 是否注册为斜杠命令 |
 | `disable-model-invocation` | bool | 否 | `false` | 为 `true` 时不注入 prompt（仅用户可调用） |
-| `command-dispatch` | string | 否 | — | 命令分发方式，目前仅支持 `"tool"` |
+| `command-dispatch` | string | 否 | — | 命令分发方式：`"tool"`（直接调工具）或 `"prompt"`（模板展开后发给 LLM） |
 | `command-tool` | string | 否 | — | 当 `command-dispatch` 为 `"tool"` 时，绑定的工具名 |
+| `command-arg-mode` | string | 否 | — | 参数传递模式。`"raw"` = 原样转发给工具；未设 = 尝试解析为 JSON，失败回退 `{"query": ...}` |
+| `command-arg-placeholder` / `argumentHint` | string | 否 | `"[args]"` | UI 斜杠菜单里的参数占位提示。两种拼写等价，后一种是 Anthropic 通用写法，建议新 skill 用 `argumentHint` |
+| `command-arg-options` | string[] | 否 | — | 固定参数选项（斜杠菜单弹出下拉）|
+| `command-prompt-template` | string | 否 | (body) | `command-dispatch: "prompt"` 时的模板字符串，支持 `$ARGUMENTS` 替换。未设时用 SKILL.md body |
 | `allowed-tools` | string[] | 否 | `[]` | 激活后子 Agent / 主对话可见的工具白名单；空列表 = 全部可用 |
 | `context` | string | 否 | — | 执行模式。`"fork"` 在子 Agent 中跑，结果只回一段摘要；未设则 inline 执行 |
 | `agent` | string | 否 | — | **仅 fork 模式生效**：指定 fork 时使用的 Agent id（`~/.opencomputer/agents/{id}/`）。无效 id 自动 fallback 到父 Agent 并记 warn |
@@ -811,10 +817,16 @@ Do NOT `read` SKILL.md files to activate a skill; the `skill` tool handles loadi
 argument substitution, and (for `context: fork` skills) sub-agent isolation.
 Only activate the skill most relevant to the current task — do not activate more than one up front.
 
-- github: GitHub operations via gh CLI
+- github: GitHub operations via gh CLI — when: user mentions PR status, CI checks, issues
 - docker: Container management
 - ...
 ```
+
+当 skill 声明了 `whenToUse` frontmatter 字段时，catalog 行渲染为
+`- name: <description> — when: <whenToUse>`；未声明则回退到 `- name: <description>`。
+拆分的好处：`description` 可以保持短（"这是什么"），触发判断完全落在 `whenToUse` 里
+（"什么时候用"），不需要为了触发率把两件事塞进同一句，也能减小 full format 超出
+`max_chars` 触发降级的概率。
 
 **为什么不再在 catalog 里暴露文件路径：**
 
@@ -982,6 +994,22 @@ sequenceDiagram
 /slack [args]      ← 技能 "slack" 自动注册
 ```
 
+声明了 `aliases: [...]` 的技能会额外注册 alias 条目，每个 alias 都是同一个 skill 的独立入口：
+
+```yaml
+# skill frontmatter
+name: review-pr
+aliases: [pr-review, reviewpr]
+```
+
+```
+/review-pr   ← canonical
+/pr-review   ← alias 1
+/reviewpr    ← alias 2
+```
+
+三个命令任何一个触发都跑同一个 skill，`SkillsPanel` 显示一次，斜杠菜单显示三条。
+
 ### 命令名称规范化
 
 ```
@@ -994,12 +1022,17 @@ My Cool Skill!    →  my_cool_skill
 abcde...(50字符)  →  截断到 32 字符
 ```
 
+Alias 走**完全相同**的 normalize 函数，所以 `pr-review` 和 `pr_review` 在 catalog 里会冲撞——后到者静默跳过。
+
 ### 冲突解决
 
 ```
-与内置命令冲突 → 加 _skill 后缀：  model → model_skill
-与其他 skill 冲突 → 加数字后缀：  test → test_2 → test_3
+canonical name 与内置命令冲突 → 加 _skill 后缀：  model → model_skill
+canonical name 与其他 skill 冲突 → 加数字后缀：  test → test_2 → test_3
+alias 与已有任何命令冲突 → 静默跳过（不覆盖，不报错）
 ```
+
+Alias 设计为"锦上添花"，不抢 canonical 的坑位；如果 alias 冲撞，作者应该改名或删除，系统不会自动重命名。
 
 ### 命令执行流程
 
@@ -1023,7 +1056,7 @@ sequenceDiagram
     BE->>BE: parser::parse → ("github", "create issue")
     BE->>BE: dispatch → 不匹配内置命令
     BE->>BE: handle_skill_command()
-    BE->>BE: 查找 skill entry
+    BE->>BE: 查找 skill entry<br/>(按 normalize 后字符串同时匹配 name 和 aliases)
 
     alt command_dispatch == "tool"
         BE-->>CS: PassThrough: "Use the {tool} tool..."
@@ -1423,7 +1456,7 @@ sequenceDiagram
 
 | 技能 | 说明 | 关联工具 |
 |------|------|----------|
-| `oc-skill-creator` | 创建、编辑、改进或审计 OpenComputer 技能。包含评估工作流（agents/grader + comparator + analyzer、references/schemas、scripts/ 聚合脚本、eval-viewer/ 可视化查看器） | — |
+| `oc-skill-creator` | 创建、编辑、改进或审计 OpenComputer 技能。提供：脚手架脚本 `scripts/init_skill.py`（一键生成目录 + 带所有 frontmatter 字段 stub 的 SKILL.md 模板）、完整评估工作流（`agents/grader` + `comparator` + `analyzer`、`references/schemas`、`scripts/` 聚合脚本、`eval-viewer/` 可视化查看器），以及自检测试 `scripts/test_quick_validate.py` / `test_package_skill.py`（`python -m unittest` 直跑） | — |
 | `oc-settings` | 通过自然语言对话调整应用设置。指导模型使用 `get_settings` / `update_settings` 工具读取和修改 30+ 个配置分类（主题、语言、代理、温度、通知、搜索、记忆等），不直接编辑配置文件 | `get_settings`, `update_settings` |
 
 ### settings 技能工具
@@ -1449,6 +1482,9 @@ sequenceDiagram
 | **`context: fork`** | ✓ | ✓（Claude Code 原创）| — |
 | **`agent:` 路由** | ✓（`agent_loader::load_agent` + fallback 父 Agent）| ✓（built-in agent types）| — |
 | **`effort:` 路由** | ✓（`SpawnParams.reasoning_effort` → 4 provider）| ✓（`low`/`medium`/`high`/int）| — |
+| **`aliases:` 多 slash 入口** | ✓（canonical + alias 同查找函数；alias 冲突静默跳过）| ✓（`aliases` 字段）| — |
+| **`whenToUse:` 独立字段** | ✓（catalog 渲染 `- name: desc — when: trigger`）| ✓（`whenToUse` 字段）| — |
+| **`argumentHint` 统一命名** | ✓（作为 `command-arg-placeholder` 别名接受）| ✓（canonical 名字）| — |
 | **`paths:` 条件激活** | ✓（`ignore::GitignoreBuilder` + SQLite 持久化）| ✓（`paths:` frontmatter）| — |
 | **Prompt 注入** | 懒加载：名称+描述，`skill` 工具激活 | 懒加载：名称+描述，SkillTool 激活 | 懒加载：名称+路径，`read` 加载 |
 | **预算管理** | 三层降级 Full → Compact → 二分截断 | 1% context window 硬限 | 三层降级 Full → Compact → 二分截断 |
@@ -1485,9 +1521,18 @@ sequenceDiagram
 
 ### 1. 创建目录
 
+推荐用脚手架脚本一键生成骨架——带全部 frontmatter 字段 stub + 按需的 `scripts/` / `references/` / `assets/` 子目录：
+
 ```bash
-mkdir -p ~/.opencomputer/skills/my-tool
+python ~/Code/OpenComputer/skills/oc-skill-creator/scripts/init_skill.py my-tool \
+  --resources scripts,references \
+  --context fork \
+  --examples
 ```
+
+`--path` 缺省时：cwd 在 git 仓库内 → `.opencomputer/skills/<name>/`（项目级），否则 `~/.opencomputer/skills/<name>/`（用户级）。
+
+也可以手动：`mkdir -p ~/.opencomputer/skills/my-tool`，然后按下节模板写 SKILL.md。
 
 ### 2. 编写 SKILL.md
 
@@ -1582,8 +1627,10 @@ rationale: "Detected reusable git workflow during recent session"
 // 技能条目
 pub struct SkillEntry {
     pub name: String,
-    pub description: String,
-    pub source: String,           // "managed" | "project" | "bundled" | 目录名
+    pub aliases: Vec<String>,             // 额外斜杠命令名（与其他命令冲突时 skip）
+    pub description: String,              // "这是什么" —— 技能用途
+    pub when_to_use: Option<String>,      // "什么时候用" —— 独立触发提示，catalog 渲染 "— when: ..."
+    pub source: String,                   // "managed" | "project" | "bundled" | 目录名
     pub file_path: String,
     pub base_dir: String,
     pub requires: SkillRequires,
@@ -1592,6 +1639,10 @@ pub struct SkillEntry {
     pub disable_model_invocation: Option<bool>,
     pub command_dispatch: Option<String>,
     pub command_tool: Option<String>,
+    pub command_arg_mode: Option<String>,          // "raw" 等
+    pub command_arg_placeholder: Option<String>,   // == argumentHint
+    pub command_arg_options: Option<Vec<String>>,
+    pub command_prompt_template: Option<String>,
     pub install: Vec<SkillInstallSpec>,
     pub allowed_tools: Vec<String>,       // 工具白名单（空 = 全部可用）
     pub context_mode: Option<String>,     // "fork" 或 None（inline）
