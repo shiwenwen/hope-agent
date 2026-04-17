@@ -244,19 +244,6 @@ pub(crate) fn default_language() -> String {
     "auto".to_string()
 }
 
-pub(crate) fn default_window_opacity() -> f32 {
-    1.0
-}
-
-/// Clamp window opacity to a legible range. Values below 0.3 make the UI
-/// practically unreadable; 1.0 is fully opaque.
-pub fn clamp_window_opacity(v: f32) -> f32 {
-    if v.is_nan() {
-        return 1.0;
-    }
-    v.clamp(0.3, 1.0)
-}
-
 // ── Recap Config ────────────────────────────────────────────────
 
 fn default_recap_default_range_days() -> u32 {
@@ -442,10 +429,6 @@ pub struct AppConfig {
     /// Whether UI background effects (stars, weather) are enabled
     #[serde(default = "crate::default_true")]
     pub ui_effects_enabled: bool,
-    /// Global desktop window opacity (0.3–1.0). 1.0 = fully opaque.
-    /// Only takes effect in the Tauri desktop shell; ignored by the server/web app.
-    #[serde(default = "default_window_opacity")]
-    pub window_opacity: f32,
     /// Global proxy configuration for all outgoing HTTP requests
     #[serde(default)]
     pub proxy: ProxyConfig,
@@ -554,7 +537,6 @@ impl Default for AppConfig {
             theme: default_theme(),
             language: default_language(),
             ui_effects_enabled: true,
-            window_opacity: default_window_opacity(),
             proxy: ProxyConfig::default(),
             skill_prompt_budget: crate::skills::SkillPromptBudget::default(),
             skill_allow_bundled: Vec::new(),

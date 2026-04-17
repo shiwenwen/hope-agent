@@ -982,7 +982,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                         "type": "string",
                         "description": "Settings category to read. Use 'all' for an overview (includes risk-level groupings).",
                         "enum": [
-                            "all", "user", "theme", "language", "ui_effects", "window_opacity", "proxy",
+                            "all", "user", "theme", "language", "ui_effects", "proxy",
                             "web_search", "web_fetch", "compact", "notification",
                             "temperature", "tool_timeout", "approval",
                             "image_generate", "canvas", "image", "pdf",
@@ -1017,7 +1017,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                         "type": "string",
                         "description": "Settings category to update. HIGH-risk: proxy, embedding, shortcuts, skills, server, acp_control, skill_env, security.ssrf — require explicit user confirmation first.",
                         "enum": [
-                            "user", "theme", "language", "ui_effects", "window_opacity", "proxy",
+                            "user", "theme", "language", "ui_effects", "proxy",
                             "web_search", "web_fetch", "compact", "notification",
                             "temperature", "tool_timeout", "approval",
                             "image_generate", "canvas", "image", "pdf",

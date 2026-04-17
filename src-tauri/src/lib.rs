@@ -270,8 +270,6 @@ pub fn run() {
             commands::config::set_language,
             commands::config::get_ui_effects_enabled,
             commands::config::set_ui_effects_enabled,
-            commands::config::get_window_opacity,
-            commands::config::set_window_opacity,
             // User config
             commands::config::get_user_config,
             commands::config::save_user_config,
