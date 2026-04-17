@@ -433,6 +433,7 @@
     "memoryCount": "{{count}} 条记忆",
     "memoryEmpty": "暂无记忆。添加第一条记忆，帮助 AI 记住重要上下文。",
     "memoryNoResults": "没有匹配的记忆",
+    "loading": "加载中...",
     "memoryExport": "导出为 Markdown",
     "memoryType": "类型",
     "memoryType_user": "用户信息",
