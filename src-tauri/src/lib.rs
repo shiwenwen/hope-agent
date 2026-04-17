@@ -440,6 +440,10 @@ pub fn run() {
             commands::dashboard::dashboard_agent_list,
             commands::dashboard::dashboard_overview_delta,
             commands::dashboard::dashboard_insights,
+            commands::dashboard::dashboard_learning_overview,
+            commands::dashboard::dashboard_learning_timeline,
+            commands::dashboard::dashboard_top_skills,
+            commands::dashboard::dashboard_recall_stats,
             // Recap (deep analysis reports)
             commands::recap::recap_generate,
             commands::recap::recap_list_reports,

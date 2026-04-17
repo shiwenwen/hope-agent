@@ -543,6 +543,22 @@ fn build_router_with_cors(
             post(routes::dashboard::overview_delta),
         )
         .route("/dashboard/insights", post(routes::dashboard::insights))
+        .route(
+            "/dashboard/learning/overview",
+            post(routes::dashboard::learning_overview),
+        )
+        .route(
+            "/dashboard/learning/timeline",
+            post(routes::dashboard::learning_timeline),
+        )
+        .route(
+            "/dashboard/learning/top-skills",
+            post(routes::dashboard::top_skills),
+        )
+        .route(
+            "/dashboard/learning/recall-stats",
+            post(routes::dashboard::recall_stats),
+        )
         // Recap
         .route("/recap/generate", post(routes::recap::generate))
         .route("/recap/reports", post(routes::recap::list_reports))

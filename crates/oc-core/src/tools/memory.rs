@@ -253,6 +253,19 @@ pub(crate) async fn tool_recall_memory(args: &Value) -> Result<String> {
     })
     .await??;
 
+    // Phase B'4 learning event: count every non-empty recall as a hit.
+    if total_hits > 0 {
+        crate::dashboard::emit_learning_event(
+            crate::dashboard::EVT_RECALL_HIT,
+            None,
+            None,
+            Some(&serde_json::json!({
+                "hits": total_hits,
+                "query_chars": query_text.chars().count(),
+            })),
+        );
+    }
+
     // Phase B'3: optional LLM-summarization layer over the raw snippet
     // output. Opt-in via `AppConfig.recall_summary.enabled`. We compute
     // effective_hits locally so `include_history=false` + summary works.
@@ -268,6 +281,12 @@ pub(crate) async fn tool_recall_memory(args: &Value) -> Result<String> {
     if let Some(summary) =
         crate::memory::maybe_summarize_recall(&query_text, effective_hits, &raw_output, &cfg).await
     {
+        crate::dashboard::emit_learning_event(
+            crate::dashboard::EVT_RECALL_SUMMARY_USED,
+            None,
+            None,
+            Some(&serde_json::json!({ "hits": effective_hits })),
+        );
         return Ok(format!(
             "## Summary of {} hits\n\n{}\n\n---\nRaw hits suppressed (recall_summary enabled). Original count: {}",
             effective_hits, summary, effective_hits

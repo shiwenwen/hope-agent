@@ -1889,7 +1889,35 @@
       "tasks": "任务统计",
       "system": "系统监控",
       "recap": "复盘",
+      "learning": "学习追踪",
       "dreaming": "记忆梦境"
+    },
+    "learning": {
+      "title": "学习追踪",
+      "subtitle": "观测 Agent 自主创建技能、反省记忆、跨会话召回的效果",
+      "daysN": "{{n}} 天",
+      "autoSkills": "自动创建的技能",
+      "userSkillsHint": "用户创建 {{n}} 项",
+      "activated": "已激活",
+      "patchedHint": "修补 {{n}} 项",
+      "recallHits": "召回命中",
+      "recallSummaryHint": "其中 {{n}} 次走了 LLM 摘要",
+      "profileMemories": "用户画像记忆",
+      "profileHint": "标记为 profile 的反省式记忆",
+      "timeline": "技能生命周期事件",
+      "noEvents": "当前窗口内暂无事件",
+      "topSkills": "使用频率 Top",
+      "noSkillUsage": "暂无技能使用记录",
+      "recallEffectiveness": "召回质量",
+      "noRecall": "窗口内暂无召回调用",
+      "summarized": "已摘要",
+      "summaryPct": "摘要占比 {{pct}}%",
+      "kind": {
+        "skill_created": "创建",
+        "skill_patched": "修补",
+        "skill_activated": "激活",
+        "skill_discarded": "丢弃"
+      }
     },
     "dreaming": {
       "title": "记忆梦境（Dream Diary）",

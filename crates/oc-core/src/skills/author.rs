@@ -108,6 +108,16 @@ pub fn create_skill(
         .with_context(|| format!("write {}", file_path.display()))?;
 
     super::types::bump_skill_version();
+    crate::dashboard::emit_learning_event(
+        crate::dashboard::EVT_SKILL_CREATED,
+        None,
+        Some(skill_id),
+        Some(&serde_json::json!({
+            "source": opts.authored_by,
+            "status": opts.status.as_str(),
+            "rationale": opts.rationale,
+        })),
+    );
     Ok(file_path)
 }
 
@@ -142,6 +152,14 @@ pub fn set_skill_status(skill_id: &str, status: SkillStatus) -> Result<()> {
         .with_context(|| format!("write {}", file_path.display()))?;
 
     super::types::bump_skill_version();
+    if status == SkillStatus::Active {
+        crate::dashboard::emit_learning_event(
+            crate::dashboard::EVT_SKILL_ACTIVATED,
+            None,
+            Some(skill_id),
+            None,
+        );
+    }
     Ok(())
 }
 
@@ -165,6 +183,12 @@ pub fn delete_skill(skill_id: &str) -> Result<()> {
         .with_context(|| format!("remove {}", dir.display()))?;
 
     super::types::bump_skill_version();
+    crate::dashboard::emit_learning_event(
+        crate::dashboard::EVT_SKILL_DISCARDED,
+        None,
+        Some(skill_id),
+        None,
+    );
     Ok(())
 }
 
@@ -205,6 +229,12 @@ pub fn patch_skill_fuzzy(
         std::fs::write(&file_path, updated)
             .with_context(|| format!("write {}", file_path.display()))?;
         super::types::bump_skill_version();
+        crate::dashboard::emit_learning_event(
+            crate::dashboard::EVT_SKILL_PATCHED,
+            None,
+            Some(skill_id),
+            Some(&serde_json::json!({ "match": "exact" })),
+        );
         return Ok(PatchResult::Exact);
     }
 
@@ -231,6 +261,15 @@ pub fn patch_skill_fuzzy(
     std::fs::write(&file_path, replaced)
         .with_context(|| format!("write {}", file_path.display()))?;
     super::types::bump_skill_version();
+    crate::dashboard::emit_learning_event(
+        crate::dashboard::EVT_SKILL_PATCHED,
+        None,
+        Some(skill_id),
+        Some(&serde_json::json!({
+            "match": "fuzzy",
+            "similarity": best_sim,
+        })),
+    );
     Ok(PatchResult::Fuzzy { similarity: best_sim })
 }
 

@@ -788,6 +788,37 @@ impl MemoryBackend for SqliteMemoryBackend {
     fn backend_kind(&self) -> &'static str {
         "sqlite"
     }
+
+    fn count_profile_memories(&self, window_days: u32) -> Result<u64> {
+        // `tags` is stored as a JSON array string; filter for entries where
+        // it contains the literal "profile" substring + a timestamp guard.
+        // Safe because we match the exact quoted form `"profile"` so a memory
+        // tagged e.g. "profile" will match while "profile_lead" will not.
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let cutoff_secs = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0)
+            - (window_days as i64) * 86_400;
+        // Compare created_at (ISO8601 text) to an epoch — do it in SQL with
+        // strftime('%s', created_at) to avoid pulling rows into userspace.
+        let conn = self
+            .readers
+            .first()
+            .unwrap_or(&self.writer)
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let n: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM memories
+                 WHERE tags LIKE '%\"profile\"%'
+                   AND CAST(strftime('%s', created_at) AS INTEGER) >= ?1",
+                params![cutoff_secs],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+        Ok(n as u64)
+    }
 }
 
 // ── Convenience: open default DB ────────────────────────────────

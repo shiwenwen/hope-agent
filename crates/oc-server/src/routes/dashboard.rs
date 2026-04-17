@@ -132,3 +132,57 @@ pub async fn insights(
         &body.filter,
     )?))
 }
+
+// ── Phase B'4: Learning Dashboard ──────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct WindowBody {
+    #[serde(rename = "windowDays", alias = "window_days", default = "default_window")]
+    pub window_days: u32,
+    #[serde(default = "default_limit")]
+    pub limit: Option<usize>,
+}
+
+fn default_window() -> u32 {
+    30
+}
+fn default_limit() -> Option<usize> {
+    Some(10)
+}
+
+pub async fn learning_overview(
+    Json(body): Json<WindowBody>,
+) -> Result<Json<dashboard::LearningOverview>, AppError> {
+    Ok(Json(dashboard::query_learning_overview(
+        &app_state()?.session_db,
+        body.window_days,
+    )?))
+}
+
+pub async fn learning_timeline(
+    Json(body): Json<WindowBody>,
+) -> Result<Json<Vec<dashboard::TimelinePoint>>, AppError> {
+    Ok(Json(dashboard::query_skill_timeline(
+        &app_state()?.session_db,
+        body.window_days,
+    )?))
+}
+
+pub async fn top_skills(
+    Json(body): Json<WindowBody>,
+) -> Result<Json<Vec<dashboard::SkillUsage>>, AppError> {
+    Ok(Json(dashboard::query_top_skills(
+        &app_state()?.session_db,
+        body.window_days,
+        body.limit.unwrap_or(10),
+    )?))
+}
+
+pub async fn recall_stats(
+    Json(body): Json<WindowBody>,
+) -> Result<Json<dashboard::RecallStats>, AppError> {
+    Ok(Json(dashboard::query_recall_stats(
+        &app_state()?.session_db,
+        body.window_days,
+    )?))
+}

@@ -217,6 +217,13 @@ pub trait MemoryBackend: Send + Sync {
     fn supports_vectors(&self) -> bool {
         self.has_embedder()
     }
+
+    /// Phase B'2 — count entries tagged `profile` (reflective memories)
+    /// created within `window_days`. Default returns 0; local backends
+    /// override with an efficient SQL count.
+    fn count_profile_memories(&self, _window_days: u32) -> Result<u64> {
+        Ok(0)
+    }
 }
 
 // ── EmbeddingProvider Trait ───────────────────────────────────────

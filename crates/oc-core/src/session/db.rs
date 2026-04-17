@@ -319,12 +319,81 @@ impl SessionDB {
                 members_json TEXT NOT NULL DEFAULT '[]',
                 builtin INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL
-            );",
+            );
+
+            -- Phase B'4: Learning event stream. Feeds the Dashboard
+            -- Learning tab (skill lifecycle + recall effectiveness) and
+            -- the Insights engine. Rows are opaque JSON + a discrete
+            -- `kind` so new event types can be added without migrating.
+            CREATE TABLE IF NOT EXISTS learning_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts INTEGER NOT NULL,
+                kind TEXT NOT NULL,
+                session_id TEXT,
+                ref_id TEXT,
+                meta_json TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_learning_events_ts
+                ON learning_events(ts);
+            CREATE INDEX IF NOT EXISTS idx_learning_events_kind_ts
+                ON learning_events(kind, ts);",
         )?;
 
         Ok(Self {
             conn: Mutex::new(conn),
         })
+    }
+
+    /// Insert a learning event row. Best-effort — errors are logged but
+    /// never bubbled up; emitters treat this like a metric, not like a
+    /// transactional write.
+    pub fn record_learning_event(
+        &self,
+        kind: &str,
+        session_id: Option<&str>,
+        ref_id: Option<&str>,
+        meta: Option<&serde_json::Value>,
+    ) {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        let meta_json = meta.map(|v| v.to_string());
+        let conn = match self.conn.lock() {
+            Ok(g) => g,
+            Err(e) => {
+                app_warn!("dashboard", "learning_event", "lock err: {}", e);
+                return;
+            }
+        };
+        if let Err(e) = conn.execute(
+            "INSERT INTO learning_events (ts, kind, session_id, ref_id, meta_json)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![ts, kind, session_id, ref_id, meta_json],
+        ) {
+            app_warn!(
+                "dashboard",
+                "learning_event",
+                "insert {} failed: {}",
+                kind,
+                e
+            );
+        }
+    }
+
+    /// Delete learning_events older than `ts_cutoff`. Returns the number of
+    /// rows removed. Called by the retention sweeper.
+    pub fn prune_learning_events(&self, ts_cutoff: i64) -> anyhow::Result<usize> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let n = conn.execute(
+            "DELETE FROM learning_events WHERE ts < ?1",
+            params![ts_cutoff],
+        )?;
+        Ok(n)
     }
 
     // ── ask_user_question Persistence ────────────────────────────

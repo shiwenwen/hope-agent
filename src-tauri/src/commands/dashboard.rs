@@ -127,3 +127,42 @@ pub async fn dashboard_insights(
     )
     .map_err(|e| e.to_string())
 }
+
+// ── Phase B'4: Learning Dashboard ──────────────────────────────
+
+#[tauri::command]
+pub async fn dashboard_learning_overview(
+    window_days: u32,
+    state: State<'_, AppState>,
+) -> Result<dashboard::LearningOverview, String> {
+    dashboard::query_learning_overview(&state.session_db, window_days)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn dashboard_learning_timeline(
+    window_days: u32,
+    state: State<'_, AppState>,
+) -> Result<Vec<dashboard::TimelinePoint>, String> {
+    dashboard::query_skill_timeline(&state.session_db, window_days)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn dashboard_top_skills(
+    window_days: u32,
+    limit: usize,
+    state: State<'_, AppState>,
+) -> Result<Vec<dashboard::SkillUsage>, String> {
+    dashboard::query_top_skills(&state.session_db, window_days, limit)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn dashboard_recall_stats(
+    window_days: u32,
+    state: State<'_, AppState>,
+) -> Result<dashboard::RecallStats, String> {
+    dashboard::query_recall_stats(&state.session_db, window_days)
+        .map_err(|e| e.to_string())
+}

@@ -31,6 +31,7 @@ import TaskSection from "./TaskSection"
 import SystemMetricsSection from "./SystemMetricsSection"
 import RecapTab from "./recap/RecapTab"
 import DreamingTab from "./dreaming/DreamingTab"
+import LearningTab from "./learning/LearningTab"
 import type {
   DashboardFilter as DashboardFilterState,
   OverviewStatsWithDelta,
@@ -467,6 +468,7 @@ export default function DashboardView({ onBack }: { onBack: () => void }) {
               <TabsTrigger value="tasks">{t("dashboard.tabs.tasks")}</TabsTrigger>
               <TabsTrigger value="system">{t("dashboard.tabs.system")}</TabsTrigger>
               <TabsTrigger value="recap">{t("dashboard.tabs.recap")}</TabsTrigger>
+              <TabsTrigger value="learning">{t("dashboard.tabs.learning")}</TabsTrigger>
               <TabsTrigger value="dreaming">{t("dashboard.tabs.dreaming")}</TabsTrigger>
             </TabsList>
             {showGranularity && (
@@ -532,6 +534,9 @@ export default function DashboardView({ onBack }: { onBack: () => void }) {
           </TabsContent>
           <TabsContent value="recap">
             <RecapTab />
+          </TabsContent>
+          <TabsContent value="learning">
+            <LearningTab />
           </TabsContent>
           <TabsContent value="dreaming">
             <DreamingTab />

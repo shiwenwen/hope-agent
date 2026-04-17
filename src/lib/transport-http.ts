@@ -290,6 +290,10 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   activate_draft_skill:            { method: "POST",   path: "/api/skills/{name}/activate" },
   discard_draft_skill:             { method: "DELETE", path: "/api/skills/{name}/draft" },
   trigger_skill_review_now:        { method: "POST",   path: "/api/skills/review/run" },
+  dashboard_learning_overview:     { method: "POST",   path: "/api/dashboard/learning/overview" },
+  dashboard_learning_timeline:     { method: "POST",   path: "/api/dashboard/learning/timeline" },
+  dashboard_top_skills:            { method: "POST",   path: "/api/dashboard/learning/top-skills" },
+  dashboard_recall_stats:          { method: "POST",   path: "/api/dashboard/learning/recall-stats" },
 
   // -- Slash commands --
   list_slash_commands:             { method: "GET",    path: "/api/slash-commands" },
