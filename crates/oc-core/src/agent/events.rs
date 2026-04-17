@@ -1,5 +1,7 @@
 use serde_json::json;
 
+use crate::attachments::MediaItem;
+
 use super::types::ChatUsage;
 
 pub(super) fn emit_event(on_delta: &(impl Fn(&str) + Send), event: &serde_json::Value) {
@@ -38,6 +40,10 @@ pub(super) fn emit_tool_call(
 /// Media URL prefix used by tools (e.g. image_generate) to embed file paths in results.
 const MEDIA_URLS_PREFIX: &str = "__MEDIA_URLS__";
 
+/// Structured media items prefix — richer than `__MEDIA_URLS__` (carries name / mimeType / sizeBytes / kind).
+/// Used by `send_attachment` and future tools that need the frontend to render a file card.
+pub(crate) const MEDIA_ITEMS_PREFIX: &str = "__MEDIA_ITEMS__";
+
 /// Extract media URLs from a tool result string.
 /// Returns (clean_result, media_urls).
 /// If the result starts with `__MEDIA_URLS__[...]`, the JSON array is parsed and removed.
@@ -52,6 +58,20 @@ pub(super) fn extract_media_urls(result: &str) -> (String, Vec<String>) {
     (result.to_string(), Vec::new())
 }
 
+/// Extract structured media items from a tool result string.
+/// Returns (clean_result, media_items).
+/// If the result starts with `__MEDIA_ITEMS__[...]`, the JSON array is parsed and removed.
+pub(super) fn extract_media_items(result: &str) -> (String, Vec<MediaItem>) {
+    if let Some(rest) = result.strip_prefix(MEDIA_ITEMS_PREFIX) {
+        if let Some((json_line, text)) = rest.split_once('\n') {
+            if let Ok(items) = serde_json::from_str::<Vec<MediaItem>>(json_line) {
+                return (text.to_string(), items);
+            }
+        }
+    }
+    (result.to_string(), Vec::new())
+}
+
 pub(super) fn emit_tool_result(
     on_delta: &(impl Fn(&str) + Send),
     call_id: &str,
@@ -60,6 +80,7 @@ pub(super) fn emit_tool_result(
     duration_ms: u64,
     is_error: bool,
     media_urls: &[String],
+    media_items: &[MediaItem],
 ) {
     let mut event = json!({
         "type": "tool_result",
@@ -71,6 +92,9 @@ pub(super) fn emit_tool_result(
     });
     if !media_urls.is_empty() {
         event["media_urls"] = json!(media_urls);
+    }
+    if !media_items.is_empty() {
+        event["media_items"] = json!(media_items);
     }
     emit_event(on_delta, &event);
 }

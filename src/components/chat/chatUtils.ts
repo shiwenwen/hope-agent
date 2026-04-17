@@ -1,10 +1,30 @@
 import type {
   Message,
   ContentBlock,
+  MediaItem,
   ToolCall,
   SessionMessage,
   MessageUsage,
 } from "@/types/chat"
+
+/** Parse `__MEDIA_ITEMS__<json>\n<text>` header from a tool result, if present.
+ *  Returns the structured items; falls back to undefined on malformed JSON. */
+function parseMediaItemsHeader(result: string): MediaItem[] | undefined {
+  const prefix = "__MEDIA_ITEMS__"
+  if (!result.startsWith(prefix)) return undefined
+  const rest = result.slice(prefix.length)
+  const nlIdx = rest.indexOf("\n")
+  const jsonLine = nlIdx >= 0 ? rest.slice(0, nlIdx) : rest
+  try {
+    const parsed = JSON.parse(jsonLine)
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      return parsed as MediaItem[]
+    }
+  } catch {
+    /* malformed — ignore */
+  }
+  return undefined
+}
 
 /** Format token count: ≥10000 → "12.3k tokens", else "1,234 tokens" */
 export function formatTokens(n: number): string {
@@ -147,15 +167,21 @@ export function parseSessionMessages(
         channelInbound,
       })
     } else if (msg.role === "tool" && msg.toolCallId) {
-      // Extract mediaUrls from image_generate tool results (for DB-loaded history)
+      // Extract media info from tool results (for DB-loaded history):
+      //   - image_generate still uses the old "Saved to:" text lines (mediaUrls)
+      //   - send_attachment and future tools emit a `__MEDIA_ITEMS__<json>` header
       let mediaUrls: string[] | undefined
-      if (msg.toolName === "image_generate" && msg.toolResult) {
-        const paths = msg.toolResult
-          .split("\n")
-          .filter((l) => l.startsWith("Saved to: "))
-          .map((l) => l.slice("Saved to: ".length).trim())
-          .filter(Boolean)
-        if (paths.length > 0) mediaUrls = paths
+      let mediaItems: MediaItem[] | undefined
+      if (msg.toolResult) {
+        mediaItems = parseMediaItemsHeader(msg.toolResult)
+        if (msg.toolName === "image_generate" && !mediaItems) {
+          const paths = msg.toolResult
+            .split("\n")
+            .filter((l) => l.startsWith("Saved to: "))
+            .map((l) => l.slice("Saved to: ".length).trim())
+            .filter(Boolean)
+          if (paths.length > 0) mediaUrls = paths
+        }
       }
       const tool: ToolCall = {
         callId: msg.toolCallId,
@@ -163,6 +189,7 @@ export function parseSessionMessages(
         arguments: msg.toolArguments || "",
         result: msg.toolResult || undefined,
         mediaUrls,
+        mediaItems,
         durationMs: msg.toolDurationMs || undefined,
       }
       // Check if already exists in pendingTools (merge result)

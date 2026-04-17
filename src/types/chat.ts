@@ -5,12 +5,24 @@ export interface AgentInfo {
   avatar?: string | null
 }
 
+/** Structured media item emitted by tools (e.g. send_attachment) — richer than
+ *  mediaUrls; carries filename, MIME, size, and a kind flag used by the UI to
+ *  decide between image preview and file-card rendering. */
+export interface MediaItem {
+  url: string
+  name: string
+  mimeType: string
+  sizeBytes: number
+  kind: "image" | "file"
+}
+
 export interface ToolCall {
   callId: string
   name: string
   arguments: string
   result?: string
   mediaUrls?: string[]
+  mediaItems?: MediaItem[]
   durationMs?: number
   startedAtMs?: number
 }

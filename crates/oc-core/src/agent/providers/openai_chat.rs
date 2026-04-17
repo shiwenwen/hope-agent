@@ -11,7 +11,7 @@ use super::super::config::{apply_thinking_to_chat_body, build_api_url, get_max_t
 use super::super::content::build_user_content_openai_chat;
 use super::super::events::{
     build_openai_chat_tool_result_content, emit_text_delta, emit_thinking_delta, emit_tool_call,
-    emit_tool_result, emit_usage, extract_media_urls,
+    emit_tool_result, emit_usage, extract_media_items, extract_media_urls,
 };
 use super::super::types::{AssistantAgent, Attachment, ChatUsage, ThinkTagFilter};
 use super::tool_exec_helpers::{execute_tool_with_cancel, log_tool_input, log_tool_output};
@@ -389,6 +389,7 @@ impl AssistantAgent {
                     log_tool_output(&call_id, &name, &result, elapsed_ms, round);
                     let is_tool_error = result.starts_with("Tool error:");
                     let (clean_result, media_urls) = extract_media_urls(&result);
+                    let (clean_result, media_items) = extract_media_items(&clean_result);
                     emit_tool_result(
                         on_delta,
                         &call_id,
@@ -397,6 +398,7 @@ impl AssistantAgent {
                         elapsed_ms,
                         is_tool_error,
                         &media_urls,
+                        &media_items,
                     );
                     crate::context_compact::push_and_stamp(
                         &mut messages,
@@ -428,6 +430,7 @@ impl AssistantAgent {
                 log_tool_output(&tc.call_id, &tc.name, &result, tool_elapsed_ms, round);
                 let is_tool_error = result.starts_with("Tool error:");
                 let (clean_result, media_urls) = extract_media_urls(&result);
+                let (clean_result, media_items) = extract_media_items(&clean_result);
                 emit_tool_result(
                     on_delta,
                     &tc.call_id,
@@ -436,6 +439,7 @@ impl AssistantAgent {
                     tool_elapsed_ms,
                     is_tool_error,
                     &media_urls,
+                    &media_items,
                 );
 
                 crate::context_compact::push_and_stamp(

@@ -34,12 +34,14 @@ import {
   ListChecks,
   Settings,
   Wrench,
+  Paperclip,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { ToolCall } from "@/types/chat"
 import { IconTip } from "@/components/ui/tooltip"
 import SubagentBlock from "@/components/chat/SubagentBlock"
 import { useLightbox } from "@/components/common/ImageLightbox"
+import FileCard from "@/components/chat/message/FileCard"
 
 /** Map tool name → Lucide icon component */
 const TOOL_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -77,6 +79,7 @@ const TOOL_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
   task_list: ListChecks,
   get_settings: Settings,
   update_settings: Settings,
+  send_attachment: Paperclip,
 }
 
 /** Check if a read tool call targets a SKILL.md file, return skill name if so */
@@ -161,6 +164,8 @@ function getDisplayArgs(name: string, args: string): string {
         return `${parsed.action || ""}${parsed.title ? ` "${parsed.title}"` : ""}${parsed.project_id ? ` (${parsed.project_id.slice(0, 8)})` : ""}`
       case "ask_user_question":
         return parsed.context || `${(parsed.questions || []).length} question(s)`
+      case "send_attachment":
+        return parsed.display_name || parsed.path || args
       default:
         return args
     }
@@ -351,8 +356,32 @@ export default function ToolCallBlock({ tool, shimmer }: { tool: ToolCall; shimm
           </span>
         </IconTip>
       </button>
-      {/* Media images (e.g. from image_generate) */}
-      {tool.mediaUrls && tool.mediaUrls.length > 0 && (
+      {/* Structured media items (e.g. from send_attachment) — file cards + inline image previews */}
+      {tool.mediaItems && tool.mediaItems.length > 0 && (
+        <div className="ml-5 mt-1.5 mb-1 flex flex-wrap gap-2">
+          {tool.mediaItems.map((item, i) =>
+            item.kind === "image" ? (
+              <button
+                key={i}
+                type="button"
+                onClick={() => openLightbox(convertFileSrc(item.url), item.name)}
+                className="block rounded-lg overflow-hidden border border-border/50 hover:border-primary/40 transition-colors cursor-zoom-in"
+              >
+                <img
+                  src={convertFileSrc(item.url)}
+                  alt={item.name}
+                  className="max-w-72 max-h-72 object-contain bg-secondary/30"
+                  loading="lazy"
+                />
+              </button>
+            ) : (
+              <FileCard key={i} item={item} />
+            ),
+          )}
+        </div>
+      )}
+      {/* Legacy media URLs (image_generate etc.) — rendered only if mediaItems is absent */}
+      {!tool.mediaItems?.length && tool.mediaUrls && tool.mediaUrls.length > 0 && (
         <div className="ml-5 mt-1.5 mb-1 flex flex-wrap gap-2">
           {tool.mediaUrls.map((url, i) => (
             <button

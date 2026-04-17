@@ -187,6 +187,10 @@ pub struct AssistantAgent {
     /// a separate cache breakpoint. Rebuilt on each chat() turn by
     /// `prepare_dynamic_suffix`.
     pub(crate) cross_session_suffix: std::sync::Mutex<Option<std::sync::Arc<String>>>,
+    /// Memoized "is this session an IM channel session?" flag. Populated on
+    /// first access (typically from `build_tool_schemas`) so we avoid a
+    /// SessionDB read per chat turn. Cleared by `set_session_id`.
+    pub(super) channel_session_cached: std::sync::OnceLock<bool>,
 }
 
 /// Cached parameters from the last main chat request.

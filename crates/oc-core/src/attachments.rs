@@ -5,9 +5,35 @@
 //! the absolute path so the caller can hand it to the agent/chat engine.
 
 use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 use crate::paths;
+
+/// Kind of media item — drives frontend rendering (image preview vs file card).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MediaKind {
+    Image,
+    File,
+}
+
+/// Structured media attachment produced by a tool result.
+/// Used by `send_attachment` and future tools that need to ship files with
+/// filename + MIME metadata to the frontend. Emitted via the `__MEDIA_ITEMS__`
+/// prefix in the tool result string (parallel to the simpler `__MEDIA_URLS__`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MediaItem {
+    /// Absolute path on disk (the frontend uses `convertFileSrc` for Tauri).
+    pub url: String,
+    /// Display filename (already sanitized).
+    pub name: String,
+    #[serde(rename = "mimeType")]
+    pub mime_type: String,
+    #[serde(rename = "sizeBytes")]
+    pub size_bytes: u64,
+    pub kind: MediaKind,
+}
 
 /// Save an attachment's raw bytes to disk.
 ///

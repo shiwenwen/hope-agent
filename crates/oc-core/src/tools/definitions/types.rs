@@ -132,6 +132,7 @@ pub(crate) const CORE_TOOL_NAMES: &[&str] = &[
     "task_create",
     "task_update",
     "task_list",
+    "send_attachment",
 ];
 
 /// Check if a tool name is a core tool (always loaded).

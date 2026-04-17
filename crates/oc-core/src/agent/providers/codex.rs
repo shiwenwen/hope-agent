@@ -13,7 +13,8 @@ use super::super::config::{
 use super::super::content::build_user_content_responses;
 use super::super::errors::{is_retryable_error, os_version, parse_error_response};
 use super::super::events::{
-    build_responses_tool_result, emit_tool_call, emit_tool_result, emit_usage, extract_media_urls,
+    build_responses_tool_result, emit_tool_call, emit_tool_result, emit_usage,
+    extract_media_items, extract_media_urls,
 };
 use super::super::types::{AssistantAgent, Attachment, ChatUsage};
 use super::tool_exec_helpers::{execute_tool_with_cancel, log_tool_input, log_tool_output};
@@ -428,6 +429,7 @@ impl AssistantAgent {
                     log_tool_output(&call_id, &name, &result, elapsed_ms, round);
                     let is_tool_error = result.starts_with("Tool error:");
                     let (clean_result, media_urls) = extract_media_urls(&result);
+                    let (clean_result, media_items) = extract_media_items(&clean_result);
                     emit_tool_result(
                         on_delta,
                         &call_id,
@@ -436,6 +438,7 @@ impl AssistantAgent {
                         elapsed_ms,
                         is_tool_error,
                         &media_urls,
+                        &media_items,
                     );
 
                     let (text_output, image_items) = build_responses_tool_result(&clean_result);
@@ -484,6 +487,7 @@ impl AssistantAgent {
                 log_tool_output(&tc.call_id, &tc.name, &result, tool_elapsed_ms, round);
                 let is_tool_error = result.starts_with("Tool error:");
                 let (clean_result, media_urls) = extract_media_urls(&result);
+                let (clean_result, media_items) = extract_media_items(&clean_result);
                 emit_tool_result(
                     on_delta,
                     &tc.call_id,
@@ -492,6 +496,7 @@ impl AssistantAgent {
                     tool_elapsed_ms,
                     is_tool_error,
                     &media_urls,
+                    &media_items,
                 );
 
                 let (text_output, image_items) = build_responses_tool_result(&clean_result);

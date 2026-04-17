@@ -5,9 +5,9 @@ use super::super::{
     TOOL_FIND, TOOL_GET_SETTINGS, TOOL_GET_WEATHER, TOOL_GREP, TOOL_IMAGE,
     TOOL_LIST_SETTINGS_BACKUPS, TOOL_LS, TOOL_MANAGE_CRON, TOOL_MEMORY_GET, TOOL_PDF, TOOL_PROCESS,
     TOOL_PROJECT_READ_FILE, TOOL_READ, TOOL_RECALL_MEMORY, TOOL_RESTORE_SETTINGS_BACKUP,
-    TOOL_SAVE_MEMORY, TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEND,
-    TOOL_SESSION_STATUS, TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY, TOOL_UPDATE_SETTINGS,
-    TOOL_WEB_FETCH, TOOL_WRITE,
+    TOOL_SAVE_MEMORY, TOOL_SEND_ATTACHMENT, TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST,
+    TOOL_SESSIONS_SEND, TOOL_SESSION_STATUS, TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY,
+    TOOL_UPDATE_SETTINGS, TOOL_WEB_FETCH, TOOL_WRITE,
 };
 use super::types::{is_core_tool, ToolDefinition};
 
@@ -1083,6 +1083,37 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     }
                 },
                 "required": ["id"],
+                "additionalProperties": false
+            }),
+        },
+        // ── Send Attachment (desktop UI file delivery) ───────────
+        ToolDefinition {
+            name: TOOL_SEND_ATTACHMENT.into(),
+            description: "Deliver a file attachment to the user in the chat UI as a downloadable card (PDF, archive, doc, log dump, any binary). \
+                          Copies the file into the session's attachments directory and surfaces it as an interactive card with open / reveal-in-folder actions. \
+                          Use this after producing a file with exec/write when you want the user to easily save or open the output. \
+                          NOT available in IM channel sessions — those use the channel plugin's native media sending.".into(),
+            internal: false,
+            deferred: false,
+            always_load: false,
+            async_capable: false,
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Absolute path (supports ~) to an existing file inside the user's home directory. Max 20 MB."
+                    },
+                    "display_name": {
+                        "type": "string",
+                        "description": "Optional filename shown in the UI card. Defaults to the basename of `path`."
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Optional short caption (<=200 chars) displayed under the file card."
+                    }
+                },
+                "required": ["path"],
                 "additionalProperties": false
             }),
         },
