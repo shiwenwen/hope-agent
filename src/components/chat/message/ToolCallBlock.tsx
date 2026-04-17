@@ -4,7 +4,7 @@ import { getTransport } from "@/lib/transport-provider"
 import { convertFileSrc } from "@tauri-apps/api/core"
 import {
   ChevronRight,
-  Terminal,
+  SquareTerminal,
   FileText,
   FilePen,
   FolderOpen,
@@ -47,7 +47,7 @@ const TOOL_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
   write: FilePen,
   edit: FilePen,
   ls: FolderOpen,
-  exec: Terminal,
+  exec: SquareTerminal,
   process: Cpu,
   grep: Search,
   find: FileSearch,
