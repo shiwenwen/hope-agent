@@ -136,10 +136,16 @@ async fn handle_skill_command(
         crate::skills::get_invocable_skills(&store.extra_skills_dirs, &store.disabled_skills);
     drop(store);
 
-    // Find a skill whose normalized name matches the command
-    let matched = skills
-        .into_iter()
-        .find(|s| crate::skills::normalize_skill_command_name(&s.name) == command)?;
+    // Match by normalized canonical name OR any declared alias. Aliases
+    // are normalized with the same function so callers type `/review-pr`
+    // or `/reviewpr` and both route to the skill.
+    let matched = skills.into_iter().find(|s| {
+        let normalize = crate::skills::normalize_skill_command_name;
+        if normalize(&s.name) == command {
+            return true;
+        }
+        s.aliases.iter().any(|a| normalize(a) == command)
+    })?;
 
     use crate::slash_commands::types::CommandAction;
 

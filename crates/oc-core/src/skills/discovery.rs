@@ -204,7 +204,9 @@ fn load_single_skill(
 
     Some(SkillEntry {
         name: parsed.name,
+        aliases: parsed.aliases,
         description: parsed.description,
+        when_to_use: parsed.when_to_use,
         source: source.to_string(),
         file_path: skill_md.to_string_lossy().to_string(),
         base_dir: skill_dir.to_string_lossy().to_string(),

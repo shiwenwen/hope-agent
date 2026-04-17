@@ -66,10 +66,19 @@ pub fn build_skills_prompt(
         argument substitution, and (for `context: fork` skills) sub-agent isolation.\n\
         Only activate the skill most relevant to the current task — do not activate more than one up front.";
 
-    // Try full format first
+    // Full format — when `whenToUse` is set, render it after the
+    // description as a dedicated trigger hint. The model sees
+    // `- name: <what> — when: <trigger>` which outperforms cramming both
+    // concerns into a single description sentence.
     let full_lines: Vec<String> = active
         .iter()
-        .map(|s| format!("- {}: {}", s.name, s.description))
+        .map(|s| match &s.when_to_use {
+            Some(w) if !w.is_empty() && !s.description.is_empty() => {
+                format!("- {}: {} — when: {}", s.name, s.description, w)
+            }
+            Some(w) if !w.is_empty() => format!("- {}: {}", s.name, w),
+            _ => format!("- {}: {}", s.name, s.description),
+        })
         .collect();
 
     let full_text = format!("{}\n{}", header, full_lines.join("\n"));

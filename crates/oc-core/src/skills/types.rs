@@ -171,8 +171,21 @@ pub struct SkillInstallSpec {
 pub struct SkillEntry {
     /// Skill identifier (from frontmatter `name`).
     pub name: String,
+    /// Alternate slash-command names for the same skill. Populated from
+    /// frontmatter `aliases: [foo, bar]`. Each alias registers the skill
+    /// under an extra name in the slash catalog; conflicts with existing
+    /// commands or other aliases lose silently (skip + warn).
+    #[serde(default)]
+    pub aliases: Vec<String>,
     /// Human-readable description (from frontmatter `description`).
     pub description: String,
+    /// Optional trigger-only guidance. When set, the skill catalog renders
+    /// "when to use" from this field and keeps `description` as a short
+    /// "what it is" line — lets authors keep descriptions terse without
+    /// starving the model's trigger signal. Falls back to `description`
+    /// when unset.
+    #[serde(default, rename = "whenToUse", alias = "when_to_use")]
+    pub when_to_use: Option<String>,
     /// Source category (e.g., "bundled", "managed", "project").
     pub source: String,
     /// Absolute path to the SKILL.md file.

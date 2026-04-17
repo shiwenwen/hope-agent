@@ -6,10 +6,19 @@ use super::types::*;
 pub(super) struct ParsedFrontmatter {
     pub name: String,
     pub description: String,
+    /// Optional trigger-only text pulled from `whenToUse:` (a.k.a.
+    /// `when-to-use:`). Kept separate from `description` so the catalog
+    /// can render "what this skill is" and "when to use it" distinctly,
+    /// letting authors keep the first short without starving the trigger.
+    pub when_to_use: Option<String>,
     pub requires: SkillRequires,
     #[allow(dead_code)]
     pub body: String,
     pub skill_key: Option<String>,
+    /// Extra slash-command names that should route to this skill (e.g.
+    /// `aliases: [pr-review, review-pr]`). All aliases share the skill's
+    /// handler; conflicts with existing commands lose to the canonical name.
+    pub aliases: Vec<String>,
     pub user_invocable: Option<bool>,
     pub disable_model_invocation: Option<bool>,
     pub command_dispatch: Option<String>,
@@ -54,6 +63,8 @@ pub(super) fn parse_frontmatter(content: &str) -> Option<ParsedFrontmatter> {
 
     let mut name: Option<String> = None;
     let mut description: Option<String> = None;
+    let mut aliases: Vec<String> = Vec::new();
+    let mut when_to_use: Option<String> = None;
     let mut skill_key: Option<String> = None;
     let mut user_invocable: Option<bool> = None;
     let mut disable_model_invocation: Option<bool> = None;
@@ -86,6 +97,19 @@ pub(super) fn parse_frontmatter(content: &str) -> Option<ParsedFrontmatter> {
             name = Some(unquote(rest.trim()));
         } else if let Some(rest) = line_trimmed.strip_prefix("description:") {
             description = Some(unquote(rest.trim()));
+        } else if let Some(rest) = line_trimmed.strip_prefix("aliases:") {
+            if let Some(arr) = parse_inline_string_array(rest.trim()) {
+                aliases = arr;
+            }
+        } else if let Some(rest) = line_trimmed
+            .strip_prefix("whenToUse:")
+            .or_else(|| line_trimmed.strip_prefix("when-to-use:"))
+            .or_else(|| line_trimmed.strip_prefix("when_to_use:"))
+        {
+            let val = unquote(rest.trim());
+            if !val.is_empty() {
+                when_to_use = Some(val);
+            }
         } else if let Some(rest) = line_trimmed
             .strip_prefix("skillKey:")
             .or_else(|| line_trimmed.strip_prefix("skill_key:"))
@@ -119,6 +143,11 @@ pub(super) fn parse_frontmatter(content: &str) -> Option<ParsedFrontmatter> {
         } else if let Some(rest) = line_trimmed
             .strip_prefix("command-arg-placeholder:")
             .or_else(|| line_trimmed.strip_prefix("command_arg_placeholder:"))
+            // `argumentHint` is Anthropic-common spelling; accept as alias.
+            // If both are present, the last line wins (standard YAML behavior).
+            .or_else(|| line_trimmed.strip_prefix("argumentHint:"))
+            .or_else(|| line_trimmed.strip_prefix("argument-hint:"))
+            .or_else(|| line_trimmed.strip_prefix("argument_hint:"))
         {
             command_arg_placeholder = Some(unquote(rest.trim()));
         } else if let Some(rest) = line_trimmed
@@ -197,8 +226,10 @@ pub(super) fn parse_frontmatter(content: &str) -> Option<ParsedFrontmatter> {
     Some(ParsedFrontmatter {
         name,
         description,
+        when_to_use,
         requires,
         body: body.to_string(),
+        aliases,
         skill_key,
         user_invocable,
         disable_model_invocation,

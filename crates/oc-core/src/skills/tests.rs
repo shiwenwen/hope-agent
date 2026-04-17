@@ -16,7 +16,9 @@ mod tests {
     fn make_skill(name: &str, desc: &str) -> SkillEntry {
         SkillEntry {
             name: name.to_string(),
+            aliases: Vec::new(),
             description: desc.to_string(),
+            when_to_use: None,
             source: "managed".to_string(),
             file_path: format!("/tmp/{}/SKILL.md", name),
             base_dir: format!("/tmp/{}", name),
@@ -45,7 +47,9 @@ mod tests {
     fn make_skill_with_path(name: &str, desc: &str, path: &str) -> SkillEntry {
         SkillEntry {
             name: name.to_string(),
+            aliases: Vec::new(),
             description: desc.to_string(),
+            when_to_use: None,
             source: "managed".to_string(),
             file_path: path.to_string(),
             base_dir: format!("/tmp/{}", name),
@@ -146,6 +150,64 @@ Body
         let parsed = parse_frontmatter(content).unwrap();
         assert!(parsed.agent.is_none());
         assert!(parsed.effort.is_none());
+    }
+
+    #[test]
+    fn test_parse_frontmatter_aliases() {
+        let content = r#"---
+name: review-pr
+description: PR review
+aliases: [pr-review, reviewpr]
+---
+
+Body
+"#;
+        let parsed = parse_frontmatter(content).unwrap();
+        assert_eq!(parsed.aliases, vec!["pr-review", "reviewpr"]);
+    }
+
+    #[test]
+    fn test_parse_frontmatter_aliases_absent() {
+        let content = "---\nname: minimal\ndescription: no aliases\n---\nBody";
+        let parsed = parse_frontmatter(content).unwrap();
+        assert!(parsed.aliases.is_empty());
+    }
+
+    #[test]
+    fn test_parse_frontmatter_when_to_use() {
+        // All three spellings should populate the same slot.
+        for key in ["whenToUse", "when-to-use", "when_to_use"] {
+            let content = format!(
+                "---\nname: s\ndescription: x\n{}: when user asks about Y\n---\nBody",
+                key
+            );
+            let parsed = parse_frontmatter(&content).unwrap();
+            assert_eq!(
+                parsed.when_to_use.as_deref(),
+                Some("when user asks about Y"),
+                "key {} should parse",
+                key
+            );
+        }
+    }
+
+    #[test]
+    fn test_parse_frontmatter_argument_hint_alias() {
+        // argumentHint / argument-hint / argument_hint are all aliases for
+        // command-arg-placeholder — all should populate the same field.
+        for key in ["argumentHint", "argument-hint", "argument_hint"] {
+            let content = format!(
+                "---\nname: s\ndescription: x\n{}: \"<query>\"\n---\nBody",
+                key
+            );
+            let parsed = parse_frontmatter(&content).unwrap();
+            assert_eq!(
+                parsed.command_arg_placeholder.as_deref(),
+                Some("<query>"),
+                "key {} should map to command_arg_placeholder",
+                key
+            );
+        }
     }
 
     #[test]

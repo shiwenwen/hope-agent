@@ -171,7 +171,9 @@ mod tests {
     fn skill(name: &str, patterns: &[&str]) -> SkillEntry {
         SkillEntry {
             name: name.to_string(),
+            aliases: Vec::new(),
             description: String::new(),
+            when_to_use: None,
             source: "managed".into(),
             file_path: format!("/tmp/{name}/SKILL.md"),
             base_dir: format!("/tmp/{name}"),
