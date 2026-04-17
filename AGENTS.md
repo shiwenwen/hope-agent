@@ -281,7 +281,7 @@ src-tauri/src/          Tauri 薄壳（命令层 + 桌面集成）
 - 动效优先复用 shadcn/ui、Radix UI、Tailwind 内置 utility，确认不够用才手写
 - 路径别名：`@/` → `src/`
 - 布局避免硬编码过小的 max-width（如 `max-w-md`），使用 `max-w-4xl` 以上或弹性伸缩
-- **i18n 功能实现时只需实现中文（zh）和英文（en）**，其余语言通过 `scripts/sync-i18n.mjs` 补齐
+- **i18n 新增 key 时只需实现中文（zh）和英文（en）**，其余语言通过 `scripts/sync-i18n.mjs` 补齐；但**修改已存在翻译 key 的文案内容时，必须当时同步更新所有语言版本**，不能留待后续 sync，避免其他语言残留旧文案
 - 避免不必要的重渲染（`React.memo`、`useMemo`、`useCallback`）
 - **Tooltip 必须使用 `@/components/ui/tooltip`**，禁止用 HTML 原生 `title` 属性。优先使用 `<IconTip label={...}>` 简洁包裹
 - **保存按钮统一三态交互**：saving（Loader2 旋转 + disabled）→ saved（绿色 + Check 图标，2 秒恢复）→ failed（红色，2 秒恢复）。使用 `saveStatus: "idle" | "saved" | "failed"` + `saving: boolean` 管理
