@@ -475,6 +475,10 @@ impl AssistantAgent {
                 self.context_window,
                 &self.compact_config,
             );
+
+            // Reactive microcompact: when usage crosses the threshold mid-loop,
+            // clear ephemeral tool_results (Tier 0) to head off emergency compaction.
+            self.reactive_microcompact_in_loop(&mut input, &system_prompt_for_budget, 16384);
         }
 
         let cancelled = cancel.load(Ordering::SeqCst);

@@ -1,4 +1,7 @@
-use super::constants::{HUMAN_IN_THE_LOOP_GUIDANCE, MAX_FILE_CHARS, TOOL_CALL_NARRATION_GUIDANCE};
+use super::constants::{
+    HUMAN_IN_THE_LOOP_GUIDANCE, MAX_FILE_CHARS, SOUL_EMBODIMENT_GUIDANCE,
+    TOOL_CALL_NARRATION_GUIDANCE,
+};
 use super::helpers::truncate;
 use super::sections::*;
 use crate::agent_config::AgentDefinition;
@@ -82,11 +85,7 @@ pub fn build(
 
         // SOUL.md embodiment guidance
         if has_soul {
-            sections.push(
-                "If SOUL.md is present, embody its persona and tone throughout all interactions. \
-                 Avoid stiff, generic replies; follow its guidance unless higher-priority instructions override it."
-                    .to_string(),
-            );
+            sections.push(SOUL_EMBODIMENT_GUIDANCE.to_string());
         }
     } else if definition.config.use_custom_prompt {
         // ── Custom prompt mode: use markdown files directly, skip structured config ──
@@ -117,24 +116,48 @@ pub fn build(
     } else {
         // ── Structured mode: assemble from config fields + optional supplements ──
 
-        // ① Identity
-        let role_suffix = definition
-            .config
-            .personality
-            .role
-            .as_deref()
-            .filter(|r| !r.is_empty())
-            .map(|r| format!(", a {}", r))
-            .unwrap_or_default();
+        let soul_md_mode = matches!(
+            definition.config.personality.mode,
+            crate::agent_config::PersonaMode::SoulMd
+        );
+
+        // ① Identity — omit role_suffix in SOUL.md mode so the markdown's
+        //    self-declared identity is not double-declared with the structured role.
+        let role_suffix = if soul_md_mode {
+            String::new()
+        } else {
+            definition
+                .config
+                .personality
+                .role
+                .as_deref()
+                .filter(|r| !r.is_empty())
+                .map(|r| format!(", a {}", r))
+                .unwrap_or_default()
+        };
         sections.push(format!(
             "You are {}{}, running in OpenComputer on {} {}.",
             definition.config.name, role_suffix, os, arch
         ));
 
-        // ② Personality (structured)
-        let personality_section = build_personality_section(&definition.config.personality);
-        if !personality_section.is_empty() {
-            sections.push(personality_section);
+        // ② Personality — SoulMd mode injects soul.md verbatim + embodiment
+        //    guidance; Structured mode (default) assembles from role/tone/values.
+        //    Structured fields remain persisted in agent.json either way so the
+        //    user can switch back without data loss.
+        if soul_md_mode {
+            if let Some(md) = definition
+                .soul_md
+                .as_deref()
+                .filter(|s| !s.trim().is_empty())
+            {
+                sections.push(truncate(md, MAX_FILE_CHARS));
+                sections.push(SOUL_EMBODIMENT_GUIDANCE.to_string());
+            }
+        } else {
+            let personality_section = build_personality_section(&definition.config.personality);
+            if !personality_section.is_empty() {
+                sections.push(personality_section);
+            }
         }
 
         // ③ agent.md — supplementary identity notes

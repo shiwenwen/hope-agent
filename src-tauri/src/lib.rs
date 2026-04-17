@@ -188,6 +188,7 @@ pub fn run() {
             commands::agent_mgmt::save_agent_config_cmd,
             commands::agent_mgmt::save_agent_markdown,
             commands::agent_mgmt::delete_agent,
+            commands::agent_mgmt::render_persona_to_soul_md,
             commands::agent_mgmt::get_agent_template,
             commands::agent_mgmt::scan_openclaw_agents,
             commands::agent_mgmt::import_openclaw_agents,

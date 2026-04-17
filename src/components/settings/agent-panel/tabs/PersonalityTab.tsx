@@ -6,12 +6,17 @@ import { Textarea } from "@/components/ui/textarea"
 import { X } from "lucide-react"
 import { OpenClawHintBanner } from "./CustomTab"
 import { TONE_PRESETS } from "../types"
-import type { AgentConfig, PersonalityConfig } from "../types"
+import type { AgentConfig, PersonalityConfig, PersonaMode } from "../types"
+import { getTransport } from "@/lib/transport"
+import { logger } from "@/lib/logger"
 
 interface PersonalityTabProps {
+  agentId: string
   config: AgentConfig
   persona: string
   openclawMode: boolean
+  soulMd: string
+  setSoulMd: (v: string) => void
   updatePersonality: (patch: Partial<PersonalityConfig>) => void
   setPersona: (v: string) => void
   textInputProps: (getter: string, setter: (v: string) => void) => {
@@ -24,9 +29,12 @@ interface PersonalityTabProps {
 }
 
 export default function PersonalityTab({
+  agentId,
   config,
   persona,
   openclawMode,
+  soulMd,
+  setSoulMd,
   updatePersonality,
   setPersona,
   textInputProps,
@@ -36,11 +44,99 @@ export default function PersonalityTab({
   const [traitInput, setTraitInput] = useState("")
   const [principleInput, setPrincipleInput] = useState("")
 
+  // openclaw_mode edits SOUL.md in the "Custom" tab (keeps the 4-file package
+  // grouped there); structured vs. SoulMd mode switch only applies outside
+  // openclaw mode.
+  const mode: PersonaMode = config.personality?.mode ?? "structured"
+
+  const handleModeChange = async (next: PersonaMode) => {
+    if (next === mode) return
+    updatePersonality({ mode: next })
+    // First-time switch to SoulMd with an empty editor: render the structured
+    // fields into a markdown draft so the user isn't staring at a blank canvas.
+    if (next === "soulMd" && !soulMd.trim()) {
+      try {
+        const res = await getTransport().call<{ content: string } | string | null>(
+          "render_persona_to_soul_md",
+          { id: agentId },
+        )
+        const content =
+          typeof res === "string"
+            ? res
+            : (res && typeof res === "object" && "content" in res ? res.content : "") ?? ""
+        if (content) setSoulMd(content)
+      } catch (e) {
+        logger.error("settings", "PersonalityTab::renderSoulMd", "Failed to render persona", e)
+      }
+    }
+  }
+
   return (
     <div className="space-y-5">
       {openclawMode && <OpenClawHintBanner />}
 
-      <div className={openclawMode ? "opacity-50 pointer-events-none space-y-5" : "space-y-5"}>
+      {!openclawMode && (
+        <div className="rounded-lg border border-border/60 bg-secondary/20 p-3 space-y-2">
+          <div className="flex flex-col">
+            <label className="text-xs font-medium text-muted-foreground px-1">
+              {t("settings.personaModeLabel")}
+            </label>
+            <p className="text-[11px] text-muted-foreground/60 mt-0.5 px-1">
+              {t("settings.personaModeDesc")}
+            </p>
+          </div>
+          <div className="flex gap-1.5">
+            <button
+              onClick={() => void handleModeChange("structured")}
+              className={cn(
+                "flex-1 px-3 py-2 text-xs rounded-md transition-colors",
+                mode === "structured"
+                  ? "bg-primary/10 text-primary font-medium"
+                  : "bg-secondary/40 text-foreground hover:bg-secondary/70",
+              )}
+            >
+              {t("settings.personaModeStructured")}
+            </button>
+            <button
+              onClick={() => void handleModeChange("soulMd")}
+              className={cn(
+                "flex-1 px-3 py-2 text-xs rounded-md transition-colors",
+                mode === "soulMd"
+                  ? "bg-primary/10 text-primary font-medium"
+                  : "bg-secondary/40 text-foreground hover:bg-secondary/70",
+              )}
+            >
+              {t("settings.personaModeSoulMd")}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!openclawMode && mode === "soulMd" && (
+        <div className="space-y-2">
+          <div className="text-xs font-medium text-muted-foreground px-1">
+            {t("settings.personaSoulEditor")}
+          </div>
+          <p className="text-[11px] text-muted-foreground/60 px-1">
+            {t("settings.personaSoulEditorDesc")}
+          </p>
+          <Textarea
+            className="bg-secondary/40 rounded-lg resize-y leading-relaxed font-mono min-h-[360px]"
+            rows={20}
+            {...textInputProps(soulMd, setSoulMd)}
+            placeholder={t("settings.personaSoulPlaceholder")}
+          />
+          <CharCounter value={soulMd} />
+        </div>
+      )}
+
+      <div
+        className={
+          openclawMode || mode === "soulMd"
+            ? "opacity-50 pointer-events-none space-y-5"
+            : "space-y-5"
+        }
+      >
         {/* Vibe */}
         <div>
           <div className="text-xs font-medium text-muted-foreground mb-1 px-1">

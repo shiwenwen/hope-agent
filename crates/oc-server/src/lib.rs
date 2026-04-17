@@ -481,6 +481,10 @@ fn build_router_with_cors(
             put(routes::agents::save_agent_markdown),
         )
         .route(
+            "/agents/{id}/persona/render-soul-md",
+            axum::routing::post(routes::agents::render_persona_to_soul_md),
+        )
+        .route(
             "/agents/{id}/memory-md",
             get(routes::agents::get_agent_memory_md),
         )

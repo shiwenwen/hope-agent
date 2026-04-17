@@ -94,7 +94,10 @@ export interface AgentSummary {
   hasToolsGuide: boolean
 }
 
+export type PersonaMode = "structured" | "soulMd"
+
 export interface PersonalityConfig {
+  mode?: PersonaMode
   role?: string | null
   vibe?: string | null
   tone?: string | null
@@ -187,6 +190,7 @@ export interface LogQueryResult {
 }
 
 export const DEFAULT_PERSONALITY: PersonalityConfig = {
+  mode: "structured",
   role: null,
   vibe: null,
   tone: null,

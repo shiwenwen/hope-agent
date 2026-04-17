@@ -239,13 +239,21 @@ pub fn load_agent(id: &str) -> Result<AgentDefinition> {
     let tools_guide = read_optional_md(&dir, TOOLS_MD)?;
     let memory_md = read_optional_md(&dir, MEMORY_MD)?;
 
-    // Load the 4-file markdown prompt set (only when mode is enabled)
+    // Load the 4-file markdown prompt set when openclaw mode is on.
+    // In non-openclaw mode we still read SOUL.md when the persona authoring
+    // surface is switched to SoulMd, so the same physical `soul.md` file is
+    // shared between both surfaces (users keep a single artifact to edit).
     let (agents_md, identity_md, soul_md) = if config.openclaw_mode {
         (
             read_optional_md(&dir, AGENTS_MD)?,
             read_optional_md(&dir, IDENTITY_MD)?,
             read_optional_md(&dir, SOUL_MD)?,
         )
+    } else if matches!(
+        config.personality.mode,
+        crate::agent_config::PersonaMode::SoulMd
+    ) {
+        (None, None, read_optional_md(&dir, SOUL_MD)?)
     } else {
         (None, None, None)
     };
@@ -405,6 +413,79 @@ pub fn get_agent_markdown(id: &str, file: &str) -> Result<Option<String>> {
     }
     let dir = paths::agent_dir(id)?;
     read_optional_md(&dir, file)
+}
+
+// ── Persona → SOUL.md template ───────────────────────────────────
+
+/// Render the agent's structured `PersonalityConfig` into a SOUL.md markdown
+/// template. Used by the UI when the user switches the persona authoring
+/// surface to SoulMd for the first time — their existing structured fields
+/// are converted into a markdown draft instead of starting from an empty
+/// editor. The returned string is never written to disk by this function;
+/// the caller decides whether to persist it (usually after the user edits).
+pub fn render_persona_to_soul_md(id: &str) -> Result<String> {
+    let def = load_agent(id)?;
+    let cfg = &def.config;
+    let p = &cfg.personality;
+    let mut out = String::new();
+
+    out.push_str(&format!("# {} — Who You Are\n", cfg.name));
+
+    if let Some(role) = p.role.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        out.push_str(&format!("\n## Role\n\n{}\n", role));
+    }
+    if let Some(vibe) = p.vibe.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        out.push_str(&format!("\n## Vibe\n\n{}\n", vibe));
+    }
+    if let Some(tone) = p.tone.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        out.push_str(&format!("\n## Tone\n\n{}\n", tone));
+    }
+    if !p.traits.is_empty() {
+        out.push_str("\n## Traits\n\n");
+        for tr in &p.traits {
+            if !tr.trim().is_empty() {
+                out.push_str(&format!("- {}\n", tr));
+            }
+        }
+    }
+    if !p.principles.is_empty() {
+        out.push_str("\n## Principles\n\n");
+        for pr in &p.principles {
+            if !pr.trim().is_empty() {
+                out.push_str(&format!("- {}\n", pr));
+            }
+        }
+    }
+    if let Some(b) = p
+        .boundaries
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        out.push_str(&format!("\n## Boundaries\n\n{}\n", b));
+    }
+    if let Some(q) = p.quirks.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        out.push_str(&format!("\n## Quirks\n\n{}\n", q));
+    }
+    if let Some(cs) = p
+        .communication_style
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        out.push_str(&format!("\n## Communication Style\n\n{}\n", cs));
+    }
+
+    // Leave a gentle nudge when nothing was filled in so the editor isn't
+    // just a bare title. Users can delete it once they start writing.
+    if !out.contains("##") {
+        out.push_str(
+            "\n_Describe your persona here: role, tone, values, boundaries, \
+             and any quirks that make you distinctive._\n",
+        );
+    }
+
+    Ok(out)
 }
 
 // ── Delete Agent ─────────────────────────────────────────────────

@@ -93,11 +93,30 @@ impl Default for AgentConfig {
 
 // ── Personality Config ──────────────────────────────────────────
 
+/// Which persona authoring surface is active for this agent.
+/// `Structured` uses the role/tone/values/principles fields below (default,
+/// backward-compatible). `SoulMd` switches the prompt builder to inject the
+/// agent's `soul.md` file verbatim — the same physical file used by openclaw
+/// compatibility mode — and bypasses the structured fields for the
+/// personality section. Structured fields remain editable in both modes so
+/// switching between them does not lose data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PersonaMode {
+    #[default]
+    Structured,
+    SoulMd,
+}
+
 /// Structured personality & identity for the Agent.
 /// GUI-friendly fields that mirror the IDENTITY.md + SOUL.md file layout.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PersonalityConfig {
+    /// Persona authoring surface: structured fields vs. SOUL.md markdown.
+    #[serde(default)]
+    pub mode: PersonaMode,
+
     /// What the agent is (e.g., "AI coding assistant", "creative writer", "robot butler")
     #[serde(default)]
     pub role: Option<String>,

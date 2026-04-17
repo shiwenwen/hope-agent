@@ -901,6 +901,54 @@ impl AssistantAgent {
         }
     }
 
+    /// Reactive microcompaction invoked between tool loop rounds.
+    ///
+    /// When estimated usage ratio meets `compact.reactive_trigger_ratio`,
+    /// runs Tier 0 microcompaction to clear ephemeral tool results
+    /// (ls/grep/find/web_search/... per `tool_policies`), preventing
+    /// emergency compaction from firing when tool_result accumulation
+    /// would otherwise push context over the limit mid-loop.
+    ///
+    /// Tier 0 is cache-safe: it only touches content inside existing
+    /// tool_result blocks without reordering messages, so the cached
+    /// prefix remains valid.
+    pub(super) fn reactive_microcompact_in_loop(
+        &self,
+        messages: &mut [serde_json::Value],
+        system_prompt_for_budget: &str,
+        max_output_tokens: u32,
+    ) {
+        let cfg = &self.compact_config;
+        if !cfg.enabled || !cfg.reactive_microcompact_enabled {
+            return;
+        }
+        if self.context_window == 0 {
+            return;
+        }
+
+        let used = crate::context_compact::estimate_request_tokens(
+            system_prompt_for_budget,
+            messages,
+            max_output_tokens,
+        );
+        let ratio = used as f64 / self.context_window as f64;
+        if ratio < cfg.reactive_trigger_ratio {
+            return;
+        }
+
+        let cleared = crate::context_compact::microcompact(messages, cfg);
+        if cleared > 0 {
+            app_info!(
+                "agent",
+                "reactive_microcompact",
+                "cleared {} ephemeral tool_results at ratio={:.2} (threshold={:.2})",
+                cleared,
+                ratio,
+                cfg.reactive_trigger_ratio
+            );
+        }
+    }
+
     /// If LLM memory selection is enabled and enough candidates exist,
     /// use side_query to select only the most relevant memories and replace
     /// the `# Memory` section in the system prompt.

@@ -60,6 +60,9 @@ fn default_max_tool_result_context_share() -> f64 {
 fn default_max_compaction_summary_chars() -> usize {
     16_000
 }
+fn default_reactive_trigger_ratio() -> f64 {
+    0.75
+}
 
 /// Context compaction configuration, stored in config.json `compact` field.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -151,6 +154,18 @@ pub struct CompactConfig {
     #[serde(default = "default_max_compaction_summary_chars")]
     pub max_compaction_summary_chars: usize,
 
+    // ── Reactive Microcompact (Tier 0 in tool loop) ──
+    /// Enable reactive microcompaction in tool loop rounds (default: true).
+    /// When usage exceeds `reactive_trigger_ratio`, runs Tier 0 microcompaction
+    /// to clear ephemeral tool results before the next tool round, avoiding
+    /// emergency compaction when tool_results accumulate mid-loop.
+    #[serde(default = "crate::default_true")]
+    pub reactive_microcompact_enabled: bool,
+    /// Usage ratio threshold that triggers reactive microcompaction (default: 0.75).
+    /// Lower values compact earlier; higher values stay closer to emergency territory.
+    #[serde(default = "default_reactive_trigger_ratio")]
+    pub reactive_trigger_ratio: f64,
+
     // ── Post-Compaction Recovery ──
     /// Enable post-compaction file recovery after Tier 3 summarization (default: true).
     /// Re-reads recently written/edited files from disk and injects their current
@@ -235,6 +250,10 @@ impl CompactConfig {
         // max_compaction_summary_chars: 4000–64000
         // Too low → summaries lose critical context; too high → summary itself wastes context budget
         self.max_compaction_summary_chars = self.max_compaction_summary_chars.clamp(4_000, 64_000);
+
+        // reactive_trigger_ratio: 0.50–0.95
+        // Below 0.50 overlaps with soft_trim_ratio; above 0.95 is too close to emergency territory.
+        self.reactive_trigger_ratio = self.reactive_trigger_ratio.clamp(0.50, 0.95);
     }
 }
 
@@ -264,6 +283,8 @@ impl Default for CompactConfig {
             summary_max_tokens: default_summary_max_tokens(),
             max_history_share: default_max_history_share(),
             max_compaction_summary_chars: default_max_compaction_summary_chars(),
+            reactive_microcompact_enabled: crate::default_true(),
+            reactive_trigger_ratio: default_reactive_trigger_ratio(),
             recovery_enabled: crate::default_true(),
             recovery_max_files: default_recovery_max_files(),
             recovery_max_file_bytes: default_recovery_max_file_bytes(),

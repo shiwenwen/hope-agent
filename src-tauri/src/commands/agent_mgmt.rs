@@ -37,6 +37,11 @@ pub async fn delete_agent(id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub async fn render_persona_to_soul_md(id: String) -> Result<String, String> {
+    agent_loader::render_persona_to_soul_md(&id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn get_agent_template(name: String, locale: String) -> Result<String, String> {
     agent_loader::get_template(&name, &locale)
         .ok_or_else(|| format!("Template not found: {}", name))
