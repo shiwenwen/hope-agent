@@ -21,7 +21,8 @@ use super::{
     TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEND, TOOL_SESSION_STATUS, TOOL_SUBAGENT, TOOL_SUBMIT_PLAN,
     TOOL_TASK_CREATE, TOOL_TASK_LIST, TOOL_TASK_UPDATE, TOOL_UPDATE_CORE_MEMORY,
     TOOL_TEAM, TOOL_UPDATE_MEMORY, TOOL_UPDATE_PLAN_STEP, TOOL_GET_SETTINGS,
-    TOOL_UPDATE_SETTINGS, TOOL_WEB_FETCH, TOOL_WEB_SEARCH, TOOL_WRITE,
+    TOOL_LIST_SETTINGS_BACKUPS, TOOL_RESTORE_SETTINGS_BACKUP, TOOL_UPDATE_SETTINGS, TOOL_WEB_FETCH,
+    TOOL_WEB_SEARCH, TOOL_WRITE,
 };
 use crate::agent_config::AsyncToolPolicy;
 use crate::async_jobs::{self, JobOrigin};
@@ -493,6 +494,8 @@ pub async fn execute_tool_with_context(
             }
             TOOL_GET_SETTINGS => settings::tool_get_settings(args).await,
             TOOL_UPDATE_SETTINGS => settings::tool_update_settings(args).await,
+            TOOL_LIST_SETTINGS_BACKUPS => settings::tool_list_settings_backups(args).await,
+            TOOL_RESTORE_SETTINGS_BACKUP => settings::tool_restore_settings_backup(args).await,
             _ => Err(anyhow::anyhow!("Unknown tool: {}", name)),
         }
     };

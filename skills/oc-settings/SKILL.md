@@ -126,6 +126,35 @@ Because per-skill env vars are a nested map, `update_settings("skill_env", …)`
 
 Prefer form 2 for targeted edits so you don't overwrite unrelated skills.
 
+## Rollback — Every Change Is Reversible
+
+Every write to `config.json` / `user.json` — from this tool, the UI, or any other path — automatically snapshots the pre-change file under `~/.opencomputer/backups/autosave/`. Last 50 snapshots retained.
+
+### list_settings_backups
+
+```json
+{ "limit": 10 }              // latest 10 entries (default 20, max 200)
+{ "kind": "config" }         // filter by "config" or "user"
+```
+
+Returns `{id, timestamp, kind, category, source}` newest first.
+
+### restore_settings_backup
+
+```json
+{ "id": "2026-04-17T10-30-45-123__config__theme__skill" }
+```
+
+- **Always HIGH risk** — must confirm with the user before calling. Show them the entry's `timestamp`, `kind`, and `category`.
+- Creates a fresh snapshot of the current state first, so the rollback itself is reversible — you can "undo the undo" by restoring the newly-created entry.
+- Restoring a `config` entry reloads the in-memory cache immediately; `server` / `shortcuts` style side effects still apply and may need a restart.
+
+### When to proactively offer rollback
+
+- User says "undo that", "revert", "go back", "you broke X" after a recent change.
+- User complains about a specific behavior right after you changed a related setting.
+- User asks "what did you change?" — list the last few entries to remind them.
+
 ## Important Notes
 
 - **Read before write** — always `get_settings` first so you can show a diff.
@@ -134,3 +163,4 @@ Prefer form 2 for targeted edits so you don't overwrite unrelated skills.
 - **Security restrictions** — cannot modify Providers, Channels, or API Keys through this tool; guide the user to the Settings UI.
 - **Surface side effects** — if the response has `sideEffect` (e.g. "requires restart"), tell the user.
 - **Secrets in logs** — never echo `apiKey`, `remoteApiKey`, or `skill_env` values back in chat unless the user explicitly asks.
+- **Rollback is built-in** — if a change goes wrong, offer `restore_settings_backup` instead of trying to reconstruct the old values manually.

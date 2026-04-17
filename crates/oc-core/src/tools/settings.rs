@@ -255,7 +255,10 @@ fn update_user_config(values: &Value) -> Result<String> {
     let mut uc_json = serde_json::to_value(&uc)?;
     crate::merge_json(&mut uc_json, values.clone());
     let updated: user_config::UserConfig = serde_json::from_value(uc_json.clone())?;
+    // Tag the autosave snapshot so rollback listings know this came from the skill.
+    let _reason = crate::backup::scope_save_reason("user", "skill");
     user_config::save_user_config_to_disk(&updated)?;
+    drop(_reason);
 
     // Notify frontend about user config change
     if let Some(bus) = crate::get_event_bus() {
@@ -423,7 +426,10 @@ fn update_app_config(category: &str, values: &Value) -> Result<String> {
         _ => bail!("Unknown settings category: '{category}'"),
     }
 
+    // Tag the autosave snapshot so rollback listings carry (category, source).
+    let _reason = crate::backup::scope_save_reason(category, "skill");
     config::save_config(&store)?;
+    drop(_reason);
 
     // Notify frontend about config change so UI can react immediately
     if let Some(bus) = crate::get_event_bus() {
@@ -529,4 +535,53 @@ where
     crate::merge_json(&mut current, patch.clone());
     *field = serde_json::from_value(current)?;
     Ok(())
+}
+
+// ── list_settings_backups ───────────────────────────────────────
+
+pub(crate) async fn tool_list_settings_backups(args: &Value) -> Result<String> {
+    let limit = args
+        .get("limit")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(20)
+        .min(200) as usize;
+    let kind_filter = args.get("kind").and_then(|v| v.as_str());
+
+    let mut entries = crate::backup::list_autosaves().map_err(|e| anyhow::anyhow!(e))?;
+    if let Some(k) = kind_filter {
+        entries.retain(|e| e.kind == k);
+    }
+    entries.truncate(limit);
+
+    Ok(serde_json::to_string_pretty(&json!({
+        "count": entries.len(),
+        "backups": entries,
+        "hint": "Use restore_settings_backup({id}) to roll back. A pre-restore snapshot is created automatically so the rollback itself is reversible.",
+    }))?)
+}
+
+// ── restore_settings_backup ─────────────────────────────────────
+
+pub(crate) async fn tool_restore_settings_backup(args: &Value) -> Result<String> {
+    let id = args
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: id"))?;
+
+    let entry = crate::backup::restore_autosave(id).map_err(|e| anyhow::anyhow!(e))?;
+
+    app_info!(
+        "settings",
+        "rollback",
+        "Restored autosave id={} kind={} category={}",
+        entry.id,
+        entry.kind,
+        entry.category
+    );
+
+    Ok(serde_json::to_string_pretty(&json!({
+        "restored": true,
+        "entry": entry,
+        "note": "A pre-restore snapshot of the previous state was also saved so you can undo this rollback.",
+    }))?)
 }

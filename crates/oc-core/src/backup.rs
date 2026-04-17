@@ -1,8 +1,14 @@
+use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 
 use crate::paths;
 
 const MAX_BACKUPS: usize = 5;
+
+/// How many automatic config snapshots to retain. Separate budget from the
+/// manual `backup_*` snapshots so a flurry of settings edits can't evict the
+/// last user-requested full backup.
+const MAX_AUTOSAVES: usize = 50;
 
 /// Create a backup of all config files to ~/.opencomputer/backups/backup_{timestamp}/
 /// Returns the backup directory path on success.
@@ -206,4 +212,279 @@ pub struct BackupInfo {
     pub name: String,
     pub path: String,
     pub created_at: u64,
+}
+
+// ── Auto-Snapshot on every config write ────────────────────────────
+//
+// Every call to `config::save_config` and `user_config::save_user_config_to_disk`
+// first copies the current on-disk file into `backups/autosave/` so that any
+// settings change — whether triggered from the UI, from the `update_settings`
+// tool, or from a CLI path — can be rolled back. Snapshot files are named
+// `{timestamp}__{kind}__{category}__{source}.json` so metadata is embedded in
+// the filename; no sidecar index is needed.
+
+thread_local! {
+    /// Optional reason label set by the caller (e.g. the settings tool) that
+    /// describes why the next `save_config` / `save_user_config_to_disk` call
+    /// is happening. Consumed — and reset — by the very next snapshot.
+    static NEXT_SAVE_REASON: RefCell<Option<SaveReason>> = const { RefCell::new(None) };
+}
+
+#[derive(Debug, Clone)]
+struct SaveReason {
+    /// Settings category being updated (e.g. "theme", "proxy", "user").
+    category: String,
+    /// Who triggered it: "skill", "ui", "cli", ...
+    source: String,
+}
+
+/// RAII guard set by callers to label the next `save_*` snapshot.
+/// Dropping it clears the label even if the save never happens, so a stale
+/// label can't contaminate an unrelated subsequent write.
+pub struct SaveReasonGuard {
+    _private: (),
+}
+
+impl Drop for SaveReasonGuard {
+    fn drop(&mut self) {
+        NEXT_SAVE_REASON.with(|slot| {
+            *slot.borrow_mut() = None;
+        });
+    }
+}
+
+/// Label the next config/user_config save so its autosave snapshot records
+/// *why* the change happened. Returns a guard — hold it until after the save.
+///
+/// Example:
+/// ```ignore
+/// let _g = backup::scope_save_reason("theme", "skill");
+/// config::save_config(&store)?; // snapshot tagged "theme/skill"
+/// ```
+pub fn scope_save_reason(category: impl Into<String>, source: impl Into<String>) -> SaveReasonGuard {
+    NEXT_SAVE_REASON.with(|slot| {
+        *slot.borrow_mut() = Some(SaveReason {
+            category: category.into(),
+            source: source.into(),
+        });
+    });
+    SaveReasonGuard { _private: () }
+}
+
+fn take_save_reason() -> SaveReason {
+    NEXT_SAVE_REASON
+        .with(|slot| slot.borrow_mut().take())
+        .unwrap_or_else(|| SaveReason {
+            category: "unknown".into(),
+            source: "unknown".into(),
+        })
+}
+
+/// Snapshot `src` (if it exists) into `backups/autosave/` before it gets
+/// overwritten. `kind` is "config" or "user". Errors are logged but never
+/// bubbled up — a failed snapshot must not block a legitimate write.
+pub fn snapshot_before_write(src: &Path, kind: &str) {
+    if !src.exists() {
+        // First-ever save — nothing to snapshot.
+        // Still consume the reason so it doesn't leak to an unrelated save.
+        let _ = take_save_reason();
+        return;
+    }
+    let dir = match paths::autosave_dir() {
+        Ok(d) => d,
+        Err(e) => {
+            app_warn!(
+                "backup",
+                "autosave",
+                "Cannot resolve autosave dir: {}",
+                e
+            );
+            let _ = take_save_reason();
+            return;
+        }
+    };
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        app_warn!(
+            "backup",
+            "autosave",
+            "Cannot create autosave dir: {}",
+            e
+        );
+        let _ = take_save_reason();
+        return;
+    }
+    let reason = take_save_reason();
+    let ts = chrono::Utc::now().format("%Y-%m-%dT%H-%M-%S-%3f").to_string();
+    let safe_cat = sanitize_slug(&reason.category);
+    let safe_src = sanitize_slug(&reason.source);
+    let filename = format!("{}__{}__{}__{}.json", ts, kind, safe_cat, safe_src);
+    let dst = dir.join(&filename);
+    if let Err(e) = std::fs::copy(src, &dst) {
+        app_warn!(
+            "backup",
+            "autosave",
+            "Failed to snapshot {:?} → {:?}: {}",
+            src,
+            dst,
+            e
+        );
+        return;
+    }
+    if let Err(e) = rotate_autosaves(&dir, MAX_AUTOSAVES) {
+        app_warn!(
+            "backup",
+            "autosave",
+            "Rotation failed: {}",
+            e
+        );
+    }
+}
+
+fn sanitize_slug(s: &str) -> String {
+    s.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect()
+}
+
+fn rotate_autosaves(dir: &Path, keep: usize) -> Result<(), String> {
+    let mut entries: Vec<PathBuf> = std::fs::read_dir(dir)
+        .map_err(|e| e.to_string())?
+        .filter_map(|entry| {
+            let entry = entry.ok()?;
+            let p = entry.path();
+            if p.is_file() && p.extension().and_then(|e| e.to_str()) == Some("json") {
+                Some(p)
+            } else {
+                None
+            }
+        })
+        .collect();
+    // Names are timestamp-prefixed, so ascending sort = oldest first.
+    entries.sort();
+    if entries.len() > keep {
+        let drop_count = entries.len() - keep;
+        for p in entries.iter().take(drop_count) {
+            if let Err(e) = std::fs::remove_file(p) {
+                eprintln!("[Backup] Warning: failed to drop old autosave {:?}: {}", p, e);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// A single automatic snapshot entry, parsed from the filename.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutosaveEntry {
+    /// Stable ID — the full filename (without extension). Use this with
+    /// [`restore_autosave`].
+    pub id: String,
+    /// ISO-8601 timestamp captured at snapshot time.
+    pub timestamp: String,
+    /// "config" (→ config.json) or "user" (→ user.json).
+    pub kind: String,
+    /// Settings category that was being updated, or "unknown".
+    pub category: String,
+    /// Who triggered the save: "skill", "ui", "cli", or "unknown".
+    pub source: String,
+}
+
+/// List automatic config snapshots, newest first.
+pub fn list_autosaves() -> Result<Vec<AutosaveEntry>, String> {
+    let dir = paths::autosave_dir().map_err(|e| e.to_string())?;
+    if !dir.exists() {
+        return Ok(Vec::new());
+    }
+    let mut entries: Vec<AutosaveEntry> = std::fs::read_dir(&dir)
+        .map_err(|e| format!("Cannot read autosave dir: {}", e))?
+        .filter_map(|entry| {
+            let entry = entry.ok()?;
+            let name = entry.file_name().to_string_lossy().to_string();
+            let stem = name.strip_suffix(".json")?;
+            let parts: Vec<&str> = stem.splitn(4, "__").collect();
+            if parts.len() != 4 {
+                return None;
+            }
+            Some(AutosaveEntry {
+                id: stem.to_string(),
+                timestamp: parts[0].to_string(),
+                kind: parts[1].to_string(),
+                category: parts[2].to_string(),
+                source: parts[3].to_string(),
+            })
+        })
+        .collect();
+    // Newest first: timestamp is a lexicographically sortable prefix.
+    entries.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    Ok(entries)
+}
+
+/// Restore a single automatic snapshot identified by its `id` (the filename
+/// stem returned by [`list_autosaves`]). Creates a fresh snapshot of the
+/// current state before overwriting, so the restore itself is reversible.
+///
+/// Emits the `config:changed` EventBus event so the frontend refreshes.
+pub fn restore_autosave(id: &str) -> Result<AutosaveEntry, String> {
+    let dir = paths::autosave_dir().map_err(|e| e.to_string())?;
+    let src = dir.join(format!("{}.json", id));
+    if !src.exists() {
+        return Err(format!("Autosave '{}' not found", id));
+    }
+    let stem_parts: Vec<&str> = id.splitn(4, "__").collect();
+    if stem_parts.len() != 4 {
+        return Err(format!("Invalid autosave id: '{}'", id));
+    }
+    let entry = AutosaveEntry {
+        id: id.to_string(),
+        timestamp: stem_parts[0].to_string(),
+        kind: stem_parts[1].to_string(),
+        category: stem_parts[2].to_string(),
+        source: stem_parts[3].to_string(),
+    };
+
+    // Pick destination path by kind.
+    let dst = match entry.kind.as_str() {
+        "config" => paths::config_path().map_err(|e| e.to_string())?,
+        "user" => paths::user_config_path().map_err(|e| e.to_string())?,
+        other => return Err(format!("Unknown snapshot kind: '{}'", other)),
+    };
+
+    // Snapshot current state first so the rollback is itself reversible.
+    {
+        let _g = scope_save_reason(format!("rollback-to:{}", entry.timestamp), "rollback");
+        snapshot_before_write(&dst, &entry.kind);
+    }
+
+    // Overwrite in place.
+    std::fs::copy(&src, &dst)
+        .map_err(|e| format!("Failed to copy {:?} → {:?}: {}", src, dst, e))?;
+
+    // Refresh in-memory caches and notify frontend.
+    match entry.kind.as_str() {
+        "config" => {
+            let _ = crate::config::reload_cache_from_disk();
+            if let Some(bus) = crate::get_event_bus() {
+                bus.emit(
+                    "config:changed",
+                    serde_json::json!({ "category": "__rollback__" }),
+                );
+            }
+        }
+        "user" => {
+            if let Some(bus) = crate::get_event_bus() {
+                bus.emit(
+                    "config:changed",
+                    serde_json::json!({ "category": "user" }),
+                );
+            }
+        }
+        _ => {}
+    }
+    Ok(entry)
 }
