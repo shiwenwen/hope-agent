@@ -753,7 +753,7 @@ export default function ChatScreen({
           pendingScrollTarget={session.pendingScrollTarget}
           onScrollTargetHandled={session.clearPendingScrollTarget}
           pendingQuestionGroup={planMode.pendingQuestionGroup}
-          onQuestionSubmitted={() => { /* AskUserQuestionBlock handles its own submitted state */ }}
+          onQuestionSubmitted={() => planMode.setPendingQuestionGroup(null)}
           planCardData={planMode.planCardInfo ? {
             title: planMode.planCardInfo.title,
             steps: planMode.planSteps,

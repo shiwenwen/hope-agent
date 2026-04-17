@@ -33,6 +33,7 @@ export interface UsePlanModeReturn {
   completedCount: number
   planCardInfo: PlanCardInfo | null
   pendingQuestionGroup: AskUserQuestionGroup | null
+  setPendingQuestionGroup: React.Dispatch<React.SetStateAction<AskUserQuestionGroup | null>>
   planSubagentRunning: boolean
   enterPlanMode: () => Promise<void>
   exitPlanMode: () => Promise<void>
@@ -333,6 +334,7 @@ export function usePlanMode(
     completedCount,
     planCardInfo,
     pendingQuestionGroup,
+    setPendingQuestionGroup,
     planSubagentRunning,
     enterPlanMode,
     exitPlanMode,
