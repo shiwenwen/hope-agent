@@ -7,6 +7,7 @@ pub mod config;
 pub mod crash;
 pub mod cron;
 pub mod dashboard;
+pub mod dreaming;
 pub mod docker;
 pub mod logging;
 pub mod memory;

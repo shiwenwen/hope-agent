@@ -1,3 +1,4 @@
+pub mod dreaming;
 pub mod embedding;
 pub mod helpers;
 pub mod import;

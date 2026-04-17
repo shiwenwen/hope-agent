@@ -1884,7 +1884,26 @@
       "errors": "Errors",
       "tasks": "Tasks",
       "system": "System",
-      "recap": "Recap"
+      "recap": "Recap",
+      "dreaming": "Dreams"
+    },
+    "dreaming": {
+      "title": "Dream Diary",
+      "subtitle": "Offline consolidation of recent memories — the agent reviews what's worth pinning into core memory.",
+      "runNow": "Run now",
+      "running": "Running…",
+      "empty": "No diaries yet — click Run now to generate the first one.",
+      "diaryList": "Diary list",
+      "selectDiary": "Pick a diary on the left to read the narrative.",
+      "lastCycle": "Last cycle",
+      "scanned": "scanned {{count}}",
+      "nominated": "nominated {{count}}",
+      "promoted": "promoted {{count}}",
+      "trigger": {
+        "idle": "idle",
+        "cron": "cron",
+        "manual": "manual"
+      }
     },
     "insights": {
       "healthScore": "Health Score",

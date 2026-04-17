@@ -1884,7 +1884,26 @@
       "errors": "异常监控",
       "tasks": "任务统计",
       "system": "系统监控",
-      "recap": "复盘"
+      "recap": "复盘",
+      "dreaming": "记忆梦境"
+    },
+    "dreaming": {
+      "title": "记忆梦境（Dream Diary）",
+      "subtitle": "离线整合最近的记忆，把高价值条目 pin 入核心记忆",
+      "runNow": "立即运行",
+      "running": "运行中...",
+      "empty": "暂无梦境日记，点击「立即运行」生成第一份",
+      "diaryList": "日记列表",
+      "selectDiary": "选择左侧日记查看内容",
+      "lastCycle": "上次运行",
+      "scanned": "扫描 {{count}}",
+      "nominated": "提名 {{count}}",
+      "promoted": "晋升 {{count}}",
+      "trigger": {
+        "idle": "空闲触发",
+        "cron": "定时触发",
+        "manual": "手动触发"
+      }
     },
     "insights": {
       "healthScore": "系统健康度",

@@ -165,6 +165,13 @@ pub fn models_cache_dir() -> Result<PathBuf> {
     Ok(root_dir()?.join("models"))
 }
 
+/// Dream Diary directory: ~/.opencomputer/memory/dreams/
+/// Holds one markdown file per cycle (by default named with the local date),
+/// created by the Dreaming Light pipeline (Phase B3).
+pub fn dreams_dir() -> Result<PathBuf> {
+    Ok(root_dir()?.join("memory").join("dreams"))
+}
+
 /// Memory attachments directory: ~/.opencomputer/memory_attachments/
 pub fn memory_attachments_dir() -> Result<PathBuf> {
     Ok(root_dir()?.join("memory_attachments"))

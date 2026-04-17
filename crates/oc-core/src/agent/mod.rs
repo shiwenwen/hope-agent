@@ -262,6 +262,9 @@ impl AssistantAgent {
     pub(crate) fn reset_chat_flags(&self) {
         self.manual_memory_saved
             .store(false, std::sync::atomic::Ordering::SeqCst);
+        // Record user activity so the Dreaming idle trigger has a fresh
+        // "last activity" timestamp. Must be cheap — it's just an atomic store.
+        crate::memory::dreaming::touch_activity();
     }
 
     /// Check if any tool call in this round was a manual memory write

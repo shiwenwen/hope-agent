@@ -343,6 +343,36 @@ pub async fn start_background_tasks() {
     // then once per day. Disabled when `recap.cache_retention_days == 0`.
     crate::recap::spawn_facet_retention_loop();
 
+    // Dreaming idle-trigger loop (Phase B3). Every minute, check whether
+    // the app has been idle long enough and fire an offline consolidation
+    // cycle. The cycle itself serialises through a global AtomicBool so
+    // overlapping triggers (idle + manual) are safe.
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(60));
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        ticker.tick().await; // skip immediate tick
+        loop {
+            ticker.tick().await;
+            let cfg = crate::config::cached_config().dreaming.clone();
+            if crate::memory::dreaming::check_idle_trigger(&cfg) {
+                tokio::spawn(async {
+                    let report = crate::memory::dreaming::manual_run(
+                        crate::memory::dreaming::DreamTrigger::Idle,
+                    )
+                    .await;
+                    app_info!(
+                        "memory",
+                        "dreaming::idle_trigger",
+                        "idle-trigger cycle: scanned={}, promoted={}, note={:?}",
+                        report.candidates_scanned,
+                        report.promoted.len(),
+                        report.note,
+                    );
+                });
+            }
+        }
+    });
+
     // Auto-discover ACP backends
     if let Some(acp_mgr) = ACP_MANAGER.get() {
         let store = crate::config::cached_config();

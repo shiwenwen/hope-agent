@@ -470,6 +470,12 @@ pub struct AppConfig {
     /// is doing in other parallel sessions.
     #[serde(default)]
     pub cross_session: crate::cross_session::CrossSessionConfig,
+
+    /// Offline memory consolidation ("Dreaming", Phase B3).
+    /// Controls when cycles run (idle / cron / manual) and how aggressively
+    /// they promote candidates into pinned core memory.
+    #[serde(default)]
+    pub dreaming: crate::memory::dreaming::DreamingConfig,
 }
 
 impl Default for AppConfig {
@@ -522,6 +528,7 @@ impl Default for AppConfig {
             recap: RecapConfig::default(),
             async_tools: AsyncToolsConfig::default(),
             cross_session: crate::cross_session::CrossSessionConfig::default(),
+            dreaming: crate::memory::dreaming::DreamingConfig::default(),
         }
     }
 }
