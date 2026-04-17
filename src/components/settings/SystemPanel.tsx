@@ -36,6 +36,7 @@ export default function SystemPanel() {
   const [backupsLoading, setBackupsLoading] = useState(false)
   const [pendingRestore, setPendingRestore] = useState<AutosaveEntry | null>(null)
   const [restoringId, setRestoringId] = useState<string | null>(null)
+  const [restoreError, setRestoreError] = useState<string | null>(null)
 
   useEffect(() => {
     getTransport().call<boolean>("get_autostart_enabled")
@@ -79,11 +80,13 @@ export default function SystemPanel() {
   async function handleRestore() {
     if (!pendingRestore) return
     setRestoringId(pendingRestore.id)
+    setRestoreError(null)
     try {
       await getTransport().call("restore_settings_backup_cmd", { id: pendingRestore.id })
       await loadBackups()
     } catch (e) {
       logger.error("settings", "SystemPanel::restore", "Failed to restore backup", e)
+      setRestoreError(e instanceof Error ? e.message : String(e))
     } finally {
       setRestoringId(null)
       setPendingRestore(null)
@@ -137,6 +140,13 @@ export default function SystemPanel() {
             </Button>
           </IconTip>
         </div>
+
+        {restoreError && (
+          <div className="mx-3 px-3 py-2 rounded-md bg-destructive/10 text-destructive text-xs flex items-center justify-between">
+            <span className="truncate">{t("settings.configBackupsRestoreFailed", { msg: restoreError })}</span>
+            <button onClick={() => setRestoreError(null)} className="ml-2 text-destructive/70 hover:text-destructive">×</button>
+          </div>
+        )}
 
         <div className="rounded-lg border bg-card overflow-hidden">
           {backups.length === 0 ? (

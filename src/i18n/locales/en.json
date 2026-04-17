@@ -840,6 +840,7 @@
     "configBackupsRestoreTitle": "Roll back to this version?",
     "configBackupsRestoreDesc": "Will restore config to {{timestamp}} ({{kind}} / {{category}}). The current state is snapshotted first, so you can undo the rollback.",
     "configBackupsRestoreConfirm": "Confirm rollback",
+    "configBackupsRestoreFailed": "Rollback failed: {{msg}}",
     "proxySettings": "Network Proxy",
     "proxySettingsDesc": "Configure proxy for all HTTP requests",
     "proxyModeSystem": "System Proxy",

@@ -840,6 +840,7 @@
     "configBackupsRestoreTitle": "回滚到历史版本？",
     "configBackupsRestoreDesc": "将把配置恢复到 {{timestamp}}（{{kind}} / {{category}}）。当前状态会先自动快照一份，回滚后仍可撤销。",
     "configBackupsRestoreConfirm": "确认回滚",
+    "configBackupsRestoreFailed": "回滚失败：{{msg}}",
     "proxySettings": "网络代理",
     "proxySettingsDesc": "配置应用所有 HTTP 请求使用的代理",
     "proxyModeSystem": "系统代理",
