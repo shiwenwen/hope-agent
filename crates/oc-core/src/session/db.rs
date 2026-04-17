@@ -63,6 +63,7 @@ impl SessionDB {
                 tool_duration_ms INTEGER,
                 is_error INTEGER DEFAULT 0,
                 ttft_ms INTEGER,
+                tokens_in_last INTEGER,
                 FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
             );
 
@@ -164,6 +165,15 @@ impl SessionDB {
         let has_ttft_ms = conn.prepare("SELECT ttft_ms FROM messages LIMIT 1").is_ok();
         if !has_ttft_ms {
             conn.execute_batch("ALTER TABLE messages ADD COLUMN ttft_ms INTEGER;")?;
+        }
+
+        // Migration: add tokens_in_last column if missing. See
+        // ChatUsage::last_input_tokens for the billing-vs-UI split.
+        let has_tokens_in_last = conn
+            .prepare("SELECT tokens_in_last FROM messages LIMIT 1")
+            .is_ok();
+        if !has_tokens_in_last {
+            conn.execute_batch("ALTER TABLE messages ADD COLUMN tokens_in_last INTEGER;")?;
         }
 
         // Migration: fix FTS delete trigger — must match INSERT trigger's WHEN clause
@@ -743,7 +753,7 @@ impl SessionDB {
             "SELECT id, session_id, role, content, timestamp,
                     attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                     tool_call_id, tool_name, tool_arguments, tool_result,
-                    tool_duration_ms, is_error, thinking, ttft_ms
+                    tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last
              FROM messages
              WHERE session_id = ?1
              ORDER BY id ASC",
@@ -780,7 +790,7 @@ impl SessionDB {
             "SELECT id, session_id, role, content, timestamp,
                     attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                     tool_call_id, tool_name, tool_arguments, tool_result,
-                    tool_duration_ms, is_error, thinking, ttft_ms
+                    tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last
              FROM messages
              WHERE session_id = ?1
              ORDER BY id DESC
@@ -817,7 +827,7 @@ impl SessionDB {
             "SELECT id, session_id, role, content, timestamp,
                     attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                     tool_call_id, tool_name, tool_arguments, tool_result,
-                    tool_duration_ms, is_error, thinking, ttft_ms
+                    tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last
              FROM messages
              WHERE session_id = ?1 AND id < ?2
              ORDER BY id DESC
@@ -857,6 +867,7 @@ impl SessionDB {
             is_error: is_error_val.map(|v| v != 0),
             thinking: row.get(16)?,
             ttft_ms: row.get(17)?,
+            tokens_in_last: row.get(18)?,
         })
     }
 
@@ -877,8 +888,8 @@ impl SessionDB {
             "INSERT INTO messages (session_id, role, content, timestamp,
                 attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                 tool_call_id, tool_name, tool_arguments, tool_result,
-                tool_duration_ms, is_error, thinking, ttft_ms)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+                tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
             params![
                 session_id,
                 msg.role.as_str(),
@@ -897,6 +908,7 @@ impl SessionDB {
                 msg.is_error.map(|b| if b { 1i64 } else { 0i64 }),
                 msg.thinking,
                 msg.ttft_ms,
+                msg.tokens_in_last,
             ],
         )?;
 
@@ -937,6 +949,31 @@ impl SessionDB {
             ],
         )?;
         Ok(())
+    }
+
+    /// Check whether this session already has a `user` row whose
+    /// `attachments_meta` references the given subagent `run_id` / async
+    /// `job_id`. Used by `inject_and_run_parent` to stay idempotent when a
+    /// cancelled injection is re-queued and retried — without this guard,
+    /// every retry would append another copy of the push message.
+    pub fn has_injection_user_msg(&self, session_id: &str, run_id: &str) -> Result<bool> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT 1 FROM messages
+             WHERE session_id = ?1
+               AND role = 'user'
+               AND attachments_meta LIKE ?2
+             LIMIT 1",
+        )?;
+        // The attachments_meta JSON always renders run_id as a bare string
+        // key-value pair. Matching the quoted form avoids false positives
+        // from tokens that happen to contain the id as a substring.
+        let pattern = format!("%\"run_id\":\"{}\"%", run_id);
+        let exists = stmt.exists(params![session_id, pattern])?;
+        Ok(exists)
     }
 
     /// Update session title.
@@ -1338,7 +1375,7 @@ impl SessionDB {
             "SELECT id, session_id, role, content, timestamp,
                     attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                     tool_call_id, tool_name, tool_arguments, tool_result,
-                    tool_duration_ms, is_error, thinking, ttft_ms
+                    tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last
              FROM messages
              WHERE session_id = ?1 AND id <= ?2
              ORDER BY id DESC
@@ -1359,7 +1396,7 @@ impl SessionDB {
             "SELECT id, session_id, role, content, timestamp,
                     attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                     tool_call_id, tool_name, tool_arguments, tool_result,
-                    tool_duration_ms, is_error, thinking, ttft_ms
+                    tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last
              FROM messages
              WHERE session_id = ?1 AND id > ?2
              ORDER BY id ASC

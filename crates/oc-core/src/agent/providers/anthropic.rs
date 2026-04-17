@@ -322,10 +322,7 @@ impl AssistantAgent {
             collected_text.push_str(&text);
             collected_thinking.push_str(&thinking);
             last_round_thinking = thinking.clone();
-            total_usage.input_tokens += round_usage.input_tokens;
-            total_usage.output_tokens += round_usage.output_tokens;
-            total_usage.cache_creation_input_tokens += round_usage.cache_creation_input_tokens;
-            total_usage.cache_read_input_tokens += round_usage.cache_read_input_tokens;
+            total_usage.accumulate_round(&round_usage);
 
             // If cancelled, no tool calls, or not tool_use stop reason — done
             if tool_calls.is_empty() || stop_reason.as_deref() != Some("tool_use") {

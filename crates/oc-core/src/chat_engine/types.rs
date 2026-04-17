@@ -10,10 +10,12 @@ use crate::tools::image_generate::ImageGenConfig;
 // ── Shared Types ────────────────────────────────────────────────────
 
 /// Token usage and metrics captured from streaming callbacks.
-#[derive(Default)]
-pub(super) struct CapturedUsage {
+/// See `ChatUsage` for the `input_tokens` vs `last_input_tokens` split.
+#[derive(Default, Clone)]
+pub(crate) struct CapturedUsage {
     pub input_tokens: Option<i64>,
     pub output_tokens: Option<i64>,
+    pub last_input_tokens: Option<i64>,
     pub model: Option<String>,
     pub ttft_ms: Option<i64>,
 }

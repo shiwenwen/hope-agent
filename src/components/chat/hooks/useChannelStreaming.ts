@@ -1,13 +1,8 @@
 import { useEffect, useRef } from "react"
 import { getTransport } from "@/lib/transport-provider"
-import { parseSessionMessages } from "../chatUtils"
+import { mergeUsageFromEvent, parseSessionMessages } from "../chatUtils"
 import { PAGE_SIZE } from "./constants"
-import type {
-  Message,
-  ContentBlock,
-  MessageUsage,
-  SessionMessage,
-} from "@/types/chat"
+import type { Message, ContentBlock, SessionMessage } from "@/types/chat"
 
 interface UseChannelStreamingParams {
   currentSessionIdRef: React.MutableRefObject<string | null>
@@ -293,19 +288,7 @@ export function useChannelStreaming({
             break
           }
           case "usage": {
-            const prevUsage = last.usage || {}
-            const usage: MessageUsage = {
-              ...prevUsage,
-              ...(ev.duration_ms != null ? { durationMs: ev.duration_ms } : {}),
-              ...(ev.input_tokens != null ? { inputTokens: ev.input_tokens } : {}),
-              ...(ev.output_tokens != null ? { outputTokens: ev.output_tokens } : {}),
-              ...(ev.cache_creation_input_tokens != null
-                ? { cacheCreationInputTokens: ev.cache_creation_input_tokens }
-                : {}),
-              ...(ev.cache_read_input_tokens != null
-                ? { cacheReadInputTokens: ev.cache_read_input_tokens }
-                : {}),
-            }
+            const usage = mergeUsageFromEvent(last.usage, ev)
             const model = ev.model ? String(ev.model) : last.model
             updated[updated.length - 1] = { ...last, usage, model }
             break

@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils"
 import { IconTip } from "@/components/ui/tooltip"
 import { Settings, Copy, BarChart3, Pencil, Zap, Check, X, FileText, Loader2, Search } from "lucide-react"
 import ChannelIcon from "@/components/common/ChannelIcon"
-import { formatMessageTime } from "./chatUtils"
+import { formatMessageTime, getContextUsageTokens } from "./chatUtils"
 import { logger } from "@/lib/logger"
 import type { Message, AvailableModel, ActiveModel, SessionMeta } from "@/types/chat"
 
@@ -290,14 +290,15 @@ export default function ChatTitleBar({
                     </>
                   )
                 })()}
-                {/* Context window usage */}
+                {/* Context window usage. See `getContextUsageTokens` for the
+                 *  cumulative-vs-last-round rule. */}
                 {(() => {
                   if (!currentModel) return null
                   const ctxK = Math.round(currentModel.contextWindow / 1000)
                   const lastAssistantWithUsage = [...messages]
                     .reverse()
-                    .find((msg) => msg.role === "assistant" && msg.usage?.inputTokens)
-                  const usedTokens = lastAssistantWithUsage?.usage?.inputTokens || 0
+                    .find((msg) => msg.role === "assistant" && getContextUsageTokens(msg.usage))
+                  const usedTokens = getContextUsageTokens(lastAssistantWithUsage?.usage) ?? 0
                   const usedK = Math.round(usedTokens / 1000)
                   const pct =
                     currentModel.contextWindow > 0

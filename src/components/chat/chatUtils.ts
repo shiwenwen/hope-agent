@@ -32,6 +32,37 @@ export function formatTokens(n: number): string {
   return `${n.toLocaleString()} tokens`
 }
 
+/** Fold a streaming `usage` event into an existing `MessageUsage`. Shared
+ *  by the main chat stream and the IM channel stream so both paths pick up
+ *  new usage fields without each handler growing in lockstep. */
+export function mergeUsageFromEvent(
+  prev: MessageUsage | undefined,
+  event: Record<string, unknown>,
+): MessageUsage {
+  const copyNumber = (src: string, dst: keyof MessageUsage) => {
+    const v = event[src]
+    return typeof v === "number" ? ({ [dst]: v } as Partial<MessageUsage>) : {}
+  }
+  return {
+    ...(prev || {}),
+    ...copyNumber("duration_ms", "durationMs"),
+    ...copyNumber("input_tokens", "inputTokens"),
+    ...copyNumber("output_tokens", "outputTokens"),
+    ...copyNumber("cache_creation_input_tokens", "cacheCreationInputTokens"),
+    ...copyNumber("cache_read_input_tokens", "cacheReadInputTokens"),
+    ...copyNumber("last_input_tokens", "lastInputTokens"),
+  }
+}
+
+/** Preferred token count for "how full is the context window right now":
+ *  the last round's input tokens (what the model actually saw on its most
+ *  recent invocation). Falls back to cumulative `inputTokens` for turns
+ *  written before `lastInputTokens` existed. `??` — not `||` — so a real
+ *  zero doesn't silently fall through to cumulative. */
+export function getContextUsageTokens(usage?: MessageUsage): number | undefined {
+  return usage?.lastInputTokens ?? usage?.inputTokens
+}
+
 /** Format message timestamp to HH:mm */
 export function formatMessageTime(timestamp?: string): string {
   if (!timestamp) return ""
@@ -232,12 +263,14 @@ export function parseSessionMessages(
       }
       pendingTools.length = 0
       pendingBlocks.length = 0
-      const hasUsage = msg.toolDurationMs || msg.tokensIn || msg.tokensOut
+      const hasUsage =
+        msg.toolDurationMs || msg.tokensIn || msg.tokensOut || msg.tokensInLast
       const usage: MessageUsage | undefined = hasUsage
         ? {
             durationMs: msg.toolDurationMs || undefined,
             inputTokens: msg.tokensIn || undefined,
             outputTokens: msg.tokensOut || undefined,
+            lastInputTokens: msg.tokensInLast || undefined,
           }
         : undefined
       // Prepend thinking block if present (from DB history),

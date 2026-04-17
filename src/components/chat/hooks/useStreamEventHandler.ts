@@ -1,5 +1,6 @@
 import type React from "react"
-import type { ContentBlock, MediaItem, Message, MessageUsage } from "@/types/chat"
+import type { ContentBlock, MediaItem, Message } from "@/types/chat"
+import { mergeUsageFromEvent } from "../chatUtils"
 
 export interface StreamEventHandlerDeps {
   updateSessionMessages: (sessionId: string, updater: (prev: Message[]) => Message[]) => void
@@ -86,19 +87,7 @@ export function handleStreamEvent(
       const updated = [...prev]
       const last = updated[updated.length - 1]
       if (!last || last.role !== "assistant") return updated
-      const prevUsage = last.usage || {}
-      const usage: MessageUsage = {
-        ...prevUsage,
-        ...(event.duration_ms != null ? { durationMs: event.duration_ms as number } : {}),
-        ...(event.input_tokens != null ? { inputTokens: event.input_tokens as number } : {}),
-        ...(event.output_tokens != null ? { outputTokens: event.output_tokens as number } : {}),
-        ...(event.cache_creation_input_tokens != null
-          ? { cacheCreationInputTokens: event.cache_creation_input_tokens as number }
-          : {}),
-        ...(event.cache_read_input_tokens != null
-          ? { cacheReadInputTokens: event.cache_read_input_tokens as number }
-          : {}),
-      }
+      const usage = mergeUsageFromEvent(last.usage, event)
       const model = event.model ? String(event.model) : last.model
       updated[updated.length - 1] = { ...last, usage, model }
       return updated

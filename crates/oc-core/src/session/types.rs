@@ -121,6 +121,9 @@ pub struct SessionMessage {
     /// Time to first token in milliseconds (from API request to first content token)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ttft_ms: Option<i64>,
+    /// Last-round input tokens. See `ChatUsage::last_input_tokens`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tokens_in_last: Option<i64>,
 }
 
 // ── NewMessage (for inserting) ───────────────────────────────────
@@ -144,6 +147,7 @@ pub struct NewMessage {
     pub is_error: Option<bool>,
     pub thinking: Option<String>,
     pub ttft_ms: Option<i64>,
+    pub tokens_in_last: Option<i64>,
 }
 
 impl NewMessage {
@@ -166,6 +170,7 @@ impl NewMessage {
             is_error: None,
             thinking: None,
             ttft_ms: None,
+            tokens_in_last: None,
         }
     }
 
@@ -188,6 +193,7 @@ impl NewMessage {
             is_error: None,
             thinking: None,
             ttft_ms: None,
+            tokens_in_last: None,
         }
     }
 
@@ -217,6 +223,7 @@ impl NewMessage {
             is_error: Some(is_error),
             thinking: None,
             ttft_ms: None,
+            tokens_in_last: None,
         }
     }
 
@@ -239,6 +246,7 @@ impl NewMessage {
             is_error: None,
             thinking: None,
             ttft_ms: None,
+            tokens_in_last: None,
         }
     }
 
@@ -266,6 +274,7 @@ impl NewMessage {
             is_error: None,
             thinking: None,
             ttft_ms: None,
+            tokens_in_last: None,
         }
     }
 
@@ -288,6 +297,7 @@ impl NewMessage {
             is_error: None,
             thinking: None,
             ttft_ms: None,
+            tokens_in_last: None,
         }
     }
 }

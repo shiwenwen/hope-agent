@@ -316,13 +316,31 @@ impl ThinkTagFilter {
     }
 }
 
-/// Token usage accumulated across tool rounds
+/// Token usage for one chat turn, aggregated across every round of the
+/// tool loop. Counts are cumulative; `last_input_tokens` is the single
+/// exception — it tracks the most recent round's prompt size, which is
+/// the correct denominator for a "context window usage" UI (cumulative
+/// sums past 100% once the loop runs multiple rounds).
 #[derive(Debug, Clone, Default)]
 pub struct ChatUsage {
     pub input_tokens: u64,
     pub output_tokens: u64,
     pub cache_creation_input_tokens: u64,
     pub cache_read_input_tokens: u64,
+    pub last_input_tokens: u64,
+}
+
+impl ChatUsage {
+    /// Fold one round's usage into the running turn total. Cumulative
+    /// fields accumulate; `last_input_tokens` is overwritten so callers
+    /// always see the most recent round's prompt size.
+    pub fn accumulate_round(&mut self, round: &ChatUsage) {
+        self.input_tokens += round.input_tokens;
+        self.output_tokens += round.output_tokens;
+        self.cache_creation_input_tokens += round.cache_creation_input_tokens;
+        self.cache_read_input_tokens += round.cache_read_input_tokens;
+        self.last_input_tokens = round.input_tokens;
+    }
 }
 
 // ── Codex model definitions ───────────────────────────────────────

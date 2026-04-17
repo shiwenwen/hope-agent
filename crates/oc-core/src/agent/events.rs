@@ -277,6 +277,7 @@ pub(super) fn emit_usage(
         "output_tokens": usage.output_tokens,
         "cache_creation_input_tokens": usage.cache_creation_input_tokens,
         "cache_read_input_tokens": usage.cache_read_input_tokens,
+        "last_input_tokens": usage.last_input_tokens,
         "model": model,
     });
     if let Some(ttft) = ttft_ms {

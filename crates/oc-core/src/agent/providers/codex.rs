@@ -362,10 +362,7 @@ impl AssistantAgent {
             }
             collected_text.push_str(&text);
             collected_thinking.push_str(&thinking);
-            total_usage.input_tokens += round_usage.input_tokens;
-            total_usage.output_tokens += round_usage.output_tokens;
-            total_usage.cache_creation_input_tokens += round_usage.cache_creation_input_tokens;
-            total_usage.cache_read_input_tokens += round_usage.cache_read_input_tokens;
+            total_usage.accumulate_round(&round_usage);
 
             // If no tool calls, we're done
             if tool_calls.is_empty() {

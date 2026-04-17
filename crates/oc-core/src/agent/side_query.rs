@@ -378,11 +378,12 @@ fn extract_responses_text(result: &serde_json::Value) -> String {
 /// Extract usage from Anthropic Messages API response.
 fn extract_anthropic_usage(result: &serde_json::Value) -> ChatUsage {
     let usage = result.get("usage");
+    let input_tokens = usage
+        .and_then(|u| u.get("input_tokens"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
     ChatUsage {
-        input_tokens: usage
-            .and_then(|u| u.get("input_tokens"))
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0),
+        input_tokens,
         output_tokens: usage
             .and_then(|u| u.get("output_tokens"))
             .and_then(|v| v.as_u64())
@@ -395,6 +396,7 @@ fn extract_anthropic_usage(result: &serde_json::Value) -> ChatUsage {
             .and_then(|u| u.get("cache_read_input_tokens"))
             .and_then(|v| v.as_u64())
             .unwrap_or(0),
+        last_input_tokens: input_tokens,
     }
 }
 
@@ -406,11 +408,12 @@ fn extract_openai_usage(result: &serde_json::Value) -> ChatUsage {
         .and_then(|d| d.get("cached_tokens"))
         .and_then(|v| v.as_u64())
         .unwrap_or(0);
+    let input_tokens = usage
+        .and_then(|u| u.get("input_tokens").or_else(|| u.get("prompt_tokens")))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
     ChatUsage {
-        input_tokens: usage
-            .and_then(|u| u.get("input_tokens").or_else(|| u.get("prompt_tokens")))
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0),
+        input_tokens,
         output_tokens: usage
             .and_then(|u| {
                 u.get("output_tokens")
@@ -420,5 +423,7 @@ fn extract_openai_usage(result: &serde_json::Value) -> ChatUsage {
             .unwrap_or(0),
         cache_creation_input_tokens: 0,
         cache_read_input_tokens: cached,
+        // Side queries are single-shot: last-round == only-round == total.
+        last_input_tokens: input_tokens,
     }
 }
