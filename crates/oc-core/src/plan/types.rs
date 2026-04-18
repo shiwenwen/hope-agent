@@ -41,6 +41,37 @@ impl PlanModeState {
             _ => Self::Off,
         }
     }
+
+    /// Whether `self → next` is a legal Plan Mode state transition.
+    ///
+    /// Keeps the six-state machine well-formed so concurrent writers can't
+    /// flip `Completed → Executing` and re-run already-done steps, or skip
+    /// straight to `Executing` without going through a `Review` checkpoint.
+    /// Same-state "transitions" (e.g. re-asserting `Planning` after a
+    /// persistence round-trip) are always allowed.
+    pub fn is_valid_transition(&self, next: &PlanModeState) -> bool {
+        if self == next {
+            return true;
+        }
+        // Entering or leaving Plan Mode entirely is always valid — callers
+        // need an escape hatch for cancelled / deleted sessions.
+        if matches!(next, PlanModeState::Off) || matches!(self, PlanModeState::Off) {
+            return true;
+        }
+        match (self, next) {
+            // Normal forward flow.
+            (PlanModeState::Planning, PlanModeState::Review) => true,
+            (PlanModeState::Review, PlanModeState::Planning) => true,
+            (PlanModeState::Review, PlanModeState::Executing) => true,
+            (PlanModeState::Executing, PlanModeState::Paused) => true,
+            (PlanModeState::Executing, PlanModeState::Completed) => true,
+            (PlanModeState::Paused, PlanModeState::Executing) => true,
+            (PlanModeState::Paused, PlanModeState::Planning) => true,
+            // Post-completion revisions are allowed back into Planning only.
+            (PlanModeState::Completed, PlanModeState::Planning) => true,
+            _ => false,
+        }
+    }
 }
 
 // ── Plan Step ───────────────────────────────────────────────────

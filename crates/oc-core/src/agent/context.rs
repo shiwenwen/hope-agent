@@ -279,8 +279,15 @@ impl AssistantAgent {
                             tokens_freed,
                             &self.compact_config,
                         ) {
-                            // Insert after summary message (index 0), before preserved messages
-                            messages.insert(1, recovery_msg);
+                            // Insert immediately after the summary message emitted by
+                            // `apply_summary`. The summary is always at index 0 (clear →
+                            // push summary → extend preserved), so index 1 is the first
+                            // preserved slot. Compute from `len()` so that if the summary
+                            // layout ever changes we fail loudly instead of silently
+                            // misplacing the recovery content.
+                            let insert_at = context_compact::POST_SUMMARY_INSERT_INDEX
+                                .min(messages.len());
+                            messages.insert(insert_at, recovery_msg);
                             app_info!(
                                 "context",
                                 "compact",
