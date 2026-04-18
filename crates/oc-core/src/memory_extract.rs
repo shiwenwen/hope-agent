@@ -574,12 +574,18 @@ pub fn flush_all_idle_extractions() {
 
 /// Execute idle extraction: load history from DB and run extraction without agent cache.
 async fn run_idle_extraction(agent_id: &str, session_id: &str, expected_updated_at: &str) {
-    // Remove our handle entry immediately (task is running, abort handle is stale).
-    // This prevents cleanup from accidentally removing a newer entry registered
-    // by a concurrent schedule_idle_extraction() call.
+    // Remove our handle entry — but only if it still matches the updated_at we
+    // were scheduled for. A concurrent `schedule_idle_extraction()` may have
+    // cancelled the old abort handle and registered a fresh one while this
+    // task was already running; blindly removing would drop the new entry and
+    // leak it from future `cancel_idle_extract()` paths.
     if let Some(handles) = crate::globals::IDLE_EXTRACT_HANDLES.get() {
         if let Ok(mut map) = handles.lock() {
-            map.remove(session_id);
+            if let Some(entry) = map.get(session_id) {
+                if entry.2 == expected_updated_at {
+                    map.remove(session_id);
+                }
+            }
         }
     }
 

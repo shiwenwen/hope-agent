@@ -12,6 +12,37 @@ pub(crate) fn plans_dir() -> Result<std::path::PathBuf> {
     crate::paths::plans_dir()
 }
 
+/// Scan `dir` for backups of `plan_path` (files named `{stem}-v{N}.md`) and
+/// return the largest `N` found, or 0 when no backups exist. Used to seed
+/// the version counter after a restart so we don't clobber older versions.
+fn max_disk_version(dir: &std::path::Path, plan_path: &std::path::Path) -> u32 {
+    let stem = match plan_path.file_stem().and_then(|s| s.to_str()) {
+        Some(s) => s.to_string(),
+        None => return 0,
+    };
+    let prefix = format!("{}-v", stem);
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    let mut max_version: u32 = 0;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        let Some(rest) = name.strip_prefix(&prefix) else {
+            continue;
+        };
+        let Some(num) = rest.strip_suffix(".md") else {
+            continue;
+        };
+        if let Ok(v) = num.parse::<u32>() {
+            if v > max_version {
+                max_version = v;
+            }
+        }
+    }
+    max_version
+}
+
 /// Build the plan file path for a session. Uses a mapping stored in PlanMeta.file_path.
 /// If no existing path, generates a new one with readable name.
 pub(crate) fn plan_file_path(session_id: &str) -> Result<std::path::PathBuf> {
@@ -28,18 +59,30 @@ pub(crate) fn plan_file_path(session_id: &str) -> Result<std::path::PathBuf> {
             }
         }
     }
-    // Generate new path: plan-{short_id}-{date}.md
+    // Generate new path: plan-{short_id}-{date}-{nano}.md
+    // UTC + nanosecond suffix avoids same-second collisions across concurrent
+    // sessions and stays stable across timezone changes.
     let short_id = crate::truncate_utf8(session_id, 8);
-    let date = chrono::Local::now().format("%Y%m%d-%H%M%S");
-    let filename = format!("plan-{}-{}.md", short_id, date);
+    let now = chrono::Utc::now();
+    let filename = format!(
+        "plan-{}-{}-{:09}.md",
+        short_id,
+        now.format("%Y%m%dT%H%M%SZ"),
+        now.timestamp_subsec_nanos()
+    );
     Ok(plans_dir()?.join(filename))
 }
 
 /// Build the result file path for a session.
 fn result_file_path(session_id: &str) -> Result<std::path::PathBuf> {
     let short_id = crate::truncate_utf8(session_id, 8);
-    let date = chrono::Local::now().format("%Y%m%d-%H%M%S");
-    let filename = format!("result-{}-{}.md", short_id, date);
+    let now = chrono::Utc::now();
+    let filename = format!(
+        "result-{}-{}-{:09}.md",
+        short_id,
+        now.format("%Y%m%dT%H%M%SZ"),
+        now.timestamp_subsec_nanos()
+    );
     Ok(plans_dir()?.join(filename))
 }
 
@@ -50,7 +93,7 @@ pub fn save_plan_file(session_id: &str, content: &str) -> Result<String> {
 
     // Version management: backup old version before overwriting
     if path.exists() {
-        let current_version = {
+        let mem_version = {
             let store_ref = store();
             if let Ok(map) = store_ref.try_read() {
                 map.get(session_id).map(|m| m.version).unwrap_or(1)
@@ -58,6 +101,11 @@ pub fn save_plan_file(session_id: &str, content: &str) -> Result<String> {
                 1
             }
         };
+        // On restart the in-memory counter resets to 1, which would overwrite
+        // existing `plan-xxx-v1.md` backups. Scan the directory for existing
+        // `-v{N}.md` siblings and bump past the highest one so new backups
+        // land on a fresh slot.
+        let current_version = mem_version.max(max_disk_version(&dir, &path) + 1);
         // Copy current file to versioned backup: plan-xxx-v{N}.md
         let stem = path.file_stem().unwrap_or_default().to_string_lossy();
         let backup_name = format!("{}-v{}.md", stem, current_version);

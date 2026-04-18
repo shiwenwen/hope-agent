@@ -94,6 +94,31 @@ fn get_text_pending() -> &'static Mutex<HashMap<(String, String), Vec<PendingAsk
     TEXT_PENDING.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+/// Current UNIX seconds, for comparing against `AskUserQuestionGroup.timeout_at`.
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Drop the pending entry if its `timeout_at` has already elapsed. Returns
+/// `true` when the entry was expired (and removed), so callers can fail fast
+/// instead of mutating a dead group.
+async fn drop_if_expired(request_id: &str) -> bool {
+    let now = now_secs();
+    let mut map = get_button_pending().lock().await;
+    let expired = map
+        .get(request_id)
+        .and_then(|p| p.group.timeout_at)
+        .map(|t| t > 0 && now >= t)
+        .unwrap_or(false);
+    if expired {
+        map.remove(request_id);
+    }
+    expired
+}
+
 /// Remove any in-memory pending state for the given request_id from both the
 /// button and text-reply maps. Called by the tool execution path when a
 /// question group is cancelled, timed out, or answered through a non-IM
@@ -384,6 +409,15 @@ pub async fn try_handle_ask_user_reply(
         Some(v) if !v.is_empty() => v,
         _ => return false,
     };
+    // Evict expired groups before operating — mirrors `drop_if_expired` for
+    // the text-reply code path so a late reply can't re-animate a dead
+    // question group when the tool-side cleanup is lagging.
+    let now = now_secs();
+    entry.retain(|p| p.group.timeout_at.map_or(true, |t| t == 0 || now < t));
+    if entry.is_empty() {
+        pending_map.remove(&key);
+        return false;
+    }
     // Operate on the most recent group (LIFO).
     let last_idx = entry.len() - 1;
     let current = &mut entry[last_idx];
@@ -518,6 +552,16 @@ pub async fn handle_ask_user_callback(callback_data: &str) -> anyhow::Result<&'s
     let action = parts
         .next()
         .ok_or_else(|| anyhow::anyhow!("Missing action"))?;
+
+    // Defense-in-depth: if the group's timeout has elapsed but the tool-side
+    // cleanup hasn't run yet, drop the stale pending entry and surface a clear
+    // error rather than mutating state nobody is listening on.
+    if drop_if_expired(&request_id).await {
+        return Err(anyhow::anyhow!(
+            "ask_user group {} already timed out",
+            request_id
+        ));
+    }
 
     match action {
         "cancel" => {
