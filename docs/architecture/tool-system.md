@@ -182,6 +182,86 @@ pub struct ToolDefinition {
 
 ---
 
+## 延迟工具加载（Deferred Tools）
+
+`deferredTools.enabled` 是 opt-in 开关（默认 **false**）。关闭时全部 ~50 个工具 schema 一次性发送给 LLM，单轮 system prompt + tools 基线可达 **16K+ token**；开启后只发送 16 个 core 工具 schema，其余靠 `tool_search` 元工具按需发现，基线可压到 **5–6K token**。
+
+### Core（always_load，始终发送 schema）
+
+共 16 个。常量定义：[`tools/definitions/types.rs::CORE_TOOL_NAMES`](../../crates/oc-core/src/tools/definitions/types.rs#L120-L136)。
+
+| 类别 | 工具 |
+|------|------|
+| 文件操作 | `read`, `write`, `edit`, `apply_patch`, `ls`, `grep`, `find` |
+| Shell 执行 | `exec`, `process` |
+| 项目文件 | `project_read_file` |
+| 人机交互 | `ask_user_question`, `send_attachment` |
+| 任务跟踪 | `task_create`, `task_update`, `task_list` |
+| 技能入口 | `skill`（内置 `always_load = true`，独立于 `CORE_TOOL_NAMES`） |
+
+此外 `tool_search` 和 `job_status` 两个元工具也标 `always_load`，但只在对应开关（`deferredTools.enabled` / `asyncTools.enabled`）打开时才注入，与业务工具不混为一谈。
+
+### Deferred（按需通过 `tool_search` 发现）
+
+启用延迟加载后，[`get_available_tools()`](../../crates/oc-core/src/tools/definitions/core_tools.rs#L1167-L1174) 在循环末尾给非 core 工具打 `deferred = true` 标记。Provider 层 [`build_tool_schemas()`](../../crates/oc-core/src/agent/mod.rs) 在发送 API 请求时剔除这些 schema，但保留它们在执行 dispatch 表里 —— 模型如果凭名字直接调用仍可执行（容错设计）。
+
+| 子域 | 工具 |
+|------|------|
+| 记忆 | `save_memory`, `recall_memory`, `update_memory`, `delete_memory`, `memory_get`, `update_core_memory` |
+| 设置 | `get_settings`, `update_settings`, `list_settings_backups`, `restore_settings_backup` |
+| 跨会话 | `sessions_list`, `session_status`, `sessions_history`, `sessions_send`, `peek_sessions` |
+| 子 Agent / Team | `agents_list`, `subagent`, `team`, `acp_spawn` |
+| 浏览器 | `browser` |
+| 网络 | `web_fetch`, `web_search` |
+| 多模态 | `image`, `pdf`, `image_generate` |
+| Canvas | `canvas` |
+| 定时 / 天气 / 通知 | `manage_cron`, `get_weather`, `send_notification` |
+
+> 注：`subagent` / `image_generate` / `web_search` / `canvas` / `acp_spawn` / `send_notification` 本身是**条件注入**（依赖 Agent 能力开关或对应功能启用），开启 deferred loading 后这些条件注入工具同样按 deferred 处理。
+
+### 发现机制
+
+```mermaid
+flowchart LR
+    A[模型需要记忆操作] --> B[tool_search<br/>query 'memory recall']
+    B --> C[返回 top N 匹配 schema<br/>recall_memory / memory_get...]
+    C --> D[模型下一轮直接调用<br/>recall_memory query '...']
+    D --> E[execution.rs 正常 dispatch]
+```
+
+`query` 支持两种形式：
+- `select:name1,name2`：按名字精确挑选（`max_results` 上限 20）
+- 关键词：在 name + description 上做模糊检索，返回 top N（默认 5）
+
+### 判定与标记
+
+[`get_available_tools()`](../../crates/oc-core/src/tools/definitions/core_tools.rs#L1167-L1174) 末尾的 for 循环是单一真源：
+
+```rust
+for tool in &mut tools {
+    if is_core_tool(&tool.name) {
+        tool.always_load = true;
+    } else {
+        tool.deferred = true;
+    }
+}
+```
+
+新增工具时按需加入 `CORE_TOOL_NAMES` 白名单即可；未列入的默认进入 deferred 池，无需额外配置。
+
+### 配置
+
+`AppConfig.deferred_tools`（`config.json` → `deferredTools`）：
+
+| 字段 | 默认 | 含义 |
+|------|------|------|
+| `enabled` | `false` | 总开关。关闭时 `tool_search` 不注入，所有 schema 全量发送 |
+| `max_results` | `5` | `tool_search` 单次返回的 schema 数上限（运行时再被参数 clamp 到 ≤20）|
+
+UI 入口：设置 → 对话与上下文 → Deferred Tools。`oc-settings` 技能：`update_settings(category="deferred_tools", values={enabled: true})`。
+
+---
+
 ## Tool Loop 执行流程
 
 ```mermaid
