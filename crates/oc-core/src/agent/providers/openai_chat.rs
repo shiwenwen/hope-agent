@@ -7,9 +7,7 @@ use serde_json::json;
 use futures_util::future::join_all;
 
 use super::super::api_types::FunctionCallItem;
-use super::super::config::{
-    apply_thinking_to_chat_body, build_api_url, get_max_tool_rounds, live_reasoning_effort,
-};
+use super::super::config::{apply_thinking_to_chat_body, build_api_url, get_max_tool_rounds};
 use super::super::content::build_user_content_openai_chat;
 use super::super::events::{
     build_openai_chat_tool_result_content, emit_max_rounds_notice, emit_text_delta,
@@ -102,16 +100,9 @@ impl AssistantAgent {
                 crate::awareness::touch_active_session(sid);
             }
 
-            // Refresh effort per round when following the global picker so UI
-            // toggles apply on the very next request instead of waiting for
-            // the next user turn. Stored as an owned String to satisfy the
-            // Option<&str> signature of downstream helpers.
-            let live_effort_owned: Option<String> = if self.follow_global_reasoning_effort {
-                live_reasoning_effort(reasoning_effort).await
-            } else {
-                reasoning_effort.map(|s| s.to_string())
-            };
-            let effective_effort = live_effort_owned.as_deref();
+            // Refresh per round so UI toggles apply on the very next request.
+            let effort_live = self.effective_reasoning_effort(reasoning_effort).await;
+            let effective_effort = effort_live.as_deref();
 
             // Drain steer mailbox: inject any pending steer messages as user messages
             if let Some(ref rid) = self.steer_run_id {
@@ -167,7 +158,6 @@ impl AssistantAgent {
                 body["tools"] = json!(tools_array);
             }
 
-            // Apply thinking parameters based on provider's ThinkingStyle
             apply_thinking_to_chat_body(&mut body, &self.thinking_style, effective_effort, 16384);
 
             // Add temperature if configured

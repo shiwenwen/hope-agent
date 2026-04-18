@@ -94,7 +94,7 @@ pub fn get_codex_models() -> Vec<CodexModel> {
 /// value. Provider tool loops call this at the top of every round so a
 /// user-side toggle (UI picker, `/think` slash, channel command) applies to
 /// the very next API request instead of only to the next user message.
-pub(super) async fn live_reasoning_effort(fallback: Option<&str>) -> Option<String> {
+pub async fn live_reasoning_effort(fallback: Option<&str>) -> Option<String> {
     if let Some(st) = crate::globals::get_app_state() {
         let eff = st.reasoning_effort.lock().await.clone();
         if eff == "none" {

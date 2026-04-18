@@ -487,18 +487,7 @@ async fn handle_inbound_message(
         canvas_enabled,
         compact_config: store.compact.clone(),
         extra_system_context: Some(channel_context),
-        reasoning_effort: {
-            if let Some(st) = crate::globals::get_app_state() {
-                let eff = st.reasoning_effort.lock().await.clone();
-                if eff == "none" {
-                    None
-                } else {
-                    Some(eff)
-                }
-            } else {
-                None
-            }
-        },
+        reasoning_effort: crate::agent::live_reasoning_effort(None).await,
         cancel: {
             if let Some(st) = crate::globals::get_app_state() {
                 st.channel_cancels.register(&session_id)

@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 // ── OpenAI Responses API types ────────────────────────────────────
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub(super) struct ReasoningConfig {
     pub effort: String,
     #[serde(skip_serializing_if = "Option::is_none")]

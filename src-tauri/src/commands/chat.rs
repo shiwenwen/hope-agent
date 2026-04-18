@@ -42,7 +42,7 @@ pub async fn chat(
     session_id: Option<String>,
     model_override: Option<String>,
     agent_id: Option<String>,
-    tool_permission_mode: Option<String>,
+    tool_permission_mode: Option<tools::ToolPermissionMode>,
     plan_mode: Option<String>,
     temperature_override: Option<f64>,
     // When set, DB stores `display_text` as the user message while `message` is still
@@ -51,13 +51,7 @@ pub async fn chat(
     on_event: tauri::ipc::Channel<String>,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
-    // Set session-level tool permission mode
-    if let Some(ref mode_str) = tool_permission_mode {
-        let mode = match mode_str.as_str() {
-            "ask_every_time" => crate::tools::ToolPermissionMode::AskEveryTime,
-            "full_approve" => crate::tools::ToolPermissionMode::FullApprove,
-            _ => crate::tools::ToolPermissionMode::Auto,
-        };
+    if let Some(mode) = tool_permission_mode {
         crate::tools::set_tool_permission_mode(mode).await;
     }
 
@@ -646,20 +640,12 @@ pub async fn stop_chat(state: State<'_, AppState>) -> Result<(), String> {
 
 /// Set session-level tool permission mode immediately.
 ///
-/// The `chat` command already applies this mode on entry, but that only
-/// covers "user sends next message" — it misses two cases: (1) toggling
-/// during an in-flight tool loop, (2) subagent / cron / IM channel paths
-/// that never enter the `chat` command. Call this on every UI toggle to
-/// keep the global state in sync with the user's intent.
+/// The `chat` command applies the mode at entry only, so toggling mid-loop
+/// or triggering a subagent / cron / IM-channel path would otherwise keep
+/// the previous mode until the next `chat` call.
 #[tauri::command]
-pub async fn set_tool_permission_mode(mode: String) -> Result<(), String> {
-    let m = match mode.as_str() {
-        "ask_every_time" => tools::ToolPermissionMode::AskEveryTime,
-        "full_approve" => tools::ToolPermissionMode::FullApprove,
-        "auto" => tools::ToolPermissionMode::Auto,
-        _ => return Err(format!("Invalid tool permission mode: {}", mode)),
-    };
-    tools::set_tool_permission_mode(m).await;
+pub async fn set_tool_permission_mode(mode: tools::ToolPermissionMode) -> Result<(), String> {
+    tools::set_tool_permission_mode(mode).await;
     Ok(())
 }
 
@@ -670,10 +656,11 @@ async fn build_recent_context_summary(db: &Arc<SessionDB>, session_id: &str) -> 
     const MAX_CHARS: usize = 4000;
 
     // Load the latest messages (excluding the just-appended user message which is the task)
-    let (messages, _total) = match db.load_session_messages_latest(session_id, MAX_MESSAGES + 1) {
-        Ok(result) => result,
-        Err(_) => return String::new(),
-    };
+    let (messages, _total, _has_more) =
+        match db.load_session_messages_latest(session_id, MAX_MESSAGES + 1) {
+            Ok(result) => result,
+            Err(_) => return String::new(),
+        };
 
     if messages.len() <= 1 {
         return String::new();

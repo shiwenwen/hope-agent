@@ -6,8 +6,7 @@ use serde_json::json;
 
 use super::super::api_types::{AnthropicSseEvent, FunctionCallItem};
 use super::super::config::{
-    build_api_url, get_max_tool_rounds, live_reasoning_effort, map_think_anthropic_style,
-    ANTHROPIC_API_VERSION,
+    build_api_url, get_max_tool_rounds, map_think_anthropic_style, ANTHROPIC_API_VERSION,
 };
 use super::super::content::build_user_content_anthropic;
 use super::super::events::{
@@ -73,10 +72,6 @@ impl AssistantAgent {
         let max_tokens: u32 = 16384;
         self.run_compaction(&mut messages, &system_prompt_for_budget, max_tokens, on_delta)
             .await;
-
-        // Initial thinking config — main-chat agents refresh this inside the
-        // tool loop so the user's live effort toggle applies mid-flight.
-        let initial_thinking = map_think_anthropic_style(reasoning_effort, max_tokens);
 
         // LLM memory selection: filter to most relevant memories
         let mut system_prompt = system_prompt;
@@ -173,16 +168,10 @@ impl AssistantAgent {
             // Strip _oc_round metadata before sending to API
             let api_messages = crate::context_compact::prepare_messages_for_api(&messages);
 
-            // Re-read live reasoning effort every round so UI toggles take
-            // effect on the next request (not only the next user turn).
-            // Non-main-chat callers (subagent / side_query) keep their caller
-            // value because `follow_global_reasoning_effort` stays false.
-            let thinking = if self.follow_global_reasoning_effort {
-                let live = live_reasoning_effort(reasoning_effort).await;
-                map_think_anthropic_style(live.as_deref(), max_tokens)
-            } else {
-                initial_thinking.clone()
-            };
+            // Re-read every round so UI toggles take effect on the next
+            // request; non-main-chat callers get their caller value back.
+            let effort_live = self.effective_reasoning_effort(reasoning_effort).await;
+            let thinking = map_think_anthropic_style(effort_live.as_deref(), max_tokens);
 
             let mut body = json!({
                 "model": model,

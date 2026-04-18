@@ -6,10 +6,8 @@ use serde_json::json;
 
 use futures_util::future::join_all;
 
-use super::super::api_types::{FunctionCallItem, ReasoningConfig, ResponsesRequest, SseEvent};
-use super::super::config::{
-    build_api_url, clamp_reasoning_effort, get_max_tool_rounds, live_reasoning_effort,
-};
+use super::super::api_types::{FunctionCallItem, ResponsesRequest, SseEvent};
+use super::super::config::{build_api_url, get_max_tool_rounds};
 use super::super::content::build_user_content_responses;
 use super::super::events::{
     build_responses_tool_result, emit_max_rounds_notice, emit_text_delta, emit_thinking_delta,
@@ -42,15 +40,6 @@ impl AssistantAgent {
                 .build()
                 .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
         let tool_schemas = self.build_tool_schemas(ToolProvider::OpenAI);
-
-        // Initial reasoning config — refreshed inside the tool loop when the
-        // agent is following the live global effort (main-chat path).
-        let initial_reasoning = reasoning_effort
-            .and_then(|e| clamp_reasoning_effort(model, e))
-            .map(|effort| ReasoningConfig {
-                effort,
-                summary: Some("auto".to_string()),
-            });
 
         // Normalize history in case previous turns were from a different provider (failover / model switch)
         let mut input = Self::normalize_history_for_responses(
@@ -167,31 +156,14 @@ impl AssistantAgent {
             // to the model (the loop exits), leaving the user with only a
             // "max rounds" notice instead of an answer.
             let is_final_round = round + 1 == max_rounds;
-            // Refresh reasoning config each round when following the global
-            // effort so live UI toggles apply on the very next request.
-            let reasoning = if self.follow_global_reasoning_effort {
-                live_reasoning_effort(reasoning_effort).await
-                    .and_then(|e| clamp_reasoning_effort(model, &e))
-                    .map(|effort| ReasoningConfig {
-                        effort,
-                        summary: Some("auto".to_string()),
-                    })
-            } else {
-                initial_reasoning.as_ref().map(|r| ReasoningConfig {
-                    effort: r.effort.clone(),
-                    summary: Some("auto".to_string()),
-                })
-            };
+            let reasoning = self.resolve_reasoning_config(model, reasoning_effort).await;
             let request = ResponsesRequest {
                 model: model.to_string(),
                 store: false,
                 stream: true,
                 instructions: system_prompt.clone(),
                 input: api_input,
-                reasoning: reasoning.as_ref().map(|r| ReasoningConfig {
-                    effort: r.effort.clone(),
-                    summary: Some("auto".to_string()),
-                }),
+                reasoning: reasoning.clone(),
                 include: if reasoning.is_some() {
                     Some(vec!["reasoning.encrypted_content".to_string()])
                 } else {

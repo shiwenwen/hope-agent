@@ -15,7 +15,7 @@ mod types;
 
 // Re-export public API
 pub use config::{build_system_prompt, build_system_prompt_with_session};
-pub use config::{build_api_url, get_codex_models, USER_AGENT};
+pub use config::{build_api_url, get_codex_models, live_reasoning_effort, USER_AGENT};
 pub use types::{AssistantAgent, Attachment, CodexModel, LlmProvider, PlanAgentMode};
 pub(crate) use context::build_compaction_provider;
 
@@ -819,6 +819,37 @@ impl AssistantAgent {
     /// effort even when the user toggles the main chat picker.
     pub fn set_follow_global_reasoning_effort(&mut self, enabled: bool) {
         self.follow_global_reasoning_effort = enabled;
+    }
+
+    /// Resolve the reasoning effort string for this round.
+    /// Main-chat agents pull the live value from `AppState`; everyone else
+    /// keeps the caller-specified fallback so subagents / side_query / cron
+    /// aren't silently overridden by the UI picker.
+    pub(super) async fn effective_reasoning_effort(
+        &self,
+        fallback: Option<&str>,
+    ) -> Option<String> {
+        if self.follow_global_reasoning_effort {
+            config::live_reasoning_effort(fallback).await
+        } else {
+            fallback.map(|s| s.to_string())
+        }
+    }
+
+    /// Build a Responses/Codex `ReasoningConfig` for this round, clamping to
+    /// the model's supported range. Returns `None` when effort is disabled.
+    pub(super) async fn resolve_reasoning_config(
+        &self,
+        model: &str,
+        fallback: Option<&str>,
+    ) -> Option<api_types::ReasoningConfig> {
+        self.effective_reasoning_effort(fallback)
+            .await
+            .and_then(|e| config::clamp_reasoning_effort(model, &e))
+            .map(|effort| api_types::ReasoningConfig {
+                effort,
+                summary: Some("auto".to_string()),
+            })
     }
 
     /// Record that a Tier 2+ compaction just happened (resets cache-TTL timer).

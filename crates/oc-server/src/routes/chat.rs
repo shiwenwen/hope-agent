@@ -38,7 +38,7 @@ pub struct ChatRequest {
     #[serde(default)]
     pub attachments: Vec<Attachment>,
     #[serde(default)]
-    pub tool_permission_mode: Option<String>,
+    pub tool_permission_mode: Option<tools::ToolPermissionMode>,
     #[serde(default)]
     pub temperature_override: Option<f64>,
     #[serde(default)]
@@ -134,13 +134,7 @@ pub async fn chat(
 ) -> Result<Json<ChatResponse>, AppError> {
     let db = ctx.session_db.clone();
 
-    // Set tool permission mode if specified
-    if let Some(ref mode_str) = body.tool_permission_mode {
-        let mode = match mode_str.as_str() {
-            "ask_every_time" => tools::ToolPermissionMode::AskEveryTime,
-            "full_approve" => tools::ToolPermissionMode::FullApprove,
-            _ => tools::ToolPermissionMode::Auto,
-        };
+    if let Some(mode) = body.tool_permission_mode {
         tools::set_tool_permission_mode(mode).await;
     }
 
@@ -327,29 +321,17 @@ pub async fn stop_chat(
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ToolPermissionModeBody {
-    pub mode: String,
+    pub mode: tools::ToolPermissionMode,
 }
 
 /// `POST /api/chat/tool-permission-mode` — set the global tool permission mode.
 ///
 /// Frontend calls this on every toggle click so the mode applies immediately
-/// to in-flight tool loops and non-chat paths (subagent / cron / IM channels)
-/// that would otherwise keep the previous mode until the next `chat` call.
+/// to in-flight tool loops and non-chat paths (subagent / cron / IM channels).
 pub async fn set_tool_permission_mode(
     Json(body): Json<ToolPermissionModeBody>,
 ) -> Result<Json<Value>, AppError> {
-    let m = match body.mode.as_str() {
-        "ask_every_time" => tools::ToolPermissionMode::AskEveryTime,
-        "full_approve" => tools::ToolPermissionMode::FullApprove,
-        "auto" => tools::ToolPermissionMode::Auto,
-        _ => {
-            return Err(AppError::bad_request(format!(
-                "Invalid tool permission mode: {}. Expected: auto, ask_every_time, full_approve",
-                body.mode
-            )));
-        }
-    };
-    tools::set_tool_permission_mode(m).await;
+    tools::set_tool_permission_mode(body.mode).await;
     Ok(Json(json!({ "ok": true })))
 }
 
