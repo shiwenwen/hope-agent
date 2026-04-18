@@ -170,3 +170,12 @@ for (const file of localeFiles) {
 console.log("\n────────────────────────────────")
 if (doCheck) console.log(`总计缺失: ${totalMissing} 条`)
 if (doApply) console.log(`总计写入: ${totalApplied} 条`)
+
+// CI gate: --check 发现缺 key 时退出码 1，让 GitHub Actions / pre-commit
+// 能拦截忘记跑 sync-i18n 的 PR。--apply 不影响退出码。
+if (doCheck && totalMissing > 0) {
+  console.error(
+    `\n❌ 检测到 ${totalMissing} 个缺失 key。请运行 \`npm run i18n:apply\` 补齐后重新提交。`,
+  )
+  process.exit(1)
+}

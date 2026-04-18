@@ -1,0 +1,36 @@
+name: Lint
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  frontend:
+    name: Frontend lint + typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install npm deps
+        run: npm ci
+
+      - name: ESLint
+        run: npm run lint
+
+      - name: TypeScript typecheck
+        run: npx tsc --noEmit
+
+      # Informational only for now: the repo carries ~3.3k historical missing
+      # keys across the 10 non-baseline locales (en/zh are the source of truth).
+      # Once that backlog is paid down, drop `continue-on-error` to make this
+      # job block PRs that introduce new missing keys.
+      - name: i18n missing-key check (informational)
+        run: npm run i18n:check
+        continue-on-error: true

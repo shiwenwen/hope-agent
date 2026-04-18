@@ -294,6 +294,25 @@ impl ProjectDB {
         Ok(files)
     }
 
+    /// Lightweight listing of every project id (including archived). Used by
+    /// the cross-database memory reconciler at startup, where loading the
+    /// full `ProjectMeta` (with file counts, instructions, etc.) for every
+    /// row would be wasted work.
+    pub fn list_all_ids(&self) -> Result<Vec<String>> {
+        let conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare("SELECT id FROM projects")?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+
     /// List all projects with aggregated counts.
     /// `include_archived = false` hides archived projects.
     pub fn list(&self, include_archived: bool) -> Result<Vec<ProjectMeta>> {

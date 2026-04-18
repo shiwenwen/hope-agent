@@ -132,3 +132,24 @@ pub fn extract_json_span(text: &str, preferred_open: Option<char>) -> Option<&st
     }
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sql_in_placeholders_zero() {
+        assert_eq!(sql_in_placeholders(0), "");
+    }
+
+    #[test]
+    fn sql_in_placeholders_one() {
+        assert_eq!(sql_in_placeholders(1), "?");
+    }
+
+    #[test]
+    fn sql_in_placeholders_many() {
+        assert_eq!(sql_in_placeholders(3), "?,?,?");
+        assert_eq!(sql_in_placeholders(5), "?,?,?,?,?");
+    }
+}
