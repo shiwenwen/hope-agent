@@ -298,6 +298,8 @@
     "skillsDesc": "スキルは AI アシスタントに専門知識を提供し、システムプロンプトに自動的に注入されます。スキルフォルダを以下のディレクトリに配置してください：",
     "skillsDirs": "スキルディレクトリ",
     "skillsDirDefault": "デフォルト",
+    "skillsDirShared": "共有",
+    "skillsDirSharedDesc": "ツール間で共有されるスキルディレクトリ（~/.agents/skills/ 規約）",
     "skillsDirAdd": "スキルディレクトリをインポート",
     "skillsDirRemove": "このディレクトリを削除",
     "skillsList": "読み込み済みスキル",

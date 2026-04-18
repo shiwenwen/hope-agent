@@ -43,6 +43,10 @@ pub struct ChatRequest {
     pub temperature_override: Option<f64>,
     #[serde(default)]
     pub reasoning_effort: Option<String>,
+    /// Optional display text. When set, the user message persisted to DB uses this string while
+    /// `message` is still the text fed to the LLM. Used by slash-skill passThrough.
+    #[serde(default)]
+    pub display_text: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -153,14 +157,22 @@ pub async fn chat(
         }
     };
 
+    // What the UI shows (DB persistence). Falls back to `body.message` when no override.
+    let persisted_content = body
+        .display_text
+        .as_deref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .unwrap_or(&body.message);
+
     // Save user message to DB
-    let user_msg = session::NewMessage::user(&body.message);
+    let user_msg = session::NewMessage::user(persisted_content);
     let _ = db.append_message(&sid, &user_msg);
 
-    // Auto-generate title from first user message
+    // Auto-generate title from first user message (prefer display text so titles read naturally).
     if let Ok(Some(meta)) = db.get_session(&sid) {
         if meta.title.is_none() && meta.message_count <= 1 {
-            let title = session::auto_title(&body.message);
+            let title = session::auto_title(persisted_content);
             let _ = db.update_session_title(&sid, &title);
         }
     }

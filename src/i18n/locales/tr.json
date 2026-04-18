@@ -298,6 +298,8 @@
     "skillsDesc": "Beceriler, AI asistanına alan uzmanlığı sağlar ve sistem istemine otomatik olarak enjekte edilir. Beceri klasörlerini şu dizine yerleştirin:",
     "skillsDirs": "Beceri Dizinleri",
     "skillsDirDefault": "Varsayılan",
+    "skillsDirShared": "Paylaşılan",
+    "skillsDirSharedDesc": "Araçlar arası paylaşılan beceri dizini (~/.agents/skills/ sözleşmesi)",
     "skillsDirAdd": "Beceri dizini içe aktar",
     "skillsDirRemove": "Bu dizini kaldır",
     "skillsList": "Yüklü Beceriler",

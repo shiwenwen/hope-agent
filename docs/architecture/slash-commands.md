@@ -169,10 +169,25 @@ sequenceDiagram
 技能命令不在注册表中硬编码，而是在运行时从技能系统动态加载。通过 `list_slash_commands` 接口合并返回。
 
 - 技能名称通过 `normalize_skill_command_name()` 规范化为命令名
-- 与内置命令名冲突时自动添加 `_skill` 后缀
-- 支持两种分发模式：
-  - **工具分发** (`command_dispatch == "tool"`)：包装为工具调用指令传递给 LLM
-  - **直接传递**：包装为技能调用指令传递给 LLM
+- **命名冲突处理**：[`slash_commands::resolve_skill_command_names`](../../crates/oc-core/src/slash_commands/mod.rs) 是 listing 与 dispatch 共用的 collision-aware 解析器：
+  - 技能 canonical 名与内置命令（`new` / `model` / `plan` / `team` / ...）冲突 → 追加 `_skill` 后缀（skill `new` → `/new_skill`）
+  - 进一步与其他已分配名冲突 → 再追加 `_2` / `_3` / ... 直到唯一
+  - 冲突的 **alias** 直接丢弃（alias 是补充入口，不允许压过已占用名）
+  - 菜单显示的名称就是用户键入时的名称；dispatch 走同一张解析表，`/new_skill` 键入可达，不再出现"菜单显示但执行找不到"的断裂
+  - **内置命令永远优先**：用户键入 `/new` 时，built-in match arm 先命中，skill `new` 本身不可达——若要触发自家 skill，请用 UI 菜单里显示的 `/new_skill`
+- 分发优先级（`handlers/mod.rs::handle_skill_command`）：
+
+  | 条件（SKILL.md frontmatter） | 分发路径 | CommandAction |
+  |---|---|---|
+  | `context: fork` | `dispatch_skill_fork` → `skills::spawn_skill_fork` 启子 Agent，结果通过 EventBus injection 作为 user message 推回主对话 | `SkillFork { run_id, skill_name }` |
+  | `command-dispatch: tool` + `command-tool: <name>` | 后端直接执行指定工具（零 LLM 往返），截断 4096 字节后展示 | `DisplayOnly` |
+  | `command-dispatch: prompt` 或带 `command-prompt-template` | 模板展开 `$ARGUMENTS` / 尾附 `User input:` 段 | `PassThrough { message }` |
+  | 默认（inline skill，无 template 无 fork） | **读 SKILL.md 全文 + `$ARGUMENTS` 替换**，包进 `[SYSTEM: skill 已激活]` 头部的 `PassThrough` 消息直接送给 LLM | `PassThrough { message }` |
+
+- 前端 UI：斜杠 skill 命令的 passThrough 通过 `handleSend(expandedMessage, { displayText: commandText })` 送出：
+  - User 气泡显示原始 `/skillname args`，DB `messages.content` 也持久化这个（重载保持）
+  - LLM 收到内联了 SKILL.md 的 `expandedMessage`，不经过 `read` / `tool_search`
+  - 详见 [技能系统 §斜杠命令的 Inline 内联路径](skill-system.md#斜杠命令的-inline-内联路径)
 
 ---
 

@@ -14,7 +14,7 @@ use serde_json::Value;
 use super::ToolExecContext;
 
 mod fork;
-mod inline;
+pub(crate) mod inline;
 
 /// Entry point registered in `tools::execution::execute_tool_with_context`.
 pub(crate) async fn tool_skill(args: &Value, ctx: &ToolExecContext) -> Result<String> {

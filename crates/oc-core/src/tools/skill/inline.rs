@@ -7,7 +7,7 @@ use anyhow::{anyhow, Result};
 
 use crate::skills::SkillEntry;
 
-pub(super) async fn execute(entry: &SkillEntry, args: &str) -> Result<String> {
+pub(crate) async fn execute(entry: &SkillEntry, args: &str) -> Result<String> {
     let path = entry.file_path.clone();
     let args_owned = args.to_string();
 

@@ -298,6 +298,8 @@
     "skillsDesc": "Kemahiran menyediakan kepakaran domain untuk pembantu AI dan disuntik secara automatik ke dalam prompt sistem. Letakkan folder kemahiran di:",
     "skillsDirs": "Direktori Kemahiran",
     "skillsDirDefault": "Lalai",
+    "skillsDirShared": "Dikongsi",
+    "skillsDirSharedDesc": "Direktori kemahiran dikongsi antara alat (konvensyen ~/.agents/skills/)",
     "skillsDirAdd": "Import direktori kemahiran",
     "skillsDirRemove": "Buang direktori ini",
     "skillsList": "Kemahiran Dimuatkan",

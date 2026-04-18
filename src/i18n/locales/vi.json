@@ -298,6 +298,8 @@
     "skillsDesc": "Kỹ năng cung cấp chuyên môn lĩnh vực cho trợ lý AI và được tự động đưa vào lời nhắc hệ thống. Đặt thư mục kỹ năng vào:",
     "skillsDirs": "Thư mục kỹ năng",
     "skillsDirDefault": "Mặc định",
+    "skillsDirShared": "Dùng chung",
+    "skillsDirSharedDesc": "Thư mục kỹ năng dùng chung giữa các công cụ (quy ước ~/.agents/skills/)",
     "skillsDirAdd": "Nhập thư mục kỹ năng",
     "skillsDirRemove": "Xóa thư mục này",
     "skillsList": "Kỹ năng đã tải",

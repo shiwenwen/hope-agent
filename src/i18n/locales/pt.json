@@ -298,6 +298,8 @@
     "skillsDesc": "As habilidades fornecem conhecimento especializado ao assistente de IA e são injetadas automaticamente no prompt do sistema. Coloque as pastas de habilidades em:",
     "skillsDirs": "Diretórios de habilidades",
     "skillsDirDefault": "Padrão",
+    "skillsDirShared": "Compartilhado",
+    "skillsDirSharedDesc": "Diretório de habilidades compartilhado entre ferramentas (convenção ~/.agents/skills/)",
     "skillsDirAdd": "Importar diretório de habilidades",
     "skillsDirRemove": "Remover este diretório",
     "skillsList": "Habilidades carregadas",

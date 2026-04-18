@@ -3,27 +3,94 @@ pub mod parser;
 pub mod registry;
 pub mod types;
 
+use std::collections::HashSet;
+
 use crate::globals::AppState;
+use crate::skills::SkillEntry;
 use types::{CommandCategory, CommandResult, SlashCommandDef};
+
+/// Pair a user-typed slash command name with the originating SkillEntry.
+/// Produced by [`resolve_skill_command_names`] — `typed_name` is the string the
+/// user actually types (e.g. `"new_skill"` when the skill is named `new` and
+/// collides with the built-in `/new`); `skill` is the underlying entry.
+pub struct ResolvedSkillCommand<'a> {
+    pub typed_name: String,
+    pub skill: &'a SkillEntry,
+}
+
+/// Compute the user-typed command names for each skill, honoring collisions
+/// against a reserved name set (usually built-in command names + names already
+/// assigned to earlier skills). Returns pairs in canonical-then-aliases order.
+///
+/// Collision rules (unchanged from the original listing code):
+/// - Canonical name collides → suffix `_skill`, then `_2`, `_3`, ... until free
+/// - Alias collides → dropped (aliases are supplementary, never take priority)
+///
+/// Both `list_slash_commands` (UI listing) and `handlers::handle_skill_command`
+/// (dispatch) use this function so the typed name and the runtime-resolved
+/// skill stay in sync. Before this helper, listing renamed colliding skills to
+/// `_skill` but dispatch still looked them up by the original normalized name,
+/// so a `/foo_skill` click from the menu returned "Unknown command".
+pub fn resolve_skill_command_names<'a>(
+    skills: &'a [SkillEntry],
+    reserved: &HashSet<String>,
+) -> Vec<ResolvedSkillCommand<'a>> {
+    let mut used: HashSet<String> = reserved.clone();
+    let mut out: Vec<ResolvedSkillCommand<'a>> = Vec::with_capacity(skills.len());
+
+    for skill in skills {
+        let mut names_iter = skill.all_command_names();
+        let canonical = names_iter.next().expect("canonical name always yielded");
+
+        let mut display = if used.contains(&canonical) {
+            format!("{}_skill", canonical)
+        } else {
+            canonical.clone()
+        };
+        let base = display.clone();
+        let mut counter = 2;
+        while used.contains(&display) {
+            display = format!("{}_{}", base, counter);
+            counter += 1;
+        }
+        used.insert(display.clone());
+        out.push(ResolvedSkillCommand { typed_name: display, skill });
+
+        for alias in names_iter {
+            if used.contains(&alias) {
+                continue;
+            }
+            used.insert(alias.clone());
+            out.push(ResolvedSkillCommand { typed_name: alias, skill });
+        }
+    }
+
+    out
+}
+
+/// Collect the built-in (hardcoded) slash command names for collision checks.
+pub fn builtin_command_names() -> HashSet<String> {
+    registry::all_commands()
+        .into_iter()
+        .map(|c| c.name)
+        .collect()
+}
 
 /// List all available slash commands (for UI menu rendering).
 /// Includes both built-in commands and user-invocable skill commands.
 pub async fn list_slash_commands(state: &AppState) -> Result<Vec<SlashCommandDef>, String> {
     let mut commands = registry::all_commands();
 
-    // Append user-invocable skills as Skill category commands
     let store = state.config.lock().await;
     let skill_entries =
         crate::skills::get_invocable_skills(&store.extra_skills_dirs, &store.disabled_skills);
     drop(store);
 
-    // Collect existing command names to avoid collisions
-    let mut used_names: std::collections::HashSet<String> =
-        commands.iter().map(|c| c.name.clone()).collect();
+    let reserved: HashSet<String> = commands.iter().map(|c| c.name.clone()).collect();
+    let resolved = resolve_skill_command_names(&skill_entries, &reserved);
 
-    for skill in skill_entries {
-        // Hoist the per-skill constants out of the command loop — cloning
-        // them once matches per-alias cost to per-skill cost.
+    for entry in resolved {
+        let skill = entry.skill;
         let arg_placeholder = skill
             .command_arg_placeholder
             .clone()
@@ -31,47 +98,16 @@ pub async fn list_slash_commands(state: &AppState) -> Result<Vec<SlashCommandDef
         let arg_options = skill.command_arg_options.clone();
         let description_raw = Some(truncate_description(&skill.description, 100));
 
-        let mut names = skill.all_command_names();
-        // Canonical name first: collides with built-ins or earlier skills
-        // → suffix; aliases that collide drop silently (supplementary only).
-        let mut cmd_name = names.next().expect("canonical name always yielded");
-        if used_names.contains(&cmd_name) {
-            cmd_name = format!("{}_skill", cmd_name);
-        }
-        let mut counter = 2;
-        let base = cmd_name.clone();
-        while used_names.contains(&cmd_name) {
-            cmd_name = format!("{}_{}", base, counter);
-            counter += 1;
-        }
-        used_names.insert(cmd_name.clone());
         commands.push(SlashCommandDef {
-            name: cmd_name,
+            name: entry.typed_name,
             category: CommandCategory::Skill,
             description_key: String::new(),
             has_args: true,
             args_optional: true,
-            arg_placeholder: arg_placeholder.clone(),
-            arg_options: arg_options.clone(),
-            description_raw: description_raw.clone(),
+            arg_placeholder,
+            arg_options,
+            description_raw,
         });
-
-        for alias_cmd in names {
-            if used_names.contains(&alias_cmd) {
-                continue;
-            }
-            used_names.insert(alias_cmd.clone());
-            commands.push(SlashCommandDef {
-                name: alias_cmd,
-                category: CommandCategory::Skill,
-                description_key: String::new(),
-                has_args: true,
-                args_optional: true,
-                arg_placeholder: arg_placeholder.clone(),
-                arg_options: arg_options.clone(),
-                description_raw: description_raw.clone(),
-            });
-        }
     }
 
     Ok(commands)

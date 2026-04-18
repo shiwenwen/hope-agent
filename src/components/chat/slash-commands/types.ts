@@ -75,6 +75,9 @@ export interface CommandResult {
   _isSkillPassThrough?: boolean
   /** Frontend-only: user arguments extracted from skill command (e.g. "把主题改成深色") */
   _skillArgs?: string
+  /** Frontend-only: the raw slash command text the user typed, e.g. "/drawio 画网络图".
+   *  Used so the UI shows what the user typed instead of the expanded skill prompt. */
+  _skillCommandText?: string
 }
 
 /** Category display order */

@@ -184,6 +184,7 @@ export function useSlashCommands(
         })
         if (result.action?.type === "passThrough" && cmd.category === "skill") {
           result._isSkillPassThrough = true
+          result._skillCommandText = commandText
           if (args.trim()) {
             result._skillArgs = args.trim()
           }
@@ -218,6 +219,10 @@ export function useSlashCommands(
         .then((result) => {
           if (result.action?.type === "passThrough" && cmd.category === "skill") {
             result._isSkillPassThrough = true
+            result._skillCommandText = commandText
+            if (option.trim()) {
+              result._skillArgs = option.trim()
+            }
           }
           actionsRef.current.onCommandAction(result)
         })
@@ -268,11 +273,21 @@ export function useSlashCommands(
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent): boolean => {
       if (!isOpen) {
-        // Guard: isOpen lags shouldBeOpen by one render (useEffect); intercept Enter to prevent sending slash text as message
-        if (e.key === "Enter" && filteredCommands.length > 0) {
-          e.preventDefault()
-          executeCommand(filteredCommands[selectedIndex])
-          return true
+        // Guard: isOpen lags shouldBeOpen by one render (useEffect); intercept Enter to prevent sending slash text as message.
+        // Resolve the typed command name against the full command catalog — filteredCommands[selectedIndex] is unreliable
+        // because once the user types a space the filter collapses to "" and the list reorders (first entry is /new),
+        // so blindly executing selectedIndex would misroute any "/foo bar" → "/new bar".
+        if (e.key === "Enter" && input.startsWith("/")) {
+          const spaceIdx = input.indexOf(" ")
+          const typedName = (spaceIdx > 0 ? input.slice(1, spaceIdx) : input.slice(1)).toLowerCase()
+          if (typedName) {
+            const match = commands.find((c) => c.name.toLowerCase() === typedName)
+            if (match) {
+              e.preventDefault()
+              executeCommand(match)
+              return true
+            }
+          }
         }
         return false
       }

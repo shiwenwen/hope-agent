@@ -298,6 +298,8 @@
     "skillsDesc": "技能為 AI 助手提供領域專長，會自動注入到系統提示詞中。將技能文件夾放入以下目錄即可啟用：",
     "skillsDirs": "技能目錄",
     "skillsDirDefault": "默認",
+    "skillsDirShared": "共享",
+    "skillsDirSharedDesc": "跨工具共享的技能目錄（~/.agents/skills/ 約定）",
     "skillsDirAdd": "導入技能目錄",
     "skillsDirRemove": "移除此目錄",
     "skillsList": "已加載的技能",

@@ -47,7 +47,7 @@
 | 场景 | 入口 | Inline 行为 | Fork 行为（`context: fork`） |
 |------|------|-----------|--------------------------|
 | 模型自主激活 | `skill({name, args?})` 工具 | SKILL.md + `$ARGUMENTS` 替换作为 tool_result 返回 | 子 Agent 执行 → 摘要字符串作为 tool_result 返回（主对话只看到 skill 工具一条记录）|
-| 用户斜杠命令 | `/skill-name [args]` | `PassThrough` 消息引导 LLM 按名再调 `skill` 工具 | 复用同一 `skills::spawn_skill_fork` helper，结果通过 EventBus 注入 |
+| 用户斜杠命令 | `/skill-name [args]` | **直接内联 SKILL.md 全文**到 PassThrough 消息，带 `[SYSTEM: skill 已激活]` 头部引导 LLM 按内容执行，不走 `read` / `tool_search`（参见[斜杠内联路径](#斜杠命令的-inline-内联路径)） | 复用同一 `skills::spawn_skill_fork` helper，结果通过 EventBus 注入 |
 | `read SKILL.md` | `read` 工具 | **已软弃用**：`read` 仍能读取原文（供作者对比 / diff），但系统提示词明确引导走 `skill` 工具 | — |
 
 ### 系统架构总览
@@ -528,10 +528,43 @@ pub async fn extract_fork_result(
 |------|-----------------|--------------------------|
 | 执行载体 | 主对话 LLM | 独立子 Agent 会话 |
 | 主对话看到 | 完整 SKILL.md 内容 + $ARGUMENTS 替换 | 一条 `Skill 'X' completed.\n\nResult:\n<text>` 摘要字符串 |
-| `allowed-tools` | 应用到后续主对话 tool schemas | 应用到子 Agent 的 `skill_allowed_tools` |
+| `allowed-tools` | `skill` 工具路径走 `ToolExecContext.skill_allowed_tools` 过滤；**斜杠内联路径目前未过滤**（已知 gap，见下） | 应用到子 Agent 的 `skill_allowed_tools` |
 | 适合场景 | 短指令、需用户中途介入、作者希望模型看到完整内容 | 多轮 exec 密集、产出可自包含总结、避免污染主 context |
 | tool_result 大小 | 等于 SKILL.md 正文 | ≤ `MAX_RESULT_CHARS = 64 KB`（超长截断） |
 | Prompt cache | 复用主对话前缀（无成本开销） | 子 Agent 独立上下文（可能有独立 cache miss） |
+
+### 斜杠命令的 Inline 内联路径
+
+当用户打 `/skillname [args]` 且 skill 不是 `context: fork` 且没有 `command-prompt-template`，走这条路径：[`slash_commands/handlers/mod.rs`](../../crates/oc-core/src/slash_commands/handlers/mod.rs) 的 `_` 分支调 [`tools::skill::inline::execute(&entry, args)`](../../crates/oc-core/src/tools/skill/inline.rs)（与模型调 `skill` 工具完全同一函数）拿到 SKILL.md 全文 + `$ARGUMENTS` 替换后，包进如下格式的 `PassThrough` 消息：
+
+```
+[SYSTEM: The user has invoked the '<name>' skill via slash command with arguments: "<args>".
+ Follow the instructions in the skill content below without calling `read` or `tool_search` —
+ the full skill is already loaded.]
+
+---
+
+<SKILL.md 全文>
+```
+
+前端通过 `handleSend(expandedMessage, { displayText: "/skillname args" })` 送出：
+- UI user 气泡显示原始 `/skillname args`
+- LLM 收到 `expandedMessage`（含 SKILL.md 全文）
+- DB `messages.content` 持久化 `displayText`（重载保持原命令显示）
+- Agent `save_agent_context` 的 conversation_history JSON 保留 `expandedMessage`（LLM 上下文连贯）
+
+**设计出发点**：老版本发 `"Read the skill file at /path/SKILL.md"`——deferred tools 场景下 `read` 不在初始 schema，LLM 会先调 `tool_search` 找 `read`，多一轮浪费。参照 Claude Code 的 `SkillTool` 直接返回 SKILL.md 内容 + Hermes Agent 的 `[SYSTEM: skill loaded]` 头部标记，OpenComputer 采用同源做法，同时与模型主动调 `skill` 工具路径字节级等价。
+
+**Fallback**：读 SKILL.md 失败时（权限 / 路径错 / IO 故障）降级回老的路径指针 prompt，不阻断聊天。
+
+#### 已知 Gap
+
+1. **`allowed-tools` 未过滤**：`skill` 工具路径把 allowed-tools 通过 `ToolExecContext.skill_allowed_tools` 贯通到执行层收紧工具白名单；斜杠内联路径目前只把 SKILL.md 作为 user message 注入，LLM 后续仍握有 agent 的全部工具。如果 skill 声明了 `allowed-tools: Read, Write` 想收紧能力，斜杠路径不会生效
+2. **`requires` 未校验**：`skill` 工具路径会 `check_requirements` 验 env / bins；斜杠路径没做
+3. **Learning Tracker 未埋点**：缺 `record_learning_event(SkillUsed)` 调用，Dashboard Top Skills 会低报斜杠触发的激活
+4. **SKILL.md 大小无上限**：极端大 skill（≥50KB）内联后会占用相当 token；目前未加保护
+
+更彻底的方案是把斜杠激活的 SKILL.md 作为**一次性 system-prompt 追加**（经 `ChatEngineParams.extra_system_context` 送入，Plan Mode 就是这么用的），同轮结束后不进 conversation_history；同时在 `ChatEngineParams.skill_allowed_tools` 收紧工具。Gap 1 + 2 + 4 可用同一改动一并解决，后续如需优化按此方向走。
 
 ---
 

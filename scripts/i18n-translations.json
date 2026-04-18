@@ -135,7 +135,9 @@
           "projectContext": "プロジェクトコンテキスト",
           "references": "参考資料"
         }
-      }
+      },
+      "skillsDirShared": "共有",
+      "skillsDirSharedDesc": "ツール間で共有されるスキルディレクトリ（~/.agents/skills/ 規約）"
     },
     "subagent": {
       "deletedAgentTooltip": "このエージェントは削除されました",
@@ -290,7 +292,9 @@
           "projectContext": "프로젝트 컨텍스트",
           "references": "참조"
         }
-      }
+      },
+      "skillsDirShared": "공유",
+      "skillsDirSharedDesc": "도구 간 공유 스킬 디렉토리 (~/.agents/skills/ 규약)"
     },
     "subagent": {
       "deletedAgentTooltip": "이 에이전트는 삭제되었습니다",
@@ -445,7 +449,9 @@
           "projectContext": "專案上下文",
           "references": "參考資料"
         }
-      }
+      },
+      "skillsDirShared": "共享",
+      "skillsDirSharedDesc": "跨工具共享的技能目錄（~/.agents/skills/ 約定）"
     },
     "subagent": {
       "deletedAgentTooltip": "此 Agent 已被刪除",
@@ -600,7 +606,9 @@
           "projectContext": "Proje bağlamı",
           "references": "Referanslar"
         }
-      }
+      },
+      "skillsDirShared": "Paylaşılan",
+      "skillsDirSharedDesc": "Araçlar arası paylaşılan beceri dizini (~/.agents/skills/ sözleşmesi)"
     },
     "subagent": {
       "deletedAgentTooltip": "Bu ajan silindi",
@@ -755,7 +763,9 @@
           "projectContext": "Ngữ cảnh dự án",
           "references": "Tham chiếu"
         }
-      }
+      },
+      "skillsDirShared": "Dùng chung",
+      "skillsDirSharedDesc": "Thư mục kỹ năng dùng chung giữa các công cụ (quy ước ~/.agents/skills/)"
     },
     "subagent": {
       "deletedAgentTooltip": "Agent này đã bị xoá",
@@ -910,7 +920,9 @@
           "projectContext": "Contexto do projeto",
           "references": "Referências"
         }
-      }
+      },
+      "skillsDirShared": "Compartilhado",
+      "skillsDirSharedDesc": "Diretório de habilidades compartilhado entre ferramentas (convenção ~/.agents/skills/)"
     },
     "subagent": {
       "deletedAgentTooltip": "Este agente foi excluído",
@@ -1065,7 +1077,9 @@
           "projectContext": "Контекст проекта",
           "references": "Ссылки"
         }
-      }
+      },
+      "skillsDirShared": "Общий",
+      "skillsDirSharedDesc": "Общий каталог навыков между инструментами (соглашение ~/.agents/skills/)"
     },
     "subagent": {
       "deletedAgentTooltip": "Этот агент был удалён",
@@ -1220,7 +1234,9 @@
           "projectContext": "سياق المشروع",
           "references": "المراجع"
         }
-      }
+      },
+      "skillsDirShared": "مشترك",
+      "skillsDirSharedDesc": "دليل مهارات مشترك بين الأدوات (اصطلاح ~/.agents/skills/)"
     },
     "subagent": {
       "deletedAgentTooltip": "تم حذف هذا العميل",
@@ -1375,7 +1391,9 @@
           "projectContext": "Contexto del proyecto",
           "references": "Referencias"
         }
-      }
+      },
+      "skillsDirShared": "Compartido",
+      "skillsDirSharedDesc": "Directorio de habilidades compartido entre herramientas (convención ~/.agents/skills/)"
     },
     "subagent": {
       "deletedAgentTooltip": "Este agente ha sido eliminado",
@@ -1530,7 +1548,9 @@
           "projectContext": "Konteks projek",
           "references": "Rujukan"
         }
-      }
+      },
+      "skillsDirShared": "Dikongsi",
+      "skillsDirSharedDesc": "Direktori kemahiran dikongsi antara alat (konvensyen ~/.agents/skills/)"
     },
     "subagent": {
       "deletedAgentTooltip": "Agen ini telah dipadam",

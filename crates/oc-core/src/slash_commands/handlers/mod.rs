@@ -136,7 +136,15 @@ async fn handle_skill_command(
         crate::skills::get_invocable_skills(&store.extra_skills_dirs, &store.disabled_skills);
     drop(store);
 
-    let matched = skills.into_iter().find(|s| s.matches_command(command))?;
+    // Resolve through the shared collision-aware name table so `/new_skill` (a
+    // skill named `new` that collided with the built-in `/new`) dispatches to
+    // the skill, matching what `list_slash_commands` renders in the UI.
+    let reserved = crate::slash_commands::builtin_command_names();
+    let resolved = crate::slash_commands::resolve_skill_command_names(&skills, &reserved);
+    let matched: crate::skills::SkillEntry = resolved
+        .into_iter()
+        .find(|r| r.typed_name == command)
+        .map(|r| r.skill.clone())?;
 
     use crate::slash_commands::types::CommandAction;
 
@@ -201,7 +209,7 @@ async fn handle_skill_command(
             })
         }
 
-        // ── Path 3: Default — template if available, otherwise skill context ──
+        // ── Path 3: Default — template if available, otherwise inline SKILL.md ──
         _ => {
             if let Some(template) = &matched.command_prompt_template {
                 let message = expand_prompt_template(template, args);
@@ -210,21 +218,60 @@ async fn handle_skill_command(
                     action: Some(CommandAction::PassThrough { message }),
                 })
             } else {
-                let message = if args.is_empty() {
-                    format!(
-                        "Use the skill '{}'. Read the skill file at {} for instructions.",
-                        matched.name, matched.file_path
-                    )
-                } else {
-                    format!(
-                        "Use the skill '{}' to: {}. Read the skill file at {} for instructions.",
-                        matched.name, args, matched.file_path
-                    )
-                };
-                Ok(CommandResult {
-                    content: format!("Invoking skill **{}**...", matched.name),
-                    action: Some(CommandAction::PassThrough { message }),
-                })
+                // Inline the full SKILL.md content directly — skips the "tell LLM to read a
+                // path" indirection that caused the LLM to fall back on tool_search when
+                // deferred tools is enabled. Matches the `skill` tool's inline behavior so
+                // slash-command and model-invoked paths deliver identical context.
+                match crate::tools::skill::inline::execute(&matched, args).await {
+                    Ok(skill_content) => {
+                        let header = if args.is_empty() {
+                            format!(
+                                "[SYSTEM: The user has invoked the '{}' skill via slash command. \
+                                 Follow the instructions in the skill content below without calling \
+                                 `read` or `tool_search` — the full skill is already loaded.]",
+                                matched.name
+                            )
+                        } else {
+                            format!(
+                                "[SYSTEM: The user has invoked the '{}' skill via slash command with \
+                                 arguments: \"{}\". Follow the instructions in the skill content below \
+                                 without calling `read` or `tool_search` — the full skill is already loaded.]",
+                                matched.name, args
+                            )
+                        };
+                        let message = format!("{header}\n\n---\n\n{skill_content}");
+                        Ok(CommandResult {
+                            content: format!("Invoking skill **{}**...", matched.name),
+                            action: Some(CommandAction::PassThrough { message }),
+                        })
+                    }
+                    Err(e) => {
+                        // Fall back to the old path-pointer prompt if we can't read SKILL.md.
+                        // Better a degraded activation than an error blocking the chat.
+                        crate::app_warn!(
+                            "slash_cmd",
+                            "skill_inline",
+                            "Failed to inline SKILL.md for '{}': {}; falling back to path reference",
+                            matched.name,
+                            e
+                        );
+                        let message = if args.is_empty() {
+                            format!(
+                                "Use the skill '{}'. Read the skill file at {} for instructions.",
+                                matched.name, matched.file_path
+                            )
+                        } else {
+                            format!(
+                                "Use the skill '{}' to: {}. Read the skill file at {} for instructions.",
+                                matched.name, args, matched.file_path
+                            )
+                        };
+                        Ok(CommandResult {
+                            content: format!("Invoking skill **{}**...", matched.name),
+                            action: Some(CommandAction::PassThrough { message }),
+                        })
+                    }
+                }
             }
         }
     };

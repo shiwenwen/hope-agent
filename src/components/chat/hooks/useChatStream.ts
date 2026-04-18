@@ -56,7 +56,7 @@ export interface UseChatStreamReturn {
   setShowCodexAuthExpired: React.Dispatch<React.SetStateAction<boolean>>
   toolPermissionMode: ToolPermissionMode
   setToolPermissionMode: React.Dispatch<React.SetStateAction<ToolPermissionMode>>
-  handleSend: (directText?: string, options?: { hidden?: boolean }) => Promise<void>
+  handleSend: (directText?: string, options?: { hidden?: boolean; displayText?: string }) => Promise<void>
   handleStop: () => Promise<void>
   handleApprovalResponse: (
     requestId: string,
@@ -146,7 +146,7 @@ export function useChatStream({
    * Send a message. If `directText` is provided, use it directly instead of the input box.
    * This avoids flashing text in the input (used by Plan Mode approve).
    */
-  async function handleSend(directText?: string, options?: { hidden?: boolean }) {
+  async function handleSend(directText?: string, options?: { hidden?: boolean; displayText?: string }) {
     const rawText = directText ?? input
     if (!rawText.trim()) return
 
@@ -158,11 +158,15 @@ export function useChatStream({
     }
 
     const text = rawText.trim()
+    // displayText: what the user sees in the bubble; text (above) is what goes to the LLM.
+    // Used by slash-skill passThrough so the UI shows the original "/drawio ..." command while the LLM
+    // still receives the expanded skill prompt.
+    const displayed = options?.displayText?.trim() || text
     const filesToSend = directText ? [] : [...attachedFiles]
     setInput("")
     setAttachedFiles([])
     const now = new Date().toISOString()
-    setMessages((prev) => [...prev, { role: "user", content: text, timestamp: now, ...(options?.hidden && { isMeta: true }) }])
+    setMessages((prev) => [...prev, { role: "user", content: displayed, timestamp: now, ...(options?.hidden && { isMeta: true }) }])
     setLoading(true)
 
     // Process attached files: images → base64 data, non-images → save to disk via Rust
@@ -276,7 +280,7 @@ export function useChatStream({
       // Track loading state for this session
       const freshMessages = [
         ...messages,
-        { role: "user" as const, content: text, timestamp: now },
+        { role: "user" as const, content: displayed, timestamp: now, ...(options?.hidden && { isMeta: true }) },
         {
           role: "assistant" as const,
           content: "",
@@ -303,6 +307,9 @@ export function useChatStream({
         toolPermissionMode: toolPermissionModeRef.current,
         planMode: planMode && planMode !== "off" ? planMode : undefined,
         temperatureOverride: temperatureOverride ?? undefined,
+        // When displayText is set the backend persists that as the user message content
+        // (what the UI shows on reload) while still feeding `text` to the LLM on this turn.
+        displayText: options?.displayText?.trim() || undefined,
         onEvent,
       })
     } catch (e) {

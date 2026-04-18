@@ -45,6 +45,10 @@ pub async fn chat(
     tool_permission_mode: Option<String>,
     plan_mode: Option<String>,
     temperature_override: Option<f64>,
+    // Optional display text. When set, the user message persisted to DB (and shown in the UI on reload)
+    // uses this string, while `message` is still the text fed to the LLM. Used by slash-skill passThrough
+    // so the transcript reads "/drawio 画网络图" instead of the expanded skill instruction.
+    display_text: Option<String>,
     on_event: tauri::ipc::Channel<String>,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
@@ -182,8 +186,15 @@ pub async fn chat(
         None
     };
 
+    // What the UI shows (DB persistence). Falls back to `message` when no override.
+    let persisted_content = display_text
+        .as_deref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .unwrap_or(&message);
+
     // Save user message to DB
-    let mut user_msg = session::NewMessage::user(&message);
+    let mut user_msg = session::NewMessage::user(persisted_content);
     user_msg.attachments_meta = attachments_meta;
     let _ = db.append_message(&sid, &user_msg);
 
@@ -203,10 +214,11 @@ pub async fn chat(
         Some(current_agent_id.clone()),
     );
 
-    // Auto-generate title from first user message if session has no title
+    // Auto-generate title from first user message if session has no title.
+    // Prefer the displayed text so titles read naturally ("/drawio ..." rather than the expanded form).
     if let Ok(Some(meta)) = db.get_session(&sid) {
         if meta.title.is_none() && meta.message_count <= 1 {
-            let title = session::auto_title(&message);
+            let title = session::auto_title(persisted_content);
             let _ = db.update_session_title(&sid, &title);
         }
     }

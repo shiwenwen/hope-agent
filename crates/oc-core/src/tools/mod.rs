@@ -27,7 +27,7 @@ mod process;
 mod project_read_file;
 pub(crate) mod read;
 mod send_attachment;
-mod skill;
+pub(crate) mod skill;
 mod sessions;
 mod settings;
 pub(crate) mod subagent;
