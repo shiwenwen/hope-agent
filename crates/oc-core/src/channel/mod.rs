@@ -5,6 +5,7 @@ pub mod db;
 pub mod discord;
 pub mod feishu;
 pub mod googlechat;
+pub mod media_helpers;
 pub mod imessage;
 pub mod irc;
 pub mod line;

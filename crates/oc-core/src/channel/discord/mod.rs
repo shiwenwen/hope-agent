@@ -1,6 +1,7 @@
 pub mod api;
 pub mod format;
 pub mod gateway;
+pub mod media;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -165,10 +166,12 @@ impl ChannelPlugin for DiscordPlugin {
             supports_unsend: true,
             supports_reply: true,
             supports_threads: true,
-            // TODO: native Discord media (multipart files[N]) not yet
-            // implemented. Dispatcher falls back to a download-link text so
-            // users still receive attachments through the public URL.
-            supports_media: Vec::new(),
+            supports_media: vec![
+                MediaType::Photo,
+                MediaType::Video,
+                MediaType::Audio,
+                MediaType::Document,
+            ],
             supports_typing: true,
             supports_buttons: true,
             max_message_length: Some(2000),
@@ -290,6 +293,23 @@ impl ChannelPlugin for DiscordPlugin {
                 }).collect::<Vec<_>>()
             })])
         };
+
+        if !payload.media.is_empty() {
+            let files = media::build_discord_files(&payload.media).await?;
+            let content = media::merge_captions(payload.text.as_deref(), &payload.media);
+            let msg = api
+                .create_message_with_attachments(
+                    chat_id,
+                    content.as_deref(),
+                    reply_to,
+                    thread_id,
+                    components.as_deref(),
+                    files,
+                )
+                .await?;
+            let msg_id = msg["id"].as_str().unwrap_or("unknown").to_string();
+            return Ok(DeliveryResult::ok(msg_id));
+        }
 
         // Send text
         if let Some(ref text) = payload.text {

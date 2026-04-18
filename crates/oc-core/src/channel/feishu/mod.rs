@@ -1,6 +1,7 @@
 pub mod api;
 pub mod auth;
 pub mod format;
+pub mod media;
 pub mod ws_event;
 
 use anyhow::Result;
@@ -92,10 +93,12 @@ impl ChannelPlugin for FeishuPlugin {
             supports_unsend: true,
             supports_reply: true,
             supports_threads: false,
-            // TODO: native Feishu media (im/v1/images + im/v1/files)
-            // not yet implemented. Dispatcher falls back to a download-link
-            // text for now.
-            supports_media: Vec::new(),
+            supports_media: vec![
+                MediaType::Photo,
+                MediaType::Video,
+                MediaType::Audio,
+                MediaType::Document,
+            ],
             supports_typing: false,
             supports_buttons: true,
             max_message_length: Some(4096),
@@ -165,6 +168,19 @@ impl ChannelPlugin for FeishuPlugin {
         payload: &ReplyPayload,
     ) -> Result<DeliveryResult> {
         let api = self.get_account(account_id).await?;
+
+        // Dispatcher 一般每次只塞一个 media（[`partition_media_by_channel`]），
+        // 这里仍循环以便未来 dispatcher 改批量时不需要再改插件层。
+        if !payload.media.is_empty() {
+            let reply_to = payload.reply_to_message_id.as_deref();
+            let mut last_id = String::from("no_content");
+            for m in &payload.media {
+                last_id = media::send_outbound_media(&api, chat_id, m, reply_to).await?;
+            }
+            if payload.text.is_none() && payload.buttons.is_empty() {
+                return Ok(DeliveryResult::ok(last_id));
+            }
+        }
 
         // If buttons are present, send as an interactive card
         if !payload.buttons.is_empty() {

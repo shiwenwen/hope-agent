@@ -142,6 +142,86 @@ impl DiscordApi {
             .map_err(|e| anyhow!("create_message parse failed: {}", e))
     }
 
+    /// POST /channels/{channel_id}/messages with multipart/form-data attachments.
+    /// Each file becomes a `files[N]` part paired with an entry in the JSON
+    /// `attachments` array. `files` is consumed by-value so payload bytes can be
+    /// moved into multipart Parts without an extra copy.
+    pub async fn create_message_with_attachments(
+        &self,
+        channel_id: &str,
+        content: Option<&str>,
+        reply_to: Option<&str>,
+        thread_id: Option<&str>,
+        components: Option<&[serde_json::Value]>,
+        files: Vec<crate::channel::media_helpers::MaterializedMedia>,
+    ) -> Result<serde_json::Value> {
+        let url = match thread_id {
+            Some(tid) => self.url(&format!("/channels/{}/messages", tid)),
+            None => self.url(&format!("/channels/{}/messages", channel_id)),
+        };
+
+        let mut payload = serde_json::Map::new();
+        if let Some(text) = content {
+            payload.insert(
+                "content".to_string(),
+                serde_json::Value::String(text.to_string()),
+            );
+        }
+        if let Some(ref_id) = reply_to {
+            payload.insert(
+                "message_reference".to_string(),
+                serde_json::json!({ "message_id": ref_id }),
+            );
+        }
+        if let Some(comps) = components {
+            payload.insert("components".to_string(), serde_json::json!(comps));
+        }
+        let attachments: Vec<serde_json::Value> = files
+            .iter()
+            .enumerate()
+            .map(|(i, m)| serde_json::json!({ "id": i, "filename": m.filename }))
+            .collect();
+        if !attachments.is_empty() {
+            payload.insert(
+                "attachments".to_string(),
+                serde_json::Value::Array(attachments),
+            );
+        }
+
+        let payload_json = serde_json::to_string(&serde_json::Value::Object(payload))
+            .map_err(|e| anyhow!("Failed to serialize Discord payload_json: {}", e))?;
+
+        let mut form = reqwest::multipart::Form::new().part(
+            "payload_json",
+            reqwest::multipart::Part::text(payload_json)
+                .mime_str("application/json")
+                .map_err(|e| anyhow!("Invalid payload_json mime: {}", e))?,
+        );
+        for (i, m) in files.into_iter().enumerate() {
+            let part = reqwest::multipart::Part::bytes(m.bytes)
+                .file_name(m.filename)
+                .mime_str(&m.mime)
+                .map_err(|e| anyhow!("Invalid attachment mime '{}': {}", m.mime, e))?;
+            form = form.part(format!("files[{}]", i), part);
+        }
+
+        let resp = self
+            .client
+            .post(&url)
+            .header("Authorization", &self.token)
+            .multipart(form)
+            .send()
+            .await
+            .map_err(|e| anyhow!("create_message_with_attachments request failed: {}", e))?;
+
+        if !resp.status().is_success() {
+            return Err(Self::parse_error(resp).await);
+        }
+        resp.json()
+            .await
+            .map_err(|e| anyhow!("create_message_with_attachments parse failed: {}", e))
+    }
+
     /// PATCH /channels/{channel_id}/messages/{message_id} — edit a message.
     pub async fn edit_message(
         &self,

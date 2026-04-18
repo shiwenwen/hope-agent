@@ -49,6 +49,16 @@ struct SendMessageData {
     message_id: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct ImageUploadData {
+    image_key: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct FileUploadData {
+    file_key: String,
+}
+
 #[derive(Debug, Default, Deserialize)]
 struct WsEndpointData {
     #[serde(rename = "URL")]
@@ -236,6 +246,154 @@ impl FeishuApi {
         self.parse_send_response(resp).await
     }
 
+    /// POST /open-apis/im/v1/images — multipart upload, returns `image_key`.
+    /// `image_type` is typically `"message"` for IM-message-bound images.
+    pub async fn upload_image(
+        &self,
+        bytes: Vec<u8>,
+        filename: &str,
+        mime: &str,
+        image_type: &str,
+    ) -> Result<String> {
+        let url = format!("{}/open-apis/im/v1/images", self.base_url);
+        let form = reqwest::multipart::Form::new()
+            .text("image_type", image_type.to_string())
+            .part("image", build_part(bytes, filename, mime, "image")?);
+        let data: ImageUploadData = self.upload_multipart(&url, form, "image").await?;
+        Ok(data.image_key)
+    }
+
+    /// POST /open-apis/im/v1/files — multipart upload, returns `file_key`.
+    /// `file_type` ∈ `{opus, mp4, pdf, doc, xls, ppt, stream}`.
+    pub async fn upload_file(
+        &self,
+        bytes: Vec<u8>,
+        filename: &str,
+        mime: &str,
+        file_type: &str,
+    ) -> Result<String> {
+        let url = format!("{}/open-apis/im/v1/files", self.base_url);
+        let form = reqwest::multipart::Form::new()
+            .text("file_type", file_type.to_string())
+            .text("file_name", filename.to_string())
+            .part("file", build_part(bytes, filename, mime, "file")?);
+        let data: FileUploadData = self.upload_multipart(&url, form, "file").await?;
+        Ok(data.file_key)
+    }
+
+    /// Generic multipart POST: send `form`, decode `{code, msg, data}`, return `data`.
+    /// `label` only appears in error messages to disambiguate image vs file uploads.
+    async fn upload_multipart<T: serde::de::DeserializeOwned>(
+        &self,
+        url: &str,
+        form: reqwest::multipart::Form,
+        label: &str,
+    ) -> Result<T> {
+        let resp = self
+            .authorized_request(reqwest::Method::POST, url)
+            .await?
+            .multipart(form)
+            .send()
+            .await
+            .map_err(|e| anyhow!("Failed to upload Feishu {}: {}", label, e))?;
+        let status = resp.status();
+        let body = resp
+            .text()
+            .await
+            .map_err(|e| anyhow!("Failed to read Feishu {} upload response: {}", label, e))?;
+        if !status.is_success() {
+            return Err(anyhow!(
+                "Feishu {} upload failed with HTTP {}: {}",
+                label,
+                status,
+                crate::truncate_utf8(&body, 512)
+            ));
+        }
+        let parsed: ApiResponse<T> = serde_json::from_str(&body)
+            .map_err(|e| anyhow!("Failed to parse Feishu {} upload response: {}", label, e))?;
+        if parsed.code != 0 {
+            return Err(anyhow!(
+                "Feishu {} upload error (code={}): {}",
+                label,
+                parsed.code,
+                parsed.msg
+            ));
+        }
+        parsed
+            .data
+            .ok_or_else(|| anyhow!("Feishu {} upload response missing 'data' field", label))
+    }
+
+    /// Send `msg_type=image` referencing a previously uploaded `image_key`.
+    pub async fn send_image_message(
+        &self,
+        receive_id: &str,
+        image_key: &str,
+        reply_to: Option<&str>,
+    ) -> Result<String> {
+        let content = serde_json::json!({ "image_key": image_key }).to_string();
+        self.send_typed_message(receive_id, "image", &content, reply_to)
+            .await
+    }
+
+    /// Send `msg_type=file` referencing a previously uploaded `file_key`.
+    pub async fn send_file_message(
+        &self,
+        receive_id: &str,
+        file_key: &str,
+        reply_to: Option<&str>,
+    ) -> Result<String> {
+        let content = serde_json::json!({ "file_key": file_key }).to_string();
+        self.send_typed_message(receive_id, "file", &content, reply_to)
+            .await
+    }
+
+    /// Shared helper: send any `msg_type` with pre-built `content` JSON string.
+    async fn send_typed_message(
+        &self,
+        receive_id: &str,
+        msg_type: &str,
+        content: &str,
+        reply_to: Option<&str>,
+    ) -> Result<String> {
+        if let Some(reply_msg_id) = reply_to {
+            let url = format!(
+                "{}/open-apis/im/v1/messages/{}/reply",
+                self.base_url, reply_msg_id
+            );
+            let body = serde_json::json!({
+                "msg_type": msg_type,
+                "content": content,
+            });
+            let resp = self
+                .authorized_request(reqwest::Method::POST, &url)
+                .await?
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| anyhow!("Failed to send Feishu {} reply: {}", msg_type, e))?;
+            return self.parse_send_response(resp).await;
+        }
+
+        let url = format!(
+            "{}/open-apis/im/v1/messages?receive_id_type=chat_id",
+            self.base_url
+        );
+        let body = serde_json::json!({
+            "receive_id": receive_id,
+            "msg_type": msg_type,
+            "content": content,
+        });
+        let resp = self
+            .authorized_request(reqwest::Method::POST, &url)
+            .await?
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| anyhow!("Failed to send Feishu {}: {}", msg_type, e))?;
+        self.parse_send_response(resp).await
+    }
+
     /// Update an existing message.
     pub async fn update_message(&self, message_id: &str, text: &str) -> Result<()> {
         let url = format!("{}/open-apis/im/v1/messages/{}", self.base_url, message_id);
@@ -401,4 +559,16 @@ impl FeishuApi {
 
         Ok(data.message_id)
     }
+}
+
+fn build_part(
+    bytes: Vec<u8>,
+    filename: &str,
+    mime: &str,
+    label: &str,
+) -> Result<reqwest::multipart::Part> {
+    reqwest::multipart::Part::bytes(bytes)
+        .file_name(filename.to_string())
+        .mime_str(mime)
+        .map_err(|e| anyhow!("Invalid Feishu {} part mime '{}': {}", label, mime, e))
 }
