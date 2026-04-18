@@ -334,7 +334,7 @@ export default function ChatTitleBar({
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-muted-foreground">📚 {t("chat.statusContext")}</span>
                         <span className="font-medium text-foreground tabular-nums">
-                          {usedK}/{ctxK}k ({pct}%)
+                          {usedK}k/{ctxK}k ({pct}%)
                         </span>
                       </div>
                       <div className="h-1.5 w-full bg-secondary rounded-full overflow-hidden">
