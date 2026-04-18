@@ -6,6 +6,7 @@ import type {
   SessionMessage,
   MessageUsage,
 } from "@/types/chat"
+import { getTransport } from "@/lib/transport-provider"
 
 /** Parse `__MEDIA_ITEMS__<json>\n<text>` header from a tool result, if present.
  *  Returns the structured items; falls back to undefined on malformed JSON. */
@@ -320,4 +321,85 @@ export function parseSessionMessages(
     })
   }
   return displayMessages
+}
+
+/**
+ * Reconcile a freshly-loaded DB window (`fresh`) with the current in-memory
+ * window (`existing`) without truncating paged-in scrollback. Used after
+ * `chat:stream_end` / `channel:stream_end` / subagent-done reloads.
+ *
+ * Trailing dbId-less items in `existing` are streaming placeholders whose
+ * persisted counterparts are about to land in `fresh`; keeping them would
+ * duplicate-render. dbId-less items mid-stream (rare) are left in place.
+ */
+/**
+ * Reload the latest DB window for a session and merge it with the current
+ * in-memory window via `mergeMessagesByDbId`, then push the merged result to
+ * both the per-session cache and the active-view state. Shared by every
+ * "stream ended, reconcile with DB" call site.
+ *
+ * The reload `limit` floors at `PAGE_SIZE` but grows to whatever scrollback
+ * the user has already paged in, so we don't silently truncate a long
+ * window that outgrew the default page size.
+ */
+export async function reloadAndMergeSessionMessages(params: {
+  sessionId: string
+  pageSize: number
+  sessionCacheRef: React.MutableRefObject<Map<string, Message[]>>
+  setMessages: (msgs: Message[]) => void
+}): Promise<void> {
+  const { sessionId, pageSize, sessionCacheRef, setMessages } = params
+  const existing = sessionCacheRef.current.get(sessionId) ?? []
+  const limit = Math.max(pageSize, existing.length)
+  try {
+    const [msgs] = await getTransport().call<[SessionMessage[], number, boolean]>(
+      "load_session_messages_latest_cmd",
+      { sessionId, limit },
+    )
+    const fresh = parseSessionMessages(msgs)
+    const merged = mergeMessagesByDbId(existing, fresh)
+    sessionCacheRef.current.set(sessionId, merged)
+    setMessages(merged)
+  } catch {
+    // Stream has already ended and placeholders will eventually resolve via
+    // the next session switch — swallowing here matches the pre-refactor
+    // behavior on each of the three call sites.
+  }
+}
+
+export function mergeMessagesByDbId(existing: Message[], fresh: Message[]): Message[] {
+  if (existing.length === 0) return fresh
+
+  let tailEnd = existing.length
+  while (tailEnd > 0 && typeof existing[tailEnd - 1].dbId !== "number") {
+    tailEnd--
+  }
+  const trimmed = tailEnd < existing.length ? existing.slice(0, tailEnd) : existing
+
+  if (fresh.length === 0) return trimmed
+
+  const freshById = new Map<number, Message>()
+  for (const m of fresh) {
+    if (typeof m.dbId === "number") freshById.set(m.dbId, m)
+  }
+
+  const seenIds = new Set<number>()
+  const merged: Message[] = []
+  for (const m of trimmed) {
+    if (typeof m.dbId !== "number") {
+      merged.push(m)
+      continue
+    }
+    const authoritative = freshById.get(m.dbId)
+    merged.push(authoritative ?? m)
+    seenIds.add(m.dbId)
+  }
+
+  for (const m of fresh) {
+    if (typeof m.dbId === "number" && !seenIds.has(m.dbId)) {
+      merged.push(m)
+    }
+  }
+
+  return merged
 }

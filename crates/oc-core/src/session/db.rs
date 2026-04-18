@@ -12,6 +12,12 @@ pub struct SessionDB {
     pub(crate) conn: Mutex<Connection>,
 }
 
+/// Log at `app_info!` when `align_window_to_user_boundary` extends a page by
+/// more than this many rows. Signals that a single user turn spans far more
+/// DB rows than the requested page size — useful for tuning PAGE_SIZE and
+/// deciding when virtual scrolling becomes necessary.
+const LARGE_TURN_EXTENSION_LOG_THRESHOLD: usize = 200;
+
 impl SessionDB {
     /// Open (or create) the database at the given path, enable WAL mode,
     /// and ensure tables exist.
@@ -877,12 +883,20 @@ impl SessionDB {
     }
 
     /// Load the latest N messages for a session (for initial page load).
-    /// Returns (messages_in_asc_order, total_count).
+    ///
+    /// Returns `(messages_in_asc_order, total_count, has_more)`.
+    ///
+    /// The returned window is always aligned so that its first row is a
+    /// `user` role message (or the session's first row). This keeps a single
+    /// assistant turn — which may span dozens of tool / text_block / thinking
+    /// rows under long tool loops — from being split mid-way by page
+    /// boundaries. `has_more` tells the caller whether there are older rows
+    /// before the returned window.
     pub fn load_session_messages_latest(
         &self,
         session_id: &str,
         limit: u32,
-    ) -> Result<(Vec<SessionMessage>, u32)> {
+    ) -> Result<(Vec<SessionMessage>, u32, bool)> {
         let conn = self
             .conn
             .lock()
@@ -916,17 +930,29 @@ impl SessionDB {
         }
         // Reverse to get ASC order
         messages.reverse();
-        Ok((messages, total))
+
+        Self::align_window_to_user_boundary(&conn, session_id, &mut messages)?;
+
+        let has_more = match messages.first() {
+            Some(first) => Self::has_messages_before(&conn, session_id, first.id),
+            None => false,
+        };
+
+        Ok((messages, total, has_more))
     }
 
     /// Load messages before a given message id (for "load more" / scroll up).
-    /// Returns messages in ASC order.
+    ///
+    /// Returns `(messages_in_asc_order, has_more)`. The window is aligned so
+    /// its first row is a `user` message (same guarantee as
+    /// `load_session_messages_latest`), preventing a single assistant turn
+    /// from being split across pages.
     pub fn load_session_messages_before(
         &self,
         session_id: &str,
         before_id: i64,
         limit: u32,
-    ) -> Result<Vec<SessionMessage>> {
+    ) -> Result<(Vec<SessionMessage>, bool)> {
         let conn = self
             .conn
             .lock()
@@ -953,7 +979,127 @@ impl SessionDB {
             messages.push(row?);
         }
         messages.reverse();
-        Ok(messages)
+
+        Self::align_window_to_user_boundary(&conn, session_id, &mut messages)?;
+
+        let has_more = match messages.first() {
+            Some(first) => Self::has_messages_before(&conn, session_id, first.id),
+            None => false,
+        };
+
+        Ok((messages, has_more))
+    }
+
+    /// If the first row of an ASC-ordered window is not a `user` message,
+    /// prepend the contiguous rows `[user_anchor_id, current_first_id)` so
+    /// the window starts on a user boundary. When no prior user row exists
+    /// (the window is pinned to the start of the session and the session
+    /// happens to begin with non-user rows), extend to the session's first
+    /// row. No-op when the window is empty or already aligned.
+    ///
+    /// Rationale: a single assistant turn may span dozens of tool / thinking
+    /// / text_block rows under long tool loops. Row-count pagination would
+    /// split those mid-turn, causing [`parseSessionMessages`] to misattribute
+    /// "orphan" leading tools to the wrong assistant. Aligning on the DB
+    /// side guarantees every returned window is a sequence of complete
+    /// visual turns.
+    fn align_window_to_user_boundary(
+        conn: &Connection,
+        session_id: &str,
+        messages: &mut Vec<SessionMessage>,
+    ) -> Result<()> {
+        let oldest_id = match messages.first() {
+            Some(first) if !matches!(first.role, MessageRole::User) => first.id,
+            _ => return Ok(()),
+        };
+
+        let anchor_id: Option<i64> = conn
+            .query_row(
+                "SELECT id FROM messages
+                 WHERE session_id = ?1 AND id < ?2 AND role = 'user'
+                 ORDER BY id DESC LIMIT 1",
+                params![session_id, oldest_id],
+                |row| row.get(0),
+            )
+            .ok();
+
+        let fill_start: i64 = match anchor_id {
+            Some(aid) => aid,
+            None => {
+                // No user row before oldest; fall back to the session's first
+                // orphan row (session can begin with tool/thinking rows when
+                // persistence is in flight).
+                match conn.query_row::<Option<i64>, _, _>(
+                    "SELECT MIN(id) FROM messages WHERE session_id = ?1 AND id < ?2",
+                    params![session_id, oldest_id],
+                    |row| row.get(0),
+                ) {
+                    Ok(Some(mid)) => mid,
+                    _ => return Ok(()),
+                }
+            }
+        };
+
+        if fill_start >= oldest_id {
+            return Ok(());
+        }
+
+        let mut stmt = conn.prepare(
+            "SELECT id, session_id, role, content, timestamp,
+                    attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
+                    tool_call_id, tool_name, tool_arguments, tool_result,
+                    tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
+                    tokens_cache_creation, tokens_cache_read
+             FROM messages
+             WHERE session_id = ?1 AND id >= ?2 AND id < ?3
+             ORDER BY id ASC",
+        )?;
+        let rows = stmt.query_map(params![session_id, fill_start, oldest_id], |row| {
+            Self::row_to_session_message(row)
+        })?;
+
+        let mut ext = Vec::new();
+        for row in rows {
+            ext.push(row?);
+        }
+
+        let ext_count = ext.len();
+        if ext_count > LARGE_TURN_EXTENSION_LOG_THRESHOLD {
+            // Feeds PAGE_SIZE tuning / virtual-scrolling decisions: large
+            // single-turn extensions mean the per-page row count is
+            // materially exceeding the request.
+            app_info!(
+                "session",
+                "db::align_user_boundary",
+                "extended window by {} rows (session: {})",
+                ext_count,
+                session_id
+            );
+        }
+
+        ext.extend(std::mem::take(messages));
+        *messages = ext;
+        Ok(())
+    }
+
+    fn has_messages_before(conn: &Connection, session_id: &str, id: i64) -> bool {
+        conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM messages WHERE session_id = ?1 AND id < ?2)",
+            params![session_id, id],
+            |row| row.get::<_, i64>(0),
+        )
+        .map(|v| v != 0)
+        .unwrap_or(false)
+    }
+
+    fn has_messages_after(conn: &Connection, session_id: &str, id: i64) -> bool {
+        conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM messages WHERE session_id = ?1 AND id > ?2)",
+            params![session_id, id],
+            |row| row.get::<_, i64>(0),
+        )
+        .map(|v| v != 0)
+        .unwrap_or(false)
     }
 
     pub(crate) fn row_to_session_message(row: &rusqlite::Row) -> rusqlite::Result<SessionMessage> {
@@ -1520,16 +1666,20 @@ impl SessionDB {
 
     /// Load a window of messages around a target message id.
     ///
-    /// Returns `(messages_in_asc_order, total_count)`. The window contains up
-    /// to `before` messages with `id <= target_message_id` (inclusive of the
-    /// target) and up to `after` messages with `id > target_message_id`.
+    /// Returns `(messages_in_asc_order, total_count, has_more_before,
+    /// has_more_after)`. The window contains up to `before` messages with
+    /// `id <= target_message_id` (inclusive of the target) and up to `after`
+    /// messages with `id > target_message_id`. The `before` side is aligned
+    /// to a user-row boundary; the `after` side is returned as-is (mid-turn
+    /// truncation on the trailing side is acceptable since the target itself
+    /// anchors the view).
     pub fn load_session_messages_around(
         &self,
         session_id: &str,
         target_message_id: i64,
         before: u32,
         after: u32,
-    ) -> Result<(Vec<SessionMessage>, u32)> {
+    ) -> Result<(Vec<SessionMessage>, u32, bool, bool)> {
         let conn = self
             .conn
             .lock()
@@ -1563,6 +1713,8 @@ impl SessionDB {
         }
         before_msgs.reverse();
 
+        Self::align_window_to_user_boundary(&conn, session_id, &mut before_msgs)?;
+
         // Load `after` messages with id > target (ASC).
         let mut after_stmt = conn.prepare(
             "SELECT id, session_id, role, content, timestamp,
@@ -1584,9 +1736,18 @@ impl SessionDB {
             after_msgs.push(row?);
         }
 
+        let has_more_before = match before_msgs.first() {
+            Some(first) => Self::has_messages_before(&conn, session_id, first.id),
+            None => false,
+        };
+        let has_more_after = match after_msgs.last() {
+            Some(last) => Self::has_messages_after(&conn, session_id, last.id),
+            None => Self::has_messages_after(&conn, session_id, target_message_id),
+        };
+
         let mut messages = before_msgs;
         messages.extend(after_msgs);
-        Ok((messages, total))
+        Ok((messages, total, has_more_before, has_more_after))
     }
 
     // ── Behavior awareness helpers ──────────────────────────────

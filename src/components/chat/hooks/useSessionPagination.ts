@@ -88,7 +88,12 @@ export function useSessionPagination({
 
     setLoadingMore(true)
     try {
-      const olderMsgs = await getTransport().call<SessionMessage[]>("load_session_messages_before_cmd", {
+      // Backend returns `[messages, hasMore]`. Rows may exceed PAGE_SIZE when
+      // the oldest requested row falls mid-way through an assistant turn and
+      // the server aligns the window back to the previous user boundary.
+      const [olderMsgs, hasMoreBefore] = await getTransport().call<
+        [SessionMessage[], boolean]
+      >("load_session_messages_before_cmd", {
         sessionId: curSid,
         beforeId: oldestId,
         limit: PAGE_SIZE,
@@ -107,10 +112,8 @@ export function useSessionPagination({
         : undefined
       const olderDisplay = parseSessionMessages(olderMsgs, parentSession?.agentId)
       oldestDbIdRef.current.set(curSid, olderMsgs[0].id)
-      if (olderMsgs.length < PAGE_SIZE) {
-        hasMoreRef.current.set(curSid, false)
-        setHasMore(false)
-      }
+      hasMoreRef.current.set(curSid, hasMoreBefore)
+      setHasMore(hasMoreBefore)
 
       setMessages((prev) => {
         const merged = [...olderDisplay, ...prev]

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react"
 import { getTransport } from "@/lib/transport-provider"
-import { mergeUsageFromEvent, parseSessionMessages } from "../chatUtils"
+import { mergeUsageFromEvent, parseSessionMessages, reloadAndMergeSessionMessages } from "../chatUtils"
 import { PAGE_SIZE } from "./constants"
 import type { Message, ContentBlock, MediaItem, SessionMessage } from "@/types/chat"
 
@@ -43,7 +43,7 @@ export function useChannelStreaming({
         setLoading(true)
         // Load latest messages from DB (includes the just-saved user message),
         // then append an empty assistant placeholder for streaming into.
-        getTransport().call<[SessionMessage[], number]>("load_session_messages_latest_cmd", {
+        getTransport().call<[SessionMessage[], number, boolean]>("load_session_messages_latest_cmd", {
           sessionId: payload.sessionId,
           limit: PAGE_SIZE,
         }).then(([msgs]) => {
@@ -93,16 +93,12 @@ export function useChannelStreaming({
 
       if (payload.sessionId === currentSessionIdRef.current) {
         setLoading(false)
-        // Reload messages from DB to get final persisted content
-        // (replaces the streaming placeholder with the complete message)
-        getTransport().call<[SessionMessage[], number]>("load_session_messages_latest_cmd", {
+        reloadAndMergeSessionMessages({
           sessionId: payload.sessionId,
-          limit: PAGE_SIZE,
-        }).then(([msgs]) => {
-          const parsed = parseSessionMessages(msgs)
-          sessionCacheRef.current.set(payload.sessionId, parsed)
-          setMessages(parsed)
-        }).catch(() => {})
+          pageSize: PAGE_SIZE,
+          sessionCacheRef,
+          setMessages,
+        })
       }
     }))
 
@@ -322,7 +318,7 @@ export function useChannelStreaming({
       }
       // If the updated session is currently active, reload its messages from DB
       if (payload.sessionId && payload.sessionId === currentSessionIdRef.current) {
-        getTransport().call<[SessionMessage[], number]>("load_session_messages_latest_cmd", {
+        getTransport().call<[SessionMessage[], number, boolean]>("load_session_messages_latest_cmd", {
           sessionId: payload.sessionId,
           limit: PAGE_SIZE,
         }).then(([msgs]) => {

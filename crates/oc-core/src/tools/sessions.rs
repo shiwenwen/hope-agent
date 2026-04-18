@@ -125,11 +125,12 @@ pub(crate) async fn tool_sessions_history(args: &Value) -> Result<String> {
         .ok_or_else(|| anyhow::anyhow!("Session '{}' not found", session_id))?;
 
     let (messages, total) = if let Some(bid) = before_id {
-        let msgs = db.load_session_messages_before(session_id, bid, limit)?;
+        let (msgs, _has_more) = db.load_session_messages_before(session_id, bid, limit)?;
         let len = msgs.len() as u32;
         (msgs, len) // approximate; before_id mode doesn't return total
     } else {
-        db.load_session_messages_latest(session_id, limit)?
+        let (msgs, total, _has_more) = db.load_session_messages_latest(session_id, limit)?;
+        (msgs, total)
     };
 
     // Filter tool/text_block messages unless requested

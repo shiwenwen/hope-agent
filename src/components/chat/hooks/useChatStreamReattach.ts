@@ -1,9 +1,9 @@
 import { useEffect, useRef } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
-import { parseSessionMessages } from "../chatUtils"
+import { reloadAndMergeSessionMessages } from "../chatUtils"
 import { PAGE_SIZE } from "../useChatSession"
-import type { Message, SessionMessage } from "@/types/chat"
+import type { Message } from "@/types/chat"
 import { handleStreamEvent } from "./useStreamEventHandler"
 
 // Backend constants: see `crates/oc-core/src/chat_engine/stream_broadcast.rs`.
@@ -138,17 +138,12 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
 
       if (currentSessionIdRef.current === sid) {
         setLoading(false)
-        getTransport()
-          .call<[SessionMessage[], number]>("load_session_messages_latest_cmd", {
-            sessionId: sid,
-            limit: PAGE_SIZE,
-          })
-          .then(([msgs]) => {
-            const displayMessages = parseSessionMessages(msgs)
-            sessionCacheRef.current.set(sid, displayMessages)
-            setMessages(displayMessages)
-          })
-          .catch(() => {})
+        reloadAndMergeSessionMessages({
+          sessionId: sid,
+          pageSize: PAGE_SIZE,
+          sessionCacheRef,
+          setMessages,
+        })
       } else {
         sessionCacheRef.current.delete(sid)
       }

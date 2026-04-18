@@ -306,23 +306,27 @@ export function useChatSession({
       } else {
         try {
           let msgs: SessionMessage[]
-          let total: number
+          let hasMoreBefore: boolean
           if (targetMessageId !== undefined) {
-            // Load a window around the target message for jump-to-message.
-            ;[msgs, total] = await getTransport().call<[SessionMessage[], number]>(
-              "load_session_messages_around_cmd",
-              {
-                sessionId,
-                targetMessageId,
-                before: 40,
-                after: 20,
-              },
-            )
+            // `[messages, total, hasMoreBefore, hasMoreAfter]` — hasMoreAfter unused.
+            const [m, , hasMoreB] = await getTransport().call<
+              [SessionMessage[], number, boolean, boolean]
+            >("load_session_messages_around_cmd", {
+              sessionId,
+              targetMessageId,
+              before: 40,
+              after: 20,
+            })
+            msgs = m
+            hasMoreBefore = hasMoreB
           } else {
-            ;[msgs, total] = await getTransport().call<[SessionMessage[], number]>(
-              "load_session_messages_latest_cmd",
-              { sessionId, limit: PAGE_SIZE },
-            )
+            // hasMore is authoritative from DB; don't infer from msgs.length
+            // since user-boundary alignment may extend beyond the requested limit.
+            const [m, , hasMore] = await getTransport().call<
+              [SessionMessage[], number, boolean]
+            >("load_session_messages_latest_cmd", { sessionId, limit: PAGE_SIZE })
+            msgs = m
+            hasMoreBefore = hasMore
           }
           const [currentSessions] = await getTransport().call<[SessionMeta[], number]>("list_sessions_cmd", {})
           const sessionMeta = currentSessions.find((s) => s.id === sessionId)
@@ -332,13 +336,12 @@ export function useChatSession({
           if (switchVersionRef.current !== version) return // stale switch
           const displayMessages = parseSessionMessages(msgs, parentSession?.agentId)
           sessionCacheRef.current.set(sessionId, displayMessages)
-          const moreAvailable = msgs.length < total
-          hasMoreRef.current.set(sessionId, moreAvailable)
+          hasMoreRef.current.set(sessionId, hasMoreBefore)
           if (msgs.length > 0) {
             oldestDbIdRef.current.set(sessionId, msgs[0].id)
           }
           setMessages(displayMessages)
-          setHasMore(moreAvailable)
+          setHasMore(hasMoreBefore)
           setLoading(loadingSessionsRef.current.has(sessionId))
           setCurrentSessionId(sessionId)
         } catch (e) {

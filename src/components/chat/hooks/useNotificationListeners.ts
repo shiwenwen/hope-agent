@@ -2,12 +2,11 @@ import { useEffect } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { notify } from "@/lib/notifications"
-import { parseSessionMessages } from "../chatUtils"
+import { parseSessionMessages, reloadAndMergeSessionMessages } from "../chatUtils"
 import { PAGE_SIZE } from "../useChatSession"
 import type {
   Message,
   MediaItem,
-  SessionMessage,
   ParentAgentStreamEvent,
 } from "@/types/chat"
 
@@ -183,18 +182,14 @@ export function useNotificationListeners(deps: UseNotificationListenersDeps) {
         loadingSessionsRef.current.delete(parentSessionId)
         setLoadingSessionIds(new Set(loadingSessionsRef.current))
         reloadSessions()
-        // Reload messages from DB so subagent result message renders with correct type
+        // Reload messages from DB so subagent result message renders with correct type.
         if (currentSessionIdRef.current === parentSessionId) {
-          getTransport().call<[SessionMessage[], number]>("load_session_messages_latest_cmd", {
+          reloadAndMergeSessionMessages({
             sessionId: parentSessionId,
-            limit: PAGE_SIZE,
+            pageSize: PAGE_SIZE,
+            sessionCacheRef,
+            setMessages,
           })
-            .then(([msgs]) => {
-              const displayMessages = parseSessionMessages(msgs)
-              sessionCacheRef.current.set(parentSessionId, displayMessages)
-              setMessages(displayMessages)
-            })
-            .catch(() => {})
         } else {
           // Not current session — clear cache so next visit loads fresh from DB
           sessionCacheRef.current.delete(parentSessionId)

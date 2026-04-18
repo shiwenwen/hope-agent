@@ -62,7 +62,7 @@ pub async fn load_session_messages_latest_cmd(
     session_id: String,
     limit: u32,
     state: State<'_, AppState>,
-) -> Result<(Vec<session::SessionMessage>, u32), String> {
+) -> Result<(Vec<session::SessionMessage>, u32, bool), String> {
     state
         .session_db
         .load_session_messages_latest(&session_id, limit)
@@ -75,7 +75,7 @@ pub async fn load_session_messages_before_cmd(
     before_id: i64,
     limit: u32,
     state: State<'_, AppState>,
-) -> Result<Vec<session::SessionMessage>, String> {
+) -> Result<(Vec<session::SessionMessage>, bool), String> {
     state
         .session_db
         .load_session_messages_before(&session_id, before_id, limit)
@@ -201,7 +201,7 @@ pub async fn load_session_messages_around_cmd(
     before: u32,
     after: u32,
     state: State<'_, AppState>,
-) -> Result<(Vec<session::SessionMessage>, u32), String> {
+) -> Result<(Vec<session::SessionMessage>, u32, bool, bool), String> {
     state
         .session_db
         .load_session_messages_around(&session_id, target_message_id, before, after)

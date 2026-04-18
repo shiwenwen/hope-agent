@@ -176,7 +176,7 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
     if (lastSid) {
       try {
         // Verify session still exists by loading messages
-        const [rawMsgs] = await getTransport().call<[unknown[], number]>(
+        const [rawMsgs] = await getTransport().call<[unknown[], number, boolean]>(
           "load_session_messages_latest_cmd",
           { sessionId: lastSid, limit: QUICK_CHAT_PAGE_SIZE },
         )

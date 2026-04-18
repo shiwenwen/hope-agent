@@ -185,6 +185,9 @@ pub async fn search_session_messages(
 
 /// `GET /api/sessions/:id/messages/around?targetMessageId=N&before=40&after=20`
 /// — load a window of messages centred on a target id.
+///
+/// Returns a JSON tuple `[messages, total, hasMoreBefore, hasMoreAfter]` to
+/// match the shape Tauri IPC serialises for the same command.
 pub async fn get_session_messages_around(
     State(ctx): State<Arc<AppContext>>,
     Path(id): Path<String>,
@@ -192,14 +195,16 @@ pub async fn get_session_messages_around(
 ) -> Result<Json<Value>, AppError> {
     let before = q.before.unwrap_or(40);
     let after = q.after.unwrap_or(20);
-    let (messages, total) =
+    let (messages, total, has_more_before, has_more_after) =
         ctx.session_db
             .load_session_messages_around(&id, q.target_message_id, before, after)?;
-    Ok(Json(json!({ "messages": messages, "total": total })))
+    Ok(Json(json!([messages, total, has_more_before, has_more_after])))
 }
 
 /// `GET /api/sessions/:id/messages?limit=N` — load latest messages for a session.
-/// Returns `{ messages: [...], total: N }`. Default limit is 50.
+///
+/// Returns a JSON tuple `[messages, total, hasMore]` (same shape as Tauri IPC).
+/// Default limit is 50.
 pub async fn get_session_messages(
     State(ctx): State<Arc<AppContext>>,
     Path(id): Path<String>,
@@ -209,8 +214,8 @@ pub async fn get_session_messages(
         .get("limit")
         .and_then(|v| v.parse().ok())
         .unwrap_or(50);
-    let (messages, total) = ctx.session_db.load_session_messages_latest(&id, limit)?;
-    Ok(Json(json!({ "messages": messages, "total": total })))
+    let (messages, total, has_more) = ctx.session_db.load_session_messages_latest(&id, limit)?;
+    Ok(Json(json!([messages, total, has_more])))
 }
 
 /// `GET /api/sessions/:id/stream-state` — snapshot of whether the session
