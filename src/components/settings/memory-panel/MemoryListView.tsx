@@ -73,10 +73,10 @@ export default function MemoryListView({ data, isAgentMode, compact }: MemoryLis
   } = data
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-hidden p-6">
-        <div className="w-full flex flex-col min-h-0">
+    <div className="flex-1 overflow-y-auto p-6">
+        <div className="w-full">
           {/* Header */}
-          <div className="flex items-center justify-between mb-1 shrink-0">
+          <div className="flex items-center justify-between mb-1">
             <h2 className="text-lg font-semibold">{t("settings.memory")}</h2>
             <div className="flex items-center gap-2">
               <IconTip label={t("settings.memoryImportFromAI")}>
@@ -123,7 +123,7 @@ export default function MemoryListView({ data, isAgentMode, compact }: MemoryLis
               </Button>
             </div>
           </div>
-          <p className="text-xs text-muted-foreground mb-4 shrink-0">{t("settings.memoryDesc")}</p>
+          <p className="text-xs text-muted-foreground mb-4">{t("settings.memoryDesc")}</p>
 
           {/* Global Core Memory editor (standalone mode only) */}
           {!isAgentMode && <CoreMemoryEditor scope="global" />}
@@ -136,7 +136,7 @@ export default function MemoryListView({ data, isAgentMode, compact }: MemoryLis
 
           {/* Stats bar */}
           {stats && stats.total > 0 && (
-            <div className="flex items-center gap-3 text-xs text-muted-foreground mb-3 px-1 shrink-0 flex-wrap">
+            <div className="flex items-center gap-3 text-xs text-muted-foreground mb-3 px-1 flex-wrap">
               <span>{t("settings.memoryStatsTotal", { count: stats.total })}</span>
               <span className="text-border">|</span>
               {(["user", "feedback", "project", "reference"] as const).map((type) => {
@@ -160,7 +160,7 @@ export default function MemoryListView({ data, isAgentMode, compact }: MemoryLis
           )}
 
           {/* Search + Filter */}
-          <div className="flex gap-2 mb-4 shrink-0">
+          <div className="flex gap-2 mb-4">
             <div className="relative flex-1">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
@@ -201,7 +201,7 @@ export default function MemoryListView({ data, isAgentMode, compact }: MemoryLis
           </div>
 
           {/* Scope filter */}
-          <div className="flex items-center gap-2 mb-3 shrink-0">
+          <div className="flex items-center gap-2 mb-3">
             <div className="flex gap-1">
               {(["all", "global", "agent"] as const).map((scope) => (
                 <button
@@ -244,7 +244,7 @@ export default function MemoryListView({ data, isAgentMode, compact }: MemoryLis
           </div>
 
           {/* Stats + Batch actions */}
-          <div className="flex items-center justify-between text-xs text-muted-foreground mb-3 shrink-0">
+          <div className="flex items-center justify-between text-xs text-muted-foreground mb-3">
             <div className="flex items-center gap-2">
               {memories.length > 0 && (
                 <button
@@ -293,7 +293,7 @@ export default function MemoryListView({ data, isAgentMode, compact }: MemoryLis
           </div>
 
           {/* Memory List */}
-          <div className="flex-1 overflow-y-auto space-y-1.5">
+          <div className="space-y-1.5">
             {loading && memories.length === 0 ? (
               <div className="text-sm text-muted-foreground py-8 text-center">
                 {t("settings.loading")}

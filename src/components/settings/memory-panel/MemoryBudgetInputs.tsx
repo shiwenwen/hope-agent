@@ -86,7 +86,7 @@ export default function MemoryBudgetInputs({ value, onChange, disabled }: Props)
         <h4 className="mb-2 text-xs font-medium text-muted-foreground">
           {t("settings.memoryBudget.sqliteSectionsTitle")}
         </h4>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
           <div className="space-y-1">
             <Label className="text-[11px]">
               {t("settings.memoryBudget.sections.aboutYou")}

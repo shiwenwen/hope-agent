@@ -82,7 +82,7 @@ export default function BudgetConfig() {
   }
 
   return (
-    <div className="mt-6 pt-4 border-t border-border/50">
+    <div className="mt-6 mb-4 pt-4 border-t border-border/50">
       <button
         onClick={() => setExpanded(!expanded)}
         className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
