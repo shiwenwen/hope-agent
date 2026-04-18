@@ -115,10 +115,6 @@ export interface ActiveMemoryConfig {
 }
 
 /// Per-section character budgets for the SQLite Layer 3 memory block.
-/// `userProfile` was renamed from `aboutYou` (the heading also changed from
-/// `## About You` to `## User Profile`) so the section name no longer collides
-/// with the LLM-prompt convention where "You" refers to the assistant. The
-/// Rust side accepts the old `aboutYou` key via serde alias for back-compat.
 export interface SqliteSectionBudgets {
   userProfile: number
   aboutUser: number

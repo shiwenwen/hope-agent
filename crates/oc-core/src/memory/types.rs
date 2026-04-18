@@ -267,11 +267,9 @@ impl Default for MemorySelectionConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct SqliteSectionBudgets {
-    /// Renamed from `about_you` (heading "## About You") to `user_profile`
-    /// (heading "## User Profile") to remove the ambiguity where, in an LLM
-    /// system prompt, "You" otherwise refers to the assistant. The serde
-    /// `alias = "aboutYou"` keeps existing `config.json` / agent overrides
-    /// loadable without migration.
+    /// Load-bearing: serde alias keeps pre-rename `config.json` / agent
+    /// overrides (`"aboutYou": ...`) deserialising into this field. Do not
+    /// remove until the back-compat window is officially closed.
     #[serde(alias = "aboutYou")]
     pub user_profile: usize,
     pub about_user: usize,
