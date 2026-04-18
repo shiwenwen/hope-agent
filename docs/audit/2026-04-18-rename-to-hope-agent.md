@@ -220,7 +220,8 @@
 - [`crates/oc-core/src/docker/*`](../../crates/oc-core/src/docker) Docker 容器命名前缀
 - [`crates/oc-core/src/tools/browser/advanced.rs`](../../crates/oc-core/src/tools/browser/advanced.rs) 浏览器 UA
 - [`crates/oc-core/src/tools/notification.rs`](../../crates/oc-core/src/tools/notification.rs) 系统通知 app name
-- [`crates/oc-core/src/system_prompt/build.rs`](../../crates/oc-core/src/system_prompt/build.rs) 系统提示词里的自我介绍段
+- [`crates/oc-core/src/system_prompt/build.rs`](../../crates/oc-core/src/system_prompt/build.rs) 身份行 3 处 `"running in OpenComputer on {os} {arch}"`（openclaw / custom / structured 三种模式各一处）
+- [`crates/oc-core/src/system_prompt/constants.rs`](../../crates/oc-core/src/system_prompt/constants.rs) `APP_INTRO` 常量——系统提示词里注入的产品简介：`"OpenComputer is a local, open-source AI assistant with configurable model providers, tools, skills, and persistent memory."`，改名后同步替换品牌名
 - [`crates/oc-core/src/system_prompt/sections.rs`](../../crates/oc-core/src/system_prompt/sections.rs)
 - [`crates/oc-core/templates/agent.{lang}.md`](../../crates/oc-core/templates/) 12 个 agent 模板里的品牌名
 
