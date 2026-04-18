@@ -243,10 +243,10 @@ pub fn apply_summary(
     // Cap summary length (configurable, clamped to 4000–64000)
     let max_summary_chars = config.max_compaction_summary_chars.clamp(4_000, 64_000);
     let capped_summary = if summary.len() > max_summary_chars {
-        let budget = max_summary_chars - SUMMARY_TRUNCATED_MARKER.len();
+        let budget = max_summary_chars.saturating_sub(SUMMARY_TRUNCATED_MARKER.len());
         format!(
             "{}{}",
-            &summary[..budget.min(summary.len())],
+            crate::truncate_utf8(summary, budget),
             SUMMARY_TRUNCATED_MARKER
         )
     } else {

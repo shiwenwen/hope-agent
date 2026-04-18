@@ -6,10 +6,12 @@
 
 优先级排序：🔴 严重 Bug → 🟠 中等 Bug → 🟡 性能/稳定 → ℹ️ 设计与功能改进。
 
-- 严重 Bug：10 项
+- 严重 Bug：10 项（已处理 9 项 / 1 项维持原状）
 - 中等 Bug：11 项
 - 性能/稳定：10 项
 - 轻微/设计：5 项
+
+> **2026-04-17 复核（分支 `claude/fix-audit-bugs-Ip6Bl`）**：按本文件列出的严重 Bug 逐条 Read 源文件复核。B1 / B3 / B4 / B5 / B6 / B7 / B8 / B9 均已在本轮修复；B10 经复核发现 `job_status` 早就改用 `async_jobs::wait::Notify` 注册表，不再依赖 EventBus 事件，原描述已失效；B2 经复核与原描述偏差较大（`find_round_safe_boundary` 已按 round 边界对齐，不会把 tool_use / tool_result 切开），保留观察。
 
 ---
 
@@ -22,70 +24,68 @@
   - `crates/oc-core/src/context_compact/truncation.rs:74, 116, 118`
 - **因果**：`&summary[..budget.min(summary.len())]` 把字符预算当字节用；`find_structure_boundary` 的 fallback `target_pos` 由浮点运算转换得到，可能落在 UTF-8 多字节字符中间。中文 / emoji 摘要接近阈值时直接 panic。
 - **修复**：统一改 `crate::truncate_utf8(s, max_bytes)`，红线已经明确禁用字节切片。
-- **状态**：待修复。
+- **状态**：✅ 已修复（summarization 的 cap 切片改走 `truncate_utf8`；`find_structure_boundary` / `_forward` 的搜索边界、fallback 回退点、`has_important_tail` 的 2KB 尾部切片全部用新增的 `floor_char_boundary` / `ceil_char_boundary` helper 或 `truncate_utf8_tail` 对齐到字符边界）。
 
-### B2. Tier 3 摘要可能拆散 tool_use / tool_result 对
+### ~~B2. Tier 3 摘要可能拆散 tool_use / tool_result 对~~（原描述失效）
 
 - **位置**：`crates/oc-core/src/context_compact/summarization.rs:57-91`
-- **因果**：`find_round_safe_boundary` 在所有剩余消息同属一个 round 时返回 0，导致整轮被跳过摘要或 tool_use 被保留而对应 tool_result 被摘走。模型看到"没有结果的工具调用"，Anthropic 会直接 400 拒绝请求。
-- **修复**：round 调整失败时向前搜索下一个 round 边界，而不是静默返回 0。
-- **状态**：待修复。
+- **复核结论**：`find_round_safe_boundary` 实现是"从 `target_index` 向后回退到一个 round 变更点"，返回的 boundary_index 处满足 `messages[i-1].round != messages[i].round`，即 tool_use / tool_result 不会被切开；若所有可摘要消息同属一个 round 则返回 0，`split_for_summarization` 直接返回 `None` 跳过摘要，**不会** 把 tool_use 留下、tool_result 摘走——不会产生 Anthropic 400。审计描述的"拆散"场景在当前实现下不存在，至多是"整块跳过本次摘要"。该退化行为更接近性能/稳定性问题，本次不动。
+- **状态**：⛔ 划掉（原因描述与现状不符）。
 
 ### B3. Tool loop 最后一轮的 tool_results 被静默丢弃
 
-- **位置**：`crates/oc-core/src/agent/providers/anthropic.rs:318-320, 473-477`（其他 3 个 provider 很可能存在对称问题）
+- **位置**：`crates/oc-core/src/agent/providers/{anthropic,openai_chat,openai_responses,codex}.rs`
 - **因果**：循环在最后一轮执行完工具、把 tool_result 压进 history，但此时已到 `max_rounds` 上限，下一轮 API 不再调用，结果永远不会进入模型。用户侧表现为"工具跑了但模型没收到"。
 - **修复**：在 round 起始检测 `round >= max_rounds - 1` 时禁止接受新的 tool_use；或至少额外跑一次"只发消息不要工具"的收尾请求把结果送回模型。
-- **状态**：待修复。
+- **状态**：✅ 已修复（4 个 provider 统一：进入最后一轮 `round + 1 == max_rounds` 时请求不再携带 `tools`，模型只能产出文本应答；natural_exit 自然成立，避免静默丢结果 + 省掉"max rounds"占位文本）。
 
 ### B4. Async job 注入的 `mark_injected` 错误被吞
 
-- **位置**：`crates/oc-core/src/async_jobs/spawn.rs:75`；`async_jobs/injection.rs:13-31`
+- **位置**：`crates/oc-core/src/async_jobs/spawn.rs:444`（无 parent session 的兜底）；`async_jobs/injection.rs` 注入主路径
 - **因果**：`let _ = mark_injected(...)` 忽略失败。DB 写失败后，下次 `replay_pending_jobs()` 会把同一 job 再注入一遍，对话里出现重复 `<tool-job-result>` 块。
 - **修复**：失败时带 backoff 重试，彻底失败再通过 EventBus 报警；不要吞错误。
-- **状态**：待修复。
+- **状态**：✅ 已修复（`injection.rs` 新增 `mark_injected_with_retry`：`[0, 100ms, 500ms, 2000ms]` 4 次退避；彻底失败 emit `async_tool_job:mark_injected_failed` 事件 + `app_error!` 日志，保留"下次 replay 会重新注入"的语义但不再静默）。spawn.rs:444 的"无 parent session"分支只剩 orphan 清理意图，不涉及回放路径，保持 `let _ =`。
 
 ### B5. Query string token 未 URL 解码 → 鉴权绕过 / 误拒
 
 - **位置**：`crates/oc-server/src/middleware.rs:47`
 - **因果**：`strip_prefix("token=")` 直接拿原始 query，不做 `percent_decode`。带百分号编码的合法 token 会被拒；若 expected 自身含特殊字符（或双端编码不一致），可构造绕过分支。
 - **修复**：改用 `url::form_urlencoded::parse` 或 `percent_encoding::percent_decode_str` 先解码再比对。
-- **状态**：待修复。
+- **状态**：✅ 已修复（middleware 新增轻量 `percent_decode_form_value` + 配合 `+` → space 语义，query token 解码后再比较；配套单测覆盖正常/畸形编码）。
 
 ### B6. API Key 比较非常量时间
 
 - **位置**：`crates/oc-server/src/middleware.rs:37, 48`
 - **因果**：普通 `==` 比较 token，存在 timing side-channel，尤其在 HTTP 暴露到 `0.0.0.0:8420` 的公网/内网场景。
 - **修复**：使用 `subtle::ConstantTimeEq` 或等长 HMAC 比较。
-- **状态**：待修复。
+- **状态**：✅ 已修复（新增内联 `constant_time_eq` 做 XOR-fold 常量时间比较；Header / Query 两条分支都走同一实现；长度不等短路的 timing leak 对固定长度 API key 可接受；附 3 条单测）。
 
 ### B7. Service install 脚本命令注入
 
 - **位置**：`crates/oc-core/src/service_install.rs:121-125, 270`
 - **因果**：`exe_path` / `bind_addr` / `api_key` 未转义直接拼进 systemd `ExecStart` / launchd `ProgramArguments`。用户 home 含空格、`api_key` 含引号就能把参数拆破；恶意配置可注入额外命令到开机自启。
 - **修复**：systemd 用 `shlex::try_quote`；launchd plist 用多个独立 `<string>` 元素保持数组结构，不要拼成单串。
-- **状态**：待修复。
+- **状态**：✅ 已修复（新增 `xml_escape`：launchd plist 里 exe / bind / api_key / log 全部先转义 `<`, `>`, `&`, `"`, `'`，杜绝通过用户字符串打破 `<string>` 元素追加 argv；新增 `systemd_escape_arg`：systemd `ExecStart` 每个 argv 独立加 `"..."` 并转义 `\`, `"`, 控制字符，避免空格/引号拆分）。
 
 ### B8. ProfileStickyMap 内存泄漏 + 粗暴 clear
 
 - **位置**：`crates/oc-core/src/failover.rs:338-348`
 - **因果**：到达 `STICKY_MAX_SESSIONS_PER_PROVIDER=500` 上限时 `sessions.clear()` 清空全部，破坏 session 粘性；长期运行下 session 只增不减（无死 session 清理路径）。
 - **修复**：改 LRU（`lru` crate，或 `IndexMap` + 手动 evict 最旧），粘性不受清空冲击。
-- **状态**：待修复。
+- **状态**：✅ 已修复（新增 `StickyShard { map, order: VecDeque }` 本地 LRU 结构，`get` 访问时 promote，`set` 到上限时 `pop_front` 仅 evict 最旧一条，不再破坏全局粘性；补 2 条单测验证"填满+1"只淘汰最旧、"get 后 promote 的条目不会被当作最旧"）。
 
 ### B9. Project 删除非事务：DB 成功 / FS 残留 / symlink 风险
 
 - **位置**：`crates/oc-core/src/project/db.rs:283-294` + `project/files.rs:184-213`
 - **因果**：先 `DELETE projects`（事务内），再 `rm -rf projects/{id}/`（事务外）。commit 后崩溃 → 目录残留成孤儿；更糟：若 `{id}` 被篡改为 symlink，可删到预期外路径。
 - **修复**：`canonicalize()` 校验目标必须位于 `~/.opencomputer/projects/` 下；或改为先改名到 `.trash/`、commit 后异步清理。
-- **状态**：待修复。
+- **状态**：✅ symlink / 路径逃逸分支已修复（`purge_project_files_dir` 现在 `canonicalize()` 目标并强制 `starts_with(projects_root)` 检查，失败只记日志不删）。DB commit 后 `rm -rf` 仍是非事务的"先改 DB 后清盘"顺序——现有 project_id 全部来自 `Uuid::new_v4()`，路径逃逸风险已被 canonicalize 兜底，孤儿目录仅限崩溃窗口，不再升级为安全问题，后续清理可由 D2 方向的 reconciler 统一解决。
 
-### B10. EventBus broadcast 容量溢出 → 异步 job 完成通知丢失
+### ~~B10. EventBus broadcast 容量溢出 → 异步 job 完成通知丢失~~（原描述失效）
 
 - **位置**：`crates/oc-core/src/event_bus.rs:27` + `async_jobs` 消费路径
-- **因果**：`tokio::broadcast` 滞后消费者会收到 `RecvError::Lagged` 并丢事件。`job_status(block=true)` 只靠 `async_tool_job:completed` + 200ms 兜底轮询；事件丢失时模型必须等到兜底轮询才醒，而且只覆盖 600s 上限，极端场景直接 timeout。
-- **修复**：订阅端显式 match `Lagged`，丢失时立即做一次 DB 状态查询；或核心事件改走 mpsc / watch。
-- **状态**：待修复。
+- **复核结论**：`job_status` 早已改走 `async_jobs::wait::Notify` 注册表（`crates/oc-core/src/async_jobs/wait.rs` + `tools/job_status.rs`），producer 在 `finalize_job` 里通过 `notify_waiters()` 唤醒，*不再依赖* EventBus `async_tool_job:completed` 事件——broadcast lag 已不能导致 waiter 丢醒。`job_status` 循环还保留 100ms→2s 退避 select 做防御兜底，退避上限是单次等待窗口（默认 min(max_job_secs, 1800)），不是 600s。当前真实行为与审计描述偏差较大，原计划的"订阅端处理 Lagged"改进点归入 P4 继续跟踪。
+- **状态**：⛔ 划掉（实现早于本次审计就已迁移到 Notify 注册表，原风险不存在）。
 
 ---
 
@@ -285,19 +285,33 @@
 
 ## 📊 总计
 
-| 档次 | 数量 | 集中区域 |
-|---|---|---|
-| 🔴 严重 | 10 | `context_compact` UTF-8 切片、tool loop 终止、async_jobs 注入、server 鉴权、service install 命令注入 |
-| 🟠 中等 | 11 | cache-TTL 逻辑、memory_extract 竞态、plan 状态机、cron 重放、前端 stale closure |
-| 🟡 性能/稳定 | 10 | XSS、CSP、broadcast lag、SSRF、日志 token |
-| ℹ️ 轻微/设计 | 5 | SQL 拼接习惯、孤儿清理、排序字段、CI 校验、工具上下文共享 |
+| 档次 | 数量 | 本轮处理 | 集中区域 |
+|---|---|---|---|
+| 🔴 严重 | 10 | 8 ✅ / 2 ⛔ | `context_compact` UTF-8 切片、tool loop 终止、async_jobs 注入、server 鉴权、service install 命令注入 |
+| 🟠 中等 | 11 | – | cache-TTL 逻辑、memory_extract 竞态、plan 状态机、cron 重放、前端 stale closure |
+| 🟡 性能/稳定 | 10 | – | XSS、CSP、broadcast lag、SSRF、日志 token |
+| ℹ️ 轻微/设计 | 5 | – | SQL 拼接习惯、孤儿清理、排序字段、CI 校验、工具上下文共享 |
 
-**修复顺序建议**
+**2026-04-17 修复批次（分支 `claude/fix-audit-bugs-Ip6Bl`）**
 
-1. 第一批（用户可触发即时故障）：B1、B3、B5 + B6、B7
-2. 第二批（长尾数据/稳定性）：B2、B4、B9、B10、M4、M7、M8
-3. 第三批（安全加固批）：P1、P3、P7、P8
-4. 其余按迭代节奏推进。
+| ID | 处理结果 |
+|---|---|
+| B1 UTF-8 切片 | ✅ 切换到 `truncate_utf8` / `truncate_utf8_tail` + 新增 `floor_char_boundary` / `ceil_char_boundary` helper |
+| ~~B2 Tier 3 切分~~ | ⛔ 复核后确认 round 边界逻辑已保证 tool_use/tool_result 不分离，原描述失效 |
+| B3 Tool loop 末轮 | ✅ 4 个 provider 最后一轮移除 `tools`，模型被迫出文本 |
+| B4 mark_injected | ✅ 注入路径改走 4 次退避 + EventBus 报警 |
+| B5 Query 解码 | ✅ 新增 `percent_decode_form_value` + 单测 |
+| B6 常量时间 | ✅ 新增 `constant_time_eq` + 单测 |
+| B7 Service install | ✅ launchd XML 转义 + systemd ExecStart 单 arg 引号 |
+| B8 ProfileSticky LRU | ✅ `StickyShard` 本地 LRU，上限只驱逐最旧 + 2 条单测 |
+| B9 Project 删除 | ✅ `purge_project_files_dir` canonicalize 校验前缀 |
+| ~~B10 broadcast 丢事件~~ | ⛔ `job_status` 已改用 `Notify` 注册表，不再依赖 broadcast |
+
+**修复顺序建议（剩余批次）**
+
+1. 第二批（长尾数据/稳定性）：M4、M7、M8
+2. 第三批（安全加固批）：P1、P3、P7、P8
+3. 其余按迭代节奏推进。
 
 ## 复核建议
 

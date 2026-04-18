@@ -153,6 +153,12 @@ impl AssistantAgent {
                 }
             }
 
+            // On the final allowed round drop tools so the model is forced to
+            // synthesize a text response. Without this, a tool call on the
+            // last round would execute but the result would never reach the
+            // model (the loop exits immediately after), leaving the user
+            // with only a "max rounds" notice.
+            let is_final_round = round + 1 == max_rounds;
             let request = ResponsesRequest {
                 model: model.to_string(),
                 store: false,
@@ -168,7 +174,11 @@ impl AssistantAgent {
                 } else {
                     None
                 },
-                tools: Some(tool_schemas.clone()),
+                tools: if is_final_round {
+                    None
+                } else {
+                    Some(tool_schemas.clone())
+                },
                 temperature: self.temperature,
             };
 

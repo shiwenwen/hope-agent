@@ -155,6 +155,14 @@ impl AssistantAgent {
             }
             let system_with_cache = json!(system_blocks);
 
+            // On the final allowed round we must force a text response: if the
+            // model picks a tool here, the loop would execute it and append
+            // tool_results to history, then exit without sending those results
+            // back to the model — the user sees a generic "max rounds" notice
+            // instead of a synthesis of their tool output. Omitting `tools`
+            // removes the option entirely for this one call.
+            let is_final_round = round + 1 == max_rounds;
+
             // Add cache_control to the last tool definition (tools are static, worth caching)
             let mut tools_with_cache = tool_schemas.clone();
             if let Some(last_tool) = tools_with_cache.last_mut() {
@@ -168,10 +176,12 @@ impl AssistantAgent {
                 "model": model,
                 "max_tokens": max_tokens,
                 "system": system_with_cache,
-                "tools": tools_with_cache,
                 "messages": api_messages,
                 "stream": true,
             });
+            if !is_final_round {
+                body["tools"] = json!(tools_with_cache);
+            }
 
             // Add thinking parameter if enabled
             if let Some(ref think_config) = thinking {
