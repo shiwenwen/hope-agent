@@ -2,7 +2,9 @@ use super::types::*;
 
 /// Sanitize a user query for FTS5 MATCH syntax.
 /// Wraps each word in double quotes to treat them as literal terms.
-pub(crate) fn sanitize_fts_query(query: &str) -> String {
+/// Returns `None` when the query is empty / entirely filtered — callers should
+/// return an empty result set instead of running an unbounded full-index scan.
+pub(crate) fn sanitize_fts_query(query: &str) -> Option<String> {
     let terms: Vec<String> = query
         .split_whitespace()
         .filter(|w| !w.is_empty())
@@ -22,10 +24,9 @@ pub(crate) fn sanitize_fts_query(query: &str) -> String {
         .collect();
 
     if terms.is_empty() {
-        // Fallback: match everything if query is empty/invalid
-        "\"*\"".to_string()
+        None
     } else {
-        terms.join(" OR ")
+        Some(terms.join(" OR "))
     }
 }
 
@@ -70,8 +71,10 @@ pub fn load_embedding_cache_config() -> EmbeddingCacheConfig {
 }
 
 /// Extract keywords from a query, filtering stopwords for better FTS matching.
-/// Supports English and Chinese stopwords.
-pub(crate) fn expand_query(query: &str) -> String {
+/// Supports English and Chinese stopwords. Returns `None` when nothing usable
+/// remains after stopword stripping — callers should short-circuit to an empty
+/// result.
+pub(crate) fn expand_query(query: &str) -> Option<String> {
     use std::collections::HashSet;
 
     let stopwords_en: HashSet<&str> = [
@@ -115,9 +118,8 @@ pub(crate) fn expand_query(query: &str) -> String {
         .collect();
 
     if terms.is_empty() {
-        // Fallback to original sanitize
         sanitize_fts_query(query)
     } else {
-        terms.join(" OR ")
+        Some(terms.join(" OR "))
     }
 }

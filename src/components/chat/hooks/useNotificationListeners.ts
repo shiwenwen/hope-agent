@@ -34,10 +34,11 @@ export function useNotificationListeners(deps: UseNotificationListenersDeps) {
 
   // Listen for agent-initiated notification events
   useEffect(() => {
-    return getTransport().listen("agent:send_notification", (raw) => {
+    const unlisten = getTransport().listen("agent:send_notification", (raw) => {
       const { title, body } = raw as { title: string; body: string }
       notify(title || "OpenComputer", body)
     })
+    return unlisten
   }, [])
 
   // Listen for backend-driven parent agent streaming (sub-agent result injection)
@@ -201,5 +202,7 @@ export function useNotificationListeners(deps: UseNotificationListenersDeps) {
       }
     })
     return unlisten
-  }, [reloadSessions]) // eslint-disable-line react-hooks/exhaustive-deps
+    // reloadSessions is useCallback([setSessions]) — setSessions is a stable
+    // useState setter, so this effect subscribes once per mount in practice.
+  }, [reloadSessions])
 }

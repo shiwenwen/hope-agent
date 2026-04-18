@@ -14,6 +14,8 @@
 > **2026-04-17 复核（分支 `claude/fix-audit-bugs-Ip6Bl`）**：按本文件列出的严重 Bug 逐条 Read 源文件复核。B1 / B3 / B4 / B5 / B6 / B7 / B8 / B9 均已在本轮修复；B10 经复核发现 `job_status` 早就改用 `async_jobs::wait::Notify` 注册表，不再依赖 EventBus 事件，原描述已失效；B2 经复核与原描述偏差较大（`find_round_safe_boundary` 已按 round 边界对齐，不会把 tool_use / tool_result 切开），保留观察。
 >
 > **2026-04-18 中等 Bug 复核（分支 `claude/fix-audit-bugs-BcytF`）**：按本文件列出的 11 项中等 Bug 逐条 Read 源文件复核。M3 / M4 / M5 / M6 / M8 / M9 / M10 本轮修复；M7 经复核发现 `claim_job_for_execution` 已实现原子抢占（`UPDATE ... WHERE running_at IS NULL AND next_run_at=? AND status='active'`），原风险不存在；M1 经复核发现 `cache_ttl_emergency` 仅作为 throttle 旁路开关使用，TTL 过期时 throttle 本就不生效，无需再"解耦"；M2 经复核发现循环内 `total_chars + truncated.len() + overhead > byte_budget` 的 break 检查已兜住 `MAX_RECOVERY_TOTAL_BYTES`，不会打爆上限；M11 经复核发现 useEffect 闭包内仅使用 refs 和 `useState` 返回的 setters，这些在 React 中本身稳定，eslint-disable-line 合理。
+>
+> **2026-04-18 稳定性/性能批修复（分支 `worktree-fix-audit-p2-p4-p5-p6-p9-p10`）**：按本文件"修复顺序建议"里的"第三批稳定性/性能"要求处理 P2 / P4 / P5 / P6 / P9 / P10。P2 `AskUserQuestionBlock` 倒计时 chip 原生 `title` 换成 `@/components/ui/tooltip` 的 `IconTip`；P4 经复核 oc-server + channel worker 共 4 处 `.subscribe()` 已处理 Lagged，只剩 Tauri bridge 静默 continue，补 `app_warn!` + emit `_event_bus_lagged` 事件让前端可感知；P5 OAuth margin 60s → 30s，新增 `oauth::ensure_fresh_codex_token(current_access_token)` per-chat 预刷新入口，[`chat_engine/engine.rs`](../../crates/oc-core/src/chat_engine/engine.rs) 在 model_chain 循环前调用；P6 `memory/helpers.rs` 的 `sanitize_fts_query` / `expand_query` 改为 `Option<String>`，消除 `"*"` 空回退导致的全库扫，`memory/sqlite/trait_impl.rs::search` 在 None 时跳过 FTS 直接走 vector；P9 经复核两个 effect 的 subscribe / unsubscribe 已对齐，只做风格统一（两处都走 `const unlisten = ...; return unlisten`）；P10 Plan git checkpoint 分支命名 `chrono::Local` 换成 `UTC ISO` + 8 位 UUID 尾缀，新增 `ref_exists` helper 在 `git branch` 前 `rev-parse --verify --quiet` 去重，`rollback_to_checkpoint` 也复用同 helper 去掉重复的 verify 分支。
 
 ---
 
@@ -182,7 +184,7 @@
 - **位置**：`src/components/chat/ask-user/AskUserQuestionBlock.tsx:252`
 - **因果**：违反红线——必须用 `@/components/ui/tooltip`。
 - **修复**：换 `<IconTip label={...}>`。
-- **状态**：待修复。
+- **状态**：✅ 已修复（[`AskUserQuestionBlock.tsx`](../../src/components/chat/ask-user/AskUserQuestionBlock.tsx) 倒计时 chip 包进 `@/components/ui/tooltip` 的 `IconTip`，走项目统一 tooltip 组件；红线"必须用 ui/tooltip 不用原生 title"恢复）。
 
 ### P3. `tauri.conf.json` CSP 仍为 `null`
 
@@ -196,21 +198,21 @@
 - **位置**：`crates/oc-core/src/event_bus.rs:17, 40-42`
 - **因果**：订阅方 hang / panic / 消费慢，滞后 receiver 不被主动回收；同一 channel 其他消费者会因 lag 错过事件。无消费者心跳、无超时关门。
 - **修复**：订阅循环显式 match `RecvError::Lagged` 并立即 re-sync；后台扫描过期订阅配合 keep-alive ping 强制 drop。
-- **状态**：待修复。
+- **状态**：✅ 已修复（复核 5 处订阅点：`oc-server/ws/chat_stream.rs` / `oc-server/ws/events.rs` / `channel/worker/approval.rs` / `channel/worker/ask_user.rs` 共 4 处 `.subscribe()` 已实现 Lagged 处理；唯一漏网的 [`src-tauri/src/setup.rs`](../../src-tauri/src/setup.rs) 的 EventBus → Tauri frontend bridge 原本 `Err(RecvError::Lagged(_)) => continue` 静默，现改为 `app_warn!` + `app_handle.emit("_event_bus_lagged", { missed: n })`，前端能感知到有事件被丢弃。背后的 broadcast 容量仍是 256，正常负载下不会触发）。
 
 ### P5. OAuth 刷新 margin 偏大且被动
 
 - **位置**：`crates/oc-core/src/oauth.rs:64-76`；Codex provider
 - **因果**：60s margin 仍可能在网络抖动中发送即过期 token；Codex 纯被动靠 Auth error 重试，首次失败会让用户看到一次可见错误。
 - **修复**：margin 降到 30s，Codex 发请求前主动探测 + 异步 `refresh_token` 续期。
-- **状态**：待修复。
+- **状态**：✅ 已修复（[`oauth.rs`](../../crates/oc-core/src/oauth.rs) 引入 `REFRESH_MARGIN_MS = 30_000` 常量，`is_token_expired` 从硬编码 60 000 ms 改引用常量；新增 `ensure_fresh_codex_token(current_access_token: &str) -> Option<(String, String)>`：in-memory token 与 disk 一致且未过期时返回 `None` 让调用方跳过无谓工作，disk 更新或 near-expiry 时就地 refresh 并返回新 `(access_token, account_id)` 对。[`chat_engine/engine.rs`](../../crates/oc-core/src/chat_engine/engine.rs) 在进入 `model_chain` 循环前调用，只在持有 Codex token 时触发；服务端 / 桌面 / ACP 三种运行模式共享该路径）。
 
 ### P6. FTS5 `sanitize_fts_query` 空回退 `"*"` 扫全库
 
 - **位置**：`crates/oc-core/src/memory/helpers.rs:5-30`
 - **因果**：空查询或全被过滤的 query 回退匹配所有记录，大库（10 万+）直接全表扫 + snippet 计算 → 卡顿或阻塞 SQLite。
 - **修复**：空查询直接返回空结果；或强制 `LIMIT` + `ORDER BY rowid DESC LIMIT 50`。
-- **状态**：待修复。
+- **状态**：✅ 已修复（[`memory/helpers.rs`](../../crates/oc-core/src/memory/helpers.rs) `sanitize_fts_query` / `expand_query` 返回类型从 `String` 改为 `Option<String>`，全部被 stopword 过滤 / 空白输入下返回 `None`。[`memory/sqlite/trait_impl.rs:217`](../../crates/oc-core/src/memory/sqlite/trait_impl.rs#L217) 的 `search` 从无条件 `expand_query` 改为 `if let Some(fts_query) = ... { FTS step } else { 跳过 }`，None 时跳过 FTS5 MATCH 扫描直接走 vector 分支，hybrid RRF 自然吸收空 FTS 结果。`"*"` 全库扫退化路径彻底消失）。`session/db.rs` 的 `sanitize_fts_query` 本地副本已 early-return 空结果，不受影响。
 
 ### P7. Docker SearXNG / 外部请求大响应无体量上限 + SSRF
 
@@ -231,14 +233,14 @@
 - **位置**：`src/components/chat/hooks/useNotificationListeners.ts:35-40`
 - **因果**：空依赖永远挂一份监听；组件快速 mount/unmount 时若 unsubscribe 不对称就会累积。
 - **修复**：确认 `return () => unsub()` 完全对齐 subscribe；否则会话频繁切换逐步耗内存。
-- **状态**：待修复。
+- **状态**：✅ 已修复（复核 [`useNotificationListeners.ts`](../../src/components/chat/hooks/useNotificationListeners.ts) 两个 effect：Tauri transport 的 `listen` 内部已有 `cancelled` 守卫、HTTP transport 的 `listen` 同步解绑，subscribe / unsubscribe 实际上已对齐。只做风格统一——把第一个 `return getTransport().listen(...)` 的隐式 return-unsub 写法改为 `const unlisten = ...; return unlisten`，与第二个 effect 一致，让未来阅读者一眼看清 cleanup 就是 unlisten）。
 
 ### P10. Plan git 分支命名用 `Local` 时间 + 非原子
 
 - **位置**：`crates/oc-core/src/plan/git.rs:30-54`
 - **因果**：本地时区 + 秒级时间戳，不同设备 / 并发易重名；`git branch` 非原子，回滚可能打到错 checkpoint。
 - **修复**：UTC + 短 UUID；创建前 `git rev-parse --verify` 去重。
-- **状态**：待修复。
+- **状态**：✅ 已修复（[`plan/git.rs`](../../crates/oc-core/src/plan/git.rs) 分支模板 `opencomputer/checkpoint-{short_id}-{ts}-{uuid8}`，`ts` 从 `chrono::Local::now().format("%Y%m%d%H%M%S")` 改成 `chrono::Utc::now().format("%Y%m%dT%H%M%SZ")`，外加 8 位 `uuid::Uuid::new_v4().simple()` 尾缀消除跨设备 / 并发碰撞。新增 `ref_exists(git_root, rev)` helper 走 `rev-parse --verify --quiet`，`create_git_checkpoint` 在 `git branch` 之前先查，已存在就 warn 后 return None；`rollback_to_checkpoint` 的原 inline verify 分支也收敛到同一 helper，消除重复代码）。
 
 ---
 
@@ -321,11 +323,21 @@
 | M10 Plan 文件名 | ✅ UTC + 纳秒后缀消除同秒碰撞；版本号 `max(mem, disk+1)` 重启安全 |
 | ~~M11 stale closure~~ | ⛔ refs 与 setState 均稳定，eslint-disable-line 合理 |
 
+**2026-04-18 稳定性/性能批修复（分支 `worktree-fix-audit-p2-p4-p5-p6-p9-p10`）**
+
+| ID | 处理结果 |
+|---|---|
+| P2 AskUserQuestionBlock `title` | ✅ 倒计时 chip 用 `@/components/ui/tooltip::IconTip` 替换原生 `title` |
+| P4 EventBus 订阅 Lagged | ✅ 复核 4 处订阅点已处理 Lagged，补齐 Tauri bridge 第 5 处 + emit `_event_bus_lagged` 给前端 |
+| P5 OAuth 预刷新 | ✅ margin 60s → 30s，新增 `oauth::ensure_fresh_codex_token`，engine 进入 model_chain 前 per-chat 预刷新 |
+| P6 FTS5 空回退 | ✅ `sanitize_fts_query` / `expand_query` 返回 `Option<String>`，`search` 在 None 时跳过 FTS step |
+| P9 Notification listeners | ✅ 两个 effect 的 subscribe/unsubscribe 对齐，统一 `const unlisten = ...; return unlisten` 写法 |
+| P10 Plan git checkpoint | ✅ UTC + 8 位 UUID 尾缀 + `ref_exists` 去重，`rollback_to_checkpoint` 复用 helper 消除 dup |
+
 **修复顺序建议（剩余批次）**
 
-1. 第二批（安全加固批）：P1、P3、P7、P8
-2. 第三批（稳定性 / 性能）：P4、P5、P6、P9、P10
-3. 其余按迭代节奏推进。
+1. 第二批（安全加固批）：P1、P3、P7、P8 已在独立分支落地 —— 等待 PR 合入后本文件会整合
+2. 其余设计类（D1–D5）按迭代节奏推进。
 
 ## 复核建议
 

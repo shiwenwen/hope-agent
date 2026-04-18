@@ -25,17 +25,44 @@ fn git_repo_root() -> Option<std::path::PathBuf> {
     }
 }
 
+/// Return `true` when `rev` already resolves to a git object (branch, tag,
+/// commit). Cheap probe — `rev-parse --verify --quiet` on a missing ref
+/// returns in a few ms without touching the object database.
+fn ref_exists(git_root: &std::path::Path, rev: &str) -> bool {
+    std::process::Command::new("git")
+        .current_dir(git_root)
+        .args(["rev-parse", "--verify", "--quiet", rev])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
 /// Create a git checkpoint (branch) at the current HEAD for the working directory.
 /// Returns the checkpoint branch name on success, or None if not in a git repo.
+///
+/// Branch naming: `opencomputer/checkpoint-{session_short}-{UTC_YYYYMMDDTHHMMSSZ}-{uuid8}`.
+/// UTC + UUID tail avoid DST / same-second collisions across devices.
 pub fn create_git_checkpoint(session_id: &str) -> Option<String> {
-    let short_id = crate::truncate_utf8(session_id, 8);
-    let ts = chrono::Local::now().format("%Y%m%d%H%M%S");
-    let branch_name = format!("opencomputer/checkpoint-{}-{}", short_id, ts);
-
-    // Detect git repo root directory
     let git_root = git_repo_root()?;
+    let short_id = crate::truncate_utf8(session_id, 8);
+    let ts = chrono::Utc::now().format("%Y%m%dT%H%M%SZ");
 
-    // Create a checkpoint branch at current HEAD (without switching to it)
+    let uuid_tail = uuid::Uuid::new_v4().simple().to_string();
+    let tail = &uuid_tail[..uuid_tail.len().min(8)];
+    let branch_name = format!("opencomputer/checkpoint-{}-{}-{}", short_id, ts, tail);
+
+    if ref_exists(&git_root, &branch_name) {
+        app_warn!(
+            "plan",
+            "checkpoint",
+            "Checkpoint branch '{}' already exists — aborting checkpoint",
+            branch_name
+        );
+        return None;
+    }
+
     let result = std::process::Command::new("git")
         .current_dir(&git_root)
         .args(["branch", &branch_name, "HEAD"])
@@ -86,19 +113,11 @@ pub async fn get_checkpoint_ref(session_id: &str) -> Option<String> {
 pub fn rollback_to_checkpoint(checkpoint_ref: &str) -> Result<String> {
     let git_root = git_repo_root().ok_or_else(|| anyhow::anyhow!("Not inside a git repository"))?;
 
-    // Verify the checkpoint branch exists
-    let check = std::process::Command::new("git")
-        .current_dir(&git_root)
-        .args(["rev-parse", "--verify", checkpoint_ref])
-        .output();
-    match check {
-        Ok(o) if o.status.success() => {}
-        _ => {
-            return Err(anyhow::anyhow!(
-                "Checkpoint branch '{}' does not exist",
-                checkpoint_ref
-            ))
-        }
+    if !ref_exists(&git_root, checkpoint_ref) {
+        return Err(anyhow::anyhow!(
+            "Checkpoint branch '{}' does not exist",
+            checkpoint_ref
+        ));
     }
 
     // Get current HEAD for logging

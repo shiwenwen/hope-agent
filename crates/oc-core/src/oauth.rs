@@ -60,7 +60,13 @@ pub fn extract_account_id(token: &str) -> Option<String> {
     payload.auth.and_then(|a| a.chatgpt_account_id)
 }
 
-/// Check if token is expired
+/// Margin before absolute expiry to treat the token as expired.
+/// Consumers refreshing on demand (HTTP round-trip + JWT parse typically < 1s)
+/// don't need a large window — 30s is enough to absorb clock skew and network
+/// jitter without burning the last minute of a still-valid token.
+const REFRESH_MARGIN_MS: u64 = 30_000;
+
+/// Check if token is expired (or within `REFRESH_MARGIN_MS` of expiry).
 pub fn is_token_expired(token: &TokenData) -> bool {
     match token.expires_at {
         Some(expires_at) => {
@@ -68,8 +74,7 @@ pub fn is_token_expired(token: &TokenData) -> bool {
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_millis() as u64;
-            // Consider expired if within 60 seconds of expiry
-            now_ms + 60_000 >= expires_at
+            now_ms + REFRESH_MARGIN_MS >= expires_at
         }
         None => false, // If no expiry info, assume valid
     }
@@ -317,6 +322,48 @@ fn exchange_code_for_token(code: &str, code_verifier: &str) -> Result<TokenData>
     }
 
     Ok(token)
+}
+
+/// Return a fresh `(access_token, account_id)` pair when the caller's
+/// in-memory `current_access_token` is stale or missing relative to disk:
+/// - `None` — nothing changed; caller keeps what it has.
+/// - `Some((token, account_id))` — either (a) disk has a newer token (another
+///   process refreshed it), or (b) disk token was near expiry and we just
+///   refreshed it here.
+///
+/// Called before each Codex chat request so a barely-expired token doesn't
+/// produce a visible 401 mid-conversation.
+pub async fn ensure_fresh_codex_token(current_access_token: &str) -> Option<(String, String)> {
+    let disk = load_token().ok().flatten()?;
+
+    if disk.access_token == current_access_token && !is_token_expired(&disk) {
+        return None;
+    }
+
+    if !is_token_expired(&disk) {
+        let account_id = disk
+            .account_id
+            .clone()
+            .or_else(|| extract_account_id(&disk.access_token))?;
+        return Some((disk.access_token, account_id));
+    }
+
+    let refresh = disk.refresh_token.as_ref()?;
+    match refresh_access_token(refresh).await {
+        Ok(new_token) => {
+            let account_id = new_token
+                .account_id
+                .clone()
+                .or_else(|| extract_account_id(&new_token.access_token))
+                .unwrap_or_default();
+            app_info!("auth", "codex", "Pre-refreshed Codex OAuth token");
+            Some((new_token.access_token, account_id))
+        }
+        Err(e) => {
+            app_warn!("auth", "codex", "Proactive Codex token refresh failed: {}", e);
+            None
+        }
+    }
 }
 
 /// Refresh access token using refresh_token

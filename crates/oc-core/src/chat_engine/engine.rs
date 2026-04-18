@@ -59,7 +59,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         session_db: db,
         model_chain,
         providers,
-        codex_token,
+        mut codex_token,
         resolved_temperature,
         web_search_enabled,
         notification_enabled,
@@ -78,6 +78,12 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
 
     if model_chain.is_empty() {
         return Err("No model configured for chat execution".to_string());
+    }
+
+    if let Some((ref access_token, _)) = codex_token {
+        if let Some(pair) = crate::oauth::ensure_fresh_codex_token(access_token).await {
+            codex_token = Some(pair);
+        }
     }
 
     let _stream_lifecycle = StreamLifecycle::begin(&session_id);
