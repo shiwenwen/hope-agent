@@ -1,5 +1,6 @@
 use crate::globals::APP_HANDLE;
 use crate::{cron, docker, get_logger, session, tools, tray, weather, CRON_DB};
+use oc_core::app_warn;
 use session::SessionDB;
 use std::sync::Arc;
 
@@ -174,7 +175,19 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
                         }
                         let _ = app_handle.emit(&event.name, &event.payload);
                     }
-                    Err(RecvError::Lagged(_)) => continue,
+                    Err(RecvError::Lagged(n)) => {
+                        app_warn!(
+                            "event_bus",
+                            "tauri_bridge",
+                            "Tauri bridge lagged {} events — some UI updates may be missed",
+                            n
+                        );
+                        let _ = app_handle.emit(
+                            "_event_bus_lagged",
+                            serde_json::json!({ "missed": n }),
+                        );
+                        continue;
+                    }
                     Err(RecvError::Closed) => break,
                 }
             }

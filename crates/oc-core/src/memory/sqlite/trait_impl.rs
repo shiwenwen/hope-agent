@@ -215,10 +215,9 @@ impl MemoryBackend for SqliteMemoryBackend {
         let has_vec = query_embedding.is_some();
 
         // ── Step 1: FTS5 keyword search (with query expansion) ──
-        let fts_query = crate::memory::helpers::expand_query(&query.query);
         let mut fts_results: Vec<(i64, f64)> = Vec::new(); // (id, rank)
 
-        {
+        if let Some(fts_query) = crate::memory::helpers::expand_query(&query.query) {
             let mut stmt = conn.prepare(
                 "SELECT fts.rowid, rank FROM memories_fts fts
                  WHERE memories_fts MATCH ?1

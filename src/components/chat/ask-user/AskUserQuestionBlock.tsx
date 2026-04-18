@@ -9,6 +9,7 @@ import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
+import { IconTip } from "@/components/ui/tooltip"
 import {
   HelpCircle,
   Check,
@@ -245,20 +246,21 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
           <span>{t("planMode.question.title")}</span>
         </div>
         {remaining !== null && (
-          <div
-            className={cn(
-              "flex items-center gap-1 text-xs rounded-full px-2 py-0.5",
-              timedOut
-                ? "bg-destructive/10 text-destructive"
-                : lowTime
-                  ? "bg-amber-500/15 text-amber-600 animate-pulse"
-                  : "bg-muted text-muted-foreground"
-            )}
-            title={t("planMode.question.timeoutHint", { defaultValue: "Time remaining" })}
-          >
-            <Timer className="h-3 w-3" />
-            <span>{timedOut ? t("planMode.question.timedOut", { defaultValue: "timed out" }) : formatRemaining(remaining)}</span>
-          </div>
+          <IconTip label={t("planMode.question.timeoutHint", { defaultValue: "Time remaining" })}>
+            <div
+              className={cn(
+                "flex items-center gap-1 text-xs rounded-full px-2 py-0.5",
+                timedOut
+                  ? "bg-destructive/10 text-destructive"
+                  : lowTime
+                    ? "bg-amber-500/15 text-amber-600 animate-pulse"
+                    : "bg-muted text-muted-foreground"
+              )}
+            >
+              <Timer className="h-3 w-3" />
+              <span>{timedOut ? t("planMode.question.timedOut", { defaultValue: "timed out" }) : formatRemaining(remaining)}</span>
+            </div>
+          </IconTip>
         )}
       </div>
 
