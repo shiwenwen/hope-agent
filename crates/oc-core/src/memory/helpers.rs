@@ -1,26 +1,18 @@
 use super::types::*;
 
-/// Sanitize a user query for FTS5 MATCH syntax.
-/// Wraps each word in double quotes to treat them as literal terms.
-/// Returns `None` when the query is empty / entirely filtered — callers should
-/// return an empty result set instead of running an unbounded full-index scan.
-pub(crate) fn sanitize_fts_query(query: &str) -> Option<String> {
-    let terms: Vec<String> = query
-        .split_whitespace()
-        .filter(|w| !w.is_empty())
-        .map(|w| {
-            // Remove FTS5 special chars
+/// Clean each word (keep alphanumeric / `_` / `-`), wrap non-empty results in
+/// double quotes for FTS5 MATCH literal matching, and OR-join them. Returns
+/// `None` when no usable term remains — callers short-circuit to an empty
+/// result set instead of running an unbounded full-index scan.
+fn format_fts_terms<'a, I: Iterator<Item = &'a str>>(words: I) -> Option<String> {
+    let terms: Vec<String> = words
+        .filter_map(|w| {
             let clean: String = w
                 .chars()
                 .filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-')
                 .collect();
-            if clean.is_empty() {
-                String::new()
-            } else {
-                format!("\"{}\"", clean)
-            }
+            (!clean.is_empty()).then(|| format!("\"{}\"", clean))
         })
-        .filter(|s| !s.is_empty())
         .collect();
 
     if terms.is_empty() {
@@ -28,6 +20,11 @@ pub(crate) fn sanitize_fts_query(query: &str) -> Option<String> {
     } else {
         Some(terms.join(" OR "))
     }
+}
+
+/// Sanitize a user query for FTS5 MATCH syntax (no stopword filtering).
+pub(crate) fn sanitize_fts_query(query: &str) -> Option<String> {
+    format_fts_terms(query.split_whitespace())
 }
 
 /// Load dedup thresholds from config.json, falling back to defaults.
@@ -70,10 +67,9 @@ pub fn load_embedding_cache_config() -> EmbeddingCacheConfig {
     crate::config::cached_config().embedding_cache.clone()
 }
 
-/// Extract keywords from a query, filtering stopwords for better FTS matching.
-/// Supports English and Chinese stopwords. Returns `None` when nothing usable
-/// remains after stopword stripping — callers should short-circuit to an empty
-/// result.
+/// Extract keywords from a query, filtering English + Chinese stopwords for
+/// better FTS matching. Falls back to `sanitize_fts_query(query)` when every
+/// word is a stopword so rare legitimate single-stopword queries still match.
 pub(crate) fn expand_query(query: &str) -> Option<String> {
     use std::collections::HashSet;
 
@@ -96,30 +92,9 @@ pub(crate) fn expand_query(query: &str) -> Option<String> {
     .into_iter()
     .collect();
 
-    let terms: Vec<String> = query
-        .split_whitespace()
-        .filter(|w| !w.is_empty())
-        .filter(|w| {
-            let lower = w.to_lowercase();
-            lower.len() > 1 && !stopwords_en.contains(lower.as_str()) && !stopwords_zh.contains(*w)
-        })
-        .map(|w| {
-            let clean: String = w
-                .chars()
-                .filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-')
-                .collect();
-            if clean.is_empty() {
-                String::new()
-            } else {
-                format!("\"{}\"", clean)
-            }
-        })
-        .filter(|s| !s.is_empty())
-        .collect();
-
-    if terms.is_empty() {
-        sanitize_fts_query(query)
-    } else {
-        Some(terms.join(" OR "))
-    }
+    format_fts_terms(query.split_whitespace().filter(|w| {
+        let lower = w.to_lowercase();
+        lower.len() > 1 && !stopwords_en.contains(lower.as_str()) && !stopwords_zh.contains(*w)
+    }))
+    .or_else(|| sanitize_fts_query(query))
 }

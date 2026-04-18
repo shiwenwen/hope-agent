@@ -334,13 +334,15 @@ fn exchange_code_for_token(code: &str, code_verifier: &str) -> Result<TokenData>
 /// Called before each Codex chat request so a barely-expired token doesn't
 /// produce a visible 401 mid-conversation.
 pub async fn ensure_fresh_codex_token(current_access_token: &str) -> Option<(String, String)> {
-    let disk = load_token().ok().flatten()?;
-
-    if disk.access_token == current_access_token && !is_token_expired(&disk) {
-        return None;
-    }
+    let disk = tokio::task::spawn_blocking(|| load_token().ok().flatten())
+        .await
+        .ok()
+        .flatten()?;
 
     if !is_token_expired(&disk) {
+        if disk.access_token == current_access_token {
+            return None;
+        }
         let account_id = disk
             .account_id
             .clone()

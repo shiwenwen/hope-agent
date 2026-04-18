@@ -50,8 +50,7 @@ pub fn create_git_checkpoint(session_id: &str) -> Option<String> {
     let ts = chrono::Utc::now().format("%Y%m%dT%H%M%SZ");
 
     let uuid_tail = uuid::Uuid::new_v4().simple().to_string();
-    let tail = &uuid_tail[..uuid_tail.len().min(8)];
-    let branch_name = format!("opencomputer/checkpoint-{}-{}-{}", short_id, ts, tail);
+    let branch_name = format!("opencomputer/checkpoint-{}-{}-{}", short_id, ts, &uuid_tail[..8]);
 
     if ref_exists(&git_root, &branch_name) {
         app_warn!(
