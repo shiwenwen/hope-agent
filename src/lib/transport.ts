@@ -101,3 +101,15 @@ export function isTauriMode(): boolean {
     return false;
   }
 }
+
+/**
+ * Normalize a `listen()` payload into its decoded form.
+ *
+ * Tauri 2 and the HTTP/WS transports both deliver already-parsed JS values,
+ * but older backend paths that explicitly `serde_json::to_string(...)` before
+ * emitting still arrive as a JSON string. This helper handles both shapes so
+ * call sites don't need to repeat the `typeof raw === "string"` check.
+ */
+export function parsePayload<T>(raw: unknown): T {
+  return (typeof raw === "string" ? JSON.parse(raw) : raw) as T;
+}

@@ -4,6 +4,7 @@ import {
   sendNotification,
 } from "@tauri-apps/plugin-notification"
 import { getTransport } from "@/lib/transport-provider"
+import { parsePayload } from "@/lib/transport"
 
 export interface NotificationConfig {
   enabled: boolean
@@ -35,7 +36,7 @@ export async function saveNotificationConfig(config: NotificationConfig): Promis
 export function listenNotificationConfigChange(): () => void {
   return getTransport().listen("config:changed", (raw) => {
     try {
-      const payload = typeof raw === "string" ? JSON.parse(raw) : raw
+      const payload = parsePayload<{ category?: string }>(raw)
       if (payload?.category === "notification") {
         loadNotificationConfig().catch(() => {})
       }

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react"
 import { getTransport } from "@/lib/transport-provider"
+import { parsePayload } from "@/lib/transport"
 import { convertFileSrc } from "@tauri-apps/api/core"
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window"
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow"
@@ -87,7 +88,12 @@ export default function CanvasPanel({ panelWidth = 480, onPanelWidthChange }: Ca
 
     unlisteners.push(getTransport().listen("canvas_show", (raw) => {
       try {
-        const data = JSON.parse(raw as string)
+        const data = parsePayload<{
+          projectId: string
+          title?: string
+          contentType?: CanvasInfo["contentType"]
+          projectPath?: string
+        }>(raw)
         setCanvas({
           projectId: data.projectId,
           title: data.title || "Canvas",
@@ -105,7 +111,7 @@ export default function CanvasPanel({ panelWidth = 480, onPanelWidthChange }: Ca
 
     unlisteners.push(getTransport().listen("canvas_reload", (raw) => {
       try {
-        const data = JSON.parse(raw as string)
+        const data = parsePayload<{ projectId: string }>(raw)
         // If it's the current canvas, refresh
         setCanvas((prev) => {
           if (prev && prev.projectId === data.projectId) {
@@ -130,7 +136,7 @@ export default function CanvasPanel({ panelWidth = 480, onPanelWidthChange }: Ca
 
     unlisteners.push(getTransport().listen("canvas_deleted", (raw) => {
       try {
-        const data = JSON.parse(raw as string)
+        const data = parsePayload<{ projectId: string }>(raw)
         setCanvas((prev) => {
           if (prev && prev.projectId === data.projectId) {
             return null
@@ -145,7 +151,7 @@ export default function CanvasPanel({ panelWidth = 480, onPanelWidthChange }: Ca
     // Listen for snapshot requests from backend
     unlisteners.push(getTransport().listen("canvas_snapshot_request", (raw) => {
       try {
-        const data = JSON.parse(raw as string)
+        const data = parsePayload<{ requestId: string }>(raw)
         handleSnapshotRequest(data.requestId)
       } catch {
         /* ignore */
@@ -155,7 +161,7 @@ export default function CanvasPanel({ panelWidth = 480, onPanelWidthChange }: Ca
     // Listen for eval requests from backend
     unlisteners.push(getTransport().listen("canvas_eval_request", (raw) => {
       try {
-        const data = JSON.parse(raw as string)
+        const data = parsePayload<{ requestId: string; code: string }>(raw)
         handleEvalRequest(data.requestId, data.code)
       } catch {
         /* ignore */

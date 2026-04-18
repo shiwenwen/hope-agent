@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, memo } from "react"
 import { getTransport } from "@/lib/transport-provider"
+import { parsePayload } from "@/lib/transport"
 import { classifyWeather, generatePoints } from "./weatherUtils"
 import type { WeatherData } from "./weatherUtils"
 import WeatherCanvas from "./WeatherCanvas"
@@ -109,7 +110,7 @@ function AppBackgroundInner() {
     // Listen for config:changed from backend (e.g. oc-settings skill updates ui_effects)
     const unlistenConfig = getTransport().listen("config:changed", (raw) => {
       try {
-        const payload = typeof raw === "string" ? JSON.parse(raw) : raw
+        const payload = parsePayload<{ category?: string }>(raw)
         if (payload?.category === "ui_effects") {
           loadData()
         }

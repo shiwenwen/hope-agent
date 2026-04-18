@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react"
 import { getTransport } from "@/lib/transport-provider"
+import { parsePayload } from "@/lib/transport"
 import { logger } from "@/lib/logger"
 import type { AskUserQuestionGroup } from "../ask-user/AskUserQuestionBlock"
 
@@ -280,8 +281,7 @@ export function usePlanMode(
   useEffect(() => {
     const handler = (raw: unknown) => {
       try {
-        const group: AskUserQuestionGroup =
-          typeof raw === "string" ? JSON.parse(raw) : (raw as AskUserQuestionGroup)
+        const group = parsePayload<AskUserQuestionGroup>(raw)
         if (group.sessionId !== currentSessionId) return
         setPendingQuestionGroup(group)
       } catch {

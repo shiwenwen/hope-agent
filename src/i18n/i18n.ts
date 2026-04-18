@@ -1,6 +1,7 @@
 import i18n from "i18next"
 import { initReactI18next } from "react-i18next"
 import { getTransport } from "@/lib/transport-provider"
+import { parsePayload } from "@/lib/transport"
 
 import zh from "./locales/zh.json"
 import zhTW from "./locales/zh-TW.json"
@@ -130,7 +131,7 @@ export function setLanguage(code: string) {
 export function listenLanguageConfigChange(): () => void {
   return getTransport().listen("config:changed", (raw) => {
     try {
-      const payload = typeof raw === "string" ? JSON.parse(raw) : raw
+      const payload = parsePayload<{ category?: string }>(raw)
       if (payload?.category === "language") {
         initLanguageFromConfig()
       }

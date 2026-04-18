@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react"
 import { getTransport } from "@/lib/transport-provider"
+import { parsePayload } from "@/lib/transport"
 import { logger } from "@/lib/logger"
 import type { ApprovalRequest } from "@/components/chat/ApprovalDialog"
 
@@ -18,8 +19,7 @@ export function useApprovals(): UseApprovalsReturn {
   useEffect(() => {
     return getTransport().listen("approval_required", (raw) => {
       try {
-        const request: ApprovalRequest = JSON.parse(raw as string)
-        setApprovalRequests((prev) => [...prev, request])
+        setApprovalRequests((prev) => [...prev, parsePayload<ApprovalRequest>(raw)])
       } catch (e) {
         logger.error("ui", "ChatScreen::approval", "Failed to parse approval request", e)
       }

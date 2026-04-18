@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react"
 import { getTransport } from "@/lib/transport-provider"
+import { parsePayload } from "@/lib/transport"
 
 export type ThemeMode = "auto" | "light" | "dark"
 
@@ -58,7 +59,7 @@ export function useTheme() {
   useEffect(() => {
     return getTransport().listen("config:changed", (raw) => {
       try {
-        const payload = typeof raw === "string" ? JSON.parse(raw) : raw
+        const payload = parsePayload<{ category?: string }>(raw)
         if (payload?.category === "theme") {
           getTransport().call<string>("get_theme").then((stored) => {
             const mode = (stored === "light" || stored === "dark") ? stored : "auto"

@@ -9,7 +9,9 @@ use super::super::{
 };
 use super::core_tools::get_available_tools;
 use super::extra_tools::{get_canvas_tool, get_notification_tool, get_web_search_tool};
-use super::special_tools::{get_acp_spawn_tool, get_image_generate_tool, get_subagent_tool};
+use super::special_tools::{
+    get_acp_spawn_tool, get_image_generate_tool, get_subagent_tool, get_tool_search_tool,
+};
 use super::types::ToolDefinition;
 
 /// Tools that are safe for concurrent execution (read-only, no side effects).
@@ -53,13 +55,15 @@ static INTERNAL_TOOL_NAMES: LazyLock<HashSet<String>> = LazyLock::new(|| {
         .filter(|t| t.internal)
         .map(|t| t.name)
         .collect();
-    // Include conditionally-injected tools
+    // Tools not registered via get_available_tools() must be listed here —
+    // their `internal: true` flag is otherwise invisible to the approval gate.
     for t in [
         get_notification_tool(),
         get_subagent_tool(),
         get_image_generate_tool(),
         get_canvas_tool(),
         get_acp_spawn_tool(),
+        get_tool_search_tool(),
     ] {
         if t.internal {
             set.insert(t.name);
