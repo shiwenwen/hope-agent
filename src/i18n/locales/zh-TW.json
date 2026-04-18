@@ -334,6 +334,27 @@
     "skillHealth": "健康狀態",
     "memory": "記憶",
     "memoryDesc": "持久化記憶，幫助 AI 在跨對話中記住重要上下文",
+    "memoryBudget": {
+      "title": "記憶預算",
+      "desc": "限制系統提示詞中記憶區塊(Global memory.md / Agent memory.md / SQLite 記憶 / 使用指南)的總字元數,以及內部各層獨立上限。降低 total 可以讓更多預算留給對話上下文。",
+      "agentOverrideDesc": "預設繼承全域記憶預算。關閉下方開關以為當前 Agent 自訂獨立預算。",
+      "useGlobalDefault": "繼承全域預設",
+      "resetToDefaults": "恢復預設值",
+      "totalChars": "總字元上限",
+      "totalCharsDesc": "整段 Memory 的硬上限(字元)。Guidelines 優先保留,其餘層按優先級依次消費。預設 10000。",
+      "coreMemoryFileChars": "memory.md 單層上限",
+      "coreMemoryFileCharsDesc": "Global / Agent 每個 memory.md 獨立上限。超出的部分截斷顯示,完整內容仍在磁碟。預設 8000。",
+      "sqliteEntryMaxChars": "單條記憶字元上限",
+      "sqliteEntryMaxCharsDesc": "SQLite 記憶條目渲染時的首行字元上限,避免單條長記憶擠占同節其他條目。預設 500。",
+      "sqliteSectionsTitle": "SQLite 各節預算",
+      "sections": {
+        "aboutYou": "關於你自己",
+        "aboutUser": "關於使用者",
+        "preferences": "偏好",
+        "projectContext": "專案上下文",
+        "references": "參考資料"
+      }
+    },
     "coreMemory": "核心記憶",
     "coreMemoryGlobal": "全局核心記憶",
     "coreMemoryGlobalDesc": "所有 Agent 共享的規則和偏好，始終在對話中可見",

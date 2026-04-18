@@ -334,6 +334,27 @@
     "skillHealth": "Estado",
     "memory": "Memoria",
     "memoryDesc": "Memorias persistentes que ayudan a la IA a recordar contexto entre conversaciones",
+    "memoryBudget": {
+      "title": "Presupuesto de memoria",
+      "desc": "Limita el total de caracteres de la sección de memoria (Global memory.md / Agent memory.md / memorias SQLite / Directrices) y los límites por capa en su interior. Reducir el total libera presupuesto para el contexto de la conversación activa.",
+      "agentOverrideDesc": "De forma predeterminada, hereda el Presupuesto de memoria global. Desactívalo para usar un presupuesto específico del Agent.",
+      "useGlobalDefault": "Heredar valor global predeterminado",
+      "resetToDefaults": "Restablecer valores predeterminados",
+      "totalChars": "Límite total de caracteres",
+      "totalCharsDesc": "Límite superior estricto para toda la sección de memoria. Las Directrices se reservan primero; las demás capas consumen por orden de prioridad. Predeterminado 10000.",
+      "coreMemoryFileChars": "Límite por memory.md",
+      "coreMemoryFileCharsDesc": "Límite independiente para cada archivo memory.md (Global / Agent). El contenido que exceda el límite se trunca en el prompt pero se conserva en disco. Predeterminado 8000.",
+      "sqliteEntryMaxChars": "Límite por entrada",
+      "sqliteEntryMaxCharsDesc": "Límite superior de la primera línea de cada elemento de memoria SQLite renderizado, para evitar que una entrada larga desplace a sus pares de la misma sección. Predeterminado 500.",
+      "sqliteSectionsTitle": "Presupuestos por sección de SQLite",
+      "sections": {
+        "aboutYou": "Sobre ti",
+        "aboutUser": "Sobre el usuario",
+        "preferences": "Preferencias",
+        "projectContext": "Contexto del proyecto",
+        "references": "Referencias"
+      }
+    },
     "coreMemory": "Memoria principal",
     "coreMemoryGlobal": "Memoria principal global",
     "coreMemoryGlobalDesc": "Reglas y preferencias compartidas por todos los Agents, siempre visibles en las conversaciones",

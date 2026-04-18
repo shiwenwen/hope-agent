@@ -334,6 +334,27 @@
     "skillHealth": "ヘルス",
     "memory": "記憶",
     "memoryDesc": "会話を跨いで AI が文脈を記憶するための永続的な記憶",
+    "memoryBudget": {
+      "title": "メモリバジェット",
+      "desc": "メモリセクション(Global memory.md / Agent memory.md / SQLite メモリ / ガイドライン)の合計文字数と内部各層の上限を制限します。合計を減らすと会話コンテキストに使える予算が増えます。",
+      "agentOverrideDesc": "デフォルトではグローバルのメモリバジェットを継承します。オフにすると Agent 固有のバジェットを使用します。",
+      "useGlobalDefault": "グローバルのデフォルトを継承",
+      "resetToDefaults": "デフォルトに戻す",
+      "totalChars": "合計文字数上限",
+      "totalCharsDesc": "メモリセクション全体のハード上限。ガイドラインが最優先で確保され、残りは優先度順に各層へ分配されます。デフォルト 10000。",
+      "coreMemoryFileChars": "memory.md 各層の上限",
+      "coreMemoryFileCharsDesc": "各 memory.md ファイル(Global / Agent)の独立した上限。超過分はプロンプト上で切り詰められますが、ディスク上の内容は保持されます。デフォルト 8000。",
+      "sqliteEntryMaxChars": "1件あたりの文字数上限",
+      "sqliteEntryMaxCharsDesc": "SQLite メモリ項目をレンダリングする際の先頭行の文字数上限。長い 1 件が同じセクションの他項目を押し出すのを防ぎます。デフォルト 500。",
+      "sqliteSectionsTitle": "SQLite セクション別バジェット",
+      "sections": {
+        "aboutYou": "あなた自身について",
+        "aboutUser": "ユーザーについて",
+        "preferences": "好み",
+        "projectContext": "プロジェクトコンテキスト",
+        "references": "参考資料"
+      }
+    },
     "coreMemory": "コア記憶",
     "coreMemoryGlobal": "グローバルコア記憶",
     "coreMemoryGlobalDesc": "すべての Agent が共有するルールと好み。会話中に常時表示されます",

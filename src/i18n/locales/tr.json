@@ -334,6 +334,27 @@
     "skillHealth": "Sağlık",
     "memory": "Hafıza",
     "memoryDesc": "AI'nın konuşmalar arasında bağlamı hatırlamasına yardımcı olan kalıcı hafıza",
+    "memoryBudget": {
+      "title": "Bellek Bütçesi",
+      "desc": "Bellek bölümünün (Global memory.md / Agent memory.md / SQLite bellekleri / Yönergeler) toplam karakter sayısını ve içindeki katman başı sınırları sınırlar. Toplamı düşürmek canlı konuşma bağlamına daha fazla bütçe bırakır.",
+      "agentOverrideDesc": "Varsayılan olarak küresel Bellek Bütçesini devralır. Agent'e özgü bir bütçe kullanmak için kapatın.",
+      "useGlobalDefault": "Küresel varsayılanı devral",
+      "resetToDefaults": "Varsayılanlara sıfırla",
+      "totalChars": "Toplam karakter sınırı",
+      "totalCharsDesc": "Bellek bölümünün tamamı için sert üst sınır. Önce Yönergeler ayrılır; kalan katmanlar öncelik sırasına göre tüketilir. Varsayılan 10000.",
+      "coreMemoryFileChars": "memory.md katman başı sınır",
+      "coreMemoryFileCharsDesc": "Her memory.md dosyası (Global / Agent) için bağımsız sınır. Sınırı aşan içerik istemde kesilir ancak diskte korunur. Varsayılan 8000.",
+      "sqliteEntryMaxChars": "Kayıt başı sınır",
+      "sqliteEntryMaxCharsDesc": "İşlenen her SQLite bellek maddesinin ilk satırı için üst sınır; uzun bir kaydın aynı bölümdeki diğerlerini dışarı itmesini önler. Varsayılan 500.",
+      "sqliteSectionsTitle": "SQLite bölüm başı bütçeler",
+      "sections": {
+        "aboutYou": "Kendiniz hakkında",
+        "aboutUser": "Kullanıcı hakkında",
+        "preferences": "Tercihler",
+        "projectContext": "Proje bağlamı",
+        "references": "Referanslar"
+      }
+    },
     "coreMemory": "Çekirdek hafıza",
     "coreMemoryGlobal": "Genel çekirdek hafıza",
     "coreMemoryGlobalDesc": "Tüm Agents arasında paylaşılan kurallar ve tercihler, konuşmalarda her zaman görünür",

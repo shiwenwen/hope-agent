@@ -334,6 +334,27 @@
     "skillHealth": "Saúde",
     "memory": "Memória",
     "memoryDesc": "Memórias persistentes que ajudam a IA a lembrar contexto entre conversas",
+    "memoryBudget": {
+      "title": "Orçamento de memória",
+      "desc": "Limita o total de caracteres da seção de memória (Global memory.md / Agent memory.md / memórias SQLite / Diretrizes) e os limites por camada dentro dela. Reduzir o total libera orçamento para o contexto da conversa ativa.",
+      "agentOverrideDesc": "Por padrão, herda o Orçamento de memória global. Desative para usar um orçamento específico do Agent.",
+      "useGlobalDefault": "Herdar padrão global",
+      "resetToDefaults": "Restaurar padrões",
+      "totalChars": "Limite total de caracteres",
+      "totalCharsDesc": "Limite superior rígido para toda a seção de memória. As Diretrizes são reservadas primeiro; as demais camadas consomem em ordem de prioridade. Padrão 10000.",
+      "coreMemoryFileChars": "Limite por memory.md",
+      "coreMemoryFileCharsDesc": "Limite independente para cada arquivo memory.md (Global / Agent). O conteúdo além do limite é truncado no prompt, mas preservado em disco. Padrão 8000.",
+      "sqliteEntryMaxChars": "Limite por entrada",
+      "sqliteEntryMaxCharsDesc": "Limite superior para a primeira linha de cada item de memória SQLite renderizado, evitando que uma entrada longa expulse as demais da mesma seção. Padrão 500.",
+      "sqliteSectionsTitle": "Orçamentos por seção do SQLite",
+      "sections": {
+        "aboutYou": "Sobre você",
+        "aboutUser": "Sobre o usuário",
+        "preferences": "Preferências",
+        "projectContext": "Contexto do projeto",
+        "references": "Referências"
+      }
+    },
     "coreMemory": "Memória central",
     "coreMemoryGlobal": "Memória central global",
     "coreMemoryGlobalDesc": "Regras e preferências compartilhadas por todos os Agents, sempre visíveis nas conversas",

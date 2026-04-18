@@ -114,7 +114,28 @@
       "memorySelectionMaxSelected": "最大選択数",
       "memorySelectionMaxSelectedDesc": "プロンプトに注入するメモリ数の上限。デフォルト 5。",
       "asyncToolsJobStatusMaxWait": "job_status 最大待機時間",
-      "asyncToolsJobStatusMaxWaitDesc": "単一の job_status(block=true) 呼び出しの上限。ジョブごとの最大時間 = 0 の場合のみ適用され、それ以外はジョブごとの最大時間が優先されます。"
+      "asyncToolsJobStatusMaxWaitDesc": "単一の job_status(block=true) 呼び出しの上限。ジョブごとの最大時間 = 0 の場合のみ適用され、それ以外はジョブごとの最大時間が優先されます。",
+      "memoryBudget": {
+        "title": "メモリバジェット",
+        "desc": "メモリセクション(Global memory.md / Agent memory.md / SQLite メモリ / ガイドライン)の合計文字数と内部各層の上限を制限します。合計を減らすと会話コンテキストに使える予算が増えます。",
+        "agentOverrideDesc": "デフォルトではグローバルのメモリバジェットを継承します。オフにすると Agent 固有のバジェットを使用します。",
+        "useGlobalDefault": "グローバルのデフォルトを継承",
+        "resetToDefaults": "デフォルトに戻す",
+        "totalChars": "合計文字数上限",
+        "totalCharsDesc": "メモリセクション全体のハード上限。ガイドラインが最優先で確保され、残りは優先度順に各層へ分配されます。デフォルト 10000。",
+        "coreMemoryFileChars": "memory.md 各層の上限",
+        "coreMemoryFileCharsDesc": "各 memory.md ファイル(Global / Agent)の独立した上限。超過分はプロンプト上で切り詰められますが、ディスク上の内容は保持されます。デフォルト 8000。",
+        "sqliteEntryMaxChars": "1件あたりの文字数上限",
+        "sqliteEntryMaxCharsDesc": "SQLite メモリ項目をレンダリングする際の先頭行の文字数上限。長い 1 件が同じセクションの他項目を押し出すのを防ぎます。デフォルト 500。",
+        "sqliteSectionsTitle": "SQLite セクション別バジェット",
+        "sections": {
+          "aboutYou": "あなた自身について",
+          "aboutUser": "ユーザーについて",
+          "preferences": "好み",
+          "projectContext": "プロジェクトコンテキスト",
+          "references": "参考資料"
+        }
+      }
     },
     "subagent": {
       "deletedAgentTooltip": "このエージェントは削除されました",
@@ -248,7 +269,28 @@
       "memorySelectionMaxSelected": "최대 선택 수",
       "memorySelectionMaxSelectedDesc": "프롬프트에 주입되는 메모리 수의 상한. 기본값 5.",
       "asyncToolsJobStatusMaxWait": "job_status 최대 대기 시간",
-      "asyncToolsJobStatusMaxWaitDesc": "단일 job_status(block=true) 호출의 상한. 작업당 최대 시간 = 0일 때만 적용되며, 그렇지 않으면 작업당 최대 시간이 우선합니다."
+      "asyncToolsJobStatusMaxWaitDesc": "단일 job_status(block=true) 호출의 상한. 작업당 최대 시간 = 0일 때만 적용되며, 그렇지 않으면 작업당 최대 시간이 우선합니다.",
+      "memoryBudget": {
+        "title": "메모리 예산",
+        "desc": "메모리 섹션(Global memory.md / Agent memory.md / SQLite 메모리 / 가이드라인)의 총 문자 수와 내부 각 계층의 개별 상한을 제한합니다. 총량을 줄이면 대화 컨텍스트에 더 많은 예산을 남길 수 있습니다.",
+        "agentOverrideDesc": "기본적으로 전역 메모리 예산을 상속합니다. 끄면 Agent 전용 예산을 사용합니다.",
+        "useGlobalDefault": "전역 기본값 상속",
+        "resetToDefaults": "기본값으로 복원",
+        "totalChars": "총 문자 수 상한",
+        "totalCharsDesc": "메모리 섹션 전체의 하드 상한(문자). 가이드라인이 우선 예약되고, 나머지 계층은 우선순위 순으로 소비됩니다. 기본값 10000.",
+        "coreMemoryFileChars": "memory.md 계층별 상한",
+        "coreMemoryFileCharsDesc": "각 memory.md 파일(Global / Agent)의 독립 상한. 상한을 초과한 내용은 프롬프트에서 잘리지만 디스크에는 그대로 보존됩니다. 기본값 8000.",
+        "sqliteEntryMaxChars": "항목당 문자 수 상한",
+        "sqliteEntryMaxCharsDesc": "SQLite 메모리 항목 렌더링 시 첫 줄의 문자 수 상한. 긴 항목 하나가 같은 섹션의 다른 항목을 밀어내지 못하도록 합니다. 기본값 500.",
+        "sqliteSectionsTitle": "SQLite 섹션별 예산",
+        "sections": {
+          "aboutYou": "당신 자신에 대해",
+          "aboutUser": "사용자에 대해",
+          "preferences": "선호도",
+          "projectContext": "프로젝트 컨텍스트",
+          "references": "참조"
+        }
+      }
     },
     "subagent": {
       "deletedAgentTooltip": "이 에이전트는 삭제되었습니다",
@@ -382,7 +424,28 @@
       "memorySelectionMaxSelected": "最多挑選數",
       "memorySelectionMaxSelectedDesc": "注入系統提示的記憶條數上限，預設 5",
       "asyncToolsJobStatusMaxWait": "job_status 最大等待時長",
-      "asyncToolsJobStatusMaxWaitDesc": "單次 job_status(block=true) 的等待上限。僅當單 job 最大時長 = 0 時生效，其他情況以單 job 最大時長為準"
+      "asyncToolsJobStatusMaxWaitDesc": "單次 job_status(block=true) 的等待上限。僅當單 job 最大時長 = 0 時生效，其他情況以單 job 最大時長為準",
+      "memoryBudget": {
+        "title": "記憶預算",
+        "desc": "限制系統提示詞中記憶區塊(Global memory.md / Agent memory.md / SQLite 記憶 / 使用指南)的總字元數,以及內部各層獨立上限。降低 total 可以讓更多預算留給對話上下文。",
+        "agentOverrideDesc": "預設繼承全域記憶預算。關閉下方開關以為當前 Agent 自訂獨立預算。",
+        "useGlobalDefault": "繼承全域預設",
+        "resetToDefaults": "恢復預設值",
+        "totalChars": "總字元上限",
+        "totalCharsDesc": "整段 Memory 的硬上限(字元)。Guidelines 優先保留,其餘層按優先級依次消費。預設 10000。",
+        "coreMemoryFileChars": "memory.md 單層上限",
+        "coreMemoryFileCharsDesc": "Global / Agent 每個 memory.md 獨立上限。超出的部分截斷顯示,完整內容仍在磁碟。預設 8000。",
+        "sqliteEntryMaxChars": "單條記憶字元上限",
+        "sqliteEntryMaxCharsDesc": "SQLite 記憶條目渲染時的首行字元上限,避免單條長記憶擠占同節其他條目。預設 500。",
+        "sqliteSectionsTitle": "SQLite 各節預算",
+        "sections": {
+          "aboutYou": "關於你自己",
+          "aboutUser": "關於使用者",
+          "preferences": "偏好",
+          "projectContext": "專案上下文",
+          "references": "參考資料"
+        }
+      }
     },
     "subagent": {
       "deletedAgentTooltip": "此 Agent 已被刪除",
@@ -516,7 +579,28 @@
       "memorySelectionMaxSelected": "Maksimum seçilen",
       "memorySelectionMaxSelectedDesc": "Prompta enjekte edilen bellek sayısının üst sınırı. Varsayılan 5.",
       "asyncToolsJobStatusMaxWait": "job_status maksimum bekleme",
-      "asyncToolsJobStatusMaxWaitDesc": "Tek bir job_status(block=true) çağrısının üst sınırı. Yalnızca iş başına maksimum süre = 0 olduğunda uygulanır; aksi halde iş başına maksimum süre önceliklidir."
+      "asyncToolsJobStatusMaxWaitDesc": "Tek bir job_status(block=true) çağrısının üst sınırı. Yalnızca iş başına maksimum süre = 0 olduğunda uygulanır; aksi halde iş başına maksimum süre önceliklidir.",
+      "memoryBudget": {
+        "title": "Bellek Bütçesi",
+        "desc": "Bellek bölümünün (Global memory.md / Agent memory.md / SQLite bellekleri / Yönergeler) toplam karakter sayısını ve içindeki katman başı sınırları sınırlar. Toplamı düşürmek canlı konuşma bağlamına daha fazla bütçe bırakır.",
+        "agentOverrideDesc": "Varsayılan olarak küresel Bellek Bütçesini devralır. Agent'e özgü bir bütçe kullanmak için kapatın.",
+        "useGlobalDefault": "Küresel varsayılanı devral",
+        "resetToDefaults": "Varsayılanlara sıfırla",
+        "totalChars": "Toplam karakter sınırı",
+        "totalCharsDesc": "Bellek bölümünün tamamı için sert üst sınır. Önce Yönergeler ayrılır; kalan katmanlar öncelik sırasına göre tüketilir. Varsayılan 10000.",
+        "coreMemoryFileChars": "memory.md katman başı sınır",
+        "coreMemoryFileCharsDesc": "Her memory.md dosyası (Global / Agent) için bağımsız sınır. Sınırı aşan içerik istemde kesilir ancak diskte korunur. Varsayılan 8000.",
+        "sqliteEntryMaxChars": "Kayıt başı sınır",
+        "sqliteEntryMaxCharsDesc": "İşlenen her SQLite bellek maddesinin ilk satırı için üst sınır; uzun bir kaydın aynı bölümdeki diğerlerini dışarı itmesini önler. Varsayılan 500.",
+        "sqliteSectionsTitle": "SQLite bölüm başı bütçeler",
+        "sections": {
+          "aboutYou": "Kendiniz hakkında",
+          "aboutUser": "Kullanıcı hakkında",
+          "preferences": "Tercihler",
+          "projectContext": "Proje bağlamı",
+          "references": "Referanslar"
+        }
+      }
     },
     "subagent": {
       "deletedAgentTooltip": "Bu ajan silindi",
@@ -650,7 +734,28 @@
       "memorySelectionMaxSelected": "Số lượng tối đa chọn",
       "memorySelectionMaxSelectedDesc": "Giới hạn trên số memory đưa vào prompt. Mặc định 5.",
       "asyncToolsJobStatusMaxWait": "Thời gian chờ tối đa job_status",
-      "asyncToolsJobStatusMaxWaitDesc": "Giới hạn trên cho một lệnh gọi job_status(block=true) duy nhất. Chỉ áp dụng khi thời lượng tối đa mỗi job = 0; ngược lại ưu tiên thời lượng tối đa mỗi job."
+      "asyncToolsJobStatusMaxWaitDesc": "Giới hạn trên cho một lệnh gọi job_status(block=true) duy nhất. Chỉ áp dụng khi thời lượng tối đa mỗi job = 0; ngược lại ưu tiên thời lượng tối đa mỗi job.",
+      "memoryBudget": {
+        "title": "Ngân sách bộ nhớ",
+        "desc": "Giới hạn tổng số ký tự của phần bộ nhớ (Global memory.md / Agent memory.md / bộ nhớ SQLite / Hướng dẫn) và giới hạn từng lớp bên trong. Giảm tổng sẽ dành thêm ngân sách cho ngữ cảnh hội thoại trực tiếp.",
+        "agentOverrideDesc": "Mặc định kế thừa Ngân sách bộ nhớ chung. Tắt để dùng ngân sách riêng cho Agent.",
+        "useGlobalDefault": "Kế thừa mặc định chung",
+        "resetToDefaults": "Khôi phục mặc định",
+        "totalChars": "Giới hạn tổng ký tự",
+        "totalCharsDesc": "Giới hạn trên cứng cho toàn bộ phần bộ nhớ. Hướng dẫn được giữ trước; các lớp còn lại tiêu thụ theo thứ tự ưu tiên. Mặc định 10000.",
+        "coreMemoryFileChars": "Giới hạn từng memory.md",
+        "coreMemoryFileCharsDesc": "Giới hạn độc lập cho mỗi tệp memory.md (Global / Agent). Nội dung vượt quá sẽ bị cắt trong lời nhắc nhưng vẫn giữ nguyên trên đĩa. Mặc định 8000.",
+        "sqliteEntryMaxChars": "Giới hạn mỗi mục",
+        "sqliteEntryMaxCharsDesc": "Giới hạn trên cho dòng đầu của mỗi mục bộ nhớ SQLite khi hiển thị, tránh một mục dài chiếm chỗ của các mục khác cùng phần. Mặc định 500.",
+        "sqliteSectionsTitle": "Ngân sách theo phần SQLite",
+        "sections": {
+          "aboutYou": "Về bạn",
+          "aboutUser": "Về người dùng",
+          "preferences": "Sở thích",
+          "projectContext": "Ngữ cảnh dự án",
+          "references": "Tham chiếu"
+        }
+      }
     },
     "subagent": {
       "deletedAgentTooltip": "Agent này đã bị xoá",
@@ -784,7 +889,28 @@
       "memorySelectionMaxSelected": "Máx. selecionado",
       "memorySelectionMaxSelectedDesc": "Limite superior de memórias injetadas no prompt. Padrão 5.",
       "asyncToolsJobStatusMaxWait": "Espera máxima do job_status",
-      "asyncToolsJobStatusMaxWaitDesc": "Limite superior para uma única chamada job_status(block=true). Aplicado somente quando a duração máxima por job = 0; caso contrário, a duração máxima por job tem precedência."
+      "asyncToolsJobStatusMaxWaitDesc": "Limite superior para uma única chamada job_status(block=true). Aplicado somente quando a duração máxima por job = 0; caso contrário, a duração máxima por job tem precedência.",
+      "memoryBudget": {
+        "title": "Orçamento de memória",
+        "desc": "Limita o total de caracteres da seção de memória (Global memory.md / Agent memory.md / memórias SQLite / Diretrizes) e os limites por camada dentro dela. Reduzir o total libera orçamento para o contexto da conversa ativa.",
+        "agentOverrideDesc": "Por padrão, herda o Orçamento de memória global. Desative para usar um orçamento específico do Agent.",
+        "useGlobalDefault": "Herdar padrão global",
+        "resetToDefaults": "Restaurar padrões",
+        "totalChars": "Limite total de caracteres",
+        "totalCharsDesc": "Limite superior rígido para toda a seção de memória. As Diretrizes são reservadas primeiro; as demais camadas consomem em ordem de prioridade. Padrão 10000.",
+        "coreMemoryFileChars": "Limite por memory.md",
+        "coreMemoryFileCharsDesc": "Limite independente para cada arquivo memory.md (Global / Agent). O conteúdo além do limite é truncado no prompt, mas preservado em disco. Padrão 8000.",
+        "sqliteEntryMaxChars": "Limite por entrada",
+        "sqliteEntryMaxCharsDesc": "Limite superior para a primeira linha de cada item de memória SQLite renderizado, evitando que uma entrada longa expulse as demais da mesma seção. Padrão 500.",
+        "sqliteSectionsTitle": "Orçamentos por seção do SQLite",
+        "sections": {
+          "aboutYou": "Sobre você",
+          "aboutUser": "Sobre o usuário",
+          "preferences": "Preferências",
+          "projectContext": "Contexto do projeto",
+          "references": "Referências"
+        }
+      }
     },
     "subagent": {
       "deletedAgentTooltip": "Este agente foi excluído",
@@ -918,7 +1044,28 @@
       "memorySelectionMaxSelected": "Максимум выбранных",
       "memorySelectionMaxSelectedDesc": "Верхний предел числа воспоминаний в промпте. По умолчанию 5.",
       "asyncToolsJobStatusMaxWait": "Максимальное ожидание job_status",
-      "asyncToolsJobStatusMaxWaitDesc": "Верхний предел одного вызова job_status(block=true). Применяется только если максимальная длительность задания = 0; иначе приоритет имеет максимальная длительность задания."
+      "asyncToolsJobStatusMaxWaitDesc": "Верхний предел одного вызова job_status(block=true). Применяется только если максимальная длительность задания = 0; иначе приоритет имеет максимальная длительность задания.",
+      "memoryBudget": {
+        "title": "Бюджет памяти",
+        "desc": "Ограничивает общее количество символов в разделе памяти (Global memory.md / Agent memory.md / память SQLite / Рекомендации) и лимиты по слоям внутри него. Снижение общего значения оставляет больше бюджета контексту активного диалога.",
+        "agentOverrideDesc": "По умолчанию наследует глобальный Бюджет памяти. Отключите, чтобы использовать бюджет, специфичный для Agent.",
+        "useGlobalDefault": "Наследовать глобальные значения",
+        "resetToDefaults": "Сбросить к значениям по умолчанию",
+        "totalChars": "Лимит общего числа символов",
+        "totalCharsDesc": "Жёсткий верхний предел всего раздела памяти. Рекомендации резервируются первыми, остальные слои потребляют по приоритету. По умолчанию 10000.",
+        "coreMemoryFileChars": "Лимит на слой memory.md",
+        "coreMemoryFileCharsDesc": "Независимый лимит для каждого файла memory.md (Global / Agent). Содержимое сверх лимита обрезается в подсказке, но сохраняется на диске. По умолчанию 8000.",
+        "sqliteEntryMaxChars": "Лимит на запись",
+        "sqliteEntryMaxCharsDesc": "Верхний предел первой строки каждой отрисованной записи памяти SQLite, чтобы одна длинная запись не вытесняла соседние в той же секции. По умолчанию 500.",
+        "sqliteSectionsTitle": "Бюджеты по секциям SQLite",
+        "sections": {
+          "aboutYou": "О вас самих",
+          "aboutUser": "О пользователе",
+          "preferences": "Предпочтения",
+          "projectContext": "Контекст проекта",
+          "references": "Ссылки"
+        }
+      }
     },
     "subagent": {
       "deletedAgentTooltip": "Этот агент был удалён",
@@ -1052,7 +1199,28 @@
       "memorySelectionMaxSelected": "الحد الأقصى للاختيار",
       "memorySelectionMaxSelectedDesc": "الحد الأقصى لعدد الذكريات المُدرجة في التوجيه. الافتراضي 5.",
       "asyncToolsJobStatusMaxWait": "الحد الأقصى لانتظار job_status",
-      "asyncToolsJobStatusMaxWaitDesc": "الحد الأعلى لمكالمة job_status(block=true) واحدة. يُطبَّق فقط عندما يكون الحد الأقصى لمدة المهمة = 0، وإلا فإن الحد الأقصى لمدة المهمة يسبقه."
+      "asyncToolsJobStatusMaxWaitDesc": "الحد الأعلى لمكالمة job_status(block=true) واحدة. يُطبَّق فقط عندما يكون الحد الأقصى لمدة المهمة = 0، وإلا فإن الحد الأقصى لمدة المهمة يسبقه.",
+      "memoryBudget": {
+        "title": "ميزانية الذاكرة",
+        "desc": "يقيّد إجمالي عدد الأحرف في قسم الذاكرة (Global memory.md / Agent memory.md / ذاكرة SQLite / الإرشادات) وحدود كل طبقة داخله. خفض الإجمالي يترك مزيدًا من الميزانية لسياق المحادثة الحية.",
+        "agentOverrideDesc": "يرث ميزانية الذاكرة العامة بشكل افتراضي. أوقف التشغيل لاستخدام ميزانية خاصة بـ Agent.",
+        "useGlobalDefault": "وراثة الإعداد العام",
+        "resetToDefaults": "إعادة تعيين للقيم الافتراضية",
+        "totalChars": "حد إجمالي الأحرف",
+        "totalCharsDesc": "حد أعلى صارم لقسم الذاكرة بالكامل. تُحفظ الإرشادات أولًا؛ والطبقات الأخرى تُستهلك بترتيب الأولوية. الافتراضي 10000.",
+        "coreMemoryFileChars": "حد كل طبقة memory.md",
+        "coreMemoryFileCharsDesc": "حد مستقل لكل ملف memory.md (Global / Agent). يُقطع المحتوى الزائد في المحث لكنه يُحفظ على القرص. الافتراضي 8000.",
+        "sqliteEntryMaxChars": "حد كل سجل",
+        "sqliteEntryMaxCharsDesc": "الحد الأعلى للسطر الأول لكل سجل ذاكرة SQLite عند العرض، لمنع سجل طويل من إزاحة أقرانه في القسم نفسه. الافتراضي 500.",
+        "sqliteSectionsTitle": "ميزانيات أقسام SQLite",
+        "sections": {
+          "aboutYou": "عنك أنت",
+          "aboutUser": "عن المستخدم",
+          "preferences": "التفضيلات",
+          "projectContext": "سياق المشروع",
+          "references": "المراجع"
+        }
+      }
     },
     "subagent": {
       "deletedAgentTooltip": "تم حذف هذا العميل",
@@ -1186,7 +1354,28 @@
       "memorySelectionMaxSelected": "Máximo seleccionado",
       "memorySelectionMaxSelectedDesc": "Límite superior de memorias inyectadas en el prompt. Predeterminado 5.",
       "asyncToolsJobStatusMaxWait": "Espera máxima de job_status",
-      "asyncToolsJobStatusMaxWaitDesc": "Límite superior para una única llamada job_status(block=true). Solo se aplica cuando la duración máxima por trabajo = 0; de lo contrario prevalece la duración máxima por trabajo."
+      "asyncToolsJobStatusMaxWaitDesc": "Límite superior para una única llamada job_status(block=true). Solo se aplica cuando la duración máxima por trabajo = 0; de lo contrario prevalece la duración máxima por trabajo.",
+      "memoryBudget": {
+        "title": "Presupuesto de memoria",
+        "desc": "Limita el total de caracteres de la sección de memoria (Global memory.md / Agent memory.md / memorias SQLite / Directrices) y los límites por capa en su interior. Reducir el total libera presupuesto para el contexto de la conversación activa.",
+        "agentOverrideDesc": "De forma predeterminada, hereda el Presupuesto de memoria global. Desactívalo para usar un presupuesto específico del Agent.",
+        "useGlobalDefault": "Heredar valor global predeterminado",
+        "resetToDefaults": "Restablecer valores predeterminados",
+        "totalChars": "Límite total de caracteres",
+        "totalCharsDesc": "Límite superior estricto para toda la sección de memoria. Las Directrices se reservan primero; las demás capas consumen por orden de prioridad. Predeterminado 10000.",
+        "coreMemoryFileChars": "Límite por memory.md",
+        "coreMemoryFileCharsDesc": "Límite independiente para cada archivo memory.md (Global / Agent). El contenido que exceda el límite se trunca en el prompt pero se conserva en disco. Predeterminado 8000.",
+        "sqliteEntryMaxChars": "Límite por entrada",
+        "sqliteEntryMaxCharsDesc": "Límite superior de la primera línea de cada elemento de memoria SQLite renderizado, para evitar que una entrada larga desplace a sus pares de la misma sección. Predeterminado 500.",
+        "sqliteSectionsTitle": "Presupuestos por sección de SQLite",
+        "sections": {
+          "aboutYou": "Sobre ti",
+          "aboutUser": "Sobre el usuario",
+          "preferences": "Preferencias",
+          "projectContext": "Contexto del proyecto",
+          "references": "Referencias"
+        }
+      }
     },
     "subagent": {
       "deletedAgentTooltip": "Este agente ha sido eliminado",
@@ -1320,7 +1509,28 @@
       "memorySelectionMaxSelected": "Maksimum dipilih",
       "memorySelectionMaxSelectedDesc": "Had atas memori yang disuntik ke prompt. Lalai 5.",
       "asyncToolsJobStatusMaxWait": "Masa menunggu maksimum job_status",
-      "asyncToolsJobStatusMaxWaitDesc": "Had atas untuk satu panggilan job_status(block=true). Hanya digunakan apabila tempoh maksimum setiap kerja = 0; jika tidak, tempoh maksimum setiap kerja diutamakan."
+      "asyncToolsJobStatusMaxWaitDesc": "Had atas untuk satu panggilan job_status(block=true). Hanya digunakan apabila tempoh maksimum setiap kerja = 0; jika tidak, tempoh maksimum setiap kerja diutamakan.",
+      "memoryBudget": {
+        "title": "Bajet Memori",
+        "desc": "Mengehadkan jumlah aksara bahagian memori (Global memory.md / Agent memory.md / memori SQLite / Garis Panduan) dan had setiap lapisan dalamnya. Mengurangkan jumlah membebaskan bajet untuk konteks perbualan aktif.",
+        "agentOverrideDesc": "Secara lalai mewarisi Bajet Memori global. Tutup untuk menggunakan bajet khusus Agent.",
+        "useGlobalDefault": "Warisi nilai lalai global",
+        "resetToDefaults": "Set semula kepada lalai",
+        "totalChars": "Had jumlah aksara",
+        "totalCharsDesc": "Had atas keras untuk keseluruhan bahagian memori. Garis Panduan dikekalkan dahulu; lapisan lain digunakan mengikut susunan keutamaan. Lalai 10000.",
+        "coreMemoryFileChars": "Had setiap memory.md",
+        "coreMemoryFileCharsDesc": "Had bebas bagi setiap fail memory.md (Global / Agent). Kandungan yang melebihi had dipotong dalam prom tetapi kekal pada cakera. Lalai 8000.",
+        "sqliteEntryMaxChars": "Had setiap entri",
+        "sqliteEntryMaxCharsDesc": "Had atas untuk baris pertama setiap entri memori SQLite yang dipaparkan, supaya satu entri panjang tidak menyesakkan entri lain dalam bahagian sama. Lalai 500.",
+        "sqliteSectionsTitle": "Bajet mengikut bahagian SQLite",
+        "sections": {
+          "aboutYou": "Tentang anda",
+          "aboutUser": "Tentang pengguna",
+          "preferences": "Keutamaan",
+          "projectContext": "Konteks projek",
+          "references": "Rujukan"
+        }
+      }
     },
     "subagent": {
       "deletedAgentTooltip": "Agen ini telah dipadam",

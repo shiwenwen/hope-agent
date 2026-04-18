@@ -334,6 +334,27 @@
     "skillHealth": "الصحة",
     "memory": "الذاكرة",
     "memoryDesc": "ذاكرات دائمة تساعد الذكاء الاصطناعي على تذكر السياق عبر المحادثات",
+    "memoryBudget": {
+      "title": "ميزانية الذاكرة",
+      "desc": "يقيّد إجمالي عدد الأحرف في قسم الذاكرة (Global memory.md / Agent memory.md / ذاكرة SQLite / الإرشادات) وحدود كل طبقة داخله. خفض الإجمالي يترك مزيدًا من الميزانية لسياق المحادثة الحية.",
+      "agentOverrideDesc": "يرث ميزانية الذاكرة العامة بشكل افتراضي. أوقف التشغيل لاستخدام ميزانية خاصة بـ Agent.",
+      "useGlobalDefault": "وراثة الإعداد العام",
+      "resetToDefaults": "إعادة تعيين للقيم الافتراضية",
+      "totalChars": "حد إجمالي الأحرف",
+      "totalCharsDesc": "حد أعلى صارم لقسم الذاكرة بالكامل. تُحفظ الإرشادات أولًا؛ والطبقات الأخرى تُستهلك بترتيب الأولوية. الافتراضي 10000.",
+      "coreMemoryFileChars": "حد كل طبقة memory.md",
+      "coreMemoryFileCharsDesc": "حد مستقل لكل ملف memory.md (Global / Agent). يُقطع المحتوى الزائد في المحث لكنه يُحفظ على القرص. الافتراضي 8000.",
+      "sqliteEntryMaxChars": "حد كل سجل",
+      "sqliteEntryMaxCharsDesc": "الحد الأعلى للسطر الأول لكل سجل ذاكرة SQLite عند العرض، لمنع سجل طويل من إزاحة أقرانه في القسم نفسه. الافتراضي 500.",
+      "sqliteSectionsTitle": "ميزانيات أقسام SQLite",
+      "sections": {
+        "aboutYou": "عنك أنت",
+        "aboutUser": "عن المستخدم",
+        "preferences": "التفضيلات",
+        "projectContext": "سياق المشروع",
+        "references": "المراجع"
+      }
+    },
     "coreMemory": "الذاكرة الأساسية",
     "coreMemoryGlobal": "الذاكرة الأساسية العامة",
     "coreMemoryGlobalDesc": "قواعد وتفضيلات مشتركة بين جميع Agents، مرئية دائماً في المحادثات",

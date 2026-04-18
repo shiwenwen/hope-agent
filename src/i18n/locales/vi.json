@@ -334,6 +334,27 @@
     "skillHealth": "Sức khỏe",
     "memory": "Bộ nhớ",
     "memoryDesc": "Bộ nhớ liên tục giúp AI ghi nhớ ngữ cảnh qua các cuộc trò chuyện",
+    "memoryBudget": {
+      "title": "Ngân sách bộ nhớ",
+      "desc": "Giới hạn tổng số ký tự của phần bộ nhớ (Global memory.md / Agent memory.md / bộ nhớ SQLite / Hướng dẫn) và giới hạn từng lớp bên trong. Giảm tổng sẽ dành thêm ngân sách cho ngữ cảnh hội thoại trực tiếp.",
+      "agentOverrideDesc": "Mặc định kế thừa Ngân sách bộ nhớ chung. Tắt để dùng ngân sách riêng cho Agent.",
+      "useGlobalDefault": "Kế thừa mặc định chung",
+      "resetToDefaults": "Khôi phục mặc định",
+      "totalChars": "Giới hạn tổng ký tự",
+      "totalCharsDesc": "Giới hạn trên cứng cho toàn bộ phần bộ nhớ. Hướng dẫn được giữ trước; các lớp còn lại tiêu thụ theo thứ tự ưu tiên. Mặc định 10000.",
+      "coreMemoryFileChars": "Giới hạn từng memory.md",
+      "coreMemoryFileCharsDesc": "Giới hạn độc lập cho mỗi tệp memory.md (Global / Agent). Nội dung vượt quá sẽ bị cắt trong lời nhắc nhưng vẫn giữ nguyên trên đĩa. Mặc định 8000.",
+      "sqliteEntryMaxChars": "Giới hạn mỗi mục",
+      "sqliteEntryMaxCharsDesc": "Giới hạn trên cho dòng đầu của mỗi mục bộ nhớ SQLite khi hiển thị, tránh một mục dài chiếm chỗ của các mục khác cùng phần. Mặc định 500.",
+      "sqliteSectionsTitle": "Ngân sách theo phần SQLite",
+      "sections": {
+        "aboutYou": "Về bạn",
+        "aboutUser": "Về người dùng",
+        "preferences": "Sở thích",
+        "projectContext": "Ngữ cảnh dự án",
+        "references": "Tham chiếu"
+      }
+    },
     "coreMemory": "Bộ nhớ lõi",
     "coreMemoryGlobal": "Bộ nhớ lõi toàn cục",
     "coreMemoryGlobalDesc": "Quy tắc và sở thích được chia sẻ giữa tất cả Agents, luôn hiển thị trong các cuộc trò chuyện",

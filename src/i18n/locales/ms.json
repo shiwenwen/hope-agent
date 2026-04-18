@@ -334,6 +334,27 @@
     "skillHealth": "Kesihatan",
     "memory": "Ingatan",
     "memoryDesc": "Ingatan kekal yang membantu AI mengingati konteks merentasi perbualan",
+    "memoryBudget": {
+      "title": "Bajet Memori",
+      "desc": "Mengehadkan jumlah aksara bahagian memori (Global memory.md / Agent memory.md / memori SQLite / Garis Panduan) dan had setiap lapisan dalamnya. Mengurangkan jumlah membebaskan bajet untuk konteks perbualan aktif.",
+      "agentOverrideDesc": "Secara lalai mewarisi Bajet Memori global. Tutup untuk menggunakan bajet khusus Agent.",
+      "useGlobalDefault": "Warisi nilai lalai global",
+      "resetToDefaults": "Set semula kepada lalai",
+      "totalChars": "Had jumlah aksara",
+      "totalCharsDesc": "Had atas keras untuk keseluruhan bahagian memori. Garis Panduan dikekalkan dahulu; lapisan lain digunakan mengikut susunan keutamaan. Lalai 10000.",
+      "coreMemoryFileChars": "Had setiap memory.md",
+      "coreMemoryFileCharsDesc": "Had bebas bagi setiap fail memory.md (Global / Agent). Kandungan yang melebihi had dipotong dalam prom tetapi kekal pada cakera. Lalai 8000.",
+      "sqliteEntryMaxChars": "Had setiap entri",
+      "sqliteEntryMaxCharsDesc": "Had atas untuk baris pertama setiap entri memori SQLite yang dipaparkan, supaya satu entri panjang tidak menyesakkan entri lain dalam bahagian sama. Lalai 500.",
+      "sqliteSectionsTitle": "Bajet mengikut bahagian SQLite",
+      "sections": {
+        "aboutYou": "Tentang anda",
+        "aboutUser": "Tentang pengguna",
+        "preferences": "Keutamaan",
+        "projectContext": "Konteks projek",
+        "references": "Rujukan"
+      }
+    },
     "coreMemory": "Ingatan teras",
     "coreMemoryGlobal": "Ingatan teras global",
     "coreMemoryGlobalDesc": "Peraturan dan keutamaan yang dikongsi semua Agents, sentiasa kelihatan dalam perbualan",

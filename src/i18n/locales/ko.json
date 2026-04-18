@@ -334,6 +334,27 @@
     "skillHealth": "상태",
     "memory": "기억",
     "memoryDesc": "AI 가 대화 간 컨텍스트를 기억하도록 돕는 영구 기억",
+    "memoryBudget": {
+      "title": "메모리 예산",
+      "desc": "메모리 섹션(Global memory.md / Agent memory.md / SQLite 메모리 / 가이드라인)의 총 문자 수와 내부 각 계층의 개별 상한을 제한합니다. 총량을 줄이면 대화 컨텍스트에 더 많은 예산을 남길 수 있습니다.",
+      "agentOverrideDesc": "기본적으로 전역 메모리 예산을 상속합니다. 끄면 Agent 전용 예산을 사용합니다.",
+      "useGlobalDefault": "전역 기본값 상속",
+      "resetToDefaults": "기본값으로 복원",
+      "totalChars": "총 문자 수 상한",
+      "totalCharsDesc": "메모리 섹션 전체의 하드 상한(문자). 가이드라인이 우선 예약되고, 나머지 계층은 우선순위 순으로 소비됩니다. 기본값 10000.",
+      "coreMemoryFileChars": "memory.md 계층별 상한",
+      "coreMemoryFileCharsDesc": "각 memory.md 파일(Global / Agent)의 독립 상한. 상한을 초과한 내용은 프롬프트에서 잘리지만 디스크에는 그대로 보존됩니다. 기본값 8000.",
+      "sqliteEntryMaxChars": "항목당 문자 수 상한",
+      "sqliteEntryMaxCharsDesc": "SQLite 메모리 항목 렌더링 시 첫 줄의 문자 수 상한. 긴 항목 하나가 같은 섹션의 다른 항목을 밀어내지 못하도록 합니다. 기본값 500.",
+      "sqliteSectionsTitle": "SQLite 섹션별 예산",
+      "sections": {
+        "aboutYou": "당신 자신에 대해",
+        "aboutUser": "사용자에 대해",
+        "preferences": "선호도",
+        "projectContext": "프로젝트 컨텍스트",
+        "references": "참조"
+      }
+    },
     "coreMemory": "핵심 기억",
     "coreMemoryGlobal": "전역 핵심 기억",
     "coreMemoryGlobalDesc": "모든 Agent 가 공유하는 규칙과 선호도. 항상 대화에 표시",
