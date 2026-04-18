@@ -26,6 +26,20 @@ pub async fn set_plan_state(session_id: &str, state: PlanModeState) {
     if state == PlanModeState::Off {
         map.remove(session_id);
     } else if let Some(meta) = map.get_mut(session_id) {
+        // Reject illegal transitions (e.g. Completed → Executing) to keep
+        // concurrent writers from re-running already-completed steps or
+        // skipping the review checkpoint.
+        if !meta.state.is_valid_transition(&state) {
+            app_warn!(
+                "plan",
+                "state",
+                "Rejecting illegal plan transition for session {}: {} -> {}",
+                session_id,
+                meta.state.as_str(),
+                state.as_str()
+            );
+            return;
+        }
         // Record paused_at_step when transitioning to Paused
         if state == PlanModeState::Paused {
             // Find the first in_progress step, or the first pending step

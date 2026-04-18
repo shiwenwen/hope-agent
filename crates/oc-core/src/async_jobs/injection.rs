@@ -5,7 +5,37 @@
 //! as the `run_id` parameter — this lets us share the idle-wait, cancellation,
 //! and retry machinery with no duplication.
 
+use std::collections::HashSet;
+use std::sync::{Mutex, OnceLock};
+
 use super::types::AsyncJobStatus;
+
+/// In-flight dispatch set. A job_id present here means another task in this
+/// process has already called `dispatch_injection` for it and is either still
+/// running injection or waiting for `mark_injected` to commit. Entries are
+/// removed unconditionally once the dispatch thread exits, so a crashed or
+/// cancelled dispatch won't pin the job forever — it'll be retried on the
+/// next `replay_pending_jobs()` sweep.
+fn dispatching_set() -> &'static Mutex<HashSet<String>> {
+    static DISPATCHING: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    DISPATCHING.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+/// Try to claim a dispatch slot for `job_id`. Returns `false` if another
+/// dispatch is already in flight for this job in the current process,
+/// preventing `list_pending_injection()` + event-driven retries from racing
+/// into a double-injection. Cross-process races (desktop + server hitting
+/// the same `async_jobs.db`) still require a DB-level claim; that's tracked
+/// separately.
+fn try_claim_dispatch(job_id: &str) -> bool {
+    let mut guard = dispatching_set().lock().unwrap_or_else(|p| p.into_inner());
+    guard.insert(job_id.to_string())
+}
+
+fn release_dispatch(job_id: &str) {
+    let mut guard = dispatching_set().lock().unwrap_or_else(|p| p.into_inner());
+    guard.remove(job_id);
+}
 
 /// Dispatch a tool-job completion injection in the background.
 ///
@@ -43,6 +73,19 @@ pub fn dispatch_injection(
             .unwrap_or_else(|| "default".to_string()),
     };
 
+    // Deduplicate in-flight dispatches inside this process. Replay on startup
+    // + a late EventBus retry for the same terminal job could otherwise fire
+    // two threads racing the same injection.
+    if !try_claim_dispatch(&job_id) {
+        app_debug!(
+            "async_jobs",
+            "injection",
+            "Job {} already has an in-flight dispatch; skipping duplicate",
+            &job_id
+        );
+        return;
+    }
+
     let push_message = build_tool_job_push_message(
         &job_id,
         &tool_name,
@@ -55,9 +98,20 @@ pub fn dispatch_injection(
     // from real subagent runs.
     let child_agent_id = format!("tool_job:{}", tool_name);
     let job_id_for_db = job_id.clone();
+    let job_id_for_release = job_id.clone();
     let db_clone = session_db.clone();
 
     std::thread::spawn(move || {
+        // Ensure the dispatch slot is released no matter how we exit
+        // (success, panic-free error, or runtime build failure).
+        struct DispatchGuard(String);
+        impl Drop for DispatchGuard {
+            fn drop(&mut self) {
+                release_dispatch(&self.0);
+            }
+        }
+        let _guard = DispatchGuard(job_id_for_release);
+
         match tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()

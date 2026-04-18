@@ -7,11 +7,13 @@
 优先级排序：🔴 严重 Bug → 🟠 中等 Bug → 🟡 性能/稳定 → ℹ️ 设计与功能改进。
 
 - 严重 Bug：10 项（已处理 9 项 / 1 项维持原状）
-- 中等 Bug：11 项
+- 中等 Bug：11 项（本轮处理 7 项 / 4 项维持原状）
 - 性能/稳定：10 项
 - 轻微/设计：5 项
 
 > **2026-04-17 复核（分支 `claude/fix-audit-bugs-Ip6Bl`）**：按本文件列出的严重 Bug 逐条 Read 源文件复核。B1 / B3 / B4 / B5 / B6 / B7 / B8 / B9 均已在本轮修复；B10 经复核发现 `job_status` 早就改用 `async_jobs::wait::Notify` 注册表，不再依赖 EventBus 事件，原描述已失效；B2 经复核与原描述偏差较大（`find_round_safe_boundary` 已按 round 边界对齐，不会把 tool_use / tool_result 切开），保留观察。
+>
+> **2026-04-18 中等 Bug 复核（分支 `claude/fix-audit-bugs-BcytF`）**：按本文件列出的 11 项中等 Bug 逐条 Read 源文件复核。M3 / M4 / M5 / M6 / M8 / M9 / M10 本轮修复；M7 经复核发现 `claim_job_for_execution` 已实现原子抢占（`UPDATE ... WHERE running_at IS NULL AND next_run_at=? AND status='active'`），原风险不存在；M1 经复核发现 `cache_ttl_emergency` 仅作为 throttle 旁路开关使用，TTL 过期时 throttle 本就不生效，无需再"解耦"；M2 经复核发现循环内 `total_chars + truncated.len() + overhead > byte_budget` 的 break 检查已兜住 `MAX_RECOVERY_TOTAL_BYTES`，不会打爆上限；M11 经复核发现 useEffect 闭包内仅使用 refs 和 `useState` 返回的 setters，这些在 React 中本身稳定，eslint-disable-line 合理。
 
 ---
 
@@ -91,82 +93,78 @@
 
 ## 🟠 中等 Bug（11 项）
 
-### M1. Cache-TTL 紧急阈值 TTL 过期后失效
+### ~~M1. Cache-TTL 紧急阈值 TTL 过期后失效~~（原描述失效）
 
 - **位置**：`crates/oc-core/src/agent/context.rs:37, 50-78`
-- **因果**：`CACHE_TTL_EMERGENCY_RATIO=0.95` 只在 `within_ttl==true` 时才检查；TTL 一过期，`emergency` 恒为 false，高 usage 也不会触发分层保护，直接掉到 Tier 4。
-- **修复**：emergency 判断与 TTL 解耦，usage ≥ 95% 永远走应急路径。
-- **状态**：待修复。
+- **复核结论**：`cache_ttl_emergency` 的唯一消费点在 [`context_compact/engine.rs:65`](../../crates/oc-core/src/context_compact/engine.rs#L65) 的 `if ctx.cache_ttl_throttled && !ctx.cache_ttl_emergency { ... }`——它只在"throttle 激活但想强制跑 Tier 2+"场景做旁路开关。TTL 过期时 `cache_ttl_throttled=false`，整个分支不成立，`compact_if_needed` 以正常 ratio 运行 Tier 0/1/2/3，根本不会掉到 Tier 4（Tier 4 `emergency_compact` 仅由 ContextOverflow API 错误触发）。"高 usage 也不会触发分层保护"的前提不成立。
+- **状态**：⛔ 划掉（原描述失效，当前逻辑正确）。
 
-### M2. Post-compaction 文件恢复预算会被打爆
+### ~~M2. Post-compaction 文件恢复预算会被打爆~~（原描述失效）
 
 - **位置**：`crates/oc-core/src/context_compact/recovery.rs:100-116`
-- **因果**：5 文件 × 16KB = 80KB，再加 XML 标签 overhead 可超 `MAX_RECOVERY_TOTAL_BYTES=100KB`，循环不动态收紧 `max_file_bytes`。
-- **修复**：循环内用剩余预算动态 clamp 单文件上限。
-- **状态**：待修复。
+- **复核结论**：[`recovery.rs:54`](../../crates/oc-core/src/context_compact/recovery.rs#L54) 先把 `byte_budget = ((tokens_freed * 4) / 10).min(MAX_RECOVERY_TOTAL_BYTES)` 夹到 100KB 上限；循环体内 [line 111](../../crates/oc-core/src/context_compact/recovery.rs#L111) `if total_chars + truncated.len() + overhead > byte_budget { break; }` 已经兜住总量。XML overhead 每文件 `path.len() + 40` ≈ 100–300 bytes，5 文件总 overhead < 1KB，远不会把 80KB 数据打到 100KB 以上。"动态 clamp 单文件上限"至多是减少一次磁盘 I/O 的优化，不是 correctness bug。
+- **状态**：⛔ 划掉（budget break 检查已兜底，上限不会被超过）。
 
 ### M3. 文件恢复消息插入位置硬编码为索引 1
 
 - **位置**：`crates/oc-core/src/agent/context.rs:283`
 - **因果**：`messages.insert(1, recovery_msg)` 假设摘要一定在 0。将来 `apply_summary()` 多塞一条说明就错位。
 - **修复**：用 `split.preserved_start_index` 或语义化常量。
-- **状态**：待修复。
+- **状态**：✅ 已修复（新增 `context_compact::POST_SUMMARY_INSERT_INDEX = 1` 常量并用 `.min(messages.len())` 兜底；插入点命名化以便后续改动不静默错位）。
 
 ### M4. Idle memory extract 句柄竞态
 
 - **位置**：`crates/oc-core/src/memory_extract.rs:516-524`
 - **因果**：先移除句柄、再比对 `expected_updated_at`；窗口内被新消息触发 `schedule_idle_extraction()`，新句柄写回但任务已在跑，可能重复执行提取，浪费 API + 重复记忆。
 - **修复**：改 CAS（`dashmap::entry().or_insert_with_key`）或保留句柄直到任务结束再移除。
-- **状态**：待修复。
+- **状态**：✅ 已修复（`run_idle_extraction` 入口改为 "先比对 `updated_at` 再 remove"——handle 三元组第三位存 `expected_updated_at`，不匹配时保留 map 中的新 handle，彻底消除"任务已在跑但新 schedule 注册的 handle 被误删"的窗口，把实现对齐到原有注释声明的语义）。
 
 ### M5. ask_user 题目级 + 组级超时冲突导致悬挂
 
 - **位置**：`crates/oc-core/src/tools/ask_user_question.rs:142-162` + `channel/worker/ask_user.rs:351-410`
 - **因果**：组超时 600s、单题 60s，单题过期后 `BUTTON_PENDING` 没被回收；group timeout 未到，后续按钮回调仍进入已死 question。
 - **修复**：handler 顶部检查 `timeout_at`；过期立即清理 `BUTTON_PENDING`。
-- **状态**：待修复。
+- **状态**：✅ 已修复（`channel/worker/ask_user.rs` 新增 `drop_if_expired()` helper 在 `handle_ask_user_callback` 入口按 `timeout_at` 淘汰 BUTTON_PENDING；`try_handle_ask_user_reply` 的 TEXT_PENDING 分支对 `entry.retain(|p| ...)` 同步清理。当前工具层已取 `per_q_max|global_default` 作统一组超时，但该防御兜底在 tool-side 清理延迟/会话消失等边缘情况下仍能防止过期组被按钮/文本回调重新激活）。
 
 ### M6. WeChat 入站媒体 file_id 路径验证弱
 
 - **位置**：`crates/oc-core/src/channel/wechat/media.rs:477-517` + `channel/worker/media.rs:70-114`
 - **因果**：只替换 `['/', '\\', ':']`，不处理 `..` 组合；`persist_channel_media_to_session` 没 `canonicalize()` 验证源路径真在 inbound-temp 下。符号链接攻击可复制任意文件进 attachments。
 - **修复**：file_id 白名单（UUID 或 `[a-zA-Z0-9_-]+`），拷贝前 `canonicalize()` 校验前缀。
-- **状态**：待修复。
+- **状态**：✅ 已修复（新增 `sanitize_file_id` 严格白名单 `[A-Za-z0-9_-]`，其他字符全部替换为 `_` 再 UTF-8 截断 64 字节；拷贝前 `src.canonicalize()` + `inbound_root.canonicalize()` + `starts_with` 前缀校验，解析失败或越界直接 warn 返回 None，不会把符号链接指向的任意文件复制进 session attachments）。
 
-### M7. Cron 重启抖动窗口内重复执行
+### ~~M7. Cron 重启抖动窗口内重复执行~~（原描述失效）
 
 - **位置**：`crates/oc-core/src/cron/scheduler.rs:88`；`cron/db.rs:445-450`
-- **因果**：15s 轮询 + `next_run_at <= now`，进程闪退 <15s 重启后同秒 job 可能再跑一次；缺少 `running_at` 原子更新或幂等标记。
-- **修复**：`UPDATE ... SET running_at=? WHERE id=? AND running_at IS NULL` 原子占位，拿到更新后才执行。
-- **状态**：待修复。
+- **复核结论**：`cron::scheduler` 调度循环已经用 [`claim_job_for_execution()`](../../crates/oc-core/src/cron/db.rs#L536) 做原子抢占——SQL 是 `UPDATE cron_jobs SET running_at=?, next_run_at=? WHERE id=? AND next_run_at=? AND status='active' AND running_at IS NULL`，只有抢到 `running_at IS NULL` 的行才 spawn `execute_job`；同时还维护 `tick_running: AtomicBool` 防止同进程 tick 重叠。15s 轮询 + 原子 claim 已经覆盖"重启抖动窗口同秒再跑"的风险。
+- **状态**：⛔ 划掉（原子抢占已实现，本次复核确认）。
 
 ### M8. Replay pending async jobs 非原子 select + dispatch
 
 - **位置**：`crates/oc-core/src/async_jobs/mod.rs:81-96`
 - **因果**：列 `injected=0` → dispatch；若多实例或事件重入，同 job 会被重复 dispatch；dispatch 失败无重试记录。
 - **修复**：单事务内 `UPDATE ... RETURNING` 或 `UPDATE ... SET dispatching=1 WHERE injected=0` 抢占后再投递。
-- **状态**：待修复。
+- **状态**：✅ 已修复（`async_jobs/injection.rs` 引入进程级 `DISPATCHING: OnceLock<Mutex<HashSet<String>>>` 注册表 + `try_claim_dispatch`/`release_dispatch`；`dispatch_injection` 在 spawn 前先 insert job_id，重复调用直接 skip，dispatch 线程用 `DispatchGuard` RAII 无论成功/失败/runtime 构建异常都释放 slot。跨进程（desktop + server 同时跑）的 DB 级 claim 需要新列，留待后续；当前进程级互斥已覆盖 startup replay + EventBus 重入 两大常见竞争源）。
 
 ### M9. Plan 状态机缺合法转移校验
 
 - **位置**：`crates/oc-core/src/plan/types.rs:7-44`；`plan/store.rs` 所有 setter
 - **因果**：六态间可任意跳转（Completed → Executing 也允许），并发请求可致步骤重复执行或跳过 git checkpoint。
 - **修复**：`fn is_valid_transition(from, to) -> bool`，store 写入前强制校验。
-- **状态**：待修复。
+- **状态**：✅ 已修复（`PlanModeState::is_valid_transition` 列出所有合法迁移：Planning↔Review、Review→Executing、Executing→Paused/Completed、Paused→Executing/Planning、Completed→Planning、同态始终允许，`Off` 作为逃生阀双向开放；`set_plan_state` 在 `get_mut` 分支内先调该 helper，非法迁移记 warn 日志后 return，不再让"Completed → Executing"静默改写重新执行步骤）。
 
 ### M10. Plan 文件名秒级时间戳碰撞
 
 - **位置**：`crates/oc-core/src/plan/file_io.rs:31-35, 61-84`
 - **因果**：`%Y%m%d-%H%M%S`，同秒多会话生成同名文件互相覆盖；version 计数器从内存拿、重启归零，覆盖旧版本快照。
 - **修复**：加纳秒 / UUID 后缀；版本号启动时从磁盘 `max(version)+1` 初始化。
-- **状态**：待修复。
+- **状态**：✅ 已修复（`plan_file_path` / `result_file_path` 改用 UTC `%Y%m%dT%H%M%SZ` + `timestamp_subsec_nanos` 9 位零填充后缀，彻底消除同秒跨会话碰撞；`save_plan_file` 新增 `max_disk_version()` 扫描 `{stem}-v{N}.md` 找历史最大版本号，`current_version = mem_version.max(max_disk + 1)` 保证重启后首次备份不会覆盖已有 `plan-xxx-v1.md`）。
 
-### M11. 前端 `useNotificationListeners` stale closure
+### ~~M11. 前端 `useNotificationListeners` stale closure~~（原描述失效）
 
 - **位置**：`src/components/chat/hooks/useNotificationListeners.ts:200`
-- **因果**：useEffect 依赖数组只含 `[reloadSessions]`，闭包内用了 `setMessages` / `setLoading` / `setLoadingSessionIds` 等 7 个状态/ref；新值变更后订阅仍持旧引用，回调作用于过期 state。
-- **修复**：补齐依赖，或把所有 setter 改成 `useLatestRef` 化。
-- **状态**：待修复。
+- **复核结论**：useEffect 闭包内用到的非 `reloadSessions` 项分别是 refs（`currentSessionIdRef` / `loadingSessionsRef` / `sessionCacheRef`）和 React `useState` 返回的 setters（`setMessages` / `setLoading` / `setLoadingSessionIds`）。refs 的身份 identity 永不变；setters 在 React 里官方承诺跨渲染稳定。这些都不需要进依赖数组，闭包也不会持旧引用——`.current` 总是读到最新 ref 值。eslint-disable-line 注释合理，没有真实 stale closure 风险。
+- **状态**：⛔ 划掉（refs + setState 均稳定，原风险不存在）。
 
 ---
 
@@ -288,7 +286,7 @@
 | 档次 | 数量 | 本轮处理 | 集中区域 |
 |---|---|---|---|
 | 🔴 严重 | 10 | 8 ✅ / 2 ⛔ | `context_compact` UTF-8 切片、tool loop 终止、async_jobs 注入、server 鉴权、service install 命令注入 |
-| 🟠 中等 | 11 | – | cache-TTL 逻辑、memory_extract 竞态、plan 状态机、cron 重放、前端 stale closure |
+| 🟠 中等 | 11 | 7 ✅ / 4 ⛔ | recovery 插入点、idle extract 竞态、ask_user 超时、WeChat 路径、async job claim、plan state machine、plan 文件名 |
 | 🟡 性能/稳定 | 10 | – | XSS、CSP、broadcast lag、SSRF、日志 token |
 | ℹ️ 轻微/设计 | 5 | – | SQL 拼接习惯、孤儿清理、排序字段、CI 校验、工具上下文共享 |
 
@@ -307,10 +305,26 @@
 | B9 Project 删除 | ✅ `purge_project_files_dir` canonicalize 校验前缀 |
 | ~~B10 broadcast 丢事件~~ | ⛔ `job_status` 已改用 `Notify` 注册表，不再依赖 broadcast |
 
+**2026-04-18 中等 Bug 修复批次（分支 `claude/fix-audit-bugs-BcytF`）**
+
+| ID | 处理结果 |
+|---|---|
+| ~~M1 Cache-TTL emergency~~ | ⛔ `cache_ttl_emergency` 仅作为 throttle 旁路开关，TTL 过期时 throttle 本就失效，无需解耦 |
+| ~~M2 Recovery budget~~ | ⛔ 循环内 break 检查已兜住 `MAX_RECOVERY_TOTAL_BYTES`，budget 不会被超过 |
+| M3 Recovery insert index | ✅ 引入 `POST_SUMMARY_INSERT_INDEX` 常量 + `.min(len)` 兜底 |
+| M4 Idle extract CAS | ✅ `run_idle_extraction` 入口改为"匹配 `expected_updated_at` 才移除 handle" |
+| M5 ask_user 超时 | ✅ button 回调前 `drop_if_expired`，text 回调前按 `timeout_at` retain |
+| M6 WeChat 路径 | ✅ file_id 严格白名单 + `canonicalize()` 前缀校验 |
+| ~~M7 Cron 原子抢占~~ | ⛔ `claim_job_for_execution` 已原子 UPDATE，本轮复核确认 |
+| M8 Async replay claim | ✅ 进程级 `DISPATCHING` HashSet + `DispatchGuard` RAII 释放 |
+| M9 Plan state | ✅ `PlanModeState::is_valid_transition` + `set_plan_state` 写入前强制校验 |
+| M10 Plan 文件名 | ✅ UTC + 纳秒后缀消除同秒碰撞；版本号 `max(mem, disk+1)` 重启安全 |
+| ~~M11 stale closure~~ | ⛔ refs 与 setState 均稳定，eslint-disable-line 合理 |
+
 **修复顺序建议（剩余批次）**
 
-1. 第二批（长尾数据/稳定性）：M4、M7、M8
-2. 第三批（安全加固批）：P1、P3、P7、P8
+1. 第二批（安全加固批）：P1、P3、P7、P8
+2. 第三批（稳定性 / 性能）：P4、P5、P6、P9、P10
 3. 其余按迭代节奏推进。
 
 ## 复核建议
