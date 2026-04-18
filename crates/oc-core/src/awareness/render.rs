@@ -1,15 +1,15 @@
-//! Render a `CrossSessionSnapshot` as a markdown block for the system prompt.
+//! Render a `AwarenessSnapshot` as a markdown block for the system prompt.
 
 use crate::truncate_utf8;
 
-use super::types::{ActivityState, CrossSessionEntry, CrossSessionSnapshot};
+use super::types::{ActivityState, AwarenessEntry, AwarenessSnapshot};
 
 const FIELD_BUDGET: usize = 120;
 const HEADER: &str = "# Cross-Session Context";
 
 /// Render the snapshot to markdown. Returns `None` when there are no entries.
 /// The output is capped at `max_chars` bytes (UTF-8 safe).
-pub fn render_markdown(snap: &CrossSessionSnapshot, max_chars: usize) -> Option<String> {
+pub fn render_markdown(snap: &AwarenessSnapshot, max_chars: usize) -> Option<String> {
     if snap.entries.is_empty() {
         return None;
     }
@@ -21,17 +21,17 @@ pub fn render_markdown(snap: &CrossSessionSnapshot, max_chars: usize) -> Option<
     out.push_str("\n\n");
 
     // Group by activity.
-    let active: Vec<&CrossSessionEntry> = snap
+    let active: Vec<&AwarenessEntry> = snap
         .entries
         .iter()
         .filter(|e| e.activity == ActivityState::Active)
         .collect();
-    let recent: Vec<&CrossSessionEntry> = snap
+    let recent: Vec<&AwarenessEntry> = snap
         .entries
         .iter()
         .filter(|e| e.activity == ActivityState::Recent)
         .collect();
-    let older: Vec<&CrossSessionEntry> = snap
+    let older: Vec<&AwarenessEntry> = snap
         .entries
         .iter()
         .filter(|e| e.activity == ActivityState::Older)
@@ -66,7 +66,7 @@ pub fn render_markdown(snap: &CrossSessionSnapshot, max_chars: usize) -> Option<
     Some(truncate_utf8(&trimmed, max_chars).to_string())
 }
 
-fn render_intro(snap: &CrossSessionSnapshot) -> String {
+fn render_intro(snap: &AwarenessSnapshot) -> String {
     let total = snap.entries.len();
     let active = snap.active_count;
     format!(
@@ -78,7 +78,7 @@ visible here unless the user confirms.",
     )
 }
 
-fn render_entry(e: &CrossSessionEntry) -> String {
+fn render_entry(e: &AwarenessEntry) -> String {
     let mut line = String::new();
     line.push_str("- **");
     line.push_str(&truncate_utf8(&e.title, FIELD_BUDGET));
@@ -136,10 +136,10 @@ fn format_age(age_secs: i64) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cross_session::types::SessionKind;
+    use crate::awareness::types::SessionKind;
 
-    fn mk_entry(id: &str, title: &str, activity: ActivityState, age: i64) -> CrossSessionEntry {
-        CrossSessionEntry {
+    fn mk_entry(id: &str, title: &str, activity: ActivityState, age: i64) -> AwarenessEntry {
+        AwarenessEntry {
             session_id: id.into(),
             title: title.into(),
             agent_id: "default".into(),
@@ -158,7 +158,7 @@ mod tests {
 
     #[test]
     fn renders_header_and_entries() {
-        let snap = CrossSessionSnapshot {
+        let snap = AwarenessSnapshot {
             entries: vec![
                 mk_entry("a", "Debug CI", ActivityState::Active, 45),
                 mk_entry("b", "Payment webhook", ActivityState::Recent, 300),
@@ -176,7 +176,7 @@ mod tests {
 
     #[test]
     fn empty_snapshot_returns_none() {
-        let snap = CrossSessionSnapshot {
+        let snap = AwarenessSnapshot {
             entries: vec![],
             active_count: 0,
             generated_at: "now".into(),
@@ -186,7 +186,7 @@ mod tests {
 
     #[test]
     fn max_chars_is_respected() {
-        let snap = CrossSessionSnapshot {
+        let snap = AwarenessSnapshot {
             entries: (0..10)
                 .map(|i| mk_entry(&format!("{}", i), "Very long title that repeats A A A A A A A A A A", ActivityState::Active, i * 10))
                 .collect(),

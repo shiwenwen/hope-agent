@@ -218,14 +218,14 @@ impl SessionDB {
             )?;
         }
 
-        // Migration: add cross_session_config_json column for per-session
-        // override of the cross-session behavior awareness feature.
-        let has_xs_cfg = conn
-            .prepare("SELECT cross_session_config_json FROM sessions LIMIT 1")
+        // Migration: add awareness_config_json column for per-session
+        // override of the behavior awareness feature.
+        let has_awareness_cfg = conn
+            .prepare("SELECT awareness_config_json FROM sessions LIMIT 1")
             .is_ok();
-        if !has_xs_cfg {
+        if !has_awareness_cfg {
             conn.execute_batch(
-                "ALTER TABLE sessions ADD COLUMN cross_session_config_json TEXT;",
+                "ALTER TABLE sessions ADD COLUMN awareness_config_json TEXT;",
             )?;
         }
 
@@ -1551,10 +1551,10 @@ impl SessionDB {
         Ok((messages, total))
     }
 
-    // ── Cross-session awareness helpers ─────────────────────────
+    // ── Behavior awareness helpers ──────────────────────────────
 
-    /// Read the per-session override JSON for cross-session awareness, if any.
-    pub fn get_session_cross_session_config_json(
+    /// Read the per-session override JSON for behavior awareness, if any.
+    pub fn get_session_awareness_config_json(
         &self,
         session_id: &str,
     ) -> Result<Option<String>> {
@@ -1563,7 +1563,7 @@ impl SessionDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let mut stmt =
-            conn.prepare("SELECT cross_session_config_json FROM sessions WHERE id = ?1")?;
+            conn.prepare("SELECT awareness_config_json FROM sessions WHERE id = ?1")?;
         let mut rows = stmt.query(params![session_id])?;
         if let Some(row) = rows.next()? {
             let val: Option<String> = row.get(0)?;
@@ -1573,8 +1573,8 @@ impl SessionDB {
     }
 
     /// Write (or clear with `None`) the per-session override JSON for
-    /// cross-session awareness.
-    pub fn set_session_cross_session_config_json(
+    /// behavior awareness.
+    pub fn set_session_awareness_config_json(
         &self,
         session_id: &str,
         json: Option<&str>,
@@ -1584,7 +1584,7 @@ impl SessionDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         conn.execute(
-            "UPDATE sessions SET cross_session_config_json = ?1 WHERE id = ?2",
+            "UPDATE sessions SET awareness_config_json = ?1 WHERE id = ?2",
             params![json, session_id],
         )?;
         Ok(())
@@ -1619,7 +1619,7 @@ impl SessionDB {
     }
 
     /// Return the last N user messages for a session within a time window.
-    /// Used by cross-session LLM extraction to give the model concrete recent activity.
+    /// Used by awareness LLM extraction to give the model concrete recent activity.
     pub fn recent_user_messages_for_preview(
         &self,
         session_id: &str,

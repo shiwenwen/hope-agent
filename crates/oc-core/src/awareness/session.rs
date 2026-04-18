@@ -1,4 +1,4 @@
-//! `SessionAwareness` — per-session holder for the dynamic cross-session
+//! `SessionAwareness` — per-session holder for the dynamic awareness
 //! suffix. Owned by `AssistantAgent`, refreshed on every user turn.
 //!
 //! Three-layer refresh trigger:
@@ -20,15 +20,15 @@ use std::time::Instant;
 use once_cell::sync::Lazy;
 use regex::Regex;
 
-use super::config::{CrossSessionConfig, CrossSessionMode};
-use super::types::{CrossSessionSnapshot, RefreshReason};
+use super::config::{AwarenessConfig, AwarenessMode};
+use super::types::{AwarenessSnapshot, RefreshReason};
 use crate::session::SessionDB;
 
-/// Dynamic cross-session suffix holder attached to `AssistantAgent`.
+/// Dynamic awareness suffix holder attached to `AssistantAgent`.
 pub struct SessionAwareness {
     pub session_id: String,
     pub agent_id: String,
-    pub cfg: Mutex<CrossSessionConfig>,
+    pub cfg: Mutex<AwarenessConfig>,
     last_suffix: Mutex<Option<Arc<String>>>,
     last_suffix_hash: AtomicU64,
     last_refresh_at: Mutex<Option<Instant>>,
@@ -42,12 +42,12 @@ pub struct SessionAwareness {
     /// `last_digest` is cleared so we don't keep injecting outdated info.
     digest_consecutive_failures: std::sync::atomic::AtomicU32,
     // ── Last snapshot used to render the suffix (also exposed to peek_tool) ──
-    last_snapshot: Mutex<Option<CrossSessionSnapshot>>,
+    last_snapshot: Mutex<Option<AwarenessSnapshot>>,
 }
 
 impl SessionAwareness {
     /// Create and register a new awareness instance.
-    pub fn new(session_id: impl Into<String>, agent_id: impl Into<String>, cfg: CrossSessionConfig) -> Arc<Self> {
+    pub fn new(session_id: impl Into<String>, agent_id: impl Into<String>, cfg: AwarenessConfig) -> Arc<Self> {
         let session_id = session_id.into();
         super::dirty::register_observer(&session_id);
         Arc::new(Self {
@@ -68,7 +68,7 @@ impl SessionAwareness {
     }
 
     /// Hot-swap the resolved config (e.g., after user edits the session settings).
-    pub fn update_config(&self, new_cfg: CrossSessionConfig) {
+    pub fn update_config(&self, new_cfg: AwarenessConfig) {
         let mut guard = self.cfg.lock().unwrap_or_else(|e| e.into_inner());
         *guard = new_cfg;
         // Force next turn to rebuild regardless of throttle.
@@ -91,7 +91,7 @@ impl SessionAwareness {
         session_db: &SessionDB,
     ) -> Option<Arc<String>> {
         let cfg = self.cfg.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        if !cfg.enabled || matches!(cfg.mode, CrossSessionMode::Off) || !cfg.dynamic_enabled {
+        if !cfg.enabled || matches!(cfg.mode, AwarenessMode::Off) || !cfg.dynamic_enabled {
             // Clear any stale cached suffix so we don't leak old content
             // after the user disables the feature.
             let mut slot = self.last_suffix.lock().unwrap_or_else(|e| e.into_inner());
@@ -115,7 +115,7 @@ impl SessionAwareness {
             Ok(s) => s,
             Err(e) => {
                 app_warn!(
-                    "cross_session",
+                    "awareness",
                     "awareness::prepare_dynamic_suffix",
                     "collect_entries failed for {}: {}",
                     self.session_id,
@@ -160,7 +160,7 @@ impl SessionAwareness {
             if let Some(logger) = crate::get_logger() {
                 logger.log(
                     "debug",
-                    "cross_session",
+                    "awareness",
                     "awareness::prepare_dynamic_suffix",
                     &format!(
                         "suffix unchanged for {}, reason={}",
@@ -186,7 +186,7 @@ impl SessionAwareness {
             let len = arc_suffix.as_ref().map(|s| s.len()).unwrap_or(0);
             logger.log(
                 "debug",
-                "cross_session",
+                "awareness",
                 "awareness::prepare_dynamic_suffix",
                 &format!(
                     "rebuilt suffix for {}, reason={}, len={}",
@@ -203,7 +203,7 @@ impl SessionAwareness {
     }
 
     /// Return the most recently-rendered snapshot (for peek_tool / debugging).
-    pub fn last_snapshot(&self) -> Option<CrossSessionSnapshot> {
+    pub fn last_snapshot(&self) -> Option<AwarenessSnapshot> {
         self.last_snapshot
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -237,7 +237,7 @@ impl SessionAwareness {
     /// Whether the LLM digest path should run this turn.
     pub fn should_run_extraction(&self) -> bool {
         let cfg = self.cfg.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        if !cfg.enabled || !matches!(cfg.mode, CrossSessionMode::LlmDigest) {
+        if !cfg.enabled || !matches!(cfg.mode, AwarenessMode::LlmDigest) {
             return false;
         }
         if self.digest_inflight.load(Ordering::Acquire) {
@@ -292,7 +292,7 @@ impl SessionAwareness {
             .clone()
     }
 
-    fn decide_refresh(&self, cfg: &CrossSessionConfig, user_text: &str) -> RefreshReason {
+    fn decide_refresh(&self, cfg: &AwarenessConfig, user_text: &str) -> RefreshReason {
         // Consume the forced flag immediately so we don't get stuck in a
         // rebuild loop when the resulting content is byte-identical.
         if self.forced_next.swap(false, Ordering::AcqRel) {
@@ -354,7 +354,7 @@ fn matches_semantic_hint(pattern: &str, text: &str) -> bool {
             }
             Err(e) => {
                 app_warn!(
-                    "cross_session",
+                    "awareness",
                     "awareness::matches_semantic_hint",
                     "invalid semantic_hint_regex: {}",
                     e
@@ -379,7 +379,7 @@ mod tests {
 
     #[test]
     fn semantic_hint_detects_chinese_phrases() {
-        let re = super::super::config::CrossSessionConfig::default().semantic_hint_regex;
+        let re = super::super::config::AwarenessConfig::default().semantic_hint_regex;
         assert!(matches_semantic_hint(&re, "我上次说的那个 bug"));
         assert!(matches_semantic_hint(&re, "last time we discussed this"));
         assert!(!matches_semantic_hint(&re, "hello world"));
@@ -387,7 +387,7 @@ mod tests {
 
     #[test]
     fn candidate_hash_stable() {
-        let a = SessionAwareness::new("sess-ct-1", "default", CrossSessionConfig::default());
+        let a = SessionAwareness::new("sess-ct-1", "default", AwarenessConfig::default());
         assert!(a.update_candidate_hash(&["x".into(), "y".into()]));
         assert!(!a.update_candidate_hash(&["y".into(), "x".into()])); // sorted
         assert!(a.update_candidate_hash(&["x".into(), "z".into()]));
@@ -395,7 +395,7 @@ mod tests {
 
     #[test]
     fn claim_extraction_is_one_shot() {
-        let a = SessionAwareness::new("sess-ct-2", "default", CrossSessionConfig::default());
+        let a = SessionAwareness::new("sess-ct-2", "default", AwarenessConfig::default());
         assert!(a.claim_extraction());
         assert!(!a.claim_extraction());
     }

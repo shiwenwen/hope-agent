@@ -15,11 +15,11 @@ import {
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 
-type CrossSessionMode = "off" | "structured" | "llm_digest"
+type AwarenessMode = "off" | "structured" | "llm_digest"
 
-interface SessionCrossSessionOverride {
+interface SessionAwarenessOverride {
   enabled?: boolean
-  mode?: CrossSessionMode
+  mode?: AwarenessMode
 }
 
 interface Props {
@@ -27,18 +27,18 @@ interface Props {
 }
 
 /**
- * Compact popover button for per-session cross-session awareness override.
+ * Compact popover button for per-session behavior awareness override.
  * Placed in the chat input bar alongside TemperatureSlider.
  *
  * When the global feature is disabled, the button is hidden entirely.
  * When visible, it shows an eye icon that opens a small popover with
  * enable/disable toggle + mode selector for this session only.
  */
-export default function CrossSessionToggle({ sessionId }: Props) {
+export default function AwarenessToggle({ sessionId }: Props) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [globalEnabled, setGlobalEnabled] = useState(false)
-  const [override, setOverride] = useState<SessionCrossSessionOverride | null>(
+  const [override, setOverride] = useState<SessionAwarenessOverride | null>(
     null,
   )
   const [saving, setSaving] = useState(false)
@@ -50,7 +50,7 @@ export default function CrossSessionToggle({ sessionId }: Props) {
   // Load global config to check if feature is enabled at all.
   useEffect(() => {
     getTransport()
-      .call<{ enabled: boolean }>("get_cross_session_config")
+      .call<{ enabled: boolean }>("get_awareness_config")
       .then((c) => setGlobalEnabled(c.enabled))
       .catch(() => {})
   }, [])
@@ -59,7 +59,7 @@ export default function CrossSessionToggle({ sessionId }: Props) {
   useEffect(() => {
     if (!open || !sessionId) return
     getTransport()
-      .call<{ json: string | null }>("get_session_cross_session_override", {
+      .call<{ json: string | null }>("get_session_awareness_override", {
         sessionId,
       })
       .then((res) => {
@@ -82,11 +82,11 @@ export default function CrossSessionToggle({ sessionId }: Props) {
   const isOverridden = override !== null
   const isDisabledLocally = override?.enabled === false
 
-  async function saveOverride(next: SessionCrossSessionOverride | null) {
+  async function saveOverride(next: SessionAwarenessOverride | null) {
     setOverride(next)
     setSaving(true)
     try {
-      await getTransport().call("set_session_cross_session_override", {
+      await getTransport().call("set_session_awareness_override", {
         sessionId,
         json: next ? JSON.stringify(next) : null,
       })
@@ -95,7 +95,7 @@ export default function CrossSessionToggle({ sessionId }: Props) {
     } catch (e) {
       logger.error(
         "chat",
-        "CrossSessionToggle::save",
+        "AwarenessToggle::save",
         "Failed to save override",
         e,
       )
@@ -106,12 +106,7 @@ export default function CrossSessionToggle({ sessionId }: Props) {
 
   return (
     <div className="relative" ref={ref}>
-      <IconTip
-        label={t(
-          "settings.crossSession.title",
-          "Cross-Session Awareness",
-        )}
-      >
+      <IconTip label={t("settings.awareness.title", "Behavior Awareness")}>
         <button
           onClick={() => setOpen(!open)}
           className={cn(
@@ -137,7 +132,7 @@ export default function CrossSessionToggle({ sessionId }: Props) {
           <div className="flex items-center justify-between mb-2">
             <span className="text-[11px] text-muted-foreground font-medium">
               {t(
-                "settings.crossSession.sessionOverride",
+                "settings.awareness.sessionOverride",
                 "Session Override",
               )}
             </span>
@@ -150,7 +145,7 @@ export default function CrossSessionToggle({ sessionId }: Props) {
           {/* Enable/disable for this session */}
           <div className="flex items-center justify-between py-1.5">
             <span className="text-xs">
-              {t("settings.crossSession.enabledForSession", "Enabled")}
+              {t("settings.awareness.enabledForSession", "Enabled")}
             </span>
             <Switch
               checked={override?.enabled !== false}
@@ -173,7 +168,7 @@ export default function CrossSessionToggle({ sessionId }: Props) {
           {override?.enabled !== false && (
             <div className="mt-1.5">
               <span className="text-[11px] text-muted-foreground font-medium">
-                {t("settings.crossSession.mode", "Mode")}
+                {t("settings.awareness.mode", "Mode")}
               </span>
               <Select
                 value={override?.mode ?? "inherit"}
@@ -188,7 +183,7 @@ export default function CrossSessionToggle({ sessionId }: Props) {
                   } else {
                     saveOverride({
                       ...override,
-                      mode: v as CrossSessionMode,
+                      mode: v as AwarenessMode,
                     })
                   }
                 }}
@@ -199,21 +194,21 @@ export default function CrossSessionToggle({ sessionId }: Props) {
                 <SelectContent>
                   <SelectItem value="inherit">
                     {t(
-                      "settings.crossSession.modeInherit",
+                      "settings.awareness.modeInherit",
                       "Inherit global",
                     )}
                   </SelectItem>
                   <SelectItem value="structured">
                     {t(
-                      "settings.crossSession.modeStructured",
+                      "settings.awareness.modeStructured",
                       "Structured",
                     )}
                   </SelectItem>
                   <SelectItem value="llm_digest">
-                    {t("settings.crossSession.modeLlm", "LLM Digest")}
+                    {t("settings.awareness.modeLlm", "LLM Digest")}
                   </SelectItem>
                   <SelectItem value="off">
-                    {t("settings.crossSession.modeOff", "Off")}
+                    {t("settings.awareness.modeOff", "Off")}
                   </SelectItem>
                 </SelectContent>
               </Select>
@@ -226,7 +221,7 @@ export default function CrossSessionToggle({ sessionId }: Props) {
               className="mt-2 text-[10px] text-primary hover:text-primary/80 transition-colors"
               onClick={() => saveOverride(null)}
             >
-              {t("settings.crossSession.resetOverride", "Reset to global")}
+              {t("settings.awareness.resetOverride", "Reset to global")}
             </button>
           )}
         </div>

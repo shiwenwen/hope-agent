@@ -9,7 +9,7 @@ use once_cell::sync::Lazy;
 use std::collections::HashSet;
 use std::sync::RwLock;
 
-/// Set of session IDs that should refresh their cross-session suffix on the
+/// Set of session IDs that should refresh their awareness suffix on the
 /// next turn. Sessions that are not registered here are still free to rebuild
 /// on their normal time-window schedule.
 static DIRTY: Lazy<RwLock<HashSet<String>>> = Lazy::new(|| RwLock::new(HashSet::new()));

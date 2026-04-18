@@ -1,18 +1,18 @@
-//! Configuration for cross-session behavior awareness.
+//! Configuration for behavior awareness.
 //!
 //! Two layers:
-//! - Global defaults live in `AppConfig.cross_session` (root `config.json`).
-//! - Per-session overrides live in `sessions.cross_session_config_json` column.
+//! - Global defaults live in `AppConfig.awareness` (root `config.json`).
+//! - Per-session overrides live in `sessions.awareness_config_json` column.
 //!   Overrides are a partial document; unset fields inherit from global.
 
 use serde::{Deserialize, Serialize};
 
 // ── Mode enum ────────────────────────────────────────────────────
 
-/// How the cross-session suffix is produced.
+/// How the awareness suffix is produced.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
-pub enum CrossSessionMode {
+pub enum AwarenessMode {
     /// Feature entirely disabled.
     Off,
     /// Zero LLM cost. Reads structured data and renders a markdown list.
@@ -82,15 +82,15 @@ fn default_semantic_hint_regex() -> String {
         .to_string()
 }
 
-/// Root cross-session config. Stored under `AppConfig.crossSession` and
-/// per-session `sessions.cross_session_config_json`.
+/// Root awareness config. Stored under `AppConfig.awareness` and
+/// per-session `sessions.awareness_config_json`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
-pub struct CrossSessionConfig {
+pub struct AwarenessConfig {
     /// Master on/off switch. When false, no suffix is ever produced.
     pub enabled: bool,
     /// What the suffix contains.
-    pub mode: CrossSessionMode,
+    pub mode: AwarenessMode,
 
     // ── Candidate scoping ──
     pub max_sessions: usize,
@@ -113,11 +113,11 @@ pub struct CrossSessionConfig {
     pub llm_extraction: LlmExtractionConfig,
 }
 
-impl Default for CrossSessionConfig {
+impl Default for AwarenessConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
-            mode: CrossSessionMode::Structured,
+            enabled: false,
+            mode: AwarenessMode::Structured,
             max_sessions: 6,
             max_chars: 4000,
             lookback_hours: 72,
@@ -139,7 +139,7 @@ impl Default for CrossSessionConfig {
 
 // ── Resolver ────────────────────────────────────────────────────
 
-/// Merge the global cross-session config with the optional session-level
+/// Merge the global awareness config with the optional session-level
 /// override. If the override JSON is present, any explicit fields take
 /// precedence; absent fields inherit from global.
 ///
@@ -148,16 +148,16 @@ impl Default for CrossSessionConfig {
 pub fn resolve_for_session(
     session_id: &str,
     session_db: &crate::session::SessionDB,
-) -> CrossSessionConfig {
-    let global = crate::config::cached_config().cross_session.clone();
+) -> AwarenessConfig {
+    let global = crate::config::cached_config().awareness.clone();
     if !global.enabled {
-        return CrossSessionConfig {
+        return AwarenessConfig {
             enabled: false,
             ..global
         };
     }
 
-    let override_json = match session_db.get_session_cross_session_config_json(session_id) {
+    let override_json = match session_db.get_session_awareness_config_json(session_id) {
         Ok(Some(s)) if !s.trim().is_empty() => s,
         _ => return global,
     };
@@ -166,7 +166,7 @@ pub fn resolve_for_session(
         Ok(cfg) => cfg,
         Err(e) => {
             app_warn!(
-                "cross_session",
+                "awareness",
                 "config::resolve_for_session",
                 "Failed to parse session override for {}: {} — falling back to global",
                 session_id,
@@ -178,18 +178,18 @@ pub fn resolve_for_session(
 }
 
 /// Validate that `override_json` is legal JSON that can be merged into a
-/// `CrossSessionConfig`. Called from the Tauri/HTTP command layer before
+/// `AwarenessConfig`. Called from the Tauri/HTTP command layer before
 /// persisting to the DB.
-pub fn validate_override(base: &CrossSessionConfig, override_json: &str) -> anyhow::Result<()> {
+pub fn validate_override(base: &AwarenessConfig, override_json: &str) -> anyhow::Result<()> {
     merge_override(base, override_json).map(|_| ())
 }
 
 /// Parse a partial override JSON and apply it on top of the base config.
-fn merge_override(base: &CrossSessionConfig, override_json: &str) -> anyhow::Result<CrossSessionConfig> {
+fn merge_override(base: &AwarenessConfig, override_json: &str) -> anyhow::Result<AwarenessConfig> {
     let override_val: serde_json::Value = serde_json::from_str(override_json)?;
     let mut base_val = serde_json::to_value(base)?;
     crate::merge_json(&mut base_val, override_val);
-    let merged: CrossSessionConfig = serde_json::from_value(base_val)?;
+    let merged: AwarenessConfig = serde_json::from_value(base_val)?;
     Ok(merged)
 }
 
@@ -199,9 +199,9 @@ mod tests {
 
     #[test]
     fn default_mode_is_structured() {
-        let cfg = CrossSessionConfig::default();
-        assert_eq!(cfg.mode, CrossSessionMode::Structured);
-        assert!(cfg.enabled);
+        let cfg = AwarenessConfig::default();
+        assert_eq!(cfg.mode, AwarenessMode::Structured);
+        assert!(!cfg.enabled);
         assert!(cfg.exclude_cron);
         assert!(cfg.exclude_channel);
         assert!(cfg.exclude_subagents);
@@ -209,26 +209,26 @@ mod tests {
 
     #[test]
     fn partial_override_merges_into_base() {
-        let base = CrossSessionConfig::default();
+        let base = AwarenessConfig::default();
         let override_json = r#"{"maxSessions": 2, "excludeCron": false}"#;
         let merged = merge_override(&base, override_json).unwrap();
         assert_eq!(merged.max_sessions, 2);
         assert!(!merged.exclude_cron);
         assert!(merged.exclude_channel); // unchanged
-        assert_eq!(merged.mode, CrossSessionMode::Structured);
+        assert_eq!(merged.mode, AwarenessMode::Structured);
     }
 
     #[test]
     fn override_can_switch_mode() {
-        let base = CrossSessionConfig::default();
+        let base = AwarenessConfig::default();
         let override_json = r#"{"mode": "llm_digest"}"#;
         let merged = merge_override(&base, override_json).unwrap();
-        assert_eq!(merged.mode, CrossSessionMode::LlmDigest);
+        assert_eq!(merged.mode, AwarenessMode::LlmDigest);
     }
 
     #[test]
     fn bad_override_json_is_a_hard_error() {
-        let base = CrossSessionConfig::default();
+        let base = AwarenessConfig::default();
         assert!(merge_override(&base, "not json").is_err());
     }
 }

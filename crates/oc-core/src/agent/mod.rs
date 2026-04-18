@@ -90,8 +90,8 @@ impl AssistantAgent {
             auto_approve_tools: false,
             last_tier2_compaction_at: std::sync::Mutex::new(None),
             agent_caps_cache: std::sync::Mutex::new(None),
-            cross_session_awareness: std::sync::Mutex::new(None),
-            cross_session_suffix: std::sync::Mutex::new(None),
+            awareness: std::sync::Mutex::new(None),
+            awareness_suffix: std::sync::Mutex::new(None),
             channel_session_cached: std::sync::OnceLock::new(),
             active_memory_state: std::sync::Arc::new(
                 active_memory::ActiveMemoryState::new(),
@@ -142,8 +142,8 @@ impl AssistantAgent {
             auto_approve_tools: false,
             last_tier2_compaction_at: std::sync::Mutex::new(None),
             agent_caps_cache: std::sync::Mutex::new(None),
-            cross_session_awareness: std::sync::Mutex::new(None),
-            cross_session_suffix: std::sync::Mutex::new(None),
+            awareness: std::sync::Mutex::new(None),
+            awareness_suffix: std::sync::Mutex::new(None),
             channel_session_cached: std::sync::OnceLock::new(),
             active_memory_state: std::sync::Arc::new(
                 active_memory::ActiveMemoryState::new(),
@@ -253,8 +253,8 @@ impl AssistantAgent {
             auto_approve_tools: false,
             last_tier2_compaction_at: std::sync::Mutex::new(None),
             agent_caps_cache: std::sync::Mutex::new(None),
-            cross_session_awareness: std::sync::Mutex::new(None),
-            cross_session_suffix: std::sync::Mutex::new(None),
+            awareness: std::sync::Mutex::new(None),
+            awareness_suffix: std::sync::Mutex::new(None),
             channel_session_cached: std::sync::OnceLock::new(),
             active_memory_state: std::sync::Arc::new(
                 active_memory::ActiveMemoryState::new(),
@@ -372,23 +372,23 @@ impl AssistantAgent {
     pub fn set_session_id(&mut self, id: &str) {
         self.session_id = Some(id.to_string());
         self.channel_session_cached = std::sync::OnceLock::new();
-        self.init_cross_session_awareness();
+        self.init_awareness();
     }
 
-    /// (Re-)initialize cross-session awareness based on the current session
+    /// (Re-)initialize behavior awareness based on the current session
     /// id. Safe to call multiple times — the first call registers an
     /// observer, subsequent calls replace the Arc and re-register.
-    fn init_cross_session_awareness(&self) {
+    fn init_awareness(&self) {
         let Some(sid) = self.session_id.as_deref() else {
             return;
         };
         let Some(db) = crate::get_session_db() else {
             return;
         };
-        let cfg = crate::cross_session::resolve_for_session(sid, &db);
-        let aware = crate::cross_session::SessionAwareness::new(sid.to_string(), self.agent_id.clone(), cfg);
+        let cfg = crate::awareness::resolve_for_session(sid, &db);
+        let aware = crate::awareness::SessionAwareness::new(sid.to_string(), self.agent_id.clone(), cfg);
         let mut slot = self
-            .cross_session_awareness
+            .awareness
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         *slot = Some(aware);
@@ -407,7 +407,7 @@ impl AssistantAgent {
     /// Refresh the Active Memory suffix for this user turn (Phase B1).
     ///
     /// Called at the top of every provider `chat_*` method, right after
-    /// `refresh_cross_session_suffix`. Runs a bounded side_query that
+    /// `refresh_awareness_suffix`. Runs a bounded side_query that
     /// distills the most relevant memory for `user_text` into a single
     /// sentence. Degrades silently to no-injection on:
     /// - config disabled
@@ -565,37 +565,37 @@ impl AssistantAgent {
             .unwrap_or_else(|e| e.into_inner()) = suffix_arc;
     }
 
-    /// Return the currently-held cross-session suffix (if any), for use by
+    /// Return the currently-held awareness suffix (if any), for use by
     /// provider-layer code that needs to inject it as a second system block.
-    pub(crate) fn current_cross_session_suffix(&self) -> Option<std::sync::Arc<String>> {
-        self.cross_session_suffix
+    pub(crate) fn current_awareness_suffix(&self) -> Option<std::sync::Arc<String>> {
+        self.awareness_suffix
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone()
     }
 
-    /// Run the dynamic cross-session refresh for this turn. Called at the
+    /// Run the dynamic awareness refresh for this turn. Called at the
     /// beginning of every provider `chat_*` method before building the system
     /// prompt. Cheap when nothing changed; runs bounded LLM extraction inline
     /// when `mode == LlmDigest` and throttle allows.
-    pub(crate) async fn refresh_cross_session_suffix(&self, user_text: &str) {
+    pub(crate) async fn refresh_awareness_suffix(&self, user_text: &str) {
         let Some(sid) = self.session_id.clone() else {
             return;
         };
         // 1. Broadcast dirty bit to peer sessions.
-        crate::cross_session::on_other_session_activity(&sid);
+        crate::awareness::on_other_session_activity(&sid);
         // 2. Lazy init.
         let aware = {
             let slot = self
-                .cross_session_awareness
+                .awareness
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .clone();
             if slot.is_some() {
                 slot
             } else {
-                self.init_cross_session_awareness();
-                self.cross_session_awareness_arc()
+                self.init_awareness();
+                self.awareness_arc()
             }
         };
         let Some(aware) = aware else {
@@ -612,7 +612,7 @@ impl AssistantAgent {
         };
         let suffix = aware.prepare_dynamic_suffix(user_text, &db);
         let mut slot = self
-            .cross_session_suffix
+            .awareness_suffix
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         *slot = suffix;
@@ -623,7 +623,7 @@ impl AssistantAgent {
     /// successfully claimed the in-flight lock.
     async fn run_extraction_inline(
         &self,
-        aware: &std::sync::Arc<crate::cross_session::SessionAwareness>,
+        aware: &std::sync::Arc<crate::awareness::SessionAwareness>,
         user_text: &str,
     ) {
         use std::time::Duration;
@@ -632,7 +632,7 @@ impl AssistantAgent {
         // Drop guard: ensure digest_inflight is released even if we panic.
         // On normal paths the explicit record_digest_failure / set_last_digest
         // calls make this redundant but harmless (idempotent).
-        struct InflightGuard(std::sync::Arc<crate::cross_session::SessionAwareness>);
+        struct InflightGuard(std::sync::Arc<crate::awareness::SessionAwareness>);
         impl Drop for InflightGuard {
             fn drop(&mut self) {
                 self.0.record_digest_failure();
@@ -650,7 +650,7 @@ impl AssistantAgent {
         if let Some(ref ea) = cfg.llm_extraction.extraction_agent {
             if ea != &self.agent_id {
                 app_info!(
-                    "cross_session",
+                    "awareness",
                     "run_extraction_inline",
                     "extraction_agent '{}' differs from current agent '{}'; \
                      using current agent for extraction (override not yet supported)",
@@ -665,7 +665,7 @@ impl AssistantAgent {
         };
         // Collect candidates & compute hash; skip if unchanged.
         let my_agent = Some(self.agent_id.as_str());
-        let mut snap = match crate::cross_session::collect::collect_entries(
+        let mut snap = match crate::awareness::collect::collect_entries(
             &db,
             &cfg,
             &self.session_id.clone().unwrap_or_default(),
@@ -685,7 +685,7 @@ impl AssistantAgent {
             return;
         }
         // Build prompt.
-        let prompt = match crate::cross_session::llm_digest::build_extraction_prompt(
+        let prompt = match crate::awareness::llm_digest::build_extraction_prompt(
             &snap.entries,
             &cfg,
             &db,
@@ -723,8 +723,8 @@ impl AssistantAgent {
             }
             Ok(Err(e)) => {
                 app_warn!(
-                    "cross_session",
-                    "refresh_cross_session_suffix",
+                    "awareness",
+                    "refresh_awareness_suffix",
                     "extraction side_query failed: {}",
                     e
                 );
@@ -732,8 +732,8 @@ impl AssistantAgent {
             }
             Err(_) => {
                 app_warn!(
-                    "cross_session",
-                    "refresh_cross_session_suffix",
+                    "awareness",
+                    "refresh_awareness_suffix",
                     "extraction timed out after 5s"
                 );
                 aware.record_digest_failure();
@@ -741,12 +741,12 @@ impl AssistantAgent {
         }
     }
 
-    /// Force-refresh the cross-session suffix on the next turn. Called from
+    /// Force-refresh the awareness suffix on the next turn. Called from
     /// `context_compact` after Tier 2+ compaction since the prompt cache has
     /// already been invalidated.
-    pub(crate) fn force_refresh_cross_session(&self) {
+    pub(crate) fn force_refresh_awareness(&self) {
         let aware = self
-            .cross_session_awareness
+            .awareness
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone();
@@ -756,10 +756,10 @@ impl AssistantAgent {
     }
 
     /// Return the currently held `SessionAwareness` for this agent, if any.
-    fn cross_session_awareness_arc(
+    fn awareness_arc(
         &self,
-    ) -> Option<std::sync::Arc<crate::cross_session::SessionAwareness>> {
-        self.cross_session_awareness
+    ) -> Option<std::sync::Arc<crate::awareness::SessionAwareness>> {
+        self.awareness
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone()
@@ -999,18 +999,18 @@ impl AssistantAgent {
         prompt
     }
 
-    /// Build the "static" system prompt — excludes the dynamic cross-session
+    /// Build the "static" system prompt — excludes the dynamic awareness
     /// suffix which providers append as a separate cache breakpoint.
     pub(crate) fn build_static_system_prompt(&self, model: &str, provider: &str) -> String {
         self.build_full_system_prompt(model, provider)
     }
 
-    /// Build the merged system prompt string (static prefix + cross-session
+    /// Build the merged system prompt string (static prefix + awareness
     /// suffix). Used for compaction token budgets and any code path that
     /// needs a flat string.
     pub(crate) fn build_merged_system_prompt(&self, model: &str, provider: &str) -> String {
         let mut prompt = self.build_full_system_prompt(model, provider);
-        if let Some(suffix) = self.current_cross_session_suffix() {
+        if let Some(suffix) = self.current_awareness_suffix() {
             if !suffix.is_empty() {
                 prompt.push_str("\n\n");
                 prompt.push_str(&suffix);

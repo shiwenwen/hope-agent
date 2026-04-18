@@ -1,6 +1,6 @@
 ---
 name: oc-settings
-description: "Manage OpenComputer application settings through conversation. Use when the user wants to view or change any app configuration: theme, language, proxy, temperature, notifications, tool timeout, context compaction, web search, memory, embedding, recap, cross-session awareness, plan mode, ask-user-question timeout, tool-result disk spill threshold, embedded server, ACP control plane, per-skill env vars, or any other setting visible in the Settings UI. Trigger phrases: 'change settings', 'configure proxy', 'set theme to dark', 'turn off notifications', 'adjust temperature', 'show my settings', 'bind the server to all interfaces', 'set API key'. Trigger even when the user doesn't explicitly say 'settings' — any intent to adjust app behavior qualifies."
+description: "Manage OpenComputer application settings through conversation. Use when the user wants to view or change any app configuration: theme, language, proxy, temperature, notifications, tool timeout, context compaction, web search, memory, embedding, recap, behavior awareness, plan mode, ask-user-question timeout, tool-result disk spill threshold, embedded server, ACP control plane, per-skill env vars, or any other setting visible in the Settings UI. Trigger phrases: 'change settings', 'configure proxy', 'set theme to dark', 'turn off notifications', 'adjust temperature', 'show my settings', 'bind the server to all interfaces', 'set API key'. Trigger even when the user doesn't explicitly say 'settings' — any intent to adjust app behavior qualifies."
 always: true
 ---
 
@@ -78,7 +78,7 @@ If the response includes `sideEffect`, surface it to the user (e.g. "this requir
 | `temporal_decay` | `enabled`, `halfLifeDays` |
 | `mmr` | `enabled`, `lambda` |
 | `recap` | `analysisAgent`, `defaultRangeDays`, `facetConcurrency` |
-| `cross_session` | `enabled`, `mode` (`structured`/`llm_digest`) |
+| `awareness` | `enabled`, `mode` (`structured`/`llm_digest`) |
 | `web_fetch` | `enabled`, `maxBytes` |
 | `web_search` | `provider`, `searxngUrl`, `tavilyApiKey` |
 | `deferred_tools` | `enabled` |

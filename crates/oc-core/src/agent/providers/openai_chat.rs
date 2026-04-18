@@ -33,7 +33,7 @@ impl AssistantAgent {
         on_delta: &(impl Fn(&str) + Send),
     ) -> Result<(String, Option<String>)> {
         self.reset_chat_flags();
-        self.refresh_cross_session_suffix(message).await;
+        self.refresh_awareness_suffix(message).await;
         self.refresh_active_memory_suffix(message).await;
 
         let client =
@@ -98,7 +98,7 @@ impl AssistantAgent {
             round_count = round + 1;
 
             if let Some(ref sid) = self.session_id {
-                crate::cross_session::touch_active_session(sid);
+                crate::awareness::touch_active_session(sid);
             }
 
             // Drain steer mailbox: inject any pending steer messages as user messages
@@ -113,11 +113,11 @@ impl AssistantAgent {
 
             // Build messages array: system + conversation (strip _oc_round metadata).
             // OpenAI Chat supports multiple system messages; send the static prefix
-            // as one and the dynamic cross-session suffix as a second so OpenAI's
+            // as one and the dynamic awareness suffix as a second so OpenAI's
             // automatic prefix caching can still hit the first one when the suffix
             // changes between turns.
             let mut api_messages = vec![json!({ "role": "system", "content": &system_prompt })];
-            if let Some(suffix) = self.current_cross_session_suffix() {
+            if let Some(suffix) = self.current_awareness_suffix() {
                 if !suffix.is_empty() {
                     api_messages.push(json!({ "role": "system", "content": suffix.as_str() }));
                 }

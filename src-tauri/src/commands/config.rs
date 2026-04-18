@@ -736,47 +736,47 @@ pub async fn detect_location() -> Result<crate::weather::DetectedLocation, Strin
         .map_err(|e| e.to_string())
 }
 
-// ── Cross-Session Behavior Awareness ──────────────────────────────
+// ── Behavior Awareness ────────────────────────────────────────────
 
 #[tauri::command]
-pub async fn get_cross_session_config(
-) -> Result<oc_core::cross_session::CrossSessionConfig, String> {
+pub async fn get_awareness_config(
+) -> Result<oc_core::awareness::AwarenessConfig, String> {
     let store = oc_core::config::load_config().map_err(|e| e.to_string())?;
-    Ok(store.cross_session)
+    Ok(store.awareness)
 }
 
 #[tauri::command]
-pub async fn save_cross_session_config(
-    config: oc_core::cross_session::CrossSessionConfig,
+pub async fn save_awareness_config(
+    config: oc_core::awareness::AwarenessConfig,
 ) -> Result<(), String> {
     let mut store = oc_core::config::load_config().map_err(|e| e.to_string())?;
-    store.cross_session = config;
+    store.awareness = config;
     oc_core::config::save_config(&store).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn get_session_cross_session_override(
+pub async fn get_session_awareness_override(
     session_id: String,
 ) -> Result<Option<String>, String> {
     let db = oc_core::get_session_db().ok_or("Session DB not initialized")?;
-    db.get_session_cross_session_config_json(&session_id)
+    db.get_session_awareness_config_json(&session_id)
         .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn set_session_cross_session_override(
+pub async fn set_session_awareness_override(
     session_id: String,
     json: Option<String>,
 ) -> Result<(), String> {
     // Validate before persisting.
     if let Some(ref j) = json {
         if !j.trim().is_empty() {
-            let base = oc_core::cross_session::CrossSessionConfig::default();
-            oc_core::cross_session::config::validate_override(&base, j)
+            let base = oc_core::awareness::AwarenessConfig::default();
+            oc_core::awareness::config::validate_override(&base, j)
                 .map_err(|e| format!("invalid override JSON: {}", e))?;
         }
     }
     let db = oc_core::get_session_db().ok_or("Session DB not initialized")?;
-    db.set_session_cross_session_config_json(&session_id, json.as_deref())
+    db.set_session_awareness_config_json(&session_id, json.as_deref())
         .map_err(|e| e.to_string())
 }

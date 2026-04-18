@@ -92,7 +92,7 @@ impl RecapDb {
     }
 
     /// Return the most recent cached facet for a session, *ignoring* cache
-    /// validity checks. Intended for cross-session awareness where we want a
+    /// validity checks. Intended for behavior awareness where we want a
     /// best-effort enrichment and will never trigger a new LLM extraction.
     pub fn get_latest_facet(&self, session_id: &str) -> Result<Option<SessionFacet>> {
         let conn = self

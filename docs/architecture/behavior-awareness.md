@@ -1,6 +1,6 @@
-# 跨会话行为感知（Cross-Session Behavior Awareness）
+# 行为感知（Behavior Awareness）
 
-> 源码：`crates/oc-core/src/cross_session/`
+> 源码：`crates/oc-core/src/awareness/`
 > 关联：[Side Query 缓存](side-query.md) · [上下文压缩](context-compact.md) · [斜杠命令](slash-commands.md)
 
 ---
@@ -22,9 +22,9 @@
 ## 架构总览
 
 ```
-crates/oc-core/src/cross_session/
+crates/oc-core/src/awareness/
     mod.rs          公开 API 与模块注册
-    config.rs       CrossSessionConfig + 会话级 merge 解析
+    config.rs       AwarenessConfig + 会话级 merge 解析
     types.rs        Entry / Snapshot / ActivityState / RefreshReason
     registry.rs     ActiveSessionRegistry（内存活跃会话时间戳）
     dirty.rs        DirtyBits 脏位广播
@@ -41,7 +41,7 @@ crates/oc-core/src/cross_session/
 ```
 AssistantAgent::chat_*(message)
    │
-   ├─ ① refresh_cross_session_suffix(message).await
+   ├─ ① refresh_awareness_suffix(message).await
    │     ├─ on_other_session_activity(self.session_id)
    │     │     ├─ registry::touch(self.session_id)    ← 标记自己为 active
    │     │     └─ dirty::mark_all_except(self.id)     ← 给所有 peer 置脏位
@@ -57,7 +57,7 @@ AssistantAgent::chat_*(message)
    │           ├─ collect_entries → snapshot
    │           ├─ render_markdown(snapshot) + 拼接 AI Digest
    │           ├─ hash 比对 → byte-identical 则复用旧 Arc
-   │           └─ 写入 self.cross_session_suffix
+   │           └─ 写入 self.awareness_suffix
    │
    ├─ ② build_full_system_prompt()                    ← 静态前缀
    ├─ ③ run_compaction(merged_budget)                  ← 预算含 suffix
@@ -197,12 +197,12 @@ are visible here unless the user confirms.
 
 ## 配置层级
 
-### 全局配置（`AppConfig.crossSession`）
+### 全局配置（`AppConfig.awareness`）
 
 存储在 `config.json`，通过 **设置 → 对话设置** 面板管理。
 
 ```typescript
-interface CrossSessionConfig {
+interface AwarenessConfig {
   enabled: boolean           // 总开关（硬闸）
   mode: "off" | "structured" | "llm_digest"
   maxSessions: number        // 默认 6
@@ -235,7 +235,7 @@ interface CrossSessionConfig {
 
 ### 会话级覆盖
 
-存储在 `sessions.cross_session_config_json` 列（partial JSON），通过聊天输入栏的 **眼睛图标** 弹出的 popover 管理。
+存储在 `sessions.awareness_config_json` 列（partial JSON），通过聊天输入栏的 **眼睛图标** 弹出的 popover 管理。
 
 **解析规则**（`config::resolve_for_session`）：
 1. 全局 `enabled=false` → 硬闸，忽略所有覆盖
@@ -273,8 +273,6 @@ interface CrossSessionConfig {
 | `on` / `off` | 全局开关，写 `config.json` |
 | `mode structured` / `llm` / `off` | 切换模式 |
 
-别名：`/cross-session`、`/xsession`。
-
 ---
 
 ## API 端点
@@ -286,7 +284,7 @@ interface CrossSessionConfig {
 | GET | `/api/sessions/{id}/awareness-config` | 读取会话级覆盖 JSON |
 | PATCH | `/api/sessions/{id}/awareness-config` | 写入会话级覆盖（body: `{json: "..."}` 或 `{json: null}` 清除）|
 
-Tauri 命令：`get_cross_session_config` / `save_cross_session_config` / `get_session_cross_session_override` / `set_session_cross_session_override`。
+Tauri 命令：`get_awareness_config` / `save_awareness_config` / `get_session_awareness_override` / `set_session_awareness_override`。
 
 ---
 
@@ -314,8 +312,8 @@ Tauri 命令：`get_cross_session_config` / `save_cross_session_config` / `get_s
 
 | 组件 | 位置 | 用途 |
 |---|---|---|
-| `CrossSessionPanel` | `src/components/settings/CrossSessionPanel.tsx` | 全局配置面板（嵌入 ChatSettingsPanel） |
-| `CrossSessionToggle` | `src/components/chat/input/CrossSessionToggle.tsx` | 输入栏 per-session 覆盖弹窗 |
+| `AwarenessPanel` | `src/components/settings/AwarenessPanel.tsx` | 全局配置面板（嵌入 ChatSettingsPanel） |
+| `AwarenessToggle` | `src/components/chat/input/AwarenessToggle.tsx` | 输入栏 per-session 覆盖弹窗 |
 
 ---
 

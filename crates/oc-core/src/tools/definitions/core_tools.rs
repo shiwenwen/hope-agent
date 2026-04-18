@@ -990,7 +990,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                             "memory_extract", "memory_selection", "embedding",
                             "embedding_cache", "dedup", "hybrid_search",
                             "temporal_decay", "mmr",
-                            "recap", "cross_session", "shortcuts",
+                            "recap", "awareness", "shortcuts",
                             "active_model", "fallback_models", "skills",
                             "server", "acp_control", "skill_env",
                             "tool_result_disk_threshold",
@@ -1026,7 +1026,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                             "memory_extract", "memory_selection", "embedding",
                             "embedding_cache", "dedup", "hybrid_search",
                             "temporal_decay", "mmr",
-                            "recap", "cross_session", "shortcuts", "skills",
+                            "recap", "awareness", "shortcuts", "skills",
                             "server", "acp_control", "skill_env",
                             "tool_result_disk_threshold",
                             "ask_user_question_timeout", "plan",
@@ -1161,7 +1161,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
     tools.push(super::special_tools::get_team_tool());
 
     // ── Cross-Session Peek (deferred, read-only) ──
-    tools.push(crate::cross_session::peek_sessions_schema());
+    tools.push(crate::awareness::peek_sessions_schema());
 
     // Mark non-core tools as deferred, core tools as always_load
     for tool in &mut tools {

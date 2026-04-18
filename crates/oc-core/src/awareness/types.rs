@@ -1,4 +1,4 @@
-//! Value types for cross-session awareness.
+//! Value types for behavior awareness.
 
 use serde::{Deserialize, Serialize};
 
@@ -38,7 +38,7 @@ pub enum ActivityState {
 /// One collected entry describing a peer session.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct CrossSessionEntry {
+pub struct AwarenessEntry {
     pub session_id: String,
     pub title: String,
     pub agent_id: String,
@@ -60,8 +60,8 @@ pub struct CrossSessionEntry {
 /// Snapshot produced by `collect_entries()`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct CrossSessionSnapshot {
-    pub entries: Vec<CrossSessionEntry>,
+pub struct AwarenessSnapshot {
+    pub entries: Vec<AwarenessEntry>,
     pub active_count: usize,
     pub generated_at: String,
 }

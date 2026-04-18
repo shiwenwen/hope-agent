@@ -7,9 +7,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use super::config::CrossSessionConfig;
+use super::config::AwarenessConfig;
 use super::types::{
-    ActivityState, CrossSessionEntry, CrossSessionSnapshot, SessionKind,
+    ActivityState, AwarenessEntry, AwarenessSnapshot, SessionKind,
 };
 use crate::recap::types::SessionFacet;
 use crate::session::{SessionDB, SessionMeta};
@@ -20,10 +20,10 @@ use crate::session::{SessionDB, SessionMeta};
 /// candidates to the same agent. Pass `None` to skip agent filtering.
 pub fn collect_entries(
     db: &SessionDB,
-    cfg: &CrossSessionConfig,
+    cfg: &AwarenessConfig,
     current_session_id: &str,
     current_agent_id: Option<&str>,
-) -> Result<CrossSessionSnapshot> {
+) -> Result<AwarenessSnapshot> {
     // When same_agent_only is on, push the filter down to SQL so we don't
     // pull all sessions then discard most of them client-side.
     let agent_filter: Option<&str> = if cfg.same_agent_only {
@@ -57,7 +57,7 @@ pub fn collect_entries(
     }
 
     // Build candidate entries.
-    let mut entries: Vec<CrossSessionEntry> = Vec::new();
+    let mut entries: Vec<AwarenessEntry> = Vec::new();
     let mut active_count = 0usize;
 
     for meta in all_sessions.into_iter() {
@@ -140,7 +140,7 @@ pub fn collect_entries(
             .map(|f| f.goal_categories.clone())
             .unwrap_or_default();
 
-        entries.push(CrossSessionEntry {
+        entries.push(AwarenessEntry {
             session_id: meta.id.clone(),
             title,
             agent_id: meta.agent_id.clone(),
@@ -164,7 +164,7 @@ pub fn collect_entries(
         rank_a.cmp(&rank_b).then(a.age_secs.cmp(&b.age_secs))
     });
 
-    Ok(CrossSessionSnapshot {
+    Ok(AwarenessSnapshot {
         entries,
         active_count,
         generated_at: now.to_rfc3339(),

@@ -5,7 +5,7 @@ import { logger } from "@/lib/logger"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import ContextCompactPanel from "@/components/settings/ContextCompactPanel"
-import CrossSessionPanel from "@/components/settings/CrossSessionPanel"
+import AwarenessPanel from "@/components/settings/AwarenessPanel"
 import { invalidateThinkingExpandCache } from "@/components/chat/thinkingCache"
 
 interface ChatConfig {
@@ -68,7 +68,7 @@ export default function ChatSettingsPanel() {
         <div className="px-6 pt-2 shrink-0">
           <TabsList>
             <TabsTrigger value="basic">{t("settings.tabChatBasic")}</TabsTrigger>
-            <TabsTrigger value="cross-session">{t("settings.tabCrossSession")}</TabsTrigger>
+            <TabsTrigger value="awareness">{t("settings.tabAwareness")}</TabsTrigger>
             <TabsTrigger value="context-compact">{t("settings.tabContextCompact")}</TabsTrigger>
           </TabsList>
         </div>
@@ -119,9 +119,9 @@ export default function ChatSettingsPanel() {
           </div>
         </TabsContent>
 
-        <TabsContent value="cross-session" className="flex-1 overflow-y-auto px-6 pb-6">
+        <TabsContent value="awareness" className="flex-1 overflow-y-auto px-6 pb-6">
           <div className="w-full pt-4">
-            <CrossSessionPanel />
+            <AwarenessPanel />
           </div>
         </TabsContent>
 

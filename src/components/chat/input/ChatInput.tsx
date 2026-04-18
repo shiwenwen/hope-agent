@@ -16,7 +16,7 @@ import AttachmentButtons, { AttachmentPreview } from "./AttachmentBar"
 import ModelPicker from "./ModelPicker"
 import ToolPermissionToggle from "./ToolPermissionToggle"
 import TemperatureSlider from "./TemperatureSlider"
-import CrossSessionToggle from "./CrossSessionToggle"
+import AwarenessToggle from "./AwarenessToggle"
 
 interface ChatInputProps {
   input: string
@@ -290,8 +290,7 @@ export default function ChatInput({
               onSessionTemperatureChange={onSessionTemperatureChange}
             />
 
-            {/* Cross-Session Awareness Override */}
-            <CrossSessionToggle sessionId={currentSessionId ?? null} />
+            <AwarenessToggle sessionId={currentSessionId ?? null} />
 
             {/* Plan Mode Toggle */}
             <IconTip label={planState === "off" ? t("planMode.enter") : t("planMode.indicator")}>

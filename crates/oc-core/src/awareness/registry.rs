@@ -23,7 +23,7 @@ pub fn touch_active_session(session_id: &str) {
     guard.insert(session_id.to_string(), Instant::now());
     // Opportunistic GC: drop entries older than max(active_window * 2, 600s).
     // Uses the global config's active_window_secs as the baseline.
-    let window = crate::config::cached_config().cross_session.active_window_secs;
+    let window = crate::config::cached_config().awareness.active_window_secs;
     let gc_secs = (window.saturating_mul(2)).max(600);
     let cutoff = Instant::now().checked_sub(std::time::Duration::from_secs(gc_secs));
     if let Some(cutoff) = cutoff {

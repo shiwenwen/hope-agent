@@ -27,7 +27,7 @@ fn risk_level(category: &str) -> &'static str {
         | "temporal_decay"
         | "mmr"
         | "recap"
-        | "cross_session"
+        | "awareness"
         | "web_fetch"
         | "web_search"
         | "deferred_tools"
@@ -135,7 +135,7 @@ fn read_category(category: &str) -> Result<Value> {
         "temporal_decay" => Ok(serde_json::to_value(&cfg.temporal_decay)?),
         "mmr" => Ok(serde_json::to_value(&cfg.mmr)?),
         "recap" => Ok(serde_json::to_value(&cfg.recap)?),
-        "cross_session" => Ok(serde_json::to_value(&cfg.cross_session)?),
+        "awareness" => Ok(serde_json::to_value(&cfg.awareness)?),
         "shortcuts" => Ok(serde_json::to_value(&cfg.shortcuts)?),
         "active_model" => Ok(serde_json::to_value(&cfg.active_model)?),
         "fallback_models" => Ok(serde_json::to_value(&cfg.fallback_models)?),
@@ -204,7 +204,7 @@ fn get_all_overview() -> Result<String> {
         },
         "asyncTools": { "enabled": cfg.async_tools.enabled },
         "deferredTools": { "enabled": cfg.deferred_tools.enabled },
-        "crossSession": { "enabled": cfg.cross_session.enabled },
+        "awareness": { "enabled": cfg.awareness.enabled },
         "security": {
             "ssrfDefaultPolicy": cfg.ssrf.default_policy,
             "trustedHostsCount": cfg.ssrf.trusted_hosts.len(),
@@ -226,7 +226,7 @@ fn get_all_overview() -> Result<String> {
         "medium": [
             "compact", "memory_extract", "memory_selection", "embedding_cache",
             "dedup", "hybrid_search", "temporal_decay", "mmr", "recap",
-            "cross_session", "web_fetch", "web_search", "deferred_tools",
+            "awareness", "web_fetch", "web_search", "deferred_tools",
             "async_tools", "approval", "tool_result_disk_threshold",
             "ask_user_question_timeout", "plan", "skills_auto_review",
             "recall_summary", "tool_call_narration", "teams"
@@ -375,7 +375,7 @@ fn update_app_config(category: &str, values: &Value) -> Result<String> {
         "temporal_decay" => merge_field(&mut store.temporal_decay, values)?,
         "mmr" => merge_field(&mut store.mmr, values)?,
         "recap" => merge_field(&mut store.recap, values)?,
-        "cross_session" => merge_field(&mut store.cross_session, values)?,
+        "awareness" => merge_field(&mut store.awareness, values)?,
         "shortcuts" => merge_field(&mut store.shortcuts, values)?,
         "skills" => {
             if let Some(v) = values.get("extraSkillsDirs") {

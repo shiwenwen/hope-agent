@@ -235,7 +235,7 @@ stateDiagram-v2
 
 ## `/awareness` 子命令详解
 
-行为感知的全局控制命令。修改的是 `config.json` 的 `crossSession` 字段，全局生效。会话级覆盖通过输入栏的眼睛图标或 API 设置。
+行为感知的全局控制命令。修改的是 `config.json` 的 `awareness` 字段，全局生效。会话级覆盖通过输入栏的眼睛图标或 API 设置。
 
 | 子命令 | 说明 |
 |---|---|
@@ -246,8 +246,6 @@ stateDiagram-v2
 | `mode structured` | 结构化模式（零 LLM 成本，默认） |
 | `mode llm` / `llm_digest` / `digest` | LLM 摘要模式（额外 side_query 开销） |
 | `status` | 等同无参数，显示详细运行时状态 |
-
-**别名**：`/cross-session`、`/xsession` 等同 `/awareness`。
 
 **示例**：
 

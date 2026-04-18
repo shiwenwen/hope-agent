@@ -32,7 +32,7 @@ impl AssistantAgent {
         on_delta: &(impl Fn(&str) + Send),
     ) -> Result<(String, Option<String>)> {
         self.reset_chat_flags();
-        self.refresh_cross_session_suffix(message).await;
+        self.refresh_awareness_suffix(message).await;
         self.refresh_active_memory_suffix(message).await;
 
         let client =
@@ -97,7 +97,7 @@ impl AssistantAgent {
             round_count = round + 1;
 
             if let Some(ref sid) = self.session_id {
-                crate::cross_session::touch_active_session(sid);
+                crate::awareness::touch_active_session(sid);
             }
 
             // Drain steer mailbox: inject any pending steer messages as user messages
@@ -113,12 +113,12 @@ impl AssistantAgent {
             // Strip _oc_round metadata before sending to API
             let mut api_input = crate::context_compact::prepare_messages_for_api(&input);
 
-            // Inject the dynamic cross-session suffix as a leading system-role
+            // Inject the dynamic awareness suffix as a leading system-role
             // item in the input array. This keeps the static `instructions`
             // string unchanged across turns so OpenAI's automatic prefix
             // caching stays effective. The suffix lives outside `instructions`
             // → suffix churn doesn't invalidate the instruction cache.
-            if let Some(suffix) = self.current_cross_session_suffix() {
+            if let Some(suffix) = self.current_awareness_suffix() {
                 if !suffix.is_empty() {
                     api_input.insert(0, json!({
                         "role": "system",
@@ -126,17 +126,17 @@ impl AssistantAgent {
                     }));
                 }
             }
-            // Active Memory (Phase B1) — inject after the cross-session suffix
+            // Active Memory (Phase B1) — inject after the awareness suffix
             // so the ordering stays consistent with Anthropic/OpenAIChat. Same
             // rationale: lives outside `instructions` so it never invalidates
             // the instruction-string prefix cache.
             if let Some(active_suffix) = self.current_active_memory_suffix() {
                 if !active_suffix.is_empty() {
-                    // Find the index immediately after the cross-session suffix
+                    // Find the index immediately after the awareness suffix
                     // (if any) so Active Memory sits right after it rather than
                     // before. `prepare_messages_for_api` never emits a leading
                     // system item, so any existing system at index 0 is our
-                    // cross-session insertion.
+                    // awareness insertion.
                     let insert_at = if api_input
                         .first()
                         .and_then(|m| m.get("role"))

@@ -275,7 +275,7 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
         SlashCommandDef {
             name: "awareness".into(),
             category: CommandCategory::Utility,
-            description_key: "slashCommands.crossSession.description".into(),
+            description_key: "slashCommands.awareness.description".into(),
             has_args: true,
             args_optional: true,
             arg_placeholder: Some("[on|off|mode <x>|status]".into()),

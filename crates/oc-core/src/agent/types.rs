@@ -179,14 +179,14 @@ pub struct AssistantAgent {
     /// Lazily-populated cache for fields read from `agent.json` on every
     /// chat/tool-loop iteration. Cleared by `set_agent_id`.
     pub(super) agent_caps_cache: std::sync::Mutex<Option<std::sync::Arc<AgentCapsCache>>>,
-    /// Cross-session behavior awareness. Lazily created on first `chat()`
+    /// Behavior awareness holder. Lazily created on first `chat()`
     /// call once we have a session id and the feature is enabled.
-    pub(crate) cross_session_awareness:
-        std::sync::Mutex<Option<std::sync::Arc<crate::cross_session::SessionAwareness>>>,
-    /// Latest dynamic cross-session suffix to append to the system prompt as
+    pub(crate) awareness:
+        std::sync::Mutex<Option<std::sync::Arc<crate::awareness::SessionAwareness>>>,
+    /// Latest dynamic awareness suffix to append to the system prompt as
     /// a separate cache breakpoint. Rebuilt on each chat() turn by
     /// `prepare_dynamic_suffix`.
-    pub(crate) cross_session_suffix: std::sync::Mutex<Option<std::sync::Arc<String>>>,
+    pub(crate) awareness_suffix: std::sync::Mutex<Option<std::sync::Arc<String>>>,
     /// Memoized "is this session an IM channel session?" flag. Populated on
     /// first access (typically from `build_tool_schemas`) so we avoid a
     /// SessionDB read per chat turn. Cleared by `set_session_id`.

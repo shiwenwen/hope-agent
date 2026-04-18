@@ -35,7 +35,7 @@ impl AssistantAgent {
         on_delta: &(impl Fn(&str) + Send),
     ) -> Result<(String, Option<String>)> {
         self.reset_chat_flags();
-        self.refresh_cross_session_suffix(message).await;
+        self.refresh_awareness_suffix(message).await;
         self.refresh_active_memory_suffix(message).await;
 
         let client = reqwest::Client::new();
@@ -104,7 +104,7 @@ impl AssistantAgent {
             round_count = round + 1;
 
             if let Some(ref sid) = self.session_id {
-                crate::cross_session::touch_active_session(sid);
+                crate::awareness::touch_active_session(sid);
             }
 
             // Drain steer mailbox: inject any pending steer messages as user messages
@@ -122,7 +122,7 @@ impl AssistantAgent {
 
             // Same as openai_responses: suffix goes into input[0] as system
             // message so that the static `instructions` stays cache-friendly.
-            if let Some(suffix) = self.current_cross_session_suffix() {
+            if let Some(suffix) = self.current_awareness_suffix() {
                 if !suffix.is_empty() {
                     api_input.insert(0, json!({
                         "role": "system",

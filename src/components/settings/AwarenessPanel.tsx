@@ -17,7 +17,7 @@ import {
 
 // ── Types ─────────────────────────────────────────────────────────
 
-type CrossSessionMode = "off" | "structured" | "llm_digest"
+type AwarenessMode = "off" | "structured" | "llm_digest"
 
 interface ExtractionModelRef {
   providerId: string
@@ -37,9 +37,9 @@ interface LlmExtractionConfig {
   reuseSideQueryCache: boolean
 }
 
-interface CrossSessionConfig {
+interface AwarenessConfig {
   enabled: boolean
-  mode: CrossSessionMode
+  mode: AwarenessMode
   maxSessions: number
   maxChars: number
   lookbackHours: number
@@ -60,16 +60,16 @@ type SaveStatus = "idle" | "saved" | "failed"
 
 // ── Component ─────────────────────────────────────────────────────
 
-export default function CrossSessionPanel() {
+export default function AwarenessPanel() {
   const { t } = useTranslation()
-  const [cfg, setCfg] = useState<CrossSessionConfig | null>(null)
+  const [cfg, setCfg] = useState<AwarenessConfig | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle")
 
   useEffect(() => {
     getTransport()
-      .call<CrossSessionConfig>("get_cross_session_config")
+      .call<AwarenessConfig>("get_awareness_config")
       .then((c) => {
         setCfg(c)
         setLoading(false)
@@ -77,7 +77,7 @@ export default function CrossSessionPanel() {
       .catch((e: unknown) => {
         logger.error(
           "settings",
-          "CrossSessionPanel::load",
+          "AwarenessPanel::load",
           "Failed to load config",
           e,
         )
@@ -88,14 +88,14 @@ export default function CrossSessionPanel() {
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const save = useCallback(
-    (next: CrossSessionConfig) => {
+    (next: AwarenessConfig) => {
       setCfg(next)
       // Debounce: wait 500ms after the last change before persisting.
       if (saveTimer.current) clearTimeout(saveTimer.current)
       saveTimer.current = setTimeout(async () => {
         setSaving(true)
         try {
-          await getTransport().call("save_cross_session_config", {
+          await getTransport().call("save_awareness_config", {
             config: next,
           })
           setSaveStatus("saved")
@@ -103,16 +103,16 @@ export default function CrossSessionPanel() {
         } catch (e) {
           logger.error(
             "settings",
-            "CrossSessionPanel::save",
-            "Failed to save cross-session config",
+            "AwarenessPanel::save",
+            "Failed to save awareness config",
             e,
           )
           setSaveStatus("failed")
           setTimeout(() => setSaveStatus("idle"), 1500)
           // Rollback: re-fetch actual backend state so UI stays in sync.
           try {
-            const fresh = await getTransport().call<CrossSessionConfig>(
-              "get_cross_session_config",
+            const fresh = await getTransport().call<AwarenessConfig>(
+              "get_awareness_config",
             )
             setCfg(fresh)
           } catch { /* best effort */ }
@@ -133,14 +133,11 @@ export default function CrossSessionPanel() {
       <div className="flex items-center justify-between">
         <div>
           <div className="text-sm font-medium">
-            {t(
-              "settings.crossSession.title",
-              "Cross-Session Behavior Awareness",
-            )}
+            {t("settings.awareness.title", "Behavior Awareness")}
           </div>
           <div className="text-xs text-muted-foreground">
             {t(
-              "settings.crossSession.desc",
+              "settings.awareness.desc",
               "Give this chat a dynamic view of what the user is doing in other parallel sessions.",
             )}
           </div>
@@ -161,12 +158,12 @@ export default function CrossSessionPanel() {
         {/* Mode selector */}
         <div className="space-y-1">
           <label className="text-xs font-medium">
-            {t("settings.crossSession.mode", "Mode")}
+            {t("settings.awareness.mode", "Mode")}
           </label>
           <Select
             value={cfg.mode}
             onValueChange={(v: string) =>
-              save({ ...cfg, mode: v as CrossSessionMode })
+              save({ ...cfg, mode: v as AwarenessMode })
             }
           >
             <SelectTrigger className="w-full">
@@ -174,17 +171,17 @@ export default function CrossSessionPanel() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="off">
-                {t("settings.crossSession.modeOff", "Off (feature disabled)")}
+                {t("settings.awareness.modeOff", "Off (feature disabled)")}
               </SelectItem>
               <SelectItem value="structured">
                 {t(
-                  "settings.crossSession.modeStructured",
+                  "settings.awareness.modeStructured",
                   "Structured (zero LLM cost, default)",
                 )}
               </SelectItem>
               <SelectItem value="llm_digest">
                 {t(
-                  "settings.crossSession.modeLlm",
+                  "settings.awareness.modeLlm",
                   "LLM Digest (extra API cost)",
                 )}
               </SelectItem>
@@ -197,7 +194,7 @@ export default function CrossSessionPanel() {
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
             <div>
               {t(
-                "settings.crossSession.llmWarning",
+                "settings.awareness.llmWarning",
                 "LLM Digest mode runs an extra side_query per user turn (throttled to min_interval_secs). Expect extra API cost.",
               )}
             </div>
@@ -207,12 +204,12 @@ export default function CrossSessionPanel() {
         {/* Scope */}
         <div className="mt-4 grid grid-cols-2 gap-3">
           <NumField
-            label={t("settings.crossSession.maxSessions", "Max sessions")}
+            label={t("settings.awareness.maxSessions", "Max sessions")}
             value={cfg.maxSessions}
             onChange={(v) => save({ ...cfg, maxSessions: v })}
           />
           <NumField
-            label={t("settings.crossSession.lookbackHours", "Lookback (hours)")}
+            label={t("settings.awareness.lookbackHours", "Lookback (hours)")}
             value={cfg.lookbackHours}
             onChange={(v) => save({ ...cfg, lookbackHours: v })}
           />
@@ -221,21 +218,21 @@ export default function CrossSessionPanel() {
         {/* Session-type toggles (positive framing) */}
         <div className="mt-4 space-y-2">
           <div className="text-xs font-medium text-muted-foreground">
-            {t("settings.crossSession.includeTypes", "Session types to include")}
+            {t("settings.awareness.includeTypes", "Session types to include")}
           </div>
           <LabeledSwitch
-            label={t("settings.crossSession.sameAgentOnly", "Same agent only")}
+            label={t("settings.awareness.sameAgentOnly", "Same agent only")}
             value={cfg.sameAgentOnly}
             onChange={(v) => save({ ...cfg, sameAgentOnly: v })}
           />
           <LabeledSwitch
-            label={t("settings.crossSession.includeCron", "Include cron sessions")}
+            label={t("settings.awareness.includeCron", "Include cron sessions")}
             value={!cfg.excludeCron}
             onChange={(v) => save({ ...cfg, excludeCron: !v })}
           />
           <LabeledSwitch
             label={t(
-              "settings.crossSession.includeChannel",
+              "settings.awareness.includeChannel",
               "Include IM channel sessions",
             )}
             value={!cfg.excludeChannel}
@@ -243,7 +240,7 @@ export default function CrossSessionPanel() {
           />
           <LabeledSwitch
             label={t(
-              "settings.crossSession.includeSubagents",
+              "settings.awareness.includeSubagents",
               "Include sub-agent sessions",
             )}
             value={!cfg.excludeSubagents}
@@ -254,11 +251,11 @@ export default function CrossSessionPanel() {
         {/* Refresh */}
         <div className="mt-4 space-y-2">
           <div className="text-xs font-medium text-muted-foreground">
-            {t("settings.crossSession.refresh", "Dynamic refresh")}
+            {t("settings.awareness.refresh", "Dynamic refresh")}
           </div>
           <LabeledSwitch
             label={t(
-              "settings.crossSession.dynamicEnabled",
+              "settings.awareness.dynamicEnabled",
               "Refresh suffix every turn",
             )}
             value={cfg.dynamicEnabled}
@@ -266,7 +263,7 @@ export default function CrossSessionPanel() {
           />
           <NumField
             label={t(
-              "settings.crossSession.minRefreshSecs",
+              "settings.awareness.minRefreshSecs",
               "Min refresh interval (seconds)",
             )}
             value={cfg.minRefreshSecs}
@@ -278,11 +275,11 @@ export default function CrossSessionPanel() {
         {cfg.mode === "llm_digest" && (
           <div className="mt-4 space-y-2 rounded-md border border-border/40 bg-muted/30 p-3">
             <div className="text-xs font-medium text-muted-foreground">
-              {t("settings.crossSession.llmExtraction", "LLM Extraction")}
+              {t("settings.awareness.llmExtraction", "LLM Extraction")}
             </div>
             <NumField
               label={t(
-                "settings.crossSession.minIntervalSecs",
+                "settings.awareness.minIntervalSecs",
                 "Min interval between extractions (seconds)",
               )}
               value={cfg.llmExtraction.minIntervalSecs}
@@ -295,7 +292,7 @@ export default function CrossSessionPanel() {
             />
             <NumField
               label={t(
-                "settings.crossSession.maxCandidates",
+                "settings.awareness.maxCandidates",
                 "Max candidate sessions",
               )}
               value={cfg.llmExtraction.maxCandidates}
@@ -308,7 +305,7 @@ export default function CrossSessionPanel() {
             />
             <NumField
               label={t(
-                "settings.crossSession.inputLookbackHours",
+                "settings.awareness.inputLookbackHours",
                 "Input lookback (hours)",
               )}
               value={cfg.llmExtraction.inputLookbackHours}
@@ -321,7 +318,7 @@ export default function CrossSessionPanel() {
             />
             <NumField
               label={t(
-                "settings.crossSession.digestMaxChars",
+                "settings.awareness.digestMaxChars",
                 "Digest output budget (chars)",
               )}
               value={cfg.llmExtraction.digestMaxChars}
@@ -335,14 +332,14 @@ export default function CrossSessionPanel() {
             <div>
               <label className="text-xs font-medium">
                 {t(
-                  "settings.crossSession.extractionAgent",
+                  "settings.awareness.extractionAgent",
                   "Extraction agent ID (optional)",
                 )}
               </label>
               <Input
                 value={cfg.llmExtraction.extractionAgent ?? ""}
                 placeholder={t(
-                  "settings.crossSession.extractionAgentPlaceholder",
+                  "settings.awareness.extractionAgentPlaceholder",
                   "Leave empty to inherit recap.analysisAgent",
                 )}
                 onChange={(e) =>
@@ -361,7 +358,7 @@ export default function CrossSessionPanel() {
 
         <div className="mt-4 text-xs text-muted-foreground">
           {t(
-            "settings.crossSession.perSessionHint",
+            "settings.awareness.perSessionHint",
             "Each chat can override these settings via the eye icon in the input bar.",
           )}
         </div>
@@ -372,21 +369,21 @@ export default function CrossSessionPanel() {
             size="sm"
             onClick={async () => {
               try {
-                const fresh = await getTransport().call<CrossSessionConfig>(
-                  "get_cross_session_config",
+                const fresh = await getTransport().call<AwarenessConfig>(
+                  "get_awareness_config",
                 )
                 setCfg(fresh)
               } catch (e) {
                 logger.error(
                   "settings",
-                  "CrossSessionPanel::reload",
+                  "AwarenessPanel::reload",
                   "Failed to reload config",
                   e,
                 )
               }
             }}
           >
-            {t("settings.crossSession.reloadDefaults", "Reload")}
+            {t("settings.awareness.reloadDefaults", "Reload")}
           </Button>
         </div>
       </div>

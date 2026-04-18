@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **行为感知（Behavior Awareness）模块全量重命名**：将内部代码标识符 `cross_session` / `CrossSession` / `crossSession` 全量改为 `awareness` / `Awareness`，与早先的用户侧 `/awareness` 命名对齐。涉及 Rust 模块、配置字段、DB 列、Tauri 命令、HTTP payload、前端组件、i18n key、`oc-settings` 技能分类。同时移除 `/cross-session` / `/xsession` 斜杠兼容别名，仅保留 `/awareness`。无迁移逻辑——老 `config.json` 中残留的 `crossSession` 字段会被 serde 静默忽略并回落默认值
+- **Behavior Awareness 默认关闭**：`AppConfig.awareness.enabled` 的 `Default` 从 `true` 改为 `false`（[`crates/oc-core/src/awareness/config.rs`](crates/oc-core/src/awareness/config.rs#L119)）。已在 `config.json` 中显式写入 `awareness.enabled: true` 的用户不受影响（serde `#[serde(default)]` 只在字段缺失时走 Default）；全新安装或 config 里没有 `awareness` 字段的用户默认关闭。想继续使用请到 设置 → 对话与上下文 → 行为感知 显式开启
 - **`TOOL_CALL_NARRATION_GUIDANCE` 改为用户可选注入**：原先这段"先用一句话说明意图再调 tool"的系统提示词在 structured / custom / legacy 三种模式下恒定注入。Claude 系列遵循良好，但 GPT-5.4（Codex）会把规则过度扩大解读成"每次 tool call 前都念一遍 preamble"，造成连续三轮 tool 调用前三次几乎一样的开场白（`task_create → task_update → ls` 都说"我先给你生成 Draw.io 架构图文件"）。现改为：新增 `AppConfig.tool_call_narration_enabled: bool`（默认 `false`），[`system_prompt/build.rs`](crates/oc-core/src/system_prompt/build.rs) 两个注入点都做条件 gate；同时在 `TOOL_CALL_NARRATION_GUIDANCE` 内部补一段"连续 tool call 不要重复复述同一意图"的强约束，开启者也能拿到更干净的输出。配套面向用户：ChatSettingsPanel 基础 Tab 加 Switch（"工具调用前说明" / "Announce tool calls"）、Tauri `get_tool_call_narration_enabled` / `set_tool_call_narration_enabled` + HTTP `GET/POST /api/config/tool-call-narration`、`oc-settings` 技能新增 MEDIUM 风险分类 `tool_call_narration`。向后兼容：对以往默认拿到该 preamble 的用户来说 _行为变化_——想保留旧行为请到"对话与上下文"打开开关
 
 ### Fixed

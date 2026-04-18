@@ -809,7 +809,7 @@
     "recapAnalysisAgentDesc": "用于提取 facet 和生成报告章节的 Agent，未设置时回退到当前活跃 Agent",
     "recapAnalysisAgentDefault": "使用当前活跃 Agent",
     "tabChatBasic": "基础",
-    "tabCrossSession": "行为感知",
+    "tabAwareness": "行为感知",
     "tabContextCompact": "上下文压缩",
     "chatAutoSend": "自动发送排队消息",
     "chatAutoSendDesc": "回复结束后自动发送排队中的消息，关闭则回填到输入框",
@@ -817,7 +817,7 @@
     "chatAutoExpandThinkingDesc": "聊天气泡中的Think过程默认自动展开，关闭后需手动点击展开",
     "toolCallNarration": "工具调用前说明",
     "toolCallNarrationDesc": "开启后在系统提示词中要求模型在每次调用工具前用一句话说明意图（Claude Code 风格）。部分模型（如 GPT-5.4）会在连续工具调用间反复复述同一意图，造成重复。默认关闭",
-    "crossSession": {
+    "awareness": {
       "title": "行为感知",
       "desc": "让当前会话实时感知其它并行会话中用户正在做的事",
       "mode": "模式",
@@ -1818,7 +1818,7 @@
     "recap": { "description": "生成深度复盘报告" },
     "team": { "description": "管理 Agent 团队" },
     "context": { "description": "查看上下文占用明细" },
-    "crossSession": { "description": "开关行为感知" },
+    "awareness": { "description": "开关行为感知" },
     "categories": {
       "session": "会话",
       "model": "模型",

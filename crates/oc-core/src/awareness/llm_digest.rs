@@ -1,4 +1,4 @@
-//! LLM-based digest extraction for cross-session awareness.
+//! LLM-based digest extraction for behavior awareness.
 //!
 //! This module is focused on shaping the extraction prompt; the actual
 //! `side_query` invocation and timeout handling lives on `AssistantAgent` so
@@ -6,12 +6,12 @@
 //! with a tight timeout, so it never blocks a turn for more than a few
 //! seconds — and the result is available on the same turn that triggered it.
 
-use super::config::CrossSessionConfig;
-use super::types::CrossSessionEntry;
+use super::config::AwarenessConfig;
+use super::types::AwarenessEntry;
 use crate::session::SessionDB;
 
 const EXTRACTION_SYSTEM_PREAMBLE: &str = "\
-You are generating a compact cross-session behavior snapshot for another \
+You are generating a compact behavior snapshot for another \
 conversation. The snapshot describes what the user is CURRENTLY doing in \
 other parallel sessions so the main agent can understand references like \
 \"that thing I was working on\".";
@@ -34,8 +34,8 @@ for that bullet. Never fabricate progress.\n\
 /// Build the LLM prompt for the extraction side_query. Called from
 /// `AssistantAgent::run_extraction_inline`.
 pub(crate) fn build_extraction_prompt(
-    candidates: &[CrossSessionEntry],
-    cfg: &CrossSessionConfig,
+    candidates: &[AwarenessEntry],
+    cfg: &AwarenessConfig,
     session_db: &SessionDB,
 ) -> anyhow::Result<String> {
     let mut out = String::new();

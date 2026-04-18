@@ -498,11 +498,11 @@ pub struct AppConfig {
     #[serde(default)]
     pub async_tools: AsyncToolsConfig,
 
-    /// Cross-session behavior awareness configuration.
-    /// Provides each chat with a dynamically-refreshed view of what the user
-    /// is doing in other parallel sessions.
+    /// Behavior awareness configuration. Provides each chat with a
+    /// dynamically-refreshed view of what the user is doing in other
+    /// parallel sessions.
     #[serde(default)]
-    pub cross_session: crate::cross_session::CrossSessionConfig,
+    pub awareness: crate::awareness::AwarenessConfig,
 
     /// Offline memory consolidation ("Dreaming", Phase B3).
     /// Controls when cycles run (idle / cron / manual) and how aggressively
@@ -580,7 +580,7 @@ impl Default for AppConfig {
             server: EmbeddedServerConfig::default(),
             recap: RecapConfig::default(),
             async_tools: AsyncToolsConfig::default(),
-            cross_session: crate::cross_session::CrossSessionConfig::default(),
+            awareness: crate::awareness::AwarenessConfig::default(),
             dreaming: crate::memory::dreaming::DreamingConfig::default(),
             skills: crate::skills::SkillsConfig::default(),
             recall_summary: crate::memory::RecallSummaryConfig::default(),

@@ -4,7 +4,7 @@
 //! side_query to distill the single most relevant memory for the current
 //! message. The resulting sentence is exposed to the provider layer as an
 //! independent cache block (alongside the static system prompt and the
-//! cross-session suffix), so its churn does not invalidate the prefix cache.
+//! awareness suffix), so its churn does not invalidate the prefix cache.
 //!
 //! Design principles:
 //! - **Bounded**: hard timeout from `ActiveMemoryConfig.timeout_ms` (default 3s).
@@ -289,7 +289,7 @@ pub fn shortlist_candidates(
 
 /// Format the final Active Memory suffix section that gets injected into
 /// the provider request. Matches the markdown heading style used by the
-/// other dynamic blocks (cross-session suffix, etc.) so the LLM can tell
+/// other dynamic blocks (awareness suffix, etc.) so the LLM can tell
 /// them apart at a glance.
 pub fn format_suffix(text: &str) -> String {
     format!("## Active Memory\n\n{}", text.trim())

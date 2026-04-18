@@ -7,7 +7,7 @@
 
 use serde_json::{json, Value};
 
-use super::config::CrossSessionConfig;
+use super::config::AwarenessConfig;
 use crate::tools::ToolDefinition;
 
 /// Construct the `peek_sessions` tool definition. Registered as `deferred=true`
@@ -18,7 +18,7 @@ pub fn peek_sessions_schema() -> ToolDefinition {
         description: "Inspect what the user is doing in other sessions right now. \
 Returns a compact markdown list of peer sessions (title, agent, kind, relative time, \
 goal/summary). Use this when the user references \"the other thing\", \"last time\", \
-or you suspect cross-session context matters. Always read-only.".into(),
+or you suspect context from other sessions matters. Always read-only.".into(),
         internal: true,
         deferred: true,
         always_load: false,
@@ -59,15 +59,15 @@ pub fn run_peek_sessions(
         .clamp(1, 20) as usize;
 
     let session_db = crate::get_session_db().ok_or_else(|| "session DB unavailable".to_string())?;
-    let cfg_global = crate::config::cached_config().cross_session.clone();
-    // Respect the global kill-switch — user explicitly disabled cross-session awareness.
+    let cfg_global = crate::config::cached_config().awareness.clone();
+    // Respect the global kill-switch — user explicitly disabled behavior awareness.
     if !cfg_global.enabled {
-        return Ok("Cross-session awareness is disabled by the user.".into());
+        return Ok("Behavior awareness is disabled by the user.".into());
     }
     // Relax type exclusions for active peek — model is explicitly asking.
     // Pull extra candidates (4x limit) so query filtering doesn't miss matches
     // that lie beyond the top-N by recency.
-    let cfg = CrossSessionConfig {
+    let cfg = AwarenessConfig {
         exclude_cron: false,
         exclude_channel: false,
         exclude_subagents: false,

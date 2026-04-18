@@ -1,4 +1,4 @@
-//! Top-level entry points for building a cross-session prompt section.
+//! Top-level entry points for building an awareness prompt section.
 //!
 //! This is called at session bootstrap to produce a *static* preheating block
 //! that is baked into the cached system prompt. The dynamic, per-turn block
@@ -7,9 +7,9 @@
 
 use anyhow::Result;
 
-use super::config::{CrossSessionConfig, CrossSessionMode};
+use super::config::{AwarenessConfig, AwarenessMode};
 
-/// Produce the static cross-session prefix block (optional).
+/// Produce the static awareness prefix block (optional).
 ///
 /// This is intentionally short — the dynamic suffix (via `SessionAwareness`)
 /// carries the actually-fresh content. The prefix is mainly useful for
@@ -17,9 +17,9 @@ use super::config::{CrossSessionConfig, CrossSessionMode};
 /// appended.
 pub fn build_prompt_section(
     current_session_id: Option<&str>,
-    cfg: &CrossSessionConfig,
+    cfg: &AwarenessConfig,
 ) -> Result<Option<String>> {
-    if !cfg.enabled || matches!(cfg.mode, CrossSessionMode::Off) {
+    if !cfg.enabled || matches!(cfg.mode, AwarenessMode::Off) {
         return Ok(None);
     }
     let current = current_session_id.unwrap_or("-");

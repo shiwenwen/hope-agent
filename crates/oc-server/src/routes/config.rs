@@ -718,18 +718,18 @@ pub async fn set_sandbox_config(
 // ── Behavior Awareness ──────────────────────────────────────────
 
 /// `GET /api/config/awareness` -- global behavior awareness config.
-pub async fn get_cross_session_config(
-) -> Result<Json<oc_core::cross_session::CrossSessionConfig>, AppError> {
+pub async fn get_awareness_config(
+) -> Result<Json<oc_core::awareness::AwarenessConfig>, AppError> {
     let store = load_config()?;
-    Ok(Json(store.cross_session))
+    Ok(Json(store.awareness))
 }
 
 /// `PUT /api/config/awareness` -- save global behavior awareness config.
-pub async fn save_cross_session_config(
-    Json(body): Json<ConfigBody<oc_core::cross_session::CrossSessionConfig>>,
+pub async fn save_awareness_config(
+    Json(body): Json<ConfigBody<oc_core::awareness::AwarenessConfig>>,
 ) -> Result<Json<Value>, AppError> {
     let mut store = load_config()?;
-    store.cross_session = body.config;
+    store.awareness = body.config;
     save_config(&store)?;
     Ok(Json(json!({ "saved": true })))
 }

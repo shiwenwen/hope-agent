@@ -809,7 +809,7 @@
     "recapAnalysisAgentDesc": "Agent used to extract facets and write report sections. Falls back to the active agent when unset.",
     "recapAnalysisAgentDefault": "Use active agent",
     "tabChatBasic": "Basic",
-    "tabCrossSession": "Behavior Awareness",
+    "tabAwareness": "Behavior Awareness",
     "tabContextCompact": "Context Compaction",
     "chatAutoSend": "Auto-send queued messages",
     "chatAutoSendDesc": "Automatically send queued messages after reply finishes. When off, message is filled back to input.",
@@ -817,7 +817,7 @@
     "chatAutoExpandThinkingDesc": "Automatically expand thinking blocks in chat bubbles. When off, click to expand manually.",
     "toolCallNarration": "Announce tool calls",
     "toolCallNarrationDesc": "When enabled, instruct the model to preface every tool call with a one-sentence announcement (Claude Code style). Some models (e.g. GPT-5.4) over-apply this and restate the same intent across consecutive tool calls, creating visible duplication. Default off.",
-    "crossSession": {
+    "awareness": {
       "title": "Behavior Awareness",
       "desc": "Give this chat a dynamic view of what the user is doing in other parallel sessions.",
       "mode": "Mode",
@@ -1818,7 +1818,7 @@
     "recap": { "description": "Generate a deep analysis recap report" },
     "team": { "description": "Manage agent teams" },
     "context": { "description": "Show context window breakdown" },
-    "crossSession": { "description": "Toggle behavior awareness" },
+    "awareness": { "description": "Toggle behavior awareness" },
     "categories": {
       "session": "Session",
       "model": "Model",

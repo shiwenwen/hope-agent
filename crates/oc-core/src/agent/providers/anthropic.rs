@@ -35,7 +35,7 @@ impl AssistantAgent {
         on_delta: &(impl Fn(&str) + Send),
     ) -> Result<(String, Option<String>)> {
         self.reset_chat_flags();
-        self.refresh_cross_session_suffix(message).await;
+        self.refresh_awareness_suffix(message).await;
         self.refresh_active_memory_suffix(message).await;
 
         let client =
@@ -62,7 +62,7 @@ impl AssistantAgent {
         let mut first_ttft_ms: Option<u64> = None;
 
         let api_url = build_api_url(base_url, "/v1/messages");
-        // Static prefix (cache-friendly). The dynamic cross-session suffix
+        // Static prefix (cache-friendly). The dynamic awareness suffix
         // is injected as a second `system` text block below so that its
         // churn does not invalidate the prefix cache.
         let system_prompt = self.build_full_system_prompt(model, "Anthropic");
@@ -109,7 +109,7 @@ impl AssistantAgent {
             // Keep this session marked as "active" during long tool loops
             // so peer sessions see it in the registry.
             if let Some(ref sid) = self.session_id {
-                crate::cross_session::touch_active_session(sid);
+                crate::awareness::touch_active_session(sid);
             }
 
             // Drain steer mailbox: inject any pending steer messages as user messages
@@ -123,16 +123,16 @@ impl AssistantAgent {
             }
 
             // Build system prompt with cache_control for Anthropic prompt caching.
-            // The static prefix is cached as one block; the dynamic cross-session
+            // The static prefix is cached as one block; the dynamic awareness
             // suffix (if any) is a second block with its own cache_control so that
             // changes to it only invalidate the suffix, not the prefix.
-            let cross_session_suffix = self.current_cross_session_suffix();
+            let awareness_suffix = self.current_awareness_suffix();
             let mut system_blocks = vec![json!({
                 "type": "text",
                 "text": system_prompt,
                 "cache_control": { "type": "ephemeral" }
             })];
-            if let Some(suffix) = cross_session_suffix.as_deref() {
+            if let Some(suffix) = awareness_suffix.as_deref() {
                 if !suffix.is_empty() {
                     system_blocks.push(json!({
                         "type": "text",
@@ -143,7 +143,7 @@ impl AssistantAgent {
             }
             // Active Memory (Phase B1) — third independent cache block.
             // Churn here only invalidates the recall sentence, never the
-            // static prefix or the cross-session suffix cache.
+            // static prefix or the awareness suffix cache.
             if let Some(active_suffix) = self.current_active_memory_suffix() {
                 if !active_suffix.is_empty() {
                     system_blocks.push(json!({
