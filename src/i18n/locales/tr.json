@@ -350,6 +350,7 @@
     "memoryCount": "{{count}} kayıt",
     "memoryEmpty": "Henüz kayıt yok. AI'nın önemli bağlamı hatırlaması için ilk hafızanızı ekleyin.",
     "memoryNoResults": "Aramanızla eşleşen kayıt yok",
+    "loading": "Yükleniyor...",
     "memoryExport": "Markdown olarak dışa aktar",
     "memoryType": "Tür",
     "memoryType_user": "Kullanıcı",
@@ -1102,8 +1103,7 @@
     "serverDisconnected": "Bağlı değil",
     "serverTestConnection": "Bağlantıyı test et",
     "serverTestSuccess": "Bağlantı başarılı",
-    "serverTestFailed": "Bağlantı başarısız",
-    "loading": "Yükleniyor..."
+    "serverTestFailed": "Bağlantı başarısız"
   },
   "tz": {
     "shanghai": "Şanghay (UTC+8)",

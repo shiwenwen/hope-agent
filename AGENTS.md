@@ -100,7 +100,8 @@ crates/oc-core/src/     核心业务逻辑（零 Tauri 依赖）
   oauth.rs              OAuth 认证
   url_preview.rs        URL 预览
   file_extract.rs       文件内容提取
-  browser_state.rs      浏览器状态管理
+  browser_state.rs      浏览器状态管理（chromiumoxide / CDP）
+  browser_ui.rs         桌面端浏览器管理面板后端（profile CRUD + launch/connect/disconnect/status）
   canvas_db.rs          Canvas 数据库
   crash_journal.rs      崩溃日志
   dev_tools.rs          开发者工具

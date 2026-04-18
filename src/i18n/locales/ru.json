@@ -350,6 +350,7 @@
     "memoryCount": "{{count}} записей",
     "memoryEmpty": "Записей памяти пока нет. Добавьте первую запись, чтобы ИИ помнил важный контекст.",
     "memoryNoResults": "Нет записей, соответствующих поиску",
+    "loading": "Загрузка...",
     "memoryExport": "Экспорт в Markdown",
     "memoryType": "Тип",
     "memoryType_user": "Пользователь",
@@ -1102,8 +1103,7 @@
     "serverDisconnected": "Не подключено",
     "serverTestConnection": "Проверить соединение",
     "serverTestSuccess": "Соединение успешно",
-    "serverTestFailed": "Соединение не удалось",
-    "loading": "Загрузка..."
+    "serverTestFailed": "Соединение не удалось"
   },
   "tz": {
     "shanghai": "Шанхай (UTC+8)",

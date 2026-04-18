@@ -349,6 +349,15 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   fetch_url_preview:               { method: "POST",   path: "/api/url-preview" },
   fetch_url_previews:              { method: "POST",   path: "/api/url-preview/batch" },
 
+  // -- Embedded browser --
+  browser_get_status:              { method: "GET",    path: "/api/browser/status" },
+  browser_list_profiles:           { method: "GET",    path: "/api/browser/profiles" },
+  browser_create_profile:          { method: "POST",   path: "/api/browser/profiles" },
+  browser_delete_profile:          { method: "DELETE", path: "/api/browser/profiles/{name}" },
+  browser_launch:                  { method: "POST",   path: "/api/browser/launch" },
+  browser_connect:                 { method: "POST",   path: "/api/browser/connect" },
+  browser_disconnect:              { method: "POST",   path: "/api/browser/disconnect" },
+
   // -- Theme / Language / UI --
   get_theme:                       { method: "GET",    path: "/api/config/theme" },
   set_theme:                       { method: "POST",   path: "/api/config/theme" },

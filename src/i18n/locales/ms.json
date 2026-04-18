@@ -350,6 +350,7 @@
     "memoryCount": "{{count}} ingatan",
     "memoryEmpty": "Belum ada ingatan. Tambah ingatan pertama anda untuk membantu AI mengingati konteks penting.",
     "memoryNoResults": "Tiada ingatan sepadan dengan carian anda",
+    "loading": "Memuatkan...",
     "memoryExport": "Eksport sebagai Markdown",
     "memoryType": "Jenis",
     "memoryType_user": "Pengguna",
@@ -1102,8 +1103,7 @@
     "serverDisconnected": "Dinyahsambung",
     "serverTestConnection": "Uji sambungan",
     "serverTestSuccess": "Sambungan berjaya",
-    "serverTestFailed": "Sambungan gagal",
-    "loading": "Memuatkan..."
+    "serverTestFailed": "Sambungan gagal"
   },
   "tz": {
     "shanghai": "Shanghai (UTC+8)",

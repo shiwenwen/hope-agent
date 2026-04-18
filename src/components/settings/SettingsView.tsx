@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   Bot,
   Brain,
+  Chrome,
   Code,
   Globe,
   Info,
@@ -52,6 +53,7 @@ import AcpControlPanel from "@/components/settings/AcpControlPanel"
 import ChannelPanel from "@/components/settings/channel-panel"
 import ServerPanel from "@/components/settings/ServerPanel"
 import SecurityPanel from "@/components/settings/SecurityPanel"
+import BrowserPanel from "@/components/settings/BrowserPanel"
 import type { SettingsSection, SettingsSectionItem } from "./types"
 
 const SECTIONS: SettingsSectionItem[] = [
@@ -124,6 +126,11 @@ const SECTIONS: SettingsSectionItem[] = [
     id: "sandbox",
     icon: <Container className="h-4 w-4" />,
     labelKey: "settings.sandbox",
+  },
+  {
+    id: "browser",
+    icon: <Chrome className="h-4 w-4" />,
+    labelKey: "settings.browser.title",
   },
   {
     id: "acp",
@@ -278,6 +285,7 @@ export default function SettingsView({
             {activeSection === "notifications" && <NotificationPanel />}
             {activeSection === "tools" && <ToolSettingsPanel />}
             {activeSection === "sandbox" && <SandboxPanel />}
+            {activeSection === "browser" && <BrowserPanel />}
             {activeSection === "acp" && <AcpControlPanel />}
             {activeSection === "channels" && <ChannelPanel />}
             {activeSection === "permissions" && <PermissionsPanel />}
