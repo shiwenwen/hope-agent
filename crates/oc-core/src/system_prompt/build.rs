@@ -1,6 +1,6 @@
 use super::constants::{
-    build_tool_budget_guidance, HUMAN_IN_THE_LOOP_GUIDANCE, MAX_FILE_CHARS, MEMORY_GUIDELINES,
-    SOUL_EMBODIMENT_GUIDANCE, TOOL_CALL_NARRATION_GUIDANCE,
+    build_tool_budget_guidance, APP_INTRO, HUMAN_IN_THE_LOOP_GUIDANCE, MAX_FILE_CHARS,
+    MEMORY_GUIDELINES, SOUL_EMBODIMENT_GUIDANCE, TOOL_CALL_NARRATION_GUIDANCE,
 };
 use super::helpers::truncate;
 use super::sections::*;
@@ -61,6 +61,7 @@ pub fn build(
             "You are {}, running in OpenComputer on {} {}.",
             definition.config.name, os, arch
         ));
+        sections.push(APP_INTRO.to_string());
 
         // # Project Context — fixed 4-file order
         let mut project_ctx = String::from(
@@ -98,6 +99,7 @@ pub fn build(
             "You are {}, running in OpenComputer on {} {}.",
             definition.config.name, os, arch
         ));
+        sections.push(APP_INTRO.to_string());
 
         // agent.md — custom identity / instructions
         if let Some(md) = definition
@@ -142,6 +144,7 @@ pub fn build(
             "You are {}{}, running in OpenComputer on {} {}.",
             definition.config.name, role_suffix, os, arch
         ));
+        sections.push(APP_INTRO.to_string());
 
         // ② Personality — SoulMd mode injects soul.md verbatim + embodiment
         //    guidance; Structured mode (default) assembles from role/tone/values.
