@@ -14,6 +14,8 @@ export function useAutoScroll({ loading, messages, currentSessionId }: UseAutoSc
   const rafIdRef = useRef<number | null>(null)
   // Track the last message count we handled to avoid duplicate scroll-to-bottom
   const lastHandledLengthRef = useRef(0)
+  // Previous scrollTop, used to detect scroll direction in handleScroll.
+  const lastScrollTopRef = useRef(0)
 
   const scrollToBottom = useCallback((immediate?: boolean) => {
     const el = scrollContainerRef.current
@@ -37,16 +39,18 @@ export function useAutoScroll({ loading, messages, currentSessionId }: UseAutoSc
   // Detect user scrolling to pause auto-scroll.
   //
   // Two detection paths:
-  // 1. User-initiated input (wheel / touchmove / PageUp / ArrowUp / Home) — flips
-  //    immediately on any upward intent. Essential during streaming, because the
-  //    rAF loop below snaps scrollTop to bottom every frame; a pure
-  //    `distanceFromBottom` threshold can never be reached when trackpad deltas
-  //    get overwritten within 16ms.
-  // 2. Plain scroll events — used only to RESUME auto-scroll once the user
-  //    scrolls back near the bottom (distance ≤ 80px).
+  // 1. User-initiated input (wheel / touchmove / PageUp / ArrowUp / Home) —
+  //    flips immediately on any upward intent.
+  // 2. Plain scroll events — RESUME auto-scroll only when the user is actively
+  //    scrolling DOWN (scrollTop increased) and is within 80px of the bottom.
+  //    Requiring a downward delta is critical: a tiny upward wheel event leaves
+  //    scrollTop within 80px of bottom, and resuming on distance alone would
+  //    immediately flip the ref back to false, letting the rAF loop snap back
+  //    to bottom — observed as jitter while the user tries to scroll up.
   useEffect(() => {
     const el = scrollContainerRef.current
     if (!el) return
+    lastScrollTopRef.current = el.scrollTop
 
     const pauseAutoScroll = () => {
       isUserScrolledUpRef.current = true
@@ -63,8 +67,12 @@ export function useAutoScroll({ loading, messages, currentSessionId }: UseAutoSc
     }
 
     const handleScroll = () => {
+      const currentTop = el.scrollTop
+      const prevTop = lastScrollTopRef.current
+      lastScrollTopRef.current = currentTop
       if (!isUserScrolledUpRef.current) return
-      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+      if (currentTop <= prevTop) return
+      const distanceFromBottom = el.scrollHeight - currentTop - el.clientHeight
       if (distanceFromBottom <= 80) {
         isUserScrolledUpRef.current = false
       }
