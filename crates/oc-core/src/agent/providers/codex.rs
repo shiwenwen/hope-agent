@@ -8,7 +8,8 @@ use futures_util::future::join_all;
 
 use super::super::api_types::{ReasoningConfig, ResponsesRequest};
 use super::super::config::{
-    clamp_reasoning_effort, get_max_tool_rounds, BASE_DELAY_MS, CODEX_API_URL, MAX_RETRIES,
+    clamp_reasoning_effort, get_max_tool_rounds, live_reasoning_effort, BASE_DELAY_MS,
+    CODEX_API_URL, MAX_RETRIES,
 };
 use super::super::content::build_user_content_responses;
 use super::super::errors::{is_retryable_error, os_version, parse_error_response};
@@ -41,8 +42,9 @@ impl AssistantAgent {
         let client = reqwest::Client::new();
         let tool_schemas = self.build_tool_schemas(ToolProvider::OpenAI);
 
-        // Build reasoning config with clamping
-        let reasoning = reasoning_effort
+        // Initial reasoning config — refreshed inside the tool loop when the
+        // agent is following the live global effort (main-chat path).
+        let initial_reasoning = reasoning_effort
             .and_then(|e| clamp_reasoning_effort(model, e))
             .map(|effort| ReasoningConfig {
                 effort,
@@ -159,6 +161,22 @@ impl AssistantAgent {
             // model (the loop exits immediately after), leaving the user
             // with only a "max rounds" notice.
             let is_final_round = round + 1 == max_rounds;
+            // Refresh per round when following the live global picker; other
+            // callers (subagent / side_query / memory_extract) keep their
+            // explicit effort.
+            let reasoning = if self.follow_global_reasoning_effort {
+                live_reasoning_effort(reasoning_effort).await
+                    .and_then(|e| clamp_reasoning_effort(model, &e))
+                    .map(|effort| ReasoningConfig {
+                        effort,
+                        summary: Some("auto".to_string()),
+                    })
+            } else {
+                initial_reasoning.as_ref().map(|r| ReasoningConfig {
+                    effort: r.effort.clone(),
+                    summary: Some("auto".to_string()),
+                })
+            };
             let request = ResponsesRequest {
                 model: model.to_string(),
                 store: false,

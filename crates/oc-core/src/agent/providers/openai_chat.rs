@@ -7,7 +7,9 @@ use serde_json::json;
 use futures_util::future::join_all;
 
 use super::super::api_types::FunctionCallItem;
-use super::super::config::{apply_thinking_to_chat_body, build_api_url, get_max_tool_rounds};
+use super::super::config::{
+    apply_thinking_to_chat_body, build_api_url, get_max_tool_rounds, live_reasoning_effort,
+};
 use super::super::content::build_user_content_openai_chat;
 use super::super::events::{
     build_openai_chat_tool_result_content, emit_max_rounds_notice, emit_text_delta,
@@ -100,6 +102,17 @@ impl AssistantAgent {
                 crate::awareness::touch_active_session(sid);
             }
 
+            // Refresh effort per round when following the global picker so UI
+            // toggles apply on the very next request instead of waiting for
+            // the next user turn. Stored as an owned String to satisfy the
+            // Option<&str> signature of downstream helpers.
+            let live_effort_owned: Option<String> = if self.follow_global_reasoning_effort {
+                live_reasoning_effort(reasoning_effort).await
+            } else {
+                reasoning_effort.map(|s| s.to_string())
+            };
+            let effective_effort = live_effort_owned.as_deref();
+
             // Drain steer mailbox: inject any pending steer messages as user messages
             if let Some(ref rid) = self.steer_run_id {
                 for msg in crate::subagent::SUBAGENT_MAILBOX.drain(rid) {
@@ -155,7 +168,7 @@ impl AssistantAgent {
             }
 
             // Apply thinking parameters based on provider's ThinkingStyle
-            apply_thinking_to_chat_body(&mut body, &self.thinking_style, reasoning_effort, 16384);
+            apply_thinking_to_chat_body(&mut body, &self.thinking_style, effective_effort, 16384);
 
             // Add temperature if configured
             if let Some(temp) = self.temperature {
@@ -295,7 +308,7 @@ impl AssistantAgent {
 
             // Parse SSE stream for Chat Completions format
             let (text, tool_calls, round_usage, thinking, round_ttft) = self
-                .parse_chat_completions_sse(resp, request_start, reasoning_effort, cancel, on_delta)
+                .parse_chat_completions_sse(resp, request_start, effective_effort, cancel, on_delta)
                 .await?;
             if first_ttft_ms.is_none() {
                 first_ttft_ms = round_ttft;

@@ -324,6 +324,35 @@ pub async fn stop_chat(
     Ok(Json(json!({ "stopped": true, "scope": "all", "count": count })))
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolPermissionModeBody {
+    pub mode: String,
+}
+
+/// `POST /api/chat/tool-permission-mode` — set the global tool permission mode.
+///
+/// Frontend calls this on every toggle click so the mode applies immediately
+/// to in-flight tool loops and non-chat paths (subagent / cron / IM channels)
+/// that would otherwise keep the previous mode until the next `chat` call.
+pub async fn set_tool_permission_mode(
+    Json(body): Json<ToolPermissionModeBody>,
+) -> Result<Json<Value>, AppError> {
+    let m = match body.mode.as_str() {
+        "ask_every_time" => tools::ToolPermissionMode::AskEveryTime,
+        "full_approve" => tools::ToolPermissionMode::FullApprove,
+        "auto" => tools::ToolPermissionMode::Auto,
+        _ => {
+            return Err(AppError::bad_request(format!(
+                "Invalid tool permission mode: {}. Expected: auto, ask_every_time, full_approve",
+                body.mode
+            )));
+        }
+    };
+    tools::set_tool_permission_mode(m).await;
+    Ok(Json(json!({ "ok": true })))
+}
+
 /// `POST /api/chat/approval/{request_id}` — respond to a tool approval request.
 pub async fn respond_to_approval(
     Path(request_id): Path<String>,

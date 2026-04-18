@@ -644,6 +644,25 @@ pub async fn stop_chat(state: State<'_, AppState>) -> Result<(), String> {
     Ok(())
 }
 
+/// Set session-level tool permission mode immediately.
+///
+/// The `chat` command already applies this mode on entry, but that only
+/// covers "user sends next message" — it misses two cases: (1) toggling
+/// during an in-flight tool loop, (2) subagent / cron / IM channel paths
+/// that never enter the `chat` command. Call this on every UI toggle to
+/// keep the global state in sync with the user's intent.
+#[tauri::command]
+pub async fn set_tool_permission_mode(mode: String) -> Result<(), String> {
+    let m = match mode.as_str() {
+        "ask_every_time" => tools::ToolPermissionMode::AskEveryTime,
+        "full_approve" => tools::ToolPermissionMode::FullApprove,
+        "auto" => tools::ToolPermissionMode::Auto,
+        _ => return Err(format!("Invalid tool permission mode: {}", mode)),
+    };
+    tools::set_tool_permission_mode(m).await;
+    Ok(())
+}
+
 /// Build a compact summary of recent conversation for passing to a plan sub-agent.
 /// Returns up to the last N messages as a condensed text summary.
 async fn build_recent_context_summary(db: &Arc<SessionDB>, session_id: &str) -> String {

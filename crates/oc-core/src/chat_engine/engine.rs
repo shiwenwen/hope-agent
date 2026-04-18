@@ -588,4 +588,7 @@ fn configure_agent(
     if auto_approve_tools {
         agent.set_auto_approve_tools(true);
     }
+    // Main-chat path: let provider tool loops re-read the live global effort
+    // so UI toggles apply to the next API request, not only the next turn.
+    agent.set_follow_global_reasoning_effort(true);
 }

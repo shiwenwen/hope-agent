@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useCallback } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { Channel } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
@@ -92,8 +92,35 @@ export function useChatStream({
   const [pendingMessage, setPendingMessage] = useState<string | null>(null)
   const pendingMessageRef = useRef<string | null>(null)
   const [showCodexAuthExpired, setShowCodexAuthExpired] = useState(false)
-  const [toolPermissionMode, setToolPermissionMode] = useState<ToolPermissionMode>("auto")
+  const [toolPermissionMode, setToolPermissionModeState] = useState<ToolPermissionMode>("auto")
   const toolPermissionModeRef = useRef<ToolPermissionMode>("auto")
+
+  // Sync toggle changes to backend immediately — the `chat` command only
+  // snapshots the mode on entry, so without this the toggle has no effect on
+  // in-flight tool loops or non-chat paths (subagent / cron / IM channels).
+  const setToolPermissionMode = useCallback<
+    React.Dispatch<React.SetStateAction<ToolPermissionMode>>
+  >((value) => {
+    setToolPermissionModeState((prev) => {
+      const next =
+        typeof value === "function"
+          ? (value as (p: ToolPermissionMode) => ToolPermissionMode)(prev)
+          : value
+      if (next !== prev) {
+        getTransport()
+          .call("set_tool_permission_mode", { mode: next })
+          .catch((e) => {
+            logger.error(
+              "chat",
+              "setToolPermissionMode",
+              "Failed to sync tool permission mode",
+              e,
+            )
+          })
+      }
+      return next
+    })
+  }, [])
 
   // Auto-send pending messages setting
   const autoSendPendingRef = useRef(true)

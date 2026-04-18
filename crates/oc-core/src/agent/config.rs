@@ -87,6 +87,24 @@ pub fn get_codex_models() -> Vec<CodexModel> {
     ]
 }
 
+/// Read the live reasoning effort from global app state.
+///
+/// Returns the latest `AppState.reasoning_effort` (treating "none" as `None`)
+/// if AppState is initialized, otherwise falls back to the caller-provided
+/// value. Provider tool loops call this at the top of every round so a
+/// user-side toggle (UI picker, `/think` slash, channel command) applies to
+/// the very next API request instead of only to the next user message.
+pub(super) async fn live_reasoning_effort(fallback: Option<&str>) -> Option<String> {
+    if let Some(st) = crate::globals::get_app_state() {
+        let eff = st.reasoning_effort.lock().await.clone();
+        if eff == "none" {
+            return None;
+        }
+        return Some(eff);
+    }
+    fallback.map(|s| s.to_string())
+}
+
 /// Clamp reasoning effort to valid range for the given model
 pub fn clamp_reasoning_effort(model: &str, effort: &str) -> Option<String> {
     if effort == "none" {

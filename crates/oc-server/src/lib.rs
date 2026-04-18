@@ -165,6 +165,10 @@ fn build_router_with_cors(
         .route("/chat", post(routes::chat::chat))
         .route("/chat/stop", post(routes::chat::stop_chat))
         .route(
+            "/chat/tool-permission-mode",
+            post(routes::chat::set_tool_permission_mode),
+        )
+        .route(
             "/chat/approval/{request_id}",
             post(routes::chat::respond_to_approval),
         )

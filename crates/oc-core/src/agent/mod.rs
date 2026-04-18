@@ -90,6 +90,7 @@ impl AssistantAgent {
             messages_since_extraction: std::sync::atomic::AtomicU32::new(0),
             manual_memory_saved: std::sync::atomic::AtomicBool::new(false),
             auto_approve_tools: false,
+            follow_global_reasoning_effort: false,
             last_tier2_compaction_at: std::sync::Mutex::new(None),
             agent_caps_cache: std::sync::Mutex::new(None),
             awareness: std::sync::Mutex::new(None),
@@ -141,6 +142,7 @@ impl AssistantAgent {
             messages_since_extraction: std::sync::atomic::AtomicU32::new(0),
             manual_memory_saved: std::sync::atomic::AtomicBool::new(false),
             auto_approve_tools: false,
+            follow_global_reasoning_effort: false,
             last_tier2_compaction_at: std::sync::Mutex::new(None),
             agent_caps_cache: std::sync::Mutex::new(None),
             awareness: std::sync::Mutex::new(None),
@@ -251,6 +253,7 @@ impl AssistantAgent {
             messages_since_extraction: std::sync::atomic::AtomicU32::new(0),
             manual_memory_saved: std::sync::atomic::AtomicBool::new(false),
             auto_approve_tools: false,
+            follow_global_reasoning_effort: false,
             last_tier2_compaction_at: std::sync::Mutex::new(None),
             agent_caps_cache: std::sync::Mutex::new(None),
             awareness: std::sync::Mutex::new(None),
@@ -806,6 +809,16 @@ impl AssistantAgent {
     /// Set auto-approve mode for all tool calls (used by IM channel auto-approve).
     pub fn set_auto_approve_tools(&mut self, enabled: bool) {
         self.auto_approve_tools = enabled;
+    }
+
+    /// Opt into live reasoning-effort tracking (main chat path only).
+    ///
+    /// When enabled, each tool-loop round re-reads `AppState.reasoning_effort`
+    /// so UI toggles apply to the next API request. Off by default so
+    /// subagents / side_query / memory_extract keep their caller-specified
+    /// effort even when the user toggles the main chat picker.
+    pub fn set_follow_global_reasoning_effort(&mut self, enabled: bool) {
+        self.follow_global_reasoning_effort = enabled;
     }
 
     /// Record that a Tier 2+ compaction just happened (resets cache-TTL timer).
