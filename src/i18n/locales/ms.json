@@ -350,7 +350,7 @@
       "sqliteEntryMaxCharsDesc": "Had atas untuk baris pertama setiap entri memori SQLite yang dipaparkan, supaya satu entri panjang tidak menyesakkan entri lain dalam bahagian sama. Lalai 500.",
       "sqliteSectionsTitle": "Bajet mengikut bahagian SQLite",
       "sections": {
-        "aboutYou": "Tentang anda",
+        "userProfile": "Profil pengguna",
         "aboutUser": "Tentang pengguna",
         "preferences": "Keutamaan",
         "projectContext": "Konteks projek",

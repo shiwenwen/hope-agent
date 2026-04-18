@@ -350,7 +350,7 @@
       "sqliteEntryMaxCharsDesc": "İşlenen her SQLite bellek maddesinin ilk satırı için üst sınır; uzun bir kaydın aynı bölümdeki diğerlerini dışarı itmesini önler. Varsayılan 500.",
       "sqliteSectionsTitle": "SQLite bölüm başı bütçeler",
       "sections": {
-        "aboutYou": "Kendiniz hakkında",
+        "userProfile": "Kullanıcı profili",
         "aboutUser": "Kullanıcı hakkında",
         "preferences": "Tercihler",
         "projectContext": "Proje bağlamı",

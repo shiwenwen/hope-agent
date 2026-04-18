@@ -350,7 +350,7 @@
       "sqliteEntryMaxCharsDesc": "Giới hạn trên cho dòng đầu của mỗi mục bộ nhớ SQLite khi hiển thị, tránh một mục dài chiếm chỗ của các mục khác cùng phần. Mặc định 500.",
       "sqliteSectionsTitle": "Ngân sách theo phần SQLite",
       "sections": {
-        "aboutYou": "Về bạn",
+        "userProfile": "Hồ sơ người dùng",
         "aboutUser": "Về người dùng",
         "preferences": "Sở thích",
         "projectContext": "Ngữ cảnh dự án",

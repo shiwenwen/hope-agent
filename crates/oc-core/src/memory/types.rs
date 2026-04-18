@@ -185,7 +185,7 @@ pub struct MemoryExtractConfig {
     /// Phase B'2 — enable reflective extraction alongside factual extraction.
     /// When true, each auto-extract pass asks the model to surface user
     /// profile traits (communication style, work habits) and tags them
-    /// `profile` so they render in the `## About You` system-prompt section.
+    /// `profile` so they render in the `## User Profile` system-prompt section.
     /// Default: true. Runs in the same side_query roundtrip as `facts`.
     #[serde(default = "crate::default_true")]
     pub enable_reflection: bool,
@@ -267,7 +267,13 @@ impl Default for MemorySelectionConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct SqliteSectionBudgets {
-    pub about_you: usize,
+    /// Renamed from `about_you` (heading "## About You") to `user_profile`
+    /// (heading "## User Profile") to remove the ambiguity where, in an LLM
+    /// system prompt, "You" otherwise refers to the assistant. The serde
+    /// `alias = "aboutYou"` keeps existing `config.json` / agent overrides
+    /// loadable without migration.
+    #[serde(alias = "aboutYou")]
+    pub user_profile: usize,
     pub about_user: usize,
     pub preferences: usize,
     pub project_context: usize,
@@ -277,7 +283,7 @@ pub struct SqliteSectionBudgets {
 impl Default for SqliteSectionBudgets {
     fn default() -> Self {
         Self {
-            about_you: 1500,
+            user_profile: 1500,
             about_user: 2000,
             preferences: 2000,
             project_context: 3000,
@@ -288,7 +294,7 @@ impl Default for SqliteSectionBudgets {
 
 impl SqliteSectionBudgets {
     pub fn total(&self) -> usize {
-        self.about_you
+        self.user_profile
             + self.about_user
             + self.preferences
             + self.project_context
@@ -302,7 +308,7 @@ impl SqliteSectionBudgets {
         let t = self.total();
         if t == 0 || cap == 0 {
             return Self {
-                about_you: 0,
+                user_profile: 0,
                 about_user: 0,
                 preferences: 0,
                 project_context: 0,
@@ -314,7 +320,7 @@ impl SqliteSectionBudgets {
         }
         let ratio = cap as f64 / t as f64;
         Self {
-            about_you: (self.about_you as f64 * ratio) as usize,
+            user_profile: (self.user_profile as f64 * ratio) as usize,
             about_user: (self.about_user as f64 * ratio) as usize,
             preferences: (self.preferences as f64 * ratio) as usize,
             project_context: (self.project_context as f64 * ratio) as usize,

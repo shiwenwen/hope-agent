@@ -14,7 +14,7 @@ import MemoryBudgetInputs from "./MemoryBudgetInputs"
 
 function budgetsEqual(a: SqliteSectionBudgets, b: SqliteSectionBudgets): boolean {
   return (
-    a.aboutYou === b.aboutYou &&
+    a.userProfile === b.userProfile &&
     a.aboutUser === b.aboutUser &&
     a.preferences === b.preferences &&
     a.projectContext === b.projectContext &&

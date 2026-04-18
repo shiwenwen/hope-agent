@@ -350,7 +350,7 @@
       "sqliteEntryMaxCharsDesc": "SQLite 記憶條目渲染時的首行字元上限,避免單條長記憶擠占同節其他條目。預設 500。",
       "sqliteSectionsTitle": "SQLite 各節預算",
       "sections": {
-        "aboutYou": "關於你自己",
+        "userProfile": "使用者畫像",
         "aboutUser": "關於使用者",
         "preferences": "偏好",
         "projectContext": "專案上下文",

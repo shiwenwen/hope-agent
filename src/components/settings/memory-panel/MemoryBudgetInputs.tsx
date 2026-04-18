@@ -89,15 +89,17 @@ export default function MemoryBudgetInputs({ value, onChange, disabled }: Props)
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
           <div className="space-y-1">
             <Label className="text-[11px]">
-              {t("settings.memoryBudget.sections.aboutYou")}
+              {t("settings.memoryBudget.sections.userProfile")}
             </Label>
             <Input
               type="number"
               min={0}
               disabled={disabled}
-              value={value.sqliteSections.aboutYou}
+              value={value.sqliteSections.userProfile}
               onChange={(e) =>
-                setSection({ aboutYou: parseNum(e.target.value, value.sqliteSections.aboutYou) })
+                setSection({
+                  userProfile: parseNum(e.target.value, value.sqliteSections.userProfile),
+                })
               }
             />
           </div>

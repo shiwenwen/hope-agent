@@ -350,7 +350,7 @@
       "sqliteEntryMaxCharsDesc": "SQLite メモリ項目をレンダリングする際の先頭行の文字数上限。長い 1 件が同じセクションの他項目を押し出すのを防ぎます。デフォルト 500。",
       "sqliteSectionsTitle": "SQLite セクション別バジェット",
       "sections": {
-        "aboutYou": "あなた自身について",
+        "userProfile": "ユーザープロファイル",
         "aboutUser": "ユーザーについて",
         "preferences": "好み",
         "projectContext": "プロジェクトコンテキスト",

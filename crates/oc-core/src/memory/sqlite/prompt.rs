@@ -10,10 +10,12 @@ const LEGACY_ENTRY_MAX_CHARS: usize = 500;
 /// per-section sub-budgets.
 ///
 /// Sections, in order:
-///   1. **About You** — User/Feedback entries tagged `profile` (Phase B'2
+///   1. **User Profile** — User/Feedback entries tagged `profile` (Phase B'2
 ///      reflective memories; renders as a distinct self-portrait of the user
 ///      so the model keeps the "how to talk to them" context separate from
-///      the "facts about them" catalog).
+///      the "facts about them" catalog). Heading deliberately avoids "You"
+///      because in an LLM system prompt "You" otherwise refers to the
+///      assistant, not the human.
 ///   2. About the User   — remaining User entries (non-profile).
 ///   3. Preferences & Feedback — remaining Feedback entries (non-profile).
 ///   4. Project Context  — all Project entries.
@@ -52,7 +54,7 @@ pub fn format_prompt_summary_v2(
 
     let is_profile = |m: &MemoryEntry| m.tags.iter().any(|t| t == "profile");
 
-    // 1. About You — profile-tagged User/Feedback.
+    // 1. User Profile — profile-tagged User/Feedback.
     let mut profile_entries: Vec<&MemoryEntry> = entries
         .iter()
         .filter(|m| {
@@ -60,9 +62,9 @@ pub fn format_prompt_summary_v2(
         })
         .collect();
     let section = render_section(
-        "## About You\n",
+        "## User Profile\n",
         &mut profile_entries,
-        budgets.about_you,
+        budgets.user_profile,
         entry_max_chars,
     );
     if let Some(s) = push_section_if_fits(&mut result, &mut total_used, total_cap, &section) {
@@ -273,7 +275,7 @@ mod tests {
         // Integer division with a 0.5 ratio over exact multiples — no rounding loss.
         assert!(s.total() <= 5000);
         assert!(s.total() >= 4997, "within ±3 of requested cap: {}", s.total());
-        assert_eq!(s.about_you, 750);
+        assert_eq!(s.user_profile, 750);
         assert_eq!(s.about_user, 1000);
         assert_eq!(s.preferences, 1000);
         assert_eq!(s.project_context, 1500);
@@ -307,7 +309,7 @@ mod tests {
         // Give Project 50 chars, User 200 — Project should overflow but
         // User section must still render.
         let budgets = SqliteSectionBudgets {
-            about_you: 0,
+            user_profile: 0,
             about_user: 200,
             preferences: 0,
             project_context: 50, // too small for even one entry + heading
@@ -323,7 +325,7 @@ mod tests {
         let long = "x".repeat(2000);
         let e = entry(1, MemoryType::User, &long, &[]);
         let budgets = SqliteSectionBudgets {
-            about_you: 0,
+            user_profile: 0,
             about_user: 10_000,
             preferences: 0,
             project_context: 0,

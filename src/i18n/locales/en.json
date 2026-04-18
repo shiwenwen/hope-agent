@@ -433,7 +433,7 @@
       "sqliteEntryMaxCharsDesc": "Upper bound on the first line of each rendered SQLite memory bullet, preventing one long entry from crowding out same-section peers. Default 500.",
       "sqliteSectionsTitle": "SQLite per-section budgets",
       "sections": {
-        "aboutYou": "About You",
+        "userProfile": "User Profile",
         "aboutUser": "About the User",
         "preferences": "Preferences",
         "projectContext": "Project Context",

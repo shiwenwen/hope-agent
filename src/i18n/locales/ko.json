@@ -350,7 +350,7 @@
       "sqliteEntryMaxCharsDesc": "SQLite 메모리 항목 렌더링 시 첫 줄의 문자 수 상한. 긴 항목 하나가 같은 섹션의 다른 항목을 밀어내지 못하도록 합니다. 기본값 500.",
       "sqliteSectionsTitle": "SQLite 섹션별 예산",
       "sections": {
-        "aboutYou": "당신 자신에 대해",
+        "userProfile": "사용자 프로필",
         "aboutUser": "사용자에 대해",
         "preferences": "선호도",
         "projectContext": "프로젝트 컨텍스트",

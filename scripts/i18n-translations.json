@@ -129,7 +129,7 @@
         "sqliteEntryMaxCharsDesc": "SQLite メモリ項目をレンダリングする際の先頭行の文字数上限。長い 1 件が同じセクションの他項目を押し出すのを防ぎます。デフォルト 500。",
         "sqliteSectionsTitle": "SQLite セクション別バジェット",
         "sections": {
-          "aboutYou": "あなた自身について",
+          "userProfile": "ユーザープロファイル",
           "aboutUser": "ユーザーについて",
           "preferences": "好み",
           "projectContext": "プロジェクトコンテキスト",
@@ -289,7 +289,7 @@
         "sqliteEntryMaxCharsDesc": "SQLite 메모리 항목 렌더링 시 첫 줄의 문자 수 상한. 긴 항목 하나가 같은 섹션의 다른 항목을 밀어내지 못하도록 합니다. 기본값 500.",
         "sqliteSectionsTitle": "SQLite 섹션별 예산",
         "sections": {
-          "aboutYou": "당신 자신에 대해",
+          "userProfile": "사용자 프로필",
           "aboutUser": "사용자에 대해",
           "preferences": "선호도",
           "projectContext": "프로젝트 컨텍스트",
@@ -449,7 +449,7 @@
         "sqliteEntryMaxCharsDesc": "SQLite 記憶條目渲染時的首行字元上限,避免單條長記憶擠占同節其他條目。預設 500。",
         "sqliteSectionsTitle": "SQLite 各節預算",
         "sections": {
-          "aboutYou": "關於你自己",
+          "userProfile": "使用者畫像",
           "aboutUser": "關於使用者",
           "preferences": "偏好",
           "projectContext": "專案上下文",
@@ -609,7 +609,7 @@
         "sqliteEntryMaxCharsDesc": "İşlenen her SQLite bellek maddesinin ilk satırı için üst sınır; uzun bir kaydın aynı bölümdeki diğerlerini dışarı itmesini önler. Varsayılan 500.",
         "sqliteSectionsTitle": "SQLite bölüm başı bütçeler",
         "sections": {
-          "aboutYou": "Kendiniz hakkında",
+          "userProfile": "Kullanıcı profili",
           "aboutUser": "Kullanıcı hakkında",
           "preferences": "Tercihler",
           "projectContext": "Proje bağlamı",
@@ -769,7 +769,7 @@
         "sqliteEntryMaxCharsDesc": "Giới hạn trên cho dòng đầu của mỗi mục bộ nhớ SQLite khi hiển thị, tránh một mục dài chiếm chỗ của các mục khác cùng phần. Mặc định 500.",
         "sqliteSectionsTitle": "Ngân sách theo phần SQLite",
         "sections": {
-          "aboutYou": "Về bạn",
+          "userProfile": "Hồ sơ người dùng",
           "aboutUser": "Về người dùng",
           "preferences": "Sở thích",
           "projectContext": "Ngữ cảnh dự án",
@@ -929,7 +929,7 @@
         "sqliteEntryMaxCharsDesc": "Limite superior para a primeira linha de cada item de memória SQLite renderizado, evitando que uma entrada longa expulse as demais da mesma seção. Padrão 500.",
         "sqliteSectionsTitle": "Orçamentos por seção do SQLite",
         "sections": {
-          "aboutYou": "Sobre você",
+          "userProfile": "Perfil do usuário",
           "aboutUser": "Sobre o usuário",
           "preferences": "Preferências",
           "projectContext": "Contexto do projeto",
@@ -1089,7 +1089,7 @@
         "sqliteEntryMaxCharsDesc": "Верхний предел первой строки каждой отрисованной записи памяти SQLite, чтобы одна длинная запись не вытесняла соседние в той же секции. По умолчанию 500.",
         "sqliteSectionsTitle": "Бюджеты по секциям SQLite",
         "sections": {
-          "aboutYou": "О вас самих",
+          "userProfile": "Профиль пользователя",
           "aboutUser": "О пользователе",
           "preferences": "Предпочтения",
           "projectContext": "Контекст проекта",
@@ -1249,7 +1249,7 @@
         "sqliteEntryMaxCharsDesc": "الحد الأعلى للسطر الأول لكل سجل ذاكرة SQLite عند العرض، لمنع سجل طويل من إزاحة أقرانه في القسم نفسه. الافتراضي 500.",
         "sqliteSectionsTitle": "ميزانيات أقسام SQLite",
         "sections": {
-          "aboutYou": "عنك أنت",
+          "userProfile": "الملف الشخصي للمستخدم",
           "aboutUser": "عن المستخدم",
           "preferences": "التفضيلات",
           "projectContext": "سياق المشروع",
@@ -1409,7 +1409,7 @@
         "sqliteEntryMaxCharsDesc": "Límite superior de la primera línea de cada elemento de memoria SQLite renderizado, para evitar que una entrada larga desplace a sus pares de la misma sección. Predeterminado 500.",
         "sqliteSectionsTitle": "Presupuestos por sección de SQLite",
         "sections": {
-          "aboutYou": "Sobre ti",
+          "userProfile": "Perfil del usuario",
           "aboutUser": "Sobre el usuario",
           "preferences": "Preferencias",
           "projectContext": "Contexto del proyecto",
@@ -1569,7 +1569,7 @@
         "sqliteEntryMaxCharsDesc": "Had atas untuk baris pertama setiap entri memori SQLite yang dipaparkan, supaya satu entri panjang tidak menyesakkan entri lain dalam bahagian sama. Lalai 500.",
         "sqliteSectionsTitle": "Bajet mengikut bahagian SQLite",
         "sections": {
-          "aboutYou": "Tentang anda",
+          "userProfile": "Profil pengguna",
           "aboutUser": "Tentang pengguna",
           "preferences": "Keutamaan",
           "projectContext": "Konteks projek",

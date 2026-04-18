@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **记忆预算 SQLite 节段命名澄清**：把反省式记忆段（`profile`-tagged 自动提取）的 system-prompt 标题从 `## About You` 改为 `## User Profile`，`SqliteSectionBudgets` 字段 `about_you` → `user_profile`（serde `alias = "aboutYou"` 保证旧 `config.json` / agent override 零迁移加载），i18n 12 个语言把 UI 标签从"关于你自己"/"About You"改为"用户画像"/"User Profile"。原命名在 LLM system prompt 语境里有歧义：模型读 `## About You` 第一反应是"关于我（assistant）"，但内容是用户画像，需要二次解读；UI 上同时存在 `aboutYou` 和 `aboutUser` 两个 key，对手动添加界面只有 4 类（user/feedback/project/reference）的用户也是混淆点。改名后预算面板"用户画像 vs 用户事实 vs 偏好…"一眼对得上"添加记忆 4 类 + 反省自动填充 1 类"的拓扑
+
 ### Security
 
 - **审计第二批（安全加固批）P1 / P3 / P7 / P8**（基线分支 `claude/fix-audit-p1-p3-p7-p8`，详见 [`docs/audit/2026-04-17-codebase-audit.md`](docs/audit/2026-04-17-codebase-audit.md)）：

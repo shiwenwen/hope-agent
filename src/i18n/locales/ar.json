@@ -350,7 +350,7 @@
       "sqliteEntryMaxCharsDesc": "الحد الأعلى للسطر الأول لكل سجل ذاكرة SQLite عند العرض، لمنع سجل طويل من إزاحة أقرانه في القسم نفسه. الافتراضي 500.",
       "sqliteSectionsTitle": "ميزانيات أقسام SQLite",
       "sections": {
-        "aboutYou": "عنك أنت",
+        "userProfile": "الملف الشخصي للمستخدم",
         "aboutUser": "عن المستخدم",
         "preferences": "التفضيلات",
         "projectContext": "سياق المشروع",

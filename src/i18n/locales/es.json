@@ -350,7 +350,7 @@
       "sqliteEntryMaxCharsDesc": "Límite superior de la primera línea de cada elemento de memoria SQLite renderizado, para evitar que una entrada larga desplace a sus pares de la misma sección. Predeterminado 500.",
       "sqliteSectionsTitle": "Presupuestos por sección de SQLite",
       "sections": {
-        "aboutYou": "Sobre ti",
+        "userProfile": "Perfil del usuario",
         "aboutUser": "Sobre el usuario",
         "preferences": "Preferencias",
         "projectContext": "Contexto del proyecto",
