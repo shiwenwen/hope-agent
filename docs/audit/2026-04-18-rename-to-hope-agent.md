@@ -4,13 +4,13 @@
 >
 > 本文件只列清单，不含代码改动。落地时按「执行顺序」分 3 个 commit 做。
 >
-> 扫描基线（2026-04-18，分支 `claude/fix-audit-p1-p3-p7-p8`）：
+> 扫描基线（2026-04-18，分支 `main`，不含本清单自身的自引用）：
 >
-> - `OpenComputer` / `opencomputer` 字面量：**522 次 / 130 文件**
-> - `oc-core` / `oc-server` / `oc_core` / `oc_server`：**1047 次 / 105 文件**
-> - `~/.opencomputer` 数据目录路径：**258 次 / 75 文件**（其中 [`crates/oc-core/src/paths.rs`](../../crates/oc-core/src/paths.rs) 单文件 44 处）
+> - `OpenComputer` / `opencomputer` 字面量：**525 次 / 130 文件**
+> - `oc-core` / `oc-server` / `oc_core` / `oc_server`：**1032 次 / 105 文件**（其中 `Cargo.lock` 5 处，随 `cargo build` 自动重写）
+> - `~/.opencomputer` 数据目录路径：**257 次 / 74 文件**（其中 [`crates/oc-core/src/paths.rs`](../../crates/oc-core/src/paths.rs) 单文件 44 处）
 > - `OPENCOMPUTER_*` 环境变量：**4 个 env 名，15 处引用**
-> - `com.opencomputer.*` bundle id / service label：**4 处**
+> - `com.opencomputer.*` bundle id / service label：**4 处**（tauri.conf.json × 1、service_install.rs × 1、docs/architecture/backend-separation.md × 2）
 
 ---
 
@@ -90,7 +90,7 @@
 
 - L6 / L8 `NSLocationUsageDescription` 里 `"OpenComputer needs your location..."`
 
-[`src-tauri/capabilities/`](../../src-tauri/capabilities/) 下的 JSON：grep `opencomputer` / `com.opencomputer`
+[`src-tauri/capabilities/`](../../src-tauri/capabilities/) 下的 JSON：2026-04-18 main 扫描无命中，跳过（未来如新增 capability 文件再核查）
 
 ### 2.3 图标（可选）
 
@@ -220,7 +220,7 @@
 - [`crates/oc-core/src/docker/*`](../../crates/oc-core/src/docker) Docker 容器命名前缀
 - [`crates/oc-core/src/tools/browser/advanced.rs`](../../crates/oc-core/src/tools/browser/advanced.rs) 浏览器 UA
 - [`crates/oc-core/src/tools/notification.rs`](../../crates/oc-core/src/tools/notification.rs) 系统通知 app name
-- [`crates/oc-core/src/system_prompt/build.rs`](../../crates/oc-core/src/system_prompt/build.rs) 身份行 3 处 `"running in OpenComputer on {os} {arch}"`（openclaw / custom / structured 三种模式各一处）
+- [`crates/oc-core/src/system_prompt/build.rs`](../../crates/oc-core/src/system_prompt/build.rs) 身份行 3 处 `"running in OpenComputer on {os} {arch}"`（openclaw / custom / structured 三种模式各一处；注意 `personality.mode == SoulMd` 装配路径也复用 structured 分支的身份行，改名后一并生效）
 - [`crates/oc-core/src/system_prompt/constants.rs`](../../crates/oc-core/src/system_prompt/constants.rs) `APP_INTRO` 常量——系统提示词里注入的产品简介：`"OpenComputer is a local, open-source AI assistant with configurable model providers, tools, skills, and persistent memory."`，改名后同步替换品牌名
 - [`crates/oc-core/src/system_prompt/sections.rs`](../../crates/oc-core/src/system_prompt/sections.rs)
 - [`crates/oc-core/templates/agent.{lang}.md`](../../crates/oc-core/templates/) 12 个 agent 模板里的品牌名
@@ -235,8 +235,8 @@
 
 - [`README.md`](../../README.md)（如存在，grep）
 - [`CLAUDE.md`](../../CLAUDE.md)（实际内容在 AGENTS.md，通过 `@AGENTS.md` 包含）
-- [`AGENTS.md`](../../AGENTS.md) 21 处 `OpenComputer` + 31 处 `oc-core`/`oc-server` + 12 处 `.opencomputer`
-- [`CHANGELOG.md`](../../CHANGELOG.md) 45 处品牌名 + 38 处 crate 名 + 34 处路径。**历史条目保留原始文本**（record-of-truth），在顶部新加一条 `### Changed` 说明改名
+- [`AGENTS.md`](../../AGENTS.md) 21 处 `OpenComputer` + 32 处 `oc-core`/`oc-server` + 12 处 `.opencomputer`
+- [`CHANGELOG.md`](../../CHANGELOG.md) 45 处品牌名 + 51 处 crate 名 + 34 处路径。**历史条目保留原始文本**（record-of-truth），在顶部新加一条 `### Changed` 说明改名
 - [`.gitignore`](../../.gitignore)
 
 ### 7.2 架构文档
