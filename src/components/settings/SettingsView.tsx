@@ -6,7 +6,6 @@ import {
   ArrowLeft,
   Bot,
   Brain,
-  Chrome,
   Code,
   Globe,
   Info,
@@ -129,7 +128,7 @@ const SECTIONS: SettingsSectionItem[] = [
   },
   {
     id: "browser",
-    icon: <Chrome className="h-4 w-4" />,
+    icon: <Globe className="h-4 w-4" />,
     labelKey: "settings.browser.title",
   },
   {

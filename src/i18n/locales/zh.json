@@ -529,7 +529,7 @@
     "sandbox": "Docker 沙箱",
     "sandboxDesc": "配置 Docker 容器沙箱隔离，用于安全执行命令",
     "browser": {
-      "title": "内置浏览器",
+      "title": "浏览器",
       "desc": "OpenComputer 可以直接托管一个 Chrome 实例供你使用。为每种登录态（Google、GitHub、工作账号…）创建独立的专属配置，cookie 和登录会持久保留；你和 Agent 共享同一个浏览器会话——你登录过的网站，Agent 就能直接操作。",
       "statusConnected": "浏览器运行中",
       "statusDisconnected": "未运行",

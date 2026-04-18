@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { cn } from "@/lib/utils"
 import {
-  Chrome,
+  Globe,
   Loader2,
   Plug,
   Plus,
@@ -392,7 +392,7 @@ export default function BrowserPanel() {
                 {busy === "launch" ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 ) : (
-                  <Chrome className="h-3.5 w-3.5" />
+                  <Globe className="h-3.5 w-3.5" />
                 )}
                 <span className="ml-1.5">{t("settings.browser.launchButton")}</span>
               </Button>
