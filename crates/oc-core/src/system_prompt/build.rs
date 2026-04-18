@@ -1,10 +1,11 @@
 use super::constants::{
-    HUMAN_IN_THE_LOOP_GUIDANCE, MAX_FILE_CHARS, SOUL_EMBODIMENT_GUIDANCE,
+    HUMAN_IN_THE_LOOP_GUIDANCE, MAX_FILE_CHARS, MEMORY_GUIDELINES, SOUL_EMBODIMENT_GUIDANCE,
     TOOL_CALL_NARRATION_GUIDANCE,
 };
 use super::helpers::truncate;
 use super::sections::*;
 use crate::agent_config::AgentDefinition;
+use crate::memory::{MemoryBudgetConfig, MemoryEntry};
 use crate::project::{Project, ProjectFile};
 use crate::skills;
 use crate::user_config;
@@ -40,7 +41,8 @@ pub fn build(
     definition: &AgentDefinition,
     model: Option<&str>,
     provider: Option<&str>,
-    memory_context: Option<&str>,
+    memory_entries: &[MemoryEntry],
+    memory_budget: &MemoryBudgetConfig,
     agent_home: Option<&str>,
     project: Option<&Project>,
     project_files: &[ProjectFile],
@@ -251,59 +253,16 @@ pub fn build(
         }
     }
 
-    // ⑧ Memory
+    // ⑧ Memory — layered budget negotiation (see `build_memory_section`).
     if definition.config.memory.enabled {
-        let mut memory_section = String::new();
-
-        // 8a: Global Core Memory (shared across all agents)
-        if let Some(md) = &definition.global_memory_md {
-            if !md.trim().is_empty() {
-                memory_section.push_str("## Core Memory (Global)\n\n");
-                memory_section.push_str(&truncate(md, MAX_FILE_CHARS));
-                memory_section.push_str("\n\n");
-            }
-        }
-
-        // 8b: Agent Core Memory (specific to this agent)
-        if let Some(md) = &definition.memory_md {
-            if !md.trim().is_empty() {
-                memory_section.push_str("## Core Memory (Agent)\n\n");
-                memory_section.push_str(&truncate(md, MAX_FILE_CHARS));
-                memory_section.push_str("\n\n");
-            }
-        }
-
-        // 8c: SQLite memories (existing logic)
-        if let Some(mem) = memory_context {
-            if !mem.is_empty() {
-                memory_section.push_str(mem);
-                memory_section.push_str("\n\n");
-            }
-        }
-
-        // 8d: Memory usage guidance
-        memory_section.push_str(
-            "## Memory Guidelines\n\
-             Use update_core_memory when:\n\
-             - The user gives a standing instruction (\"always\", \"never\", \"from now on\", \"remember to\")\n\
-             - The user states a persistent preference or rule\n\
-             - The user corrects a recurring behavior\n\n\
-             Use save_memory when:\n\
-             - You learn a fact about the user, project, or external resource\n\
-             - The user mentions a deadline, event, or temporary context\n\
-             - You discover something worth noting for future reference\n\n\
-             Use recall_memory when:\n\
-             - You need context about the user or project from prior conversations\n\
-             - The user references something discussed before\n\
-             - You want to check if preferences or constraints were previously established\n\n\
-             Use recall_memory with include_history=true when:\n\
-             - The user references a previous conversation (\"last time\", \"we discussed\", \"remember when\")\n\
-             - You need to find what was said or decided in an earlier session\n\n\
-             Do NOT save: ephemeral task details, code snippets, debugging steps, or anything derivable from the codebase."
+        let section = build_memory_section(
+            definition.memory_md.as_deref(),
+            definition.global_memory_md.as_deref(),
+            memory_entries,
+            memory_budget,
         );
-
-        if !memory_section.is_empty() {
-            sections.push(memory_section);
+        if !section.is_empty() {
+            sections.push(section);
         }
     }
 
@@ -394,6 +353,212 @@ pub fn build(
     }
 
     prompt
+}
+
+/// Build the Memory section with layered budget negotiation.
+///
+/// Priority: Guidelines (always reserved) > Agent Core Memory > Global Core
+/// Memory > SQLite summary. Each core-memory layer trims to
+/// `min(per_layer_cap, remaining_total)`; low-priority layers drop out first
+/// when the total budget is tight. SQLite's 5 sub-sections are proportionally
+/// scaled into whatever budget remains after Layer 1/2.
+pub(super) fn build_memory_section(
+    agent_memory_md: Option<&str>,
+    global_memory_md: Option<&str>,
+    memory_entries: &[MemoryEntry],
+    budget: &MemoryBudgetConfig,
+) -> String {
+    if budget.total_chars == 0 {
+        return String::new();
+    }
+    let mut out = String::new();
+    // Reserve Guidelines up-front so a large memory.md cannot crowd it out.
+    let mut remaining = budget.total_chars.saturating_sub(MEMORY_GUIDELINES.len());
+
+    push_core_memory_layer(
+        &mut out,
+        &mut remaining,
+        agent_memory_md,
+        "## Core Memory (Agent)\n\n",
+        budget.core_memory_file_chars,
+    );
+    push_core_memory_layer(
+        &mut out,
+        &mut remaining,
+        global_memory_md,
+        "## Core Memory (Global)\n\n",
+        budget.core_memory_file_chars,
+    );
+
+    if !memory_entries.is_empty() && remaining > 0 {
+        let sqlite_cap = remaining.min(budget.sqlite_sections.total());
+        let scaled = budget.sqlite_sections.scaled_to(sqlite_cap);
+        let sqlite_block = crate::memory::sqlite::format_prompt_summary_v2(
+            memory_entries,
+            &scaled,
+            sqlite_cap,
+            budget.sqlite_entry_max_chars,
+        );
+        if !sqlite_block.is_empty() {
+            out.push_str(&sqlite_block);
+            out.push_str("\n\n");
+        }
+    }
+
+    out.push_str(MEMORY_GUIDELINES);
+    out
+}
+
+/// Append one heading + truncated body + trailer block, debiting `remaining`.
+/// No-op when `md` is `None` / blank, when `remaining` is already 0, or when
+/// the heading alone wouldn't fit.
+fn push_core_memory_layer(
+    out: &mut String,
+    remaining: &mut usize,
+    md: Option<&str>,
+    heading: &str,
+    per_layer_cap: usize,
+) {
+    let Some(md) = md.filter(|s| !s.trim().is_empty()) else {
+        return;
+    };
+    if *remaining == 0 {
+        return;
+    }
+    const TRAILER: &str = "\n\n";
+    let overhead = heading.len() + TRAILER.len();
+    let body_cap = per_layer_cap.min(remaining.saturating_sub(overhead));
+    if body_cap == 0 {
+        return;
+    }
+    let chunk = truncate(md, body_cap);
+    out.push_str(heading);
+    out.push_str(&chunk);
+    out.push_str(TRAILER);
+    *remaining = remaining.saturating_sub(chunk.len() + overhead);
+}
+
+#[cfg(test)]
+mod memory_section_tests {
+    use super::*;
+    use crate::memory::{MemoryEntry, MemoryScope, MemoryType, SqliteSectionBudgets};
+
+    fn mk_entry(id: i64, ty: MemoryType, content: &str) -> MemoryEntry {
+        MemoryEntry {
+            id,
+            memory_type: ty,
+            scope: MemoryScope::Global,
+            content: content.to_string(),
+            tags: Vec::new(),
+            source: "user".into(),
+            source_session_id: None,
+            pinned: false,
+            created_at: "2026-04-18T00:00:00Z".into(),
+            updated_at: "2026-04-18T00:00:00Z".into(),
+            relevance_score: None,
+            attachment_path: None,
+            attachment_mime: None,
+        }
+    }
+
+    #[test]
+    fn memory_section_respects_total_budget_with_oversized_core_files() {
+        let agent_md = "a".repeat(20_000);
+        let global_md = "g".repeat(20_000);
+        let budget = MemoryBudgetConfig {
+            total_chars: 10_000,
+            core_memory_file_chars: 8_000,
+            sqlite_entry_max_chars: 500,
+            sqlite_sections: SqliteSectionBudgets::default(),
+        };
+        let out = build_memory_section(Some(&agent_md), Some(&global_md), &[], &budget);
+        // Guidelines always present.
+        assert!(out.contains("## Memory Guidelines"));
+        // Total stays under budget (±5% slack for heading overhead rounding).
+        assert!(
+            out.len() <= budget.total_chars + 200,
+            "section {} chars exceeds total_chars {} too far",
+            out.len(),
+            budget.total_chars
+        );
+    }
+
+    #[test]
+    fn agent_memory_wins_when_combined_exceeds_budget() {
+        // Agent-specific rules are higher priority — Agent.md 8k + Global.md
+        // 8k + guidelines should leave Global truncated.
+        let agent_md = "A".repeat(8_000);
+        let global_md = "G".repeat(8_000);
+        let budget = MemoryBudgetConfig::default();
+        let out = build_memory_section(Some(&agent_md), Some(&global_md), &[], &budget);
+
+        let agent_a_count = out.matches('A').count();
+        let global_g_count = out.matches('G').count();
+        // Agent.md fully preserved (head/tail truncate may keep all 8000 A's
+        // when the cap equals the content length).
+        assert!(
+            agent_a_count >= 7_000,
+            "Agent.md should be mostly intact, got {} A's",
+            agent_a_count
+        );
+        // Global.md should have been heavily truncated since remaining budget
+        // after Guidelines (~800) + Agent.md (~8000) is roughly 1200 minus
+        // heading overhead.
+        assert!(
+            global_g_count < agent_a_count,
+            "Global.md should be truncated more than Agent.md (A={} G={})",
+            agent_a_count,
+            global_g_count
+        );
+        assert!(out.contains("## Memory Guidelines"));
+    }
+
+    #[test]
+    fn sqlite_gets_residual_budget_only() {
+        // Small core memory leaves SQLite plenty of room.
+        let agent_md = "a".repeat(1_000);
+        let global_md = "g".repeat(1_000);
+        let entries: Vec<MemoryEntry> = (0..5)
+            .map(|i| mk_entry(i, MemoryType::User, &format!("user fact #{}", i)))
+            .collect();
+        let budget = MemoryBudgetConfig::default();
+        let out = build_memory_section(Some(&agent_md), Some(&global_md), &entries, &budget);
+
+        assert!(out.contains("## Core Memory (Agent)"));
+        assert!(out.contains("## Core Memory (Global)"));
+        assert!(
+            out.contains("## About the User"),
+            "SQLite section should render when budget allows: {out}"
+        );
+        assert!(out.contains("## Memory Guidelines"));
+    }
+
+    #[test]
+    fn zero_total_chars_emits_nothing() {
+        let budget = MemoryBudgetConfig {
+            total_chars: 0,
+            ..MemoryBudgetConfig::default()
+        };
+        let out = build_memory_section(Some("agent"), Some("global"), &[], &budget);
+        assert_eq!(out, "");
+    }
+
+    #[test]
+    fn guidelines_always_reserved_even_under_pressure() {
+        // total_chars just big enough for Guidelines + small headings.
+        let agent_md = "x".repeat(100_000);
+        let budget = MemoryBudgetConfig {
+            total_chars: MEMORY_GUIDELINES.len() + 50,
+            core_memory_file_chars: 8_000,
+            sqlite_entry_max_chars: 500,
+            sqlite_sections: SqliteSectionBudgets::default(),
+        };
+        let out = build_memory_section(Some(&agent_md), None, &[], &budget);
+        assert!(
+            out.contains("## Memory Guidelines"),
+            "Guidelines must survive under budget pressure"
+        );
+    }
 }
 
 /// Build a system prompt using the legacy path (no AgentDefinition).

@@ -375,6 +375,9 @@ pub struct AppConfig {
     /// LLM-based memory selection configuration
     #[serde(default)]
     pub memory_selection: crate::memory::MemorySelectionConfig,
+    /// Per-section character budgets for the system-prompt Memory block.
+    #[serde(default)]
+    pub memory_budget: crate::memory::MemoryBudgetConfig,
     /// Memory deduplication thresholds
     #[serde(default)]
     pub dedup: crate::memory::DedupConfig,
@@ -543,6 +546,7 @@ impl Default for AppConfig {
             embedding: crate::memory::EmbeddingConfig::default(),
             memory_extract: crate::memory::MemoryExtractConfig::default(),
             memory_selection: crate::memory::MemorySelectionConfig::default(),
+            memory_budget: crate::memory::MemoryBudgetConfig::default(),
             dedup: crate::memory::DedupConfig::default(),
             hybrid_search: crate::memory::HybridSearchConfig::default(),
             temporal_decay: crate::memory::TemporalDecayConfig::default(),

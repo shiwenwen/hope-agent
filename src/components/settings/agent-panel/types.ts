@@ -7,8 +7,15 @@ export type {
   ActiveModelRef,
   SkillSummary,
   ActiveMemoryConfig,
+  MemoryBudgetConfig,
+  SqliteSectionBudgets,
 } from "../types"
-export { DEFAULT_PERSONALITY, DEFAULT_ACTIVE_MEMORY } from "../types"
+export {
+  DEFAULT_PERSONALITY,
+  DEFAULT_ACTIVE_MEMORY,
+  DEFAULT_MEMORY_BUDGET,
+  DEFAULT_SQLITE_SECTION_BUDGETS,
+} from "../types"
 
 export type AgentTab = "identity" | "personality" | "capabilities" | "model" | "memory" | "subagent" | "custom"
 

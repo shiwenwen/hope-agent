@@ -114,6 +114,23 @@ export interface ActiveMemoryConfig {
   candidateLimit: number
 }
 
+/// Per-section character budgets for the SQLite Layer 3 memory block.
+export interface SqliteSectionBudgets {
+  aboutYou: number
+  aboutUser: number
+  preferences: number
+  projectContext: number
+  references: number
+}
+
+/// Memory section budget (mirrors Rust MemoryBudgetConfig).
+export interface MemoryBudgetConfig {
+  totalChars: number
+  coreMemoryFileChars: number
+  sqliteEntryMaxChars: number
+  sqliteSections: SqliteSectionBudgets
+}
+
 /// Agent-level memory configuration (mirrors Rust MemoryConfig).
 export interface AgentMemoryConfig {
   enabled: boolean
@@ -128,6 +145,9 @@ export interface AgentMemoryConfig {
   extractMessageThreshold?: number | null
   extractIdleTimeoutSecs?: number | null
   activeMemory: ActiveMemoryConfig
+  /// `null`/`undefined` means "inherit global AppConfig.memoryBudget";
+  /// a full `MemoryBudgetConfig` replaces the default wholesale.
+  budget?: MemoryBudgetConfig | null
 }
 
 export const DEFAULT_ACTIVE_MEMORY: ActiveMemoryConfig = {
@@ -137,6 +157,21 @@ export const DEFAULT_ACTIVE_MEMORY: ActiveMemoryConfig = {
   cacheTtlSecs: 15,
   budgetTokens: 512,
   candidateLimit: 20,
+}
+
+export const DEFAULT_SQLITE_SECTION_BUDGETS: SqliteSectionBudgets = {
+  aboutYou: 1500,
+  aboutUser: 2000,
+  preferences: 2000,
+  projectContext: 3000,
+  references: 1500,
+}
+
+export const DEFAULT_MEMORY_BUDGET: MemoryBudgetConfig = {
+  totalChars: 10_000,
+  coreMemoryFileChars: 8_000,
+  sqliteEntryMaxChars: 500,
+  sqliteSections: DEFAULT_SQLITE_SECTION_BUDGETS,
 }
 
 export interface PersonalityConfig {

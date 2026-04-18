@@ -3,6 +3,30 @@
 /// Maximum characters per injected markdown file.
 pub(super) const MAX_FILE_CHARS: usize = 20_000;
 
+/// Memory usage guidance appended after the Core/SQLite memory blocks.
+/// Extracted as a named constant so `build.rs` can **pre-reserve** its length
+/// from the memory-section budget — otherwise a sufficiently large `memory.md`
+/// could crowd out this block entirely and leave the model without guidance
+/// on how to use the memory tools. Always emitted verbatim.
+pub(super) const MEMORY_GUIDELINES: &str =
+    "## Memory Guidelines\n\
+     Use update_core_memory when:\n\
+     - The user gives a standing instruction (\"always\", \"never\", \"from now on\", \"remember to\")\n\
+     - The user states a persistent preference or rule\n\
+     - The user corrects a recurring behavior\n\n\
+     Use save_memory when:\n\
+     - You learn a fact about the user, project, or external resource\n\
+     - The user mentions a deadline, event, or temporary context\n\
+     - You discover something worth noting for future reference\n\n\
+     Use recall_memory when:\n\
+     - You need context about the user or project from prior conversations\n\
+     - The user references something discussed before\n\
+     - You want to check if preferences or constraints were previously established\n\n\
+     Use recall_memory with include_history=true when:\n\
+     - The user references a previous conversation (\"last time\", \"we discussed\", \"remember when\")\n\
+     - You need to find what was said or decided in an earlier session\n\n\
+     Do NOT save: ephemeral task details, code snippets, debugging steps, or anything derivable from the codebase.";
+
 /// Embodiment guidance appended after injecting a SOUL.md block so the
 /// model commits to the persona rather than treating it as ambient text.
 /// Shared between openclaw 4-file mode and the SoulMd persona mode.

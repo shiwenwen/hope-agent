@@ -32,13 +32,15 @@ pub struct SystemPromptBreakdown {
 
 /// Compute a per-section breakdown of the system prompt.
 ///
-/// The `memory_context` argument should match what will actually be
-/// injected at chat time (from `memory_backend.build_prompt_summary`).
+/// The `memory_entries` + `memory_budget` arguments should match what will
+/// actually be injected at chat time (from `agent/config.rs`). Pass an empty
+/// slice + default budget if the caller only wants a non-memory baseline.
 pub fn compute_breakdown(
     definition: &AgentDefinition,
     model: Option<&str>,
     provider: Option<&str>,
-    memory_context: Option<&str>,
+    memory_entries: &[crate::memory::MemoryEntry],
+    memory_budget: &crate::memory::MemoryBudgetConfig,
     agent_home: Option<&str>,
 ) -> SystemPromptBreakdown {
     // Breakdown is not project-aware (it's used by the /context dashboard,
@@ -48,13 +50,25 @@ pub fn compute_breakdown(
         definition,
         model,
         provider,
-        memory_context,
+        memory_entries,
+        memory_budget,
         agent_home,
         None,
         &[],
         None,
     );
-    let without_memory = build(definition, model, provider, None, agent_home, None, &[], None);
+    let empty_budget = crate::memory::MemoryBudgetConfig::default();
+    let without_memory = build(
+        definition,
+        model,
+        provider,
+        &[],
+        &empty_budget,
+        agent_home,
+        None,
+        &[],
+        None,
+    );
     let memory_chars = full.len().saturating_sub(without_memory.len());
 
     let skills_chars = build_skills_section(

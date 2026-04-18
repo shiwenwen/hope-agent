@@ -157,6 +157,25 @@ pub async fn save_memory_selection_config(
     Ok(Json(json!({ "saved": true })))
 }
 
+// ── Memory Budget Config ────────────────────────────────────────
+
+/// `GET /api/config/memory-budget` -- get the system-prompt memory budget.
+pub async fn get_memory_budget_config(
+) -> Result<Json<oc_core::memory::MemoryBudgetConfig>, AppError> {
+    Ok(Json(oc_core::config::cached_config().memory_budget.clone()))
+}
+
+/// `PUT /api/config/memory-budget` -- save the memory budget.
+pub async fn save_memory_budget_config(
+    Json(body): Json<ConfigBody<oc_core::memory::MemoryBudgetConfig>>,
+) -> Result<Json<Value>, AppError> {
+    let mut store = load_config()?;
+    let _reason = oc_core::backup::scope_save_reason("memory_budget", "http");
+    store.memory_budget = body.config;
+    save_config(&store)?;
+    Ok(Json(json!({ "saved": true })))
+}
+
 // ── Recap Config ────────────────────────────────────────────────
 
 /// `GET /api/config/recap` -- get recap config.

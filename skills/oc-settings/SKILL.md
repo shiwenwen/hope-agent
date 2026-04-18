@@ -72,6 +72,7 @@ If the response includes `sideEffect`, surface it to the user (e.g. "this requir
 | `compact` | `enabled`, `cacheTtlSecs`, thresholds |
 | `memory_extract` | `enabled`, `cooldownSecs`, `tokenThreshold` |
 | `memory_selection` | `enabled`, `candidateThreshold`, `maxSelected` |
+| `memory_budget` | `totalChars` (int, default 10000), `coreMemoryFileChars` (int, default 8000 — cap per `memory.md` file), `sqliteEntryMaxChars` (int, default 500 — cap per rendered SQLite bullet), `sqliteSections.{aboutYou,aboutUser,preferences,projectContext,references}` (defaults 1500/2000/2000/3000/1500). Priority order: Guidelines > Agent `memory.md` > Global `memory.md` > SQLite. Reducing `totalChars` may hide parts of `memory.md` from the system prompt; full content is still retrievable via `recall_memory` / `memory_get`. |
 | `embedding_cache` | `enabled`, `maxEntries` |
 | `dedup` | `enabled`, `threshold` |
 | `hybrid_search` | `keywordWeight`, `vectorWeight` |

@@ -417,6 +417,27 @@
     "activeMemoryCacheTtl": "Cache TTL (seconds)",
     "activeMemoryMaxChars": "Recall max chars",
     "activeMemoryCandidateLimit": "Candidate limit",
+    "memoryBudget": {
+      "title": "Memory Budget",
+      "desc": "Caps the total character count of the Memory section (Global memory.md / Agent memory.md / SQLite memories / Guidelines) and the per-layer limits inside it. Lowering the total frees budget for the live conversation context.",
+      "agentOverrideDesc": "Inherits the global Memory Budget by default. Toggle off to use an agent-specific budget.",
+      "useGlobalDefault": "Inherit global default",
+      "resetToDefaults": "Reset to defaults",
+      "totalChars": "Total chars cap",
+      "totalCharsDesc": "Hard upper bound for the entire Memory section. Guidelines are reserved first; remaining layers drop in priority order. Default 10000.",
+      "coreMemoryFileChars": "memory.md per-layer cap",
+      "coreMemoryFileCharsDesc": "Independent cap for each memory.md file (Global / Agent). Content beyond the cap is truncated in the prompt but preserved on disk. Default 8000.",
+      "sqliteEntryMaxChars": "Per-entry cap",
+      "sqliteEntryMaxCharsDesc": "Upper bound on the first line of each rendered SQLite memory bullet, preventing one long entry from crowding out same-section peers. Default 500.",
+      "sqliteSectionsTitle": "SQLite per-section budgets",
+      "sections": {
+        "aboutYou": "About You",
+        "aboutUser": "About the User",
+        "preferences": "Preferences",
+        "projectContext": "Project Context",
+        "references": "References"
+      }
+    },
     "coreMemory": "Core Memory",
     "coreMemoryGlobal": "Global Core Memory",
     "coreMemoryGlobalDesc": "Rules and preferences shared across all agents, always visible in conversations",

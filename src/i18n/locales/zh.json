@@ -417,6 +417,27 @@
     "activeMemoryCacheTtl": "缓存 TTL (秒)",
     "activeMemoryMaxChars": "召回句长上限",
     "activeMemoryCandidateLimit": "候选数量上限",
+    "memoryBudget": {
+      "title": "记忆预算",
+      "desc": "限制系统提示词中记忆部分（Global memory.md / Agent memory.md / SQLite 记忆 / 使用指南）的总字符数,以及内部各层独立上限。降低 total 可以让更多预算留给对话上下文。",
+      "agentOverrideDesc": "默认继承全局记忆预算。关闭下方开关以为当前 Agent 定制独立预算。",
+      "useGlobalDefault": "继承全局默认",
+      "resetToDefaults": "恢复默认值",
+      "totalChars": "总字符上限",
+      "totalCharsDesc": "整段 Memory 的硬上限（字符）。Guidelines 优先保留,其余层按优先级依次消费。默认 10000。",
+      "coreMemoryFileChars": "memory.md 单层上限",
+      "coreMemoryFileCharsDesc": "Global / Agent 每个 memory.md 独立上限。超出的部分截断显示,完整内容仍在磁盘。默认 8000。",
+      "sqliteEntryMaxChars": "单条记忆字符上限",
+      "sqliteEntryMaxCharsDesc": "SQLite 记忆条目渲染时的首行字符上限,避免单条长记忆挤占同节其他条目。默认 500。",
+      "sqliteSectionsTitle": "SQLite 各节预算",
+      "sections": {
+        "aboutYou": "About You",
+        "aboutUser": "About the User",
+        "preferences": "Preferences",
+        "projectContext": "Project Context",
+        "references": "References"
+      }
+    },
     "coreMemory": "核心记忆",
     "coreMemoryGlobal": "全局核心记忆",
     "coreMemoryGlobalDesc": "所有 Agent 共享的规则和偏好，始终在对话中可见",

@@ -342,6 +342,22 @@ pub struct MemoryConfig {
     /// it as an independent cache block alongside the system prompt.
     #[serde(default)]
     pub active_memory: ActiveMemoryConfig,
+
+    /// Agent-level override for the system-prompt memory budget. `None`
+    /// inherits `AppConfig.memory_budget`. When set, the full budget is
+    /// replaced (not merged field-by-field) so an agent configured once can
+    /// pick a coherent set of per-section caps.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub budget: Option<crate::memory::MemoryBudgetConfig>,
+}
+
+/// Resolve the effective memory budget for a given agent: agent-level
+/// `Option<MemoryBudgetConfig>` override wins over the global default.
+pub fn effective_memory_budget(
+    agent: &MemoryConfig,
+    global: &crate::memory::MemoryBudgetConfig,
+) -> crate::memory::MemoryBudgetConfig {
+    agent.budget.clone().unwrap_or_else(|| global.clone())
 }
 
 /// Active Memory configuration — controls the pre-reply recall injection
@@ -430,6 +446,7 @@ impl Default for MemoryConfig {
             extract_idle_timeout_secs: None,
             enable_reflection: None,
             active_memory: ActiveMemoryConfig::default(),
+            budget: None,
         }
     }
 }

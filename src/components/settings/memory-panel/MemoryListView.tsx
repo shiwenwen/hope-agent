@@ -27,6 +27,7 @@ import {
 } from "lucide-react"
 import { MEMORY_TYPES, MEMORY_TYPE_ICONS } from "./types"
 import ExtractConfig from "./ExtractConfig"
+import BudgetConfig from "./BudgetConfig"
 import CoreMemoryEditor from "./CoreMemoryEditor"
 import ImportFromAIDialog from "./ImportFromAIDialog"
 import type { useMemoryData } from "./useMemoryData"
@@ -129,6 +130,9 @@ export default function MemoryListView({ data, isAgentMode, compact }: MemoryLis
 
           {/* Auto-extract settings */}
           <ExtractConfig data={data} isAgentMode={isAgentMode} />
+
+          {/* Memory section budget (global defaults). Agent tab has override UI. */}
+          {!isAgentMode && <BudgetConfig />}
 
           {/* Stats bar */}
           {stats && stats.total > 0 && (

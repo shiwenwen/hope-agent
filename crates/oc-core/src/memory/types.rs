@@ -255,6 +255,104 @@ impl Default for MemorySelectionConfig {
     }
 }
 
+// ── Memory Section Budget ───────────────────────────────────────
+
+/// Per-section character budgets for the SQLite Layer 3 block of the
+/// system-prompt memory section.
+///
+/// Default allocation is 15/20/20/30/15 = 10_000 chars total, matching the
+/// default `MemoryBudgetConfig::total_chars`. `scaled_to` proportionally
+/// shrinks the five sections when the caller-provided cap is smaller than
+/// the sum (e.g., when Layer 1/2 consumed most of the total budget).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SqliteSectionBudgets {
+    pub about_you: usize,
+    pub about_user: usize,
+    pub preferences: usize,
+    pub project_context: usize,
+    pub references: usize,
+}
+
+impl Default for SqliteSectionBudgets {
+    fn default() -> Self {
+        Self {
+            about_you: 1500,
+            about_user: 2000,
+            preferences: 2000,
+            project_context: 3000,
+            references: 1500,
+        }
+    }
+}
+
+impl SqliteSectionBudgets {
+    pub fn total(&self) -> usize {
+        self.about_you
+            + self.about_user
+            + self.preferences
+            + self.project_context
+            + self.references
+    }
+
+    /// Return a copy whose five sections fit inside `cap`, proportionally
+    /// scaled from the configured values when they sum to more than `cap`.
+    /// Returns a zeroed-out struct when `cap == 0`.
+    pub fn scaled_to(&self, cap: usize) -> Self {
+        let t = self.total();
+        if t == 0 || cap == 0 {
+            return Self {
+                about_you: 0,
+                about_user: 0,
+                preferences: 0,
+                project_context: 0,
+                references: 0,
+            };
+        }
+        if t <= cap {
+            return self.clone();
+        }
+        let ratio = cap as f64 / t as f64;
+        Self {
+            about_you: (self.about_you as f64 * ratio) as usize,
+            about_user: (self.about_user as f64 * ratio) as usize,
+            preferences: (self.preferences as f64 * ratio) as usize,
+            project_context: (self.project_context as f64 * ratio) as usize,
+            references: (self.references as f64 * ratio) as usize,
+        }
+    }
+}
+
+/// Controls how much of the system prompt the memory section is allowed to
+/// consume. Defaults tuned for a ~10K char / ~2.5K token memory block that
+/// hard-prioritises the Memory Guidelines epilogue and degrades gracefully
+/// (Agent core memory > Global core memory > SQLite summary) when the total
+/// budget is tighter than the individual per-layer caps.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct MemoryBudgetConfig {
+    /// Hard upper bound on the entire memory section (Layer 1 + 2 + 3 + 4).
+    pub total_chars: usize,
+    /// Upper bound on each `memory.md` file (Global / Agent) individually.
+    /// Actual injection is `min(core_memory_file_chars, remaining_total)`.
+    pub core_memory_file_chars: usize,
+    /// Per-entry truncation for rendered SQLite memory bullets (Layer 3).
+    pub sqlite_entry_max_chars: usize,
+    /// Per-section sub-budgets for the SQLite block.
+    pub sqlite_sections: SqliteSectionBudgets,
+}
+
+impl Default for MemoryBudgetConfig {
+    fn default() -> Self {
+        Self {
+            total_chars: 10_000,
+            core_memory_file_chars: 8_000,
+            sqlite_entry_max_chars: 500,
+            sqlite_sections: SqliteSectionBudgets::default(),
+        }
+    }
+}
+
 // ── Deduplication ───────────────────────────────────────────────
 
 /// Default dedup thresholds (RRF scores)

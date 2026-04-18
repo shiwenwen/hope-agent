@@ -7,9 +7,10 @@ import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
 import { Loader2, Check, Save } from "lucide-react"
 import MemoryPanel from "@/components/settings/MemoryPanel"
+import MemoryBudgetInputs from "@/components/settings/memory-panel/MemoryBudgetInputs"
 import { logger } from "@/lib/logger"
-import type { AgentConfig, ActiveMemoryConfig } from "../types"
-import { DEFAULT_ACTIVE_MEMORY } from "../types"
+import type { AgentConfig, ActiveMemoryConfig, MemoryBudgetConfig } from "../types"
+import { DEFAULT_ACTIVE_MEMORY, DEFAULT_MEMORY_BUDGET } from "../types"
 
 interface MemoryTabProps {
   agentId: string
@@ -86,6 +87,26 @@ export default function MemoryTab({ agentId, openclawMode, config, updateConfig 
       memory: {
         ...prevMemory,
         activeMemory: nextActive,
+      },
+    })
+  }
+
+  // Memory Budget override — `config.memory?.budget` null/undefined means
+  // "inherit global"; Some(config) replaces it wholesale.
+  const useGlobalBudget = !config.memory?.budget
+  const budgetValue: MemoryBudgetConfig = config.memory?.budget ?? { ...DEFAULT_MEMORY_BUDGET }
+
+  const updateMemoryBudget = (next: MemoryBudgetConfig | null) => {
+    const prevMemory = config.memory ?? {
+      enabled: true,
+      shared: true,
+      promptBudget: 5000,
+      activeMemory: { ...DEFAULT_ACTIVE_MEMORY },
+    }
+    updateConfig({
+      memory: {
+        ...prevMemory,
+        budget: next,
       },
     })
   }
@@ -182,6 +203,38 @@ export default function MemoryTab({ agentId, openclawMode, config, updateConfig 
               </label>
             </div>
           )}
+        </div>
+      </div>
+
+      {/* Memory Budget override (Agent level) */}
+      <div className="px-6 pt-2 pb-2 shrink-0 w-full">
+        <div className="rounded-lg border border-border/60 bg-secondary/20 p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex flex-col pr-4">
+              <label className="text-sm font-semibold">
+                {t("settings.memoryBudget.title")}
+              </label>
+              <p className="text-[11px] text-muted-foreground/70 mt-0.5">
+                {t("settings.memoryBudget.agentOverrideDesc")}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">
+                {t("settings.memoryBudget.useGlobalDefault")}
+              </span>
+              <Switch
+                checked={useGlobalBudget}
+                onCheckedChange={(v) =>
+                  updateMemoryBudget(v ? null : { ...DEFAULT_MEMORY_BUDGET })
+                }
+              />
+            </div>
+          </div>
+          <MemoryBudgetInputs
+            value={budgetValue}
+            onChange={(next) => updateMemoryBudget(next)}
+            disabled={useGlobalBudget}
+          />
         </div>
       </div>
 

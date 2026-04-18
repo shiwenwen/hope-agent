@@ -294,6 +294,14 @@ fn build_router_with_cors(
             put(routes::config::save_memory_selection_config),
         )
         .route(
+            "/config/memory-budget",
+            get(routes::config::get_memory_budget_config),
+        )
+        .route(
+            "/config/memory-budget",
+            put(routes::config::save_memory_budget_config),
+        )
+        .route(
             "/config/notification",
             get(routes::config::get_notification_config),
         )

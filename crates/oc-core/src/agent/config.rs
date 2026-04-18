@@ -226,22 +226,31 @@ pub fn build_system_prompt_with_session(
             })
             .unwrap_or_default();
 
-        // Build memory context if enabled. When a project is active, prefer
-        // the project-aware loader so project memories take priority in the
-        // prompt budget.
-        let memory_context = if definition.config.memory.enabled {
-            crate::get_memory_backend().and_then(|b| {
-                b.build_prompt_summary_with_project(
-                    agent_id,
-                    project.as_ref().map(|p| p.id.as_str()),
-                    definition.config.memory.shared,
-                    definition.config.memory.prompt_budget,
-                )
-                .ok()
-            })
+        // Load candidate memory entries (unscoped raw list). Budget-based
+        // filtering and per-section sub-budgets are applied downstream by
+        // `system_prompt::build` so that Layer 1/2 (core memory.md files) can
+        // consume the total budget first and Layer 3 picks up only the residual.
+        let memory_entries: Vec<crate::memory::MemoryEntry> = if definition.config.memory.enabled {
+            crate::get_memory_backend()
+                .and_then(|b| {
+                    b.load_prompt_candidates_with_project(
+                        agent_id,
+                        project.as_ref().map(|p| p.id.as_str()),
+                        definition.config.memory.shared,
+                    )
+                    .ok()
+                })
+                .unwrap_or_default()
         } else {
-            None
+            Vec::new()
         };
+
+        // Resolve the effective memory budget (agent override wins over global).
+        let app_cfg = crate::config::cached_config();
+        let memory_budget = crate::agent_config::effective_memory_budget(
+            &definition.config.memory,
+            &app_cfg.memory_budget,
+        );
 
         // Resolve agent home directory
         let agent_home = crate::paths::agent_home_dir(agent_id)
@@ -251,7 +260,8 @@ pub fn build_system_prompt_with_session(
             &definition,
             Some(model),
             Some(provider),
-            memory_context.as_deref(),
+            &memory_entries,
+            &memory_budget,
             agent_home.as_deref(),
             project.as_ref(),
             &project_files,

@@ -21,6 +21,7 @@ fn risk_level(category: &str) -> &'static str {
         "compact"
         | "memory_extract"
         | "memory_selection"
+        | "memory_budget"
         | "embedding_cache"
         | "dedup"
         | "hybrid_search"
@@ -68,6 +69,10 @@ fn side_effect_note(category: &str) -> Option<&'static str> {
              To modify, pass values = { \"action\": \"save\", \"template\": {...} } or \
              { \"action\": \"delete\", \"templateId\": \"...\" }. A saved template becomes \
              discoverable by the model via team(action=\"list_templates\")."
+        ),
+        "memory_budget" => Some(
+            "Reducing totalChars may hide parts of memory.md from the system prompt. \
+             Full content is still retrievable via recall_memory / memory_get tools."
         ),
         _ => None,
     }
@@ -128,6 +133,7 @@ fn read_category(category: &str) -> Result<Value> {
         "deferred_tools" => Ok(serde_json::to_value(&cfg.deferred_tools)?),
         "memory_extract" => Ok(serde_json::to_value(&cfg.memory_extract)?),
         "memory_selection" => Ok(serde_json::to_value(&cfg.memory_selection)?),
+        "memory_budget" => Ok(serde_json::to_value(&cfg.memory_budget)?),
         "embedding" => Ok(serde_json::to_value(&cfg.embedding)?),
         "embedding_cache" => Ok(serde_json::to_value(&cfg.embedding_cache)?),
         "dedup" => Ok(serde_json::to_value(&cfg.dedup)?),
@@ -224,12 +230,13 @@ fn get_all_overview() -> Result<String> {
             "canvas", "image", "pdf", "image_generate", "temperature", "tool_timeout"
         ],
         "medium": [
-            "compact", "memory_extract", "memory_selection", "embedding_cache",
-            "dedup", "hybrid_search", "temporal_decay", "mmr", "recap",
-            "awareness", "web_fetch", "web_search", "deferred_tools",
-            "async_tools", "approval", "tool_result_disk_threshold",
-            "ask_user_question_timeout", "plan", "skills_auto_review",
-            "recall_summary", "tool_call_narration", "teams"
+            "compact", "memory_extract", "memory_selection", "memory_budget",
+            "embedding_cache", "dedup", "hybrid_search", "temporal_decay",
+            "mmr", "recap", "awareness", "web_fetch", "web_search",
+            "deferred_tools", "async_tools", "approval",
+            "tool_result_disk_threshold", "ask_user_question_timeout", "plan",
+            "skills_auto_review", "recall_summary", "tool_call_narration",
+            "teams"
         ],
         "high": [
             "proxy", "embedding", "shortcuts", "skills", "server",
@@ -368,6 +375,7 @@ fn update_app_config(category: &str, values: &Value) -> Result<String> {
         "deferred_tools" => merge_field(&mut store.deferred_tools, values)?,
         "memory_extract" => merge_field(&mut store.memory_extract, values)?,
         "memory_selection" => merge_field(&mut store.memory_selection, values)?,
+        "memory_budget" => merge_field(&mut store.memory_budget, values)?,
         "embedding" => merge_field(&mut store.embedding, values)?,
         "embedding_cache" => merge_field(&mut store.embedding_cache, values)?,
         "dedup" => merge_field(&mut store.dedup, values)?,

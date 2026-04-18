@@ -164,6 +164,21 @@ pub async fn save_memory_selection_config(
 }
 
 #[tauri::command]
+pub async fn get_memory_budget_config() -> Result<memory::MemoryBudgetConfig, String> {
+    Ok(oc_core::config::cached_config().memory_budget.clone())
+}
+
+#[tauri::command]
+pub async fn save_memory_budget_config(
+    config: memory::MemoryBudgetConfig,
+) -> Result<(), String> {
+    let mut store = oc_core::config::load_config().map_err(|e| e.to_string())?;
+    let _reason = oc_core::backup::scope_save_reason("memory_budget", "ui");
+    store.memory_budget = config;
+    oc_core::config::save_config(&store).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn get_dedup_config() -> Result<memory::DedupConfig, String> {
     let store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     Ok(store.dedup)

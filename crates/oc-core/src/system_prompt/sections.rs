@@ -8,12 +8,20 @@ use crate::skills;
 
 /// Build tool definitions section, filtered by agent config.
 /// Only includes descriptions for tools the agent is allowed to use.
+///
+/// When `deferredTools.enabled = true`, only core/always-loaded tools get their
+/// full detailed description here. Deferred tools instead appear as a one-line
+/// catalog in `build_deferred_tools_section`, and their full schema is fetched
+/// on demand via `tool_search`. This avoids emitting every tool's description
+/// three times (here, in the deferred catalog, and in the tool_search result).
 pub(super) fn build_tools_section(filter: &FilterConfig) -> String {
     let no_filter = filter.allow.is_empty() && filter.deny.is_empty();
+    let deferred_enabled = crate::config::cached_config().deferred_tools.enabled;
 
     let descs: Vec<&str> = TOOL_DESCRIPTIONS
         .iter()
         .filter(|(name, _)| no_filter || crate::tools::agent_tool_filter_allows(name, filter))
+        .filter(|(name, _)| !deferred_enabled || crate::tools::is_core_tool(name))
         .map(|(_, desc)| *desc)
         .collect();
 

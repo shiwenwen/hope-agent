@@ -241,6 +241,8 @@ pub fn run() {
             commands::memory::save_extract_config,
             commands::memory::get_memory_selection_config,
             commands::memory::save_memory_selection_config,
+            commands::memory::get_memory_budget_config,
+            commands::memory::save_memory_budget_config,
             commands::memory::get_dedup_config,
             commands::memory::save_dedup_config,
             commands::memory::get_hybrid_search_config,

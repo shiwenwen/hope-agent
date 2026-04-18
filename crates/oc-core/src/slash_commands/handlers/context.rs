@@ -82,18 +82,22 @@ pub async fn handle_context(
     let agent_def = crate::agent_loader::load_agent(agent_id)
         .map_err(|e| format!("Failed to load agent: {}", e))?;
 
-    let memory_context = if agent_def.config.memory.enabled {
-        crate::get_memory_backend().and_then(|b| {
-            b.build_prompt_summary(
-                agent_id,
-                agent_def.config.memory.shared,
-                agent_def.config.memory.prompt_budget,
-            )
-            .ok()
-        })
+    let memory_entries: Vec<crate::memory::MemoryEntry> = if agent_def.config.memory.enabled {
+        crate::get_memory_backend()
+            .and_then(|b| {
+                b.load_prompt_candidates(agent_id, agent_def.config.memory.shared)
+                    .ok()
+            })
+            .unwrap_or_default()
     } else {
-        None
+        Vec::new()
     };
+
+    let app_cfg = crate::config::cached_config();
+    let memory_budget = crate::agent_config::effective_memory_budget(
+        &agent_def.config.memory,
+        &app_cfg.memory_budget,
+    );
 
     let agent_home = crate::paths::agent_home_dir(agent_id)
         .ok()
@@ -103,7 +107,8 @@ pub async fn handle_context(
         &agent_def,
         Some(&active_model),
         Some(&active_provider),
-        memory_context.as_deref(),
+        &memory_entries,
+        &memory_budget,
         agent_home.as_deref(),
     );
 
