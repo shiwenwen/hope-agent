@@ -95,17 +95,17 @@ export default function SecurityPanel() {
       [
         {
           key: "browserPolicy" as const,
-          label: t("settings.ssrfBrowserPolicy"),
+          label: t("settings.ssrfToolLabel", { tool: t("tools.browser") }),
           desc: t("settings.ssrfBrowserPolicyDesc"),
         },
         {
           key: "webFetchPolicy" as const,
-          label: t("settings.ssrfWebFetchPolicy"),
+          label: t("settings.ssrfToolLabel", { tool: t("tools.web_fetch") }),
           desc: t("settings.ssrfWebFetchPolicyDesc"),
         },
         {
           key: "imageGeneratePolicy" as const,
-          label: t("settings.ssrfImageGeneratePolicy"),
+          label: t("settings.ssrfToolLabel", { tool: t("tools.image_generate") }),
           desc: t("settings.ssrfImageGeneratePolicyDesc"),
         },
         {

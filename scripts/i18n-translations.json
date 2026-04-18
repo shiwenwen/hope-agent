@@ -137,7 +137,10 @@
         }
       },
       "skillsDirShared": "共有",
-      "skillsDirSharedDesc": "ツール間で共有されるスキルディレクトリ（~/.agents/skills/ 規約）"
+      "skillsDirSharedDesc": "ツール間で共有されるスキルディレクトリ（~/.agents/skills/ 規約）",
+      "ssrfToolLabel": "{{tool}}ツール",
+      "ssrfUrlPreviewPolicy": "URL プレビュー",
+      "ssrfTrustedHostsSection": "信頼できるホストの許可リスト"
     },
     "subagent": {
       "deletedAgentTooltip": "このエージェントは削除されました",
@@ -294,7 +297,10 @@
         }
       },
       "skillsDirShared": "공유",
-      "skillsDirSharedDesc": "도구 간 공유 스킬 디렉토리 (~/.agents/skills/ 규약)"
+      "skillsDirSharedDesc": "도구 간 공유 스킬 디렉토리 (~/.agents/skills/ 규약)",
+      "ssrfToolLabel": "{{tool}} 도구",
+      "ssrfUrlPreviewPolicy": "URL 미리보기",
+      "ssrfTrustedHostsSection": "신뢰할 수 있는 호스트 허용 목록"
     },
     "subagent": {
       "deletedAgentTooltip": "이 에이전트는 삭제되었습니다",
@@ -451,7 +457,10 @@
         }
       },
       "skillsDirShared": "共享",
-      "skillsDirSharedDesc": "跨工具共享的技能目錄（~/.agents/skills/ 約定）"
+      "skillsDirSharedDesc": "跨工具共享的技能目錄（~/.agents/skills/ 約定）",
+      "ssrfToolLabel": "{{tool}}工具",
+      "ssrfUrlPreviewPolicy": "連結預覽",
+      "ssrfTrustedHostsSection": "可信主機白名單"
     },
     "subagent": {
       "deletedAgentTooltip": "此 Agent 已被刪除",
@@ -608,7 +617,10 @@
         }
       },
       "skillsDirShared": "Paylaşılan",
-      "skillsDirSharedDesc": "Araçlar arası paylaşılan beceri dizini (~/.agents/skills/ sözleşmesi)"
+      "skillsDirSharedDesc": "Araçlar arası paylaşılan beceri dizini (~/.agents/skills/ sözleşmesi)",
+      "ssrfToolLabel": "{{tool}} aracı",
+      "ssrfUrlPreviewPolicy": "URL önizleme",
+      "ssrfTrustedHostsSection": "Güvenilir hostlar izin listesi"
     },
     "subagent": {
       "deletedAgentTooltip": "Bu ajan silindi",
@@ -765,7 +777,10 @@
         }
       },
       "skillsDirShared": "Dùng chung",
-      "skillsDirSharedDesc": "Thư mục kỹ năng dùng chung giữa các công cụ (quy ước ~/.agents/skills/)"
+      "skillsDirSharedDesc": "Thư mục kỹ năng dùng chung giữa các công cụ (quy ước ~/.agents/skills/)",
+      "ssrfToolLabel": "Công cụ {{tool}}",
+      "ssrfUrlPreviewPolicy": "Xem trước URL",
+      "ssrfTrustedHostsSection": "Danh sách host tin cậy"
     },
     "subagent": {
       "deletedAgentTooltip": "Agent này đã bị xoá",
@@ -922,7 +937,10 @@
         }
       },
       "skillsDirShared": "Compartilhado",
-      "skillsDirSharedDesc": "Diretório de habilidades compartilhado entre ferramentas (convenção ~/.agents/skills/)"
+      "skillsDirSharedDesc": "Diretório de habilidades compartilhado entre ferramentas (convenção ~/.agents/skills/)",
+      "ssrfToolLabel": "Ferramenta {{tool}}",
+      "ssrfUrlPreviewPolicy": "Pré-visualização de URL",
+      "ssrfTrustedHostsSection": "Lista de hosts confiáveis"
     },
     "subagent": {
       "deletedAgentTooltip": "Este agente foi excluído",
@@ -1079,7 +1097,10 @@
         }
       },
       "skillsDirShared": "Общий",
-      "skillsDirSharedDesc": "Общий каталог навыков между инструментами (соглашение ~/.agents/skills/)"
+      "skillsDirSharedDesc": "Общий каталог навыков между инструментами (соглашение ~/.agents/skills/)",
+      "ssrfToolLabel": "Инструмент {{tool}}",
+      "ssrfUrlPreviewPolicy": "Предпросмотр URL",
+      "ssrfTrustedHostsSection": "Белый список доверенных хостов"
     },
     "subagent": {
       "deletedAgentTooltip": "Этот агент был удалён",
@@ -1236,7 +1257,10 @@
         }
       },
       "skillsDirShared": "مشترك",
-      "skillsDirSharedDesc": "دليل مهارات مشترك بين الأدوات (اصطلاح ~/.agents/skills/)"
+      "skillsDirSharedDesc": "دليل مهارات مشترك بين الأدوات (اصطلاح ~/.agents/skills/)",
+      "ssrfToolLabel": "أداة {{tool}}",
+      "ssrfUrlPreviewPolicy": "معاينة الرابط",
+      "ssrfTrustedHostsSection": "قائمة المضيفين الموثوقين"
     },
     "subagent": {
       "deletedAgentTooltip": "تم حذف هذا العميل",
@@ -1393,7 +1417,10 @@
         }
       },
       "skillsDirShared": "Compartido",
-      "skillsDirSharedDesc": "Directorio de habilidades compartido entre herramientas (convención ~/.agents/skills/)"
+      "skillsDirSharedDesc": "Directorio de habilidades compartido entre herramientas (convención ~/.agents/skills/)",
+      "ssrfToolLabel": "Herramienta {{tool}}",
+      "ssrfUrlPreviewPolicy": "Vista previa de URL",
+      "ssrfTrustedHostsSection": "Lista de hosts de confianza"
     },
     "subagent": {
       "deletedAgentTooltip": "Este agente ha sido eliminado",
@@ -1550,7 +1577,10 @@
         }
       },
       "skillsDirShared": "Dikongsi",
-      "skillsDirSharedDesc": "Direktori kemahiran dikongsi antara alat (konvensyen ~/.agents/skills/)"
+      "skillsDirSharedDesc": "Direktori kemahiran dikongsi antara alat (konvensyen ~/.agents/skills/)",
+      "ssrfToolLabel": "Alat {{tool}}",
+      "ssrfUrlPreviewPolicy": "Pratonton URL",
+      "ssrfTrustedHostsSection": "Senarai dibenarkan hos dipercayai"
     },
     "subagent": {
       "deletedAgentTooltip": "Agen ini telah dipadam",
