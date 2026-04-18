@@ -8,6 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "format": "prettier --write 'src/**/*.{ts,tsx,js,jsx,json,css}'",
+    "i18n:check": "node scripts/sync-i18n.mjs --check",
+    "i18n:apply": "node scripts/sync-i18n.mjs --apply",
     "format:check": "prettier --check 'src/**/*.{ts,tsx,js,jsx,json,css}'",
     "preview": "vite preview",
     "tauri": "tauri"

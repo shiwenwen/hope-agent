@@ -171,6 +171,18 @@ pub trait MemoryBackend: Send + Sync {
     /// Delete multiple memories by ID. Returns the number deleted.
     fn delete_batch(&self, ids: &[i64]) -> Result<usize>;
 
+    /// Return every distinct `scope_project_id` value present on rows whose
+    /// `scope_type = 'project'`. Used by [`crate::project::reconcile`] at
+    /// startup to find orphan project-scoped memory rows whose owning project
+    /// row has already been deleted (the cross-database delete path is
+    /// non-transactional — see `project/files.rs::delete_project_cascade`).
+    ///
+    /// Default impl returns `Ok(vec![])` so out-of-tree backends without
+    /// project-scope support stay sound.
+    fn list_distinct_project_scope_ids(&self) -> Result<Vec<String>> {
+        Ok(Vec::new())
+    }
+
     /// Import multiple memories with optional deduplication.
     fn import_entries(&self, entries: Vec<NewMemory>, dedup: bool) -> Result<ImportResult>;
 

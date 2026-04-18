@@ -43,7 +43,24 @@ fn tool_timeout() -> Option<Duration> {
 
 // ── Tool Execution Context ────────────────────────────────────────
 
-/// Context passed to tool execution for dynamic behavior
+/// Context passed to tool execution for dynamic behavior.
+///
+/// # Concurrency contract
+///
+/// The tool loop runs concurrent-safe tools in parallel via `join_all`,
+/// `clone()`-ing this struct once per concurrent task (see
+/// `crates/oc-core/src/agent/providers/{anthropic,openai_chat,openai_responses,codex}.rs`,
+/// look for `let tool_ctx = tool_ctx.clone();`). All current fields are value
+/// types or owned `Vec`s, so the clone is independent and a tool only ever
+/// observes its own snapshot.
+///
+/// **Do not** add `Mutex`/`RwLock` directly to this struct. Each concurrent
+/// branch holds an independent clone, so writes through such a lock would be
+/// invisible to peers and to subsequent rounds. State that must be shared
+/// across concurrent tools belongs in a process-global
+/// `OnceLock<TokioMutex<...>>` (see [`super::approval::TOOL_PERMISSION_MODE`]
+/// and [`super::approval::pending_approvals_per_session`] for the canonical
+/// pattern).
 #[derive(Debug, Clone)]
 pub struct ToolExecContext {
     /// Model context window in tokens (for dynamic output truncation)

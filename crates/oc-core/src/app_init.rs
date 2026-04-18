@@ -373,6 +373,13 @@ pub async fn start_background_tasks() {
         }
     });
 
+    // One-shot reconciler for orphan project-scoped memory rows. The
+    // delete_project cascade touches both `session.db` and `memory.db` and
+    // cannot wrap them in a single transaction, so a crash between the two
+    // can leave unreachable memory rows behind. Project deletion is
+    // low-frequency, so a startup sweep is enough — no periodic timer.
+    crate::project::reconcile::spawn_startup_reconciler();
+
     // Auto-discover ACP backends
     if let Some(acp_mgr) = ACP_MANAGER.get() {
         let store = crate::config::cached_config();

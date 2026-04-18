@@ -35,8 +35,9 @@ export default function SessionSearchBar({
 }: SessionSearchBarProps) {
   const { t } = useTranslation()
   const [query, setQuery] = useState("")
-  // Sorted by messageId asc so ↑/↓ map to earlier/later in the conversation;
-  // FTS5 returns rows by relevance rank which is unintuitive for navigation.
+  // Sorted by ISO timestamp asc so ↑/↓ map to earlier/later in the conversation;
+  // FTS5 returns rows by relevance rank which is unintuitive for navigation, and
+  // messageId can be non-monotonic across imported / migrated sessions.
   const [sortedResults, setSortedResults] = useState<SessionSearchResult[]>([])
   const [currentIndex, setCurrentIndex] = useState(0)
   const [searching, setSearching] = useState(false)
@@ -70,7 +71,12 @@ export default function SessionSearchBar({
             limit: 200,
           },
         )
-        const next = (list ?? []).slice().sort((a, b) => a.messageId - b.messageId)
+        // ISO-8601 timestamps sort lexicographically as time order. Fall back
+        // to messageId when two messages share the same timestamp string.
+        const next = (list ?? []).slice().sort((a, b) => {
+          const cmp = a.timestamp.localeCompare(b.timestamp)
+          return cmp !== 0 ? cmp : a.messageId - b.messageId
+        })
         setSortedResults(next)
         setCurrentIndex(0)
       } catch (err) {

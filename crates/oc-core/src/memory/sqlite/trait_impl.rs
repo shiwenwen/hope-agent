@@ -162,8 +162,10 @@ impl MemoryBackend for SqliteMemoryBackend {
             if types.is_empty() {
                 "1=1".to_string()
             } else {
-                let placeholders: Vec<String> = types.iter().map(|_| "?".to_string()).collect();
-                format!("memory_type IN ({})", placeholders.join(", "))
+                format!(
+                    "memory_type IN ({})",
+                    crate::sql_in_placeholders(types.len())
+                )
             }
         } else {
             "1=1".to_string()
@@ -675,16 +677,28 @@ impl MemoryBackend for SqliteMemoryBackend {
         Ok(AddResult::Created { id })
     }
 
+    fn list_distinct_project_scope_ids(&self) -> Result<Vec<String>> {
+        let conn = self.read_conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT scope_project_id
+             FROM memories
+             WHERE scope_type = 'project' AND scope_project_id IS NOT NULL",
+        )?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+
     fn delete_batch(&self, ids: &[i64]) -> Result<usize> {
         if ids.is_empty() {
             return Ok(0);
         }
         let conn = self.write_conn()?;
-        let placeholders: Vec<String> = ids.iter().map(|_| "?".to_string()).collect();
-        let sql = format!(
-            "DELETE FROM memories WHERE id IN ({})",
-            placeholders.join(",")
-        );
+        let placeholders = crate::sql_in_placeholders(ids.len());
+        let sql = format!("DELETE FROM memories WHERE id IN ({})", placeholders);
         let params: Vec<Box<dyn rusqlite::types::ToSql>> = ids
             .iter()
             .map(|id| Box::new(*id) as Box<dyn rusqlite::types::ToSql>)
@@ -700,7 +714,7 @@ impl MemoryBackend for SqliteMemoryBackend {
         if dims > 0 {
             let vec_sql = format!(
                 "DELETE FROM memories_vec WHERE rowid IN ({})",
-                placeholders.join(",")
+                placeholders
             );
             let _ = conn.execute(&vec_sql, param_refs.as_slice());
         }

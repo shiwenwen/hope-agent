@@ -125,12 +125,10 @@ impl LogDB {
 
         if let Some(ref levels) = filter.levels {
             if !levels.is_empty() {
-                let placeholders: Vec<String> = levels
-                    .iter()
-                    .enumerate()
-                    .map(|(_, _)| "?".to_string())
-                    .collect();
-                where_clauses.push(format!("level IN ({})", placeholders.join(",")));
+                where_clauses.push(format!(
+                    "level IN ({})",
+                    crate::sql_in_placeholders(levels.len())
+                ));
                 for l in levels {
                     param_values.push(Box::new(l.clone()));
                 }
@@ -139,12 +137,10 @@ impl LogDB {
 
         if let Some(ref categories) = filter.categories {
             if !categories.is_empty() {
-                let placeholders: Vec<String> = categories
-                    .iter()
-                    .enumerate()
-                    .map(|(_, _)| "?".to_string())
-                    .collect();
-                where_clauses.push(format!("category IN ({})", placeholders.join(",")));
+                where_clauses.push(format!(
+                    "category IN ({})",
+                    crate::sql_in_placeholders(categories.len())
+                ));
                 for c in categories {
                     param_values.push(Box::new(c.clone()));
                 }

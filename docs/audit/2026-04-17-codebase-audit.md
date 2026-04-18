@@ -9,7 +9,7 @@
 - 严重 Bug：10 项（已处理 9 项 / 1 项维持原状）
 - 中等 Bug：11 项（本轮处理 7 项 / 4 项维持原状）
 - 性能/稳定：10 项（本轮处理 4 项 / 6 项留待下一批）
-- 轻微/设计：5 项
+- 轻微/设计：5 项（本轮处理 4 项 ✅ / 1 项 ⚠️ D4 部分落地，CI gate 已就绪但因 ~3.3k 历史缺失 key 暂以 informational 模式运行）
 
 > **2026-04-17 复核（分支 `claude/fix-audit-bugs-Ip6Bl`）**：按本文件列出的严重 Bug 逐条 Read 源文件复核。B1 / B3 / B4 / B5 / B6 / B7 / B8 / B9 均已在本轮修复；B10 经复核发现 `job_status` 早就改用 `async_jobs::wait::Notify` 注册表，不再依赖 EventBus 事件，原描述已失效；B2 经复核与原描述偏差较大（`find_round_safe_boundary` 已按 round 边界对齐，不会把 tool_use / tool_result 切开），保留观察。
 >
@@ -18,6 +18,8 @@
 > **2026-04-18 安全加固批修复（分支 `claude/fix-audit-p1-p3-p7-p8`）**：按本文件"修复顺序建议"里的"第二批安全加固批"要求处理 P1 / P3 / P7 / P8。P1 前端 snippet 反解改为 Unicode 分界符（STX/ETX）+ React element 渲染，后端 `session/db.rs` 同步改分界符；P3 首次给 `tauri.conf.json` 写入 CSP，配套把 `index.html` inline theme-init 抽到 `public/theme-init.js`；P7 新增 `web_search/helpers.rs::{check_search_url, read_text_capped}`，8 个 provider 全部切换到流式 + 字节上限，SearXNG 分支加 SSRF 校验，`image_generate` URL 下载加 10 MB 上限；P8 oc-server 新增 `access_log` middleware（只记 path 不记 query），`redact_sensitive` 敏感键列表追加 `"token"` 作纵深防御。
 >
 > **2026-04-18 稳定性/性能批修复（分支 `worktree-fix-audit-p2-p4-p5-p6-p9-p10`）**：按本文件"修复顺序建议"里的"第三批稳定性/性能"要求处理 P2 / P4 / P5 / P6 / P9 / P10。P2 `AskUserQuestionBlock` 倒计时 chip 原生 `title` 换成 `@/components/ui/tooltip` 的 `IconTip`；P4 经复核 oc-server + channel worker 共 4 处 `.subscribe()` 已处理 Lagged，只剩 Tauri bridge 静默 continue，补 `app_warn!` + emit `_event_bus_lagged` 事件让前端可感知；P5 OAuth margin 60s → 30s，新增 `oauth::ensure_fresh_codex_token(current_access_token)` per-chat 预刷新入口，[`chat_engine/engine.rs`](../../crates/oc-core/src/chat_engine/engine.rs) 在 model_chain 循环前调用；P6 `memory/helpers.rs` 的 `sanitize_fts_query` / `expand_query` 改为 `Option<String>`，消除 `"*"` 空回退导致的全库扫，`memory/sqlite/trait_impl.rs::search` 在 None 时跳过 FTS 直接走 vector；P9 经复核两个 effect 的 subscribe / unsubscribe 已对齐，只做风格统一（两处都走 `const unlisten = ...; return unlisten`）；P10 Plan git checkpoint 分支命名 `chrono::Local` 换成 `UTC ISO` + 8 位 UUID 尾缀，新增 `ref_exists` helper 在 `git branch` 前 `rev-parse --verify --quiet` 去重，`rollback_to_checkpoint` 也复用同 helper 去掉重复的 verify 分支。
+>
+> **2026-04-18 设计类批修复（分支 `worktree-worktree-fix-audit-d1-d5`）**：按本文件"修复顺序建议"里的"其余设计类（D1–D5）按迭代节奏推进"处理。D1 复用既有 `crate::sql_in_placeholders(n)` helper（已在 `subagent_db.rs` 单点使用），把 `memory/sqlite/trait_impl.rs` 三处 + `logging/db.rs` 两处共 5 个手写占位符切到 helper，并补 3 条单测；D2 新模块 [`crates/oc-core/src/project/reconcile.rs`](../../crates/oc-core/src/project/reconcile.rs) 提供 `reconcile_orphan_project_memories()` + 纯函数 `reconcile_against`，`MemoryBackend` 加默认方法 `list_distinct_project_scope_ids`、`ProjectDB` 加 `list_all_ids`，`start_background_tasks` 在 ACP 自动发现前 spawn 一次性 reconciler；D3 [`SessionSearchBar.tsx`](../../src/components/chat/SessionSearchBar.tsx) 客户端排序 key 从 messageId 改为 `timestamp.localeCompare()` + messageId 二级排序（messages 表只有 ISO 字符串 `timestamp` 列，字典序 = 时间序，无需新增 `created_at`）；D4 sync-i18n.mjs `--check` 模式发现缺失改 exit 1，加 `i18n:check` / `i18n:apply` npm scripts，新建仓库首个 GH Action `.github/workflows/lint.yml`（`lint → tsc → i18n:check`）但因仓库当前有 ~3.3k 历史缺失 key，i18n:check 暂以 `continue-on-error: true` informational 模式运行，待清理后改 enforcing；D5 给 [`ToolExecContext`](../../crates/oc-core/src/tools/execution.rs) 加 doc comment 写明并发契约（4 provider tool loop 会 clone 整个 context 给并发分支，新增可变字段必须走 `OnceLock<TokioMutex<...>>` 全局而非埋 `Mutex` 进 struct），并在 `tools/approval.rs` 顶部反向引用此约定。
 
 ---
 
@@ -253,35 +255,35 @@
 - **位置**：`crates/oc-core/src/memory/sqlite/trait_impl.rs:165-166, 685-687, 702-704`；`crates/oc-core/src/logging/db.rs:133, 147`
 - **因果**：当前占位符方案是安全的，但可读性差、后续维护者改错就变 SQL 注入。
 - **修复**：提供 `repeat_vars(n)` helper，或改 `rarray` 绑定。
-- **状态**：建议改进。
+- **状态**：✅ 已修复（复核发现 [`crate::sql_in_placeholders(n)`](../../crates/oc-core/src/util.rs#L26) helper 早已存在但只在 `subagent_db.rs` 一个调用点使用；本批把 5 处手写 `iter().map(|_| "?")` 全部切到该 helper，附 3 条单测覆盖 n=0/1/3。**不**启用 `rusqlite` `array` feature——一次性改动太大，纯可读性收益不值）。
 
 ### D2. Project 记忆清理跨 `memory.db` 非事务
 
 - **位置**：`crates/oc-core/src/project/db.rs` + `memory/` 跨库清理路径
 - **因果**：Project 删除后跨 `memory.db` 清理失败只留"不可达孤儿"（现有注释承认的状态）。
 - **修复**：新增启动时 reconciler：扫 `memory.db` 里 project scope 但 project 不存在的记录并清理。
-- **状态**：建议改进。
+- **状态**：✅ 已修复（新增模块 [`crates/oc-core/src/project/reconcile.rs`](../../crates/oc-core/src/project/reconcile.rs) 提供 `reconcile_orphan_project_memories()` + 纯函数 `reconcile_against(&dyn MemoryBackend, &HashSet<String>)`；`MemoryBackend` trait 加默认方法 `list_distinct_project_scope_ids() -> Result<Vec<String>>`（SQLite 实现走 `SELECT DISTINCT scope_project_id FROM memories WHERE scope_type = 'project'`，命中既有索引 `(scope_type, scope_project_id)`），`ProjectDB` 加轻量 `list_all_ids()`；`app_init::start_background_tasks` 在 ACP 自动发现前 spawn 一次性 reconciler，错误只 `app_warn!` 不阻塞 startup。Project 删除是低频事件，启动一次扫描足够，不做定时器）。
 
 ### D3. `search_session_messages_cmd` 结果按 `messageId` 排序
 
 - **位置**：`crates/oc-core/src/session/` 搜索接口
 - **因果**：`messageId` 在 session 迁移 / 导入场景可能不是严格递增，会导致搜索结果与时间轴错位。
 - **修复**：改用 `created_at` 排序。
-- **状态**：建议改进。
+- **状态**：✅ 已修复（复核后实际情况：后端 SQL 是 `ORDER BY fts.rank` 按相关度返回，`messages` 表只有 `timestamp TEXT NOT NULL` 没有 `created_at`，前端 [`SessionSearchBar.tsx:73`](../../src/components/chat/SessionSearchBar.tsx#L73) 是真正的导航排序点。本批仅改前端：sort key 从 `a.messageId - b.messageId` 改为 `a.timestamp.localeCompare(b.timestamp)` + messageId 二级排序，ISO-8601 字典序 = 时间序，无需 schema 改动；后端 SQL 不动以保留相关度优先返回）。
 
 ### D4. i18n sync 无 CI hook
 
 - **位置**：`scripts/sync-i18n.mjs`
 - **因果**：工具存在但未见 CI 校验，PR 合入后其他 10 种语言缺 key 无法阻断。
 - **修复**：GH Action / pre-commit 跑 `sync-i18n.mjs --check`。
-- **状态**：建议改进。
+- **状态**：⚠️ 部分落地（`scripts/sync-i18n.mjs --check` 发现缺失 key 时改为 `process.exit(1)`，`package.json` 加 `i18n:check` / `i18n:apply` 两条 npm scripts，新建 [`.github/workflows/lint.yml`](../../.github/workflows/lint.yml)（仓库首个 GH Action）`lint → tsc → i18n:check`。**但**仓库当前有 ~3.3k 条历史缺失 key，立即 enforce 会打断所有 PR，因此 i18n:check step 暂以 `continue-on-error: true` informational 模式运行；待人工或 LLM 跑一遍 `npm run i18n:apply` 还清债务后，去掉 `continue-on-error` 即可 enforcing。**不**接入 husky/lefthook 本地 hook，避免给所有贡献者强加本地依赖）。
 
 ### D5. Tool loop 并发组的共享状态
 
 - **位置**：`crates/oc-core/src/tools/` + `ToolExecContext`
 - **因果**：只读工具并行执行前提是"只读"，但 `ToolExecContext` 多工具共享同一可变引用（审批 state、日志 buffer）；将来加"只读但写日志"的工具可能竞争。
 - **修复**：`ToolExecContext` 可变字段内部 `Mutex`，或改 channel 回传。
-- **状态**：建议改进。
+- **状态**：✅ 已修复（复核确认 4 个 provider tool loop 已实现并发分组：[`anthropic.rs:404-438`](../../crates/oc-core/src/agent/providers/anthropic.rs#L404-L438) `partition` + `tool_ctx.clone()` + `join_all`，openai_chat / openai_responses / codex 同款。当前 `ToolExecContext` 17 个字段全是值类型 + Clone，并发 clone 各自独立，**当前**安全但前瞻性风险存在。本批选择"防御性 doc 化"而非改结构：给 [`ToolExecContext`](../../crates/oc-core/src/tools/execution.rs#L46) 加 doc comment 明确"clone 语义 + 不得在结构内放 Mutex/RwLock，否则 clone 后写入会丢失"，并指向 [`tools/approval.rs`](../../crates/oc-core/src/tools/approval.rs) 的 `OnceLock<TokioMutex<...>>` 全局模式作为正确实现样板；同时在 approval.rs 顶部加反向引用注释。零运行时改动，YAGNI 不预先改 `Arc`/Mutex 结构）。
 
 ---
 
@@ -292,7 +294,7 @@
 | 🔴 严重 | 10 | 8 ✅ / 2 ⛔ | `context_compact` UTF-8 切片、tool loop 终止、async_jobs 注入、server 鉴权、service install 命令注入 |
 | 🟠 中等 | 11 | 7 ✅ / 4 ⛔ | recovery 插入点、idle extract 竞态、ask_user 超时、WeChat 路径、async job claim、plan state machine、plan 文件名 |
 | 🟡 性能/稳定 | 10 | 4 ✅ | XSS、CSP、broadcast lag、SSRF、日志 token |
-| ℹ️ 轻微/设计 | 5 | – | SQL 拼接习惯、孤儿清理、排序字段、CI 校验、工具上下文共享 |
+| ℹ️ 轻微/设计 | 5 | 4 ✅ / 1 ⚠️ | IN 子句 helper、project 孤儿 reconciler、搜索时间序、i18n CI gate (informational)、ToolExecContext 并发约定 doc |
 
 **2026-04-17 修复批次（分支 `claude/fix-audit-bugs-Ip6Bl`）**
 
@@ -345,10 +347,20 @@
 | P9 Notification listeners | ✅ 两个 effect 的 subscribe/unsubscribe 对齐，统一 `const unlisten = ...; return unlisten` 写法 |
 | P10 Plan git checkpoint | ✅ UTC + 8 位 UUID 尾缀 + `ref_exists` 去重，`rollback_to_checkpoint` 复用 helper 消除 dup |
 
+**2026-04-18 设计类批修复（分支 `worktree-worktree-fix-audit-d1-d5`）**
+
+| ID | 处理结果 |
+|---|---|
+| D1 IN 子句 helper | ✅ 复用既有 `crate::sql_in_placeholders(n)`，5 处调用点切到 helper + 3 条单测 |
+| D2 Project 孤儿清理 | ✅ 新模块 `project::reconcile` + `MemoryBackend::list_distinct_project_scope_ids` + `ProjectDB::list_all_ids` + 启动时一次性扫描 |
+| D3 搜索时间序 | ✅ 前端 `SessionSearchBar` 排序 key 从 messageId 改为 `timestamp.localeCompare()` + messageId 二级排序，后端 SQL 不动 |
+| D4 i18n CI gate | ⚠️ `--check` exit 1 + npm scripts + 仓库首个 GH Action 已落地，但因 ~3.3k 历史缺失 key 暂以 `continue-on-error: true` informational 模式运行 |
+| D5 ToolExecContext 并发 doc | ✅ 给 struct 加 doc comment 写明 clone 契约 + 指向 `OnceLock<TokioMutex<...>>` 全局模式样板，approval.rs 顶部反向引用 |
+
 **修复顺序建议（剩余批次）**
 
-1. P1–P10 两批已在独立分支落地，本文件已整合。
-2. 其余设计类（D1–D5）按迭代节奏推进。
+1. P1–P10 + D1–D5 全部批次已在独立分支落地，本文件已整合。
+2. 后续待办：清理仓库 ~3.3k 条 i18n 历史缺失 key，去掉 D4 workflow 的 `continue-on-error` 让 i18n:check 转为 enforcing。
 
 ## 复核建议
 

@@ -5,6 +5,7 @@
 
 mod db;
 mod files;
+pub mod reconcile;
 mod types;
 
 pub use db::ProjectDB;

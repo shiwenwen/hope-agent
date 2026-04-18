@@ -7,6 +7,14 @@ use tokio::sync::Mutex as TokioMutex;
 
 use crate::process_registry::create_session_id;
 
+// Shared tool state lives in process-global `OnceLock<TokioMutex<…>>` cells
+// in this module on purpose: see the concurrency contract on
+// [`super::execution::ToolExecContext`]. The tool loop clones the per-call
+// context for every concurrent branch, so any mutable state that must be
+// observed across concurrent tools or across rounds has to sit outside the
+// context struct. Add new shared state here (or in a sibling module) rather
+// than reaching for `Mutex<…>` inside `ToolExecContext`.
+
 // ── Tool Permission Mode (session-level) ─────────────────────────
 
 /// Session-level tool permission mode, controlling how tool calls are approved.
