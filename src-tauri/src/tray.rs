@@ -201,7 +201,7 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     let icon =
-        tauri::image::Image::from_bytes(include_bytes!("../icons/menuIconTray.png")).unwrap();
+        tauri::image::Image::from_bytes(include_bytes!("../icons/menuIcon.png")).unwrap();
     let icon_as_template = true;
     let show_menu_on_left_click = false;
 
