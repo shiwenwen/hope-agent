@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Loader2, Moon, Play, RefreshCw } from "lucide-react"
-import { getTransport } from "@/lib/transport"
+import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 

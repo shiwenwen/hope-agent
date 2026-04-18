@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Loader2, RefreshCw, Sparkles } from "lucide-react"
-import { getTransport } from "@/lib/transport"
+import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 
 interface LearningOverview {
