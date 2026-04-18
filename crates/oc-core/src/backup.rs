@@ -33,7 +33,7 @@ pub fn create_backup() -> Result<String, String> {
         if src.exists() {
             let dst = backup_dir.join(file);
             if let Err(e) = std::fs::copy(&src, &dst) {
-                eprintln!("[Backup] Warning: failed to copy {}: {}", file, e);
+                app_warn!("backup", "create", "Failed to copy {}: {}", file, e);
             }
         }
     }
@@ -44,8 +44,10 @@ pub fn create_backup() -> Result<String, String> {
         let cred_dst_dir = backup_dir.join("credentials");
         let _ = std::fs::create_dir_all(&cred_dst_dir);
         if let Err(e) = std::fs::copy(&cred_src, cred_dst_dir.join("auth.json")) {
-            eprintln!(
-                "[Backup] Warning: failed to copy credentials/auth.json: {}",
+            app_warn!(
+                "backup",
+                "create",
+                "Failed to copy credentials/auth.json: {}",
                 e
             );
         }
@@ -56,13 +58,13 @@ pub fn create_backup() -> Result<String, String> {
     if agents_src.exists() && agents_src.is_dir() {
         let agents_dst = backup_dir.join("agents");
         if let Err(e) = copy_dir_recursive(&agents_src, &agents_dst) {
-            eprintln!("[Backup] Warning: failed to copy agents/: {}", e);
+            app_warn!("backup", "create", "Failed to copy agents/: {}", e);
         }
     }
 
     // Rotate old backups
     if let Err(e) = rotate_backups_internal(&backups_dir, MAX_BACKUPS) {
-        eprintln!("[Backup] Warning: failed to rotate backups: {}", e);
+        app_warn!("backup", "rotate", "Failed to rotate backups: {}", e);
     }
 
     Ok(backup_dir.to_string_lossy().to_string())
@@ -175,9 +177,12 @@ fn rotate_backups_internal(backups_dir: &Path, keep: usize) -> Result<(), String
         let to_remove = entries.len() - keep;
         for path in entries.iter().take(to_remove) {
             if let Err(e) = std::fs::remove_dir_all(path) {
-                eprintln!(
-                    "[Backup] Warning: failed to remove old backup {:?}: {}",
-                    path, e
+                app_warn!(
+                    "backup",
+                    "rotate",
+                    "Failed to remove old backup {:?}: {}",
+                    path,
+                    e
                 );
             }
         }
@@ -371,7 +376,13 @@ fn rotate_autosaves(dir: &Path, keep: usize) -> Result<(), String> {
         let drop_count = entries.len() - keep;
         for p in entries.iter().take(drop_count) {
             if let Err(e) = std::fs::remove_file(p) {
-                eprintln!("[Backup] Warning: failed to drop old autosave {:?}: {}", p, e);
+                app_warn!(
+                    "backup",
+                    "autosave",
+                    "Failed to drop old autosave {:?}: {}",
+                    p,
+                    e
+                );
             }
         }
     }

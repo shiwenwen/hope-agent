@@ -512,6 +512,15 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     }
 
                     // Non-retryable or retries exhausted — move to next model
+                    app_warn!(
+                        "provider",
+                        "failover",
+                        "Giving up on {}::{} (reason {:?}, retries {}), moving to next model in chain",
+                        model_ref.provider_id,
+                        model_ref.model_id,
+                        reason,
+                        retry_count
+                    );
                     last_error = Some(error_msg);
                     break;
                 }
@@ -521,6 +530,14 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
 
     let final_error =
         last_error.unwrap_or_else(|| "All models in the fallback chain failed.".to_string());
+    app_error!(
+        "provider",
+        "failover",
+        "All {} models exhausted for session {}: {}",
+        total_models,
+        session_id,
+        final_error
+    );
     let _ = db.append_message(&session_id, &session::NewMessage::event(&final_error));
     Err(final_error)
 }
