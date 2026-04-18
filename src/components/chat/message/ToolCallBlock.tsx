@@ -97,6 +97,10 @@ function getSkillName(name: string, args: string): string | null {
   return null
 }
 
+function truncateEllipsis(s: string, n: number): string {
+  return s.length > n ? `${s.slice(0, n)}...` : s
+}
+
 /** Extract a short, human-friendly summary of tool arguments */
 function getDisplayArgs(name: string, args: string): string {
   try {
@@ -166,6 +170,19 @@ function getDisplayArgs(name: string, args: string): string {
         return parsed.context || `${(parsed.questions || []).length} question(s)`
       case "send_attachment":
         return parsed.display_name || parsed.path || args
+      case "task_create": {
+        const arr = Array.isArray(parsed.tasks) ? parsed.tasks : []
+        if (arr.length === 0) return args
+        const first = String(arr[0]?.content ?? "")
+        return arr.length === 1
+          ? `1 task: ${truncateEllipsis(first, 50)}`
+          : `${arr.length} tasks: ${truncateEllipsis(first, 40)}`
+      }
+      case "task_update": {
+        const parts: string[] = [`#${parsed.id}`]
+        if (parsed.status) parts.push(`→ ${parsed.status}`)
+        return parts.join(" ")
+      }
       default:
         return args
     }

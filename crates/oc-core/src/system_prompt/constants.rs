@@ -239,14 +239,18 @@ const TOOL_DESC_GET_WEATHER: &str = "\
   - Returns current temperature, humidity, wind, weather conditions, and daily forecast";
 
 const TOOL_DESC_TASK_CREATE: &str = "\
-- task_create: Create a trackable task for the current session.\n\
-  - Use proactively for 3+ step or non-trivial multi-step work; skip for single trivial actions\n\
-  - Returns the full task list as JSON with the new task appended (status 'pending')";
+- task_create: Batch-create trackable todos for the current session (array input).\n\
+  - Use proactively: 3+ distinct steps, non-trivial multi-step work, user-provided lists, after new instructions\n\
+  - Skip: single trivial actions, pure conversation, tasks completable in ≤3 steps\n\
+  - Batch rule: pass ALL todos in one call via `tasks: [...]` — do NOT chain multiple task_create calls\n\
+  - Each task: { content (imperative, e.g. \"Run tests\"), activeForm? (present-continuous, e.g. \"Running tests\"; shown when in_progress) }\n\
+  - Returns the full task list JSON sorted by id (new rows appended with status 'pending')";
 
 const TOOL_DESC_TASK_UPDATE: &str = "\
 - task_update: Update an existing task by id.\n\
   - Lifecycle: pending → in_progress → completed. Only ONE task in_progress at a time\n\
   - Mark completed only when fully done; call immediately after finishing, do not batch\n\
+  - Params: id (required), status?, content?, activeForm? — provide at least one of the last three\n\
   - Returns the full task list as JSON";
 
 const TOOL_DESC_TASK_LIST: &str = "\

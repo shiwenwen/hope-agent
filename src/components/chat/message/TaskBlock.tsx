@@ -69,6 +69,8 @@ export default function TaskBlock({ tool }: TaskBlockProps) {
         <ul className="space-y-0.5 px-2 pb-2">
           {tasks.map((tk) => {
             const { Icon, cls } = STATUS_ICON[tk.status] ?? STATUS_ICON.pending
+            const label =
+              tk.status === "in_progress" && tk.activeForm ? tk.activeForm : tk.content
             return (
               <li
                 key={tk.id}
@@ -85,7 +87,7 @@ export default function TaskBlock({ tool }: TaskBlockProps) {
                     tk.status === "completed" && "text-muted-foreground line-through",
                   )}
                 >
-                  {tk.content}
+                  {label}
                 </span>
                 <span className="shrink-0 text-[10px] text-muted-foreground">#{tk.id}</span>
               </li>

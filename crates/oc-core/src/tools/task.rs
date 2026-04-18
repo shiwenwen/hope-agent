@@ -29,18 +29,67 @@ fn render_snapshot(tasks: &[Task]) -> String {
     serde_json::to_string(tasks).unwrap_or_else(|_| "[]".to_string())
 }
 
+fn collect_task_items(
+    tasks_arr: &[Value],
+) -> Result<Vec<(String, Option<String>)>, String> {
+    let mut items: Vec<(String, Option<String>)> = Vec::with_capacity(tasks_arr.len());
+    for (idx, entry) in tasks_arr.iter().enumerate() {
+        let obj = entry.as_object().ok_or_else(|| {
+            format!("Error: tasks[{}] must be an object with 'content'", idx)
+        })?;
+        let content = obj
+            .get("content")
+            .and_then(|v| v.as_str())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        let Some(content) = content else {
+            continue;
+        };
+        let active_form = obj
+            .get("activeForm")
+            .and_then(|v| v.as_str())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        items.push((content, active_form));
+    }
+    Ok(items)
+}
+
+const ERR_TASKS_REQUIRED: &str = "Error: 'tasks' must be a non-empty array of \
+{content, activeForm?}. Single-task calls still use the array form, e.g. \
+tasks: [{content: \"Fix bug #42\"}].";
+
 pub(crate) async fn tool_task_create(args: &Value, session_id: Option<&str>) -> String {
-    let content = match args.get("content").and_then(|v| v.as_str()) {
-        Some(s) if !s.trim().is_empty() => s.trim().to_string(),
-        _ => return "Error: content parameter is required (non-empty string)".to_string(),
+    let tasks_arr = match args.get("tasks").and_then(|v| v.as_array()) {
+        Some(arr) if !arr.is_empty() => arr,
+        _ => return ERR_TASKS_REQUIRED.to_string(),
     };
+
+    let items = match collect_task_items(tasks_arr) {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    if items.is_empty() {
+        return "Error: no valid tasks — every entry had empty content after trimming"
+            .to_string();
+    }
+
     let (sid, db) = match resolve_ctx(session_id) {
         Ok(v) => v,
         Err(e) => return e,
     };
-    if let Err(e) = db.create_task(&sid, &content) {
-        return format!("Error: failed to create task: {}", e);
+
+    for (idx, (content, active_form)) in items.iter().enumerate() {
+        if let Err(e) = db.create_task(&sid, content, active_form.as_deref()) {
+            return format!(
+                "Error: failed to create task #{} of {}: {}",
+                idx + 1,
+                items.len(),
+                e
+            );
+        }
     }
+
     let tasks = db.list_tasks(&sid).unwrap_or_default();
     emit_snapshot(&sid, &tasks);
     render_snapshot(&tasks)
@@ -67,14 +116,19 @@ pub(crate) async fn tool_task_update(args: &Value, session_id: Option<&str>) -> 
         .get("content")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
-    if status.is_none() && content.is_none() {
-        return "Error: at least one of 'status' or 'content' must be provided".to_string();
+    let active_form = args
+        .get("activeForm")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    if status.is_none() && content.is_none() && active_form.is_none() {
+        return "Error: at least one of 'status', 'content', or 'activeForm' must be provided"
+            .to_string();
     }
     let (sid, db) = match resolve_ctx(session_id) {
         Ok(v) => v,
         Err(e) => return e,
     };
-    if let Err(e) = db.update_task(id, status, content.as_deref()) {
+    if let Err(e) = db.update_task(id, status, content.as_deref(), active_form.as_deref()) {
         return format!("Error: failed to update task #{}: {}", id, e);
     }
     let tasks = db.list_tasks(&sid).unwrap_or_default();

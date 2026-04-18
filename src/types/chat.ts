@@ -267,6 +267,7 @@ export interface Task {
   id: number
   sessionId: string
   content: string
+  activeForm?: string | null
   status: TaskStatus
   createdAt: string
   updatedAt: string

@@ -269,6 +269,7 @@ impl SessionDB {
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 session_id TEXT NOT NULL,
                 content TEXT NOT NULL,
+                active_form TEXT,
                 status TEXT NOT NULL DEFAULT 'pending',
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -276,6 +277,12 @@ impl SessionDB {
             );
             CREATE INDEX IF NOT EXISTS idx_tasks_session_id ON tasks(session_id);",
         )?;
+        let has_active_form = conn
+            .prepare("SELECT active_form FROM tasks LIMIT 1")
+            .is_ok();
+        if !has_active_form {
+            conn.execute_batch("ALTER TABLE tasks ADD COLUMN active_form TEXT;")?;
+        }
 
         // Migration: Agent Team tables
         conn.execute_batch(
