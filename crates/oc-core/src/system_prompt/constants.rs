@@ -279,6 +279,25 @@ When you do write updates, write so the reader can pick up cold: complete senten
 
 End-of-turn summary: one or two sentences — what changed and what's next. Nothing else.";
 
+/// Short guidance reminding the model that tool-call rounds are bounded so it
+/// wraps up gracefully instead of getting cut off mid-call. Dynamic because
+/// `max_tool_rounds` is agent-configurable. Returns `None` when rounds are
+/// unlimited (`0`) — no cap means no budget to narrate.
+pub(super) fn build_tool_budget_guidance(max_rounds: u32) -> Option<String> {
+    if max_rounds == 0 {
+        return None;
+    }
+    Some(format!(
+        "# Tool-Call Budget\n\n\
+         Tool calls are capped at {} rounds per user turn. If you sense you're \
+         close to the cap before the job is done, stop calling tools and wrap \
+         up with a brief handoff — what's done, what's left, and how the user \
+         can continue in a new conversation (files to re-attach, context to \
+         paste back). A clear handoff beats getting cut off mid-call.",
+        max_rounds
+    ))
+}
+
 /// Hardcoded human-in-the-loop guidance section. Injected by `build.rs`
 /// whenever the agent has access to `ask_user_question`. Kept as a hardcoded
 /// constant (not in the agent.md template) so users cannot accidentally drop

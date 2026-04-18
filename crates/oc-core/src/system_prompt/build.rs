@@ -1,6 +1,6 @@
 use super::constants::{
-    HUMAN_IN_THE_LOOP_GUIDANCE, MAX_FILE_CHARS, MEMORY_GUIDELINES, SOUL_EMBODIMENT_GUIDANCE,
-    TOOL_CALL_NARRATION_GUIDANCE,
+    build_tool_budget_guidance, HUMAN_IN_THE_LOOP_GUIDANCE, MAX_FILE_CHARS, MEMORY_GUIDELINES,
+    SOUL_EMBODIMENT_GUIDANCE, TOOL_CALL_NARRATION_GUIDANCE,
 };
 use super::helpers::truncate;
 use super::sections::*;
@@ -212,6 +212,14 @@ pub fn build(
     // ⑥c Tool-call narration guidance — opt-in via `AppConfig.tool_call_narration_enabled`.
     if crate::config::cached_config().tool_call_narration_enabled {
         sections.push(TOOL_CALL_NARRATION_GUIDANCE.to_string());
+    }
+
+    // ⑥c² Tool-call budget reminder — always injected when rounds are bounded,
+    // so the model can produce a graceful handoff instead of a cut-off mid-call.
+    if let Some(budget) =
+        build_tool_budget_guidance(definition.config.capabilities.max_tool_rounds)
+    {
+        sections.push(budget);
     }
 
     // ⑥d Human-in-the-loop guidance — hardcoded so it cannot be overridden by
@@ -608,6 +616,13 @@ pub fn build_legacy(model: Option<&str>, provider: Option<&str>) -> String {
     // Tool-call narration guidance — gated on AppConfig flag (see build())
     if crate::config::cached_config().tool_call_narration_enabled {
         sections.push(TOOL_CALL_NARRATION_GUIDANCE.to_string());
+    }
+
+    // Tool-call budget reminder — legacy path has no AgentDefinition, so fall
+    // back to the CapabilitiesConfig default.
+    let legacy_max_rounds = crate::agent_config::CapabilitiesConfig::default().max_tool_rounds;
+    if let Some(budget) = build_tool_budget_guidance(legacy_max_rounds) {
+        sections.push(budget);
     }
 
     // Skills

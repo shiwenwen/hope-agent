@@ -255,7 +255,7 @@ pub struct CapabilitiesConfig {
 }
 
 fn default_max_rounds() -> u32 {
-    10
+    20
 }
 
 fn default_approval_tools() -> Vec<String> {

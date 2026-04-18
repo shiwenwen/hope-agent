@@ -844,7 +844,7 @@ sequenceDiagram
   CMD->>Agent: agent.chat()
   activate Agent
 
-  loop Tool Loop (最多 10 轮)
+  loop Tool Loop (最多 20 轮)
     Agent-->>FE: thinking_delta × N (内存累积)
     Agent-->>FE: text_delta × N (内存累积)
     Agent-->>FE: tool_call

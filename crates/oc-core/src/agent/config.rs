@@ -40,7 +40,7 @@ pub(super) const ANTHROPIC_MODEL: &str = "claude-sonnet-4-6";
 pub(super) const ANTHROPIC_API_VERSION: &str = "2023-06-01";
 pub(super) const MAX_RETRIES: u32 = 3;
 pub(super) const BASE_DELAY_MS: u64 = 1000;
-pub(super) const DEFAULT_MAX_TOOL_ROUNDS: u32 = 10;
+pub(super) const DEFAULT_MAX_TOOL_ROUNDS: u32 = 20;
 
 /// Get the configured max tool rounds from the current agent.
 /// Returns 0 for unlimited.

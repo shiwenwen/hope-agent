@@ -93,7 +93,7 @@ export default function CapabilitiesTab({
                 type="checkbox"
                 className="rounded"
                 checked={config.capabilities.maxToolRounds === 0}
-                onChange={(e) => updateCapabilities({ maxToolRounds: e.target.checked ? 0 : 10 })}
+                onChange={(e) => updateCapabilities({ maxToolRounds: e.target.checked ? 0 : 20 })}
               />
               {t("settings.agentUnlimited")}
             </label>
