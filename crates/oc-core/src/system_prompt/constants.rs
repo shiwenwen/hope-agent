@@ -27,6 +27,11 @@ pub(super) const MEMORY_GUIDELINES: &str =
      - You need to find what was said or decided in an earlier session\n\n\
      Do NOT save: ephemeral task details, code snippets, debugging steps, or anything derivable from the codebase.";
 
+/// Brief description of the host application, injected once right after the
+/// identity line so the model knows what "OpenComputer" actually is.
+pub(super) const APP_INTRO: &str =
+    "OpenComputer is a local, open-source AI assistant with configurable model providers, tools, skills, and persistent memory.";
+
 /// Embodiment guidance appended after injecting a SOUL.md block so the
 /// model commits to the persona rather than treating it as ambient text.
 /// Shared between openclaw 4-file mode and the SoulMd persona mode.
