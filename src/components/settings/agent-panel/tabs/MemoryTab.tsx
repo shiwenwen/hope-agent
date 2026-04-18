@@ -9,8 +9,20 @@ import { Loader2, Check, Save } from "lucide-react"
 import MemoryPanel from "@/components/settings/MemoryPanel"
 import MemoryBudgetInputs from "@/components/settings/memory-panel/MemoryBudgetInputs"
 import { logger } from "@/lib/logger"
-import type { AgentConfig, ActiveMemoryConfig, MemoryBudgetConfig } from "../types"
+import type {
+  AgentConfig,
+  ActiveMemoryConfig,
+  AgentMemoryConfig,
+  MemoryBudgetConfig,
+} from "../types"
 import { DEFAULT_ACTIVE_MEMORY, DEFAULT_MEMORY_BUDGET } from "../types"
+
+const DEFAULT_AGENT_MEMORY: AgentMemoryConfig = {
+  enabled: true,
+  shared: true,
+  promptBudget: 5000,
+  activeMemory: DEFAULT_ACTIVE_MEMORY,
+}
 
 interface MemoryTabProps {
   agentId: string
@@ -76,33 +88,20 @@ export default function MemoryTab({ agentId, openclawMode, config, updateConfig 
     config.memory?.activeMemory ?? { ...DEFAULT_ACTIVE_MEMORY }
 
   const updateActiveMemory = (patch: Partial<ActiveMemoryConfig>) => {
-    const nextActive = { ...activeMemory, ...patch }
-    const prevMemory = config.memory ?? {
-      enabled: true,
-      shared: true,
-      promptBudget: 5000,
-      activeMemory: { ...DEFAULT_ACTIVE_MEMORY },
-    }
+    const prevMemory = config.memory ?? DEFAULT_AGENT_MEMORY
     updateConfig({
       memory: {
         ...prevMemory,
-        activeMemory: nextActive,
+        activeMemory: { ...activeMemory, ...patch },
       },
     })
   }
 
-  // Memory Budget override — `config.memory?.budget` null/undefined means
-  // "inherit global"; Some(config) replaces it wholesale.
   const useGlobalBudget = !config.memory?.budget
   const budgetValue: MemoryBudgetConfig = config.memory?.budget ?? { ...DEFAULT_MEMORY_BUDGET }
 
   const updateMemoryBudget = (next: MemoryBudgetConfig | null) => {
-    const prevMemory = config.memory ?? {
-      enabled: true,
-      shared: true,
-      promptBudget: 5000,
-      activeMemory: { ...DEFAULT_ACTIVE_MEMORY },
-    }
+    const prevMemory = config.memory ?? DEFAULT_AGENT_MEMORY
     updateConfig({
       memory: {
         ...prevMemory,

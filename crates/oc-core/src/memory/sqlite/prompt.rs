@@ -139,16 +139,10 @@ fn push_section_if_fits(
 }
 
 /// Output of rendering a single `## Heading\n` section under a char budget.
-/// Returned as a value so `format_prompt_summary` can fold it into the running
-/// state without needing six mutable out-parameters.
 struct SectionRender {
     /// Rendered chunk — empty when the section had no entries or the heading
     /// alone didn't fit.
     appended: String,
-    /// How many chars of the budget this chunk consumed (`appended.len()`
-    /// plus one more for the trailing blank line when present).
-    #[allow(dead_code)]
-    consumed: usize,
     /// True iff at least one bullet was emitted.
     had_entries: bool,
     /// True iff rendering stopped short because the budget was exhausted mid-way.
@@ -165,7 +159,6 @@ fn render_section(
 ) -> SectionRender {
     let empty = SectionRender {
         appended: String::new(),
-        consumed: 0,
         had_entries: false,
         budget_exhausted: false,
     };
@@ -212,12 +205,10 @@ fn render_section(
 
     if had_entries && remaining.saturating_sub(used) > 1 {
         out.push('\n');
-        used += 1;
     }
 
     SectionRender {
         appended: out,
-        consumed: used,
         had_entries,
         budget_exhausted,
     }
