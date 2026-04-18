@@ -124,6 +124,13 @@ pub struct SessionMessage {
     /// Last-round input tokens. See `ChatUsage::last_input_tokens`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tokens_in_last: Option<i64>,
+    /// Cache-creation input tokens (Anthropic prompt cache write).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tokens_cache_creation: Option<i64>,
+    /// Cache-read input tokens (Anthropic prompt cache hit / OpenAI
+    /// `input_tokens_details.cached_tokens` / `prompt_tokens_details.cached_tokens`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tokens_cache_read: Option<i64>,
 }
 
 // ── NewMessage (for inserting) ───────────────────────────────────
@@ -148,6 +155,8 @@ pub struct NewMessage {
     pub thinking: Option<String>,
     pub ttft_ms: Option<i64>,
     pub tokens_in_last: Option<i64>,
+    pub tokens_cache_creation: Option<i64>,
+    pub tokens_cache_read: Option<i64>,
 }
 
 impl NewMessage {
@@ -171,6 +180,8 @@ impl NewMessage {
             thinking: None,
             ttft_ms: None,
             tokens_in_last: None,
+            tokens_cache_creation: None,
+            tokens_cache_read: None,
         }
     }
 
@@ -194,6 +205,8 @@ impl NewMessage {
             thinking: None,
             ttft_ms: None,
             tokens_in_last: None,
+            tokens_cache_creation: None,
+            tokens_cache_read: None,
         }
     }
 
@@ -224,6 +237,8 @@ impl NewMessage {
             thinking: None,
             ttft_ms: None,
             tokens_in_last: None,
+            tokens_cache_creation: None,
+            tokens_cache_read: None,
         }
     }
 
@@ -247,6 +262,8 @@ impl NewMessage {
             thinking: None,
             ttft_ms: None,
             tokens_in_last: None,
+            tokens_cache_creation: None,
+            tokens_cache_read: None,
         }
     }
 
@@ -275,6 +292,8 @@ impl NewMessage {
             thinking: None,
             ttft_ms: None,
             tokens_in_last: None,
+            tokens_cache_creation: None,
+            tokens_cache_read: None,
         }
     }
 
@@ -298,6 +317,8 @@ impl NewMessage {
             thinking: None,
             ttft_ms: None,
             tokens_in_last: None,
+            tokens_cache_creation: None,
+            tokens_cache_read: None,
         }
     }
 }

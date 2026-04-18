@@ -64,6 +64,8 @@ impl SessionDB {
                 is_error INTEGER DEFAULT 0,
                 ttft_ms INTEGER,
                 tokens_in_last INTEGER,
+                tokens_cache_creation INTEGER,
+                tokens_cache_read INTEGER,
                 FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
             );
 
@@ -174,6 +176,22 @@ impl SessionDB {
             .is_ok();
         if !has_tokens_in_last {
             conn.execute_batch("ALTER TABLE messages ADD COLUMN tokens_in_last INTEGER;")?;
+        }
+
+        // Migration: persist cache-token counts so they survive session reload.
+        let has_tokens_cache_creation = conn
+            .prepare("SELECT tokens_cache_creation FROM messages LIMIT 1")
+            .is_ok();
+        if !has_tokens_cache_creation {
+            conn.execute_batch(
+                "ALTER TABLE messages ADD COLUMN tokens_cache_creation INTEGER;",
+            )?;
+        }
+        let has_tokens_cache_read = conn
+            .prepare("SELECT tokens_cache_read FROM messages LIMIT 1")
+            .is_ok();
+        if !has_tokens_cache_read {
+            conn.execute_batch("ALTER TABLE messages ADD COLUMN tokens_cache_read INTEGER;")?;
         }
 
         // Migration: fix FTS delete trigger — must match INSERT trigger's WHEN clause
@@ -835,7 +853,8 @@ impl SessionDB {
             "SELECT id, session_id, role, content, timestamp,
                     attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                     tool_call_id, tool_name, tool_arguments, tool_result,
-                    tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last
+                    tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
+                    tokens_cache_creation, tokens_cache_read
              FROM messages
              WHERE session_id = ?1
              ORDER BY id ASC",
@@ -872,7 +891,8 @@ impl SessionDB {
             "SELECT id, session_id, role, content, timestamp,
                     attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                     tool_call_id, tool_name, tool_arguments, tool_result,
-                    tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last
+                    tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
+                    tokens_cache_creation, tokens_cache_read
              FROM messages
              WHERE session_id = ?1
              ORDER BY id DESC
@@ -909,7 +929,8 @@ impl SessionDB {
             "SELECT id, session_id, role, content, timestamp,
                     attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                     tool_call_id, tool_name, tool_arguments, tool_result,
-                    tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last
+                    tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
+                    tokens_cache_creation, tokens_cache_read
              FROM messages
              WHERE session_id = ?1 AND id < ?2
              ORDER BY id DESC
@@ -950,6 +971,8 @@ impl SessionDB {
             thinking: row.get(16)?,
             ttft_ms: row.get(17)?,
             tokens_in_last: row.get(18)?,
+            tokens_cache_creation: row.get(19)?,
+            tokens_cache_read: row.get(20)?,
         })
     }
 
@@ -970,8 +993,9 @@ impl SessionDB {
             "INSERT INTO messages (session_id, role, content, timestamp,
                 attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                 tool_call_id, tool_name, tool_arguments, tool_result,
-                tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+                tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
+                tokens_cache_creation, tokens_cache_read)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
             params![
                 session_id,
                 msg.role.as_str(),
@@ -991,6 +1015,8 @@ impl SessionDB {
                 msg.thinking,
                 msg.ttft_ms,
                 msg.tokens_in_last,
+                msg.tokens_cache_creation,
+                msg.tokens_cache_read,
             ],
         )?;
 
@@ -1513,7 +1539,8 @@ impl SessionDB {
             "SELECT id, session_id, role, content, timestamp,
                     attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                     tool_call_id, tool_name, tool_arguments, tool_result,
-                    tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last
+                    tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
+                    tokens_cache_creation, tokens_cache_read
              FROM messages
              WHERE session_id = ?1 AND id <= ?2
              ORDER BY id DESC
@@ -1534,7 +1561,8 @@ impl SessionDB {
             "SELECT id, session_id, role, content, timestamp,
                     attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                     tool_call_id, tool_name, tool_arguments, tool_result,
-                    tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last
+                    tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
+                    tokens_cache_creation, tokens_cache_read
              FROM messages
              WHERE session_id = ?1 AND id > ?2
              ORDER BY id ASC

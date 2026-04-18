@@ -407,9 +407,8 @@ pub async fn chat(
                 let cancel_clone = cancel.clone();
                 let chat_start = std::time::Instant::now();
                 let on_event_clone = on_event.clone();
-                let captured_usage: Arc<
-                    std::sync::Mutex<(Option<i64>, Option<i64>, Option<String>, Option<i64>)>,
-                > = Arc::new(std::sync::Mutex::new((None, None, None, None)));
+                let captured_usage: Arc<std::sync::Mutex<crate::chat_engine::CapturedUsage>> =
+                    Arc::new(std::sync::Mutex::new(Default::default()));
                 let captured_usage_clone = captured_usage.clone();
                 let (result, thinking) = match agent
                     .chat(
@@ -421,25 +420,7 @@ pub async fn chat(
                             if let Ok(event) = serde_json::from_str::<serde_json::Value>(delta) {
                                 if event.get("type").and_then(|t| t.as_str()) == Some("usage") {
                                     if let Ok(mut usage) = captured_usage_clone.lock() {
-                                        if let Some(it) =
-                                            event.get("input_tokens").and_then(|v| v.as_i64())
-                                        {
-                                            usage.0 = Some(it);
-                                        }
-                                        if let Some(ot) =
-                                            event.get("output_tokens").and_then(|v| v.as_i64())
-                                        {
-                                            usage.1 = Some(ot);
-                                        }
-                                        if let Some(m) = event.get("model").and_then(|v| v.as_str())
-                                        {
-                                            usage.2 = Some(m.to_string());
-                                        }
-                                        if let Some(ttft) =
-                                            event.get("ttft_ms").and_then(|v| v.as_i64())
-                                        {
-                                            usage.3 = Some(ttft);
-                                        }
+                                        usage.absorb_event(&event);
                                     }
                                 }
                             }
@@ -465,10 +446,13 @@ pub async fn chat(
                 assistant_msg.tool_duration_ms = Some(duration_ms as i64);
                 assistant_msg.thinking = thinking;
                 if let Ok(usage) = captured_usage.lock() {
-                    assistant_msg.tokens_in = usage.0;
-                    assistant_msg.tokens_out = usage.1;
-                    assistant_msg.model = usage.2.clone();
-                    assistant_msg.ttft_ms = usage.3;
+                    assistant_msg.tokens_in = usage.input_tokens;
+                    assistant_msg.tokens_out = usage.output_tokens;
+                    assistant_msg.tokens_in_last = usage.last_input_tokens;
+                    assistant_msg.model = usage.model.clone();
+                    assistant_msg.ttft_ms = usage.ttft_ms;
+                    assistant_msg.tokens_cache_creation = usage.cache_creation_input_tokens;
+                    assistant_msg.tokens_cache_read = usage.cache_read_input_tokens;
                 }
                 let _ = db.append_message(&sid, &assistant_msg);
                 crate::chat_engine::save_agent_context(&db, &sid, agent);

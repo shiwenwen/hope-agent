@@ -807,8 +807,19 @@ impl AssistantAgent {
                                         usage.cache_creation_input_tokens = cc;
                                     }
                                     // OpenAI-style: input_tokens_details.cached_tokens
+                                    // (Responses API) / prompt_tokens_details.cached_tokens
+                                    // (ChatGPT / Codex backend / Kimi K2 Chat Completions style).
+                                    // Codex backend sometimes returns the Chat-style shape even
+                                    // through the Responses endpoint — fall through both.
                                     if usage.cache_read_input_tokens == 0 {
                                         if let Some(details) = &u.input_tokens_details {
+                                            if let Some(cached) = details.cached_tokens {
+                                                usage.cache_read_input_tokens = cached;
+                                            }
+                                        }
+                                    }
+                                    if usage.cache_read_input_tokens == 0 {
+                                        if let Some(details) = &u.prompt_tokens_details {
                                             if let Some(cached) = details.cached_tokens {
                                                 usage.cache_read_input_tokens = cached;
                                             }

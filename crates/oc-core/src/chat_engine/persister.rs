@@ -66,24 +66,7 @@ impl StreamPersister {
             match event.get("type").and_then(|t| t.as_str()) {
                 Some("usage") => {
                     if let Ok(mut u) = captured_usage.lock() {
-                        if let Some(v) = event.get("input_tokens").and_then(|v| v.as_i64()) {
-                            u.input_tokens = Some(v);
-                        }
-                        if let Some(v) = event.get("output_tokens").and_then(|v| v.as_i64()) {
-                            u.output_tokens = Some(v);
-                        }
-                        if let Some(v) = event
-                            .get("last_input_tokens")
-                            .and_then(|v| v.as_i64())
-                        {
-                            u.last_input_tokens = Some(v);
-                        }
-                        if let Some(v) = event.get("model").and_then(|v| v.as_str()) {
-                            u.model = Some(v.to_string());
-                        }
-                        if let Some(v) = event.get("ttft_ms").and_then(|v| v.as_i64()) {
-                            u.ttft_ms = Some(v);
-                        }
+                        u.absorb_event(&event);
                     }
                 }
                 Some("thinking_delta") => {
@@ -225,6 +208,8 @@ impl StreamPersister {
             msg.tokens_in_last = u.last_input_tokens;
             msg.model = u.model.clone();
             msg.ttft_ms = u.ttft_ms;
+            msg.tokens_cache_creation = u.cache_creation_input_tokens;
+            msg.tokens_cache_read = u.cache_read_input_tokens;
         }
         msg
     }

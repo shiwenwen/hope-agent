@@ -176,6 +176,10 @@ export interface SessionMessage {
   tokensOut?: number | null
   /** Last round's input tokens — see `MessageUsage.lastInputTokens`. */
   tokensInLast?: number | null
+  /** Anthropic prompt-cache write tokens — see `MessageUsage.cacheCreationInputTokens`. */
+  tokensCacheCreation?: number | null
+  /** Prompt-cache read tokens — see `MessageUsage.cacheReadInputTokens`. */
+  tokensCacheRead?: number | null
   toolCallId?: string | null
   toolName?: string | null
   toolArguments?: string | null

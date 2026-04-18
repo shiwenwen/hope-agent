@@ -264,13 +264,20 @@ export function parseSessionMessages(
       pendingTools.length = 0
       pendingBlocks.length = 0
       const hasUsage =
-        msg.toolDurationMs || msg.tokensIn || msg.tokensOut || msg.tokensInLast
+        msg.toolDurationMs ||
+        msg.tokensIn ||
+        msg.tokensOut ||
+        msg.tokensInLast ||
+        msg.tokensCacheCreation != null ||
+        msg.tokensCacheRead != null
       const usage: MessageUsage | undefined = hasUsage
         ? {
             durationMs: msg.toolDurationMs || undefined,
             inputTokens: msg.tokensIn || undefined,
             outputTokens: msg.tokensOut || undefined,
             lastInputTokens: msg.tokensInLast || undefined,
+            cacheCreationInputTokens: msg.tokensCacheCreation ?? undefined,
+            cacheReadInputTokens: msg.tokensCacheRead ?? undefined,
           }
         : undefined
       // Prepend thinking block if present (from DB history),

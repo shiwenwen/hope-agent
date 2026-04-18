@@ -13,13 +13,57 @@ use crate::tools::image_generate::ImageGenConfig;
 
 /// Token usage and metrics captured from streaming callbacks.
 /// See `ChatUsage` for the `input_tokens` vs `last_input_tokens` split.
+///
+/// Public so `src-tauri` callsites that run chat outside of `run_chat_engine`
+/// (e.g. the empty-model-chain fallback in `commands/chat.rs`) can reuse the
+/// same capture shape instead of hand-rolling positional tuples.
 #[derive(Default, Clone)]
-pub(crate) struct CapturedUsage {
+pub struct CapturedUsage {
     pub input_tokens: Option<i64>,
     pub output_tokens: Option<i64>,
     pub last_input_tokens: Option<i64>,
     pub model: Option<String>,
     pub ttft_ms: Option<i64>,
+    /// Cache-creation input tokens (Anthropic prompt cache write).
+    pub cache_creation_input_tokens: Option<i64>,
+    /// Cache-read input tokens (Anthropic prompt cache hit or
+    /// OpenAI-style `input_tokens_details.cached_tokens`).
+    pub cache_read_input_tokens: Option<i64>,
+}
+
+impl CapturedUsage {
+    /// Fold a `{"type":"usage", ...}` stream event into this struct. Only
+    /// fields actually present in the event overwrite prior values.
+    /// Mirror of the dispatch inside `StreamPersister::build_callback`.
+    pub fn absorb_event(&mut self, event: &serde_json::Value) {
+        if let Some(v) = event.get("input_tokens").and_then(|v| v.as_i64()) {
+            self.input_tokens = Some(v);
+        }
+        if let Some(v) = event.get("output_tokens").and_then(|v| v.as_i64()) {
+            self.output_tokens = Some(v);
+        }
+        if let Some(v) = event.get("last_input_tokens").and_then(|v| v.as_i64()) {
+            self.last_input_tokens = Some(v);
+        }
+        if let Some(v) = event.get("model").and_then(|v| v.as_str()) {
+            self.model = Some(v.to_string());
+        }
+        if let Some(v) = event.get("ttft_ms").and_then(|v| v.as_i64()) {
+            self.ttft_ms = Some(v);
+        }
+        if let Some(v) = event
+            .get("cache_creation_input_tokens")
+            .and_then(|v| v.as_i64())
+        {
+            self.cache_creation_input_tokens = Some(v);
+        }
+        if let Some(v) = event
+            .get("cache_read_input_tokens")
+            .and_then(|v| v.as_i64())
+        {
+            self.cache_read_input_tokens = Some(v);
+        }
+    }
 }
 
 // ── EventSink trait ─────────────────────────────────────────────────

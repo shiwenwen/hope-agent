@@ -83,9 +83,8 @@ pub(super) struct SseUsage {
     // OpenAI Responses API: input_tokens_details.cached_tokens
     #[serde(default)]
     pub input_tokens_details: Option<SseTokenDetails>,
-    // OpenAI Chat Completions: prompt_tokens_details.cached_tokens
+    // OpenAI Chat Completions / Codex backend: prompt_tokens_details.cached_tokens
     #[serde(default)]
-    #[allow(dead_code)]
     pub prompt_tokens_details: Option<SseTokenDetails>,
 }
 
