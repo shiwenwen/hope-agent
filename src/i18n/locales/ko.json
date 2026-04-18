@@ -350,6 +350,7 @@
     "memoryCount": "{{count}} 개 기억",
     "memoryEmpty": "기억이 없습니다. 첫 기억을 추가해 AI 가 중요한 컨텍스트를 기억하도록 도와주세요.",
     "memoryNoResults": "검색에 일치하는 기억이 없습니다",
+    "loading": "로딩 중...",
     "memoryExport": "Markdown 으로 내보내기",
     "memoryType": "유형",
     "memoryType_user": "사용자",
@@ -1102,8 +1103,7 @@
     "serverDisconnected": "연결 끊김",
     "serverTestConnection": "연결 테스트",
     "serverTestSuccess": "연결 성공",
-    "serverTestFailed": "연결 실패",
-    "loading": "로딩 중..."
+    "serverTestFailed": "연결 실패"
   },
   "tz": {
     "shanghai": "상하이 (UTC+8)",

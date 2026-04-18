@@ -350,6 +350,7 @@
     "memoryCount": "{{count}} memorias",
     "memoryEmpty": "Aún no hay memorias. Añade tu primera memoria para que la IA recuerde contexto importante.",
     "memoryNoResults": "No hay memorias que coincidan con la búsqueda",
+    "loading": "Cargando...",
     "memoryExport": "Exportar como Markdown",
     "memoryType": "Tipo",
     "memoryType_user": "Usuario",
@@ -1102,8 +1103,7 @@
     "serverDisconnected": "Desconectado",
     "serverTestConnection": "Probar conexión",
     "serverTestSuccess": "Conexión correcta",
-    "serverTestFailed": "Conexión fallida",
-    "loading": "Cargando..."
+    "serverTestFailed": "Conexión fallida"
   },
   "tz": {
     "shanghai": "Shanghái (UTC+8)",

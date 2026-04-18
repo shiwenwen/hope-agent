@@ -21,6 +21,7 @@ export type SettingsSection =
   | "developer"
   | "server"
   | "security"
+  | "browser"
 
 export interface SettingsSectionItem {
   id: SettingsSection

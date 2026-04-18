@@ -24,6 +24,7 @@ pub mod agent_loader;
 pub mod ask_user;
 pub mod backup;
 pub mod browser_state;
+pub mod browser_ui;
 pub mod canvas_db;
 pub mod channel;
 pub mod chat_engine;

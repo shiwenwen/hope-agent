@@ -757,6 +757,19 @@ fn build_router_with_cors(
             "/url-preview/batch",
             post(routes::url_preview::fetch_url_previews),
         )
+        // Embedded browser
+        .route("/browser/status", get(routes::browser::get_status))
+        .route(
+            "/browser/profiles",
+            get(routes::browser::list_profiles).post(routes::browser::create_profile),
+        )
+        .route(
+            "/browser/profiles/{name}",
+            delete(routes::browser::delete_profile),
+        )
+        .route("/browser/launch", post(routes::browser::launch))
+        .route("/browser/connect", post(routes::browser::connect))
+        .route("/browser/disconnect", post(routes::browser::disconnect))
         // Subagent
         .route("/subagent/runs", get(routes::subagent::list_subagent_runs))
         .route(

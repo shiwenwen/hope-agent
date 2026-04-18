@@ -18,6 +18,7 @@ pub use oc_core::agent_config;
 pub use oc_core::agent_loader;
 pub use oc_core::backup;
 pub use oc_core::browser_state;
+pub use oc_core::browser_ui;
 pub use oc_core::canvas_db;
 pub use oc_core::channel;
 pub use oc_core::chat_engine;
@@ -489,6 +490,14 @@ pub fn run() {
             // URL preview
             commands::url_preview::fetch_url_preview,
             commands::url_preview::fetch_url_previews,
+            // Embedded browser
+            commands::browser::browser_get_status,
+            commands::browser::browser_list_profiles,
+            commands::browser::browser_create_profile,
+            commands::browser::browser_delete_profile,
+            commands::browser::browser_launch,
+            commands::browser::browser_connect,
+            commands::browser::browser_disconnect,
             // IM Channel management
             commands::channel::channel_list_plugins,
             commands::channel::channel_list_accounts,

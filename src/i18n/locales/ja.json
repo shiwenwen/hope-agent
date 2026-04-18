@@ -350,6 +350,7 @@
     "memoryCount": "{{count}} 件の記憶",
     "memoryEmpty": "記憶はまだありません。最初の記憶を追加して AI に覚えさせましょう。",
     "memoryNoResults": "検索条件に一致する記憶はありません",
+    "loading": "読み込み中...",
     "memoryExport": "Markdown としてエクスポート",
     "memoryType": "タイプ",
     "memoryType_user": "ユーザー",
@@ -1102,8 +1103,7 @@
     "serverDisconnected": "未接続",
     "serverTestConnection": "接続テスト",
     "serverTestSuccess": "接続成功",
-    "serverTestFailed": "接続失敗",
-    "loading": "読み込み中..."
+    "serverTestFailed": "接続失敗"
   },
   "tz": {
     "shanghai": "上海 (UTC+8)",

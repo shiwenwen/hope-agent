@@ -350,6 +350,7 @@
     "memoryCount": "{{count}} ذاكرة",
     "memoryEmpty": "لا توجد ذاكرات بعد. أضف أول ذاكرة لمساعدة الذكاء الاصطناعي على تذكر السياق المهم.",
     "memoryNoResults": "لا توجد ذاكرات تطابق بحثك",
+    "loading": "جارٍ التحميل...",
     "memoryExport": "تصدير كـ Markdown",
     "memoryType": "النوع",
     "memoryType_user": "المستخدم",
@@ -1102,8 +1103,7 @@
     "serverDisconnected": "غير متصل",
     "serverTestConnection": "اختبار الاتصال",
     "serverTestSuccess": "الاتصال ناجح",
-    "serverTestFailed": "فشل الاتصال",
-    "loading": "جارٍ التحميل..."
+    "serverTestFailed": "فشل الاتصال"
   },
   "tz": {
     "shanghai": "شنغهاي (UTC+8)",

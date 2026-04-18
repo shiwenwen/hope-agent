@@ -350,6 +350,7 @@
     "memoryCount": "{{count}} 條記憶",
     "memoryEmpty": "暫無記憶。添加第一條記憶，幫助 AI 記住重要上下文。",
     "memoryNoResults": "没有匹配的記憶",
+    "loading": "載入中...",
     "memoryExport": "導出為 Markdown",
     "memoryType": "類型",
     "memoryType_user": "用戶信息",
@@ -1102,8 +1103,7 @@
     "serverDisconnected": "未連接",
     "serverTestConnection": "測試連接",
     "serverTestSuccess": "連接成功",
-    "serverTestFailed": "連接失敗",
-    "loading": "載入中..."
+    "serverTestFailed": "連接失敗"
   },
   "tz": {
     "shanghai": "上海 (UTC+8)",

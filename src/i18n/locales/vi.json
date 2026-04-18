@@ -350,6 +350,7 @@
     "memoryCount": "{{count}} bộ nhớ",
     "memoryEmpty": "Chưa có bộ nhớ nào. Thêm bộ nhớ đầu tiên để giúp AI ghi nhớ ngữ cảnh quan trọng.",
     "memoryNoResults": "Không có bộ nhớ phù hợp với tìm kiếm",
+    "loading": "Đang tải...",
     "memoryExport": "Xuất ra Markdown",
     "memoryType": "Loại",
     "memoryType_user": "Người dùng",
@@ -1102,8 +1103,7 @@
     "serverDisconnected": "Đã ngắt kết nối",
     "serverTestConnection": "Kiểm tra kết nối",
     "serverTestSuccess": "Kết nối thành công",
-    "serverTestFailed": "Kết nối thất bại",
-    "loading": "Đang tải..."
+    "serverTestFailed": "Kết nối thất bại"
   },
   "tz": {
     "shanghai": "Thượng Hải (UTC+8)",

@@ -3,6 +3,7 @@ pub mod helpers;
 pub mod acp;
 pub mod agents;
 pub mod auth;
+pub mod browser;
 pub mod canvas;
 pub mod channel;
 pub mod chat;

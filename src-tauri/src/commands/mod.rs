@@ -1,6 +1,7 @@
 pub mod acp_control;
 pub mod agent_mgmt;
 pub mod auth;
+pub mod browser;
 pub mod channel;
 pub mod chat;
 pub mod config;
