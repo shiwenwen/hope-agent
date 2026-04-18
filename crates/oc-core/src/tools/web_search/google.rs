@@ -1,7 +1,9 @@
 use anyhow::Result;
-use serde_json::Value;
 
-use super::helpers::{build_search_client, google_date_restrict};
+use super::helpers::{
+    build_search_client, google_date_restrict, read_json_capped, read_text_capped,
+    JSON_RESPONSE_BYTE_CAP,
+};
 use super::{SearchParams, SearchResult};
 
 pub(super) async fn search_google(
@@ -44,17 +46,16 @@ pub(super) async fn search_google(
         .map_err(|e| anyhow::anyhow!("Google Custom Search request failed: {}", e))?;
     if !resp.status().is_success() {
         let status = resp.status();
-        let text = resp.text().await.unwrap_or_default();
+        let text = read_text_capped(resp, JSON_RESPONSE_BYTE_CAP)
+            .await
+            .unwrap_or_default();
         return Err(anyhow::anyhow!(
             "Google Custom Search failed ({}): {}",
             status,
             text
         ));
     }
-    let data: Value = resp
-        .json()
-        .await
-        .map_err(|e| anyhow::anyhow!("Google Custom Search JSON parse failed: {}", e))?;
+    let data = read_json_capped(resp, JSON_RESPONSE_BYTE_CAP, "Google Custom Search").await?;
     let items = data.get("items").and_then(|v| v.as_array());
     Ok(items.map_or_else(Vec::new, |arr| {
         arr.iter()

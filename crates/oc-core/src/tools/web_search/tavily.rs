@@ -1,7 +1,8 @@
 use anyhow::Result;
-use serde_json::Value;
 
-use super::helpers::{build_search_client, tavily_days};
+use super::helpers::{
+    build_search_client, read_json_capped, read_text_capped, tavily_days, JSON_RESPONSE_BYTE_CAP,
+};
 use super::{SearchParams, SearchResult};
 
 pub(super) async fn search_tavily(
@@ -35,17 +36,16 @@ pub(super) async fn search_tavily(
         .map_err(|e| anyhow::anyhow!("Tavily request failed: {}", e))?;
     if !resp.status().is_success() {
         let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
+        let body = read_text_capped(resp, JSON_RESPONSE_BYTE_CAP)
+            .await
+            .unwrap_or_default();
         return Err(anyhow::anyhow!(
             "Tavily search failed ({}): {}",
             status,
             body
         ));
     }
-    let data: Value = resp
-        .json()
-        .await
-        .map_err(|e| anyhow::anyhow!("Tavily JSON parse failed: {}", e))?;
+    let data = read_json_capped(resp, JSON_RESPONSE_BYTE_CAP, "Tavily").await?;
     let results = data.get("results").and_then(|v| v.as_array());
     Ok(results.map_or_else(Vec::new, |arr| {
         arr.iter()

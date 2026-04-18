@@ -2,7 +2,10 @@ use anyhow::Result;
 use serde_json::Value;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use super::helpers::{html_decode, strip_html_tags, DEFAULT_WEB_FETCH_USER_AGENT};
+use super::helpers::{
+    html_decode, read_text_capped, strip_html_tags, DEFAULT_WEB_FETCH_USER_AGENT,
+    HTML_RESPONSE_BYTE_CAP, JSON_RESPONSE_BYTE_CAP,
+};
 use super::{SearchResult, DEFAULT_WEB_SEARCH_TIMEOUT_SECS};
 
 /// Timestamp (epoch secs) until which DDG is rate-limited. Skip requests until then.
@@ -146,7 +149,8 @@ async fn ddg_instant_answer(client: &reqwest::Client, query: &str) -> Option<Sea
     if !resp.status().is_success() {
         return None;
     }
-    let data: Value = resp.json().await.ok()?;
+    let text = read_text_capped(resp, JSON_RESPONSE_BYTE_CAP).await.ok()?;
+    let data: Value = serde_json::from_str(&text).ok()?;
 
     // AbstractText + AbstractURL — encyclopedia-style answer
     let abstract_text = data
@@ -216,8 +220,7 @@ async fn ddg_html_search(
             status
         ));
     }
-    let html = resp
-        .text()
+    let html = read_text_capped(resp, HTML_RESPONSE_BYTE_CAP)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to read DuckDuckGo response: {}", e))?;
 
@@ -270,8 +273,7 @@ async fn ddg_lite_search(
             resp.status()
         ));
     }
-    let html = resp
-        .text()
+    let html = read_text_capped(resp, HTML_RESPONSE_BYTE_CAP)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to read DDG Lite response: {}", e))?;
     let results = parse_ddg_lite_results(&html, count);

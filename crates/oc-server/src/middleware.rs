@@ -115,6 +115,25 @@ pub async fn require_api_key(
         .into_response()
 }
 
+/// Per-request access log. Query string is intentionally dropped so the
+/// `?token=<api-key>` WebSocket auth fallback can't leak into any log stream.
+pub async fn access_log(request: Request, next: Next) -> Response {
+    let method = request.method().clone();
+    let path = request.uri().path().to_string();
+    let start = std::time::Instant::now();
+    let response = next.run(request).await;
+    oc_core::app_info!(
+        "http",
+        "access",
+        "{} {} {} {}ms",
+        response.status().as_u16(),
+        method,
+        path,
+        start.elapsed().as_millis()
+    );
+    response
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

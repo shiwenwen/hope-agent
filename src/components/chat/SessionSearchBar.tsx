@@ -185,13 +185,9 @@ export default function SessionSearchBar({
         </div>
       )}
       {hasQuery && total > 0 && currentSnippet && (
-        <div
-          className="mt-1 px-1 text-[11px] text-muted-foreground/90 line-clamp-1 leading-snug break-words"
-          // eslint-disable-next-line react/no-danger
-          dangerouslySetInnerHTML={{
-            __html: renderHighlightedSnippet(currentSnippet),
-          }}
-        />
+        <div className="mt-1 px-1 text-[11px] text-muted-foreground/90 line-clamp-1 leading-snug break-words">
+          {renderHighlightedSnippet(currentSnippet)}
+        </div>
       )}
     </div>
   )

@@ -8,12 +8,14 @@
 
 - 严重 Bug：10 项（已处理 9 项 / 1 项维持原状）
 - 中等 Bug：11 项（本轮处理 7 项 / 4 项维持原状）
-- 性能/稳定：10 项
+- 性能/稳定：10 项（本轮处理 4 项 / 6 项留待下一批）
 - 轻微/设计：5 项
 
 > **2026-04-17 复核（分支 `claude/fix-audit-bugs-Ip6Bl`）**：按本文件列出的严重 Bug 逐条 Read 源文件复核。B1 / B3 / B4 / B5 / B6 / B7 / B8 / B9 均已在本轮修复；B10 经复核发现 `job_status` 早就改用 `async_jobs::wait::Notify` 注册表，不再依赖 EventBus 事件，原描述已失效；B2 经复核与原描述偏差较大（`find_round_safe_boundary` 已按 round 边界对齐，不会把 tool_use / tool_result 切开），保留观察。
 >
 > **2026-04-18 中等 Bug 复核（分支 `claude/fix-audit-bugs-BcytF`）**：按本文件列出的 11 项中等 Bug 逐条 Read 源文件复核。M3 / M4 / M5 / M6 / M8 / M9 / M10 本轮修复；M7 经复核发现 `claim_job_for_execution` 已实现原子抢占（`UPDATE ... WHERE running_at IS NULL AND next_run_at=? AND status='active'`），原风险不存在；M1 经复核发现 `cache_ttl_emergency` 仅作为 throttle 旁路开关使用，TTL 过期时 throttle 本就不生效，无需再"解耦"；M2 经复核发现循环内 `total_chars + truncated.len() + overhead > byte_budget` 的 break 检查已兜住 `MAX_RECOVERY_TOTAL_BYTES`，不会打爆上限；M11 经复核发现 useEffect 闭包内仅使用 refs 和 `useState` 返回的 setters，这些在 React 中本身稳定，eslint-disable-line 合理。
+>
+> **2026-04-18 安全加固批修复（分支 `claude/fix-audit-p1-p3-p7-p8`）**：按本文件"修复顺序建议"里的"第二批安全加固批"要求处理 P1 / P3 / P7 / P8。P1 前端 snippet 反解改为 Unicode 分界符（STX/ETX）+ React element 渲染，后端 `session/db.rs` 同步改分界符；P3 首次给 `tauri.conf.json` 写入 CSP，配套把 `index.html` inline theme-init 抽到 `public/theme-init.js`；P7 新增 `web_search/helpers.rs::{check_search_url, read_text_capped}`，8 个 provider 全部切换到流式 + 字节上限，SearXNG 分支加 SSRF 校验，`image_generate` URL 下载加 10 MB 上限；P8 oc-server 新增 `access_log` middleware（只记 path 不记 query），`redact_sensitive` 敏感键列表追加 `"token"` 作纵深防御。
 
 ---
 
@@ -175,7 +177,7 @@
 - **位置**：`src/components/chat/sidebar/SearchResultItem.tsx:133-135`
 - **因果**：FTS5 `snippet()` 若消息原文含 `<mark onclick=...>`，先 escape 再"白名单反解 `<mark>`" 的实现会把 `&lt;mark onclick&gt;` 恢复成可执行标签；sanitize 粒度是标签名而非属性。
 - **修复**：不要反解 HTML，直接用 React 元素按 FTS 分界符（`\u0002` / `\u0003`）切片包 `<span class="bg-primary/30">`。
-- **状态**：待修复。
+- **状态**：✅ 已修复（后端 [`session/db.rs:1444`](../../crates/oc-core/src/session/db.rs#L1444) snippet 分界符改用 ASCII 控制字符 STX/ETX；前端 [`src/lib/highlight.tsx`](../../src/lib/highlight.tsx) 改为返回 `ReactNode[]` 直接渲染 `<mark>` 元素，[`SearchResultItem.tsx`](../../src/components/chat/sidebar/SearchResultItem.tsx) / [`SessionSearchBar.tsx`](../../src/components/chat/SessionSearchBar.tsx) 两处调用点移除 `dangerouslySetInnerHTML`，属性级 XSS 彻底失去载体）。
 
 ### P2. AskUserQuestionBlock 用了原生 `title=""`
 
@@ -189,7 +191,7 @@
 - **位置**：`src-tauri/tauri.conf.json:30`
 - **因果**：红线里列为禁止项。Streamdown 渲染任意 Markdown + 外部图片，一旦出现 XSS 无兜底。
 - **修复**：至少 `default-src 'self'; img-src 'self' data: https:; script-src 'self'`，按需渐进放开。
-- **状态**：待修复。
+- **状态**：✅ 已修复（[`index.html`](../../index.html) inline theme-init 脚本抽到外部 [`public/theme-init.js`](../../public/theme-init.js)，从而不再需要 `script-src 'unsafe-inline'`；[`tauri.conf.json:30`](../../src-tauri/tauri.conf.json#L30) 写入完整 CSP，覆盖 default / script / style / img / font / media / connect / frame / object / base / form-action 十项指令。`style-src` 保留 `'unsafe-inline'` 因为 Radix UI 动态定位依赖 inline style；`connect-src` 放开 loopback 所有端口 + WebSocket dev server 便于桌面 + HTTP 双模式共用）。
 
 ### P4. Broadcast slow consumer 未处理 `Lagged`
 
@@ -217,14 +219,14 @@
 - **位置**：`crates/oc-core/src/tools/web_search/`、`tools/image_generate/`、`url_preview.rs`
 - **因果**：`reqwest` 默认无 body 大小限制，恶意 / 异常上游可返回超大响应打爆内存；目标 URL 未过滤内网段（`127.0.0.0/8`、`10.0.0.0/8`、`169.254.0.0/16`）。
 - **修复**：`response.bytes_stream()` + 手动累计 cap（如 10MB），超出立即丢弃；拒绝内网目标。
-- **状态**：待修复。
+- **状态**：✅ 已修复（[`web_search/helpers.rs`](../../crates/oc-core/src/tools/web_search/helpers.rs) 新增 `check_search_url` + `read_text_capped` 两个 helper 和 `HTML_RESPONSE_BYTE_CAP=1.5MB` / `JSON_RESPONSE_BYTE_CAP=1MB` 常量；DuckDuckGo / SearXNG / Brave / Perplexity / Google / Tavily / Grok / Kimi 8 个 provider 的 `.text()` / `.json()` 全部切换到 `read_text_capped(resp, CAP)` + `serde_json::from_str`；[`mod.rs`](../../crates/oc-core/src/tools/web_search/mod.rs) SearXNG 分支在调 provider 前加 `helpers::check_search_url(url)` 走 `AppConfig.ssrf.default_policy`，失败走现有 provider-to-next failover；[`image_generate/helpers.rs`](../../crates/oc-core/src/tools/image_generate/helpers.rs) URL 下载改 `bytes_stream()` + `MAX_IMAGE_DOWNLOAD_BYTES=10MB` cap。URL preview 与 web_fetch 此前已有 cap，`url_preview.rs` 本轮不改）。`url_preview.rs` 保留 64 KB cap 不变。`Default` 策略下用户配置的 SearXNG 私网 base_url（如 `192.168.x.x`）会被拒绝，需要加入 `ssrf.trustedHosts`——这是刻意的行为变更。
 
 ### P8. Log 中可能落 `?token=` / `Authorization: Bearer`
 
 - **位置**：`crates/oc-server/src/lib.rs:51` + 未确认的 axum access log 链路
 - **因果**：非桌面模式 binding 到 `0.0.0.0` 时，query string 出现在标准 HTTP 日志 / 反代日志。红线是"API Key 不得出现在任何日志"。
 - **修复**：自定义 `on_request` 裁剪 query 或只保留 path；优先 header 路径，query 仅给 WS 不得已用。
-- **状态**：待修复。
+- **状态**：✅ 已修复（[`oc-server/middleware.rs`](../../crates/oc-server/src/middleware.rs) 新增 `access_log` middleware：`eprintln!("[http] {status} {method} {path} {elapsed_ms}ms")`，**只取 `uri().path()` 故意不取 query**，从根源切断 `?token=...` 进入 stderr / 反代日志的路径；[`oc-server/lib.rs`](../../crates/oc-server/src/lib.rs) `build_router_with_cors` 最外层 layer 挂上。纵深防御：[`logging/file_ops.rs`](../../crates/oc-core/src/logging/file_ops.rs) `redact_sensitive` sensitive_keys 追加 `"token"`，若未来任何 `app_info!`/`app_warn!` 意外打了完整 URL 也能兜住。反代（nginx / Caddy）的 `log_format` 裁剪属于运维层，留给部署文档）。
 
 ### P9. `useNotificationListeners` 首个 effect `[]` 依赖永久订阅
 
@@ -287,7 +289,7 @@
 |---|---|---|---|
 | 🔴 严重 | 10 | 8 ✅ / 2 ⛔ | `context_compact` UTF-8 切片、tool loop 终止、async_jobs 注入、server 鉴权、service install 命令注入 |
 | 🟠 中等 | 11 | 7 ✅ / 4 ⛔ | recovery 插入点、idle extract 竞态、ask_user 超时、WeChat 路径、async job claim、plan state machine、plan 文件名 |
-| 🟡 性能/稳定 | 10 | – | XSS、CSP、broadcast lag、SSRF、日志 token |
+| 🟡 性能/稳定 | 10 | 4 ✅ | XSS、CSP、broadcast lag、SSRF、日志 token |
 | ℹ️ 轻微/设计 | 5 | – | SQL 拼接习惯、孤儿清理、排序字段、CI 校验、工具上下文共享 |
 
 **2026-04-17 修复批次（分支 `claude/fix-audit-bugs-Ip6Bl`）**
@@ -321,11 +323,19 @@
 | M10 Plan 文件名 | ✅ UTC + 纳秒后缀消除同秒碰撞；版本号 `max(mem, disk+1)` 重启安全 |
 | ~~M11 stale closure~~ | ⛔ refs 与 setState 均稳定，eslint-disable-line 合理 |
 
+**2026-04-18 安全加固批修复（分支 `claude/fix-audit-p1-p3-p7-p8`）**
+
+| ID | 处理结果 |
+|---|---|
+| P1 Snippet XSS | ✅ 后端 FTS5 snippet 分界符 `<mark>` → `\x02/\x03`；前端 `highlight.tsx` 返回 `ReactNode[]` 走 React 渲染，移除 `dangerouslySetInnerHTML` |
+| P3 CSP | ✅ 首次给 `tauri.conf.json` 写入完整 CSP；`index.html` inline theme-init 抽到 `public/theme-init.js` 以满足 `script-src 'self'` |
+| P7 SSRF + 响应体上限 | ✅ `web_search/helpers.rs` 新增 `check_search_url` + `read_text_capped` + HTML/JSON 字节常量；8 个 provider 全部切换；SearXNG 分支加 SSRF 校验；image_generate URL 下载加 10 MB 上限 |
+| P8 日志 token | ✅ oc-server 新增 `access_log` middleware 只记 path 不记 query；`redact_sensitive` 追加 `"token"` 键作纵深防御 |
+
 **修复顺序建议（剩余批次）**
 
-1. 第二批（安全加固批）：P1、P3、P7、P8
-2. 第三批（稳定性 / 性能）：P4、P5、P6、P9、P10
-3. 其余按迭代节奏推进。
+1. 第三批（稳定性 / 性能）：P2、P4、P5、P6、P9、P10
+2. 其余按迭代节奏推进。
 
 ## 复核建议
 

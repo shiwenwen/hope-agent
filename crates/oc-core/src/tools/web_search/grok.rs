@@ -1,7 +1,9 @@
 use anyhow::Result;
 use serde_json::Value;
 
-use super::helpers::build_search_client;
+use super::helpers::{
+    build_search_client, read_json_capped, read_text_capped, JSON_RESPONSE_BYTE_CAP,
+};
 use super::SearchResult;
 
 pub(super) async fn search_grok(
@@ -31,13 +33,12 @@ pub(super) async fn search_grok(
         .map_err(|e| anyhow::anyhow!("Grok request failed: {}", e))?;
     if !resp.status().is_success() {
         let status = resp.status();
-        let text = resp.text().await.unwrap_or_default();
+        let text = read_text_capped(resp, JSON_RESPONSE_BYTE_CAP)
+            .await
+            .unwrap_or_default();
         return Err(anyhow::anyhow!("Grok failed ({}): {}", status, text));
     }
-    let data: Value = resp
-        .json()
-        .await
-        .map_err(|e| anyhow::anyhow!("Grok JSON parse failed: {}", e))?;
+    let data = read_json_capped(resp, JSON_RESPONSE_BYTE_CAP, "Grok").await?;
 
     // Extract search results from response
     let mut results = Vec::new();

@@ -116,6 +116,8 @@ pub fn redact_sensitive(input: &str) -> String {
         "bearer",
         "password",
         "secret",
+        // oc-server `?token=<api-key>` WebSocket auth fallback.
+        "token",
     ];
 
     let mut result = input.to_string();

@@ -1439,9 +1439,12 @@ impl SessionDB {
             format!(" AND {}", where_clauses.join(" AND "))
         };
 
+        // STX/ETX (U+0002/U+0003) — never valid in user text — so the frontend
+        // can split without HTML escape/unescape that could reintroduce an
+        // attribute-level XSS from user-authored `<mark onclick=…>`.
         let sql = format!(
             "SELECT m.id, m.session_id, m.role,
-                    snippet(messages_fts, 0, '<mark>', '</mark>', '…', 16) AS snippet,
+                    snippet(messages_fts, 0, '\x02', '\x03', '…', 16) AS snippet,
                     m.timestamp,
                     s.title, s.agent_id, s.is_cron, s.parent_session_id,
                     cc.channel_id, cc.chat_type,

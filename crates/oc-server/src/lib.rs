@@ -933,6 +933,7 @@ fn build_router_with_cors(
         .merge(health)
         .merge(protected)
         .layer(build_cors_layer(cors_origins))
+        .layer(axum::middleware::from_fn(middleware::access_log))
         .with_state(ctx)
 }
 

@@ -1,7 +1,9 @@
 use anyhow::Result;
 use serde_json::Value;
 
-use super::helpers::build_search_client;
+use super::helpers::{
+    build_search_client, read_json_capped, read_text_capped, JSON_RESPONSE_BYTE_CAP,
+};
 use super::SearchResult;
 
 pub(super) async fn search_kimi(
@@ -31,13 +33,12 @@ pub(super) async fn search_kimi(
         .map_err(|e| anyhow::anyhow!("Kimi request failed: {}", e))?;
     if !resp.status().is_success() {
         let status = resp.status();
-        let text = resp.text().await.unwrap_or_default();
+        let text = read_text_capped(resp, JSON_RESPONSE_BYTE_CAP)
+            .await
+            .unwrap_or_default();
         return Err(anyhow::anyhow!("Kimi failed ({}): {}", status, text));
     }
-    let data: Value = resp
-        .json()
-        .await
-        .map_err(|e| anyhow::anyhow!("Kimi JSON parse failed: {}", e))?;
+    let data = read_json_capped(resp, JSON_RESPONSE_BYTE_CAP, "Kimi").await?;
 
     let mut results = Vec::new();
 

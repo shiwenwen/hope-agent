@@ -27,7 +27,7 @@
       }
     ],
     "security": {
-      "csp": null,
+      "csp": "default-src 'self' ipc: http://ipc.localhost; script-src 'self' ipc: http://ipc.localhost; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost data: blob: https: http:; font-src 'self' data:; media-src 'self' asset: http://asset.localhost data: blob:; connect-src 'self' ipc: http://ipc.localhost ws://localhost:* wss://localhost:* http://localhost:* http://127.0.0.1:* https://127.0.0.1:* https:; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'",
       "assetProtocol": {
         "enable": true,
         "scope": ["$RESOURCE/**", "$HOME/.opencomputer/**"]

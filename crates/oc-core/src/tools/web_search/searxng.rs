@@ -1,7 +1,7 @@
 use anyhow::Result;
 use serde_json::Value;
 
-use super::helpers::build_search_client_for_url;
+use super::helpers::{build_search_client_for_url, read_text_capped, JSON_RESPONSE_BYTE_CAP};
 use super::{SearchParams, SearchResult};
 
 pub(super) async fn search_searxng(
@@ -31,7 +31,9 @@ pub(super) async fn search_searxng(
         .map_err(|e| anyhow::anyhow!("SearXNG request failed (url={}): {}", url, e))?;
     if !resp.status().is_success() {
         let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
+        let body = read_text_capped(resp, JSON_RESPONSE_BYTE_CAP)
+            .await
+            .unwrap_or_default();
         let preview = crate::truncate_utf8(&body, 1024);
         app_warn!(
             "tool",
@@ -42,8 +44,7 @@ pub(super) async fn search_searxng(
         );
         return Err(anyhow::anyhow!("SearXNG failed with status: {}", status));
     }
-    let body_text = resp
-        .text()
+    let body_text = read_text_capped(resp, JSON_RESPONSE_BYTE_CAP)
         .await
         .map_err(|e| anyhow::anyhow!("SearXNG response read failed: {}", e))?;
     let body: Value = serde_json::from_str(&body_text).map_err(|e| {

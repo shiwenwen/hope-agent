@@ -127,13 +127,9 @@ export default function SearchResultItem({
           <span>·</span>
           <span className="shrink-0">{formatRelativeTime(result.timestamp)}</span>
         </div>
-        <div
-          className="text-[11px] text-muted-foreground mt-1 line-clamp-2 leading-snug break-words"
-          // eslint-disable-next-line react/no-danger
-          dangerouslySetInnerHTML={{
-            __html: renderHighlightedSnippet(result.contentSnippet),
-          }}
-        />
+        <div className="text-[11px] text-muted-foreground mt-1 line-clamp-2 leading-snug break-words">
+          {renderHighlightedSnippet(result.contentSnippet)}
+        </div>
       </div>
     </div>
   )

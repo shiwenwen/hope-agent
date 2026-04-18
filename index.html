@@ -5,16 +5,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>opencomputer</title>
-    <script>
-      // Set background immediately to prevent white flash during resize
-      (function() {
-        var t = localStorage.getItem('theme-preference') || 'auto';
-        var dark = t === 'dark' || (t === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-        if (dark) document.documentElement.classList.add('dark');
-        document.documentElement.style.backgroundColor = dark ? '#0f0f0f' : '#ffffff';
-        document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
-      })();
-    </script>
+    <script src="/theme-init.js"></script>
   </head>
   <body>
     <div id="root"></div>

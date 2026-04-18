@@ -3,6 +3,10 @@ use base64::Engine;
 
 use super::types::*;
 
+/// 10 MB cap — hostile upstreams that ignore Content-Length can't OOM us;
+/// over-cap downloads truncate and fail to decode at the provider layer.
+const MAX_IMAGE_DOWNLOAD_BYTES: usize = 10_485_760;
+
 // ── Public Helpers ──────────────────────────────────────────────
 
 /// Check if at least one provider is enabled with an API key.
@@ -121,7 +125,9 @@ pub(super) async fn load_input_image(path_or_url: &str) -> Result<InputImage> {
             .unwrap_or("image/png")
             .trim()
             .to_string();
-        let data = resp.bytes().await?.to_vec();
+        let data = crate::security::http_stream::read_bytes_capped(resp, MAX_IMAGE_DOWNLOAD_BYTES)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to read image from {}: {}", trimmed, e))?;
         return Ok(InputImage { data, mime });
     }
 
