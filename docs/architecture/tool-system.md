@@ -124,6 +124,7 @@ pub struct ToolDefinition {
 | `session_status` | deferred, internal, concurrent_safe | 查询单个会话的 agent / model / 消息数 / 时间戳。 |
 | `sessions_history` | deferred, internal, concurrent_safe | 分页读取某会话的历史消息。`limit` 默认 50（上限 200），`before_id` 游标，`include_tools=false` 默认剔除 tool 细节以降噪。 |
 | `sessions_send` | deferred, internal | 向其他会话发送 user 消息。`wait=true` 时阻塞直到目标 agent 回复（`timeout_secs` 默认 60，上限 300）。 |
+| `peek_sessions` | deferred, internal, concurrent_safe | 跨会话感知窥探。返回其它会话的紧凑 markdown 列表（title / agent / kind / 相对时间 / goal/summary）。参数：`query`（可选子串过滤 title/goal）、`limit`（默认 6，上限 20）。只读。 |
 
 ### 9. Agent 委派
 
@@ -178,7 +179,7 @@ pub struct ToolDefinition {
 | 工具 | 标记 | 说明 |
 |------|------|------|
 | `tool_search` | always_load, internal | 延迟工具发现（仅 `deferredTools.enabled` 时启用）。`query`：`select:name1,name2` 精确选取或关键词模糊检索。`max_results` 默认 5，上限 20。返回 deferred 工具完整 schema 以便后续直接调用。 |
-| `job_status` | always_load, internal | 查询/等待 async tool job。参数：`job_id`（必填，对应 async-capable 工具返回的 synthetic id）、`block`（默认 false 即时快照；true 阻塞至终态）、`timeout_ms`（默认 60000，上限 600000）。阻塞模式下 `tokio::select!` 同时监听 EventBus `async_tool_job:completed` 事件和 200ms 兜底轮询，命中后从独立的 `async_jobs.db` 读出结果预览/磁盘路径/错误。仅当 `asyncTools.enabled = true` 时注入。 |
+| `job_status` | always_load, internal | 查询/等待 async tool job。参数：`job_id`（必填，对应 async-capable 工具返回的 synthetic id）、`block`（默认 false 即时快照；true 阻塞至终态）、`timeout_ms`（默认 60000，上限 600000）。阻塞模式下向 per-job `tokio::sync::Notify` 注册表登记等待者，`tokio::select!` 于 `notified()` 与指数退避轮询（100ms → ×1.5 → 2s 上限）之间择一触发；`finalize_job` 写完 DB 后 `notify_waiters()` 唤醒所有等待者。结果从独立的 `async_jobs.db` 读出预览/磁盘路径/错误。仅当 `asyncTools.enabled = true` 时注入。 |
 
 ---
 
@@ -835,14 +836,19 @@ Planning/Review 状态下 spawn 的子 Agent 自动继承 `PLAN_MODE_DENIED_TOOL
 
 - Plan Mode 工具：`ask_user_question` / `submit_plan` / `update_plan_step` / `amend_plan`
 - 记忆 / Cron：`save_memory` / `recall_memory` / `memory_get` / `update_memory` / `delete_memory` / `update_core_memory` / `manage_cron`
-- 会话只读：`agents_list` / `sessions_list` / `session_status` / `sessions_history` / `sessions_send` / `peek_sessions`
+- 跨会话通信：`agents_list` / `sessions_list` / `session_status` / `sessions_history` / `sessions_send` / `peek_sessions`
 - 任务追踪：`task_create` / `task_update` / `task_list`
 - 项目文件 / 附件：`project_read_file` / `send_attachment`
 - 多 Agent 协作：`team` / `canvas` / `send_notification`
+- 技能入口：`skill`
 - 元工具 / 设置：`tool_search` / `job_status` / `get_settings` / `update_settings` / `list_settings_backups` / `restore_settings_backup`
 - 多模态分析：`image` / `pdf` / `get_weather`
 
-> 注意：`subagent` / `image_generate` / `acp_spawn` / `exec` / `web_fetch` / `web_search` / `browser` 保留审批门控，不在 internal 列表。
+> 注意：以下工具**不在 internal 列表**，默认会被 `require_approval=["*"]` 拦入审批门——
+> - 文件操作：`read` / `write` / `edit` / `apply_patch` / `ls` / `grep` / `find`
+> - Shell / 进程：`exec`（命令级独立审批） / `process`
+> - 网络：`web_fetch` / `web_search` / `browser`
+> - 外部服务 / 委派：`image_generate` / `subagent` / `acp_spawn`
 
 ### SKILL.md 读取（技能预授权）
 
@@ -901,7 +907,7 @@ block-beta
 | `crates/oc-core/src/tools/exec.rs` | exec 独立命令级审批逻辑 |
 | `crates/oc-core/src/tools/definitions/registry.rs` | Internal Tool 集合（`INTERNAL_TOOL_NAMES`）、`is_internal_tool()` / `is_async_capable()` / `is_concurrent_safe()` |
 | `crates/oc-core/src/async_jobs/` | 异步 Tool 执行（types/db/spawn/injection），独立 `~/.opencomputer/async_jobs.db` |
-| `crates/oc-core/src/tools/job_status.rs` | `job_status` 工具：snapshot / 阻塞等待 EventBus + 200ms 轮询兜底 |
+| `crates/oc-core/src/tools/job_status.rs` | `job_status` 工具：snapshot / 阻塞等待 per-job `Notify` + 100ms→×1.5→2s 退避轮询兜底 |
 | `crates/oc-core/src/agent_config.rs` | `FilterConfig`（allow/deny）、`CapabilitiesConfig.require_approval`、`SubagentConfig.denied_tools` |
 | `crates/oc-core/src/agent/mod.rs` | `build_tool_schemas()` 统一过滤 schema；`tool_context()` 构建 ToolExecContext，传递 require_approval 与工具限制 |
 | `crates/oc-core/src/agent/providers/*.rs` | 消费已过滤后的 `tool_schemas` 并发送 API 请求 |

@@ -9,6 +9,7 @@ use super::super::{
 };
 use super::core_tools::get_available_tools;
 use super::extra_tools::{get_canvas_tool, get_notification_tool, get_web_search_tool};
+use super::plan_tools::{get_amend_plan_tool, get_plan_step_tool, get_submit_plan_tool};
 use super::special_tools::{
     get_acp_spawn_tool, get_image_generate_tool, get_subagent_tool, get_tool_search_tool,
 };
@@ -64,6 +65,11 @@ static INTERNAL_TOOL_NAMES: LazyLock<HashSet<String>> = LazyLock::new(|| {
         get_canvas_tool(),
         get_acp_spawn_tool(),
         get_tool_search_tool(),
+        // Plan Mode tools — injected on-demand by `apply_plan_tools`, never via
+        // get_available_tools().
+        get_submit_plan_tool(),
+        get_amend_plan_tool(),
+        get_plan_step_tool(),
     ] {
         if t.internal {
             set.insert(t.name);
@@ -116,18 +122,21 @@ pub fn get_tools_for_provider(provider: ToolProvider) -> Vec<serde_json::Value> 
 }
 
 /// Get only core (always-loaded) tools — used when deferred loading is enabled.
+/// `always_load` overrides `deferred`: a tool can opt out of deferred gating
+/// even when it isn't in `CORE_TOOL_NAMES` (e.g. `skill`).
 pub fn get_core_tools() -> Vec<ToolDefinition> {
     get_available_tools()
         .into_iter()
-        .filter(|t| !t.deferred)
+        .filter(|t| !t.deferred || t.always_load)
         .collect()
 }
 
-/// Get only deferred tools — discoverable via tool_search.
+/// Get only deferred tools — discoverable via tool_search. Mirrors
+/// `get_core_tools`'s `always_load` override.
 pub fn get_deferred_tools() -> Vec<ToolDefinition> {
     get_available_tools()
         .into_iter()
-        .filter(|t| t.deferred)
+        .filter(|t| t.deferred && !t.always_load)
         .collect()
 }
 
