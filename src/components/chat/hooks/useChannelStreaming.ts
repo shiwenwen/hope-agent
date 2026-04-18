@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { mergeUsageFromEvent, parseSessionMessages } from "../chatUtils"
 import { PAGE_SIZE } from "./constants"
-import type { Message, ContentBlock, SessionMessage } from "@/types/chat"
+import type { Message, ContentBlock, MediaItem, SessionMessage } from "@/types/chat"
 
 interface UseChannelStreamingParams {
   currentSessionIdRef: React.MutableRefObject<string | null>
@@ -247,7 +247,10 @@ export function useChannelStreaming({
             break
           }
           case "tool_result": {
-            const mediaUrls: string[] | undefined = ev.media_urls?.length ? ev.media_urls : undefined
+            const mediaItems: MediaItem[] | undefined =
+              Array.isArray(ev.media_items) && (ev.media_items as MediaItem[]).length
+                ? (ev.media_items as MediaItem[])
+                : undefined
             const calls = [...(last.toolCalls || [])]
             const idx = calls.findIndex((c) => c.callId === ev.call_id)
             const resolvedDurationMs = ev.duration_ms ?? (
@@ -257,7 +260,7 @@ export function useChannelStreaming({
               calls[idx] = {
                 ...calls[idx],
                 result: ev.result,
-                ...(mediaUrls && { mediaUrls }),
+                ...(mediaItems && { mediaItems }),
                 ...(resolvedDurationMs != null ? { durationMs: resolvedDurationMs } : {}),
               }
             }
@@ -268,14 +271,14 @@ export function useChannelStreaming({
             if (blockIdx >= 0) {
               const block = blocks[blockIdx] as {
                 type: "tool_call"
-                tool: { callId: string; name: string; arguments: string; result?: string; mediaUrls?: string[] }
+                tool: { callId: string; name: string; arguments: string; result?: string; mediaItems?: MediaItem[] }
               }
               blocks[blockIdx] = {
                 type: "tool_call",
                 tool: {
                   ...block.tool,
                   result: ev.result,
-                  ...(mediaUrls && { mediaUrls }),
+                  ...(mediaItems && { mediaItems }),
                   ...(resolvedDurationMs != null ? { durationMs: resolvedDurationMs } : {}),
                 },
               }

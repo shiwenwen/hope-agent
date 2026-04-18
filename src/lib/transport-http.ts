@@ -7,6 +7,7 @@
  */
 
 import type { Transport, ChatStream } from "@/lib/transport";
+import type { MediaItem } from "@/types/chat";
 
 // ---------------------------------------------------------------------------
 // Command → REST endpoint mapping
@@ -662,6 +663,42 @@ export class HttpTransport implements Transport {
         ws.close();
       },
     };
+  }
+
+  // ----- media -----
+
+  resolveMediaUrl(item: MediaItem): string | null {
+    const url = item.url;
+    if (!url) return null;
+    if (url.startsWith("http://") || url.startsWith("https://")) return url;
+    // The HTTP sink has already stamped `?token=` onto logical
+    // `/api/attachments/...` URLs; we only prepend the base.
+    if (url.startsWith("/")) return `${this.baseUrl}${url}`;
+    // Absolute filesystem path — not reachable from a browser.
+    return null;
+  }
+
+  async openMedia(item: MediaItem): Promise<void> {
+    const href = this.resolveMediaUrl(item);
+    if (!href) return;
+    // Transient anchor click so the browser honors the server's
+    // Content-Disposition (inline preview vs download prompt).
+    const a = document.createElement("a");
+    a.href = href;
+    a.download = item.name || "";
+    a.rel = "noopener";
+    a.target = "_blank";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+
+  async revealMedia(_item: MediaItem): Promise<void> {
+    // No-op in HTTP mode — there's no OS file manager on the client side.
+  }
+
+  supportsLocalFileOps(): boolean {
+    return false;
   }
 
   // ----- listen -----

@@ -100,19 +100,24 @@ pub struct SystemPromptBody {
 // ── WebSocket-backed EventSink ─────────────────────────────────
 
 /// EventSink that broadcasts events to all WebSocket subscribers for a session.
+///
+/// Rewrites `tool_result` events before broadcast: strips `media_items[].localPath`
+/// (never leak server filesystem paths to browsers) and stamps `?token=<api_key>`
+/// onto `/api/attachments/*` URLs so `<img src>` / `<a href>` authenticate.
 struct WsSink {
     session_id: String,
     registry: Arc<ChatStreamRegistry>,
+    api_key: Option<String>,
 }
 
 impl EventSink for WsSink {
     fn send(&self, event: &str) {
         // EventSink::send is sync but broadcast is async. Use spawn_blocking-safe approach.
+        let rewritten = oc_core::agent::rewrite_event_for_http(event, self.api_key.as_deref());
         let registry = self.registry.clone();
         let sid = self.session_id.clone();
-        let evt = event.to_string();
         tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(registry.broadcast(&sid, &evt));
+            tokio::runtime::Handle::current().block_on(registry.broadcast(&sid, &rewritten));
         });
     }
 }
@@ -239,6 +244,7 @@ pub async fn chat(
     let event_sink: Arc<dyn EventSink> = Arc::new(WsSink {
         session_id: sid.clone(),
         registry: ctx.chat_streams.clone(),
+        api_key: ctx.api_key.clone(),
     });
 
     let engine_params = ChatEngineParams {

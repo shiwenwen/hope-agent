@@ -19,4 +19,4 @@ uuid = { workspace = true }
 # HTTP/WS framework
 axum = { version = "0.8", features = ["ws", "multipart"] }
 tower = "0.5"
-tower-http = { version = "0.6", features = ["cors", "trace"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "fs"] }

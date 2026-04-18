@@ -3,6 +3,8 @@ use chrono::Local;
 
 use super::helpers::effective_model;
 use super::types::*;
+use crate::agent::MEDIA_ITEMS_PREFIX;
+use crate::attachments::{self, MediaItem, MediaKind};
 
 // ── List Action ─────────────────────────────────────────────────
 
@@ -111,6 +113,12 @@ pub(super) fn build_list_result(config: &ImageGenConfig) -> Result<String> {
 // ── Success Result Builder ──────────────────────────────────────
 
 /// Build the success result string with failover transparency.
+///
+/// Writes generated images into the session's attachments directory (or the
+/// shared `_temp` bucket when no session id is available yet) so the HTTP
+/// `/api/attachments/{sid}/{filename}` endpoint can serve them. Emits the
+/// `__MEDIA_ITEMS__` structured header so the event system produces a
+/// unified `media_items[]` payload shared with `send_attachment`.
 pub(super) fn build_success_result(
     gen_result: ImageGenResult,
     display_name: &str,
@@ -120,15 +128,13 @@ pub(super) fn build_success_result(
     resolution: Option<&str>,
     is_edit: bool,
     failover_log: &[String],
+    session_id: Option<&str>,
 ) -> Result<String> {
     let images = gen_result.images;
     let accompanying_text = gen_result.text;
 
-    // Save images to disk
-    let save_dir = crate::paths::generated_images_dir()?;
-    std::fs::create_dir_all(&save_dir)?;
     let timestamp = Local::now().format("%Y%m%d_%H%M%S");
-    let mut saved_paths = Vec::new();
+    let mut media_items: Vec<MediaItem> = Vec::with_capacity(images.len());
 
     for (i, img) in images.iter().enumerate() {
         let ext = if img.mime.contains("jpeg") || img.mime.contains("jpg") {
@@ -136,10 +142,13 @@ pub(super) fn build_success_result(
         } else {
             "png"
         };
-        let filename = format!("{}_{}.{}", timestamp, i, ext);
-        let path = save_dir.join(&filename);
-        match std::fs::write(&path, &img.data) {
-            Ok(_) => saved_paths.push(path.to_string_lossy().to_string()),
+        let display_filename = format!("{}_{}.{}", timestamp, i, ext);
+        let saved_path = match attachments::save_attachment_bytes(
+            session_id,
+            &display_filename,
+            &img.data,
+        ) {
+            Ok(p) => p,
             Err(e) => {
                 app_warn!(
                     "tool",
@@ -147,8 +156,18 @@ pub(super) fn build_success_result(
                     "Failed to save generated image: {}",
                     e
                 );
+                continue;
             }
-        }
+        };
+        media_items.push(MediaItem::from_saved_path(
+            session_id,
+            &saved_path,
+            &display_filename,
+            img.mime.clone(),
+            img.data.len() as u64,
+            MediaKind::Image,
+            img.revised_prompt.clone(),
+        ));
     }
 
     // Build result string
@@ -176,8 +195,12 @@ pub(super) fn build_success_result(
         text_parts.push(format!("[Failover] {}", failover_log.join(" → ")));
     }
 
-    for path in &saved_paths {
-        text_parts.push(format!("Saved to: {}", path));
+    let saved_paths: Vec<&str> = media_items
+        .iter()
+        .filter_map(|it| it.local_path.as_deref())
+        .collect();
+    for p in &saved_paths {
+        text_parts.push(format!("Saved to: {}", p));
     }
     if !images.is_empty() {
         if let Some(ref rp) = images[0].revised_prompt {
@@ -188,15 +211,14 @@ pub(super) fn build_success_result(
         text_parts.push(format!("Model response: {}", text));
     }
 
-    // Embed media URLs so the event system can extract them for frontend display
-    let media_urls_json = serde_json::to_string(&saved_paths).unwrap_or_default();
+    let items_json = serde_json::to_string(&media_items).unwrap_or_else(|_| "[]".to_string());
     let result = format!(
-        "__MEDIA_URLS__{}\n{}",
-        media_urls_json,
+        "{}{}\n{}",
+        MEDIA_ITEMS_PREFIX,
+        items_json,
         text_parts.join("\n")
     );
 
-    // Log detailed completion info
     let revised_prompts: Vec<&str> = images
         .iter()
         .filter_map(|img| img.revised_prompt.as_deref())

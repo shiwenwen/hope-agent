@@ -7,13 +7,25 @@ export interface AgentInfo {
 
 /** Structured media item emitted by tools (e.g. send_attachment) — richer than
  *  mediaUrls; carries filename, MIME, size, and a kind flag used by the UI to
- *  decide between image preview and file-card rendering. */
+ *  decide between image preview and file-card rendering.
+ *
+ *  URL resolution is transport-aware: use `getTransport().resolveMediaUrl(item)`
+ *  rather than reading `url` / `localPath` directly.
+ *  - Tauri: `localPath` is the absolute server-side path; run through
+ *    `convertFileSrc` for `<img src>` / `<a href>`.
+ *  - HTTP/Web: `url` is already `/api/attachments/...?token=...` after the
+ *    server-side rewrite — prepend base URL and use directly. `localPath` is
+ *    stripped by the HTTP sink and must not appear. */
 export interface MediaItem {
   url: string
+  /** Absolute server-side path. Present only in Tauri mode (HTTP sink strips it). */
+  localPath?: string
   name: string
   mimeType: string
   sizeBytes: number
   kind: "image" | "file"
+  /** Optional caption shown with the attachment (e.g. IM caption). */
+  caption?: string
 }
 
 export interface ToolCall {

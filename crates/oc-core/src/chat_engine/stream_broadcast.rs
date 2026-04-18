@@ -12,6 +12,10 @@ pub const EVENT_CHAT_STREAM_DELTA: &str = "chat:stream_delta";
 /// Event name emitted once at `run_chat` completion.
 pub const EVENT_CHAT_STREAM_END: &str = "chat:stream_end";
 
+/// Counterpart for IM channel worker sessions — same envelope shape
+/// (`{sessionId, event}`), different name so subscribers can filter.
+pub const EVENT_CHANNEL_STREAM_DELTA: &str = "channel:stream_delta";
+
 /// Inject a `_oc_seq` field into a serialized stream event (JSON string) and
 /// return `(enveloped_string, seq)`. If the input isn't valid JSON or isn't an
 /// object, return `(event.to_string(), seq)` without injection — defensive,

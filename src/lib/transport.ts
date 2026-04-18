@@ -6,6 +6,8 @@
  * standalone web app (HTTP / WebSocket).
  */
 
+import type { MediaItem } from "@/types/chat";
+
 /** A handle returned by `openChatStream` to control the stream lifetime. */
 export interface ChatStream {
   /** Close the stream and release resources. */
@@ -55,6 +57,34 @@ export interface Transport {
    * @returns An unsubscribe function.
    */
   listen(eventName: string, handler: (payload: unknown) => void): () => void;
+
+  /**
+   * Resolve a {@link MediaItem} into a URL that `<img src>` / `<a href>` /
+   * window.open can consume. Returns `null` when the item isn't reachable
+   * in the current transport (legacy URL shape, missing `localPath` in
+   * Tauri mode, etc.) — callers should render a FileCard fallback instead
+   * of a broken `<img src="">`.
+   */
+  resolveMediaUrl(item: MediaItem): string | null;
+
+  /**
+   * Trigger the user-facing "open" action for a media item.
+   * - Tauri: opens the file with the OS default handler.
+   * - HTTP:  downloads via a transient `<a download>`.
+   */
+  openMedia(item: MediaItem): Promise<void>;
+
+  /**
+   * Show the media file in the OS file manager (Finder / Explorer).
+   * No-op on HTTP/Web — UIs should gate on {@link supportsLocalFileOps}.
+   */
+  revealMedia(item: MediaItem): Promise<void>;
+
+  /**
+   * Whether the transport supports local-file ops (open-in-app, reveal-in-folder).
+   * False in HTTP/Web mode — UIs should hide the "Reveal" action.
+   */
+  supportsLocalFileOps(): boolean;
 }
 
 /**

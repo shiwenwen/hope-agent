@@ -3,6 +3,10 @@ use axum::extract::{State, WebSocketUpgrade};
 use axum::response::IntoResponse;
 use std::sync::Arc;
 
+use oc_core::chat_engine::stream_broadcast::{
+    EVENT_CHANNEL_STREAM_DELTA, EVENT_CHAT_STREAM_DELTA,
+};
+
 use crate::AppContext;
 
 /// `WS /ws/events` — subscribes to the EventBus and forwards all `AppEvent`
@@ -28,6 +32,7 @@ async fn handle_events_socket(mut socket: WebSocket, ctx: Arc<AppContext>) {
 
     let mut rx = ctx.event_bus.subscribe();
     let mut lag_count: u32 = 0;
+    let api_key = ctx.api_key.clone();
 
     loop {
         tokio::select! {
@@ -35,9 +40,31 @@ async fn handle_events_socket(mut socket: WebSocket, ctx: Arc<AppContext>) {
                 match result {
                     Ok(event) => {
                         lag_count = 0;
-                        let json = match serde_json::to_string(&event) {
-                            Ok(j) => j,
-                            Err(_) => continue,
+                        // Only chat/channel stream deltas carry nested `payload.event`
+                        // strings with `media_items` that need `localPath` stripped
+                        // and `?token=` stamped. Everything else (session events,
+                        // logging, approvals…) skips the extra Value round-trip.
+                        let name = event.name.as_str();
+                        let json = if name == EVENT_CHAT_STREAM_DELTA
+                            || name == EVENT_CHANNEL_STREAM_DELTA
+                        {
+                            let mut event_val = match serde_json::to_value(&event) {
+                                Ok(v) => v,
+                                Err(_) => continue,
+                            };
+                            oc_core::agent::rewrite_envelope_event_for_http(
+                                &mut event_val,
+                                api_key.as_deref(),
+                            );
+                            match serde_json::to_string(&event_val) {
+                                Ok(j) => j,
+                                Err(_) => continue,
+                            }
+                        } else {
+                            match serde_json::to_string(&event) {
+                                Ok(j) => j,
+                                Err(_) => continue,
+                            }
                         };
                         // Disconnect slow clients instead of blocking the event loop.
                         let send_result = tokio::time::timeout(

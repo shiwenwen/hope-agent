@@ -73,7 +73,10 @@ impl ChannelPlugin for IMessagePlugin {
             supports_unsend: false,
             supports_reply: true,
             supports_threads: false,
-            supports_media: vec![MediaType::Photo, MediaType::Document],
+            // TODO: native iMessage media (AppleScript
+            // `send POSIX file`) not yet implemented. Dispatcher falls back
+            // to a download-link text for now.
+            supports_media: Vec::new(),
             supports_typing: true,
             supports_buttons: false,
             max_message_length: None,

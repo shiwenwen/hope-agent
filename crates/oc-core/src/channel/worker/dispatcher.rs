@@ -447,6 +447,13 @@ async fn handle_inbound_message(
     // 8. Create ChannelStreamSink + spawn streaming background task
     let (event_tx, event_rx) = mpsc::channel::<String>(512);
 
+    // Collected MediaItems from tool_result events (send_attachment / image_generate).
+    // Drained after `run_chat_engine` returns to deliver files through the
+    // channel's native media API.
+    let pending_media = std::sync::Arc::new(std::sync::Mutex::new(Vec::<
+        crate::attachments::MediaItem,
+    >::new()));
+
     let capabilities = plugin.capabilities();
     let preview_transport = select_stream_preview_transport(&msg.chat_type, &capabilities);
     let max_msg_len = capabilities.max_message_length.unwrap_or(4096);
@@ -506,6 +513,7 @@ async fn handle_inbound_message(
         event_sink: Arc::new(crate::chat_engine::ChannelStreamSink::new(
             session_id.clone(),
             event_tx,
+            pending_media.clone(),
         )),
     };
 
@@ -530,6 +538,19 @@ async fn handle_inbound_message(
         }
     };
 
+    // Late async tool completions that land after this drain are deferred
+    // to a future turn — intentional; we don't want a stale attachment
+    // from turn N leaking into turn N+1.
+    let media_snapshot: Vec<crate::attachments::MediaItem> = {
+        let mut guard = pending_media
+            .lock()
+            .unwrap_or_else(|e| {
+                app_warn!("channel", "worker", "pending_media poisoned: {}", e);
+                e.into_inner()
+            });
+        std::mem::take(&mut *guard)
+    };
+
     // 10. Process result — send final formatted response via sendMessage
     match result {
         Ok(engine_result) => {
@@ -540,16 +561,19 @@ async fn handle_inbound_message(
                 &msg,
                 response,
                 stream_outcome.preview_message_id.as_deref(),
+                &media_snapshot,
+                &capabilities,
             )
             .await;
 
             app_info!(
                 "channel",
                 "worker",
-                "[{}] Reply sent to {} ({} chars)",
+                "[{}] Reply sent to {} ({} chars, {} media)",
                 channel_id_str,
                 msg.chat_id,
-                response.len()
+                response.len(),
+                media_snapshot.len()
             );
         }
         Err(e) => {
@@ -598,16 +622,133 @@ async fn handle_inbound_message(
     Ok(())
 }
 
+/// Max number of media items delivered per IM turn. Protects against a
+/// runaway tool call blasting the channel. Excess items are logged and
+/// silently dropped (the user will still see the link in the text summary
+/// if the model appended one).
+const MAX_MEDIA_PER_TURN: usize = 5;
+
+/// Hard-limit text appended to the final reply when the channel can't
+/// deliver a media item natively (LINE/IRC without public URL, unsupported
+/// MIME). Each line: `📎 name — <url>` (or "unavailable" when no public URL
+/// is configured).
+fn build_media_fallback_lines(items: &[&crate::attachments::MediaItem]) -> Option<String> {
+    if items.is_empty() {
+        return None;
+    }
+    let cfg = crate::config::cached_config();
+    let public_base = cfg.server.public_base_url.as_deref().and_then(|s| {
+        let trimmed = s.trim_end_matches('/');
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
+    });
+    let mut lines = Vec::new();
+    lines.push("📎 Attachments:".to_string());
+    for it in items {
+        let link = public_base
+            .map(|base| format!("{}{}", base, it.url))
+            .unwrap_or_else(|| "(no public link configured)".to_string());
+        lines.push(format!("- {}: {}", it.name, link));
+    }
+    Some(lines.join("\n"))
+}
+
+/// Map a `MediaItem` to `MediaType` based on MIME/kind. Unknown MIMEs fall
+/// back to `Document` — a safe default supported by most channels.
+fn classify_media_type(it: &crate::attachments::MediaItem) -> MediaType {
+    use crate::attachments::MediaKind;
+    let mime = it.mime_type.to_ascii_lowercase();
+    if it.kind == MediaKind::Image || mime.starts_with("image/") {
+        if mime == "image/gif" {
+            // Telegram / Discord animate GIFs; `Photo` would lose animation.
+            return MediaType::Animation;
+        }
+        return MediaType::Photo;
+    }
+    if mime.starts_with("video/") {
+        return MediaType::Video;
+    }
+    if mime.starts_with("audio/") {
+        return MediaType::Audio;
+    }
+    MediaType::Document
+}
+
+/// Split MediaItems into (native-supported, fallback) buckets based on the
+/// channel's advertised capabilities. Unsupported items fall through to a
+/// text link — the dispatcher appends them to the final reply.
+///
+/// Exposed at module level (rather than hidden inside `send_final_reply`)
+/// so tests can pin down the partition behavior without spinning up a
+/// full channel plugin.
+pub(super) fn partition_media_by_channel<'a>(
+    items: &'a [crate::attachments::MediaItem],
+    caps: &ChannelCapabilities,
+) -> (Vec<(&'a crate::attachments::MediaItem, MediaType)>, Vec<&'a crate::attachments::MediaItem>) {
+    let mut native = Vec::new();
+    let mut fallback = Vec::new();
+    for it in items.iter().take(MAX_MEDIA_PER_TURN) {
+        let t = classify_media_type(it);
+        if caps.supports_media.contains(&t) {
+            native.push((it, t));
+        } else if t == MediaType::Animation && caps.supports_media.contains(&MediaType::Photo) {
+            // Animation → Photo fallback for channels without native GIF support.
+            native.push((it, MediaType::Photo));
+        } else {
+            fallback.push(it);
+        }
+    }
+    if items.len() > MAX_MEDIA_PER_TURN {
+        app_warn!(
+            "channel",
+            "worker",
+            "Dropping {} media item(s) — over MAX_MEDIA_PER_TURN={}",
+            items.len() - MAX_MEDIA_PER_TURN,
+            MAX_MEDIA_PER_TURN
+        );
+    }
+    (native, fallback)
+}
+
+/// Build an `OutboundMedia` from a `MediaItem`, preferring the absolute
+/// `local_path` (zero-copy for local-disk delivery). Falls back to the
+/// logical URL as a last resort so callers still get a reasonable payload
+/// when `local_path` is missing (e.g. re-sent from persisted state).
+fn to_outbound_media(
+    it: &crate::attachments::MediaItem,
+    media_type: MediaType,
+) -> OutboundMedia {
+    let data = match it.local_path.as_deref() {
+        Some(p) if !p.is_empty() => MediaData::FilePath(p.to_string()),
+        _ => MediaData::Url(it.url.clone()),
+    };
+    OutboundMedia {
+        media_type,
+        data,
+        caption: it.caption.clone(),
+    }
+}
+
 /// Send the final formatted response to the IM channel.
 ///
-/// Converts markdown to native format, chunks if needed, and sends via `send_message`.
-/// This is always the last step — drafts are just previews, `sendMessage` commits.
+/// Order of delivery per turn:
+/// 1. Text chunks (markdown → native formatting → split).
+/// 2. One `send_message` per native-supported media item.
+/// 3. A final text message with download links for unsupported media (if any).
+///
+/// A 50 ms gap between sends is intentional: most IM APIs rate-limit per
+/// chat, and a tight loop trips flood protections on Telegram / LINE.
 async fn send_final_reply(
     plugin: &Arc<dyn ChannelPlugin>,
     account_id: &str,
     msg: &MsgContext,
     response: &str,
     preview_message_id: Option<&str>,
+    pending_media: &[crate::attachments::MediaItem],
+    caps: &ChannelCapabilities,
 ) {
     let native_text = plugin.markdown_to_native(response);
     let chunks = plugin.chunk_message(&native_text);
@@ -675,5 +816,160 @@ async fn send_final_reply(
                 app_error!("channel", "worker", "Send error: {}", e);
             }
         }
+    }
+
+    if pending_media.is_empty() {
+        return;
+    }
+
+    let (native_items, fallback_items) = partition_media_by_channel(pending_media, caps);
+
+    for (it, t) in &native_items {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let payload = ReplyPayload {
+            text: None,
+            media: vec![to_outbound_media(it, t.clone())],
+            reply_to_message_id: None,
+            parse_mode: None,
+            buttons: Vec::new(),
+            thread_id: msg.thread_id.clone(),
+            draft_id: None,
+        };
+        match plugin
+            .send_message(account_id, &msg.chat_id, &payload)
+            .await
+        {
+            Ok(r) if !r.success => {
+                app_warn!(
+                    "channel",
+                    "worker",
+                    "Media send failed ({}): {}",
+                    it.name,
+                    r.error.unwrap_or_default()
+                );
+            }
+            Err(e) => {
+                app_error!("channel", "worker", "Media send error ({}): {}", it.name, e);
+            }
+            Ok(_) => {}
+        }
+    }
+
+    if let Some(text) = build_media_fallback_lines(&fallback_items) {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let payload = ReplyPayload {
+            text: Some(text),
+            reply_to_message_id: None,
+            thread_id: msg.thread_id.clone(),
+            parse_mode: None,
+            buttons: Vec::new(),
+            media: Vec::new(),
+            draft_id: None,
+        };
+        let _ = plugin
+            .send_message(account_id, &msg.chat_id, &payload)
+            .await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::attachments::{MediaItem, MediaKind};
+
+    fn mk_item(name: &str, mime: &str, kind: MediaKind) -> MediaItem {
+        MediaItem {
+            url: format!("/api/attachments/s/{}", name),
+            local_path: Some(format!("/tmp/{}", name)),
+            name: name.to_string(),
+            mime_type: mime.to_string(),
+            size_bytes: 42,
+            kind,
+            caption: None,
+        }
+    }
+
+    fn caps(supported: Vec<MediaType>) -> ChannelCapabilities {
+        ChannelCapabilities {
+            chat_types: Vec::new(),
+            supports_polls: false,
+            supports_reactions: false,
+            supports_draft: false,
+            supports_edit: false,
+            supports_unsend: false,
+            supports_reply: false,
+            supports_threads: false,
+            supports_media: supported,
+            supports_typing: false,
+            supports_buttons: false,
+            max_message_length: None,
+        }
+    }
+
+    #[test]
+    fn classifies_images_videos_documents() {
+        assert_eq!(
+            classify_media_type(&mk_item("a.png", "image/png", MediaKind::Image)),
+            MediaType::Photo
+        );
+        assert_eq!(
+            classify_media_type(&mk_item("a.gif", "image/gif", MediaKind::Image)),
+            MediaType::Animation
+        );
+        assert_eq!(
+            classify_media_type(&mk_item("a.mp4", "video/mp4", MediaKind::File)),
+            MediaType::Video
+        );
+        assert_eq!(
+            classify_media_type(&mk_item("a.wav", "audio/wav", MediaKind::File)),
+            MediaType::Audio
+        );
+        assert_eq!(
+            classify_media_type(&mk_item("a.pdf", "application/pdf", MediaKind::File)),
+            MediaType::Document
+        );
+    }
+
+    #[test]
+    fn partitions_by_capabilities() {
+        let items = vec![
+            mk_item("a.png", "image/png", MediaKind::Image),
+            mk_item("a.mp4", "video/mp4", MediaKind::File),
+            mk_item("a.pdf", "application/pdf", MediaKind::File),
+        ];
+        // Channel supports only Photo.
+        let (native, fallback) =
+            partition_media_by_channel(&items, &caps(vec![MediaType::Photo]));
+        assert_eq!(native.len(), 1);
+        assert_eq!(native[0].1, MediaType::Photo);
+        assert_eq!(fallback.len(), 2);
+    }
+
+    #[test]
+    fn animation_falls_back_to_photo_when_channel_lacks_animation() {
+        let items = vec![mk_item("a.gif", "image/gif", MediaKind::Image)];
+        let (native, fallback) =
+            partition_media_by_channel(&items, &caps(vec![MediaType::Photo]));
+        assert_eq!(native.len(), 1);
+        assert_eq!(native[0].1, MediaType::Photo);
+        assert!(fallback.is_empty());
+    }
+
+    #[test]
+    fn drops_media_beyond_max_per_turn() {
+        let items: Vec<_> = (0..(MAX_MEDIA_PER_TURN + 3))
+            .map(|i| mk_item(&format!("f{}.pdf", i), "application/pdf", MediaKind::File))
+            .collect();
+        let (native, fallback) =
+            partition_media_by_channel(&items, &caps(vec![MediaType::Document]));
+        assert_eq!(native.len(), MAX_MEDIA_PER_TURN);
+        assert!(fallback.is_empty());
+    }
+
+    #[test]
+    fn outbound_prefers_local_path() {
+        let it = mk_item("x.pdf", "application/pdf", MediaKind::File);
+        let out = to_outbound_media(&it, MediaType::Document);
+        assert!(matches!(out.data, MediaData::FilePath(_)));
     }
 }

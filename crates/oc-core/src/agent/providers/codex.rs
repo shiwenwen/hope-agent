@@ -14,7 +14,7 @@ use super::super::content::build_user_content_responses;
 use super::super::errors::{is_retryable_error, os_version, parse_error_response};
 use super::super::events::{
     build_responses_tool_result, emit_max_rounds_notice, emit_tool_call, emit_tool_result,
-    emit_usage, extract_media_items, extract_media_urls,
+    emit_usage, extract_media_items,
 };
 use super::super::types::{AssistantAgent, Attachment, ChatUsage};
 use super::tool_exec_helpers::{execute_tool_with_cancel, log_tool_input, log_tool_output};
@@ -460,8 +460,7 @@ impl AssistantAgent {
                 for (call_id, name, arguments, result, elapsed_ms) in results {
                     log_tool_output(&call_id, &name, &result, elapsed_ms, round);
                     let is_tool_error = result.starts_with("Tool error:");
-                    let (clean_result, media_urls) = extract_media_urls(&result);
-                    let (clean_result, media_items) = extract_media_items(&clean_result);
+                    let (clean_result, media_items) = extract_media_items(&result);
                     emit_tool_result(
                         on_delta,
                         &call_id,
@@ -469,7 +468,6 @@ impl AssistantAgent {
                         &clean_result,
                         elapsed_ms,
                         is_tool_error,
-                        &media_urls,
                         &media_items,
                     );
 
@@ -518,8 +516,7 @@ impl AssistantAgent {
 
                 log_tool_output(&tc.call_id, &tc.name, &result, tool_elapsed_ms, round);
                 let is_tool_error = result.starts_with("Tool error:");
-                let (clean_result, media_urls) = extract_media_urls(&result);
-                let (clean_result, media_items) = extract_media_items(&clean_result);
+                let (clean_result, media_items) = extract_media_items(&result);
                 emit_tool_result(
                     on_delta,
                     &tc.call_id,
@@ -527,7 +524,6 @@ impl AssistantAgent {
                     &clean_result,
                     tool_elapsed_ms,
                     is_tool_error,
-                    &media_urls,
                     &media_items,
                 );
 

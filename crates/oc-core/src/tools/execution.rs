@@ -480,7 +480,7 @@ pub async fn execute_tool_with_context(
             TOOL_SESSIONS_HISTORY => sessions::tool_sessions_history(args).await,
             TOOL_SESSIONS_SEND => Box::pin(sessions::tool_sessions_send(args, ctx)).await,
             TOOL_IMAGE => image::tool_image(args).await,
-            TOOL_IMAGE_GENERATE => image_generate::tool_image_generate(args).await,
+            TOOL_IMAGE_GENERATE => image_generate::tool_image_generate(args, ctx).await,
             TOOL_PDF => pdf::tool_pdf(args).await,
             TOOL_CANVAS => canvas::tool_canvas(args, ctx).await,
             TOOL_GET_WEATHER => weather::tool_get_weather(args).await,

@@ -33,6 +33,10 @@ pub struct AppContext {
     pub chat_streams: Arc<ws::chat_stream::ChatStreamRegistry>,
     /// Per-session cancel flags. Key = session_id.
     pub chat_cancels: Arc<RwLock<HashMap<String, Arc<AtomicBool>>>>,
+    /// API key used by middleware auth, reused by attachment URL rewrite to
+    /// stamp `?token=` onto `/api/attachments/*` URLs emitted in events.
+    /// `None` when server runs in no-auth mode.
+    pub api_key: Option<String>,
 }
 
 // ── Router Builder ──────────────────────────────────────────────
@@ -172,6 +176,13 @@ fn build_router_with_cors(
             "/chat/attachment",
             post(routes::chat::save_attachment)
                 .layer(DefaultBodyLimit::max(25 * 1024 * 1024)),
+        )
+        // Attachment download (serves session-scoped files under
+        // ~/.opencomputer/attachments/{session_id}/) — the logical URL
+        // form emitted in `__MEDIA_ITEMS__` events.
+        .route(
+            "/attachments/{session_id}/{filename}",
+            get(routes::attachments::download),
         )
         .route("/chat/system-prompt", get(routes::chat::get_system_prompt))
         .route("/system-prompt", post(routes::chat::get_system_prompt_post))

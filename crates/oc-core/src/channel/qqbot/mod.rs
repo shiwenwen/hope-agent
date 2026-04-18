@@ -93,12 +93,10 @@ impl ChannelPlugin for QqBotPlugin {
             supports_polls: false,
             supports_reactions: false,
             max_message_length: Some(4096),
-            supports_media: vec![
-                MediaType::Photo,
-                MediaType::Video,
-                MediaType::Document,
-                MediaType::Voice,
-            ],
+            // TODO: native QQ Bot media (v2 groups/messages msg_type=7
+            // + channels multipart file_image) not yet implemented.
+            // Dispatcher falls back to a download-link text for now.
+            supports_media: Vec::new(),
         }
     }
 

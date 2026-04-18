@@ -118,12 +118,10 @@ impl ChannelPlugin for LinePlugin {
             supports_unsend: false,
             supports_reply: true,
             supports_threads: false,
-            supports_media: vec![
-                MediaType::Photo,
-                MediaType::Video,
-                MediaType::Audio,
-                MediaType::Document,
-            ],
+            // TODO: native LINE media (imageMessage / videoMessage)
+            // not yet implemented. Note LINE requires an HTTPS public URL —
+            // the fallback text already uses `public_base_url` from config.
+            supports_media: Vec::new(),
             supports_typing: false,
             supports_buttons: true,
             max_message_length: Some(5000),

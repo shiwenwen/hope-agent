@@ -89,12 +89,10 @@ impl ChannelPlugin for WhatsAppPlugin {
             supports_unsend: false,
             supports_reply: true,
             supports_threads: false,
-            supports_media: vec![
-                MediaType::Photo,
-                MediaType::Video,
-                MediaType::Audio,
-                MediaType::Document,
-            ],
+            // TODO: native WhatsApp media (Cloud API two-step upload →
+            // messages) not yet implemented. Dispatcher falls back to a
+            // download-link text for now.
+            supports_media: Vec::new(),
             supports_typing: true,
             supports_buttons: false,
             max_message_length: Some(65536),

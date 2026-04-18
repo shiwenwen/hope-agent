@@ -6,10 +6,11 @@ use serde_json::Value;
 use super::helpers::*;
 use super::output::*;
 use super::types::*;
+use crate::tools::execution::ToolExecContext;
 
 // ── Tool Entry Point (with Failover) ────────────────────────────
 
-pub(crate) async fn tool_image_generate(args: &Value) -> Result<String> {
+pub(crate) async fn tool_image_generate(args: &Value, ctx: &ToolExecContext) -> Result<String> {
     let config = crate::config::cached_config().image_generate.clone();
 
     // Parse action
@@ -245,6 +246,7 @@ pub(crate) async fn tool_image_generate(args: &Value) -> Result<String> {
                         effective_resolution,
                         is_edit,
                         &failover_log,
+                        ctx.session_id.as_deref(),
                     );
                 }
                 Err(e) => {

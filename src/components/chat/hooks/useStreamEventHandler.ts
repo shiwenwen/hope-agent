@@ -165,7 +165,6 @@ export function handleStreamEvent(
         break
       }
       case "tool_result": {
-        const mediaUrls: string[] | undefined = (event.media_urls as string[])?.length ? (event.media_urls as string[]) : undefined
         const mediaItems: MediaItem[] | undefined =
           Array.isArray(event.media_items) && (event.media_items as MediaItem[]).length
             ? (event.media_items as MediaItem[])
@@ -179,7 +178,6 @@ export function handleStreamEvent(
           calls[idx] = {
             ...calls[idx],
             result: event.result as string,
-            ...(mediaUrls && { mediaUrls }),
             ...(mediaItems && { mediaItems }),
             ...(resolvedDurationMs != null ? { durationMs: resolvedDurationMs } : {}),
           }
@@ -191,14 +189,13 @@ export function handleStreamEvent(
         if (blockIdx >= 0) {
           const block = blocks[blockIdx] as {
             type: "tool_call"
-            tool: { callId: string; name: string; arguments: string; result?: string; mediaUrls?: string[]; mediaItems?: MediaItem[] }
+            tool: { callId: string; name: string; arguments: string; result?: string; mediaItems?: MediaItem[] }
           }
           blocks[blockIdx] = {
             type: "tool_call",
             tool: {
               ...block.tool,
               result: event.result as string,
-              ...(mediaUrls && { mediaUrls }),
               ...(mediaItems && { mediaItems }),
               ...(resolvedDurationMs != null ? { durationMs: resolvedDurationMs } : {}),
             },

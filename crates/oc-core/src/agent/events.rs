@@ -37,26 +37,12 @@ pub(super) fn emit_tool_call(
     );
 }
 
-/// Media URL prefix used by tools (e.g. image_generate) to embed file paths in results.
-const MEDIA_URLS_PREFIX: &str = "__MEDIA_URLS__";
-
-/// Structured media items prefix — richer than `__MEDIA_URLS__` (carries name / mimeType / sizeBytes / kind).
-/// Used by `send_attachment` and future tools that need the frontend to render a file card.
+/// Structured media items prefix — the single unified attachment channel for
+/// tool outputs (image_generate, send_attachment, future media tools).
+/// Carries filename, MIME, size, kind, `local_path`, and optional caption
+/// so all downstream consumers (Tauri FileCard, HTTP download route, IM
+/// dispatcher) share one shape.
 pub(crate) const MEDIA_ITEMS_PREFIX: &str = "__MEDIA_ITEMS__";
-
-/// Extract media URLs from a tool result string.
-/// Returns (clean_result, media_urls).
-/// If the result starts with `__MEDIA_URLS__[...]`, the JSON array is parsed and removed.
-pub(super) fn extract_media_urls(result: &str) -> (String, Vec<String>) {
-    if let Some(rest) = result.strip_prefix(MEDIA_URLS_PREFIX) {
-        if let Some((json_line, text)) = rest.split_once('\n') {
-            if let Ok(urls) = serde_json::from_str::<Vec<String>>(json_line) {
-                return (text.to_string(), urls);
-            }
-        }
-    }
-    (result.to_string(), Vec::new())
-}
 
 /// Extract structured media items from a tool result string.
 /// Returns (clean_result, media_items).
@@ -79,7 +65,6 @@ pub(super) fn emit_tool_result(
     result: &str,
     duration_ms: u64,
     is_error: bool,
-    media_urls: &[String],
     media_items: &[MediaItem],
 ) {
     let mut event = json!({
@@ -90,9 +75,6 @@ pub(super) fn emit_tool_result(
         "duration_ms": duration_ms,
         "is_error": is_error,
     });
-    if !media_urls.is_empty() {
-        event["media_urls"] = json!(media_urls);
-    }
     if !media_items.is_empty() {
         event["media_items"] = json!(media_items);
     }

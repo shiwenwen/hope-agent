@@ -1,15 +1,7 @@
-//! `send_attachment` tool — let the model push a file attachment to the user
-//! in the frontend chat UI as a downloadable file card.
-//!
-//! Scope: desktop (Tauri) UI sessions only. IM channel sessions must use
-//! their own native media path (Telegram/WeChat/etc. handle attachments via
-//! the channel plugin's `ReplyPayload.media`), so this tool is blocked
-//! when the session is bound to a channel — defense-in-depth matching the
-//! schema-level filter in `AssistantAgent::build_tool_schemas`.
-//!
-//! Input: absolute path to an existing file inside the user's home dir.
-//! Output: copied into `~/.opencomputer/attachments/{session_id}/` and
-//! surfaced to the frontend via the `__MEDIA_ITEMS__` result prefix.
+//! `send_attachment` — model pushes a file (from server-local path) to the
+//! user. Copies into the session attachments dir and emits a
+//! `__MEDIA_ITEMS__` header carrying logical `url` + `local_path`; the
+//! downstream sink / dispatcher handles transport-specific delivery.
 
 use anyhow::{anyhow, Context, Result};
 use serde_json::Value;
@@ -17,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use super::execution::ToolExecContext;
 use crate::agent::MEDIA_ITEMS_PREFIX;
-use crate::attachments::{MediaItem, MediaKind};
+use crate::attachments::{self, MediaItem, MediaKind};
 
 /// 20 MB — aligned with `project::files::MAX_PROJECT_FILE_BYTES`.
 const MAX_ATTACHMENT_BYTES: u64 = 20 * 1024 * 1024;
@@ -26,23 +18,10 @@ const MAX_ATTACHMENT_BYTES: u64 = 20 * 1024 * 1024;
 const MAX_DESCRIPTION_CHARS: usize = 200;
 
 pub(crate) async fn tool_send_attachment(args: &Value, ctx: &ToolExecContext) -> Result<String> {
-    // ── IM session guard (defense-in-depth) ───────────────────────
     let session_id = ctx
         .session_id
         .clone()
-        .ok_or_else(|| anyhow!("send_attachment requires a session; it is only available in the desktop UI."))?;
-
-    if let Some(db) = crate::globals::get_session_db() {
-        if let Some(meta) = db.get_session(&session_id)? {
-            if meta.channel_info.is_some() {
-                return Err(anyhow!(
-                    "send_attachment is not available in IM channel sessions. \
-                     The channel plugin handles media natively — produce the file \
-                     and reference it by path in text, or use image_generate for images."
-                ));
-            }
-        }
-    }
+        .ok_or_else(|| anyhow!("send_attachment requires an active session."))?;
 
     // ── Parse args ───────────────────────────────────────────────
     let path_arg = args
@@ -124,7 +103,7 @@ pub(crate) async fn tool_send_attachment(args: &Value, ctx: &ToolExecContext) ->
         .map(|s| s.to_string())
         .unwrap_or_else(|| source_basename.clone());
 
-    let mime_type = sniff_mime(&data, &canonical);
+    let mime_type = attachments::sniff_mime(&data, &canonical);
     let kind = if mime_type.starts_with("image/") {
         MediaKind::Image
     } else {
@@ -139,14 +118,15 @@ pub(crate) async fn tool_send_attachment(args: &Value, ctx: &ToolExecContext) ->
     )
     .with_context(|| "send_attachment: failed to persist attachment")?;
 
-    // ── Build structured result ──────────────────────────────────
-    let item = MediaItem {
-        url: saved_path.clone(),
-        name: display_name.clone(),
-        mime_type: mime_type.clone(),
+    let item = MediaItem::from_saved_path(
+        Some(&session_id),
+        &saved_path,
+        &display_name,
+        mime_type.clone(),
         size_bytes,
         kind,
-    };
+        description.clone(),
+    );
     let items = vec![item];
     let items_json = serde_json::to_string(&items).unwrap_or_else(|_| "[]".to_string());
 
@@ -192,108 +172,6 @@ fn is_sensitive_path(canonical: &Path, canonical_home: &Path) -> bool {
     false
 }
 
-/// Sniff MIME from magic bytes first, fall back to extension, then
-/// `application/octet-stream` as a last resort.
-fn sniff_mime(data: &[u8], path: &Path) -> String {
-    if let Some(m) = sniff_mime_magic(data) {
-        return m.to_string();
-    }
-    if let Some(ext) = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|s| s.to_ascii_lowercase())
-    {
-        if let Some(m) = mime_from_extension(&ext) {
-            return m.to_string();
-        }
-    }
-    "application/octet-stream".to_string()
-}
-
-fn sniff_mime_magic(data: &[u8]) -> Option<&'static str> {
-    if data.len() >= 8 && &data[..8] == b"\x89PNG\r\n\x1a\n" {
-        return Some("image/png");
-    }
-    if data.len() >= 3 && &data[..3] == b"\xFF\xD8\xFF" {
-        return Some("image/jpeg");
-    }
-    if data.len() >= 6 && (&data[..6] == b"GIF87a" || &data[..6] == b"GIF89a") {
-        return Some("image/gif");
-    }
-    if data.len() >= 12 && &data[..4] == b"RIFF" && &data[8..12] == b"WEBP" {
-        return Some("image/webp");
-    }
-    if data.len() >= 2 && &data[..2] == b"BM" {
-        return Some("image/bmp");
-    }
-    if data.len() >= 4 && &data[..4] == b"%PDF" {
-        return Some("application/pdf");
-    }
-    // ZIP family (also matches docx / xlsx / pptx / odt — callers can drill
-    // down if needed; a generic application/zip is fine for display).
-    if data.len() >= 4 && &data[..4] == b"PK\x03\x04" {
-        return Some("application/zip");
-    }
-    // gzip
-    if data.len() >= 2 && &data[..2] == b"\x1F\x8B" {
-        return Some("application/gzip");
-    }
-    // 7-Zip
-    if data.len() >= 6 && &data[..6] == b"7z\xBC\xAF\x27\x1C" {
-        return Some("application/x-7z-compressed");
-    }
-    // RAR 5.x
-    if data.len() >= 8 && &data[..7] == b"Rar!\x1A\x07\x01" {
-        return Some("application/vnd.rar");
-    }
-    // MP4 / QuickTime (ftyp box at offset 4)
-    if data.len() >= 12 && &data[4..8] == b"ftyp" {
-        return Some("video/mp4");
-    }
-    None
-}
-
-fn mime_from_extension(ext: &str) -> Option<&'static str> {
-    Some(match ext {
-        "pdf" => "application/pdf",
-        "txt" | "log" | "md" => "text/plain",
-        "csv" => "text/csv",
-        "json" => "application/json",
-        "xml" => "application/xml",
-        "html" | "htm" => "text/html",
-        "js" | "mjs" => "application/javascript",
-        "ts" | "tsx" => "text/typescript",
-        "py" => "text/x-python",
-        "rs" => "text/rust",
-        "go" => "text/x-go",
-        "sh" | "bash" | "zsh" => "application/x-sh",
-        "zip" => "application/zip",
-        "gz" | "tgz" => "application/gzip",
-        "tar" => "application/x-tar",
-        "7z" => "application/x-7z-compressed",
-        "rar" => "application/vnd.rar",
-        "doc" => "application/msword",
-        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "xls" => "application/vnd.ms-excel",
-        "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "ppt" => "application/vnd.ms-powerpoint",
-        "pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
-        "gif" => "image/gif",
-        "webp" => "image/webp",
-        "bmp" => "image/bmp",
-        "svg" => "image/svg+xml",
-        "mp3" => "audio/mpeg",
-        "wav" => "audio/wav",
-        "ogg" => "audio/ogg",
-        "mp4" => "video/mp4",
-        "mov" => "video/quicktime",
-        "webm" => "video/webm",
-        _ => return None,
-    })
-}
-
 fn format_bytes(n: u64) -> String {
     const KB: u64 = 1024;
     const MB: u64 = 1024 * 1024;
@@ -309,39 +187,6 @@ fn format_bytes(n: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn sniff_png_magic() {
-        let data = b"\x89PNG\r\n\x1a\nrest";
-        assert_eq!(
-            sniff_mime(data, Path::new("x")),
-            "image/png"
-        );
-    }
-
-    #[test]
-    fn sniff_pdf_magic() {
-        let data = b"%PDF-1.4\n...";
-        assert_eq!(
-            sniff_mime(data, Path::new("x.bin")),
-            "application/pdf"
-        );
-    }
-
-    #[test]
-    fn sniff_fallback_ext() {
-        let data = b"plain text body";
-        assert_eq!(sniff_mime(data, Path::new("/tmp/foo.txt")), "text/plain");
-    }
-
-    #[test]
-    fn sniff_fallback_octet_stream() {
-        let data = b"\x00\x01\x02unknown";
-        assert_eq!(
-            sniff_mime(data, Path::new("/tmp/x")),
-            "application/octet-stream"
-        );
-    }
 
     #[test]
     fn format_bytes_basic() {

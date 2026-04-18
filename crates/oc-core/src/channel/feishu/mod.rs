@@ -92,7 +92,10 @@ impl ChannelPlugin for FeishuPlugin {
             supports_unsend: true,
             supports_reply: true,
             supports_threads: false,
-            supports_media: vec![MediaType::Photo, MediaType::Document],
+            // TODO: native Feishu media (im/v1/images + im/v1/files)
+            // not yet implemented. Dispatcher falls back to a download-link
+            // text for now.
+            supports_media: Vec::new(),
             supports_typing: false,
             supports_buttons: true,
             max_message_length: Some(4096),

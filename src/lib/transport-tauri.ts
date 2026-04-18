@@ -5,9 +5,10 @@
  * `@tauri-apps/api/event` listen into the Transport interface.
  */
 
-import { invoke, Channel } from "@tauri-apps/api/core";
+import { invoke, Channel, convertFileSrc } from "@tauri-apps/api/core";
 import { listen as tauriListen } from "@tauri-apps/api/event";
 import type { Transport, ChatStream } from "@/lib/transport";
+import type { MediaItem } from "@/types/chat";
 
 export class TauriTransport implements Transport {
   // ----- call -----
@@ -51,6 +52,38 @@ export class TauriTransport implements Transport {
     };
 
     return handle;
+  }
+
+  // ----- media -----
+
+  resolveMediaUrl(item: MediaItem): string | null {
+    const source = this.localSourceFor(item);
+    return source ? convertFileSrc(source) : null;
+  }
+
+  async openMedia(item: MediaItem): Promise<void> {
+    const path = this.localSourceFor(item);
+    if (!path) return;
+    await invoke("open_directory", { path });
+  }
+
+  async revealMedia(item: MediaItem): Promise<void> {
+    const path = this.localSourceFor(item);
+    if (!path) return;
+    await invoke("reveal_in_folder", { path });
+  }
+
+  supportsLocalFileOps(): boolean {
+    return true;
+  }
+
+  /** Absolute server-side path for Tauri file ops. Legacy items may carry
+   *  an absolute path in `url`; items produced after URL migration carry
+   *  `/api/attachments/...` there and the absolute path in `localPath`. */
+  private localSourceFor(item: MediaItem): string | null {
+    if (item.localPath) return item.localPath;
+    if (item.url && !item.url.startsWith("/api/")) return item.url;
+    return null;
   }
 
   // ----- listen -----

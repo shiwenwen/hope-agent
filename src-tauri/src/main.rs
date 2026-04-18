@@ -302,6 +302,7 @@ fn run_server(args: &[String]) {
         event_bus,
         chat_streams: Arc::new(oc_server::ws::chat_stream::ChatStreamRegistry::new()),
         chat_cancels: Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
+        api_key: api_key.clone(),
     });
 
     let config = oc_server::ServerConfig {

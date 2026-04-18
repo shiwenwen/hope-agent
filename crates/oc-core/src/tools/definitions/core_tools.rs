@@ -1088,13 +1088,15 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                 "additionalProperties": false
             }),
         },
-        // ── Send Attachment (desktop UI file delivery) ───────────
+        // ── Send Attachment (universal file delivery) ────────────
         ToolDefinition {
             name: TOOL_SEND_ATTACHMENT.into(),
-            description: "Deliver a file attachment to the user in the chat UI as a downloadable card (PDF, archive, doc, log dump, any binary). \
-                          Copies the file into the session's attachments directory and surfaces it as an interactive card with open / reveal-in-folder actions. \
-                          Use this after producing a file with exec/write when you want the user to easily save or open the output. \
-                          NOT available in IM channel sessions — those use the channel plugin's native media sending.".into(),
+            description: "Deliver a file attachment to the user (PDF, archive, doc, image, any binary). \
+                          Works across all transports: desktop (FileCard + open/reveal), Web (authenticated download URL, \
+                          inline preview for images/video/PDF), and IM channels (native media via Telegram / WeChat / \
+                          Discord / Slack / Feishu / etc. — automatically falls back to a download link when the channel \
+                          doesn't support the MIME type). Copies the file into the session's attachments directory. \
+                          The `path` argument is always a server-local absolute path.".into(),
             internal: true,
             deferred: false,
             always_load: false,

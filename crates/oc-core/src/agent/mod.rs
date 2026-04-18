@@ -4,9 +4,11 @@ mod config;
 mod content;
 mod context;
 mod errors;
+mod event_rewrite;
 mod events;
 
 pub(crate) use events::MEDIA_ITEMS_PREFIX;
+pub use event_rewrite::{rewrite_envelope_event_for_http, rewrite_event_for_http};
 mod providers;
 mod side_query;
 mod types;
@@ -92,7 +94,6 @@ impl AssistantAgent {
             agent_caps_cache: std::sync::Mutex::new(None),
             awareness: std::sync::Mutex::new(None),
             awareness_suffix: std::sync::Mutex::new(None),
-            channel_session_cached: std::sync::OnceLock::new(),
             active_memory_state: std::sync::Arc::new(
                 active_memory::ActiveMemoryState::new(),
             ),
@@ -144,7 +145,6 @@ impl AssistantAgent {
             agent_caps_cache: std::sync::Mutex::new(None),
             awareness: std::sync::Mutex::new(None),
             awareness_suffix: std::sync::Mutex::new(None),
-            channel_session_cached: std::sync::OnceLock::new(),
             active_memory_state: std::sync::Arc::new(
                 active_memory::ActiveMemoryState::new(),
             ),
@@ -255,7 +255,6 @@ impl AssistantAgent {
             agent_caps_cache: std::sync::Mutex::new(None),
             awareness: std::sync::Mutex::new(None),
             awareness_suffix: std::sync::Mutex::new(None),
-            channel_session_cached: std::sync::OnceLock::new(),
             active_memory_state: std::sync::Arc::new(
                 active_memory::ActiveMemoryState::new(),
             ),
@@ -371,7 +370,6 @@ impl AssistantAgent {
     /// Set the current session ID (for sub-agent context propagation).
     pub fn set_session_id(&mut self, id: &str) {
         self.session_id = Some(id.to_string());
-        self.channel_session_cached = std::sync::OnceLock::new();
         self.init_awareness();
     }
 
@@ -923,33 +921,7 @@ impl AssistantAgent {
             )
         });
 
-        // IM channel sessions must not see `send_attachment` — IM plugins have
-        // their own native media path, and the tool refuses to run there
-        // anyway (defense-in-depth at the execution layer too).
-        if self.is_channel_session() {
-            schemas.retain(|t| extract_tool_name(t) != tools::TOOL_SEND_ATTACHMENT);
-        }
-
         schemas
-    }
-
-    /// Whether the current session is bound to an IM channel conversation.
-    /// Result is memoized per agent — the SessionDB read happens at most once
-    /// per `set_session_id`. Missing SessionDB or missing session row both
-    /// fall back to `false` (non-channel).
-    fn is_channel_session(&self) -> bool {
-        *self.channel_session_cached.get_or_init(|| {
-            let Some(sid) = self.session_id.as_deref() else {
-                return false;
-            };
-            let Some(db) = crate::globals::get_session_db() else {
-                return false;
-            };
-            matches!(
-                db.get_session(sid),
-                Ok(Some(meta)) if meta.channel_info.is_some()
-            )
-        })
     }
 
     /// Build the full system prompt, including any extra context.

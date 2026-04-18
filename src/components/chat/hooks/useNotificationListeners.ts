@@ -6,6 +6,7 @@ import { parseSessionMessages } from "../chatUtils"
 import { PAGE_SIZE } from "../useChatSession"
 import type {
   Message,
+  MediaItem,
   SessionMessage,
   ParentAgentStreamEvent,
 } from "@/types/chat"
@@ -115,7 +116,10 @@ export function useNotificationListeners(deps: UseNotificationListenersDeps) {
               const updated = [...prev]
               const last = updated[updated.length - 1]
               if (last?.role === "assistant" && last.toolCalls) {
-                const mediaUrls: string[] | undefined = ev.media_urls?.length ? ev.media_urls : undefined
+                const mediaItems: MediaItem[] | undefined =
+                  Array.isArray(ev.media_items) && (ev.media_items as MediaItem[]).length
+                    ? (ev.media_items as MediaItem[])
+                    : undefined
                 const current = last.toolCalls.find((tc) => tc.callId === ev.call_id)
                 const resolvedDurationMs = ev.duration_ms ?? (
                   current?.startedAtMs ? Date.now() - current.startedAtMs : undefined
@@ -125,7 +129,7 @@ export function useNotificationListeners(deps: UseNotificationListenersDeps) {
                     ? {
                         ...tc,
                         result: ev.result,
-                        ...(mediaUrls && { mediaUrls }),
+                        ...(mediaItems && { mediaItems }),
                         ...(resolvedDurationMs != null ? { durationMs: resolvedDurationMs } : {}),
                       }
                     : tc,
@@ -137,7 +141,7 @@ export function useNotificationListeners(deps: UseNotificationListenersDeps) {
                         tool: {
                           ...b.tool!,
                           result: ev.result,
-                          ...(mediaUrls && { mediaUrls }),
+                          ...(mediaItems && { mediaItems }),
                           ...(resolvedDurationMs != null ? { durationMs: resolvedDurationMs } : {}),
                         },
                       }

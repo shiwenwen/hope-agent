@@ -123,22 +123,24 @@ function FileMimeIcon({ mime, name, className }: { mime: string; name: string; c
  *  that emits structured media items via the `__MEDIA_ITEMS__` prefix. */
 function FileCard({ item }: { item: MediaItem }) {
   const { t } = useTranslation()
+  const transport = getTransport()
+  const canRevealLocal = transport.supportsLocalFileOps()
 
   const handleOpen = useCallback(async () => {
     try {
-      await getTransport().call("open_directory", { path: item.url })
+      await transport.openMedia(item)
     } catch (e) {
       logger.error("chat", "FileCard::open", "Failed to open attachment", e)
     }
-  }, [item.url])
+  }, [item, transport])
 
   const handleReveal = useCallback(async () => {
     try {
-      await getTransport().call("reveal_in_folder", { path: item.url })
+      await transport.revealMedia(item)
     } catch (e) {
       logger.error("chat", "FileCard::reveal", "Failed to reveal attachment", e)
     }
-  }, [item.url])
+  }, [item, transport])
 
   return (
     <div className="inline-flex items-center gap-2 max-w-sm rounded-md border border-border/50 bg-secondary/30 hover:bg-secondary/50 transition-colors px-2.5 py-1.5 text-xs">
@@ -169,15 +171,17 @@ function FileCard({ item }: { item: MediaItem }) {
             <Download className="h-3.5 w-3.5" />
           </button>
         </IconTip>
-        <IconTip label={t("chat.revealInFolder")}>
-          <button
-            type="button"
-            onClick={handleReveal}
-            className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <FolderOpen className="h-3.5 w-3.5" />
-          </button>
-        </IconTip>
+        {canRevealLocal && (
+          <IconTip label={t("chat.revealInFolder")}>
+            <button
+              type="button"
+              onClick={handleReveal}
+              className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <FolderOpen className="h-3.5 w-3.5" />
+            </button>
+          </IconTip>
+        )}
       </div>
     </div>
   )

@@ -2,6 +2,7 @@ pub mod helpers;
 
 pub mod acp;
 pub mod agents;
+pub mod attachments;
 pub mod auth;
 pub mod browser;
 pub mod canvas;

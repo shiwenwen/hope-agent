@@ -97,7 +97,10 @@ impl ChannelPlugin for SlackPlugin {
             supports_polls: false,
             supports_reactions: false,
             max_message_length: Some(4000),
-            supports_media: vec![MediaType::Photo, MediaType::Video, MediaType::Document],
+            // TODO: native Slack media (files.getUploadURLExternal +
+            // files.completeUploadExternal) not yet implemented. Dispatcher
+            // falls back to a download-link text for now.
+            supports_media: Vec::new(),
         }
     }
 

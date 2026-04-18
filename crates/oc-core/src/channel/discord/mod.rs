@@ -165,12 +165,10 @@ impl ChannelPlugin for DiscordPlugin {
             supports_unsend: true,
             supports_reply: true,
             supports_threads: true,
-            supports_media: vec![
-                MediaType::Photo,
-                MediaType::Video,
-                MediaType::Audio,
-                MediaType::Document,
-            ],
+            // TODO: native Discord media (multipart files[N]) not yet
+            // implemented. Dispatcher falls back to a download-link text so
+            // users still receive attachments through the public URL.
+            supports_media: Vec::new(),
             supports_typing: true,
             supports_buttons: true,
             max_message_length: Some(2000),

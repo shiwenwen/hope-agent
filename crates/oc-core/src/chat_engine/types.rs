@@ -1,7 +1,9 @@
 use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::agent::{AssistantAgent, PlanAgentMode};
+use crate::attachments::MediaItem;
+use crate::chat_engine::stream_broadcast::EVENT_CHANNEL_STREAM_DELTA;
 use crate::context_compact::CompactConfig;
 use crate::provider::{ActiveModel, ProviderConfig};
 use crate::session::SessionDB;
@@ -31,34 +33,66 @@ pub trait EventSink: Send + Sync + 'static {
 
 /// EventSink for IM channel worker — pushes streaming events via the global EventBus
 /// AND forwards them to a background task for progressive Telegram message editing.
+///
+/// Also accumulates any `media_items[]` emitted in `tool_result` events into
+/// `pending_media`, which the dispatcher drains after the chat engine finishes
+/// to deliver attachments through the channel's native media API.
 pub struct ChannelStreamSink {
     pub session_id: String,
     /// Forwards raw events to the channel streaming background task.
     pub event_tx: tokio::sync::mpsc::Sender<String>,
+    /// Accumulates media items (from `send_attachment`, `image_generate`, ...)
+    /// so the dispatcher can deliver them through the channel after the turn
+    /// completes. The dispatcher owns the same `Arc` and drains this vec once
+    /// `run_chat_engine` returns.
+    pub pending_media: Arc<Mutex<Vec<MediaItem>>>,
 }
 
 impl ChannelStreamSink {
-    pub fn new(session_id: String, event_tx: tokio::sync::mpsc::Sender<String>) -> Self {
+    pub fn new(
+        session_id: String,
+        event_tx: tokio::sync::mpsc::Sender<String>,
+        pending_media: Arc<Mutex<Vec<MediaItem>>>,
+    ) -> Self {
         Self {
             session_id,
             event_tx,
+            pending_media,
         }
     }
 }
 
 impl EventSink for ChannelStreamSink {
     fn send(&self, event: &str) {
-        // 1. Emit to frontend for real-time streaming display
         if let Some(bus) = crate::globals::get_event_bus() {
             bus.emit(
-                "channel:stream_delta",
+                EVENT_CHANNEL_STREAM_DELTA,
                 serde_json::json!({
                     "sessionId": &self.session_id,
                     "event": event,
                 }),
             );
         }
-        // 2. Forward to background task for progressive IM channel delivery
+        // Cheap short-circuit: only tool_result events carry media_items, and
+        // only they start with {"type":"tool_result"...}. Avoids a full JSON
+        // parse on every text_delta / tool_call frame.
+        if event.starts_with("{\"type\":\"tool_result\"")
+            && event.contains("\"media_items\"")
+        {
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(event) {
+                if let Some(arr) = val.get("media_items").and_then(|v| v.as_array()) {
+                    let items: Vec<MediaItem> = arr
+                        .iter()
+                        .filter_map(|v| serde_json::from_value(v.clone()).ok())
+                        .collect();
+                    if !items.is_empty() {
+                        if let Ok(mut guard) = self.pending_media.lock() {
+                            guard.extend(items);
+                        }
+                    }
+                }
+            }
+        }
         let _ = self.event_tx.try_send(event.to_string());
     }
 }
