@@ -4,33 +4,25 @@ pub mod registry;
 pub mod types;
 
 use std::collections::HashSet;
+use std::sync::OnceLock;
 
 use crate::globals::AppState;
 use crate::skills::SkillEntry;
 use types::{CommandCategory, CommandResult, SlashCommandDef};
 
-/// Pair a user-typed slash command name with the originating SkillEntry.
-/// Produced by [`resolve_skill_command_names`] — `typed_name` is the string the
-/// user actually types (e.g. `"new_skill"` when the skill is named `new` and
-/// collides with the built-in `/new`); `skill` is the underlying entry.
+/// A user-typed slash command name paired with the originating SkillEntry.
+/// `typed_name` may differ from the skill's canonical name when collision
+/// resolution added a `_skill` / `_N` suffix.
 pub struct ResolvedSkillCommand<'a> {
     pub typed_name: String,
     pub skill: &'a SkillEntry,
 }
 
-/// Compute the user-typed command names for each skill, honoring collisions
-/// against a reserved name set (usually built-in command names + names already
-/// assigned to earlier skills). Returns pairs in canonical-then-aliases order.
+/// Resolve each skill's user-typed command name against `reserved`.
 ///
-/// Collision rules (unchanged from the original listing code):
-/// - Canonical name collides → suffix `_skill`, then `_2`, `_3`, ... until free
-/// - Alias collides → dropped (aliases are supplementary, never take priority)
-///
-/// Both `list_slash_commands` (UI listing) and `handlers::handle_skill_command`
-/// (dispatch) use this function so the typed name and the runtime-resolved
-/// skill stay in sync. Before this helper, listing renamed colliding skills to
-/// `_skill` but dispatch still looked them up by the original normalized name,
-/// so a `/foo_skill` click from the menu returned "Unknown command".
+/// Rules: canonical name collides → append `_skill`, then `_2`/`_3`/... until
+/// free; alias collides → dropped. Shared by listing and dispatch so the
+/// typed name stays in sync with the runtime-matched skill.
 pub fn resolve_skill_command_names<'a>(
     skills: &'a [SkillEntry],
     reserved: &HashSet<String>,
@@ -68,12 +60,16 @@ pub fn resolve_skill_command_names<'a>(
     out
 }
 
-/// Collect the built-in (hardcoded) slash command names for collision checks.
-pub fn builtin_command_names() -> HashSet<String> {
-    registry::all_commands()
-        .into_iter()
-        .map(|c| c.name)
-        .collect()
+/// Built-in (hardcoded) slash command names — cached since `registry::all_commands()`
+/// is compile-time constant.
+pub fn builtin_command_names() -> &'static HashSet<String> {
+    static CACHE: OnceLock<HashSet<String>> = OnceLock::new();
+    CACHE.get_or_init(|| {
+        registry::all_commands()
+            .into_iter()
+            .map(|c| c.name)
+            .collect()
+    })
 }
 
 /// List all available slash commands (for UI menu rendering).

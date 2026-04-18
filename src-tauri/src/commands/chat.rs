@@ -45,9 +45,8 @@ pub async fn chat(
     tool_permission_mode: Option<String>,
     plan_mode: Option<String>,
     temperature_override: Option<f64>,
-    // Optional display text. When set, the user message persisted to DB (and shown in the UI on reload)
-    // uses this string, while `message` is still the text fed to the LLM. Used by slash-skill passThrough
-    // so the transcript reads "/drawio 画网络图" instead of the expanded skill instruction.
+    // When set, DB stores `display_text` as the user message while `message` is still
+    // fed to the LLM (slash-skill passThrough uses this).
     display_text: Option<String>,
     on_event: tauri::ipc::Channel<String>,
     state: State<'_, AppState>,
@@ -186,12 +185,9 @@ pub async fn chat(
         None
     };
 
-    // What the UI shows (DB persistence). Falls back to `message` when no override.
-    let persisted_content = display_text
-        .as_deref()
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty())
-        .unwrap_or(&message);
+    // Prefer display_text for DB/title, fall back to the LLM-bound message.
+    let persisted_content =
+        oc_core::non_empty_trim_or(display_text.as_deref(), &message);
 
     // Save user message to DB
     let mut user_msg = session::NewMessage::user(persisted_content);

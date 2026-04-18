@@ -39,6 +39,21 @@ export interface UseSlashCommandsReturn {
   executeOption: (cmd: SlashCommandDef, option: string) => void
 }
 
+/** Tag a skill passThrough result with the metadata ChatScreen needs to render
+ *  the original `/skillname args` as the user bubble (via `displayText`). */
+function annotateSkillPassThrough(
+  result: CommandResult,
+  cmd: SlashCommandDef,
+  commandText: string,
+  rawArgs: string,
+): void {
+  if (result.action?.type !== "passThrough" || cmd.category !== "skill") return
+  result._isSkillPassThrough = true
+  result._skillCommandText = commandText
+  const trimmed = rawArgs.trim()
+  if (trimmed) result._skillArgs = trimmed
+}
+
 export function useSlashCommands(
   input: string,
   setInput: (value: string) => void,
@@ -182,13 +197,7 @@ export function useSlashCommands(
           agentId: actionsRef.current.agentId,
           commandText,
         })
-        if (result.action?.type === "passThrough" && cmd.category === "skill") {
-          result._isSkillPassThrough = true
-          result._skillCommandText = commandText
-          if (args.trim()) {
-            result._skillArgs = args.trim()
-          }
-        }
+        annotateSkillPassThrough(result, cmd, commandText, args)
         actionsRef.current.onCommandAction(result)
       } catch (err) {
         actionsRef.current.onCommandAction({
@@ -217,13 +226,7 @@ export function useSlashCommands(
         commandText,
       })
         .then((result) => {
-          if (result.action?.type === "passThrough" && cmd.category === "skill") {
-            result._isSkillPassThrough = true
-            result._skillCommandText = commandText
-            if (option.trim()) {
-              result._skillArgs = option.trim()
-            }
-          }
+          annotateSkillPassThrough(result, cmd, commandText, option)
           actionsRef.current.onCommandAction(result)
         })
         .catch((err) =>
@@ -273,10 +276,9 @@ export function useSlashCommands(
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent): boolean => {
       if (!isOpen) {
-        // Guard: isOpen lags shouldBeOpen by one render (useEffect); intercept Enter to prevent sending slash text as message.
-        // Resolve the typed command name against the full command catalog — filteredCommands[selectedIndex] is unreliable
-        // because once the user types a space the filter collapses to "" and the list reorders (first entry is /new),
-        // so blindly executing selectedIndex would misroute any "/foo bar" → "/new bar".
+        // isOpen lags shouldBeOpen by one render. Intercept Enter, but resolve
+        // via exact name match — selectedIndex is unreliable once a space in
+        // input collapses the filter and reorders the list to start with /new.
         if (e.key === "Enter" && input.startsWith("/")) {
           const spaceIdx = input.indexOf(" ")
           const typedName = (spaceIdx > 0 ? input.slice(1, spaceIdx) : input.slice(1)).toLowerCase()

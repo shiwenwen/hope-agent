@@ -21,6 +21,13 @@ pub fn epoch_cutoff_secs(window_days: u32) -> i64 {
     now - (window_days as i64) * (SECS_PER_DAY as i64)
 }
 
+/// Trim `opt` and return it if non-empty; otherwise return `fallback`. Used when
+/// an optional override ("display text", "override title", ...) should win over
+/// a mandatory default only when the caller actually supplied meaningful text.
+pub fn non_empty_trim_or<'a>(opt: Option<&'a str>, fallback: &'a str) -> &'a str {
+    opt.map(str::trim).filter(|s| !s.is_empty()).unwrap_or(fallback)
+}
+
 /// Produce a comma-separated list of `?` placeholders for a SQL `IN` clause.
 /// Example: `sql_in_placeholders(3)` → `"?,?,?"`.
 pub fn sql_in_placeholders(n: usize) -> String {

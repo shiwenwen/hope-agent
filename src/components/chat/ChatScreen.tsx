@@ -435,11 +435,8 @@ export default function ChatScreen({
     async (result: CommandResult) => {
       const action = result.action
 
-      // Show command output as an event message (if content is not empty)
-      // Skip for:
-      //   - newSession: we immediately reset to a blank state so the message would be lost anyway
-      //   - skill passThrough: the user bubble already shows "/skill args", the "Invoking skill ..."
-      //     chip would be redundant noise
+      // Skip the event chip for newSession (we clear anyway) and skill passThrough
+      // (the user bubble already shows "/skillname args", the chip would duplicate).
       if (
         result.content &&
         action?.type !== "newSession" &&
@@ -498,9 +495,7 @@ export default function ChatScreen({
           break
         case "passThrough":
           if (result._isSkillPassThrough) {
-            // Skill: the LLM receives the expanded prompt (action.message), but the user
-            // bubble shows the original slash command they typed (e.g. "/drawio 画网络图")
-            // so the chat transcript reads naturally.
+            // User bubble shows "/skillname args"; LLM gets the expanded prompt.
             await stream.handleSend(action.message, {
               displayText: result._skillCommandText,
             })

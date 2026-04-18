@@ -43,8 +43,7 @@ pub struct ChatRequest {
     pub temperature_override: Option<f64>,
     #[serde(default)]
     pub reasoning_effort: Option<String>,
-    /// Optional display text. When set, the user message persisted to DB uses this string while
-    /// `message` is still the text fed to the LLM. Used by slash-skill passThrough.
+    /// See Tauri `chat` command — DB stores this while `message` goes to the LLM.
     #[serde(default)]
     pub display_text: Option<String>,
 }
@@ -157,13 +156,9 @@ pub async fn chat(
         }
     };
 
-    // What the UI shows (DB persistence). Falls back to `body.message` when no override.
-    let persisted_content = body
-        .display_text
-        .as_deref()
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty())
-        .unwrap_or(&body.message);
+    // Prefer display_text for DB/title, fall back to the LLM-bound message.
+    let persisted_content =
+        oc_core::non_empty_trim_or(body.display_text.as_deref(), &body.message);
 
     // Save user message to DB
     let user_msg = session::NewMessage::user(persisted_content);

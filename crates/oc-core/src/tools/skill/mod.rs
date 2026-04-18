@@ -14,7 +14,17 @@ use serde_json::Value;
 use super::ToolExecContext;
 
 mod fork;
-pub(crate) mod inline;
+mod inline;
+
+use crate::skills::SkillEntry;
+
+/// Stable entry point for callers that need the same "read SKILL.md +
+/// `$ARGUMENTS` substitution" string the `skill` tool returns in inline mode.
+/// Used by the slash-command handler so `/skillname args` and the model's
+/// `skill({name, args})` tool call produce byte-identical activation text.
+pub(crate) async fn render_inline(entry: &SkillEntry, args: &str) -> anyhow::Result<String> {
+    inline::execute(entry, args).await
+}
 
 /// Entry point registered in `tools::execution::execute_tool_with_context`.
 pub(crate) async fn tool_skill(args: &Value, ctx: &ToolExecContext) -> Result<String> {

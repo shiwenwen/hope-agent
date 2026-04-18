@@ -158,9 +158,8 @@ export function useChatStream({
     }
 
     const text = rawText.trim()
-    // displayText: what the user sees in the bubble; text (above) is what goes to the LLM.
-    // Used by slash-skill passThrough so the UI shows the original "/drawio ..." command while the LLM
-    // still receives the expanded skill prompt.
+    // `text` goes to the LLM; `displayed` is the user bubble. Slash-skill passThrough
+    // uses this split so the UI shows "/drawio ..." while the LLM receives the expansion.
     const displayed = options?.displayText?.trim() || text
     const filesToSend = directText ? [] : [...attachedFiles]
     setInput("")
@@ -307,8 +306,6 @@ export function useChatStream({
         toolPermissionMode: toolPermissionModeRef.current,
         planMode: planMode && planMode !== "off" ? planMode : undefined,
         temperatureOverride: temperatureOverride ?? undefined,
-        // When displayText is set the backend persists that as the user message content
-        // (what the UI shows on reload) while still feeding `text` to the LLM on this turn.
         displayText: options?.displayText?.trim() || undefined,
         onEvent,
       })
