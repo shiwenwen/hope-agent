@@ -95,17 +95,19 @@ fn persist_channel_media_to_session(
     let dir = session_dir?;
     let src = std::path::Path::new(source_path);
 
-    // Verify the source lives under the channel inbound-temp directory before
+    // Verify the source lives under the shared channels runtime root before
     // copying. This defeats both "../../etc/passwd"-style traversal and
     // symlink swaps that would otherwise copy arbitrary host files into the
-    // session attachments folder.
-    let inbound_root = match crate::paths::channel_dir("wechat") {
-        Ok(root) => root.join("inbound-temp"),
+    // session attachments folder. We allow anything under
+    // `~/.opencomputer/channels/<id>/...` so Telegram / WeChat / etc. share
+    // the same rule.
+    let channels_root = match crate::paths::channels_dir() {
+        Ok(root) => root,
         Err(err) => {
             app_warn!(
                 "channel",
                 "worker",
-                "Cannot resolve wechat inbound-temp root: {}",
+                "Cannot resolve channels root: {}",
                 err
             );
             return None;
@@ -124,7 +126,7 @@ fn persist_channel_media_to_session(
             return None;
         }
     };
-    let canonical_root = inbound_root.canonicalize().unwrap_or(inbound_root);
+    let canonical_root = channels_root.canonicalize().unwrap_or(channels_root);
     if !canonical_src.starts_with(&canonical_root) {
         app_warn!(
             "channel",
