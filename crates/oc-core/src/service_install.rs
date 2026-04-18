@@ -27,7 +27,9 @@ fn xml_escape(s: &str) -> String {
 /// Escape a value for a systemd unit `ExecStart=` line so that whitespace,
 /// quotes and backslashes can't split the command into multiple args or
 /// inject extra tokens. systemd supports double-quoted strings with
-/// backslash escapes — see systemd.exec(5) "Command lines".
+/// backslash escapes — see systemd.exec(5) "Command lines". `$` is doubled
+/// to `$$` so systemd's `$VAR` / `${VAR}` expansion can't substitute an
+/// environment value into the command.
 #[cfg(target_os = "linux")]
 fn systemd_escape_arg(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
@@ -36,6 +38,7 @@ fn systemd_escape_arg(s: &str) -> String {
         match c {
             '\\' => out.push_str("\\\\"),
             '"' => out.push_str("\\\""),
+            '$' => out.push_str("$$"),
             '\n' => out.push_str("\\n"),
             '\r' => out.push_str("\\r"),
             '\t' => out.push_str("\\t"),
