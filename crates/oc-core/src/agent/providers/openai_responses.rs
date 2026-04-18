@@ -806,24 +806,20 @@ impl AssistantAgent {
                                     if let Some(cc) = u.cache_creation_input_tokens {
                                         usage.cache_creation_input_tokens = cc;
                                     }
-                                    // OpenAI-style: input_tokens_details.cached_tokens
+                                    // OpenAI-style fallback: input_tokens_details.cached_tokens
                                     // (Responses API) / prompt_tokens_details.cached_tokens
-                                    // (ChatGPT / Codex backend / Kimi K2 Chat Completions style).
-                                    // Codex backend sometimes returns the Chat-style shape even
-                                    // through the Responses endpoint — fall through both.
+                                    // (Codex backend / Kimi K2 Chat-style shape through Responses).
                                     if usage.cache_read_input_tokens == 0 {
-                                        if let Some(details) = &u.input_tokens_details {
-                                            if let Some(cached) = details.cached_tokens {
-                                                usage.cache_read_input_tokens = cached;
-                                            }
-                                        }
-                                    }
-                                    if usage.cache_read_input_tokens == 0 {
-                                        if let Some(details) = &u.prompt_tokens_details {
-                                            if let Some(cached) = details.cached_tokens {
-                                                usage.cache_read_input_tokens = cached;
-                                            }
-                                        }
+                                        usage.cache_read_input_tokens = u
+                                            .input_tokens_details
+                                            .as_ref()
+                                            .and_then(|d| d.cached_tokens)
+                                            .or_else(|| {
+                                                u.prompt_tokens_details
+                                                    .as_ref()
+                                                    .and_then(|d| d.cached_tokens)
+                                            })
+                                            .unwrap_or(0);
                                     }
                                 }
                             }

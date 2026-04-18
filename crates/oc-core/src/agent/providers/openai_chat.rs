@@ -615,19 +615,31 @@ impl AssistantAgent {
                             if let Some(ct) = u.get("completion_tokens").and_then(|v| v.as_u64()) {
                                 usage.output_tokens = ct;
                             }
-                            // OpenAI: prompt_tokens_details.cached_tokens
-                            if let Some(details) = u.get("prompt_tokens_details") {
-                                if let Some(cached) =
-                                    details.get("cached_tokens").and_then(|v| v.as_u64())
-                                {
-                                    usage.cache_read_input_tokens = cached;
-                                }
+                            // Anthropic-style at top level (OpenRouter / LiteLLM gateways
+                            // can forward Anthropic-shape fields through Chat Completions).
+                            if let Some(cr) = u
+                                .get("cache_read_input_tokens")
+                                .and_then(|v| v.as_u64())
+                            {
+                                usage.cache_read_input_tokens = cr;
                             }
-                            // Moonshot/Kimi: cached_tokens at top level
-                            if let Some(cached) = u.get("cached_tokens").and_then(|v| v.as_u64()) {
-                                if usage.cache_read_input_tokens == 0 {
-                                    usage.cache_read_input_tokens = cached;
-                                }
+                            if let Some(cc) = u
+                                .get("cache_creation_input_tokens")
+                                .and_then(|v| v.as_u64())
+                            {
+                                usage.cache_creation_input_tokens = cc;
+                            }
+                            // Fallback: OpenAI prompt_tokens_details.cached_tokens /
+                            // Moonshot top-level cached_tokens.
+                            if usage.cache_read_input_tokens == 0 {
+                                usage.cache_read_input_tokens = u
+                                    .get("prompt_tokens_details")
+                                    .and_then(|d| d.get("cached_tokens"))
+                                    .and_then(|v| v.as_u64())
+                                    .or_else(|| {
+                                        u.get("cached_tokens").and_then(|v| v.as_u64())
+                                    })
+                                    .unwrap_or(0);
                             }
                         }
                         if let Some(choices) = chunk.get("choices").and_then(|c| c.as_array()) {
