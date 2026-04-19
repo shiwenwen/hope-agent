@@ -168,8 +168,7 @@ pub async fn try_restore_session() -> Result<Json<Value>, AppError> {
         };
         match oauth::refresh_access_token(&refresh).await {
             Ok(new_token) => {
-                oauth::save_token(&new_token)
-                    .map_err(|e| AppError::internal(e.to_string()))?;
+                oauth::save_token(&new_token).map_err(|e| AppError::internal(e.to_string()))?;
                 new_token
             }
             Err(_) => {

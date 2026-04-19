@@ -73,19 +73,19 @@ pub async fn list_canvas_projects() -> Result<Json<Value>, AppError> {
     let raw = oc_core::tools::canvas::list_canvas_projects()
         .await
         .map_err(AppError::internal)?;
-    let parsed: Value = serde_json::from_str(&raw).map_err(|e| AppError::internal(e.to_string()))?;
+    let parsed: Value =
+        serde_json::from_str(&raw).map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(parsed))
 }
 
 /// `GET /api/canvas/projects/{project_id}` — fetch a single canvas project.
-pub async fn get_canvas_project(
-    Path(project_id): Path<String>,
-) -> Result<Json<Value>, AppError> {
+pub async fn get_canvas_project(Path(project_id): Path<String>) -> Result<Json<Value>, AppError> {
     validate_canvas_project_id(&project_id)?;
     let raw = oc_core::tools::canvas::get_canvas_project(project_id)
         .await
         .map_err(AppError::internal)?;
-    let parsed: Value = serde_json::from_str(&raw).map_err(|e| AppError::internal(e.to_string()))?;
+    let parsed: Value =
+        serde_json::from_str(&raw).map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(parsed))
 }
 
@@ -112,8 +112,8 @@ pub async fn serve_canvas_project_file(
     validate_canvas_project_id(&project_id)?;
     validate_safe_rest_path(&rest)?;
 
-    let base_dir = paths::canvas_project_dir(&project_id)
-        .map_err(|e| AppError::internal(e.to_string()))?;
+    let base_dir =
+        paths::canvas_project_dir(&project_id).map_err(|e| AppError::internal(e.to_string()))?;
     let candidate = base_dir.join(&rest);
     let file_canon = contained_canonical(&base_dir, &candidate).await?;
 

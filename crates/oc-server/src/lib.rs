@@ -223,14 +223,8 @@ fn build_router_with_cors(
             "/providers/test-image",
             post(routes::providers::test_image_generate),
         )
-        .route(
-            "/providers/test-model",
-            post(routes::providers::test_model),
-        )
-        .route(
-            "/providers/has-any",
-            get(routes::providers::has_providers),
-        )
+        .route("/providers/test-model", post(routes::providers::test_model))
+        .route("/providers/has-any", get(routes::providers::has_providers))
         .route(
             "/providers/active-model",
             get(routes::providers::get_active_model),
@@ -919,7 +913,10 @@ fn build_router_with_cors(
             get(routes::canvas::list_canvas_projects_by_session),
         )
         // Canvas project CRUD (mirror of Tauri commands).
-        .route("/canvas/projects", get(routes::canvas::list_canvas_projects))
+        .route(
+            "/canvas/projects",
+            get(routes::canvas::list_canvas_projects),
+        )
         .route(
             "/canvas/projects/{project_id}",
             get(routes::canvas::get_canvas_project).delete(routes::canvas::delete_canvas_project),
@@ -965,24 +962,15 @@ fn build_router_with_cors(
             "/auth/codex/finalize",
             post(routes::auth::finalize_codex_auth),
         )
-        .route(
-            "/auth/codex/status",
-            get(routes::auth::check_auth_status),
-        )
-        .route(
-            "/auth/codex/logout",
-            post(routes::auth::logout_codex),
-        )
+        .route("/auth/codex/status", get(routes::auth::check_auth_status))
+        .route("/auth/codex/logout", post(routes::auth::logout_codex))
         .route(
             "/auth/session/restore",
             post(routes::auth::try_restore_session),
         )
         // System (desktop-only stubs)
         .route("/system/restart", post(routes::system::request_app_restart))
-        .route(
-            "/system/timezone",
-            get(routes::system::get_system_timezone),
-        )
+        .route("/system/timezone", get(routes::system::get_system_timezone))
         // Desktop (desktop-only stubs)
         .route("/desktop/open-url", post(routes::desktop::open_url))
         .route(

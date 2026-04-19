@@ -11,8 +11,8 @@ use oc_core::paths;
 
 use crate::error::AppError;
 use crate::routes::file_serve::{
-    apply_inline_media_headers, contained_canonical, resolve_mime_for_path,
-    validate_safe_filename, HeaderOpts, MimeOpts,
+    apply_inline_media_headers, contained_canonical, resolve_mime_for_path, validate_safe_filename,
+    HeaderOpts, MimeOpts,
 };
 
 /// `GET /api/generated-images/{filename}` — binary image download.

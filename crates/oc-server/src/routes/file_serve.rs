@@ -66,10 +66,7 @@ pub fn validate_safe_rest_path(rest: &str) -> Result<(), AppError> {
 ///
 /// A missing candidate file yields 404; a containment violation yields
 /// 403. Either outcome is a dead-end for the request.
-pub async fn contained_canonical(
-    base_dir: &Path,
-    candidate: &Path,
-) -> Result<PathBuf, AppError> {
+pub async fn contained_canonical(base_dir: &Path, candidate: &Path) -> Result<PathBuf, AppError> {
     let file_canon = match tokio::fs::canonicalize(candidate).await {
         Ok(p) => p,
         Err(_) => return Err(AppError::not_found("file not found")),
