@@ -4,6 +4,15 @@
 //  fall back to the next model, or surface the error directly.
 //  Also provides per-profile cooldown tracking and session-sticky
 //  profile selection for multi-key rotation within a single provider.
+//
+//  ## Submodules
+//
+//  - [`executor`] (Phase 3): generic `execute_with_failover` wrapper that
+//    lifts the inline rotation + retry + cooldown orchestration out of
+//    `chat_engine` so one-shot paths (side_query / summarize_direct) can
+//    opt in too.
+
+pub mod executor;
 
 use serde::Serialize;
 
