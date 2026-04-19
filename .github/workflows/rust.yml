@@ -57,7 +57,10 @@ jobs:
             libxkbcommon-dev \
             libgbm-dev \
             libdrm-dev \
-            libpipewire-0.3-dev
+            libpipewire-0.3-dev \
+            libegl-dev \
+            libx11-dev \
+            libxrandr-dev
 
       # Matches the local invariant the workspace maintains: all clippy
       # warnings are handled (either fixed at the source or allowed in
@@ -92,7 +95,10 @@ jobs:
             libxkbcommon-dev \
             libgbm-dev \
             libdrm-dev \
-            libpipewire-0.3-dev
+            libpipewire-0.3-dev \
+            libegl-dev \
+            libx11-dev \
+            libxrandr-dev
 
       # Only oc-core and oc-server are pure Rust and host tests. The Tauri
       # shell crate (open-computer) pulls glib/webkit system libs that are
