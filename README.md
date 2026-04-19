@@ -156,9 +156,7 @@ skills/          内置技能（随应用发行）
 
 ## 文档
 
-- [AGENTS.md](AGENTS.md) — 架构约定 / 编码规范 / 全量模块拓扑
-- [CHANGELOG.md](CHANGELOG.md) — 更新日志（Keep a Changelog 格式）
-- [docs/architecture/](docs/architecture/) — 子系统架构文档
+详见 [docs/](docs/)。
 
 ## 贡献
 

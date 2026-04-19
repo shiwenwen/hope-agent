@@ -156,9 +156,7 @@ For the full module map, architecture conventions, and coding guidelines, see [A
 
 ## Documentation
 
-- [AGENTS.md](AGENTS.md) — architecture, conventions, full module map
-- [CHANGELOG.md](CHANGELOG.md) — Keep a Changelog-formatted release notes
-- [docs/architecture/](docs/architecture/) — subsystem design docs
+See [docs/](docs/).
 
 ## Contributing
 
