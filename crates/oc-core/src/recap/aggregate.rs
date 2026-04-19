@@ -110,7 +110,7 @@ pub fn roll_up(facets: &[SessionFacet]) -> FacetSummary {
 
 fn top_n_map(map: HashMap<String, u32>, n: usize) -> Vec<(String, u32)> {
     let mut v: Vec<(String, u32)> = map.into_iter().collect();
-    v.sort_by(|a, b| b.1.cmp(&a.1));
+    v.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
     v.truncate(n);
     v
 }

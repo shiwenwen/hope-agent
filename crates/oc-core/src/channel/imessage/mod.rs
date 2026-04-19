@@ -33,6 +33,7 @@ impl IMessagePlugin {
 
     /// Extract the imsg binary path from credentials JSON.
     /// Defaults to "imsg" if not specified.
+    #[cfg(target_os = "macos")]
     fn extract_imsg_path(credentials: &serde_json::Value) -> String {
         credentials
             .get("imsgPath")
@@ -43,6 +44,7 @@ impl IMessagePlugin {
     }
 
     /// Extract the optional database path from credentials JSON.
+    #[cfg(target_os = "macos")]
     fn extract_db_path(credentials: &serde_json::Value) -> Option<String> {
         credentials
             .get("dbPath")

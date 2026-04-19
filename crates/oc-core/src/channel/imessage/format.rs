@@ -15,13 +15,9 @@ pub fn markdown_to_imessage(markdown: &str) -> String {
                     chars.next();
                 }
             }
-            // Strikethrough: ~~text~~
-            '~' => {
-                if chars.peek() == Some(&'~') {
-                    chars.next(); // consume second ~
-                } else {
-                    result.push(ch);
-                }
+            // Strikethrough: ~~text~~ (single ~ falls through to the `_` arm)
+            '~' if chars.peek() == Some(&'~') => {
+                chars.next(); // consume second ~
             }
             // Inline code: `code`
             '`' => {

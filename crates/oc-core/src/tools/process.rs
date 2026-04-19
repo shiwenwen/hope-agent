@@ -61,7 +61,7 @@ fn require_session_id(args: &Value) -> Result<String> {
 async fn tool_process_list() -> Result<String> {
     let registry = get_registry().lock().await;
     let mut sessions: Vec<_> = registry.list_all().into_iter().cloned().collect();
-    sessions.sort_by(|a, b| b.started_at.cmp(&a.started_at));
+    sessions.sort_by_key(|s| std::cmp::Reverse(s.started_at));
 
     if sessions.is_empty() {
         return Ok("No running or recent sessions.".to_string());
