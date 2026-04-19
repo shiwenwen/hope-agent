@@ -40,10 +40,16 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      # Vendored OpenSSL needs NASM to build on Windows MSVC.
+      # Vendored OpenSSL needs NASM to build on Windows MSVC. Chocolatey
+      # is pre-installed on windows-latest runners; this avoids the
+      # Node-20 deprecation on ilammy/setup-nasm (upstream has not
+      # migrated — see ilammy/setup-nasm#45).
       - name: Install NASM (Windows only)
         if: runner.os == 'Windows'
-        uses: ilammy/setup-nasm@v1
+        shell: pwsh
+        run: |
+          choco install nasm -y --no-progress
+          "C:\Program Files\NASM" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       # xcap pulls in wayland-sys (via libwayshot-xcap) and libspa-sys
       # (via its pipewire screen-capture path) on Linux. Ubuntu runners
@@ -84,7 +90,10 @@ jobs:
 
       - name: Install NASM (Windows only)
         if: runner.os == 'Windows'
-        uses: ilammy/setup-nasm@v1
+        shell: pwsh
+        run: |
+          choco install nasm -y --no-progress
+          "C:\Program Files\NASM" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Install Linux system deps
         if: runner.os == 'Linux'
