@@ -3,19 +3,16 @@ import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import ProviderIcon from "@/components/common/ProviderIcon"
-import {
-  ArrowLeft,
-  Loader2,
-  Search,
-  Settings2,
-} from "lucide-react"
+import { ArrowLeft, Globe, Loader2, Search, Settings2 } from "lucide-react"
 import { PROVIDER_TEMPLATES } from "./templates"
+import { RemoteConnectDialog } from "./RemoteConnectDialog"
 import type { ProviderTemplate } from "./types"
 
 interface TemplateGridProps {
   onSelectTemplate: (template: ProviderTemplate) => void
   onStartCustom: () => void
   onCodexAuth: () => Promise<void>
+  onRemoteConnected?: () => void
   onCancel?: () => void
 }
 
@@ -23,12 +20,14 @@ export function TemplateGrid({
   onSelectTemplate,
   onStartCustom,
   onCodexAuth,
+  onRemoteConnected,
   onCancel,
 }: TemplateGridProps) {
   const { t } = useTranslation()
   const [searchQuery, setSearchQuery] = useState("")
   const [codexLoading, setCodexLoading] = useState(false)
   const [codexError, setCodexError] = useState("")
+  const [remoteOpen, setRemoteOpen] = useState(false)
 
   async function handleCodexAuth() {
     setCodexLoading(true)
@@ -106,6 +105,17 @@ export function TemplateGrid({
             {t("provider.codexSecurityWarning")}
           </p>
           {codexError && <p className="text-xs text-red-400 text-center mt-2">{codexError}</p>}
+
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setRemoteOpen(true)}
+            className="w-full mt-3 h-9 gap-2 text-xs text-muted-foreground hover:text-foreground"
+          >
+            <Globe className="h-3.5 w-3.5" />
+            {t("provider.connectRemoteServer")}
+          </Button>
+
           <div className="flex items-center gap-3 mt-4">
             <div className="flex-1 h-px bg-border" />
             <span className="text-xs text-muted-foreground">
@@ -116,7 +126,7 @@ export function TemplateGrid({
         </div>
 
         {/* Search */}
-        <div className="px-6 pb-3 max-w-xl mx-auto w-full">
+        <div className="px-6 pb-3 max-w-3xl mx-auto w-full">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <Input
@@ -129,8 +139,8 @@ export function TemplateGrid({
         </div>
 
         {/* Template Grid */}
-        <div className="px-6 pb-6 max-w-xl mx-auto w-full">
-          <div className="grid grid-cols-2 gap-2">
+        <div className="px-6 pb-6 max-w-3xl mx-auto w-full">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
             {filteredTemplates.map((template) => (
               <button
                 key={template.key}
@@ -171,6 +181,12 @@ export function TemplateGrid({
           </div>
         </div>
       </div>
+
+      <RemoteConnectDialog
+        open={remoteOpen}
+        onOpenChange={setRemoteOpen}
+        onConnected={() => onRemoteConnected?.()}
+      />
     </div>
   )
 }

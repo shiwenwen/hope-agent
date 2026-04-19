@@ -115,6 +115,7 @@ export default function ProviderSetup({
         onSelectTemplate={selectTemplate}
         onStartCustom={startCustom}
         onCodexAuth={onCodexAuth}
+        onRemoteConnected={onComplete}
         onCancel={onCancel}
       />
     )

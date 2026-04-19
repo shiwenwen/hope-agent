@@ -422,7 +422,16 @@
     },
     "provider": {
       "allowPrivateNetwork": "プライベートネットワークを許可",
-      "allowPrivateNetworkDesc": "Base URL がローカル/プライベートネットワークを指しています。ONにすると、保存時にホストを SSRF 信頼ホスト許可リストに追加し、このプロバイダーへの LLM 呼び出しがブロックされないようにします。"
+      "allowPrivateNetworkDesc": "Base URL がローカル/プライベートネットワークを指しています。ONにすると、保存時にホストを SSRF 信頼ホスト許可リストに追加し、このプロバイダーへの LLM 呼び出しがブロックされないようにします。",
+      "connectRemoteServer": "リモートサーバーに接続",
+      "connectRemoteServerDesc": "デプロイ済みの hope-agent server を使用し、ローカルでのプロバイダー設定をスキップします。",
+      "remoteServerUrl": "サーバー URL",
+      "remoteApiKey": "API キー",
+      "remoteApiKeyPlaceholder": "サーバーで認証が不要なら空欄",
+      "remoteConnect": "接続",
+      "remoteConnecting": "接続中...",
+      "remoteTestSuccess": "接続可能",
+      "remoteTestFailed": "接続できません"
     },
     "authProfiles": {
       "title": "API Key ローテーション設定",
@@ -971,7 +980,16 @@
     },
     "provider": {
       "allowPrivateNetwork": "사설 네트워크 허용",
-      "allowPrivateNetworkDesc": "Base URL이 로컬/사설 네트워크를 가리킵니다. 켜면 저장 시 호스트가 SSRF 신뢰 호스트 허용 목록에 추가되어 이 Provider에 대한 LLM 호출이 차단되지 않습니다."
+      "allowPrivateNetworkDesc": "Base URL이 로컬/사설 네트워크를 가리킵니다. 켜면 저장 시 호스트가 SSRF 신뢰 호스트 허용 목록에 추가되어 이 Provider에 대한 LLM 호출이 차단되지 않습니다.",
+      "connectRemoteServer": "원격 서버에 연결",
+      "connectRemoteServerDesc": "로컬에서 공급자를 설정하지 않고 배포된 hope-agent server를 사용합니다.",
+      "remoteServerUrl": "서버 URL",
+      "remoteApiKey": "API 키",
+      "remoteApiKeyPlaceholder": "서버에 인증이 없으면 비워 두세요",
+      "remoteConnect": "연결",
+      "remoteConnecting": "연결 중...",
+      "remoteTestSuccess": "접속 가능",
+      "remoteTestFailed": "접속 실패"
     },
     "authProfiles": {
       "title": "API Key 로테이션 프로필",
@@ -1520,7 +1538,16 @@
     },
     "provider": {
       "allowPrivateNetwork": "允許私有網路",
-      "allowPrivateNetworkDesc": "偵測到 Base URL 指向本地/私有網路。啟用後會在儲存時將該主機加入 SSRF 信任主機白名單，確保對此 Provider 的 LLM 呼叫不被攔截。"
+      "allowPrivateNetworkDesc": "偵測到 Base URL 指向本地/私有網路。啟用後會在儲存時將該主機加入 SSRF 信任主機白名單，確保對此 Provider 的 LLM 呼叫不被攔截。",
+      "connectRemoteServer": "連線到遠端伺服器",
+      "connectRemoteServerDesc": "直接使用已部署的 hope-agent server，無需在本機設定模型服務商。",
+      "remoteServerUrl": "伺服器位址",
+      "remoteApiKey": "API Key",
+      "remoteApiKeyPlaceholder": "若遠端未設定驗證可留空",
+      "remoteConnect": "連線",
+      "remoteConnecting": "連線中...",
+      "remoteTestSuccess": "可以存取",
+      "remoteTestFailed": "無法存取"
     },
     "authProfiles": {
       "title": "API Key 輪換設定",
@@ -2069,7 +2096,16 @@
     },
     "provider": {
       "allowPrivateNetwork": "Özel ağa izin ver",
-      "allowPrivateNetworkDesc": "Base URL yerel/özel bir ağı gösteriyor. Açarsanız kaydetme sırasında host, SSRF güvenilir hostlar listesine eklenir; böylece bu Provider'a yapılan LLM çağrıları engellenmez."
+      "allowPrivateNetworkDesc": "Base URL yerel/özel bir ağı gösteriyor. Açarsanız kaydetme sırasında host, SSRF güvenilir hostlar listesine eklenir; böylece bu Provider'a yapılan LLM çağrıları engellenmez.",
+      "connectRemoteServer": "Uzak sunucuya bağlan",
+      "connectRemoteServerDesc": "Sağlayıcıları yerel olarak yapılandırmak yerine dağıtılmış bir hope-agent server kullanın.",
+      "remoteServerUrl": "Sunucu URL adresi",
+      "remoteApiKey": "API Anahtarı",
+      "remoteApiKeyPlaceholder": "Sunucu kimlik doğrulaması istemiyorsa boş bırakın",
+      "remoteConnect": "Bağlan",
+      "remoteConnecting": "Bağlanıyor...",
+      "remoteTestSuccess": "Erişilebilir",
+      "remoteTestFailed": "Erişilemez"
     },
     "authProfiles": {
       "title": "API Key Rotasyon Profilleri",
@@ -2618,7 +2654,16 @@
     },
     "provider": {
       "allowPrivateNetwork": "Cho phép mạng nội bộ",
-      "allowPrivateNetworkDesc": "Base URL trỏ đến mạng nội bộ/private. Bật tùy chọn này sẽ thêm host vào danh sách host tin cậy của SSRF khi lưu, để các lệnh gọi LLM đến Provider này không bị chặn."
+      "allowPrivateNetworkDesc": "Base URL trỏ đến mạng nội bộ/private. Bật tùy chọn này sẽ thêm host vào danh sách host tin cậy của SSRF khi lưu, để các lệnh gọi LLM đến Provider này không bị chặn.",
+      "connectRemoteServer": "Kết nối tới máy chủ từ xa",
+      "connectRemoteServerDesc": "Sử dụng một hope-agent server đã triển khai thay vì cấu hình nhà cung cấp cục bộ.",
+      "remoteServerUrl": "URL máy chủ",
+      "remoteApiKey": "API Key",
+      "remoteApiKeyPlaceholder": "Để trống nếu máy chủ không yêu cầu xác thực",
+      "remoteConnect": "Kết nối",
+      "remoteConnecting": "Đang kết nối...",
+      "remoteTestSuccess": "Có thể truy cập",
+      "remoteTestFailed": "Không thể truy cập"
     },
     "authProfiles": {
       "title": "Hồ sơ luân phiên API Key",
@@ -3167,7 +3212,16 @@
     },
     "provider": {
       "allowPrivateNetwork": "Permitir rede privada",
-      "allowPrivateNetworkDesc": "A Base URL aponta para uma rede local/privada. Ativar isto adicionará o host à lista de hosts confiáveis do SSRF ao salvar para que as chamadas LLM a este Provider não sejam bloqueadas."
+      "allowPrivateNetworkDesc": "A Base URL aponta para uma rede local/privada. Ativar isto adicionará o host à lista de hosts confiáveis do SSRF ao salvar para que as chamadas LLM a este Provider não sejam bloqueadas.",
+      "connectRemoteServer": "Conectar a servidor remoto",
+      "connectRemoteServerDesc": "Use um hope-agent server já implantado em vez de configurar provedores localmente.",
+      "remoteServerUrl": "URL do servidor",
+      "remoteApiKey": "Chave de API",
+      "remoteApiKeyPlaceholder": "Deixe vazio se o servidor não exigir autenticação",
+      "remoteConnect": "Conectar",
+      "remoteConnecting": "Conectando...",
+      "remoteTestSuccess": "Acessível",
+      "remoteTestFailed": "Inacessível"
     },
     "authProfiles": {
       "title": "Perfis de rotação de API Key",
@@ -3716,7 +3770,16 @@
     },
     "provider": {
       "allowPrivateNetwork": "Разрешить частную сеть",
-      "allowPrivateNetworkDesc": "Base URL указывает на локальную/частную сеть. Включение добавит хост в список доверенных хостов SSRF при сохранении, чтобы LLM-вызовы к этому Provider не блокировались."
+      "allowPrivateNetworkDesc": "Base URL указывает на локальную/частную сеть. Включение добавит хост в список доверенных хостов SSRF при сохранении, чтобы LLM-вызовы к этому Provider не блокировались.",
+      "connectRemoteServer": "Подключиться к удалённому серверу",
+      "connectRemoteServerDesc": "Используйте развёрнутый hope-agent server вместо локальной настройки провайдеров.",
+      "remoteServerUrl": "URL сервера",
+      "remoteApiKey": "API-ключ",
+      "remoteApiKeyPlaceholder": "Оставьте пустым, если сервер без авторизации",
+      "remoteConnect": "Подключить",
+      "remoteConnecting": "Подключение...",
+      "remoteTestSuccess": "Доступен",
+      "remoteTestFailed": "Недоступен"
     },
     "authProfiles": {
       "title": "Профили ротации API Key",
@@ -4265,7 +4328,16 @@
     },
     "provider": {
       "allowPrivateNetwork": "السماح بالشبكة الخاصة",
-      "allowPrivateNetworkDesc": "يشير عنوان Base URL إلى شبكة محلية/خاصة. عند التفعيل، ستتم إضافة المضيف إلى قائمة المضيفين الموثوقين لـ SSRF عند الحفظ حتى لا تُحظر استدعاءات LLM لهذا المزود."
+      "allowPrivateNetworkDesc": "يشير عنوان Base URL إلى شبكة محلية/خاصة. عند التفعيل، ستتم إضافة المضيف إلى قائمة المضيفين الموثوقين لـ SSRF عند الحفظ حتى لا تُحظر استدعاءات LLM لهذا المزود.",
+      "connectRemoteServer": "الاتصال بخادم بعيد",
+      "connectRemoteServerDesc": "استخدم خادم hope-agent المنشور بدلاً من إعداد مزودين محليًا.",
+      "remoteServerUrl": "عنوان الخادم",
+      "remoteApiKey": "مفتاح API",
+      "remoteApiKeyPlaceholder": "اتركه فارغًا إذا لم يتطلب الخادم مصادقة",
+      "remoteConnect": "اتصال",
+      "remoteConnecting": "جارٍ الاتصال...",
+      "remoteTestSuccess": "متصل",
+      "remoteTestFailed": "غير متاح"
     },
     "authProfiles": {
       "title": "ملفات تدوير مفاتيح API",
@@ -4814,7 +4886,16 @@
     },
     "provider": {
       "allowPrivateNetwork": "Permitir red privada",
-      "allowPrivateNetworkDesc": "La Base URL apunta a una red local/privada. Activar esta opción añadirá el host a la lista de hosts de confianza de SSRF al guardar para que las llamadas LLM a este proveedor no sean bloqueadas."
+      "allowPrivateNetworkDesc": "La Base URL apunta a una red local/privada. Activar esta opción añadirá el host a la lista de hosts de confianza de SSRF al guardar para que las llamadas LLM a este proveedor no sean bloqueadas.",
+      "connectRemoteServer": "Conectar a servidor remoto",
+      "connectRemoteServerDesc": "Usa un hope-agent server ya desplegado en lugar de configurar proveedores localmente.",
+      "remoteServerUrl": "URL del servidor",
+      "remoteApiKey": "Clave API",
+      "remoteApiKeyPlaceholder": "Déjalo vacío si el servidor no requiere autenticación",
+      "remoteConnect": "Conectar",
+      "remoteConnecting": "Conectando...",
+      "remoteTestSuccess": "Accesible",
+      "remoteTestFailed": "No accesible"
     },
     "authProfiles": {
       "title": "Perfiles de rotación de API Key",
@@ -5363,7 +5444,16 @@
     },
     "provider": {
       "allowPrivateNetwork": "Benarkan rangkaian peribadi",
-      "allowPrivateNetworkDesc": "Base URL menunjuk ke rangkaian tempatan/peribadi. Mengaktifkan ini akan menambah hos ke senarai hos dipercayai SSRF semasa simpan supaya panggilan LLM ke Provider ini tidak disekat."
+      "allowPrivateNetworkDesc": "Base URL menunjuk ke rangkaian tempatan/peribadi. Mengaktifkan ini akan menambah hos ke senarai hos dipercayai SSRF semasa simpan supaya panggilan LLM ke Provider ini tidak disekat.",
+      "connectRemoteServer": "Sambung ke pelayan jauh",
+      "connectRemoteServerDesc": "Gunakan hope-agent server yang telah dipasang, tanpa perlu konfigurasi pembekal secara tempatan.",
+      "remoteServerUrl": "URL pelayan",
+      "remoteApiKey": "Kunci API",
+      "remoteApiKeyPlaceholder": "Biarkan kosong jika pelayan tiada pengesahan",
+      "remoteConnect": "Sambung",
+      "remoteConnecting": "Menyambung...",
+      "remoteTestSuccess": "Boleh dicapai",
+      "remoteTestFailed": "Tidak boleh dicapai"
     },
     "authProfiles": {
       "title": "Profil Putaran API Key",
