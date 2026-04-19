@@ -1,73 +1,186 @@
-# React + TypeScript + Vite
+<p align="center">
+  <img src="docs/assets/hope-agent-banner.png" alt="Hope Agent" width="720">
+</p>
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+<h1 align="center">🌟 Hope Agent</h1>
 
-Currently, two official plugins are available:
+<p align="center">
+  <strong>装在电脑里的桌面 AI 助手</strong><br/>
+  会记忆 · 能成长 · 在你所有的聊天里随叫随到
+</p>
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+<p align="center">
+  <a href="https://github.com/shiwenwen/hope-agent/actions/workflows/rust.yml"><img src="https://img.shields.io/github/actions/workflow/status/shiwenwen/hope-agent/rust.yml?branch=main&style=for-the-badge&label=CI" alt="CI status"></a>
+  <a href="https://github.com/shiwenwen/hope-agent/releases"><img src="https://img.shields.io/github/v/release/shiwenwen/hope-agent?include_prereleases&style=for-the-badge" alt="Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="License: MIT"></a>
+  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows%20(soon)-lightgrey?style=for-the-badge" alt="Platforms">
+</p>
 
-## React Compiler
+<p align="center">
+  <strong>简体中文</strong> · <a href="./README.en.md">English</a>
+</p>
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+---
 
-## Expanding the ESLint configuration
+**Hope Agent** 是一款面向普通人的桌面 AI 助手。一个原生安装包，主流大模型 GUI 模板内置齐全，填完 API Key 就能开聊。它能跨会话记住你、空闲时自己整理记忆、把做过的任务沉淀成可复用的技能，还能在你常用的 IM 里随叫随到。
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## 缘起
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+普通人需要一个**打开就能用**的桌面 AI 助手——下载安装包双击打开就行，不用先装运行时，也不用先学一套命令行。市面上这样的产品并不多，所以 Hope Agent 在性能、稳定性和交互细节上多花了些功夫。
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+Hope Agent 早期曾受 [openclaw](https://github.com/openclaw/openclaw) 影响，感谢他们在本地 AI 助手方向上的先行工作——我们选择了不同的实现路径。
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+## 亮点
+
+### 🎯 日常使用
+
+<table>
+<tr><td width="220"><b>🖥️ 桌面原生 GUI</b></td><td>Tauri 2 + React 19 打包成 macOS / Linux / Windows 原生安装包，下载即用。12 种界面语言（简/繁中、英、日、韩、西、葡、俄、阿、土、越、马），符合中国用户使用习惯的深色主题与字体排版。</td></tr>
+<tr><td><b>🧙 傻瓜式 Provider 配置</b></td><td>36 个内置 Provider 模板，覆盖 166 个预设模型。Anthropic / OpenAI / Gemini / Codex / OpenRouter / DeepSeek / Kimi / Qwen / 豆包 / GLM / MiniMax / xAI / Mistral / Ollama 一站式覆盖；同一 Provider 支持多 API Key 自动轮换，遇到限流或额度用尽无缝切换下一把钥匙。</td></tr>
+<tr><td><b>💬 12 个 IM 渠道一站接入</b></td><td>Telegram、Discord、Slack、飞书、Google Chat、LINE、QQ Bot、Signal、iMessage、IRC、WeChat、WhatsApp。图片 / 语音 / 文件入站自动转多模态上下文；工具审批直接在聊天窗按按钮决定；每个群聊 / 账号可绑定独立 Agent 和权限策略。</td></tr>
+<tr><td><b>🔁 三种运行模式同核</b></td><td>桌面 GUI（默认）、HTTP/WS 守护进程（可注册成 launchd / systemd 开机自启，手机 / 平板 / 网页全平台连同一后端）、ACP stdio（给 IDE 当 agent 后端）。三种模式共用 Rust <code>oc-core</code> 核心库，零 Tauri 依赖。</td></tr>
+</table>
+
+### 🧠 记忆与学习
+
+<table>
+<tr><td width="220"><b>🧠 跨会话持久记忆</b></td><td>SQLite + FTS5 全文检索 + 向量语义检索三位一体。记忆可按全局 / 项目 / Agent 三层 scope 组织；system prompt 注入按联合预算分配，不会因为某一层过长挤掉其他层。</td></tr>
+<tr><td><b>💤 离线"做梦"整理</b></td><td>空闲时自动跑一遍"过去这两天最有价值的记忆是哪些"，把入选条目 pin 住并写成 markdown 日记，可在设置 → Dream Diary 回看。每天工作完帮你把今天学到的知识沉淀下来，下次对话用得上。</td></tr>
+<tr><td><b>🔍 主动召回 + 反省画像</b></td><td>每轮对话开始前，按你刚打的那句话主动捞出最相关的记忆注入 prompt（Active Memory）；另外反省式地从历史对话里提炼沟通风格 / 工作习惯 / 长期偏好，单独以"用户画像"段落进 prompt，越用越懂你。</td></tr>
+<tr><td><b>🛠 会成长的技能系统</b></td><td>执行完复杂任务后自动生成技能草稿（Draft），你审核通过下次就能复用。技能支持条件激活（比如只在编辑 Python 文件时加载）、fork 子 Agent 执行、工具白名单隔离；兼容 <a href="https://agentskills.io">agentskills.io</a> 开放标准，社区技能即插即用。</td></tr>
+<tr><td><b>👁 跨会话行为感知</b></td><td>它知道你别的对话里在做什么。每轮对话开始前自动感知其他活跃会话的最近动作、目标、摩擦点，需要时把相关信息同步到当前会话——不打扰主线，只在上下文相关时出现。默认零 LLM 成本的结构化模式，可选切到 LLM 自然语言摘要模式。</td></tr>
+<tr><td><b>💾 长对话不失忆</b></td><td>上下文五层渐进式压缩，不管聊多久前文都不会被强切丢失。tool 调用配对永远不拆散；摘要过的消息还会自动从磁盘恢复最近编辑过的文件内容，省去你反复粘贴的麻烦。与 Prompt Caching 配合，长会话的 API 成本明显低于朴素调用。</td></tr>
+</table>
+
+### 🛠 工作流 & 工具
+
+<table>
+<tr><td width="220"><b>📋 Plan Mode 计划执行</b></td><td>面对复杂任务先出一份可修改 / 可承接的计划书，六态状态机管理执行进度。计划可跨会话存档，下次继续只要一句"继续上次的计划"。执行期间严格按白名单工具操作，避免模型跑飞。</td></tr>
+<tr><td><b>📁 Project 项目容器</b></td><td>把相关会话归到同一项目下，继承项目级记忆 / 项目指令 / 共享文件。上传的文件自动文本抽取并三层注入（目录清单 / 小文件自动内联 / 大文件按需读取），不用手动 @ 文件也不怕吃爆上下文。</td></tr>
+<tr><td><b>👥 Agent Team 多 Agent 协作</b></td><td>在设置里预置团队模板（成员角色、绑定 Agent、默认任务模板），模型按需一句话就能组建专家团。成员间可互发消息、协同推进，完成后自动把 transcript 汇总回主对话。</td></tr>
+<tr><td><b>🗓 自然语言定时任务</b></td><td>"每天早 8 点给我写日报"、"每周一整理上周待办"、"工作日每小时扫一次邮箱"——到点自动跑，结果可选投递到任一 IM 渠道。Cron 在守护进程 / 桌面 GUI 下都能稳定运行。</td></tr>
+<tr><td><b>📊 Dashboard + Recap 复盘</b></td><td>内置数据大盘：成本 / Token / 活跃度热力图 / 健康度四维可视化。<code>/recap</code> 深度复盘一键跑过去 N 天会话，生成 11 个 AI 章节报告（含 Agent 工具优化建议、记忆与技能推荐、成本优化等），可导出独立 HTML 分享。</td></tr>
+<tr><td><b>🔧 工具箱</b></td><td>可控浏览器（CDP）、Canvas 画布、AI 画图（7 个 Provider）、Web 搜索（8 个 Provider failover）、bash 执行（可选 Docker 沙箱隔离）、文件读写 / grep / find、MCP 协议接入、URL 预览、崩溃日志、自诊断。</td></tr>
+<tr><td><b>⚡ 后台跑长任务</b></td><td>耗时的 shell 命令 / Web 搜索 / AI 画图可以让 Agent "丢到后台跑"，立即返回 <code>job_id</code> 继续对话不阻塞。后台完成后结果自动注入回主对话，也可以让模型主动 <code>job_status</code> poll 结果。再长的任务都不会卡住你的聊天窗。</td></tr>
+</table>
+
+### 🛡 安全与本地化
+
+<table>
+<tr><td width="220"><b>🔒 工具审批 + Docker 沙箱</b></td><td>敏感工具调用走审批门控（支持超时后自动 deny / proceed 策略，也支持渠道级自动批准）；高危的 bash / 文件写入可选择跑在 Docker 沙箱里隔离执行。给 Agent 高权限也不怕翻车。</td></tr>
+<tr><td><b>🏠 本地优先 · 零第三方中转</b></td><td>所有数据在 <code>~/.opencomputer/</code>：配置、会话、记忆、附件、技能、日志全部本地 SQLite / 文件存储；API Key 直连模型厂商。服务模式下 Bearer Token 鉴权 + SSRF 三档策略，远程访问也可控。</td></tr>
+<tr><td><b>🛟 配置自动快照 · 一键回滚</b></td><td>任何配置变更都自动快照到本地 <code>backups/autosave/</code>，保留最近 50 份。就算模型通过设置工具帮你改乱了参数，也能随时还原到任意历史时间点。</td></tr>
+</table>
+
+> 更多细节亮点请查看 [CHANGELOG.md](CHANGELOG.md)。
+
+## 快速开始
+
+### 普通用户
+
+1. 到 [Releases](https://github.com/shiwenwen/hope-agent/releases) 下载对应平台安装包
+   - macOS：`Hope-Agent_*.dmg`
+   - Linux：`hope-agent_*.AppImage`
+   - Windows：即将支持（尚未完成充分测试）
+2. 首次启动向导：**选 Provider 模板 → 填 API Key → 开聊**
+
+<p align="center">
+  <img src="docs/assets/screenshot-desktop.png" alt="桌面 GUI 截图" width="720">
+</p>
+
+### 开发者
+
+```bash
+git clone https://github.com/shiwenwen/hope-agent.git
+cd hope-agent
+npm install
+npm run tauri dev      # 桌面开发模式（前端 + Rust 热重载）
+
+# 其他常用命令
+npx tsc --noEmit       # 前端类型检查
+npm run lint           # Lint
+npm run tauri build    # 打生产包
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## 运行模式
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+| 模式 | 启动方式 | 场景 |
+|---|---|---|
+| 桌面 GUI | 双击图标 / `npm run tauri dev` | 默认体验，本机一个人用 |
+| Server（HTTP/WS） | 通过 `server start` 子命令；`server install` 可注册成 launchd / systemd 开机自启 | 守护进程 24 小时在线，IM 渠道/Cron 不断线 |
+| ACP（stdio） | 通过 `acp` 子命令 | IDE 直连，兼容 ACP 协议的编辑器把 Hope Agent 当 agent 后端调 |
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+三种模式共用同一套 `oc-core` 核心逻辑；配置、会话、记忆全部落在 `~/.opencomputer/` 下（后续迁移到 `~/.hope-agent/`）。
+
+## 生态一览
+
+<table>
+<tr>
+  <td width="140"><b>📦 模型 Provider</b></td>
+  <td>
+    <b>36 个模板 · 166 个预设模型</b><br/>
+    <b>国际</b> · Anthropic · OpenAI · Codex · Google Gemini · OpenRouter · Azure OpenAI · Groq · Together AI · Fireworks · Perplexity · xAI Grok · Mistral · Cohere<br/>
+    <b>国内</b> · DeepSeek · Moonshot (Kimi) · 通义千问 (Qwen) · 豆包 (火山引擎) · 智谱 GLM · MiniMax · 小米 MiMo<br/>
+    <b>本地</b> · Ollama · 任意 OpenAI 兼容端点
+  </td>
+</tr>
+<tr>
+  <td><b>💬 IM 渠道</b></td>
+  <td><b>12 个</b> · Telegram · Discord · Slack · 飞书 · Google Chat · LINE · QQ Bot · Signal · iMessage · IRC · WeChat · WhatsApp</td>
+</tr>
+<tr>
+  <td><b>🌐 界面语言</b></td>
+  <td><b>12 种</b> · 简体中文 · 繁體中文 · English · 日本語 · 한국어 · Español · Português · Русский · العربية · Türkçe · Tiếng Việt · Bahasa Melayu</td>
+</tr>
+</table>
+
+## 项目结构
+
+Cargo Workspace 三 Crate 架构，核心业务逻辑全部在 `oc-core`：
+
 ```
+crates/
+  oc-core/       Rust 核心库（零 Tauri 依赖）— 所有业务逻辑在这里
+  oc-server/     axum HTTP/WS 守护进程（薄壳）
+src-tauri/       Tauri 桌面 Shell（薄壳）
+src/             React 19 + TypeScript 前端
+skills/          内置技能（随应用发行）
+```
+
+完整的模块拓扑、架构约定、编码规范见 [AGENTS.md](AGENTS.md)。
+
+## 文档
+
+- [AGENTS.md](AGENTS.md) — 架构约定 / 编码规范 / 全量模块拓扑
+- [CHANGELOG.md](CHANGELOG.md) — 更新日志（Keep a Changelog 格式）
+- [docs/architecture/](docs/architecture/) — 子系统架构文档
+
+## 贡献
+
+主分支处于活跃开发阶段，欢迎 issue / PR。贡献前请先读一遍 [AGENTS.md](AGENTS.md) 的 "架构约定" 和 "编码规范" 两节。
+
+常用命令：
+
+```bash
+npm run tauri dev                    # 桌面开发
+cargo check --workspace              # Rust 依赖 / 类型检查
+cargo test -p oc-core -p oc-server   # 核心测试
+node scripts/sync-i18n.mjs --check   # 检查翻译缺失
+```
+
+## 社区
+
+- 🐛 [Issues](https://github.com/shiwenwen/hope-agent/issues) — Bug 报告、功能请求
+- 💡 [Discussions](https://github.com/shiwenwen/hope-agent/discussions) — 用法分享、想法讨论、提问答疑
+- ⭐ 如果 Hope Agent 帮到了你，欢迎在 GitHub 上点个 Star
+- 📮 路线图、正式文档站和更多社区渠道正在筹备中
+
+## 致谢
+
+- [openclaw](https://github.com/openclaw/openclaw)：在本地 AI 助手方向上的启发
+- [Tauri](https://tauri.app/)、[axum](https://github.com/tokio-rs/axum)、[React](https://react.dev/)、[shadcn/ui](https://ui.shadcn.com/)、[Streamdown](https://github.com/streamdown/streamdown)、[Radix UI](https://www.radix-ui.com/) 等开源基础设施
+- 所有为这个项目做过反馈、测试、提交 issue 的朋友
+
+## License
+
+[MIT](LICENSE)

@@ -1,0 +1,186 @@
+<p align="center">
+  <img src="docs/assets/hope-agent-banner.png" alt="Hope Agent" width="720">
+</p>
+
+<h1 align="center">🌟 Hope Agent</h1>
+
+<p align="center">
+  <strong>A desktop AI assistant that lives on your computer.</strong><br/>
+  Remembers you · Grows over time · Reachable from every chat app you use
+</p>
+
+<p align="center">
+  <a href="https://github.com/shiwenwen/hope-agent/actions/workflows/rust.yml"><img src="https://img.shields.io/github/actions/workflow/status/shiwenwen/hope-agent/rust.yml?branch=main&style=for-the-badge&label=CI" alt="CI status"></a>
+  <a href="https://github.com/shiwenwen/hope-agent/releases"><img src="https://img.shields.io/github/v/release/shiwenwen/hope-agent?include_prereleases&style=for-the-badge" alt="Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="License: MIT"></a>
+  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows%20(soon)-lightgrey?style=for-the-badge" alt="Platforms">
+</p>
+
+<p align="center">
+  <a href="./README.md">简体中文</a> · <strong>English</strong>
+</p>
+
+---
+
+**Hope Agent** is a desktop AI assistant built for ordinary people. One native installer, GUI templates for the major model providers baked in, paste an API key and you're chatting. It remembers you across sessions, quietly organizes its own memory while idle, turns completed tasks into reusable skills, and is reachable from whatever IM apps you already use.
+
+## Why Hope Agent
+
+Ordinary people deserve a desktop AI assistant that just **opens and works** — download an installer, double-click, no runtimes to install, no CLI to learn first. There aren't many products that fit this bill, so Hope Agent is what came out of caring about performance, stability, and the small interaction details.
+
+Hope Agent was influenced in its early days by [openclaw](https://github.com/openclaw/openclaw) — credit to them for their pioneering work on local AI assistants. We took a different implementation path.
+
+## Highlights
+
+### 🎯 Everyday use
+
+<table>
+<tr><td width="220"><b>🖥️ Native desktop GUI</b></td><td>Tauri 2 + React 19 packaged as native macOS / Linux / Windows installers. Ships in 12 UI languages (Simplified/Traditional Chinese, English, Japanese, Korean, Spanish, Portuguese, Russian, Arabic, Turkish, Vietnamese, Malay) with typography tuned for CJK text.</td></tr>
+<tr><td><b>🧙 Zero-config providers</b></td><td>36 built-in provider templates covering 166 preset models. Anthropic, OpenAI, Gemini, Codex, OpenRouter, DeepSeek, Kimi, Qwen, Doubao, GLM, MiniMax, xAI, Mistral, Ollama — all in. Each provider supports multi-key rotation, so rate limits and quota exhaustion fail over seamlessly to the next key.</td></tr>
+<tr><td><b>💬 One app, every chat</b></td><td>12 IM channels: Telegram, Discord, Slack, Feishu, Google Chat, LINE, QQ Bot, Signal, iMessage, IRC, WeChat, WhatsApp. Inbound images / voice / files become multimodal context automatically; tool approvals are one tap in the chat window; every group / account can bind a distinct Agent with its own policies.</td></tr>
+<tr><td><b>🔁 Three run modes, one core</b></td><td>Desktop GUI (default), HTTP/WS daemon (installable as launchd / systemd for auto-start — phones, tablets, and browsers can all hit the same backend), and ACP stdio (as an agent backend for any ACP-capable IDE). All three share a pure-Rust <code>oc-core</code> library with zero Tauri dependencies.</td></tr>
+</table>
+
+### 🧠 Memory & learning
+
+<table>
+<tr><td width="220"><b>🧠 Persistent memory across sessions</b></td><td>SQLite + FTS5 + vector search, three-in-one. Memories are scoped by Global / Project / Agent; system prompt injection follows a joint budget so no one layer crowds out another.</td></tr>
+<tr><td><b>💤 Offline "dreaming"</b></td><td>When idle, Hope Agent automatically reviews "what was worth remembering over the past couple of days," pins the selections, and writes them into a markdown diary viewable under Settings → Dream Diary. Every day's work gets quietly consolidated for next time.</td></tr>
+<tr><td><b>🔍 Active recall + reflective profile</b></td><td>Before each turn starts, the most relevant memories for your input are pulled into the prompt (Active Memory). A separate reflective pass distills your communication style, work habits, and long-term preferences into a dedicated "User Profile" section — it gets better at knowing you over time.</td></tr>
+<tr><td><b>🛠 Skills that grow</b></td><td>After complex tasks, Hope Agent auto-drafts new skills for your review. Approve a draft in settings and it's reusable from then on. Skills support conditional activation (e.g. only load when editing Python files), forked sub-agent execution, and tool allowlists; compatible with the <a href="https://agentskills.io">agentskills.io</a> open standard.</td></tr>
+<tr><td><b>👁 Cross-session awareness</b></td><td>It knows what your other chats are doing. Before each turn, Hope Agent pulls in the recent goals, actions, and friction points of your other active sessions — so when context crosses over, the right information is available without derailing the main conversation. Defaults to a zero-LLM-cost structured mode; an optional LLM digest mode is available.</td></tr>
+<tr><td><b>💾 Long conversations don't lose the plot</b></td><td>Five-tier progressive context compaction. No matter how long the chat, earlier messages aren't hard-truncated. Tool calls stay paired forever; when messages are summarized, recently edited file contents are auto-restored from disk so you don't have to paste them again. Combined with prompt caching, long-session API costs stay well below naive usage.</td></tr>
+</table>
+
+### 🛠 Workflow & tools
+
+<table>
+<tr><td width="220"><b>📋 Plan Mode</b></td><td>For complex tasks, Hope Agent first drafts an editable, resumable plan managed by a six-state machine. Plans persist across sessions — "continue the previous plan" is enough to pick up. During execution, it strictly respects a tool allowlist so the model can't wander.</td></tr>
+<tr><td><b>📁 Project containers</b></td><td>Group related sessions under a single project that inherits project-level memory / instructions / shared files. Uploaded files get automatic text extraction and three-layer injection (dir listing / small-file auto-inline / large-file on-demand read) — no manual @ file, no context blowup.</td></tr>
+<tr><td><b>👥 Agent teams</b></td><td>Pre-configure team templates in settings (member roles, bound agents, default task templates). One sentence tells the model to spin up a specialist team. Members message each other and coordinate; when done, the transcript is summarized back to the main thread.</td></tr>
+<tr><td><b>🗓 Natural-language cron</b></td><td>"Write me a daily summary every 8 AM." "Review last week's todos every Monday." "Scan my inbox hourly on workdays." Scheduled in plain language, delivered to any IM channel. Runs reliably under both desktop GUI and the daemon.</td></tr>
+<tr><td><b>📊 Dashboard + Recap</b></td><td>Built-in analytics: cost, token usage, activity heatmap, and a four-dimensional health score. <code>/recap</code> runs a deep retrospective over the last N days and produces an 11-section AI report (Agent tool optimization, memory &amp; skill recommendations, cost optimization, etc.) that exports as standalone HTML.</td></tr>
+<tr><td><b>🔧 Toolbox</b></td><td>Controllable browser (CDP), Canvas, AI image generation (7 providers), web search (8 providers with failover), bash (optional Docker sandbox), file read/grep/find, MCP protocol, URL preview, crash journal, self-diagnosis.</td></tr>
+<tr><td><b>⚡ Background long tasks</b></td><td>Long-running shell commands, web searches, or image generations can be "sent to the background" — an immediate <code>job_id</code> returns so the conversation keeps flowing. The result is auto-injected back into the main thread when it finishes; the model can also poll with <code>job_status</code> on demand. No task is ever long enough to freeze your chat window.</td></tr>
+</table>
+
+### 🛡 Security & local-first
+
+<table>
+<tr><td width="220"><b>🔒 Tool approval + Docker sandbox</b></td><td>Sensitive tool calls are gated by an approval flow (with per-category auto deny / proceed timeouts and per-channel auto-approve). High-risk bash / file writes can be routed into an isolated Docker sandbox. Safe to give the Agent high privileges.</td></tr>
+<tr><td><b>🏠 Local-first · zero third-party hops</b></td><td>All data lives under <code>~/.opencomputer/</code>: config, sessions, memories, attachments, skills, logs — all local SQLite / files. API keys hit model providers directly. In daemon mode, Bearer token auth plus three-tier SSRF policies keep remote access controllable.</td></tr>
+<tr><td><b>🛟 Automatic config snapshots · one-click rollback</b></td><td>Every config write auto-snapshots to <code>backups/autosave/</code>, keeping the last 50. Even if the model's settings tool garbles your preferences, you can restore to any previous state.</td></tr>
+</table>
+
+> For the full list of built-in features, see [CHANGELOG.md](CHANGELOG.md).
+
+## Quick Start
+
+### For users
+
+1. Download the installer for your platform from [Releases](https://github.com/shiwenwen/hope-agent/releases):
+   - macOS: `Hope-Agent_*.dmg`
+   - Linux: `hope-agent_*.AppImage`
+   - Windows: coming soon (not yet fully tested)
+2. First launch: **pick a provider template → paste API key → chat.**
+
+<p align="center">
+  <img src="docs/assets/screenshot-desktop.png" alt="Desktop GUI screenshot" width="720">
+</p>
+
+### For developers
+
+```bash
+git clone https://github.com/shiwenwen/hope-agent.git
+cd hope-agent
+npm install
+npm run tauri dev      # desktop dev (frontend + Rust hot reload)
+
+# Other useful commands
+npx tsc --noEmit       # frontend typecheck
+npm run lint           # lint
+npm run tauri build    # production build
+```
+
+## Run Modes
+
+| Mode | How to start | When to use |
+|---|---|---|
+| Desktop GUI | Double-click the app / `npm run tauri dev` | Default, single user |
+| Server (HTTP/WS) | `server start` subcommand; `server install` registers a launchd / systemd service | Always-on daemon for IM channels and cron jobs |
+| ACP (stdio) | `acp` subcommand | IDE integration — any ACP-capable editor can call Hope Agent as its agent backend |
+
+All three modes share the same `oc-core` core. Config, sessions, and memories live under `~/.opencomputer/` (to be migrated to `~/.hope-agent/`).
+
+## Ecosystem
+
+<table>
+<tr>
+  <td width="140"><b>📦 Model providers</b></td>
+  <td>
+    <b>36 templates · 166 preset models</b><br/>
+    <b>International</b> · Anthropic · OpenAI · Codex · Google Gemini · OpenRouter · Azure OpenAI · Groq · Together AI · Fireworks · Perplexity · xAI Grok · Mistral · Cohere<br/>
+    <b>China</b> · DeepSeek · Moonshot (Kimi) · Qwen · Doubao (Volcengine) · Z.AI (GLM) · MiniMax · Xiaomi MiMo<br/>
+    <b>Local</b> · Ollama · any OpenAI-compatible endpoint
+  </td>
+</tr>
+<tr>
+  <td><b>💬 IM channels</b></td>
+  <td><b>12</b> · Telegram · Discord · Slack · Feishu · Google Chat · LINE · QQ Bot · Signal · iMessage · IRC · WeChat · WhatsApp</td>
+</tr>
+<tr>
+  <td><b>🌐 UI languages</b></td>
+  <td><b>12</b> · Simplified Chinese · Traditional Chinese · English · Japanese · Korean · Spanish · Portuguese · Russian · Arabic · Turkish · Vietnamese · Malay</td>
+</tr>
+</table>
+
+## Project Structure
+
+Cargo workspace, three crates; all business logic lives in `oc-core`:
+
+```
+crates/
+  oc-core/       Rust core library (zero Tauri deps) — where the logic lives
+  oc-server/     axum HTTP/WS daemon (thin shell)
+src-tauri/       Tauri desktop shell (thin shell)
+src/             React 19 + TypeScript frontend
+skills/          Bundled skills (ship with the app)
+```
+
+For the full module map, architecture conventions, and coding guidelines, see [AGENTS.md](AGENTS.md).
+
+## Documentation
+
+- [AGENTS.md](AGENTS.md) — architecture, conventions, full module map
+- [CHANGELOG.md](CHANGELOG.md) — Keep a Changelog-formatted release notes
+- [docs/architecture/](docs/architecture/) — subsystem design docs
+
+## Contributing
+
+The main branch is under active development — issues and PRs are welcome. Please skim the **Architecture** and **Coding Conventions** sections of [AGENTS.md](AGENTS.md) before contributing.
+
+Common commands:
+
+```bash
+npm run tauri dev                    # desktop dev
+cargo check --workspace              # Rust dep / type check
+cargo test -p oc-core -p oc-server   # core tests
+node scripts/sync-i18n.mjs --check   # i18n completeness check
+```
+
+## Community
+
+- 🐛 [Issues](https://github.com/shiwenwen/hope-agent/issues) — bug reports, feature requests
+- 💡 [Discussions](https://github.com/shiwenwen/hope-agent/discussions) — usage, ideas, Q&A
+- ⭐ If Hope Agent helps you, consider giving it a star on GitHub
+- 📮 Roadmap, a dedicated docs site, and more community channels are on the way
+
+## Acknowledgements
+
+- [openclaw](https://github.com/openclaw/openclaw) — inspiration in the local AI assistant space
+- [Tauri](https://tauri.app/), [axum](https://github.com/tokio-rs/axum), [React](https://react.dev/), [shadcn/ui](https://ui.shadcn.com/), [Streamdown](https://github.com/streamdown/streamdown), [Radix UI](https://www.radix-ui.com/), and the rest of the open source stack Hope Agent stands on
+- Everyone who has filed issues, tested builds, and given feedback along the way
+
+## License
+
+[MIT](LICENSE)
