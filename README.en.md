@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="docs/assets/hope-agent-banner.png" alt="Hope Agent" width="720">
+  <img src="logo.png" alt="Hope Agent" width="200">
 </p>
 
-<h1 align="center">🌟 Hope Agent</h1>
+<h1 align="center">Hope Agent</h1>
 
 <p align="center">
   <strong>A desktop AI assistant that lives on your computer.</strong><br/>
@@ -10,10 +10,14 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/shiwenwen/hope-agent/actions/workflows/rust.yml"><img src="https://img.shields.io/github/actions/workflow/status/shiwenwen/hope-agent/rust.yml?branch=main&style=for-the-badge&label=CI" alt="CI status"></a>
-  <a href="https://github.com/shiwenwen/hope-agent/releases"><img src="https://img.shields.io/github/v/release/shiwenwen/hope-agent?include_prereleases&style=for-the-badge" alt="Release"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="License: MIT"></a>
-  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows%20(soon)-lightgrey?style=for-the-badge" alt="Platforms">
+  <a href="https://github.com/shiwenwen/hope-agent/actions/workflows/rust.yml"><img src="https://img.shields.io/github/actions/workflow/status/shiwenwen/hope-agent/rust.yml?branch=main&style=flat-square&logo=githubactions&logoColor=white&label=CI" alt="CI status"></a>
+  <a href="https://github.com/shiwenwen/hope-agent/releases"><img src="https://img.shields.io/badge/macOS-000000?style=flat-square&logo=apple&logoColor=white" alt="macOS"></a>
+  <a href="https://github.com/shiwenwen/hope-agent/releases"><img src="https://img.shields.io/badge/Linux-FCC624?style=flat-square&logo=linux&logoColor=black" alt="Linux"></a>
+  <img src="https://img.shields.io/badge/Windows-coming%20soon-888888?style=flat-square&logo=windows&logoColor=white" alt="Windows (soon)">
+  <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/Rust-edition%202021-dea584?style=flat-square&logo=rust&logoColor=white" alt="Rust"></a>
+  <a href="https://tauri.app/"><img src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white" alt="Tauri"></a>
+  <a href="https://react.dev/"><img src="https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black" alt="React"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License: MIT"></a>
 </p>
 
 <p align="center">
