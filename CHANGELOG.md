@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Docs
+
+- **新增 Project 项目系统架构文档**：在 [`docs/architecture/project.md`](docs/architecture/project.md) 下落地 Project 子系统完整技术文档，覆盖数据模型（`Project` / `ProjectMeta` / `ProjectFile` + `CreateProjectInput` / `UpdateProjectInput`）、SQLite schema（`projects` + `project_files` + `sessions.project_id` 迁移）、磁盘布局（`~/.opencomputer/projects/{id}/{files,extracted}/`）、上传管道 8 步（含 `scopeguard` 失败清理与 20MB 上限）、System Prompt 三层注入（目录清单 / 8KB 预算小文件内联 / on-demand `project_read_file`）、记忆系统三级优先级（Project → Agent → Global）、跨 DB 孤儿清理 reconciler、14 个 Tauri 命令、14 个 HTTP 端点、5 个 EventBus 事件、前端四 Tab 概览对话与侧边栏 ProjectSection。`docs/README.md` 索引同步登记，放在 Session / Memory 之间
+
 ### Changed
 
 - **LlmApiAdapter trait：one-shot LLM 调用统一抽象**：原本 4 个 Provider 的 one-shot HTTP 调用散落在 [`agent/side_query.rs`](crates/oc-core/src/agent/side_query.rs)（4 分支 HTTP）和 [`agent/context.rs::summarize_direct`](crates/oc-core/src/agent/context.rs#L733)（4 分支 HTTP，其中 Codex 分支端点 + body 都错，从未跑通过），同一份调用代码写了两份且都各自分裂。新增 [`crates/oc-core/src/agent/llm_adapter.rs`](crates/oc-core/src/agent/llm_adapter.rs) 引入 `LlmApiAdapter` trait + 4 个 adapter struct（`AnthropicAdapter` / `OpenAIChatAdapter` / `OpenAIResponsesAdapter` / `CodexAdapter`），对外暴露统一的 `one_shot(client, OneShotRequest { instruction, max_tokens, cached, system_override })`：`system_override.is_some()` 走"独立 system + 单 user"分支（Tier 3 摘要），`cached` + format 匹配走 cache-friendly 分支（复用 system + tools + history 前缀），都没有走最简 fallback。`OpenAIResponsesAdapter` 和 `CodexAdapter` 共享 `build_responses_body` free function（差异只在端点 + auth header）。`side_query.rs` 缩到 ~80 行（薄壳，委托给 `provider.as_adapter().one_shot(...)`），`summarize_direct` 缩到 ~30 行（同入口，传 `system_override = Some(SUMMARIZATION_SYSTEM_PROMPT)`）。adapter 是临时构造的零成本 wrapper（只持借用引用），不进 `AssistantAgent` 字段，failover / provider 切换路径无需感知。**顺带修复**：Codex `summarize_direct` 之前用 Chat Completions body 打 Codex Responses 端点，现统一走 Responses body 形态，Tier 3 摘要在 Codex 订阅下首次能跑通。**未在范围**：主对话 streaming + tool loop（`agent/providers/`，3145 行）暂未统一，留给后续 Phase（`StreamingLlmAdapter` + SSE decoder + tool call accumulator）

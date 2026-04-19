@@ -1,0 +1,448 @@
+# Project 项目系统架构
+
+> 返回 [文档索引](../README.md) | 更新时间：2026-04-19
+
+## 目录
+
+- [概述](#概述)
+- [数据模型](#数据模型)
+- [SQLite Schema](#sqlite-schema)
+- [磁盘布局](#磁盘布局)
+- [核心 API](#核心-api)
+- [文件上传管道](#文件上传管道)
+- [System Prompt 三层注入](#system-prompt-三层注入)
+- [`project_read_file` 工具](#project_read_file-工具)
+- [记忆系统接入](#记忆系统接入)
+- [级联删除与孤儿清理](#级联删除与孤儿清理)
+- [接入层](#接入层)
+- [前端 UI](#前端-ui)
+- [EventBus 事件](#eventbus-事件)
+- [启动顺序](#启动顺序)
+- [安全约束](#安全约束)
+- [关联文档](#关联文档)
+- [文件清单](#文件清单)
+
+---
+
+## 概述
+
+Project 是 OpenComputer 的**可选会话容器**，将多个会话聚成一个工作空间以共享：
+
+1. **项目记忆**（`MemoryScope::Project { id }`）— 项目内可见，跨项目隔离
+2. **项目指令**（`instructions`）— 装配进每个项目内会话的 System Prompt
+3. **上传文件** — 三层注入给 LLM（目录清单 / 小文件内联 / on-demand 读取）
+
+`sessions.project_id = NULL` 的会话保留 pre-project 行为，完全不受影响。项目是 opt-in 容器，而不是对话的必需分组。
+
+核心设计取舍：
+
+- **复用 `sessions.db`**：`projects` / `project_files` 表与 `sessions` 表同 DB（`ProjectDB` 持 `Arc<SessionDB>`），SQLite FK CASCADE 自然处理文件元数据
+- **跨 DB 内存**：项目记忆在独立的 `memory.db` 中，无法共享 TX；通过启动期 reconciler 兜底孤儿清理
+- **防御式路径校验**：`project_read_file` 工具和 `purge_project_files_dir` 都两次 canonicalize 后白名单比对，防符号链接逃逸
+
+## 数据模型
+
+### Project ([types.rs:14-38](../../crates/oc-core/src/project/types.rs#L14-L38))
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | `String` | UUID v4 主键 |
+| `name` | `String` | 项目名称（trim 后不得为空） |
+| `description` | `Option<String>` | 项目简介 |
+| `instructions` | `Option<String>` | 自定义指令，追加到项目内每个会话的 System Prompt |
+| `emoji` | `Option<String>` | 侧边栏 / 标题前缀 emoji |
+| `color` | `Option<String>` | 强调色（目前 UI 内部装饰用） |
+| `default_agent_id` | `Option<String>` | 新建会话时的默认 Agent |
+| `default_model_id` | `Option<String>` | 新建会话时的默认模型 |
+| `created_at` / `updated_at` | `i64` | Unix 毫秒时间戳 |
+| `archived` | `bool` | 归档标志（不删除，默认列表过滤） |
+
+### ProjectMeta ([types.rs:40-49](../../crates/oc-core/src/project/types.rs#L40-L49))
+
+`Project` + 聚合计数：`session_count`、`file_count`、`memory_count`。
+
+`session_count` / `file_count` 由 `ProjectDB::list` 的子查询得出；`memory_count` 跨 DB，需调用方在 Tauri / HTTP 层用 `backend.count_by_project(&id)` 补齐（[projects.rs:105-111](../../crates/oc-server/src/routes/projects.rs#L105-L111)）。
+
+### ProjectFile ([types.rs:100-128](../../crates/oc-core/src/project/types.rs#L100-L128))
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | `String` | UUID v4 |
+| `project_id` | `String` | 所属项目 FK |
+| `name` | `String` | 用户可编辑的显示名 |
+| `original_filename` | `String` | 上传时原始文件名 |
+| `mime_type` | `Option<String>` | MIME 类型 |
+| `size_bytes` | `i64` | 字节数 |
+| `file_path` | `String` | 相对 `projects_dir()` 的原文件路径 |
+| `extracted_path` | `Option<String>` | 相对 `projects_dir()` 的提取文本路径（二进制 / 提取失败为 `None`） |
+| `extracted_chars` | `Option<i64>` | 提取文本的字符数，内联预算决策用 |
+| `summary` | `Option<String>` | 预留的 LLM 一句话摘要（当前未使用） |
+
+### 输入 DTO
+
+- `CreateProjectInput`：`name` 必填，其余可选
+- `UpdateProjectInput`：全字段 `Option<_>`，PATCH 语义。**空串正规化为 NULL**（[db.rs push_str_field](../../crates/oc-core/src/project/db.rs#L159-L175)），让调用方能显式清空某个可选字段
+
+## SQLite Schema
+
+两张表随 `SessionDB` 的连接共享，由 `ProjectDB::migrate()` 幂等建表（[db.rs:27-71](../../crates/oc-core/src/project/db.rs#L27-L71)）。
+
+```sql
+CREATE TABLE IF NOT EXISTS projects (
+    id                TEXT PRIMARY KEY,
+    name              TEXT NOT NULL,
+    description       TEXT,
+    instructions      TEXT,
+    emoji             TEXT,
+    color             TEXT,
+    default_agent_id  TEXT,
+    default_model_id  TEXT,
+    created_at        INTEGER NOT NULL,
+    updated_at        INTEGER NOT NULL,
+    archived          INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_projects_archived
+    ON projects(archived, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS project_files (
+    id                 TEXT PRIMARY KEY,
+    project_id         TEXT NOT NULL,
+    name               TEXT NOT NULL,
+    original_filename  TEXT NOT NULL,
+    mime_type          TEXT,
+    size_bytes         INTEGER NOT NULL,
+    file_path          TEXT NOT NULL,
+    extracted_path     TEXT,
+    extracted_chars    INTEGER,
+    summary            TEXT,
+    created_at         INTEGER NOT NULL,
+    updated_at         INTEGER NOT NULL,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_project_files_project
+    ON project_files(project_id);
+```
+
+**sessions 表扩展**（[session/db.rs:232-239](../../crates/oc-core/src/session/db.rs#L232-L239)）：`SessionDB::open` 迁移阶段 `ALTER TABLE sessions ADD COLUMN project_id TEXT` + 建 `idx_sessions_project_id` 索引，老库零破坏升级。
+
+## 磁盘布局
+
+```
+~/.opencomputer/
+├── sessions.db                        # projects + project_files + sessions 同一个 DB
+├── memory.db                          # 项目记忆（独立 DB，MemoryScope::Project）
+└── projects/
+    └── {project_id}/
+        ├── files/{uuid8}_{safe_name}  # 原始字节
+        └── extracted/{uuid}.txt       # 提取文本（仅文本型文件）
+```
+
+路径由 [`paths.rs:244-261`](../../crates/oc-core/src/paths.rs#L244-L261) 集中管理：`projects_dir()` / `project_dir(id)` / `project_files_dir(id)` / `project_extracted_dir(id)`。
+
+## 核心 API
+
+### ProjectDB ([db.rs](../../crates/oc-core/src/project/db.rs))
+
+**项目 CRUD：**
+
+| 方法 | 说明 |
+|---|---|
+| `create(CreateProjectInput)` | 插入新项目，返回 `Project` |
+| `get(id)` | 取单个项目 |
+| `update(id, UpdateProjectInput)` | 动态 SQL 部分更新，空串 → NULL，强制 bump `updated_at` |
+| `delete(id)` → `Vec<ProjectFile>` | `IMMEDIATE` 事务内：① `SELECT` 快照文件行作为返回值 ② `UPDATE sessions SET project_id = NULL` ③ `DELETE FROM projects`（FK CASCADE 顺带删 `project_files`）。返回的文件列表供调用者清理磁盘 |
+| `list_all_ids()` | 轻量级 id 列表，reconciler 专用 |
+| `list(include_archived)` → `Vec<ProjectMeta>` | 带 `session_count` / `file_count` 聚合子查询；`memory_count = 0` 待调用方补齐 |
+
+**文件 CRUD：**
+
+| 方法 | 说明 |
+|---|---|
+| `add_file(&ProjectFile)` | 插入元数据行 |
+| `list_files(project_id)` | 按 `created_at DESC` 返回 |
+| `get_file(project_id, file_id)` | 精确定位 |
+| `find_file_by_name(project_id, name)` | `project_read_file` 工具的 fallback 入口 |
+| `rename_file(file_id, new_name)` | 只改 `name`，不动磁盘路径 |
+| `delete_file(file_id)` → `Option<ProjectFile>` | 返回删除前的行以供磁盘清理 |
+
+### session ↔ project 绑定（[session/db.rs:642-724](../../crates/oc-core/src/session/db.rs#L642-L724)）
+
+| 方法 | 说明 |
+|---|---|
+| `create_session_with_project(agent_id, project_id: Option<&str>)` | 带项目归属创建会话 |
+| `set_session_project(session_id, project_id: Option<&str>)` | 搬迁会话到另一个项目或 unassign |
+| `clear_project_from_sessions(project_id)` | 批量 unassign，由 `ProjectDB::delete` 内部使用 |
+| `list_sessions_paged(agent_id, project_filter, limit, offset)` | 新增 `ProjectFilter` 参数：`All` / `Unassigned` / `InProject(id)` |
+
+## 文件上传管道
+
+`upload_project_file` ([files.rs:39-138](../../crates/oc-core/src/project/files.rs#L39-L138)) 执行 8 步，任一步失败都通过 `scopeguard` 清理已写入的字节，避免孤儿文件：
+
+1. **大小 / 名称校验** — 大小 ≤ `MAX_PROJECT_FILE_BYTES = 20 MB`（[files.rs:17](../../crates/oc-core/src/project/files.rs#L17)），非空
+2. **项目存在性检查** — 防止写入悬空项目
+3. **建目录** — `project_files_dir` / `project_extracted_dir` 幂等 `create_dir_all`
+4. **生成安全名** — `uuid` 前 8 位 + `_` + `sanitize_filename(原名)`
+5. **写字节** — 挂上 `scopeguard` 失败时删文件
+6. **文本提取** — 调 `file_extract::extract(path, filename, mime)`。提取成功写 `extracted/{uuid}.txt`，记录 `extracted_chars`；失败（二进制 / 不支持格式）`extracted_path = None`，**非致命**
+7. **插行** — `ProjectDB::add_file`；失败时手动删 extracted 侧边文件，让 guard drop 删原文件
+8. **解除 guard** — 成功则保留磁盘字节
+
+**异步边界**：上传管道内部全同步（`file_extract::extract` 对大文件 I/O 密集），Tauri 命令（[commands/project.rs:168-183](../../src-tauri/src/commands/project.rs#L168-L183)）和 HTTP 路由（[projects.rs:248-260](../../crates/oc-server/src/routes/projects.rs#L248-L260)）均用 `tokio::task::spawn_blocking` 包裹，避免阻塞 tokio runtime。
+
+## System Prompt 三层注入
+
+会话挂到项目后，`system_prompt::build` 在 Memory 段之前注入 `#Current Project` 和 `# Project Files`（[build.rs:244-264](../../crates/oc-core/src/system_prompt/build.rs#L244-L264)）。
+
+**Layer 1 — 目录清单**（总是注入，成本 ~100 bytes/文件）
+
+来自 `build_project_files_section` ([sections.rs:497-510](../../crates/oc-core/src/system_prompt/sections.rs#L497-L510))：每个文件一行，包含 emoji 图标（按 MIME 类型分类）、文件名、大小 KB、提取字符数或"binary"标记、`file_id`。
+
+**Layer 2 — 小文件内联**（预算 8KB，单文件上限 4096 字符）
+
+循环 `project_files`，跳过二进制和 > 4096 字符的文件，累加字节数不超出 `DEFAULT_PROJECT_FILES_INLINE_BUDGET = 8 * 1024`（[build.rs:16](../../crates/oc-core/src/system_prompt/build.rs#L16)），命中的读盘内联进 `## Inlined Small Files` 代码块。
+
+**Layer 3 — on-demand 读取**
+
+LLM 看到目录但没被内联的文件时，调 `project_read_file(file_id, offset?, limit?)` 按需拉取。
+
+**openclaw_mode 互斥**：openclaw 模式（AGENTS.md / SOUL.md / IDENTITY.md / TOOLS.md 四文件 prompt pack）自带 `# Project Context` 段，跳过此注入避免双重 heading。
+
+**项目指令** 同段注入：`# Current Project` → `Description` → `## Project Instructions`（truncate 到 `MAX_FILE_CHARS`），并尾随一句"本会话 `save_memory` 默认为 project scope"的提示（[sections.rs:463-469](../../crates/oc-core/src/system_prompt/sections.rs#L463-L469)）。
+
+## project_read_file 工具
+
+内置工具定义 ([core_tools.rs:131-160](../../crates/oc-core/src/tools/definitions/core_tools.rs#L131-L160))：
+
+- `internal: true` — UI 隐藏，不可关闭
+- `deferred: false, always_load: false` — 非延迟加载，随 Layer 1 catalog 才有意义
+- 参数：`file_id` / `name`（二选一）+ `offset`（1-based，默认 1）+ `limit`（默认 2000，上限 10000）
+
+执行逻辑 ([tools/project_read_file.rs](../../crates/oc-core/src/tools/project_read_file.rs))：
+
+1. 从 `ctx.session_id` 反查 session → `project_id`，非项目会话返回"use standard `read` tool"
+2. 先按 `file_id` 精确查，fallback 到 `find_file_by_name`
+3. 拒绝无 `extracted_path` 的二进制文件
+4. **双层路径白名单校验（失败闭合）**：`project_extracted_dir(project_id).canonicalize()` 与 `full_path.canonicalize()` 比对 `starts_with`，任一 canonicalize 失败都拒绝读取，不 fallback 到原始路径
+5. 复用 [`read.rs::read_text_page`](../../crates/oc-core/src/tools/read.rs) 做行级分页，输出与 `read` 工具一致
+
+## 记忆系统接入
+
+**MemoryScope 第三变种** ([memory/types.rs:49-61](../../crates/oc-core/src/memory/types.rs#L49-L61))：
+
+```rust
+pub enum MemoryScope {
+    Global,
+    Agent { id: String },
+    Project { id: String },  // 仅项目内共享
+}
+```
+
+**注入优先级**（[sqlite/trait_impl.rs:446-478](../../crates/oc-core/src/memory/sqlite/trait_impl.rs#L446-L478)）：
+
+```
+Project（最高）→ Agent → Global（最低，若 shared=true）
+```
+
+`load_prompt_candidates_with_project(agent_id, project_id, shared)` 按此顺序拼接候选集。Memory Budget 裁剪时越靠前越不容易被丢弃，确保项目上下文优先保留。
+
+**自动提取作用域**（[memory_extract.rs:20-31](../../crates/oc-core/src/memory_extract.rs#L20-L31)）：
+
+```rust
+fn resolve_extract_scope(session_id, agent_id) -> MemoryScope {
+    // 读 session → 若 session.project_id Some(pid) → Project { id: pid }
+    // 否则 → Agent { id: agent_id }
+}
+```
+
+用户在项目内会话调 `save_memory` 不传 scope 时默认写 `Project`；可显式传 `scope='global'` 或 `scope='agent'` 打破项目边界。
+
+**计数跨 DB**：`ProjectDB::list` 将 `memory_count` 置 0，由调用方（Tauri `list_projects_cmd` / HTTP `list_projects`）遍历 `backend.count_by_project(&id)` 补齐。
+
+## 级联删除与孤儿清理
+
+### delete_project_cascade 四步 ([files.rs:218-248](../../crates/oc-core/src/project/files.rs#L218-L248))
+
+```
+1. session.db IMMEDIATE TX（ProjectDB::delete）：
+   ① SELECT 快照 project_files 行 → 作为返回值给调用者用于磁盘清理
+   ② UPDATE sessions SET project_id = NULL WHERE project_id = ?   (会话本体保留)
+   ③ DELETE FROM projects WHERE id = ?
+      └─ FK ON DELETE CASCADE 自动删 project_files               (同 TX 原子)
+2. 磁盘：purge_project_files_dir(id) — remove_dir_all 带路径逃逸防护
+3. memory.db（独立 DB）：list(Project scope, limit=10_000) → delete_batch(ids)
+```
+
+**步骤 2 和 3 在事务外**，因为跨文件系统 / 跨 DB 无法共享 TX。设计取舍：
+
+- 如果第 1 步完成后崩溃 → 孤儿 = `projects/{id}/` 目录 + `memory.db` 中 `scope_project_id = id` 的记忆行
+- 孤儿目录 **对应用无害**（id 已不存在，永远不会被访问）
+- 孤儿记忆行 **对应用无害**（MemoryScope::Project { id } 也永远不会被 `list` 查出）
+- 靠启动期 reconciler 懒清理，而不是同步事务（来源：[reconcile.rs:1-16](../../crates/oc-core/src/project/reconcile.rs#L1-L16) 注释）
+
+### Startup Reconciler ([reconcile.rs](../../crates/oc-core/src/project/reconcile.rs))
+
+`spawn_startup_reconciler()` 在 `app_init::start_background_tasks` 调 `tokio::task::spawn_blocking` 一次性执行，失败只 `app_warn!` 绝不阻塞启动：
+
+1. `project_db.list_all_ids()` → `HashSet<String> alive`
+2. `backend.list_distinct_project_scope_ids()` → `referenced`
+3. 差集 `referenced \ alive` = 孤儿 id 列表
+4. 对每个孤儿 `list(Project scope, 10_000)` → `delete_batch(ids)`
+5. 成功 → `app_info!` 日志 `"Reaped N orphan project-scoped memory rows across K dead projects"`
+
+项目删除频率低，没引入周期性 timer，重启时一次扫描就够。
+
+### purge_project_files_dir 防逃逸 ([files.rs:164-208](../../crates/oc-core/src/project/files.rs#L164-L208))
+
+- canonicalize `dir` + canonicalize `projects_root`
+- `starts_with(canonical_root)` 不成立 → `app_error!` 拒绝 `remove_dir_all`
+- 防御对象：符号链接越界 / 遍历式 project id（虽然 id 来自 `Uuid::new_v4()` 不会构造 `..`）
+
+## 接入层
+
+### Tauri 命令 ([src-tauri/src/commands/project.rs](../../src-tauri/src/commands/project.rs))
+
+注册在 [`src-tauri/src/lib.rs:350-364`](../../src-tauri/src/lib.rs) `invoke_handler!`：
+
+| 命令 | 作用 |
+|---|---|
+| `list_projects_cmd(include_archived?)` | 列表 + 跨 DB 补齐 memory_count |
+| `get_project_cmd(id)` | 取单个 |
+| `create_project_cmd(input)` | emit `project:created` |
+| `update_project_cmd(id, patch)` | emit `project:updated` |
+| `delete_project_cmd(id)` | 走 `delete_project_cascade`，emit `project:deleted` |
+| `archive_project_cmd(id, archived)` | 等价于 patch `{archived}`，emit `project:updated` |
+| `list_project_sessions_cmd(id, limit?, offset?)` | 基于 `ProjectFilter::InProject`，含 `enrich_pending_interactions` |
+| `move_session_to_project_cmd(session_id, project_id?)` | project_id=None 即 unassign |
+| `list_project_files_cmd(id)` | 按 created_at DESC |
+| `upload_project_file_cmd(project_id, file_name, mime_type?, data)` | `spawn_blocking`，emit `project:file_uploaded` |
+| `delete_project_file_cmd(project_id, file_id)` | `spawn_blocking`，emit `project:file_deleted` |
+| `rename_project_file_cmd(project_id, file_id, name)` | 只改显示名 |
+| `read_project_file_content_cmd(project_id, file_id, offset?, limit?)` | UI 预览 extracted 文本 |
+| `list_project_memories_cmd(id, limit?, offset?)` | Project scope 记忆列表 |
+
+### HTTP 路由 ([crates/oc-server/src/routes/projects.rs](../../crates/oc-server/src/routes/projects.rs))
+
+在 `oc-server::lib` [`router`](../../crates/oc-server/src/lib.rs) 注册：
+
+| 方法 | 路径 | Handler |
+|---|---|---|
+| `GET` | `/api/projects` | `list_projects` |
+| `POST` | `/api/projects` | `create_project`（body: `{input: CreateProjectInput}`） |
+| `GET` | `/api/projects/:id` | `get_project` |
+| `PATCH` | `/api/projects/:id` | `update_project`（body: `{patch: UpdateProjectInput}`） |
+| `DELETE` | `/api/projects/:id` | `delete_project` |
+| `POST` | `/api/projects/:id/archive` | `archive_project`（body: `{archived: bool}`） |
+| `GET` | `/api/projects/:id/sessions` | `list_project_sessions` |
+| `PATCH` | `/api/sessions/:id/project` | `move_session_to_project`（body: `{projectId?: string}`） |
+| `GET` | `/api/projects/:id/files` | `list_project_files` |
+| `POST` | `/api/projects/:id/files` | `upload_project_file_route`（multipart: file / fileName / mimeType） |
+| `DELETE` | `/api/projects/:id/files/:fid` | `delete_project_file_route` |
+| `PATCH` | `/api/projects/:id/files/:fid` | `rename_project_file_route` |
+| `GET` | `/api/projects/:id/files/:fid/content` | `read_project_file_content`（offset/limit 行分页） |
+| `GET` | `/api/projects/:id/memories` | `list_project_memories` |
+
+上传复用 `routes::helpers::parse_file_upload` 取 multipart 字段，前置校验 `MAX_PROJECT_FILE_BYTES` 让 oversize 在触盘前得到清晰错误。
+
+## 前端 UI
+
+### 侧边栏 ProjectSection ([ProjectSection.tsx](../../src/components/chat/project/ProjectSection.tsx))
+
+在 [`ChatSidebar.tsx:317-325`](../../src/components/chat/sidebar/ChatSidebar.tsx#L317-L325) 位于 `AgentSection` 上方：
+
+- `projects.length > 0 || onAddProject` 才渲染（向下兼容）
+- 展开/折叠头 + 项目列表（过滤已归档）+ "+" 新建按钮
+- 点击项目打开 `ProjectOverviewDialog`
+
+### ProjectDialog ([ProjectDialog.tsx](../../src/components/chat/project/ProjectDialog.tsx))
+
+`mode="create" | "edit"` 复用同一组件：
+
+- 空白态 → `onCreate(CreateProjectInput)`
+- 预填态 → `onUpdate(UpdateProjectInput)`
+- 字段：name / description / instructions / emoji / color / defaultAgentId（Select AgentSummary） / defaultModelId
+- 保存按钮三态（idle → saving → saved/failed），对齐 `AGENTS.md` UI 约定
+
+### ProjectOverviewDialog ([ProjectOverviewDialog.tsx](../../src/components/chat/project/ProjectOverviewDialog.tsx))
+
+四 Tab 聚合视图：
+
+| Tab | 作用 |
+|---|---|
+| **Overview** | 元数据展示 + 4 个操作：New session / Edit / Archive·Unarchive / Delete |
+| **Sessions** | 项目内会话列表，点击回到 ChatScreen 打开 |
+| **Files** | 嵌入 `ProjectFilesPanel`（拖拽 / 点击上传，20MB 提示、删除、重命名） |
+| **Instructions** | Textarea 编辑 `instructions`，保存调 `onUpdateProject` |
+
+### Hooks
+
+- [`useProjects`](../../src/components/chat/project/hooks/useProjects.ts)：加载 + CRUD 封装 + 订阅五个 EventBus 事件自动刷新
+- [`useProjectFiles`](../../src/components/chat/project/hooks/useProjectFiles.ts)：按 project_id 加载，订阅 `project:file_uploaded` / `project:file_deleted`
+
+### i18n
+
+项目相关翻译在 `src/i18n/locales/{zh,en}.json` 的 `project.*` 命名空间，覆盖按钮、表单、Tab 标题、确认文案（例如 `deleteConfirm.body` 明示"sessions 变 unassigned，不会被删除；项目记忆与文件永久删除"）。按 AGENTS.md 约定新增 key 只需 zh+en，其余 11 种语言由 `scripts/sync-i18n.mjs --apply` 补齐。
+
+## EventBus 事件
+
+所有事件 payload 均为 `{projectId: string}`，文件事件额外含 `fileId`：
+
+| 事件名 | 发射时机 | 发射点 |
+|---|---|---|
+| `project:created` | 项目创建成功后 | Tauri `create_project_cmd` / HTTP `create_project` |
+| `project:updated` | 更新 / 归档成功后 | `update_project_cmd` / `archive_project_cmd` / 对应 HTTP handler |
+| `project:deleted` | `delete_project_cascade` 返回 true 后 | `delete_project_cmd` / `delete_project` |
+| `project:file_uploaded` | 文件插行成功后 | `upload_project_file_cmd` / `upload_project_file_route` |
+| `project:file_deleted` | `delete_project_file` 返回 true 后 | `delete_project_file_cmd` / `delete_project_file_route` |
+
+前端 [`useProjects`](../../src/components/chat/project/hooks/useProjects.ts#L73-L77) 统一订阅前 5 个事件触发 `reloadProjects()`，实现跨窗口 / 跨 transport 的实时刷新。
+
+## 启动顺序
+
+1. `SessionDB::open()` → 执行 sessions 表 migration（含 `project_id` 列 + 索引）
+2. `ProjectDB::new(session_db)` + `ProjectDB::migrate()` → 建 `projects` / `project_files` 表
+3. 注册全局：`oc_core::globals::PROJECT_DB.set(Arc::new(project_db))`
+4. `AppState.project_db` / `AppContext.project_db` 分别持引用
+5. `app_init::start_background_tasks` → `project::reconcile::spawn_startup_reconciler()` 异步扫孤儿
+
+## 安全约束
+
+- **路径白名单**：`project_read_file` 执行前两次 canonicalize，允许根 = `project_extracted_dir(id).canonicalize()`，**失败闭合**（绝不 fallback 原路径）
+- **删除前防逃逸**：`purge_project_files_dir` 同样 canonicalize 比对，拒绝对 `projects_root` 之外的目录 `remove_dir_all`
+- **大小硬上限**：`MAX_PROJECT_FILE_BYTES = 20 MB`，在 HTTP 层前置校验 + 管道入口 bail 双重把关（Tauri 命令无前置检查，依赖管道兜底）
+- **空上传拒绝**：`data.is_empty()` 或 `original_filename.trim().is_empty()` 立即 bail
+- **安全文件名**：`sanitize_filename` 剥离路径分隔符和控制字符，落盘名前缀 uuid 8 位避冲突
+- **事务边界**：`ProjectDB::delete` 在单 `IMMEDIATE` TX 内 snapshot → unassign → delete；跨 DB 的 memory 删除放 TX 外，失败走 reconciler 兜底而非回滚 session 侧
+
+## 关联文档
+
+- [Session 系统](session.md) — `sessions.project_id` 列、`ProjectFilter` 枚举、会话级 API
+- [记忆系统](memory.md) — `MemoryScope::Project`、三级作用域预算、`scope_project_id` 索引
+- [提示词系统](prompt-system.md) — System Prompt 13 段装配顺序，⑦b/⑦c 位置
+- [工具系统](tool-system.md) — `project_read_file` 工具注册、权限校验层级
+
+## 文件清单
+
+| 文件 | 职责 |
+|---|---|
+| [`crates/oc-core/src/project/mod.rs`](../../crates/oc-core/src/project/mod.rs) | 模块声明 + re-export（`ProjectDB` / `MAX_PROJECT_FILE_BYTES` 等） |
+| [`crates/oc-core/src/project/types.rs`](../../crates/oc-core/src/project/types.rs) | `Project` / `ProjectMeta` / `ProjectFile` + 两个 Input DTO |
+| [`crates/oc-core/src/project/db.rs`](../../crates/oc-core/src/project/db.rs) | `ProjectDB` 主实现，复用 `SessionDB` 连接 |
+| [`crates/oc-core/src/project/files.rs`](../../crates/oc-core/src/project/files.rs) | 上传管道、删除、`delete_project_cascade`、目录 purge 防逃逸 |
+| [`crates/oc-core/src/project/reconcile.rs`](../../crates/oc-core/src/project/reconcile.rs) | 启动期跨 DB 孤儿记忆清理 |
+| [`crates/oc-core/src/paths.rs`](../../crates/oc-core/src/paths.rs#L244-L261) | `projects_dir` / `project_dir` / `project_files_dir` / `project_extracted_dir` |
+| [`crates/oc-core/src/session/db.rs`](../../crates/oc-core/src/session/db.rs) | `sessions.project_id` 迁移 + `ProjectFilter` + 绑定 API |
+| [`crates/oc-core/src/system_prompt/build.rs`](../../crates/oc-core/src/system_prompt/build.rs#L40-L264) | 把 `project` + `project_files` 接入装配链 |
+| [`crates/oc-core/src/system_prompt/sections.rs`](../../crates/oc-core/src/system_prompt/sections.rs#L424-L575) | `build_project_context_section` + `build_project_files_section` + 图标映射 |
+| [`crates/oc-core/src/tools/project_read_file.rs`](../../crates/oc-core/src/tools/project_read_file.rs) | 工具执行体，含路径白名单校验 |
+| [`crates/oc-core/src/tools/definitions/core_tools.rs`](../../crates/oc-core/src/tools/definitions/core_tools.rs#L131-L160) | `project_read_file` 工具 schema 注册 |
+| [`crates/oc-core/src/memory/types.rs`](../../crates/oc-core/src/memory/types.rs#L49-L61) | `MemoryScope::Project` 变种 |
+| [`crates/oc-core/src/memory/sqlite/trait_impl.rs`](../../crates/oc-core/src/memory/sqlite/trait_impl.rs#L446-L478) | `load_prompt_candidates_with_project` 三层优先级 |
+| [`crates/oc-core/src/memory_extract.rs`](../../crates/oc-core/src/memory_extract.rs#L20-L31) | 自动提取作用域推断 |
+| [`src-tauri/src/commands/project.rs`](../../src-tauri/src/commands/project.rs) | 14 个 Tauri 命令，spawn_blocking + emit 事件 |
+| [`crates/oc-server/src/routes/projects.rs`](../../crates/oc-server/src/routes/projects.rs) | HTTP Handler，multipart 上传，跨 DB 补齐 memory_count |
+| [`src/components/chat/project/ProjectSection.tsx`](../../src/components/chat/project/ProjectSection.tsx) | 侧边栏项目折叠块 |
+| [`src/components/chat/project/ProjectDialog.tsx`](../../src/components/chat/project/ProjectDialog.tsx) | create / edit 复用对话框 |
+| [`src/components/chat/project/ProjectOverviewDialog.tsx`](../../src/components/chat/project/ProjectOverviewDialog.tsx) | 四 Tab 项目主页 |
+| [`src/components/chat/project/ProjectFilesPanel.tsx`](../../src/components/chat/project/ProjectFilesPanel.tsx) | 文件上传 / 列表 / 删除 / 重命名 UI |
+| [`src/components/chat/project/hooks/useProjects.ts`](../../src/components/chat/project/hooks/useProjects.ts) | 项目列表状态 + CRUD + EventBus 订阅 |
+| [`src/components/chat/project/hooks/useProjectFiles.ts`](../../src/components/chat/project/hooks/useProjectFiles.ts) | 单项目文件列表状态 |

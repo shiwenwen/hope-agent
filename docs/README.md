@@ -26,6 +26,7 @@
 | [工具系统](architecture/tool-system.md)            | 工具定义、Tool Loop 并发/串行执行、结果持久化、四维权限控制                 | `tools/`                                       |
 | [上下文压缩](architecture/context-compact.md)       | 5 层渐进式压缩、API-Round 分组保护、后压缩文件恢复                     | `context_compact/`                             |
 | [Session 系统](architecture/session.md)          | 会话 + 消息持久化、FTS5 搜索、Subagent/ACP 运行记录                | `session/`                                     |
+| [Project 系统](architecture/project.md)          | 会话分组容器、项目记忆/文件/指令、三层文件注入、跨 DB 孤儿清理                     | `project/`                                     |
 | [记忆系统](architecture/memory.md)                 | SQLite + FTS5 + vec0 混合检索、8 种 Embedding 提供者、自动提取    | `memory/`                                      |
 
 
