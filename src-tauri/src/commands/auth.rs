@@ -167,7 +167,6 @@ pub async fn try_restore_session(state: State<'_, AppState>) -> Result<bool, Str
             match account_id {
                 Some(id) => {
                     // Ensure Codex provider exists
-                    let model_id;
                     {
                         let mut store = state.config.lock().await;
                         let codex_provider_id = provider::ensure_codex_provider(&mut store);
@@ -176,14 +175,11 @@ pub async fn try_restore_session(state: State<'_, AppState>) -> Result<bool, Str
                         // - If user already has a saved active_model (even non-Codex), respect it.
                         // - Only default to Codex gpt-5.4 if no active_model is set at all.
                         if store.active_model.is_none() {
-                            model_id = "gpt-5.4".to_string();
                             store.active_model = Some(ActiveModel {
                                 provider_id: codex_provider_id,
-                                model_id: model_id.clone(),
+                                model_id: "gpt-5.4".to_string(),
                             });
                             ha_core::config::save_config(&store).map_err(|e| e.to_string())?;
-                        } else {
-                            _ = store.active_model.as_ref().unwrap().model_id.clone();
                         }
                     }
 

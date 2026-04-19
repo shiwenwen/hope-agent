@@ -131,7 +131,7 @@ fn resolve_language() -> String {
             s.lines()
                 .find(|l| {
                     l.trim().starts_with('"')
-                        || (l.trim().len() > 0 && !l.contains('(') && !l.contains(')'))
+                        || (!l.trim().is_empty() && !l.contains('(') && !l.contains(')'))
                 })
                 .map(|l| {
                     l.trim()
