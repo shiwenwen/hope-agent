@@ -26,7 +26,7 @@ use super::super::events::build_responses_tool_result;
 use super::super::streaming_adapter::{
     ExecutedTool, RoundOutcome, RoundRequest, StreamingChatAdapter,
 };
-use super::super::types::AssistantAgent;
+use super::super::types::{AssistantAgent, ProviderFormat};
 use super::openai_responses_adapter::parse_openai_sse;
 use crate::tools::ToolProvider;
 
@@ -39,6 +39,10 @@ pub(crate) struct CodexStreamingAdapter<'a> {
 
 #[async_trait]
 impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
+    fn provider_format(&self) -> ProviderFormat {
+        ProviderFormat::Codex
+    }
+
     fn tool_provider(&self) -> ToolProvider {
         ToolProvider::OpenAI
     }

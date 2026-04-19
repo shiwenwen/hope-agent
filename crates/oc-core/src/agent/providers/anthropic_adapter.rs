@@ -24,7 +24,7 @@ use super::super::events::{
 use super::super::streaming_adapter::{
     ExecutedTool, RoundOutcome, RoundRequest, StreamingChatAdapter,
 };
-use super::super::types::{AssistantAgent, ChatUsage};
+use super::super::types::{AssistantAgent, ChatUsage, ProviderFormat};
 use crate::tools::ToolProvider;
 
 pub(crate) struct AnthropicStreamingAdapter<'a> {
@@ -35,6 +35,10 @@ pub(crate) struct AnthropicStreamingAdapter<'a> {
 
 #[async_trait]
 impl<'a> StreamingChatAdapter for AnthropicStreamingAdapter<'a> {
+    fn provider_format(&self) -> ProviderFormat {
+        ProviderFormat::Anthropic
+    }
+
     fn tool_provider(&self) -> ToolProvider {
         ToolProvider::Anthropic
     }

@@ -35,7 +35,6 @@ impl AssistantAgent {
         self.run_streaming_chat(
             &adapter,
             model,
-            "Anthropic",
             message,
             user_content,
             reasoning_effort,

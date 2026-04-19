@@ -24,7 +24,7 @@ use super::super::events::{
 use super::super::streaming_adapter::{
     ExecutedTool, RoundOutcome, RoundRequest, StreamingChatAdapter,
 };
-use super::super::types::{AssistantAgent, ChatUsage};
+use super::super::types::{AssistantAgent, ChatUsage, ProviderFormat};
 use crate::tools::ToolProvider;
 
 pub(crate) struct OpenAIResponsesStreamingAdapter<'a> {
@@ -39,6 +39,10 @@ pub(crate) struct OpenAIResponsesStreamingAdapter<'a> {
 
 #[async_trait]
 impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
+    fn provider_format(&self) -> ProviderFormat {
+        ProviderFormat::OpenAIResponses
+    }
+
     fn tool_provider(&self) -> ToolProvider {
         ToolProvider::OpenAI
     }

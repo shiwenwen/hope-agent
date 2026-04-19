@@ -19,7 +19,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use super::api_types::FunctionCallItem;
-use super::types::ChatUsage;
+use super::types::{ChatUsage, ProviderFormat};
 use crate::tools::ToolProvider;
 
 /// Provider-agnostic request payload for one tool-loop round.
@@ -91,6 +91,11 @@ pub(crate) struct ExecutedTool {
 
 #[async_trait]
 pub(crate) trait StreamingChatAdapter: Send + Sync {
+    /// Provider format tag — drives `build_full_system_prompt(model, label)`,
+    /// log line source identifiers, and error messages. Stable string keys
+    /// (used by external prompts), so encoded as enum variants here.
+    fn provider_format(&self) -> ProviderFormat;
+
     /// Tool schema variant to request from the tool registry. Anthropic uses
     /// the native Anthropic shape; the three OpenAI flavors share the OpenAI
     /// schema variant.

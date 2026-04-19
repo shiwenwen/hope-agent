@@ -237,6 +237,20 @@ impl From<&LlmProvider> for ProviderFormat {
     }
 }
 
+impl ProviderFormat {
+    /// Human-readable label used in `build_full_system_prompt(model, provider_label)`,
+    /// log lines, and error messages. Stable string — providers / models
+    /// reference this name in prompts.
+    pub(super) fn label(&self) -> &'static str {
+        match self {
+            Self::Anthropic => "Anthropic",
+            Self::OpenAIChat => "OpenAIChat",
+            Self::OpenAIResponses => "OpenAIResponses",
+            Self::Codex => "Codex",
+        }
+    }
+}
+
 /// Result of a side query call.
 #[derive(Debug)]
 pub struct SideQueryResult {

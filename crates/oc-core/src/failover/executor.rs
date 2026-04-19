@@ -73,18 +73,9 @@ impl FailoverPolicy {
         }
     }
 
-    /// summarize_direct default — Tier 3 fallback path, must fail fast so
-    /// `CompactionProvider` fallback can kick in. No profile rotation: if the
-    /// dedicated summarization model can't talk to its provider, switching
-    /// keys won't help — the upper layer needs to know.
-    pub fn summarize_default() -> Self {
-        Self {
-            max_retries: 2,
-            allow_profile_rotation: false,
-            retry_base_ms: 1000,
-            retry_max_ms: 10000,
-        }
-    }
+    // `summarize_default` lives at the eventual `summarize_direct` call site
+    // (follow-up PR), not here — encoding caller-specific defaults inside the
+    // executor would invert the dependency direction.
 }
 
 /// Executor outcome on failure. Successful operations return `Ok(T)` directly.

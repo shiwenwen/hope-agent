@@ -32,7 +32,6 @@ impl AssistantAgent {
         self.run_streaming_chat(
             &adapter,
             model,
-            "OpenAIChat",
             message,
             user_content,
             reasoning_effort,

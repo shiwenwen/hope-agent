@@ -29,10 +29,7 @@ use crate::tools::{self, ToolExecContext};
 /// request body — only in the budget calculator.
 const MAX_OUTPUT_TOKENS: u32 = 16384;
 
-// ── Tool execution helpers (inlined here so streaming_loop doesn't depend on
-//    the legacy `providers::tool_exec_helpers` module — that module is still
-//    used by the un-migrated chat_openai_chat / chat_openai_responses /
-//    chat_openai (Codex), and gets removed in Step 5 once they're all migrated).
+// ── Tool execution helpers (private to streaming_loop, no other caller).
 
 /// Log tool execution input.
 fn log_tool_input(tc: &FunctionCallItem, round: u32) {
@@ -160,7 +157,6 @@ impl AssistantAgent {
         &self,
         adapter: &dyn StreamingChatAdapter,
         model: &str,
-        provider_label: &str,
         message: &str,
         user_content_for_history: serde_json::Value,
         reasoning_effort: Option<&str>,
@@ -170,6 +166,8 @@ impl AssistantAgent {
     where
         F: Fn(&str) + Send + Sync,
     {
+        let provider_label = adapter.provider_format().label();
+
         self.reset_chat_flags();
         self.refresh_awareness_suffix(message).await;
         self.refresh_active_memory_suffix(message).await;

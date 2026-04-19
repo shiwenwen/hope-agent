@@ -92,6 +92,12 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         event_sink,
     } = params;
 
+    // Wrap attachments in Arc<[T]> so the failover-executor closure's per-
+    // retry capture is a pointer bump instead of a deep clone of base64
+    // image data (Attachment.data may carry MB-sized strings).
+    let attachments: std::sync::Arc<[crate::agent::Attachment]> =
+        std::sync::Arc::from(attachments);
+
     if model_chain.is_empty() {
         return Err("No model configured for chat execution".to_string());
     }
@@ -264,6 +270,8 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     let plan_mode_owned = plan_agent_mode_ref.clone();
                     let plan_paths_owned = plan_mode_allow_paths_ref.clone();
                     let message_owned = message_ref.clone();
+                    // Arc<[Attachment]> clone is a pointer bump regardless
+                    // of attachment size. See param destructure for the wrap.
                     let attachments_owned = attachments_ref.clone();
                     let effort_owned = effort_str_ref.clone();
                     let db_owned = db_ref.clone();
