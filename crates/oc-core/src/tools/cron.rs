@@ -132,9 +132,7 @@ pub(crate) fn tool_manage_cron<'a>(
                 if let Some(v) = args.get("delivery_targets") {
                     if !v.is_null() {
                         let parsed: Vec<CronDeliveryTarget> = serde_json::from_value(v.clone())
-                            .map_err(|e| {
-                                anyhow::anyhow!("Invalid 'delivery_targets': {}", e)
-                            })?;
+                            .map_err(|e| anyhow::anyhow!("Invalid 'delivery_targets': {}", e))?;
                         job.delivery_targets = parsed;
                     }
                 }
@@ -165,7 +163,10 @@ pub(crate) fn tool_manage_cron<'a>(
                     let targets = if job.delivery_targets.is_empty() {
                         String::new()
                     } else {
-                        format!(" | Targets: {}", format_targets_inline(&job.delivery_targets))
+                        format!(
+                            " | Targets: {}",
+                            format_targets_inline(&job.delivery_targets)
+                        )
                     };
                     lines.push(format!(
                         "  - [{}] {} ({}) | Next: {} | Status: {}{}",
@@ -354,9 +355,7 @@ fn resolve_delivery_targets_for_create(
                         .clone()
                         .filter(|s| !s.is_empty())
                         .map(|name| format!("{} / {}", conv.channel_id, name))
-                        .or_else(|| {
-                            Some(format!("{} / {}", conv.channel_id, conv.chat_id))
-                        });
+                        .or_else(|| Some(format!("{} / {}", conv.channel_id, conv.chat_id)));
                     let target = CronDeliveryTarget {
                         channel_id: conv.channel_id,
                         account_id: conv.account_id,
@@ -400,7 +399,12 @@ fn list_channel_targets_text() -> String {
     let store = crate::config::cached_config();
     let channel_db = crate::get_channel_db();
 
-    let enabled: Vec<_> = store.channels.accounts.iter().filter(|a| a.enabled).collect();
+    let enabled: Vec<_> = store
+        .channels
+        .accounts
+        .iter()
+        .filter(|a| a.enabled)
+        .collect();
     if enabled.is_empty() {
         return "No enabled IM channel accounts are configured. \
                 Open Settings → Channels to set one up first."

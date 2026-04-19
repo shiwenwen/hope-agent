@@ -637,18 +637,20 @@ pub(crate) fn row_to_cron_job(row: &rusqlite::Row) -> Result<CronJob> {
     let delivery_targets_json: Option<String> = row.get(14).ok();
     let delivery_targets = delivery_targets_json
         .as_deref()
-        .map(|s| match serde_json::from_str::<Vec<crate::cron::CronDeliveryTarget>>(s) {
-            Ok(v) => v,
-            Err(e) => {
-                app_warn!(
-                    "cron",
-                    "db",
-                    "failed to decode delivery_targets_json, treating as empty: {}",
-                    e
-                );
-                Vec::new()
-            }
-        })
+        .map(
+            |s| match serde_json::from_str::<Vec<crate::cron::CronDeliveryTarget>>(s) {
+                Ok(v) => v,
+                Err(e) => {
+                    app_warn!(
+                        "cron",
+                        "db",
+                        "failed to decode delivery_targets_json, treating as empty: {}",
+                        e
+                    );
+                    Vec::new()
+                }
+            },
+        )
         .unwrap_or_default();
 
     Ok(CronJob {
