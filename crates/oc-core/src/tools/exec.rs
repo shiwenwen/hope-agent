@@ -255,7 +255,17 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
     }
 
     // ── Command approval gate ───────────────────────────────────
-    if !ctx.auto_approve_tools {
+    let dangerous_mode = crate::security::dangerous::is_dangerous_skip_active();
+    if dangerous_mode && !ctx.auto_approve_tools {
+        app_warn!(
+            "tool",
+            "exec",
+            "Command bypassed approval (DANGEROUS MODE active via {}): {}",
+            crate::security::dangerous::active_source(),
+            command
+        );
+    }
+    if !ctx.auto_approve_tools && !dangerous_mode {
         let perm_mode = get_tool_permission_mode().await;
         match perm_mode {
             ToolPermissionMode::FullApprove => {

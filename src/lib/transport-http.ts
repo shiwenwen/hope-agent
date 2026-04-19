@@ -61,6 +61,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   mark_all_sessions_read_cmd:      { method: "POST",   path: "/api/sessions/read-all" },
   compact_context_now:             { method: "POST",   path: "/api/sessions/{sessionId}/compact" },
   write_export_file:               { method: "POST",   path: "/api/misc/write-export-file" },
+  get_dangerous_mode_status:       { method: "GET",    path: "/api/security/dangerous-status" },
+  set_dangerous_skip_all_approvals: { method: "POST",  path: "/api/security/dangerous-skip-all-approvals" },
 
   // -- Chat --
   chat:                            { method: "POST",   path: "/api/chat" },

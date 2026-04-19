@@ -363,6 +363,22 @@
     "tabAppearance": "外观与语言",
     "tabSystem": "系统与快捷键",
     "tabNetwork": "网络代理",
+    "tabSecurity": "安全",
+    "dangerousTitle": "危险模式",
+    "dangerousIntro": "一键跳过全部工具审批。极高风险，仅在完全信任的本地环境使用。",
+    "dangerousSwitchLabel": "跳过全部工具审批",
+    "dangerousSwitchDesc": "打开后所有工具调用无需审批。覆盖全局、会话级、渠道级所有审批设置。",
+    "dangerousCliLocked": "当前由 CLI flag --dangerously-skip-all-approvals 启动，该开关在本次运行中只读。退出应用并不带此 flag 重新启动即可关闭。",
+    "dangerousConfirmTitle": "启用危险模式？",
+    "dangerousConfirmBody": "开启后以下操作将全部跳过审批，直接执行：",
+    "dangerousConfirmNote": "Plan Mode 的工具类型限制仍然生效。你可以随时在本页关闭此开关。",
+    "dangerousConfirmAck": "我已了解风险，并同意跳过全部工具审批",
+    "dangerousConfirmEnable": "启用危险模式",
+    "dangerousSkipsExec": "执行 shell 命令 (exec)",
+    "dangerousSkipsWrite": "写入 / 编辑文件 (write / edit / apply_patch)",
+    "dangerousSkipsBrowser": "浏览器工具",
+    "dangerousSkipsCanvas": "Canvas 画布工具",
+    "dangerousSkipsChannel": "所有 IM 渠道触发的工具调用",
     "about": "关于",
     "health": "系统健康",
     "skills": "技能",
@@ -795,7 +811,7 @@
     "permRefresh": "刷新状态",
     "permRefreshHint": "在系统设置中授权后，点击刷新或切回窗口自动检测",
     "security": "安全策略",
-    "ssrfDesc": "限制 browser / web_fetch / image_generate / url_preview 等出站请求访问私有网络和云 metadata 接口，防御 SSRF。",
+    "ssrfDesc": "限制浏览器、网页抓取、图片生成、链接预览等工具的出站请求访问私有网络和云元数据接口，防御 SSRF 攻击。",
     "ssrfDefaultSection": "全局默认",
     "ssrfDefaultPolicy": "默认策略",
     "ssrfDefaultPolicyDesc": "未单独配置的工具继承此策略。",
@@ -2286,5 +2302,10 @@
     "noMessages": "暂无消息",
     "indicator": "团队",
     "indicatorMembers": "{{count}} 名成员"
+  },
+  "dangerousMode": {
+    "bannerBoth": "危险模式已启用（CLI + 配置）—— 所有工具调用跳过审批",
+    "bannerCli": "危险模式已启用（CLI 启动）—— 重启应用不带 --dangerously-skip-all-approvals 即可关闭",
+    "bannerConfig": "危险模式已启用 —— 所有工具调用跳过审批。前往 设置 → 安全 关闭"
   }
 }

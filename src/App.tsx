@@ -11,6 +11,7 @@ import SettingsView from "@/components/settings/SettingsView"
 import IconSidebar from "@/components/common/IconSidebar"
 import ChatScreen from "@/components/chat/ChatScreen"
 import StarrySky from "@/components/common/StarrySky"
+import DangerousModeBanner from "@/components/common/DangerousModeBanner"
 
 // Lazy-loaded views (heavy dependencies: recharts, cron UI)
 const DashboardView = lazy(() => import("@/components/dashboard/DashboardView"))
@@ -139,9 +140,12 @@ export default function App() {
   if (view === "setup") {
     return (
       <TooltipProvider>
-        <div className="h-screen overflow-hidden">
+        <div className="flex flex-col h-screen overflow-hidden">
           <StarrySky />
-          <ProviderSetup onComplete={() => setView("chat")} onCodexAuth={handleCodexAuth} />
+          <DangerousModeBanner />
+          <div className="flex-1 min-h-0 overflow-hidden">
+            <ProviderSetup onComplete={() => setView("chat")} onCodexAuth={handleCodexAuth} />
+          </div>
         </div>
       </TooltipProvider>
     )
@@ -151,8 +155,10 @@ export default function App() {
     <ErrorBoundary>
     <TooltipProvider>
     <LightboxProvider>
-    <div className="flex h-screen overflow-hidden bg-background">
+    <div className="flex flex-col h-screen overflow-hidden bg-background">
       <StarrySky />
+      <DangerousModeBanner />
+      <div className="flex flex-1 min-h-0 overflow-hidden">
       <IconSidebar
         view={view === "loading" || view === "setup" ? "chat" : view}
         onOpenSettings={() => setView("settings")}
@@ -244,6 +250,7 @@ export default function App() {
           onUnreadCountChange={setTotalUnreadCount}
           sessionsRefreshTrigger={sessionsRefreshTrigger}
         />
+      </div>
       </div>
     </div>
     </LightboxProvider>

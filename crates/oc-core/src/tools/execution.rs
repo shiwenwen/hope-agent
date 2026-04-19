@@ -274,7 +274,8 @@ pub async fn execute_tool_with_context(
     // Note: exec tool has its own command-level approval inside tool_exec;
     // this is the tool-level gate that applies to ALL approvable tools.
     let perm_mode = approval::get_tool_permission_mode().await;
-    let needs_approval = if ctx.auto_approve_tools {
+    let dangerous_mode = crate::security::dangerous::is_dangerous_skip_active();
+    let needs_approval = if ctx.auto_approve_tools || dangerous_mode {
         false
     } else {
         match perm_mode {
@@ -289,6 +290,15 @@ pub async fn execute_tool_with_context(
             }
         }
     };
+    if dangerous_mode && !ctx.auto_approve_tools && !super::is_internal_tool(name) {
+        app_warn!(
+            "tool",
+            "dangerous_mode",
+            "Tool '{}' bypassed approval (DANGEROUS MODE active via {})",
+            name,
+            crate::security::dangerous::active_source()
+        );
+    }
     if needs_approval {
         let desc = format!("tool: {} {}", name, {
             let s = args.to_string();

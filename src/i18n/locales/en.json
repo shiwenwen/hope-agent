@@ -363,6 +363,22 @@
     "tabAppearance": "Appearance & Language",
     "tabSystem": "System & Shortcuts",
     "tabNetwork": "Network Proxy",
+    "tabSecurity": "Security",
+    "dangerousTitle": "Dangerous Mode",
+    "dangerousIntro": "One-click switch to bypass every tool approval. Extreme risk — enable only on fully trusted local machines.",
+    "dangerousSwitchLabel": "Skip all tool approvals",
+    "dangerousSwitchDesc": "When on, every tool call runs without prompting. Overrides all global, session, and channel auto-approve settings.",
+    "dangerousCliLocked": "Active via CLI flag --dangerously-skip-all-approvals; this toggle is read-only for the current launch. Restart without the flag to disable.",
+    "dangerousConfirmTitle": "Enable Dangerous Mode?",
+    "dangerousConfirmBody": "The following actions will run without any approval prompt:",
+    "dangerousConfirmNote": "Plan Mode's tool-type restrictions still apply. You can turn this switch off here at any time.",
+    "dangerousConfirmAck": "I understand the risks and consent to skipping every tool approval",
+    "dangerousConfirmEnable": "Enable Dangerous Mode",
+    "dangerousSkipsExec": "Shell commands (exec)",
+    "dangerousSkipsWrite": "File writes / edits (write / edit / apply_patch)",
+    "dangerousSkipsBrowser": "Browser tools",
+    "dangerousSkipsCanvas": "Canvas tools",
+    "dangerousSkipsChannel": "All IM channel-triggered tool calls",
     "about": "About",
     "health": "System Health",
     "skills": "Skills",
@@ -795,7 +811,7 @@
     "permRefresh": "Refresh",
     "permRefreshHint": "After granting in System Settings, click refresh or switch back to auto-detect",
     "security": "Security Policy",
-    "ssrfDesc": "Restrict browser / web_fetch / image_generate / url_preview outbound requests from reaching private networks and cloud metadata endpoints to defend against SSRF.",
+    "ssrfDesc": "Restrict outbound requests from browser, web fetch, image generation, and link preview tools from reaching private networks and cloud metadata endpoints to defend against SSRF attacks.",
     "ssrfDefaultSection": "Global default",
     "ssrfDefaultPolicy": "Default policy",
     "ssrfDefaultPolicyDesc": "Tools without an explicit override inherit this policy.",
@@ -2286,5 +2302,10 @@
     "noMessages": "No messages yet",
     "indicator": "Team",
     "indicatorMembers": "{{count}} members"
+  },
+  "dangerousMode": {
+    "bannerBoth": "Dangerous Mode active (CLI + config) — all tool approvals bypassed",
+    "bannerCli": "Dangerous Mode active (started via CLI flag) — relaunch without --dangerously-skip-all-approvals to disable",
+    "bannerConfig": "Dangerous Mode active — all tool approvals bypassed. Turn off in Settings → Security"
   }
 }

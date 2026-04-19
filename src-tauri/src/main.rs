@@ -11,6 +11,16 @@ const MAX_CHILD_PANICS: u32 = 3;
 fn main() {
     let args: Vec<String> = env::args().collect();
 
+    // Dangerous mode: --dangerously-skip-all-approvals (top-level, process-scoped,
+    // NOT persisted). Skips every tool-level approval gate for THIS launch only.
+    // Applied before subcommand dispatch so GUI, server, and ACP modes all see it.
+    if args.iter().any(|a| a == "--dangerously-skip-all-approvals") {
+        oc_core::security::dangerous::set_cli_flag(true);
+        eprintln!(
+            "[!] DANGEROUS MODE: all tool approvals will be skipped (CLI flag, this launch only)"
+        );
+    }
+
     // ACP subcommand: `opencomputer acp` — runs the ACP stdio server
     if args.len() >= 2 && args[1] == "acp" {
         run_acp_server(&args[2..]);
@@ -131,6 +141,8 @@ fn run_acp_server(args: &[String]) {
                     agent_id = args[i].clone();
                 }
             }
+            // Already handled at top-level main() — consume silently here.
+            "--dangerously-skip-all-approvals" => {}
             "--version" => {
                 println!("opencomputer-acp {}", env!("CARGO_PKG_VERSION"));
                 return;
@@ -141,10 +153,15 @@ fn run_acp_server(args: &[String]) {
                 println!("Usage: opencomputer acp [OPTIONS]");
                 println!();
                 println!("Options:");
-                println!("  --verbose, -v        Enable verbose logging to stderr");
-                println!("  --agent-id, -a ID    Use specific agent (default: \"default\")");
-                println!("  --version            Print version and exit");
-                println!("  --help, -h           Print help and exit");
+                println!("  --verbose, -v                     Enable verbose logging to stderr");
+                println!(
+                    "  --agent-id, -a ID                 Use specific agent (default: \"default\")"
+                );
+                println!(
+                    "  --dangerously-skip-all-approvals  Skip ALL tool approvals (DANGEROUS, this launch only)"
+                );
+                println!("  --version                         Print version and exit");
+                println!("  --help, -h                        Print help and exit");
                 return;
             }
             _ => {
@@ -235,16 +252,17 @@ fn run_server(args: &[String]) {
         println!("Usage: opencomputer server [COMMAND] [OPTIONS]");
         println!();
         println!("Commands:");
-        println!("  install              Install as a system service (launchd/systemd)");
-        println!("  uninstall            Uninstall the system service");
-        println!("  status               Show service status");
-        println!("  stop                 Stop the running server");
+        println!("  install                           Install as a system service (launchd/systemd)");
+        println!("  uninstall                         Uninstall the system service");
+        println!("  status                            Show service status");
+        println!("  stop                              Stop the running server");
         println!();
         println!("Options:");
-        println!("  --bind, -b ADDR      Bind address (default: 127.0.0.1:8420)");
-        println!("  --api-key KEY        API key for authentication");
-        println!("  --version            Print version and exit");
-        println!("  --help, -h           Print help and exit");
+        println!("  --bind, -b ADDR                   Bind address (default: 127.0.0.1:8420)");
+        println!("  --api-key KEY                     API key for authentication");
+        println!("  --dangerously-skip-all-approvals  Skip ALL tool approvals (DANGEROUS, this launch only)");
+        println!("  --version                         Print version and exit");
+        println!("  --help, -h                        Print help and exit");
         return;
     };
 
@@ -355,6 +373,8 @@ fn parse_server_args(args: &[String], context: &str) -> Option<(String, Option<S
                     api_key = Some(args[i].clone());
                 }
             }
+            // Already handled at top-level main() — consume silently here.
+            "--dangerously-skip-all-approvals" => {}
             "--version" => {
                 println!("opencomputer-server {}", env!("CARGO_PKG_VERSION"));
                 std::process::exit(0);
@@ -377,9 +397,10 @@ fn run_server_install(args: &[String]) {
         println!("Usage: opencomputer server install [OPTIONS]");
         println!();
         println!("Options:");
-        println!("  --bind, -b ADDR      Bind address (default: 127.0.0.1:8420)");
-        println!("  --api-key KEY        API key for authentication");
-        println!("  --help, -h           Print help and exit");
+        println!("  --bind, -b ADDR                   Bind address (default: 127.0.0.1:8420)");
+        println!("  --api-key KEY                     API key for authentication");
+        println!("  --dangerously-skip-all-approvals  Skip ALL tool approvals (DANGEROUS, this launch only)");
+        println!("  --help, -h                        Print help and exit");
         return;
     };
 
