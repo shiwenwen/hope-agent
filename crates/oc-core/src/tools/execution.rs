@@ -461,7 +461,7 @@ pub async fn execute_tool_with_context(
                 memory::tool_update_core_memory(args, ctx.agent_id.as_deref().unwrap_or("default"))
                     .await
             }
-            TOOL_MANAGE_CRON => cron::tool_manage_cron(args).await,
+            TOOL_MANAGE_CRON => cron::tool_manage_cron(args, ctx.session_id.as_deref()).await,
             TOOL_BROWSER => browser::tool_browser(args).await,
             TOOL_SEND_NOTIFICATION => notification::tool_send_notification(args, ctx).await,
             TOOL_SUBAGENT => subagent::tool_subagent(args, ctx).await,
