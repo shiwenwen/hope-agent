@@ -221,7 +221,7 @@ fn build_dreaming_agent(cfg: &DreamingConfig) -> anyhow::Result<AssistantAgent> 
                 .find(|p| p.id == prov_id && p.enabled)
             {
                 return Ok(AssistantAgent::new_from_provider(prov, model_id)
-                    .with_failover_context(std::sync::Arc::new(prov.clone())));
+                    .with_failover_context(prov));
             }
         }
     }

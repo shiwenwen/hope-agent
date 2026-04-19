@@ -204,7 +204,7 @@ async fn do_extraction(
     } else {
         // Fallback: create temp agent (no cache sharing)
         let mut agent = AssistantAgent::new_from_provider(provider_config, model_id)
-            .with_failover_context(Arc::new(provider_config.clone()));
+            .with_failover_context(provider_config);
         agent.set_agent_id(agent_id);
         agent.set_session_id(session_id);
         agent.set_extra_system_context(
@@ -373,7 +373,7 @@ pub async fn flush_before_compact(
         .replace("{MESSAGES}", &messages_text);
 
     let mut agent = AssistantAgent::new_from_provider(provider_config, model_id)
-        .with_failover_context(Arc::new(provider_config.clone()));
+        .with_failover_context(provider_config);
     agent.set_agent_id(agent_id);
     agent.set_session_id(session_id);
     agent.set_extra_system_context(

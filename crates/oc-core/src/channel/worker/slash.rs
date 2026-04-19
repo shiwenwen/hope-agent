@@ -368,7 +368,7 @@ async fn set_active_model_core(
         }
     } else {
         let agent = AssistantAgent::new_from_provider(provider, model_id)
-            .with_failover_context(std::sync::Arc::new(provider.clone()));
+            .with_failover_context(provider);
         *state.agent.lock().await = Some(agent);
     }
 

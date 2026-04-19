@@ -547,7 +547,7 @@ impl AcpAgent {
             .ok_or_else(|| anyhow::anyhow!("Provider '{}' not found", first.provider_id))?;
 
         let mut agent = AssistantAgent::new_from_provider(prov, &first.model_id)
-            .with_failover_context(std::sync::Arc::new(prov.clone()));
+            .with_failover_context(prov);
         agent.set_agent_id(agent_id);
         agent.set_session_id(session_id);
         agent.set_compact_config(store.compact.clone());
@@ -658,7 +658,7 @@ impl AcpAgent {
             let mut retry_count: u32 = 0;
             loop {
                 let mut agent = AssistantAgent::new_from_provider(prov, &model_ref.model_id)
-                    .with_failover_context(std::sync::Arc::new(prov.clone()));
+                    .with_failover_context(prov);
                 agent.set_agent_id(&agent_id);
                 agent.set_session_id(&session_id_owned);
                 agent.set_compact_config(store.compact.clone());

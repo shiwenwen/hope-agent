@@ -431,41 +431,14 @@ impl AssistantAgent {
         summarize_direct(&self.provider, &self.user_agent, prompt, self.compact_config.summary_max_tokens).await
     }
 
-    /// Build an LlmProvider from a ProviderConfig and model ID.
-    pub(crate) fn build_llm_provider(config: &crate::provider::ProviderConfig, model_id: &str) -> LlmProvider {
-        use crate::provider::ApiType;
-        match config.api_type {
-            ApiType::Anthropic => LlmProvider::Anthropic {
-                api_key: config.api_key.clone(),
-                base_url: config.base_url.clone(),
-                model: model_id.to_string(),
-            },
-            ApiType::OpenaiChat => LlmProvider::OpenAIChat {
-                api_key: config.api_key.clone(),
-                base_url: config.base_url.clone(),
-                model: model_id.to_string(),
-            },
-            ApiType::OpenaiResponses => LlmProvider::OpenAIResponses {
-                api_key: config.api_key.clone(),
-                base_url: config.base_url.clone(),
-                model: model_id.to_string(),
-            },
-            ApiType::Codex => LlmProvider::Codex {
-                access_token: config.api_key.clone(),
-                account_id: String::new(),
-                model: model_id.to_string(),
-            },
-        }
-    }
-
-    /// Build an LlmProvider for a specific auth profile. Used by the
-    /// `execute_with_failover` closure in `side_query` and
-    /// `DedicatedModelProvider::summarize` to rebuild the provider after
-    /// the executor selects a profile to try.
+    /// Build an `LlmProvider` from a `ProviderConfig` + model ID, optionally
+    /// overriding api_key / base_url with a specific [`AuthProfile`].
     ///
     /// `profile = None` falls back to `config.api_key` + `config.base_url`
-    /// (Codex / OAuth path where `effective_profiles()` is empty).
-    pub(crate) fn build_llm_provider_with_profile(
+    /// (Codex / OAuth path where `effective_profiles()` is empty). Used by
+    /// `side_query` / `DedicatedModelProvider::summarize` to rebuild the
+    /// provider after the failover executor picks a profile.
+    pub(crate) fn build_llm_provider(
         config: &crate::provider::ProviderConfig,
         model_id: &str,
         profile: Option<&crate::provider::AuthProfile>,
@@ -846,21 +819,19 @@ impl DedicatedModelProvider {
 #[async_trait::async_trait]
 impl crate::context_compact::CompactionProvider for DedicatedModelProvider {
     async fn summarize(&self, prompt: &str, max_tokens: u32) -> anyhow::Result<String> {
-        use crate::failover::executor::{
-            execute_with_failover, ExecutorError, FailoverPolicy,
-        };
+        use crate::failover::executor::{execute_with_failover, FailoverPolicy};
 
         let provider_config = self.provider_config.as_ref();
         let model_id = self.model_id.as_str();
         let user_agent = self.user_agent.as_str();
 
-        let exec_result = execute_with_failover(
+        execute_with_failover(
             provider_config,
             &self.session_id,
             FailoverPolicy::summarize_default(),
             None,
             |profile| {
-                let provider = AssistantAgent::build_llm_provider_with_profile(
+                let provider = AssistantAgent::build_llm_provider(
                     provider_config,
                     model_id,
                     profile,
@@ -868,25 +839,8 @@ impl crate::context_compact::CompactionProvider for DedicatedModelProvider {
                 async move { summarize_direct(&provider, user_agent, prompt, max_tokens).await }
             },
         )
-        .await;
-
-        match exec_result {
-            Ok(text) => Ok(text),
-            Err(ExecutorError::NeedsCompaction { .. }) => Err(anyhow::anyhow!(
-                "dedicated summarize: context overflow"
-            )),
-            Err(ExecutorError::Exhausted {
-                last_reason,
-                last_error,
-            }) => Err(anyhow::anyhow!(
-                "dedicated summarize exhausted ({:?}): {}",
-                last_reason,
-                last_error
-            )),
-            Err(ExecutorError::NoProfileAvailable) => Err(anyhow::anyhow!(
-                "dedicated summarize: no auth profile available"
-            )),
-        }
+        .await
+        .map_err(|e| anyhow::anyhow!("dedicated summarize: {}", e))
     }
 
     fn name(&self) -> &str {

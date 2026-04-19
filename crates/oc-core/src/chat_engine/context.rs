@@ -31,9 +31,7 @@ pub(super) fn build_agent_from_snapshot(
         AssistantAgent::new_from_provider(prov, &model.model_id)
     };
 
-    // Inject ProviderConfig so side_query / DedicatedModelProvider route
-    // through `failover::execute_with_failover` (Phase 3 Step 3-4).
-    let mut agent = agent.with_failover_context(std::sync::Arc::new(prov.clone()));
+    let mut agent = agent.with_failover_context(prov);
     agent.set_compact_config(compact_config.clone());
 
     if let Some(ref model_ref) = compact_config.summarization_model {

@@ -436,7 +436,7 @@ fn execute_subagent(
                 }
 
                 let mut agent = AssistantAgent::new_from_provider(prov, &model_ref.model_id)
-                    .with_failover_context(std::sync::Arc::new(prov.clone()));
+                    .with_failover_context(prov);
                 agent.set_agent_id(&agent_id);
                 // Use custom system context if provided (e.g., PLAN_MODE_SYSTEM_PROMPT), otherwise use default
                 if let Some(ref ctx) = extra_system_context_override {

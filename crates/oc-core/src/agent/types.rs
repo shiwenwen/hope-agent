@@ -99,7 +99,7 @@ impl LlmProvider {
     /// Model id this provider was constructed with — used by failover
     /// closures to rebuild a sibling `LlmProvider` for a different
     /// `AuthProfile` while keeping the same model.
-    pub(crate) fn model(&self) -> &str {
+    pub(super) fn model(&self) -> &str {
         match self {
             Self::Anthropic { model, .. }
             | Self::OpenAIChat { model, .. }

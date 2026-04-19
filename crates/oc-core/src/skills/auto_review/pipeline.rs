@@ -232,7 +232,7 @@ fn build_review_agent_from_model_ref(model_ref: &str) -> Option<AssistantAgent> 
     let prov = crate::provider::find_provider(&config.providers, provider_id.trim())?;
     Some(
         AssistantAgent::new_from_provider(prov, model_id.trim())
-            .with_failover_context(std::sync::Arc::new(prov.clone())),
+            .with_failover_context(prov),
     )
 }
 

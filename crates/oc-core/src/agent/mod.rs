@@ -276,13 +276,10 @@ impl AssistantAgent {
     /// for profile rotation + retry. Without this, those paths fall back to a
     /// single direct one-shot call (legacy behavior).
     ///
-    /// Idempotent — calling twice replaces the previous reference. Cheap to
-    /// chain since we accept `Arc` and don't deep-clone the config.
-    pub fn with_failover_context(
-        mut self,
-        provider_config: std::sync::Arc<ProviderConfig>,
-    ) -> Self {
-        self.provider_config = Some(provider_config);
+    /// Internally wraps the config in `Arc` so callers don't have to. Pass a
+    /// borrow; the one clone happens here, once per agent build.
+    pub(crate) fn with_failover_context(mut self, provider_config: &ProviderConfig) -> Self {
+        self.provider_config = Some(std::sync::Arc::new(provider_config.clone()));
         self
     }
 

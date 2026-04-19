@@ -112,18 +112,27 @@ pub enum ExecutorError {
 }
 
 impl ExecutorError {
-    /// Pretty-print for log output.
+    /// Pretty-print for log output. Equivalent to the `Display` impl;
+    /// kept as a named method for callers that want to be explicit.
     pub fn describe(&self) -> String {
+        self.to_string()
+    }
+}
+
+impl std::fmt::Display for ExecutorError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::NeedsCompaction { .. } => "context overflow → needs compaction".to_string(),
+            Self::NeedsCompaction { .. } => write!(f, "context overflow → needs compaction"),
             Self::Exhausted {
                 last_reason,
                 last_error,
-            } => format!("exhausted ({:?}): {}", last_reason, last_error),
-            Self::NoProfileAvailable => "no auth profile available".to_string(),
+            } => write!(f, "exhausted ({:?}): {}", last_reason, last_error),
+            Self::NoProfileAvailable => write!(f, "no auth profile available"),
         }
     }
 }
+
+impl std::error::Error for ExecutorError {}
 
 /// Run an async operation with profile rotation + retry-with-backoff.
 ///

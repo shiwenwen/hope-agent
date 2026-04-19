@@ -6,17 +6,14 @@
 //! no tool loop, no compaction.
 //!
 //! HTTP transport, body construction, and response parsing live in
-//! [`super::llm_adapter`]; this module is now just the cache-snapshot bookkeeping
+//! [`super::llm_adapter`]; this module is just the cache-snapshot bookkeeping
 //! and the public `side_query()` entry point.
 //!
-//! ## Failover (Phase 3 Step 3)
-//!
 //! When the agent was constructed with `with_failover_context(provider_config)`
-//! **and** `session_id` is set, side_query routes through
-//! [`crate::failover::execute_with_failover`] so it shares the same
-//! profile rotation + cooldown + sticky bookkeeping as the main chat. Without
-//! both pieces, the call falls back to a single direct one-shot attempt
-//! (legacy behavior, used by `new_anthropic` / `new_openai` test paths).
+//! and `session_id` is set, `side_query` routes through
+//! [`crate::failover::executor::execute_with_failover`] for profile rotation +
+//! retry. Without both, it falls back to a single direct one-shot attempt
+//! (used by `new_anthropic` / `new_openai` test / Codex OAuth paths).
 
 use std::sync::Arc;
 
@@ -26,7 +23,7 @@ use super::llm_adapter::{OneShotMode, OneShotRequest};
 use super::types::{
     AssistantAgent, CacheSafeParams, ProviderFormat, SideQueryResult,
 };
-use crate::failover::executor::{execute_with_failover, ExecutorError, FailoverPolicy};
+use crate::failover::executor::{execute_with_failover, FailoverPolicy};
 
 impl AssistantAgent {
     /// Save cache-safe params after building the main chat request.
@@ -85,7 +82,6 @@ impl AssistantAgent {
         };
 
         let model_id = self.provider.model();
-        let cached_arc = cached;
 
         let exec_result = execute_with_failover(
             provider_config.as_ref(),
@@ -94,12 +90,12 @@ impl AssistantAgent {
             // Low-frequency background path — no UI rotation event needed.
             None,
             |profile| {
-                let provider = AssistantAgent::build_llm_provider_with_profile(
+                let provider = AssistantAgent::build_llm_provider(
                     provider_config.as_ref(),
                     model_id,
                     profile,
                 );
-                let cached_for_call = cached_arc.clone();
+                let cached_for_call = cached.clone();
                 let client_ref = &client;
                 async move {
                     let mode = match cached_for_call.as_deref() {
@@ -126,23 +122,7 @@ impl AssistantAgent {
         )
         .await;
 
-        match exec_result {
-            Ok(value) => Ok(value),
-            Err(ExecutorError::NeedsCompaction { .. }) => Err(anyhow::anyhow!(
-                "side query: context overflow (no compaction available)"
-            )),
-            Err(ExecutorError::Exhausted {
-                last_reason,
-                last_error,
-            }) => Err(anyhow::anyhow!(
-                "side query exhausted ({:?}): {}",
-                last_reason,
-                last_error
-            )),
-            Err(ExecutorError::NoProfileAvailable) => {
-                Err(anyhow::anyhow!("side query: no auth profile available"))
-            }
-        }
+        exec_result.map_err(|e| anyhow::anyhow!("side query: {}", e))
     }
 
     /// Legacy fast path: single direct one-shot, no rotation, no retry.
