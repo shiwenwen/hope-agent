@@ -613,11 +613,9 @@ fn extract_xml_text(xml: &str, target_tag: &[u8]) -> String {
                     last_was_paragraph_end = false;
                 }
             }
-            Ok(Event::Text(ref e)) => {
-                if inside_target {
-                    if let Ok(text) = e.unescape() {
-                        output.push_str(&text);
-                    }
+            Ok(Event::Text(ref e)) if inside_target => {
+                if let Ok(text) = e.unescape() {
+                    output.push_str(&text);
                 }
             }
             Ok(Event::End(ref e)) => {

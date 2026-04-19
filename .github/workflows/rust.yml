@@ -40,11 +40,23 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      # Vendored OpenSSL needs NASM to build on Windows MSVC. macOS /
-      # Linux runners ship with the required toolchain out of the box.
+      # Vendored OpenSSL needs NASM to build on Windows MSVC.
       - name: Install NASM (Windows only)
         if: runner.os == 'Windows'
         uses: ilammy/setup-nasm@v1
+
+      # xcap (via libwayshot-xcap → wayland-sys) requires wayland client /
+      # xkbcommon / gbm / drm headers on Linux. Ubuntu runners don't ship
+      # these by default.
+      - name: Install Linux system deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwayland-dev \
+            libxkbcommon-dev \
+            libgbm-dev \
+            libdrm-dev
 
       # Matches the local invariant the workspace maintains: all clippy
       # warnings are handled (either fixed at the source or allowed in
@@ -69,6 +81,16 @@ jobs:
       - name: Install NASM (Windows only)
         if: runner.os == 'Windows'
         uses: ilammy/setup-nasm@v1
+
+      - name: Install Linux system deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwayland-dev \
+            libxkbcommon-dev \
+            libgbm-dev \
+            libdrm-dev
 
       # Only oc-core and oc-server are pure Rust and host tests. The Tauri
       # shell crate (open-computer) pulls glib/webkit system libs that are

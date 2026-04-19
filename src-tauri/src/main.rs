@@ -252,7 +252,9 @@ fn run_server(args: &[String]) {
         println!("Usage: opencomputer server [COMMAND] [OPTIONS]");
         println!();
         println!("Commands:");
-        println!("  install                           Install as a system service (launchd/systemd)");
+        println!(
+            "  install                           Install as a system service (launchd/systemd)"
+        );
         println!("  uninstall                         Uninstall the system service");
         println!("  status                            Show service status");
         println!("  stop                              Stop the running server");

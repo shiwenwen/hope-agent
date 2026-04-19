@@ -366,7 +366,7 @@ fn read_recent_logs() -> String {
         })
         .collect();
 
-    log_files.sort_by(|a, b| b.1.cmp(&a.1));
+    log_files.sort_by_key(|(_, mtime)| std::cmp::Reverse(*mtime));
 
     if let Some((latest_log, _)) = log_files.first() {
         match std::fs::read_to_string(latest_log) {
