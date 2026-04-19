@@ -37,8 +37,10 @@ resolver = "2"
 #      would be `await_holding_refcell_ref` or similar).
 #    - `new_without_default` — some `::new()` constructors need explicit
 #      wiring (registries built up lazily).
-#    - `large_enum_variant` — compaction result's one large variant beats
-#      boxing in the hot path.
+#    - `large_enum_variant` — preemptive; some result / event enums in this
+#      tree carry one genuinely-large variant (e.g. streaming events with
+#      embedded payloads) where boxing would hurt the hot path more than the
+#      memory cost.
 [workspace.lints.clippy]
 too_many_arguments = "allow"
 type_complexity = "allow"

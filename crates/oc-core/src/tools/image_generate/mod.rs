@@ -73,3 +73,32 @@ fn normalize_provider_id(id: &str) -> String {
         other => other.to_lowercase(),
     }
 }
+
+#[cfg(test)]
+pub(super) mod test_fixtures {
+    use super::types::{ImageGenConfig, ImageGenProviderEntry};
+
+    pub fn entry(
+        id: &str,
+        enabled: bool,
+        key: Option<&str>,
+        model: Option<&str>,
+    ) -> ImageGenProviderEntry {
+        ImageGenProviderEntry {
+            id: id.to_string(),
+            enabled,
+            api_key: key.map(String::from),
+            base_url: None,
+            model: model.map(String::from),
+            thinking_level: None,
+        }
+    }
+
+    pub fn cfg(entries: Vec<ImageGenProviderEntry>) -> ImageGenConfig {
+        ImageGenConfig {
+            providers: entries,
+            timeout_seconds: 60,
+            default_size: "1024x1024".to_string(),
+        }
+    }
+}

@@ -362,8 +362,9 @@ pub async fn run_qq_gateway(
                                 }
                                 GatewayAction::ReidentifyAndReconnect => {
                                     saved_session_id = None;
-                                    // Explicit reset for readability even though the outer
-                                    // loop re-reads this via the resume path.
+                                    // Reset the sequence so the outer-loop resume check
+                                    // (`saved_session_id.is_some() && last_seq > 0`) sees
+                                    // a fresh-session state on the next iteration.
                                     #[allow(unused_assignments)]
                                     {
                                         last_seq = 0;

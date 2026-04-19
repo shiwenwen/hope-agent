@@ -272,28 +272,11 @@ pub(super) fn build_success_result(
 mod tests {
     use super::*;
 
-    fn mk_cfg(entries: Vec<ImageGenProviderEntry>) -> ImageGenConfig {
-        ImageGenConfig {
-            providers: entries,
-            timeout_seconds: 60,
-            default_size: "1024x1024".to_string(),
-        }
-    }
-
-    fn entry_full(id: &str, enabled: bool, key: Option<&str>) -> ImageGenProviderEntry {
-        ImageGenProviderEntry {
-            id: id.to_string(),
-            enabled,
-            api_key: key.map(|k| k.to_string()),
-            base_url: None,
-            model: None,
-            thinking_level: None,
-        }
-    }
+    use super::super::test_fixtures::{cfg as mk_cfg, entry};
 
     #[test]
     fn list_result_empty_when_no_provider_configured() {
-        let cfg = mk_cfg(vec![entry_full("openai", false, None)]);
+        let cfg = mk_cfg(vec![entry("openai", false, None, None)]);
         let out = build_list_result(&cfg).unwrap();
         assert!(out.starts_with("Available Image Generation Providers:"));
         assert!(out.contains("No providers configured"));
@@ -302,8 +285,8 @@ mod tests {
     #[test]
     fn list_result_shows_enabled_provider_with_priority() {
         let cfg = mk_cfg(vec![
-            entry_full("openai", false, Some("sk")),
-            entry_full("google", true, Some("real-key")),
+            entry("openai", false, Some("sk"), None),
+            entry("google", true, Some("real-key"), None),
         ]);
         let out = build_list_result(&cfg).unwrap();
         // "Priority 1" reflects index among the enabled subset, not the full list.
@@ -316,7 +299,7 @@ mod tests {
 
     #[test]
     fn list_result_reports_edit_support() {
-        let cfg = mk_cfg(vec![entry_full("openai", true, Some("sk"))]);
+        let cfg = mk_cfg(vec![entry("openai", true, Some("sk"), None)]);
         let out = build_list_result(&cfg).unwrap();
         // OpenAI supports editing → the line must say "Edit: enabled" or similar.
         let has_edit_line = out.contains("Edit: enabled") || out.contains("Edit: not supported");

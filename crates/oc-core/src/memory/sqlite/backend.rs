@@ -25,7 +25,10 @@ pub struct SqliteMemoryBackend {
     pub(crate) embedder: std::sync::RwLock<Option<Arc<dyn EmbeddingProvider>>>,
     /// Embedding dimensions (set when embedder is configured)
     pub(crate) embedding_dims: std::sync::atomic::AtomicU32,
-    /// DB path for opening new connections
+    /// DB path, retained so connections can be reopened if the reader pool
+    /// needs to grow or a worker thread needs its own handle. Currently unused
+    /// at the Rust layer (pool is sized at open-time) but kept to avoid
+    /// re-plumbing the path through the trait surface when that lands.
     #[allow(dead_code)]
     pub(crate) db_path: std::path::PathBuf,
 }

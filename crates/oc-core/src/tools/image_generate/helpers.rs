@@ -312,31 +312,8 @@ pub(super) fn validate_capabilities(
 
 #[cfg(test)]
 mod tests {
+    use super::super::test_fixtures::{cfg, entry};
     use super::*;
-
-    fn entry(
-        id: &str,
-        enabled: bool,
-        key: Option<&str>,
-        model: Option<&str>,
-    ) -> ImageGenProviderEntry {
-        ImageGenProviderEntry {
-            id: id.to_string(),
-            enabled,
-            api_key: key.map(|k| k.to_string()),
-            base_url: None,
-            model: model.map(|m| m.to_string()),
-            thinking_level: None,
-        }
-    }
-
-    fn cfg(entries: Vec<ImageGenProviderEntry>) -> ImageGenConfig {
-        ImageGenConfig {
-            providers: entries,
-            timeout_seconds: 60,
-            default_size: "1024x1024".to_string(),
-        }
-    }
 
     #[test]
     fn has_configured_provider_rejects_disabled_or_empty_key() {

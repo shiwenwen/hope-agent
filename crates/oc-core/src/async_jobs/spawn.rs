@@ -583,28 +583,23 @@ mod tests {
 
     #[test]
     fn truncate_preview_includes_head_tail_and_omitted_marker() {
-        // 120-byte ASCII input with 30-byte budget (head=20, tail=10).
+        // 120-byte ASCII input forces truncation at `max_bytes`; the exact head
+        // and tail sizes are computed from the same formula the production
+        // code uses so that retuning the split ratio doesn't break this test.
+        let max_bytes = 30usize;
+        let head_budget = max_bytes.saturating_mul(2) / 3;
+        let tail_budget = max_bytes.saturating_sub(head_budget);
         let body: String = (b'a'..=b'z')
             .chain(b'0'..=b'9')
             .cycle()
             .take(120)
             .map(|b| b as char)
             .collect();
-        let preview = truncate_preview(&body, 30);
-        assert!(
-            preview.contains("[..."),
-            "expected omission marker in:\n{}",
-            preview
-        );
-        assert!(
-            preview.contains("bytes omitted"),
-            "expected omission phrasing in:\n{}",
-            preview
-        );
-        // Head budget = 2/3 of 30 = 20.
-        assert!(preview.starts_with(&body[..20]));
-        // Tail budget = 30 - 20 = 10 bytes from the end.
-        assert!(preview.ends_with(&body[body.len() - 10..]));
+        let preview = truncate_preview(&body, max_bytes);
+        assert!(preview.contains("[..."), "expected marker in: {preview}");
+        assert!(preview.contains("bytes omitted"));
+        assert!(preview.starts_with(&body[..head_budget]));
+        assert!(preview.ends_with(&body[body.len() - tail_budget..]));
     }
 
     #[test]

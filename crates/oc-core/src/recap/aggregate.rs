@@ -120,9 +120,9 @@ mod tests {
     use super::*;
     use crate::recap::types::FrictionCounts;
 
-    fn facet(id: &str) -> SessionFacet {
+    fn facet() -> SessionFacet {
         SessionFacet {
-            session_id: id.to_string(),
+            session_id: String::new(),
             underlying_goal: String::new(),
             goal_categories: Vec::new(),
             outcome: Outcome::Unclear,
@@ -153,15 +153,15 @@ mod tests {
         let facets = vec![
             SessionFacet {
                 outcome: Outcome::FullyAchieved,
-                ..facet("a")
+                ..facet()
             },
             SessionFacet {
                 outcome: Outcome::FullyAchieved,
-                ..facet("b")
+                ..facet()
             },
             SessionFacet {
                 outcome: Outcome::Failed,
-                ..facet("c")
+                ..facet()
             },
         ];
         let s = roll_up(&facets);
@@ -187,19 +187,19 @@ mod tests {
         let facets = vec![
             SessionFacet {
                 outcome: Outcome::Failed,
-                ..facet("a")
+                ..facet()
             },
             SessionFacet {
                 outcome: Outcome::MostlyAchieved,
-                ..facet("b")
+                ..facet()
             },
             SessionFacet {
                 outcome: Outcome::MostlyAchieved,
-                ..facet("c")
+                ..facet()
             },
             SessionFacet {
                 outcome: Outcome::MostlyAchieved,
-                ..facet("d")
+                ..facet()
             },
         ];
         let s = roll_up(&facets);
@@ -212,11 +212,11 @@ mod tests {
         let facets = vec![
             SessionFacet {
                 goal_categories: vec!["code".into(), "debug".into()],
-                ..facet("a")
+                ..facet()
             },
             SessionFacet {
                 goal_categories: vec!["code".into()],
-                ..facet("b")
+                ..facet()
             },
         ];
         let s = roll_up(&facets);
@@ -245,7 +245,7 @@ mod tests {
                     misunderstanding: 1,
                     ..Default::default()
                 },
-                ..facet("a")
+                ..facet()
             },
             SessionFacet {
                 friction_counts: FrictionCounts {
@@ -253,7 +253,7 @@ mod tests {
                     stuck: 4,
                     ..Default::default()
                 },
-                ..facet("b")
+                ..facet()
             },
         ];
         let s = roll_up(&facets);
@@ -279,19 +279,19 @@ mod tests {
         let facets = vec![
             SessionFacet {
                 user_satisfaction: Some(5),
-                ..facet("a")
+                ..facet()
             },
             SessionFacet {
                 user_satisfaction: Some(2),
-                ..facet("b")
+                ..facet()
             },
             SessionFacet {
                 user_satisfaction: Some(5),
-                ..facet("c")
+                ..facet()
             },
             SessionFacet {
                 user_satisfaction: None,
-                ..facet("d")
+                ..facet()
             },
         ];
         let s = roll_up(&facets);
@@ -309,7 +309,7 @@ mod tests {
         let facets: Vec<SessionFacet> = (0..20)
             .map(|i| SessionFacet {
                 primary_success: Some(format!("win {}", i)),
-                ..facet(&format!("s{}", i))
+                ..facet()
             })
             .collect();
         let s = roll_up(&facets);
@@ -322,7 +322,7 @@ mod tests {
         let facets: Vec<SessionFacet> = (0..5)
             .map(|i| SessionFacet {
                 friction_detail: (0..5).map(|j| format!("f{}-{}", i, j)).collect(),
-                ..facet(&format!("s{}", i))
+                ..facet()
             })
             .collect();
         let s = roll_up(&facets);
@@ -334,15 +334,15 @@ mod tests {
         let facets = vec![
             SessionFacet {
                 user_instructions: vec!["Be concise".into(), "Keep going".into()],
-                ..facet("a")
+                ..facet()
             },
             SessionFacet {
                 user_instructions: vec!["be concise".into()],
-                ..facet("b")
+                ..facet()
             },
             SessionFacet {
                 user_instructions: vec!["be concise".into()],
-                ..facet("c")
+                ..facet()
             },
         ];
         let s = roll_up(&facets);
@@ -362,7 +362,7 @@ mod tests {
 
     #[test]
     fn empty_session_type_does_not_pollute_distribution() {
-        let facets = vec![facet("a"), facet("b")];
+        let facets = vec![facet(), facet()];
         let s = roll_up(&facets);
         assert!(s.session_type_distribution.is_empty());
     }
