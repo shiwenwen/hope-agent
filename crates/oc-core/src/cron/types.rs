@@ -82,6 +82,28 @@ pub struct CronJob {
     /// Whether to send a desktop notification when this job completes.
     #[serde(default = "crate::default_true")]
     pub notify_on_complete: bool,
+    /// IM channel conversations to fan-out the job's final output to.
+    /// Empty = no delivery (job result only lands in the isolated session).
+    #[serde(default)]
+    pub delivery_targets: Vec<CronDeliveryTarget>,
+}
+
+/// A single IM channel conversation target for cron result delivery.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CronDeliveryTarget {
+    /// Channel plugin id, e.g. "telegram" / "feishu" / "slack".
+    pub channel_id: String,
+    /// `ChannelAccountConfig.id` of the sending account.
+    pub account_id: String,
+    /// Destination `ChannelConversation.chat_id`.
+    pub chat_id: String,
+    /// Optional thread/topic id (Feishu topic, Slack thread, etc.).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_id: Option<String>,
+    /// Cached human-readable label for UI display (not used at send time).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
 }
 
 /// A single run log entry.
@@ -109,6 +131,10 @@ pub struct NewCronJob {
     pub payload: CronPayload,
     pub max_failures: Option<u32>,
     pub notify_on_complete: Option<bool>,
+    /// Optional delivery targets. `None` = no delivery, `Some([])` = explicit opt-out,
+    /// `Some([...])` = fan-out to the listed channel conversations.
+    #[serde(default)]
+    pub delivery_targets: Option<Vec<CronDeliveryTarget>>,
 }
 
 /// Calendar event for the calendar view.

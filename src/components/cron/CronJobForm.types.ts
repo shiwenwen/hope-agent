@@ -14,6 +14,14 @@ export interface CronPayload {
   agentId?: string | null
 }
 
+export interface CronDeliveryTarget {
+  channelId: string
+  accountId: string
+  chatId: string
+  threadId?: string | null
+  label?: string | null
+}
+
 export interface CronJob {
   id: string
   name: string
@@ -29,6 +37,7 @@ export interface CronJob {
   createdAt: string
   updatedAt: string
   notifyOnComplete: boolean
+  deliveryTargets: CronDeliveryTarget[]
 }
 
 export interface CronRunLog {

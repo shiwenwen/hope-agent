@@ -4,6 +4,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use super::db::CronDB;
+use super::delivery::{deliver_results, DeliveryOutcome};
 use super::types::*;
 
 /// Public wrapper for execute_job, callable from Tauri commands.
@@ -166,6 +167,9 @@ pub(crate) async fn execute_job(
             };
             let _ = cron_db.add_run_log(&run_log);
             let _ = cron_db.update_after_run(&job.id, true, &job.schedule);
+
+            deliver_results(job, DeliveryOutcome::Success { text: &response }).await;
+
             let _ = cron_db.clear_running(&job.id);
 
             // Emit Tauri event
@@ -186,9 +190,13 @@ pub(crate) async fn execute_job(
                 .to_string(),
             );
             let _ = session_db.append_message(&session_id, &user_msg);
-            let mut err_msg = crate::session::NewMessage::assistant(&e.to_string());
+            let err_text = e.to_string();
+            let mut err_msg = crate::session::NewMessage::assistant(&err_text);
             err_msg.is_error = Some(true);
             let _ = session_db.append_message(&session_id, &err_msg);
+
+            // Notify IM channel targets of the failure before bookkeeping.
+            deliver_results(job, DeliveryOutcome::Failure { error: &err_text }).await;
 
             record_failure(
                 cron_db,
@@ -196,7 +204,7 @@ pub(crate) async fn execute_job(
                 &started_at,
                 start_time,
                 "error",
-                &e.to_string(),
+                &err_text,
                 &session_id,
             );
         }

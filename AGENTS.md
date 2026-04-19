@@ -21,6 +21,25 @@ opencomputer server status             # 查看服务运行状态
 opencomputer server stop               # 停止服务
 ```
 
+## 提交前检查（强制）
+
+推送（`git push`）前**必须**本地跑一遍以下四条，任一失败都要先修再推——CI 会对同一组检查投红票，红在 CI 上要等 10 分钟反馈。`npm install` 后会自动启用 [`.husky/pre-push`](.husky/pre-push) 钩子，该钩子就按这个顺序跑这四条；裸跑也可以：
+
+```bash
+cargo fmt --all --check                                                    # 对应 CI: rust.yml fmt job
+cargo clippy -p oc-core -p oc-server --all-targets --locked -- -D warnings # 对应 CI: rust.yml clippy job
+cargo test  -p oc-core -p oc-server --locked                               # 对应 CI: rust.yml test job
+npx tsc --noEmit                                                           # 对应 CI: lint.yml 前端类型
+npm run lint                                                               # 对应 CI: lint.yml ESLint
+```
+
+- **clippy / test 只覆盖 `oc-core` + `oc-server`**（CI 也是如此）—— `src-tauri` 不在本地钩子范围内，tauri-specific 的 lint / test 问题请用 `cargo {clippy,test} --workspace` 主动自查
+- **fmt 用 `--all`**，覆盖整个 workspace；钩子用的是 `cargo fmt --all --check`，裸跑时用不用 `--all` 都能对齐 CI，不过 `--all` 更稳
+- **应急开关**：
+  - `OC_SKIP_PREPUSH=1 git push` — 整段钩子跳过（仅限文档 / 纯 `.md` 改动 / 弱网紧急场合）
+  - `OC_SKIP_PREPUSH_TEST=1 git push` — 只跳过 `cargo test`（WIP 分支快速推送，test 让 CI 兜底；fmt/clippy/tsc/eslint 仍然跑）
+  - 禁止用 `--no-verify`，因为它会把 GPG 签名等其它钩子也一并绕过
+
 ## 项目结构
 
 ### Cargo Workspace
@@ -249,6 +268,7 @@ src-tauri/src/          Tauri 薄壳（命令层 + 桌面集成）
 - **数据大盘 Insights**：`dashboard/insights.rs` 提供综合分析查询：`query_overview_with_delta`（同环比 delta，按相同时间跨度左移取 previous baseline）、`query_cost_trend`（日度费用累计 + 峰值/日均）、`query_activity_heatmap`（7×24 活跃度网格）、`query_hourly_distribution`（0–23 时消息 + 峰值时段）、`query_top_sessions`（按 token 消耗的 Top N）、`query_model_efficiency`（每模型 tokens/msg、cost/1k、TTFT 对比）、`query_health_score`（四维加权健康度 0–100）和一次性 `query_insights` orchestrator。前端 Dashboard 默认 Tab 为 `InsightsSection`，同时 Header 提供 `autoRefreshMs` 定时轮询（30s/1m/5m）和 CSV 导出能力；System Tab 客户端持有最多 60 个采样点的环形缓冲绘制 CPU/内存实时曲线
 - **IM Channel 架构**：`channel/` 目录统一承载 Telegram / WeChat 等渠道插件；Telegram 走 Bot API 轮询，WeChat 走二维码登录 + iLink HTTP 长轮询协议，渠道状态文件统一落在 `~/.opencomputer/channels/`。入站媒体管道：polling 收集 `InboundMedia`（Telegram/WeChat 入站媒体下载到 channel inbound-temp）→ worker 转为 `Attachment`（图片 base64 / 文件 path）并复制归档到会话目录 `~/.opencomputer/attachments/{session_id}/` → `ChatEngineParams.attachments` → `agent.chat()` 多模态接口。WeChat 通道完整能力：typing 指示器（24h TTL + 5s keepalive + cancel）、入站媒体下载解密（图片/视频/语音/文件）、出站媒体 AES-128-ECB 加密上传 CDN（3 次 5xx 重试）、会话过期暂停 1h、QR 登录自动刷新 3 次。**斜杠命令同步**：Telegram Bot 启动时自动调用 `setMyCommands` 同步内置命令到 Bot 菜单，`SlashCommandDef::description_en()` 提供英文描述
 - **IM Channel 工具审批交互**：工具需要审批时，`channel/worker/approval.rs` 监听 EventBus `"approval_required"` 事件，通过 `ChannelDB.get_conversation_by_session()` 反查 IM 渠道信息，按 `ChannelCapabilities.supports_buttons` 决定发送方式：支持按钮的渠道（Telegram/Discord/Slack/飞书/QQ Bot/LINE/Google Chat）发送平台原生交互按钮，不支持的渠道（WeChat/Signal/iMessage/IRC/WhatsApp）发送文本提示（回复 1/2/3）。按钮回调通过各渠道原生机制路由回 `submit_approval_response()`。`ChannelAccountConfig.auto_approve_tools` 为 `true` 时，该渠道的所有工具调用自动审批，通过 `ChatEngineParams` → `AssistantAgent` → `ToolExecContext.auto_approve_tools` 传递到执行层，跳过审批门控
+- **定时任务结果发到 IM 渠道**：`CronJob.delivery_targets: Vec<CronDeliveryTarget>` 描述"跑完把最终 assistant text fan-out 到哪些 IM 会话"。执行层在 [`crates/oc-core/src/cron/executor.rs`](crates/oc-core/src/cron/executor.rs) 的成功路径（写完 session 后、`clear_running` 之前）和失败路径（`record_failure` 之前）各调一次 [`crate::cron::delivery::deliver_results`](crates/oc-core/src/cron/delivery.rs)，复用 `ChannelRegistry::send_reply` 统一入口。成功发正文（不带前缀），失败发 `⚠️ [Cron] {name} failed: {error}`。每个 target 10s 超时保护避免单 channel hang 卡 `clear_running`。用户账户被删除时孤儿 target 只记 warn 日志跳过，其他 target 正常发。`manage_cron` 工具提供 `action=list_channel_targets` 让模型按需发现"当前有哪些可用账户 + 会话"，以及 `action=update` 支持字段增量修改（delivery_targets / schedule / prompt / 等）。**IM 会话内隐式推断**：用户在 IM 渠道 chat 里通过自然语言建 cron 时，若未显式传 `delivery_targets`，`tool_manage_cron` 反查 `ChannelDB.get_conversation_by_session(ctx.session_id)` 自动推断"发回当前这个 chat"为唯一默认 target；显式传 `delivery_targets=[]` 关闭发送，非空数组精确指定其他目标。Update 路径不做隐式推断，避免覆盖用户手动配置
 - **SearXNG Docker 代理注入**：`web_search.searxng_docker_use_proxy` 控制是否向 Docker SearXNG 写入 `settings.yml` 的 `outgoing.proxies` 和代理环境变量；适用于系统 VPN 场景，修改后在下次启动或重新部署容器时生效
 - **SSRF 统一策略**：所有发起出站 HTTP 请求（接受模型 / 用户 URL 输入）的工具必须在发送前调用 `crate::security::ssrf::check_url(url, policy, &trusted_hosts)`（见 [`crates/oc-core/src/security/ssrf.rs`](crates/oc-core/src/security/ssrf.rs)）；redirect 回调用 `check_host_blocking_sync`。三档 policy 从 `AppConfig.ssrf` 读取：`Strict`（拒 loopback + private + link-local + metadata）、`Default`（允许 loopback，拒其他 private + metadata，当前 browser/web_fetch/image_generate/url_preview 默认档）、`AllowPrivate`（允许 loopback + private，仍拒 metadata / link-local）。Metadata IP 黑名单（`169.254.169.254` / `169.254.170.2` / `100.100.100.200` / `fd00:ec2::254`）在任何 policy 下都拒绝。`trustedHosts` allowlist 优先于 policy（支持 `host` / `host:port` / `*.example.com` 通配）。新增出站入口时必须显式接入该模块，不要绕过写自定义 IP 校验。LLM Provider 的 HTTP 出站当前不走此检查（`ProviderConfig.allow_private_network` 仅落字段 + UI 联动），Phase B 再打通
 - **Side Query（缓存侧查询）**：`AssistantAgent.side_query()` 复用主对话的 system_prompt + tool_schemas + conversation_history 前缀，利用 Anthropic 显式 prompt caching / OpenAI 自动前缀缓存，侧查询（Tier 3 摘要、记忆提取）成本降低约 90%。每轮主请求 compaction 后自动快照 `CacheSafeParams`，侧查询构建字节一致的前缀请求。无缓存参数时退化为普通请求
