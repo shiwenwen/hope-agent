@@ -12,6 +12,8 @@ pub use event_rewrite::{rewrite_envelope_event_for_http, rewrite_event_for_http}
 mod llm_adapter;
 mod providers;
 mod side_query;
+mod streaming_adapter;
+mod streaming_loop;
 mod types;
 
 // Re-export public API
@@ -1295,7 +1297,7 @@ impl AssistantAgent {
         attachments: &[Attachment],
         reasoning_effort: Option<&str>,
         cancel: Arc<AtomicBool>,
-        on_delta: impl Fn(&str) + Send + 'static,
+        on_delta: impl Fn(&str) + Send + Sync + 'static,
     ) -> Result<(String, Option<String>)> {
         // Log agent chat dispatch
         if let Some(logger) = crate::get_logger() {
