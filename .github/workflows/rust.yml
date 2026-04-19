@@ -11,6 +11,37 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  fmt:
+    name: cargo fmt --check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+  clippy:
+    name: cargo clippy -D warnings
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Matches the local invariant the workspace maintains: all clippy
+      # warnings are handled (either fixed at the source or allowed in
+      # `Cargo.toml`'s `[workspace.lints.clippy]` with a rationale).
+      - name: Clippy (deny warnings)
+        run: cargo clippy -p oc-core -p oc-server --all-targets --locked -- -D warnings
+
   test:
     name: cargo test (oc-core + oc-server)
     runs-on: ubuntu-latest
