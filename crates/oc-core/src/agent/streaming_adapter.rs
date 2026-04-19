@@ -20,7 +20,6 @@ use serde_json::Value;
 
 use super::api_types::FunctionCallItem;
 use super::types::ChatUsage;
-use crate::attachments::MediaItem;
 use crate::tools::ToolProvider;
 
 /// Provider-agnostic request payload for one tool-loop round.
@@ -76,16 +75,18 @@ pub(crate) struct RoundOutcome {
 }
 
 /// One executed tool call, ready to be appended to history by the adapter.
+///
+/// `media_items` and `is_error` are intentionally not surfaced here — the
+/// orchestrator already used them to fire `emit_tool_result` events before
+/// constructing this struct. History persistence uses `clean_result` and
+/// per-provider re-parsing for `__IMAGE_BASE64__` markers (Responses-family
+/// `build_responses_tool_result` returns separate image input items).
 pub(crate) struct ExecutedTool {
     pub call_id: String,
     pub name: String,
     pub arguments: String,
     /// Tool result with the `__MEDIA_ITEMS__` prefix already stripped.
     pub clean_result: String,
-    /// Structured media items extracted from the tool result.
-    pub media_items: Vec<MediaItem>,
-    /// Whether the tool returned an error (result starts with "Tool error:").
-    pub is_error: bool,
 }
 
 #[async_trait]
@@ -138,14 +139,21 @@ pub(crate) trait StreamingChatAdapter: Send + Sync {
     /// Append the final assistant message (last round's text + thinking)
     /// when the loop exits naturally or hits `max_rounds`. Anthropic packs
     /// thinking + text into a content-block array; OpenAI Chat puts thinking
-    /// in `reasoning_content`; Responses/Codex relies on the per-round
-    /// reasoning items already pushed by `append_round_to_history`.
+    /// in `reasoning_content`; Responses/Codex emits a `{type:message,
+    /// role:assistant, content:[{type:output_text, text}]}` item.
     fn append_final_assistant(
         &self,
         history: &mut Vec<Value>,
         final_text: &str,
         last_thinking: &str,
     );
+
+    /// Push per-round reasoning items (Responses/Codex only) into history
+    /// before either tool dispatch or the final assistant message. Called by
+    /// the orchestrator on every round so multi-turn reasoning chains stay
+    /// continuous. Default no-op for Anthropic / OpenAI Chat which carry
+    /// thinking inline in messages instead of as standalone history items.
+    fn append_reasoning_items(&self, _history: &mut Vec<Value>, _outcome: &RoundOutcome) {}
 
     /// Decide whether the tool loop should exit after this round's outcome.
     ///  - Anthropic: `stop_reason != Some("tool_use")` (model decided to stop)

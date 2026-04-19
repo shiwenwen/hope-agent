@@ -298,6 +298,12 @@ impl AssistantAgent {
             last_round_thinking = outcome.thinking.clone();
             total_usage.accumulate_round(&outcome.usage);
 
+            // Per-round reasoning items (Responses/Codex only) must be persisted
+            // before either tool dispatch or the natural-exit final message so
+            // the next turn can reference the encrypted_content. No-op for
+            // Anthropic / OpenAI Chat (their thinking lives inline in messages).
+            adapter.append_reasoning_items(&mut messages, &outcome);
+
             if adapter.loop_should_exit(&outcome) {
                 natural_exit = true;
                 break;
@@ -373,8 +379,6 @@ impl AssistantAgent {
                         name,
                         arguments,
                         clean_result,
-                        media_items,
-                        is_error,
                     });
                 }
             }
@@ -411,8 +415,6 @@ impl AssistantAgent {
                     name: tc.name.clone(),
                     arguments: tc.arguments.clone(),
                     clean_result,
-                    media_items,
-                    is_error,
                 });
             }
 

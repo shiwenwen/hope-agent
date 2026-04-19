@@ -1,5 +1,7 @@
 # Side Query 缓存侧查询架构
 > 返回 [文档索引](../README.md) | 更新时间：2026-04-19
+>
+> 关联：本文聚焦 one-shot 侧查询路径（`LlmApiAdapter`，Phase 1）。主对话 streaming + tool loop 路径在 Phase 2 也已抽成 `StreamingChatAdapter` trait + `AssistantAgent::run_streaming_chat` 公共编排，`save_cache_safe_params` 现在由公共编排在 compaction 完成后、第一轮发出前统一调用，4 个 Provider 不再各写一份。详见 [`agent/streaming_adapter.rs`](../../crates/oc-core/src/agent/streaming_adapter.rs) 和 [`agent/streaming_loop.rs`](../../crates/oc-core/src/agent/streaming_loop.rs)。
 
 ## 核心原理
 
@@ -41,8 +43,8 @@ pub struct CacheSafeParams {
 ### 存储机制
 
 - 存储在 `AssistantAgent.cache_safe_params: Mutex<Option<Arc<CacheSafeParams>>>`
-- `save_cache_safe_params()` 在每轮主请求 compaction 后、tool loop 前调用（4 个 Provider 统一注入）
-- `Arc::clone()` 只是指针增量（pointer bump），不深拷贝对话数据
+- `save_cache_safe_params()` 在每轮主请求 compaction 后、tool loop 前调用，由 `AssistantAgent::run_streaming_chat`（Phase 2 公共编排）统一注入——4 个 Provider 不再各自调一份
+- `Arc::clone()` 只是指针增量(pointer bump)，不深拷贝对话数据
 - `ProviderFormat::from(&self.provider)` 自动推断格式，确保侧查询与主请求使用同一 Provider 格式
 
 ## side_query() 流程
