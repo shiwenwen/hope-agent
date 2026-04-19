@@ -178,8 +178,6 @@ where
         tried_profiles.push(p.id.clone());
     }
     let mut retry_count: u32 = 0;
-    let mut last_reason = FailoverReason::Unknown;
-    let mut last_error = String::new();
 
     // Codex case: effective_profiles() is empty → current_profile is None.
     // We still want to call operation(None) at least once. The loop below
@@ -198,8 +196,6 @@ where
             Err(e) => {
                 let err_str = e.to_string();
                 let reason = classify_error(&err_str);
-                last_reason = reason.clone();
-                last_error = err_str;
 
                 if reason.needs_compaction() {
                     return Err(ExecutorError::NeedsCompaction {
@@ -209,8 +205,8 @@ where
 
                 if reason.is_terminal() {
                     return Err(ExecutorError::Exhausted {
-                        last_reason,
-                        last_error,
+                        last_reason: reason,
+                        last_error: err_str,
                     });
                 }
 
@@ -232,8 +228,8 @@ where
                     }
                     // No more profiles to try → fall through to exhausted.
                     return Err(ExecutorError::Exhausted {
-                        last_reason,
-                        last_error,
+                        last_reason: reason,
+                        last_error: err_str,
                     });
                 }
 
@@ -241,11 +237,8 @@ where
                 // either aren't profile-rotatable or whose rotation we already
                 // skipped because policy.allow_profile_rotation is false).
                 if reason.is_retryable() && retry_count < policy.max_retries {
-                    let delay = retry_delay_ms(
-                        retry_count,
-                        policy.retry_base_ms,
-                        policy.retry_max_ms,
-                    );
+                    let delay =
+                        retry_delay_ms(retry_count, policy.retry_base_ms, policy.retry_max_ms);
                     tokio::time::sleep(Duration::from_millis(delay)).await;
                     retry_count += 1;
                     continue;
@@ -253,8 +246,8 @@ where
 
                 // Non-retryable, non-rotatable, non-compactable → give up.
                 return Err(ExecutorError::Exhausted {
-                    last_reason,
-                    last_error,
+                    last_reason: reason,
+                    last_error: err_str,
                 });
             }
         }
@@ -320,13 +313,12 @@ mod tests {
         let observed_rotation = Arc::new(std::sync::Mutex::new(Vec::new()));
 
         let observed_clone = observed_rotation.clone();
-        let cb =
-            move |from: &AuthProfile, to: &AuthProfile, reason: &FailoverReason| {
-                observed_clone
-                    .lock()
-                    .unwrap()
-                    .push((from.id.clone(), to.id.clone(), reason.clone()));
-            };
+        let cb = move |from: &AuthProfile, to: &AuthProfile, reason: &FailoverReason| {
+            observed_clone
+                .lock()
+                .unwrap()
+                .push((from.id.clone(), to.id.clone(), reason.clone()));
+        };
 
         let result: Result<String, _> = execute_with_failover(
             &cfg,
@@ -547,8 +539,10 @@ mod tests {
         );
         // Even if someone weirdly added auth_profiles to a Codex config,
         // executor must NOT rotate them.
-        cfg.auth_profiles =
-            vec![AuthProfile::new("A".into(), "a".into(), None), AuthProfile::new("B".into(), "b".into(), None)];
+        cfg.auth_profiles = vec![
+            AuthProfile::new("A".into(), "a".into(), None),
+            AuthProfile::new("B".into(), "b".into(), None),
+        ];
         let session = format!("sess-{}", uuid::Uuid::new_v4());
         let attempt = AtomicU32::new(0);
 
@@ -659,7 +653,7 @@ mod tests {
             })
         ));
         assert_eq!(attempt.load(Ordering::SeqCst), 2); // both profiles tried
-        // Both should be in cooldown after billing failures.
+                                                       // Both should be in cooldown after billing failures.
         assert!(!PROFILE_COOLDOWNS.is_available(&ids[0]));
         assert!(!PROFILE_COOLDOWNS.is_available(&ids[1]));
         // Cleanup so other tests don't see these in cooldown.

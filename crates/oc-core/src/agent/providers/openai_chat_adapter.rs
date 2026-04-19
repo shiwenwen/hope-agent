@@ -233,14 +233,9 @@ impl<'a> StreamingChatAdapter for OpenAIChatStreamingAdapter<'a> {
         }
 
         // ── Parse SSE.
-        let (text, tool_calls, usage, thinking_text, ttft_ms) = parse_chat_completions_sse(
-            resp,
-            request_start,
-            req.reasoning_effort,
-            cancel,
-            on_delta,
-        )
-        .await?;
+        let (text, tool_calls, usage, thinking_text, ttft_ms) =
+            parse_chat_completions_sse(resp, request_start, req.reasoning_effort, cancel, on_delta)
+                .await?;
 
         if let Some(logger) = crate::get_logger() {
             let tool_names: Vec<&str> = tool_calls.iter().map(|tc| tc.name.as_str()).collect();
@@ -275,7 +270,7 @@ impl<'a> StreamingChatAdapter for OpenAIChatStreamingAdapter<'a> {
             tool_calls,
             usage,
             ttft_ms,
-            stop_reason: None, // OpenAI Chat exits via empty tool_calls
+            stop_reason: None,           // OpenAI Chat exits via empty tool_calls
             reasoning_items: Vec::new(), // reasoning_content goes inline, no raw items
         })
     }
@@ -408,7 +403,8 @@ async fn parse_chat_completions_sse(
                             usage.output_tokens = ct;
                         }
                         // Anthropic-style at top level (some gateways forward).
-                        if let Some(cr) = u.get("cache_read_input_tokens").and_then(|v| v.as_u64()) {
+                        if let Some(cr) = u.get("cache_read_input_tokens").and_then(|v| v.as_u64())
+                        {
                             usage.cache_read_input_tokens = cr;
                         }
                         if let Some(cc) = u
@@ -469,25 +465,22 @@ async fn parse_chat_completions_sse(
                             // Tool calls — accumulated by index (parallel calls supported).
                             if let Some(tcs) = delta.get("tool_calls").and_then(|t| t.as_array()) {
                                 for tc_delta in tcs {
-                                    let idx = tc_delta
-                                        .get("index")
-                                        .and_then(|i| i.as_u64())
-                                        .unwrap_or(0)
-                                        as usize;
+                                    let idx =
+                                        tc_delta.get("index").and_then(|i| i.as_u64()).unwrap_or(0)
+                                            as usize;
 
                                     if let Some(func) = tc_delta.get("function") {
-                                        let entry =
-                                            pending_calls.entry(idx).or_insert_with(|| {
-                                                FunctionCallItem {
-                                                    call_id: tc_delta
-                                                        .get("id")
-                                                        .and_then(|i| i.as_str())
-                                                        .unwrap_or("")
-                                                        .to_string(),
-                                                    name: String::new(),
-                                                    arguments: String::new(),
-                                                }
-                                            });
+                                        let entry = pending_calls.entry(idx).or_insert_with(|| {
+                                            FunctionCallItem {
+                                                call_id: tc_delta
+                                                    .get("id")
+                                                    .and_then(|i| i.as_str())
+                                                    .unwrap_or("")
+                                                    .to_string(),
+                                                name: String::new(),
+                                                arguments: String::new(),
+                                            }
+                                        });
                                         if let Some(id) =
                                             tc_delta.get("id").and_then(|i| i.as_str())
                                         {

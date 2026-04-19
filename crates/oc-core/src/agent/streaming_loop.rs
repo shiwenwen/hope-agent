@@ -172,11 +172,10 @@ impl AssistantAgent {
         self.refresh_awareness_suffix(message).await;
         self.refresh_active_memory_suffix(message).await;
 
-        let client = crate::provider::apply_proxy(
-            reqwest::Client::builder().user_agent(&self.user_agent),
-        )
-        .build()
-        .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
+        let client =
+            crate::provider::apply_proxy(reqwest::Client::builder().user_agent(&self.user_agent))
+                .build()
+                .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
 
         let tool_schemas = self.build_tool_schemas(adapter.tool_provider());
 
@@ -338,13 +337,9 @@ impl AssistantAgent {
                         async move {
                             let args: serde_json::Value =
                                 serde_json::from_str(&arguments).unwrap_or(json!({}));
-                            let (result, elapsed_ms) = execute_tool_with_cancel(
-                                &name,
-                                &args,
-                                &tool_ctx,
-                                &cancel_clone,
-                            )
-                            .await;
+                            let (result, elapsed_ms) =
+                                execute_tool_with_cancel(&name, &args, &tool_ctx, &cancel_clone)
+                                    .await;
                             (call_id, name, arguments, result, elapsed_ms)
                         }
                     })
