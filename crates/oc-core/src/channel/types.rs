@@ -77,38 +77,28 @@ pub enum MediaType {
 // ── DM Policy ────────────────────────────────────────────────────
 // Direct-message access policy per channel account.
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DmPolicy {
+    #[default]
     Open,
     Allowlist,
     Pairing,
 }
 
-impl Default for DmPolicy {
-    fn default() -> Self {
-        DmPolicy::Open
-    }
-}
-
 // ── Group Policy ─────────────────────────────────────────────────
 // Group-message access policy per channel account.
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum GroupPolicy {
     /// Groups bypass allowlist check, only mention-gating applies
+    #[default]
     Open,
     /// Only allow groups explicitly listed in `groups` config
     Allowlist,
     /// Block all group messages entirely
     Disabled,
-}
-
-impl Default for GroupPolicy {
-    fn default() -> Self {
-        GroupPolicy::Open
-    }
 }
 
 // ── Telegram Group Config ────────────────────────────────────────
@@ -389,7 +379,7 @@ pub struct ChannelAccountConfig {
 
 // ── Channel Health ───────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChannelHealth {
     pub is_running: bool,
@@ -398,19 +388,6 @@ pub struct ChannelHealth {
     pub error: Option<String>,
     pub uptime_secs: Option<u64>,
     pub bot_name: Option<String>,
-}
-
-impl Default for ChannelHealth {
-    fn default() -> Self {
-        Self {
-            is_running: false,
-            last_probe: None,
-            probe_ok: None,
-            error: None,
-            uptime_secs: None,
-            bot_name: None,
-        }
-    }
 }
 
 // ── Delivery Result ──────────────────────────────────────────────

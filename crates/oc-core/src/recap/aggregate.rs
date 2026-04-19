@@ -7,8 +7,10 @@ const MAX_TOP: usize = 8;
 /// Roll up per-session facets into compact histograms used by both the
 /// AI section prompts and the HTML renderer.
 pub fn roll_up(facets: &[SessionFacet]) -> FacetSummary {
-    let mut summary = FacetSummary::default();
-    summary.total_facets = facets.len() as u32;
+    let mut summary = FacetSummary {
+        total_facets: facets.len() as u32,
+        ..FacetSummary::default()
+    };
 
     let mut goal = HashMap::<String, u32>::new();
     let mut outcome = HashMap::<String, u32>::new();

@@ -295,14 +295,12 @@ async fn handle_event(
     match event_type {
         "message" => {
             // Skip bot messages, message edits, and subtypes we don't handle
-            if let Some(subtype) = event.get("subtype").and_then(|v| v.as_str()) {
-                match subtype {
-                    "bot_message" | "message_changed" | "message_deleted" | "channel_join"
-                    | "channel_leave" => {
-                        return;
-                    }
-                    _ => {}
-                }
+            if let Some(
+                "bot_message" | "message_changed" | "message_deleted" | "channel_join"
+                | "channel_leave",
+            ) = event.get("subtype").and_then(|v| v.as_str())
+            {
+                return;
             }
 
             // Skip messages from our own bot

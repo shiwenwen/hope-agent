@@ -157,6 +157,7 @@ pub async fn relay_to_channel(session_id: &str, response: &str) {
 /// Trigger logic (since last extraction):
 /// - Cooldown: elapsed time must >= time threshold (prevents too-frequent extraction)
 /// - Trigger: token count >= token threshold OR message count >= message threshold
+///
 /// Both cooldown AND trigger must be satisfied.
 pub(super) async fn run_memory_extraction_inline(
     agent_id: &str,

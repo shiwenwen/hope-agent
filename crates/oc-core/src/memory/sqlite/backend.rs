@@ -26,15 +26,26 @@ pub struct SqliteMemoryBackend {
     /// Embedding dimensions (set when embedder is configured)
     pub(crate) embedding_dims: std::sync::atomic::AtomicU32,
     /// DB path for opening new connections
+    #[allow(dead_code)]
     pub(crate) db_path: std::path::PathBuf,
 }
 
 impl SqliteMemoryBackend {
     /// Open (or create) the memory database with sqlite-vec extension.
     pub fn open(db_path: &std::path::Path) -> Result<Self> {
-        // Register sqlite-vec extension before opening connection
+        // Register sqlite-vec extension before opening connection. The
+        // explicit type annotation silences `clippy::missing_transmute_annotations`
+        // without changing behavior — `sqlite3_auto_extension` takes a raw
+        // function pointer that sqlite-vec ships as `extern "C"`.
         unsafe {
-            rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(
+            rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute::<
+                *const (),
+                unsafe extern "C" fn(
+                    *mut rusqlite::ffi::sqlite3,
+                    *mut *mut std::os::raw::c_char,
+                    *const rusqlite::ffi::sqlite3_api_routines,
+                ) -> std::os::raw::c_int,
+            >(
                 sqlite_vec::sqlite3_vec_init as *const (),
             )));
         }

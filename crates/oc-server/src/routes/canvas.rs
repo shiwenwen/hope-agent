@@ -19,7 +19,7 @@ pub async fn canvas_submit_snapshot(
 ) -> Result<Json<Value>, AppError> {
     oc_core::tools::canvas::canvas_submit_snapshot(request_id, body.data_url, body.error)
         .await
-        .map_err(|e| AppError::internal(e))?;
+        .map_err(AppError::internal)?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -36,7 +36,7 @@ pub async fn canvas_submit_eval_result(
 ) -> Result<Json<Value>, AppError> {
     oc_core::tools::canvas::canvas_submit_eval_result(request_id, body.result, body.error)
         .await
-        .map_err(|e| AppError::internal(e))?;
+        .map_err(AppError::internal)?;
     Ok(Json(json!({ "ok": true })))
 }
 

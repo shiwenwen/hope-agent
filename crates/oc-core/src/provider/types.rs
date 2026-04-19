@@ -43,10 +43,11 @@ impl ApiType {
 
 /// Thinking/reasoning parameter format for different LLM providers.
 /// Controls how the "thinking" capability is communicated to the API.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum ThinkingStyle {
     /// OpenAI format: `reasoning_effort: "low"/"medium"/"high"`
+    #[default]
     Openai,
     /// Anthropic format: `thinking: { type: "enabled", budget_tokens: N }`
     Anthropic,
@@ -56,12 +57,6 @@ pub enum ThinkingStyle {
     Qwen,
     /// Do not send any thinking/reasoning parameters
     None,
-}
-
-impl Default for ThinkingStyle {
-    fn default() -> Self {
-        ThinkingStyle::Openai
-    }
 }
 
 // ── Model Config ──────────────────────────────────────────────────
@@ -425,10 +420,11 @@ pub struct AvailableModel {
 
 // ── Proxy Types ─────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ProxyMode {
     /// Use system proxy (environment variables HTTP_PROXY/HTTPS_PROXY/ALL_PROXY)
+    #[default]
     System,
     /// No proxy – direct connection
     None,
@@ -436,14 +432,8 @@ pub enum ProxyMode {
     Custom,
 }
 
-impl Default for ProxyMode {
-    fn default() -> Self {
-        Self::System
-    }
-}
-
 /// Global proxy configuration for all outgoing HTTP requests
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProxyConfig {
     /// Proxy mode: "system" (default), "none", or "custom"
@@ -452,13 +442,4 @@ pub struct ProxyConfig {
     /// Custom proxy URL (only used when mode is "custom"), e.g. "http://127.0.0.1:7890"
     #[serde(default)]
     pub url: Option<String>,
-}
-
-impl Default for ProxyConfig {
-    fn default() -> Self {
-        Self {
-            mode: ProxyMode::default(),
-            url: None,
-        }
-    }
 }

@@ -1,7 +1,7 @@
 use anyhow::Result;
 use std::sync::Arc;
 
-use crate::globals::{get_session_db, get_subagent_cancels};
+use crate::globals::get_subagent_cancels;
 use crate::session::SessionDB;
 use crate::subagent::{self, SpawnParams, SubagentCancelRegistry};
 use super::events::emit_team_event;

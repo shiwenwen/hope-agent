@@ -449,6 +449,78 @@ fn push_core_memory_layer(
     *remaining = remaining.saturating_sub(chunk.len() + overhead);
 }
 
+/// Build a system prompt using the legacy path (no AgentDefinition).
+/// This preserves backward compatibility during the transition.
+pub fn build_legacy(model: Option<&str>, provider: Option<&str>) -> String {
+    let store = crate::config::cached_config();
+    let available_skills =
+        skills::load_all_skills_with_budget(&store.extra_skills_dirs, &store.skill_prompt_budget);
+    // Legacy path has no session context — conditional skills stay hidden.
+    let activated_conditional = std::collections::HashSet::new();
+    let skills_section = skills::build_skills_prompt(
+        &available_skills,
+        &store.disabled_skills,
+        store.skill_env_check,
+        &store.skill_env,
+        &store.skill_prompt_budget,
+        &store.skill_allow_bundled,
+        &activated_conditional,
+    );
+
+    let mut sections = Vec::new();
+
+    // Identity + behavior guidance (from agent.md template)
+    let locale = crate::agent_loader::detect_system_locale();
+    sections.push(crate::agent_loader::default_agent_md(&locale).to_string());
+
+    // User context
+    if let Ok(user_cfg) = user_config::load_user_config() {
+        if let Some(user_section) = user_config::build_user_context(&user_cfg) {
+            sections.push(user_section);
+        }
+    }
+
+    // Tools
+    sections.push(build_all_tools_description());
+
+    // Deferred tools listing
+    if let Some(deferred_section) = build_deferred_tools_section() {
+        sections.push(deferred_section);
+    }
+
+    // Async tool execution guide
+    if let Some(async_section) = build_async_tools_section() {
+        sections.push(async_section);
+    }
+
+    // Tool-call narration guidance — gated on AppConfig flag (see build())
+    if crate::config::cached_config().tool_call_narration_enabled {
+        sections.push(TOOL_CALL_NARRATION_GUIDANCE.to_string());
+    }
+
+    // Tool-call budget reminder — legacy path has no AgentDefinition, so fall
+    // back to the CapabilitiesConfig default.
+    let legacy_max_rounds = crate::agent_config::CapabilitiesConfig::default().max_tool_rounds;
+    if let Some(budget) = build_tool_budget_guidance(legacy_max_rounds) {
+        sections.push(budget);
+    }
+
+    // Skills
+    if !skills_section.is_empty() {
+        sections.push(skills_section);
+    }
+
+    // Weather context
+    if let Some(weather_text) = crate::weather::get_weather_for_prompt() {
+        sections.push(weather_text);
+    }
+
+    // Runtime (legacy mode has no agent home)
+    sections.push(build_runtime_section(model, provider, None));
+
+    sections.join("\n\n")
+}
+
 #[cfg(test)]
 mod memory_section_tests {
     use super::*;
@@ -570,76 +642,4 @@ mod memory_section_tests {
             "Guidelines must survive under budget pressure"
         );
     }
-}
-
-/// Build a system prompt using the legacy path (no AgentDefinition).
-/// This preserves backward compatibility during the transition.
-pub fn build_legacy(model: Option<&str>, provider: Option<&str>) -> String {
-    let store = crate::config::cached_config();
-    let available_skills =
-        skills::load_all_skills_with_budget(&store.extra_skills_dirs, &store.skill_prompt_budget);
-    // Legacy path has no session context — conditional skills stay hidden.
-    let activated_conditional = std::collections::HashSet::new();
-    let skills_section = skills::build_skills_prompt(
-        &available_skills,
-        &store.disabled_skills,
-        store.skill_env_check,
-        &store.skill_env,
-        &store.skill_prompt_budget,
-        &store.skill_allow_bundled,
-        &activated_conditional,
-    );
-
-    let mut sections = Vec::new();
-
-    // Identity + behavior guidance (from agent.md template)
-    let locale = crate::agent_loader::detect_system_locale();
-    sections.push(crate::agent_loader::default_agent_md(&locale).to_string());
-
-    // User context
-    if let Ok(user_cfg) = user_config::load_user_config() {
-        if let Some(user_section) = user_config::build_user_context(&user_cfg) {
-            sections.push(user_section);
-        }
-    }
-
-    // Tools
-    sections.push(build_all_tools_description());
-
-    // Deferred tools listing
-    if let Some(deferred_section) = build_deferred_tools_section() {
-        sections.push(deferred_section);
-    }
-
-    // Async tool execution guide
-    if let Some(async_section) = build_async_tools_section() {
-        sections.push(async_section);
-    }
-
-    // Tool-call narration guidance — gated on AppConfig flag (see build())
-    if crate::config::cached_config().tool_call_narration_enabled {
-        sections.push(TOOL_CALL_NARRATION_GUIDANCE.to_string());
-    }
-
-    // Tool-call budget reminder — legacy path has no AgentDefinition, so fall
-    // back to the CapabilitiesConfig default.
-    let legacy_max_rounds = crate::agent_config::CapabilitiesConfig::default().max_tool_rounds;
-    if let Some(budget) = build_tool_budget_guidance(legacy_max_rounds) {
-        sections.push(budget);
-    }
-
-    // Skills
-    if !skills_section.is_empty() {
-        sections.push(skills_section);
-    }
-
-    // Weather context
-    if let Some(weather_text) = crate::weather::get_weather_for_prompt() {
-        sections.push(weather_text);
-    }
-
-    // Runtime (legacy mode has no agent home)
-    sections.push(build_runtime_section(model, provider, None));
-
-    sections.join("\n\n")
 }

@@ -19,7 +19,6 @@ use anyhow::Result;
 use std::collections::HashSet;
 
 use crate::memory::traits::MemoryBackend;
-use crate::{app_info, app_warn};
 
 /// Scan `memory.db` for project-scoped rows whose owning project no longer
 /// exists in `session.db`, then `delete_batch` them. Returns the number of

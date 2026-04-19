@@ -500,7 +500,7 @@ fn is_text_file(mime_type: &str, lower_name: &str) -> bool {
         "application/x-sh",
         "application/sql",
     ];
-    if text_mimes.iter().any(|m| mime_type == *m) {
+    if text_mimes.contains(&mime_type) {
         return true;
     }
     // Fallback: check file extension
@@ -565,7 +565,7 @@ fn is_text_file(mime_type: &str, lower_name: &str) -> bool {
         "astro",
     ];
     if let Some(ext) = lower_name.rsplit('.').next() {
-        if text_extensions.iter().any(|e| ext == *e) {
+        if text_extensions.contains(&ext) {
             return true;
         }
     }
@@ -578,7 +578,7 @@ fn is_text_file(mime_type: &str, lower_name: &str) -> bool {
         "procfile",
         "vagrantfile",
     ];
-    stem_names.iter().any(|n| lower_name == *n)
+    stem_names.contains(&lower_name)
 }
 
 // ---------------------------------------------------------------------------

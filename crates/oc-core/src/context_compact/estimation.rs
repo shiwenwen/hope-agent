@@ -215,6 +215,7 @@ pub(super) fn is_user_message(msg: &Value) -> bool {
 }
 
 /// Check if a tool name matches any pattern in the deny list.
+#[allow(dead_code)]
 pub(super) fn is_tool_denied(tool_name: &str, deny_list: &[String]) -> bool {
     let lower = tool_name.to_lowercase();
     deny_list.iter().any(|pattern| {

@@ -18,6 +18,12 @@ pub struct ChatStreamRegistry {
     sessions: RwLock<HashMap<String, broadcast::Sender<String>>>,
 }
 
+impl Default for ChatStreamRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ChatStreamRegistry {
     pub fn new() -> Self {
         Self {

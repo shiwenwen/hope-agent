@@ -64,7 +64,7 @@ pub(crate) async fn tool_ls(args: &Value, ctx: &super::ToolExecContext) -> Resul
     }
 
     // Case-insensitive sort
-    items.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+    items.sort_by_key(|a| a.to_lowercase());
 
     if items.is_empty() {
         return Ok("(empty directory)".to_string());

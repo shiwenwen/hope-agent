@@ -69,7 +69,7 @@ fn collect_prunable_tool_results(
 
 /// Tier 2: Prune old context based on usage ratio.
 pub fn prune_old_context(
-    messages: &mut Vec<Value>,
+    messages: &mut [Value],
     system_prompt: &str,
     context_window: u32,
     max_output_tokens: u32,

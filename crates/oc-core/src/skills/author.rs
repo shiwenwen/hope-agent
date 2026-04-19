@@ -8,7 +8,7 @@
 //! segments to tolerate light LLM drift when the review agent doesn't quote
 //! the original fragment verbatim.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -328,8 +328,8 @@ fn has_shell_pipe(body: &str) -> bool {
         if !has_fetcher {
             continue;
         }
-        let first_right = right.trim_start().split_whitespace().next().unwrap_or("");
-        if SHELLS.iter().any(|s| first_right == *s) {
+        let first_right = right.split_whitespace().next().unwrap_or("");
+        if SHELLS.contains(&first_right) {
             return true;
         }
     }

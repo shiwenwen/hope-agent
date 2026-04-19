@@ -134,7 +134,7 @@ pub async fn create_project(
 ) -> Result<Json<Project>, AppError> {
     let project = ctx.project_db.create(body.input)?;
 
-    let _ = ctx.event_bus.emit(
+    ctx.event_bus.emit(
         "project:created",
         json!({ "projectId": project.id }),
     );
@@ -148,7 +148,7 @@ pub async fn update_project(
     Json(body): Json<UpdateProjectBody>,
 ) -> Result<Json<Project>, AppError> {
     let project = ctx.project_db.update(&id, body.patch)?;
-    let _ = ctx.event_bus.emit(
+    ctx.event_bus.emit(
         "project:updated",
         json!({ "projectId": project.id }),
     );
@@ -162,7 +162,7 @@ pub async fn delete_project(
 ) -> Result<Json<Value>, AppError> {
     let deleted = delete_project_cascade(&id, &ctx.project_db)?;
     if deleted {
-        let _ = ctx
+        ctx
             .event_bus
             .emit("project:deleted", json!({ "projectId": id }));
     }
@@ -180,7 +180,7 @@ pub async fn archive_project(
         ..Default::default()
     };
     let project = ctx.project_db.update(&id, patch)?;
-    let _ = ctx.event_bus.emit(
+    ctx.event_bus.emit(
         "project:updated",
         json!({ "projectId": project.id }),
     );
@@ -268,7 +268,7 @@ pub async fn upload_project_file_route(
     .await
     .map_err(|e| anyhow::anyhow!("upload task join error: {}", e))??;
 
-    let _ = ctx.event_bus.emit(
+    ctx.event_bus.emit(
         "project:file_uploaded",
         json!({ "projectId": file.project_id, "fileId": file.id }),
     );
@@ -288,7 +288,7 @@ pub async fn delete_project_file_route(
             .map_err(|e| anyhow::anyhow!("delete task join error: {}", e))??;
 
     if deleted {
-        let _ = ctx.event_bus.emit(
+        ctx.event_bus.emit(
             "project:file_deleted",
             json!({ "projectId": id, "fileId": fid }),
         );

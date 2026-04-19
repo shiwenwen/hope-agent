@@ -79,7 +79,7 @@ pub async fn run_polling_loop(
                         Err(e) => {
                             consecutive_errors += 1;
                             let backoff = std::cmp::min(
-                                (2u64.pow(consecutive_errors.min(5))) as u64,
+                                2u64.pow(consecutive_errors.min(5)),
                                 max_backoff_secs,
                             );
                             // Log first 3 errors as warn, then only every 10th to avoid spam

@@ -1,4 +1,7 @@
 #![allow(non_snake_case)]
+// `extern_protocol!` generates an `unsafe trait` where we can't reach
+// clippy-visible doc comments. Safety is documented where the macro is invoked.
+#![allow(clippy::missing_safety_doc)]
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -109,6 +112,11 @@ impl CLLocation {
     );
 }
 
+// Safety: the `extern_protocol!`-generated `unsafe trait` below requires
+// implementors to dispatch CoreLocation callbacks on the run loop the
+// manager was registered on (Cocoa main thread in practice). The macro body
+// doesn't give us a clippy-visible place to attach a doc; the lint is
+// silenced crate-level at the top of this file.
 extern_protocol!(
     unsafe trait CLLocationManagerDelegate: NSObjectProtocol {
         #[optional]

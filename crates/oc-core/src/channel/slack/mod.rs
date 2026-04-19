@@ -16,7 +16,10 @@ use api::SlackApi;
 /// Running account state.
 struct RunningAccount {
     api: Arc<SlackApi>,
+    // Diagnostics-only — retained for future filtering of bot-authored events.
+    #[allow(dead_code)]
     bot_id: String,
+    #[allow(dead_code)]
     bot_name: String,
 }
 

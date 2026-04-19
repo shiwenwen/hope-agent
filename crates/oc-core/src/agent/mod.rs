@@ -1,5 +1,5 @@
 mod active_memory;
-mod api_types;
+pub(super) mod api_types;
 mod config;
 mod content;
 mod context;
@@ -1019,6 +1019,11 @@ impl AssistantAgent {
 
     /// Build the "static" system prompt — excludes the dynamic awareness
     /// suffix which providers append as a separate cache breakpoint.
+    ///
+    /// Currently unused but kept as the named dual of
+    /// [`Self::build_merged_system_prompt`]; compaction call sites use the
+    /// merged form and side-query shortcuts go through `CacheSafeParams`.
+    #[allow(dead_code)]
     pub(crate) fn build_static_system_prompt(&self, model: &str, provider: &str) -> String {
         self.build_full_system_prompt(model, provider)
     }
@@ -1094,6 +1099,7 @@ impl AssistantAgent {
     }
 
     /// Build a ToolExecContext without token usage info (backward-compatible wrapper).
+    #[allow(dead_code)]
     pub(crate) fn tool_context(&self) -> tools::ToolExecContext {
         self.tool_context_with_usage(None)
     }

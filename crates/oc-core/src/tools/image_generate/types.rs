@@ -119,7 +119,7 @@ pub struct ImageGenResult {
 // ── Image Generation Provider Config ────────────────────────────
 
 /// A single image generation provider entry with credentials.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImageGenProviderEntry {
     pub id: String,
@@ -133,19 +133,6 @@ pub struct ImageGenProviderEntry {
     /// Google-specific: thinking level ("MINIMAL" or "HIGH"), default "MINIMAL"
     #[serde(default)]
     pub thinking_level: Option<String>,
-}
-
-impl Default for ImageGenProviderEntry {
-    fn default() -> Self {
-        Self {
-            id: String::new(),
-            enabled: false,
-            api_key: None,
-            base_url: None,
-            model: None,
-            thinking_level: None,
-        }
-    }
 }
 
 /// Persistent image generation configuration, stored in config.json

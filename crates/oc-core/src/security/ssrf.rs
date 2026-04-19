@@ -5,21 +5,16 @@ use std::net::IpAddr;
 // ── Types ────────────────────────────────────────────────────────
 
 /// SSRF policy governing which destination hosts are allowed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum SsrfPolicy {
     /// Block loopback + private + link-local + metadata + unspecified + broadcast.
     Strict,
     /// Block private + link-local + metadata + unspecified + broadcast; allow loopback.
+    #[default]
     Default,
     /// Allow loopback + private; still block link-local + metadata + unspecified + broadcast.
     AllowPrivate,
-}
-
-impl Default for SsrfPolicy {
-    fn default() -> Self {
-        SsrfPolicy::Default
-    }
 }
 
 /// Classification of a resolved IP address.

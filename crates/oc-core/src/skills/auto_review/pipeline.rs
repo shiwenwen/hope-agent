@@ -17,7 +17,7 @@ use crate::truncate_utf8;
 
 use super::config::{AutoReviewPromotion, SkillsAutoReviewConfig};
 use super::prompts::{render_review_user_prompt, REVIEW_SYSTEM};
-use super::triggers::{acquire_manual, AutoReviewGate};
+use super::triggers::AutoReviewGate;
 
 /// Which path fired the review.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

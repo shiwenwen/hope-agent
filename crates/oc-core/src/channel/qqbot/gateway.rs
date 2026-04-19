@@ -275,7 +275,7 @@ pub async fn run_qq_gateway(
 
         // Shared seq counter for heartbeat
         let seq_holder = Arc::new(tokio::sync::Mutex::new(last_seq));
-        let heartbeat_seq = seq_holder.clone();
+        let _heartbeat_seq = seq_holder.clone();
 
         // Spawn heartbeat task
         let heartbeat_ws_url = gateway_url.clone();
@@ -362,7 +362,12 @@ pub async fn run_qq_gateway(
                                 }
                                 GatewayAction::ReidentifyAndReconnect => {
                                     saved_session_id = None;
-                                    last_seq = 0;
+                                    // Explicit reset for readability even though the outer
+                                    // loop re-reads this via the resume path.
+                                    #[allow(unused_assignments)]
+                                    {
+                                        last_seq = 0;
+                                    }
                                     session_active = false;
                                 }
                             }
@@ -456,7 +461,7 @@ enum GatewayAction {
 /// Handle a single gateway message.
 async fn handle_gateway_message(
     text: &str,
-    api: &Arc<QqBotApi>,
+    _api: &Arc<QqBotApi>,
     _app_id: &str,
     _token: &str,
     account_id: &str,

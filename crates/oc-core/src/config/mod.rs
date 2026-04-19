@@ -91,18 +91,12 @@ impl Default for NotificationConfig {
 /// Configuration for deferred tool loading.
 /// When enabled, only core tools are sent to the LLM per request,
 /// and remaining tools are discoverable via `tool_search`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeferredToolsConfig {
     /// Enable deferred tool loading (default: false, opt-in)
     #[serde(default)]
     pub enabled: bool,
-}
-
-impl Default for DeferredToolsConfig {
-    fn default() -> Self {
-        Self { enabled: false }
-    }
 }
 
 // ── Async Tools Config ──────────────────────────────────────────

@@ -153,7 +153,7 @@ pub fn redact_sensitive(input: &str) -> String {
                     let start = search_from + pos;
                     let value_start = start + url_pattern.len();
                     let end = result[value_start..]
-                        .find(|c: char| c == '&' || c == ' ' || c == '"' || c == '\n')
+                        .find(['&', ' ', '"', '\n'])
                         .unwrap_or(result.len() - value_start);
                     let before = &result[..value_start];
                     let after = &result[value_start + end..];

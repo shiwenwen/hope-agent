@@ -2,21 +2,16 @@ use serde::{Deserialize, Serialize};
 
 // ── Plan Mode State ─────────────────────────────────────────────
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PlanModeState {
+    #[default]
     Off,
     Planning,
     Review,
     Executing,
     Paused,
     Completed,
-}
-
-impl Default for PlanModeState {
-    fn default() -> Self {
-        Self::Off
-    }
 }
 
 impl PlanModeState {

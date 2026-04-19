@@ -61,7 +61,7 @@ fn tool_timeout() -> Option<Duration> {
 /// `OnceLock<TokioMutex<...>>` (see [`super::approval::TOOL_PERMISSION_MODE`]
 /// and [`super::approval::pending_approvals_per_session`] for the canonical
 /// pattern).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ToolExecContext {
     /// Model context window in tokens (for dynamic output truncation)
     pub context_window_tokens: Option<u32>,
@@ -105,29 +105,6 @@ pub struct ToolExecContext {
     /// recursion: even if the tool is async-capable and the policy is
     /// `always-background`, this single re-dispatch runs synchronously.
     pub bypass_async_dispatch: bool,
-}
-
-impl Default for ToolExecContext {
-    fn default() -> Self {
-        Self {
-            context_window_tokens: None,
-            used_tokens: None,
-            home_dir: None,
-            session_id: None,
-            agent_id: None,
-            subagent_depth: 0,
-            require_approval: Vec::new(),
-            agent_tool_filter: crate::agent_config::FilterConfig::default(),
-            denied_tools: Vec::new(),
-            skill_allowed_tools: Vec::new(),
-            force_sandbox: false,
-            plan_mode_allow_paths: Vec::new(),
-            plan_mode_allowed_tools: Vec::new(),
-            auto_approve_tools: false,
-            async_tool_policy: AsyncToolPolicy::default(),
-            bypass_async_dispatch: false,
-        }
-    }
 }
 
 impl ToolExecContext {

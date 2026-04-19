@@ -8,9 +8,9 @@ use super::stream_broadcast;
 use super::stream_seq;
 use super::types::*;
 
-/// Drop-guarded scope for a session's stream lifecycle. Ensures `stream_seq::end`
-/// + `chat:stream_end` broadcast fire on every `run_chat_engine` return path
-/// (including panics).
+/// Drop-guarded scope for a session's stream lifecycle. Ensures
+/// `stream_seq::end` + `chat:stream_end` broadcast fire on every
+/// `run_chat_engine` return path (including panics).
 struct StreamLifecycle {
     session_id: String,
 }

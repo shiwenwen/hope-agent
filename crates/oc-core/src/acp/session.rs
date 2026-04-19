@@ -112,6 +112,10 @@ impl AcpSessionStore {
     pub fn len(&self) -> usize {
         self.sessions.len()
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.sessions.is_empty()
+    }
 }
 
 /// Current epoch seconds

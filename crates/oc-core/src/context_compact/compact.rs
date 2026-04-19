@@ -208,7 +208,7 @@ pub fn emergency_compact(messages: &mut Vec<Value>, config: &CompactConfig) -> C
 /// Tiers 1 & 2 are synchronous. Tier 3 (LLM summarization) requires
 /// async and is handled separately in agent.rs.
 pub fn compact_if_needed(
-    messages: &mut Vec<Value>,
+    messages: &mut [Value],
     system_prompt: &str,
     context_window: u32,
     max_output_tokens: u32,
@@ -241,7 +241,7 @@ pub fn compact_if_needed(
     }
 
     // Tier 0: Microcompact ephemeral tool results (zero cost, always runs first)
-    let tier0_count = microcompact(messages, config);
+    let _tier0_count = microcompact(messages, config);
 
     // Tier 1: Truncate individual oversized tool results
     let tier1_count = truncate_tool_results(messages, context_window, config);

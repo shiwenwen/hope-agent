@@ -108,11 +108,9 @@ pub fn format_prompt_summary_v2(
     result
 }
 
-/// Legacy single-budget API. Preserves the old "uniform bullet list under
-/// one shared budget" behavior for call sites not yet migrated to v2.
-#[deprecated(
-    note = "use `format_prompt_summary_v2` with an explicit SqliteSectionBudgets + entry_max_chars"
-)]
+/// Single-budget convenience wrapper for call sites that don't need
+/// per-section budget control. Scales `SqliteSectionBudgets::default()` to
+/// the caller-provided total and dispatches to `format_prompt_summary_v2`.
 pub fn format_prompt_summary(entries: &[MemoryEntry], budget: usize) -> String {
     let budgets = SqliteSectionBudgets::default().scaled_to(budget);
     format_prompt_summary_v2(entries, &budgets, budget, LEGACY_ENTRY_MAX_CHARS)

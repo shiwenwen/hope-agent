@@ -36,18 +36,13 @@ pub(super) fn skill_cache_version_raw() -> u64 {
 ///
 /// Serialized as lowercase string in SKILL.md frontmatter (`status: "draft"`).
 /// Missing field → `Active` (back-compat with pre-B' skills).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SkillStatus {
+    #[default]
     Active,
     Draft,
     Archived,
-}
-
-impl Default for SkillStatus {
-    fn default() -> Self {
-        Self::Active
-    }
 }
 
 impl SkillStatus {

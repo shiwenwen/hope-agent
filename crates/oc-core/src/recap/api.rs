@@ -13,7 +13,6 @@ use crate::recap::types::{
     GenerateMode, RecapProgress, RecapReport, RecapReportSummary,
 };
 use crate::recap::{generate_report, render_html, RecapContext, RecapDb};
-use crate::app_warn;
 
 fn get_state() -> Result<Arc<AppState>> {
     get_app_state()

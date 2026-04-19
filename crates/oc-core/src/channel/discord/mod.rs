@@ -17,6 +17,8 @@ use api::DiscordApi;
 /// Running account state for a Discord bot.
 struct RunningAccount {
     api: Arc<DiscordApi>,
+    // Diagnostics-only — retained for future filtering of bot-authored events.
+    #[allow(dead_code)]
     bot_id: String,
     #[allow(dead_code)]
     bot_username: String,

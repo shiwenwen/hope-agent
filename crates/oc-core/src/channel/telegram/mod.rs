@@ -17,7 +17,10 @@ use api::TelegramBotApi;
 /// Running account state.
 struct RunningAccount {
     api: Arc<TelegramBotApi>,
+    // Diagnostics-only — retained for future filtering of bot-authored events.
+    #[allow(dead_code)]
     bot_id: i64,
+    #[allow(dead_code)]
     bot_username: String,
 }
 

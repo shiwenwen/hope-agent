@@ -329,6 +329,11 @@ pub async fn spawn_subagent(
 
 /// Execute the sub-agent (runs within the spawned tokio task).
 /// Returns (response_text, model_used).
+///
+/// `+ Send` is declared explicitly so the spawner's `tokio::spawn` bounds
+/// stay self-documenting. Collapsing to `async fn` would infer the bound
+/// from captures, which is less explicit about the Send contract.
+#[allow(clippy::manual_async_fn)]
 fn execute_subagent(
     agent_id: String,
     task: String,
@@ -420,7 +425,7 @@ fn execute_subagent(
     );
 
         let mut last_error = String::new();
-        for (_idx, model_ref) in model_chain.iter().enumerate() {
+        for model_ref in model_chain.iter() {
             let prov = match provider::find_provider(&store.providers, &model_ref.provider_id) {
                 Some(p) => p,
                 None => continue,

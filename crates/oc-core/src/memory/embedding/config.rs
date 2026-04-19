@@ -3,10 +3,11 @@ use serde::{Deserialize, Serialize};
 // ── Embedding Config ────────────────────────────────────────────
 
 /// Embedding provider type.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub enum EmbeddingProviderType {
     /// OpenAI /v1/embeddings compatible API (OpenAI, Jina, Cohere, SiliconFlow, etc.)
+    #[default]
     OpenaiCompatible,
     /// Google Gemini Embedding API (different format)
     Google,
@@ -16,14 +17,8 @@ pub enum EmbeddingProviderType {
     Auto,
 }
 
-impl Default for EmbeddingProviderType {
-    fn default() -> Self {
-        EmbeddingProviderType::OpenaiCompatible
-    }
-}
-
 /// Embedding configuration, stored in AppConfig (config.json).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EmbeddingConfig {
     /// Whether embedding (vector search) is enabled
@@ -76,25 +71,6 @@ pub struct EmbeddingConfig {
     /// Fallback Output dimensions
     #[serde(default)]
     pub fallback_api_dimensions: Option<u32>,
-}
-
-impl Default for EmbeddingConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            provider_type: EmbeddingProviderType::default(),
-            api_base_url: None,
-            api_key: None,
-            api_model: None,
-            api_dimensions: None,
-            local_model_id: None,
-            fallback_provider_type: None,
-            fallback_api_base_url: None,
-            fallback_api_key: None,
-            fallback_api_model: None,
-            fallback_api_dimensions: None,
-        }
-    }
 }
 
 /// Local embedding model definition (built-in presets).

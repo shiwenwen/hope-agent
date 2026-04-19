@@ -1,13 +1,13 @@
-use std::collections::HashSet;
+//! MMR (Maximal Marginal Relevance) reranking.
+//! Balances relevance with diversity to avoid redundant results.
+//!
+//! Algorithm: iteratively selects the candidate that maximizes
+//!   MMR = λ * relevance - (1-λ) * max_similarity_to_already_selected
+//!
+//! Text similarity uses Jaccard coefficient over token sets,
+//! supporting CJK unigrams + bigrams for Chinese/Japanese/Korean text.
 
-/// MMR (Maximal Marginal Relevance) reranking.
-/// Balances relevance with diversity to avoid redundant results.
-///
-/// Algorithm: iteratively selects the candidate that maximizes
-///   MMR = λ * relevance - (1-λ) * max_similarity_to_already_selected
-///
-/// Text similarity uses Jaccard coefficient over token sets,
-/// supporting CJK unigrams + bigrams for Chinese/Japanese/Korean text.
+use std::collections::HashSet;
 
 /// Tokenize text into a set of tokens for similarity comparison.
 /// Handles ASCII words and CJK characters (unigrams + bigrams).

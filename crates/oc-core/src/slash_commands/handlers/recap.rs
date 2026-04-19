@@ -6,7 +6,6 @@ use crate::globals::AppState;
 use crate::recap::types::{GenerateMode, RecapFilters, RecapProgress};
 use crate::recap::{generate_report, RecapContext};
 use crate::slash_commands::types::{CommandAction, CommandResult};
-use crate::app_warn;
 
 /// Handle `/recap` inside a chat session.
 ///

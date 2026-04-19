@@ -454,7 +454,7 @@ impl CronDB {
                 let max_events = 1000;
                 while t < *end && results.len() < max_events {
                     results.push(t);
-                    t = t + dur;
+                    t += dur;
                 }
                 results
             }

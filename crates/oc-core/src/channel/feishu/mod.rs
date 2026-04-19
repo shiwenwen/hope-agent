@@ -20,6 +20,8 @@ use self::auth::FeishuAuth;
 /// Running account state for a single Feishu bot.
 struct RunningAccount {
     api: Arc<FeishuApi>,
+    // Diagnostics-only — retained for future filtering of bot-authored events.
+    #[allow(dead_code)]
     bot_name: String,
     #[allow(dead_code)]
     bot_open_id: String,

@@ -5,21 +5,16 @@ use serde::{Deserialize, Serialize};
 use crate::util::{default_true, SECS_PER_HOUR};
 
 /// Promotion behavior when the review agent decides `create` or `patch`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AutoReviewPromotion {
     /// Write the skill with `status: draft` and surface it in the UI for
     /// manual promotion. This is the safe default.
+    #[default]
     Draft,
     /// Write the skill directly as active — skips the review buffer. Use only
     /// when you trust the review model and the repo is isolated.
     Auto,
-}
-
-impl Default for AutoReviewPromotion {
-    fn default() -> Self {
-        Self::Draft
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

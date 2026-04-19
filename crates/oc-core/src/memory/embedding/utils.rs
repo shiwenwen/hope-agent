@@ -51,7 +51,7 @@ pub(crate) fn truncate_for_model(texts: &[String], model: &str) -> Vec<String> {
 // ── L2 Vector Normalization ─────────────────────────────────────
 
 /// L2-normalize an embedding vector in place for consistent cosine similarity.
-pub(crate) fn l2_normalize(vec: &mut Vec<f32>) {
+pub(crate) fn l2_normalize(vec: &mut [f32]) {
     let norm: f32 = vec.iter().map(|x| x * x).sum::<f32>().sqrt();
     if norm > 1e-12 {
         for v in vec.iter_mut() {

@@ -280,7 +280,7 @@ pub async fn chat(
         ctx.chat_cancels.write().unwrap().remove(&sid);
     }
 
-    let result = result.map_err(|e| AppError::internal(e))?;
+    let result = result.map_err(AppError::internal)?;
 
     Ok(Json(ChatResponse {
         session_id: sid,

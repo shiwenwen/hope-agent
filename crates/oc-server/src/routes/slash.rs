@@ -13,7 +13,7 @@ pub async fn list_slash_commands(
     slash_commands::list_slash_commands(s.as_ref())
         .await
         .map(Json)
-        .map_err(|e| AppError::internal(e))
+        .map_err(AppError::internal)
 }
 
 #[derive(Debug, Deserialize)]
@@ -37,7 +37,7 @@ pub async fn execute_slash_command(
     )
     .await
     .map(Json)
-    .map_err(|e| AppError::internal(e))
+    .map_err(AppError::internal)
 }
 
 #[derive(Debug, Deserialize)]

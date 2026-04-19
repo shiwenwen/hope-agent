@@ -68,7 +68,7 @@ pub fn touch_and_maybe_trigger(
         threshold_met =
             stats.tokens >= cfg.token_threshold || stats.messages >= cfg.message_threshold;
     }
-    if !cfg.enabled || !(cooldown_elapsed && threshold_met) {
+    if !(cfg.enabled && cooldown_elapsed && threshold_met) {
         return None;
     }
 

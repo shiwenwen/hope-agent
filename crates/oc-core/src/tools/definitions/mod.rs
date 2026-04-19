@@ -18,7 +18,7 @@ pub use registry::{
     is_async_capable, is_concurrent_safe, is_internal_tool,
 };
 pub use special_tools::{
-    get_acp_spawn_tool, get_image_generate_tool, get_image_generate_tool_dynamic,
-    get_subagent_tool, get_team_tool, get_tool_search_tool,
+    get_acp_spawn_tool, get_image_generate_tool_dynamic,
+    get_subagent_tool, get_tool_search_tool,
 };
 pub use types::{is_core_tool, ToolDefinition};

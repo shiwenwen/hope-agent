@@ -184,27 +184,6 @@ fn drop_prefix_chars(s: &str, count: usize) -> &str {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{drop_prefix_chars, prefix_chars};
-
-    #[test]
-    fn prefix_chars_respects_utf8_boundaries() {
-        let s = "ab好cd";
-        assert_eq!(prefix_chars(s, 0), "");
-        assert_eq!(prefix_chars(s, 3), "ab好");
-        assert_eq!(prefix_chars(s, 10), s);
-    }
-
-    #[test]
-    fn drop_prefix_chars_respects_utf8_boundaries() {
-        let s = "ab好cd";
-        assert_eq!(drop_prefix_chars(s, 0), s);
-        assert_eq!(drop_prefix_chars(s, 2), "好cd");
-        assert_eq!(drop_prefix_chars(s, 5), "");
-    }
-}
-
 // Global registry
 static REGISTRY: OnceLock<Mutex<ProcessRegistry>> = OnceLock::new();
 
@@ -247,5 +226,26 @@ pub fn format_duration_compact(ms: u64) -> String {
         format!("{:.1}m", ms as f64 / 60_000.0)
     } else {
         format!("{:.1}h", ms as f64 / 3_600_000.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{drop_prefix_chars, prefix_chars};
+
+    #[test]
+    fn prefix_chars_respects_utf8_boundaries() {
+        let s = "ab好cd";
+        assert_eq!(prefix_chars(s, 0), "");
+        assert_eq!(prefix_chars(s, 3), "ab好");
+        assert_eq!(prefix_chars(s, 10), s);
+    }
+
+    #[test]
+    fn drop_prefix_chars_respects_utf8_boundaries() {
+        let s = "ab好cd";
+        assert_eq!(drop_prefix_chars(s, 0), s);
+        assert_eq!(drop_prefix_chars(s, 2), "好cd");
+        assert_eq!(drop_prefix_chars(s, 5), "");
     }
 }

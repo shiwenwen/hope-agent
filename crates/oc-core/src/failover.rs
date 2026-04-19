@@ -78,8 +78,8 @@ impl FailoverReason {
 
 // ── Error Classification ──────────────────────────────────────────
 
-/// Regex-style patterns for error classification.
-/// We use simple substring matching for performance.
+// Regex-style patterns for error classification.
+// We use simple substring matching for performance.
 
 /// Classify an API error message into a `FailoverReason`.
 ///
